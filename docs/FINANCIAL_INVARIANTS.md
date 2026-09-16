@@ -1,6 +1,6 @@
 # INRP2P Exchange — Financial Invariants
 
-Status: Phase 0 draft, for review.
+Status: Phase 0, revision 2 (decisions D-01…D-13 applied).
 Every invariant has an ID, a statement, and the mechanism that enforces it. "Enforced by app" alone is never sufficient for money: each invariant names at least one database-level or structural guarantee, plus the test that proves it.
 
 ## 1. Numbers
@@ -16,7 +16,8 @@ Currency precision is defined once in `packages/kernel/currency.ts` and mirrored
 
 - `bigint` in TypeScript, `BIGINT` in Postgres. `number` is forbidden for money/rates by lint rule (`no-restricted-syntax` on arithmetic over branded `Money`/`Rate` types; `Money` has no `valueOf`).
 - Parsing from user input: string → decimal parser that rejects more fractional digits than the currency allows (no silent rounding of what a human typed).
-- JSON: amounts serialize as decimal strings (`"10200000.00"`), never JSON numbers.
+- JSON: amounts serialize as decimal strings (`"10200000.00"`), never JSON numbers, never with grouping separators.
+- Display: one locale-independent formatter; INR with international three-digit grouping `₹10,200,000.00` in client and operator UI (`DECISIONS.md D-11`). Formatting never feeds back into computation.
 
 ### 1.2 Conversion and rounding
 `inr_minor = round( usdt_minor × rate_micro / 10¹⁰ , mode )` — exact integer arithmetic, then one rounding step.
@@ -67,6 +68,7 @@ SELL, base 100,000.000000 USDT, client ₹102.00, route ₹104.20:
 | FI-02 | `gross_margin` is derived, never input | No margin field in any command schema; DB CHECK `gross_margin_inr_minor = (route_inr − client_inr)` for SELL and `(client_inr − route_inr)` for BUY on `quote` and `trade` | canonical 100k test; reverse test |
 | FI-03 | A Quote's economic fields never change after `SENT` | Trigger rejects UPDATE of economic columns when status ≠ DRAFT; only `status`, `status_changed_at` mutable | mutation test |
 | FI-04 | A quote can be accepted only if `status = SENT` and `statement_timestamp() < expires_at` | Checked under `FOR UPDATE` lock in accept command; expiry job requires `expires_at <= now()` under same lock | accept at T−1ms; accept at T+1ms |
+| FI-07 | A link acceptance requires a `PENDING`, unexpired, matching acceptance challenge for that quote and an authorized client user; the challenge is consumed in the same transaction and can accept at most one quote. Viewing a link never changes quote state | `quote.accept_via_link` only path for `accepted_via = LINK`; CHECK `accepted_via <> 'LINK' OR acceptance_challenge_id IS NOT NULL`; unique `quote.acceptance_challenge_id`; link GET handlers are read-only (no write grants used) | view doesn't accept; wrong/expired/reused OTP; OTP verified after quote expiry rejected |
 | FI-05 | At most one accepted quote per TradeRequest; at most one Trade per Quote | Partial unique index `quote(trade_request_id) WHERE status='ACCEPTED'`; unique `trade(quote_id)` | double accept; two concurrent accepts |
 | FI-06 | At most one live (`SENT`) quote per TradeRequest | Partial unique index `WHERE status='SENT'`; sending a counter cancels the previous SENT quote in the same txn | counter race |
 
@@ -84,8 +86,9 @@ SELL, base 100,000.000000 USDT, client ₹102.00, route ₹104.20:
 | FI-20 | Σ(non-failed, non-cancelled payout legs) ≤ payout obligation (after adjustments) | Leg create/amount commands lock the trade row and check; deferred constraint trigger recomputes on commit | over-allocation attempt; concurrent leg creation |
 | FI-21 | Trade is COMPLETED iff Σ(confirmed payout legs) = obligation AND client leg confirmed = client obligation (after adjustments) | Completion command asserts both; trigger rejects `status=COMPLETED` otherwise | partial settlement; multi-leg completion |
 | FI-22 | A UTR/reference identifies at most one fiat transfer per rail | Unique index `fiat_transfer(rail, utr_normalized)` (uppercased, trimmed) | duplicate UTR |
-| FI-23 | A blockchain transfer (network, tx_hash, log_index) is attributed to at most one trade leg | Unique index on `crypto_transfer(network, tx_hash, log_index)`; allocation table unique on transfer | same tx on two trades; duplicate webhook |
-| FI-24 | USDT is CONFIRMED only when in a solidified block, receipt `SUCCESS`, contract = configured USDT contract, `to` = assigned address | Confirmation job checks all four; state machine forbids DETECTED→CONFIRMED otherwise | seen-not-final; wrong contract; wrong destination |
+| FI-23 | A blockchain transfer (network, tx_hash, log_index) is attributed to at most one trade leg, route settlement or exception | Unique index on `crypto_transfer(network, tx_hash, log_index)`; allocation table unique on transfer | same tx on two trades; duplicate webhook |
+| FI-24 | USDT is CONFIRMED only when in a solidified block, receipt `SUCCESS`, contract = configured USDT contract, `to` = the expected destination (trade's assigned deposit address; for route settlements the route's registered address or our treasury wallet) | Confirmation job checks all four; state machine forbids DETECTED→CONFIRMED otherwise | seen-not-final; wrong contract; wrong destination |
+| FI-26 | Client USDT is attributed to a trade only through that trade's open deposit assignment; each SELL trade has exactly one assignment and each address at most one open assignment | Unique `deposit_assignment(trade_id)`; partial unique on open assignment per address; no allocation API accepts (amount, sender) as matching input | two open trades never share an address; funds to cooled-down / unassigned address go to suspense |
 | FI-25 | Client never double-paid: a payout leg can reach CONFIRMED once; failed legs can't be re-confirmed; retry = new leg | Leg state machine; unique confirmation per leg | failed leg then retry |
 
 ### Capacity
@@ -105,6 +108,14 @@ SELL, base 100,000.000000 USDT, client ₹102.00, route ₹104.20:
 | FI-43 | Realized gross margin = Σ credits to `REVENUE:GROSS_MARGIN_INR`; posted only at trade completion | Only `trade.complete` command posts to that account (posting rule table) | P&L counts realized only |
 | FI-44 | Global check: Σ all balances per currency = 0 | Scheduled check + alert | nightly check test |
 
+### Routes (`DECISIONS.md D-03`)
+| ID | Invariant | Enforcement | Test |
+|---|---|---|---|
+| FI-60 | Route obligation amounts equal the trade's frozen route economics and never change | Copied in the acceptance txn; insert-once columns (trigger) | rate change / adjustment doesn't mutate obligation (adjustments affecting route side post their own `adj:{id}` lines) |
+| FI-61 | Σ allocations per route settlement ≤ settlement amount; Σ allocations per obligation side ≤ obligation side amount | Lock settlement + obligation rows; deferred check trigger | over-allocation, concurrent allocation |
+| FI-62 | Client trade state never depends on route obligation / settlement state | No trade transition reads route tables (module boundary + test) | trade completes with route obligation OPEN |
+| FI-63 | Only `settlement_model = PER_TRADE` routes can be used in V1 | CHECK / validation on `liquidity_route`; quote creation rejects other models | configure PREFUNDED rejected |
+
 ### Idempotency & audit
 | ID | Invariant | Enforcement | Test |
 |---|---|---|---|
@@ -123,10 +134,11 @@ All accounts are per currency. `{c}` = client id, `{t}` = trade id, `{a}` = INR 
 | `ASSET:CLIENT_RECEIVABLE:{c}` (USDT or INR) | asset | What the client owes us on accepted trades |
 | `LIAB:CLIENT_PAYABLE:{c}` (INR or USDT) | liability | What we owe the client on accepted trades |
 | `CLEARING:TRADE:{t}` (INR, USDT) | clearing | Trade-level clearing; zero at completion |
-| `ASSET:ROUTE_RECEIVABLE:{r}` / `LIAB:ROUTE_PAYABLE:{r}` | asset/liability | Economic position against the liquidity route (see `DECISIONS.md D-03`) |
+| `ASSET:ROUTE_RECEIVABLE:{r}` / `LIAB:ROUTE_PAYABLE:{r}` | asset/liability | Route obligations recognized at trade completion; cleared by route settlements (`DECISIONS.md D-03`) |
+| `ASSET:ROUTE_PREFUND:{r}` | asset | Reserved for the `PREFUNDED` model; unused in V1 |
 | `REVENUE:GROSS_MARGIN` (INR) | revenue | Realized gross margin |
 | `EXPENSE:FEES` (INR/USDT) | expense | Fees, when recorded (V1: zero by default) |
-| `SUSPENSE:UNALLOCATED` (INR/USDT) | suspense | Funds observed but not attributable (unexpected sender, no trade) |
+| `SUSPENSE:UNALLOCATED` (INR/USDT) | suspense | Funds that arrived at an address with no open deposit assignment (never assigned, or in cooldown), or directly at a treasury wallet |
 
 ### Posting rules — SELL_USDT (100k @ client 102.00, route 104.20)
 | Event (posting_key) | Entries |
@@ -146,6 +158,16 @@ All accounts are per currency. `{c}` = client id, `{t}` = trade id, `{a}` = INR 
 
 At completion `CLEARING:TRADE:{t}` is zero in both currencies, client receivable/payable for the trade are zero, and margin is realized. Cancellation before any confirmed funds posts `trade:{t}:cancel` = exact reversal of `accept`. Adjustments post `adj:{id}` with reversal of affected amounts and re-posting of new ones.
 
+### Posting rules — route settlement (`PER_TRADE`, any direction)
+| Event | Entries |
+|---|---|
+| `route_settlement:{id}:confirm` — USDT TO_ROUTE | Dr ROUTE_PAYABLE:{r} / Cr TREASURY_USDT:{w} |
+| `route_settlement:{id}:confirm` — INR FROM_ROUTE | Dr INR_SETTLEMENT:{a} / Cr ROUTE_RECEIVABLE:{r} |
+| `route_settlement:{id}:confirm` — INR TO_ROUTE | Dr ROUTE_PAYABLE:{r} / Cr INR_SETTLEMENT:{a} |
+| `route_settlement:{id}:confirm` — USDT FROM_ROUTE | Dr TREASURY_USDT:{w} / Cr ROUTE_RECEIVABLE:{r} |
+
+SELL example: after completion, route position is ROUTE_RECEIVABLE ₹10,420,000 and ROUTE_PAYABLE 100,000 USDT; delivering 100,000 USDT and receiving ₹10,420,000 brings both to zero. Allocation to obligations is operational (no journal); the journal is posted once per confirmed settlement.
+
 ## 4. P&L definitions
 
 | Metric | Source | Includes |
@@ -157,5 +179,5 @@ At completion `CLEARING:TRADE:{t}` is zero in both currencies, client receivable
 
 ## 5. What is deliberately not an invariant in V1
 
-- Route-side settlement (delivering USDT to / receiving INR from the route) is not operationally tracked beyond the economic position — see `DECISIONS.md D-03`.
+- `PREFUNDED` and `NET_SETTLED` route settlement models are not implemented; FI-63 prevents their use.
 - Fees default to zero; the schema supports explicit fee lines.

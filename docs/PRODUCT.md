@@ -1,6 +1,6 @@
 # INRP2P Exchange — Product
 
-Status: Phase 0 draft, for review. No production code may be written against this document until it is accepted.
+Status: Phase 0, revision 2 (founder decisions applied — see `DECISIONS.md`). No production code until Phase 0 closure is accepted.
 Sources of truth: `docs/source/MASTER_PROMPT.md` (business/financial), `docs/source/DESIGN_SYSTEM_BRIEF.md` (visual/interaction).
 
 ## 1. What it is
@@ -68,7 +68,7 @@ Client sees only: 100,000 USDT → ₹10,200,000 at ₹102.00, TRC20, expiry.
 ## 6. Users
 
 ### Client-side
-A **Client** is an organization (or individual professional) with one or more **client users**. Clients hold saved INR bank accounts and saved crypto wallets.
+A **Client** is an organization (or individual professional) with one or more **client users** (`CLIENT_ADMIN`, `CLIENT_TRADER`). Only client users with `can_accept_quotes` and a verified login email may accept quotes. Clients hold saved INR bank accounts and saved crypto wallets. Operator-maintained CRM contacts (Telegram, WhatsApp, notes) are not authentication channels.
 
 ### Operator-side (RBAC)
 | Role | Purpose |
@@ -76,7 +76,7 @@ A **Client** is an organization (or individual professional) with one or more **
 | OWNER | Everything, including users/roles, capacity limits, adjustments approval |
 | DEALER | Rates, quotes, counters, declines, client pricing |
 | SETTLEMENT_OPERATOR | Capacity reservations, payout legs, UTRs, crypto confirmation linking |
-| FINANCE | Ledger, P&L, reconciliation, adjustments, receipts, exports |
+| FINANCE | Ledger, P&L, reconciliation, adjustments, receipts, exports, route positions and route settlements |
 | SUPPORT | Clients, contacts, read trades (no economics), open exceptions |
 | READ_ONLY | Read operational views; no margin/route rate unless explicitly granted |
 
@@ -89,7 +89,9 @@ Navigation: **Exchange** (default home) · **Trades** · **History** · **Bank &
 No dashboard before Exchange.
 
 ### 7.2 Quote Link — `inrp2p.com/q/{token}`
-Single clean page opened from a messenger. Shows branding, direction, amount, rate, expected settlement amount, network, bank/wallet target (masked), expiry, Accept / Reject. Nothing else. See `DECISIONS.md D-01` for acceptance authentication.
+Single clean page opened from a messenger. Shows branding, direction, amount, rate, expected settlement amount, network, bank/wallet target (masked), expiry, Accept / Reject. Nothing else.
+
+Viewing the link never authorizes acceptance. **Accept** requires a short-lived one-time code sent to the verified email of an authorized client user; code verification and acceptance happen in one atomic step before quote expiry (`DECISIONS.md D-01`).
 
 ### 7.3 Operator app (desktop-first)
 Navigation: **Desk** · **Orders** · **Rates** · **INR** · **USDT** · **Clients** · **P&L** · **Settings**.
@@ -98,17 +100,17 @@ The Desk answers *what needs action right now?* — it is not an analytics dashb
 ### 7.4 Public site / SEO
 Routes: `/`, `/usdt-to-inr`, `/inr-to-usdt`, `/sell-usdt-in-india`, `/buy-usdt-in-india`, `/usdt-otc-india`.
 Hero: **Buy & Sell USDT in India.** Large trades. Locked rates. INR settlement. Actions: Sell USDT · Buy USDT · Request OTC Quote.
-No fake reviews, volume, rates, settlement times, or regulatory claims. Not positioned as "High Risk Exchange" (high-risk businesses are an ICP, not the category).
+No fake reviews, volume, rates, settlement times. No regulatory claims of any kind until confirmed by India counsel (`DECISIONS.md D-07`). Not positioned as "High Risk Exchange" (high-risk businesses are an ICP, not the category).
 
 ## 8. Lifecycle in one paragraph
 
-A client (or the operator on their behalf) creates a **TradeRequest** (direction, amount, fixed side, optional target rate, destination bank/wallet). A dealer answers with a firm **Quote** (quote, counter = quote at a rate different from the target, or decline). A Quote may be delivered in-app and/or via a **QuoteLink**. The client accepts before expiry; acceptance atomically creates an immutable **Trade** with frozen economics and posts the obligation to the **Ledger**. The client funds their leg (USDT on TRC20 for SELL; INR bank transfer for BUY). The system confirms the client leg (TRON finality for USDT; operator-confirmed UTR for INR). The exchange pays out through one or more **SettlementLegs** (INR legs drawing on reserved **INR settlement account capacity**, or USDT transfers from treasury wallets). When confirmed payouts equal the obligation, the Trade completes, margin is realized in the ledger, and an immutable **Receipt** (PDF + CSV + JSON) is generated. Anything off-path opens an **ExceptionCase** resolved only by explicit audited commands.
+A client (or the operator on their behalf) creates a **TradeRequest** (direction, amount, fixed side, optional target rate, destination bank/wallet). A dealer answers with a firm **Quote** (quote, counter = quote at a rate different from the target, or decline). A Quote may be delivered in-app and/or via a **QuoteLink**. The client accepts before expiry; acceptance atomically creates an immutable **Trade** with frozen economics and posts the obligation to the **Ledger**. On acceptance the trade also receives a **unique TRC20 deposit address** from the custody adapter (SELL) and a separate **route obligation** frozen from the route economics. The client funds their leg (USDT on TRC20 to that address for SELL; INR bank transfer for BUY). The system confirms the client leg (TRON finality for USDT; operator-confirmed UTR for INR). The exchange pays out through one or more **SettlementLegs** (INR legs drawing on reserved **INR settlement account capacity**, or USDT transfers from treasury wallets). When confirmed payouts equal the obligation, the Trade completes, margin is realized in the ledger, and an immutable **Receipt** (PDF + CSV + JSON) is generated. Anything off-path opens an **ExceptionCase** (a hold overlay — the trade keeps its lifecycle state) resolved only by explicit audited commands. Settlement with the liquidity route is tracked separately through **route settlements** allocated to route obligations; the client trade never waits for it.
 
 ## 9. Feature scope V1
 
-In: everything in the Master Prompt V1 scope — both directions, quotes + counters + links, trade/leg state machines, TRON monitoring, INR settlement accounts with capacity reservation, USDT treasury (watch-only), operator desk, rates desk, clients, exceptions, double-entry ledger, audit, RBAC + MFA, P&L, receipts, notifications (in-app + email), public SEO site.
+In: everything in the Master Prompt V1 scope — both directions, quotes + counters + links (OTP-verified acceptance), unique deposit address per SELL trade via custody adapter, route obligations + manually recorded route settlements (`PER_TRADE` model), trade/leg state machines, TRON monitoring, INR settlement accounts with capacity reservation, USDT treasury (watch-only), operator desk, rates desk, clients, exceptions, double-entry ledger, audit, RBAC + MFA, P&L, receipts, notifications (in-app + email), public SEO site.
 
-Explicitly out: order book, charts, AI assistant, news, staking, cards, rewards, referrals, escrow, P2P marketplace, additional assets/chains, private-key custody, automated bank payouts (rail adapter boundary exists, V1 is operator-recorded), Telegram/WhatsApp/SMS notification delivery (abstraction exists).
+Explicitly out: `PREFUNDED` / `NET_SETTLED` route settlement models (schema-ready, not implemented), in-house KYC workflow (hooks only), order book, charts, AI assistant, news, staking, cards, rewards, referrals, escrow, P2P marketplace, additional assets/chains, private-key custody, automated bank payouts (rail adapter boundary exists, V1 is operator-recorded), Telegram/WhatsApp/SMS notification delivery (abstraction exists).
 
 ## 10. Non-negotiables
 
@@ -118,4 +120,7 @@ Explicitly out: order book, charts, AI assistant, news, staking, cards, rewards,
 4. Status changes only through domain commands validated by state machines. (`STATE_MACHINES.md`)
 5. Append-only ledger and audit.
 6. Idempotency key on every financial mutation.
-7. The system is an operational record of legitimate settlement. It is not, and must not be designed as, a mechanism for splitting payments to evade banking controls or reporting thresholds.
+7. No regulatory claims anywhere in the product until confirmed by India counsel.
+8. INR displayed with international grouping (`₹10,200,000`); stored and exchanged locale-free.
+9. USDT attribution only by unique per-trade deposit address — never by amount or sender matching.
+10. The system is an operational record of legitimate settlement. It is not, and must not be designed as, a mechanism for splitting payments to evade banking controls or reporting thresholds.

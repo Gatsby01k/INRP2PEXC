@@ -1,6 +1,6 @@
 # INRP2P Exchange — UX Flows, Navigation, Components, Wireframes
 
-Status: Phase 0 draft, for review. Visual authority: `docs/source/DESIGN_SYSTEM_BRIEF.md`. This file adds structure, flows and wireframes; it does not restyle the brief.
+Status: Phase 0, revision 2 (decisions D-01…D-13 applied). Visual authority: `docs/source/DESIGN_SYSTEM_BRIEF.md`. This file adds structure, flows and wireframes; it does not restyle the brief.
 
 All examples use realistic values: 100,000 USDT · ₹10,200,000 · ₹104.20 · ₹102.00 · ₹220,000.
 
@@ -19,7 +19,7 @@ Contrast findings (WCAG 2.x):
 | `#6B6F77` on `#FFFFFF` / `#F7F5F0` | 5.04 / 4.63 | Passes AA |
 | `#656A73` secondary on `#F7F5F0` | 4.99 | Passes |
 
-Proposed semantic tokens (resolves the brief's own AA requirement; see `DECISIONS.md D-10`):
+Approved semantic tokens (`DECISIONS.md D-10`: logo orange `#F04E23` as brand colour, `#C8401A` for text-bearing orange, accessible muted text):
 
 | Token | Value | Use |
 |---|---|---|
@@ -68,9 +68,9 @@ Mobile: bottom tab bar (5 items), primary CTA sticky above it.
 |---|---|---|
 | **Desk** (home) | `/` | Operational strip + priority queue |
 | Orders | `/orders` | All requests/quotes/trades, filters, search by ref/UTR/tx hash |
-| Rates | `/rates` | Route rates per direction, update, history |
+| Rates | `/rates` | Route rates per direction, update, history; **Route positions** section (open route obligations, route settlements — visible only with `route_positions:view`) |
 | INR | `/inr` | Settlement entities, accounts, today's capacity |
-| USDT | `/usdt` | Treasury wallets, deposit pool, transfers |
+| USDT | `/usdt` | Treasury wallets, deposit addresses (capability from custody adapter, available / assigned / cooldown counts, low-pool warning), transfers |
 | Clients | `/clients` | Dealer book, client detail |
 | P&L | `/pnl` | Realized vs expected, trade-level |
 | Settings | `/settings` | Users & roles, thresholds, routes, notifications, audit log |
@@ -84,12 +84,18 @@ Desktop: persistent 220px sidebar, central workspace, optional 380px right conte
 2. State `REQUESTING`: arc loader; "Desk is pricing your request". Client can leave; notification when quoted.
 3. State `QUOTE AVAILABLE / LOCKED`: `₹10,200,000` receive, `₹102.00 / USDT`, TRC20, countdown arc `01:12`. **Accept quote**.
 4. At ≤ 15s: `EXPIRING` — arc and time in `--status-warning`, no flashing.
-5. Accept → `ACCEPTED` → navigates to Trade: deposit instructions (address with copy + QR, exact amount `100,000.000000 USDT`, network TRC20 warning).
+5. Accept (authenticated session, user with quote-accept permission) → `ACCEPTED` → navigates to Trade: deposit instructions — the **unique deposit address for this trade** (copy + QR), exact amount `100,000.000000 USDT`, network TRC20 warning, "Send only to this address for this trade".
 6. Trade progress: Quote accepted ✓ → USDT received (Detected… → Confirmed ✓) → INR payout (`₹4,500,000 / ₹10,200,000 received`) → Completed → Receipt.
 7. `EXPIRED`: "Quote expired" + **Get new quote** (prefills same request).
 
 ### F2 — Quote link (messenger)
-Dealer creates quote from Desk → **Copy link** → pastes in Telegram. Client taps → `/q/{token}` → sees only amount, rate, INR, network, masked destination, expiry → **Accept** → verification (D-01) → confirmation screen with trade ref and deposit instructions → "Open in INRP2P" (sign in) for tracking. **Reject** → "Rejected. The desk has been notified."
+Dealer creates quote from Desk (link quotes: validity ≥ 60s, warning below 90s) → **Copy link** → pastes in Telegram.
+1. Client taps → `/q/{token}` → sees only amount, rate, INR, network, masked destination, expiry. Opening the page changes nothing.
+2. **Accept** → "Confirm it's you": masked recipients of authorized users (`a•••@acmepay.in`); one recipient is preselected if only one exists → **Send code**.
+3. Six-digit code field (autofocus, `inputmode=numeric`, `autocomplete=one-time-code`), quote countdown still visible, **Resend** after 30s (max 3), attempts remaining shown after a wrong code.
+4. **Confirm & accept** → one server step verifies code and accepts → confirmation with trade ref and deposit instructions (unique address) → "Open in INRP2P" (sign in) for tracking.
+5. Quote expires during verification → "Quote expired" + "Ask the desk for a new quote"; the code is void.
+6. **Reject** (no code needed) → "Rejected. The desk has been notified."
 
 ### F3 — Client BUY USDT
 Toggle **Buy USDT** → amount in USDT or INR (fixed side switch) → destination wallet `TRC20 · TXq…9fA2` → quote → accept → pay INR instructions: our collection account (masked name + full details shown once to authenticated client), exact amount, reference code → client submits UTR → operator confirms → USDT sent (tx hash shown when confirmed) → Completed.
@@ -133,12 +139,17 @@ Scanner detects `99,950 USDT` on a 100,000 trade → trade hold → queue group 
 | `Receipt` | document layout (screen + print) | | Receipt page, PDF |
 | `EmptyState` | calm text, one action | | all |
 | `ExceptionBanner` | blocking/warning with resolution entry | | Trade, panel |
+| `AcceptanceVerification` | recipient picker + `OtpInput` + resend/attempts, inside the quote countdown | states: choose · sent · invalid · locked · expired | Quote link |
+| `OtpInput` | 6-digit one-time code entry | `autocomplete=one-time-code` | Quote link, client login |
+| `DepositAddress` | unique per-trade TRC20 address, copy, QR, exact amount | | Trade, link confirmation |
+| `RoutePositionRow` | route obligation: delivers / receives / allocated / remaining | operator with `route_positions:view` | Rates → Route positions |
+| `DepositPoolStatus` | capability + available/assigned/cooldown counts | | USDT |
 | `Button` | `intent="primary" | "secondary" | "ghost" | "danger"`, `size` | | all |
 | `ArcLoader` | one moving brand arc | | loading |
 | `StepUpDialog` | MFA re-verification | | operator money actions |
 | `CommandBar` | ⌘K search | | operator |
 
-Formatting rules (in `ui/format`): Indian digit grouping for INR on client surfaces (`₹1,02,00,000`) **or** international grouping (`₹10,200,000`) — the brief uses international; see `DECISIONS.md D-11`. Compact forms (`₹6.5M`) only in summaries, never in a row where exact value is the evidence. USDT shown to 2 dp in summaries, 6 dp in deposit instructions and receipts.
+Formatting rules (in `ui/format`, `DECISIONS.md D-11`): INR uses **international three-digit grouping** on client and operator surfaces (`₹10,200,000`, `₹10,200,000.00` where paise matter); the formatter is deterministic and ignores browser/runtime locale. Exports and JSON carry ungrouped decimals. Compact forms (`₹6.5M`) only in summaries, never in a row where exact value is the evidence. USDT shown to 2 dp in summaries, 6 dp in deposit instructions and receipts.
 
 ## 5. Wireframes
 
@@ -218,6 +229,30 @@ Formatting rules (in `ui/format`): Indian digit grouping for INR on client surfa
 │                               │
 │ [        Accept quote       ] │  ← thumb zone, sticky
 │         Reject                │
+└───────────────────────────────┘
+```
+
+### W3b — Quote link acceptance verification (mobile 375px)
+
+```
+┌───────────────────────────────┐
+│ [mark] INRP2P Exchange        │
+│                               │
+│ You sell 100,000 USDT         │
+│ You receive ₹10,200,000       │
+│ ◔  Valid for 00:58            │
+│                               │
+│ Confirm it's you              │
+│ We'll send a code to          │
+│ ◉ a•••@acmepay.in             │
+│ ○ r•••@acmepay.in             │
+│                               │
+│ Code                          │
+│ [ _  _  _  _  _  _ ]          │
+│ Resend in 0:24                │
+│                               │
+│ [     Confirm & accept      ] │
+│         Cancel                │
 └───────────────────────────────┘
 ```
 

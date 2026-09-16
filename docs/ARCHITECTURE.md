@@ -1,6 +1,6 @@
 # INRP2P Exchange — Architecture
 
-Status: Phase 0 draft, for review.
+Status: Phase 0, revision 2 (decisions D-01…D-13 applied).
 
 ## 1. Shape: modular monolith
 
@@ -19,7 +19,7 @@ Modules are enforced boundaries (separate packages, lint-enforced import rules),
 | Jobs | Graphile Worker (Postgres-backed) | Durable, transactional enqueue in the same DB transaction, retries, cron; no Redis |
 | Validation | Zod at every boundary | Commands, HTTP, adapter payloads |
 | Money | Internal `Money`/`Rate` value types over `bigint` minor units | See `FINANCIAL_INVARIANTS.md §1` |
-| Auth | Own session layer: DB sessions, Argon2id, TOTP MFA (WebAuthn later) | Full control over MFA, step-up, session revocation, audit |
+| Auth | Own session layer: DB sessions, Argon2id, TOTP MFA for operators (WebAuthn later), email OTP for client login and quote-link acceptance challenges | Full control over MFA, step-up, OTP challenges, session revocation, audit |
 | PDF | Server-side render from immutable receipt snapshot (HTML → PDF via headless Chromium) | Same design system, grayscale-safe |
 | Tests | Vitest (unit), Testcontainers PostgreSQL (integration), Playwright (E2E + visual regression) | Real Postgres for concurrency tests |
 | Components | Storybook (component gallery) | Required by design system |
@@ -34,19 +34,20 @@ apps/
 packages/
   kernel/                 Money, Rate, Currency precision, ids, clock, Result, errors, idempotency
   db/                     migrations, Kysely types, transaction helper, test DB harness
-  identity/               users, sessions, MFA, roles, permissions
+  identity/               users, sessions, MFA, OTP challenges (login + quote acceptance), roles, permissions
   audit/                  append-only audit writer + sealing
   ledger/                 ledger accounts, journal posting, balance queries
   clients/                clients, contacts, bank accounts, crypto wallets
-  pricing/                liquidity routes, rate snapshots, quote math
-  quotes/                 trade requests, quotes, quote links, acceptance
+  routes/                 liquidity routes (incl. settlement_model), route obligations, route settlements + allocations
+  pricing/                rate snapshots, quote math
+  quotes/                 trade requests, quotes, quote links, acceptance (app + OTP-verified link)
   trades/                 trade aggregate + state machine, exceptions, adjustments
   settlement/             settlement legs, fiat transfers, capacity reservations
   inr-accounts/           settlement entities, INR settlement accounts, daily capacity
-  treasury/               crypto wallets (exchange-side), crypto transfers, deposit addresses
+  treasury/               treasury wallets, crypto transfers, deposit addresses + assignments (via CustodyAdapter)
   notifications/          notification intents + channel adapters
   reporting/              P&L, receipts, exports
-  adapters/               TronAdapter, MarketRateAdapter, NotificationAdapter, BankRailAdapter, CustodyAdapter
+  adapters/               TronAdapter, MarketRateAdapter, NotificationAdapter, BankRailAdapter, CustodyAdapter, RouteAdapter
   ui/                     design tokens + financial components (Storybook)
 docs/
 ```
@@ -55,7 +56,7 @@ docs/
 `kernel` ← `db`, `audit`, `ledger` ← domain modules ← `apps/*`.
 Domain modules talk to each other only through their public command/query API (never another module's tables). Cross-module side effects that need not be atomic go through the outbox.
 
-React components and route handlers contain **no financial logic**: they call commands and render query results. Money is formatted in `ui` from `Money` values; it is never computed there.
+React components and route handlers contain **no financial logic**: they call commands and render query results. Money is formatted in `ui` from `Money` values; it is never computed there. Formatting is locale-independent: INR uses international three-digit grouping (`₹10,200,000`) via one deterministic formatter, never runtime `Intl` locale defaults (`DECISIONS.md D-11`).
 
 ## 4. Command pipeline
 
@@ -80,7 +81,7 @@ Failure anywhere → rollback of all of it. There is no code path that writes a 
 
 ### Lock order (deadlock prevention)
 Always acquire in this order when a command needs several:
-`trade_request → quote → trade → settlement_leg → inr_account_day_capacity → treasury_wallet → deposit_address`.
+`trade_request → quote → acceptance_challenge → trade → route_obligation → settlement_leg → route_settlement → inr_account_day → treasury_wallet → deposit_address`.
 
 ### Time
 All business time decisions (quote expiry, capacity day) use database time (`statement_timestamp()`), never app-server or browser clocks. Business day = Asia/Kolkata calendar day.
@@ -94,6 +95,8 @@ All business time decisions (quote expiry, capacity day) use database time (`sta
 | Job | Trigger | Idempotency |
 |---|---|---|
 | `quote.expire` | Scheduled at `expires_at`, plus sweeper cron every 15s | Transition guarded by state + `expires_at <= now()` under lock |
+| `deposit_address.cooldown_release` | Cron | Address `COOLDOWN → AVAILABLE` (pool mode) only after cooldown and with no open assignment |
+| `custody.pool_health` | Cron | Read-only: alerts when available deposit addresses fall below threshold |
 | `tron.poll_address` / `tron.scan_blocks` | Cron + on deposit address assignment | `crypto_transfer` unique on `(network, tx_hash, log_index)` |
 | `tron.confirm_transfer` | Per detected transfer, backoff until solidified | Transition guarded by transfer state |
 | `settlement.reconcile` | Cron | Read-only diffing → opens ExceptionCases idempotently (unique open case per `(type, subject)`) |
@@ -112,7 +115,8 @@ No in-memory timers for any financial lifecycle event. The UI countdown is displ
 | `MarketRateAdapter` | Optional reference feed; can be disabled | `getReference(pair)` → timestamped rate + source; failure never blocks quoting |
 | `NotificationAdapter` | In-app (DB) + email (SMTP/transactional provider) | `send(intent)`; Telegram/WhatsApp/SMS later |
 | `BankRailAdapter` | `ManualRailAdapter`: operator records transfer + UTR | Later: bank API; same leg state machine |
-| `CustodyAdapter` | `WatchOnlyCustody`: no keys; outbound USDT sent externally, operator records tx hash, system verifies on-chain | Later: MPC/HSM signing provider |
+| `CustodyAdapter` (wallet adapter) | Provider-specific, watch-only: no keys in the app. Outbound USDT sent in the provider's tooling; operator records tx hash; system verifies on-chain | `capabilities()` → `{ depositAddress: DERIVED / POOL / UNSUPPORTED }`; `allocateDepositAddress(network, tradeRef)`; `listDepositAddresses()`. If the provider reports `UNSUPPORTED`, implementation stops and the limitation is reported (`DECISIONS.md D-02`). Later: MPC/HSM signing |
+| `RouteAdapter` | `ManualRouteAdapter`: operator records route settlements; on-chain evidence verified via `TronAdapter` | `settlementModel()`; `recordSettlement(...)`; later provider APIs for per-trade, prefunded or net settlement (`DECISIONS.md D-03`) |
 
 Adapters are the only place that talks to the outside world. Domain modules depend on port interfaces; tests use deterministic fakes.
 
@@ -121,7 +125,7 @@ Adapters are the only place that talks to the outside world. Domain modules depe
 | Surface | Host | Auth |
 |---|---|---|
 | Public site + SEO | `inrp2p.com` | none |
-| Quote link | `inrp2p.com/q/{token}` | token (+ acceptance verification, `DECISIONS.md D-01`) |
+| Quote link | `inrp2p.com/q/{token}` | token = view only; accept = OTP to verified email of an authorized client user (`DECISIONS.md D-01`) |
 | Client app | `app.inrp2p.com` | client session |
 | Operator app | `desk.inrp2p.com` | operator session + mandatory MFA; optional IP allowlist |
 
@@ -136,7 +140,7 @@ Separate hostnames for client and operator gives separate cookies (no operator s
 ## 9. Observability
 
 - Correlation id per request, propagated into audit, outbox, jobs, logs.
-- Metrics: quote latency, quote acceptance rate, time-to-first-leg-confirmation, payout completion time, open exceptions by type, TRON adapter lag (head vs solidified vs our scanner), job failures, ledger imbalance check (must always be zero).
+- Metrics: deposit address pool availability, OTP delivery latency and failure rate, open route obligations by age, quote latency, quote acceptance rate, time-to-first-leg-confirmation, payout completion time, open exceptions by type, TRON adapter lag (head vs solidified vs our scanner), job failures, ledger imbalance check (must always be zero).
 - Alerts: ledger imbalance ≠ 0, scanner lag > threshold, capacity invariant violation, repeated job failure, audit seal gap.
 
 ## 10. Deliberately not in V1

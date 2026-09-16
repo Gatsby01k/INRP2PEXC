@@ -1,6 +1,6 @@
 # INRP2P Exchange — Domain Model
 
-Status: Phase 0 draft, for review.
+Status: Phase 0, revision 2 (decisions D-01…D-13 applied).
 Conventions: ids are UUIDv7 (time-ordered) unless noted; human references (`IX-260916-1842`) are separate unique columns. All timestamps `timestamptz` (UTC stored, IST displayed). Money/rate columns follow `FINANCIAL_INVARIANTS.md §1`. `created_at`, `created_by` on every table; mutable tables also carry `version` (optimistic check) in addition to row locks.
 
 ## 1. ERD
@@ -20,19 +20,29 @@ erDiagram
   SETTLEMENT_ENTITY ||--o{ INR_SETTLEMENT_ACCOUNT : owns
   INR_SETTLEMENT_ACCOUNT ||--o{ INR_ACCOUNT_DAY : "capacity per IST day"
   LIQUIDITY_ROUTE ||--o{ RATE_SNAPSHOT : publishes
+  LIQUIDITY_ROUTE ||--o{ ROUTE_OBLIGATION : "owes / is owed"
+  LIQUIDITY_ROUTE ||--o{ ROUTE_SETTLEMENT : "settles via"
+  ROUTE_SETTLEMENT ||--o{ ROUTE_SETTLEMENT_ALLOCATION : allocates
+  ROUTE_OBLIGATION ||--o{ ROUTE_SETTLEMENT_ALLOCATION : "satisfied by"
 
   CLIENT ||--o{ TRADE_REQUEST : raises
   TRADE_REQUEST ||--o{ QUOTE : "answered by"
   QUOTE ||--o| QUOTE_LINK : "shared via"
+  QUOTE ||--o{ ACCEPTANCE_CHALLENGE : "verified by"
+  CLIENT_USER ||--o{ ACCEPTANCE_CHALLENGE : "receives OTP"
   RATE_SNAPSHOT ||--o{ QUOTE : "route snapshot"
   QUOTE ||--o| TRADE : "accepted into"
 
   TRADE ||--|| TRADE_ECONOMICS : "frozen terms"
+  TRADE ||--|| ROUTE_OBLIGATION : "route side (PER_TRADE)"
   TRADE ||--o{ SETTLEMENT_LEG : "settles via"
   SETTLEMENT_LEG ||--o| FIAT_TRANSFER : "INR evidence"
+  ROUTE_SETTLEMENT ||--o| FIAT_TRANSFER : "INR evidence"
   SETTLEMENT_LEG ||--o{ CRYPTO_TRANSFER_ALLOCATION : "USDT evidence"
-  CRYPTO_TRANSFER ||--o{ CRYPTO_TRANSFER_ALLOCATION : "allocated"
+  CRYPTO_TRANSFER ||--o{ CRYPTO_TRANSFER_ALLOCATION : "allocated (leg or route settlement)"
+  ROUTE_SETTLEMENT ||--o{ CRYPTO_TRANSFER_ALLOCATION : "USDT evidence"
   TRADE ||--o{ CAPACITY_RESERVATION : reserves
+  ROUTE_SETTLEMENT ||--o{ CAPACITY_RESERVATION : "reserves (INR out)"
   INR_ACCOUNT_DAY ||--o{ CAPACITY_RESERVATION : "drawn from"
   TREASURY_WALLET ||--o{ DEPOSIT_ADDRESS : "is / contains"
   DEPOSIT_ADDRESS ||--o{ DEPOSIT_ASSIGNMENT : "assigned to trade"
@@ -53,7 +63,7 @@ erDiagram
 ### 2.1 Identity
 | Entity | Key fields | Notes |
 |---|---|---|
-| `user` | email (unique, citext), display_name, kind (`OPERATOR`,`CLIENT`), status (`ACTIVE`,`DISABLED`), password_hash (argon2id, nullable for passwordless clients) | One table, two kinds; client users link via `client_user` |
+| `user` | email (unique, citext), email_verified_at, display_name, kind (`OPERATOR`,`CLIENT`), status (`ACTIVE`,`DISABLED`), password_hash (argon2id, nullable for passwordless clients) | One table, two kinds; client users link via `client_user` |
 | `role` | code (`OWNER`,`DEALER`,`SETTLEMENT_OPERATOR`,`FINANCE`,`SUPPORT`,`READ_ONLY`) | Seeded; custom roles later |
 | `permission` / `role_permission` | code e.g. `quote:send` | Matrix in `SECURITY.md §3` |
 | `user_role` | user_id, role_id, granted_by | Changes audited |
@@ -63,9 +73,9 @@ erDiagram
 ### 2.2 Clients
 | Entity | Key fields |
 |---|---|
-| `client` | ref (`CL-0042`), legal_name, display_name, type (`COMPANY`,`INDIVIDUAL`), status (`ACTIVE`,`SUSPENDED`), typical_direction, typical_size_usdt_minor, pricing_notes (operator-only), kyc_status (placeholder, `DECISIONS.md D-07`) |
-| `client_contact` | client_id, name, email, phone, telegram_handle, whatsapp_number, is_primary, notes |
-| `client_user` | client_id, user_id, role (`CLIENT_ADMIN`,`CLIENT_TRADER`) |
+| `client` | ref (`CL-0042`), legal_name, display_name, type (`COMPANY`,`INDIVIDUAL`), status (`ACTIVE`,`SUSPENDED`), typical_direction, typical_size_usdt_minor, pricing_notes (operator-only), kyc_status, screening_status, compliance_notes (compliance hooks, `DECISIONS.md D-07`; `kyc_status` gates quote acceptance when policy enables it) |
+| `client_contact` | client_id, name, email, phone, telegram_handle, whatsapp_number, is_primary, notes — operator CRM record; **not** an authentication or OTP channel |
+| `client_user` | client_id, user_id, role (`CLIENT_ADMIN`,`CLIENT_TRADER`), can_accept_quotes (bool, audited), status — "verified client contact" for D-01 = `user.email` of a client_user with `can_accept_quotes` and `email_verified_at` set |
 | `bank_account` (client beneficiary) | client_id, holder_name, bank_name, ifsc, account_number_enc, account_last4, account_hmac, rail_preferences, status (`ACTIVE`,`ARCHIVED`), verified_at | Unique `(client_id, account_hmac)` among ACTIVE. Never edited in place — change = archive + new row (so a quote's target can't silently change) |
 | `crypto_wallet` (client) | client_id, network, address, label, purpose (`SOURCE`,`DESTINATION`,`BOTH`), status | Same archive-not-edit rule; unique `(client_id, network, address)` |
 
@@ -77,22 +87,26 @@ Derived (query, not stored): total completed volume, total gross margin, last tr
 | `settlement_entity` | legal_name, short_name ("Company A"), status |
 | `inr_settlement_account` | entity_id, bank_name, account_last4, account_enc, ifsc, rails (`IMPS`,`NEFT`,`RTGS`,`UPI`), direction (`PAYOUT`,`COLLECTION`,`BOTH`), status (`ACTIVE`,`PAUSED`,`UNAVAILABLE`), default_daily_capacity_minor, notes |
 | `inr_account_day` | account_id, day (IST date), capacity_minor, used_minor, reserved_minor, pending_payout_minor | PK `(account_id, day)`; created lazily from default; the concurrency anchor for FI-30 |
-| `capacity_reservation` | trade_id, account_id, day, amount_minor, status (`ACTIVE`,`CONSUMED`,`RELEASED`), consumed_minor, released_reason | Partially consumable: legs consume, remainder released |
+| `capacity_reservation` | purpose (`CLIENT_PAYOUT`,`ROUTE_SETTLEMENT`), trade_id (nullable), route_settlement_id (nullable; exactly one of the two set), account_id, day, amount_minor, status (`ACTIVE`,`CONSUMED`,`RELEASED`), consumed_minor, released_reason | Partially consumable: legs consume, remainder released. Outgoing INR route settlements draw on the same daily capacity |
 
 `remaining = capacity − used − reserved` (can be negative only after an audited capacity reduction).
 
-### 2.4 Pricing
+### 2.4 Routes and pricing
 | Entity | Key fields |
 |---|---|
-| `liquidity_route` | name (internal only), direction, asset, network, status, available_base_minor (operator-maintained), notes. **Never** exposed to client APIs |
+| `liquidity_route` | name (internal only), direction, asset, network, status, settlement_model (`PER_TRADE` · `PREFUNDED` · `NET_SETTLED`; V1 validation accepts only `PER_TRADE`), available_base_minor (operator-maintained), notes. **Never** exposed to client APIs |
+| `route_obligation` | ref, route_id, trade_id (unique while model = `PER_TRADE`; nullable for future netting), direction, exchange_delivers_asset, exchange_delivers_minor, route_delivers_asset, route_delivers_minor, status (`EXPECTED`,`OPEN`,`PARTIALLY_SETTLED`,`SETTLED`,`CANCELLED`), opened_at, settled_at — amounts copied from `trade_economics` at acceptance and never updated. SELL: exchange delivers `base` USDT, route delivers `route_value_inr`. BUY: exchange delivers `route_value_inr` INR, route delivers `base` USDT |
+| `route_settlement` | ref, route_id, flow (`TO_ROUTE`,`FROM_ROUTE`), asset, amount_minor, inr_account_id / treasury_wallet_id, adapter (`MANUAL`), adapter_reference, status (`RECORDED`,`CONFIRMED`,`FAILED`), recorded_by, confirmed_by, confirmed_at, notes — evidence: `fiat_transfer` (INR, UTR) or `crypto_transfer_allocation` (USDT) |
+| `route_settlement_allocation` | route_settlement_id, route_obligation_id, amount_minor, allocated_by — Σ per settlement ≤ settlement amount; Σ per obligation side ≤ obligation (FI-61) |
 | `rate_snapshot` | kind (`REFERENCE`,`ROUTE`), route_id (null for reference), direction, rate_micro, source (`OPERATOR`,`FEED:{name}`), effective_at, created_by, supersedes_id | Append-only; "current route rate" = latest by `effective_at` per route+direction |
 
 ### 2.5 Quotes
 | Entity | Key fields |
 |---|---|
 | `trade_request` | ref, client_id, direction, fixed_side, requested_base_minor / requested_quote_minor, target_rate_micro (nullable), bank_account_id / crypto_wallet_id (destination), source_wallet_id (SELL expected sender, optional), channel (`CLIENT_APP`,`OPERATOR`,`LINK`), status (`OPEN`,`QUOTED`,`ACCEPTED`,`DECLINED`,`WITHDRAWN`,`EXPIRED`), assigned_dealer_id |
-| `quote` | ref, trade_request_id, client_id, direction, fixed_side, base_minor, quote_inr_minor, client_rate_micro, route_rate_micro, route_rate_snapshot_id, route_id, route_value_inr_minor, gross_margin_inr_minor, network, bank_account_id, crypto_wallet_id, valid_for_seconds, sent_at, expires_at, status (`DRAFT`,`SENT`,`ACCEPTED`,`EXPIRED`,`REJECTED`,`CANCELLED`), cancel_reason (`SUPERSEDED`,`DECLINED_BY_DESK`,`WITHDRAWN`,`OPERATOR`), is_counter, negative_margin_reason, created_by, accepted_by_user_id, accepted_via (`APP`,`LINK`), accepted_at |
-| `quote_link` | quote_id (unique), token_hash (sha256, unique), created_by, first_opened_at, open_count, revoked_at | Token = 128-bit random, base62 (22 chars). Expires with the quote |
+| `quote` | ref, trade_request_id, client_id, direction, fixed_side, base_minor, quote_inr_minor, client_rate_micro, route_rate_micro, route_rate_snapshot_id, route_id, route_value_inr_minor, gross_margin_inr_minor, network, bank_account_id, crypto_wallet_id, valid_for_seconds, sent_at, expires_at, status (`DRAFT`,`SENT`,`ACCEPTED`,`EXPIRED`,`REJECTED`,`CANCELLED`), cancel_reason (`SUPERSEDED`,`DECLINED_BY_DESK`,`WITHDRAWN`,`OPERATOR`), is_counter, negative_margin_reason, created_by, accepted_by_user_id, accepted_via (`APP`,`LINK`), acceptance_challenge_id (required when `LINK`), accepted_at |
+| `quote_link` | quote_id (unique), token_hash (sha256, unique), created_by, first_opened_at, open_count, revoked_at — token = 128-bit random, base62 (22 chars); expires with the quote; grants view only |
+| `acceptance_challenge` | quote_id, quote_link_id, client_user_id, channel (`EMAIL`; later `TELEGRAM`,`WHATSAPP`,`SMS`), destination_masked, code_hash, code_salt, expires_at (≤ 5 min and ≤ quote.expires_at), attempts, max_attempts (5), status (`PENDING`,`CONSUMED`,`FAILED`,`EXPIRED`,`SUPERSEDED`), sent_at, consumed_at, ip_hash — partial unique: one `PENDING` per `(quote_id, client_user_id)`; unique `quote.acceptance_challenge_id` |
 
 Client-facing projection `ClientQuoteView` is a separate type containing only: ref, direction, base, inr amount, client rate, network, masked target, expires_at, status. It is the only shape the client API and the link page can serialize (enforced by type + test that serialized JSON contains no forbidden keys).
 
@@ -121,17 +135,18 @@ Client-facing projection `ClientQuoteView` is a separate type containing only: r
 
 | Evidence entity | Key fields |
 |---|---|
-| `fiat_transfer` | leg_id (unique), rail, utr, utr_normalized, amount_minor, source_account_id, destination (masked snapshot), value_date, recorded_by, proof_attachment_id | Unique `(rail, utr_normalized)` |
+| `fiat_transfer` | exactly one of settlement_leg_id (unique) · route_settlement_id (unique), rail, utr, utr_normalized, amount_minor, source_account_id, destination (masked snapshot), value_date, recorded_by, proof_attachment_id | Unique `(rail, utr_normalized)` |
 | `crypto_transfer` | network, tx_hash, log_index, token_contract, from_address, to_address, amount_minor, block_number, block_time, detected_at, receipt_status, state (`DETECTED`,`CONFIRMED`,`FAILED`,`ORPHANED`), confirmed_at, source (`SCANNER`,`OPERATOR_SUBMITTED`) | Unique `(network, tx_hash, log_index)` |
-| `crypto_transfer_allocation` | crypto_transfer_id (unique), settlement_leg_id or exception_case_id, amount_minor, allocated_by | One transfer → one destination; over/short handled by exception, not by splitting silently |
+| `crypto_transfer_allocation` | crypto_transfer_id (unique), exactly one of settlement_leg_id · route_settlement_id · exception_case_id, amount_minor, allocated_by — one transfer → one destination; over/short handled by exception, not by splitting silently. Client deposits are allocated only through the trade's deposit assignment (D-02) |
 | `attachment` | storage_key, sha256, mime, size, uploaded_by, subject_type/id | Immutable; replacing = new attachment |
 
 ### 2.8 Crypto / Treasury
 | Entity | Key fields |
 |---|---|
 | `treasury_wallet` | network, address, label, role (`HOT`,`COLD`,`DEPOSIT_POOL`), status (`ACTIVE`,`PAUSED`,`RETIRED`), custody (`EXTERNAL`), observed_balance_minor, observed_at, reserved_minor |
-| `deposit_address` | treasury_wallet_id, address (unique), status (`AVAILABLE`,`ASSIGNED`,`COOLDOWN`,`RETIRED`) |
-| `deposit_assignment` | deposit_address_id, trade_id, expected_amount_minor, assigned_at, released_at | Partial unique: one open assignment per address (`DECISIONS.md D-02`) |
+| `deposit_address` | treasury_wallet_id, network, address (unique), source (`DERIVED`,`POOL`), custody_reference (provider id / derivation index — never key material), status (`AVAILABLE`,`ASSIGNED`,`COOLDOWN`,`RETIRED`), cooldown_until |
+| `custody_provider_config` | provider, network, deposit_address_capability (`DERIVED`,`POOL`,`UNSUPPORTED`), verified_by, verified_at, notes — recorded result of the D-02 gate; `UNSUPPORTED` blocks SELL acceptance |
+| `deposit_assignment` | deposit_address_id, trade_id (unique), expected_amount_minor, assigned_at, released_at | Partial unique: one open assignment per address. The only mechanism that attributes client USDT to a trade (`DECISIONS.md D-02`) |
 | `chain_cursor` | network, scanner, last_scanned_block, last_solidified_block, updated_at | Scanner progress |
 
 Treasury view (derived): observed, reserved, available = observed − reserved, incoming pending (DETECTED inbound + expected on open SELL trades), outgoing pending (unconfirmed BUY payout legs), today received/sent (confirmed, IST day).
@@ -164,10 +179,14 @@ Balances are computed from entries; a `ledger_balance` cache may exist but is re
 |---|---|---|---|
 | `USDT_WRONG_AMOUNT` (short) | Scanner vs expected | yes | `await_top_up` · `adjust_trade_to_received` (approval) · `refund_and_cancel` |
 | `USDT_OVERPAYMENT` | Scanner | yes | `refund_excess` · `adjust_trade_to_received` (DEALER re-price approval) |
-| `USDT_UNEXPECTED_SENDER` | Scanner vs registered source wallets | yes | `accept_sender` (records verification) · `refund` |
+| `USDT_UNEXPECTED_SENDER` | Transfer already attributed by its deposit assignment, but `from` is not a registered client source wallet (sender is checked, never used for attribution) | yes | `accept_sender` (records verification) · `refund` |
 | `WRONG_NETWORK` | Client/operator report (not detectable on TRON) | yes | `record_recovery_outcome` · `cancel` |
 | `TX_NOT_FINAL` | Aging job (detected > N min without solidification) | warning | automatic on confirmation · `mark_failed` |
-| `QUOTE_EXPIRED_WITH_FUNDS` | Funds arrive for a trade request whose quote expired / unassigned address | yes | `requote_and_allocate` · `refund` |
+| `FUNDS_AFTER_TRADE_CLOSED` | USDT arrives at a deposit address in `COOLDOWN` whose last assignment was a cancelled/completed trade (client known from that assignment) | yes | `requote_for_same_client` (new quote + trade, allocation via new assignment of the same address, DEALER + FINANCE) · `refund` (two-person) |
+| `UNALLOCATED_DEPOSIT` | USDT arrives at an address that was never assigned, or at a treasury wallet directly | yes | `refund` (two-person, destination verified out of band) · `hold_in_suspense` — never attributed to a trade by amount or sender |
+| `DEPOSIT_POOL_LOW` | `custody.pool_health` job | warning | `replenish_pool` (in custody provider) |
+| `ROUTE_SETTLEMENT_MISMATCH` | Route settlement amount/evidence does not match allocations | yes | `reallocate` · `financial_adjustment` |
+| `ROUTE_OBLIGATION_OVERDUE` | Open obligation older than route SLA | warning | `record_route_settlement` · escalate |
 | `DUPLICATE_TX_HASH` | Unique violation on allocation attempt | yes | `void` (idempotent replay) · `reallocate` |
 | `DUPLICATE_UTR` | Unique violation on UTR entry | yes | `correct_utr` (audited) · `void` |
 | `PARTIAL_INR_PAYOUT` | Leg confirmed amount < planned | warning | `create_remaining_leg` |
@@ -187,6 +206,8 @@ Every resolution is a domain command with its own permission, audit, and (where 
 - Added `trade_economics` (split from `trade`) so frozen terms are physically insert-only.
 - Added `ledger_journal` (groups balanced entries; carries the unique posting key).
 - Added `inr_account_day` as the capacity concurrency anchor instead of mutable totals on the account.
-- Added `deposit_address` / `deposit_assignment` for USDT attribution (`DECISIONS.md D-02`).
+- Added `deposit_address` / `deposit_assignment` / `custody_provider_config` for USDT attribution by unique per-trade address (`DECISIONS.md D-02`).
+- Added `acceptance_challenge` for OTP-verified quote-link acceptance (`DECISIONS.md D-01`).
+- `LiquidityRoute` extended with `settlement_model`; added `route_obligation`, `route_settlement`, `route_settlement_allocation`, kept separate from client settlement (`DECISIONS.md D-03`).
 - Split client-owned `crypto_wallet` from exchange-owned `treasury_wallet` — they have different permissions, lifecycles and exposure.
 - `Role/Permission` → `role`, `permission`, `role_permission`, `user_role`.

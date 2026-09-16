@@ -1,6 +1,6 @@
 # INRP2P Exchange — State Machines
 
-Status: Phase 0 draft, for review.
+Status: Phase 0, revision 2 (decisions D-01…D-13 applied).
 
 Rules for every machine below:
 - A transition happens only inside a named domain command (`ARCHITECTURE.md §4`). No UI, API, script or admin tool may write a status column directly. The app DB role has no UPDATE privilege on status columns except through the command's stored transition function (`SECURITY.md §6`).
@@ -29,7 +29,7 @@ OPEN ──quote.send──▶ QUOTED ──quote.accept──▶ ACCEPTED (term
 | QUOTED → OPEN | side effect of quote EXPIRED/REJECTED/CANCELLED(not superseded) | no other SENT quote | outbox `desk.request_needs_action` |
 | OPEN/QUOTED → DECLINED | Dealer `request:decline` | not ACCEPTED | cancels SENT quote (reason `DECLINED_BY_DESK`); audit; notify client |
 | OPEN/QUOTED → WITHDRAWN | Client user or operator `request:withdraw` | not ACCEPTED | cancels SENT quote; audit |
-| QUOTED → ACCEPTED | side effect of `quote.accept` | — | — |
+| QUOTED → ACCEPTED | side effect of `quote.accept` or `quote.accept_via_link` | — | — |
 | OPEN → EXPIRED | Job | no activity for request TTL (default 24h) | audit |
 
 Ledger: none.
@@ -49,9 +49,10 @@ DRAFT ──send──▶ SENT ──accept──▶ ACCEPTED (terminal)
 | Transition | Who / Perm | Preconditions | Financial side effects | Ledger | Audit | Idempotency / races | Failure path |
 |---|---|---|---|---|---|---|---|
 | create → DRAFT | Dealer `quote:create` | Request OPEN/QUOTED; current route snapshot exists for route+direction; route ACTIVE | System computes `quote_inr`, `route_value`, `gross_margin` from inputs (`FINANCIAL_INVARIANTS §1.3`). Dealer inputs only amount, fixed side, client rate, validity | — | `quote.created` (includes route snapshot id, margin) | key per create | `ROUTE_RATE_MISSING`, `ROUTE_INACTIVE` |
-| DRAFT → SENT | Dealer `quote:send`; negative margin also `quote:send_negative_margin` + reason | DRAFT; route snapshot age ≤ max (default 15 min) else must refresh; validity within [30s, 30min]; if another SENT quote exists for request it is cancelled `SUPERSEDED` in same txn; if client rate ≠ target → `is_counter = true` | Sets `sent_at = now()`, `expires_at = now() + validity`. Economic columns become immutable (FI-03). Optionally creates `quote_link` | — | `quote.sent`, plus `quote.cancelled` for superseded | Partial unique index "one SENT per request" (FI-06) serialises concurrent sends: loser gets `CONCURRENT_QUOTE` | `ROUTE_RATE_STALE`, `NEGATIVE_MARGIN_NOT_PERMITTED` |
-| SENT → ACCEPTED | Client user of the quote's client (app), or link holder passing acceptance verification (`DECISIONS D-01`) | Lock request → quote. `status = SENT`; `statement_timestamp() < expires_at`; client ACTIVE; destination bank/wallet still ACTIVE and unchanged; request not ACCEPTED | Creates Trade (§3) + `trade_economics` copied from quote; request → ACCEPTED; for SELL assigns deposit address (D-02); for BUY reserves treasury USDT (FI-33) | `trade:{t}:accept` journal | `quote.accepted`, `trade.opened` | Idempotency key from client (link page generates one per page load). FI-05 unique indexes: second accept → returns existing trade if same user+key, else `QUOTE_ALREADY_ACCEPTED`. Expiry race: both paths take `FOR UPDATE` on the quote; whichever commits first wins; expiry job requires `expires_at <= now()`, accept requires `statement_timestamp() < expires_at` — mutually exclusive by construction | `QUOTE_EXPIRED`, `DESTINATION_CHANGED` (opens nothing; client gets "Get new quote"), `DEPOSIT_ADDRESS_UNAVAILABLE`, `TREASURY_INSUFFICIENT` → acceptance fails cleanly, desk notified |
-| SENT → REJECTED | Client user / link holder | SENT, not expired | request → OPEN | — | `quote.rejected` | state-idempotent | — |
+| DRAFT → SENT | Dealer `quote:send`; negative margin also `quote:send_negative_margin` + reason | DRAFT; route snapshot age ≤ max (default 15 min) else must refresh; validity within [30s, 30min], and ≥ 60s when a quote link is attached (D-01; UI warns below 90s); if another SENT quote exists for request it is cancelled `SUPERSEDED` in same txn; if client rate ≠ target → `is_counter = true` | Sets `sent_at = now()`, `expires_at = now() + validity`. Economic columns become immutable (FI-03). Optionally creates `quote_link` | — | `quote.sent`, plus `quote.cancelled` for superseded | Partial unique index "one SENT per request" (FI-06) serialises concurrent sends: loser gets `CONCURRENT_QUOTE` | `ROUTE_RATE_STALE`, `NEGATIVE_MARGIN_NOT_PERMITTED` |
+| SENT → ACCEPTED | `quote.accept` (in-app): authenticated client user of the quote's client with `can_accept_quotes` | Lock request → quote. `status = SENT`; client `kyc_status` permits trading (when policy enabled); `statement_timestamp() < expires_at`; client ACTIVE; destination bank/wallet still ACTIVE and unchanged; request not ACCEPTED | Creates Trade (§3) + `trade_economics` copied from quote; request → ACCEPTED; creates `route_obligation` (EXPECTED) from route economics (D-03); for SELL allocates a unique deposit address via `CustodyAdapter` and creates the deposit assignment (D-02); for BUY reserves treasury USDT (FI-33) | `trade:{t}:accept` journal | `quote.accepted`, `trade.opened` | Idempotency key per accept intent. FI-05 unique indexes: second accept → returns existing trade if same user+key, else `QUOTE_ALREADY_ACCEPTED`. Expiry race: both paths take `FOR UPDATE` on the quote; whichever commits first wins; expiry job requires `expires_at <= now()`, accept requires `statement_timestamp() < expires_at` — mutually exclusive by construction | `QUOTE_EXPIRED`, `DESTINATION_CHANGED` (opens nothing; client gets "Get new quote"), `DEPOSIT_ADDRESS_UNAVAILABLE`, `TREASURY_INSUFFICIENT` → acceptance fails cleanly, desk notified |
+| SENT → ACCEPTED (link) | `quote.accept_via_link`: link holder submitting a valid OTP for a `PENDING` acceptance challenge of this quote (D-01). Viewing the link alone can never reach this row | Lock request → quote → challenge. Everything required for in-app acceptance, plus: challenge `PENDING`, bound to this quote, `statement_timestamp() < challenge.expires_at`, attempts < 5, code hash matches, challenge's client user still ACTIVE with `can_accept_quotes` and verified email | Same as in-app acceptance; challenge → CONSUMED; quote records `accepted_via = LINK`, `accepted_by_user_id`, `acceptance_challenge_id` | `trade:{t}:accept` journal | `acceptance_otp.verified`, `quote.accepted`, `trade.opened` | Unique `quote.acceptance_challenge_id`; consumed challenge cannot be replayed; idempotency key per accept intent. Wrong code increments attempts in a separate committed step (the accept itself rolls back) | `OTP_INVALID` / `OTP_EXPIRED` / `OTP_ATTEMPTS_EXCEEDED` (uniform message), `QUOTE_EXPIRED` (OTP time never extends quote validity), plus all in-app failures |
+| SENT → REJECTED | Client user (app) or link holder (rejecting is non-committing, so no OTP is required; audited with link token id and IP hash) | SENT, not expired | request → OPEN | — | `quote.rejected` | state-idempotent | — |
 | SENT → EXPIRED | Job `quote.expire` (scheduled at `expires_at` + sweeper) | Lock; `status = SENT` and `expires_at <= now()` | request → OPEN; link becomes read-only "expired" | — | `quote.expired` (actor SYSTEM) | No-op if already terminal | job retried with backoff |
 | SENT → CANCELLED | Dealer `quote:cancel`; system (superseded/declined/withdrawn) | SENT | request → OPEN (unless superseded/declined) | — | `quote.cancelled` with reason | state-idempotent | — |
 
@@ -76,23 +77,23 @@ Overlay: hold = true while any BLOCKING ExceptionCase is OPEN (displayed as "Exc
 CANCELLED is terminal and reachable only from AWAITING_FIRST_LEG / FIRST_LEG_DETECTED (unconfirmed) or via refund_and_cancel resolution.
 ```
 
-### Deviation from the prompt's list (for review)
-- `OPEN` is dropped as a persisted state: a trade is created by acceptance and is immediately awaiting the client's leg. Keeping a transient OPEN adds a transition with no business meaning.
-- `EXCEPTION` is modelled as a **hold overlay** (`hold` flag + ExceptionCase records), not as a lifecycle state. Reason: a trade in exception must remember *where* it was (e.g. PARTIALLY_SETTLED with ₹4.5M paid), and several exceptions can be open at once. The UI still shows "Exception" as the primary status when `hold = true`. If you prefer a literal `EXCEPTION` state, it requires a `resume_to` column and loses parallel exceptions — see `DECISIONS.md D-04`.
+### Resolved deviations from the prompt's list (`DECISIONS.md D-04`, `D-13`)
+- `OPEN` is dropped as a persisted state: a trade is created by acceptance and is immediately awaiting the client's leg. Approved.
+- `EXCEPTION` is modelled as a **hold overlay** (`hold` flag + ExceptionCase records), not as a lifecycle state. Reason: a trade in exception must remember *where* it was (e.g. PARTIALLY_SETTLED with ₹4.5M paid), and several exceptions can be open at once. The UI still shows "Exception" as the primary status when `hold = true`. Approved.
 
 ### Transitions
 
 | # | Transition | Command / Who / Perm | Preconditions | Side effects | Ledger | Audit | Idempotency | Failure |
 |---|---|---|---|---|---|---|---|---|
-| T1 | ∅ → AWAITING_FIRST_LEG | `quote.accept` | see Quote | trade + economics; SELL: deposit assignment; BUY: treasury reservation; outbox: client instructions, desk queue | `trade:{t}:accept` | `trade.opened` | posting key unique | whole accept rolls back |
+| T1 | ∅ → AWAITING_FIRST_LEG | `quote.accept` | see Quote | trade + economics; route obligation `EXPECTED`; SELL: unique deposit address assignment (acceptance fails with `DEPOSIT_ADDRESS_UNAVAILABLE` if none); BUY: treasury reservation; outbox: client instructions, desk queue | `trade:{t}:accept` | `trade.opened` | posting key unique | whole accept rolls back |
 | T2 | AWAITING_FIRST_LEG → FIRST_LEG_DETECTED | SELL: job `tron.scan` allocates a DETECTED transfer to the trade's deposit assignment. BUY: `fiat_in.record` by client (UTR submit) or SETTLEMENT_OPERATOR `settlement:record_incoming` | SELL: to = assigned address, contract = USDT. BUY: UTR unique | leg (side CLIENT_TO_EXCHANGE) PROCESSING; if amount ≠ expected → opens `USDT_WRONG_AMOUNT`/`USDT_OVERPAYMENT` (blocking); unexpected sender → `USDT_UNEXPECTED_SENDER` | none (not final) | `trade.first_leg_detected` | unique `(network, tx_hash, log_index)`; replayed events no-op | duplicate tx on another trade → `DUPLICATE_TX_HASH` exception, not allocation |
 | T3 | FIRST_LEG_DETECTED → AWAITING_FIRST_LEG | job: transfer receipt FAILED / orphaned | — | leg FAILED | none | `trade.first_leg_reverted` | state-guarded | — |
 | T4 | FIRST_LEG_DETECTED → FIRST_LEG_CONFIRMED | SELL: job `tron.confirm_transfer` (SYSTEM). BUY: SETTLEMENT_OPERATOR `settlement:confirm_incoming` + step-up | SELL: FI-24 all four checks; confirmed sum = client obligation (effective terms). BUY: bank credit matched, amount = obligation. No blocking exception on the first leg | leg COMPLETED; SELL: treasury observed/incoming updated. Payout becomes actionable → desk queue "Create INR payout" | SELL `crypto:{x}:confirm`; BUY `fiat_in:{f}:confirm` | `trade.first_leg_confirmed` (+ `usdt.confirmed`) | posting key; state-guarded | amount mismatch keeps state + exception |
 | T5 | FIRST_LEG_CONFIRMED → SETTLING | `payout_leg.mark_sent` (first payout leg to PROCESSING) — SETTLEMENT_OPERATOR `settlement:send_payout` | First leg confirmed; not on hold; leg amount ≤ remaining unallocated obligation (FI-20); INR: reservation ACTIVE on ACTIVE account with enough reserved; BUY: treasury reservation | reservation partially consumed (used += amount at send) | none (until confirmed) | `trade.settling`, `leg.sent` | leg idempotency key | `CAPACITY_INSUFFICIENT`, `TRADE_ON_HOLD`, `OVER_ALLOCATION` |
 | T6 | SETTLING → PARTIALLY_SETTLED | `payout_leg.confirm` — SETTLEMENT_OPERATOR `settlement:confirm_payout` + step-up; INR requires UTR present | Leg PROCESSING with UTR (INR) / confirmed tx (USDT, verified on-chain by job); Σconfirmed < obligation | client progress updates (`₹x / ₹y received`) | `leg:{l}:confirm` | `leg.confirmed` | posting key | `UTR_REQUIRED`, `DUPLICATE_UTR` |
-| T7 | SETTLING/PARTIALLY_SETTLED → COMPLETED | Same `payout_leg.confirm` when Σconfirmed = obligation (automatic within the same command) | FI-21; no OPEN blocking exceptions | remaining reservations released; deposit assignment released (→ COOLDOWN); outbox `receipt.generate`, notify | `leg:{l}:confirm` + `trade:{t}:complete` (margin realized) | `trade.completed` | posting keys | if blocking exception open, leg confirms but trade stays PARTIALLY_SETTLED/SETTLING with hold |
+| T7 | SETTLING/PARTIALLY_SETTLED → COMPLETED | Same `payout_leg.confirm` when Σconfirmed = obligation (automatic within the same command) | FI-21; no OPEN blocking exceptions | remaining reservations released; deposit assignment released (address → COOLDOWN); route obligation `EXPECTED → OPEN`; outbox `receipt.generate`, notify. Completion never depends on route settlement | `leg:{l}:confirm` + `trade:{t}:complete` (margin realized) | `trade.completed` | posting keys | if blocking exception open, leg confirms but trade stays PARTIALLY_SETTLED/SETTLING with hold |
 | T8 | PARTIALLY_SETTLED → PARTIALLY_SETTLED | leg confirm/fail that doesn't complete | — | — | per leg | per leg | — | — |
-| T9 | AWAITING_FIRST_LEG / FIRST_LEG_DETECTED(unconfirmed) → CANCELLED | `trade.cancel` — DEALER `trade:cancel` + step-up + reason; client may *request* cancellation (opens `TRADE_CANCELLATION`) | No confirmed client funds; no payout leg PROCESSING/COMPLETED | release reservations, deposit assignment, treasury reservation; detected-but-unconfirmed funds (if they later confirm) → `QUOTE_EXPIRED_WITH_FUNDS`/refund | `trade:{t}:cancel` (exact reversal of accept) | `trade.cancelled` | posting key | `FUNDS_ALREADY_RECEIVED` → must use `refund_and_cancel` |
+| T9 | AWAITING_FIRST_LEG / FIRST_LEG_DETECTED(unconfirmed) → CANCELLED | `trade.cancel` — DEALER `trade:cancel` + step-up + reason; client may *request* cancellation (opens `TRADE_CANCELLATION`) | No confirmed client funds; no payout leg PROCESSING/COMPLETED | release reservations, deposit assignment (address → COOLDOWN), treasury reservation; route obligation → CANCELLED; funds that later confirm on that address → `FUNDS_AFTER_TRADE_CLOSED` | `trade:{t}:cancel` (exact reversal of accept) | `trade.cancelled` | posting key | `FUNDS_ALREADY_RECEIVED` → must use `refund_and_cancel` |
 | T10 | any non-terminal with confirmed funds → CANCELLED | `exception.resolve(refund_and_cancel)` — DEALER initiates, FINANCE approves (two-person) | Refund leg(s) COMPLETED for all confirmed client funds; no payout COMPLETED (else adjustment path) | releases all reservations | reversal of accept + refund leg journals | `trade.cancelled` | posting keys | stays in state until refunds confirm |
 | H1 | hold false → true | ExceptionCase opened BLOCKING (system or operator `exception:open`) | — | queue priority "Exception" | none | `exception.opened` | unique open case per subject | — |
 | H2 | hold true → false | last BLOCKING case RESOLVED/VOID via resolution command | resolution preconditions | resumes queue grouping by lifecycle state | per resolution | `exception.resolved` | state-guarded | — |
@@ -131,7 +132,7 @@ A leg confirmed with a different actual amount than planned is not allowed: the 
 
 Finality semantics (TRON): a block is irreversible once it is **solidified** (confirmed by ≥ 2/3 of the 27 Super Representatives; typically ~19 blocks / ~1 minute). CONFIRMED requires: block number ≤ latest solidified block (from the solidity API), `receipt.result = SUCCESS`, TRC20 `Transfer` log from the configured USDT contract, `to` = our assigned address, amount decoded from the log (not from tx input). Two independent providers must agree before CONFIRMED when amount ≥ configurable threshold (`DECISIONS D-05`).
 
-Allocation (`crypto_transfer_allocation`) is a separate step, unique per transfer. Unallocatable transfers → `SUSPENSE:UNALLOCATED` on confirmation + exception.
+Allocation (`crypto_transfer_allocation`) is a separate step, unique per transfer. Client deposits are allocated **only** via the open deposit assignment of the destination address (D-02); there is no amount- or sender-based matching. Transfers to an address in COOLDOWN → `FUNDS_AFTER_TRADE_CLOSED`; to a never-assigned address or treasury wallet directly → `UNALLOCATED_DEPOSIT`. Both post to `SUSPENSE:UNALLOCATED` on confirmation. Route settlement USDT transfers are allocated to a `route_settlement` by an authorized operator (§10).
 
 ---
 
@@ -161,15 +162,64 @@ POSTED writes the compensating journal `adj:{id}`; the original `trade_economics
 
 ---
 
-## 9. Matrix summary
+## 9. RouteObligation (`PER_TRADE` in V1, `DECISIONS.md D-03`)
+
+`EXPECTED ──trade.complete──▶ OPEN ──allocation(partial)──▶ PARTIALLY_SETTLED ──allocations cover both sides──▶ SETTLED`
+`EXPECTED ──trade.cancel / refund_and_cancel──▶ CANCELLED`
+
+| Transition | Who | Preconditions | Ledger | Audit |
+|---|---|---|---|---|
+| create → EXPECTED | `quote.accept` / `quote.accept_via_link` | route `settlement_model = PER_TRADE` | none | `route_obligation.created` |
+| EXPECTED → OPEN | `trade.complete` (same txn) | trade COMPLETED | included in `trade:{t}:complete` (route receivable/payable) | `route_obligation.opened` |
+| OPEN → PARTIALLY_SETTLED / SETTLED | `route_settlement.allocate` — FINANCE/OWNER ⧗ | allocation ≤ remaining per side (FI-61); settlement CONFIRMED | none (posted at settlement confirmation) | `route_settlement.allocated` |
+| EXPECTED → CANCELLED | trade cancellation | trade CANCELLED | none (nothing posted) | `route_obligation.cancelled` |
+
+A client trade's lifecycle never reads route obligation state.
+
+## 10. RouteSettlement
+
+`RECORDED ──confirm──▶ CONFIRMED` · `RECORDED ──fail──▶ FAILED`
+
+| Transition | Who | Preconditions | Side effects | Ledger | Audit |
+|---|---|---|---|---|---|
+| create → RECORDED | `route_settlement.record` — FINANCE/OWNER | route ACTIVE; asset + flow valid for route; outgoing INR: capacity reservation (`purpose = ROUTE_SETTLEMENT`) | evidence attached (UTR unique FI-22 / tx hash submitted for verification) | none | `route_settlement.recorded` |
+| RECORDED → CONFIRMED | `route_settlement.confirm` — FINANCE/OWNER ⧗ | INR: UTR present; USDT: crypto transfer CONFIRMED on-chain (FI-24 rules, destination = route's registered address for TO_ROUTE / treasury wallet for FROM_ROUTE) | capacity consumed (INR out); treasury observed updated | `route_settlement:{id}:confirm` (see FINANCIAL_INVARIANTS §3) | `route_settlement.confirmed` |
+| RECORDED → FAILED | `route_settlement.fail` ⧗ + reason | not CONFIRMED | reservation released | none | `route_settlement.failed` |
+
+## 11. DepositAddress (`DECISIONS.md D-02`)
+
+`AVAILABLE ──assign (quote accept, SELL)──▶ ASSIGNED ──trade terminal──▶ COOLDOWN ──cooldown elapsed (POOL mode)──▶ AVAILABLE`
+`COOLDOWN ──(DERIVED mode, default) / operator retire──▶ RETIRED`
+
+- Assignment happens only through `CustodyAdapter.allocateDepositAddress` inside the acceptance transaction (DERIVED mode inserts a new address row; POOL mode locks an AVAILABLE row with `FOR UPDATE SKIP LOCKED`).
+- Partial unique index: at most one open `deposit_assignment` per address; unique `deposit_assignment.trade_id`.
+- If `custody_provider_config.deposit_address_capability = UNSUPPORTED`, SELL acceptance is disabled system-wide and the desk sees the limitation; no fallback attribution exists.
+
+## 12. AcceptanceChallenge (`DECISIONS.md D-01`)
+
+`PENDING ──correct code + quote accepted (same txn)──▶ CONSUMED`
+`PENDING ──5 wrong attempts──▶ FAILED` · `PENDING ──time > expires_at──▶ EXPIRED` · `PENDING ──new code requested──▶ SUPERSEDED`
+
+| Transition | Who | Preconditions | Effects | Audit |
+|---|---|---|---|---|
+| create → PENDING | link holder `quote_link.request_otp` (rate-limited) | quote SENT and not expired; recipient is an authorized client user of the quote's client with verified email; send limits (3 / quote / 10 min) | previous PENDING for same user → SUPERSEDED; `expires_at = least(now()+5 min, quote.expires_at)`; outbox `notification.send` (email OTP) | `acceptance_otp.sent` |
+| PENDING → CONSUMED | `quote.accept_via_link` | see Quote §2 | quote ACCEPTED | `acceptance_otp.verified` |
+| PENDING → FAILED | wrong code #5 | — | link shows "Request a new code" while quote still valid | `acceptance_otp.failed` |
+| PENDING → EXPIRED | lazily on verify, or sweeper | — | — | — |
+
+## 13. Matrix summary
 
 | Machine | States | Terminal | Driven by system | Driven by humans |
 |---|---|---|---|---|
 | TradeRequest | OPEN, QUOTED, ACCEPTED, DECLINED, WITHDRAWN, EXPIRED | 4 | expiry | create, decline, withdraw |
-| Quote | DRAFT, SENT, ACCEPTED, REJECTED, EXPIRED, CANCELLED | 4 | expiry, supersede | create, send, accept, reject, cancel |
+| Quote | DRAFT, SENT, ACCEPTED, REJECTED, EXPIRED, CANCELLED | 4 | expiry, supersede | create, send, accept (app or OTP-verified link), reject, cancel |
+| AcceptanceChallenge | PENDING, CONSUMED, FAILED, EXPIRED, SUPERSEDED | 4 | expiry | request code, verify |
 | Trade | AWAITING_FIRST_LEG, FIRST_LEG_DETECTED, FIRST_LEG_CONFIRMED, SETTLING, PARTIALLY_SETTLED, COMPLETED, CANCELLED (+hold) | 2 | USDT detect/confirm, completion | INR confirm, payouts, cancel, exceptions |
 | SettlementLeg | PENDING, PROCESSING, COMPLETED, FAILED, CANCELLED | 3 | USDT on-chain verification | create, send, UTR, confirm, fail, cancel |
 | CryptoTransfer | DETECTED, CONFIRMED, FAILED, ORPHANED | 3 | all | submit tx hash for lookup |
 | CapacityReservation | ACTIVE, CONSUMED, RELEASED | 2 | release on cancel/complete/day end | reserve |
 | ExceptionCase | OPEN, IN_PROGRESS, RESOLVED, VOID | 2 | detection | take, resolve, void |
 | FinancialAdjustment | REQUESTED, POSTED, REJECTED | 2 | — | request, approve, reject |
+| RouteObligation | EXPECTED, OPEN, PARTIALLY_SETTLED, SETTLED, CANCELLED | 2 | open on completion, cancel with trade | allocate |
+| RouteSettlement | RECORDED, CONFIRMED, FAILED | 2 | on-chain verification (USDT) | record, confirm, fail |
+| DepositAddress | AVAILABLE, ASSIGNED, COOLDOWN, RETIRED | 1 | assign on accept, cooldown, release | retire |
