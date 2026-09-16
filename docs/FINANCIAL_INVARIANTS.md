@@ -1,6 +1,6 @@
 # INRP2P Exchange — Financial Invariants
 
-Status: Phase 0, revision 2 (decisions D-01…D-13 applied).
+Status: Phase 0, revision 3 (`DECISIONS.md` Revision 3).
 Every invariant has an ID, a statement, and the mechanism that enforces it. "Enforced by app" alone is never sufficient for money: each invariant names at least one database-level or structural guarantee, plus the test that proves it.
 
 ## 1. Numbers
@@ -68,7 +68,7 @@ SELL, base 100,000.000000 USDT, client ₹102.00, route ₹104.20:
 | FI-02 | `gross_margin` is derived, never input | No margin field in any command schema; DB CHECK `gross_margin_inr_minor = (route_inr − client_inr)` for SELL and `(client_inr − route_inr)` for BUY on `quote` and `trade` | canonical 100k test; reverse test |
 | FI-03 | A Quote's economic fields never change after `SENT` | Trigger rejects UPDATE of economic columns when status ≠ DRAFT; only `status`, `status_changed_at` mutable | mutation test |
 | FI-04 | A quote can be accepted only if `status = SENT` and `statement_timestamp() < expires_at` | Checked under `FOR UPDATE` lock in accept command; expiry job requires `expires_at <= now()` under same lock | accept at T−1ms; accept at T+1ms |
-| FI-07 | A link acceptance requires a `PENDING`, unexpired, matching acceptance challenge for that quote and an authorized client user; the challenge is consumed in the same transaction and can accept at most one quote. Viewing a link never changes quote state | `quote.accept_via_link` only path for `accepted_via = LINK`; CHECK `accepted_via <> 'LINK' OR acceptance_challenge_id IS NOT NULL`; unique `quote.acceptance_challenge_id`; link GET handlers are read-only (no write grants used) | view doesn't accept; wrong/expired/reused OTP; OTP verified after quote expiry rejected |
+| FI-07 | A link acceptance **or rejection** requires a `PENDING`, unexpired, matching acceptance challenge for that quote and an authorized client user; the challenge is consumed in the same transaction and decides at most one quote. No unauthenticated request changes quote state; link "Not now" is client-side only | `quote.accept_via_link` / `quote.reject_via_link` are the only LINK paths; CHECK `(accepted_via <> 'LINK' AND rejected_via <> 'LINK') OR acceptance_challenge_id IS NOT NULL`; link quotes: CHECK validity ≥ 120 s at link creation; unique `quote.acceptance_challenge_id`; link GET handlers are read-only (no write grants used) | view doesn't accept or reject; local decline leaves quote SENT; wrong/expired/reused OTP; OTP verified after quote expiry rejected |
 | FI-05 | At most one accepted quote per TradeRequest; at most one Trade per Quote | Partial unique index `quote(trade_request_id) WHERE status='ACCEPTED'`; unique `trade(quote_id)` | double accept; two concurrent accepts |
 | FI-06 | At most one live (`SENT`) quote per TradeRequest | Partial unique index `WHERE status='SENT'`; sending a counter cancels the previous SENT quote in the same txn | counter race |
 
@@ -84,9 +84,11 @@ SELL, base 100,000.000000 USDT, client ₹102.00, route ₹104.20:
 | ID | Invariant | Enforcement | Test |
 |---|---|---|---|
 | FI-20 | Σ(non-failed, non-cancelled payout legs) ≤ payout obligation (after adjustments) | Leg create/amount commands lock the trade row and check; deferred constraint trigger recomputes on commit | over-allocation attempt; concurrent leg creation |
-| FI-21 | Trade is COMPLETED iff Σ(confirmed payout legs) = obligation AND client leg confirmed = client obligation (after adjustments) | Completion command asserts both; trigger rejects `status=COMPLETED` otherwise | partial settlement; multi-leg completion |
+| FI-21 | Trade is COMPLETED iff Σ(confirmed payout legs, any payer) = obligation AND client leg confirmed = client obligation (after adjustments) | Completion command asserts both; trigger rejects `status=COMPLETED` otherwise | partial settlement; multi-leg completion |
 | FI-22 | A UTR/reference identifies at most one fiat transfer per rail | Unique index `fiat_transfer(rail, utr_normalized)` (uppercased, trimmed) | duplicate UTR |
-| FI-23 | A blockchain transfer (network, tx_hash, log_index) is attributed to at most one trade leg, route settlement or exception | Unique index on `crypto_transfer(network, tx_hash, log_index)`; allocation table unique on transfer | same tx on two trades; duplicate webhook |
+| FI-23 | A blockchain transfer (network, tx_hash, log_index) exists once and is linked to at most one client-side target (settlement leg or exception) and at most one route settlement | Unique `crypto_transfer(network, tx_hash, log_index)`; `transfer_allocation` unique on `(transfer, dimension)` | same tx on two trades; duplicate webhook |
+| FI-27 | One real movement = one evidence row = one journal. Legs, route settlements and allocations never post journals | Posting keys exist only as `fiat:{f}:confirm` / `crypto:{x}:confirm` for movements; posting rule table has no leg- or route-settlement-keyed rules; unique `ledger_journal(posting_key)` | direct payout posts exactly one journal; retry posts none |
+| FI-28 | A movement may satisfy at most one client settlement leg and at most one route settlement, each for the full movement amount (no splitting one UTR/tx across legs of the same dimension). It may satisfy both only when `payer = ROUTE` and `payee = CLIENT` (`DIRECT_TO_CLIENT`) | `transfer_allocation(transfer_kind, transfer_id, dimension)` unique where dimension ∈ {CLIENT, ROUTE}; CHECK `amount = transfer.amount`; trigger rejects ROUTE+CLIENT pair unless payer/payee is route→client | same UTR linked to two legs rejected; exchange-account payout cannot reduce route obligation; direct payout counted once per dimension |
 | FI-24 | USDT is CONFIRMED only when in a solidified block, receipt `SUCCESS`, contract = configured USDT contract, `to` = the expected destination (trade's assigned deposit address; for route settlements the route's registered address or our treasury wallet) | Confirmation job checks all four; state machine forbids DETECTED→CONFIRMED otherwise | seen-not-final; wrong contract; wrong destination |
 | FI-26 | Client USDT is attributed to a trade only through that trade's open deposit assignment; each SELL trade has exactly one assignment and each address at most one open assignment | Unique `deposit_assignment(trade_id)`; partial unique on open assignment per address; no allocation API accepts (amount, sender) as matching input | two open trades never share an address; funds to cooled-down / unassigned address go to suspense |
 | FI-25 | Client never double-paid: a payout leg can reach CONFIRMED once; failed legs can't be re-confirmed; retry = new leg | Leg state machine; unique confirmation per leg | failed leg then retry |
@@ -104,17 +106,19 @@ SELL, base 100,000.000000 USDT, client ₹102.00, route ₹104.20:
 |---|---|---|---|
 | FI-40 | Every journal balances per currency: Σdebits = Σcredits | Deferred constraint trigger on `ledger_entry` at commit; journal insert API only accepts balanced sets | unbalanced post rejected |
 | FI-41 | Ledger entries are append-only | App DB role: INSERT+SELECT only; triggers reject UPDATE/DELETE | attempted update |
-| FI-42 | A business event posts at most once | Unique `ledger_journal(posting_key)` e.g. `trade:{id}:accept`, `leg:{id}:confirm` | retry posts once |
-| FI-43 | Realized gross margin = Σ credits to `REVENUE:GROSS_MARGIN_INR`; posted only at trade completion | Only `trade.complete` command posts to that account (posting rule table) | P&L counts realized only |
+| FI-42 | A business event or movement posts at most once | Unique `ledger_journal(posting_key)` e.g. `trade:{id}:accept`, `fiat:{id}:confirm`, `crypto:{id}:confirm` | retry posts once |
+| FI-43 | Realized gross margin = Σ credits to `REVENUE:GROSS_MARGIN`; posted only at trade completion (from `DEFERRED_MARGIN`), independent of route settlement status | Only `trade.complete` and approved adjustments post to that account | P&L counts realized only; residual route receivable does not delay realization |
 | FI-44 | Global check: Σ all balances per currency = 0 | Scheduled check + alert | nightly check test |
 
 ### Routes (`DECISIONS.md D-03`)
 | ID | Invariant | Enforcement | Test |
 |---|---|---|---|
-| FI-60 | Route obligation amounts equal the trade's frozen route economics and never change | Copied in the acceptance txn; insert-once columns (trigger) | rate change / adjustment doesn't mutate obligation (adjustments affecting route side post their own `adj:{id}` lines) |
-| FI-61 | Σ allocations per route settlement ≤ settlement amount; Σ allocations per obligation side ≤ obligation side amount | Lock settlement + obligation rows; deferred check trigger | over-allocation, concurrent allocation |
-| FI-62 | Client trade state never depends on route obligation / settlement state | No trade transition reads route tables (module boundary + test) | trade completes with route obligation OPEN |
-| FI-63 | Only `settlement_model = PER_TRADE` routes can be used in V1 | CHECK / validation on `liquidity_route`; quote creation rejects other models | configure PREFUNDED rejected |
+| FI-60 | Route obligation amounts and execution mode equal the trade's frozen route economics and never change; the obligation is recognized in the ledger at acceptance | Copied in the acceptance txn together with `trade:{t}:accept`; insert-once columns (trigger) | rate change / adjustment doesn't mutate obligation (adjustments post `adj:{id}`) |
+| FI-61 | Σ allocations per route settlement ≤ settlement amount; Σ allocations per obligation side ≤ obligation side amount — including direct-to-client movements | Lock obligation → settlement rows (lock order); deferred check trigger | over-allocation; concurrent allocation; direct payout larger than route remaining rejected |
+| FI-62 | Client trade state depends only on client obligations. A direct payout advances the trade through its client-leg link; the route allocation of the same movement never gates completion | Trade transitions read client legs only; direct confirm command updates both in one txn but completion predicate (FI-21) uses client legs | trade COMPLETED while route obligation PARTIALLY_SETTLED with ₹220,000 remaining |
+| FI-63 | V1 routes use `settlement_model = PER_TRADE` with `execution_mode ∈ {DIRECT_TO_CLIENT, TO_EXCHANGE}` | Validation on `liquidity_route`; quote creation rejects other models | configure PREFUNDED rejected |
+| FI-64 | For each route obligation and side: obligation remaining = ledger balance of the route account lines carrying that `route_obligation_id` | Reconciliation job + integration assertion after every route-affecting command in tests | walkthrough §3.5 at every step |
+| FI-65 | `TO_EXCHANGE` obligations accept only route→exchange and exchange→route movements; `DIRECT_TO_CLIENT` obligations additionally accept route→client movements; route→client payouts require a client payout leg with `payer = ROUTE` | Command validation + trigger on `transfer_allocation` | direct payout on TO_EXCHANGE route rejected |
 
 ### Idempotency & audit
 | ID | Invariant | Enforcement | Test |
@@ -123,50 +127,66 @@ SELL, base 100,000.000000 USDT, client ₹102.00, route ₹104.20:
 | FI-51 | Audit events are append-only and tamper-evident | INSERT-only grant, reject triggers, periodic hash-chain sealing (`audit_seal`) | attempted update; seal verification detects edit |
 | FI-52 | Every state change commits with its audit event (and journal, when financial) or not at all | Single-transaction command pipeline; integration test asserts audit row exists for every transition | fault injection mid-command |
 
-## 3. Ledger chart of accounts (V1)
+## 3. Ledger (V1)
 
-All accounts are per currency. `{c}` = client id, `{t}` = trade id, `{a}` = INR settlement account id, `{w}` = treasury wallet id, `{r}` = liquidity route id.
+### 3.1 Posting principle: one movement, one journal
+Every **real value movement** is exactly one evidence row — a `fiat_transfer` (unique `(rail, utr_normalized)`) or a `crypto_transfer` (unique `(network, tx_hash, log_index)`) — and posts **exactly one journal**, keyed by that evidence: `fiat:{f}:confirm` or `crypto:{x}:confirm`. Settlement legs, route settlements and allocations are *views of what a movement satisfied*; they never post journals of their own. The debit and credit accounts are chosen from the movement's `(payer, payee)` pair, so a direct route-to-client payout debits the client payable and credits the route receivable in the same two entries — it cannot be posted twice as a "client payout" and a "route settlement".
+
+Non-movement business events post their own keyed journals: `trade:{t}:accept`, `trade:{t}:complete`, `trade:{t}:cancel`, `adj:{id}`.
+
+All entries carry dimensions `trade_id` and, for route accounts, `route_obligation_id`, so balances can be read per trade and per obligation.
+
+### 3.2 Chart of accounts
+`{c}` client · `{a}` INR settlement account · `{w}` treasury wallet · `{r}` liquidity route. All accounts are per currency.
 
 | Account | Type | Meaning |
 |---|---|---|
-| `ASSET:INR_SETTLEMENT:{a}` (INR) | asset | Movements recorded through our INR settlement accounts |
-| `ASSET:TREASURY_USDT:{w}` (USDT) | asset | USDT recorded in treasury wallets |
-| `ASSET:CLIENT_RECEIVABLE:{c}` (USDT or INR) | asset | What the client owes us on accepted trades |
-| `LIAB:CLIENT_PAYABLE:{c}` (INR or USDT) | liability | What we owe the client on accepted trades |
-| `CLEARING:TRADE:{t}` (INR, USDT) | clearing | Trade-level clearing; zero at completion |
-| `ASSET:ROUTE_RECEIVABLE:{r}` / `LIAB:ROUTE_PAYABLE:{r}` | asset/liability | Route obligations recognized at trade completion; cleared by route settlements (`DECISIONS.md D-03`) |
-| `ASSET:ROUTE_PREFUND:{r}` | asset | Reserved for the `PREFUNDED` model; unused in V1 |
+| `ASSET:INR_SETTLEMENT:{a}` (INR) | asset | Movements through the exchange's INR settlement accounts |
+| `ASSET:TREASURY_USDT:{w}` (USDT) | asset | USDT in treasury wallets and deposit addresses |
+| `ASSET:CLIENT_RECEIVABLE:{c}` | asset | What the client owes on accepted trades |
+| `LIAB:CLIENT_PAYABLE:{c}` | liability | What is owed to the client on accepted trades |
+| `ASSET:ROUTE_RECEIVABLE:{r}` | asset | What the route owes (recognized at acceptance) |
+| `LIAB:ROUTE_PAYABLE:{r}` | liability | What the exchange owes the route (recognized at acceptance) |
+| `LIAB:DEFERRED_MARGIN` (INR) | liability | Gross margin of accepted, not yet completed trades |
 | `REVENUE:GROSS_MARGIN` (INR) | revenue | Realized gross margin |
-| `EXPENSE:FEES` (INR/USDT) | expense | Fees, when recorded (V1: zero by default) |
-| `SUSPENSE:UNALLOCATED` (INR/USDT) | suspense | Funds that arrived at an address with no open deposit assignment (never assigned, or in cooldown), or directly at a treasury wallet |
+| `ASSET:ROUTE_PREFUND:{r}` | asset | Reserved for `PREFUNDED`; unused in V1 |
+| `EXPENSE:FEES` | expense | Explicit fee lines (V1: zero) |
+| `SUSPENSE:UNALLOCATED` | suspense | Funds at an address without an open deposit assignment, or directly at a treasury wallet |
 
-### Posting rules — SELL_USDT (100k @ client 102.00, route 104.20)
-| Event (posting_key) | Entries |
-|---|---|
-| `trade:{t}:accept` | Dr CLIENT_RECEIVABLE:{c} 100,000 USDT / Cr CLEARING:TRADE:{t} 100,000 USDT · Dr CLEARING:TRADE:{t} ₹10,200,000 / Cr CLIENT_PAYABLE:{c} ₹10,200,000 |
-| `crypto:{x}:confirm` | Dr TREASURY_USDT:{w} amount / Cr CLIENT_RECEIVABLE:{c} amount |
-| `leg:{l}:confirm` | Dr CLIENT_PAYABLE:{c} leg amount / Cr INR_SETTLEMENT:{a} leg amount |
-| `trade:{t}:complete` | Dr ROUTE_RECEIVABLE:{r} ₹10,420,000 / Cr CLEARING:TRADE:{t} ₹10,200,000 / Cr REVENUE:GROSS_MARGIN ₹220,000 · Dr CLEARING:TRADE:{t} 100,000 USDT / Cr ROUTE_PAYABLE:{r} 100,000 USDT |
+### 3.3 Business-event journals
+| posting_key | SELL_USDT (100,000 @ client 102.00, route 104.20) | BUY_USDT (100,000 @ client 102.00, route 100.00) |
+|---|---|---|
+| `trade:{t}:accept` | USDT: Dr CLIENT_RECEIVABLE 100,000 / Cr ROUTE_PAYABLE 100,000 · INR: Dr ROUTE_RECEIVABLE ₹10,420,000 / Cr CLIENT_PAYABLE ₹10,200,000 / Cr DEFERRED_MARGIN ₹220,000 | INR: Dr CLIENT_RECEIVABLE ₹10,200,000 / Cr ROUTE_PAYABLE ₹10,000,000 / Cr DEFERRED_MARGIN ₹200,000 · USDT: Dr ROUTE_RECEIVABLE 100,000 / Cr CLIENT_PAYABLE 100,000 |
+| `trade:{t}:complete` | Dr DEFERRED_MARGIN ₹220,000 / Cr GROSS_MARGIN ₹220,000 | Dr DEFERRED_MARGIN ₹200,000 / Cr GROSS_MARGIN ₹200,000 |
+| `trade:{t}:cancel` | Exact reversal of `accept`; allowed only when the trade and its route obligation carry no net confirmed movements (none, or fully refunded/returned) | same |
+| `adj:{id}` | Reversal of affected lines + re-posting of corrected lines | same |
 
-### Posting rules — BUY_USDT (100k @ client 102.00, route 100.00 → margin ₹200,000)
-| Event | Entries |
-|---|---|
-| `trade:{t}:accept` | Dr CLIENT_RECEIVABLE:{c} ₹10,200,000 / Cr CLEARING:TRADE:{t} ₹10,200,000 · Dr CLEARING:TRADE:{t} 100,000 USDT / Cr CLIENT_PAYABLE:{c} 100,000 USDT |
-| `fiat_in:{f}:confirm` | Dr INR_SETTLEMENT:{a} / Cr CLIENT_RECEIVABLE:{c} |
-| `crypto_out:{x}:confirm` | Dr CLIENT_PAYABLE:{c} / Cr TREASURY_USDT:{w} |
-| `trade:{t}:complete` | Dr CLEARING:TRADE:{t} ₹10,200,000 / Cr ROUTE_PAYABLE:{r} ₹10,000,000 / Cr REVENUE:GROSS_MARGIN ₹200,000 · Dr ROUTE_RECEIVABLE:{r} 100,000 USDT / Cr CLEARING:TRADE:{t} 100,000 USDT |
+### 3.4 Movement journals (by payer → payee)
+| Movement | Evidence | Journal | Satisfies |
+|---|---|---|---|
+| Client USDT → deposit address | crypto | Dr TREASURY_USDT / Cr CLIENT_RECEIVABLE | client first leg |
+| Client INR → exchange account | fiat | Dr INR_SETTLEMENT / Cr CLIENT_RECEIVABLE | client first leg |
+| Exchange account INR → client bank | fiat | Dr CLIENT_PAYABLE / Cr INR_SETTLEMENT | client payout leg |
+| Treasury USDT → client wallet | crypto | Dr CLIENT_PAYABLE / Cr TREASURY_USDT | client payout leg |
+| **Route INR → client bank (`DIRECT_TO_CLIENT`)** | fiat | **Dr CLIENT_PAYABLE / Cr ROUTE_RECEIVABLE** | client payout leg **and** route obligation (route side), in one command |
+| **Route USDT → client wallet (`DIRECT_TO_CLIENT`)** | crypto | **Dr CLIENT_PAYABLE / Cr ROUTE_RECEIVABLE** | client payout leg **and** route obligation |
+| Route INR → exchange account (`TO_EXCHANGE`) | fiat | Dr INR_SETTLEMENT / Cr ROUTE_RECEIVABLE | route obligation |
+| Route USDT → treasury (`TO_EXCHANGE`) | crypto | Dr TREASURY_USDT / Cr ROUTE_RECEIVABLE | route obligation |
+| Treasury USDT → route | crypto | Dr ROUTE_PAYABLE / Cr TREASURY_USDT | route obligation (exchange side) |
+| Exchange account INR → route | fiat | Dr ROUTE_PAYABLE / Cr INR_SETTLEMENT | route obligation (exchange side) |
+| Refund of received client funds | fiat/crypto | Dr CLIENT_RECEIVABLE / Cr TREASURY_USDT or INR_SETTLEMENT | refund leg (`REFUND_TO_CLIENT`), exception resolution |
 
-At completion `CLEARING:TRADE:{t}` is zero in both currencies, client receivable/payable for the trade are zero, and margin is realized. Cancellation before any confirmed funds posts `trade:{t}:cancel` = exact reversal of `accept`. Adjustments post `adj:{id}` with reversal of affected amounts and re-posting of new ones.
+### 3.5 Canonical direct-settlement walkthrough (SELL, `DIRECT_TO_CLIENT`)
+| Step | Journal | ROUTE_RECEIVABLE (INR) | CLIENT_PAYABLE (INR) | DEFERRED / REVENUE | Trade | Route obligation |
+|---|---|---|---|---|---|---|
+| Accept | `trade:accept` | ₹10,420,000 | ₹10,200,000 | ₹220,000 / 0 | AWAITING_FIRST_LEG | OPEN |
+| 100,000 USDT confirmed | `crypto:{x}:confirm` | ₹10,420,000 | ₹10,200,000 | ₹220,000 / 0 | FIRST_LEG_CONFIRMED | OPEN |
+| Route pays ₹10,200,000 to client, one UTR | `fiat:{f}:confirm` (only journal) | ₹220,000 | 0 | ₹220,000 / 0 | → COMPLETED (same command) | PARTIALLY_SETTLED (INR remaining ₹220,000; USDT side 100,000 open) |
+| Completion | `trade:complete` | ₹220,000 | 0 | 0 / ₹220,000 | COMPLETED | PARTIALLY_SETTLED |
+| Treasury sends 100,000 USDT to route | `crypto:{y}:confirm` | ₹220,000 | 0 | 0 / ₹220,000 | — | PARTIALLY_SETTLED (only INR ₹220,000 remaining) |
+| Route pays residual ₹220,000 to exchange account (or audited adjustment) | `fiat:{g}:confirm` | 0 | 0 | 0 / ₹220,000 | — | SETTLED |
 
-### Posting rules — route settlement (`PER_TRADE`, any direction)
-| Event | Entries |
-|---|---|
-| `route_settlement:{id}:confirm` — USDT TO_ROUTE | Dr ROUTE_PAYABLE:{r} / Cr TREASURY_USDT:{w} |
-| `route_settlement:{id}:confirm` — INR FROM_ROUTE | Dr INR_SETTLEMENT:{a} / Cr ROUTE_RECEIVABLE:{r} |
-| `route_settlement:{id}:confirm` — INR TO_ROUTE | Dr ROUTE_PAYABLE:{r} / Cr INR_SETTLEMENT:{a} |
-| `route_settlement:{id}:confirm` — USDT FROM_ROUTE | Dr TREASURY_USDT:{w} / Cr ROUTE_RECEIVABLE:{r} |
-
-SELL example: after completion, route position is ROUTE_RECEIVABLE ₹10,420,000 and ROUTE_PAYABLE 100,000 USDT; delivering 100,000 USDT and receiving ₹10,420,000 brings both to zero. Allocation to obligations is operational (no journal); the journal is posted once per confirmed settlement.
+Invariant check at every row: `ledger balance of ROUTE_RECEIVABLE/ROUTE_PAYABLE for the obligation = obligation remaining per side` (FI-64).
 
 ## 4. P&L definitions
 
@@ -180,4 +200,5 @@ SELL example: after completion, route position is ROUTE_RECEIVABLE ₹10,420,000
 ## 5. What is deliberately not an invariant in V1
 
 - `PREFUNDED` and `NET_SETTLED` route settlement models are not implemented; FI-63 prevents their use.
+- Client pays the route directly (client → route) is not a V1 execution mode.
 - Fees default to zero; the schema supports explicit fee lines.

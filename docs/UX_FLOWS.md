@@ -1,6 +1,6 @@
 # INRP2P Exchange — UX Flows, Navigation, Components, Wireframes
 
-Status: Phase 0, revision 2 (decisions D-01…D-13 applied). Visual authority: `docs/source/DESIGN_SYSTEM_BRIEF.md`. This file adds structure, flows and wireframes; it does not restyle the brief.
+Status: Phase 0, revision 3 (`DECISIONS.md` Revision 3). Visual authority: `docs/source/DESIGN_SYSTEM_BRIEF.md`. This file adds structure, flows and wireframes; it does not restyle the brief.
 
 All examples use realistic values: 100,000 USDT · ₹10,200,000 · ₹104.20 · ₹102.00 · ₹220,000.
 
@@ -89,22 +89,29 @@ Desktop: persistent 220px sidebar, central workspace, optional 380px right conte
 7. `EXPIRED`: "Quote expired" + **Get new quote** (prefills same request).
 
 ### F2 — Quote link (messenger)
-Dealer creates quote from Desk (link quotes: validity ≥ 60s, warning below 90s) → **Copy link** → pastes in Telegram.
+Dealer creates quote from Desk (link quotes: default validity 3:00, minimum 2:00; the link option is disabled when less than 2:00 remains) → **Copy link** → pastes in Telegram.
 1. Client taps → `/q/{token}` → sees only amount, rate, INR, network, masked destination, expiry. Opening the page changes nothing.
 2. **Accept** → "Confirm it's you": masked recipients of authorized users (`a•••@acmepay.in`); one recipient is preselected if only one exists → **Send code**.
 3. Six-digit code field (autofocus, `inputmode=numeric`, `autocomplete=one-time-code`), quote countdown still visible, **Resend** after 30s (max 3), attempts remaining shown after a wrong code.
 4. **Confirm & accept** → one server step verifies code and accepts → confirmation with trade ref and deposit instructions (unique address) → "Open in INRP2P" (sign in) for tracking.
 5. Quote expires during verification → "Quote expired" + "Ask the desk for a new quote"; the code is void.
-6. **Reject** (no code needed) → "Rejected. The desk has been notified."
+6. **Not now** (no code) → local dismissal only: "Closed on this device. The quote stays open until it expires." No server call; the quote remains SENT.
+7. **Reject with code** → same verification as step 2–3 → "Rejected. The desk has been notified." (`quote.reject_via_link`).
 
 ### F3 — Client BUY USDT
 Toggle **Buy USDT** → amount in USDT or INR (fixed side switch) → destination wallet `TRC20 · TXq…9fA2` → quote → accept → pay INR instructions: our collection account (masked name + full details shown once to authenticated client), exact amount, reference code → client submits UTR → operator confirms → USDT sent (tx hash shown when confirmed) → Completed.
 
 ### F4 — Dealer quoting
-Desk queue row "New request · 100,000 USDT → INR · asks 102.00 · route 104.20 · +₹220,000" → **Quote** opens right panel: client rate prefilled with target (editable), validity 90s, live computed INR + margin → **Send** (+ copy link). Changing rate below/above target marks it **Counter**. **Decline** requires reason.
+Desk queue row "New request · 100,000 USDT → INR · asks 102.00 · route 104.20 · +₹220,000" → **Quote** opens right panel: client rate prefilled with target (editable), validity 90s in-app (switches to 3:00 default, minimum 2:00, when **Create link** is ticked), live computed INR + margin → **Send** (+ copy link). Changing rate below/above target marks it **Counter**. **Decline** requires reason.
 
 ### F5 — Settlement operator payout (SELL)
-Trade reaches FIRST_LEG_CONFIRMED → queue group "Settlement · Create INR payout" → panel shows obligation `₹10,200,000`, remaining `₹10,200,000`, account list with today's available capacity → select `HDFC · Company A` → amount `₹2,000,000` → reserve & create leg → **Mark sent** → **Add UTR** → **Confirm** (step-up) → next leg… → auto-complete when remaining = 0.
+Trade reaches FIRST_LEG_CONFIRMED → queue group "Settlement · Create INR payout" → panel shows obligation `₹10,200,000`, remaining `₹10,200,000` → **Paid by**:
+- **Exchange account** → account list with today's available capacity → select `HDFC · Company A` → amount `₹2,000,000` → reserve & create leg → **Mark sent** → **Add UTR** → **Confirm** (step-up).
+- **Route (direct)** (only on `DIRECT_TO_CLIENT` trades) → amount `₹10,200,000` → create leg → **Route reported sent** → **Add UTR** → **Confirm** (step-up). One confirm completes the client leg and records the route side; no capacity is used. Operators without `economics:view` see no route amounts.
+→ next leg… → auto-complete when remaining = 0.
+
+### F5b — Route positions (FINANCE)
+Rates → Route positions: per obligation, *route delivers* (e.g. ₹10,420,000 · allocated ₹10,200,000 direct · remaining ₹220,000) and *exchange delivers* (100,000 USDT · remaining 100,000) → **Record route settlement** (route → exchange, exchange → route) with UTR/tx → **Confirm** (step-up) → allocate. Direct allocations appear read-only, linked to the client leg and its UTR.
 
 ### F6 — Exception
 Scanner detects `99,950 USDT` on a 100,000 trade → trade hold → queue group "Exception" with red rail + label "Short by 50 USDT" → panel shows resolution options (Wait for top-up · Adjust trade to received (approval) · Refund & cancel) → chosen command → audit.
@@ -142,6 +149,7 @@ Scanner detects `99,950 USDT` on a 100,000 trade → trade hold → queue group 
 | `AcceptanceVerification` | recipient picker + `OtpInput` + resend/attempts, inside the quote countdown | states: choose · sent · invalid · locked · expired | Quote link |
 | `OtpInput` | 6-digit one-time code entry | `autocomplete=one-time-code` | Quote link, client login |
 | `DepositAddress` | unique per-trade TRC20 address, copy, QR, exact amount | | Trade, link confirmation |
+| `PayerSelector` | payout leg payer: exchange account / route (direct), mode-aware | | Payout panel |
 | `RoutePositionRow` | route obligation: delivers / receives / allocated / remaining | operator with `route_positions:view` | Rates → Route positions |
 | `DepositPoolStatus` | capability + available/assigned/cooldown counts | | USDT |
 | `Button` | `intent="primary" | "secondary" | "ghost" | "danger"`, `size` | | all |
@@ -228,7 +236,7 @@ Formatting rules (in `ui/format`, `DECISIONS.md D-11`): INR uses **international
 │                               │
 │                               │
 │ [        Accept quote       ] │  ← thumb zone, sticky
-│         Reject                │
+│   Not now · Reject with code  │
 └───────────────────────────────┘
 ```
 
@@ -318,6 +326,7 @@ Formatting rules (in `ui/format`, `DECISIONS.md D-11`): INR uses **international
 │ Unallocated         ₹3,200,000            │
 │ ─────────────────────────────────────     │
 │ New payout leg                            │
+│ Paid by (•) Exchange account ( ) Route    │
 │ From  HDFC · Company A                    │
 │       Available today ₹800,000  ▓▓▓▓▓░    │
 │       ICICI · Company B                   │

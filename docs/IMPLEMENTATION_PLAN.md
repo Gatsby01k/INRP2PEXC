@@ -1,22 +1,22 @@
 # INRP2P Exchange — Implementation Plan
 
-Status: Phase 0, revision 2 (decisions D-01…D-13 applied).
+Status: Phase 0, revision 3 (`DECISIONS.md` Revision 3).
 Rule: each phase has exit criteria; a phase is closed only when all criteria pass from a clean checkout in CI. Later-phase behaviour is not built early.
 
 ## Phase 0 — Specification (this commit)
 Deliverables: PRODUCT, ARCHITECTURE, DOMAIN_MODEL, STATE_MACHINES, FINANCIAL_INVARIANTS, SECURITY, UX_FLOWS (navigation, component inventory, wireframes, responsive rules), DECISIONS, this plan.
-Exit: founder review ✔; D-01, D-02, D-03, D-04, D-07, D-10, D-11, D-13 resolved ✔; documents revised to revision 2 ✔; closure report accepted by founder; D-06 stack confirmed; tag `phase-0-accepted`.
+Exit: founder reviews ✔ (rev 2, rev 3); decisions per `DECISIONS.md` Revision 3 incl. approved stack (D-06), direct route settlement (D-14), authenticated rejection (D-15) ✔; cross-document consistency review ✔; founder acceptance; tag `phase-0-accepted`.
 
 ## Phase 1 — Foundation
-- pnpm monorepo, TS strict, lint boundaries between packages, CI (typecheck, lint, unit, integration with Testcontainers Postgres, secret scan).
+- Node.js 24 LTS, TypeScript 6 strict, pnpm monorepo, PostgreSQL 18.6 via Testcontainers, lint boundaries between packages, CI (typecheck, lint, unit, integration with Testcontainers Postgres, secret scan).
 - `kernel`: Money/Rate/Currency, conversion + rounding, ids, DB clock, typed errors.
 - `db`: migrations, roles (`app_rw`, `worker`, `migrator`), append-only triggers, transaction helper with lock-order helper.
-- `identity`: operator users, Argon2id, TOTP MFA, sessions, step-up, RBAC matrix (incl. route and custody permissions), client users + email OTP login + `email_verified_at`; generic OTP challenge primitive (hashing, TTL, attempts, send limits) reused by quote acceptance in Phase 3.
+- `identity`: Better Auth (operator config: credential login + mandatory TOTP; client config: email-OTP login + email verification), schema as explicit SQL migrations, `step_up_verification`, RBAC matrix (incl. route, custody and direct-payout permissions), auth audit hooks. Verify the pinned Better Auth version against SECURITY §2 (cookies, timeouts, revocation, TOTP); report any gap. No custom session framework.
 - `audit`: writer, redaction, sealing job.
 - `ledger`: accounts, balanced journal posting, posting-key uniqueness, balance queries, global zero check.
 - Idempotency key store + command pipeline skeleton; outbox + Graphile Worker dispatcher.
 Compliance hooks from D-07 are schema-level only here (no KYC workflow).
-Exit: canonical money tests (100k @ 102.00/104.20 → ₹10.2M / ₹220k; reverse direction; rounding table); unbalanced journal rejected; ledger/audit UPDATE/DELETE rejected at DB; idempotent replay; RBAC tests for every matrix cell; MFA enforced for every operator route.
+Exit: canonical money tests (100k @ 102.00/104.20 → ₹10.2M / ₹220k; reverse direction; rounding table); unbalanced journal rejected; ledger/audit UPDATE/DELETE rejected at DB; idempotent replay; RBAC tests for every matrix cell; MFA enforced for every operator route; operator and client sessions isolated by host/cookie.
 
 ## Phase 1.5 — Design system
 Tokens (UX_FLOWS §1, approved D-10), locale-independent INR formatter with international grouping (D-11), Geist, `ui` package, all components in UX_FLOWS §4 in Storybook with realistic values, formatting library, accessibility checks (axe) and Playwright visual regression baselines for every component state.
@@ -28,12 +28,25 @@ Clients, contacts, client users (`can_accept_quotes`), bank accounts (encryption
 Exit: capacity reservation race test (two concurrent reservations on last capacity → exactly one succeeds); two concurrent address allocations never return the same address; capability recorded in `custody_provider_config` and queryable by the acceptance module (enforced in Phase 3); non-`PER_TRADE` route model rejected; paused account rejects reservations; rate snapshot append-only; client bank change audited.
 
 ## Phase 3 — Requests & quotes
-Trade requests, quote create/send/counter/decline/cancel, quote links (view-only token), acceptance challenges (email OTP), `quote.accept` (app) and `quote.accept_via_link` (OTP-verified), expiry job + sweeper, acceptance creating Trade + economics + route obligation (EXPECTED) + deposit assignment + accept journal, client projection types.
-Exit tests: opening a link never changes state; link acceptance without OTP impossible; wrong / expired / superseded / reused OTP rejected; OTP valid but quote expired rejected; attempts and send limits enforced; accept at T−1ms succeeds; at T+1ms fails; same quote accepted twice; two operators/clients accepting the same request concurrently; superseded quote cannot be accepted; rate change after acceptance doesn't change trade; client API JSON never contains route/margin/provider keys; link token lookup constant time and rate-limited; SELL acceptance disabled when custody capability is `UNSUPPORTED`.
+Trade requests, quote create/send/counter/decline/cancel, quote links (view-only token), acceptance challenges (INRP2P domain OTP, not Better Auth), `quote.accept` / `quote.reject` (authenticated app) and `quote.accept_via_link` / `quote.reject_via_link` (OTP-verified), link validity default 180 s / min 120 s, expiry job + sweeper, acceptance creating Trade + economics (frozen route execution mode) + route obligation (OPEN) + deposit assignment + accept journal (incl. route receivable/payable and deferred margin), client projection types.
+Exit tests: opening a link never changes state; unauthenticated link "Decline" makes no server mutation and the quote stays SENT; link rejection without OTP impossible; link acceptance without OTP impossible; link quote with validity < 120 s rejected, default 180 s; OTP expiry never exceeds quote expiry; wrong / expired / superseded / reused OTP rejected; OTP valid but quote expired rejected; attempts and send limits enforced; accept at T−1ms succeeds; at T+1ms fails; same quote accepted twice; two operators/clients accepting the same request concurrently; superseded quote cannot be accepted; rate change after acceptance doesn't change trade; client API JSON never contains route/margin/provider keys; link token lookup constant time and rate-limited; SELL acceptance disabled when custody capability is `UNSUPPORTED`.
 
 ## Phase 4 — Trade state machine & settlement legs
-Trade transitions T1–T10, hold overlay, route obligation EXPECTED→OPEN on completion and →CANCELLED on cancellation, settlement legs, fiat transfers (UTR uniqueness), capacity consume/release, completion + margin realization, cancellation reversal, financial adjustments (two-person), exception cases + resolution commands.
-Exit tests: multiple INR legs; partial settlement; failed leg + replacement; duplicate UTR; over-allocation blocked (concurrent); cancelled trade releases capacity; adjustment preserves original economics and posts compensating journal; P&L counts only completed trades; trade completes while route obligation stays OPEN (FI-62); property-based test of random command sequences never violates FI-20/21/30/40.
+Trade transitions T1–T10, hold overlay, route obligation allocation and cancellation, settlement legs with payer `EXCHANGE_ACCOUNT` / `ROUTE`, movements (`fiat_transfer`, `crypto_transfer` records) with one journal per movement, `transfer_allocation` (CLIENT / ROUTE dimensions), direct route payout confirm (`DIRECT_TO_CLIENT`), `TO_EXCHANGE` route settlements (record/confirm/allocate), fiat transfers (UTR uniqueness), capacity consume/release, completion + margin realization, cancellation reversal, financial adjustments (two-person), exception cases + resolution commands.
+Exit tests — **direct route payout, no double counting**:
+  1. Canonical: SELL 100,000 USDT, client ₹102.00, route ₹104.20, mode `DIRECT_TO_CLIENT`; one route payout ₹10,200,000 with one UTR → exactly one `fiat_transfer`, exactly one movement journal (Dr CLIENT_PAYABLE / Cr ROUTE_RECEIVABLE), leg COMPLETED, trade COMPLETED, margin ₹220,000 realized, route obligation PARTIALLY_SETTLED with INR remaining ₹220,000 and ledger ROUTE_RECEIVABLE for that obligation = ₹220,000 (FI-64).
+  2. Replaying the confirm (same idempotency key; new key) posts nothing and allocates nothing again.
+  3. Recording the same UTR as a `FROM_ROUTE_TO_EXCHANGE` route settlement, as another leg, or on another trade is rejected (FI-22, FI-28).
+  4. Manually allocating a direct movement to a second route settlement or a second leg is rejected (unique dimension).
+  5. A movement with payer `EXCHANGE_ACCOUNT` cannot be allocated to a route obligation; a `ROUTE` payer leg is rejected on a `TO_EXCHANGE` trade (FI-65).
+  6. Direct payout larger than client remaining or than route-delivers remaining → whole command rolls back; `ROUTE_DIRECT_PAYOUT_MISMATCH` opened; no leg, allocation or journal persists.
+  7. Concurrent confirms of two direct legs whose sum exceeds route remaining → exactly one succeeds.
+  8. Mixed payers: route direct ₹10,000,000 + exchange account ₹200,000 → trade COMPLETED, route INR remaining ₹420,000; client payable zero; ledger balanced per currency.
+  9. Failed direct leg: no journal, no route allocation, obligation unchanged.
+  10. Residual ₹220,000 later settled by `FROM_ROUTE_TO_EXCHANGE` → obligation SETTLED once USDT side also settled; ledger route balances zero.
+  11. Client projections/receipts of a direct payout never include route identity.
+  12. Global property test: for random sequences of direct/exchange/route movements, Σ client payable reductions = Σ CLIENT-dimension allocations, Σ route receivable reductions = Σ ROUTE-dimension allocations, and each movement id appears in exactly one journal.
+Other exit tests: multiple INR legs; partial settlement; failed leg + replacement; duplicate UTR; over-allocation blocked (concurrent); cancelled trade releases capacity; adjustment preserves original economics and posts compensating journal; P&L counts only completed trades; trade completes while route obligation stays OPEN (FI-62); property-based test of random command sequences never violates FI-20/21/30/40.
 
 ## Phase 5 — TRON monitoring
 TronAdapter (two providers), block/address scanner with cursor, transfer detection, solidification confirmation, allocation, exception detection (short/over/unexpected sender/duplicate/not final), BUY outbound verification by tx hash.
@@ -41,7 +54,7 @@ Attribution strictly by deposit assignment (FI-26); funds to cooled-down / unass
 Exit tests (recorded fixtures + fake adapter + testnet smoke): duplicate event idempotent; transfer to another trade's address never allocated to this trade; cooled-down address deposit → `FUNDS_AFTER_TRADE_CLOSED`; same tx on two trades rejected; short and over payment; wrong destination/contract ignored or suspense; seen-not-final stays DETECTED; orphaned tx reverts; provider disagreement blocks confirmation.
 
 ## Phase 6 — Operator product
-Desk (strip + grouped queue + context panels), Orders, Rates (incl. Route positions), route settlement recording + allocation via `ManualRouteAdapter` (FINANCE/OWNER), INR, USDT (incl. deposit pool status), Clients (create quote, repeat trade), trade operations, command bar, keyboard flows, step-up dialogs.
+Desk (strip + grouped queue + context panels), Orders, Rates (incl. Route positions), route settlement recording + allocation via `ManualRouteAdapter` (FINANCE/OWNER), direct route payout legs in the payout panel (payer selector, route-reported sent, UTR, confirm), INR, USDT (incl. deposit pool status), Clients (create quote, repeat trade), trade operations, command bar, keyboard flows, step-up dialogs.
 Exit: E2E demo scenario driven entirely through operator UI + fake chain; keyboard-only run of quote → payout; visual regression for operator validation list.
 
 ## Phase 7 — Client product
@@ -73,7 +86,7 @@ Exit: launch checklist complete (below), penetration test findings triaged, coun
 | **Historical pricing mutation** | Trades join to "current rate" | Snapshots copied into insert-only `trade_economics`; adjustments as separate records | Reports must never join to current rates → query review checklist |
 | **Leaked quote link** | Bearer link accepts on behalf of client | Token is view-only; OTP to verified email of authorized user, consumed atomically with acceptance (D-01, FI-07) | Compromised client mailbox |
 | **USDT misattribution** | Shared address + amount matching | Unique per-trade deposit address via custody adapter; no heuristics (D-02, FI-26) | Provider capability not yet confirmed — Phase 2 gate |
-| **Route settlement drift** | Route side untracked | Separate route obligations + settlements + ledger accounts (D-03, FI-60…63) | Only `PER_TRADE` implemented |
+| **Route settlement drift / double counting** | Route side untracked; direct route→client payout recorded twice (as payout and as route settlement) | Separate route obligations recognized at acceptance; one movement row + one journal per UTR/tx; dimension-unique allocations; atomic direct confirm (D-03, D-14, FI-27/28, FI-60…65) | Only `PER_TRADE` implemented; route statements imported manually |
 | **Permission failures** | UI hides buttons but API allows; margin leaks in JSON | Command-level authorization, DTO field absence, leakage tests, matrix tests per cell, MFA/step-up enforced server-side | Misconfigured role grants by OWNER → audited, alerts on role changes |
 
 Remaining external dependencies (not blocking Phase 1):

@@ -1,6 +1,6 @@
 # INRP2P Exchange — Architecture
 
-Status: Phase 0, revision 2 (decisions D-01…D-13 applied).
+Status: Phase 0, revision 3 (`DECISIONS.md` Revision 3).
 
 ## 1. Shape: modular monolith
 
@@ -8,22 +8,25 @@ One deployable application, one PostgreSQL system of record, one durable job run
 
 Modules are enforced boundaries (separate packages, lint-enforced import rules), not folders by convention.
 
-## 2. Stack (proposed — see `DECISIONS.md D-06`)
+## 2. Stack (approved — `DECISIONS.md D-06`)
 
 | Concern | Choice | Why |
 |---|---|---|
-| Language | TypeScript (strict) end to end | One type system from DB row to UI; `bigint` for exact money |
-| Web | Next.js (App Router), React | SEO pages, client app, operator app and quote link in one app with per-surface layouts; server-rendered public pages |
-| DB | PostgreSQL 16 | System of record; row locks, partial unique indexes, deferred constraints, SERIALIZABLE where needed |
+| Runtime | Node.js 24 LTS | Single runtime for web, worker and tooling |
+| Language | TypeScript 6, `strict` end to end | One type system from DB row to UI; `bigint` for exact money |
+| Web | Next.js 16.x (latest patched stable, App Router) + React (version paired with that Next.js release) | SEO pages, client app, operator app and quote link in one app with per-surface layouts; server-rendered public pages |
+| DB | PostgreSQL 18.6 | System of record; row locks, partial unique indexes, deferred constraints, SERIALIZABLE where needed |
 | DB access | Kysely (typed SQL builder) + hand-written SQL migrations | Explicit transactions and `SELECT … FOR UPDATE`; no ORM hiding locking or issuing surprise writes |
 | Jobs | Graphile Worker (Postgres-backed) | Durable, transactional enqueue in the same DB transaction, retries, cron; no Redis |
 | Validation | Zod at every boundary | Commands, HTTP, adapter payloads |
 | Money | Internal `Money`/`Rate` value types over `bigint` minor units | See `FINANCIAL_INVARIANTS.md §1` |
-| Auth | Own session layer: DB sessions, Argon2id, TOTP MFA for operators (WebAuthn later), email OTP for client login and quote-link acceptance challenges | Full control over MFA, step-up, OTP challenges, session revocation, audit |
+| Auth | **Better Auth**: users, sessions, credential login, email verification, client email-OTP login, operator TOTP two-factor. INRP2P adds RBAC, step-up freshness, command-level authorization and the quote-bound acceptance challenge (domain primitive) | No proprietary auth/session framework; quote acceptance needs quote-specific TTL, attempts, actor binding, DB-time validation, idempotency and atomic consumption with acceptance, which a generic auth OTP does not give |
 | PDF | Server-side render from immutable receipt snapshot (HTML → PDF via headless Chromium) | Same design system, grayscale-safe |
 | Tests | Vitest (unit), Testcontainers PostgreSQL (integration), Playwright (E2E + visual regression) | Real Postgres for concurrency tests |
 | Components | Storybook (component gallery) | Required by design system |
 | Monorepo | pnpm workspaces | Package boundaries = module boundaries |
+
+Versions are pinned in `package.json`/lockfile and `.nvmrc`/`engines`; security patch updates within the approved major lines do not require a decision.
 
 ## 3. Repository layout
 
@@ -34,15 +37,15 @@ apps/
 packages/
   kernel/                 Money, Rate, Currency precision, ids, clock, Result, errors, idempotency
   db/                     migrations, Kysely types, transaction helper, test DB harness
-  identity/               users, sessions, MFA, OTP challenges (login + quote acceptance), roles, permissions
+  identity/               Better Auth configuration (operator + client), roles, permissions, step-up verification, auth audit hooks
   audit/                  append-only audit writer + sealing
   ledger/                 ledger accounts, journal posting, balance queries
   clients/                clients, contacts, bank accounts, crypto wallets
   routes/                 liquidity routes (incl. settlement_model), route obligations, route settlements + allocations
   pricing/                rate snapshots, quote math
-  quotes/                 trade requests, quotes, quote links, acceptance (app + OTP-verified link)
+  quotes/                 trade requests, quotes, quote links, acceptance challenges (domain OTP), accept/reject (app + OTP-verified link)
   trades/                 trade aggregate + state machine, exceptions, adjustments
-  settlement/             settlement legs, fiat transfers, capacity reservations
+  settlement/             settlement legs (payer EXCHANGE_ACCOUNT | ROUTE), movements (fiat/crypto transfer records), transfer allocations, movement journals, capacity reservations
   inr-accounts/           settlement entities, INR settlement accounts, daily capacity
   treasury/               treasury wallets, crypto transfers, deposit addresses + assignments (via CustodyAdapter)
   notifications/          notification intents + channel adapters
@@ -81,7 +84,10 @@ Failure anywhere → rollback of all of it. There is no code path that writes a 
 
 ### Lock order (deadlock prevention)
 Always acquire in this order when a command needs several:
-`trade_request → quote → acceptance_challenge → trade → route_obligation → settlement_leg → route_settlement → inr_account_day → treasury_wallet → deposit_address`.
+`trade_request → quote → acceptance_challenge → trade → route_obligation → settlement_leg → route_settlement → movement (fiat_transfer / crypto_transfer) → inr_account_day → treasury_wallet → deposit_address`.
+
+### Movements and postings
+A real value movement (one UTR or one on-chain transfer) is stored once and posts one journal keyed by the movement (`fiat:{id}:confirm`, `crypto:{id}:confirm`). Settlement legs and route settlements link to movements through `transfer_allocation` (dimensions CLIENT / ROUTE) and never post their own journals. The direct route payout command (`payout_leg.confirm` for `payer = ROUTE`) runs in the `settlement` module and calls the `routes` module's allocation API inside the same transaction; this is the one place where client settlement and route settlement meet, and it is covered by dedicated double-count tests (`IMPLEMENTATION_PLAN.md` Phase 4).
 
 ### Time
 All business time decisions (quote expiry, capacity day) use database time (`statement_timestamp()`), never app-server or browser clocks. Business day = Asia/Kolkata calendar day.
@@ -99,6 +105,7 @@ All business time decisions (quote expiry, capacity day) use database time (`sta
 | `custody.pool_health` | Cron | Read-only: alerts when available deposit addresses fall below threshold |
 | `tron.poll_address` / `tron.scan_blocks` | Cron + on deposit address assignment | `crypto_transfer` unique on `(network, tx_hash, log_index)` |
 | `tron.confirm_transfer` | Per detected transfer, backoff until solidified | Transition guarded by transfer state |
+| `route.reconcile` | Cron | Read-only: checks FI-64 (obligation remaining = ledger route balance per obligation) and opens `ROUTE_SETTLEMENT_MISMATCH` / `ROUTE_OBLIGATION_OVERDUE` idempotently |
 | `settlement.reconcile` | Cron | Read-only diffing → opens ExceptionCases idempotently (unique open case per `(type, subject)`) |
 | `capacity.release` | Outbox from cancellation/expiry/leg failure | Reservation state guarded |
 | `notification.send` | Outbox | Unique `(notification_id, channel)` delivery row |
@@ -116,7 +123,7 @@ No in-memory timers for any financial lifecycle event. The UI countdown is displ
 | `NotificationAdapter` | In-app (DB) + email (SMTP/transactional provider) | `send(intent)`; Telegram/WhatsApp/SMS later |
 | `BankRailAdapter` | `ManualRailAdapter`: operator records transfer + UTR | Later: bank API; same leg state machine |
 | `CustodyAdapter` (wallet adapter) | Provider-specific, watch-only: no keys in the app. Outbound USDT sent in the provider's tooling; operator records tx hash; system verifies on-chain | `capabilities()` → `{ depositAddress: DERIVED / POOL / UNSUPPORTED }`; `allocateDepositAddress(network, tradeRef)`; `listDepositAddresses()`. If the provider reports `UNSUPPORTED`, implementation stops and the limitation is reported (`DECISIONS.md D-02`). Later: MPC/HSM signing |
-| `RouteAdapter` | `ManualRouteAdapter`: operator records route settlements; on-chain evidence verified via `TronAdapter` | `settlementModel()`; `recordSettlement(...)`; later provider APIs for per-trade, prefunded or net settlement (`DECISIONS.md D-03`) |
+| `RouteAdapter` | `ManualRouteAdapter`: operators record route movements (route → exchange, exchange → route) and direct route → client payouts (as payout legs with `payer = ROUTE`); on-chain evidence verified via `TronAdapter` | `settlementModel()`, `executionMode()` (`DIRECT_TO_CLIENT` / `TO_EXCHANGE`); `recordSettlement(...)`; later provider APIs (payout status, statement import) for per-trade, prefunded or net settlement (`DECISIONS.md D-03`, `D-14`) |
 
 Adapters are the only place that talks to the outside world. Domain modules depend on port interfaces; tests use deterministic fakes.
 
@@ -125,7 +132,7 @@ Adapters are the only place that talks to the outside world. Domain modules depe
 | Surface | Host | Auth |
 |---|---|---|
 | Public site + SEO | `inrp2p.com` | none |
-| Quote link | `inrp2p.com/q/{token}` | token = view only; accept = OTP to verified email of an authorized client user (`DECISIONS.md D-01`) |
+| Quote link | `inrp2p.com/q/{token}` | token = view only, no state change; accept/reject = OTP to verified email of an authorized client user (`DECISIONS.md D-01`, `D-15`) |
 | Client app | `app.inrp2p.com` | client session |
 | Operator app | `desk.inrp2p.com` | operator session + mandatory MFA; optional IP allowlist |
 

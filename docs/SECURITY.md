@@ -1,13 +1,13 @@
 # INRP2P Exchange — Security
 
-Status: Phase 0, revision 2 (decisions D-01…D-13 applied).
+Status: Phase 0, revision 3 (`DECISIONS.md` Revision 3).
 
 ## 1. Threat model (V1 priorities)
 
 | # | Threat | Impact | Primary controls |
 |---|---|---|---|
 | S1 | Operator account takeover | Wrong payouts, margin/route leak, fake confirmations | Mandatory TOTP MFA, step-up for money actions, separate desk host, session revocation, anomaly alerts, two-person rules |
-| S2 | Leaked quote link | Unwanted commitment by a third party | Unguessable token that grants view only; acceptance only after OTP to a verified email of an authorized client user (D-01); short expiry; funds only to pre-saved client destinations; rate limits |
+| S2 | Leaked quote link | Unwanted commitment by a third party | View-only token — no unauthenticated state change (accept or reject); acceptance/rejection only after OTP to a verified email of an authorized client user (D-01, D-15); funds only to pre-saved client destinations; rate limits |
 | S3 | Double submission / retries | Double trade, double payout | Idempotency keys, unique constraints, state-guarded commands |
 | S4 | Insider manipulation of history | Hidden margin/theft | Append-only ledger + audit, sealed audit hash chain, adjustments two-person, no direct DB access for app users |
 | S5 | Client-side data exposure of internals | Route rate / provider / margin leak | Separate client projection types, serializer allow-lists, tests asserting forbidden keys absent |
@@ -18,32 +18,41 @@ Status: Phase 0, revision 2 (decisions D-01…D-13 applied).
 | S10 | Misattributed USDT deposit | Payout against another client's funds | Unique per-trade deposit address from CustodyAdapter; no amount/sender heuristics; unassigned-address funds to suspense (D-02) |
 | S11 | Regulatory misrepresentation | Legal exposure | No regulatory claims in product or public copy until counsel confirms (D-07); Phase 9 copy review |
 | S12 | Abuse of public endpoints | Enumeration, credential stuffing | Rate limits, uniform errors, CAPTCHA-less throttling with backoff |
+| S13 | Direct route payout double-counted or misapplied | Client shown as paid twice / route obligation wrong | One movement row per UTR/tx, one journal per movement, dimension-unique allocations, atomic direct confirm (FI-27, FI-28, FI-61) |
+| S14 | Route identity exposed to client via direct payout | Provider leak | Client projections show amount, status, masked UTR only — never payer entity; receipts show UTR, not remitter name |
 
 ## 2. Authentication
 
-### Operators (`desk.inrp2p.com`)
-- Email + password (Argon2id, memory-hard params, breached-password check) **and** TOTP MFA — required for **every** operator role, including READ_ONLY (read access includes margins and client data).
-- WebAuthn/passkeys planned as a second factor option; design session model to allow it.
-- Session: opaque 256-bit token in `__Host-` cookie (`Secure`, `HttpOnly`, `SameSite=Strict`), DB-stored hash, idle timeout 30 min, absolute 12 h, re-auth on IP/UA class change.
-- **Step-up**: MFA code within the last 10 minutes required for: confirming incoming INR, confirming payouts, changing UTR, cancelling trades, approving adjustments, changing capacity, changing roles, revealing full bank details, sending negative-margin quotes.
+### 2.0 Framework boundary
+- Standard authentication uses **Better Auth** (no proprietary auth/session framework): users, sessions, credential login, email verification, client **email-OTP** login, operator **TOTP** two-factor.
+- Two Better Auth configurations share the database: *operator* (`desk.inrp2p.com`) and *client* (`app.inrp2p.com`), with distinct cookie names and hosts so an operator session never exists in a client browser context.
+- INRP2P owns everything around it: RBAC roles/permissions, command-level authorization, step-up freshness, audit of auth events, rate limits on financial endpoints, and the quote-bound **acceptance challenge** (§2.3), which is a domain primitive and does not use Better Auth's OTP.
+- Phase 1 verifies that the pinned Better Auth version satisfies every requirement below; any gap is closed with Better Auth hooks/plugins or reported — not by replacing the framework with custom session code.
+
+### 2.1 Operators (`desk.inrp2p.com`)
+- Credential login + mandatory TOTP two-factor for **every** operator role (including READ_ONLY). Breached-password check via plugin or equivalent hook.
+- Session cookies: `Secure`, `HttpOnly`, `SameSite=Strict`, host-only; idle timeout 30 min, absolute 12 h; server-side revocation.
+- **Step-up**: TOTP verified within the last 10 minutes (INRP2P `step_up_verification`) for: confirming incoming INR, confirming payouts (including direct route payouts), changing UTR, cancelling trades, approving adjustments, route settlement confirm/allocate, changing capacity, changing roles, revealing full bank details, sending negative-margin quotes.
 - Optional IP allowlist for the desk host.
 
-### Clients (`app.inrp2p.com`)
-- Passwordless email OTP login (6 digits, 10 min, single use, attempt-limited); a successful login sets `email_verified_at`. Optional TOTP per client user; mandatory TOTP for `CLIENT_ADMIN` adding/archiving bank accounts or wallets (D-08).
-- Only client users with `can_accept_quotes` (granted by a `CLIENT_ADMIN` of that client or by an operator with `client_user:grant_accept_quotes`, step-up, audited) may accept quotes.
-- Session: `__Host-` cookie, `SameSite=Lax`, idle 60 min, absolute 7 days.
+### 2.2 Clients (`app.inrp2p.com`)
+- Passwordless **email-OTP login** (Better Auth); successful login marks the email verified. Optional TOTP per client user; TOTP required for `CLIENT_ADMIN` adding/archiving bank accounts or wallets (D-08).
+- Session cookies: `Secure`, `HttpOnly`, `SameSite=Lax`, host-only; idle 60 min, absolute 7 days.
+- Only client users with `can_accept_quotes` (granted by a `CLIENT_ADMIN` of that client or by an operator with `client_user:grant_accept_quotes`, step-up, audited) may accept or reject quotes.
 
-### Quote link (`/q/{token}`)
-- Token: 128 bits CSPRNG, base62, only SHA-256 hash stored; constant-time lookup by hash.
-- Viewing: token alone. Page shows client projection only; `Referrer-Policy: no-referrer`; `noindex`; no third-party scripts.
-- **Viewing never authorizes acceptance.** Accepting requires an `acceptance_challenge` (`DECISIONS.md D-01`):
-  - Link holder picks a masked recipient among the client's authorized users with verified email; the page never reveals full addresses or the code.
-  - OTP: 6 digits CSPRNG, stored as SHA-256 hash with per-challenge salt, valid 5 min and never beyond the quote's `expires_at`, 5 verify attempts, 3 sends per quote per 10 min, single use, bound to `(quote_id, client_user_id)`; a new send supersedes the previous challenge.
-  - `quote.accept_via_link` verifies the code and accepts the quote in one transaction (challenge `VERIFIED → CONSUMED` + quote `SENT → ACCEPTED`). Wrong/expired/consumed codes and expired quotes fail with uniform errors.
-  - An existing client session does not bypass the link OTP; in-app acceptance happens inside the authenticated app instead.
-  - OTP emails contain only the code, the quote reference and expiry — and no bank/wallet detail.
-- Token dies with quote terminal state; revocable by dealer; open count and first-open audited.
-- Why not a signed JWT-style link: an opaque DB token is revocable, carries no data, and cannot outlive a cancelled quote.
+### 2.3 Quote link (`/q/{token}`) and acceptance challenge
+- Token: 128 bits CSPRNG, base62, only SHA-256 hash stored; constant-time lookup by hash; `Referrer-Policy: no-referrer`; `noindex`; no third-party scripts.
+- **The token is view-only. No quote state can be changed by an unauthenticated viewer.** Opening the page records link telemetry (`open_count`, first open) but never mutates the quote.
+- The link page's unauthenticated **"Decline"** is a local UI dismissal only; the quote stays SENT until authenticated rejection, desk cancellation, supersession or expiry.
+- Accepting or formally rejecting requires an `acceptance_challenge` (`DECISIONS.md D-01`, `D-15`):
+  - Viewer picks a masked recipient among the client's authorized users with verified email; the page never reveals full addresses or the code.
+  - OTP: 6 digits CSPRNG, stored as salted hash, valid 5 min and never beyond the quote's `expires_at`, 5 verify attempts, 3 sends per quote per 10 min, single use, bound to `(quote_id, client_user_id)`; a new send supersedes the previous challenge.
+  - `quote.accept_via_link` / `quote.reject_via_link` verify the code and change the quote in one transaction against DB time; the challenge is consumed atomically. OTP delivery never extends quote validity.
+  - Shareable-link quotes: default validity 180 s, minimum 120 s (in-app quotes may be shorter).
+  - An existing client session does not bypass the link OTP; authenticated users can act inside the app instead.
+  - OTP emails contain only the code, quote reference and expiry — no amounts, bank or wallet details.
+- Token dies with the quote's terminal state; revocable by dealer.
+- Why an opaque DB token and not a signed link: revocable, carries no data, cannot outlive a cancelled quote.
 
 ## 3. RBAC permission matrix
 
@@ -61,6 +70,7 @@ Legend: ✔ allowed · ⧗ allowed with step-up MFA · ✱ requires second appro
 | `settlement:reserve_capacity` | ✔ | — | ✔ | — | — | — |
 | `settlement:create_payout` / `send_payout` | ✔ | — | ✔ | — | — | — |
 | `settlement:record_utr` | ✔ | — | ✔ | — | — | — |
+| `settlement:record_route_payout_sent` (direct legs) | ✔ | — | ✔ | — | — | — |
 | `settlement:change_utr` | ⧗ | — | ⧗ | — | — | — |
 | `settlement:confirm_payout` / `confirm_incoming` | ⧗ | — | ⧗ | — | — | — |
 | `settlement:fail_payout` / `cancel_payout` | ⧗ | — | ⧗ | — | — | — |
@@ -92,7 +102,7 @@ Rules:
 - Query-level redaction: users without `economics:view` receive DTOs where route rate / margin fields do not exist (not nulled — absent).
 - OWNER role assignment requires another OWNER's approval (✱) once more than one OWNER exists.
 - `created_by ≠ approved_by` enforced by DB CHECK on `financial_adjustment`.
-- Route obligations and route settlements reveal route economics, so every `route_*` permission is limited to roles that already hold `economics:view` (OWNER, FINANCE; DEALER read-only positions).
+- Route obligations and route settlements reveal route economics, so every `route_*` permission is limited to roles that already hold `economics:view` (OWNER, FINANCE; DEALER read-only positions). Exception: confirming a direct (`payer = ROUTE`) payout leg needs only `settlement:confirm_payout`; the route allocation is computed by the system and its amounts are not shown to users without `economics:view`.
 
 ## 4. Separation of duties (V1 defaults)
 
@@ -107,7 +117,7 @@ A single-person desk can run V1 by disabling thresholds explicitly in Settings (
 
 ## 5. Data protection
 
-- Encryption at rest: managed Postgres storage encryption + application envelope encryption for account numbers, TOTP secrets, client contact phone numbers.
+- Encryption at rest: managed Postgres storage encryption + application envelope encryption for account numbers and client contact phone numbers; TOTP secrets are stored encrypted as Better Auth's two-factor plugin manages them (verified in Phase 1).
 - Keyed HMAC (separate key) for bank account dedup and UTR lookup.
 - Masking helpers are the only way to render account numbers (`•••• 8219`) and UTRs (`••••7118`); raw values never enter logs, audit `before/after`, notifications or receipts beyond last 4 (receipts show full UTR — see D-09).
 - Attachments in private object storage, served via short-lived signed URLs after permission check; SHA-256 recorded.
@@ -125,17 +135,17 @@ A single-person desk can run V1 by disabling thresholds explicitly in Settings (
 
 - CSRF: `SameSite` cookies + Origin/Host verification on every mutation + per-form token.
 - CSP: strict (`default-src 'self'`, nonces for scripts, no inline eval), `frame-ancestors 'none'`, HSTS preload.
-- Rate limits (Postgres/edge token bucket): login 5/15min per account+IP, OTP verify 5 attempts per code, quote link open 30/min per IP, quote-link OTP send 3 per quote per 10 min and 10/hour per IP, OTP verify 5 attempts per challenge, quote accept 5/min per token, financial mutations 60/min per user.
+- Rate limits (Postgres/edge token bucket): login 5/15min per account+IP, OTP verify 5 attempts per code, quote link open 30/min per IP, quote-link OTP send 3 per quote per 10 min and 10/hour per IP, OTP verify 5 attempts per challenge, quote accept/reject 5/min per token, financial mutations 60/min per user.
 - Idempotency-Key header required on all financial mutation endpoints; UI generates a key per intent (not per click).
 - Uniform error messages on auth and link lookup (no token/email enumeration).
 - Dependency scanning, lockfile pinning, SBOM in CI.
 
 ## 8. Audit coverage (must emit)
 
-`rate.changed` · `quote.created/sent/accepted/rejected/expired/cancelled` · `quote_link.created/opened/revoked` · `acceptance_otp.sent/verified/failed/superseded` · `client_user.accept_permission_changed` · `deposit_address.assigned/released/retired` · `custody.capability_changed` · `route_obligation.created/opened/settled/cancelled` · `route_settlement.recorded/confirmed/allocated/failed` · `routes.settlement_model_changed` · `capacity.reserved/consumed/released/changed` · `settlement_account.selected` · `usdt.detected/confirmed/failed` · `utr.entered/changed` · `leg.*` · `trade.*` transitions · `adjustment.requested/approved/rejected` · `exception.opened/resolved/voided` · `client_bank.added/archived` · `client_wallet.added/archived` · `user.role_granted/revoked` · `user.mfa_enrolled/reset` · `session.login/logout/step_up/failed` · `bank_account.revealed` · `settings.threshold_changed` · `export.generated`.
+`rate.changed` · `quote.created/sent/accepted/rejected/expired/cancelled` · `quote_link.created/opened/revoked` · `acceptance_otp.sent/verified/failed/superseded` · `client_user.accept_permission_changed` · `deposit_address.assigned/released/retired` · `custody.capability_changed` · `route_obligation.created/partially_settled/settled/cancelled` · `route_settlement.recorded/confirmed/allocated/failed` (DIRECT_TO_CLIENT with actor SYSTEM and the leg's correlation id) · `leg.payer_reclassified` · `quote_link.local_decline` is **not** audited (no server call) · `routes.settlement_model_changed` · `capacity.reserved/consumed/released/changed` · `settlement_account.selected` · `usdt.detected/confirmed/failed` · `utr.entered/changed` · `leg.*` · `trade.*` transitions · `adjustment.requested/approved/rejected` · `exception.opened/resolved/voided` · `client_bank.added/archived` · `client_wallet.added/archived` · `user.role_granted/revoked` · `user.mfa_enrolled/reset` · `session.login/logout/step_up/failed` · `bank_account.revealed` · `settings.threshold_changed` · `export.generated`.
 
 Stored: actor, time, action, entity, redacted before/after, correlation id, idempotency key, session id, hashed IP. Sealed hourly into `audit_seal` hash chain; seal hashes exported daily to an external write-once location.
 
 ## 9. Compliance boundary (not legal advice — requires counsel before launch)
 
-INRP2P Exchange operates in a regulated area. Before production launch, counsel must confirm at minimum: registration obligations for virtual-digital-asset service providers in India (FIU-IND under PMLA), KYC/AML/sanctions screening requirements for clients and settlement entities, tax obligations on VDA transfers (e.g. TDS), and banking-partner terms for INR settlement accounts. Engineering Phase 1 is not blocked on these details (`DECISIONS.md D-07`), but production launch is. Until counsel confirms, the product, public site, SEO pages, receipts and notifications make **no regulatory claims** (registration, licence, "regulated", approvals or compliance status). The product must support (V1 hooks): client KYC status gating trading, record retention, suspicious-activity escalation, and export for regulators. The system must never provide features whose purpose is structuring payments below thresholds.
+INRP2P Exchange operates in a regulated area. Before production launch, counsel must confirm at minimum: registration obligations for virtual-digital-asset service providers in India (FIU-IND under PMLA), KYC/AML/sanctions screening requirements for clients and settlement entities, tax obligations on VDA transfers (e.g. TDS), banking-partner terms for INR settlement accounts, and the treatment of direct payouts made by a liquidity route to client bank accounts (`DIRECT_TO_CLIENT`). Engineering Phase 1 is not blocked on these details (`DECISIONS.md D-07`), but production launch is. Until counsel confirms, the product, public site, SEO pages, receipts and notifications make **no regulatory claims** (registration, licence, "regulated", approvals or compliance status). The product must support (V1 hooks): client KYC status gating trading, record retention, suspicious-activity escalation, and export for regulators. The system must never provide features whose purpose is structuring payments below thresholds.
