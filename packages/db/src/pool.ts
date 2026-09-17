@@ -16,6 +16,7 @@ export interface PoolOptions {
 
 const INT8_OID = 20;
 const NUMERIC_OID = 1700;
+const DATE_OID = 1082;
 
 function typesFor(mode: Int8Mode): pg.CustomTypesConfig {
   return {
@@ -27,6 +28,8 @@ function typesFor(mode: Int8Mode): pg.CustomTypesConfig {
           return n;
         };
       }
+      // Calendar dates (e.g. IST business day) stay 'YYYY-MM-DD' strings: a JS Date would shift them by the process time zone.
+      if (oid === DATE_OID) return (v: string) => v;
       // Numeric aggregates (e.g. balance views) are parsed exactly as bigint when integral.
       if (oid === NUMERIC_OID && mode === 'bigint') {
         return (v: string) => (/^-?\d+$/.test(v) ? BigInt(v) : v);

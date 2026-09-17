@@ -8,12 +8,12 @@
   },
   "dependencies": {
     "@inrp2p/audit": "workspace:*",
+    "@inrp2p/commands": "workspace:*",
     "@inrp2p/db": "workspace:*",
+    "@inrp2p/inr-accounts": "workspace:*",
     "@inrp2p/outbox": "workspace:*",
+    "@inrp2p/treasury": "workspace:*",
     "graphile-worker": "0.18.0",
     "pg": "8.23.0"
-  },
-  "devDependencies": {
-    "@inrp2p/commands": "workspace:*"
   }
 }

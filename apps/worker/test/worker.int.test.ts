@@ -28,4 +28,15 @@ describe('graphile worker end to end', () => {
     await runOnce({ pgPool: t.workerPool, taskList });
     expect(delivered).toEqual([id]);
   });
+
+  it('reference-data maintenance jobs run as inrp2p_worker and are idempotent', async () => {
+    const taskList = buildTaskList(t.worker, []);
+    const helpers = {} as Parameters<NonNullable<typeof taskList.capacity_day_rollover>>[1];
+    for (let i = 0; i < 2; i++) {
+      await taskList.capacity_day_rollover!({}, helpers);
+      await taskList.deposit_address_cooldown_release!({}, helpers);
+    }
+    const runs = await t.app.selectFrom('idempotency_key').select('scope').where('scope', 'in', ['capacity.day_rollover', 'deposit_address.cooldown_release']).execute();
+    expect(runs).toHaveLength(4);
+  });
 });

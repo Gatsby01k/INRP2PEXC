@@ -1,6 +1,6 @@
 # INRP2P Exchange — Dependency and Version Matrix
 
-Status: Phase 1.5. Source of truth for approved versions (D-06). Enforced by `pnpm run versions:check` (exact pins in every manifest, installed versions equal pins, Node and pnpm match) and by CI.
+Status: Phase 2 (no new external dependencies; six new workspace packages: adapters, clients, inr-accounts, routes, pricing, treasury). Source of truth for approved versions (D-06). Enforced by `pnpm run versions:check` (exact pins in every manifest, installed versions equal pins, Node and pnpm match) and by CI.
 
 ## Runtime and platform
 

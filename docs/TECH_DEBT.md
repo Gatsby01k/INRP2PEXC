@@ -6,6 +6,7 @@ Non-blocking items accepted at phase review. Each entry names the phase that mus
 |---|---|---|---|---|
 | TD-01 | Auth schema: `auth_rate_limit.last_request` type warning | Phase 1 acceptance (2026-09-17) | Production deploy (launch checklist) | Open |
 | TD-02 | Auth: cross-surface operator → client OTP rejection surfaces as internal error | Phase 1 acceptance (2026-09-17) | Production client auth (client login enabled on `app.inrp2p.com`) | Open |
+| TD-03 | Encryption: production KMS-backed key-encryption key not implemented | Phase 2 implementation (2026-09-17) | First deployment holding real bank or contact data | Open |
 
 ## TD-01 — Better Auth schema warning for `auth_rate_limit.last_request`
 
@@ -22,3 +23,12 @@ Non-blocking items accepted at phase review. Each entry names the phase that mus
 **Invariant that already holds and must be kept.** No session is ever created for a cross-surface attempt (application guard + database trigger `IX020` rejecting a session whose surface does not match the user kind); operator and client surfaces stay isolated (`SECURITY.md`, `ARCHITECTURE.md §7`).
 
 **Resolution (to do, before production client auth).** Keep the session guard and the `IX020` trigger as defence in depth, and add a surface check before session creation (a `before` hook on `/sign-in/email-otp` and `/email-otp/send-verification-otp` resolving the user kind) that returns a controlled 4xx (`403` with a generic, non-enumerating error body — same response shape as an invalid code) without creating a session. Tests to add: operator email → client OTP verify returns the controlled 4xx; no `auth_session` row is inserted; no `Set-Cookie`; a `session.failed` audit event recorded once; response body and timing do not reveal that the address belongs to an operator.
+
+## TD-03 — Production key-encryption key (KMS) adapter
+
+**Observed.** Bank account numbers (client and exchange INR accounts) and contact phone numbers are envelope-encrypted by `packages/adapters` `createFieldProtector` (fresh AES-256-GCM data key per value, wrapped by a `KeyEncryptionKey`, AAD bound to the field and owner). The only `KeyEncryptionKey` implementation is `LocalKeyEncryptionKey`, which holds the 32-byte KEK in process memory. It is intended for development and tests.
+
+**Risk.** Using the local KEK in a real deployment would put key material in application configuration, contrary to ARCHITECTURE §8 (data key wrapped by cloud KMS).
+
+**Resolution (to do, before any deployment with real data).** Implement a KMS-backed `KeyEncryptionKey` for the chosen hosting provider (wrap/unwrap via KMS API, key id recorded in each sealed value), load the HMAC lookup key from the secret manager, and add a startup check that refuses `LocalKeyEncryptionKey` when `NODE_ENV=production`. Rotation keeps previous KEKs readable through `previous` (already supported and tested).
+

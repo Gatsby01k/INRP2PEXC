@@ -167,6 +167,254 @@ export interface SessionActivityTable {
   last_activity_at: Date;
 }
 
+
+// ---- Phase 2 reference data (migrations 0008–0011) ----
+
+export type ClientStatus = 'ACTIVE' | 'SUSPENDED';
+export type DirectionValue = 'SELL_USDT' | 'BUY_USDT';
+
+export interface ClientTable {
+  id: Generated<string>;
+  ref: Generated<string>;
+  legal_name: string;
+  display_name: string;
+  type: 'COMPANY' | 'INDIVIDUAL';
+  status: Generated<ClientStatus>;
+  typical_direction: DirectionValue | null;
+  typical_size_usdt_minor: bigint | null;
+  pricing_notes: string | null;
+  kyc_status: Generated<'NOT_STARTED' | 'PENDING' | 'VERIFIED' | 'REJECTED' | 'EXPIRED'>;
+  screening_status: Generated<'NOT_SCREENED' | 'CLEAR' | 'POTENTIAL_MATCH' | 'CONFIRMED_MATCH'>;
+  compliance_notes: string | null;
+  created_by: string;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+  version: Generated<number>;
+}
+
+export interface ClientContactTable {
+  id: Generated<string>;
+  client_id: string;
+  name: string;
+  email: string | null;
+  phone_enc: string | null;
+  phone_last4: string | null;
+  whatsapp_enc: string | null;
+  whatsapp_last4: string | null;
+  telegram_handle: string | null;
+  is_primary: Generated<boolean>;
+  notes: string | null;
+  status: Generated<'ACTIVE' | 'ARCHIVED'>;
+  created_by: string;
+  created_at: Generated<Date>;
+  archived_by: string | null;
+  archived_at: Date | null;
+}
+
+export type ClientUserRole = 'CLIENT_ADMIN' | 'CLIENT_TRADER';
+
+export interface ClientUserTable {
+  id: Generated<string>;
+  client_id: string;
+  user_id: string;
+  role: ClientUserRole;
+  can_accept_quotes: Generated<boolean>;
+  status: Generated<'ACTIVE' | 'DISABLED'>;
+  created_by: string;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+}
+
+export type Rail = 'IMPS' | 'NEFT' | 'RTGS' | 'UPI';
+
+export interface BankAccountTable {
+  id: Generated<string>;
+  client_id: string;
+  holder_name: string;
+  bank_name: string;
+  ifsc: string;
+  account_number_enc: string;
+  account_last4: string;
+  account_hmac: string;
+  rail_preferences: Rail[];
+  status: Generated<'ACTIVE' | 'ARCHIVED'>;
+  verified_at: Date | null;
+  created_by: string;
+  created_at: Generated<Date>;
+  archived_by: string | null;
+  archived_at: Date | null;
+  archive_reason: string | null;
+}
+
+export interface CryptoWalletTable {
+  id: Generated<string>;
+  client_id: string;
+  network: 'TRON';
+  address: string;
+  label: string;
+  purpose: 'SOURCE' | 'DESTINATION' | 'BOTH';
+  status: Generated<'ACTIVE' | 'ARCHIVED'>;
+  created_by: string;
+  created_at: Generated<Date>;
+  archived_by: string | null;
+  archived_at: Date | null;
+  archive_reason: string | null;
+}
+
+export interface SettlementEntityTable {
+  id: Generated<string>;
+  legal_name: string;
+  short_name: string;
+  status: Generated<'ACTIVE' | 'INACTIVE'>;
+  created_by: string;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+}
+
+export type InrAccountStatus = 'ACTIVE' | 'PAUSED' | 'UNAVAILABLE';
+
+export interface InrSettlementAccountTable {
+  id: Generated<string>;
+  entity_id: string;
+  label: string;
+  bank_name: string;
+  ifsc: string;
+  account_number_enc: string;
+  account_last4: string;
+  account_hmac: string;
+  rails: Rail[];
+  direction: 'PAYOUT' | 'COLLECTION' | 'BOTH';
+  status: Generated<InrAccountStatus>;
+  default_daily_capacity_minor: bigint;
+  notes: string | null;
+  created_by: string;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+  version: Generated<number>;
+}
+
+export interface InrAccountDayTable {
+  account_id: string;
+  day: string;
+  capacity_minor: bigint;
+  used_minor: Generated<bigint>;
+  reserved_minor: Generated<bigint>;
+  pending_payout_minor: Generated<bigint>;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+}
+
+export type ReservationStatus = 'ACTIVE' | 'CONSUMED' | 'RELEASED';
+export type ReservationReleaseReason = 'TRADE_CANCELLED' | 'LEG_CANCELLED' | 'LEG_FAILED' | 'TRADE_COMPLETED' | 'ROUTE_SETTLEMENT_FAILED' | 'DAY_ROLLOVER' | 'OPERATOR';
+
+export interface CapacityReservationTable {
+  id: Generated<string>;
+  purpose: 'CLIENT_PAYOUT' | 'ROUTE_SETTLEMENT';
+  trade_id: string | null;
+  route_settlement_id: string | null;
+  account_id: string;
+  day: string;
+  amount_minor: bigint;
+  consumed_minor: Generated<bigint>;
+  status: Generated<ReservationStatus>;
+  released_minor: Generated<bigint>;
+  released_reason: ReservationReleaseReason | null;
+  created_by: string;
+  created_at: Generated<Date>;
+  closed_at: Date | null;
+}
+
+export type RouteStatus = 'ACTIVE' | 'PAUSED' | 'RETIRED';
+export type SettlementModel = 'PER_TRADE' | 'PREFUNDED' | 'NET_SETTLED';
+export type ExecutionMode = 'DIRECT_TO_CLIENT' | 'TO_EXCHANGE';
+
+export interface LiquidityRouteTable {
+  id: Generated<string>;
+  name: string;
+  direction: DirectionValue | 'BOTH';
+  asset: Generated<'USDT'>;
+  network: Generated<'TRON'>;
+  status: Generated<RouteStatus>;
+  settlement_model: Generated<SettlementModel>;
+  execution_mode: ExecutionMode;
+  registered_payout_identity: string | null;
+  registered_route_address: string | null;
+  available_base_minor: Generated<bigint>;
+  notes: string | null;
+  created_by: string;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+  version: Generated<number>;
+}
+
+export interface RateSnapshotTable {
+  id: Generated<string>;
+  kind: 'REFERENCE' | 'ROUTE';
+  route_id: string | null;
+  direction: DirectionValue;
+  rate_micro: bigint;
+  source: string;
+  effective_at: Generated<Date>;
+  supersedes_id: string | null;
+  created_by: string;
+  created_at: Generated<Date>;
+}
+
+export interface TreasuryWalletTable {
+  id: Generated<string>;
+  network: 'TRON';
+  address: string;
+  label: string;
+  role: 'HOT' | 'COLD' | 'DEPOSIT_POOL';
+  status: Generated<'ACTIVE' | 'PAUSED' | 'RETIRED'>;
+  custody: Generated<'EXTERNAL'>;
+  observed_balance_minor: Generated<bigint>;
+  observed_at: Date | null;
+  reserved_minor: Generated<bigint>;
+  created_by: string;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+}
+
+export interface CustodyProviderConfigTable {
+  id: Generated<string>;
+  provider: string;
+  network: 'TRON';
+  deposit_address_capability: 'DERIVED' | 'POOL' | 'UNSUPPORTED';
+  consolidation_notes: string | null;
+  verified_by: string;
+  verified_at: Generated<Date>;
+  notes: string | null;
+}
+
+export type DepositAddressStatus = 'AVAILABLE' | 'ASSIGNED' | 'COOLDOWN' | 'RETIRED';
+
+export interface DepositAddressTable {
+  id: Generated<string>;
+  treasury_wallet_id: string;
+  network: 'TRON';
+  address: string;
+  source: 'DERIVED' | 'POOL';
+  provider: string;
+  custody_reference: string;
+  status: DepositAddressStatus;
+  cooldown_until: Date | null;
+  created_by: string;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+}
+
+export interface DepositAssignmentTable {
+  id: Generated<string>;
+  deposit_address_id: string;
+  trade_id: string;
+  expected_amount_minor: bigint;
+  assigned_at: Generated<Date>;
+  released_at: Date | null;
+  release_reason: 'TRADE_COMPLETED' | 'TRADE_CANCELLED' | null;
+  created_by: string;
+}
+
 export interface Database {
   currency: CurrencyTable;
   idempotency_key: IdempotencyKeyTable;
@@ -185,4 +433,19 @@ export interface Database {
   operator_permission_grant: OperatorPermissionGrantTable;
   step_up_verification: StepUpVerificationTable;
   session_activity: SessionActivityTable;
+  client: ClientTable;
+  client_contact: ClientContactTable;
+  client_user: ClientUserTable;
+  bank_account: BankAccountTable;
+  crypto_wallet: CryptoWalletTable;
+  settlement_entity: SettlementEntityTable;
+  inr_settlement_account: InrSettlementAccountTable;
+  inr_account_day: InrAccountDayTable;
+  capacity_reservation: CapacityReservationTable;
+  liquidity_route: LiquidityRouteTable;
+  rate_snapshot: RateSnapshotTable;
+  treasury_wallet: TreasuryWalletTable;
+  custody_provider_config: CustodyProviderConfigTable;
+  deposit_address: DepositAddressTable;
+  deposit_assignment: DepositAssignmentTable;
 }

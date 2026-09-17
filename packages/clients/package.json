@@ -1,22 +1,21 @@
 {
-  "name": "@inrp2p/identity",
+  "name": "@inrp2p/clients",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts",
-    "./testing": "./test/fixtures.ts"
+    ".": "./src/index.ts"
   },
   "dependencies": {
     "@inrp2p/kernel": "workspace:*",
     "@inrp2p/db": "workspace:*",
     "@inrp2p/audit": "workspace:*",
-    "better-auth": "1.7.5",
+    "@inrp2p/identity": "workspace:*",
+    "@inrp2p/outbox": "workspace:*",
+    "@inrp2p/adapters": "workspace:*",
     "kysely": "0.29.6"
   },
   "devDependencies": {
-    "@better-auth/utils": "0.4.2",
-    "pg": "8.23.0",
     "@inrp2p/commands": "workspace:*"
   }
 }

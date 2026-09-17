@@ -5,7 +5,7 @@
 A new product built from zero: clients request or receive a firm rate, accept it, fund their leg and track settlement; the exchange desk runs rates, quotes, trades, INR payout capacity, USDT treasury, settlement legs and margin from one system — replacing Telegram + calculator + spreadsheets + blockchain explorer + bank apps.
 
 ## Status
-**Phase 0 accepted** (tag `phase-0-accepted`). **Phase 1 — Foundation accepted.** **Phase 1.5 — Design System** implemented, awaiting component review: see [`docs/PHASE_1_5_REPORT.md`](docs/PHASE_1_5_REPORT.md), [`docs/DEPENDENCIES.md`](docs/DEPENDENCIES.md) and [`docs/TECH_DEBT.md`](docs/TECH_DEBT.md).
+**Phase 0 accepted** (tag `phase-0-accepted`). **Phase 1 — Foundation accepted.** **Phase 1.5 — Design System** CI green (component review pending): [`docs/PHASE_1_5_REPORT.md`](docs/PHASE_1_5_REPORT.md). **Phase 2 — Reference data** implemented, awaiting review; D-02 custody gate open: [`docs/PHASE_2_REPORT.md`](docs/PHASE_2_REPORT.md). See also [`docs/DEPENDENCIES.md`](docs/DEPENDENCIES.md) and [`docs/TECH_DEBT.md`](docs/TECH_DEBT.md).
 
 ## Development
 

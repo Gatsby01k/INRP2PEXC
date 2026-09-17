@@ -11,6 +11,14 @@ const BOUNDARIES = {
   outbox: ['kernel', 'db'],
   commands: ['kernel', 'db', 'audit'],
   identity: ['kernel', 'db', 'audit'],
+  // Ports and provider implementations; depends on nothing domain-specific.
+  adapters: ['kernel'],
+  // Phase 2 reference-data modules (ARCHITECTURE §3): talk to each other only through public APIs.
+  clients: ['kernel', 'db', 'audit', 'identity', 'outbox', 'adapters'],
+  'inr-accounts': ['kernel', 'db', 'audit', 'identity', 'outbox', 'adapters'],
+  routes: ['kernel', 'db', 'audit', 'identity'],
+  pricing: ['kernel', 'db', 'audit', 'identity', 'routes'],
+  treasury: ['kernel', 'db', 'audit', 'identity', 'outbox', 'adapters'],
   // Design system: formats kernel Money/Rate values; never touches persistence or domain modules.
   ui: ['kernel'],
 };
@@ -51,7 +59,7 @@ export default tseslint.config(
     },
   })),
   {
-    files: ['packages/kernel/src/**/*.ts', 'packages/ledger/src/**/*.ts', 'packages/commands/src/**/*.ts', 'packages/ui/src/format/money.ts', 'packages/ui/src/format/number.ts'],
+    files: ['packages/kernel/src/**/*.ts', 'packages/ledger/src/**/*.ts', 'packages/commands/src/**/*.ts', 'packages/ui/src/format/money.ts', 'packages/ui/src/format/number.ts', 'packages/inr-accounts/src/**/*.ts', 'packages/pricing/src/**/*.ts', 'packages/routes/src/**/*.ts', 'packages/treasury/src/**/*.ts', 'packages/clients/src/**/*.ts'],
     rules: { 'no-restricted-syntax': ['error', ...NO_FLOAT_MONEY] },
   },
   {
