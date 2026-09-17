@@ -1,0 +1,23 @@
+.root {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  font-size: var(--font-size-body-sm);
+}
+.label {
+  color: var(--text-muted);
+}
+.hash {
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+}
+a.hash {
+  color: var(--brand-action);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.finality {
+  font-size: var(--font-size-meta);
+  color: var(--text-secondary);
+}

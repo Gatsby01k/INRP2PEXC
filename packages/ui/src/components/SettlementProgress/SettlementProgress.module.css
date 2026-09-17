@@ -1,0 +1,37 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.figures {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-6);
+}
+.received,
+.remaining {
+  margin: 0;
+  font-size: var(--font-size-body-sm);
+  color: var(--text-secondary);
+}
+.value {
+  font-size: var(--font-size-body-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-primary);
+}
+.track {
+  display: flex;
+  height: 8px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+}
+.fill {
+  background: var(--status-success);
+  transition: width var(--dur-complete) var(--ease);
+}
+.flight {
+  background: repeating-linear-gradient(135deg, var(--brand-primary) 0 4px, var(--brand-soft) 4px 8px);
+}

@@ -1,0 +1,104 @@
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.row {
+  display: grid;
+  grid-template-columns: minmax(120px, 1.2fr) minmax(96px, 1fr) minmax(96px, 1fr) 56px;
+  align-items: center;
+  gap: var(--space-4);
+  min-height: var(--row-h);
+  padding: 0 var(--space-1);
+  border-bottom: 1px solid var(--border-default);
+  font-size: var(--cell-font);
+}
+.operator {
+  grid-template-columns: 96px minmax(120px, 1.2fr) minmax(96px, 1fr) minmax(96px, 1fr) 48px minmax(140px, 1.4fr);
+}
+.ref {
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+}
+.amount {
+  font-weight: var(--font-weight-semibold);
+  text-align: right;
+}
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: var(--font-weight-medium);
+}
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  border: 2px solid var(--border-control);
+  flex: none;
+}
+.utr,
+.time,
+.payer {
+  color: var(--text-secondary);
+}
+.time {
+  text-align: right;
+}
+.completed .status {
+  color: var(--status-success);
+}
+.completed .dot {
+  background: var(--status-success);
+  border-color: var(--status-success);
+}
+.processing .dot {
+  border-color: var(--brand-primary);
+  border-right-color: transparent;
+}
+.pending .status {
+  color: var(--text-muted);
+}
+.failed .status {
+  color: var(--status-danger);
+}
+.failed .dot {
+  border-color: var(--status-danger);
+  border-radius: 1px;
+}
+.cancelled .status,
+.cancelled .amount {
+  color: var(--text-muted);
+}
+.cancelled .amount {
+  text-decoration: line-through;
+}
+@media (max-width: 640px) {
+  .row,
+  .operator {
+    grid-template-columns: 1fr auto;
+    grid-auto-rows: auto;
+    gap: var(--space-1) var(--space-3);
+    padding: var(--space-3) var(--space-1);
+  }
+  .amount {
+    text-align: left;
+    grid-column: 1;
+  }
+  .status {
+    grid-column: 2;
+    justify-self: end;
+  }
+  .utr {
+    grid-column: 1;
+  }
+  .time {
+    grid-column: 2;
+  }
+  .ref,
+  .payer {
+    grid-column: 1 / -1;
+  }
+}

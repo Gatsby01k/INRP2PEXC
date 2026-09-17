@@ -1,0 +1,15 @@
+.button {
+  min-height: 32px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+}
+.copied {
+  color: var(--status-success);
+  border-color: var(--status-success);
+}

@@ -1,0 +1,95 @@
+/* GENERATED from src/tokens/tokens.ts — do not edit by hand. */
+:root {
+  --brand-primary: #F04E23;
+  --brand-action: #C8401A;
+  --brand-action-hover: #B83A16;
+  --brand-soft: #FDEDE7;
+  --bg-app: #F7F5F0;
+  --bg-surface: #FFFFFF;
+  --bg-subtle: #FBFAF7;
+  --text-primary: #121317;
+  --text-secondary: #656A73;
+  --text-muted: #6B6F77;
+  --text-disabled: #91959D;
+  --text-on-action: #FFFFFF;
+  --ivory: #FFF8EE;
+  --status-success: #157A45;
+  --status-success-soft: #E8F4EC;
+  --status-warning: #8A5A00;
+  --status-warning-soft: #FBF3E2;
+  --status-danger: #B42318;
+  --status-danger-soft: #FCEBEA;
+  --border-default: #E8E4DC;
+  --border-strong: #D5D0C5;
+  --border-control: #82858C;
+  --overlay-scrim: rgba(18, 19, 23, 0.40);
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --space-20: 80px;
+  --font-size-display-xl: 64px;
+  --font-size-display: 48px;
+  --font-size-title: 32px;
+  --font-size-heading-lg: 24px;
+  --font-size-heading: 20px;
+  --font-size-body-lg: 16px;
+  --font-size-body: 15px;
+  --font-size-body-sm: 14px;
+  --font-size-table: 13px;
+  --font-size-meta: 12px;
+  --font-size-micro: 11px;
+  --line-height-tight: 1.1;
+  --line-height-snug: 1.25;
+  --line-height-normal: 1.45;
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-sans: 'Geist', 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'Geist Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  --radius-control: 8px;
+  --radius-input: 10px;
+  --radius-surface: 14px;
+  --radius-pill: 999px;
+  --shadow-low: 0 1px 0 rgba(18, 19, 23, 0.04);
+  --shadow-medium: 0 4px 16px rgba(18, 19, 23, 0.06);
+  --dur-fast: 150ms;
+  --dur-base: 220ms;
+  --dur-complete: 380ms;
+  --dur-loop: 1100ms;
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  --client-exchange-max: 560px;
+  --client-list-max: 960px;
+  --operator-sidebar: 220px;
+  --operator-panel: 380px;
+  --touch-min: 44px;
+  --row-h: 56px;
+  --cell-px: 16px;
+  --cell-font: var(--font-size-body);
+}
+
+[data-density='compact'] {
+  --row-h: 36px;
+  --cell-px: 12px;
+  --cell-font: var(--font-size-table);
+}
+
+[data-density='comfortable'] {
+  --row-h: 56px;
+  --cell-px: 16px;
+  --cell-font: var(--font-size-body);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-fast: 0ms;
+    --dur-base: 0ms;
+    --dur-complete: 0ms;
+  }
+}

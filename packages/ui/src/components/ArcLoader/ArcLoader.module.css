@@ -1,0 +1,49 @@
+.root {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.sm .svg {
+  width: 16px;
+  height: 16px;
+}
+.md .svg {
+  width: 24px;
+  height: 24px;
+}
+.lg .svg {
+  width: 40px;
+  height: 40px;
+}
+.svg {
+  animation: spin var(--dur-loop) linear infinite;
+}
+.track {
+  fill: none;
+  stroke: var(--border-default);
+  stroke-width: 2;
+}
+.inherit .track {
+  stroke: transparent;
+}
+.arc {
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+.brand .arc {
+  stroke: var(--brand-primary);
+}
+.inherit .arc {
+  stroke: currentColor;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .svg {
+    animation: none;
+  }
+}

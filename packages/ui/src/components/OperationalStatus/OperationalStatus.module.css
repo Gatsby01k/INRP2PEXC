@@ -1,0 +1,40 @@
+.root {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--cell-font);
+  white-space: nowrap;
+}
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background: var(--border-control);
+  flex: none;
+}
+.primary {
+  font-weight: var(--font-weight-medium);
+  color: var(--text-primary);
+}
+.secondary {
+  color: var(--text-muted);
+}
+.active .dot {
+  background: var(--brand-primary);
+}
+.done .dot {
+  background: var(--status-success);
+}
+.done .primary {
+  color: var(--status-success);
+}
+.muted .primary {
+  color: var(--text-muted);
+}
+.exception .dot {
+  background: var(--status-danger);
+  border-radius: 1px;
+}
+.exception .primary {
+  color: var(--status-danger);
+}

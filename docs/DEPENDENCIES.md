@@ -1,6 +1,6 @@
 # INRP2P Exchange — Dependency and Version Matrix
 
-Status: Phase 1. Source of truth for approved versions (D-06). Enforced by `pnpm run versions:check` (exact pins in every manifest, installed versions equal pins, Node and pnpm match) and by CI.
+Status: Phase 1.5. Source of truth for approved versions (D-06). Enforced by `pnpm run versions:check` (exact pins in every manifest, installed versions equal pins, Node and pnpm match) and by CI.
 
 ## Runtime and platform
 
@@ -16,8 +16,8 @@ Status: Phase 1. Source of truth for approved versions (D-06). Enforced by `pnpm
 |---|---|---|
 | typescript | 6.0.3 | all (strict, `erasableSyntaxOnly`, Node type stripping) |
 | next | 16.3.5 | apps/web |
-| react / react-dom | 19.3.0 | apps/web |
-| @types/react / @types/react-dom | 19.3.0 | apps/web |
+| react / react-dom | 19.3.0 | apps/web, packages/ui |
+| @types/react / @types/react-dom | 19.3.0 | apps/web, packages/ui |
 | server-only | 0.0.1 | apps/web |
 | better-auth | 1.7.5 | packages/identity, apps/web |
 | @better-auth/utils | 0.4.2 | identity tests (TOTP generation); equals better-auth's own dependency |
@@ -25,7 +25,7 @@ Status: Phase 1. Source of truth for approved versions (D-06). Enforced by `pnpm
 | pg | 8.23.0 | db, outbox, worker |
 | graphile-worker | 0.18.0 | outbox, apps/worker |
 | vitest | 5.0.1 | tests |
-| vite | 8.3.0 | vitest peer |
+| vite | 8.3.0 | vitest peer, Storybook builder |
 | @testcontainers/postgresql | 12.1.0 | integration test global setup |
 | eslint | 10.10.0 | lint |
 | typescript-eslint | 8.70.0 | lint |
@@ -33,7 +33,21 @@ Status: Phase 1. Source of truth for approved versions (D-06). Enforced by `pnpm
 | @types/node | 24.13.5 | all |
 | @types/pg | 8.23.1 | db |
 
-Not added in Phase 1 (belong to later phases): Playwright, Storybook, Zod as a direct dependency (installed transitively by Better Auth only).
+### Added in Phase 1.5 (packages/ui)
+
+| Package | Version | Used by | License |
+|---|---|---|---|
+| storybook | 10.6.0 | component gallery (`pnpm --filter @inrp2p/ui storybook` / `build-storybook`) | MIT |
+| @storybook/react-vite | 10.6.0 | Storybook framework (React 19 + Vite 8) | MIT |
+| @storybook/addon-a11y | 10.6.0 | in-gallery axe panel (`a11y.test = 'error'`) | MIT |
+| @playwright/test | 1.56.1 | visual regression + axe + reduced-motion suite (`test:visual`) | Apache-2.0 |
+| @axe-core/playwright | 4.13.0 (axe-core 4.13.0) | WCAG 2.2 AA checks per story | MPL-2.0 |
+| uqr | 0.1.3 | deposit address QR (pure SVG path generation, no canvas, no network) | MIT |
+| Geist / Geist Mono | woff2 from npm `geist@1.7.2` (`dist/fonts`), vendored in `packages/ui/fonts` (not an npm dependency) | self-hosted fonts (no Google Fonts / CDN request) | SIL OFL 1.1 (`fonts/OFL-LICENSE.txt`) |
+
+**Playwright pin (deliberate deviation from latest 1.63.0).** Visual baselines are pixel comparisons, so they are only meaningful against a fixed browser build. 1.56.1 bundles Chromium revision 1194 (141.0.7390.37), the revision the 144 committed baselines were recorded with. CI runs `playwright install --with-deps chromium` for that same pinned version. Upgrading Playwright is a normal dependency change that must re-record baselines in the same commit, reviewed as a visual diff. Playwright is a dev/test-only dependency and never ships in the app.
+
+Zod is still not a direct dependency (installed transitively by Better Auth only); it is added with the first HTTP/command boundary that needs it.
 
 ## Compatibility verification (performed 2026-09-17 from registry metadata and local execution)
 
@@ -48,6 +62,9 @@ Not added in Phase 1 (belong to later phases): Playwright, Storybook, Zod as a d
 | vitest 5.0.1 | `engines.node ^24.0.0`; peers `vite ^8`, `@types/node >=24` |
 | typescript-eslint 8.70.0 ↔ TypeScript 6.0.3 / ESLint 10 | peers `typescript >=4.8.4 <6.1.0`, `eslint ^10` |
 | PostgreSQL 18 features used | `uuidv7()`, `uuid_extract_version()`, `pg_current_xact_id()`/`xid8`, deferrable constraint triggers, statement-level `TRUNCATE` triggers |
+| storybook 10.6.0 ↔ react 19.3.0 / vite 8.3.0 / TypeScript 6.0.3 | `@storybook/react-vite` peers `react ^16.8…^19`, `vite ^5…^8`, `typescript >= 4.9`, `storybook ^10.6.0`; `build-storybook` succeeds on Node 24.21.0 |
+| @axe-core/playwright 4.13.0 ↔ @playwright/test 1.56.1 | peer `playwright-core >= 1.0.0` |
+| Storybook addon-a11y + Playwright axe | addon panel is set to manual inside the test run (`globals=a11y.manual:!true`) so only one axe run executes per page |
 | Better Auth schema | integration test runs Better Auth's migration planner against migration 0006 and asserts nothing to create or add |
 
 ## Build scripts (pnpm `allowBuilds`)
@@ -59,6 +76,7 @@ pnpm 12.4.2 blocks every dependency lifecycle script unless `pnpm-workspace.yaml
 | ssh2 1.17.0 | `@testcontainers/postgresql` → testcontainers → dockerode / docker-modem, ssh-remote-port-forward | `install`: node-gyp build of an optional crypto binding; exits 0 on failure | `false` | Pure-JS fallback is built in; Testcontainers uses the local Docker socket, SSH transport is not used |
 | cpu-features 0.0.10 | optionalDependency of ssh2 | `install`: node-gyp native build | `false` | Only feeds the optional ssh2 binding above |
 | protobufjs 7.6.6 | dockerode → @grpc/proto-loader | `postinstall`: prints a version-scheme warning | `false` | No build output; runtime unaffected |
+| esbuild | storybook, vite (Phase 1.5) | `postinstall`: replaces the JS launcher with the platform binary from the optional `@esbuild/<platform>` package | `false` | The optional platform package is installed and used by the JS launcher; Storybook build and Vitest work without the script |
 
 Adding a dependency with an install script fails CI until an explicit entry (with justification here) is added. `true` requires review of the script source.
 

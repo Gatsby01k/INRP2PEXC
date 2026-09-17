@@ -28,6 +28,14 @@ export const MATRIX: Record<string, string> = {
   '@types/react': '19.3.0',
   '@types/react-dom': '19.3.0',
   'server-only': '0.0.1',
+  // Phase 1.5 design system
+  storybook: '10.6.0',
+  '@storybook/react-vite': '10.6.0',
+  '@storybook/addon-a11y': '10.6.0',
+  // Pinned to the Chromium revision the visual baselines were recorded with (docs/DEPENDENCIES.md).
+  '@playwright/test': '1.56.1',
+  '@axe-core/playwright': '4.13.0',
+  uqr: '0.1.3',
 };
 export const POSTGRES = '18.6';
 

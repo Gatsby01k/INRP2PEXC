@@ -1,0 +1,52 @@
+.root {
+  display: inline-flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-meta);
+  color: var(--text-muted);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+.tag {
+  font-size: var(--font-size-micro);
+  text-transform: none;
+  letter-spacing: 0;
+  padding: 0 var(--space-2);
+  border: 1px dashed var(--border-control);
+  border-radius: var(--radius-pill);
+  color: var(--text-secondary);
+}
+.value {
+  color: var(--text-primary);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+}
+.unit {
+  font-size: var(--font-size-meta);
+  color: var(--text-muted);
+  font-weight: var(--font-weight-regular);
+}
+.sm .value {
+  font-size: var(--font-size-body-sm);
+}
+.md .value {
+  font-size: var(--font-size-heading);
+}
+.lg .value {
+  font-size: var(--font-size-title);
+}
+.display .value {
+  font-size: var(--font-size-display);
+}
+.indicative .value {
+  color: var(--text-secondary);
+}
+.route .label {
+  color: var(--text-secondary);
+}

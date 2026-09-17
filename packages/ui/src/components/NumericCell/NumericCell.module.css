@@ -1,0 +1,24 @@
+.cell {
+  text-align: right;
+  white-space: nowrap;
+  font-size: var(--cell-font);
+  padding: 0 var(--cell-px);
+}
+.default {
+  color: var(--text-primary);
+}
+.strong {
+  color: var(--text-primary);
+  font-weight: var(--font-weight-semibold);
+}
+.muted {
+  color: var(--text-muted);
+}
+.positive {
+  color: var(--status-success);
+  font-weight: var(--font-weight-medium);
+}
+.negative {
+  color: var(--status-danger);
+  font-weight: var(--font-weight-medium);
+}

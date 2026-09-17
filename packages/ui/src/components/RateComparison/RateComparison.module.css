@@ -1,0 +1,41 @@
+.wrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-surface);
+}
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3) var(--space-6);
+  margin: 0;
+}
+.item {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-3);
+  border-bottom: 1px solid var(--border-default);
+  padding-bottom: var(--space-2);
+}
+.item dt {
+  font-size: var(--font-size-meta);
+  color: var(--text-muted);
+}
+.item dd {
+  margin: 0;
+  font-size: var(--font-size-body-lg);
+  font-weight: var(--font-weight-medium);
+}
+.item[data-kind='route'] dd {
+  color: var(--text-secondary);
+}
+.item[data-kind='route'] dt::after {
+  content: ' · internal';
+}
+.margin {
+  display: flex;
+}

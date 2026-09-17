@@ -1,0 +1,29 @@
+.root {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+}
+.glyph {
+  font-size: var(--font-size-meta);
+}
+.neutral {
+  color: var(--text-secondary);
+}
+.brand {
+  color: var(--text-primary);
+}
+.brand .glyph {
+  color: var(--brand-primary);
+}
+.success {
+  color: var(--status-success);
+}
+.muted {
+  color: var(--text-muted);
+}
+.danger {
+  color: var(--status-danger);
+}

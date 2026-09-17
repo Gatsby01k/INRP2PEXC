@@ -1,0 +1,51 @@
+.root {
+  display: inline-flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  width: 100%;
+}
+.label {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  font-size: var(--font-size-meta);
+  color: var(--text-muted);
+}
+.kind {
+  font-size: var(--font-size-micro);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-default);
+  color: var(--text-secondary);
+}
+.realized .kind {
+  border-color: var(--status-success);
+  color: var(--status-success);
+}
+.expected .kind {
+  border-style: dashed;
+}
+.value {
+  font-weight: var(--font-weight-semibold);
+  color: var(--status-success);
+}
+.expected .value {
+  color: var(--text-primary);
+}
+.negative .value {
+  color: var(--status-danger);
+}
+.flag {
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-medium);
+}
+.sm .value {
+  font-size: var(--font-size-body-sm);
+}
+.md .value {
+  font-size: var(--font-size-body-lg);
+}
+.lg .value {
+  font-size: var(--font-size-heading-lg);
+}

@@ -1,0 +1,114 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  max-width: var(--client-exchange-max);
+  width: 100%;
+}
+.leg {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.caption {
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-medium);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.amount {
+  font-size: var(--font-size-display);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+  overflow-wrap: anywhere;
+}
+.unit {
+  font-size: var(--font-size-body-sm);
+  color: var(--text-secondary);
+}
+.lock {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-surface);
+  border: 1px solid var(--border-default);
+  background: var(--bg-surface);
+  transition: border-color var(--dur-complete) var(--ease), background-color var(--dur-complete) var(--ease);
+}
+.locked .lock,
+.quote_available .lock {
+  border-color: var(--brand-primary);
+  background: var(--brand-soft);
+}
+.expiring .lock {
+  border-color: var(--status-warning);
+  background: var(--status-warning-soft);
+}
+.accepted .lock {
+  border-color: var(--status-success);
+}
+.rate {
+  font-size: var(--font-size-title);
+  font-weight: var(--font-weight-semibold);
+}
+.rateUnit {
+  font-size: var(--font-size-body-sm);
+  color: var(--text-secondary);
+  margin-right: auto;
+}
+.struck {
+  color: var(--text-muted);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+.accepted {
+  color: var(--status-success);
+  font-weight: var(--font-weight-medium);
+  font-size: var(--font-size-body-sm);
+}
+.requesting {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--text-secondary);
+}
+.unavailable {
+  margin: 0;
+  color: var(--text-secondary);
+}
+.meta {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+}
+.meta div {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-4);
+  font-size: var(--font-size-body-sm);
+}
+.meta dt {
+  color: var(--text-muted);
+}
+.meta dd {
+  margin: 0;
+  text-align: right;
+}
+.actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+}
+@media (max-width: 480px) {
+  .amount {
+    font-size: var(--font-size-title);
+  }
+  .rate {
+    font-size: var(--font-size-heading-lg);
+  }
+}

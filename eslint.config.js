@@ -11,6 +11,8 @@ const BOUNDARIES = {
   outbox: ['kernel', 'db'],
   commands: ['kernel', 'db', 'audit'],
   identity: ['kernel', 'db', 'audit'],
+  // Design system: formats kernel Money/Rate values; never touches persistence or domain modules.
+  ui: ['kernel'],
 };
 const ALL = Object.keys(BOUNDARIES);
 
@@ -24,7 +26,7 @@ const NO_FLOAT_MONEY = [
 ];
 
 export default tseslint.config(
-  { ignores: ['**/node_modules/**', '**/.next/**', '**/dist/**', 'docs/**', 'apps/web/next-env.d.ts'] },
+  { ignores: ['**/node_modules/**', '**/.next/**', '**/dist/**', 'docs/**', 'apps/web/next-env.d.ts', '**/storybook-static/**', '**/playwright-report/**', '**/test-results/**'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
@@ -37,7 +39,7 @@ export default tseslint.config(
     },
   },
   ...Object.entries(BOUNDARIES).map(([pkg, allowed]) => ({
-    files: [`packages/${pkg}/src/**/*.ts`],
+    files: [`packages/${pkg}/src/**/*.ts`, `packages/${pkg}/src/**/*.tsx`],
     rules: {
       'no-restricted-imports': ['error', {
         patterns: [
@@ -49,7 +51,7 @@ export default tseslint.config(
     },
   })),
   {
-    files: ['packages/kernel/src/**/*.ts', 'packages/ledger/src/**/*.ts', 'packages/commands/src/**/*.ts'],
+    files: ['packages/kernel/src/**/*.ts', 'packages/ledger/src/**/*.ts', 'packages/commands/src/**/*.ts', 'packages/ui/src/format/money.ts', 'packages/ui/src/format/number.ts'],
     rules: { 'no-restricted-syntax': ['error', ...NO_FLOAT_MONEY] },
   },
   {

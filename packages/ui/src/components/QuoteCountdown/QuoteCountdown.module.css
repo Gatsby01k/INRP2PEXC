@@ -1,0 +1,67 @@
+.root {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.svg {
+  transform: rotate(-90deg);
+  flex: none;
+}
+.md .svg {
+  width: 44px;
+  height: 44px;
+}
+.sm .svg {
+  width: 28px;
+  height: 28px;
+}
+.track {
+  fill: none;
+  stroke: var(--border-default);
+  stroke-width: 3;
+}
+.arc {
+  fill: none;
+  stroke: var(--brand-primary);
+  stroke-width: 3;
+  stroke-linecap: round;
+  transition: stroke-dashoffset var(--dur-base) linear, stroke var(--dur-base) var(--ease);
+}
+.text {
+  display: inline-flex;
+  flex-direction: column;
+}
+.label {
+  font-size: var(--font-size-meta);
+  /* secondary, not muted: the countdown sits on brand-soft / warning-soft lock surfaces */
+  color: var(--text-secondary);
+}
+.time {
+  font-weight: var(--font-weight-medium);
+  color: var(--text-primary);
+  transition: color var(--dur-base) var(--ease);
+}
+.md .time {
+  font-size: var(--font-size-heading);
+}
+.sm .time {
+  font-size: var(--font-size-body-sm);
+}
+.expiring .arc {
+  stroke: var(--status-warning);
+}
+.expiring .time {
+  color: var(--status-warning);
+}
+.expired .arc {
+  stroke: transparent;
+}
+.expired .time {
+  color: var(--text-muted);
+}
+/* UX_FLOWS §4: reduced-motion fallback is text only — the arc is removed, the mm:ss text remains. */
+@media (prefers-reduced-motion: reduce) {
+  .svg {
+    display: none;
+  }
+}

@@ -1,0 +1,13 @@
+.root {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  font-size: var(--font-size-body-sm);
+}
+.asset {
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-primary);
+}
+.network {
+  color: var(--text-muted);
+}

@@ -1,0 +1,71 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-input);
+  font-size: var(--cell-font);
+}
+.head {
+  display: flex;
+  gap: var(--space-3);
+  align-items: baseline;
+}
+.route {
+  color: var(--text-secondary);
+}
+.status {
+  margin-left: auto;
+  font-weight: var(--font-weight-medium);
+}
+.settled .status {
+  color: var(--status-success);
+}
+.partially_settled .status,
+.open .status {
+  color: var(--text-primary);
+}
+.cancelled .status {
+  color: var(--text-muted);
+}
+.sides {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+.side {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.sideTitle {
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-medium);
+  color: var(--text-muted);
+}
+.nums {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2);
+  margin: 0;
+}
+.nums dt {
+  font-size: var(--font-size-micro);
+  color: var(--text-muted);
+}
+.nums dd {
+  margin: 0;
+  font-weight: var(--font-weight-medium);
+}
+.remaining dd {
+  font-weight: var(--font-weight-semibold);
+}
+.zero dd {
+  color: var(--status-success);
+}
+.note {
+  font-size: var(--font-size-meta);
+  color: var(--text-secondary);
+}

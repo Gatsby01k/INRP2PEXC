@@ -1,0 +1,34 @@
+.root {
+  display: inline-grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  padding: var(--space-1);
+  gap: var(--space-1);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-input);
+}
+.option {
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-secondary);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+.md .option {
+  min-height: 40px;
+  padding: 0 var(--space-5);
+  font-size: var(--font-size-body);
+}
+.sm .option {
+  min-height: 32px;
+  padding: 0 var(--space-3);
+  font-size: var(--font-size-table);
+}
+.selected {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  box-shadow: inset 0 -2px 0 var(--brand-primary), var(--shadow-low);
+}

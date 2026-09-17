@@ -1,0 +1,23 @@
+.root {
+  display: inline-block;
+  vertical-align: middle;
+  flex: none;
+}
+.root circle {
+  fill: none;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  transition: stroke var(--dur-complete) var(--ease);
+}
+.off {
+  stroke: var(--border-strong);
+}
+.brand .on {
+  stroke: var(--brand-primary);
+}
+.success .on {
+  stroke: var(--status-success);
+}
+.muted .on {
+  stroke: var(--text-muted);
+}

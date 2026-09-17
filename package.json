@@ -9,7 +9,7 @@
   },
   "scripts": {
     "lint": "eslint .",
-    "typecheck": "tsc -p tsconfig.json && tsc -p apps/web/tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json && tsc -p apps/web/tsconfig.json && tsc -p packages/ui/tsconfig.json",
     "test:unit": "vitest run --project unit",
     "test:integration": "vitest run --project integration",
     "test": "vitest run",

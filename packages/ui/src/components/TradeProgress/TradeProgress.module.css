@@ -1,0 +1,45 @@
+.root {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.stage {
+  display: grid;
+  grid-template-columns: 20px 1fr auto;
+  align-items: baseline;
+  gap: var(--space-3);
+  font-size: var(--font-size-body);
+}
+.glyph {
+  text-align: center;
+  transition: color var(--dur-complete) var(--ease);
+}
+.label {
+  color: var(--text-primary);
+}
+.detail {
+  font-size: var(--font-size-body-sm);
+  color: var(--text-muted);
+  text-align: right;
+}
+.done .glyph {
+  color: var(--status-success);
+}
+.current .glyph {
+  color: var(--brand-primary);
+}
+.current .label {
+  font-weight: var(--font-weight-medium);
+}
+.pending .glyph,
+.pending .label {
+  color: var(--text-muted);
+}
+.exception .glyph,
+.exception .label {
+  color: var(--status-danger);
+  font-weight: var(--font-weight-semibold);
+}

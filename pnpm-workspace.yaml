@@ -15,3 +15,6 @@ allowBuilds:
   cpu-features: false
   # dockerode → @grpc/proto-loader → protobufjs. postinstall only prints a version-scheme warning.
   protobufjs: false
+  # storybook / vite → esbuild. postinstall only swaps the JS launcher for the platform binary
+  # from the optional @esbuild/<platform> package (already installed); esbuild works without it.
+  esbuild: false
