@@ -1,0 +1,11 @@
+{
+  "image": "mcr.microsoft.com/playwright:v1.56.1-noble",
+  "platform": "linux",
+  "arch": "x64",
+  "playwright": "1.56.1",
+  "chromium": "141.0.7390.37",
+  "recordedAt": "2026-09-17T14:09:41.656Z",
+  "gitSha": "a295155c62befc728f24e1008b28366d6fe8a0cd",
+  "runUrl": "https://github.com/Gatsby01k/INRP2PEXC/actions/runs/35231449475",
+  "baselines": 145
+}
