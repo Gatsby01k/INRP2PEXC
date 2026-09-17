@@ -38,7 +38,9 @@ Status: Phase 0, revision 3 (`DECISIONS.md` Revision 3).
 ### 2.2 Clients (`app.inrp2p.com`)
 - Passwordless **email-OTP login** (Better Auth); successful login marks the email verified. Optional TOTP per client user; TOTP required for `CLIENT_ADMIN` adding/archiving bank accounts or wallets (D-08).
 - Session cookies: `Secure`, `HttpOnly`, `SameSite=Lax`, host-only; idle 60 min, absolute 7 days.
-- Only client users with `can_accept_quotes` (granted by a `CLIENT_ADMIN` of that client or by an operator with `client_user:grant_accept_quotes`, step-up, audited) may accept or reject quotes.
+- Only client users with `can_accept_quotes` may accept or reject quotes. The flag is granted or revoked by a `CLIENT_ADMIN` of that client or by an operator with `client_user:grant_accept_quotes` (⧗); every change is audited (`client_user.accept_permission_changed`).
+- Granting or revoking quote-acceptance authority is a **sensitive client-admin action**: the `CLIENT_ADMIN` must have TOTP enrolled and a fresh TOTP step-up (verified within the last 10 minutes) in the current session. A client admin without TOTP must enroll it before performing this action; there is no email-OTP-only path. The operator-side `client_user:grant_accept_quotes` step-up is unchanged.
+- Adding or archiving client destinations (bank accounts, wallets) by a `CLIENT_ADMIN` likewise requires fresh TOTP step-up (D-08). Operators act on behalf through `client_bank:add` (bank accounts) and `client_wallet:manage` (wallets), both ⧗.
 
 ### 2.3 Quote link (`/q/{token}`) and acceptance challenge
 - Token: 128 bits CSPRNG, base62, only SHA-256 hash stored; constant-time lookup by hash; `Referrer-Policy: no-referrer`; `noindex`; no third-party scripts.
@@ -85,6 +87,7 @@ Legend: ✔ allowed · ⧗ allowed with step-up MFA · ✱ requires second appro
 | `treasury:manage_wallets` | ⧗ | — | — | ⧗ | — | — |
 | `client:manage` / contacts | ✔ | ✔ | — | — | ✔ | — |
 | `client_bank:add` (operator on behalf) | ⧗ | — | — | — | ⧗ | — |
+| `client_wallet:manage` (add or archive client wallets, operator on behalf) | ⧗ | — | — | — | ⧗ | — |
 | `client_user:grant_accept_quotes` | ⧗ | — | — | — | ⧗ | — |
 | `routes:configure` (incl. settlement model) | ⧗ | — | — | — | — | — |
 | `route_settlement:record` | ✔ | — | — | ✔ | — | — |

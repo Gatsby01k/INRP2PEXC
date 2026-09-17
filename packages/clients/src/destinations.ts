@@ -122,9 +122,12 @@ export interface AddWalletPayload {
   readonly purpose: 'SOURCE' | 'DESTINATION' | 'BOTH';
 }
 
-/** `client_wallet.add` — same authorization as bank accounts (destination change, S8). Address checksum is validated. */
+/**
+ * `client_wallet.add` — operator `client_wallet:manage` (⧗) or the client's CLIENT_ADMIN with fresh TOTP (D-08, S8).
+ * Same role/step-up policy as bank destinations, under its own permission. Address checksum is validated.
+ */
 export function addWallet(actor: ClientDataActor) {
-  return clientDataCommand(actor, 'client_bank:add', { stepUp: true }, async (_ctx, p: AddWalletPayload) => requireUuid(p.clientId, 'clientId'), async (ctx, p, clientId) => {
+  return clientDataCommand(actor, 'client_wallet:manage', { stepUp: true }, async (_ctx, p: AddWalletPayload) => requireUuid(p.clientId, 'clientId'), async (ctx, p, clientId) => {
     await requireActiveClient(ctx.tx, clientId);
     const network = requireOneOf(p.network, 'network', ['TRON'] as const);
     const address = parseTronAddress(typeof p.address === 'string' ? p.address.trim() : '');
@@ -145,8 +148,9 @@ export function addWallet(actor: ClientDataActor) {
   });
 }
 
+/** `client_wallet.archive` — operator `client_wallet:manage` (⧗) or CLIENT_ADMIN with fresh TOTP. */
 export function archiveWallet(actor: ClientDataActor) {
-  return clientDataCommand(actor, 'client_bank:add', { stepUp: true }, async (ctx, p: { walletId: string; reason: string }) => clientOfWallet(ctx, p.walletId), async (ctx, p, clientId) => {
+  return clientDataCommand(actor, 'client_wallet:manage', { stepUp: true }, async (ctx, p: { walletId: string; reason: string }) => clientOfWallet(ctx, p.walletId), async (ctx, p, clientId) => {
     const reason = requireText(p.reason, 'reason', 500);
     const before = await ctx.tx.selectFrom('crypto_wallet').select(['id', 'status']).where('id', '=', p.walletId).forUpdate().executeTakeFirstOrThrow();
     if (before.status !== 'ACTIVE') throw new DomainError('INVALID_TRANSITION', 'wallet is already archived');

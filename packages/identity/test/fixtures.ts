@@ -43,11 +43,15 @@ export interface TestClientLogin {
   readonly ref: ActorRef;
 }
 
-/** A CLIENT auth user with a client-surface session and optional fresh TOTP step-up. */
-export async function createTestClientLogin(owner: Db, opts: { emailVerified?: boolean; stepUp?: 'fresh' | 'none' } = {}): Promise<TestClientLogin> {
+/**
+ * A CLIENT auth user with a client-surface session. `stepUp: 'fresh'` = TOTP enrolled and verified now; `'stale'` = enrolled,
+ * last verified 11 minutes ago; `'enrolled'` = enrolled, never verified in this session; `'none'` (default) = no TOTP.
+ */
+export async function createTestClientLogin(owner: Db, opts: { emailVerified?: boolean; stepUp?: 'fresh' | 'stale' | 'enrolled' | 'none' } = {}): Promise<TestClientLogin> {
+  const enrolled = opts.stepUp !== undefined && opts.stepUp !== 'none';
   const user = await owner
     .insertInto('auth_user')
-    .values({ name: 'Client User', email: `client-${randomUUID()}@acmepay.test`, email_verified: opts.emailVerified ?? true, created_at: new Date(), updated_at: new Date(), kind: 'CLIENT' })
+    .values({ name: 'Client User', email: `client-${randomUUID()}@acmepay.test`, email_verified: opts.emailVerified ?? true, created_at: new Date(), updated_at: new Date(), two_factor_enabled: enrolled, kind: 'CLIENT' })
     .returning('id')
     .executeTakeFirstOrThrow();
   const session = await owner
@@ -55,8 +59,9 @@ export async function createTestClientLogin(owner: Db, opts: { emailVerified?: b
     .values({ expires_at: new Date(Date.now() + 3_600_000), token: randomUUID(), created_at: new Date(), updated_at: new Date(), user_id: user.id, surface: 'CLIENT' })
     .returning('id')
     .executeTakeFirstOrThrow();
-  if (opts.stepUp === 'fresh') {
-    await sql`insert into step_up_verification (user_id, session_id, method, verified_at) values (${user.id}, ${session.id}, 'TOTP', statement_timestamp())`.execute(owner);
+  if (opts.stepUp === 'fresh' || opts.stepUp === 'stale') {
+    const age = opts.stepUp === 'fresh' ? sql`interval '0 seconds'` : sql`interval '11 minutes'`;
+    await sql`insert into step_up_verification (user_id, session_id, method, verified_at) values (${user.id}, ${session.id}, 'TOTP', statement_timestamp() - ${age})`.execute(owner);
   }
   return { userId: user.id, sessionId: session.id, ref: { type: 'USER', id: user.id, surface: 'CLIENT', sessionId: session.id } };
 }

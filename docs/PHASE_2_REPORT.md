@@ -1,6 +1,6 @@
 # INRP2P Exchange — Phase 2 Report (Reference Data)
 
-Status: implemented, awaiting founder review. Phase 3 not started.
+Status: provisionally approved; review corrections applied (§7). Phase 3 not started.
 Base: `b43f975` (Phase 1.5 canonical visual baselines, CI green). Scope: `IMPLEMENTATION_PLAN.md` Phase 2 only — no trade requests, quotes, trades, settlement legs, exceptions, TRON scanning or UI screens.
 
 ## 1. D-02 gate — status: **OPEN (provider not confirmed)**
@@ -40,16 +40,16 @@ Grants: `inrp2p_app` gets SELECT/INSERT and column-level UPDATE only on the muta
 
 ## 4. Commands and permissions
 
-Every mutation runs through `executeCommand` (idempotency → authorization in the transaction → locks → writes → audit/outbox). Permissions are the existing SECURITY §3 matrix; no matrix cell changed.
+Every mutation runs through `executeCommand` (idempotency → authorization in the transaction → locks → writes → audit/outbox). Permissions are the SECURITY §3 matrix; the only change is the new `client_wallet:manage` row (§7).
 
 | Command | Permission | Audit |
 |---|---|---|
 | `client.create` / `client.update` (expected version) / `client.set_status` | `client:manage` | `client.created` / `client.updated` / `client.suspended`·`client.reactivated` |
 | `client_contact.add` / `archive` | `client:manage_contacts` | `client_contact.added` / `archived` |
 | `client_user.link` / `set_status` | `client:manage` | `client_user.linked` / `disabled`·`enabled` |
-| `client_user.set_accept_quotes` | operator `client_user:grant_accept_quotes` ⧗, or CLIENT_ADMIN of that client with fresh TOTP | `client_user.accept_permission_changed` |
-| `client_bank.add` / `archive` | operator `client_bank:add` ⧗, or CLIENT_ADMIN with fresh TOTP (D-08) | `client_bank.added` / `archived` + outbox `client.destination_*` |
-| `client_wallet.add` / `archive` | same as bank accounts (see §6.2) | `client_wallet.added` / `archived` + outbox |
+| `client_user.set_accept_quotes` (grant and revoke) | operator `client_user:grant_accept_quotes` ⧗, or CLIENT_ADMIN of that client with TOTP enrolled and fresh step-up (SECURITY §2.2) | `client_user.accept_permission_changed` |
+| `client_bank.add` / `archive` | operator `client_bank:add` ⧗, or CLIENT_ADMIN with TOTP enrolled and fresh step-up (D-08) | `client_bank.added` / `archived` + outbox `client.destination_*` |
+| `client_wallet.add` / `archive` | operator `client_wallet:manage` ⧗ (OWNER, SUPPORT — same policy as `client_bank:add`), or CLIENT_ADMIN with TOTP enrolled and fresh step-up | `client_wallet.added` / `archived` + outbox |
 | `bank_account.reveal` | `bank_account:reveal` ⧗; refused with an idempotency key | `bank_account.revealed` |
 | `settlement_entity.create`, `inr_account.create` / `set_status` | `inr_account:manage` ⧗ | `settlement_entity.created`, `settlement_account.created` / `status_changed` |
 | `capacity.set_day` / `set_default` | `capacity:change` ⧗ | `capacity.changed` / `capacity.default_changed` (+ outbox `capacity.over_committed`) |
@@ -84,18 +84,26 @@ Additional coverage: envelope encryption (no plaintext in rows, audit or idempot
 | `secret-scan` | clean (460 files) |
 | `lint` | 0 problems; boundary rules added for the 6 new packages; float-money bans extended to them |
 | `typecheck` | root + apps/web + packages/ui |
-| `test:unit` | 188 passed |
-| `test:integration` | 407 passed (13 files; 45 new) — local PostgreSQL 18.4; CI asserts 18.6 |
+| `test:unit` | 189 passed (after §7 corrections; 188 at `7e388d8`) |
+| `test:integration` | 416 passed after §7 corrections (407 at `7e388d8`; 13 files) — local PostgreSQL 18.4; CI asserts 18.6 |
 | `@inrp2p/web build` | success |
 
 ## 6. Interpretations and deviations for review
 
-1. **Capacity primitives live in `inr-accounts`**, not `settlement`. ARCHITECTURE §3 lists capacity reservations under `settlement`, which does not exist until Phase 4; the day row is the concurrency anchor owned by INR accounts. Phase 4 settlement commands call the public `reserveCapacity` / `consumeReservation` / `releaseReservation`. No semantic change.
-2. **Client wallets use `client_bank:add`.** The matrix has no wallet row; wallets are destinations with the same S8 risk, so they share the bank-account permission and client-admin TOTP rule.
-3. **Step-up for client-admin acceptance grants.** SECURITY §2.2 says grants are "step-up, audited"; applied to both operator and CLIENT_ADMIN paths. If client admins without TOTP must be able to grant, this is a one-line change.
+1. **Capacity primitives live in `inr-accounts`** (approved), not `settlement`. ARCHITECTURE §3 lists capacity reservations under `settlement`, which does not exist until Phase 4; the day row is the concurrency anchor owned by INR accounts. Phase 4 settlement commands call the public `reserveCapacity` / `consumeReservation` / `releaseReservation`. No semantic change.
+2. ~~Client wallets use `client_bank:add`.~~ Superseded by review: dedicated `client_wallet:manage` permission (§7).
+3. **Step-up for client-admin acceptance grants** — approved and made explicit in SECURITY §2.2 (§7).
 4. **SECURITY §6 "SECURITY DEFINER transition functions"** is implemented as status-whitelist triggers plus column-level UPDATE grants (same guarantee: the app role cannot write an unlisted transition or column). Revisit when trade/leg state machines arrive in Phases 3–4.
 5. **Foreign keys to later tables** (`capacity_reservation.trade_id` / `route_settlement_id`, `deposit_assignment.trade_id`) are plain uuid columns now; the migrations that create `trade` and `route_settlement` add the FKs.
-6. **Exceptions are not opened yet.** Capacity lowered below commitments emits outbox `capacity.over_committed`; the `ROUTE_CAPACITY_CHANGED` exception and `DEPOSIT_POOL_LOW` alerts are created by the exception module (Phase 4). No data is lost: the signal is durable.
-7. **Encryption keys.** Only `LocalKeyEncryptionKey` exists (dev/test). A KMS-backed `KeyEncryptionKey` is required before production (TD-03). Nothing in the app is wired to real keys yet; there is no HTTP boundary in this phase.
+6. **Exceptions are not opened yet** (approved until Phase 4). Capacity lowered below commitments emits outbox `capacity.over_committed`; the `ROUTE_CAPACITY_CHANGED` exception and `DEPOSIT_POOL_LOW` alerts are created by the exception module (Phase 4). No data is lost: the signal is durable.
+7. **Encryption keys** (approved as TD-03: blocker for staging/production with real bank or phone data). Only `LocalKeyEncryptionKey` exists (dev/test). A KMS-backed `KeyEncryptionKey` is required before production (TD-03). Nothing in the app is wired to real keys yet; there is no HTTP boundary in this phase.
 8. **Route and rate tests live in `packages/pricing/test`**, so `routes` needs no dev dependency on `pricing` (keeps the graph acyclic).
 9. **Compliance hooks** (`kyc_status`, `screening_status`, notes) exist as columns with no commands, per D-07 (schema-level hooks only).
+
+## 7. Review corrections (follow-up commit on `7e388d8`)
+
+1. **`client_wallet:manage`.** New RBAC permission for operator-side client wallet add/archive, with the same policy as `client_bank:add` (OWNER ⧗, SUPPORT ⧗, all other roles denied). Added to SECURITY §3, the executable matrix (`packages/identity/src/rbac/matrix.ts`), and used by `client_wallet.add` / `client_wallet.archive`. `client_bank:add` is unchanged and no longer authorizes wallets. Covered by the matrix parity test (SECURITY.md ↔ code) and the every-cell RBAC integration test, plus wallet tests: DEALER / SETTLEMENT_OPERATOR denied with `client_wallet:manage`, stale OWNER / SUPPORT need step-up, SUPPORT with step-up allowed, a `client_bank:add` grant does not imply `client_wallet:manage`.
+2. **Client-admin quote-acceptance changes need TOTP.** SECURITY §2.2 now states that granting or revoking `can_accept_quotes` is a sensitive client-admin action requiring enrolled TOTP and fresh step-up; a client admin without TOTP must enroll first. Enforcement: the client-admin path returns `MFA_ENROLLMENT_REQUIRED` when TOTP is not enrolled and `STEP_UP_REQUIRED` when it is not fresh (same for client-admin destination changes). Operator `client_user:grant_accept_quotes` ⧗ unchanged. Tests cover grant and revoke with fresh, non-fresh and non-enrolled admins; failed attempts change nothing and write no audit.
+
+D-02 remains open: no real custody adapter and no fallback USDT attribution.
+

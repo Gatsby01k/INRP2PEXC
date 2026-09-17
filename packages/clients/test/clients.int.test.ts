@@ -137,7 +137,7 @@ describe('bank accounts (archive-not-edit, encryption, audit)', () => {
     const added = await runAs(t.app, addBankAccount(asClient(adminLogin), protector), adminLogin.ref, 'client_bank.add', bank(c.clientId));
     expect((await audits(added.bankAccountId))[0]).toMatchObject({ action: 'client_bank.added', actor_id: adminLogin.userId });
     await expect(runAs(t.app, addBankAccount(asClient(adminLogin), protector), adminLogin.ref, 'client_bank.add', bank(other.clientId))).rejects.toMatchObject({ code: 'FORBIDDEN' });
-    await expect(runAs(t.app, addBankAccount(asClient(noTotpLogin), protector), noTotpLogin.ref, 'client_bank.add', bank(c.clientId, '123456789012'))).rejects.toMatchObject({ code: 'STEP_UP_REQUIRED' });
+    await expect(runAs(t.app, addBankAccount(asClient(noTotpLogin), protector), noTotpLogin.ref, 'client_bank.add', bank(c.clientId, '123456789012'))).rejects.toMatchObject({ code: 'MFA_ENROLLMENT_REQUIRED' });
     await expect(runAs(t.app, addBankAccount(asClient(traderLogin), protector), traderLogin.ref, 'client_bank.add', bank(c.clientId, '123456789012'))).rejects.toMatchObject({ code: 'FORBIDDEN' });
     // A client actor presented on the operator surface is refused.
     await expect(runAs(t.app, addBankAccount(asClient(adminLogin), protector), { ...adminLogin.ref, surface: 'OPERATOR' }, 'client_bank.add', bank(c.clientId, '123456789012'))).rejects.toMatchObject({ code: 'SESSION_SURFACE_MISMATCH' });
@@ -157,6 +157,41 @@ describe('client wallets', () => {
     await expect(runAs(t.app, addWallet(owner.actor), owner.ref, 'client_wallet.add', { clientId: c.clientId, network: 'TRON' as const, address: typo, label: 'Typo', purpose: 'SOURCE' as const })).rejects.toMatchObject({ code: 'INVALID_ADDRESS' });
     await runAs(t.app, archiveWallet(owner.actor), owner.ref, 'client_wallet.archive', { walletId: w.walletId, reason: 'rotated' });
     expect((await audits(w.walletId)).map((a) => a.action)).toEqual(['client_wallet.added', 'client_wallet.archived']);
+  });
+});
+
+describe('client wallet permission (client_wallet:manage)', () => {
+  it('operators need client_wallet:manage with step-up; client_bank:add alone does not authorize wallets', async () => {
+    const c = await newClient('WalletPerm');
+    const wallet = () => ({ clientId: c.clientId, network: 'TRON' as const, address: encodeTronAddress(randomBytes(20)), label: 'Ops', purpose: 'DESTINATION' as const });
+    const staleSupport = await createTestOperator(t.owner, ['SUPPORT'], 'stale');
+    for (const op of [dealer, settlement]) {
+      await expect(runAs(t.app, addWallet(op.actor), op.ref, 'client_wallet.add', wallet())).rejects.toMatchObject({ code: 'FORBIDDEN', details: { permission: 'client_wallet:manage' } });
+    }
+    await expect(runAs(t.app, addWallet(staleOwner.actor), staleOwner.ref, 'client_wallet.add', wallet())).rejects.toMatchObject({ code: 'STEP_UP_REQUIRED', details: { permission: 'client_wallet:manage' } });
+    await expect(runAs(t.app, addWallet(staleSupport.actor), staleSupport.ref, 'client_wallet.add', wallet())).rejects.toMatchObject({ code: 'STEP_UP_REQUIRED' });
+    const w = await runAs(t.app, addWallet(support.actor), support.ref, 'client_wallet.add', wallet());
+    await expect(runAs(t.app, archiveWallet(dealer.actor), dealer.ref, 'client_wallet.archive', { walletId: w.walletId, reason: 'x' })).rejects.toMatchObject({ code: 'FORBIDDEN', details: { permission: 'client_wallet:manage' } });
+    await runAs(t.app, archiveWallet(support.actor), support.ref, 'client_wallet.archive', { walletId: w.walletId, reason: 'rotated' });
+
+    // A user holding only a grant of client_bank:add (not a role with client_wallet:manage) cannot manage wallets.
+    const { effectiveRequirement } = await import('@inrp2p/identity');
+    expect(effectiveRequirement('client_wallet:manage', ['READ_ONLY'], ['client_bank:add'])).toBe('DENY');
+  });
+
+  it('client admins add/archive wallets for their own client only with fresh TOTP', async () => {
+    const c = await newClient('WalletAdmin');
+    const withTotp = await createTestClientLogin(t.owner, { stepUp: 'fresh' });
+    const noTotp = await createTestClientLogin(t.owner, { stepUp: 'stale' });
+    const notEnrolled = await createTestClientLogin(t.owner);
+    for (const l of [withTotp, noTotp, notEnrolled]) await runAs(t.app, linkClientUser(dealer.actor), dealer.ref, 'client_user.link', { clientId: c.clientId, userId: l.userId, role: 'CLIENT_ADMIN' as const });
+    const asClient = (l: typeof withTotp): ClientActor => ({ kind: 'CLIENT', userId: l.userId, sessionId: l.sessionId });
+    const payload = { clientId: c.clientId, network: 'TRON' as const, address: encodeTronAddress(randomBytes(20)), label: 'Hot', purpose: 'SOURCE' as const };
+    await expect(runAs(t.app, addWallet(asClient(noTotp)), noTotp.ref, 'client_wallet.add', payload)).rejects.toMatchObject({ code: 'STEP_UP_REQUIRED' });
+    await expect(runAs(t.app, addWallet(asClient(notEnrolled)), notEnrolled.ref, 'client_wallet.add', payload)).rejects.toMatchObject({ code: 'MFA_ENROLLMENT_REQUIRED' });
+    const w = await runAs(t.app, addWallet(asClient(withTotp)), withTotp.ref, 'client_wallet.add', payload);
+    await expect(runAs(t.app, archiveWallet(asClient(noTotp)), noTotp.ref, 'client_wallet.archive', { walletId: w.walletId, reason: 'x' })).rejects.toMatchObject({ code: 'STEP_UP_REQUIRED' });
+    await runAs(t.app, archiveWallet(asClient(withTotp)), withTotp.ref, 'client_wallet.archive', { walletId: w.walletId, reason: 'rotated' });
   });
 });
 
@@ -190,6 +225,37 @@ describe('client users and quote-acceptance rights', () => {
     const row = await t.app.selectFrom('client_user').select(['can_accept_quotes', 'status']).where('id', '=', cu.clientUserId).executeTakeFirstOrThrow();
     expect(row).toEqual({ can_accept_quotes: false, status: 'DISABLED' });
     await expect(runAs(t.app, setCanAcceptQuotes(support.actor), support.ref, 'client_user.set_accept_quotes', { clientUserId: cu.clientUserId, canAcceptQuotes: true })).rejects.toMatchObject({ code: 'INVALID_TRANSITION' });
+  });
+
+  it('a CLIENT_ADMIN grants and revokes quote acceptance only with enrolled TOTP and fresh step-up; otherwise nothing changes', async () => {
+    const c = await newClient('AdminGrant');
+    const adminTotp = await createTestClientLogin(t.owner, { stepUp: 'fresh' });
+    const adminNoTotp = await createTestClientLogin(t.owner, { stepUp: 'enrolled' });
+    const adminNotEnrolled = await createTestClientLogin(t.owner);
+    const trader = await createTestClientLogin(t.owner);
+    for (const [l, role] of [[adminTotp, 'CLIENT_ADMIN'], [adminNoTotp, 'CLIENT_ADMIN'], [adminNotEnrolled, 'CLIENT_ADMIN']] as const) {
+      await runAs(t.app, linkClientUser(dealer.actor), dealer.ref, 'client_user.link', { clientId: c.clientId, userId: l.userId, role });
+    }
+    const target = await runAs(t.app, linkClientUser(dealer.actor), dealer.ref, 'client_user.link', { clientId: c.clientId, userId: trader.userId, role: 'CLIENT_TRADER' as const });
+    const asClient = (l: typeof adminTotp): ClientActor => ({ kind: 'CLIENT', userId: l.userId, sessionId: l.sessionId });
+    const flag = async () => (await t.app.selectFrom('client_user').select('can_accept_quotes').where('id', '=', target.clientUserId).executeTakeFirstOrThrow()).can_accept_quotes;
+
+    await expect(runAs(t.app, setCanAcceptQuotes(asClient(adminNoTotp)), adminNoTotp.ref, 'client_user.set_accept_quotes', { clientUserId: target.clientUserId, canAcceptQuotes: true })).rejects.toMatchObject({ code: 'STEP_UP_REQUIRED' });
+    await expect(runAs(t.app, setCanAcceptQuotes(asClient(adminNotEnrolled)), adminNotEnrolled.ref, 'client_user.set_accept_quotes', { clientUserId: target.clientUserId, canAcceptQuotes: true })).rejects.toMatchObject({ code: 'MFA_ENROLLMENT_REQUIRED' });
+    expect(await flag()).toBe(false);
+    await runAs(t.app, setCanAcceptQuotes(asClient(adminTotp)), adminTotp.ref, 'client_user.set_accept_quotes', { clientUserId: target.clientUserId, canAcceptQuotes: true });
+    expect(await flag()).toBe(true);
+    await expect(runAs(t.app, setCanAcceptQuotes(asClient(adminNoTotp)), adminNoTotp.ref, 'client_user.set_accept_quotes', { clientUserId: target.clientUserId, canAcceptQuotes: false })).rejects.toMatchObject({ code: 'STEP_UP_REQUIRED' });
+    await expect(runAs(t.app, setCanAcceptQuotes(asClient(adminNotEnrolled)), adminNotEnrolled.ref, 'client_user.set_accept_quotes', { clientUserId: target.clientUserId, canAcceptQuotes: false })).rejects.toMatchObject({ code: 'MFA_ENROLLMENT_REQUIRED' });
+    expect(await flag()).toBe(true);
+    await runAs(t.app, setCanAcceptQuotes(asClient(adminTotp)), adminTotp.ref, 'client_user.set_accept_quotes', { clientUserId: target.clientUserId, canAcceptQuotes: false });
+    expect(await flag()).toBe(false);
+
+    const changes = await t.app.selectFrom('audit_event').select(['actor_id', 'after']).where('entity_id', '=', target.clientUserId).where('action', '=', 'client_user.accept_permission_changed').orderBy('seq').execute();
+    expect(changes.map((a) => [a.actor_id, (a.after as { can_accept_quotes: boolean; changed_via: string }).can_accept_quotes, (a.after as { changed_via: string }).changed_via])).toEqual([
+      [adminTotp.userId, true, 'CLIENT'],
+      [adminTotp.userId, false, 'CLIENT'],
+    ]);
   });
 
   it('the database refuses linking an operator user as a client user', async () => {

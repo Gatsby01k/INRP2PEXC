@@ -14,12 +14,16 @@ export async function authorizeClientAdmin(ex: Executor, actor: ClientActor, cli
   const row = await ex
     .selectFrom('client_user as cu')
     .innerJoin('auth_user as u', 'u.id', 'cu.user_id')
-    .select(['cu.id', 'cu.role', 'cu.status', 'u.status as user_status', 'u.kind'])
+    .select(['cu.id', 'cu.role', 'cu.status', 'u.status as user_status', 'u.kind', 'u.two_factor_enabled'])
     .where('cu.user_id', '=', actor.userId)
     .where('cu.client_id', '=', clientId)
     .executeTakeFirst();
   if (!row || row.kind !== 'CLIENT' || row.status !== 'ACTIVE' || row.user_status !== 'ACTIVE' || row.role !== 'CLIENT_ADMIN') {
     throw new DomainError('FORBIDDEN', 'requires an active CLIENT_ADMIN of this client');
+  }
+  // Sensitive client-admin actions (SECURITY §2.2): TOTP must be enrolled, then verified within the step-up window.
+  if (opts.stepUp && !row.two_factor_enabled) {
+    throw new DomainError('MFA_ENROLLMENT_REQUIRED', 'client admin must enroll TOTP before this action');
   }
   if (opts.stepUp && !(await hasFreshStepUp(ex, actor.sessionId))) {
     throw new DomainError('STEP_UP_REQUIRED', 'client admin must verify TOTP within the step-up window');

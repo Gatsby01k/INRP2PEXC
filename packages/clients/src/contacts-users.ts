@@ -105,7 +105,8 @@ export function linkClientUser(actor: OperatorActor) {
 
 /**
  * `client_user.set_accept_quotes` — operator `client_user:grant_accept_quotes` (⧗) or a CLIENT_ADMIN of the same
- * client. Step-up is required on both paths (SECURITY §2.2 "step-up, audited"). Disabled users cannot be granted.
+ * client. Grant and revoke are sensitive: fresh TOTP step-up on both paths (SECURITY §2.2); a client admin without TOTP
+ * must enroll first. Disabled users cannot be granted.
  */
 export function setCanAcceptQuotes(actor: ClientDataActor) {
   return clientDataCommand(
