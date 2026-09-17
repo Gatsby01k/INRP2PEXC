@@ -5,7 +5,16 @@
 A new product built from zero: clients request or receive a firm rate, accept it, fund their leg and track settlement; the exchange desk runs rates, quotes, trades, INR payout capacity, USDT treasury, settlement legs and margin from one system — replacing Telegram + calculator + spreadsheets + blockchain explorer + bank apps.
 
 ## Status
-**Phase 0 — specification, revision 3** ([`docs/DECISIONS.md`](docs/DECISIONS.md) Revision 3). No production code yet; Phase 1 starts only after founder acceptance of Phase 0.
+**Phase 0 accepted** (tag `phase-0-accepted`). **Phase 1 — Foundation** implemented, awaiting review: see [`docs/PHASE_1_REPORT.md`](docs/PHASE_1_REPORT.md) and [`docs/DEPENDENCIES.md`](docs/DEPENDENCIES.md).
+
+## Development
+
+```bash
+pnpm install --frozen-lockfile
+pnpm run lint && pnpm run typecheck && pnpm run test:unit
+pnpm --filter @inrp2p/web build
+pnpm run test:integration   # Testcontainers postgres:18.6 (or TEST_DATABASE_URL)
+```
 
 ## Documents
 | Document | Contents |

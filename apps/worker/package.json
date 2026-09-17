@@ -1,0 +1,19 @@
+{
+  "name": "@inrp2p/worker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/main.ts"
+  },
+  "dependencies": {
+    "@inrp2p/audit": "workspace:*",
+    "@inrp2p/db": "workspace:*",
+    "@inrp2p/outbox": "workspace:*",
+    "graphile-worker": "0.18.0",
+    "pg": "8.23.0"
+  },
+  "devDependencies": {
+    "@inrp2p/commands": "workspace:*"
+  }
+}

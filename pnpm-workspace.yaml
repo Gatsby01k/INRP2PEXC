@@ -1,0 +1,9 @@
+packages:
+  - "packages/*"
+  - "apps/*"
+allowBuilds:
+  cpu-features: set this to true or false
+  protobufjs: set this to true or false
+  ssh2: set this to true or false
+minimumReleaseAgeExclude:
+  - kysely@0.29.6

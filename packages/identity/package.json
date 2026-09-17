@@ -1,0 +1,21 @@
+{
+  "name": "@inrp2p/identity",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@inrp2p/kernel": "workspace:*",
+    "@inrp2p/db": "workspace:*",
+    "@inrp2p/audit": "workspace:*",
+    "better-auth": "1.7.5",
+    "kysely": "0.29.6",
+    "@inrp2p/commands": "workspace:*"
+  },
+  "devDependencies": {
+    "@better-auth/utils": "0.4.2",
+    "pg": "8.23.0"
+  }
+}

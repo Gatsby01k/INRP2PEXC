@@ -1,0 +1,30 @@
+import { NextResponse, type NextRequest } from 'next/server';
+import { requireClientSession, requireOperatorSession } from '@inrp2p/identity';
+import { getRuntime } from './server/runtime.ts';
+import { gateFor, surfaceForHost } from './server/surface.ts';
+import { authErrorResponse } from './server/http.ts';
+
+/**
+ * Runs before every route. Desk host: every non-auth path requires a valid, MFA-verified,
+ * non-idle operator session. Route handlers re-check (defense in depth) and commands authorize.
+ */
+export async function proxy(request: NextRequest) {
+  const rt = getRuntime();
+  const surface = surfaceForHost(request.headers.get('host'), rt.hosts);
+  const gate = gateFor(surface, request.nextUrl.pathname);
+  try {
+    if (gate === 'OPERATOR_SESSION') await requireOperatorSession(rt.operatorAuth, rt.appDb, request.headers);
+    else if (gate === 'CLIENT_SESSION') await requireClientSession(rt.clientAuth, rt.appDb, request.headers);
+  } catch (err) {
+    return authErrorResponse(err);
+  }
+  const res = NextResponse.next();
+  res.headers.set('x-frame-options', 'DENY');
+  res.headers.set('referrer-policy', 'no-referrer');
+  res.headers.set('x-content-type-options', 'nosniff');
+  return res;
+}
+
+export const config = {
+  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
+};

@@ -1,0 +1,19 @@
+{
+  "name": "@inrp2p/commands",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@inrp2p/kernel": "workspace:*",
+    "@inrp2p/db": "workspace:*",
+    "kysely": "0.29.6",
+    "@inrp2p/audit": "workspace:*"
+  },
+  "devDependencies": {
+    "@inrp2p/ledger": "workspace:*",
+    "@inrp2p/outbox": "workspace:*"
+  }
+}

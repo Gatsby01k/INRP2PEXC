@@ -1,0 +1,16 @@
+{
+  "name": "@inrp2p/db",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./migrate": "./src/migrate.ts",
+    "./testing": "./test/harness.ts"
+  },
+  "dependencies": {
+    "@inrp2p/kernel": "workspace:*",
+    "kysely": "0.29.6",
+    "pg": "8.23.0"
+  }
+}

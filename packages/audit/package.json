@@ -1,0 +1,17 @@
+{
+  "name": "@inrp2p/audit",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@inrp2p/kernel": "workspace:*",
+    "@inrp2p/db": "workspace:*",
+    "kysely": "0.29.6"
+  },
+  "devDependencies": {
+    "@inrp2p/commands": "workspace:*"
+  }
+}
