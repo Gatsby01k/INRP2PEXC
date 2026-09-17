@@ -50,6 +50,24 @@ Not added in Phase 1 (belong to later phases): Playwright, Storybook, Zod as a d
 | PostgreSQL 18 features used | `uuidv7()`, `uuid_extract_version()`, `pg_current_xact_id()`/`xid8`, deferrable constraint triggers, statement-level `TRUNCATE` triggers |
 | Better Auth schema | integration test runs Better Auth's migration planner against migration 0006 and asserts nothing to create or add |
 
+## Build scripts (pnpm `allowBuilds`)
+
+pnpm 12.4.2 blocks every dependency lifecycle script unless `pnpm-workspace.yaml` lists the package under `allowBuilds`; in CI an unlisted package with a script aborts the install with `ERR_PNPM_IGNORED_BUILDS`. The policy is explicit and minimal: **no dependency build script is allowed**, because none is required.
+
+| Package | Pulled in by | Script | Decision | Why |
+|---|---|---|---|---|
+| ssh2 1.17.0 | `@testcontainers/postgresql` → testcontainers → dockerode / docker-modem, ssh-remote-port-forward | `install`: node-gyp build of an optional crypto binding; exits 0 on failure | `false` | Pure-JS fallback is built in; Testcontainers uses the local Docker socket, SSH transport is not used |
+| cpu-features 0.0.10 | optionalDependency of ssh2 | `install`: node-gyp native build | `false` | Only feeds the optional ssh2 binding above |
+| protobufjs 7.6.6 | dockerode → @grpc/proto-loader | `postinstall`: prints a version-scheme warning | `false` | No build output; runtime unaffected |
+
+Adding a dependency with an install script fails CI until an explicit entry (with justification here) is added. `true` requires review of the script source.
+
+`minimumReleaseAgeExclude: [kysely@0.29.6]`, which pnpm had written locally while kysely 0.29.6 was less than one day old, was removed: the release now satisfies pnpm's default minimum release age, so the supply-chain release-age check applies to every package without exceptions.
+
+## Workspace dependency graph
+
+`pnpm run workspace:graph` (CI step) fails on any cycle across dependencies, devDependencies, optionalDependencies or peerDependencies, on any `packages/*` → `apps/*` edge, and on workspace dependencies not using `workspace:`. Tests that compose several packages (pipeline + ledger + audit + outbox) live in root `test/integration/`, so packages never need a dev dependency on a package above them.
+
 ## Environment limitation during Phase 1 implementation
 
 The implementation sandbox could not pull container images (Docker Hub, ECR Public, GCR mirror and GHCR are blocked by egress policy) and could not reach postgresql.org. Local verification therefore ran against **PostgreSQL 18.4** binaries (`@embedded-postgres/linux-x64@18.4.0-beta.17`, via `TEST_DATABASE_URL`). The repository still pins 18.6: CI uses Testcontainers `postgres:18.6` and fails if the server version is not exactly 18.6. First green CI run on GitHub is the 18.6 evidence.

@@ -1,9 +1,17 @@
 packages:
   - "packages/*"
   - "apps/*"
+
+# Dependency build-script policy (see docs/DEPENDENCIES.md "Build scripts").
+# pnpm 12 runs no dependency install scripts unless explicitly allowed here; in CI any package
+# with a build script that is not listed fails the install (ERR_PNPM_IGNORED_BUILDS).
+# No package in the current graph needs its build script, so every entry is `false`.
 allowBuilds:
-  cpu-features: set this to true or false
-  protobufjs: set this to true or false
-  ssh2: set this to true or false
-minimumReleaseAgeExclude:
-  - kysely@0.29.6
+  # testcontainers → dockerode → docker-modem / ssh-remote-port-forward → ssh2.
+  # Script builds an OPTIONAL native crypto binding with node-gyp; ssh2 falls back to pure JS.
+  # SSH is not used: Testcontainers talks to the local Docker socket.
+  ssh2: false
+  # optionalDependency of ssh2: node-gyp build of CPU feature detection, only used by that binding.
+  cpu-features: false
+  # dockerode → @grpc/proto-loader → protobufjs. postinstall only prints a version-scheme warning.
+  protobufjs: false

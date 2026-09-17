@@ -10,8 +10,5 @@
     "@inrp2p/kernel": "workspace:*",
     "@inrp2p/db": "workspace:*",
     "kysely": "0.29.6"
-  },
-  "devDependencies": {
-    "@inrp2p/commands": "workspace:*"
   }
 }

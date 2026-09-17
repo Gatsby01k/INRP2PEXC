@@ -12,8 +12,5 @@
     "kysely": "0.29.6",
     "graphile-worker": "0.18.0",
     "pg": "8.23.0"
-  },
-  "devDependencies": {
-    "@inrp2p/commands": "workspace:*"
   }
 }

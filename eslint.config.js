@@ -10,7 +10,7 @@ const BOUNDARIES = {
   ledger: ['kernel', 'db'],
   outbox: ['kernel', 'db'],
   commands: ['kernel', 'db', 'audit'],
-  identity: ['kernel', 'db', 'audit', 'commands'],
+  identity: ['kernel', 'db', 'audit'],
 };
 const ALL = Object.keys(BOUNDARIES);
 

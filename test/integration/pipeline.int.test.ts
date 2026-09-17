@@ -5,7 +5,7 @@ import { createTestDatabase, type TestDatabase } from '@inrp2p/db/testing';
 import { appendAudit } from '@inrp2p/audit';
 import { Accounts, globalImbalance, postJournal } from '@inrp2p/ledger';
 import { enqueueOutbox } from '@inrp2p/outbox';
-import { type CommandDefinition, executeCommand } from '../src/index.ts';
+import { type CommandDefinition, executeCommand } from '@inrp2p/commands';
 import { DomainError } from '@inrp2p/kernel';
 
 let t: TestDatabase;

@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from 'kysely';
 import { createTestDatabase, type TestDatabase } from '@inrp2p/db/testing';
 import { executeCommand } from '@inrp2p/commands';
-import { dispatchOutbox, enqueueOutbox, type OutboxHandler } from '../src/index.ts';
+import { dispatchOutbox, enqueueOutbox, type OutboxHandler } from '@inrp2p/outbox';
 import { pgErrorCode } from '@inrp2p/db';
 
 let t: TestDatabase;

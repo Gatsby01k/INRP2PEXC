@@ -4,7 +4,7 @@ import { sql } from 'kysely';
 import { pgErrorCode } from '@inrp2p/db';
 import { createTestDatabase, type TestDatabase } from '@inrp2p/db/testing';
 import { executeCommand } from '@inrp2p/commands';
-import { appendAudit, sealAudit, verifyAuditSeals } from '../src/index.ts';
+import { appendAudit, sealAudit, verifyAuditSeals } from '@inrp2p/audit';
 
 let t: TestDatabase;
 beforeAll(async () => {

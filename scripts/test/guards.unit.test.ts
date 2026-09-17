@@ -25,3 +25,23 @@ describe('lint guards', () => {
     expect(deep!.messages.some((m) => /public entry points/.test(m.message))).toBe(true);
   });
 });
+
+describe('workspace dependency graph check', () => {
+  const m = (name: string, dir: string, deps: Record<string, string> = {}) => ({ name, dir, deps });
+
+  it('the real workspace is acyclic', async () => {
+    const { checkGraph, loadWorkspace } = await import('../workspace-graph.ts');
+    const { problems } = checkGraph(loadWorkspace(new URL('../..', import.meta.url).pathname));
+    expect(problems).toEqual([]);
+  });
+
+  it('detects dev-dependency cycles, package→app edges and non-workspace specs', async () => {
+    const { checkGraph } = await import('../workspace-graph.ts');
+    const cyclic = checkGraph([m('@x/audit', 'packages/audit', { '@x/commands': 'workspace:*' }), m('@x/commands', 'packages/commands', { '@x/audit': 'workspace:*' })]);
+    expect(cyclic.problems.some((p) => /cycle: @x\/audit -> @x\/commands -> @x\/audit/.test(p))).toBe(true);
+    const appEdge = checkGraph([m('@x/lib', 'packages/lib', { '@x/web': 'workspace:*' }), m('@x/web', 'apps/web')]);
+    expect(appEdge.problems.some((p) => /must not depend on app/.test(p))).toBe(true);
+    const spec = checkGraph([m('@x/a', 'packages/a', { '@x/b': '1.0.0' }), m('@x/b', 'packages/b')]);
+    expect(spec.problems.some((p) => /workspace: protocol/.test(p))).toBe(true);
+  });
+});

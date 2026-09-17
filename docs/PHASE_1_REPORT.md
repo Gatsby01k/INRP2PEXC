@@ -17,6 +17,7 @@ packages/outbox     transactional outbox enqueue, dispatcher, queue install + pr
 packages/identity   Better Auth (operator + client), RBAC matrix, authorization, step-up, session guards, role assignment command
 scripts             migrate, version check, secret scan
 test/global-setup   PostgreSQL (Testcontainers postgres:18.6 or TEST_DATABASE_URL), template DB with migrations + queue
+test/integration    cross-package integration tests (audit, ledger, outbox, pipeline) — keeps the workspace graph acyclic
 ```
 
 ## 2. Migrations
@@ -79,6 +80,11 @@ None of these change approved product or financial semantics.
 | Operator and client sessions isolated by host/cookie | cross-cookie, forged cookie-name, OTP login for operator email, DB surface trigger | ✅ |
 | Cancellation reversal leaves nothing orphaned (added requirement) | SELL/BUY/negative/zero margin: all trade and route-obligation balances zero; single reversal; no reversal of reversal; partial reversal rejected by DB (IX014) | ✅ |
 | CI: typecheck, lint, unit, integration with Testcontainers, secret scan | `.github/workflows/ci.yml`; all steps green locally (integration on PG 18.4, see §3.1) | ✅ locally · ⏳ first GitHub run |
+
+## 5a. CI fix (after first GitHub run of `e57e0c2`)
+
+- `ERR_PNPM_IGNORED_BUILDS`: explicit `allowBuilds` policy, see `DEPENDENCIES.md` "Build scripts".
+- Workspace cycle `audit ⇄ commands` (and latent `ledger ⇄ commands`, `outbox ⇄ commands` via devDependencies): composition tests moved to `test/integration/`; `identity` no longer lists `commands` as a runtime dependency; `pnpm run workspace:graph` added to CI.
 
 ## 6. Test results (local, Node 24.21.0, PostgreSQL 18.4)
 

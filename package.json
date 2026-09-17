@@ -15,7 +15,8 @@
     "test": "vitest run",
     "db:migrate": "node scripts/migrate.ts",
     "secret-scan": "node scripts/secret-scan.ts",
-    "versions:check": "node scripts/check-versions.ts"
+    "versions:check": "node scripts/check-versions.ts",
+    "workspace:graph": "node scripts/workspace-graph.ts"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

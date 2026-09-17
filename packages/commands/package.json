@@ -11,9 +11,5 @@
     "@inrp2p/db": "workspace:*",
     "kysely": "0.29.6",
     "@inrp2p/audit": "workspace:*"
-  },
-  "devDependencies": {
-    "@inrp2p/ledger": "workspace:*",
-    "@inrp2p/outbox": "workspace:*"
   }
 }

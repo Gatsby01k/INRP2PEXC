@@ -7,7 +7,7 @@ import { createTestDatabase, type TestDatabase } from '@inrp2p/db/testing';
 import {
   Accounts, accountBalance, globalImbalance, postJournal, reverseJournal, routeObligationBalances,
   tradeAcceptJournal, tradeBalances, tradeCancelReversal, tradeCompleteJournal,
-} from '../src/index.ts';
+} from '@inrp2p/ledger';
 import { inCommand } from './support.ts';
 
 let t: TestDatabase;
