@@ -7,13 +7,17 @@
     "start": "node src/main.ts"
   },
   "dependencies": {
+    "@inrp2p/adapters": "workspace:*",
     "@inrp2p/audit": "workspace:*",
     "@inrp2p/commands": "workspace:*",
     "@inrp2p/db": "workspace:*",
     "@inrp2p/inr-accounts": "workspace:*",
+    "@inrp2p/kernel": "workspace:*",
     "@inrp2p/outbox": "workspace:*",
+    "@inrp2p/quotes": "workspace:*",
     "@inrp2p/treasury": "workspace:*",
     "graphile-worker": "0.18.0",
+    "kysely": "0.29.6",
     "pg": "8.23.0"
   }
 }

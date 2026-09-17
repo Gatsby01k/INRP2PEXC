@@ -26,6 +26,11 @@ export interface TestDatabase {
   /** App role connection with int8 parsed as number, for Better Auth. */
   readonly authPool: pg.Pool;
   readonly auth: Db;
+  /**
+   * A single-connection app-role database whose business clock (`inrp2p_now()`) can be pinned with `set(at)`;
+   * `set(null)` returns to real time. Honoured only because the test template has inrp2p_test_clock_permit.
+   */
+  pinnedClock(): Promise<{ readonly db: Db; set(at: Date | null): Promise<void> }>;
   close(): Promise<void>;
 }
 
@@ -62,14 +67,46 @@ export async function createTestDatabase(label = 'test'): Promise<TestDatabase> 
   const worker = createDb(workerPool);
   const auth = createDb(authPool);
 
+  const extra: Db[] = [];
   return {
     name, ownerPool, owner, appPool, app, workerPool, worker, authPool, auth,
+    async pinnedClock() {
+      const pool = createPool({ connectionString: url(adminUrl, name, { name: 'inrp2p_app_login', password }), applicationName: 'app-clock', max: 1 });
+      const db = createDb(pool);
+      extra.push(db);
+      return {
+        db,
+        async set(at: Date | null) {
+          await pool.query(`select set_config('inrp2p.clock_override', $1, false)`, [at ? at.toISOString() : '']);
+        },
+      };
+    },
     async close() {
-      await Promise.allSettled([owner.destroy(), app.destroy(), worker.destroy(), auth.destroy()]);
+      await Promise.allSettled([owner.destroy(), app.destroy(), worker.destroy(), auth.destroy(), ...extra.map((d) => d.destroy())]);
       const c = new pg.Client({ connectionString: adminUrl });
       await c.connect();
       await c.query(`drop database if exists ${name} with (force)`);
       await c.end();
     },
   };
+}
+
+/**
+ * Test-only: inserts minimal trade rows for tests of lower-level modules (capacity, deposit addresses) that need a
+ * trade id to reference, without building requests and quotes. Uses replication-role mode on the owner connection,
+ * which skips foreign keys and triggers for this insert only. Never available to application roles.
+ */
+export async function insertTradeStubs(owner: Db, count = 1): Promise<string[]> {
+  const { sql } = await import('kysely');
+  return owner.transaction().execute(async (tx) => {
+    await sql`set local session_replication_role = replica`.execute(tx);
+    const ids: string[] = [];
+    for (let i = 0; i < count; i++) {
+      const r = await sql<{ id: string }>`
+        insert into trade (quote_id, trade_request_id, client_id, direction, lifecycle_state, created_by)
+        values (uuidv7(), uuidv7(), uuidv7(), 'SELL_USDT', 'AWAITING_FIRST_LEG', 'test-stub') returning id`.execute(tx);
+      ids.push(r.rows[0]!.id);
+    }
+    return ids;
+  });
 }

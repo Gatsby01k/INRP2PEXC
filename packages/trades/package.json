@@ -1,0 +1,17 @@
+{
+  "name": "@inrp2p/trades",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@inrp2p/kernel": "workspace:*",
+    "@inrp2p/db": "workspace:*",
+    "@inrp2p/audit": "workspace:*",
+    "@inrp2p/ledger": "workspace:*",
+    "@inrp2p/routes": "workspace:*",
+    "kysely": "0.29.6"
+  }
+}

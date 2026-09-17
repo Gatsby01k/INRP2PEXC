@@ -42,6 +42,8 @@ export default async function setup(project: TestProject) {
   try {
     await migrate(pool);
     await installQueue(pool);
+    // Enables the inrp2p.clock_override session setting for integration tests only (migration 0012).
+    await pool.query('create table inrp2p_test_clock_permit (enabled boolean primary key default true)');
     // Login users for role-based tests (cluster-level objects).
     await pool.query(`
       do $$ begin

@@ -66,6 +66,7 @@ Legend: ✔ allowed · ⧗ allowed with step-up MFA · ✱ requires second appro
 | `economics:view` (route rate, margin) | ✔ | ✔ | — | ✔ | — | — (grantable) |
 | `rates:update_route` | ✔ | ✔ | — | — | — | — |
 | `request:create` / `request:decline` | ✔ | ✔ | — | — | create only | — |
+| `request:withdraw` (withdraw a request on behalf of the client) | ✔ | ✔ | — | — | — | — |
 | `quote:create` / `quote:send` / `quote:cancel` | ✔ | ✔ | — | — | — | — |
 | `quote:send_negative_margin` | ⧗ | — | — | — | — | — |
 | `quote_link:create` / `revoke` | ✔ | ✔ | — | — | — | — |

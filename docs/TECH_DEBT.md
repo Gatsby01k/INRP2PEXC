@@ -7,6 +7,7 @@ Non-blocking items accepted at phase review. Each entry names the phase that mus
 | TD-01 | Auth schema: `auth_rate_limit.last_request` type warning | Phase 1 acceptance (2026-09-17) | Production deploy (launch checklist) | Open |
 | TD-02 | Auth: cross-surface operator → client OTP rejection surfaces as internal error | Phase 1 acceptance (2026-09-17) | Production client auth (client login enabled on `app.inrp2p.com`) | Open |
 | TD-03 | Encryption: production KMS-backed key-encryption key not implemented | Phase 2 implementation (2026-09-17) | First deployment holding real bank or contact data | Open |
+| TD-04 | Notifications: no email provider bound for acceptance codes | Phase 3 implementation (2026-09-17) | Any environment where a client accepts a quote through a shareable link | Open |
 
 ## TD-01 — Better Auth schema warning for `auth_rate_limit.last_request`
 
@@ -32,3 +33,11 @@ Non-blocking items accepted at phase review. Each entry names the phase that mus
 
 **Resolution (to do, before any deployment with real data).** Implement a KMS-backed `KeyEncryptionKey` for the chosen hosting provider (wrap/unwrap via KMS API, key id recorded in each sealed value), load the HMAC lookup key from the secret manager, and add a startup check that refuses `LocalKeyEncryptionKey` when `NODE_ENV=production`. Rotation keeps previous KEKs readable through `previous` (already supported and tested).
 
+
+## TD-04 — No email provider for acceptance codes
+
+**Observed.** Acceptance codes are generated, sealed and queued for delivery by `packages/quotes` (`acceptance_otp.deliver` outbox event → `acceptanceCodeHandler` → `NotificationAdapter`). The only adapters that exist are `UnconfiguredNotificationAdapter`, which throws on every send, and the test fake. The worker wires the unconfigured adapter, so a queued code fails delivery and stays visible as a failed outbox delivery; it is never logged and its sealed copy is erased when the challenge closes.
+
+**Risk.** Link acceptance cannot complete in any environment until a provider is bound. This is deliberate for Phase 3 (a silent or logging adapter would put codes in logs, contrary to SECURITY §2.3), but it is a launch blocker for the client link flow.
+
+**Resolution (to do, before link acceptance is enabled anywhere).** Implement a `NotificationAdapter` for the chosen transactional-email provider (template carrying only code, quote reference and expiry; no amounts, bank or wallet details), load its credentials from the secret manager, record the provider message id on `otp_delivery` (already supported), and add an integration test that a provider failure leaves the challenge PENDING and the outbox delivery retryable without regenerating the code. The same wiring needs the KMS-backed key from TD-03, since the worker must open the sealed code to send it.

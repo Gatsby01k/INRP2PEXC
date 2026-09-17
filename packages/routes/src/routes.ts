@@ -1,6 +1,6 @@
 import { sql } from 'kysely';
 import { DomainError, Money, optionalText, parseTronAddress, requireOneOf, requireText, requireUuid } from '@inrp2p/kernel';
-import { type DirectionValue, type ExecutionMode, type Executor, type RouteStatus, type SettlementModel, type Tx, isUniqueViolation, pgErrorCode } from '@inrp2p/db';
+import { type DirectionValue, type ExecutionMode, type Executor, type RouteStatus, type SettlementModel, type Tx, type TxContext, isUniqueViolation, pgErrorCode } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
 import { type OperatorActor, actorLabel, operatorCommand } from '@inrp2p/identity';
 
@@ -177,4 +177,44 @@ export async function requireUsableRoute(tx: Tx, routeId: string, direction: Dir
   if (!IMPLEMENTED_SETTLEMENT_MODELS.includes(r.settlement_model)) throw new DomainError('ROUTE_SETTLEMENT_MODEL_UNSUPPORTED', `route uses ${r.settlement_model}`);
   if (r.direction !== 'BOTH' && r.direction !== direction) throw new DomainError('ROUTE_DIRECTION_MISMATCH', `route serves ${r.direction} only`);
   return { id: r.id, name: r.name, direction: r.direction, status: r.status, settlementModel: r.settlement_model, executionMode: r.execution_mode, availableBase: Money.ofMinor(r.available_base_minor, 'USDT'), version: r.version };
+}
+
+export interface OpenRouteObligationInput {
+  readonly tradeId: string;
+  readonly routeId: string;
+  readonly direction: DirectionValue;
+  readonly executionMode: ExecutionMode;
+  readonly base: Money<'USDT'>;
+  readonly routeValueInr: Money<'INR'>;
+}
+
+/**
+ * Opens the PER_TRADE route obligation inside the acceptance transaction (D-03, FI-60). Amounts and execution mode
+ * are the trade's frozen economics; the database re-checks them against `trade_economics`.
+ * SELL: exchange delivers base USDT, route delivers route value INR. BUY: exchange delivers route value INR,
+ * route delivers base USDT.
+ */
+export async function openRouteObligation(ctx: TxContext, input: OpenRouteObligationInput): Promise<{ routeObligationId: string; ref: string }> {
+  const sell = input.direction === 'SELL_USDT';
+  const row = await ctx.tx
+    .insertInto('route_obligation')
+    .values({
+      route_id: input.routeId,
+      trade_id: input.tradeId,
+      direction: input.direction,
+      exchange_delivers_asset: sell ? 'USDT' : 'INR',
+      exchange_delivers_minor: sell ? input.base.minor : input.routeValueInr.minor,
+      route_delivers_asset: sell ? 'INR' : 'USDT',
+      route_delivers_minor: sell ? input.routeValueInr.minor : input.base.minor,
+      settlement_model: 'PER_TRADE',
+      execution_mode: input.executionMode,
+      created_by: ctx.actor.id ?? 'SYSTEM',
+    })
+    .returning(['id', 'ref'])
+    .executeTakeFirstOrThrow();
+  await appendAudit(ctx, {
+    action: 'route_obligation.created', entityType: 'route_obligation', entityId: row.id,
+    after: { trade_id: input.tradeId, route_id: input.routeId, direction: input.direction, execution_mode: input.executionMode, exchange_delivers: sell ? input.base : input.routeValueInr, route_delivers: sell ? input.routeValueInr : input.base },
+  });
+  return { routeObligationId: row.id, ref: row.ref };
 }

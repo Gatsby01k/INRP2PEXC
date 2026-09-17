@@ -415,6 +415,207 @@ export interface DepositAssignmentTable {
   created_by: string;
 }
 
+// ---- Phase 3 requests, quotes, trades (migrations 0012–0014) ----
+
+export interface RateLimitCounterTable {
+  bucket: string;
+  window_start: Date;
+  hits: number;
+}
+
+export type RequestStatus = 'OPEN' | 'QUOTED' | 'ACCEPTED' | 'DECLINED' | 'WITHDRAWN' | 'EXPIRED';
+export type FixedSideValue = 'BASE' | 'QUOTE';
+
+export interface TradeRequestTable {
+  id: Generated<string>;
+  ref: Generated<string>;
+  client_id: string;
+  direction: DirectionValue;
+  fixed_side: FixedSideValue;
+  requested_base_minor: bigint | null;
+  requested_quote_minor: bigint | null;
+  target_rate_micro: bigint | null;
+  bank_account_id: string | null;
+  crypto_wallet_id: string | null;
+  source_wallet_id: string | null;
+  network: Generated<'TRON'>;
+  channel: 'CLIENT_APP' | 'OPERATOR' | 'LINK';
+  status: Generated<RequestStatus>;
+  status_reason: string | null;
+  assigned_dealer_id: string | null;
+  created_by: string;
+  created_at: Generated<Date>;
+  last_activity_at: Generated<Date>;
+  closed_at: Date | null;
+  version: Generated<number>;
+}
+
+export type QuoteStatus = 'DRAFT' | 'SENT' | 'ACCEPTED' | 'EXPIRED' | 'REJECTED' | 'CANCELLED';
+export type QuoteCancelReason = 'SUPERSEDED' | 'DECLINED_BY_DESK' | 'WITHDRAWN' | 'OPERATOR' | 'DISCARDED';
+
+export interface QuoteTable {
+  id: Generated<string>;
+  ref: Generated<string>;
+  trade_request_id: string;
+  client_id: string;
+  direction: DirectionValue;
+  fixed_side: FixedSideValue;
+  base_minor: bigint;
+  quote_inr_minor: bigint;
+  client_rate_micro: bigint;
+  route_rate_micro: bigint;
+  route_rate_snapshot_id: string;
+  route_id: string;
+  route_value_inr_minor: bigint;
+  gross_margin_inr_minor: bigint;
+  network: 'TRON';
+  bank_account_id: string | null;
+  crypto_wallet_id: string | null;
+  valid_for_seconds: number;
+  sent_at: Date | null;
+  expires_at: Date | null;
+  status: Generated<QuoteStatus>;
+  cancel_reason: QuoteCancelReason | null;
+  is_counter: boolean;
+  negative_margin_reason: string | null;
+  created_by: string;
+  created_at: Generated<Date>;
+  sent_by: string | null;
+  accepted_by_user_id: string | null;
+  accepted_via: 'APP' | 'LINK' | null;
+  acceptance_challenge_id: string | null;
+  accepted_at: Date | null;
+  rejected_by_user_id: string | null;
+  rejected_via: 'APP' | 'LINK' | null;
+  rejected_at: Date | null;
+  closed_at: Date | null;
+}
+
+export interface QuoteLinkTable {
+  id: Generated<string>;
+  quote_id: string;
+  token_hash: string;
+  created_by: string;
+  created_at: Generated<Date>;
+  first_opened_at: Date | null;
+  open_count: Generated<number>;
+  revoked_at: Date | null;
+  revoked_by: string | null;
+}
+
+export type ChallengeStatus = 'PENDING' | 'CONSUMED' | 'FAILED' | 'EXPIRED' | 'SUPERSEDED';
+
+export interface AcceptanceChallengeTable {
+  id: Generated<string>;
+  quote_id: string;
+  quote_link_id: string;
+  client_user_id: string;
+  channel: Generated<'EMAIL'>;
+  destination_masked: string;
+  code_hash: string;
+  code_salt: string;
+  expires_at: Date;
+  attempts: Generated<number>;
+  max_attempts: Generated<number>;
+  status: Generated<ChallengeStatus>;
+  consumed_for: 'ACCEPT' | 'REJECT' | null;
+  sent_at: Generated<Date>;
+  consumed_at: Date | null;
+  closed_at: Date | null;
+  ip_hash: string | null;
+}
+
+export interface OtpDeliveryTable {
+  id: Generated<string>;
+  challenge_id: string;
+  code_sealed: string | null;
+  created_at: Generated<Date>;
+  delivered_at: Date | null;
+  provider_message_id: string | null;
+  erased_reason: 'DELIVERED' | 'CHALLENGE_CLOSED' | null;
+}
+
+export type TradeLifecycleState = 'AWAITING_FIRST_LEG' | 'FIRST_LEG_DETECTED' | 'FIRST_LEG_CONFIRMED' | 'SETTLING' | 'PARTIALLY_SETTLED' | 'COMPLETED' | 'CANCELLED';
+
+export interface TradeTable {
+  id: Generated<string>;
+  ref: Generated<string>;
+  quote_id: string;
+  trade_request_id: string;
+  client_id: string;
+  direction: DirectionValue;
+  lifecycle_state: TradeLifecycleState;
+  hold: Generated<boolean>;
+  opened_at: Generated<Date>;
+  completed_at: Date | null;
+  cancelled_at: Date | null;
+  created_by: string;
+  version: Generated<number>;
+}
+
+export interface TradeTransitionTable {
+  id: Generated<bigint>;
+  trade_id: string;
+  from_state: string | null;
+  to_state: string;
+  command: string;
+  actor: string;
+  correlation_id: string;
+  at: Generated<Date>;
+}
+
+export interface TradeEconomicsTable {
+  trade_id: string;
+  direction: DirectionValue;
+  fixed_side: FixedSideValue;
+  base_minor: bigint;
+  quote_inr_minor: bigint;
+  client_rate_micro: bigint;
+  route_rate_micro: bigint;
+  route_value_inr_minor: bigint;
+  gross_margin_inr_minor: bigint;
+  route_id: string;
+  route_rate_snapshot_id: string;
+  route_execution_mode: ExecutionMode;
+  fees_json: Generated<Json>;
+  network: 'TRON';
+  bank_account_id: string | null;
+  crypto_wallet_id: string | null;
+  frozen_at: Generated<Date>;
+}
+
+export interface RouteObligationTable {
+  id: Generated<string>;
+  ref: Generated<string>;
+  route_id: string;
+  trade_id: string | null;
+  direction: DirectionValue;
+  exchange_delivers_asset: 'USDT' | 'INR';
+  exchange_delivers_minor: bigint;
+  route_delivers_asset: 'USDT' | 'INR';
+  route_delivers_minor: bigint;
+  settlement_model: 'PER_TRADE';
+  execution_mode: ExecutionMode;
+  status: Generated<'OPEN' | 'PARTIALLY_SETTLED' | 'SETTLED' | 'CANCELLED'>;
+  opened_at: Generated<Date>;
+  settled_at: Date | null;
+  cancelled_at: Date | null;
+  created_by: string;
+}
+
+export interface TreasuryReservationTable {
+  id: Generated<string>;
+  treasury_wallet_id: string;
+  trade_id: string;
+  amount_minor: bigint;
+  consumed_minor: Generated<bigint>;
+  status: Generated<'ACTIVE' | 'CONSUMED' | 'RELEASED'>;
+  released_reason: 'TRADE_CANCELLED' | 'TRADE_COMPLETED' | 'OPERATOR' | null;
+  created_by: string;
+  created_at: Generated<Date>;
+  closed_at: Date | null;
+}
+
 export interface Database {
   currency: CurrencyTable;
   idempotency_key: IdempotencyKeyTable;
@@ -448,4 +649,15 @@ export interface Database {
   custody_provider_config: CustodyProviderConfigTable;
   deposit_address: DepositAddressTable;
   deposit_assignment: DepositAssignmentTable;
+  rate_limit_counter: RateLimitCounterTable;
+  trade_request: TradeRequestTable;
+  quote: QuoteTable;
+  quote_link: QuoteLinkTable;
+  acceptance_challenge: AcceptanceChallengeTable;
+  otp_delivery: OtpDeliveryTable;
+  trade: TradeTable;
+  trade_transition: TradeTransitionTable;
+  trade_economics: TradeEconomicsTable;
+  route_obligation: RouteObligationTable;
+  treasury_reservation: TreasuryReservationTable;
 }

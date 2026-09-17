@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from 'kysely';
 import { Money, encodeTronAddress } from '@inrp2p/kernel';
 import { type TxContext, pgErrorCode } from '@inrp2p/db';
-import { createTestDatabase, type TestDatabase } from '@inrp2p/db/testing';
+import { createTestDatabase, insertTradeStubs, type TestDatabase } from '@inrp2p/db/testing';
 import { executeCommand } from '@inrp2p/commands';
 import { FakeCustodyAdapter } from '@inrp2p/adapters/testing';
 import { createTestOperator, runAs, type TestOperator } from '@inrp2p/identity/testing';
@@ -14,6 +14,8 @@ import {
 
 const SYSTEM = { type: 'SYSTEM' as const, id: null, surface: 'SYSTEM' as const };
 const usdt = (v: string) => Money.parse(v, 'USDT');
+/** Deposit assignments reference real trade rows (FK added in migration 0014); stubs stand in for trades here. */
+const stub = async (t: TestDatabase) => (await insertTradeStubs(t.owner, 1))[0]!;
 
 function system<R>(db: TestDatabase['app'], fn: (ctx: TxContext) => Promise<R>): Promise<R> {
   return executeCommand(db, { authorize: async () => {}, handle: fn }, { name: 'test.treasury', actor: SYSTEM, payload: { n: randomUUID() }, idempotencyKey: randomUUID(), financial: true }).then((o) => o.result);
@@ -43,7 +45,7 @@ describe('custody capability (D-02 gate record)', () => {
   it('exit: with nothing recorded the capability is UNSUPPORTED and SELL acceptance is refused', async () => {
     expect(await getDepositAddressCapability(t.app, 'TRON')).toMatchObject({ capability: 'UNSUPPORTED', provider: null });
     await expect(assertSellAcceptanceSupported(t.app, 'TRON')).rejects.toMatchObject({ code: 'CUSTODY_CAPABILITY_UNSUPPORTED' });
-    await expect(system(t.app, (ctx) => allocateDepositAddress(ctx, new FakeCustodyAdapter({ capability: 'POOL' }), { network: 'TRON', tradeId: randomUUID(), tradeRef: 'IX-1', expectedAmount: usdt('100000') }))).rejects.toMatchObject({ code: 'CUSTODY_CAPABILITY_UNSUPPORTED' });
+    await expect(system(t.app, async (ctx) => allocateDepositAddress(ctx, new FakeCustodyAdapter({ capability: 'POOL' }), { network: 'TRON', tradeId: await stub(t), tradeRef: 'IX-1', expectedAmount: usdt('100000') }))).rejects.toMatchObject({ code: 'CUSTODY_CAPABILITY_UNSUPPORTED' });
   });
 
   it('exit: a recorded capability is queryable by acceptance; history is append-only and audited', async () => {
@@ -84,12 +86,12 @@ describe('POOL deposit addresses', () => {
     const other = new FakeCustodyAdapter({ provider: 'other-provider', capability: 'POOL' });
     await expect(runAs(t.app, importPoolAddresses(finance.actor, other), finance.ref, 'custody.import_pool_addresses', { network: 'TRON' as const })).rejects.toMatchObject({ code: 'CUSTODY_CAPABILITY_MISMATCH' });
     const drifted = new FakeCustodyAdapter({ capability: 'DERIVED' });
-    await expect(system(t.app, (ctx) => allocateDepositAddress(ctx, drifted, { network: 'TRON', tradeId: randomUUID(), tradeRef: 'IX-X', expectedAmount: usdt('1') }))).rejects.toMatchObject({ code: 'CUSTODY_CAPABILITY_MISMATCH' });
+    await expect(system(t.app, async (ctx) => allocateDepositAddress(ctx, drifted, { network: 'TRON', tradeId: await stub(t), tradeRef: 'IX-X', expectedAmount: usdt('1') }))).rejects.toMatchObject({ code: 'CUSTODY_CAPABILITY_MISMATCH' });
   });
 
   it('exit: concurrent allocations never return the same address', async () => {
-    const results = await Promise.all(Array.from({ length: 24 }, (_, i) =>
-      system(t.app, (ctx) => allocateDepositAddress(ctx, adapter, { network: 'TRON', tradeId: randomUUID(), tradeRef: `IX-260917-${1000 + i}`, expectedAmount: usdt('100000') })),
+    const results = await Promise.all(Array.from({ length: 24 }, async (_, i) =>
+      system(t.app, async (ctx) => allocateDepositAddress(ctx, adapter, { network: 'TRON', tradeId: await stub(t), tradeRef: `IX-260917-${1000 + i}`, expectedAmount: usdt('100000') })),
     ));
     expect(new Set(results.map((r) => r.address)).size).toBe(24);
     expect(new Set(results.map((r) => r.depositAddressId)).size).toBe(24);
@@ -100,8 +102,8 @@ describe('POOL deposit addresses', () => {
   });
 
   it('an exhausted pool fails cleanly with DEPOSIT_ADDRESS_UNAVAILABLE and writes nothing', async () => {
-    const more = await Promise.allSettled(Array.from({ length: 8 }, (_, i) =>
-      system(t.app, (ctx) => allocateDepositAddress(ctx, adapter, { network: 'TRON', tradeId: randomUUID(), tradeRef: `IX-EX-${i}`, expectedAmount: usdt('10') })),
+    const more = await Promise.allSettled(Array.from({ length: 8 }, async (_, i) =>
+      system(t.app, async (ctx) => allocateDepositAddress(ctx, adapter, { network: 'TRON', tradeId: await stub(t), tradeRef: `IX-EX-${i}`, expectedAmount: usdt('10') })),
     ));
     expect(more.filter((r) => r.status === 'fulfilled')).toHaveLength(6);
     const failures = more.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
@@ -112,7 +114,7 @@ describe('POOL deposit addresses', () => {
 
   it('a trade gets one assignment only; release puts the address in COOLDOWN; the job returns it to the pool', async () => {
     const tradeId = (await t.app.selectFrom('deposit_assignment').select('trade_id').where('released_at', 'is', null).limit(1).executeTakeFirstOrThrow()).trade_id;
-    await expect(system(t.app, (ctx) => allocateDepositAddress(ctx, adapter, { network: 'TRON', tradeId, tradeRef: 'IX-DUP', expectedAmount: usdt('1') }))).rejects.toMatchObject({ code: 'DEPOSIT_ASSIGNMENT_EXISTS' });
+    await expect(system(t.app, async (ctx) => allocateDepositAddress(ctx, adapter, { network: 'TRON', tradeId, tradeRef: 'IX-DUP', expectedAmount: usdt('1') }))).rejects.toMatchObject({ code: 'DEPOSIT_ASSIGNMENT_EXISTS' });
     const released = await system(t.app, (ctx) => releaseDepositAssignment(ctx, { tradeId, reason: 'TRADE_CANCELLED', cooldownSeconds: 0 }));
     const again = await system(t.app, (ctx) => releaseDepositAssignment(ctx, { tradeId, reason: 'TRADE_CANCELLED', cooldownSeconds: 0 }));
     expect([released.released, again.released]).toEqual([true, false]);
@@ -127,7 +129,7 @@ describe('POOL deposit addresses', () => {
     expect((await t.app.selectFrom('deposit_address').select('status').where('id', '=', addr.id).executeTakeFirstOrThrow()).status).toBe('AVAILABLE');
     expect(await getDepositPoolStatus(t.app, 'TRON')).toMatchObject({ available: 1, cooldown: 1 });
 
-    const reused = await system(t.app, (ctx) => allocateDepositAddress(ctx, adapter, { network: 'TRON', tradeId: randomUUID(), tradeRef: 'IX-REUSE', expectedAmount: usdt('5') }));
+    const reused = await system(t.app, async (ctx) => allocateDepositAddress(ctx, adapter, { network: 'TRON', tradeId: await stub(t), tradeRef: 'IX-REUSE', expectedAmount: usdt('5') }));
     expect(reused.depositAddressId).toBe(addr.id);
     const actions = await t.app.selectFrom('audit_event').select('action').where('entity_id', '=', addr.id).orderBy('seq').execute();
     expect(actions.map((a) => a.action)).toEqual(['deposit_address.assigned', 'deposit_address.released', 'deposit_address.cooldown_elapsed', 'deposit_address.assigned']);
@@ -137,7 +139,7 @@ describe('POOL deposit addresses', () => {
 
   it('the database refuses two open assignments on one address and an ASSIGNED address without an assignment', async () => {
     const open = await t.app.selectFrom('deposit_assignment').select(['deposit_address_id']).where('released_at', 'is', null).limit(1).executeTakeFirstOrThrow();
-    await expect(t.owner.insertInto('deposit_assignment').values({ deposit_address_id: open.deposit_address_id, trade_id: randomUUID(), expected_amount_minor: 1n, created_by: 'x' }).execute()).rejects.toSatisfy((e) => pgErrorCode(e) === '23505');
+    await expect(t.owner.insertInto('deposit_assignment').values({ deposit_address_id: open.deposit_address_id, trade_id: await stub(t), expected_amount_minor: 1n, created_by: 'x' }).execute()).rejects.toSatisfy((e) => pgErrorCode(e) === '23505');
     const cooldown = await t.app.selectFrom('deposit_address').select('id').where('status', '=', 'COOLDOWN').limit(1).executeTakeFirstOrThrow();
     await expect(sql`update deposit_address set status = 'ASSIGNED', cooldown_until = null where id = ${cooldown.id}`.execute(t.owner)).rejects.toSatisfy((e) => ['IX040', 'IX043'].includes(pgErrorCode(e) ?? ''));
     await expect(sql`update deposit_address set status = 'AVAILABLE', cooldown_until = null where status = 'ASSIGNED'`.execute(t.owner)).rejects.toSatisfy((e) => pgErrorCode(e) === 'IX040');
@@ -158,8 +160,8 @@ describe('DERIVED deposit addresses', () => {
   afterAll(async () => t.close());
 
   it('exit: concurrent derived allocations produce distinct addresses, each assigned once', async () => {
-    const results = await Promise.all(Array.from({ length: 12 }, (_, i) =>
-      system(t.app, (ctx) => allocateDepositAddress(ctx, adapter, { network: 'TRON', tradeId: randomUUID(), tradeRef: `IX-D-${i}`, expectedAmount: usdt('2500') })),
+    const results = await Promise.all(Array.from({ length: 12 }, async (_, i) =>
+      system(t.app, async (ctx) => allocateDepositAddress(ctx, adapter, { network: 'TRON', tradeId: await stub(t), tradeRef: `IX-D-${i}`, expectedAmount: usdt('2500') })),
     ));
     expect(new Set(results.map((r) => r.address)).size).toBe(12);
     const rows = await t.app.selectFrom('deposit_address').select(['status', 'source', 'treasury_wallet_id']).execute();
@@ -168,7 +170,7 @@ describe('DERIVED deposit addresses', () => {
 
   it('a provider that re-issues an address is refused (FI-26); nothing is written', async () => {
     adapter.rewind(0);
-    await expect(system(t.app, (ctx) => allocateDepositAddress(ctx, adapter, { network: 'TRON', tradeId: randomUUID(), tradeRef: 'IX-REISSUE', expectedAmount: usdt('1') }))).rejects.toMatchObject({ code: 'DEPOSIT_ADDRESS_UNAVAILABLE' });
+    await expect(system(t.app, async (ctx) => allocateDepositAddress(ctx, adapter, { network: 'TRON', tradeId: await stub(t), tradeRef: 'IX-REISSUE', expectedAmount: usdt('1') }))).rejects.toMatchObject({ code: 'DEPOSIT_ADDRESS_UNAVAILABLE' });
     expect(await t.app.selectFrom('deposit_assignment').select('id').execute()).toHaveLength(12);
     adapter.rewind(100);
   });
@@ -182,6 +184,6 @@ describe('DERIVED deposit addresses', () => {
 
   it('allocation requires an ACTIVE deposit pool wallet', async () => {
     await runAs(t.app, setTreasuryWalletStatus(finance.actor), finance.ref, 'treasury.set_wallet_status', { walletId, status: 'PAUSED' as const, reason: 'rotation' });
-    await expect(system(t.app, (ctx) => allocateDepositAddress(ctx, adapter, { network: 'TRON', tradeId: randomUUID(), tradeRef: 'IX-P', expectedAmount: usdt('1') }))).rejects.toMatchObject({ code: 'WALLET_NOT_ACTIVE' });
+    await expect(system(t.app, async (ctx) => allocateDepositAddress(ctx, adapter, { network: 'TRON', tradeId: await stub(t), tradeRef: 'IX-P', expectedAmount: usdt('1') }))).rejects.toMatchObject({ code: 'WALLET_NOT_ACTIVE' });
   });
 });

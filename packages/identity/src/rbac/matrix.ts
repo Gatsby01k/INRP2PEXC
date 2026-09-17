@@ -25,6 +25,7 @@ export const PERMISSION_MATRIX = Object.freeze({
   'rates:update_route': r(A, A, D, D, D, D),
   'request:create': r(A, A, D, D, A, D),
   'request:decline': r(A, A, D, D, D, D),
+  'request:withdraw': r(A, A, D, D, D, D),
   'quote:create': r(A, A, D, D, D, D),
   'quote:send': r(A, A, D, D, D, D),
   'quote:cancel': r(A, A, D, D, D, D),

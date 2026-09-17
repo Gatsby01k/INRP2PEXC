@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from 'kysely';
 import { Money } from '@inrp2p/kernel';
 import { pgErrorCode } from '@inrp2p/db';
-import { createTestDatabase, type TestDatabase } from '@inrp2p/db/testing';
+import { createTestDatabase, insertTradeStubs, type TestDatabase } from '@inrp2p/db/testing';
 import { testFieldProtector } from '@inrp2p/adapters/testing';
 import { executeCommand } from '@inrp2p/commands';
 import { createTestOperator, runAs, type TestOperator } from '@inrp2p/identity/testing';
@@ -21,9 +21,17 @@ let dealer: TestOperator;
 let entityId: string;
 const protector = testFieldProtector();
 let accountSeq = 100000000;
+/** Reservations reference real trade rows (FK added in migration 0014); stubs stand in for trades here. */
+let tradeIds: string[] = [];
+const nextTradeId = () => {
+  const id = tradeIds.pop();
+  if (!id) throw new Error('trade stub pool exhausted');
+  return id;
+};
 
 beforeAll(async () => {
   t = await createTestDatabase('capacity');
+  tradeIds = await insertTradeStubs(t.owner, 120);
   owner = await createTestOperator(t.owner, ['OWNER']);
   finance = await createTestOperator(t.owner, ['FINANCE']);
   settlementOp = await createTestOperator(t.owner, ['SETTLEMENT_OPERATOR']);
@@ -40,7 +48,7 @@ async function newAccount(capacity = '10000000.00', direction: 'PAYOUT' | 'COLLE
   })).accountId;
 }
 
-const payout = () => ({ purpose: 'CLIENT_PAYOUT' as const, tradeId: randomUUID() });
+const payout = () => ({ purpose: 'CLIENT_PAYOUT' as const, tradeId: nextTradeId() });
 const reserveAs = (op: TestOperator, accountId: string, amount: string, key = randomUUID()) =>
   executeCommand(t.app, reserveCapacityCommand(op.actor), { name: 'capacity.reserve', actor: op.ref, payload: { accountId, amount, subject: payout() }, idempotencyKey: key, financial: true });
 const inSystemCommand = <R>(fn: Parameters<typeof executeCommand<unknown, R>>[1]['handle']) =>
@@ -173,7 +181,7 @@ describe('capacity reservations (FI-30, FI-31, FI-32)', () => {
   it('day rollover releases past-day reservations and never carries them into today', async () => {
     const acc = await newAccount('500000.00');
     const yesterday = (await sql<{ d: string }>`select to_char((statement_timestamp() at time zone 'Asia/Kolkata')::date - 1, 'YYYY-MM-DD') as d`.execute(t.owner)).rows[0]!.d;
-    const tradeId = randomUUID();
+    const tradeId = nextTradeId();
     await t.owner.transaction().execute(async (tx) => {
       await sql`insert into inr_account_day (account_id, day, capacity_minor) values (${acc}, ${yesterday}::date, 50000000)`.execute(tx);
       await sql`update inr_account_day set reserved_minor = 30000000 where account_id = ${acc} and day = ${yesterday}::date`.execute(tx);
