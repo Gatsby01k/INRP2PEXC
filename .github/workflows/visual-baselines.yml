@@ -1,0 +1,84 @@
+name: Visual baselines (canonical update)
+
+# The ONLY CI path that records visual baselines. Manual trigger only — never runs on push or pull_request.
+# Records in the canonical environment, then pushes the result to a review branch; nothing lands on main
+# until a human reviews the image diff and merges it (docs/VISUAL_BASELINES.md).
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: Why the baselines must change (recorded in the commit message)
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: visual-baselines-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  record:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    container:
+      image: mcr.microsoft.com/playwright:v1.56.1-noble
+      options: --ipc=host
+    env:
+      VISUAL_ENV_IMAGE: mcr.microsoft.com/playwright:v1.56.1-noble
+    steps:
+      # git is needed for a real checkout and the review-branch push; it does not affect rendering.
+      - name: Install git
+        run: command -v git || (apt-get update && apt-get install -y --no-install-recommends git)
+
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.4.2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Storybook
+        run: pnpm --filter @inrp2p/ui build-storybook
+
+      - name: Record baselines (axe, font and reduced-motion assertions still enforced)
+        run: pnpm --filter @inrp2p/ui test:visual:update
+
+      - name: Verify recorded baselines compare clean
+        run: pnpm --filter @inrp2p/ui test:visual
+
+      - name: Upload baselines
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-baselines-${{ github.run_id }}
+          path: packages/ui/visual/__screenshots__
+          retention-days: 30
+
+      - name: Push review branch
+        env:
+          REASON: ${{ inputs.reason }}
+          BRANCH: visual-baselines/run-${{ github.run_id }}
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add packages/ui/visual/__screenshots__
+          if git diff --cached --quiet; then
+            echo "Baselines unchanged; nothing to push."
+            exit 0
+          fi
+          git commit -m "Visual baselines: re-record in canonical environment" \
+            -m "Reason: $REASON" \
+            -m "Environment: mcr.microsoft.com/playwright:v1.56.1-noble (linux/amd64), see packages/ui/visual/__screenshots__/ENVIRONMENT.json" \
+            -m "Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          git push origin "$BRANCH"
+          echo "::notice::Review branch $BRANCH"

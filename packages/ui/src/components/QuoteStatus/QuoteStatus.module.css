@@ -7,6 +7,7 @@
   white-space: nowrap;
 }
 .glyph {
+  display: inline-flex;
   font-size: var(--font-size-meta);
 }
 .neutral {

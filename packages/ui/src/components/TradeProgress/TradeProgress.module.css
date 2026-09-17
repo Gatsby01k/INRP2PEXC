@@ -15,6 +15,7 @@
 }
 .glyph {
   text-align: center;
+  align-self: center;
   transition: color var(--dur-complete) var(--ease);
 }
 .label {

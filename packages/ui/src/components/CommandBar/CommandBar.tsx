@@ -11,7 +11,7 @@ export interface CommandResult {
 
 const KIND: Record<CommandResult['kind'], string> = { trade: 'Trade', utr: 'UTR', tx: 'Tx', client: 'Client' };
 
-/** ⌘K search by trade ref, UTR, tx hash or client. Combobox + listbox semantics with arrow-key selection. */
+/** Command-K search by trade ref, UTR, tx hash or client. Combobox + listbox semantics with arrow-key selection. */
 export function CommandBar({ query, onQueryChange, results, onSelect }: { query: string; onQueryChange: (q: string) => void; results: readonly CommandResult[]; onSelect: (r: CommandResult) => void }) {
   const listId = useId();
   const [active, setActive] = useState(0);
@@ -45,7 +45,14 @@ export function CommandBar({ query, onQueryChange, results, onSelect }: { query:
           }}
           onKeyDown={onKey}
         />
-        <kbd className={styles.kbd}>⌘K</kbd>
+        <kbd className={styles.kbd}>
+          {/* ⌘ (U+2318) is not in Geist Mono; drawn as SVG so it renders identically everywhere. */}
+          <svg className={styles.kbdIcon} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3" />
+          </svg>
+          <span aria-hidden="true">K</span>
+          <span className="ix-visually-hidden">Command K</span>
+        </kbd>
       </div>
       {results.length > 0 ? (
         <ul id={listId} role="listbox" className={styles.list} aria-label="Results">

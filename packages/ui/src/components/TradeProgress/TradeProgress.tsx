@@ -1,6 +1,7 @@
 import type { Direction } from '@inrp2p/kernel';
 import { cx } from '../../cx.ts';
 import { formatIstTime } from '../../format/time.ts';
+import { StatusGlyph } from '../StatusGlyph/StatusGlyph.tsx';
 import styles from './TradeProgress.module.css';
 
 export type StageStatus = 'done' | 'current' | 'pending' | 'exception';
@@ -16,7 +17,7 @@ const LABELS: Record<Direction, readonly [string, string, string, string]> = {
   BUY_USDT: ['Quote accepted', 'INR received', 'USDT sent', 'Completed'],
 };
 
-const GLYPH: Record<StageStatus, string> = { done: '●', current: '◔', pending: '○', exception: '!' };
+const GLYPH = { done: 'done', current: 'partial', pending: 'pending' } as const;
 const SR: Record<StageStatus, string> = { done: 'done', current: 'in progress', pending: 'not started', exception: 'exception' };
 
 /** Four structural stages (brief "Trade screen"); status carries glyph + text, not colour alone. */
@@ -26,7 +27,7 @@ export function TradeProgress({ direction, stages }: { direction: Direction; sta
       {stages.map((s, i) => (
         <li key={LABELS[direction][i]} className={cx(styles.stage, styles[s.status])} aria-current={s.status === 'current' ? 'step' : undefined}>
           <span className={styles.glyph} aria-hidden="true">
-            {GLYPH[s.status]}
+            {s.status === 'exception' ? '!' : <StatusGlyph state={GLYPH[s.status]} />}
           </span>
           <span className={styles.label}>
             {LABELS[direction][i]}

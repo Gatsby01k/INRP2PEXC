@@ -15,7 +15,7 @@ export interface StepUpDialogProps {
   busy?: boolean;
 }
 
-/** TOTP re-verification for ⧗ actions (SECURITY §2.1). Modal, labelled, Escape cancels, focus starts on the code. */
+/** TOTP re-verification for step-up actions (SECURITY §2.1). Modal, labelled, Escape cancels, focus starts on the code. */
 export function StepUpDialog({ open, actionSummary, code, onCodeChange, onConfirm, onCancel, error, busy }: StepUpDialogProps) {
   const titleId = useId();
   const descId = useId();

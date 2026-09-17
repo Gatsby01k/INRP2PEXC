@@ -15,7 +15,7 @@ pnpm run lint && pnpm run typecheck && pnpm run test:unit
 pnpm --filter @inrp2p/web build
 pnpm run test:integration   # Testcontainers postgres:18.6 (or TEST_DATABASE_URL)
 pnpm --filter @inrp2p/ui storybook                              # component gallery :6006
-pnpm --filter @inrp2p/ui build-storybook && pnpm --filter @inrp2p/ui test:visual   # axe + visual + reduced motion
+bash packages/ui/visual/docker.sh compare                        # axe + visual + reduced motion, canonical image (docs/VISUAL_BASELINES.md)
 ```
 
 ## Documents
@@ -31,6 +31,7 @@ pnpm --filter @inrp2p/ui build-storybook && pnpm --filter @inrp2p/ui test:visual
 | [IMPLEMENTATION_PLAN](docs/IMPLEMENTATION_PLAN.md) | Phases with exit criteria, plan challenge, launch checklist |
 | [DECISIONS](docs/DECISIONS.md) | Resolved decisions, defaults and gates |
 | [DEPENDENCIES](docs/DEPENDENCIES.md) | Pinned versions, compatibility evidence, build-script policy |
+| [VISUAL_BASELINES](docs/VISUAL_BASELINES.md) | Canonical visual test environment, mismatch guard, baseline update path |
 | [TECH_DEBT](docs/TECH_DEBT.md) | Accepted non-blocking follow-ups with closing deadlines |
 
 Sources of truth: [`docs/source/MASTER_PROMPT.md`](docs/source/MASTER_PROMPT.md) (business/financial) and [`docs/source/DESIGN_SYSTEM_BRIEF.md`](docs/source/DESIGN_SYSTEM_BRIEF.md) (visual/interaction). Brand mark: [`brand/inrp2p-mark.png`](brand/inrp2p-mark.png) — used as supplied, never redrawn.

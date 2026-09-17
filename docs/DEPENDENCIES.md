@@ -45,7 +45,7 @@ Status: Phase 1.5. Source of truth for approved versions (D-06). Enforced by `pn
 | uqr | 0.1.3 | deposit address QR (pure SVG path generation, no canvas, no network) | MIT |
 | Geist / Geist Mono | woff2 from npm `geist@1.7.2` (`dist/fonts`), vendored in `packages/ui/fonts` (not an npm dependency) | self-hosted fonts (no Google Fonts / CDN request) | SIL OFL 1.1 (`fonts/OFL-LICENSE.txt`) |
 
-**Playwright pin (deliberate deviation from latest 1.63.0).** Visual baselines are pixel comparisons, so they are only meaningful against a fixed browser build. 1.56.1 bundles Chromium revision 1194 (141.0.7390.37), the revision the 144 committed baselines were recorded with. CI runs `playwright install --with-deps chromium` for that same pinned version. Upgrading Playwright is a normal dependency change that must re-record baselines in the same commit, reviewed as a visual diff. Playwright is a dev/test-only dependency and never ships in the app.
+**Playwright pin (approved; latest is 1.63.0).** Visual baselines are pixel comparisons, so they are only meaningful against a fixed browser build and OS. 1.56.1 bundles Chromium 141.0.7390.37 (revision 1194). The canonical visual environment is the official image `mcr.microsoft.com/playwright:v1.56.1-noble` on linux/amd64, used by the CI `visual` job and by the manual baseline-update workflow (`docs/VISUAL_BASELINES.md`). Upgrading Playwright changes the image tag, `visual/environment.ts` and all baselines in one reviewed change. Playwright is a dev/test-only dependency and never ships in the app.
 
 Zod is still not a direct dependency (installed transitively by Better Auth only); it is added with the first HTTP/command boundary that needs it.
 

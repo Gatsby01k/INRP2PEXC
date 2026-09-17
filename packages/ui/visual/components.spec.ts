@@ -4,19 +4,45 @@ import { loadStories, viewportFor } from './stories.ts';
 
 const stories = loadStories();
 
+/** Fixture clock (src/fixtures.ts NOW): countdowns and "time ago" text render the same on every run. */
+const FIXED_TIME = new Date('2026-09-16T10:41:00.000Z');
+const FONT_FACES = ["400 15px 'Geist'", "500 15px 'Geist'", "600 15px 'Geist'", "400 15px 'Geist Mono'", "500 15px 'Geist Mono'"];
+
 async function openStory(page: Page, id: string, reducedMotion: 'reduce' | 'no-preference') {
+  await page.clock.setFixedTime(FIXED_TIME);
   await page.emulateMedia({ reducedMotion, colorScheme: 'light' });
   // a11y.manual stops the Storybook a11y addon from running its own axe pass concurrently.
   await page.goto(`/iframe.html?id=${id}&viewMode=story&globals=a11y.manual:!true`);
   const root = page.locator('#storybook-root');
   await expect(root).not.toBeEmpty();
-  // Fonts load lazily per weight; load every face explicitly so screenshots never race font swap.
-  await page.evaluate(async () => {
-    await Promise.all(["400 15px 'Geist'", "500 15px 'Geist'", "600 15px 'Geist'", "400 15px 'Geist Mono'", "500 15px 'Geist Mono'"].map((f) => document.fonts.load(f)));
+  // Fonts load lazily per weight: request every face, then wait for document.fonts.ready.
+  await page.evaluate(async (faces) => {
+    await Promise.all(faces.map((f) => document.fonts.load(f)));
     await document.fonts.ready;
-  });
-  await expect.poll(() => page.evaluate(() => document.fonts.check("600 15px 'Geist'") && document.fonts.check("400 15px 'Geist Mono'"))).toBe(true);
+  }, FONT_FACES);
+  await expect.poll(() => page.evaluate((faces) => document.fonts.status === 'loaded' && faces.every((f) => document.fonts.check(f)), FONT_FACES)).toBe(true);
+  // Let layout settle after font swap: two animation frames.
+  await page.evaluate(() => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))));
   return page.getByTestId('story-surface');
+}
+
+/**
+ * Every rendered glyph must come from the bundled Geist faces. A system-font fallback (a character
+ * missing from Geist) renders differently on every machine and makes baselines non-portable.
+ */
+async function platformFontsOutsideGeist(page: Page): Promise<string[]> {
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('DOM.enable');
+  await cdp.send('CSS.enable');
+  const { root } = await cdp.send('DOM.getDocument', { depth: -1, pierce: true });
+  const { nodeIds } = await cdp.send('DOM.querySelectorAll', { nodeId: root.nodeId, selector: '#storybook-root *' });
+  const offenders = new Set<string>();
+  for (const nodeId of nodeIds) {
+    const { fonts } = await cdp.send('CSS.getPlatformFontsForNode', { nodeId });
+    for (const f of fonts) if (!f.isCustomFont || !/^Geist( Mono)?( (Regular|Medium|SemiBold))?$/.test(f.familyName)) offenders.add(`${f.familyName}${f.isCustomFont ? '' : ' (system font)'}`);
+  }
+  await cdp.detach();
+  return [...offenders];
 }
 
 test.describe('every story: accessibility (axe, WCAG 2.2 AA) and visual baseline', () => {
@@ -31,6 +57,8 @@ test.describe('every story: accessibility (axe, WCAG 2.2 AA) and visual baseline
         .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
         .analyze();
       expect(axe.violations.map((v) => ({ id: v.id, impact: v.impact, nodes: v.nodes.map((n) => n.target.join(' ')) }))).toEqual([]);
+
+      expect(await platformFontsOutsideGeist(page), 'text rendered with a non-bundled fallback font').toEqual([]);
 
       await expect(surface).toHaveScreenshot(`${story.id}.png`);
     });

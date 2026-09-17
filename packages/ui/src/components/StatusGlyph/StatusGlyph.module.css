@@ -1,0 +1,15 @@
+.root {
+  width: 0.75em;
+  height: 0.75em;
+  display: inline-block;
+  vertical-align: middle;
+  flex: none;
+}
+.ring {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.2;
+}
+.fill {
+  fill: currentColor;
+}

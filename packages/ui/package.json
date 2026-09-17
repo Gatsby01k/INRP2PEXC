@@ -13,7 +13,9 @@
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build -o storybook-static --quiet",
     "test:visual": "playwright test -c visual/playwright.config.ts",
-    "test:visual:update": "playwright test -c visual/playwright.config.ts --update-snapshots",
+    "test:visual:update": "UPDATE_VISUALS=1 playwright test -c visual/playwright.config.ts",
+    "visual:docker": "bash visual/docker.sh compare",
+    "visual:docker:update": "bash visual/docker.sh update",
     "tokens:generate": "node scripts/generate-tokens.ts"
   },
   "dependencies": {

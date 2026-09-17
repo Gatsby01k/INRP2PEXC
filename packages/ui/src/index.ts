@@ -33,6 +33,7 @@ export * from './components/Receipt/Receipt.tsx';
 export * from './components/RoutePositionRow/RoutePositionRow.tsx';
 export * from './components/SettlementLegRow/SettlementLegRow.tsx';
 export * from './components/SettlementProgress/SettlementProgress.tsx';
+export * from './components/StatusGlyph/StatusGlyph.tsx';
 export * from './components/StepUpDialog/StepUpDialog.tsx';
 export * from './components/TradeHeader/TradeHeader.tsx';
 export * from './components/TradeProgress/TradeProgress.tsx';

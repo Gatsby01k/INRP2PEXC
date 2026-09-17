@@ -1,6 +1,6 @@
 # Phase 1.5 — Design System: Implementation Report
 
-Status: implemented, awaiting component review sign-off. Base: `367cfd1` (Phase 1 accepted). No Phase 1 financial, database or security semantics changed; no Phase 2 work started.
+Status: implemented, awaiting component review sign-off. Revised after CI run 35219115719 (visual baseline environment) — see §7. Base: `367cfd1` (Phase 1 accepted). No Phase 1 financial, database or security semantics changed; no Phase 2 work started.
 
 Scope source: `IMPLEMENTATION_PLAN.md` Phase 1.5, `UX_FLOWS.md §1` (tokens) and `§4` (component inventory), `DECISIONS.md D-10` (brand colour) and `D-11` (INR formatting), `docs/source/DESIGN_SYSTEM_BRIEF.md`.
 
@@ -12,8 +12,8 @@ Scope source: `IMPLEMENTATION_PLAN.md` Phase 1.5, `UX_FLOWS.md §1` (tokens) and
 | Generated CSS | `src/styles/tokens.css` (`pnpm --filter @inrp2p/ui tokens:generate`) | Unit test fails if it drifts from `tokens.ts` |
 | Fonts | `fonts/` + `src/styles/fonts.css` | Geist 400/500/600, Geist Mono 400/500, self-hosted woff2, OFL licence included |
 | Formatting library | `src/format/` (export `@inrp2p/ui/format`) | Deterministic, no `Intl`, no floats for money |
-| Components | `src/components/*` (38) | All 36 rows of `UX_FLOWS §4` + `ArcMotif` (three-arc glyph) + `CopyButton` (used by `TransactionHash`, `DepositAddress`) |
-| Storybook | `.storybook/`, `*.stories.tsx` | 129 stories in 26 groups incl. `Foundations/Tokens` and two screen-validation groups |
+| Components | `src/components/*` (39) | All 36 rows of `UX_FLOWS §4` + `ArcMotif` (three-arc glyph) + `CopyButton` (used by `TransactionHash`, `DepositAddress`) + `StatusGlyph` (○ ◔ ● × as SVG) |
+| Storybook | `.storybook/`, `*.stories.tsx` | 130 stories in 27 groups incl. `Foundations/Tokens` and two screen-validation groups |
 | Visual + a11y + motion suite | `visual/` | Playwright over the built Storybook index — every story automatically covered |
 
 ### Formatting (D-11)
@@ -54,7 +54,7 @@ Contrast adjustments made while implementing (no approved value changed): `--tex
 |---|---|
 | AA contrast automated check green | `packages/ui/test/design-system.unit.test.ts`: every pair in `CONTRAST_REQUIREMENTS` (text 4.5:1, graphics 3:1) computed from token values; **and** axe (`wcag2a/2aa/21a/21aa/22aa`, incl. `color-contrast`) on every rendered story: 0 violations |
 | Reduced-motion variants present | Unit test: every CSS module with an animation has a `prefers-reduced-motion` block; token durations zeroed. Playwright: each `motion`-tagged story (15) is checked to animate normally, to have no running animation/transition with `reducedMotion: 'reduce'`, and has its own reduced-motion baseline; the countdown arc is asserted hidden |
-| Visual regression baselines for every component state | 144 baselines in `packages/ui/visual/__screenshots__/`: one per story (129, default motion preference, animations frozen) + 15 reduced-motion variants; mobile stories at 375px, desk at 1440px, others 1024px; fonts explicitly loaded before capture. Second run without `--update-snapshots`: identical |
+| Visual regression baselines for every component state | 145 baselines: one per story (130, default motion preference) + 15 reduced-motion variants, recorded only in the canonical environment (`docs/VISUAL_BASELINES.md`) with `ENVIRONMENT.json` metadata |
 | All §4 components in Storybook with realistic values | Unit test fails if any component directory is not rendered in a story; values use UX_FLOWS canon (100,000 USDT, ₹10,200,000, ₹102.00 / ₹104.20, ₹220,000, UTRs, TRC20 addresses) |
 | Component review sign-off | **Pending — founder review** (Storybook, section 5) |
 
@@ -73,7 +73,7 @@ Token-only styling is enforced by the same unit test: no raw colours in CSS modu
 | `test:integration` | 362 passed (local PostgreSQL 18.4; CI enforces 18.6 as in Phase 1) |
 | `@inrp2p/web build` | success |
 | `@inrp2p/ui build-storybook` | success |
-| `@inrp2p/ui test:visual` | 160 passed: 129 axe + visual baseline, 30 motion checks (15 stories × allowed / reduced incl. reduced baseline), 1 guard that motion stories exist |
+| `@inrp2p/ui test:visual` | 161 tests: 130 × (axe + bundled-font check + visual baseline), 30 motion checks (15 stories × allowed / reduced incl. reduced baseline), 1 guard that motion stories exist. Runs only in the canonical image (§7) |
 
 ### CI changes
 `ci.yml` adds, after integration tests: Build Storybook → `playwright install --with-deps chromium` (pinned 1.56.1) → `test:visual`, uploading the Playwright report and diffs as an artifact on failure. Job timeout 30 → 45 min.
@@ -81,7 +81,7 @@ Token-only styling is enforced by the same unit test: no raw colours in CSS modu
 ## 4. Deviations and risks
 
 1. **Playwright pinned to 1.56.1** (latest 1.63.0) so CI uses the same Chromium revision (1194) as the recorded baselines — `DEPENDENCIES.md`.
-2. **First CI run is the cross-machine baseline check.** Baselines were recorded in the sandbox with the identical Chromium build and self-hosted fonts, but the GitHub runner's system libraries (FreeType/HarfBuzz) could produce sub-pixel text differences beyond the 0.2% tolerance. If `test:visual` fails only on pixel diffs (axe green), the fix is to download the CI diff artifact, review, and re-record baselines from the CI runner in a follow-up commit — not to widen tolerance.
+2. Visual baselines are environment-bound; see §7 and `docs/VISUAL_BASELINES.md`.
 3. `esbuild` postinstall is not allowed (`allowBuilds: false`, justified in `DEPENDENCIES.md`).
 4. The `Validation/*` stories compose components into UX_FLOWS wireframes for review only; they are not app routes and hold no data fetching. App screens are built in later phases.
 
@@ -99,3 +99,17 @@ Suggested order: `Foundations/Tokens` → `Validation/Client` → `Validation/Op
 
 ## 6. Technical debt recorded
 `docs/TECH_DEBT.md`: TD-01 (Better Auth `auth_rate_limit.last_request` number vs `bigint` warning) and TD-02 (cross-surface operator → client OTP denial returns an internal null-session error; convert to a controlled 4xx without a session before production client auth). Not fixed in this phase, by instruction.
+
+## 7. Revision — canonical visual baseline environment (after CI run 35219115719)
+
+**Failure.** Run 35219115719 passed every gate up to the component visual/accessibility step, which failed. The committed baselines had been recorded in the implementation sandbox (Ubuntu 24.04 x86_64, Playwright's Chromium 1194 build) rather than in a declared, reproducible environment, and the suite had no guard against comparing across environments.
+
+**Genuine rendering issue found and fixed.** Three characters used in components are not in Geist: `◔` U+25D4 (`QuoteStatus`, `TradeProgress`), `⌘` U+2318 (`CommandBar`) and `⧗` U+29D7 (a code comment only). The browser rendered `◔` and `⌘` with whatever system font the machine had, so those pixels differ between machines regardless of browser version. Fixed at the source: new `StatusGlyph` SVG component (○ ◔ ● ×, `currentColor`) used by `QuoteStatus` and `TradeProgress`, and an SVG command-key icon in `CommandBar`. A new per-story check (`CSS.getPlatformFontsForNode`) fails if any glyph is rendered by a non-bundled font. No token, tolerance, axe rule or reduced-motion check changed.
+
+**Changes.**
+- Canonical environment: `mcr.microsoft.com/playwright:v1.56.1-noble`, linux/amd64, Playwright 1.56.1, Chromium 141.0.7390.37 (`visual/environment.ts`).
+- Environment mismatch guard (`visual/global-setup.ts`) — see `VISUAL_BASELINES.md §2`.
+- CI: visual suite moved to its own compare-only job `visual` running in the canonical image; `UPDATE_VISUALS` rejected for push / pull_request.
+- Intentional update path: manual workflow `Visual baselines (canonical update)` (records, re-verifies, pushes `visual-baselines/run-<id>` for review) and `visual/docker.sh compare|update`.
+- Determinism: fixed clock, explicit font loading + `document.fonts.ready`, two frames, animations disabled, caret hidden, bundled-font assertion.
+- Non-canonical sandbox baselines removed from the repository; canonical baselines are recorded by the workflow.
