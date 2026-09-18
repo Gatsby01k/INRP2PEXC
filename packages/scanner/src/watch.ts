@@ -22,7 +22,7 @@ export async function watchedAddresses(ex: Executor, limit: number): Promise<rea
     .select(['id', 'address', 'status'])
     .where('network', '=', 'TRON')
     .where('status', 'in', ['ASSIGNED', 'COOLDOWN'])
-    .orderBy('updated_at desc')
+    .orderBy('updated_at', 'desc')
     .limit(limit)
     .execute();
   const remaining = limit - deposits.length;

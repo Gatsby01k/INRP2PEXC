@@ -1,0 +1,3 @@
+/* The design system is the only source of tokens, fonts and base rules (VISUAL_BASELINES.md). */
+@import '@inrp2p/ui/styles.css';
+@import './app.css';

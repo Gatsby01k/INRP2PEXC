@@ -1,3 +1,5 @@
+'use client';
+
 import type { ClientRate, Direction, Money } from '@inrp2p/kernel';
 import { formatInr, formatRate, formatUsdt } from '../../format/money.ts';
 import { formatDuration, formatIstDateTime, formatIstTime } from '../../format/time.ts';

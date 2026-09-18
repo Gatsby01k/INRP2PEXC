@@ -1,0 +1,74 @@
+/* Desk-only helpers. Anything reusable belongs in the design system, not here. */
+.ix-linkish {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--text-secondary);
+  text-align: left;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.ix-linkish:hover {
+  color: var(--text-primary);
+}
+
+.ix-linkish:disabled {
+  color: var(--text-disabled);
+  cursor: default;
+}
+
+.ix-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.ix-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.ix-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-surface);
+  padding: var(--space-4);
+}
+
+.ix-muted {
+  color: var(--text-muted);
+}
+
+.ix-error {
+  color: var(--status-danger);
+}
+
+.ix-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.ix-field > label {
+  font-size: var(--font-size-meta);
+  color: var(--text-secondary);
+}
+
+.ix-input {
+  min-height: var(--touch-min);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-input);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+}
+
+.ix-sectionTitle {
+  margin: 0 0 var(--space-3);
+  font-size: var(--font-size-body-lg);
+  font-weight: var(--font-weight-semibold);
+}

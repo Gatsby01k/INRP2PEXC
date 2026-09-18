@@ -1,3 +1,5 @@
+'use client';
+
 import { useId } from 'react';
 import { cx } from '../../cx.ts';
 import styles from './UTRField.module.css';

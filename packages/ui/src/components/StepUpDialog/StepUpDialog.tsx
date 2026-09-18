@@ -1,3 +1,5 @@
+'use client';
+
 import { useEffect, useId, useRef } from 'react';
 import { Button } from '../Button/Button.tsx';
 import { OtpInput } from '../OtpInput/OtpInput.tsx';

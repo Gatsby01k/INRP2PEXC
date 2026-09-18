@@ -61,6 +61,60 @@ jobs:
       - name: Integration tests (PostgreSQL 18.6 via Testcontainers)
         run: pnpm run test:integration
 
+  # The operator product end to end: the built app, a real PostgreSQL, the real commands and the real
+  # authorization. Separate from `verify` because it needs a browser and a long-lived database server.
+  e2e:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:18.6
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+      TEST_DATABASE_URL: postgres://postgres@127.0.0.1:5432/postgres
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.4.2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Chromium
+        run: pnpm --filter @inrp2p/web exec playwright install --with-deps chromium
+
+      - name: Build web app
+        run: pnpm --filter @inrp2p/web build
+
+      - name: End-to-end (operator desk)
+        run: pnpm --filter @inrp2p/web test:e2e
+
+      - name: Upload end-to-end report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-report
+          path: |
+            apps/web/playwright-report
+            apps/web/test-results
+          retention-days: 7
+
   # Component accessibility, visual regression and reduced motion — compare-only.
   # Runs in the canonical baseline environment (docs/VISUAL_BASELINES.md). Never records baselines:
   # UPDATE_VISUALS is not set here, and the suite's global setup rejects it for push / pull_request events.

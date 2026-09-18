@@ -1,0 +1,29 @@
+import { defineConfig, devices } from '@playwright/test';
+
+/**
+ * End-to-end run of the operator product (IMPLEMENTATION_PLAN Phase 6 exit). It drives the **built** app against
+ * a real PostgreSQL database — the same migrations, the same commands, the same authorization — because a desk
+ * that works against mocks proves nothing about money.
+ *
+ * `TEST_DATABASE_URL` points at a server where the run may create its own database. The world is seeded and the
+ * desk started by `global-setup.ts`, in that order, so the app never connects to a database about to be dropped.
+ */
+const PORT = Number.parseInt(process.env.E2E_PORT ?? '3210', 10);
+
+export default defineConfig({
+  testDir: '.',
+  testMatch: /.*\.spec\.ts/,
+  globalSetup: './global-setup.ts',
+  timeout: 90_000,
+  expect: { timeout: 10_000 },
+  fullyParallel: false,
+  workers: 1,
+  retries: 0,
+  reporter: process.env.CI ? [['line'], ['html', { open: 'never' }]] : [['list']],
+  use: {
+    baseURL: `http://localhost:${PORT}`,
+    trace: 'retain-on-failure',
+    screenshot: 'only-on-failure',
+  },
+  projects: [{ name: 'desk', use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } } }],
+});

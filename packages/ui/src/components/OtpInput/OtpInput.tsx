@@ -1,3 +1,5 @@
+'use client';
+
 import { useId, type Ref } from 'react';
 import { cx } from '../../cx.ts';
 import styles from './OtpInput.module.css';

@@ -1,3 +1,5 @@
+'use client';
+
 import type { ButtonHTMLAttributes, ReactNode } from 'react';
 import { cx } from '../../cx.ts';
 import { ArcLoader } from '../ArcLoader/ArcLoader.tsx';

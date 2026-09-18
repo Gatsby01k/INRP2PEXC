@@ -1,3 +1,5 @@
+'use client';
+
 import type { ReactNode } from 'react';
 import { cx } from '../../cx.ts';
 import styles from './ExceptionBanner.module.css';

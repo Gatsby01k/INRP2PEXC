@@ -22,6 +22,14 @@ describe('proxy gating', () => {
     expect(gateFor('OPERATOR', path)).toBe('AUTH_ENDPOINT');
   });
 
+  it('serves only the sign-in page itself without a session, and nothing that looks like it', () => {
+    expect(gateFor('OPERATOR', '/sign-in')).toBe('OPERATOR_SIGN_IN');
+    expect(gateFor('OPERATOR', '/sign-in/')).toBe('OPERATOR_SIGN_IN');
+    for (const path of ['/sign-in/x', '/sign-inx', '/x/sign-in', '/desk?next=/sign-in']) {
+      expect(gateFor('OPERATOR', path)).toBe('OPERATOR_SESSION');
+    }
+  });
+
   it('client host APIs require a client session; the public host never serves auth', () => {
     expect(gateFor('CLIENT', '/api/client/me')).toBe('CLIENT_SESSION');
     expect(gateFor('CLIENT', '/api/auth/sign-in/email-otp')).toBe('AUTH_ENDPOINT');

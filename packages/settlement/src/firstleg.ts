@@ -74,7 +74,7 @@ export async function recordClientDeposit(
         .selectFrom('deposit_assignment')
         .select(['id', 'trade_id', 'expected_amount_minor', 'released_at'])
         .where('deposit_address_id', '=', address.id)
-        .orderBy('assigned_at desc')
+        .orderBy('assigned_at', 'desc')
         .executeTakeFirst()
     : undefined;
   const open = assignment && !assignment.released_at ? assignment : undefined;

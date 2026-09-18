@@ -1,3 +1,5 @@
+'use client';
+
 import { cx } from '../../cx.ts';
 import styles from './StatusGlyph.module.css';
 

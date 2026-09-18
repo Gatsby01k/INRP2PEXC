@@ -1,3 +1,5 @@
+'use client';
+
 import { shortenHash } from '../../format/mask.ts';
 import { CopyButton } from '../CopyButton/CopyButton.tsx';
 import styles from './TransactionHash.module.css';

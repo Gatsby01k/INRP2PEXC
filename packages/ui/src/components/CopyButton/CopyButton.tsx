@@ -1,3 +1,5 @@
+'use client';
+
 import { useState } from 'react';
 import { cx } from '../../cx.ts';
 import styles from './CopyButton.module.css';

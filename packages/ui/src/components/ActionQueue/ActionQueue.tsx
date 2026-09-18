@@ -1,3 +1,5 @@
+'use client';
+
 import { useRef, type KeyboardEvent, type ReactNode } from 'react';
 import { cx } from '../../cx.ts';
 import styles from './ActionQueue.module.css';
@@ -79,7 +81,7 @@ export function ActionQueue({ groups, onOpen, emptyState }: { groups: readonly Q
             </th>
           </tr>
           {g.items.map((item) => (
-            <tr key={item.id} data-row tabIndex={0} className={cx(styles.row, styles[`emphasis_${item.emphasis ?? (g.key === 'exception' ? 'exception' : g.key === 'needs_action' ? 'action' : 'none')}`])} onKeyDown={(e) => onKey(e, item.id)} onDoubleClick={() => onOpen?.(item.id)}>
+            <tr key={item.id} data-row data-row-id={item.id} tabIndex={0} className={cx(styles.row, styles[`emphasis_${item.emphasis ?? (g.key === 'exception' ? 'exception' : g.key === 'needs_action' ? 'action' : 'none')}`])} onKeyDown={(e) => onKey(e, item.id)} onDoubleClick={() => onOpen?.(item.id)}>
               <td className={styles.client}>{item.client}</td>
               <td className={cx(styles.num, 'ix-num')}>{item.amount}</td>
               <td className={cx(styles.num, 'ix-num')}>{item.asks ? <><span className={styles.k}>asks</span> {item.asks}</> : '—'}</td>

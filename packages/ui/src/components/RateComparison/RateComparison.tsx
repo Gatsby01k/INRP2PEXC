@@ -1,3 +1,5 @@
+'use client';
+
 import { Rate, type ClientRate, type RouteRate, type TradeEconomics } from '@inrp2p/kernel';
 import { formatInr, formatRate, formatUsdtHeadline } from '../../format/money.ts';
 import { MarginDisplay } from '../MarginDisplay/MarginDisplay.tsx';

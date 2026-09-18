@@ -1,3 +1,5 @@
+'use client';
+
 import type { ReactNode, TdHTMLAttributes } from 'react';
 import { cx } from '../../cx.ts';
 import styles from './NumericCell.module.css';

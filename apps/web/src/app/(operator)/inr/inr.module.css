@@ -1,0 +1,38 @@
+.totals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-6);
+  margin: 0;
+}
+
+.totals div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.totals dt {
+  font-size: var(--font-size-meta);
+  color: var(--text-secondary);
+}
+
+.totals dd {
+  margin: 0;
+  font-size: var(--font-size-body-lg);
+  font-weight: var(--font-weight-medium);
+}
+
+.accounts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: var(--space-4);
+}
+
+.capacityForm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+  border-top: 1px solid var(--border-default);
+  padding-top: var(--space-3);
+}

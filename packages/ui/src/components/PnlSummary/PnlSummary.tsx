@@ -1,3 +1,5 @@
+'use client';
+
 import { divRound, formatMinorToDecimal, type Money } from '@inrp2p/kernel';
 import { formatInr, formatUsdtHeadline } from '../../format/money.ts';
 import { groupDigits } from '../../format/number.ts';

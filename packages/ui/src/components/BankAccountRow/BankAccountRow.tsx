@@ -1,3 +1,5 @@
+'use client';
+
 import { cx } from '../../cx.ts';
 import { maskAccount } from '../../format/mask.ts';
 import styles from './BankAccountRow.module.css';

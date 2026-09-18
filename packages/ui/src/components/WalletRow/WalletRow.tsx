@@ -1,3 +1,5 @@
+'use client';
+
 import { cx } from '../../cx.ts';
 import { shortenAddress } from '../../format/mask.ts';
 import styles from './WalletRow.module.css';

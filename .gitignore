@@ -9,3 +9,5 @@ coverage/
 storybook-static/
 test-results/
 playwright-report/
+# Written by the end-to-end global setup; describes a throwaway database.
+apps/web/e2e/.state.json

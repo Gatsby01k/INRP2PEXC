@@ -4,6 +4,11 @@ import { getRuntime } from './server/runtime.ts';
 import { gateFor, surfaceForHost } from './server/surface.ts';
 import { authErrorResponse } from './server/http.ts';
 
+/** A page request (as opposed to an API call or a fetch for data) wants a sign-in screen, not a JSON error. */
+function wantsHtml(request: NextRequest): boolean {
+  return request.method === 'GET' && (request.headers.get('accept') ?? '').includes('text/html') && !request.nextUrl.pathname.startsWith('/api/');
+}
+
 /**
  * Runs before every route. Desk host: every non-auth path requires a valid, MFA-verified,
  * non-idle operator session. Route handlers re-check (defense in depth) and commands authorize.
@@ -16,6 +21,12 @@ export async function proxy(request: NextRequest) {
     if (gate === 'OPERATOR_SESSION') await requireOperatorSession(rt.operatorAuth, rt.appDb, request.headers);
     else if (gate === 'CLIENT_SESSION') await requireClientSession(rt.clientAuth, rt.appDb, request.headers);
   } catch (err) {
+    if (gate === 'OPERATOR_SESSION' && wantsHtml(request)) {
+      const to = request.nextUrl.clone();
+      to.pathname = '/sign-in';
+      to.search = '';
+      return NextResponse.redirect(to);
+    }
     return authErrorResponse(err);
   }
   const res = NextResponse.next();

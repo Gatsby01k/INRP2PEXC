@@ -1,3 +1,5 @@
+'use client';
+
 import type { Money } from '@inrp2p/kernel';
 import { cx } from '../../cx.ts';
 import { formatInr, formatInrCompact } from '../../format/money.ts';

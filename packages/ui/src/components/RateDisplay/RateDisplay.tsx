@@ -1,3 +1,5 @@
+'use client';
+
 import type { Rate, RateKind } from '@inrp2p/kernel';
 import { cx } from '../../cx.ts';
 import { formatRate } from '../../format/money.ts';

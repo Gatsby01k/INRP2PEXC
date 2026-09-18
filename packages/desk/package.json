@@ -1,0 +1,28 @@
+{
+  "name": "@inrp2p/desk",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@inrp2p/kernel": "workspace:*",
+    "@inrp2p/db": "workspace:*",
+    "@inrp2p/identity": "workspace:*",
+    "@inrp2p/clients": "workspace:*",
+    "@inrp2p/inr-accounts": "workspace:*",
+    "@inrp2p/routes": "workspace:*",
+    "@inrp2p/pricing": "workspace:*",
+    "@inrp2p/treasury": "workspace:*",
+    "@inrp2p/trades": "workspace:*",
+    "@inrp2p/settlement": "workspace:*",
+    "kysely": "0.29.6"
+  },
+  "devDependencies": {
+    "@inrp2p/adapters": "workspace:*",
+    "@inrp2p/commands": "workspace:*",
+    "@inrp2p/quotes": "workspace:*",
+    "@inrp2p/scanner": "workspace:*"
+  }
+}

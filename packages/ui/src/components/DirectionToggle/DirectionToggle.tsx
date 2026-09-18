@@ -1,3 +1,5 @@
+'use client';
+
 import { useRef, type KeyboardEvent } from 'react';
 import type { Direction } from '@inrp2p/kernel';
 import { cx } from '../../cx.ts';

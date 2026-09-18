@@ -226,15 +226,60 @@ importers:
 
   apps/web:
     dependencies:
+      '@inrp2p/adapters':
+        specifier: workspace:*
+        version: link:../../packages/adapters
+      '@inrp2p/audit':
+        specifier: workspace:*
+        version: link:../../packages/audit
+      '@inrp2p/clients':
+        specifier: workspace:*
+        version: link:../../packages/clients
+      '@inrp2p/commands':
+        specifier: workspace:*
+        version: link:../../packages/commands
       '@inrp2p/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@inrp2p/desk':
+        specifier: workspace:*
+        version: link:../../packages/desk
       '@inrp2p/identity':
         specifier: workspace:*
         version: link:../../packages/identity
+      '@inrp2p/inr-accounts':
+        specifier: workspace:*
+        version: link:../../packages/inr-accounts
       '@inrp2p/kernel':
         specifier: workspace:*
         version: link:../../packages/kernel
+      '@inrp2p/ledger':
+        specifier: workspace:*
+        version: link:../../packages/ledger
+      '@inrp2p/outbox':
+        specifier: workspace:*
+        version: link:../../packages/outbox
+      '@inrp2p/pricing':
+        specifier: workspace:*
+        version: link:../../packages/pricing
+      '@inrp2p/quotes':
+        specifier: workspace:*
+        version: link:../../packages/quotes
+      '@inrp2p/routes':
+        specifier: workspace:*
+        version: link:../../packages/routes
+      '@inrp2p/settlement':
+        specifier: workspace:*
+        version: link:../../packages/settlement
+      '@inrp2p/trades':
+        specifier: workspace:*
+        version: link:../../packages/trades
+      '@inrp2p/treasury':
+        specifier: workspace:*
+        version: link:../../packages/treasury
+      '@inrp2p/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
       better-auth:
         specifier: 1.7.5
         version: 1.7.5(next@16.3.5(@playwright/test@1.56.1)(@types/node@24.13.5)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(pg@8.23.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(vitest@5.0.1(@types/node@24.13.5)(vite@8.3.0(@types/node@24.13.5)(esbuild@0.28.2)(yaml@2.9.1)))
@@ -257,6 +302,12 @@ importers:
       '@better-auth/utils':
         specifier: 0.4.2
         version: 0.4.2
+      '@inrp2p/scanner':
+        specifier: workspace:*
+        version: link:../../packages/scanner
+      '@playwright/test':
+        specifier: 1.56.1
+        version: 1.56.1
       '@types/node':
         specifier: 24.13.5
         version: 24.13.5
@@ -387,6 +438,55 @@ importers:
       pg:
         specifier: 8.23.0
         version: 8.23.0
+
+  packages/desk:
+    dependencies:
+      '@inrp2p/clients':
+        specifier: workspace:*
+        version: link:../clients
+      '@inrp2p/db':
+        specifier: workspace:*
+        version: link:../db
+      '@inrp2p/identity':
+        specifier: workspace:*
+        version: link:../identity
+      '@inrp2p/inr-accounts':
+        specifier: workspace:*
+        version: link:../inr-accounts
+      '@inrp2p/kernel':
+        specifier: workspace:*
+        version: link:../kernel
+      '@inrp2p/pricing':
+        specifier: workspace:*
+        version: link:../pricing
+      '@inrp2p/routes':
+        specifier: workspace:*
+        version: link:../routes
+      '@inrp2p/settlement':
+        specifier: workspace:*
+        version: link:../settlement
+      '@inrp2p/trades':
+        specifier: workspace:*
+        version: link:../trades
+      '@inrp2p/treasury':
+        specifier: workspace:*
+        version: link:../treasury
+      kysely:
+        specifier: 0.29.6
+        version: 0.29.6
+    devDependencies:
+      '@inrp2p/adapters':
+        specifier: workspace:*
+        version: link:../adapters
+      '@inrp2p/commands':
+        specifier: workspace:*
+        version: link:../commands
+      '@inrp2p/quotes':
+        specifier: workspace:*
+        version: link:../quotes
+      '@inrp2p/scanner':
+        specifier: workspace:*
+        version: link:../scanner
 
   packages/identity:
     dependencies:

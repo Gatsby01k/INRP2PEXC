@@ -3,7 +3,7 @@
  * path except Better Auth's own endpoints requires a fully MFA-verified operator session.
  */
 export type Surface = 'OPERATOR' | 'CLIENT' | 'PUBLIC';
-export type Gate = 'AUTH_ENDPOINT' | 'OPERATOR_SESSION' | 'CLIENT_SESSION' | 'PUBLIC';
+export type Gate = 'AUTH_ENDPOINT' | 'OPERATOR_SESSION' | 'CLIENT_SESSION' | 'PUBLIC' | 'OPERATOR_SIGN_IN';
 
 export interface HostConfig {
   deskHost: string;
@@ -21,7 +21,11 @@ export function surfaceForHost(host: string | null, cfg: HostConfig): Surface {
 export function gateFor(surface: Surface, pathname: string): Gate {
   const path = pathname.replace(/\/+$/, '') || '/';
   if (surface === 'OPERATOR') {
-    return path === '/api/auth' || path.startsWith('/api/auth/') ? 'AUTH_ENDPOINT' : 'OPERATOR_SESSION';
+    if (path === '/api/auth' || path.startsWith('/api/auth/')) return 'AUTH_ENDPOINT';
+    // The sign-in page itself must be reachable without a session, or an operator can never get one. It is the
+    // only unauthenticated page on the desk host, and it renders nothing about the business.
+    if (path === '/sign-in') return 'OPERATOR_SIGN_IN';
+    return 'OPERATOR_SESSION';
   }
   if (surface === 'CLIENT') {
     if (path === '/api/auth' || path.startsWith('/api/auth/')) return 'AUTH_ENDPOINT';

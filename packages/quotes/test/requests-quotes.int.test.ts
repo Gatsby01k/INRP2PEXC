@@ -168,7 +168,7 @@ describe('shareable links (SECURITY §2.3, S2)', () => {
     await expect(viewQuoteLink(s.app, {}, { token: 'ZZZZZZZZZZZZZZZZZZZZZZ', ipHash: ipHash('198.51.100.8') })).rejects.toMatchObject(expected);
     await expect(viewQuoteLink(s.app, {}, { token: 'short', ipHash: ipHash('198.51.100.8') })).rejects.toMatchObject(expected);
     await expect(viewQuoteLink(s.app, {}, { token: `${token.slice(0, 21)}%`, ipHash: ipHash('198.51.100.8') })).rejects.toMatchObject(expected);
-    const linkId = (await s.app.selectFrom('quote_link').select('id').where('token_hash', 'is not', null).orderBy('created_at desc').executeTakeFirstOrThrow()).id;
+    const linkId = (await s.app.selectFrom('quote_link').select('id').where('token_hash', 'is not', null).orderBy('created_at', 'desc').executeTakeFirstOrThrow()).id;
     await runAs(s.app, revokeQuoteLink(s.owner.actor), s.owner.ref, 'quote_link.revoke', { linkId, reason: 'shared with the wrong person' });
     await expect(viewQuoteLink(s.app, {}, { token, ipHash: ipHash('198.51.100.8') })).rejects.toMatchObject(expected);
     // Only the hash is stored: the plaintext token appears nowhere.

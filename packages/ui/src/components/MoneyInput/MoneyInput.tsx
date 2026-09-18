@@ -1,3 +1,5 @@
+'use client';
+
 import { useId, type ChangeEvent } from 'react';
 import { exponentOf, type CurrencyCode } from '@inrp2p/kernel';
 import { cx } from '../../cx.ts';

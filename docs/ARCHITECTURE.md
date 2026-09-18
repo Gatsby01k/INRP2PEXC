@@ -52,6 +52,7 @@ packages/
   notifications/          notification intents + channel adapters
   reporting/              P&L, receipts, exports
   adapters/               TronAdapter, MarketRateAdapter, NotificationAdapter, BankRailAdapter, CustodyAdapter, RouteAdapter
+  desk/                   operator read models (strip, queue, trade, orders, positions, treasury, clients); reads only, view access by field absence
   ui/                     design tokens + financial components (Storybook)
 docs/
 ```
@@ -59,6 +60,8 @@ docs/
 ### Dependency rule
 `kernel` ← `db`, `audit`, `ledger` ← domain modules ← `apps/*`.
 Domain modules talk to each other only through their public command/query API (never another module's tables). Cross-module side effects that need not be atomic go through the outbox.
+
+`desk` is a read-only composition layer: it depends on the domain modules' public query APIs, never on their tables, and nothing depends on it except `apps/web`. It decides nothing — it projects the RBAC matrix into view flags and omits what the viewer may not see (field absence, `SECURITY.md §5`), while the command authorizes itself again inside its own transaction.
 
 React components and route handlers contain **no financial logic**: they call commands and render query results. Money is formatted in `ui` from `Money` values; it is never computed there. Formatting is locale-independent: INR uses international three-digit grouping (`₹10,200,000`) via one deterministic formatter, never runtime `Intl` locale defaults (`DECISIONS.md D-11`).
 

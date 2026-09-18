@@ -12,6 +12,12 @@ import { createOperatorAuth, provisionOperator } from '@inrp2p/identity';
 
 const APP_DIR = fileURLToPath(new URL('..', import.meta.url));
 const DESK_HOST = 'desk.inrp2p.test';
+/**
+ * Deliberately *not* derived from DESK_HOST. The built server only trusts this origin if it read
+ * `OPERATOR_BASE_URL` when it started; a bundler that folded the value in at build time would leave the
+ * fallback `https://desk.inrp2p.test` in place and every sign-in below would fail with INVALID_ORIGIN.
+ */
+const OPERATOR_BASE_URL = 'https://desk-runtime.inrp2p.test';
 const OPERATOR_SECRET = randomBytes(32).toString('hex');
 const PASSWORD = 'correct horse battery staple';
 
@@ -36,7 +42,7 @@ function request(path: string, opts: { method?: string; body?: unknown; host?: s
       host: '127.0.0.1', port, path, method: opts.method ?? 'GET',
       headers: {
         host: opts.host ?? DESK_HOST,
-        origin: `https://${DESK_HOST}`,
+        origin: OPERATOR_BASE_URL,
         'x-forwarded-for': '203.0.113.7',
         ...(body ? { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body) } : {}),
         ...(cookies.size ? { cookie: [...cookies].map(([k, v]) => `${k}=${v}`).join('; ') } : {}),
@@ -81,6 +87,7 @@ describe.skipIf(!hasBuild && !process.env.CI)('Next.js proxy: MFA enforced on ev
         DATABASE_URL: u.toString(),
         DESK_HOST, APP_HOST: 'app.inrp2p.test', PUBLIC_HOST: 'inrp2p.test',
         OPERATOR_AUTH_SECRET: OPERATOR_SECRET,
+        OPERATOR_BASE_URL,
         CLIENT_AUTH_SECRET: randomBytes(32).toString('hex'),
       },
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -127,7 +134,7 @@ describe.skipIf(!hasBuild && !process.env.CI)('Next.js proxy: MFA enforced on ev
     const me = await request('/api/operator/me');
     expect(me.status).toBe(200);
     expect(me.json).toMatchObject({ roles: ['DEALER'] });
-    expect((await request('/orders')).status).toBe(404); // passes the gate; no page exists in Phase 1
+    expect((await request('/orders')).status).toBe(200); // passes the gate and renders the Phase 6 page
 
     // A desk session is not valid on the client host.
     expect((await request('/api/client/me', { host: 'app.inrp2p.test' })).status).toBe(401);

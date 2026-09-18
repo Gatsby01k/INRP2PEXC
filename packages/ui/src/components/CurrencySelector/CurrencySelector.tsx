@@ -1,3 +1,5 @@
+'use client';
+
 import styles from './CurrencySelector.module.css';
 
 /** V1 corridor is fixed (USDT · TRC20, INR); rendered read-only so no fake choice is offered. */

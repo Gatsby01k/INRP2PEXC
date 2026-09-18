@@ -1,3 +1,5 @@
+'use client';
+
 import type { ReactNode } from 'react';
 import { ArcMotif } from '../ArcMotif/ArcMotif.tsx';
 import styles from './EmptyState.module.css';

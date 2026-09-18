@@ -1,3 +1,5 @@
+'use client';
+
 import { encode } from 'uqr';
 import type { Money } from '@inrp2p/kernel';
 import { formatUsdt } from '../../format/money.ts';

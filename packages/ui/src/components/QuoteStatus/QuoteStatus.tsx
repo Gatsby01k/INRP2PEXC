@@ -1,3 +1,5 @@
+'use client';
+
 import { cx } from '../../cx.ts';
 import { StatusGlyph, type GlyphState } from '../StatusGlyph/StatusGlyph.tsx';
 import styles from './QuoteStatus.module.css';

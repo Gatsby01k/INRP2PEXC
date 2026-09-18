@@ -1,3 +1,5 @@
+'use client';
+
 import { cx } from '../../cx.ts';
 import { formatCountdown } from '../../format/time.ts';
 import { useNow } from '../../hooks/useNow.ts';

@@ -1,0 +1,153 @@
+.panel {
+  position: sticky;
+  top: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-surface);
+  padding: var(--space-4);
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.ref {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-body-sm);
+}
+
+.client {
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-sm);
+}
+
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+}
+
+.row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  font-size: var(--font-size-body-sm);
+}
+
+.row dt {
+  color: var(--text-secondary);
+}
+
+.row dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.section {
+  border-top: 1px solid var(--border-default);
+  padding-top: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.sectionTitle {
+  margin: 0;
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-semibold);
+}
+
+.actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.legs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.leg {
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
+  padding: var(--space-2) var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.legHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-size: var(--font-size-body-sm);
+}
+
+.legMeta {
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+}
+
+.accounts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.account {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}
+
+.accountSelected {
+  border-color: var(--brand-primary);
+  background: var(--brand-soft);
+}
+
+.accountBody {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.error {
+  color: var(--status-danger);
+  font-size: var(--font-size-body-sm);
+  margin: 0;
+}
+
+.notice {
+  color: var(--text-secondary);
+  font-size: var(--font-size-meta);
+  margin: 0;
+}
+
+.linkBox {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.linkValue {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-meta);
+  overflow-wrap: anywhere;
+}

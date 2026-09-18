@@ -11,6 +11,7 @@ Non-blocking items accepted at phase review. Each entry names the phase that mus
 | TD-05 | Chain verification: no TRON provider bound; scanning not implemented | Phase 4 implementation (2026-09-18) | Any environment that settles real USDT | Closed in Phase 5 (2026-09-18) |
 | TD-06 | Scanner: no tooling for a deliberate historical backfill behind the cursor | Phase 5 implementation (2026-09-18) | First production incident needing a historical rescan | Open (narrowed at Phase 5 review) |
 | TD-07 | Scanner: the TRON provider smoke gate has never been executed against real providers | Phase 5 implementation (2026-09-18) | Any environment that settles real USDT | Open — gate exists, **NOT RUN** |
+| TD-08 | Visual regression covers the Storybook validation stories, not the built operator pages | Phase 6 implementation (2026-09-19) | Production deploy (launch checklist) | Open |
 
 ## TD-01 — Better Auth schema warning for `auth_rate_limit.last_request`
 
@@ -72,3 +73,11 @@ Non-blocking items accepted at phase review. Each entry names the phase that mus
 **Risk.** A provider whose payloads differ from the fixtures fails loudly (every field is parsed and validated — an unreadable answer raises rather than becoming a missing fact), so the failure mode is "the scanner stops", not "money is misread". Still, that failure would first appear in a deployed environment.
 
 **Resolution (to do, before real USDT).** Configure the `tron-smoke` workflow's environment with two genuinely independent endpoints (the gate refuses two providers declaring the same independence group), a reference transaction and its expected facts, run it, and record the result here. **Phase 5 is not fully closed until this gate has passed against real configured providers.**
+
+## TD-08 — Visual regression compares stories, not the pages an operator sees
+
+**Observed.** The operator validation baselines (`validation-operator-desk--*`) were recorded in Phase 1.5 from Storybook stories: hand-built compositions of the design system that stand in for the desk, the clients list, rates, INR accounts, USDT treasury, P&L, quote creation, partial settlement and an exception trade. Phase 6 built the real pages, which assemble the same components from `packages/desk` read models. Nothing compares a screenshot of `/`, `/orders`, `/rates`, `/inr`, `/usdt` or `/clients` as rendered by the built app against a baseline. The end-to-end run asserts behaviour and figures, not layout, and a visual regression in a page — a panel overflowing, a column collapsing at 1440px, a number wrapping mid-figure — would pass every gate.
+
+**Risk.** Presentation only: no financial or security semantics depend on it. The failure mode is a desk that looks wrong or becomes hard to read after an unrelated change, found by an operator rather than by CI.
+
+**Resolution (to do).** Capture the operator pages from the end-to-end run's own seeded world, in the canonical Playwright environment, and compare them the way the component baselines are compared — same image, same platform, same fonts, metadata recorded in `ENVIRONMENT.json`, update only through the deliberate baseline workflow (`docs/VISUAL_BASELINES.md`). The seeded world is already deterministic except for time and identifiers, so the capture needs a frozen clock and stable references before the pixels are stable enough to compare. Keep the Storybook baselines: they cover states the seeded world does not reach.

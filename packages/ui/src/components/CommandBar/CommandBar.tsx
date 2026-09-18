@@ -1,4 +1,6 @@
-import { useId, useState, type KeyboardEvent } from 'react';
+'use client';
+
+import { useId, useState, type KeyboardEvent, type Ref } from 'react';
 import { cx } from '../../cx.ts';
 import styles from './CommandBar.module.css';
 
@@ -12,7 +14,20 @@ export interface CommandResult {
 const KIND: Record<CommandResult['kind'], string> = { trade: 'Trade', utr: 'UTR', tx: 'Tx', client: 'Client' };
 
 /** Command-K search by trade ref, UTR, tx hash or client. Combobox + listbox semantics with arrow-key selection. */
-export function CommandBar({ query, onQueryChange, results, onSelect }: { query: string; onQueryChange: (q: string) => void; results: readonly CommandResult[]; onSelect: (r: CommandResult) => void }) {
+export function CommandBar({
+  query,
+  onQueryChange,
+  results,
+  onSelect,
+  inputRef,
+}: {
+  query: string;
+  onQueryChange: (q: string) => void;
+  results: readonly CommandResult[];
+  onSelect: (r: CommandResult) => void;
+  /** The bar is opened by a keystroke, so whoever opens it moves focus here. */
+  inputRef?: Ref<HTMLInputElement>;
+}) {
   const listId = useId();
   const [active, setActive] = useState(0);
   const onKey = (e: KeyboardEvent<HTMLInputElement>) => {
@@ -31,6 +46,7 @@ export function CommandBar({ query, onQueryChange, results, onSelect }: { query:
     <div className={styles.root}>
       <div className={styles.field}>
         <input
+          ref={inputRef}
           className={styles.input}
           role="combobox"
           aria-label="Search trades, UTRs, transaction hashes or clients"

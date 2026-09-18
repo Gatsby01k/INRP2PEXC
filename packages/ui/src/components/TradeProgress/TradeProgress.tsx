@@ -1,3 +1,5 @@
+'use client';
+
 import type { Direction } from '@inrp2p/kernel';
 import { cx } from '../../cx.ts';
 import { formatIstTime } from '../../format/time.ts';
