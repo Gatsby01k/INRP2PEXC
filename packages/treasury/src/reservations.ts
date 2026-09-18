@@ -35,6 +35,31 @@ export async function reserveTreasuryUsdt(ctx: TxContext, input: { tradeId: stri
   return { reservationId: row.id, walletId: best.id };
 }
 
+/**
+ * Consumes part or all of a trade's treasury reservation when its USDT payout is confirmed. The wallet's
+ * reserved total drops by the same amount, so `reserved` keeps meaning "committed but not yet sent".
+ */
+export async function consumeTreasuryReservation(ctx: TxContext, input: { tradeId: string; amount: Money<'USDT'> }): Promise<{ consumed: boolean; status: 'ACTIVE' | 'CONSUMED' }> {
+  if (input.amount.currency !== 'USDT' || !input.amount.isPositive()) throw new DomainError('INVALID_AMOUNT', 'consumed treasury amount must be positive USDT');
+  const r = await ctx.tx.selectFrom('treasury_reservation').select(['id', 'treasury_wallet_id']).where('trade_id', '=', requireUuid(input.tradeId, 'tradeId')).executeTakeFirst();
+  if (!r) return { consumed: false, status: 'ACTIVE' };
+  assertLockOrder(ctx.tx, 'treasury_wallet');
+  const w = await ctx.tx.selectFrom('treasury_wallet').select(['reserved_minor']).where('id', '=', r.treasury_wallet_id).forUpdate().executeTakeFirstOrThrow();
+  const res = await ctx.tx.selectFrom('treasury_reservation').selectAll().where('id', '=', r.id).forUpdate().executeTakeFirstOrThrow();
+  if (res.status !== 'ACTIVE') return { consumed: false, status: res.status === 'CONSUMED' ? 'CONSUMED' : 'ACTIVE' };
+  const consumed = res.consumed_minor + input.amount.minor;
+  if (consumed > res.amount_minor) throw new DomainError('INVALID_AMOUNT', 'cannot consume more than the treasury reservation');
+  const full = consumed === res.amount_minor;
+  await ctx.tx.updateTable('treasury_wallet').set({ reserved_minor: w.reserved_minor - input.amount.minor, updated_at: sql<Date>`statement_timestamp()` }).where('id', '=', r.treasury_wallet_id).execute();
+  await ctx.tx
+    .updateTable('treasury_reservation')
+    .set({ consumed_minor: consumed, ...(full ? { status: 'CONSUMED' as const, closed_at: sql<Date>`statement_timestamp()` } : {}) })
+    .where('id', '=', r.id)
+    .execute();
+  await appendAudit(ctx, { action: 'treasury.consumed', entityType: 'treasury_reservation', entityId: r.id, after: { amount: input.amount, consumed_total: Money.ofMinor(consumed, 'USDT'), status: full ? 'CONSUMED' : 'ACTIVE' } });
+  return { consumed: true, status: full ? 'CONSUMED' : 'ACTIVE' };
+}
+
 /** Releases the unconsumed remainder exactly once (state-idempotent). Used by cancellation/completion in Phase 4. */
 export async function releaseTreasuryReservation(ctx: TxContext, input: { tradeId: string; reason: 'TRADE_CANCELLED' | 'TRADE_COMPLETED' | 'OPERATOR' }): Promise<{ released: boolean }> {
   const reason = requireOneOf(input.reason, 'reason', ['TRADE_CANCELLED', 'TRADE_COMPLETED', 'OPERATOR'] as const);

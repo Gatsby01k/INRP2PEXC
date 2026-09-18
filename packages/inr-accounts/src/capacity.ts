@@ -183,6 +183,26 @@ export async function releaseReservation(ctx: TxContext, reservationId: string, 
 }
 
 /**
+ * Returns capacity that was consumed for a payout that never left the bank (leg FAILED, STATE_MACHINES §4:
+ * `used −= amount`). The reservation stays CONSUMED — it did its job — and the day regains the headroom.
+ */
+export async function refundConsumedCapacity(ctx: TxContext, input: { reservationId: string; amount: Money<'INR'>; reason: 'LEG_FAILED' | 'OPERATOR' }): Promise<{ refunded: Money<'INR'> }> {
+  if (input.amount.currency !== 'INR' || !input.amount.isPositive()) throw new DomainError('INVALID_AMOUNT', 'refunded capacity must be positive INR');
+  const reason = requireOneOf(input.reason, 'reason', ['LEG_FAILED', 'OPERATOR'] as const);
+  const { day, res } = await locateReservation(ctx.tx, input.reservationId);
+  if (res.consumed_minor < input.amount.minor) throw new DomainError('INVALID_AMOUNT', 'cannot refund more capacity than was consumed');
+  if (day.used_minor < input.amount.minor) throw new DomainError('INVALID_AMOUNT', 'day usage is lower than the refund');
+  await ctx.tx
+    .updateTable('inr_account_day')
+    .set({ used_minor: day.used_minor - input.amount.minor, updated_at: sql<Date>`statement_timestamp()` })
+    .where('account_id', '=', res.account_id)
+    .where('day', '=', res.day)
+    .execute();
+  await appendAudit(ctx, { action: 'capacity.released', entityType: 'capacity_reservation', entityId: res.id, after: { refunded: input.amount, reason, note: 'payout did not leave the account' } });
+  return { refunded: input.amount };
+}
+
+/**
  * `capacity.set_day` / `capacity.set_default` — `capacity:change` (⧗). Lowering below current commitments is
  * allowed and never cancels anything: remaining becomes negative, new reservations are blocked, and an
  * outbox event lets the exception module open ROUTE_CAPACITY_CHANGED (FI-30).

@@ -8,6 +8,7 @@ Non-blocking items accepted at phase review. Each entry names the phase that mus
 | TD-02 | Auth: cross-surface operator → client OTP rejection surfaces as internal error | Phase 1 acceptance (2026-09-17) | Production client auth (client login enabled on `app.inrp2p.com`) | Open |
 | TD-03 | Encryption: production KMS-backed key-encryption key not implemented | Phase 2 implementation (2026-09-17) | First deployment holding real bank or contact data | Open |
 | TD-04 | Notifications: no email provider bound for acceptance codes | Phase 3 implementation (2026-09-17) | Any environment where a client accepts a quote through a shareable link | Open |
+| TD-05 | Chain verification: no TRON provider bound; scanning not implemented | Phase 4 implementation (2026-09-18) | Any environment that settles real USDT | Open |
 
 ## TD-01 — Better Auth schema warning for `auth_rate_limit.last_request`
 
@@ -41,3 +42,11 @@ Non-blocking items accepted at phase review. Each entry names the phase that mus
 **Risk.** Link acceptance cannot complete in any environment until a provider is bound. This is deliberate for Phase 3 (a silent or logging adapter would put codes in logs, contrary to SECURITY §2.3), but it is a launch blocker for the client link flow.
 
 **Resolution (to do, before link acceptance is enabled anywhere).** Implement a `NotificationAdapter` for the chosen transactional-email provider (template carrying only code, quote reference and expiry; no amounts, bank or wallet details), load its credentials from the secret manager, record the provider message id on `otp_delivery` (already supported), and add an integration test that a provider failure leaves the challenge PENDING and the outbox delivery retryable without regenerating the code. The same wiring needs the KMS-backed key from TD-03, since the worker must open the sealed code to send it.
+
+## TD-05 — No TRON provider behind the chain verifier
+
+**Observed.** Phase 4 confirms a USDT movement only through the `ChainVerifier` port (FI-24: solidified block, `SUCCESS` receipt, configured contract, expected destination, recorded amount, and — at or above the D-05 threshold — at least two providers). The only implementations are `UnconfiguredChainVerifier`, which throws on every lookup, and the in-memory `FakeChainVerifier` used by tests. Block scanning, cursors, reorg handling and automatic detection are Phase 5.
+
+**Risk.** Until a provider is bound, no USDT first leg and no USDT payout can be confirmed in a deployed environment; INR settlement works. This is deliberate — an operator's word must never confirm an on-chain transfer — but it is a launch blocker for anything involving real USDT.
+
+**Resolution (to do, Phase 5).** Implement `ChainVerifier` over two independent TRON providers (full node + an indexer), with the USDT contract and the dual-provider threshold from configuration, plus the scanner and its cursor. Keep the port boundary: the confirmation rules stay in `packages/settlement`, so Phase 5 changes where the facts come from, not what is required of them.

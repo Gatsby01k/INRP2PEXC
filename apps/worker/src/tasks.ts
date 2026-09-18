@@ -8,6 +8,7 @@ import type { TxContext } from '@inrp2p/db';
 import { releasePastDayReservations } from '@inrp2p/inr-accounts';
 import { releaseCooledDownAddresses } from '@inrp2p/treasury';
 import { type QuotePolicy, expireQuote, runExpirySweep } from '@inrp2p/quotes';
+import { runReconciliation, runSettlementSla } from '@inrp2p/settlement';
 import { sql } from 'kysely';
 
 /** Runs a system job step through the command pipeline (one transaction, audit, retry-safe state guards). */
@@ -50,6 +51,14 @@ export function buildTaskList(db: Db, handlers: readonly OutboxHandler[], opts: 
   const quoteExpirySweep: Task = async () => {
     await runExpirySweep(db, opts.policy ? { policy: opts.policy } : {});
   };
+  // FI-44 / FI-64: the ledger balances globally and every open obligation matches its ledger lines.
+  const reconcile: Task = async () => {
+    await runReconciliation(db);
+  };
+  // SLA sweep: payouts in flight too long and route obligations past their SLA become desk cases.
+  const settlementSla: Task = async () => {
+    await runSettlementSla(db);
+  };
   return {
     outbox_dispatch: outboxDispatch,
     audit_seal: auditSeal,
@@ -57,6 +66,8 @@ export function buildTaskList(db: Db, handlers: readonly OutboxHandler[], opts: 
     deposit_address_cooldown_release: depositCooldownRelease,
     quote_expire: quoteExpire,
     quote_expiry_sweep: quoteExpirySweep,
+    settlement_reconcile: reconcile,
+    settlement_sla: settlementSla,
   };
 }
 
@@ -85,7 +96,8 @@ export function quoteExpiryScheduler(db: Db): OutboxHandler {
 /**
  * Cron (UTC): sweep the outbox every minute, seal audit hourly, release past-IST-day capacity reservations every
  * 5 minutes (IST midnight is 18:30 UTC; frequent runs keep the job simple and idempotent), release cooled-down
- * deposit addresses every 10 minutes, sweep quote/request expiry every minute.
+ * deposit addresses every 10 minutes, sweep quote/request expiry every minute, sweep settlement SLAs every
+ * 15 minutes and reconcile the ledger nightly.
  */
 export const CRONTAB = [
   '* * * * * outbox_dispatch ?max=1&jobKey=outbox_dispatch',
@@ -93,4 +105,6 @@ export const CRONTAB = [
   '*/5 * * * * capacity_day_rollover ?max=3&jobKey=capacity_day_rollover',
   '*/10 * * * * deposit_address_cooldown_release ?max=3&jobKey=deposit_address_cooldown_release',
   '* * * * * quote_expiry_sweep ?max=1&jobKey=quote_expiry_sweep',
+  '*/15 * * * * settlement_sla ?max=2&jobKey=settlement_sla',
+  '23 1 * * * settlement_reconcile ?max=2&jobKey=settlement_reconcile',
 ].join('\n');

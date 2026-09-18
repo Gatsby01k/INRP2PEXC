@@ -616,6 +616,203 @@ export interface TreasuryReservationTable {
   closed_at: Date | null;
 }
 
+export type ExceptionType =
+  | 'USDT_WRONG_AMOUNT' | 'USDT_OVERPAYMENT' | 'USDT_UNEXPECTED_SENDER' | 'WRONG_NETWORK' | 'TX_NOT_FINAL'
+  | 'ROUTE_DIRECT_PAYOUT_MISMATCH' | 'FUNDS_AFTER_TRADE_CLOSED' | 'UNALLOCATED_DEPOSIT' | 'DEPOSIT_POOL_LOW'
+  | 'ROUTE_SETTLEMENT_MISMATCH' | 'ROUTE_OBLIGATION_OVERDUE' | 'DUPLICATE_TX_HASH' | 'DUPLICATE_UTR'
+  | 'PARTIAL_INR_PAYOUT' | 'INR_PAYOUT_DELAYED' | 'BANK_TRANSFER_FAILED' | 'CLIENT_BANK_CHANGED'
+  | 'ROUTE_CAPACITY_CHANGED' | 'TRADE_CANCELLATION' | 'OPERATOR_MISTAKE' | 'RECONCILIATION_MISMATCH';
+
+export type ExceptionSubjectType = 'TRADE' | 'SETTLEMENT_LEG' | 'FIAT_TRANSFER' | 'CRYPTO_TRANSFER' | 'DEPOSIT_ADDRESS' | 'ROUTE_OBLIGATION' | 'ROUTE_SETTLEMENT' | 'INR_ACCOUNT' | 'CLIENT';
+export type ExceptionStatus = 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'VOID';
+
+export interface ExceptionCaseTable {
+  id: Generated<string>;
+  ref: Generated<string>;
+  trade_id: string | null;
+  type: ExceptionType;
+  severity: 'BLOCKING' | 'WARNING';
+  status: Generated<ExceptionStatus>;
+  subject_type: ExceptionSubjectType;
+  subject_id: string;
+  detected_by: 'SYSTEM' | 'OPERATOR';
+  details: Generated<Json>;
+  opened_by: string;
+  opened_at: Generated<Date>;
+  taken_by: string | null;
+  taken_at: Date | null;
+  resolution_command: string | null;
+  resolution_notes: string | null;
+  financial_adjustment_id: string | null;
+  resolved_by: string | null;
+  resolved_at: Date | null;
+}
+
+export type LegSide = 'CLIENT_TO_EXCHANGE' | 'EXCHANGE_TO_CLIENT' | 'REFUND_TO_CLIENT';
+export type LegStatus = 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
+export type LegPayer = 'CLIENT' | 'EXCHANGE_ACCOUNT' | 'ROUTE';
+export type AssetCode = 'INR' | 'USDT';
+
+export interface SettlementLegTable {
+  id: Generated<string>;
+  trade_id: string;
+  seq: number;
+  ref: Generated<string>;
+  side: LegSide;
+  asset: AssetCode;
+  amount_minor: bigint;
+  status: Generated<LegStatus>;
+  payer: LegPayer;
+  route_id: string | null;
+  inr_account_id: string | null;
+  capacity_reservation_id: string | null;
+  treasury_wallet_id: string | null;
+  destination_bank_account_id: string | null;
+  destination_wallet_id: string | null;
+  notes: string | null;
+  created_by: string;
+  created_at: Generated<Date>;
+  sent_at: Date | null;
+  confirmed_at: Date | null;
+  failed_at: Date | null;
+  cancelled_at: Date | null;
+  failure_reason: string | null;
+}
+
+export type FiatRail = 'IMPS' | 'NEFT' | 'RTGS' | 'UPI';
+export type MovementStatus = 'RECORDED' | 'CONFIRMED' | 'FAILED';
+export type FiatPayerType = 'CLIENT' | 'EXCHANGE_ACCOUNT' | 'ROUTE';
+export type FiatPayeeType = 'CLIENT_BANK' | 'EXCHANGE_ACCOUNT' | 'ROUTE';
+
+export interface FiatTransferTable {
+  id: Generated<string>;
+  rail: FiatRail;
+  utr: string;
+  amount_minor: bigint;
+  payer_type: FiatPayerType;
+  payer_id: string;
+  payee_type: FiatPayeeType;
+  payee_id: string;
+  destination_masked: string;
+  value_date: string | null;
+  status: Generated<MovementStatus>;
+  recorded_by: string;
+  recorded_at: Generated<Date>;
+  confirmed_at: Date | null;
+  failed_at: Date | null;
+  failure_reason: string | null;
+}
+
+export type CryptoPayerType = 'CLIENT' | 'EXCHANGE_TREASURY' | 'ROUTE' | 'UNKNOWN';
+export type CryptoPayeeType = 'CLIENT_WALLET' | 'EXCHANGE_TREASURY' | 'ROUTE' | 'UNKNOWN';
+export type CryptoTransferState = 'DETECTED' | 'CONFIRMED' | 'FAILED' | 'ORPHANED';
+
+export interface CryptoTransferTable {
+  id: Generated<string>;
+  network: 'TRON';
+  tx_hash: string;
+  log_index: number;
+  token_contract: string;
+  from_address: string;
+  to_address: string;
+  amount_minor: bigint;
+  payer_type: CryptoPayerType;
+  payer_id: string | null;
+  payee_type: CryptoPayeeType;
+  payee_id: string | null;
+  block_number: bigint | null;
+  block_time: Date | null;
+  receipt_status: 'SUCCESS' | 'FAILED' | null;
+  solidified_block: bigint | null;
+  state: Generated<CryptoTransferState>;
+  verified_by: string | null;
+  source: 'SCANNER' | 'OPERATOR_SUBMITTED';
+  detected_at: Generated<Date>;
+  confirmed_at: Date | null;
+  failed_at: Date | null;
+  created_by: string;
+}
+
+export type RouteSettlementFlow = 'FROM_ROUTE_TO_EXCHANGE' | 'TO_ROUTE' | 'DIRECT_TO_CLIENT';
+
+export interface RouteSettlementTable {
+  id: Generated<string>;
+  ref: Generated<string>;
+  route_id: string;
+  route_obligation_id: string;
+  obligation_side: ObligationSide;
+  flow: RouteSettlementFlow;
+  asset: AssetCode;
+  amount_minor: bigint;
+  transfer_kind: TransferKind;
+  fiat_transfer_id: string | null;
+  crypto_transfer_id: string | null;
+  capacity_reservation_id: string | null;
+  status: Generated<MovementStatus>;
+  created_by: string;
+  recorded_at: Generated<Date>;
+  confirmed_at: Date | null;
+  failed_at: Date | null;
+  failure_reason: string | null;
+}
+
+export type TransferKind = 'FIAT' | 'CRYPTO';
+export type AllocationDimension = 'CLIENT' | 'ROUTE';
+
+export interface TransferAllocationTable {
+  id: Generated<string>;
+  transfer_kind: TransferKind;
+  fiat_transfer_id: string | null;
+  crypto_transfer_id: string | null;
+  dimension: AllocationDimension;
+  settlement_leg_id: string | null;
+  exception_case_id: string | null;
+  route_settlement_id: string | null;
+  amount_minor: bigint;
+  allocated_by: string;
+  created_at: Generated<Date>;
+  voided_at: Date | null;
+  voided_by: string | null;
+  void_reason: string | null;
+}
+
+export type ObligationSide = 'ROUTE_DELIVERS' | 'EXCHANGE_DELIVERS';
+
+export interface RouteSettlementAllocationTable {
+  id: Generated<string>;
+  route_settlement_id: string;
+  route_obligation_id: string;
+  side: ObligationSide;
+  amount_minor: bigint;
+  allocated_by: string;
+  created_at: Generated<Date>;
+}
+
+export type AdjustmentType = 'AMOUNT_CORRECTION' | 'RATE_CORRECTION' | 'FEE' | 'WRITE_OFF' | 'REFUND';
+
+export interface FinancialAdjustmentTable {
+  id: Generated<string>;
+  ref: Generated<string>;
+  trade_id: string;
+  type: AdjustmentType;
+  delta_base_minor: Generated<bigint>;
+  delta_quote_inr_minor: Generated<bigint>;
+  delta_route_inr_minor: Generated<bigint>;
+  delta_margin_inr_minor: Generated<bigint>;
+  reason: string;
+  evidence_note: string | null;
+  exception_case_id: string | null;
+  status: Generated<'REQUESTED' | 'POSTED' | 'REJECTED'>;
+  requested_by: string;
+  requested_at: Generated<Date>;
+  approved_by: string | null;
+  approved_at: Date | null;
+  rejected_by: string | null;
+  rejected_at: Date | null;
+  reject_reason: string | null;
+  ledger_journal_id: string | null;
+}
+
 export interface Database {
   currency: CurrencyTable;
   idempotency_key: IdempotencyKeyTable;
@@ -660,4 +857,12 @@ export interface Database {
   trade_economics: TradeEconomicsTable;
   route_obligation: RouteObligationTable;
   treasury_reservation: TreasuryReservationTable;
+  exception_case: ExceptionCaseTable;
+  settlement_leg: SettlementLegTable;
+  fiat_transfer: FiatTransferTable;
+  crypto_transfer: CryptoTransferTable;
+  route_settlement: RouteSettlementTable;
+  transfer_allocation: TransferAllocationTable;
+  route_settlement_allocation: RouteSettlementAllocationTable;
+  financial_adjustment: FinancialAdjustmentTable;
 }

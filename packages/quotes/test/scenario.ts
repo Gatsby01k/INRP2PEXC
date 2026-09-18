@@ -63,12 +63,12 @@ async function person(t: TestDatabase, owner: TestOperator, clientId: string, op
  * users, an ACTIVE route with a fresh rate in both directions, recorded POOL custody with imported addresses and a
  * funded HOT treasury wallet (so BUY `TO_EXCHANGE` acceptance can reserve).
  */
-export async function createScenario(label: string, opts: { custody?: 'POOL' | 'UNSUPPORTED'; hotBalanceUsdt?: string } = {}): Promise<Scenario> {
+export async function createScenario(label: string, opts: { custody?: 'POOL' | 'UNSUPPORTED'; hotBalanceUsdt?: string; depositPoolSize?: number } = {}): Promise<Scenario> {
   const t = await createTestDatabase(label);
   const owner = await createTestOperator(t.owner, ['OWNER']);
   const dealer = await createTestOperator(t.owner, ['DEALER']);
   const finance = await createTestOperator(t.owner, ['FINANCE']);
-  const custody = new FakeCustodyAdapter({ capability: 'POOL' });
+  const custody = new FakeCustodyAdapter({ capability: 'POOL', poolSize: opts.depositPoolSize ?? 10, seed: label });
 
   const client = await runAs(t.app, createClient(dealer.actor), dealer.ref, 'client.create', { legalName: 'Acme Pay Private Limited', displayName: 'Acme Pay', type: 'COMPANY' as const, typicalDirection: 'SELL_USDT' as const });
   const bank = await runAs(t.app, addBankAccount(owner.actor, testFieldProtector()), owner.ref, 'client_bank.add', {

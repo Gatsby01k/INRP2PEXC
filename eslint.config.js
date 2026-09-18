@@ -21,6 +21,8 @@ const BOUNDARIES = {
   treasury: ['kernel', 'db', 'audit', 'identity', 'outbox', 'adapters'],
   // Phase 3 trade lifecycle modules (ARCHITECTURE §3).
   trades: ['kernel', 'db', 'audit', 'ledger', 'routes'],
+  // Phase 4 settlement: drives trades, movements, route obligations, capacity and treasury through their APIs.
+  settlement: ['kernel', 'db', 'audit', 'identity', 'outbox', 'adapters', 'commands', 'ledger', 'clients', 'inr-accounts', 'routes', 'treasury', 'trades'],
   quotes: ['kernel', 'db', 'audit', 'identity', 'outbox', 'adapters', 'commands', 'ledger', 'clients', 'routes', 'pricing', 'treasury', 'trades'],
   // Design system: formats kernel Money/Rate values; never touches persistence or domain modules.
   ui: ['kernel'],
@@ -62,7 +64,7 @@ export default tseslint.config(
     },
   })),
   {
-    files: ['packages/kernel/src/**/*.ts', 'packages/ledger/src/**/*.ts', 'packages/commands/src/**/*.ts', 'packages/ui/src/format/money.ts', 'packages/ui/src/format/number.ts', 'packages/inr-accounts/src/**/*.ts', 'packages/pricing/src/**/*.ts', 'packages/routes/src/**/*.ts', 'packages/treasury/src/**/*.ts', 'packages/clients/src/**/*.ts', 'packages/trades/src/**/*.ts', 'packages/quotes/src/**/*.ts'],
+    files: ['packages/kernel/src/**/*.ts', 'packages/ledger/src/**/*.ts', 'packages/commands/src/**/*.ts', 'packages/ui/src/format/money.ts', 'packages/ui/src/format/number.ts', 'packages/inr-accounts/src/**/*.ts', 'packages/pricing/src/**/*.ts', 'packages/routes/src/**/*.ts', 'packages/treasury/src/**/*.ts', 'packages/clients/src/**/*.ts', 'packages/trades/src/**/*.ts', 'packages/quotes/src/**/*.ts', 'packages/settlement/src/**/*.ts'],
     rules: { 'no-restricted-syntax': ['error', ...NO_FLOAT_MONEY] },
   },
   {
