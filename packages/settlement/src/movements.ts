@@ -159,7 +159,8 @@ export async function verifyCryptoTransfer(ctx: TxContext, deps: SettlementDeps,
     return { confirmed: false, reason: 'the transaction failed on chain' };
   }
   if (receipt.blockNumber > receipt.solidifiedBlock) return { confirmed: false, reason: 'the block is not solidified yet' };
-  if (Money.ofMinor(t.amount_minor, 'USDT').minor >= Money.parse(policy.dualProviderThresholdUsdt, 'USDT').minor && deps.chain.providers.length < 2) {
+  // D-05: at or above the threshold, two providers must have returned the same facts — not merely be configured.
+  if (t.amount_minor >= Money.parse(policy.dualProviderThresholdUsdt, 'USDT').minor && receipt.agreedBy.length < 2) {
     return { confirmed: false, reason: 'this amount needs two independent providers to agree (D-05)' };
   }
 
@@ -172,16 +173,32 @@ export async function verifyCryptoTransfer(ctx: TxContext, deps: SettlementDeps,
       block_number: receipt.blockNumber,
       block_time: receipt.blockTime,
       solidified_block: receipt.solidifiedBlock,
-      verified_by: deps.chain.providers.join(','),
+      verified_by: receipt.agreedBy.join(','),
     })
     .where('id', '=', t.id)
     .execute();
   await appendAudit(ctx, {
     action: 'usdt.confirmed', entityType: 'crypto_transfer', entityId: t.id,
     before: { state: 'DETECTED' },
-    after: { state: 'CONFIRMED', block_number: receipt.blockNumber.toString(), solidified_block: receipt.solidifiedBlock.toString(), verified_by: deps.chain.providers },
+    after: { state: 'CONFIRMED', block_number: receipt.blockNumber.toString(), solidified_block: receipt.solidifiedBlock.toString(), verified_by: receipt.agreedBy },
   });
   return { confirmed: true };
+}
+
+/**
+ * T3: the providers no longer know a transfer we had detected — it was in a block that did not survive. Only a
+ * transfer that was never final can be orphaned this way; a solidified block is irreversible (FI-24), so a
+ * CONFIRMED transfer going missing is a reconciliation case for a human, never an automatic reversal.
+ */
+export async function markCryptoOrphaned(ctx: TxContext, transferId: string, reason: string): Promise<{ orphaned: boolean }> {
+  const t = await ctx.tx.selectFrom('crypto_transfer').select(['id', 'state']).where('id', '=', requireUuid(transferId, 'transferId')).executeTakeFirstOrThrow();
+  if (t.state !== 'DETECTED') return { orphaned: false };
+  await ctx.tx.updateTable('crypto_transfer').set({ state: 'ORPHANED', failed_at: sql<Date>`inrp2p_now()` }).where('id', '=', t.id).where('state', '=', 'DETECTED').execute();
+  await appendAudit(ctx, {
+    action: 'usdt.orphaned', entityType: 'crypto_transfer', entityId: t.id,
+    before: { state: 'DETECTED' }, after: { state: 'ORPHANED', reason: requireText(reason, 'reason', 500) },
+  });
+  return { orphaned: true };
 }
 
 export interface PostMovementInput {

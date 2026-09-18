@@ -80,11 +80,17 @@ export async function recordClientDeposit(
   const open = assignment && !assignment.released_at ? assignment : undefined;
 
   if (!open) {
+    // Funds straight to a treasury wallet still have a known destination account, so they can be parked in
+    // suspense on confirmation; anything else is money at an address we do not recognise at all.
+    const wallet = address
+      ? null
+      : await ctx.tx.selectFrom('treasury_wallet').select('id').where('network', '=', 'TRON').where('address', '=', input.toAddress).executeTakeFirst();
+    const treasuryWalletId = address?.treasury_wallet_id ?? wallet?.id ?? null;
     const recorded = await recordCryptoTransfer(ctx, {
       ...input,
       payerType: 'UNKNOWN',
-      payeeType: address ? 'EXCHANGE_TREASURY' : 'UNKNOWN',
-      payeeId: address?.treasury_wallet_id ?? null,
+      payeeType: treasuryWalletId ? 'EXCHANGE_TREASURY' : 'UNKNOWN',
+      payeeId: treasuryWalletId,
     });
     const type = assignment ? 'FUNDS_AFTER_TRADE_CLOSED' : 'UNALLOCATED_DEPOSIT';
     const opened = await openExceptionInTx(ctx, {
@@ -177,83 +183,112 @@ export function submitTxForVerification(actor: OperatorActor, deps: SettlementDe
   });
 }
 
+export interface ClientLegConfirmation {
+  readonly status: 'AWAITING_FIRST_LEG' | 'FIRST_LEG_DETECTED' | 'FIRST_LEG_CONFIRMED' | 'SETTLING' | 'PARTIALLY_SETTLED' | 'COMPLETED' | 'CANCELLED';
+  readonly confirmed: boolean;
+  readonly matchedObligation: boolean;
+}
+
+/**
+ * The client-leg confirmation itself (T4), with no actor policy of its own: an operator reaches it through
+ * `settlement:confirm_incoming` (⧗) and the TRON scanner reaches it as a system job once the chain has made the
+ * transfer final. Either way the movement posts its one journal (FI-27) and the leg completes.
+ */
+export async function confirmClientLegInTx(ctx: TxContext, deps: SettlementDeps, legId: string): Promise<ClientLegConfirmation> {
+  const id = requireUuid(legId, 'legId');
+  const legPeek = await ctx.tx.selectFrom('settlement_leg').select('trade_id').where('id', '=', id).executeTakeFirstOrThrow();
+  const trade = await lockTrade(ctx.tx, legPeek.trade_id);
+  const leg = await lockLeg(ctx, id);
+  if (leg.side !== 'CLIENT_TO_EXCHANGE') throw new DomainError('INVALID_ARGUMENT', 'this is not the client leg');
+  if (leg.status !== 'PROCESSING') throw new DomainError('INVALID_TRANSITION', `leg is ${leg.status}`);
+  if (trade.lifecycle_state !== 'FIRST_LEG_DETECTED') throw new DomainError('INVALID_TRANSITION', `trade is ${trade.lifecycle_state}`);
+
+  const allocation = await ctx.tx
+    .selectFrom('transfer_allocation')
+    .select(['transfer_kind', 'fiat_transfer_id', 'crypto_transfer_id'])
+    .where('settlement_leg_id', '=', leg.id)
+    .where('voided_at', 'is', null)
+    .executeTakeFirstOrThrow();
+  const movementId = (allocation.fiat_transfer_id ?? allocation.crypto_transfer_id)!;
+  await lockMovement(ctx, allocation.transfer_kind, movementId);
+  const amount = Money.ofMinor(leg.amount_minor, leg.asset);
+
+  let payeeAccount: { kind: 'EXCHANGE_ACCOUNT'; inrAccountId: string } | { kind: 'EXCHANGE_TREASURY'; walletId: string };
+  if (allocation.transfer_kind === 'FIAT') {
+    const f = await ctx.tx.selectFrom('fiat_transfer').select(['status', 'payee_id']).where('id', '=', movementId).executeTakeFirstOrThrow();
+    if (f.status !== 'RECORDED') throw new DomainError('INVALID_TRANSITION', `the payment reference is ${f.status}`);
+    await ctx.tx.updateTable('fiat_transfer').set({ status: 'CONFIRMED', confirmed_at: sql<Date>`inrp2p_now()` }).where('id', '=', movementId).execute();
+    payeeAccount = { kind: 'EXCHANGE_ACCOUNT', inrAccountId: f.payee_id };
+  } else {
+    const verified = await verifyCryptoTransfer(ctx, deps, movementId);
+    if (!verified.confirmed) throw new DomainError('TRANSFER_NOT_CONFIRMED', verified.reason ?? 'the transfer is not final on chain');
+    const c = await ctx.tx.selectFrom('crypto_transfer').select('payee_id').where('id', '=', movementId).executeTakeFirstOrThrow();
+    if (!c.payee_id) throw new DomainError('INVALID_ARGUMENT', 'the transfer has no treasury destination');
+    payeeAccount = { kind: 'EXCHANGE_TREASURY', walletId: c.payee_id };
+  }
+
+  await postMovement(ctx, {
+    kind: allocation.transfer_kind,
+    movementId,
+    amount,
+    from: { kind: 'CLIENT', clientId: trade.client_id },
+    to: payeeAccount,
+    tradeId: trade.id,
+    purpose: 'CLIENT_FIRST_LEG',
+  });
+  await ctx.tx.updateTable('settlement_leg').set({ status: 'COMPLETED', confirmed_at: sql<Date>`inrp2p_now()` }).where('id', '=', leg.id).execute();
+  await appendAudit(ctx, { action: 'leg.confirmed', entityType: 'settlement_leg', entityId: leg.id, before: { status: 'PROCESSING' }, after: { status: 'COMPLETED', side: leg.side, amount } });
+
+  const { receivable } = await effectiveObligations(ctx.tx, trade.id);
+  const totals = await legTotals(ctx.tx, trade.id);
+  if (totals.received !== receivable.minor) {
+    await openExceptionInTx(ctx, {
+      type: totals.received < receivable.minor ? 'USDT_WRONG_AMOUNT' : 'USDT_OVERPAYMENT',
+      subjectType: 'TRADE', subjectId: trade.id, tradeId: trade.id,
+      details: { expected: receivable.toDecimalString(), received: Money.ofMinor(totals.received, receivable.currency).toDecimalString() },
+    });
+    return { status: trade.lifecycle_state, confirmed: true, matchedObligation: false };
+  }
+  if (trade.hold) return { status: trade.lifecycle_state, confirmed: true, matchedObligation: true };
+  await transitionTrade(ctx, trade, 'FIRST_LEG_CONFIRMED', { extra: { received: Money.ofMinor(totals.received, receivable.currency) } });
+  await enqueueOutbox(ctx, { type: 'desk.payout_actionable', aggregateType: 'trade', aggregateId: trade.id, payload: { tradeId: trade.id } });
+  return { status: 'FIRST_LEG_CONFIRMED' as const, confirmed: true, matchedObligation: true };
+}
+
 /**
  * T4 — `settlement:confirm_incoming` (⧗). The client's funds are final: the movement posts its one journal,
  * the leg completes and the trade becomes payable. A short or excess payment keeps the trade where it is.
  */
 export function confirmFirstLeg(actor: OperatorActor, deps: SettlementDeps) {
-  return operatorCommand(actor, 'settlement:confirm_incoming', async (ctx, p: { legId: string }) => {
-    const legPeek = await ctx.tx.selectFrom('settlement_leg').select('trade_id').where('id', '=', requireUuid(p.legId, 'legId')).executeTakeFirstOrThrow();
-    const trade = await lockTrade(ctx.tx, legPeek.trade_id);
-    const leg = await lockLeg(ctx, p.legId);
-    if (leg.side !== 'CLIENT_TO_EXCHANGE') throw new DomainError('INVALID_ARGUMENT', 'this is not the client leg');
-    if (leg.status !== 'PROCESSING') throw new DomainError('INVALID_TRANSITION', `leg is ${leg.status}`);
-    if (trade.lifecycle_state !== 'FIRST_LEG_DETECTED') throw new DomainError('INVALID_TRANSITION', `trade is ${trade.lifecycle_state}`);
+  return operatorCommand(actor, 'settlement:confirm_incoming', (ctx, p: { legId: string }) => confirmClientLegInTx(ctx, deps, p.legId));
+}
 
-    const allocation = await ctx.tx
-      .selectFrom('transfer_allocation')
-      .select(['transfer_kind', 'fiat_transfer_id', 'crypto_transfer_id'])
-      .where('settlement_leg_id', '=', leg.id)
-      .where('voided_at', 'is', null)
-      .executeTakeFirstOrThrow();
-    const movementId = (allocation.fiat_transfer_id ?? allocation.crypto_transfer_id)!;
-    await lockMovement(ctx, allocation.transfer_kind, movementId);
-    const amount = Money.ofMinor(leg.amount_minor, leg.asset);
-
-    let payeeAccount: { kind: 'EXCHANGE_ACCOUNT'; inrAccountId: string } | { kind: 'EXCHANGE_TREASURY'; walletId: string };
-    if (allocation.transfer_kind === 'FIAT') {
-      const f = await ctx.tx.selectFrom('fiat_transfer').select(['status', 'payee_id']).where('id', '=', movementId).executeTakeFirstOrThrow();
-      if (f.status !== 'RECORDED') throw new DomainError('INVALID_TRANSITION', `the payment reference is ${f.status}`);
-      await ctx.tx.updateTable('fiat_transfer').set({ status: 'CONFIRMED', confirmed_at: sql<Date>`inrp2p_now()` }).where('id', '=', movementId).execute();
-      payeeAccount = { kind: 'EXCHANGE_ACCOUNT', inrAccountId: f.payee_id };
-    } else {
-      const verified = await verifyCryptoTransfer(ctx, deps, movementId);
-      if (!verified.confirmed) throw new DomainError('TRANSFER_NOT_CONFIRMED', verified.reason ?? 'the transfer is not final on chain');
-      const c = await ctx.tx.selectFrom('crypto_transfer').select('payee_id').where('id', '=', movementId).executeTakeFirstOrThrow();
-      if (!c.payee_id) throw new DomainError('INVALID_ARGUMENT', 'the transfer has no treasury destination');
-      payeeAccount = { kind: 'EXCHANGE_TREASURY', walletId: c.payee_id };
-    }
-
-    await postMovement(ctx, {
-      kind: allocation.transfer_kind,
-      movementId,
-      amount,
-      from: { kind: 'CLIENT', clientId: trade.client_id },
-      to: payeeAccount,
-      tradeId: trade.id,
-      purpose: 'CLIENT_FIRST_LEG',
-    });
-    await ctx.tx.updateTable('settlement_leg').set({ status: 'COMPLETED', confirmed_at: sql<Date>`inrp2p_now()` }).where('id', '=', leg.id).execute();
-    await appendAudit(ctx, { action: 'leg.confirmed', entityType: 'settlement_leg', entityId: leg.id, before: { status: 'PROCESSING' }, after: { status: 'COMPLETED', side: leg.side, amount } });
-
-    const { receivable } = await effectiveObligations(ctx.tx, trade.id);
-    const totals = await legTotals(ctx.tx, trade.id);
-    if (totals.received !== receivable.minor) {
-      await openExceptionInTx(ctx, {
-        type: totals.received < receivable.minor ? 'USDT_WRONG_AMOUNT' : 'USDT_OVERPAYMENT',
-        subjectType: 'TRADE', subjectId: trade.id, tradeId: trade.id,
-        details: { expected: receivable.toDecimalString(), received: Money.ofMinor(totals.received, receivable.currency).toDecimalString() },
-      });
-      return { status: trade.lifecycle_state, confirmed: true, matchedObligation: false };
-    }
-    if (trade.hold) return { status: trade.lifecycle_state, confirmed: true, matchedObligation: true };
-    await transitionTrade(ctx, trade, 'FIRST_LEG_CONFIRMED', { extra: { received: Money.ofMinor(totals.received, receivable.currency) } });
-    await enqueueOutbox(ctx, { type: 'desk.payout_actionable', aggregateType: 'trade', aggregateId: trade.id, payload: { tradeId: trade.id } });
-    return { status: 'FIRST_LEG_CONFIRMED' as const, confirmed: true, matchedObligation: true };
-  });
+/**
+ * T3 without an actor policy: the detected transfer turned out to be failed or orphaned, so the leg fails, its
+ * evidence link is voided (the transfer never satisfied anything) and the trade goes back to awaiting the client.
+ * The scanner reaches this as a system job when a transfer disappears from the chain; an operator reaches it
+ * through `revertFirstLeg`.
+ */
+export async function revertClientLegInTx(ctx: TxContext, legId: string, reason: string): Promise<{ status: 'FAILED' }> {
+  const text = requireText(reason, 'reason', 500);
+  const id = requireUuid(legId, 'legId');
+  const legPeek = await ctx.tx.selectFrom('settlement_leg').select('trade_id').where('id', '=', id).executeTakeFirstOrThrow();
+  const trade = await lockTrade(ctx.tx, legPeek.trade_id);
+  const leg = await lockLeg(ctx, id);
+  if (leg.side !== 'CLIENT_TO_EXCHANGE' || leg.status !== 'PROCESSING') throw new DomainError('INVALID_TRANSITION', `leg ${leg.ref} is ${leg.status}`);
+  await ctx.tx.updateTable('settlement_leg').set({ status: 'FAILED', failed_at: sql<Date>`inrp2p_now()`, failure_reason: text }).where('id', '=', leg.id).execute();
+  await ctx.tx
+    .updateTable('transfer_allocation')
+    .set({ voided_at: sql<Date>`inrp2p_now()`, voided_by: ctx.actor.id ?? `SYSTEM:${ctx.commandName}`, void_reason: text })
+    .where('settlement_leg_id', '=', leg.id)
+    .where('voided_at', 'is', null)
+    .execute();
+  if (trade.lifecycle_state === 'FIRST_LEG_DETECTED') await transitionTrade(ctx, trade, 'AWAITING_FIRST_LEG', { reason: text });
+  await appendAudit(ctx, { action: 'leg.failed', entityType: 'settlement_leg', entityId: leg.id, before: { status: 'PROCESSING' }, after: { status: 'FAILED', reason: text } });
+  return { status: 'FAILED' as const };
 }
 
 /** T3: a detected transfer turned out to be failed or orphaned — the trade goes back to awaiting the client. */
 export function revertFirstLeg(actor: OperatorActor) {
-  return operatorCommand(actor, 'settlement:fail_payout', async (ctx, p: { legId: string; reason: string }) => {
-    const reason = requireText(p.reason, 'reason', 500);
-    const legPeek = await ctx.tx.selectFrom('settlement_leg').select('trade_id').where('id', '=', requireUuid(p.legId, 'legId')).executeTakeFirstOrThrow();
-    const trade = await lockTrade(ctx.tx, legPeek.trade_id);
-    const leg = await lockLeg(ctx, p.legId);
-    if (leg.side !== 'CLIENT_TO_EXCHANGE' || leg.status !== 'PROCESSING') throw new DomainError('INVALID_TRANSITION', `leg ${leg.ref} is ${leg.status}`);
-    await ctx.tx.updateTable('settlement_leg').set({ status: 'FAILED', failed_at: sql<Date>`inrp2p_now()`, failure_reason: reason }).where('id', '=', leg.id).execute();
-    if (trade.lifecycle_state === 'FIRST_LEG_DETECTED') await transitionTrade(ctx, trade, 'AWAITING_FIRST_LEG', { reason });
-    await appendAudit(ctx, { action: 'leg.failed', entityType: 'settlement_leg', entityId: leg.id, before: { status: 'PROCESSING' }, after: { status: 'FAILED', reason } });
-    return { status: 'FAILED' as const };
-  });
+  return operatorCommand(actor, 'settlement:fail_payout', (ctx, p: { legId: string; reason: string }) => revertClientLegInTx(ctx, p.legId, p.reason));
 }

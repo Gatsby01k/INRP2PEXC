@@ -85,7 +85,13 @@ export type DomainErrorCode =
   | 'FUNDS_ALREADY_RECEIVED'
   | 'PAYOUT_IN_FLIGHT'
   | 'PAYOUT_ALREADY_CONFIRMED'
-  | 'REFUND_INCOMPLETE';
+  | 'REFUND_INCOMPLETE'
+  // Phase 5 — chain monitoring (STATE_MACHINES §11).
+  | 'CHAIN_PROVIDER_ERROR'
+  | 'CHAIN_PROVIDER_DISAGREEMENT'
+  | 'TX_NOT_FINAL'
+  | 'TX_ORPHANED'
+  | 'SCANNER_CURSOR_CONFLICT';
 
 export class DomainError extends Error {
   readonly code: DomainErrorCode;

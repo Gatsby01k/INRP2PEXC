@@ -9,6 +9,7 @@ import { releasePastDayReservations } from '@inrp2p/inr-accounts';
 import { releaseCooledDownAddresses } from '@inrp2p/treasury';
 import { type QuotePolicy, expireQuote, runExpirySweep } from '@inrp2p/quotes';
 import { runReconciliation, runSettlementSla } from '@inrp2p/settlement';
+import { type ScannerDeps, runOrphanSweep, runTronConfirm, runTronScan } from '@inrp2p/scanner';
 import { sql } from 'kysely';
 
 /** Runs a system job step through the command pipeline (one transaction, audit, retry-safe state guards). */
@@ -21,7 +22,7 @@ function systemCommand<R>(db: Db, name: string, fn: (ctx: TxContext) => Promise<
  * Durable job definitions (ARCHITECTURE §5): foundation jobs (Phase 1) and reference-data maintenance jobs
  * (Phase 2). Domain handlers for later phases are added with them. Every task is retry-safe.
  */
-export function buildTaskList(db: Db, handlers: readonly OutboxHandler[], opts: { policy?: Partial<QuotePolicy> } = {}): TaskList {
+export function buildTaskList(db: Db, handlers: readonly OutboxHandler[], opts: { policy?: Partial<QuotePolicy>; scanner?: ScannerDeps } = {}): TaskList {
   const outboxDispatch: Task = async () => {
     const report = await dispatchOutbox(db, handlers);
     if (report.claimed === 50) {
@@ -59,6 +60,21 @@ export function buildTaskList(db: Db, handlers: readonly OutboxHandler[], opts: 
   const settlementSla: Task = async () => {
     await runSettlementSla(db);
   };
+  // Phase 5 (STATE_MACHINES §5): the chain jobs exist only when TRON providers are configured. Without them
+  // nothing pretends to scan — USDT confirmation simply stays unavailable (TD-05).
+  const chain = opts.scanner;
+  const tronScan: Task = async () => {
+    if (!chain) return;
+    await runTronScan(db, chain);
+  };
+  const tronConfirm: Task = async () => {
+    if (!chain) return;
+    await runTronConfirm(db, chain);
+  };
+  const tronOrphanSweep: Task = async () => {
+    if (!chain) return;
+    await runOrphanSweep(db, chain);
+  };
   return {
     outbox_dispatch: outboxDispatch,
     audit_seal: auditSeal,
@@ -68,6 +84,9 @@ export function buildTaskList(db: Db, handlers: readonly OutboxHandler[], opts: 
     quote_expiry_sweep: quoteExpirySweep,
     settlement_reconcile: reconcile,
     settlement_sla: settlementSla,
+    tron_scan: tronScan,
+    tron_confirm: tronConfirm,
+    tron_orphan_sweep: tronOrphanSweep,
   };
 }
 
@@ -97,7 +116,9 @@ export function quoteExpiryScheduler(db: Db): OutboxHandler {
  * Cron (UTC): sweep the outbox every minute, seal audit hourly, release past-IST-day capacity reservations every
  * 5 minutes (IST midnight is 18:30 UTC; frequent runs keep the job simple and idempotent), release cooled-down
  * deposit addresses every 10 minutes, sweep quote/request expiry every minute, sweep settlement SLAs every
- * 15 minutes and reconcile the ledger nightly.
+ * 15 minutes and reconcile the ledger nightly. The TRON scanner reads new transfers every minute, offers
+ * detected transfers to the verifier every minute (a transfer solidifies in about a minute) and sweeps for
+ * orphans every 10 minutes.
  */
 export const CRONTAB = [
   '* * * * * outbox_dispatch ?max=1&jobKey=outbox_dispatch',
@@ -107,4 +128,7 @@ export const CRONTAB = [
   '* * * * * quote_expiry_sweep ?max=1&jobKey=quote_expiry_sweep',
   '*/15 * * * * settlement_sla ?max=2&jobKey=settlement_sla',
   '23 1 * * * settlement_reconcile ?max=2&jobKey=settlement_reconcile',
+  '* * * * * tron_scan ?max=1&jobKey=tron_scan',
+  '* * * * * tron_confirm ?max=1&jobKey=tron_confirm',
+  '*/10 * * * * tron_orphan_sweep ?max=2&jobKey=tron_orphan_sweep',
 ].join('\n');

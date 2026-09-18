@@ -48,6 +48,7 @@ packages/
   settlement/             settlement legs (payer EXCHANGE_ACCOUNT | ROUTE), movements (fiat/crypto transfer records), transfer allocations, movement journals, capacity reservations
   inr-accounts/           settlement entities, INR settlement accounts, daily capacity
   treasury/               treasury wallets, crypto transfers, deposit addresses + assignments (via CustodyAdapter)
+  scanner/                TRON block/address scanning: chain cursor, detection, solidification confirmation, orphan sweep
   notifications/          notification intents + channel adapters
   reporting/              P&L, receipts, exports
   adapters/               TronAdapter, MarketRateAdapter, NotificationAdapter, BankRailAdapter, CustodyAdapter, RouteAdapter
@@ -103,8 +104,9 @@ All business time decisions (quote expiry, capacity day) use database time (`sta
 | `quote.expire` | Scheduled at `expires_at`, plus sweeper cron every 15s | Transition guarded by state + `expires_at <= now()` under lock |
 | `deposit_address.cooldown_release` | Cron | Address `COOLDOWN → AVAILABLE` (pool mode) only after cooldown and with no open assignment |
 | `custody.pool_health` | Cron | Read-only: alerts when available deposit addresses fall below threshold |
-| `tron.poll_address` / `tron.scan_blocks` | Cron + on deposit address assignment | `crypto_transfer` unique on `(network, tx_hash, log_index)` |
-| `tron.confirm_transfer` | Per detected transfer, backoff until solidified | Transition guarded by transfer state |
+| `tron_scan` (implements `tron.poll_address` / `tron.scan_blocks`) | Cron every minute, from `chain_cursor` minus a rescan overlap | `crypto_transfer` unique on `(network, tx_hash, log_index)`, plus one idempotency key per chain event (`tron:{txHash}:{logIndex}`); the cursor only moves forward (IX066) |
+| `tron_confirm` (implements `tron.confirm_transfer`) | Cron every minute over DETECTED transfers | Transition guarded by transfer state; confirmation is the `ChainVerifier`'s answer, never the job's |
+| `tron_orphan_sweep` | Cron every 10 minutes | Only DETECTED transfers the providers no longer report; a solidified block is irreversible, so CONFIRMED is never swept |
 | `route.reconcile` | Cron | Read-only: checks FI-64 (obligation remaining = ledger route balance per obligation) and opens `ROUTE_SETTLEMENT_MISMATCH` / `ROUTE_OBLIGATION_OVERDUE` idempotently |
 | `settlement.reconcile` | Cron | Read-only diffing → opens ExceptionCases idempotently (unique open case per `(type, subject)`) |
 | `capacity.release` | Outbox from cancellation/expiry/leg failure | Reservation state guarded |
@@ -118,7 +120,7 @@ No in-memory timers for any financial lifecycle event. The UI countdown is displ
 
 | Port | V1 implementation | Contract |
 |---|---|---|
-| `TronAdapter` | TronGrid / full node HTTP API (primary) + second provider for cross-check | `listTrc20Transfers(address, sinceBlock)`, `getTransactionInfo(txHash)`, `getSolidifiedBlockNumber()`; returns raw facts, never decisions |
+| `TronAdapter` | `TronHttpProvider` (TronGrid / full node HTTP API) as primary + a second provider for cross-check, combined by `DualProviderChainVerifier` | `listIncomingTransfers(address, contract, sinceBlock)`, `getTransfer(txHash, logIndex)`, `getLatestBlockNumber()`, `getSolidifiedBlockNumber()`; returns raw facts, never decisions. The verifier's `TransferReceipt.agreedBy` names the providers that returned *identical* facts, and the domain applies `DECISIONS.md D-05` to that list — configuration alone never counts as agreement |
 | `MarketRateAdapter` | Optional reference feed; can be disabled | `getReference(pair)` → timestamped rate + source; failure never blocks quoting |
 | `NotificationAdapter` | In-app (DB) + email (SMTP/transactional provider) | `send(intent)`; Telegram/WhatsApp/SMS later |
 | `BankRailAdapter` | `ManualRailAdapter`: operator records transfer + UTR | Later: bank API; same leg state machine |

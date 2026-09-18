@@ -813,6 +813,18 @@ export interface FinancialAdjustmentTable {
   ledger_journal_id: string | null;
 }
 
+/** Scanner progress per (network, scanner) — Phase 5, migration 0016. */
+export interface ChainCursorTable {
+  id: Generated<string>;
+  network: 'TRON';
+  scanner: string;
+  last_scanned_block: bigint;
+  last_solidified_block: Generated<bigint>;
+  last_run_at: Date | null;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+}
+
 export interface Database {
   currency: CurrencyTable;
   idempotency_key: IdempotencyKeyTable;
@@ -865,4 +877,5 @@ export interface Database {
   transfer_allocation: TransferAllocationTable;
   route_settlement_allocation: RouteSettlementAllocationTable;
   financial_adjustment: FinancialAdjustmentTable;
+  chain_cursor: ChainCursorTable;
 }

@@ -144,6 +144,18 @@ Finality semantics (TRON): a block is irreversible once it is **solidified** (co
 
 Allocation (`transfer_allocation`) is a separate step: at most one CLIENT-dimension and one ROUTE-dimension link per transfer (FI-28). Client deposits are allocated **only** via the open deposit assignment of the destination address (D-02); there is no amount- or sender-based matching. Transfers to an address in COOLDOWN → `FUNDS_AFTER_TRADE_CLOSED`; to a never-assigned address or treasury wallet directly → `UNALLOCATED_DEPOSIT`. Both post to `SUSPENSE:UNALLOCATED` on confirmation. Route settlement USDT transfers are linked to a `route_settlement` (§10); a route→client USDT transfer is linked to both a payout leg and a `DIRECT_TO_CLIENT` route settlement by the direct confirm command (§4).
 
+### Who drives it (Phase 5 scanner)
+
+| Job | Reads | Writes |
+|---|---|---|
+| `tron_scan` | TRC20 transfers into watched addresses (assigned **and** cooled-down deposit addresses, active treasury wallets) from `chain_cursor.last_scanned_block` minus the rescan overlap | DETECTED transfers, their CLIENT allocation and client leg when an open deposit assignment claims them, the detection cases above, and the cursor |
+| `tron_confirm` | every DETECTED transfer, through the `ChainVerifier` | CONFIRMED (T4 client leg completed with its one journal), FAILED (client leg reverted, trade back to `AWAITING_FIRST_LEG`), suspense posting for an unclaimed transfer, `TX_NOT_FINAL` once a transfer has been pending longer than the configured age |
+| `tron_orphan_sweep` | DETECTED transfers the providers no longer report | ORPHANED, client leg FAILED, its allocation voided, trade back to `AWAITING_FIRST_LEG` (T3) |
+
+Three rules bound what the scanner may do. Detection never confirms: only the verifier's answer moves a transfer to CONFIRMED, and above the D-05 threshold that answer must name two providers that returned identical facts (`TransferReceipt.agreedBy`), so a lagging or disagreeing second provider blocks confirmation rather than being ignored. Detection never attributes by amount or sender: the destination's open deposit assignment is the only link, and a mismatch in amount or sender becomes a case beside the transfer, never a silent adjustment. The scanner never releases money to a client: a confirmed **outbound** payout transfer is only verified, and completing that leg stays a step-up operator command (§4).
+
+A confirmed transfer sat in a solidified block, which is irreversible, so only DETECTED transfers are ever orphaned; a CONFIRMED one going missing is a reconciliation case for a human. `chain_cursor` moves forward only (`IX066`) — each run rescans a configured overlap below it, which covers reorgs and brief outages; a longer gap is a deliberate backfill (TECH_DEBT TD-06), never a rewind. Losing the cursor entirely costs a rescan and nothing else: `(network, tx_hash, log_index)` makes re-detection idempotent (FI-23).
+
 ---
 
 ## 6. CapacityReservation

@@ -293,6 +293,9 @@ importers:
       '@inrp2p/quotes':
         specifier: workspace:*
         version: link:../../packages/quotes
+      '@inrp2p/scanner':
+        specifier: workspace:*
+        version: link:../../packages/scanner
       '@inrp2p/settlement':
         specifier: workspace:*
         version: link:../../packages/settlement
@@ -565,6 +568,58 @@ importers:
       '@inrp2p/commands':
         specifier: workspace:*
         version: link:../commands
+
+  packages/scanner:
+    dependencies:
+      '@inrp2p/adapters':
+        specifier: workspace:*
+        version: link:../adapters
+      '@inrp2p/audit':
+        specifier: workspace:*
+        version: link:../audit
+      '@inrp2p/commands':
+        specifier: workspace:*
+        version: link:../commands
+      '@inrp2p/db':
+        specifier: workspace:*
+        version: link:../db
+      '@inrp2p/kernel':
+        specifier: workspace:*
+        version: link:../kernel
+      '@inrp2p/ledger':
+        specifier: workspace:*
+        version: link:../ledger
+      '@inrp2p/settlement':
+        specifier: workspace:*
+        version: link:../settlement
+      '@inrp2p/trades':
+        specifier: workspace:*
+        version: link:../trades
+      kysely:
+        specifier: 0.29.6
+        version: 0.29.6
+    devDependencies:
+      '@inrp2p/clients':
+        specifier: workspace:*
+        version: link:../clients
+      '@inrp2p/identity':
+        specifier: workspace:*
+        version: link:../identity
+      '@inrp2p/inr-accounts':
+        specifier: workspace:*
+        version: link:../inr-accounts
+      '@inrp2p/pricing':
+        specifier: workspace:*
+        version: link:../pricing
+      '@inrp2p/quotes':
+        specifier: workspace:*
+        version: link:../quotes
+      '@inrp2p/routes':
+        specifier: workspace:*
+        version: link:../routes
+      '@inrp2p/treasury':
+        specifier: workspace:*
+        version: link:../treasury
 
   packages/settlement:
     dependencies:

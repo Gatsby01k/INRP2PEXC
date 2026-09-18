@@ -15,6 +15,7 @@
     "@inrp2p/kernel": "workspace:*",
     "@inrp2p/outbox": "workspace:*",
     "@inrp2p/quotes": "workspace:*",
+    "@inrp2p/scanner": "workspace:*",
     "@inrp2p/settlement": "workspace:*",
     "@inrp2p/treasury": "workspace:*",
     "graphile-worker": "0.18.0",

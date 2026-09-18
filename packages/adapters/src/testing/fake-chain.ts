@@ -13,6 +13,8 @@ export class FakeChainVerifier implements ChainVerifier {
   readonly tokenContract: string;
   readonly #events = new Map<string, TransferReceipt>();
   #head = 1_000n;
+  /** Tx hashes the second provider disagrees about (D-05): only the primary vouches for them. */
+  readonly disagreements = new Set<string>();
 
   constructor(opts: { providers?: readonly string[]; tokenContract?: string } = {}) {
     this.providers = opts.providers ?? ['fake-node-a', 'fake-node-b'];
@@ -46,6 +48,7 @@ export class FakeChainVerifier implements ChainVerifier {
       blockTime: new Date(),
       receiptStatus: input.receiptStatus ?? 'SUCCESS',
       solidifiedBlock: this.#head,
+      agreedBy: this.providers,
     };
     this.#events.set(`TRON:${txHash}:${logIndex}`, receipt);
     this.#head += 1n;
@@ -59,6 +62,18 @@ export class FakeChainVerifier implements ChainVerifier {
   }
 
   async lookupTransfer(network: ChainNetwork, txHash: string, logIndex: number): Promise<TransferReceipt | null> {
-    return this.#events.get(`${network}:${txHash}:${logIndex}`) ?? null;
+    const receipt = this.#events.get(`${network}:${txHash}:${logIndex}`);
+    if (!receipt) return null;
+    return this.disagreements.has(receipt.txHash) ? { ...receipt, agreedBy: this.providers.slice(0, 1) } : receipt;
+  }
+
+  /** Test hook: the second provider stops vouching for this transfer. */
+  disagreeAbout(txHash: string): void {
+    this.disagreements.add(txHash);
+  }
+
+  /** Test hook: the transfer disappears from the chain (reorg). */
+  forget(txHash: string, logIndex = 0): void {
+    this.#events.delete(`TRON:${txHash}:${logIndex}`);
   }
 }

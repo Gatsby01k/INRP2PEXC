@@ -20,6 +20,11 @@ export interface TransferReceipt {
   readonly receiptStatus: 'SUCCESS' | 'FAILED';
   /** Highest solidified (irreversible) block the provider reports. */
   readonly solidifiedBlock: bigint;
+  /**
+   * Providers that returned exactly these facts. D-05 requires two of them to agree at or above the configured
+   * amount, so the domain checks this rather than trusting that two were merely configured.
+   */
+  readonly agreedBy: readonly string[];
 }
 
 export interface ChainVerifier {
