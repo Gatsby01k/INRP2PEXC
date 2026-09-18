@@ -133,6 +133,11 @@ export async function settleFirstLeg(w: World, tradeId: string, opts: { amountUs
   return { legId: recorded.legId, transferId: recorded.transferId };
 }
 
+/** A SETTLEMENT_OPERATOR whose TOTP step-up is older than the freshness window. */
+export async function createStaleSettlementOperator(w: World): Promise<TestOperator> {
+  return createTestOperator(w.t.owner, ['SETTLEMENT_OPERATOR'], 'stale');
+}
+
 export const newUtr = (prefix = 'UTR') => `${prefix}${randomUUID().replace(/-/g, '').slice(0, 14).toUpperCase()}`;
 
 /** Ledger balance of an account code (DR − CR), optionally restricted to one route obligation. */

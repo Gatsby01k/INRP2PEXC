@@ -11,11 +11,12 @@ import { lockMovement, postMovement, recordCryptoTransfer, recordFiatTransfer, v
 import type { SettlementDeps } from './policy.ts';
 
 /**
- * `fiat_in.record` (T2, BUY) — `settlement:record_utr`. The client says it sent the INR; the desk records the
- * reference. The UTR is unique across all fiat movements (FI-22), so the same payment cannot be claimed twice.
+ * `fiat_in.record` (T2, BUY) — `settlement:record_incoming`. The client says it sent the INR; the desk records the
+ * reference. Recording needs no step-up (nothing is confirmed yet); making it count is `settlement:confirm_incoming`
+ * (⧗). The UTR is unique across all fiat movements (FI-22), so the same payment cannot be claimed twice.
  */
 export function recordIncomingFiat(actor: OperatorActor) {
-  return operatorCommand(actor, 'settlement:record_utr', async (ctx, p: { tradeId: string; rail: FiatRail; utr: string; amount: string; inrAccountId: string; valueDate?: string | null }) => {
+  return operatorCommand(actor, 'settlement:record_incoming', async (ctx, p: { tradeId: string; rail: FiatRail; utr: string; amount: string; inrAccountId: string; valueDate?: string | null }) => {
     const trade = await lockTrade(ctx.tx, p.tradeId);
     if (trade.direction !== 'BUY_USDT') throw new DomainError('INVALID_ARGUMENT', 'only a BUY trade receives INR from the client');
     if (trade.lifecycle_state !== 'AWAITING_FIRST_LEG') throw new DomainError('INVALID_TRANSITION', `trade is ${trade.lifecycle_state}`);

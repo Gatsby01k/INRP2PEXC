@@ -182,7 +182,9 @@ Created at acceptance with the trade's frozen route economics and execution mode
 | Transition | Who | Preconditions | Ledger | Audit |
 |---|---|---|---|---|
 | create → OPEN | `quote.accept` / `quote.accept_via_link` | route `PER_TRADE`, mode frozen from route | part of `trade:{t}:accept` | `route_obligation.created` |
-| OPEN/PARTIALLY_SETTLED → PARTIALLY_SETTLED/SETTLED | (a) direct payout confirm (system, §4); (b) `route_settlement.allocate` — FINANCE/OWNER ⧗ | allocation ≤ side remaining (FI-61); settlement CONFIRMED; movement allowed for mode (FI-65) | none here — the movement journal already posted once (FI-27) | `route_settlement.allocated` |
+| OPEN/PARTIALLY_SETTLED → PARTIALLY_SETTLED/SETTLED | (a) direct payout confirm (system, §4); (b) `route_settlement.confirm` — FINANCE/OWNER ⧗, which allocates the obligation side the settlement was recorded against, in the same transaction that posts the movement journal | allocation ≤ side remaining (FI-61); settlement CONFIRMED; movement allowed for mode (FI-65) | none here — the movement journal already posted once (FI-27) | `route_settlement.allocated` |
+
+V1 has **no separate allocation step**: `PER_TRADE` settlements name their obligation side when recorded, and confirmation posts the journal (carrying the `route_obligation_id` dimension) and writes the allocation atomically. A post-confirm allocation would leave the journal undimensioned in between, so obligation remaining and ledger balance would disagree — a temporary FI-64 violation. If a later settlement model needs one settlement to serve several obligations, that command arrives with it.
 | OPEN → CANCELLED | trade cancellation | trade CANCELLED; no net allocations | part of `trade:{t}:cancel` | `route_obligation.cancelled` |
 
 Residuals (e.g. ₹220,000 after a ₹10,200,000 direct payout) stay OPEN/PARTIALLY_SETTLED until a `TO_EXCHANGE` route settlement or an approved financial adjustment covers them. The client trade never reads obligation state (FI-62).
@@ -195,8 +197,8 @@ Flows: `FROM_ROUTE_TO_EXCHANGE` (route → exchange account / treasury), `TO_ROU
 
 | Transition | Who | Preconditions | Side effects | Ledger | Audit |
 |---|---|---|---|---|---|
-| create → RECORDED (`FROM_ROUTE_TO_EXCHANGE`, `TO_ROUTE`) | `route_settlement.record` — FINANCE/OWNER | route ACTIVE; flow valid for mode; outgoing INR: capacity reservation (`purpose = ROUTE_SETTLEMENT`); movement evidence unique (FI-22/23) and not linked in ROUTE dimension (FI-28) | movement RECORDED | none | `route_settlement.recorded` |
-| RECORDED → CONFIRMED | `route_settlement.confirm` — FINANCE/OWNER ⧗ | INR: UTR present; USDT: on-chain CONFIRMED (destination = route's registered address for `TO_ROUTE`, treasury wallet for `FROM_ROUTE_TO_EXCHANGE`) | movement CONFIRMED; capacity consumed (INR out) | one movement journal (`fiat:{f}:confirm` / `crypto:{x}:confirm`, §3.4 of FINANCIAL_INVARIANTS) | `route_settlement.confirmed` |
+| create → RECORDED (`FROM_ROUTE_TO_EXCHANGE`, `TO_ROUTE`) | `route_settlement.record` — FINANCE/OWNER | route ACTIVE; **one route obligation and side named at record time** (V1 is `PER_TRADE`), amount ≤ that side's remaining; flow valid for mode; outgoing INR: capacity reservation (`purpose = ROUTE_SETTLEMENT`); movement evidence unique (FI-22/23) and not linked in ROUTE dimension (FI-28) | movement RECORDED | none | `route_settlement.recorded` |
+| RECORDED → CONFIRMED | `route_settlement.confirm` — FINANCE/OWNER ⧗ | INR: UTR present; USDT: on-chain CONFIRMED (destination = route's registered address for `TO_ROUTE`, treasury wallet for `FROM_ROUTE_TO_EXCHANGE`) | movement CONFIRMED; capacity consumed (INR out); **the obligation side named at record time is allocated in the same transaction** | one movement journal (`fiat:{f}:confirm` / `crypto:{x}:confirm`, §3.4 of FINANCIAL_INVARIANTS), carrying the obligation dimension so FI-64 holds at every step | `route_settlement.confirmed`, `route_settlement.allocated` |
 | create+confirm (`DIRECT_TO_CLIENT`) | system, inside `payout_leg.confirm` | §4 | — | the leg's single movement journal | `route_settlement.confirmed` |
 | RECORDED → FAILED | `route_settlement.fail` ⧗ + reason | not CONFIRMED | movement FAILED; reservation released | none | `route_settlement.failed` |
 

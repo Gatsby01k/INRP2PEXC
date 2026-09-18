@@ -32,7 +32,7 @@ Status: Phase 0, revision 3 (`DECISIONS.md` Revision 3).
 ### 2.1 Operators (`desk.inrp2p.com`)
 - Credential login + mandatory TOTP two-factor for **every** operator role (including READ_ONLY). Breached-password check via plugin or equivalent hook.
 - Session cookies: `Secure`, `HttpOnly`, `SameSite=Strict`, host-only; idle timeout 30 min, absolute 12 h; server-side revocation.
-- **Step-up**: TOTP verified within the last 10 minutes (INRP2P `step_up_verification`) for: confirming incoming INR, confirming payouts (including direct route payouts), changing UTR, cancelling trades, approving adjustments, route settlement confirm/allocate, changing capacity, changing roles, revealing full bank details, sending negative-margin quotes.
+- **Step-up**: TOTP verified within the last 10 minutes (INRP2P `step_up_verification`) for: confirming incoming INR, confirming payouts (including direct route payouts), changing UTR, cancelling trades, approving adjustments, route settlement confirm, changing capacity, changing roles, revealing full bank details, sending negative-margin quotes.
 - Optional IP allowlist for the desk host.
 
 ### 2.2 Clients (`app.inrp2p.com`)
@@ -72,6 +72,7 @@ Legend: ✔ allowed · ⧗ allowed with step-up MFA · ✱ requires second appro
 | `quote_link:create` / `revoke` | ✔ | ✔ | — | — | — | — |
 | `settlement:reserve_capacity` | ✔ | — | ✔ | — | — | — |
 | `settlement:create_payout` / `send_payout` | ✔ | — | ✔ | — | — | — |
+| `settlement:record_incoming` (record a client's incoming INR reference, T2) | ✔ | — | ✔ | — | — | — |
 | `settlement:record_utr` | ✔ | — | ✔ | — | — | — |
 | `settlement:record_route_payout_sent` (direct legs) | ✔ | — | ✔ | — | — | — |
 | `settlement:change_utr` | ⧗ | — | ⧗ | — | — | — |
@@ -92,7 +93,7 @@ Legend: ✔ allowed · ⧗ allowed with step-up MFA · ✱ requires second appro
 | `client_user:grant_accept_quotes` | ⧗ | — | — | — | ⧗ | — |
 | `routes:configure` (incl. settlement model) | ⧗ | — | — | — | — | — |
 | `route_settlement:record` | ✔ | — | — | ✔ | — | — |
-| `route_settlement:confirm` / `allocate` | ⧗ | — | — | ⧗ | — | — |
+| `route_settlement:confirm` (confirms the movement and allocates the obligation side it was recorded against) | ⧗ | — | — | ⧗ | — | — |
 | `route_positions:view` | ✔ | ✔ | — | ✔ | — | — |
 | `custody:configure` (adapter, deposit pool) | ⧗ | — | — | ⧗ | — | — |
 | `bank_account:reveal` | ⧗ | — | ⧗ | ⧗ | — | — |

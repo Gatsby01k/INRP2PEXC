@@ -1,6 +1,6 @@
 # INRP2P Exchange — Phase 4 Report (Trade state machine & settlement legs)
 
-Status: implemented, awaiting review. Phase 5 not started.
+Status: provisionally approved; review corrections applied (§11). Phase 5 not started.
 Base: `b601a6d` (Phase 3 — requests, quotes, acceptance). Scope: `IMPLEMENTATION_PLAN.md` Phase 4 only — trade transitions T2–T10 with the hold overlay, settlement legs with both payer types, movements and their single journals, allocations, direct route payouts, `TO_EXCHANGE` route settlements, capacity consume/release, completion and margin realization, cancellation and refunds, two-person financial adjustments, exception cases and their resolutions. No TRON scanner (Phase 5) and no UI (Phase 6).
 
 ## 1. The shape of the phase in one paragraph
@@ -43,14 +43,14 @@ Grants keep the pattern: SELECT/INSERT plus column-level UPDATE on lifecycle col
 
 | Command | Authority | Notes |
 |---|---|---|
-| `fiat_in.record` / `crypto.submit_tx_for_verification` | `settlement:record_utr` / `crypto:submit_tx_for_verification` | T2. USDT is attributed **only** through the trade's open deposit assignment (D-02, FI-26); a wrong amount or an unregistered sender opens a case instead of adjusting anything |
+| `fiat_in.record` / `crypto.submit_tx_for_verification` | `settlement:record_incoming` / `crypto:submit_tx_for_verification` | T2. USDT is attributed **only** through the trade's open deposit assignment (D-02, FI-26); a wrong amount or an unregistered sender opens a case instead of adjusting anything |
 | `settlement.confirm_incoming` | `settlement:confirm_incoming` ⧗ | T4. INR: the recorded UTR; USDT: the chain (FI-24). Confirms the leg, posts the movement journal, moves the trade to FIRST_LEG_CONFIRMED when the received total equals the effective obligation |
 | `payout_leg.create` | `settlement:create_payout` | FI-20 and FI-30 checked under the trade lock; exchange INR reserves capacity; route-paid legs only in `DIRECT_TO_CLIENT` |
 | `payout_leg.send` | `settlement:send_payout`, or `settlement:record_route_payout_sent` for a route-paid leg | T5; exchange INR consumes its reservation (reserved → used) |
 | `payout_leg.record_evidence` | `settlement:record_utr` (+ `settlement:change_utr` ⧗ to replace) | Creates the movement and links it to the leg; a replacement voids the old link and fails the mis-entered movement |
 | `payout_leg.confirm` | `settlement:confirm_payout` ⧗ | T6/T7 — §5 below |
 | `payout_leg.fail` / `cancel` | `settlement:fail_payout` ⧗ / `settlement:cancel_payout` ⧗ | Failure returns the day's used capacity and opens `BANK_TRANSFER_FAILED`; cancel releases the reservation |
-| `route_settlement.record` / `confirm` / `fail` | `route_settlement:record` / `route_settlement:confirm` ⧗ | Confirm posts the movement journal with the obligation dimension and allocates the side in the same transaction (FI-64); outgoing INR reserves and consumes capacity |
+| `route_settlement.record` / `confirm` / `fail` | `route_settlement:record` / `route_settlement:confirm` ⧗ | A settlement names one obligation side when recorded; confirm posts the movement journal with that dimension and allocates the side in the same transaction (FI-64); outgoing INR reserves and consumes capacity |
 | `trade.cancel` | `trade:cancel` ⧗ | T9; releases capacity, treasury and the deposit address, cancels the obligation and reverses the accept journal exactly |
 | `refund_leg.create` / `refund_leg.confirm` | `settlement:create_payout` / `refund:approve` ⧗✱ | Two people: the approver is never the creator |
 | `exception.refund_and_cancel` | `trade:cancel` ⧗ + `exception:resolve` | T10; only when every confirmed client rupee or USDT is back and no payout completed |
@@ -72,9 +72,9 @@ The canonical case in the tests is FINANCIAL_INVARIANTS §3.5 to the rupee: SELL
 
 ## 6. Interpretations and deviations for review
 
-1. **`route_settlement.allocate` is not a separate command.** V1 obligations are PER_TRADE (D-03), so a settlement is bound to one obligation side when it is recorded and allocated by its confirm, in the same transaction that posts the journal. That is what keeps FI-64 true at every step — a journal posted without the obligation dimension would make the ledger and the obligation disagree until someone allocated it. The `route_settlement:allocate` permission stays in the matrix, unused for now; if a settlement ever needs to serve two obligations, that command is where it goes.
+1. **There is no separate allocation step, and no `route_settlement:allocate` permission** (§11.2). V1 obligations are PER_TRADE (D-03): a settlement names its obligation side when recorded, and its confirm posts the journal and writes the allocation in one transaction. A post-confirm allocation would leave the journal undimensioned in between, so obligation remaining and ledger balance would disagree — a temporary FI-64 violation. `STATE_MACHINES.md §9`, `§10`, `SECURITY.md §3` and `IMPLEMENTATION_PLAN.md` Phase 4 now say this, and the unused permission is gone from the matrix.
 2. **Effective obligation sides.** FI-60 says obligation amounts never change and FI-64 says remaining equals the ledger. An approved adjustment changes the route value in the ledger, so "remaining" is computed as frozen side ⊕ posted adjustment deltas (`inrp2p_route_obligation_side`). The stored row is untouched.
-3. **`fiat_in.record` uses `settlement:record_utr`.** STATE_MACHINES §3 T2 names a `settlement:record_incoming` permission that is not in the SECURITY §3 matrix; rather than invent a permission, recording a client's incoming INR reference uses `settlement:record_utr` (same operators, same risk). Flagged for review: if you want a distinct permission, it is a one-line matrix change.
+3. **`fiat_in.record` uses its own `settlement:record_incoming` permission** (§11.1), as STATE_MACHINES §3 T2 names it: OWNER and SETTLEMENT_OPERATOR, no step-up — recording a claim moves no money. Confirming it still needs `settlement:confirm_incoming` (⧗).
 4. **A failed payout returns capacity by lowering the day's `used`**, leaving its reservation CONSUMED. The money never left the account, so the day regains headroom; the reservation stays as the record of what was committed (FI-31 is about releasing the *unconsumed* remainder, which is a different path).
 5. **Attachments are not implemented.** `financial_adjustment` carries `evidence_note` text instead of `evidence_attachment_ids`; the `attachment` table belongs with the operator UI (Phase 6) that uploads them.
 6. **`crypto_transfer` confirmation needs a provider** (TD-05): Phase 4 implements FI-24 against the `ChainVerifier` port and ships only the unconfigured implementation plus a test fake. INR settlement is fully usable; USDT settlement waits for Phase 5.
@@ -125,7 +125,7 @@ The canonical case in the tests is FINANCIAL_INVARIANTS §3.5 to the rupee: SELL
 | `pnpm lint` | clean (settlement added to the ARCHITECTURE §3 boundary map and the no-float-money rule set) |
 | `pnpm typecheck` | clean |
 | `pnpm test:unit` | 197 tests, 11 files |
-| `pnpm test:integration` | 483 tests, 18 files (PostgreSQL 18.4 locally; CI runs 18.6) |
+| `pnpm test:integration` | 484 tests, 18 files (PostgreSQL 18.4 locally; CI runs 18.6) |
 | `pnpm --filter @inrp2p/web build` | succeeds |
 
 ## 10. Open items carried forward
@@ -134,3 +134,10 @@ The canonical case in the tests is FINANCIAL_INVARIANTS §3.5 to the rupee: SELL
 - **TD-03** (KMS keys), **TD-04** (email provider) and the new **TD-05** (TRON provider) all block a real deployment; TD-05 specifically blocks USDT settlement, while INR settlement is complete.
 - Phase 5 owns: the TRON scanner and cursors, automatic detection and confirmation, suspense handling for unattributable deposits, and BUY outbound verification. The domain rules those jobs must obey are already here — they call `recordClientDeposit` and the confirm commands rather than writing rows themselves.
 - Phase 6 owns: attachments, receipts, the operator queues and the client-facing screens over these projections.
+
+## 11. Review corrections (follow-up commit on `950e4c6`)
+
+1. **`settlement:record_incoming` is now its own permission.** `fiat_in.record` no longer borrows `settlement:record_utr`. Policy, matching STATE_MACHINES §3 T2: OWNER ✔, SETTLEMENT_OPERATOR ✔, every other role denied, **no step-up** — recording an incoming reference asserts nothing about the money. `settlement:confirm_incoming` keeps its step-up exactly as before. Changed: `SECURITY.md §3`, the executable `PERMISSION_MATRIX`, the command's authorization, and an integration test that a DEALER and a FINANCE operator are refused while a SETTLEMENT_OPERATOR is not. The RBAC parity test covers the matrix row automatically, since it parses SECURITY.md.
+2. **The route-settlement design is now stated the same way everywhere, and the dead permission is gone.** `route_settlement:allocate` is removed from `SECURITY.md §3` and from `PERMISSION_MATRIX` — an API that cannot be implemented without breaking FI-64 should not exist as a permission. `STATE_MACHINES.md §9` and `§10` now describe record-time binding and atomic allocation at confirm (and say why), `SECURITY.md §2.1` drops "allocate" from the step-up list, and `IMPLEMENTATION_PLAN.md` Phase 4 wording matches. The implementation is unchanged.
+
+TD-05 stands as the Phase 5 blocker for confirming real USDT, and attachments stay with Phase 6.

@@ -7,11 +7,11 @@ import { runAs } from '@inrp2p/identity/testing';
 import { getAccountDay } from '@inrp2p/inr-accounts';
 import { effectiveObligations } from '@inrp2p/trades';
 import {
-  approveAdjustment, cancelTrade, confirmPayout, confirmRefundLeg, createPayoutLeg, createRefundLeg, effectiveTerms, failPayoutLeg,
-  obligationRemaining, openException, pnlSummary, recordLegEvidence, refundAndCancel, rejectAdjustment, requestAdjustment,
-  resolveException, routeObligationMismatches, runReconciliation, runSettlementSla, sendPayoutLeg,
+  approveAdjustment, cancelTrade, confirmFirstLeg, confirmPayout, confirmRefundLeg, createPayoutLeg, createRefundLeg, effectiveTerms,
+  failPayoutLeg, obligationRemaining, openException, pnlSummary, recordIncomingFiat, recordLegEvidence, refundAndCancel,
+  rejectAdjustment, requestAdjustment, resolveException, routeObligationMismatches, runReconciliation, runSettlementSla, sendPayoutLeg,
 } from '../src/index.ts';
-import { balanceOf, createWorld, newUtr, openTrade, settleFirstLeg, type World } from './world.ts';
+import { balanceOf, createStaleSettlementOperator, createWorld, newUtr, openTrade, settleFirstLeg, type World } from './world.ts';
 
 let w: World;
 beforeAll(async () => { w = await createWorld('settlement_core', { capacityInr: '500000000.00' }); });
@@ -125,6 +125,27 @@ describe('client settlement in several legs (T5–T8)', () => {
     w.chain.solidifyAll();
     const ok = await confirmPayout(w.app, w.settlementOp.actor, w.settlementDeps, { legId: leg.legId, idempotencyKey: randomUUID() });
     expect(ok.completed).toBe(true);
+  });
+});
+
+describe('recording and confirming a client\u2019s incoming INR (T2, T4)', () => {
+  it('recording needs settlement:record_incoming without step-up; confirming needs settlement:confirm_incoming', async () => {
+    const trade = await openTrade(w, { direction: 'BUY_USDT', executionMode: 'TO_EXCHANGE', baseUsdt: '10', clientRate: '106.000000' });
+    const payload = { tradeId: trade.tradeId, rail: 'IMPS' as const, utr: newUtr('IN'), amount: '1060.00', inrAccountId: w.inrAccountId };
+    // Only OWNER and SETTLEMENT_OPERATOR may record an incoming reference.
+    await expect(runAs(w.app, recordIncomingFiat(w.dealer.actor), w.dealer.ref, 'fiat_in.record', payload)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(runAs(w.app, recordIncomingFiat(w.financeOp.actor), w.financeOp.ref, 'fiat_in.record', payload)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+
+    // Recording asserts nothing about the money, so it needs no step-up: a stale operator session is enough.
+    const staleOp = await createStaleSettlementOperator(w);
+    const recorded = await runAs(w.app, recordIncomingFiat(staleOp.actor), staleOp.ref, 'fiat_in.record', payload);
+    expect((await w.app.selectFrom('trade').select('lifecycle_state').where('id', '=', trade.tradeId).executeTakeFirstOrThrow()).lifecycle_state).toBe('FIRST_LEG_DETECTED');
+
+    // Confirming it does assert that, and keeps its step-up.
+    await expect(runAs(w.app, confirmFirstLeg(staleOp.actor, w.settlementDeps), staleOp.ref, 'settlement.confirm_incoming', { legId: recorded.legId }))
+      .rejects.toMatchObject({ code: 'STEP_UP_REQUIRED' });
+    await runAs(w.app, confirmFirstLeg(w.settlementOp.actor, w.settlementDeps), w.settlementOp.ref, 'settlement.confirm_incoming', { legId: recorded.legId });
+    expect((await w.app.selectFrom('trade').select('lifecycle_state').where('id', '=', trade.tradeId).executeTakeFirstOrThrow()).lifecycle_state).toBe('FIRST_LEG_CONFIRMED');
   });
 });
 
