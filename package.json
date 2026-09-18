@@ -16,10 +16,12 @@
     "db:migrate": "node scripts/migrate.ts",
     "secret-scan": "node scripts/secret-scan.ts",
     "versions:check": "node scripts/check-versions.ts",
-    "workspace:graph": "node scripts/workspace-graph.ts"
+    "workspace:graph": "node scripts/workspace-graph.ts",
+    "smoke:tron": "node scripts/tron-smoke.ts"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
+    "@inrp2p/adapters": "workspace:*",
     "@inrp2p/audit": "workspace:*",
     "@inrp2p/commands": "workspace:*",
     "@inrp2p/db": "workspace:*",

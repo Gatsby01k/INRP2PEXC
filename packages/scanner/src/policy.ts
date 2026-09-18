@@ -13,6 +13,11 @@ export interface ScannerPolicy {
   readonly rescanOverlapBlocks: bigint;
   /** On the very first run the cursor starts this far below the current head. */
   readonly startLookbackBlocks: bigint;
+  /**
+   * The widest block window one run will read. A worker that was offline for a week catches up over several
+   * runs of this size; the cursor advances only across what was actually processed, so no block is skipped.
+   */
+  readonly maxBlocksPerRun: bigint;
   readonly maxAddressesPerRun: number;
   readonly maxTransfersPerAddress: number;
   readonly maxTransfersPerRun: number;
@@ -28,6 +33,7 @@ export const DEFAULT_SCANNER_POLICY: ScannerPolicy = Object.freeze({
   scanner: 'tron_deposits',
   rescanOverlapBlocks: 200n,
   startLookbackBlocks: 1_000n,
+  maxBlocksPerRun: 20_000n,
   maxAddressesPerRun: 200,
   maxTransfersPerAddress: 200,
   maxTransfersPerRun: 500,

@@ -135,33 +135,56 @@ export async function recordCryptoTransfer(ctx: TxContext, input: RecordCryptoIn
   return { transferId: row.id, existing: false };
 }
 
+/** Why a transfer did not confirm. Callers branch on the code; the message is for people. */
+export type VerificationFailure =
+  | 'WRONG_STATE'
+  | 'NOT_ON_CHAIN'
+  | 'WRONG_CONTRACT'
+  | 'DESTINATION_MISMATCH'
+  | 'AMOUNT_MISMATCH'
+  | 'RECEIPT_FAILED'
+  | 'NOT_SOLIDIFIED'
+  | 'INSUFFICIENT_PROVIDER_QUORUM';
+
+export type VerificationResult =
+  | { readonly confirmed: true }
+  | { readonly confirmed: false; readonly code: VerificationFailure; readonly reason: string };
+
+const notConfirmed = (code: VerificationFailure, reason: string): VerificationResult => ({ confirmed: false, code, reason });
+
 /**
  * FI-24: a transfer becomes CONFIRMED only when the chain says so — solidified block, `SUCCESS` receipt, the
  * configured USDT contract, the expected destination and the recorded amount. Above the D-05 threshold the
- * verifier must speak for at least two providers. Nothing here trusts the operator who submitted the hash.
+ * verifier must speak for at least two **independent** providers. Nothing here trusts the operator who submitted
+ * the hash.
  */
-export async function verifyCryptoTransfer(ctx: TxContext, deps: SettlementDeps, transferId: string): Promise<{ confirmed: boolean; reason?: string }> {
+export async function verifyCryptoTransfer(ctx: TxContext, deps: SettlementDeps, transferId: string): Promise<VerificationResult> {
   const policy = policyOf(deps);
   const t = await ctx.tx.selectFrom('crypto_transfer').selectAll().where('id', '=', requireUuid(transferId, 'transferId')).executeTakeFirstOrThrow();
   if (t.state === 'CONFIRMED') return { confirmed: true };
-  if (t.state !== 'DETECTED') return { confirmed: false, reason: `transfer is ${t.state}` };
+  if (t.state !== 'DETECTED') return notConfirmed('WRONG_STATE', `transfer is ${t.state}`);
 
   const receipt = await deps.chain.lookupTransfer('TRON', t.tx_hash, t.log_index);
-  if (!receipt) return { confirmed: false, reason: 'the chain does not know this transfer yet' };
+  if (!receipt) return notConfirmed('NOT_ON_CHAIN', 'the chain does not know this transfer yet');
   if (receipt.tokenContract !== deps.chain.tokenContract || receipt.tokenContract !== t.token_contract) {
-    return { confirmed: false, reason: 'the transfer is not a USDT transfer on the configured contract' };
+    return notConfirmed('WRONG_CONTRACT', 'the transfer is not a USDT transfer on the configured contract');
   }
-  if (receipt.toAddress !== t.to_address) return { confirmed: false, reason: 'the destination does not match the recorded transfer' };
-  if (receipt.amountMinor !== t.amount_minor) return { confirmed: false, reason: 'the on-chain amount does not match the recorded amount' };
+  if (receipt.toAddress !== t.to_address) return notConfirmed('DESTINATION_MISMATCH', 'the destination does not match the recorded transfer');
+  if (receipt.amountMinor !== t.amount_minor) return notConfirmed('AMOUNT_MISMATCH', 'the on-chain amount does not match the recorded amount');
   if (receipt.receiptStatus !== 'SUCCESS') {
     await ctx.tx.updateTable('crypto_transfer').set({ state: 'FAILED', failed_at: sql<Date>`inrp2p_now()`, receipt_status: 'FAILED', block_number: receipt.blockNumber, block_time: receipt.blockTime }).where('id', '=', t.id).execute();
     await appendAudit(ctx, { action: 'usdt.failed', entityType: 'crypto_transfer', entityId: t.id, before: { state: 'DETECTED' }, after: { state: 'FAILED', receipt_status: 'FAILED' } });
-    return { confirmed: false, reason: 'the transaction failed on chain' };
+    return notConfirmed('RECEIPT_FAILED', 'the transaction failed on chain');
   }
-  if (receipt.blockNumber > receipt.solidifiedBlock) return { confirmed: false, reason: 'the block is not solidified yet' };
-  // D-05: at or above the threshold, two providers must have returned the same facts — not merely be configured.
-  if (t.amount_minor >= Money.parse(policy.dualProviderThresholdUsdt, 'USDT').minor && receipt.agreedBy.length < 2) {
-    return { confirmed: false, reason: 'this amount needs two independent providers to agree (D-05)' };
+  if (receipt.blockNumber > receipt.solidifiedBlock) return notConfirmed('NOT_SOLIDIFIED', 'the block is not solidified yet');
+  // D-05: at or above the threshold the facts must come from two **independent** sources. The quorum counts
+  // independence groups, never provider names: two adapters onto the same vendor or node are one source, so
+  // naming them differently can never manufacture a quorum.
+  if (t.amount_minor >= Money.parse(policy.dualProviderThresholdUsdt, 'USDT').minor && receipt.agreedGroups.length < 2) {
+    return notConfirmed(
+      'INSUFFICIENT_PROVIDER_QUORUM',
+      `this amount needs two independent providers to agree (D-05); ${receipt.agreedGroups.length} independent source(s) agreed`,
+    );
   }
 
   await ctx.tx
@@ -180,7 +203,10 @@ export async function verifyCryptoTransfer(ctx: TxContext, deps: SettlementDeps,
   await appendAudit(ctx, {
     action: 'usdt.confirmed', entityType: 'crypto_transfer', entityId: t.id,
     before: { state: 'DETECTED' },
-    after: { state: 'CONFIRMED', block_number: receipt.blockNumber.toString(), solidified_block: receipt.solidifiedBlock.toString(), verified_by: receipt.agreedBy },
+    after: {
+      state: 'CONFIRMED', block_number: receipt.blockNumber.toString(), solidified_block: receipt.solidifiedBlock.toString(),
+      verified_by: receipt.agreedBy, independence_groups: receipt.agreedGroups,
+    },
   });
   return { confirmed: true };
 }

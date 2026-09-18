@@ -1,0 +1,78 @@
+# Phase 5 manual smoke gate (TECH_DEBT TD-07).
+#
+# Deliberately NOT part of ci.yml: it needs credentials and a live TRON network, and it must never gate an
+# ordinary pull request. Run it by hand from the Actions tab before the first deployment that settles real USDT,
+# and whenever a provider is added or replaced.
+#
+# Endpoints, API keys and the reference transaction come from repository/environment **secrets** — nothing here
+# is committed. The two providers must be genuinely different operators: the gate refuses a configuration where
+# both declare the same independence group, because that is the thing it exists to prove (DECISIONS.md D-05).
+name: tron-smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment holding the TRON provider secrets (e.g. testnet, production)
+        required: true
+        type: string
+      network:
+        description: Network under test
+        required: false
+        default: TRON
+        type: string
+      tx_hash:
+        description: Known TRC20 transfer hash to verify (overrides the secret)
+        required: false
+        type: string
+      log_index:
+        description: Log index of that transfer
+        required: false
+        default: '0'
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tron-smoke-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.4.2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+
+      - name: TRON provider smoke gate
+        env:
+          INRP2P_SMOKE_NETWORK: ${{ inputs.network }}
+          INRP2P_SMOKE_TRON_PRIMARY_URL: ${{ secrets.TRON_PRIMARY_URL }}
+          INRP2P_SMOKE_TRON_PRIMARY_NAME: ${{ vars.TRON_PRIMARY_NAME }}
+          INRP2P_SMOKE_TRON_PRIMARY_GROUP: ${{ vars.TRON_PRIMARY_GROUP }}
+          INRP2P_SMOKE_TRON_PRIMARY_KEY: ${{ secrets.TRON_PRIMARY_KEY }}
+          INRP2P_SMOKE_TRON_SECONDARY_URL: ${{ secrets.TRON_SECONDARY_URL }}
+          INRP2P_SMOKE_TRON_SECONDARY_NAME: ${{ vars.TRON_SECONDARY_NAME }}
+          INRP2P_SMOKE_TRON_SECONDARY_GROUP: ${{ vars.TRON_SECONDARY_GROUP }}
+          INRP2P_SMOKE_TRON_SECONDARY_KEY: ${{ secrets.TRON_SECONDARY_KEY }}
+          INRP2P_SMOKE_USDT_CONTRACT: ${{ vars.TRON_USDT_CONTRACT }}
+          INRP2P_SMOKE_TX_HASH: ${{ inputs.tx_hash || vars.TRON_SMOKE_TX_HASH }}
+          INRP2P_SMOKE_LOG_INDEX: ${{ inputs.log_index }}
+          INRP2P_SMOKE_EXPECT_FROM: ${{ vars.TRON_SMOKE_EXPECT_FROM }}
+          INRP2P_SMOKE_EXPECT_TO: ${{ vars.TRON_SMOKE_EXPECT_TO }}
+          INRP2P_SMOKE_EXPECT_AMOUNT: ${{ vars.TRON_SMOKE_EXPECT_AMOUNT }}
+        run: pnpm run smoke:tron

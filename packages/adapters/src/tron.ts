@@ -20,18 +20,36 @@ export interface Trc20Transfer {
 
 export interface TronProvider {
   readonly name: string;
+  /**
+   * Stable independence group: who actually operates the data behind this adapter (vendor, cluster, upstream
+   * node). Two adapters with different names but the same group are **one** source of truth for D-05, so they can
+   * never form a quorum between them. It is declared, never inferred from a URL, because two hostnames of the
+   * same vendor look independent and are not.
+   */
+  readonly independenceGroup: string;
   /** Head of the chain, including blocks that may still be reorganized. */
   getLatestBlockNumber(): Promise<bigint>;
   /** Highest irreversible block (solidified by ≥ 2/3 of the SRs) — the finality line for FI-24. */
   getSolidifiedBlockNumber(): Promise<bigint>;
-  /** TRC20 transfers of one contract **into** one address, from `sinceBlock` (inclusive) onwards. */
-  listIncomingTransfers(input: { address: string; contract: string; sinceBlock: bigint; limit?: number }): Promise<readonly Trc20Transfer[]>;
+  /** TRC20 transfers of one contract **into** one address, within `[sinceBlock, untilBlock]` (both inclusive). */
+  listIncomingTransfers(input: TronTransferQuery): Promise<readonly Trc20Transfer[]>;
   /** One transfer event with its receipt, or `null` when this provider does not know it. */
   getTransfer(txHash: string, logIndex: number): Promise<Trc20Transfer | null>;
 }
 
+export interface TronTransferQuery {
+  readonly address: string;
+  readonly contract: string;
+  readonly sinceBlock: bigint;
+  /** Upper bound of the scan window; omitted means "up to whatever the provider has". */
+  readonly untilBlock?: bigint;
+  readonly limit?: number;
+}
+
 export interface TronHttpProviderOptions {
   readonly name: string;
+  /** See `TronProvider.independenceGroup` — declared per deployment, never guessed from the URL. */
+  readonly independenceGroup: string;
   /** e.g. `https://api.trongrid.io` or a self-hosted full node. */
   readonly baseUrl: string;
   readonly apiKey?: string;
@@ -44,6 +62,14 @@ const toBigInt = (value: unknown, field: string): bigint => {
   if (typeof value === 'number' && Number.isSafeInteger(value)) return BigInt(value);
   if (typeof value === 'string' && /^[0-9]+$/.test(value)) return BigInt(value);
   throw new DomainError('INVALID_ARGUMENT', `provider returned an unusable ${field}`);
+};
+
+/** Provider names and independence groups are short, stable identifiers; an empty one is a configuration bug. */
+const requireProviderId = (value: unknown, field: string): string => {
+  if (typeof value !== 'string' || !/^[a-z0-9][a-z0-9_.-]{0,60}$/i.test(value.trim())) {
+    throw new DomainError('INVALID_ARGUMENT', `provider ${field} must be a short stable identifier`);
+  }
+  return value.trim();
 };
 
 const requireAddress = (value: unknown, field: string): string => {
@@ -61,13 +87,15 @@ const requireAddress = (value: unknown, field: string): string => {
  */
 export class TronHttpProvider implements TronProvider {
   readonly name: string;
+  readonly independenceGroup: string;
   readonly #baseUrl: string;
   readonly #apiKey: string | undefined;
   readonly #timeoutMs: number;
   readonly #fetch: typeof fetch;
 
   constructor(opts: TronHttpProviderOptions) {
-    this.name = opts.name;
+    this.name = requireProviderId(opts.name, 'name');
+    this.independenceGroup = requireProviderId(opts.independenceGroup, 'independenceGroup');
     this.#baseUrl = opts.baseUrl.replace(/\/+$/, '');
     this.#apiKey = opts.apiKey;
     this.#timeoutMs = opts.timeoutMs ?? 10_000;
@@ -108,7 +136,7 @@ export class TronHttpProvider implements TronProvider {
     return toBigInt(r.block_header?.raw_data?.number, 'solidified block number');
   }
 
-  async listIncomingTransfers(input: { address: string; contract: string; sinceBlock: bigint; limit?: number }): Promise<readonly Trc20Transfer[]> {
+  async listIncomingTransfers(input: TronTransferQuery): Promise<readonly Trc20Transfer[]> {
     const address = requireAddress(input.address, 'address');
     const contract = requireAddress(input.contract, 'contract');
     const limit = input.limit ?? 200;
@@ -122,6 +150,7 @@ export class TronHttpProvider implements TronProvider {
       if (requireAddress(token.address, 'token contract') !== contract) continue;
       const blockNumber = toBigInt(row.block ?? row.block_number, 'block number');
       if (blockNumber < input.sinceBlock) continue;
+      if (input.untilBlock !== undefined && blockNumber > input.untilBlock) continue;
       out.push({
         txHash: String(row.transaction_id ?? '').toLowerCase(),
         logIndex: typeof row.event_index === 'number' ? row.event_index : 0,
@@ -187,11 +216,14 @@ export interface DualProviderOptions {
 
 /**
  * The `ChainVerifier` the domain uses (FI-24, D-05): the primary provider supplies the facts and the secondary
- * has to agree on every one of them. `agreedBy` names the providers that matched, so the domain can require two
- * for large amounts and still settle small ones on a single provider.
+ * has to agree on every one of them. The receipt carries both who agreed (`agreedBy`, for the audit trail) and
+ * **how many independent sources** that amounts to (`agreedGroups`), which is what the D-05 quorum is measured
+ * on. A second adapter in the primary's independence group adds redundancy and nothing else: it can never turn a
+ * single source into a quorum, whatever it is called.
  */
 export class DualProviderChainVerifier implements ChainVerifier {
   readonly providers: readonly string[];
+  readonly independenceGroups: readonly string[];
   readonly tokenContract: string;
   readonly #primary: TronProvider;
   readonly #secondary: TronProvider | undefined;
@@ -200,6 +232,7 @@ export class DualProviderChainVerifier implements ChainVerifier {
     this.#primary = opts.primary;
     this.#secondary = opts.secondary;
     this.providers = opts.secondary ? [opts.primary.name, opts.secondary.name] : [opts.primary.name];
+    this.independenceGroups = distinctGroups(opts.secondary ? [opts.primary, opts.secondary] : [opts.primary]);
     this.tokenContract = requireAddress(opts.tokenContract, 'token contract');
   }
 
@@ -208,10 +241,10 @@ export class DualProviderChainVerifier implements ChainVerifier {
     const primary = await this.#primary.getTransfer(txHash, logIndex);
     if (!primary) return null;
     const solidified = await this.#primary.getSolidifiedBlockNumber();
-    const agreedBy: string[] = [this.#primary.name];
+    const agreed: TronProvider[] = [this.#primary];
     if (this.#secondary) {
       const second = await this.#secondary.getTransfer(txHash, logIndex);
-      if (second && sameTransfer(primary, second)) agreedBy.push(this.#secondary.name);
+      if (second && sameTransfer(primary, second)) agreed.push(this.#secondary);
     }
     return {
       network: 'TRON',
@@ -225,9 +258,21 @@ export class DualProviderChainVerifier implements ChainVerifier {
       blockTime: primary.blockTime,
       receiptStatus: primary.receiptStatus === 'SUCCESS' ? 'SUCCESS' : 'FAILED',
       solidifiedBlock: solidified,
-      agreedBy,
+      agreedBy: agreed.map((p) => p.name),
+      agreedGroups: distinctGroups(agreed),
     };
   }
+}
+
+/** The independence groups of a set of providers, deduplicated case-insensitively and in a stable order. */
+export function distinctGroups(providers: readonly TronProvider[]): readonly string[] {
+  const seen = new Map<string, string>();
+  for (const p of providers) {
+    const group = requireProviderId(p.independenceGroup, 'independenceGroup');
+    const key = group.toLowerCase();
+    if (!seen.has(key)) seen.set(key, group);
+  }
+  return [...seen.values()];
 }
 
 /** Two providers agree when every fact the domain reads is identical. */

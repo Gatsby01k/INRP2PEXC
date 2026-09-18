@@ -10,14 +10,17 @@ export const FAKE_USDT_CONTRACT = encodeTronAddress(createHash('sha256').update(
  */
 export class FakeChainVerifier implements ChainVerifier {
   readonly providers: readonly string[];
+  readonly independenceGroups: readonly string[];
   readonly tokenContract: string;
   readonly #events = new Map<string, TransferReceipt>();
   #head = 1_000n;
   /** Tx hashes the second provider disagrees about (D-05): only the primary vouches for them. */
   readonly disagreements = new Set<string>();
 
-  constructor(opts: { providers?: readonly string[]; tokenContract?: string } = {}) {
+  constructor(opts: { providers?: readonly string[]; independenceGroups?: readonly string[]; tokenContract?: string } = {}) {
     this.providers = opts.providers ?? ['fake-node-a', 'fake-node-b'];
+    // One group per provider unless a test says otherwise: the default fake is two independent sources.
+    this.independenceGroups = opts.independenceGroups ?? this.providers.map((p) => `group-${p}`);
     this.tokenContract = opts.tokenContract ?? FAKE_USDT_CONTRACT;
   }
 
@@ -49,6 +52,7 @@ export class FakeChainVerifier implements ChainVerifier {
       receiptStatus: input.receiptStatus ?? 'SUCCESS',
       solidifiedBlock: this.#head,
       agreedBy: this.providers,
+      agreedGroups: this.independenceGroups,
     };
     this.#events.set(`TRON:${txHash}:${logIndex}`, receipt);
     this.#head += 1n;
@@ -64,7 +68,9 @@ export class FakeChainVerifier implements ChainVerifier {
   async lookupTransfer(network: ChainNetwork, txHash: string, logIndex: number): Promise<TransferReceipt | null> {
     const receipt = this.#events.get(`${network}:${txHash}:${logIndex}`);
     if (!receipt) return null;
-    return this.disagreements.has(receipt.txHash) ? { ...receipt, agreedBy: this.providers.slice(0, 1) } : receipt;
+    return this.disagreements.has(receipt.txHash)
+      ? { ...receipt, agreedBy: this.providers.slice(0, 1), agreedGroups: this.independenceGroups.slice(0, 1) }
+      : receipt;
   }
 
   /** Test hook: the second provider stops vouching for this transfer. */

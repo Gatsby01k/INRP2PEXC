@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { encodeTronAddress } from '@inrp2p/kernel';
-import type { Trc20Transfer, TronProvider } from '../tron.ts';
+import type { Trc20Transfer, TronProvider, TronTransferQuery } from '../tron.ts';
 import { FAKE_USDT_CONTRACT } from './fake-chain.ts';
 
 const key = (txHash: string, logIndex: number) => `${txHash.toLowerCase()}:${logIndex}`;
@@ -97,6 +97,8 @@ export class FakeTronChain {
 }
 
 export interface FakeTronProviderOptions {
+  /** Independence group (D-05). Defaults to a group of this provider's own, i.e. an independent source. */
+  readonly independenceGroup?: string;
   /** This provider is this many blocks behind the chain — a lagging node still catching up. */
   readonly lagBlocks?: bigint;
   /** Transfers this provider claims not to know (`txHash` or `txHash:logIndex`). */
@@ -114,6 +116,7 @@ export interface FakeTronProviderOptions {
  */
 export class FakeTronProvider implements TronProvider {
   readonly name: string;
+  readonly independenceGroup: string;
   readonly chain: FakeTronChain;
   lagBlocks: bigint;
   readonly blind: Set<string>;
@@ -124,6 +127,7 @@ export class FakeTronProvider implements TronProvider {
 
   constructor(name: string, chain: FakeTronChain, opts: FakeTronProviderOptions = {}) {
     this.name = name;
+    this.independenceGroup = opts.independenceGroup ?? `group-${name}`;
     this.chain = chain;
     this.lagBlocks = opts.lagBlocks ?? 0n;
     this.blind = new Set([...(opts.blind ?? [])].map((s) => s.toLowerCase()));
@@ -173,10 +177,12 @@ export class FakeTronProvider implements TronProvider {
     return s > 0n ? s : 0n;
   }
 
-  async listIncomingTransfers(input: { address: string; contract: string; sinceBlock: bigint; limit?: number }): Promise<readonly Trc20Transfer[]> {
+  async listIncomingTransfers(input: TronTransferQuery): Promise<readonly Trc20Transfer[]> {
     this.#check();
     this.calls.list += 1;
-    const rows = this.chain.list(input.address, input.contract, input.sinceBlock).filter((t) => this.#sees(t));
+    const rows = this.chain
+      .list(input.address, input.contract, input.sinceBlock)
+      .filter((t) => this.#sees(t) && (input.untilBlock === undefined || t.blockNumber <= input.untilBlock));
     return rows.slice(0, input.limit ?? 200).map((t) => this.#report(t));
   }
 

@@ -93,13 +93,15 @@ async function verifyOne(ctx: TxContext, deps: ScannerDeps, candidate: Candidate
 
   const verified = await verifyCryptoTransfer(ctx, deps, transfer.id);
   if (!verified.confirmed) {
-    const after = await ctx.tx.selectFrom('crypto_transfer').select('state').where('id', '=', transfer.id).executeTakeFirstOrThrow();
-    if (after.state === 'FAILED') {
+    if (verified.code === 'RECEIPT_FAILED') {
       if (leg && leg.side === 'CLIENT_TO_EXCHANGE' && leg.status === 'PROCESSING') {
-        await revertClientLegInTx(ctx, leg.id, `the transaction failed on chain: ${verified.reason ?? 'failed receipt'}`);
+        await revertClientLegInTx(ctx, leg.id, `the transaction failed on chain: ${verified.reason}`);
       }
       return { outcome: 'FAILED', caseOpened: false };
     }
+    // Everything else — not solidified yet, an unreachable or disagreeing provider, no independent quorum for
+    // this amount (D-05) — leaves the transfer exactly as it was. The desk hears about it once it has been
+    // waiting too long, with the machine-readable reason attached.
     let caseOpened = false;
     if (candidate.aged) {
       const opened = await openExceptionInTx(ctx, {
@@ -107,7 +109,7 @@ async function verifyOne(ctx: TxContext, deps: ScannerDeps, candidate: Candidate
         subjectType: 'CRYPTO_TRANSFER',
         subjectId: transfer.id,
         tradeId: leg?.trade_id ?? null,
-        details: { reason: verified.reason ?? 'not final' },
+        details: { code: verified.code, reason: verified.reason },
       });
       caseOpened = opened.opened;
     }

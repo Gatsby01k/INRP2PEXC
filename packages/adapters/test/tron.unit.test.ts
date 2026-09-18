@@ -19,6 +19,7 @@ describe('dual-provider verification (D-05)', () => {
     const receipt = await verifier.lookupTransfer('TRON', t.txHash, t.logIndex);
     expect(receipt).toMatchObject({ network: 'TRON', amountMinor: 1_000_000n, receiptStatus: 'SUCCESS' });
     expect(receipt!.agreedBy).toEqual(['node-a', 'node-b']);
+    expect(receipt!.agreedGroups).toEqual(['group-node-a', 'group-node-b']);
     expect(receipt!.blockNumber <= receipt!.solidifiedBlock).toBe(true);
   });
 
@@ -48,6 +49,30 @@ describe('dual-provider verification (D-05)', () => {
     await expect(verifier.lookupTransfer('ETHEREUM' as 'TRON', 'a'.repeat(64), 0)).rejects.toSatisfy((e) => isDomainError(e, 'INVALID_ARGUMENT'));
   });
 
+  it('two adapters onto the same source are one independent source, however they are named', async () => {
+    const chain = new FakeTronChain({ tokenContract: FAKE_USDT_CONTRACT });
+    // Different names, same operator behind them — a mirror of one node, not a second opinion.
+    const primary = new FakeTronProvider('vendor-eu', chain, { independenceGroup: 'acme-cloud' });
+    const secondary = new FakeTronProvider('vendor-us', chain, { independenceGroup: 'ACME-Cloud' });
+    const verifier = new DualProviderChainVerifier({ primary, secondary, tokenContract: FAKE_USDT_CONTRACT });
+    expect(verifier.providers).toEqual(['vendor-eu', 'vendor-us']);
+    expect(verifier.independenceGroups).toEqual(['acme-cloud']);
+
+    const t = chain.add({ to: fakeTronAddress('deposit-dup'), amountMinor: 20_000_000_000n });
+    chain.solidifyAll();
+    const receipt = await verifier.lookupTransfer('TRON', t.txHash, t.logIndex);
+    // Both answered identically, and it still counts as one source: no quorum is reachable here at any amount.
+    expect(receipt!.agreedBy).toEqual(['vendor-eu', 'vendor-us']);
+    expect(receipt!.agreedGroups).toEqual(['acme-cloud']);
+  });
+
+  it('refuses a provider identity that is not a stable identifier', () => {
+    const chain = new FakeTronChain({ tokenContract: FAKE_USDT_CONTRACT });
+    const nameless = new FakeTronProvider('ok', chain, { independenceGroup: '   ' });
+    expect(() => new DualProviderChainVerifier({ primary: nameless, tokenContract: FAKE_USDT_CONTRACT })).toThrow();
+    expect(() => new TronHttpProvider({ name: 'n', independenceGroup: '', baseUrl: 'https://api.example.test' })).toThrow();
+  });
+
   it('agreement compares every fact the domain reads', () => {
     const base = {
       txHash: 'ab'.repeat(32), logIndex: 0, tokenContract: FAKE_USDT_CONTRACT, fromAddress: fakeTronAddress('a'),
@@ -65,6 +90,7 @@ describe('the TronGrid HTTP provider', () => {
   const provider = (handler: (url: string) => unknown) =>
     new TronHttpProvider({
       name: 'node-http',
+      independenceGroup: 'group-http',
       baseUrl: 'https://api.example.test/',
       fetchImpl: (async (input: unknown) => {
         const body = handler(String(input));
@@ -105,13 +131,13 @@ describe('the TronGrid HTTP provider', () => {
 
   it('turns an unreachable or failing node into a CHAIN_PROVIDER_ERROR', async () => {
     const failing = new TronHttpProvider({
-      name: 'node-down', baseUrl: 'https://api.example.test',
+      name: 'node-down', independenceGroup: 'group-down', baseUrl: 'https://api.example.test',
       fetchImpl: (async () => new Response('nope', { status: 503 })) as typeof fetch,
     });
     await expect(failing.getLatestBlockNumber()).rejects.toSatisfy((e) => isDomainError(e, 'CHAIN_PROVIDER_ERROR'));
 
     const unreachable = new TronHttpProvider({
-      name: 'node-gone', baseUrl: 'https://api.example.test',
+      name: 'node-gone', independenceGroup: 'group-gone', baseUrl: 'https://api.example.test',
       fetchImpl: (async () => { throw new Error('ECONNREFUSED'); }) as typeof fetch,
     });
     await expect(unreachable.getSolidifiedBlockNumber()).rejects.toSatisfy((e) => isDomainError(e, 'CHAIN_PROVIDER_ERROR'));

@@ -2,9 +2,10 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Money, encodeTronAddress } from '@inrp2p/kernel';
 import { pgErrorCode } from '@inrp2p/db';
-import { FakeTronProvider } from '@inrp2p/adapters/testing';
+import { DualProviderChainVerifier } from '@inrp2p/adapters';
+import { FAKE_USDT_CONTRACT, FakeTronProvider } from '@inrp2p/adapters/testing';
 import { runAs } from '@inrp2p/identity/testing';
-import { cancelTrade, confirmPayout, createPayoutLeg, recordLegEvidence, sendPayoutLeg, submitTxForVerification } from '@inrp2p/settlement';
+import { cancelTrade, confirmPayout, createPayoutLeg, recordLegEvidence, sendPayoutLeg, submitTxForVerification, verifyCryptoTransfer } from '@inrp2p/settlement';
 import { readCursor, runOrphanSweep, runTronConfirm, runTronScan } from '../src/index.ts';
 import {
   type ChainWorld, createChainWorld, depositAddressOf, entriesOf, journalsFor, legsOf, openCases, openTrade, settleFirstLeg, stateOf, transferByHash,
@@ -194,6 +195,37 @@ describe('confirmation (tron_confirm)', () => {
     expect(await stateOf(w, trade.tradeId)).toBe('FIRST_LEG_CONFIRMED');
   });
 
+  it('two adapters onto the same source never form a quorum, however they are named (D-05)', async () => {
+    const trade = await sellTrade('20000');
+    const address = await depositAddressOf(w, trade.tradeId);
+    const big = w.tron.add({ to: address.address, from: w.clientSourceAddress, amountMinor: usdt('20000') });
+    w.tron.solidifyAll();
+    await runTronScan(w.app, w.scanDeps);
+
+    // Two differently named adapters declaring the same independence group: one source of truth, mirrored.
+    const mirroredA = new FakeTronProvider('vendor-eu', w.tron, { independenceGroup: 'acme-cloud' });
+    const mirroredB = new FakeTronProvider('vendor-us', w.tron, { independenceGroup: 'acme-cloud' });
+    const mirrored = new DualProviderChainVerifier({ primary: mirroredA, secondary: mirroredB, tokenContract: FAKE_USDT_CONTRACT });
+    expect(mirrored.providers).toHaveLength(2);
+    expect(mirrored.independenceGroups).toEqual(['acme-cloud']);
+
+    const deps = { chain: mirrored, provider: mirroredA, scanner: { notFinalAfterMinutes: 0 } };
+    await runTronConfirm(w.app, deps);
+    const row = await transferByHash(w, big.txHash);
+    expect(row?.state).toBe('DETECTED');
+    expect(row?.verified_by).toBeNull();
+    // The refusal is typed, not a generic failure, and the case carries the machine-readable reason.
+    const verdict = await w.app.transaction().execute((tx) =>
+      verifyCryptoTransfer({ tx, actor: { type: 'SYSTEM', id: null, surface: 'SYSTEM' }, correlationId: 'test', idempotencyKey: null, commandName: 'test.verify' }, deps, row!.id));
+    expect(verdict).toMatchObject({ confirmed: false, code: 'INSUFFICIENT_PROVIDER_QUORUM' });
+    const kase = await w.app.selectFrom('exception_case').select('details').where('subject_id', '=', row!.id).where('type', '=', 'TX_NOT_FINAL').executeTakeFirstOrThrow();
+    expect(kase.details).toMatchObject({ code: 'INSUFFICIENT_PROVIDER_QUORUM' });
+
+    // Add a genuinely independent second source and the same transfer confirms.
+    await runTronConfirm(w.app, w.scanDeps);
+    expect(await transferByHash(w, big.txHash)).toMatchObject({ state: 'CONFIRMED', verified_by: 'fake-node-a,fake-node-b' });
+  });
+
   it('a small amount still settles on one provider’s word (below the D-05 threshold)', async () => {
     const trade = await sellTrade('5');
     const address = await depositAddressOf(w, trade.tradeId);
@@ -309,5 +341,54 @@ describe('the scanner cursor', () => {
       .execute()
       .then(() => null, (e: unknown) => e);
     expect(pgErrorCode(failure)).toBe('IX066');
+  });
+
+  it('catches up across a gap far wider than the overlap without skipping anything', async () => {
+    // A worker that was offline for a long time. The chain has moved on by hundreds of blocks and transfers are
+    // scattered across the whole gap — not just in the last overlap window.
+    const treasury = await w.app.selectFrom('treasury_wallet').select('address').where('id', '=', w.treasuryWalletId).executeTakeFirstOrThrow();
+    const base = w.tron.head;
+    const mined = [10n, 130n, 260n, 390n].map((offset, i) =>
+      w.tron.add({ to: treasury.address, from: strangerAddress(), amountMinor: usdt(`${i + 1}`), blockNumber: base + offset }),
+    );
+    w.tron.solidifyAll();
+
+    // A separate cursor, starting 500 blocks back, reading at most 50 blocks per run.
+    const deps = {
+      ...w.scanDeps,
+      scanner: { scanner: 'tron_recovery', startLookbackBlocks: 500n, maxBlocksPerRun: 50n, rescanOverlapBlocks: 5n },
+    };
+    const first = await runTronScan(w.app, deps);
+    expect(first.windowEnd).toBeLessThan(first.head);
+    expect(first.caughtUp).toBe(false);
+    expect(first.cursorAt).toBe(first.windowEnd);
+    // Crucially it did not jump to the head: the newest transfer is still unseen after the first run.
+    expect(await transferByHash(w, mined[3]!.txHash)).toBeUndefined();
+
+    let runs = 1;
+    let report = first;
+    while (!report.caughtUp && runs < 60) {
+      report = await runTronScan(w.app, deps);
+      runs += 1;
+    }
+    expect(report.caughtUp).toBe(true);
+    expect(runs).toBeGreaterThan(1);
+
+    // Every transfer in the gap was processed, including the ones far below the final overlap window.
+    for (const t of mined) expect((await transferByHash(w, t.txHash))?.state).toBeDefined();
+    const cursor = await readCursor(w.app, 'tron_recovery');
+    expect(cursor!.lastScannedBlock).toBeGreaterThanOrEqual(base + 390n);
+  });
+
+  it('leaves the cursor where it was when the pass fails part-way through', async () => {
+    const deps = { ...w.scanDeps, scanner: { scanner: 'tron_failure', startLookbackBlocks: 100n } };
+    await runTronScan(w.app, deps);
+    const before = await readCursor(w.app, 'tron_failure');
+
+    w.tron.advance(30n);
+    const broken = new FakeTronProvider('broken', w.tron, { failWith: new Error('node fell over mid-pass') });
+    // The head is read first, so the failure happens while listing: the run aborts before the advance.
+    await expect(runTronScan(w.app, { ...deps, provider: broken })).rejects.toThrow('node fell over mid-pass');
+    expect((await readCursor(w.app, 'tron_failure'))!.lastScannedBlock).toBe(before!.lastScannedBlock);
   });
 });

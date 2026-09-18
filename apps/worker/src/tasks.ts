@@ -10,6 +10,8 @@ import { releaseCooledDownAddresses } from '@inrp2p/treasury';
 import { type QuotePolicy, expireQuote, runExpirySweep } from '@inrp2p/quotes';
 import { runReconciliation, runSettlementSla } from '@inrp2p/settlement';
 import { type ScannerDeps, runOrphanSweep, runTronConfirm, runTronScan } from '@inrp2p/scanner';
+import { DomainError } from '@inrp2p/kernel';
+import type { ChainMonitoring } from './config.ts';
 import { sql } from 'kysely';
 
 /** Runs a system job step through the command pipeline (one transaction, audit, retry-safe state guards). */
@@ -22,7 +24,11 @@ function systemCommand<R>(db: Db, name: string, fn: (ctx: TxContext) => Promise<
  * Durable job definitions (ARCHITECTURE §5): foundation jobs (Phase 1) and reference-data maintenance jobs
  * (Phase 2). Domain handlers for later phases are added with them. Every task is retry-safe.
  */
-export function buildTaskList(db: Db, handlers: readonly OutboxHandler[], opts: { policy?: Partial<QuotePolicy>; scanner?: ScannerDeps } = {}): TaskList {
+export function buildTaskList(
+  db: Db,
+  handlers: readonly OutboxHandler[],
+  opts: { policy?: Partial<QuotePolicy>; scanner?: ScannerDeps; monitoring?: ChainMonitoring } = {},
+): TaskList {
   const outboxDispatch: Task = async () => {
     const report = await dispatchOutbox(db, handlers);
     if (report.claimed === 50) {
@@ -60,21 +66,26 @@ export function buildTaskList(db: Db, handlers: readonly OutboxHandler[], opts: 
   const settlementSla: Task = async () => {
     await runSettlementSla(db);
   };
-  // Phase 5 (STATE_MACHINES §5): the chain jobs exist only when TRON providers are configured. Without them
-  // nothing pretends to scan — USDT confirmation simply stays unavailable (TD-05).
+  // Phase 5 (STATE_MACHINES §5). Chain monitoring is either deliberately off, in which case the jobs do nothing
+  // and that is healthy, or it is on, in which case it must actually work: an enabled-but-unconfigured worker
+  // fails these jobs loudly instead of returning quietly and looking healthy.
   const chain = opts.scanner;
-  const tronScan: Task = async () => {
-    if (!chain) return;
-    await runTronScan(db, chain);
+  const state = opts.monitoring?.state ?? (chain ? 'READY' : 'DISABLED');
+  const chainJob = (run: (deps: ScannerDeps) => Promise<unknown>): Task => async () => {
+    if (state === 'DISABLED') return;
+    if (!chain || state === 'UNCONFIGURED') {
+      throw new DomainError(
+        'CHAIN_MONITORING_UNCONFIGURED',
+        `TRON monitoring is enabled but not usable (${state}): ${(opts.monitoring?.reasons ?? ['no provider configuration']).join('; ')}`,
+      );
+    }
+    await run(chain);
   };
-  const tronConfirm: Task = async () => {
-    if (!chain) return;
-    await runTronConfirm(db, chain);
-  };
-  const tronOrphanSweep: Task = async () => {
-    if (!chain) return;
-    await runOrphanSweep(db, chain);
-  };
+  // DEGRADED (a single independent source) still scans and still confirms below the D-05 threshold; what it
+  // cannot do is confirm a large amount, and `verifyCryptoTransfer` refuses that on its own.
+  const tronScan = chainJob((deps) => runTronScan(db, deps));
+  const tronConfirm = chainJob((deps) => runTronConfirm(db, deps));
+  const tronOrphanSweep = chainJob((deps) => runOrphanSweep(db, deps));
   return {
     outbox_dispatch: outboxDispatch,
     audit_seal: auditSeal,

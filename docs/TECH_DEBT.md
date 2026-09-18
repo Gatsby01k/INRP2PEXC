@@ -9,8 +9,8 @@ Non-blocking items accepted at phase review. Each entry names the phase that mus
 | TD-03 | Encryption: production KMS-backed key-encryption key not implemented | Phase 2 implementation (2026-09-17) | First deployment holding real bank or contact data | Open |
 | TD-04 | Notifications: no email provider bound for acceptance codes | Phase 3 implementation (2026-09-17) | Any environment where a client accepts a quote through a shareable link | Open |
 | TD-05 | Chain verification: no TRON provider bound; scanning not implemented | Phase 4 implementation (2026-09-18) | Any environment that settles real USDT | Closed in Phase 5 (2026-09-18) |
-| TD-06 | Scanner: no backfill or rescan tooling beyond the overlap window | Phase 5 implementation (2026-09-18) | First production incident needing a historical rescan | Open |
-| TD-07 | Scanner: TRON provider responses verified against fixtures only, never a live testnet | Phase 5 implementation (2026-09-18) | Any environment that settles real USDT | Open |
+| TD-06 | Scanner: no tooling for a deliberate historical backfill behind the cursor | Phase 5 implementation (2026-09-18) | First production incident needing a historical rescan | Open (narrowed at Phase 5 review) |
+| TD-07 | Scanner: the TRON provider smoke gate has never been executed against real providers | Phase 5 implementation (2026-09-18) | Any environment that settles real USDT | Open — gate exists, **NOT RUN** |
 
 ## TD-01 — Better Auth schema warning for `auth_rate_limit.last_request`
 
@@ -53,20 +53,22 @@ Non-blocking items accepted at phase review. Each entry names the phase that mus
 
 **Resolution (to do, Phase 5).** Implement `ChainVerifier` over two independent TRON providers (full node + an indexer), with the USDT contract and the dual-provider threshold from configuration, plus the scanner and its cursor. Keep the port boundary: the confirmation rules stay in `packages/settlement`, so Phase 5 changes where the facts come from, not what is required of them.
 
-**Closed (Phase 5, 2026-09-18).** `packages/adapters` now carries `TronHttpProvider` (TronGrid-compatible) and `DualProviderChainVerifier`, which returns the providers that reported identical facts in `TransferReceipt.agreedBy`; `packages/settlement` reads that field for the D-05 rule, so agreement is a property of the answer rather than of the configuration. `packages/scanner` adds the cursor, detection, confirmation and orphan jobs, wired into the worker by `chainFromEnv`. What remains is deployment configuration (the endpoints, keys and contract address are environment values, and the launch checklist still carries "TRON dual provider configured; scanner lag alert tested") plus TD-07 below.
+**Closed (Phase 5, 2026-09-18).** `packages/adapters` now carries `TronHttpProvider` (TronGrid-compatible) and `DualProviderChainVerifier`, which returns the providers that reported identical facts in `TransferReceipt.agreedBy` together with their distinct independence groups in `agreedGroups`; `packages/settlement` measures the D-05 quorum on the **groups**, so agreement is a property of the answer rather than of the configuration, and two adapters onto one operator can never form a quorum. `packages/scanner` adds the cursor, detection, confirmation and orphan jobs, wired into the worker by `chainMonitoringFromEnv`, whose state (DISABLED / READY / DEGRADED / UNCONFIGURED) the worker reports rather than no-opping silently. What remains is deployment configuration (the endpoints, keys and contract address are environment values, and the launch checklist still carries "TRON dual provider configured; scanner lag alert tested") plus TD-07 below.
 
-## TD-06 — No backfill or rescan tooling for the chain cursor
+## TD-06 — No tooling for a deliberate historical backfill
 
-**Observed.** `chain_cursor` only moves forward (trigger `IX066`): each run rescans `rescanOverlapBlocks` (200) below the cursor, which covers reorgs and short provider outages. An outage longer than that window, or a watched address added with historical funds, needs a deliberate rescan, and today the only ways are to widen the overlap in configuration or to submit each transaction by hand with `crypto.submit_tx_for_verification`.
+**Observed (narrowed at the Phase 5 review).** Ordinary recovery is no longer debt: a run reads a bounded window starting at the cursor minus the rescan overlap and advances the cursor only across what it processed, so a worker that was offline for any length of time walks the entire gap window by window (`packages/scanner/test/scanner.int.test.ts`, "catches up across a gap far wider than the overlap"). What is still missing is reaching **behind** the cursor on purpose: a historical import, or a watched address that was added after funds arrived at it. Today the only route is `crypto.submit_tx_for_verification`, one transaction at a time.
 
-**Risk.** Operational only: nothing is lost (the chain keeps the history and `(network, tx_hash, log_index)` makes re-detection idempotent), but recovering a long gap is manual.
+**Risk.** Operational only: nothing is lost (the chain keeps the history and `(network, tx_hash, log_index)` makes re-detection idempotent), but importing an old range is manual.
 
 **Resolution (to do).** A `chain.backfill` system command taking an explicit block range and address set, running the same detection step, audited, and refusing ranges above the solidified head. The cursor stays monotonic; a backfill never rewinds it.
 
-## TD-07 — Provider responses verified against fixtures, not a live testnet
+## TD-07 — The provider smoke gate has never been executed
 
-**Observed.** `TronHttpProvider` is tested against recorded TronGrid-shaped JSON (`packages/adapters/test/tron.unit.test.ts`), and the scanner's behaviour is tested end to end against `FakeTronProvider` over a fake chain. No test talks to Nile/Shasta or to mainnet, so field names, pagination and error shapes of the real endpoints are verified by reading the documentation rather than by observation.
+**Observed.** `TronHttpProvider` is tested against recorded TronGrid-shaped JSON (`packages/adapters/test/tron.unit.test.ts`), and the scanner is tested end to end against `FakeTronProvider` over a fake chain. The Phase 5 review added the real gate — `scripts/tron-smoke.ts`, run by `pnpm smoke:tron` or the manual `tron-smoke` GitHub workflow — which checks connectivity, canonical parsing, identical facts across two providers, the finality line and the real `DualProviderChainVerifier` decision for one known transaction with expected sender, destination and amount.
+
+**Status: NOT RUN.** The gate has never been executed against real providers. The development environment that built Phase 5 has no chain access and no provider credentials, and the workflow is deliberately outside CI (it needs secrets and a live network). Running it requires a person with testnet or mainnet endpoints from two different operators.
 
 **Risk.** A provider whose payloads differ from the fixtures fails loudly (every field is parsed and validated — an unreadable answer raises rather than becoming a missing fact), so the failure mode is "the scanner stops", not "money is misread". Still, that failure would first appear in a deployed environment.
 
-**Resolution (to do, before real USDT).** Add an opt-in smoke test (skipped without `INRP2P_TRON_TESTNET_URL`) that reads the head and the solidified head, lists transfers of a known testnet address and looks up one known transaction, asserting the parsed shape; run it in CI against a testnet endpoint before the first deployment that settles USDT.
+**Resolution (to do, before real USDT).** Configure the `tron-smoke` workflow's environment with two genuinely independent endpoints (the gate refuses two providers declaring the same independence group), a reference transaction and its expected facts, run it, and record the result here. **Phase 5 is not fully closed until this gate has passed against real configured providers.**
