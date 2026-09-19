@@ -1,6 +1,13 @@
 # INRP2P Exchange — Phase 6 Report (Operator product)
 
-Status: provisionally approved; review corrections applied (§11). Phase 7 not started.
+Status: **CLOSED — accepted, 2026-09-19.** Review corrections applied (§11).
+
+Closed for real once its canonical baselines existed. The operator page baselines this phase introduced were
+recorded by baseline workflow run
+[`35448728745`](https://github.com/Gatsby01k/INRP2PEXC/actions/runs/35448728745) — together with the client
+pages Phase 7 added to the same suite — and merged into `main`; compare-only `visual` and `visual-pages` have
+been green since (`35449053191`). **TD-09 is closed.**
+
 Base: `3f8a1d5` (Phase 5 review corrections), corrections on top of `a334a0c`. Scope: `IMPLEMENTATION_PLAN.md` Phase 6 only — the desk a dealer actually works: strip, grouped queue, context panels, Orders, Rates with route positions, INR, USDT, Clients, the command bar, keyboard flows and step-up dialogs. No client surfaces (Phase 7), no attachments, no receipts, no notifications.
 
 ## 1. The shape of the phase in one paragraph
@@ -113,14 +120,20 @@ records both suites.
 | The `◗` brand mark in the sidebar was rendered by a system font (not in Geist), so it differed per machine | drawn with `ArcMotif` |
 | The `⧗` step-up marker likewise | drawn with a new `StepUpMark` component (`Button.shortcut` now takes a node) |
 
-**Not recorded here.** The baselines must be captured in the canonical image, and this environment cannot pull
-it: `mcr.microsoft.com`, `registry-1.docker.io` and `ghcr.io` are all refused by the organization's egress policy
-(`connect_rejected` on CONNECT). The suite was proved instead through its self-check path — eleven captures,
-reproduced pixel-for-pixel against a freshly re-seeded database — which is a development aid and explicitly not a
-gate: it is refused under CI, writes to an untracked directory, and never touches the committed baselines.
-Recording them is one dispatch of the baseline workflow, tracked as **TD-09**. Until that run, `visual` and
-`visual-pages` fail loudly with "no canonical baselines", which is the intended behaviour: the alternative — a
-job that records whatever it finds — is how a wrong baseline becomes the reference.
+**Not recorded in the development environment; recorded in CI.** Baselines must be captured in the canonical
+image, and this environment cannot pull it: `mcr.microsoft.com`, `registry-1.docker.io` and `ghcr.io` are all
+refused by the organization's egress policy (`connect_rejected` on CONNECT). The suite was proved here through
+its self-check path — eleven captures, reproduced pixel-for-pixel against a freshly re-seeded database — which is
+a development aid and explicitly not a gate: it is refused under CI, writes to an untracked directory, and never
+touches the committed baselines. Until the recording run, `visual` and `visual-pages` failed loudly with "no
+canonical baselines", which was the intended behaviour: the alternative — a job that records whatever it finds —
+is how a wrong baseline becomes the reference.
+
+The recording took three dispatches, and the first two earned their failures (both are written up under TD-09 in
+`TECH_DEBT.md`): a harness that resolved the name `localhost` and could not reach the desk it had started, and a
+reporter that built its expected set from annotations in `onBegin` and deleted every freshly recorded baseline as
+stale. Run `35448728745` recorded both suites cleanly, its images were reviewed and merged, and the compare-only
+jobs have been green on `main` ever since.
 
 ## 8. Gates
 
@@ -136,8 +149,8 @@ job that records whatever it finds — is how a wrong baseline becomes the refer
 | `pnpm --filter @inrp2p/web build` | clean |
 | `pnpm run test:integration` | 20 files, **525 tests** passed (includes the 19 new `packages/desk` tests and the built-app proxy test) |
 | `pnpm --filter @inrp2p/web test:e2e` | **2 tests** passed (demo scenario, keyboard-only) |
-| `pnpm --filter @inrp2p/ui test:visual` | **not run here** — canonical image only (§7); needs re-recording for the new `StepUpMark` story (TD-09) |
-| `pnpm --filter @inrp2p/web test:visual` | **not recorded here** — canonical image only (§7, TD-09). Self-check: 11 captures, reproduced on a re-seeded database |
+| `pnpm --filter @inrp2p/ui test:visual` | **not run here** — canonical image only (§7); re-recorded for the new `StepUpMark` story by run `35448728745`, green in CI since |
+| `pnpm --filter @inrp2p/web test:visual` | **not recorded here** — canonical image only (§7). Self-check: 11 captures, reproduced on a re-seeded database; recorded canonically by run `35448728745`, green in CI since |
 | `pnpm smoke:tron` | **not run** — TD-07, unchanged by this phase |
 
 ## 9. Exit criteria
@@ -146,14 +159,15 @@ job that records whatever it finds — is how a wrong baseline becomes the refer
 |---|---|
 | E2E demo scenario driven entirely through operator UI + fake chain | `apps/web/e2e/demo.spec.ts` — passing |
 | Keyboard-only run of quote → payout | `apps/web/e2e/keyboard.spec.ts` — passing |
-| Visual regression for operator validation list | `apps/web/visual/pages.spec.ts` — eleven captures of the built pages, compared by the `visual-pages` CI job; the Phase 1.5 `validation-operator-desk--*` stories remain, compared by `visual`. Neither is runnable in this environment (§7); first recording is TD-09 |
+| Visual regression for operator validation list | `apps/web/visual/pages.spec.ts` — eleven captures of the built pages, compared by the `visual-pages` CI job; the Phase 1.5 `validation-operator-desk--*` stories remain, compared by `visual`. Neither is runnable in this environment (§7); both recorded canonically by run `35448728745` and green in CI since |
 
 ## 10. Debt
 
 **TD-08 closed** by §7: visual regression now covers the built operator pages, not only the stories.
-**TD-09 opened**: those baselines have never been recorded, because the canonical image cannot be pulled from
-here. It is one dispatch of the baseline workflow and no code change. TD-01 – TD-04, TD-06 and TD-07 are
-unchanged; TD-07 in particular still blocks Phase 5 being *fully* closed and is not affected by anything here.
+**TD-09 opened** at this review — those baselines had never been recorded, because the canonical image cannot be
+pulled from here — and **closed at the Phase 7 review** by baseline workflow run `35448728745`, with no code
+change, exactly as predicted. TD-01 – TD-04 and TD-06 are unchanged; TD-07 is unchanged and still blocks Phase 5
+being *fully* closed and any environment that settles real USDT, and nothing here affects it.
 
 ## 11. Review corrections
 

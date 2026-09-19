@@ -1,6 +1,12 @@
 # Phase 7 — Client product
 
-Status: implemented, gates green, **stopped for review**. Phase 8 not started.
+Status: **CLOSED — accepted at review, 2026-09-19.** Phase 8 not started.
+
+Final state: `main` at `66cc214`. Canonical baseline workflow run
+[`35448728745`](https://github.com/Gatsby01k/INRP2PEXC/actions/runs/35448728745) recorded both suites and its
+reviewed baselines are merged; ordinary CI run
+[`35449053191`](https://github.com/Gatsby01k/INRP2PEXC/actions/runs/35449053191) is green on every job —
+`verify`, `e2e`, `visual`, `visual-pages`, `lighthouse`.
 
 Plan line: *Exchange (both directions), firm quote states, quote link page + OTP acceptance verification (D-01,
 W3b), trade tracking, history, bank & wallets, account, notifications (in-app + email). Exit: E2E from link open
@@ -123,7 +129,7 @@ channel down with the unconfigured one. The worker says so at startup instead: *
 |---|---|
 | E2E from link open on a mobile viewport to completion | **Met** — `apps/web/e2e/client.spec.ts`, Pixel 7 profile, 5 tests |
 | Client JSON leakage test | **Met** — `packages/portal/test/leakage.int.test.ts`, 3 tests over 7 payloads |
-| Visual regression for the client validation list | **Met** — 9 new page captures (20 in the manifest); recording is TD-09 |
+| Visual regression for the client validation list | **Met** — 9 new page captures (20 in the manifest), recorded canonically and compared green in CI |
 | Lighthouse mobile ≥ 90 for the link page | **Met** — performance 94–97, accessibility 100, best practices 96 |
 
 ### The end-to-end run
@@ -161,8 +167,10 @@ Nine new captures, same canonical environment and same fixture world as the oper
 itself issued; the link captures with `storageState: { cookies: [], origins: [] }`, because the link must render
 for someone who has never signed in and a baseline taken with a cookie in the jar would not prove it.
 
-All twenty reproduce pixel-for-pixel through the self-check path against a freshly re-seeded database. None of
-them is a baseline until the canonical run records them (**TD-09**).
+All twenty reproduce pixel-for-pixel through the self-check path against a freshly re-seeded database, and all
+twenty were then recorded for real: workflow run `35448728745` wrote
+`apps/web/visual/__screenshots__` with `baselines: 20` and `gitSha b07a738` in the canonical environment, and
+compare-only `visual-pages` has been green on `main` since. **TD-09 is closed.**
 
 Three read models gained an `id` tiebreak while making this deterministic — `exchangeView`, `clientHistory` and
 `clientInbox` all ordered by a timestamp alone, and rows written in one transaction share it. That is a real
@@ -199,8 +207,10 @@ the page or making it indexable.
 | `pnpm --filter @inrp2p/web test:visual:selfcheck` | 20 captures, reproduced |
 | `pnpm --filter @inrp2p/web test:lighthouse` | pass |
 
-Canonical visual comparison cannot run here: `mcr.microsoft.com` is refused by the organization's egress policy
-(TD-09), so the self-check path was used, exactly as in Phase 6.
+Canonical visual comparison cannot run in the development environment: `mcr.microsoft.com` is refused by the
+organization's egress policy, so the self-check path was used there, exactly as in Phase 6. CI ran the real
+thing: `visual` and `visual-pages` are compare-only and green on `main` (`35449053191`), against the baselines
+recorded by `35448728745`.
 
 ---
 
@@ -245,8 +255,9 @@ log is a login code in whatever reads the logs, so there is still no logging ada
 * **Receipts** — `receipt.generate` is enqueued on full settlement and acknowledged, not consumed. Phase 8.
 * **A desk push channel** — the `desk.*` signals and `capacity.over_committed` are acknowledged, not consumed
   (TD-10).
-* **Page baselines are not recorded** (TD-09) — twenty captures, one canonical run.
 * **Client-side destination management** (TD-11) — needs client TOTP enrolment first.
+* **Real USDT is still blocked** (TD-07): the TRON provider smoke gate has never been executed against real
+  providers. Nothing in this phase changes that, and nothing here makes the system production-ready.
 * **BUY direction in the client UI** is present (the direction toggle, wallet destinations, the request command
   accepts it), but no end-to-end run drives a BUY trade from the client side; the operator specs cover BUY
   settlement.
