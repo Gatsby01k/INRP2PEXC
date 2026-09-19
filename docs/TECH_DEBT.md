@@ -11,7 +11,8 @@ Non-blocking items accepted at phase review. Each entry names the phase that mus
 | TD-05 | Chain verification: no TRON provider bound; scanning not implemented | Phase 4 implementation (2026-09-18) | Any environment that settles real USDT | Closed in Phase 5 (2026-09-18) |
 | TD-06 | Scanner: no tooling for a deliberate historical backfill behind the cursor | Phase 5 implementation (2026-09-18) | First production incident needing a historical rescan | Open (narrowed at Phase 5 review) |
 | TD-07 | Scanner: the TRON provider smoke gate has never been executed against real providers | Phase 5 implementation (2026-09-18) | Any environment that settles real USDT | Open — gate exists, **NOT RUN** |
-| TD-08 | Visual regression covers the Storybook validation stories, not the built operator pages | Phase 6 implementation (2026-09-19) | Production deploy (launch checklist) | Open |
+| TD-08 | Visual regression covers the Storybook validation stories, not the built operator pages | Phase 6 implementation (2026-09-19) | Production deploy (launch checklist) | Closed in Phase 6 review (2026-09-19) |
+| TD-09 | The operator page baselines have not been recorded in the canonical environment | Phase 6 review (2026-09-19) | The `visual-pages` CI job can pass | Open — suite exists, **NOT RECORDED** |
 
 ## TD-01 — Better Auth schema warning for `auth_rate_limit.last_request`
 
@@ -81,3 +82,45 @@ Non-blocking items accepted at phase review. Each entry names the phase that mus
 **Risk.** Presentation only: no financial or security semantics depend on it. The failure mode is a desk that looks wrong or becomes hard to read after an unrelated change, found by an operator rather than by CI.
 
 **Resolution (to do).** Capture the operator pages from the end-to-end run's own seeded world, in the canonical Playwright environment, and compare them the way the component baselines are compared — same image, same platform, same fonts, metadata recorded in `ENVIRONMENT.json`, update only through the deliberate baseline workflow (`docs/VISUAL_BASELINES.md`). The seeded world is already deterministic except for time and identifiers, so the capture needs a frozen clock and stable references before the pixels are stable enough to compare. Keep the Storybook baselines: they cover states the seeded world does not reach.
+
+**Closed (Phase 6 review, 2026-09-19).** `apps/web/visual` captures eleven states of the built product — desk
+with strip and grouped queue, trade context panel, payout panel with the payer selector on a direct route,
+blocking exception, Orders, Rates with route positions, INR, USDT with the deposit pool and scanner state,
+Clients, the command bar and the step-up dialog. The fixture world freezes the business clock for the whole
+database, so references and business timestamps are identical on every run and on any day; the few columns that
+follow the wall clock by design are pinned, and the one remaining wall-clock string is rewritten before capture.
+Every other pixel is compared. The canonical environment and its guard now live once in `@inrp2p/visual`, shared
+with the component suite; CI job `visual-pages` is compare-only, and recording happens only through the manual
+**Visual baselines (canonical update)** workflow (job `record-pages`). Recording those baselines for the first
+time is TD-09.
+
+The suite paid for itself before it had a baseline: it found three layout defects (the strip stretched down the
+whole workspace, its wrapped second line separated by a hole, the queue sliding under an open panel) and two
+glyphs rendered by a system font (`◗` in the sidebar, `⧗` on step-up actions), all fixed in the same change.
+
+## TD-09 — The operator page baselines have never been recorded
+
+**Observed.** `apps/web/visual` is complete: the fixture world, the determinism, the eleven captures, the
+compare-only CI job (`visual-pages`) and the recording job in the manual baseline workflow (`record-pages`).
+`apps/web/visual/__screenshots__` holds no PNG and no `ENVIRONMENT.json`, so the guard refuses the comparison
+with "No canonical baselines" and the `visual-pages` job fails.
+
+The environment that built this could not record them: pulling
+`mcr.microsoft.com/playwright:v1.56.1-noble` is refused by the organization's egress policy (`mcr.microsoft.com`,
+`registry-1.docker.io` and `ghcr.io` all answer `connect_rejected` on CONNECT), and baselines recorded anywhere
+else are not comparable — which is exactly what `docs/VISUAL_BASELINES.md §1` exists to prevent. The suite was
+instead proved with the self-check path (§2): eleven captures, reproduced pixel-for-pixel against a freshly
+re-seeded database.
+
+**Risk.** CI is red on `visual-pages` until the baselines exist. That is the intended failure mode — the
+alternative, a job that records what it finds, is how a wrong baseline becomes the reference — but it does mean
+the operator pages are not yet protected from visual regression.
+
+**The component baselines need the same run.** This change adds one story (`Operator/StepUpMark`, for the drawn
+step-up marker), so `packages/ui`'s baseline count no longer matches its `ENVIRONMENT.json` and the `visual` job
+fails too until it is re-recorded. One dispatch covers both: `record` and `record-pages` run together.
+
+**Resolution (to do, one run).** Actions → **Visual baselines (canonical update)** → *Run workflow*, with a
+reason. Review the images on the `visual-baselines/run-<run id>` and `visual-baselines/pages-run-<run id>`
+branches, merge both, and confirm `visual` and `visual-pages` are green on the resulting push. Nothing in the
+code needs to change.

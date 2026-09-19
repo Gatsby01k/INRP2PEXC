@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { Money } from '@inrp2p/kernel';
 import type { DeskTrade } from '@inrp2p/desk';
-import { Button, CapacityMeter, MoneyInput, PayerSelector, SettlementProgress, UTRField, normalizeUtr } from '@inrp2p/ui';
+import { Button, CapacityMeter, MoneyInput, PayerSelector, SettlementProgress, StepUpMark, UTRField, normalizeUtr } from '@inrp2p/ui';
 import { formatInr, formatUsdt, maskUtr, shortenHash } from '@inrp2p/ui/format';
 import {
   confirmIncomingAction, confirmPayoutAction, createPayoutLegAction, recordEvidenceAction, sendPayoutLegAction,
@@ -256,7 +256,7 @@ export function PayoutPanel({ trade, canCreate, canSend, canRecord, canConfirm, 
                   <div className={styles.actions}>
                     <Button
                       intent="primary"
-                      shortcut="⧗"
+                      shortcut={<StepUpMark label="needs your authenticator code" />}
                       onClick={() => cmd.run(`Confirm payout ${money(leg.amount, leg.asset)} · ${leg.ref}`, (key) => confirmPayoutAction({ legId: leg.id }, key))}
                     >
                       Confirm

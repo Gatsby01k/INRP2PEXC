@@ -197,6 +197,10 @@ export function RatesClient({ routes, positions, accounts, wallets, canPublish, 
                       >
                         Record settlement
                       </Button>
+                      <p className="ix-muted">
+                        Recording files the evidence. Confirming — which asks for your authenticator code — is what posts the movement journal and settles this
+                        side of the obligation. There is no separate step after it.
+                      </p>
                     </div>
                   ) : null}
                 </div>

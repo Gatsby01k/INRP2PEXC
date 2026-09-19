@@ -1,6 +1,9 @@
 .strip {
   display: flex;
   flex-wrap: wrap;
+  /* Wrapped lines sit together. Without this the default `stretch` spreads them down the whole height the
+     shell grid hands the strip, which on a desk with several routes leaves a hole between the two lines. */
+  align-content: start;
   gap: var(--space-5);
   margin: 0;
   padding: var(--space-3) var(--space-5);

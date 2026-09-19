@@ -30,6 +30,8 @@ const BOUNDARIES = {
   desk: ['kernel', 'db', 'identity', 'clients', 'inr-accounts', 'routes', 'pricing', 'treasury', 'trades', 'settlement', 'adapters', 'commands', 'quotes', 'scanner', 'ledger', 'audit', 'outbox'],
   // Design system: formats kernel Money/Rate values; never touches persistence or domain modules.
   ui: ['kernel'],
+  // The canonical visual-baseline environment and its guard; test tooling, depends on nothing of the domain.
+  visual: [],
 };
 const ALL = Object.keys(BOUNDARIES);
 

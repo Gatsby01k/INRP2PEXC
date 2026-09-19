@@ -1,7 +1,7 @@
 # INRP2P Exchange — Phase 6 Report (Operator product)
 
-Status: complete, awaiting review. Phase 7 not started.
-Base: `3f8a1d5` (Phase 5 review corrections). Scope: `IMPLEMENTATION_PLAN.md` Phase 6 only — the desk a dealer actually works: strip, grouped queue, context panels, Orders, Rates with route positions, INR, USDT, Clients, the command bar, keyboard flows and step-up dialogs. No client surfaces (Phase 7), no attachments, no receipts, no notifications.
+Status: provisionally approved; review corrections applied (§11). Phase 7 not started.
+Base: `3f8a1d5` (Phase 5 review corrections), corrections on top of `a334a0c`. Scope: `IMPLEMENTATION_PLAN.md` Phase 6 only — the desk a dealer actually works: strip, grouped queue, context panels, Orders, Rates with route positions, INR, USDT, Clients, the command bar, keyboard flows and step-up dialogs. No client surfaces (Phase 7), no attachments, no receipts, no notifications.
 
 ## 1. The shape of the phase in one paragraph
 
@@ -19,10 +19,15 @@ apps/web/src/app    + (operator) route group: desk, orders, rates, inr, usdt, cl
                       sign-in
 apps/web/src/components + panels (quote, payout, exception), useCommand (one key per intent + step-up),
                       useHotkey, CommandBarHost
-apps/web/e2e        NEW — world (seed), server (the built desk), demo.spec, keyboard.spec, support
+apps/web/harness    NEW — desk-server: starts the built desk for a suite, shared by e2e and visual
+apps/web/e2e        NEW — world (seed), demo.spec, keyboard.spec, support
+apps/web/visual     NEW — the operator page baselines: fixture world, auth, eleven captures, docker.sh
+packages/visual     NEW — the canonical visual-baseline environment and its guard, shared by both suites
 packages/ui         ~ 'use client' on every interactive component; ActionQueue rows carry data-row-id;
-                    CommandBar takes an inputRef; RateComparison is the single margin/economics block
-.github/workflows   + an `e2e` job: the built app against PostgreSQL 18.6 with Chromium
+                    CommandBar takes an inputRef; RateComparison is the single margin/economics block;
+                    + StepUpMark (the drawn ⧗); Button.shortcut takes a node
+.github/workflows   + an `e2e` job and a compare-only `visual-pages` job; the manual baseline workflow
+                      records both suites
 ```
 
 ## 3. The read layer (`packages/desk`)
@@ -75,9 +80,47 @@ The step-up rule is proved in both directions: the sign-in verification is delib
 
 ## 7. Visual regression for the operator validation list
 
-The Phase 1.5 validation stories already carry pixel baselines for the operator list — desk, clients, rates, INR accounts, USDT treasury, P&L, new request / quote creation, trade processing with partial settlement, exception trade — recorded in the canonical Playwright image and compared by the `visual` CI job on every push (`docs/VISUAL_BASELINES.md`). Phase 6 changed UI components only in ways that do not alter rendering (`'use client'` directives, a `data-row-id`, an optional `inputRef`), so those baselines are expected to compare clean; the `RateComparison` duplication removed from the quote panel was app-level markup, not a story.
+Two pixel suites now, one canonical environment and one update path (`docs/VISUAL_BASELINES.md`):
 
-**Not re-run here.** This environment is not the canonical baseline environment (`docs/VISUAL_BASELINES.md`: baselines are only comparable inside `mcr.microsoft.com/playwright:v1.56.1-noble` on linux/amd64, and the suite refuses to run elsewhere). CI runs it. What the baselines do **not** yet cover is the built pages themselves — see TD-08.
+- **Components** (`packages/ui/visual`, Phase 1.5) — every Storybook story, with axe, bundled-font and
+  reduced-motion assertions.
+- **Operator pages** (`apps/web/visual`, added in the review) — the **built** desk, signed in, driven against a
+  seeded database. Eleven captures: desk with strip and grouped queue, trade context panel, payout panel with
+  the payer selector on a direct route, blocking exception, Orders, Rates with route positions, INR, USDT with
+  the deposit pool and scanner state, Clients, the command bar, the step-up dialog.
+
+A page is harder to pin than a story, because it shows what a database says. The fixture world freezes the
+**business** clock for the whole database (`inrp2p.clock_override`, migration 0012), so every reference
+(`IX-260919-0002`) and every business timestamp is identical on every run and on any day, while authentication
+and session freshness keep using real time and behave exactly as in production. Addresses, hashes, amounts and
+the order of creation are fixed, and the world is built by the same domain commands the product uses, so a state
+can only appear in a baseline if the product can really produce it. The few columns that follow the wall clock by
+design are pinned after seeding; the single string that still does — the INR page's `YYYY-MM-DD IST` day — is
+rewritten in the DOM before capture. Nothing else is masked: every other pixel is compared.
+
+The canonical environment and its guard moved into `@inrp2p/visual`, shared by both suites, so they cannot drift
+on what they will accept. CI gained a compare-only `visual-pages` job (with a `postgres:18.6` service);
+recording remains possible only through the manual **Visual baselines (canonical update)** workflow, which now
+records both suites.
+
+**What it found before it had a baseline.** Five defects, all fixed here:
+
+| Defect | Fix |
+|---|---|
+| The strip stretched down the whole workspace: a two-row grid template gave the leftover height to whichever child landed in the second row, which on the desk was the strip | `.workspace` is a flex column; the content takes the rest |
+| The strip's wrapped second line was pushed to the bottom of that band by `align-content: stretch` | `align-content: start` |
+| With a panel open, the queue kept its full width and slid underneath it — half a row unreadable | the queue column clips and scrolls inside its own column |
+| The `◗` brand mark in the sidebar was rendered by a system font (not in Geist), so it differed per machine | drawn with `ArcMotif` |
+| The `⧗` step-up marker likewise | drawn with a new `StepUpMark` component (`Button.shortcut` now takes a node) |
+
+**Not recorded here.** The baselines must be captured in the canonical image, and this environment cannot pull
+it: `mcr.microsoft.com`, `registry-1.docker.io` and `ghcr.io` are all refused by the organization's egress policy
+(`connect_rejected` on CONNECT). The suite was proved instead through its self-check path — eleven captures,
+reproduced pixel-for-pixel against a freshly re-seeded database — which is a development aid and explicitly not a
+gate: it is refused under CI, writes to an untracked directory, and never touches the committed baselines.
+Recording them is one dispatch of the baseline workflow, tracked as **TD-09**. Until that run, `visual` and
+`visual-pages` fail loudly with "no canonical baselines", which is the intended behaviour: the alternative — a
+job that records whatever it finds — is how a wrong baseline becomes the reference.
 
 ## 8. Gates
 
@@ -93,7 +136,8 @@ The Phase 1.5 validation stories already carry pixel baselines for the operator 
 | `pnpm --filter @inrp2p/web build` | clean |
 | `pnpm run test:integration` | 20 files, **525 tests** passed (includes the 19 new `packages/desk` tests and the built-app proxy test) |
 | `pnpm --filter @inrp2p/web test:e2e` | **2 tests** passed (demo scenario, keyboard-only) |
-| `pnpm --filter @inrp2p/ui test:visual` | **not run here** — canonical image only (§7) |
+| `pnpm --filter @inrp2p/ui test:visual` | **not run here** — canonical image only (§7); needs re-recording for the new `StepUpMark` story (TD-09) |
+| `pnpm --filter @inrp2p/web test:visual` | **not recorded here** — canonical image only (§7, TD-09). Self-check: 11 captures, reproduced on a re-seeded database |
 | `pnpm smoke:tron` | **not run** — TD-07, unchanged by this phase |
 
 ## 9. Exit criteria
@@ -102,8 +146,35 @@ The Phase 1.5 validation stories already carry pixel baselines for the operator 
 |---|---|
 | E2E demo scenario driven entirely through operator UI + fake chain | `apps/web/e2e/demo.spec.ts` — passing |
 | Keyboard-only run of quote → payout | `apps/web/e2e/keyboard.spec.ts` — passing |
-| Visual regression for operator validation list | `packages/ui/visual/__screenshots__/validation-operator-desk--*.png`, compared by the `visual` CI job; not runnable in this environment (§7) |
+| Visual regression for operator validation list | `apps/web/visual/pages.spec.ts` — eleven captures of the built pages, compared by the `visual-pages` CI job; the Phase 1.5 `validation-operator-desk--*` stories remain, compared by `visual`. Neither is runnable in this environment (§7); first recording is TD-09 |
 
 ## 10. Debt
 
-TD-08 recorded (visual regression covers the Storybook validation stories, not the built operator pages). TD-01 – TD-04, TD-06 and TD-07 are unchanged; TD-07 in particular still blocks Phase 5 being *fully* closed and is not affected by anything here.
+**TD-08 closed** by §7: visual regression now covers the built operator pages, not only the stories.
+**TD-09 opened**: those baselines have never been recorded, because the canonical image cannot be pulled from
+here. It is one dispatch of the baseline workflow and no code change. TD-01 – TD-04, TD-06 and TD-07 are
+unchanged; TD-07 in particular still blocks Phase 5 being *fully* closed and is not affected by anything here.
+
+## 11. Review corrections
+
+**1. Page-level visual regression (TD-08).** §7 above.
+
+**2. Route settlement wording.** The plan's Phase 6 line still read "route settlement recording + allocation",
+which implied a third action. There is no `route_settlement.allocate` command, permission or API in V1, and
+there never was in the code: `route_settlement:record` files the evidence, and `route_settlement:confirm` (⧗)
+posts the movement journal **and** allocates the obligation side it was recorded against, in one transaction
+(`packages/settlement/src/routesettlements.ts`; `allocateToObligation` is an internal step of that confirm, not a
+command). A direct payout allocates the route side when the client leg is confirmed, and appears on Rates as a
+read-only row (FI-64).
+
+Corrected in `IMPLEMENTATION_PLAN.md` Phase 6 and `UX_FLOWS.md §5` (which said "Confirm (step-up) → allocate"),
+and the Rates screen now says it in words under the record form: *"Recording files the evidence. Confirming —
+which asks for your authenticator code — is what posts the movement journal and settles this side of the
+obligation. There is no separate step after it."* `STATE_MACHINES.md §9` and the Phase 4 line already carried the
+correct semantics and are unchanged. No behaviour changed, and no allocate permission or API was introduced.
+
+**Also observed, deliberately not changed.** The exception panel shows a short payment as two open cases — one
+against the crypto transfer, one against the trade — because the domain opens both. The panel reports what the
+domain recorded; whether one short payment should raise one case or two is a domain question for a later review,
+not something to change quietly in a corrections commit. The new baseline captures the current behaviour, so a
+future change to it will be visible.

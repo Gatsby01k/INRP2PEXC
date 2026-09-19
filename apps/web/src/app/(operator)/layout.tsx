@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { deskQueue } from '@inrp2p/desk';
+import { ArcMotif } from '@inrp2p/ui';
 import { can, operatorPage } from '../../server/operator.ts';
 import { CommandBarHost } from '../../components/CommandBarHost.tsx';
 import { Nav, type NavEntry } from './Nav.tsx';
@@ -32,7 +33,9 @@ export default async function OperatorLayout({ children }: { children: ReactNode
     <div className={styles.shell}>
       <aside className={styles.sidebar}>
         <div className={styles.brand}>
-          <span aria-hidden="true">◗</span>
+          {/* Drawn, not typed: ◗ is not in Geist, so as text it falls back to whatever font the machine has
+              (VISUAL_BASELINES §4) — the mark would differ on every desk and in every baseline. */}
+          <ArcMotif completed={3} size={18} />
           <span className={styles.brandName}>INRP2P Desk</span>
         </div>
         <Nav entries={entries} />

@@ -11,3 +11,8 @@ test-results/
 playwright-report/
 # Written by the end-to-end global setup; describes a throwaway database.
 apps/web/e2e/.state.json
+apps/web/visual/.state.json
+apps/web/visual/.auth.json
+# Self-check captures: never baselines, never committed (docs/VISUAL_BASELINES.md).
+apps/web/visual/.selfcheck/
+playwright-report-visual/

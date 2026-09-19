@@ -26,6 +26,7 @@
   },
   "devDependencies": {
     "@axe-core/playwright": "4.13.0",
+    "@inrp2p/visual": "workspace:*",
     "@playwright/test": "1.56.1",
     "@storybook/addon-a11y": "10.6.0",
     "@storybook/react-vite": "10.6.0",

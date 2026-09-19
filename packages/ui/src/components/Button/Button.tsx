@@ -13,8 +13,8 @@ export interface ButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement
   size?: ButtonSize;
   fullWidth?: boolean;
   loading?: boolean;
-  /** Hotkey hint shown to operators, e.g. "Q". */
-  shortcut?: string;
+  /** Hotkey hint shown to operators, e.g. "Q", or a drawn mark such as `<StepUpMark />`. */
+  shortcut?: ReactNode;
   children: ReactNode;
 }
 

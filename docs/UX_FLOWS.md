@@ -111,7 +111,7 @@ Trade reaches FIRST_LEG_CONFIRMED → queue group "Settlement · Create INR payo
 → next leg… → auto-complete when remaining = 0.
 
 ### F5b — Route positions (FINANCE)
-Rates → Route positions: per obligation, *route delivers* (e.g. ₹10,420,000 · allocated ₹10,200,000 direct · remaining ₹220,000) and *exchange delivers* (100,000 USDT · remaining 100,000) → **Record route settlement** (route → exchange, exchange → route) with UTR/tx → **Confirm** (step-up) → allocate. Direct allocations appear read-only, linked to the client leg and its UTR.
+Rates → Route positions: per obligation, *route delivers* (e.g. ₹10,420,000 · allocated ₹10,200,000 direct · remaining ₹220,000) and *exchange delivers* (100,000 USDT · remaining 100,000) → **Record route settlement** (route → exchange, exchange → route) with UTR/tx → **Confirm** (step-up), which posts the movement journal and allocates the side the settlement was recorded against in the same transaction. There is no separate allocate action. Direct allocations appear read-only, linked to the client leg and its UTR — confirming that leg already allocated the route side (FI-64).
 
 ### F6 — Exception
 Scanner detects `99,950 USDT` on a 100,000 trade → trade hold → queue group "Exception" with red rail + label "Short by 50 USDT" → panel shows resolution options (Wait for top-up · Adjust trade to received (approval) · Refund & cancel) → chosen command → audit.
