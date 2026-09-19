@@ -1,14 +1,15 @@
 /**
- * The operator validation list, named once.
+ * The validation list, named once — the operator product's pages, the client product's pages, and the public
+ * quote link.
  *
  * This is a **static** manifest on purpose. The reporter has to know the whole expected set before any test has
  * run, so that after an intentional update it can drop what is no longer expected without touching what is —
  * and a set collected from tests as they run is empty at that moment. (It was: the reporter read runtime
  * annotations in `onBegin`, found none, and deleted all eleven freshly recorded baselines as stale.)
  *
- * Every name here must be captured by `pages.spec.ts`, and every capture there must be named here. Both
- * directions are asserted by `apps/web/test/visual-manifest.unit.test.ts`, so the manifest cannot quietly
- * disagree with the suite.
+ * Every name here must be captured by one of the suite's spec files, and every capture there must be named
+ * here. Both directions are asserted by `apps/web/test/visual-manifest.unit.test.ts`, so the manifest cannot
+ * quietly disagree with the suite.
  */
 export const CAPTURES = [
   'operator-desk',
@@ -22,6 +23,16 @@ export const CAPTURES = [
   'operator-clients',
   'operator-command-bar',
   'operator-step-up',
+  // The client product (Phase 7). Same rules, same environment; different surface and, for the link, a phone.
+  'client-exchange-quote',
+  'client-trade-awaiting-usdt',
+  'client-trade-settling',
+  'client-trade-completed',
+  'client-history',
+  'client-accounts',
+  'client-notifications',
+  'link-quote-mobile',
+  'link-verification-mobile',
 ] as const;
 
 export type CaptureName = (typeof CAPTURES)[number];

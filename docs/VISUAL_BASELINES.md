@@ -1,11 +1,16 @@
 # Visual Baselines — Canonical Environment and Update Path
 
-Status: Phase 6. Two pixel suites, one environment and one update path:
+Status: Phase 7. Two pixel suites, one environment and one update path:
 
 | Suite | What it captures | Where |
 |---|---|---|
 | Components | every Storybook story → axe WCAG 2.2 AA, bundled-font check, reduced-motion checks, pixel baselines | `packages/ui/visual` |
-| Operator pages | the **built** desk driven against a seeded database — the operator validation list | `apps/web/visual` |
+| Pages | the **built** products driven against a seeded database — the operator validation list (`pages.spec.ts`), the client validation list (`client-pages.spec.ts`) and the public quote link on a phone (`link-pages.spec.ts`) | `apps/web/visual` |
+
+The page suite runs all three surfaces of the built app at once — the desk, the client app and the public host —
+because a page captured from the wrong surface would be a baseline of a bug. The client captures are taken under
+a session the product itself issued (the real sign-in form); the link captures are taken with no session at all,
+which is the whole premise of the shareable link (D-01).
 
 The definition of the canonical environment and the guard that enforces it live once, in `@inrp2p/visual`
 (`packages/visual`), so the two suites cannot drift on what they will accept.
@@ -36,7 +41,7 @@ Before any test runs, the suite refuses to compare or record when:
 - the current image, platform, architecture, Playwright version or Chromium version differs from `CANONICAL` (the image is trusted only if `VISUAL_ENV_IMAGE` is set **and** `/ms-playwright` exists);
 - `ENVIRONMENT.json` is missing, or was recorded in a different environment;
 - the number of committed PNGs differs from `ENVIRONMENT.json` (baselines changed outside the update path);
-- a baseline the suite expects is not there (the page suite names its eleven in `apps/web/visual/captures.ts`);
+- a baseline the suite expects is not there (the page suite names its twenty in `apps/web/visual/captures.ts`);
 - `UPDATE_VISUALS=1` is set in GitHub Actions for any event other than `workflow_dispatch`;
 - `--update-snapshots` / `-u` is passed on the command line (config throws; only `UPDATE_VISUALS=1` records).
 
@@ -91,7 +96,8 @@ A page is harder to pin than a story, because it shows what a database says. The
    `YYYY-MM-DD IST` day — is rewritten in the DOM immediately before the capture (`support.ts`
    `pinWallClockText`). Nothing else is masked: every other pixel is compared.
 
-The eleven capture names live in one static manifest, `apps/web/visual/captures.ts`, read by the suite, by the
+The twenty capture names live in one static manifest, `apps/web/visual/captures.ts`, read by all three page spec
+files, by the
 compare guard and by the update reporter. It is static because the reporter has to know the whole expected set
 *before* any test runs, in order to drop baselines nothing expects any more without touching the ones that are
 simply about to be recorded; an update that does not produce every name in the manifest records no metadata and
@@ -109,7 +115,7 @@ Baselines change only when a visual change is intended (new story, approved desi
 ### A. GitHub Actions (authoritative)
 1. Push the code change.
 2. Actions → **Visual baselines (canonical update)** → *Run workflow* on the branch, with a reason.
-3. Two jobs run: `record` for the components and `record-pages` for the operator pages. Each builds what it
+3. Two jobs run: `record` for the components and `record-pages` for the operator, client and link pages. Each builds what it
    needs, records with `UPDATE_VISUALS=1` (axe, bundled-font and reduced-motion assertions still enforced — a failing story records nothing usable), re-runs compare-only to prove stability, uploads the baselines artifact, and pushes a review branch with one commit containing only that suite's
    `__screenshots__` (PNG + `ENVIRONMENT.json`): `visual-baselines/run-<run id>` for the components,
    `visual-baselines/pages-run-<run id>` for the pages.
@@ -121,7 +127,7 @@ bash packages/ui/visual/docker.sh compare   # reproduce CI
 bash packages/ui/visual/docker.sh update    # record into packages/ui/visual/__screenshots__
 
 TEST_DATABASE_URL=postgres://postgres@127.0.0.1:5432/postgres \
-  bash apps/web/visual/docker.sh compare    # the operator pages; needs a reachable PostgreSQL 18
+  bash apps/web/visual/docker.sh compare    # the operator, client and link pages; needs a reachable PostgreSQL 18
 TEST_DATABASE_URL=postgres://postgres@127.0.0.1:5432/postgres \
   bash apps/web/visual/docker.sh update
 ```

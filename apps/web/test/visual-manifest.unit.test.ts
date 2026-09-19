@@ -15,16 +15,20 @@ import { CAPTURES, CAPTURE_FILES, isCaptureName } from '../visual/captures.ts';
  * These tests hold the two halves of the fix: the manifest and the suite agree, and a successful update leaves
  * a set a compare run can actually use.
  */
-const SPEC = readFileSync(fileURLToPath(new URL('../visual/pages.spec.ts', import.meta.url)), 'utf8');
+const SPECS = ['pages', 'client-pages', 'link-pages'].map((name) => readFileSync(fileURLToPath(new URL(`../visual/${name}.spec.ts`, import.meta.url)), 'utf8'));
+const SPEC = SPECS.join('\n');
 const REPORTER = readFileSync(fileURLToPath(new URL('../visual/metadata-reporter.ts', import.meta.url)), 'utf8');
 const SUPPORT = readFileSync(fileURLToPath(new URL('../visual/support.ts', import.meta.url)), 'utf8');
 const capturedInSpec = [...SPEC.matchAll(/\bcapture\(page,\s*'([^']+)'/g)].map((m) => m[1]!);
 
 describe('capture manifest', () => {
-  it('names the eleven operator validation states', () => {
-    expect(CAPTURES).toHaveLength(11);
-    expect(new Set(CAPTURES).size).toBe(11);
+  it('names every validation state of both products', () => {
+    expect(CAPTURES).toHaveLength(20);
+    expect(new Set(CAPTURES).size).toBe(20);
     expect(CAPTURE_FILES).toEqual(CAPTURES.map((n) => `${n}.png`));
+    expect(CAPTURES.filter((n) => n.startsWith('operator-'))).toHaveLength(11);
+    expect(CAPTURES.filter((n) => n.startsWith('client-'))).toHaveLength(7);
+    expect(CAPTURES.filter((n) => n.startsWith('link-'))).toHaveLength(2);
   });
 
   it('matches what the suite captures, in both directions', () => {
@@ -70,7 +74,7 @@ describe('baseline reconciliation after a canonical update', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it('keeps all eleven expected baselines and drops only the stale one', () => {
+  it('keeps every expected baseline and drops only the stale one', () => {
     const { kept, removed, missing } = reconcileBaselines(dir, CAPTURE_FILES);
     expect(kept).toEqual([...CAPTURE_FILES].sort());
     expect(removed).toEqual(['operator-retired-screen.png']);
@@ -78,11 +82,11 @@ describe('baseline reconciliation after a canonical update', () => {
     expect(baselineFiles(dir)).toEqual([...CAPTURE_FILES].sort());
   });
 
-  it('records metadata counting those eleven', () => {
+  it('records metadata counting exactly those', () => {
     reconcileBaselines(dir, CAPTURE_FILES);
     record();
-    expect(meta().baselines).toBe(11);
-    expect(readdirSync(dir).filter((f) => f.endsWith('.png'))).toHaveLength(11);
+    expect(meta().baselines).toBe(CAPTURE_FILES.length);
+    expect(readdirSync(dir).filter((f) => f.endsWith('.png'))).toHaveLength(CAPTURE_FILES.length);
   });
 
   it('leaves a set the next compare run can use', () => {
@@ -95,7 +99,7 @@ describe('baseline reconciliation after a canonical update', () => {
     rmSync(path.join(dir, 'operator-step-up.png'));
     const { kept, missing } = reconcileBaselines(dir, CAPTURE_FILES);
     expect(missing).toEqual(['operator-step-up.png']);
-    expect(kept).toHaveLength(10);
+    expect(kept).toHaveLength(CAPTURE_FILES.length - 1);
 
     // What the old reporter did — record anyway — is exactly what a compare run must refuse.
     record();
@@ -106,7 +110,7 @@ describe('baseline reconciliation after a canonical update', () => {
     reconcileBaselines(dir, CAPTURE_FILES);
     record();
     writeFileSync(path.join(dir, 'operator-smuggled-in.png'), 'png');
-    expect(recordedBaselineProblems(dir, CAPTURE_FILES)).toContain('baseline count 12 does not match ENVIRONMENT.json (11)');
+    expect(recordedBaselineProblems(dir, CAPTURE_FILES)).toContain(`baseline count ${CAPTURE_FILES.length + 1} does not match ENVIRONMENT.json (${CAPTURE_FILES.length})`);
   });
 
   it('refuses baselines recorded somewhere other than the canonical environment', () => {

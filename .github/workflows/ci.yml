@@ -102,7 +102,7 @@ jobs:
       - name: Build web app
         run: pnpm --filter @inrp2p/web build
 
-      - name: End-to-end (operator desk)
+      - name: End-to-end (operator desk, and the client product on a phone)
         run: pnpm --filter @inrp2p/web test:e2e
 
       - name: Upload end-to-end report
@@ -115,7 +115,51 @@ jobs:
             apps/web/test-results
           retention-days: 7
 
-  # Pixel baselines for the built operator pages, compare-only, in the canonical baseline environment
+  # The quote link is opened on a phone by someone who has never signed in, while a firm price counts down.
+  # Its mobile budget is measured against the built page rather than assumed (IMPLEMENTATION_PLAN Phase 7).
+  lighthouse:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:18.6
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+      TEST_DATABASE_URL: postgres://postgres@127.0.0.1:5432/postgres
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.4.2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Chromium
+        run: pnpm --filter @inrp2p/web exec playwright install --with-deps chromium
+
+      - name: Build web app
+        run: pnpm --filter @inrp2p/web build
+
+      - name: Quote link, mobile budget
+        run: pnpm --filter @inrp2p/web test:lighthouse
+
+  # Pixel baselines for the built operator and client pages, compare-only, in the canonical baseline environment
   # (docs/VISUAL_BASELINES.md). Needs a database, because the captures come from real seeded rows.
   visual-pages:
     runs-on: ubuntu-24.04
@@ -156,7 +200,7 @@ jobs:
       - name: Build web app
         run: pnpm --filter @inrp2p/web build
 
-      - name: Operator page baselines (compare only)
+      - name: Page baselines, operator and client (compare only)
         run: pnpm --filter @inrp2p/web test:visual
 
       - name: Upload visual diff report

@@ -1,6 +1,7 @@
 import { run } from 'graphile-worker';
 import { createDb, createPool } from '@inrp2p/db';
-import { UnconfiguredNotificationAdapter } from '@inrp2p/adapters';
+import { UnconfiguredNotificationAdapter, isNotificationProviderConfigured } from '@inrp2p/adapters';
+import { acknowledgedSignalHandler, clientNotificationEmailHandler, clientNotificationHandler } from '@inrp2p/notifications';
 import { acceptanceCodeHandler } from '@inrp2p/quotes';
 import { CRONTAB, buildTaskList, quoteExpiryScheduler } from './tasks.ts';
 import { UNCONFIGURED_PROTECTOR, chainMonitoringFromEnv, chainMonitoringReady, describeChainMonitoring, fieldProtectorFromEnv } from './config.ts';
@@ -19,6 +20,18 @@ const db = createDb(pool);
 const protector = fieldProtectorFromEnv() ?? UNCONFIGURED_PROTECTOR;
 const notifications = new UnconfiguredNotificationAdapter();
 
+/**
+ * The client's email channel is registered only when there is a provider to send with.
+ *
+ * An acceptance code that cannot be delivered must fail loudly — the person is waiting for it. A notification
+ * email is different: the in-app inbox is the channel of record and it is already written, so a handler that
+ * throws on every send would take a working channel down with an unconfigured one (TD-04).
+ */
+const emailChannel = isNotificationProviderConfigured(notifications)
+  ? [clientNotificationEmailHandler(db, notifications, { linkBase: process.env.CLIENT_BASE_URL })]
+  : [];
+if (emailChannel.length === 0) console.warn('client notifications: in-app only — no email provider is configured (TD-04)');
+
 // Chain monitoring state is always stated (DISABLED / READY / DEGRADED / UNCONFIGURED). An enabled but
 // unconfigured worker refuses to start rather than run with three jobs that would fail every minute while the
 // rest of the worker looks healthy (D-05, TD-05).
@@ -35,7 +48,7 @@ const runner = await run({
   concurrency: 5,
   noHandleSignals: false,
   pollInterval: 2000,
-  taskList: buildTaskList(db, [quoteExpiryScheduler(db), acceptanceCodeHandler(db, { protector }, notifications)], {
+  taskList: buildTaskList(db, [quoteExpiryScheduler(db), acceptanceCodeHandler(db, { protector }, notifications), clientNotificationHandler(db), acknowledgedSignalHandler(), ...emailChannel], {
     monitoring,
     ...(monitoring.config ? { scanner: monitoring.config } : {}),
   }),

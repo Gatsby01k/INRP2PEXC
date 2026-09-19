@@ -7,12 +7,14 @@ Non-blocking items accepted at phase review. Each entry names the phase that mus
 | TD-01 | Auth schema: `auth_rate_limit.last_request` type warning | Phase 1 acceptance (2026-09-17) | Production deploy (launch checklist) | Open |
 | TD-02 | Auth: cross-surface operator → client OTP rejection surfaces as internal error | Phase 1 acceptance (2026-09-17) | Production client auth (client login enabled on `app.inrp2p.com`) | Open |
 | TD-03 | Encryption: production KMS-backed key-encryption key not implemented | Phase 2 implementation (2026-09-17) | First deployment holding real bank or contact data | Open |
-| TD-04 | Notifications: no email provider bound for acceptance codes | Phase 3 implementation (2026-09-17) | Any environment where a client accepts a quote through a shareable link | Open |
+| TD-04 | Notifications: no email provider bound — acceptance codes, client sign-in codes and notification emails | Phase 3 implementation (2026-09-17) | Any environment where a client signs in or accepts a quote through a shareable link | Open — widened at Phase 7 |
 | TD-05 | Chain verification: no TRON provider bound; scanning not implemented | Phase 4 implementation (2026-09-18) | Any environment that settles real USDT | Closed in Phase 5 (2026-09-18) |
 | TD-06 | Scanner: no tooling for a deliberate historical backfill behind the cursor | Phase 5 implementation (2026-09-18) | First production incident needing a historical rescan | Open (narrowed at Phase 5 review) |
 | TD-07 | Scanner: the TRON provider smoke gate has never been executed against real providers | Phase 5 implementation (2026-09-18) | Any environment that settles real USDT | Open — gate exists, **NOT RUN** |
 | TD-08 | Visual regression covers the Storybook validation stories, not the built operator pages | Phase 6 implementation (2026-09-19) | Production deploy (launch checklist) | Closed in Phase 6 review (2026-09-19) |
-| TD-09 | The operator page baselines have not been recorded in the canonical environment | Phase 6 review (2026-09-19) | The `visual-pages` CI job can pass | Open — suite exists, **NOT RECORDED** |
+| TD-09 | The page baselines have not been recorded in the canonical environment | Phase 6 review (2026-09-19) | The `visual-pages` CI job can pass | Open — suite exists (20 captures after Phase 7), **NOT RECORDED** |
+| TD-10 | Outbox: the desk's own signals and the receipt trigger are acknowledged, not consumed | Phase 7 implementation (2026-09-19) | A desk push channel (desk signals) and Phase 8 (receipts) | Open |
+| TD-11 | Client TOTP enrolment does not exist, so client-side destination management is desk-only | Phase 7 implementation (2026-09-19) | A client managing their own bank accounts or wallets, or granting quote-acceptance authority | Open |
 
 ## TD-01 — Better Auth schema warning for `auth_rate_limit.last_request`
 
@@ -46,6 +48,26 @@ Non-blocking items accepted at phase review. Each entry names the phase that mus
 **Risk.** Link acceptance cannot complete in any environment until a provider is bound. This is deliberate for Phase 3 (a silent or logging adapter would put codes in logs, contrary to SECURITY §2.3), but it is a launch blocker for the client link flow.
 
 **Resolution (to do, before link acceptance is enabled anywhere).** Implement a `NotificationAdapter` for the chosen transactional-email provider (template carrying only code, quote reference and expiry; no amounts, bank or wallet details), load its credentials from the secret manager, record the provider message id on `otp_delivery` (already supported), and add an integration test that a provider failure leaves the challenge PENDING and the outbox delivery retryable without regenerating the code. The same wiring needs the KMS-backed key from TD-03, since the worker must open the sealed code to send it.
+
+**Widened at Phase 7 (2026-09-19).** The same missing provider now blocks three things rather than one, and all
+three fail the same way — loudly, never into a log:
+
+* **Acceptance codes**, as above.
+* **Client sign-in.** The client product authenticates with a code to a known address (SECURITY §2.2). With no
+  provider the sender throws, so nobody can sign in to the client app in a deployed environment. The only
+  alternative is `INRP2P_CLIENT_OTP_SINK_FILE`, a test-only file sink that the runtime **refuses outright when
+  `INRP2P_ENV=production`** and that is off unless a path is named; the end-to-end and page-visual runs use it so
+  they can sign in through the real form rather than forge a session row.
+* **Client notification emails.** `clientNotificationEmailHandler` carries the in-app inbox's own words to the
+  client's verified addresses. It is registered **only** when a provider exists (`isNotificationProviderConfigured`),
+  because a handler that throws on every send fails its event, and an unconfigured deployment would retry and
+  eventually fail every client event it emits — taking the working in-app channel down with it. The worker says so
+  at startup: *client notifications: in-app only — no email provider is configured (TD-04)*.
+
+**Resolution (unchanged in shape, wider in scope).** One `NotificationAdapter` implementation closes all three:
+`sendAcceptanceCode`, `sendClientNotification`, and the client sign-in sender in
+`apps/web/src/server/client-otp.ts`. Until it exists, the in-app inbox is the client's only channel and the file
+sink is the only way to sign a client in outside production.
 
 ## TD-05 — No TRON provider behind the chain verifier
 
@@ -98,9 +120,9 @@ The suite paid for itself before it had a baseline: it found three layout defect
 whole workspace, its wrapped second line separated by a hole, the queue sliding under an open panel) and two
 glyphs rendered by a system font (`◗` in the sidebar, `⧗` on step-up actions), all fixed in the same change.
 
-## TD-09 — The operator page baselines have never been recorded
+## TD-09 — The page baselines have never been recorded
 
-**Observed.** `apps/web/visual` is complete: the fixture world, the determinism, the eleven captures, the
+**Observed.** `apps/web/visual` is complete: the fixture world, the determinism, the captures, the
 compare-only CI job (`visual-pages`) and the recording job in the manual baseline workflow (`record-pages`).
 `apps/web/visual/__screenshots__` holds no PNG and no `ENVIRONMENT.json`, so the guard refuses the comparison
 with "No canonical baselines" and the `visual-pages` job fails.
@@ -139,7 +161,60 @@ set is refused instead of blessed, and `apps/web/test/visual-manifest.unit.test.
 manifest and the suite agree in both directions, and a successful update keeps the eleven, drops only what the
 manifest no longer names, counts eleven in `ENVIRONMENT.json` and leaves a set the next compare run accepts.
 
+**Phase 7 widened the same run, and did not change its shape.** The page suite now covers **twenty** states, not
+eleven: the nine new ones are the client product's own screens (Exchange with a firm quote counting down, a trade
+awaiting the client's USDT, a trade paying out, a settled trade, History, Accounts, Notifications) and the public
+quote link on a phone, before and at the code step. They are captured in the same canonical environment, from the
+same fixture world, under a session the product itself issued. The self-check path proved all twenty reproduce
+pixel-for-pixel against a freshly re-seeded database; none of them is a baseline until the canonical run records
+them.
+
 **Resolution (to do, one run).** Actions → **Visual baselines (canonical update)** → *Run workflow*, with a
 reason. Review the images on the `visual-baselines/run-<run id>` and `visual-baselines/pages-run-<run id>`
 branches, merge both, and confirm `visual` and `visual-pages` are green on the resulting push. Nothing in the
 code needs to change.
+
+## TD-10 — The desk's own signals and the receipt trigger are acknowledged, not consumed
+
+**Observed.** The outbox dispatcher refuses to mark an event dispatched when no handler claims it — "an event
+nobody handles is a wiring bug" — which is how this was found: `desk.new_request`, `desk.request_needs_action`,
+`desk.quote_rejected`, `desk.acceptance_failed`, `desk.exception_opened`, `desk.leg_failed`,
+`desk.payout_actionable`, `desk.adjustment_requested`, `desk.route_settlement_failed`,
+`capacity.over_committed` and `receipt.generate` had no handler at all, so every one of them retried ten times
+and failed for good. Nothing was lost — the desk's queue, the INR screen and the exception list are all derived
+from the rows themselves, and receipts have not been built — but a permanently failing outbox is a bad place to
+look for a real problem.
+
+`packages/notifications/src/signals.ts` now names each type with what it is waiting for, and acknowledges exactly
+those. A type that is **not** on the list still fails loudly, which is the behaviour worth keeping.
+
+**Risk.** None to money or to the desk's work today; the signals carry no information the screens do not already
+read from the rows. The debt is that two real features are named but not built.
+
+**Resolution (to do).** A desk push channel (the `desk.*` signals and `capacity.over_committed` become something
+an operator is actually told, rather than something they find by looking) and Phase 8's receipts
+(`receipt.generate`). Each one removes its types from the acknowledged list as it starts consuming them.
+
+## TD-11 — Client TOTP enrolment is not built, so sensitive client-admin actions cannot be performed by a client
+
+**Observed.** SECURITY §2.2 specifies optional TOTP per client user, **required** for a `CLIENT_ADMIN` adding or
+archiving a bank account or wallet (D-08) and for granting or revoking `can_accept_quotes`. The domain enforces
+it: `authorizeClientAdmin` raises `MFA_ENROLLMENT_REQUIRED` without an enrolled authenticator and
+`STEP_UP_REQUIRED` without a fresh verification. What does not exist is the enrolment: `clientAuthOptions`
+carries the email-OTP plugin and no `twoFactor` plugin, so a client user has no way to enrol an authenticator and
+no endpoint to verify one against. There is therefore no code a client could type that would satisfy the rule.
+
+**Consequence, and what Phase 7 did about it.** The client Accounts screen shows destinations and says plainly
+that changes are made with the desk; there are no add/archive controls and **no client server actions** for them.
+An action that every call would refuse is not a smaller gap than no action — it is the same gap with an attack
+surface. Destinations are managed today by operators through `client_bank:add` and `client_wallet:manage` (both
+⧗), which is what every fixture and every test already does, and which D-08 allows.
+
+**Risk.** Product completeness only. No rule is weakened: the commands still refuse, and the desk path is fully
+audited. What a client cannot do is act on their own destinations without the desk.
+
+**Resolution (to do).** Add the `twoFactor` plugin to the client Better Auth configuration with its own issuer
+and enrolment flow (an Account screen: enrol, verify, recovery), keep `skipVerificationOnEnable: false`, decide
+deliberately whether client users may use trusted devices (operators may not), then bring back the client
+destination actions and the `can_accept_quotes` grant behind the existing step-up dialog. The RBAC and command
+side needs no change — it has been waiting for this since Phase 2.

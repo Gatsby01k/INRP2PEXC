@@ -58,7 +58,7 @@ Desk (strip + grouped queue + context panels), Orders, Rates (incl. Route positi
 Exit: E2E demo scenario driven entirely through operator UI + fake chain; keyboard-only run of quote → payout; visual regression for operator validation list.
 
 ## Phase 7 — Client product
-Exchange (both directions), firm quote states, quote link page + OTP acceptance verification (D-01, W3b), trade tracking, history, bank & wallets, account, notifications (in-app + email).
+Exchange (both directions), firm quote states, quote link page + OTP acceptance verification (D-01, W3b), trade tracking, history, bank & wallets, account, notifications (in-app + email). The quote link is published on the public host and is the only thing published there; the client app serves its own sign-in and every other path behind a client session (`ARCHITECTURE.md §7`). The email half of notifications needs the provider TD-04 is waiting for; the in-app inbox is the channel of record either way, and the email channel is registered only when a provider exists.
 Exit: E2E from link open on mobile viewport to completion; client JSON leakage test; visual regression for client validation list; Lighthouse mobile ≥ 90 for link page.
 
 ## Phase 8 — Finance outputs

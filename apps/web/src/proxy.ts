@@ -16,12 +16,19 @@ function wantsHtml(request: NextRequest): boolean {
 export async function proxy(request: NextRequest) {
   const rt = getRuntime();
   const surface = surfaceForHost(request.headers.get('host'), rt.hosts);
+  // `/` is the desk's own page; on the client host it means the one screen a client came for. The two products
+  // share a path space because they share a build, so the host decides what the root is.
+  if (surface === 'CLIENT' && request.nextUrl.pathname === '/') {
+    const to = request.nextUrl.clone();
+    to.pathname = '/exchange';
+    return NextResponse.redirect(to);
+  }
   const gate = gateFor(surface, request.nextUrl.pathname);
   try {
     if (gate === 'OPERATOR_SESSION') await requireOperatorSession(rt.operatorAuth, rt.appDb, request.headers);
     else if (gate === 'CLIENT_SESSION') await requireClientSession(rt.clientAuth, rt.appDb, request.headers);
   } catch (err) {
-    if (gate === 'OPERATOR_SESSION' && wantsHtml(request)) {
+    if ((gate === 'OPERATOR_SESSION' || gate === 'CLIENT_SESSION') && surface !== 'PUBLIC' && wantsHtml(request)) {
       const to = request.nextUrl.clone();
       to.pathname = '/sign-in';
       to.search = '';

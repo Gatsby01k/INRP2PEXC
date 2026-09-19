@@ -10,7 +10,8 @@
     "test:e2e": "playwright test -c e2e/playwright.config.ts",
     "test:visual": "playwright test -c visual/playwright.config.ts",
     "test:visual:update": "UPDATE_VISUALS=1 playwright test -c visual/playwright.config.ts",
-    "test:visual:selfcheck": "VISUAL_SELFCHECK=1 playwright test -c visual/playwright.config.ts"
+    "test:visual:selfcheck": "VISUAL_SELFCHECK=1 playwright test -c visual/playwright.config.ts",
+    "test:lighthouse": "node lighthouse/run.ts"
   },
   "dependencies": {
     "@inrp2p/adapters": "workspace:*",
@@ -23,7 +24,9 @@
     "@inrp2p/inr-accounts": "workspace:*",
     "@inrp2p/kernel": "workspace:*",
     "@inrp2p/ledger": "workspace:*",
+    "@inrp2p/notifications": "workspace:*",
     "@inrp2p/outbox": "workspace:*",
+    "@inrp2p/portal": "workspace:*",
     "@inrp2p/pricing": "workspace:*",
     "@inrp2p/quotes": "workspace:*",
     "@inrp2p/routes": "workspace:*",
@@ -47,6 +50,7 @@
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "kysely": "0.29.6",
+    "lighthouse": "13.4.1",
     "typescript": "6.0.3"
   }
 }

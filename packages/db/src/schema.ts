@@ -825,6 +825,35 @@ export interface ChainCursorTable {
   updated_at: Generated<Date>;
 }
 
+/** Client-facing in-app notifications (migration 0017). Written by the outbox handler, read by the client product. */
+export type NotificationKind =
+  | 'QUOTE_SENT'
+  | 'QUOTE_EXPIRED'
+  | 'REQUEST_DECLINED'
+  | 'TRADE_OPENED'
+  | 'PAYOUT_CONFIRMED'
+  | 'TRADE_COMPLETED'
+  | 'TRADE_CANCELLED'
+  | 'DESTINATION_ADDED'
+  | 'DESTINATION_ARCHIVED';
+
+export interface ClientNotificationTable {
+  id: Generated<string>;
+  client_id: string;
+  /** Null addresses the whole client; a user id narrows the notification to one person. */
+  user_id: string | null;
+  kind: NotificationKind;
+  title: string;
+  body: string;
+  subject_ref: string | null;
+  href: string | null;
+  outbox_event_id: string;
+  read_at: Date | null;
+  /** Set when the same message also went out by email; null when it did not (TD-04). */
+  email_sent_at: Date | null;
+  created_at: Generated<Date>;
+}
+
 export interface Database {
   currency: CurrencyTable;
   idempotency_key: IdempotencyKeyTable;
@@ -878,4 +907,5 @@ export interface Database {
   route_settlement_allocation: RouteSettlementAllocationTable;
   financial_adjustment: FinancialAdjustmentTable;
   chain_cursor: ChainCursorTable;
+  client_notification: ClientNotificationTable;
 }

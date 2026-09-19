@@ -8,9 +8,9 @@ import { createOTP } from '@better-auth/utils/otp';
 import { Money, encodeTronAddress } from '@inrp2p/kernel';
 import { type Db, createDb, createPool } from '@inrp2p/db';
 import { migrate } from '@inrp2p/db/migrate';
-import { installQueue } from '@inrp2p/outbox';
-import { DualProviderChainVerifier } from '@inrp2p/adapters';
-import { FAKE_USDT_CONTRACT, FakeCustodyAdapter, FakeTronChain, FakeTronProvider, testFieldProtector } from '@inrp2p/adapters/testing';
+import { dispatchOutbox, installQueue } from '@inrp2p/outbox';
+import { DualProviderChainVerifier, type FieldProtector, LocalKeyEncryptionKey, createFieldProtector } from '@inrp2p/adapters';
+import { FAKE_USDT_CONTRACT, FakeCustodyAdapter, FakeTronChain, FakeTronProvider } from '@inrp2p/adapters/testing';
 import { executeCommand } from '@inrp2p/commands';
 import type { ClientActor, DomainCommand, OperatorActor, OperatorRole } from '@inrp2p/identity';
 import { createClientAuth, createOperatorAuth, provisionClientUser, provisionOperator } from '@inrp2p/identity';
@@ -18,8 +18,9 @@ import { addBankAccount, addWallet, createClient, linkClientUser, setCanAcceptQu
 import { createInrAccount, createSettlementEntity, setDayCapacity } from '@inrp2p/inr-accounts';
 import { configureRoute, createRoute } from '@inrp2p/routes';
 import { publishRouteRate } from '@inrp2p/pricing';
-import { acceptQuote, createQuote, createRequest, sendQuote } from '@inrp2p/quotes';
+import { acceptQuote, createQuote, createQuoteLink, createRequest, sendQuote } from '@inrp2p/quotes';
 import { confirmPayout, createPayoutLeg, recordLegEvidence, recordRouteSettlement, sendPayoutLeg } from '@inrp2p/settlement';
+import { acknowledgedSignalHandler, clientNotificationHandler } from '@inrp2p/notifications';
 import { runTronConfirm, runTronScan } from '@inrp2p/scanner';
 import { importPoolAddresses, recordCustodyCapability, registerTreasuryWallet } from '@inrp2p/treasury';
 
@@ -55,6 +56,16 @@ export const OPERATOR_PASSWORD = 'desk-visual-passphrase-1'; // secret-scan:allo
 export const OPERATOR_AUTH_SECRET = 'visual-operator-secret-0123456789abcdef'; // secret-scan:allow
 export const CLIENT_AUTH_SECRET = 'visual-client-secret-0123456789abcdef'; // secret-scan:allow
 
+/** Fixed field-protection keys, so the seed and the built app seal and open the same values. Obviously fake. */
+export const VISUAL_FIELD_KEYS = {
+  keyId: 'visual-kek',
+  kekBase64: 'dmlzdWFsLWtlay1tYXRlcmlhbC0wMTIzNDU2Nzg5YWI=', // secret-scan:allow
+  hmacBase64: 'dmlzdWFsLWhtYWMtbWF0ZXJpYWwtMDEyMzQ1Njc4OWE=', // secret-scan:allow
+} as const;
+
+/** The custody provider the fixture records a POOL capability for; the app is configured with the same slug. */
+export const VISUAL_CUSTODY_PROVIDER = 'fake-custody';
+
 export interface VisualOperator {
   readonly email: string;
   readonly password: string;
@@ -72,8 +83,18 @@ export interface VisualState {
     readonly directRoute: string;
     readonly shortPaid: string;
   };
-  readonly tradeRefs: { readonly completed: string; readonly awaitingPayout: string };
+  readonly tradeRefs: { readonly completed: string; readonly awaitingPayout: string; readonly awaitingDeposit: string };
   readonly openRequestId: string;
+  /** The client product's own fixture: one signed-in person, one live quote, one link to it. */
+  readonly client: { readonly email: string; readonly quoteRef: string; readonly linkToken: string };
+}
+
+/** The one protector the seed and the built app share. */
+function visualFieldProtector(): FieldProtector {
+  return createFieldProtector({
+    kek: LocalKeyEncryptionKey.fromBase64(VISUAL_FIELD_KEYS.keyId, VISUAL_FIELD_KEYS.kekBase64),
+    hmacKey: Buffer.from(VISUAL_FIELD_KEYS.hmacBase64, 'base64'),
+  });
 }
 
 /** Fixed 20-byte TRON addresses: the same wallet prints the same characters on every run. */
@@ -160,7 +181,7 @@ export async function seedVisual(adminUrl: string): Promise<VisualState> {
 
   const auth = createOperatorAuth({ authDb, appDb: world, secret: OPERATOR_AUTH_SECRET, baseURL: SEED_ORIGIN, rateLimit: { enabled: false }, useSecureCookies: false });
   const owner = await operator(auth, world, 'owner@inrp2p.test', ['OWNER']);
-  const protector = testFieldProtector('visual-kek');
+  const protector = visualFieldProtector();
 
   // ── Clients ────────────────────────────────────────────────────────────────────────────────────────────
   const acme = await run(world, createClient(owner.actor), owner.ref, 'client.create', {
@@ -231,7 +252,7 @@ export async function seedVisual(adminUrl: string): Promise<VisualState> {
   });
   await run(world, setDayCapacity(owner.actor), owner.ref, 'capacity.set_day', { accountId: account.accountId, capacity: '50000000.00', reason: 'visual fixture' });
 
-  const custody = new FakeCustodyAdapter({ capability: 'POOL', poolSize: 24, seed: 'visual' });
+  const custody = new FakeCustodyAdapter({ provider: VISUAL_CUSTODY_PROVIDER, capability: 'POOL', poolSize: 24, seed: 'visual' });
   const poolWallet = await run(world, registerTreasuryWallet(owner.actor), owner.ref, 'treasury.register_wallet', {
     network: 'TRON' as const, address: address('deposit-pool'), label: 'Deposit pool', role: 'DEPOSIT_POOL' as const,
   });
@@ -315,6 +336,32 @@ export async function seedVisual(adminUrl: string): Promise<VisualState> {
     amount: '4000000.00', rail: 'IMPS' as const, utr: 'IXVISROUTE001', inrAccountId: account.accountId,
   });
 
+  // ── The client product's own states ────────────────────────────────────────────────────────────────────
+  // 6. A trade the client has accepted and not yet funded: the deposit instructions, which is the one screen a
+  //    client is looking at while they move money.
+  const awaitingDeposit = await trade(world, owner, {
+    clientId: acme.clientId, acceptor: acmeAcceptor, routeId: mumbai.routeId, bankAccountId: acmeBank.bankAccountId,
+    amount: '5000', clientRate: '102.000000', chain, skipDeposit: true,
+  });
+
+  // 7. A live quote with a shareable link, so Exchange counts one down and the public link page has one to show.
+  //    The business clock is frozen, so this quote is permanently 180 s from expiry — which is the point.
+  const pendingRequest = await run(world, createRequest(owner.actor, {}), owner.ref, 'request.create', {
+    clientId: acme.clientId, direction: 'SELL_USDT' as const, fixedSide: 'BASE' as const, amount: '100000',
+    targetRate: '102.000000', bankAccountId: acmeBank.bankAccountId,
+  });
+  const pendingQuote = await run(world, createQuote(owner.actor, {}), owner.ref, 'quote.create', {
+    requestId: pendingRequest.requestId, routeId: mumbai.routeId, clientRate: '102.000000', validitySeconds: 180,
+  });
+  await run(world, sendQuote(owner.actor, {}), owner.ref, 'quote.send', { quoteId: pendingQuote.quoteId });
+  let linkToken = '';
+  await run(world, createQuoteLink(owner.actor, {}, (t) => { linkToken = t; }), owner.ref, 'quote_link.create', { quoteId: pendingQuote.quoteId });
+  const pendingQuoteRef = (await world.selectFrom('quote').select('ref').where('id', '=', pendingQuote.quoteId).executeTakeFirstOrThrow()).ref;
+
+  // 8. The inbox, filled the way production fills it: by running the outbox over the events these commands
+  //    already enqueued. Nothing writes a notification directly.
+  await dispatchOutbox(world, [clientNotificationHandler(world), acknowledgedSignalHandler()], { batchSize: 500 });
+
   // The scanner's own state, written directly: only the chain would otherwise supply it, and the USDT screen
   // shows it so an operator can tell "quiet" from "broken".
   await sql`
@@ -333,8 +380,9 @@ export async function seedVisual(adminUrl: string): Promise<VisualState> {
     owner: { email: owner.email, password: OPERATOR_PASSWORD, totpSecret: owner.totpSecret },
     clients: { acme: acme.clientId, bharat: bharat.clientId },
     trades: { completed: completed.tradeId, awaitingPayout: awaiting.tradeId, directRoute: direct.tradeId, shortPaid: short.tradeId },
-    tradeRefs: { completed: refOf(completed.tradeId), awaitingPayout: refOf(awaiting.tradeId) },
+    tradeRefs: { completed: refOf(completed.tradeId), awaitingPayout: refOf(awaiting.tradeId), awaitingDeposit: refOf(awaitingDeposit.tradeId) },
     openRequestId: openRequest.requestId,
+    client: { email: 'treasury@acmepay.test', quoteRef: pendingQuoteRef, linkToken },
   };
   writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
   await world.destroy();
@@ -356,6 +404,8 @@ async function trade(
     chain: ReturnType<typeof chainDeps>;
     /** What the client actually sent, when that differs from what they owe (short payment). */
     deposit?: string;
+    /** Leave the trade waiting for its USDT, which is the first thing a client's own trade screen shows. */
+    skipDeposit?: boolean;
   },
 ): Promise<{ tradeId: string }> {
   const request = await run(db, createRequest(owner.actor, {}), owner.ref, 'request.create', {
@@ -375,7 +425,7 @@ async function trade(
   const clientActor: ClientActor = { kind: 'CLIENT', userId: input.acceptor.userId, sessionId: session.id };
   const accepted = await executeCommand(
     db,
-    acceptQuote(clientActor, { custody: new FakeCustodyAdapter({ capability: 'POOL', poolSize: 24, seed: 'visual' }), protector: testFieldProtector('visual-kek') }),
+    acceptQuote(clientActor, { custody: new FakeCustodyAdapter({ provider: VISUAL_CUSTODY_PROVIDER, capability: 'POOL', poolSize: 24, seed: 'visual' }), protector: visualFieldProtector() }),
     {
       name: 'quote.accept',
       actor: { type: 'USER', id: input.acceptor.userId, surface: 'CLIENT', sessionId: session.id },
@@ -385,6 +435,8 @@ async function trade(
     },
   );
   const { tradeId } = accepted.result as { tradeId: string };
+
+  if (input.skipDeposit) return { tradeId };
 
   const deposit = await db
     .selectFrom('deposit_assignment as a')

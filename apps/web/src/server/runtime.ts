@@ -2,6 +2,7 @@ import 'server-only';
 import { createDb, createPool, type Db } from '@inrp2p/db';
 import { createClientAuth, createOperatorAuth, type ClientAuth, type OperatorAuth } from '@inrp2p/identity';
 import { envFlag, optionalEnv, requiredEnv as required } from './env.ts';
+import { clientOtpSender } from './client-otp.ts';
 import type { HostConfig } from './surface.ts';
 
 /**
@@ -44,13 +45,21 @@ export function getRuntime(): Runtime {
     authDb, appDb, secret: required('CLIENT_AUTH_SECRET'),
     baseURL: optionalEnv('CLIENT_BASE_URL') ?? `https://${hosts.appHost}`,
     useSecureCookies: secure,
-    otpSender: {
-      // Transactional email adapter arrives with notifications; refusing to run silently is safer than logging codes.
-      send: async () => {
-        throw new Error('email OTP delivery adapter is not configured');
-      },
-    },
+    otpSender: clientOtpSender(),
   });
   runtime = { hosts, appDb, operatorAuth, clientAuth };
   return runtime;
+}
+
+/**
+ * The origin a shareable quote link is written with (D-01). It is the public host, never the client host: a link
+ * is opened by whoever holds it, and the page it opens must not sit on an origin that carries a client's cookie.
+ */
+export function quoteLinkBase(): string {
+  return optionalEnv('CLIENT_LINK_BASE') ?? `https://${getRuntime().hosts.publicHost}`;
+}
+
+/** The origin the client product is served from, used where an email needs an absolute link back into it. */
+export function clientBase(): string {
+  return optionalEnv('CLIENT_BASE_URL') ?? `https://${getRuntime().hosts.appHost}`;
 }

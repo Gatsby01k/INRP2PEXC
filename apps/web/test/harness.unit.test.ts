@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { HARNESS_APP_HOST, HARNESS_PUBLIC_HOST, LOOPBACK_HOST, describeFetchFailure, deskBaseUrl, deskServerEnv, formatReadinessFailure } from '../harness/desk-server.ts';
+import { LOOPBACK_HOST, describeFetchFailure, deskBaseUrl, deskServerEnv, formatReadinessFailure, surfacePorts } from '../harness/desk-server.ts';
 import { gateFor, surfaceForHost } from '../src/server/surface.ts';
 
 /**
@@ -15,23 +15,31 @@ const ENV = deskServerEnv({ port: 3210, databaseUrl: 'postgres://postgres@127.0.
 const hosts = { deskHost: ENV.DESK_HOST!, appHost: ENV.APP_HOST!, publicHost: ENV.PUBLIC_HOST! };
 
 describe('desk harness configuration', () => {
-  it('addresses the desk by a literal IPv4 loopback address, never a name to resolve', () => {
+  it('addresses every surface by a literal IPv4 loopback address, never a name to resolve', () => {
     expect(LOOPBACK_HOST).toMatch(/^127(\.\d{1,3}){3}$/);
     expect(deskBaseUrl(3210)).toBe('http://127.0.0.1:3210');
-    expect(ENV.DESK_HOST).toBe(LOOPBACK_HOST);
+    for (const host of [ENV.DESK_HOST!, ENV.APP_HOST!, ENV.PUBLIC_HOST!]) {
+      expect(host.split(':')[0]).toBe(LOOPBACK_HOST);
+    }
   });
 
-  it('gives the desk one origin: the host it is told it is, the origin its auth trusts, the address a suite browses', () => {
-    for (const key of ['OPERATOR_BASE_URL', 'CLIENT_BASE_URL', 'CLIENT_LINK_BASE'] as const) {
+  it('gives each surface one origin: the host it is told it is, and the address a suite browses', () => {
+    const ports = surfacePorts(3210);
+    const pairs = [
+      ['OPERATOR_BASE_URL', ENV.DESK_HOST!, ports.desk],
+      ['CLIENT_BASE_URL', ENV.APP_HOST!, ports.app],
+      ['CLIENT_LINK_BASE', ENV.PUBLIC_HOST!, ports.public],
+    ] as const;
+    for (const [key, host, port] of pairs) {
       const url = new URL(ENV[key]!);
       expect(url.protocol, key).toBe('http:');
-      expect(url.hostname, key).toBe(ENV.DESK_HOST);
-      expect(url.port, key).toBe('3210');
+      expect(url.host, key).toBe(host);
+      expect(url.port, key).toBe(String(port));
+      expect(deskBaseUrl(port)).toBe(url.origin);
     }
-    expect(deskBaseUrl(3210)).toBe(new URL(ENV.OPERATOR_BASE_URL!).origin);
   });
 
-  it('routes a request to that address as the operator surface, so /sign-in is reachable and the rest is guarded', () => {
+  it('routes a request to the desk address as the operator surface, so /sign-in is reachable and the rest is guarded', () => {
     const browsed = new URL(ENV.OPERATOR_BASE_URL!).host;
     expect(surfaceForHost(browsed, hosts)).toBe('OPERATOR');
     expect(gateFor(surfaceForHost(browsed, hosts), '/sign-in')).toBe('OPERATOR_SIGN_IN');
@@ -39,10 +47,32 @@ describe('desk harness configuration', () => {
     expect(gateFor(surfaceForHost(browsed, hosts), '/api/auth/sign-in/email')).toBe('AUTH_ENDPOINT');
   });
 
-  it('keeps the three surfaces distinguishable', () => {
+  it('keeps the three surfaces distinguishable, on one address and three ports', () => {
     expect(new Set([ENV.DESK_HOST, ENV.APP_HOST, ENV.PUBLIC_HOST]).size).toBe(3);
-    expect(surfaceForHost(HARNESS_APP_HOST, hosts)).toBe('CLIENT');
-    expect(surfaceForHost(HARNESS_PUBLIC_HOST, hosts)).toBe('PUBLIC');
+    expect(surfaceForHost(new URL(ENV.CLIENT_BASE_URL!).host, hosts)).toBe('CLIENT');
+    expect(surfaceForHost(new URL(ENV.CLIENT_LINK_BASE!).host, hosts)).toBe('PUBLIC');
+    // The public host publishes the quote link and refuses everything else, even though it is the same build.
+    expect(gateFor('PUBLIC', '/q/AbCdEfGhIjKlMnOpQrStUv')).toBe('PUBLIC');
+    expect(gateFor('PUBLIC', '/exchange')).toBe('CLIENT_SESSION');
+  });
+
+  it('passes the custody provider and field keys a client decision needs, and only when given', () => {
+    expect(ENV.INRP2P_CUSTODY_PROVIDER).toBeUndefined();
+    const configured = deskServerEnv({
+      port: 3210,
+      databaseUrl: ENV.DATABASE_URL!,
+      operatorAuthSecret: 'op',
+      clientAuthSecret: 'cl',
+      custodyProvider: 'fake-custody',
+      fieldKeys: { keyId: 'k', kekBase64: 'a', hmacBase64: 'b' },
+      clientOtpSinkFile: '/tmp/otp.jsonl',
+    });
+    expect(configured.INRP2P_CUSTODY_PROVIDER).toBe('fake-custody');
+    expect(configured.INRP2P_CUSTODY_CAPABILITY).toBe('POOL');
+    expect(configured.INRP2P_KEK_ID).toBe('k');
+    expect(configured.INRP2P_CLIENT_OTP_SINK_FILE).toBe('/tmp/otp.jsonl');
+    // The sink is test-only, and the runtime refuses it in production; the harness never claims production.
+    expect(configured.INRP2P_ENV?.toLowerCase()).not.toBe('production');
   });
 
   it('only ever allows insecure cookies outside production, which the runtime enforces', () => {

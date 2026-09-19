@@ -13,6 +13,10 @@ playwright-report/
 apps/web/e2e/.state.json
 apps/web/visual/.state.json
 apps/web/visual/.auth.json
+apps/web/visual/.auth-client.json
+# Client sign-in codes written by the test-only sink; a throwaway file for a throwaway database.
+apps/web/e2e/.client-otp.jsonl
+apps/web/visual/.client-otp.jsonl
 # Self-check captures: never baselines, never committed (docs/VISUAL_BASELINES.md).
 apps/web/visual/.selfcheck/
 playwright-report-visual/

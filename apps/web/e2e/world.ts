@@ -9,7 +9,8 @@ import { Money, encodeTronAddress } from '@inrp2p/kernel';
 import { type Db, createDb, createPool } from '@inrp2p/db';
 import { migrate } from '@inrp2p/db/migrate';
 import { installQueue } from '@inrp2p/outbox';
-import { FakeCustodyAdapter, testFieldProtector } from '@inrp2p/adapters/testing';
+import { type FieldProtector, LocalKeyEncryptionKey, createFieldProtector } from '@inrp2p/adapters';
+import { FakeCustodyAdapter } from '@inrp2p/adapters/testing';
 import { executeCommand } from '@inrp2p/commands';
 import type { DomainCommand } from '@inrp2p/identity';
 import { type OperatorActor, type OperatorRole, createClientAuth, createOperatorAuth, provisionClientUser, provisionOperator } from '@inrp2p/identity';
@@ -39,6 +40,32 @@ export const OPERATOR_PASSWORD = 'desk-operator-passphrase-1'; // secret-scan:al
 export const OPERATOR_AUTH_SECRET = 'e2e-operator-secret-0123456789abcdef'; // secret-scan:allow
 export const CLIENT_AUTH_SECRET = 'e2e-client-secret-0123456789abcdef'; // secret-scan:allow
 
+/**
+ * Field-protection keys for the run, fixed for the same reason the auth secrets are: the built app seals an
+ * acceptance code into `otp_delivery`, and the harness has to open it to play the part of the email provider.
+ * Two processes cannot do that with keys one of them invented. Obviously fake, and only ever a throwaway
+ * database on a loopback port.
+ */
+export const E2E_FIELD_KEYS = {
+  keyId: 'e2e-kek',
+  kekBase64: 'ZTJlLWtlay1tYXRlcmlhbC0wMTIzNDU2Nzg5YWJjZGU=', // secret-scan:allow
+  hmacBase64: 'ZTJlLWhtYWMtbWF0ZXJpYWwtMDEyMzQ1Njc4OWFiY2U=', // secret-scan:allow
+} as const;
+
+/** The one protector the seed, the built app and the harness all share. */
+export function e2eFieldProtector(): FieldProtector {
+  return createFieldProtector({
+    kek: LocalKeyEncryptionKey.fromBase64(E2E_FIELD_KEYS.keyId, E2E_FIELD_KEYS.kekBase64),
+    hmacKey: Buffer.from(E2E_FIELD_KEYS.hmacBase64, 'base64'),
+  });
+}
+
+/** The custody provider the world records a POOL capability for; the app is configured with the same slug (D-02). */
+export const E2E_CUSTODY_PROVIDER = 'fake-custody';
+
+/** The client user who may accept quotes (D-01); the run signs in as them and receives acceptance codes. */
+export const ACCEPTOR_EMAIL = 'treasury@acmepay.test';
+
 export interface E2EOperator {
   readonly email: string;
   readonly password: string;
@@ -59,6 +86,7 @@ export interface E2EState {
   readonly inrAccountId: string;
   readonly acceptorUserId: string;
   readonly acceptorClientUserId: string;
+  readonly acceptorEmail: string;
   readonly hotWalletId: string;
 }
 
@@ -107,7 +135,7 @@ export async function seedE2E(adminUrl: string): Promise<E2EState> {
 
   const owner = await operator(auth, db, 'owner@inrp2p.test', ['OWNER']);
   const settlementOperator = await operator(auth, db, 'settlement@inrp2p.test', ['SETTLEMENT_OPERATOR']);
-  const protector = testFieldProtector('e2e-kek');
+  const protector = e2eFieldProtector();
 
   const client = await run(db, createClient(owner.actor), owner.ref, 'client.create', {
     legalName: 'Acme Pay Private Limited', displayName: 'Acme Pay', type: 'COMPANY' as const, typicalDirection: 'SELL_USDT' as const,
@@ -124,7 +152,7 @@ export async function seedE2E(adminUrl: string): Promise<E2EState> {
     authDb, appDb: db, secret: CLIENT_AUTH_SECRET, baseURL: SEED_ORIGIN,
     rateLimit: { enabled: false }, useSecureCookies: false, otpSender: { send: async () => {} },
   });
-  const acceptorUserId = await provisionClientUser(clientAuth, { email: 'treasury@acmepay.test', name: 'Acme treasury' });
+  const acceptorUserId = await provisionClientUser(clientAuth, { email: ACCEPTOR_EMAIL, name: 'Acme treasury' });
   await sql`update auth_user set email_verified = true where id = ${acceptorUserId}`.execute(db);
   const linked = await run(db, linkClientUser(owner.actor), owner.ref, 'client_user.link', { clientId: client.clientId, userId: acceptorUserId, role: 'CLIENT_ADMIN' as const });
   await run(db, setCanAcceptQuotes(owner.actor), owner.ref, 'client_user.set_accept_quotes', { clientUserId: linked.clientUserId, canAcceptQuotes: true });
@@ -149,7 +177,7 @@ export async function seedE2E(adminUrl: string): Promise<E2EState> {
   });
   await run(db, setDayCapacity(owner.actor), owner.ref, 'capacity.set_day', { accountId: account.accountId, capacity: '50000000.00', reason: 'end-to-end run' });
 
-  const custody = new FakeCustodyAdapter({ capability: 'POOL', poolSize: 20, seed: 'e2e' });
+  const custody = new FakeCustodyAdapter({ provider: E2E_CUSTODY_PROVIDER, capability: 'POOL', poolSize: 20, seed: 'e2e' });
   const poolWallet = await run(db, registerTreasuryWallet(owner.actor), owner.ref, 'treasury.register_wallet', {
     network: 'TRON' as const, address: encodeTronAddress(randomBytes(20)), label: 'Deposit pool', role: 'DEPOSIT_POOL' as const,
   });
@@ -174,6 +202,7 @@ export async function seedE2E(adminUrl: string): Promise<E2EState> {
     inrAccountId: account.accountId,
     acceptorUserId,
     acceptorClientUserId: linked.clientUserId,
+    acceptorEmail: ACCEPTOR_EMAIL,
     hotWalletId: hot.walletId,
   };
   writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));

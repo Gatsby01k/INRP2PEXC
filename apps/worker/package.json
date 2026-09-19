@@ -13,6 +13,7 @@
     "@inrp2p/db": "workspace:*",
     "@inrp2p/inr-accounts": "workspace:*",
     "@inrp2p/kernel": "workspace:*",
+    "@inrp2p/notifications": "workspace:*",
     "@inrp2p/outbox": "workspace:*",
     "@inrp2p/quotes": "workspace:*",
     "@inrp2p/scanner": "workspace:*",

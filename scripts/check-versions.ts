@@ -36,6 +36,8 @@ export const MATRIX: Record<string, string> = {
   '@playwright/test': '1.56.1',
   '@axe-core/playwright': '4.13.0',
   uqr: '0.1.3',
+  // Phase 7: the quote link is opened on a phone, so its mobile budget is measured rather than assumed.
+  lighthouse: '13.4.1',
 };
 export const POSTGRES = '18.6';
 

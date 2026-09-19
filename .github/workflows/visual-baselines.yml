@@ -1,7 +1,8 @@
 name: Visual baselines (canonical update)
 
 # The ONLY CI path that records visual baselines — for the component gallery (`record`) and for the built
-# operator pages (`record-pages`). Manual trigger only: never runs on push or pull_request.
+# built pages — operator, client and the public quote link (`record-pages`). Manual trigger only: never runs on
+# push or pull_request.
 # Records in the canonical environment, then pushes the result to a review branch; nothing lands on main
 # until a human reviews the image diff and merges it (docs/VISUAL_BASELINES.md).
 on:
@@ -152,7 +153,7 @@ jobs:
             echo "Page baselines unchanged; nothing to push."
             exit 0
           fi
-          git commit -m "Visual baselines: re-record the operator pages in the canonical environment" \
+          git commit -m "Visual baselines: re-record the operator and client pages in the canonical environment" \
             -m "Reason: $REASON" \
             -m "Environment: mcr.microsoft.com/playwright:v1.56.1-noble (linux/amd64), see apps/web/visual/__screenshots__/ENVIRONMENT.json" \
             -m "Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"

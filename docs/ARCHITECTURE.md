@@ -143,6 +143,8 @@ Adapters are the only place that talks to the outside world. Domain modules depe
 
 Separate hostnames for client and operator gives separate cookies (no operator session ever present in a client browser context) and allows network restrictions on the desk. One codebase, one deploy.
 
+The request's `Host` header is what decides which surface it is (`apps/web/src/server/surface.ts`), and each surface then decides what may be served without a session: the desk serves only `/sign-in`, the client app only `/sign-in`, and the public host only `/q/{token}` — everything else on the public host is refused rather than rendered, because a page that needs a session has no business on a host that never receives one. A configured host without a port matches the name on any port, which is what a deployment behind a load balancer needs; a configured host **with** a port must match both, which is what lets a test harness serve all three surfaces from one loopback address on three ports without loosening how a real deployment is told apart.
+
 ## 8. Data protection
 
 - Bank account numbers, IFSC-bound details: envelope-encrypted (AES-256-GCM, data key wrapped by cloud KMS). Stored alongside `last4` and a keyed HMAC for duplicate detection. Decryption only in the settlement module for users with `bank_account:reveal`, audited.

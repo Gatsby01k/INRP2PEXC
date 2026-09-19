@@ -1,0 +1,59 @@
+/*
+ * The quote link is opened on a phone, once, by someone who has a decision to make and a countdown running.
+ * So: one column, one decision, nothing to scroll past, and nothing to navigate to. There is no shell here on
+ * purpose — this page is not the client product and must not look like a way into it.
+ */
+.page {
+  min-height: 100vh;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: var(--space-5) var(--space-3);
+  background: var(--bg-app);
+}
+
+.card {
+  width: 100%;
+  max-width: 460px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.brand {
+  margin: 0;
+  font-size: var(--font-size-meta);
+  color: var(--text-muted);
+}
+
+.outcome {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-surface);
+  padding: var(--space-4);
+}
+
+.outcomeTitle {
+  margin: 0;
+  font-size: var(--font-size-heading);
+  font-weight: var(--font-weight-semibold);
+}
+
+.body {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.error {
+  margin: 0;
+  color: var(--status-danger);
+}
+
+@media (min-width: 600px) {
+  .page {
+    padding: var(--space-6) var(--space-4);
+  }
+}

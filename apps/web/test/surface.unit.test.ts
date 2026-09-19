@@ -34,6 +34,39 @@ describe('proxy gating', () => {
     expect(gateFor('CLIENT', '/api/client/me')).toBe('CLIENT_SESSION');
     expect(gateFor('CLIENT', '/api/auth/sign-in/email-otp')).toBe('AUTH_ENDPOINT');
     expect(gateFor('PUBLIC', '/api/auth/sign-in/email')).toBe('CLIENT_SESSION');
-    expect(gateFor('PUBLIC', '/')).toBe('PUBLIC');
+  });
+
+  it('serves the client sign-in page without a session, and every other client page with one', () => {
+    expect(gateFor('CLIENT', '/sign-in')).toBe('CLIENT_SIGN_IN');
+    expect(gateFor('CLIENT', '/sign-in/')).toBe('CLIENT_SIGN_IN');
+    for (const path of ['/', '/exchange', '/history', '/trades/IX-260916-1842', '/sign-in/x', '/sign-inx']) {
+      expect(gateFor('CLIENT', path)).toBe('CLIENT_SESSION');
+    }
+  });
+
+  it('publishes the quote link on the public host, and nothing else (D-01)', () => {
+    expect(gateFor('PUBLIC', '/q/AbCdEfGhIjKlMnOpQrStUv')).toBe('PUBLIC');
+    expect(gateFor('PUBLIC', '/q')).toBe('PUBLIC');
+    // Opening the link authorizes nothing, so it needs no session — but it is the only page published here.
+    for (const path of ['/', '/exchange', '/sign-in', '/qx', '/x/q/token']) {
+      expect(gateFor('PUBLIC', path)).toBe('CLIENT_SESSION');
+    }
+  });
+
+  it('tells three surfaces apart on one address when the configured hosts carry ports', () => {
+    // One machine, three ports: the shape a harness has, and the reason a configured port is compared.
+    const local = { deskHost: '127.0.0.1:3220', appHost: '127.0.0.1:3221', publicHost: '127.0.0.1:3222' };
+    expect(surfaceForHost('127.0.0.1:3220', local)).toBe('OPERATOR');
+    expect(surfaceForHost('127.0.0.1:3221', local)).toBe('CLIENT');
+    expect(surfaceForHost('127.0.0.1:3222', local)).toBe('PUBLIC');
+    // An unknown port is not the desk, and must not inherit the desk's surface.
+    expect(surfaceForHost('127.0.0.1:3999', local)).toBe('PUBLIC');
+    expect(surfaceForHost('127.0.0.1', local)).toBe('PUBLIC');
+  });
+
+  it('keeps a port-less configured host matching every port, as a deployment behind a load balancer needs', () => {
+    expect(surfaceForHost('desk.inrp2p.com', hosts)).toBe('OPERATOR');
+    expect(surfaceForHost('desk.inrp2p.com:8443', hosts)).toBe('OPERATOR');
+    expect(surfaceForHost('', hosts)).toBe('PUBLIC');
   });
 });

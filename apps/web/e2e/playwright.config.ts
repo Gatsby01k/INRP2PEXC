@@ -1,5 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
-import { deskBaseUrl } from '../harness/desk-server.ts';
+import { deskBaseUrl, surfacePorts } from '../harness/desk-server.ts';
 
 /**
  * End-to-end run of the operator product (IMPLEMENTATION_PLAN Phase 6 exit). It drives the **built** app against
@@ -22,9 +22,14 @@ export default defineConfig({
   retries: 0,
   reporter: process.env.CI ? [['line'], ['html', { open: 'never' }]] : [['list']],
   use: {
-    baseURL: deskBaseUrl(PORT),
+    baseURL: deskBaseUrl(surfacePorts(PORT).desk),
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
   },
-  projects: [{ name: 'desk', use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } } }],
+  projects: [
+    { name: 'desk', testMatch: /(demo|keyboard)\.spec\.ts/, use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } } },
+    // The client product is opened on a phone: the quote link arrives by message, and the trade is followed from
+    // the same device. Running it on a real mobile device profile is the point, not a detail of the profile.
+    { name: 'client-mobile', testMatch: /client\.spec\.ts/, use: { ...devices['Pixel 7'] } },
+  ],
 });
