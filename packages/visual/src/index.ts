@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { chromium } from '@playwright/test';
@@ -101,13 +101,68 @@ export function writeMetadata(screenshotDir: string, env: VisualEnvironment): vo
   writeFileSync(metadataFile(screenshotDir), `${JSON.stringify(meta, null, 2)}\n`);
 }
 
+/** Every baseline file currently in a suite's directory, sorted so comparisons and logs are stable. */
+export const baselineFiles = (screenshotDir: string): string[] =>
+  existsSync(screenshotDir) ? readdirSync(screenshotDir).filter((f) => f.endsWith('.png')).sort() : [];
+
+export interface Reconciliation {
+  /** Expected baselines that are present. */
+  readonly kept: string[];
+  /** Baselines that were deleted because nothing expects them any more. */
+  readonly removed: string[];
+  /** Expected baselines that were not recorded — the set is incomplete and must not be blessed. */
+  readonly missing: string[];
+}
+
+/**
+ * Brings a suite's baseline directory in line with the set it is supposed to hold: deletes what is no longer
+ * expected, and reports what is expected but absent.
+ *
+ * The caller decides what an absence means, but it never means "record it anyway": a metadata file written over
+ * an incomplete set is how a suite ends up comparing against baselines that are not there.
+ */
+export function reconcileBaselines(screenshotDir: string, expected: readonly string[]): Reconciliation {
+  const wanted = new Set(expected);
+  const present = baselineFiles(screenshotDir);
+  const removed: string[] = [];
+  for (const file of present) {
+    if (wanted.has(file)) continue;
+    rmSync(path.join(screenshotDir, file), { force: true });
+    removed.push(file);
+  }
+  const still = new Set(baselineFiles(screenshotDir));
+  return {
+    kept: [...wanted].filter((f) => still.has(f)).sort(),
+    removed,
+    missing: [...wanted].filter((f) => !still.has(f)).sort(),
+  };
+}
+
+/**
+ * What is wrong with a recorded baseline set, from the point of view of a compare run: no metadata, metadata
+ * from another environment, a count that disagrees with the files, or an expected baseline that is not there.
+ * Empty means a compare run will find what it needs.
+ */
+export function recordedBaselineProblems(screenshotDir: string, expected?: readonly string[]): string[] {
+  const meta = readMetadata(screenshotDir);
+  if (!meta) return [`${metadataFile(screenshotDir)} is missing`];
+  const problems = mismatches(meta, CANONICAL);
+  const files = baselineFiles(screenshotDir);
+  if (files.length !== meta.baselines) problems.push(`baseline count ${files.length} does not match ENVIRONMENT.json (${meta.baselines})`);
+  if (expected) {
+    const present = new Set(files);
+    for (const file of expected) if (!present.has(file)) problems.push(`expected baseline ${file} is missing`);
+  }
+  return problems;
+}
+
 /**
  * Refuses to compare or record pixels anywhere but the canonical environment, and refuses to record at all
  * except through the deliberate update path. Every pixel suite calls this from its global setup.
  *
  * Returns the environment it verified, so a reporter can record it with the baselines.
  */
-export async function guardVisualRun(opts: { suite: string; screenshotDir: string; fromDir: string }): Promise<VisualEnvironment | null> {
+export async function guardVisualRun(opts: { suite: string; screenshotDir: string; fromDir: string; expected?: readonly string[] }): Promise<VisualEnvironment | null> {
   if (SELF_CHECK) {
     // Loud, because a self-check proves the suite runs — never that the baselines are right.
     console.warn(
@@ -132,17 +187,9 @@ export async function guardVisualRun(opts: { suite: string; screenshotDir: strin
     return env;
   }
 
-  const meta = readMetadata(opts.screenshotDir);
-  if (!meta) {
-    throw new Error(`No canonical baselines for "${opts.suite}": ${metadataFile(opts.screenshotDir)} is missing. ${HOW}`);
-  }
-  const metaProblems = mismatches(meta, CANONICAL);
-  if (metaProblems.length) {
-    throw new Error(`Committed baselines for "${opts.suite}" were not recorded in the canonical environment.\n  ${metaProblems.join('\n  ')}\n${HOW}`);
-  }
-  const pngs = pngCount(opts.screenshotDir);
-  if (pngs !== meta.baselines) {
-    throw new Error(`Baseline count ${pngs} does not match ENVIRONMENT.json (${meta.baselines}) for "${opts.suite}"; baselines were changed outside the canonical update path. ${HOW}`);
+  const problems = recordedBaselineProblems(opts.screenshotDir, opts.expected);
+  if (problems.length) {
+    throw new Error(`Cannot compare against the committed baselines for "${opts.suite}".\n  ${problems.join('\n  ')}\n${HOW}`);
   }
   return env;
 }

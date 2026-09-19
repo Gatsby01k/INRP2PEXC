@@ -130,6 +130,15 @@ error, the attempts, the elapsed time and the server's own output instead of one
 or UI semantics changed, and no origin or host check was loosened — they were made to agree
 (`apps/web/test/harness.unit.test.ts`).
 
+**Second attempt (run `35434518680`): the desk started, all eleven screenshots were written, and the compare
+step that follows found none of them.** The reporter built its expected set from `test.info().annotations` in
+`onBegin`, which runs *before* any test — so the set was empty, every freshly recorded baseline was deleted as
+stale, and metadata was written claiming zero baselines. The expected set is now a static manifest
+(`apps/web/visual/captures.ts`, the eleven canonical names) shared by the suite and the reporter, an incomplete
+set is refused instead of blessed, and `apps/web/test/visual-manifest.unit.test.ts` holds both halves: the
+manifest and the suite agree in both directions, and a successful update keeps the eleven, drops only what the
+manifest no longer names, counts eleven in `ENVIRONMENT.json` and leaves a set the next compare run accepts.
+
 **Resolution (to do, one run).** Actions → **Visual baselines (canonical update)** → *Run workflow*, with a
 reason. Review the images on the `visual-baselines/run-<run id>` and `visual-baselines/pages-run-<run id>`
 branches, merge both, and confirm `visual` and `visual-pages` are green on the resulting push. Nothing in the

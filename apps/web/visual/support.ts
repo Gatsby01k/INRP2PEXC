@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs';
-import { type Locator, type Page, expect, test } from '@playwright/test';
+import { type Locator, type Page, expect } from '@playwright/test';
 import { sql } from 'kysely';
 import { type Db, createDb, createPool } from '@inrp2p/db';
+import { type CaptureName, isCaptureName } from './captures.ts';
 import { FROZEN_IST_DAY, FROZEN_NOW, STATE_FILE, type VisualState } from './world.ts';
 
 export const state = (): VisualState => JSON.parse(readFileSync(STATE_FILE, 'utf8')) as VisualState;
@@ -90,11 +91,12 @@ export async function platformFontsOutsideGeist(page: Page): Promise<string[]> {
 }
 
 /**
- * Captures one operator state. The name is annotated so the update reporter can drop baselines for captures that
- * no longer exist, the same way the component suite drops baselines for deleted stories.
+ * Captures one operator state, under a name the manifest knows (`captures.ts`). The name is typed, and checked
+ * again here, because the reporter reconciles the baseline directory against that manifest: a capture the
+ * manifest has never heard of would be recorded and then deleted as stale.
  */
-export async function capture(page: Page, name: string, target?: Locator): Promise<void> {
-  test.info().annotations.push({ type: 'capture', description: name });
+export async function capture(page: Page, name: CaptureName, target?: Locator): Promise<void> {
+  if (!isCaptureName(name)) throw new Error(`"${name}" is not in the capture manifest (apps/web/visual/captures.ts)`);
   await settle(page);
   expect(await platformFontsOutsideGeist(page), 'text rendered with a non-bundled fallback font').toEqual([]);
   if (target) await expect(target).toHaveScreenshot(`${name}.png`);

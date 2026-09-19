@@ -184,6 +184,16 @@ either: bounded per request, and on expiry it reports the last HTTP status (with
 transport error by name, the attempt count, the elapsed time and the server's own last output. Production host
 configuration is untouched, and no origin or host check was loosened.
 
+**4. The canonical recording's second run (harness only).** The desk started, the update step wrote all eleven
+screenshots, and the compare step that follows found none of them. The reporter collected the names it was
+supposed to keep from `test.info().annotations` in `onBegin` — which Playwright calls before any test has run, so
+the set was empty and the cleanup deleted everything it had just recorded, then wrote metadata claiming zero
+baselines. The expected set is now the static manifest `apps/web/visual/captures.ts`, read by the suite and by
+the reporter, so it is known before execution rather than gathered during it; an update that does not produce
+every expected baseline refuses to record metadata and fails the run rather than blessing a partial set; and the
+compare guard reuses the same check, so "recorded" and "accepted" cannot drift apart. Visual checks are
+unchanged and stale-baseline cleanup is still there — it now has a set it can trust.
+
 **Also observed, deliberately not changed.** The exception panel shows a short payment as two open cases — one
 against the crypto transfer, one against the trade — because the domain opens both. The panel reports what the
 domain recorded; whether one short payment should raise one case or two is a domain question for a later review,

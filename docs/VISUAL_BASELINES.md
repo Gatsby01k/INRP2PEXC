@@ -36,6 +36,7 @@ Before any test runs, the suite refuses to compare or record when:
 - the current image, platform, architecture, Playwright version or Chromium version differs from `CANONICAL` (the image is trusted only if `VISUAL_ENV_IMAGE` is set **and** `/ms-playwright` exists);
 - `ENVIRONMENT.json` is missing, or was recorded in a different environment;
 - the number of committed PNGs differs from `ENVIRONMENT.json` (baselines changed outside the update path);
+- a baseline the suite expects is not there (the page suite names its eleven in `apps/web/visual/captures.ts`);
 - `UPDATE_VISUALS=1` is set in GitHub Actions for any event other than `workflow_dispatch`;
 - `--update-snapshots` / `-u` is passed on the command line (config throws; only `UPDATE_VISUALS=1` records).
 
@@ -89,6 +90,12 @@ A page is harder to pin than a story, because it shows what a database says. The
    frozen instant after seeding. The single piece of text that still follows the wall clock — the INR page's
    `YYYY-MM-DD IST` day — is rewritten in the DOM immediately before the capture (`support.ts`
    `pinWallClockText`). Nothing else is masked: every other pixel is compared.
+
+The eleven capture names live in one static manifest, `apps/web/visual/captures.ts`, read by the suite, by the
+compare guard and by the update reporter. It is static because the reporter has to know the whole expected set
+*before* any test runs, in order to drop baselines nothing expects any more without touching the ones that are
+simply about to be recorded; an update that does not produce every name in the manifest records no metadata and
+fails, rather than blessing a partial set.
 
 Each capture then waits for the bundled fonts, settles layout over two animation frames, asserts no system-font
 fallback, and is taken with `animations: 'disabled'` and `caret: 'hide'`. The browser clock is fixed to the same

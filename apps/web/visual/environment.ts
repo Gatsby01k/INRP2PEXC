@@ -6,6 +6,7 @@
  */
 import path from 'node:path';
 import { SELF_CHECK, type VisualEnvironment, guardVisualRun, metadataFile, readMetadata, writeMetadata } from '@inrp2p/visual';
+import { CAPTURE_FILES } from './captures.ts';
 
 export { CANONICAL, SELF_CHECK, UPDATE_REQUESTED } from '@inrp2p/visual';
 export type { BaselineMetadata, VisualEnvironment } from '@inrp2p/visual';
@@ -18,6 +19,7 @@ export const SELF_CHECK_DIR = path.resolve(import.meta.dirname, '.selfcheck');
 export const SCREENSHOT_DIR = SELF_CHECK ? SELF_CHECK_DIR : BASELINE_DIR;
 export const METADATA_FILE = metadataFile(BASELINE_DIR);
 
-export const guard = (): Promise<VisualEnvironment | null> => guardVisualRun({ suite: SUITE, screenshotDir: BASELINE_DIR, fromDir: APP_DIR });
+export const guard = (): Promise<VisualEnvironment | null> =>
+  guardVisualRun({ suite: SUITE, screenshotDir: BASELINE_DIR, fromDir: APP_DIR, expected: CAPTURE_FILES });
 export const metadata = () => readMetadata(BASELINE_DIR);
 export const record = (env: VisualEnvironment): void => writeMetadata(BASELINE_DIR, env);

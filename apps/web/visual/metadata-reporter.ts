@@ -1,27 +1,39 @@
-import { readdirSync, rmSync } from 'node:fs';
-import path from 'node:path';
-import type { FullResult, Reporter, Suite } from '@playwright/test/reporter';
+import { rmSync } from 'node:fs';
+import type { FullResult, Reporter } from '@playwright/test/reporter';
+import { reconcileBaselines } from '@inrp2p/visual';
+import { CAPTURE_FILES } from './captures.ts';
 import { BASELINE_DIR, METADATA_FILE, UPDATE_REQUESTED, type VisualEnvironment, record } from './environment.ts';
 
 /**
- * After an intentional update that passed completely: drop baselines for captures that no longer exist and
- * record the environment. A failed update writes no metadata, so the compare guard rejects the partial set.
+ * After an intentional update that passed completely: drop baselines nothing expects any more, check that every
+ * baseline the manifest does expect was actually recorded, and only then record the environment.
+ *
+ * The expected set comes from the static manifest (`captures.ts`), never from what the run happened to produce.
+ * A reporter that learns the set from the run cannot tell "this baseline is stale" from "this run did not
+ * produce it", and the difference is the whole point of the cleanup.
  */
 export default class MetadataReporter implements Reporter {
-  private expected = new Set<string>();
-
-  onBegin(_config: unknown, suite: Suite): void {
-    for (const test of suite.allTests()) for (const name of test.annotations.filter((a) => a.type === 'capture')) this.expected.add(`${name.description}.png`);
-  }
-
-  onEnd(result: FullResult): void {
+  async onEnd(result: FullResult): Promise<{ status?: FullResult['status'] } | void> {
     if (!UPDATE_REQUESTED || !process.env.VISUAL_ENV_JSON) return;
+
     if (result.status !== 'passed') {
       rmSync(METADATA_FILE, { force: true });
       console.error('Baseline update failed; ENVIRONMENT.json not written.');
       return;
     }
-    for (const f of readdirSync(BASELINE_DIR).filter((n) => n.endsWith('.png') && !this.expected.has(n))) rmSync(path.join(BASELINE_DIR, f));
+
+    const { kept, removed, missing } = reconcileBaselines(BASELINE_DIR, CAPTURE_FILES);
+    for (const file of removed) console.log(`Dropped baseline no longer in the capture manifest: ${file}`);
+
+    if (missing.length) {
+      // Never bless an incomplete set: metadata over missing baselines is exactly what makes the next compare
+      // run fail with "a snapshot doesn't exist" and no way to tell why.
+      rmSync(METADATA_FILE, { force: true });
+      console.error(`Baseline update incomplete; ENVIRONMENT.json not written. Missing: ${missing.join(', ')}`);
+      return { status: 'failed' };
+    }
+
     record(JSON.parse(process.env.VISUAL_ENV_JSON) as VisualEnvironment);
+    console.log(`Recorded ${kept.length} operator page baselines.`);
   }
 }

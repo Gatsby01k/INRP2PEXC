@@ -1,6 +1,7 @@
 import type { FullResult, Reporter } from '@playwright/test/reporter';
-import { readdirSync, rmSync } from 'node:fs';
+import { rmSync } from 'node:fs';
 import path from 'node:path';
+import { reconcileBaselines } from '@inrp2p/visual';
 import { SCREENSHOT_DIR, UPDATE_REQUESTED, type VisualEnvironment } from './environment.ts';
 import { writeMetadata } from './global-setup.ts';
 import { loadStories } from './stories.ts';
@@ -18,8 +19,11 @@ export default class MetadataReporter implements Reporter {
       console.error('Baseline update failed; ENVIRONMENT.json not written.');
       return;
     }
-    const expected = new Set(loadStories().flatMap((s) => [`${s.id}.png`, ...(s.tags.includes('motion') ? [`${s.id}--reduced-motion.png`] : [])]));
-    for (const f of readdirSync(SCREENSHOT_DIR).filter((n) => n.endsWith('.png') && !expected.has(n))) rmSync(path.join(SCREENSHOT_DIR, f));
+    // Expected from the built Storybook index — a static list by the time this runs, not something collected
+    // from the tests as they went.
+    const expected = loadStories().flatMap((s) => [`${s.id}.png`, ...(s.tags.includes('motion') ? [`${s.id}--reduced-motion.png`] : [])]);
+    const { removed } = reconcileBaselines(SCREENSHOT_DIR, expected);
+    for (const file of removed) console.log(`Dropped baseline of a story that no longer exists: ${file}`);
     writeMetadata(JSON.parse(process.env.VISUAL_ENV_JSON) as VisualEnvironment);
   }
 }
