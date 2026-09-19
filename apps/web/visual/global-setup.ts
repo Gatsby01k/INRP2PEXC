@@ -1,4 +1,4 @@
-import { startDesk } from '../harness/desk-server.ts';
+import { deskBaseUrl, startDesk } from '../harness/desk-server.ts';
 import { signInAndSave } from './auth.ts';
 import { UPDATE_REQUESTED, guard } from './environment.ts';
 import { CLIENT_AUTH_SECRET, OPERATOR_AUTH_SECRET, seedVisual } from './world.ts';
@@ -22,7 +22,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     clientAuthSecret: CLIENT_AUTH_SECRET,
     label: 'desk:visual',
   });
-  console.log(`visual: desk listening on http://localhost:${port}`);
-  await signInAndSave(`http://localhost:${port}`, state);
+  console.log(`visual: desk listening on ${deskBaseUrl(port)}`);
+  await signInAndSave(deskBaseUrl(port), state);
   return stop;
 }

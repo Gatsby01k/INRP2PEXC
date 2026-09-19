@@ -173,6 +173,17 @@ which asks for your authenticator code — is what posts the movement journal an
 obligation. There is no separate step after it."* `STATE_MACHINES.md §9` and the Phase 4 line already carried the
 correct semantics and are unchanged. No behaviour changed, and no allocate permission or API was introduced.
 
+**3. The canonical recording's first run (harness only).** `record` passed; `record-pages` never reached a
+capture: the desk reported ready and the harness could not connect to it. The harness bound and browsed the name
+`localhost`, and a container resolves that name — to `::1`, to `127.0.0.1`, or to both in an order that need not
+agree between `listen` and `connect`. It now uses one literal IPv4 loopback address for the bind, for the host
+the desk is told it is, for the origin its auth trusts and for the address each suite browses, so nothing is
+resolved; `apps/web/test/harness.unit.test.ts` asserts those four agree and that the browsed host still routes to
+the operator surface, which is the property that was silently broken. The readiness check is no longer opaque
+either: bounded per request, and on expiry it reports the last HTTP status (with any redirect target) or the
+transport error by name, the attempt count, the elapsed time and the server's own last output. Production host
+configuration is untouched, and no origin or host check was loosened.
+
 **Also observed, deliberately not changed.** The exception panel shows a short payment as two open cases — one
 against the crypto transfer, one against the trade — because the domain opens both. The panel reports what the
 domain recorded; whether one short payment should raise one case or two is a domain question for a later review,

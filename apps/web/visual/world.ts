@@ -44,6 +44,13 @@ export const STATE_FILE = path.join(import.meta.dirname, '.state.json');
 export const FROZEN_NOW = '2026-09-19T09:11:00.000Z';
 export const FROZEN_IST_DAY = '2026-09-19';
 
+/**
+ * The origin the seed's own in-process Better Auth calls use. Nothing is resolved or connected here — the
+ * handler is invoked directly — but it is written as a literal address for the same reason the harness binds
+ * one: a name in a test origin is a trap waiting for the next person who copies it.
+ */
+const SEED_ORIGIN = 'http://127.0.0.1';
+
 export const OPERATOR_PASSWORD = 'desk-visual-passphrase-1'; // secret-scan:allow — fixture for a throwaway database
 export const OPERATOR_AUTH_SECRET = 'visual-operator-secret-0123456789abcdef'; // secret-scan:allow
 export const CLIENT_AUTH_SECRET = 'visual-client-secret-0123456789abcdef'; // secret-scan:allow
@@ -151,7 +158,7 @@ export async function seedVisual(adminUrl: string): Promise<VisualState> {
   const authPool = createPool({ connectionString: databaseUrl, applicationName: 'inrp2p-visual-auth', int8: 'number' });
   const authDb = createDb(authPool);
 
-  const auth = createOperatorAuth({ authDb, appDb: world, secret: OPERATOR_AUTH_SECRET, baseURL: 'http://localhost', rateLimit: { enabled: false }, useSecureCookies: false });
+  const auth = createOperatorAuth({ authDb, appDb: world, secret: OPERATOR_AUTH_SECRET, baseURL: SEED_ORIGIN, rateLimit: { enabled: false }, useSecureCookies: false });
   const owner = await operator(auth, world, 'owner@inrp2p.test', ['OWNER']);
   const protector = testFieldProtector('visual-kek');
 
@@ -189,7 +196,7 @@ export async function seedVisual(adminUrl: string): Promise<VisualState> {
 
   // Acceptance is the client's own act (D-01), so the fixture needs an authorized client user per trading client.
   const clientAuth = createClientAuth({
-    authDb, appDb: world, secret: CLIENT_AUTH_SECRET, baseURL: 'http://localhost', rateLimit: { enabled: false }, useSecureCookies: false,
+    authDb, appDb: world, secret: CLIENT_AUTH_SECRET, baseURL: SEED_ORIGIN, rateLimit: { enabled: false }, useSecureCookies: false,
     otpSender: { send: async () => {} },
   });
   const acmeAcceptor = await acceptor(world, clientAuth, owner, acme.clientId, 'treasury@acmepay.test', 'Acme treasury');
@@ -411,10 +418,10 @@ async function operator(auth: ReturnType<typeof createOperatorAuth>, db: Db, ema
   const userId = await provisionOperator(auth, db, { email, name: email.split('@')[0]!, password: OPERATOR_PASSWORD, roles });
   const jar = new Map<string, string>();
   const call = async (p: string, body: unknown) => {
-    const headers = new Headers({ 'content-type': 'application/json', origin: 'http://localhost' });
+    const headers = new Headers({ 'content-type': 'application/json', origin: SEED_ORIGIN });
     const cookie = [...jar].map(([k, v]) => `${k}=${v}`).join('; ');
     if (cookie) headers.set('cookie', cookie);
-    const res = await auth.handler(new Request(`http://localhost/api/auth${p}`, { method: 'POST', headers, body: JSON.stringify(body) }));
+    const res = await auth.handler(new Request(`${SEED_ORIGIN}/api/auth${p}`, { method: 'POST', headers, body: JSON.stringify(body) }));
     for (const c of res.headers.getSetCookie()) {
       const [pair] = c.split(';');
       const eq = pair!.indexOf('=');

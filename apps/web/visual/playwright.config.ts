@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
+import { deskBaseUrl } from '../harness/desk-server.ts';
 import { AUTH_FILE } from './auth.ts';
 import { SCREENSHOT_DIR, SELF_CHECK, UPDATE_REQUESTED } from './environment.ts';
 
@@ -36,7 +37,7 @@ export default defineConfig({
     toHaveScreenshot: { animations: 'disabled', caret: 'hide', scale: 'css', maxDiffPixelRatio: 0.002, threshold: 0.2 },
   },
   use: {
-    baseURL: `http://localhost:${PORT}`,
+    baseURL: deskBaseUrl(PORT),
     // One signed-in session for the whole suite (see auth.ts): the desk rate-limits repeated verification.
     storageState: AUTH_FILE,
     ...devices['Desktop Chrome'],

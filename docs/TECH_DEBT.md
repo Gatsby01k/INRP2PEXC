@@ -120,6 +120,16 @@ the operator pages are not yet protected from visual regression.
 step-up marker), so `packages/ui`'s baseline count no longer matches its `ENVIRONMENT.json` and the `visual` job
 fails too until it is re-recorded. One dispatch covers both: `record` and `record-pages` run together.
 
+**First attempt (2026-09-19): `record` passed, `record-pages` failed before any capture.** The desk started and
+reported ready, and the harness could not reach it: `did not become ready at http://localhost:3220/sign-in`. The
+harness bound and browsed the *name* `localhost`, which a container resolves — to `::1`, to `127.0.0.1`, or to
+both in an order that need not agree between the server's `listen` and the client's `connect`. Fixed in the
+harness only: one literal IPv4 loopback address for the bind, the desk's own `DESK_HOST`, the origin its auth
+trusts and the address each suite browses, plus a readiness check that now reports the last status or transport
+error, the attempts, the elapsed time and the server's own output instead of one opaque line. No product, domain
+or UI semantics changed, and no origin or host check was loosened — they were made to agree
+(`apps/web/test/harness.unit.test.ts`).
+
 **Resolution (to do, one run).** Actions → **Visual baselines (canonical update)** → *Run workflow*, with a
 reason. Review the images on the `visual-baselines/run-<run id>` and `visual-baselines/pages-run-<run id>`
 branches, merge both, and confirm `visual` and `visual-pages` are green on the resulting push. Nothing in the

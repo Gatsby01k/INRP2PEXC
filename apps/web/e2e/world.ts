@@ -21,6 +21,13 @@ import { importPoolAddresses, recordCustodyCapability, registerTreasuryWallet } 
 
 export const E2E_DB = 'inrp2p_e2e';
 export const STATE_FILE = path.join(import.meta.dirname, '.state.json');
+/**
+ * The origin the seed's own in-process Better Auth calls use. Nothing is resolved or connected here — the
+ * handler is invoked directly — but it is written as a literal address for the same reason the harness binds
+ * one: a name in a test origin is a trap waiting for the next person who copies it.
+ */
+const SEED_ORIGIN = 'http://127.0.0.1';
+
 export const OPERATOR_PASSWORD = 'desk-operator-passphrase-1'; // secret-scan:allow — fixture for a throwaway database
 
 /**
@@ -93,7 +100,7 @@ export async function seedE2E(adminUrl: string): Promise<E2EState> {
     authDb,
     appDb: db,
     secret: OPERATOR_AUTH_SECRET,
-    baseURL: 'http://localhost',
+    baseURL: SEED_ORIGIN,
     rateLimit: { enabled: false },
     useSecureCookies: false,
   });
@@ -114,7 +121,7 @@ export async function seedE2E(adminUrl: string): Promise<E2EState> {
   });
 
   const clientAuth = createClientAuth({
-    authDb, appDb: db, secret: CLIENT_AUTH_SECRET, baseURL: 'http://localhost',
+    authDb, appDb: db, secret: CLIENT_AUTH_SECRET, baseURL: SEED_ORIGIN,
     rateLimit: { enabled: false }, useSecureCookies: false, otpSender: { send: async () => {} },
   });
   const acceptorUserId = await provisionClientUser(clientAuth, { email: 'treasury@acmepay.test', name: 'Acme treasury' });
@@ -180,10 +187,10 @@ async function operator(auth: ReturnType<typeof createOperatorAuth>, db: Db, ema
   const userId = await provisionOperator(auth, db, { email, name: email.split('@')[0]!, password: OPERATOR_PASSWORD, roles });
   const jar = new Map<string, string>();
   const call = async (path: string, body: unknown) => {
-    const headers = new Headers({ 'content-type': 'application/json', origin: 'http://localhost' });
+    const headers = new Headers({ 'content-type': 'application/json', origin: SEED_ORIGIN });
     const cookie = [...jar].map(([k, v]) => `${k}=${v}`).join('; ');
     if (cookie) headers.set('cookie', cookie);
-    const res = await auth.handler(new Request(`http://localhost/api/auth${path}`, { method: 'POST', headers, body: JSON.stringify(body) }));
+    const res = await auth.handler(new Request(`${SEED_ORIGIN}/api/auth${path}`, { method: 'POST', headers, body: JSON.stringify(body) }));
     for (const c of res.headers.getSetCookie()) {
       const [pair] = c.split(';');
       const eq = pair!.indexOf('=');

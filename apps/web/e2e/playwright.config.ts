@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
+import { deskBaseUrl } from '../harness/desk-server.ts';
 
 /**
  * End-to-end run of the operator product (IMPLEMENTATION_PLAN Phase 6 exit). It drives the **built** app against
@@ -21,7 +22,7 @@ export default defineConfig({
   retries: 0,
   reporter: process.env.CI ? [['line'], ['html', { open: 'never' }]] : [['list']],
   use: {
-    baseURL: `http://localhost:${PORT}`,
+    baseURL: deskBaseUrl(PORT),
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
   },
