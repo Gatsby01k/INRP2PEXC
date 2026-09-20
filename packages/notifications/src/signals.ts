@@ -11,6 +11,8 @@ import type { OutboxHandler } from '@inrp2p/outbox';
  * a type here says "we know, and here is why nothing happens"; an event that is not on the list still fails
  * loudly, which is the behaviour worth keeping. Nothing here reads or writes anything — the desk's queue is
  * derived from the rows themselves, so these events cost nothing when they are finally consumed.
+ *
+ * The list shrinks as features arrive: `receipt.generate` left it in Phase 8, when receipts were built.
  */
 export const ACKNOWLEDGED_SIGNALS: Readonly<Record<string, string>> = Object.freeze({
   'desk.new_request': 'the desk queue is derived from the rows; a push channel for operators is not built',
@@ -23,7 +25,6 @@ export const ACKNOWLEDGED_SIGNALS: Readonly<Record<string, string>> = Object.fre
   'desk.adjustment_requested': 'same as desk.exception_opened',
   'desk.route_settlement_failed': 'same as desk.exception_opened',
   'capacity.over_committed': 'the INR screen reads capacity from the rows; an operator alert is not built',
-  'receipt.generate': 'client receipts are Phase 8 (finance outputs)',
 });
 
 export function acknowledgedSignalHandler(): OutboxHandler {

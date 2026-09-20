@@ -30,6 +30,11 @@ const BOUNDARIES = {
   portal: ['kernel', 'db', 'quotes', 'trades', 'settlement', 'notifications', 'clients', 'identity', 'adapters', 'commands', 'routes', 'pricing', 'treasury', 'ledger', 'audit', 'outbox', 'inr-accounts'],
   // Phase 7 client notifications: turns events the domain emitted into the client's inbox; no domain knowledge.
   notifications: ['kernel', 'db', 'outbox', 'adapters'],
+  // Phase 8 reporting (ARCHITECTURE §3 `reporting/`): receipts, exports and the one CSV writer they share. A
+  // receipt reads rows once and then only ever reads its own snapshot. `ui` is here for display formatting only
+  // (D-11) — a printed figure must be grouped the way every other surface groups it, and one formatter is how
+  // that stays true.
+  reporting: ['kernel', 'db', 'audit', 'commands', 'outbox', 'quotes', 'ui'],
   // Phase 6 operator read models: composes the domain modules' public APIs; never a command, never a write.
   desk: ['kernel', 'db', 'identity', 'clients', 'inr-accounts', 'routes', 'pricing', 'treasury', 'trades', 'settlement', 'adapters', 'commands', 'quotes', 'scanner', 'ledger', 'audit', 'outbox'],
   // Design system: formats kernel Money/Rate values; never touches persistence or domain modules.
@@ -74,7 +79,7 @@ export default tseslint.config(
     },
   })),
   {
-    files: ['packages/kernel/src/**/*.ts', 'packages/ledger/src/**/*.ts', 'packages/commands/src/**/*.ts', 'packages/ui/src/format/money.ts', 'packages/ui/src/format/number.ts', 'packages/inr-accounts/src/**/*.ts', 'packages/pricing/src/**/*.ts', 'packages/routes/src/**/*.ts', 'packages/treasury/src/**/*.ts', 'packages/clients/src/**/*.ts', 'packages/trades/src/**/*.ts', 'packages/quotes/src/**/*.ts', 'packages/settlement/src/**/*.ts', 'packages/scanner/src/**/*.ts', 'packages/desk/src/**/*.ts', 'packages/portal/src/**/*.ts', 'packages/notifications/src/**/*.ts'],
+    files: ['packages/kernel/src/**/*.ts', 'packages/ledger/src/**/*.ts', 'packages/commands/src/**/*.ts', 'packages/ui/src/format/money.ts', 'packages/ui/src/format/number.ts', 'packages/inr-accounts/src/**/*.ts', 'packages/pricing/src/**/*.ts', 'packages/routes/src/**/*.ts', 'packages/treasury/src/**/*.ts', 'packages/clients/src/**/*.ts', 'packages/trades/src/**/*.ts', 'packages/quotes/src/**/*.ts', 'packages/settlement/src/**/*.ts', 'packages/scanner/src/**/*.ts', 'packages/desk/src/**/*.ts', 'packages/portal/src/**/*.ts', 'packages/notifications/src/**/*.ts', 'packages/reporting/src/**/*.ts'],
     rules: { 'no-restricted-syntax': ['error', ...NO_FLOAT_MONEY] },
   },
   {

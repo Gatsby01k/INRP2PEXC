@@ -37,6 +37,8 @@ export interface PortalTrade {
   readonly incoming: IncomingTransfer | null;
   readonly onHold: boolean;
   readonly completedAt: string | null;
+  /** True once a settlement receipt has been issued for this trade and can be downloaded. */
+  readonly receipt: boolean;
   /** Where this trade pays out, as the client recognises it: a bank's name and last four, or a wallet address. */
   readonly destination: string;
 }
@@ -67,6 +69,9 @@ export async function portalTrade(ex: Executor, clientId: string, tradeRef: stri
 
   const paid = Money.parse(settlement.paid.amount, settlement.paid.currency);
   const completed = row.lifecycle_state === 'COMPLETED';
+  // Issued by a worker after completion, so a trade can be complete for a moment before its receipt exists. The
+  // page offers the download when there is one rather than promising a link that would 404.
+  const receipt = completed ? await ex.selectFrom('receipt').select('id').where('trade_id', '=', row.id).executeTakeFirst() : undefined;
   const ended = row.completed_at ?? row.cancelled_at;
   const closedAt = ended ? ended.toISOString() : null;
 
@@ -93,6 +98,7 @@ export async function portalTrade(ex: Executor, clientId: string, tradeRef: stri
         : null,
     onHold: row.hold,
     completedAt: completed ? closedAt : null,
+    receipt: receipt !== undefined,
     destination: await maskedDestination(ex, frozen),
   });
 }

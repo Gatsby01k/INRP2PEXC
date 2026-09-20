@@ -67,6 +67,9 @@ export const PERMISSION_MATRIX = Object.freeze({
   'ledger:view': r(A, D, D, A, D, D),
   'pnl:view': r(A, A, D, A, D, D),
   'ledger:export': r(A, D, D, A, D, D),
+  // Importing a bank statement is what checks the desk's own record against the bank's (SECURITY S7). It is
+  // step-up because a forged statement is how a fake payment would be made to look reconciled.
+  'statement:import': r(S, D, D, S, D, D),
   'receipt:view': r(A, A, A, A, A, A),
   'audit:view': r(A, D, D, A, D, D),
   'users:manage': r(S, D, D, D, D, D),

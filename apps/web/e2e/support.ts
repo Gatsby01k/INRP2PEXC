@@ -12,6 +12,7 @@ import type { ClientActor, DomainCommand, OperatorActor } from '@inrp2p/identity
 import { acceptQuote, acceptanceCodeHandler, createQuote, createQuoteLink, createRequest, deliverAcceptanceCode, sendQuote } from '@inrp2p/quotes';
 import { createPayoutLeg, confirmPayout, recordLegEvidence, sendPayoutLeg } from '@inrp2p/settlement';
 import { acknowledgedSignalHandler, clientNotificationHandler } from '@inrp2p/notifications';
+import { receiptHandler } from '@inrp2p/reporting';
 import { dispatchOutbox } from '@inrp2p/outbox';
 import { runTronConfirm, runTronScan } from '@inrp2p/scanner';
 import { deskBaseUrl, surfacePorts } from '../harness/desk-server.ts';
@@ -26,13 +27,49 @@ export function appDb(): Db {
   return db;
 }
 
+/**
+ * A TOTP code this run has not used yet.
+ *
+ * An authenticator code is single-use: Better Auth remembers the last one it accepted and refuses it again, as
+ * it must. A suite that verifies several times inside one 30-second window would otherwise hand over a code
+ * that was already spent and read the refusal as a product failure. So the harness waits for the window to
+ * roll rather than pretending the code is fresh — which is exactly what a person with a phone would do.
+ */
+const lastCode = new Map<string, string>();
+export async function freshTotp(secret: string): Promise<string> {
+  let code = await totpFor(secret);
+  while (lastCode.get(secret) === code) {
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    code = await totpFor(secret);
+  }
+  lastCode.set(secret, code);
+  return code;
+}
+
+/**
+ * Clears Better Auth's throttle counters.
+ *
+ * The desk rate-limits authentication hard on purpose: five TOTP verifications per five minutes, five sign-ins
+ * per fifteen (SECURITY §2.1). That rule is right, and it is tested where it belongs — in the identity suite,
+ * against the counter itself. What it is not built for is a harness that compresses a day of desk work into two
+ * minutes: four scenarios back to back spend a real operator's whole hour of verifications in one run, and the
+ * refusal that follows says nothing about the product. So the harness resets the counter between scenarios, the
+ * way real time would, and changes no rule to do it.
+ */
+export async function resetAuthThrottle(): Promise<void> {
+  // Better Auth owns this table, so it is not in the domain's schema type; a raw statement is the honest way
+  // to say "this belongs to the auth library, and the harness is only clearing its clock".
+  await sql`delete from auth_rate_limit`.execute(appDb());
+}
+
 /** Signs in through the real form: password, then the authenticator code (SECURITY §2.1). */
 export async function signIn(page: Page, who: E2EOperator): Promise<void> {
+  await resetAuthThrottle();
   await page.goto('/sign-in');
   await page.getByLabel('Work email').fill(who.email);
   await page.getByLabel('Password').fill(who.password);
   await page.getByRole('button', { name: 'Continue' }).click();
-  await page.getByLabel('Authenticator code').fill(await totpFor(who.totpSecret));
+  await page.getByLabel('Authenticator code').fill(await freshTotp(who.totpSecret));
   await page.getByRole('button', { name: 'Verify and open the desk' }).click();
   // Exact: the sign-in page's own heading is "INRP2P Desk", which a substring match would happily accept.
   await expect(page.getByRole('heading', { name: 'Desk', exact: true })).toBeVisible();
@@ -53,6 +90,7 @@ export async function pressUntilFocused(page: Page, target: Locator, maxPresses 
 
 /** Signs in the way a dealer with no mouse does: Tab, type, Enter. */
 export async function signInWithKeyboard(page: Page, who: E2EOperator): Promise<void> {
+  await resetAuthThrottle();
   await page.goto('/sign-in');
   await pressUntilFocused(page, page.getByLabel('Work email'));
   await page.keyboard.type(who.email);
@@ -61,7 +99,7 @@ export async function signInWithKeyboard(page: Page, who: E2EOperator): Promise<
   await pressUntilFocused(page, page.getByRole('button', { name: 'Continue' }));
   await page.keyboard.press('Enter');
   await pressUntilFocused(page, page.getByLabel('Authenticator code'));
-  await page.keyboard.type(await totpFor(who.totpSecret));
+  await page.keyboard.type(await freshTotp(who.totpSecret));
   await pressUntilFocused(page, page.getByRole('button', { name: 'Verify and open the desk' }));
   await page.keyboard.press('Enter');
   await expect(page.getByRole('heading', { name: 'Desk', exact: true })).toBeVisible();
@@ -71,7 +109,7 @@ export async function signInWithKeyboard(page: Page, who: E2EOperator): Promise<
 export async function stepUp(page: Page, who: E2EOperator, opts: { keyboard?: boolean } = {}): Promise<void> {
   const dialog = page.getByRole('dialog', { name: 'Verify to continue' });
   await expect(dialog).toBeVisible();
-  const code = await totpFor(who.totpSecret);
+  const code = await freshTotp(who.totpSecret);
   if (opts.keyboard) {
     await pressUntilFocused(page, dialog.getByLabel('Authenticator code'));
     await page.keyboard.type(code);
@@ -308,6 +346,7 @@ export async function tradeIdForRef(ref: string): Promise<string> {
 export async function deliverNotifications(): Promise<void> {
   await dispatchOutbox(appDb(), [
     clientNotificationHandler(appDb()),
+    receiptHandler(appDb()),
     acknowledgedSignalHandler(),
     acceptanceCodeHandler(appDb(), { protector: e2eFieldProtector() }, new FakeNotificationAdapter()),
   ]);

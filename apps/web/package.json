@@ -29,6 +29,7 @@
     "@inrp2p/portal": "workspace:*",
     "@inrp2p/pricing": "workspace:*",
     "@inrp2p/quotes": "workspace:*",
+    "@inrp2p/reporting": "workspace:*",
     "@inrp2p/routes": "workspace:*",
     "@inrp2p/settlement": "workspace:*",
     "@inrp2p/trades": "workspace:*",

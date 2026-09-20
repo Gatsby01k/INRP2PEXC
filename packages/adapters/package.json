@@ -8,6 +8,7 @@
     "./testing": "./src/testing/index.ts"
   },
   "dependencies": {
-    "@inrp2p/kernel": "workspace:*"
+    "@inrp2p/kernel": "workspace:*",
+    "playwright-core": "1.56.1"
   }
 }

@@ -1,0 +1,33 @@
+/* P&L: the period controls, and the one line that says whether the page agrees with the books. */
+.range {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-meta);
+  color: var(--text-secondary);
+}
+
+.exports {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-left: auto;
+  font-size: var(--font-size-meta);
+}
+
+/* Reconciliation is stated in words, not signalled by colour alone: a desk reading this in grayscale, or at a
+   glance, must be able to tell "agrees" from "does not" without noticing a hue. */
+.agrees {
+  margin: 0;
+  font-size: var(--font-size-meta);
+  color: var(--text-muted);
+}
+
+.drifted {
+  margin: 0;
+  padding: var(--space-3);
+  border-left: 3px solid var(--status-danger);
+  background: var(--bg-subtle);
+  color: var(--text-primary);
+  font-weight: var(--font-weight-medium);
+}

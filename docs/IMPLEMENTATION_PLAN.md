@@ -65,6 +65,13 @@ Exit: E2E from link open on mobile viewport to completion; client JSON leakage t
 P&L page (realized vs expected), receipts (PDF/CSV/JSON from immutable snapshot, grayscale print check), exports, reconciliation job + manual bank statement import, remaining exception resolutions.
 Exit: receipt byte-stable regeneration from snapshot (hash matches); reconciliation opens exceptions idempotently; P&L equals ledger revenue.
 
+*Implemented 2026-09-20 — see `PHASE_8_REPORT.md`.* All three exit criteria are met by integration tests and by
+the end-to-end run. Two things in the plan line landed narrower than written and are recorded as debt rather than
+claimed: receipts are proved by regenerating from the snapshot and comparing hashes because V1 has no object
+store, and PDF printing is opt-in (TD-12); and reconciliation is the manual import plus the existing ledger-side
+query, with no recurring job, because with no bank feed a timer would re-read the same files (TD-14). The page
+baselines for the new and changed screens still have to be recorded canonically (TD-13).
+
 ## Phase 9 — Public site & hardening
 Landing + SEO routes (metadata, structured data without fabricated figures, sitemap), copy review for zero regulatory claims (D-07), security headers/CSP, rate limits, load test on quote accept and payout confirm, backup/restore drill, monitoring + alerts, runbooks, launch checklist.
 Exit: launch checklist complete (below), penetration test findings triaged, counsel sign-off (D-07).

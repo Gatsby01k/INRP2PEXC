@@ -19,6 +19,8 @@ export interface HistoryRow {
   readonly openedAt: string;
   readonly closedAt: string | null;
   readonly onHold: boolean;
+  /** True once a settlement receipt has been issued for this trade and can be downloaded. */
+  readonly receipt: boolean;
 }
 
 export interface HistoryQuery {
@@ -32,6 +34,9 @@ export async function clientHistory(ex: Executor, clientId: string, query: Histo
     .selectFrom('trade as t')
     .innerJoin('trade_economics as e', 'e.trade_id', 't.id')
     .select(['t.ref', 't.direction', 't.lifecycle_state', 't.hold', 't.opened_at', 't.completed_at', 't.cancelled_at', 'e.base_minor', 'e.quote_inr_minor', 'e.client_rate_micro'])
+    // A trade may hold more than one receipt version, so this asks whether one exists rather than joining to it:
+    // a join would return the same trade once per version.
+    .select((eb) => eb.exists(eb.selectFrom('receipt').select('receipt.id').whereRef('receipt.trade_id', '=', 't.id')).as('has_receipt'))
     .where('t.client_id', '=', clientId)
     .orderBy('t.opened_at', 'desc')
     // Trades opened in the same instant still have to come back in one stable order.
@@ -52,6 +57,7 @@ export async function clientHistory(ex: Executor, clientId: string, query: Histo
       openedAt: r.opened_at.toISOString(),
       closedAt: (r.completed_at ?? r.cancelled_at)?.toISOString() ?? null,
       onHold: r.hold,
+      receipt: r.has_receipt === true,
     })),
   );
 }

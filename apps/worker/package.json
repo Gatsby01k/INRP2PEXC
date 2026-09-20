@@ -16,6 +16,7 @@
     "@inrp2p/notifications": "workspace:*",
     "@inrp2p/outbox": "workspace:*",
     "@inrp2p/quotes": "workspace:*",
+    "@inrp2p/reporting": "workspace:*",
     "@inrp2p/scanner": "workspace:*",
     "@inrp2p/settlement": "workspace:*",
     "@inrp2p/treasury": "workspace:*",

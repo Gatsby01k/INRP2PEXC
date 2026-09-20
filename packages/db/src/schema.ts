@@ -854,6 +854,65 @@ export interface ClientNotificationTable {
   created_at: Generated<Date>;
 }
 
+/**
+ * A settlement receipt: the immutable snapshot plus the hashes of the artifacts it produces. Every column is
+ * immutable; a correction is a new `version`, never an edit (DOMAIN_MODEL §2.8).
+ */
+export interface ReceiptTable {
+  id: Generated<string>;
+  trade_id: string;
+  version: Generated<number>;
+  snapshot_json: Json;
+  /** sha256 over the canonical JSON bytes of the snapshot itself. */
+  sha256: string;
+  json_sha256: string;
+  csv_sha256: string;
+  html_sha256: string;
+  /** Object-store keys. V1 has no object store: artifacts are regenerated from the snapshot and hash-checked. */
+  json_key: string | null;
+  csv_key: string | null;
+  pdf_key: string | null;
+  generated_at: Generated<Date>;
+  generated_by: string;
+}
+
+/**
+ * An imported bank statement (SECURITY S7). Evidence, therefore immutable: a corrected statement is a new
+ * import of the corrected file, never an edit of this one.
+ */
+export interface BankStatementImportTable {
+  id: Generated<string>;
+  inr_account_id: string;
+  period_from: string;
+  period_to: string;
+  filename: string;
+  /** sha256 of the uploaded bytes; unique per account so the same file cannot be counted twice. */
+  sha256: string;
+  line_count: number;
+  matched: number;
+  mismatched: number;
+  unrecorded: number;
+  /** Recorded payments in the period the statement does not show at all — the fake-UTR case. */
+  missing: number;
+  imported_by: string;
+  imported_at: Generated<Date>;
+}
+
+export type StatementLineOutcome = 'MATCHED' | 'MISMATCHED' | 'UNRECORDED';
+
+export interface BankStatementLineTable {
+  id: Generated<string>;
+  import_id: string;
+  seq: number;
+  value_date: string;
+  direction: 'CREDIT' | 'DEBIT';
+  amount_minor: bigint;
+  reference: string;
+  description: string | null;
+  outcome: StatementLineOutcome;
+  fiat_transfer_id: string | null;
+}
+
 export interface Database {
   currency: CurrencyTable;
   idempotency_key: IdempotencyKeyTable;
@@ -908,4 +967,7 @@ export interface Database {
   financial_adjustment: FinancialAdjustmentTable;
   chain_cursor: ChainCursorTable;
   client_notification: ClientNotificationTable;
+  receipt: ReceiptTable;
+  bank_statement_import: BankStatementImportTable;
+  bank_statement_line: BankStatementLineTable;
 }

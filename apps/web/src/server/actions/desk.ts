@@ -9,7 +9,7 @@ import {
   type NON_FINANCIAL_RESOLUTIONS, approveAdjustment, cancelPayoutLeg, cancelTrade, confirmFirstLeg, confirmPayout,
   confirmRefundLeg, confirmRouteSettlement, createPayoutLeg, createRefundLeg, failPayoutLeg, recordIncomingFiat,
   recordLegEvidence, recordRouteSettlement, refundAndCancel, requestAdjustment, resolveException, sendPayoutLeg,
-  takeException,
+  takeException, voidException,
 } from '@inrp2p/settlement';
 import { type CommandResult, failure, runCommand, withOperator } from '../command.ts';
 
@@ -174,6 +174,17 @@ export async function resolveExceptionAction(
   key: string,
 ): Promise<CommandResult<unknown>> {
   const out = await runCommand((ctx) => resolveException(ctx.actor), input, { name: 'exception.resolve', idempotencyKey: key });
+  if (out.ok) refresh();
+  return out;
+}
+
+/**
+ * `exception.void` — for a case that should never have been opened: an idempotent replay, or a mismatch whose
+ * evidence turned out to be the desk's own. It closes the case without a resolution, so the record says plainly
+ * that nothing was done rather than inventing a resolution that was not taken.
+ */
+export async function voidExceptionAction(input: { exceptionId: string; reason: string }, key: string): Promise<CommandResult<unknown>> {
+  const out = await runCommand((ctx) => voidException(ctx.actor), input, { name: 'exception.void', idempotencyKey: key });
   if (out.ok) refresh();
   return out;
 }

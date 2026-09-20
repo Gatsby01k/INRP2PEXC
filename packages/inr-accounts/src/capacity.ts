@@ -7,9 +7,17 @@ import { type OperatorActor, actorLabel, operatorCommand } from '@inrp2p/identit
 
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-/** Business day = Asia/Kolkata calendar day, from database time (ARCHITECTURE §4 "Time"). */
+/**
+ * Business day = Asia/Kolkata calendar day, from the **business clock** (ARCHITECTURE §4 "Time").
+ *
+ * `inrp2p_now()` is exactly `statement_timestamp()` in a deployed database, so this is the same day production
+ * has always booked capacity to. The difference is in a database whose clock is pinned: the day capacity is
+ * booked to, the day the INR screen prints and the day every trade reference carries are now one day rather
+ * than two, which is what a fixture is for. Reading the wall clock here while the rest of the system read the
+ * business clock made the INR page's baseline valid only on the day it was recorded.
+ */
 export async function istToday(ex: Executor): Promise<string> {
-  const r = await sql<{ day: string }>`select to_char((statement_timestamp() at time zone 'Asia/Kolkata')::date, 'YYYY-MM-DD') as day`.execute(ex);
+  const r = await sql<{ day: string }>`select to_char((inrp2p_now() at time zone 'Asia/Kolkata')::date, 'YYYY-MM-DD') as day`.execute(ex);
   return r.rows[0]!.day;
 }
 

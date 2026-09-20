@@ -67,3 +67,17 @@ test('notifications', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Notifications' })).toBeVisible();
   await capture(page, 'client-notifications');
 });
+
+/*
+ * There is deliberately **no** page baseline for the settlement receipt.
+ *
+ * Every capture in this suite asserts that all of its text is drawn in the bundled Geist (VISUAL_BASELINES §4),
+ * which is what makes a page baseline reproducible on another machine. The receipt is the one document that must
+ * not depend on a bundled font: it is printed, saved and reopened on machines this system will never see, so it
+ * asks for the system's own sans-serif and fetches nothing. Capturing it here would either fail that rule or
+ * force the rule to be loosened for every page.
+ *
+ * What the receipt needs proving about is proved where it can be: `packages/reporting/test/print.unit.test.ts`
+ * checks the grayscale-safe palette, the contrast of every ink against both papers, the print stylesheet, and
+ * that the document fetches no image, font or stylesheet at all.
+ */

@@ -3,6 +3,7 @@ import { createDb, createPool } from '@inrp2p/db';
 import { UnconfiguredNotificationAdapter, isNotificationProviderConfigured } from '@inrp2p/adapters';
 import { acknowledgedSignalHandler, clientNotificationEmailHandler, clientNotificationHandler } from '@inrp2p/notifications';
 import { acceptanceCodeHandler } from '@inrp2p/quotes';
+import { receiptHandler } from '@inrp2p/reporting';
 import { CRONTAB, buildTaskList, quoteExpiryScheduler } from './tasks.ts';
 import { UNCONFIGURED_PROTECTOR, chainMonitoringFromEnv, chainMonitoringReady, describeChainMonitoring, fieldProtectorFromEnv } from './config.ts';
 
@@ -48,7 +49,7 @@ const runner = await run({
   concurrency: 5,
   noHandleSignals: false,
   pollInterval: 2000,
-  taskList: buildTaskList(db, [quoteExpiryScheduler(db), acceptanceCodeHandler(db, { protector }, notifications), clientNotificationHandler(db), acknowledgedSignalHandler(), ...emailChannel], {
+  taskList: buildTaskList(db, [quoteExpiryScheduler(db), acceptanceCodeHandler(db, { protector }, notifications), clientNotificationHandler(db), receiptHandler(db), acknowledgedSignalHandler(), ...emailChannel], {
     monitoring,
     ...(monitoring.config ? { scanner: monitoring.config } : {}),
   }),

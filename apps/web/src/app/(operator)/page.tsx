@@ -56,6 +56,7 @@ export default async function DeskPage({ searchParams }: { searchParams: Promise
               canSend={can(ctx, 'settlement:send_payout') || can(ctx, 'settlement:record_route_payout_sent')}
               canRecord={can(ctx, 'settlement:record_utr')}
               canConfirm={can(ctx, 'settlement:confirm_payout')}
+              canViewReceipt={can(ctx, 'receipt:view')}
               {...(section ? { focus: section } : {})}
             />
           ) : null}

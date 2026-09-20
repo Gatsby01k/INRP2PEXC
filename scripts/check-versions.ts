@@ -34,6 +34,9 @@ export const MATRIX: Record<string, string> = {
   '@storybook/addon-a11y': '10.6.0',
   // Pinned to the Chromium revision the visual baselines were recorded with (docs/DEPENDENCIES.md).
   '@playwright/test': '1.56.1',
+  // The PDF renderer drives the same pinned Chromium the pixel baselines use, so a printed receipt and a
+  // captured page are the same browser.
+  'playwright-core': '1.56.1',
   '@axe-core/playwright': '4.13.0',
   uqr: '0.1.3',
   // Phase 7: the quote link is opened on a phone, so its mobile budget is measured rather than assumed.

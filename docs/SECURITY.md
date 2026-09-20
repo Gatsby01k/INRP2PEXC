@@ -98,6 +98,7 @@ Legend: ✔ allowed · ⧗ allowed with step-up MFA · ✱ requires second appro
 | `custody:configure` (adapter, deposit pool) | ⧗ | — | — | ⧗ | — | — |
 | `bank_account:reveal` | ⧗ | — | ⧗ | ⧗ | — | — |
 | `ledger:view` / `pnl:view` / `export` | ✔ | pnl only | — | ✔ | — | — |
+| `statement:import` (manual bank statement, reconciled against recorded UTRs — S7) | ⧗ | — | — | ⧗ | — | — |
 | `receipt:view` | ✔ | ✔ | ✔ | ✔ | ✔ | ✔ |
 | `audit:view` | ✔ | — | — | ✔ | — | — |
 | `users:manage` / `roles:assign` | ⧗ | — | — | — | — | — |
@@ -147,7 +148,7 @@ A single-person desk can run V1 by disabling thresholds explicitly in Settings (
 
 ## 8. Audit coverage (must emit)
 
-`rate.changed` · `quote.created/sent/accepted/rejected/expired/cancelled` · `quote_link.created/opened/revoked` · `acceptance_otp.sent/verified/failed/superseded` · `client_user.accept_permission_changed` · `deposit_address.assigned/released/retired` · `custody.capability_changed` · `route_obligation.created/partially_settled/settled/cancelled` · `route_settlement.recorded/confirmed/allocated/failed` (DIRECT_TO_CLIENT with actor SYSTEM and the leg's correlation id) · `leg.payer_reclassified` · `quote_link.local_decline` is **not** audited (no server call) · `routes.settlement_model_changed` · `capacity.reserved/consumed/released/changed` · `settlement_account.selected` · `usdt.detected/confirmed/failed` · `utr.entered/changed` · `leg.*` · `trade.*` transitions · `adjustment.requested/approved/rejected` · `exception.opened/resolved/voided` · `client_bank.added/archived` · `client_wallet.added/archived` · `user.role_granted/revoked` · `user.mfa_enrolled/reset` · `session.login/logout/step_up/failed` · `bank_account.revealed` · `settings.threshold_changed` · `export.generated`.
+`rate.changed` · `quote.created/sent/accepted/rejected/expired/cancelled` · `quote_link.created/opened/revoked` · `acceptance_otp.sent/verified/failed/superseded` · `client_user.accept_permission_changed` · `deposit_address.assigned/released/retired` · `custody.capability_changed` · `route_obligation.created/partially_settled/settled/cancelled` · `route_settlement.recorded/confirmed/allocated/failed` (DIRECT_TO_CLIENT with actor SYSTEM and the leg's correlation id) · `leg.payer_reclassified` · `quote_link.local_decline` is **not** audited (no server call) · `routes.settlement_model_changed` · `capacity.reserved/consumed/released/changed` · `settlement_account.selected` · `usdt.detected/confirmed/failed` · `utr.entered/changed` · `leg.*` · `trade.*` transitions · `adjustment.requested/approved/rejected` · `exception.opened/resolved/voided` · `client_bank.added/archived` · `client_wallet.added/archived` · `user.role_granted/revoked` · `user.mfa_enrolled/reset` · `session.login/logout/step_up/failed` · `bank_account.revealed` · `settings.threshold_changed` · `export.generated` (kind, period, row count and the sha256 of the bytes served) · `receipt.generated` (the snapshot's hashes, never the document) · `statement.imported` (the file's name and sha256, its period and what it reconciled — never its contents).
 
 Stored: actor, time, action, entity, redacted before/after, correlation id, idempotency key, session id, hashed IP. Sealed hourly into `audit_seal` hash chain; seal hashes exported daily to an external write-once location.
 

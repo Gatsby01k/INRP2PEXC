@@ -67,6 +67,21 @@ test('inr accounts', async ({ page }) => {
   await capture(page, 'operator-inr');
 });
 
+test('inr: bank statement reconciliation', async ({ page }) => {
+  await page.goto('/inr');
+  const panel = page.getByTestId('statement-import');
+  await expect(panel).toBeVisible();
+  await expect(panel.getByRole('table')).toBeVisible();
+  await capture(page, 'operator-statement', panel);
+});
+
+test('p&l: realized against expected, and the ledger check', async ({ page }) => {
+  await page.goto('/pnl');
+  await expect(page.getByRole('heading', { name: 'P&L' })).toBeVisible();
+  await expect(page.getByTestId('ledger-check')).toBeVisible();
+  await capture(page, 'operator-pnl');
+});
+
 test('usdt treasury, deposit pool and scanner state', async ({ page }) => {
   await page.goto('/usdt');
   await expect(page.getByRole('heading', { name: 'USDT' })).toBeVisible();

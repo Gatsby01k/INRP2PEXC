@@ -92,6 +92,8 @@ export interface DeskTrade {
   readonly received: string;
   readonly legs: readonly DeskLeg[];
   readonly cases: readonly DeskCase[];
+  /** True once a settlement receipt has been issued for this trade (Phase 8). */
+  readonly receipt: boolean;
   /** SELL only: the address this client was told to send to, and the amount expected there (D-02). */
   readonly deposit?: { readonly address: string; readonly expected: string | null; readonly status: string };
   /** Route side, only with `route_positions:view`. */
@@ -131,6 +133,7 @@ export async function deskTrade(ex: Executor, tradeId: string, access: DeskAcces
   const totals = await legTotals(ex, id);
   const legs = await deskLegs(ex, id);
   const cases = await deskCases(ex, id);
+  const receipt = await ex.selectFrom('receipt').select('id').where('trade_id', '=', id).executeTakeFirst();
   const payoutAsset = payout.currency;
 
   const base: DeskTrade = {
@@ -152,6 +155,7 @@ export async function deskTrade(ex: Executor, tradeId: string, access: DeskAcces
     received: Money.ofMinor(totals.received, receivable.currency).toDecimalString(),
     legs,
     cases,
+    receipt: receipt !== undefined,
     payoutOptions: {
       asset: payoutAsset,
       accounts: payoutAsset === 'INR' ? await payoutAccounts(ex) : [],

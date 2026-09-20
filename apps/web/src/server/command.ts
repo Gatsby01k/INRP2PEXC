@@ -27,6 +27,7 @@ const MESSAGES: Record<string, string> = {
   CAPACITY_INSUFFICIENT: 'That account does not have enough capacity left today.',
   DUPLICATE_UTR: 'That bank reference is already recorded against another payment.',
   DUPLICATE_TX_HASH: 'That transaction is already recorded.',
+  DUPLICATE_STATEMENT: 'That statement file has already been imported for this account.',
   TRANSFER_NOT_CONFIRMED: 'The chain has not made this transfer final yet.',
   UTR_REQUIRED: 'Record the payment reference before confirming.',
   QUOTE_EXPIRED: 'That quote has expired.',

@@ -13,6 +13,7 @@ export interface PnlSummary {
   readonly completedVolume: Money<'USDT'>;
   readonly completedTrades: number;
   readonly openExpectedMargin: Money<'INR'>;
+  readonly openTrades: number;
 }
 
 /**
@@ -33,8 +34,8 @@ export async function pnlSummary(ex: Executor, period: PnlPeriod): Promise<PnlSu
     from trade t join trade_economics e on e.trade_id = t.id
     where t.lifecycle_state = 'COMPLETED'
       and (t.completed_at AT TIME ZONE 'Asia/Kolkata')::date between ${period.from}::date and ${period.to}::date`.execute(ex);
-  const open = await sql<{ margin: string }>`
-    select coalesce(sum(e.gross_margin_inr_minor), 0)::text as margin
+  const open = await sql<{ margin: string; trades: string }>`
+    select coalesce(sum(e.gross_margin_inr_minor), 0)::text as margin, count(*)::text as trades
     from trade t join trade_economics e on e.trade_id = t.id
     where t.lifecycle_state not in ('COMPLETED', 'CANCELLED')`.execute(ex);
   return {
@@ -42,6 +43,7 @@ export async function pnlSummary(ex: Executor, period: PnlPeriod): Promise<PnlSu
     completedVolume: Money.ofMinor(BigInt(completed.rows[0]!.volume), 'USDT'),
     completedTrades: Number.parseInt(completed.rows[0]!.trades, 10),
     openExpectedMargin: Money.ofMinor(BigInt(open.rows[0]!.margin), 'INR'),
+    openTrades: Number.parseInt(open.rows[0]!.trades, 10),
   };
 }
 

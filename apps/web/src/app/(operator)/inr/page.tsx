@@ -1,6 +1,7 @@
 import { inrView } from '@inrp2p/desk';
 import { can, operatorPage } from '../../../server/operator.ts';
 import { InrClient } from './InrClient.tsx';
+import { StatementImport } from './StatementImport.tsx';
 import styles from '../shell.module.css';
 
 export const dynamic = 'force-dynamic';
@@ -14,8 +15,9 @@ export default async function InrPage() {
         <h1 className={styles.title}>INR</h1>
         <span className="ix-muted">{view.istDay} IST</span>
       </header>
-      <div className={styles.content}>
+      <div className={`${styles.content} ix-stack`}>
         <InrClient view={view} canChangeCapacity={can(ctx, 'capacity:change')} />
+        <StatementImport accounts={view.accounts} statements={view.statements} canImport={can(ctx, 'statement:import')} />
       </div>
     </>
   );

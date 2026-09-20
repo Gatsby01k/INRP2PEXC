@@ -2,6 +2,7 @@ import { sql } from 'kysely';
 import { Money } from '@inrp2p/kernel';
 import type { Executor } from '@inrp2p/db';
 import { istToday } from '@inrp2p/inr-accounts';
+import { type StatementImportSummary, listStatementImports } from '@inrp2p/settlement';
 import { getDepositPoolStatus } from '@inrp2p/treasury';
 
 export interface InrAccountView {
@@ -29,6 +30,8 @@ export interface InrView {
   readonly istDay: string;
   readonly accounts: readonly InrAccountView[];
   readonly totals: { readonly capacity: string; readonly used: string; readonly reserved: string; readonly available: string };
+  /** The bank statements reconciled against these accounts, newest first (SECURITY §5 S7). */
+  readonly statements: readonly StatementImportSummary[];
 }
 
 /** The INR screen: every settlement account and what today's capacity has left in it (FI-30, STATE_MACHINES §6). */
@@ -82,9 +85,11 @@ export async function inrView(ex: Executor): Promise<InrView> {
     };
   });
   const available = capacity - used - reserved;
+  const statements = await listStatementImports(ex, { limit: 10 });
   return {
     istDay: day,
     accounts,
+    statements,
     totals: {
       capacity: Money.ofMinor(capacity, 'INR').toDecimalString(),
       used: Money.ofMinor(used, 'INR').toDecimalString(),

@@ -36,3 +36,27 @@
   border-top: 1px solid var(--border-default);
   padding-top: var(--space-3);
 }
+
+.statementForm {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  align-items: end;
+  gap: var(--space-3);
+  margin: var(--space-3) 0;
+}
+
+.statementQuiet {
+  color: var(--text-secondary);
+}
+
+.statementAlarm {
+  color: var(--status-danger);
+  font-weight: var(--font-weight-medium);
+}
+
+/* Present for the picker it opens, never for its own rendering: a native file input draws its text in a system
+   font, which no page baseline may contain (VISUAL_BASELINES §4). `display: none` keeps it out of the layout
+   and out of the font census; the button beside it is what an operator sees and tabs to. */
+.fileInput {
+  display: none;
+}

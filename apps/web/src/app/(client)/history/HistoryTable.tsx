@@ -48,6 +48,19 @@ export function HistoryTable({ rows, filter }: { rows: readonly HistoryRow[]; fi
             { key: 'base', header: 'USDT', numeric: true, render: (r: HistoryRow) => formatUsdtHeadline(Money.parse(r.base, 'USDT')) },
             { key: 'inr', header: 'INR', numeric: true, render: (r: HistoryRow) => formatInr(Money.parse(r.inr, 'INR')) },
             { key: 'rate', header: 'Rate', numeric: true, render: (r: HistoryRow) => formatRate(Rate.parse(r.clientRate, 'CLIENT')) },
+            {
+              key: 'receipt',
+              header: 'Receipt',
+              render: (r: HistoryRow) =>
+                r.receipt ? (
+                  // Stops the row's own navigation: someone clicking "Receipt" wants the document, not the trade.
+                  <a className="ix-linkish" href={`/api/receipts/${encodeURIComponent(r.ref)}`} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>
+                    Receipt
+                  </a>
+                ) : (
+                  <span className={styles.muted}>—</span>
+                ),
+            },
           ]}
           rows={rows}
         />

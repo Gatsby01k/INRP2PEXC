@@ -58,6 +58,11 @@
   color: var(--text-secondary);
 }
 
+.ix-hint {
+  font-size: var(--font-size-meta);
+  color: var(--text-muted);
+}
+
 .ix-input {
   min-height: var(--touch-min);
   padding: 0 var(--space-3);

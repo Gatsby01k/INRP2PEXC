@@ -58,6 +58,11 @@ jobs:
       - name: Build web app
         run: pnpm --filter @inrp2p/web build
 
+      # The receipt PDF tests print with the pinned Chromium. Without it they would skip, and a skipped gate is
+      # not a gate.
+      - name: Install Chromium
+        run: pnpm --filter @inrp2p/web exec playwright install --with-deps chromium
+
       - name: Integration tests (PostgreSQL 18.6 via Testcontainers)
         run: pnpm run test:integration
 

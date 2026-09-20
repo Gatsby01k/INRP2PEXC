@@ -123,6 +123,16 @@ export function TradeScreen({ view }: { view: PortalTrade }) {
           </div>
           {view.incoming ? <TransactionHash hash={view.incoming.txHash} finality={view.incoming.state === 'CONFIRMED' ? 'Confirmed' : 'Seen, not final'} copy={false} /> : null}
           {view.completedAt ? <p className={styles.muted}>Completed {formatIstDateTime(new Date(view.completedAt))}</p> : null}
+          {view.receipt ? (
+            <p className={styles.row}>
+              <a className="ix-linkish" href={`/api/receipts/${encodeURIComponent(trade.ref)}`} target="_blank" rel="noreferrer">
+                Settlement receipt
+              </a>
+              <a className="ix-linkish" href={`/api/receipts/${encodeURIComponent(trade.ref)}?format=pdf`} download>
+                PDF
+              </a>
+            </p>
+          ) : null}
         </aside>
       </div>
     </>

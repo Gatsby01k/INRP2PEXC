@@ -19,8 +19,9 @@ import { createInrAccount, createSettlementEntity, setDayCapacity } from '@inrp2
 import { configureRoute, createRoute } from '@inrp2p/routes';
 import { publishRouteRate } from '@inrp2p/pricing';
 import { acceptQuote, createQuote, createQuoteLink, createRequest, sendQuote } from '@inrp2p/quotes';
-import { confirmPayout, createPayoutLeg, recordLegEvidence, recordRouteSettlement, sendPayoutLeg } from '@inrp2p/settlement';
+import { confirmPayout, createPayoutLeg, importBankStatement, recordLegEvidence, recordRouteSettlement, sendPayoutLeg } from '@inrp2p/settlement';
 import { acknowledgedSignalHandler, clientNotificationHandler } from '@inrp2p/notifications';
+import { receiptHandler } from '@inrp2p/reporting';
 import { runTronConfirm, runTronScan } from '@inrp2p/scanner';
 import { importPoolAddresses, recordCustodyCapability, registerTreasuryWallet } from '@inrp2p/treasury';
 
@@ -360,7 +361,32 @@ export async function seedVisual(adminUrl: string): Promise<VisualState> {
 
   // 8. The inbox, filled the way production fills it: by running the outbox over the events these commands
   //    already enqueued. Nothing writes a notification directly.
-  await dispatchOutbox(world, [clientNotificationHandler(world), acknowledgedSignalHandler()], { batchSize: 500 });
+  await dispatchOutbox(world, [clientNotificationHandler(world), receiptHandler(world), acknowledgedSignalHandler()], { batchSize: 500 });
+
+  // 8b. A bank statement, reconciled. Its lines are the payments the desk actually confirmed on this account,
+  //     so the import matches everything and opens no case — the quiet outcome, which is the one a baseline
+  //     should show. The extra line is a bank charge this system never made: `UNRECORDED`, and deliberately not
+  //     a case, because a real statement is full of them.
+  const confirmedLines = await sql<{ utr: string; amount_minor: bigint }>`
+    select distinct f.utr, f.amount_minor
+    from fiat_transfer f
+    join transfer_allocation a on a.fiat_transfer_id = f.id and a.voided_at is null
+    join settlement_leg l on l.id = a.settlement_leg_id
+    where f.status = 'CONFIRMED' and l.inr_account_id = ${account.accountId}
+    order by f.utr`.execute(world);
+  const statementLines = [
+    ...confirmedLines.rows.map((r) => ({
+      valueDate: FROZEN_IST_DAY, direction: 'DEBIT' as const,
+      amount: Money.ofMinor(r.amount_minor, 'INR').toDecimalString(), reference: r.utr, description: 'NEFT OUTWARD',
+    })),
+    { valueDate: FROZEN_IST_DAY, direction: 'DEBIT' as const, amount: '236.00', reference: 'BANKCHG0919', description: 'MONTHLY CHARGES' },
+  ];
+  await run(world, importBankStatement(owner.actor), owner.ref, 'statement.import', {
+    inrAccountId: account.accountId, periodFrom: FROZEN_IST_DAY, periodTo: FROZEN_IST_DAY,
+    filename: 'hdfc-20260919.csv',
+    sha256: createHash('sha256').update(JSON.stringify(statementLines)).digest('hex'),
+    lines: statementLines,
+  });
 
   // The scanner's own state, written directly: only the chain would otherwise supply it, and the USDT screen
   // shows it so an operator can tell "quiet" from "broken".

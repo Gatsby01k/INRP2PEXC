@@ -5,45 +5,10 @@ import { Money, Rate, usdtToInr } from '@inrp2p/kernel';
 import type { DeskCase, DeskTrade } from '@inrp2p/desk';
 import { Button, ExceptionBanner } from '@inrp2p/ui';
 import { formatUsdt } from '@inrp2p/ui/format';
-import { requestAdjustmentAction, resolveExceptionAction, takeExceptionAction } from '../../server/actions/desk.ts';
+import { requestAdjustmentAction, resolveExceptionAction, takeExceptionAction, voidExceptionAction } from '../../server/actions/desk.ts';
+import { type Resolution, resolutionsFor } from './resolutions.ts';
 import { useCommand } from '../useCommand.tsx';
 import styles from './panel.module.css';
-
-type Resolution = 'await_top_up' | 'accept_sender' | 'hold_in_suspense' | 'confirm_new_destination' | 'keep_original' | 'escalate' | 'create_replacement_leg';
-
-/** The resolutions each case type actually offers, in the order a desk would consider them (DOMAIN_MODEL §3). */
-const OPTIONS: Record<string, readonly { value: Resolution; label: string }[]> = {
-  USDT_WRONG_AMOUNT: [
-    { value: 'await_top_up', label: 'Wait for the client to top up' },
-    { value: 'escalate', label: 'Escalate' },
-  ],
-  USDT_OVERPAYMENT: [
-    { value: 'hold_in_suspense', label: 'Hold the excess in suspense' },
-    { value: 'escalate', label: 'Escalate' },
-  ],
-  USDT_UNEXPECTED_SENDER: [
-    { value: 'accept_sender', label: 'Accept this sender' },
-    { value: 'escalate', label: 'Escalate' },
-  ],
-  CLIENT_BANK_CHANGED: [
-    { value: 'confirm_new_destination', label: 'Confirm the new destination' },
-    { value: 'keep_original', label: 'Keep the original destination' },
-  ],
-  BANK_TRANSFER_FAILED: [
-    { value: 'create_replacement_leg', label: 'Create a replacement leg' },
-    { value: 'escalate', label: 'Escalate' },
-  ],
-  FUNDS_AFTER_TRADE_CLOSED: [
-    { value: 'hold_in_suspense', label: 'Hold in suspense' },
-    { value: 'escalate', label: 'Escalate' },
-  ],
-  UNALLOCATED_DEPOSIT: [
-    { value: 'hold_in_suspense', label: 'Hold in suspense' },
-    { value: 'escalate', label: 'Escalate' },
-  ],
-};
-
-const FALLBACK: readonly { value: Resolution; label: string }[] = [{ value: 'escalate', label: 'Escalate' }];
 
 /**
  * The exception resolver (UX_FLOWS F6). It offers the resolutions the domain actually accepts for that case
@@ -68,7 +33,8 @@ export function ExceptionPanel({ trade, canResolve, canAdjust }: { trade: DeskTr
       {trade.cases.length === 0 ? <p className={styles.notice}>No open cases on this trade.</p> : null}
 
       {trade.cases.map((c) => {
-        const options = OPTIONS[c.type] ?? FALLBACK;
+        const choices = resolutionsFor(c.type);
+        const options = choices.resolutions;
         const choice = selected[c.id] ?? options[0]!.value;
         return (
           <section key={c.id} className={styles.section} data-testid={`case-${c.type}`}>
@@ -92,6 +58,7 @@ export function ExceptionPanel({ trade, canResolve, canAdjust }: { trade: DeskTr
               <label htmlFor={`notes-${c.id}`}>What happened</label>
               <input id={`notes-${c.id}`} className="ix-input" value={notes[c.id] ?? ''} onChange={(e) => setNotes((s) => ({ ...s, [c.id]: e.target.value }))} />
             </div>
+            {choices.financial ? <p className={styles.notice}>{choices.financial}</p> : null}
             <div className={styles.actions}>
               {c.status === 'OPEN' ? (
                 <Button onClick={() => cmd.run(`Take ${c.ref}`, (key) => takeExceptionAction({ exceptionId: c.id }, key))}>Take</Button>
@@ -107,6 +74,15 @@ export function ExceptionPanel({ trade, canResolve, canAdjust }: { trade: DeskTr
               >
                 Resolve
               </Button>
+              {choices.voidable ? (
+                <Button
+                  intent="ghost"
+                  disabled={!canResolve || (notes[c.id] ?? '').trim().length < 3}
+                  onClick={() => cmd.run(`Void ${c.ref}`, (key) => voidExceptionAction({ exceptionId: c.id, reason: notes[c.id] ?? '' }, key))}
+                >
+                  Void
+                </Button>
+              ) : null}
             </div>
 
             {shortfall && (c.type === 'USDT_WRONG_AMOUNT' || c.type === 'USDT_OVERPAYMENT') ? (

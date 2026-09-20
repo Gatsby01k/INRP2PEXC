@@ -21,6 +21,9 @@ export const CAPTURES = [
   'operator-inr',
   'operator-usdt',
   'operator-clients',
+  // Phase 8 finance outputs: the P&L screen, and the statement reconciliation panel on the INR screen.
+  'operator-pnl',
+  'operator-statement',
   'operator-command-bar',
   'operator-step-up',
   // The client product (Phase 7). Same rules, same environment; different surface and, for the link, a phone.

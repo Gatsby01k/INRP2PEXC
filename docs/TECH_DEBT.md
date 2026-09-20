@@ -15,6 +15,9 @@ Non-blocking items accepted at phase review. Each entry names the phase that mus
 | TD-09 | The page baselines have not been recorded in the canonical environment | Phase 6 review (2026-09-19) | The `visual-pages` CI job can pass | Closed in Phase 7 review (2026-09-19) — 20 baselines recorded, `visual` / `visual-pages` green on main |
 | TD-10 | Outbox: the desk's own signals and the receipt trigger are acknowledged, not consumed | Phase 7 implementation (2026-09-19) | A desk push channel (desk signals) and Phase 8 (receipts) | Open |
 | TD-11 | Client TOTP enrolment does not exist, so client-side destination management is desk-only | Phase 7 implementation (2026-09-19) | A client managing their own bank accounts or wallets, or granting quote-acceptance authority | Open |
+| TD-12 | Receipts are proved by hash, not stored: no object store, and PDF printing is opt-in | Phase 8 implementation (2026-09-20) | A deployment that must serve a receipt without re-rendering it, or print PDFs | Open |
+| TD-13 | Two new page baselines and one changed page have not been recorded in the canonical environment | Phase 8 implementation (2026-09-20) | The `visual-pages` CI job can pass | Open — canonical dispatch required at review |
+| TD-14 | Reconciliation is a manual statement import; there is no recurring job | Phase 8 implementation (2026-09-20) | A bank feed or statement drop that arrives without an operator | Open |
 
 ## TD-01 — Better Auth schema warning for `auth_rate_limit.last_request`
 
@@ -206,6 +209,12 @@ read from the rows. The debt is that two real features are named but not built.
 an operator is actually told, rather than something they find by looking) and Phase 8's receipts
 (`receipt.generate`). Each one removes its types from the acknowledged list as it starts consuming them.
 
+**Half closed in Phase 8 (2026-09-20).** `receipt.generate` now has a real handler: `receiptHandler` from
+`@inrp2p/reporting` takes the snapshot, issues the receipt and records its hashes, and the worker runs it. It has
+left `ACKNOWLEDGED_SIGNALS`, so a failure to issue a receipt is now a failing outbox delivery that retries —
+which is what it should always have been. The `desk.*` signals and `capacity.over_committed` are still
+acknowledged and still waiting for a push channel; this item stays open for them.
+
 ## TD-11 — Client TOTP enrolment is not built, so sensitive client-admin actions cannot be performed by a client
 
 **Observed.** SECURITY §2.2 specifies optional TOTP per client user, **required** for a `CLIENT_ADMIN` adding or
@@ -229,3 +238,66 @@ and enrolment flow (an Account screen: enrol, verify, recovery), keep `skipVerif
 deliberately whether client users may use trusted devices (operators may not), then bring back the client
 destination actions and the `can_accept_quotes` grant behind the existing step-up dialog. The RBAC and command
 side needs no change — it has been waiting for this since Phase 2.
+
+## TD-12 — Receipts are proved by hash, not stored
+
+**Observed.** The `receipt` table holds the canonical snapshot and the sha256 of every artifact rendered from
+it — JSON, CSV, HTML — but not the artifacts themselves. `json_key`, `csv_key` and `pdf_key` exist and are
+null, because V1 has no object store to put a key in. Serving a receipt regenerates it from the snapshot and
+checks the result against the recorded hash; a mismatch is refused rather than served.
+
+Separately, PDF rendering is a port with one implementation (`ChromiumPdfRenderer`) that is **off unless
+`INRP2P_PDF_RENDERER=chromium` names it**, because printing needs a browser binary that a deployment has to
+install and supervise. Without it the route answers 503 and names the three formats that do work.
+
+**Risk.** Low, and deliberately shaped that way. The snapshot is immutable, the renderers are pure, and the hash
+is what proves the document — so "regenerate and verify" is a stronger guarantee than "fetch what we stored",
+not a weaker one. What is missing is the ability to hand someone a URL that does not re-render, and the ability
+to print a PDF in a deployment that has no browser.
+
+**Resolution (to do).** When object storage exists: write each artifact once at issue time, record its key in the
+column already reserved for it, serve from storage, and keep the regenerate-and-compare path as the check that
+what was stored is still what was issued. Bind a PDF renderer in the deployments that need one (a browser in the
+worker image, or a rendering service behind the same port), and keep the unconfigured renderer as the default so
+an environment without one refuses loudly.
+
+## TD-13 — The Phase 8 page baselines have not been recorded
+
+**Observed.** Phase 8 adds two captures to the page manifest — `operator-pnl` and `operator-statement` — and
+changes one page that already has a baseline: the INR screen now carries the statement reconciliation panel.
+`apps/web/visual/__screenshots__` still holds the 20 PNGs recorded for Phase 7, so compare-only CI reports two
+missing baselines and one mismatch. The self-check path reproduces all 22 captures in the development
+environment, which is what it is for, but it is not a baseline (`docs/VISUAL_BASELINES.md §5`).
+
+A related defect was fixed rather than recorded: `istToday` in `@inrp2p/inr-accounts` read `statement_timestamp()`
+while the rest of the system read `inrp2p_now()`, so the INR screen printed the *wall-clock* IST day. In a
+deployed database the two are identical, but in the pinned-clock fixture the page printed whatever day the
+baseline happened to be recorded on — which would have made `operator-inr` fail every day after it was recorded.
+Both now read the business clock.
+
+**Risk.** CI's `visual-pages` job cannot pass until the baselines are recorded. No product risk.
+
+**Resolution (to do, at Phase 8 review).** Dispatch the canonical update workflow, review the recorded images,
+merge them, and confirm ordinary CI is green on the resulting `main` — the same one-run path that closed TD-09.
+
+## TD-14 — Reconciliation has no recurring job
+
+**Observed.** The plan line for Phase 8 reads "reconciliation job + manual bank statement import". The manual
+import exists and is the control that matters (SECURITY §5 S7); the ledger-side reconciliation query
+(`routeObligationMismatches`, FI-64) exists and is asserted by the properties suite. What does not exist is
+anything that runs on a timer.
+
+**Why it was not built.** A recurring job needs something new to read. With no bank API, the only input is a
+file a person uploads, and a scheduler re-reading the files already imported would report the same answer on a
+timer — activity, not information. The import is already idempotent (unique on the file's hash per account; a
+case that is open is found rather than opened again), so it is ready to be driven by a job the moment there is a
+feed to drive it.
+
+**Risk.** Reconciliation happens when an operator does it, not on a schedule. A fake UTR is therefore caught at
+the next import rather than within a fixed window. The audit trail records exactly when each import happened, so
+the gap is visible rather than assumed.
+
+**Resolution (to do).** Either a bank feed (an adapter that fetches statements on a schedule and hands them to
+the same command) or a watched drop location, plus a Graphile Worker cron entry that runs the ledger-side
+reconciliation and opens a case for anything `routeObligationMismatches` returns rather than leaving it to a
+test.

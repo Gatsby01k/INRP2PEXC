@@ -271,6 +271,9 @@ importers:
       '@inrp2p/quotes':
         specifier: workspace:*
         version: link:../../packages/quotes
+      '@inrp2p/reporting':
+        specifier: workspace:*
+        version: link:../../packages/reporting
       '@inrp2p/routes':
         specifier: workspace:*
         version: link:../../packages/routes
@@ -365,6 +368,9 @@ importers:
       '@inrp2p/quotes':
         specifier: workspace:*
         version: link:../../packages/quotes
+      '@inrp2p/reporting':
+        specifier: workspace:*
+        version: link:../../packages/reporting
       '@inrp2p/scanner':
         specifier: workspace:*
         version: link:../../packages/scanner
@@ -389,6 +395,9 @@ importers:
       '@inrp2p/kernel':
         specifier: workspace:*
         version: link:../kernel
+      playwright-core:
+        specifier: 1.56.1
+        version: 1.56.1
 
   packages/audit:
     dependencies:
@@ -741,6 +750,49 @@ importers:
       '@inrp2p/inr-accounts':
         specifier: workspace:*
         version: link:../inr-accounts
+
+  packages/reporting:
+    dependencies:
+      '@inrp2p/audit':
+        specifier: workspace:*
+        version: link:../audit
+      '@inrp2p/commands':
+        specifier: workspace:*
+        version: link:../commands
+      '@inrp2p/db':
+        specifier: workspace:*
+        version: link:../db
+      '@inrp2p/kernel':
+        specifier: workspace:*
+        version: link:../kernel
+      '@inrp2p/outbox':
+        specifier: workspace:*
+        version: link:../outbox
+      '@inrp2p/quotes':
+        specifier: workspace:*
+        version: link:../quotes
+      '@inrp2p/ui':
+        specifier: workspace:*
+        version: link:../ui
+      kysely:
+        specifier: 0.29.6
+        version: 0.29.6
+    devDependencies:
+      '@inrp2p/adapters':
+        specifier: workspace:*
+        version: link:../adapters
+      '@inrp2p/clients':
+        specifier: workspace:*
+        version: link:../clients
+      '@inrp2p/identity':
+        specifier: workspace:*
+        version: link:../identity
+      '@inrp2p/settlement':
+        specifier: workspace:*
+        version: link:../settlement
+      '@inrp2p/trades':
+        specifier: workspace:*
+        version: link:../trades
 
   packages/routes:
     dependencies:

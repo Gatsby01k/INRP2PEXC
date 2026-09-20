@@ -20,6 +20,7 @@ export interface PayoutPanelProps {
   readonly canSend: boolean;
   readonly canRecord: boolean;
   readonly canConfirm: boolean;
+  readonly canViewReceipt: boolean;
   readonly focus?: string;
 }
 
@@ -29,7 +30,7 @@ export interface PayoutPanelProps {
  * Every button runs one domain command; none of the arithmetic here decides anything — the obligation, the
  * capacity and the route side are all checked again inside the command's transaction.
  */
-export function PayoutPanel({ trade, canCreate, canSend, canRecord, canConfirm, focus }: PayoutPanelProps) {
+export function PayoutPanel({ trade, canCreate, canSend, canRecord, canConfirm, canViewReceipt, focus }: PayoutPanelProps) {
   const cmd = useCommand();
   const asset = trade.payoutOptions.asset;
   const [payer, setPayer] = useState<'EXCHANGE_ACCOUNT' | 'ROUTE'>('EXCHANGE_ACCOUNT');
@@ -77,6 +78,16 @@ export function PayoutPanel({ trade, canCreate, canSend, canRecord, canConfirm, 
           </div>
         ) : null}
       </dl>
+
+      {canViewReceipt && trade.receipt ? (
+        <p className={styles.row}>
+          {/* The document the client was given, regenerated from its snapshot — so an operator answering a
+              question about it is looking at the same bytes the client holds. */}
+          <a className="ix-linkish" href={`/api/receipts/${encodeURIComponent(trade.ref)}`} target="_blank" rel="noreferrer">
+            Settlement receipt
+          </a>
+        </p>
+      ) : null}
 
       {asset === 'INR' ? (
         <SettlementProgress
