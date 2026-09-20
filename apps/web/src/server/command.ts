@@ -1,7 +1,7 @@
 import 'server-only';
 import { type DomainError, isDomainError } from '@inrp2p/kernel';
 import type { ActorRef, TxContext } from '@inrp2p/db';
-import { executeCommand } from '@inrp2p/commands';
+import { executeCommand, limitFinancialMutations } from '@inrp2p/commands';
 import type { DomainCommand } from '@inrp2p/identity';
 import { UnconfiguredChainVerifier } from '@inrp2p/adapters';
 import type { SettlementDeps } from '@inrp2p/settlement';
@@ -39,6 +39,7 @@ const MESSAGES: Record<string, string> = {
   IDEMPOTENCY_IN_PROGRESS: 'The same action is already running. Give it a moment.',
   INVALID_TRANSITION: 'The trade has moved on since this screen was drawn. Reload it.',
   STALE_VERSION: 'Someone changed this while you were working. Reload it.',
+  RATE_LIMITED: 'Too many actions in a short time. Wait a moment and try again.',
 };
 
 export interface RunOptions {
@@ -70,6 +71,11 @@ export async function runCommand<P, R>(
   }
   const ref: ActorRef = { type: 'USER', id: ctx.actor.userId, surface: 'OPERATOR', sessionId: ctx.actor.sessionId };
   try {
+    // SECURITY §7: sixty financial mutations per user per minute. Applied here, at the edge a person acts
+    // through, rather than in the pipeline — the pipeline is also how the worker and the scanner move money,
+    // and throttling those would mean the outbox falling behind exactly when it has work to do. It runs in its
+    // own transaction and counts refusals too, so a runaway client cannot spend the limit only on successes.
+    if (opts.financial ?? true) await limitFinancialMutations(ctx.db, ref);
     const out = await executeCommand(ctx.db, build(ctx, { chain: chainForWeb() }), {
       name: opts.name,
       actor: ref,
@@ -87,6 +93,9 @@ export async function runCommand<P, R>(
 export async function withOperator<R>(fn: (ctx: OperatorContext, deps: SettlementDeps) => Promise<R>): Promise<CommandResult<R>> {
   try {
     const ctx = await operatorContext();
+    // These flows move money too — a refund and cancellation, a direct payout — so they carry the same ceiling
+    // as the ones that go through `runCommand`. A limit with an exception in it is a limit with a way around it.
+    await limitFinancialMutations(ctx.db, { type: 'USER', id: ctx.actor.userId });
     return { ok: true, result: await fn(ctx, { chain: chainForWeb() }) };
   } catch (e) {
     return failure(e);

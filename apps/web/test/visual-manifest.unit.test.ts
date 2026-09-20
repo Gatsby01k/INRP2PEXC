@@ -23,12 +23,13 @@ const capturedInSpec = [...SPEC.matchAll(/\bcapture\(page,\s*'([^']+)'/g)].map((
 
 describe('capture manifest', () => {
   it('names every validation state of both products', () => {
-    expect(CAPTURES).toHaveLength(22);
-    expect(new Set(CAPTURES).size).toBe(22);
+    expect(CAPTURES).toHaveLength(24);
+    expect(new Set(CAPTURES).size).toBe(24);
     expect(CAPTURE_FILES).toEqual(CAPTURES.map((n) => `${n}.png`));
     expect(CAPTURES.filter((n) => n.startsWith('operator-'))).toHaveLength(13);
     expect(CAPTURES.filter((n) => n.startsWith('client-'))).toHaveLength(7);
     expect(CAPTURES.filter((n) => n.startsWith('link-'))).toHaveLength(2);
+    expect(CAPTURES.filter((n) => n.startsWith('public-'))).toHaveLength(2);
   });
 
   it('matches what the suite captures, in both directions', () => {

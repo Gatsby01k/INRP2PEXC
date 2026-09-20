@@ -27,7 +27,7 @@ export default defineConfig({
     screenshot: 'only-on-failure',
   },
   projects: [
-    { name: 'desk', testMatch: /(demo|finance|keyboard)\.spec\.ts/, use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } } },
+    { name: 'desk', testMatch: /(demo|finance|keyboard|public)\.spec\.ts/, use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } } },
     // The client product is opened on a phone: the quote link arrives by message, and the trade is followed from
     // the same device. Running it on a real mobile device profile is the point, not a detail of the profile.
     { name: 'client-mobile', testMatch: /client\.spec\.ts/, use: { ...devices['Pixel 7'] } },

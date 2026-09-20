@@ -40,3 +40,22 @@ test('the code step, which is the only way through', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Confirm it’s you' })).toBeVisible();
   await capture(page, 'link-verification-mobile');
 });
+
+/**
+ * The public site, captured on the same phone viewport as the link.
+ *
+ * Two pages rather than six: the home page carries the hero, the actions and the steps, and one SEO page
+ * carries the shape every other one shares. Capturing all six would make the baseline set six times more
+ * expensive to re-record for one change to a shared header, and prove nothing the second page does not.
+ */
+test('the public home page as a stranger sees it', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByRole('heading', { level: 1, name: 'Buy & sell USDT in India' })).toBeVisible();
+  await capture(page, 'public-home-mobile');
+});
+
+test('an SEO page, which every other one is shaped like', async ({ page }) => {
+  await page.goto('/usdt-to-inr');
+  await expect(page.getByRole('heading', { level: 1, name: 'USDT to INR' })).toBeVisible();
+  await capture(page, 'public-usdt-to-inr-mobile');
+});

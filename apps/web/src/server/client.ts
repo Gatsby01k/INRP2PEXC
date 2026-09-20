@@ -3,7 +3,7 @@ import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { isDomainError } from '@inrp2p/kernel';
 import type { ActorRef, Db } from '@inrp2p/db';
-import { executeCommand } from '@inrp2p/commands';
+import { executeCommand, limitFinancialMutations } from '@inrp2p/commands';
 import { type ClientActor, type DomainCommand, hasFreshStepUp, requireClientSession } from '@inrp2p/identity';
 import { type PortalAccess, portalAccess } from '@inrp2p/portal';
 import type { QuoteDeps } from '@inrp2p/quotes';
@@ -67,6 +67,8 @@ export async function runClientCommand<P, R>(
   }
   const ref: ActorRef = { type: 'USER', id: ctx.actor.userId, surface: 'CLIENT', sessionId: ctx.actor.sessionId };
   try {
+    // The same ceiling as the desk's (SECURITY §7). A client acts through this runner and no other.
+    if (opts.financial ?? true) await limitFinancialMutations(ctx.db, ref);
     const out = await executeCommand(ctx.db, build(ctx, quoteDepsForWeb()), {
       name: opts.name,
       actor: ref,

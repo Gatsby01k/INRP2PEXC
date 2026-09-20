@@ -223,6 +223,8 @@ export async function latestSentQuoteId(clientId: string): Promise<string> {
 const PORTS = surfacePorts(Number.parseInt(process.env.E2E_PORT ?? '3210', 10));
 export const appBaseUrl = (): string => deskBaseUrl(PORTS.app);
 export const linkBaseUrl = (): string => deskBaseUrl(PORTS.public);
+/** The desk's own origin, for the specs that check all three surfaces rather than working inside one. */
+export const operatorBaseUrl = (): string => deskBaseUrl(PORTS.desk);
 
 /** A server-side operator session with a fresh step-up, for the desk-side steps a client journey depends on. */
 async function operatorSession(who: E2EOperator): Promise<{ actor: OperatorActor; ref: { type: 'USER'; id: string; surface: 'OPERATOR'; sessionId: string } }> {

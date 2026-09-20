@@ -36,6 +36,9 @@ export const CAPTURES = [
   'client-notifications',
   'link-quote-mobile',
   'link-verification-mobile',
+  // Phase 9: the public site, on the same phone the link is read on.
+  'public-home-mobile',
+  'public-usdt-to-inr-mobile',
 ] as const;
 
 export type CaptureName = (typeof CAPTURES)[number];

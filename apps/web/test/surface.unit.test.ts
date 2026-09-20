@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { gateFor, surfaceForHost } from '../src/server/surface.ts';
+import { PUBLIC_HOME_PATH, gateFor, surfaceForHost } from '../src/server/surface.ts';
+import { SITE_PATHS } from '../src/content/site.ts';
 
 const hosts = { deskHost: 'desk.inrp2p.com', appHost: 'app.inrp2p.com', publicHost: 'inrp2p.com' };
 
@@ -44,12 +45,42 @@ describe('proxy gating', () => {
     }
   });
 
-  it('publishes the quote link on the public host, and nothing else (D-01)', () => {
+  it('publishes the quote link on the public host (D-01)', () => {
     expect(gateFor('PUBLIC', '/q/AbCdEfGhIjKlMnOpQrStUv')).toBe('PUBLIC');
     expect(gateFor('PUBLIC', '/q')).toBe('PUBLIC');
-    // Opening the link authorizes nothing, so it needs no session — but it is the only page published here.
-    for (const path of ['/', '/exchange', '/sign-in', '/qx', '/x/q/token']) {
-      expect(gateFor('PUBLIC', path)).toBe('CLIENT_SESSION');
+  });
+
+  it('publishes the six site routes and nothing else (PRODUCT §7.4)', () => {
+    for (const path of SITE_PATHS) {
+      expect(gateFor('PUBLIC', path), `${path} must be published`).toBe('PUBLIC');
+    }
+    expect(SITE_PATHS).toHaveLength(6);
+    // `/home` is the inside of the rewrite that serves `/`, and the proxy runs again on it, so it passes the
+    // gate. It is not a second address: the proxy redirects a request that arrives there from outside.
+    expect(gateFor('PUBLIC', PUBLIC_HOME_PATH)).toBe('PUBLIC');
+    // Everything else on this host is refused rather than rendered — including anything that merely looks like
+    // a published path.
+    for (const path of ['/exchange', '/sign-in', '/qx', '/x/q/token', '/usdt-to-inr/x', '/usdt-to-inrx', '/api/auth', '/pnl', '/sitemap.xml.bak']) {
+      expect(gateFor('PUBLIC', path), `${path} must not be published`).toBe('CLIENT_SESSION');
+    }
+  });
+
+  it('answers liveness and readiness on every host, and guards the one that carries figures', () => {
+    for (const surface of ['OPERATOR', 'CLIENT', 'PUBLIC'] as const) {
+      expect(gateFor(surface, '/api/health/live'), surface).toBe('PUBLIC');
+      expect(gateFor(surface, '/api/health/ready'), surface).toBe('PUBLIC');
+      // `status` carries capacity, holds and scanner lag. It authenticates inside the route, and the proxy
+      // does not wave it through on any host.
+      expect(gateFor(surface, '/api/health/status'), surface).not.toBe('PUBLIC');
+    }
+  });
+
+  it('answers the crawler files on every host without a session', () => {
+    // A private app that replies 401 to robots.txt has told the crawler nothing, and nothing is not "do not
+    // index me". Each handler decides what to say from the host; neither answer contains a business fact.
+    for (const surface of ['OPERATOR', 'CLIENT', 'PUBLIC'] as const) {
+      expect(gateFor(surface, '/robots.txt'), surface).toBe('PUBLIC');
+      expect(gateFor(surface, '/sitemap.xml'), surface).toBe('PUBLIC');
     }
   });
 

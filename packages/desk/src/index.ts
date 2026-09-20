@@ -8,3 +8,4 @@ export * from './positions.ts';
 export * from './treasury.ts';
 export * from './clients.ts';
 export * from './pnl.ts';
+export * from './health.ts';

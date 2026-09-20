@@ -17,7 +17,8 @@
     "secret-scan": "node scripts/secret-scan.ts",
     "versions:check": "node scripts/check-versions.ts",
     "workspace:graph": "node scripts/workspace-graph.ts",
-    "smoke:tron": "node scripts/tron-smoke.ts"
+    "smoke:tron": "node scripts/tron-smoke.ts",
+    "load:test": "LOAD_WORKERS=${LOAD_WORKERS:-12} LOAD_TRADES_PER_WORKER=${LOAD_TRADES_PER_WORKER:-25} vitest run --project integration packages/settlement/test/load.int.test.ts --reporter=verbose"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

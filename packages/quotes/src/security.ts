@@ -1,11 +1,16 @@
-import { createHash, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
+import { randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
 import { sql } from 'kysely';
-import { DomainError } from '@inrp2p/kernel';
-import type { Db, Executor } from '@inrp2p/db';
+import type { Executor } from '@inrp2p/db';
+import { sha256Hex } from '@inrp2p/commands';
+
+/**
+ * The rate limiter itself lives in `@inrp2p/commands`, next to the pipeline that applies it to every financial
+ * mutation. It is re-exported here because the link flow is where most of its buckets are used, and because
+ * moving a name out of a package's public surface is a change nobody asked for.
+ */
+export { hitRateLimit, pruneRateLimitCounters, sha256Hex } from '@inrp2p/commands';
 
 const BASE62 = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
-
-export const sha256Hex = (value: string): string => createHash('sha256').update(value, 'utf8').digest('hex');
 
 /** 128-bit CSPRNG token, base62, exactly 22 characters (SECURITY §2.3). */
 export function newLinkToken(): string {
@@ -39,28 +44,6 @@ export function newOtpCode(): string {
 
 export function newOtpSalt(): string {
   return randomBytes(16).toString('hex');
-}
-
-/**
- * Fixed-window rate limiter. Runs in its own transaction and commits even when the calling operation fails, so
- * failed attempts count. `subject` must already be non-identifying (hash of IP or token).
- */
-export async function hitRateLimit(db: Db, input: { bucket: string; subject: string; limit: number; windowSeconds: number }): Promise<void> {
-  const key = `${input.bucket}:${sha256Hex(input.subject)}`;
-  const r = await sql<{ hits: number }>`
-    insert into rate_limit_counter (bucket, window_start, hits)
-    values (${key}, to_timestamp(floor(extract(epoch from statement_timestamp()) / ${input.windowSeconds}) * ${input.windowSeconds}), 1)
-    on conflict (bucket, window_start) do update set hits = rate_limit_counter.hits + 1
-    returning hits`.execute(db);
-  if (r.rows[0]!.hits > input.limit) {
-    throw new DomainError('RATE_LIMITED', 'too many requests, try again later', { bucket: input.bucket, retryAfterSeconds: input.windowSeconds });
-  }
-}
-
-/** Worker maintenance: drop windows older than a day. */
-export async function pruneRateLimitCounters(ex: Executor): Promise<bigint> {
-  const r = await sql`delete from rate_limit_counter where window_start < statement_timestamp() - interval '1 day'`.execute(ex);
-  return r.numAffectedRows ?? 0n;
 }
 
 /** Business clock (migration 0012). */

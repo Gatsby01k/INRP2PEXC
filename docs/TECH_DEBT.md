@@ -16,8 +16,11 @@ Non-blocking items accepted at phase review. Each entry names the phase that mus
 | TD-10 | Outbox: the desk's own signals and the receipt trigger are acknowledged, not consumed | Phase 7 implementation (2026-09-19) | A desk push channel (desk signals) and Phase 8 (receipts) | Open |
 | TD-11 | Client TOTP enrolment does not exist, so client-side destination management is desk-only | Phase 7 implementation (2026-09-19) | A client managing their own bank accounts or wallets, or granting quote-acceptance authority | Open |
 | TD-12 | Receipts are proved by hash, not stored: no object store, and PDF printing is opt-in | Phase 8 implementation (2026-09-20) | A deployment that must serve a receipt without re-rendering it, or print PDFs | Open |
-| TD-13 | Two new page baselines and one changed page have not been recorded in the canonical environment | Phase 8 implementation (2026-09-20) | The `visual-pages` CI job can pass | Open — canonical dispatch required at review |
+| TD-13 | New page baselines have not been recorded in the canonical environment | Phase 8 implementation (2026-09-20) | The `visual-pages` CI job can pass | Phase 8 recorded (run `35495412975`); reopened for Phase 9's two public captures |
 | TD-14 | Reconciliation is a manual statement import; there is no recurring job | Phase 8 implementation (2026-09-20) | A bank feed or statement drop that arrives without an operator | Open |
+| TD-15 | The public site cannot be edge-cached while its CSP nonce is per-request | Phase 9 implementation (2026-09-20) | The public site needs to be served from a CDN | Open |
+| TD-16 | The backup/restore drill has never been run against real infrastructure | Phase 9 implementation (2026-09-20) | Production launch (launch checklist) | Open — scripted, never executed |
+| TD-17 | Audit seals are written but never exported off-site | Phase 9 implementation (2026-09-20) | Production launch (launch checklist) | Open |
 
 ## TD-01 — Better Auth schema warning for `auth_rate_limit.last_request`
 
@@ -263,11 +266,21 @@ an environment without one refuses loudly.
 
 ## TD-13 — The Phase 8 page baselines have not been recorded
 
-**Observed.** Phase 8 adds two captures to the page manifest — `operator-pnl` and `operator-statement` — and
-changes one page that already has a baseline: the INR screen now carries the statement reconciliation panel.
-`apps/web/visual/__screenshots__` still holds the 20 PNGs recorded for Phase 7, so compare-only CI reports two
-missing baselines and one mismatch. The self-check path reproduces all 22 captures in the development
-environment, which is what it is for, but it is not a baseline (`docs/VISUAL_BASELINES.md §5`).
+**Observed (Phase 8).** Phase 8 added two captures to the page manifest — `operator-pnl` and
+`operator-statement` — and changed one page that already had a baseline: the INR screen now carries the
+statement reconciliation panel.
+
+**Closed for Phase 8 (2026-09-20).** The canonical update workflow
+[`35495412975`](https://github.com/Gatsby01k/INRP2PEXC/actions/runs/35495412975) recorded the pages at
+`36700c4`, and its reviewed baselines are merged: `apps/web/visual/__screenshots__` holds **22** PNGs and an
+`ENVIRONMENT.json` recorded in the canonical environment (`mcr.microsoft.com/playwright:v1.56.1-noble`,
+linux/x64, Playwright 1.56.1, Chromium 141.0.7390.37).
+
+**Reopened for Phase 9 (2026-09-20).** Phase 9 adds two more captures for the public site,
+`public-home-mobile` and `public-usdt-to-inr-mobile`, so the manifest now expects 24 and the committed set
+holds 22. Compare-only CI reports two missing baselines until the same one-run update path is taken again. The
+self-check reproduces all 24 in the development environment, which is what it is for, but it is not a baseline
+(`docs/VISUAL_BASELINES.md §5`).
 
 A related defect was fixed rather than recorded: `istToday` in `@inrp2p/inr-accounts` read `statement_timestamp()`
 while the rest of the system read `inrp2p_now()`, so the INR screen printed the *wall-clock* IST day. In a
@@ -301,3 +314,56 @@ the gap is visible rather than assumed.
 the same command) or a watched drop location, plus a Graphile Worker cron entry that runs the ledger-side
 reconciliation and opens a case for anything `routeObligationMismatches` returns rather than leaving it to a
 test.
+
+## TD-15 — The public site cannot be edge-cached while its nonce is per-request
+
+**Observed.** Every public page is `force-dynamic`, because it reads the request's CSP nonce to put on the one
+inline script it serves (its structured data). A nonce is only a control if it is unpredictable and used once,
+so a cached page carries a nonce that no longer matches the `Content-Security-Policy` header the viewer
+received — and the browser correctly refuses the script.
+
+**Risk.** Cost and latency, not correctness. Six small server-rendered pages are cheap, and the pages measure in
+the mid-nineties on Lighthouse's throttled mobile profile as they are. It becomes a real constraint the day the
+site is expected to absorb a campaign's worth of traffic from one region.
+
+**Resolution (to do).** Serve the public pages with a **hash-based** policy instead: the structured data for a
+given page is deterministic, so its sha256 can be computed at build time and named in `script-src`, leaving the
+page cacheable and the nonce for the surfaces that actually need one. The desk and the client app keep the
+per-request nonce — they are never cached and their scripts are not static.
+
+## TD-16 — The backup and restore drill has never been executed
+
+**Observed.** `scripts/backup-drill.ts` dumps, restores into a fresh database and verifies the restore — the
+same migration, a ledger that nets to zero, an audit chain that recomputes, completed trades that are still
+fully settled, and matching counts. The checks it runs are separated into `scripts/restore-checks.ts` and are
+tested against databases corrupted in each of those ways.
+
+What has not happened is the drill itself, against real infrastructure. It could not be run in the development
+environment: the container's `pg_dump` is version 16 against a server at 18, which `pg_dump` refuses outright,
+and the embedded PostgreSQL distribution here ships `initdb`, `pg_ctl` and `postgres` and no client tools. The
+script takes `PG_BIN` for exactly this reason.
+
+**Risk.** The one that matters. Every property of a backup — that it is taken, that it completes, that it can be
+restored, that the restore is usable, how long it takes — is unverified until a drill runs. A backup nobody has
+restored is a hope.
+
+**Resolution (to do, before launch).** Run it against staging with client tools of the server's major version,
+record the wall-clock time and the dump size, and repeat it on a schedule and after any change to the database's
+shape or hosting (`docs/RUNBOOKS.md § backup-restore-drill`). Point-in-time recovery needs its own drill beyond
+this one: this proves a dump restores, not that the WAL archive can roll forward to a chosen moment.
+
+## TD-17 — Audit seals are written but never exported
+
+**Observed.** The audit trail is sealed hourly into a hash chain and `verifyAuditSeals` recomputes the whole
+chain on demand (SECURITY §8); the health check `audit_seal_age_seconds` alarms when sealing stops. What SECURITY
+§8 also requires — "seal hashes exported daily to an external write-once location" — does not exist. Every copy
+of the chain currently lives in the same database as the events it attests.
+
+**Risk.** The chain detects tampering, but an attacker with enough access to edit audit rows can re-seal them.
+The export is what makes that impossible to hide: a hash written somewhere the database cannot reach is the
+difference between "we would notice" and "we can prove".
+
+**Resolution (to do, before launch).** A daily job that appends the latest seal hashes to write-once external
+storage (object lock, or an append-only log service), plus a verification step that compares the exported chain
+against the database's own and alarms on divergence. The data is tiny — a few hashes a day — so the work is
+entirely in the destination and its credentials, not in the producing.

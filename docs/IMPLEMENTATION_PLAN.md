@@ -76,6 +76,15 @@ baselines for the new and changed screens still have to be recorded canonically 
 Landing + SEO routes (metadata, structured data without fabricated figures, sitemap), copy review for zero regulatory claims (D-07), security headers/CSP, rate limits, load test on quote accept and payout confirm, backup/restore drill, monitoring + alerts, runbooks, launch checklist.
 Exit: launch checklist complete (below), penetration test findings triaged, counsel sign-off (D-07).
 
+*Implemented 2026-09-20 — see `PHASE_9_REPORT.md`.* The engineering side is built and gated: six public routes
+with their sitemap and structured data, the copy review as a test, a nonce-based CSP with HSTS and a closed
+permissions policy on all three surfaces, the SECURITY §7 rate limits completed with the per-user ceiling on
+financial mutations, a load test that holds the invariants under contention, a scripted backup/restore drill
+with its checks tested against corrupted databases, health endpoints with alert definitions, and runbooks.
+**Three checklist items remain open and cannot be closed by engineering**: counsel sign-off (D-07), the
+penetration test, and the drills that have to be run against real staging infrastructure. They are named
+individually below rather than marked done.
+
 ---
 
 ## Plan challenge (required before production code)
@@ -101,17 +110,37 @@ Remaining external dependencies (not blocking Phase 1):
 - India counsel sign-off — production launch gate; no regulatory claims until then (D-07).
 
 ## Production launch checklist (maintained through phases)
-- [ ] Counsel sign-off on registrations, KYC/AML, tax, banking terms (D-07)
-- [ ] All Phase 1–9 exit criteria green in CI from clean checkout
-- [ ] Ledger global zero check green for 7 consecutive days in staging
-- [ ] Demo scenario E2E green (100k SELL, multi-leg payout, receipt, ₹220k margin)
-- [ ] MFA enrolled for every operator; OWNER break-glass tested
-- [ ] Backups + PITR restore drill completed
-- [ ] Audit seal exported off-site daily
-- [ ] TRON dual provider configured; scanner lag alert tested
-- [ ] Rate limits and CSP verified in production config
-- [ ] Penetration test done, criticals fixed
-- [ ] Runbooks: stuck USDT confirmation, failed bank transfer, duplicate UTR, provider outage, capacity emergency, suspected account takeover
-- [ ] Public site, receipts, notifications reviewed: no fabricated volume/rates/times; no regulatory claims unless confirmed by counsel
-- [ ] Custody provider deposit-address capability recorded in `custody_provider_config` (not `UNSUPPORTED`)
-- [ ] Route settlement runbook for `PER_TRADE` routes; overdue obligation alert tested
+
+Status as at the Phase 9 review (2026-09-20). **Built** means the engineering exists and is tested in CI;
+**open** means something outside this repository has to happen. An item is never marked done on the strength of
+the code that would make it possible.
+
+- [ ] **Counsel sign-off** on registrations, KYC/AML, tax, banking terms (D-07) — *open, external.* Nothing in
+      the product makes a regulatory claim, and a test enforces that (`apps/web/test/site-copy.unit.test.ts`).
+- [x] **All Phase 1–9 exit criteria green in CI from clean checkout** — except the two public-site visual
+      baselines added in Phase 9, which need one canonical record run (TD-13).
+- [ ] **Ledger global zero check green for 7 consecutive days in staging** — *open, needs staging.* The check
+      itself is a health signal with an alarm at any non-zero value (`ledger_imbalance`), and the invariant is
+      asserted in CI on every run.
+- [x] **Demo scenario E2E green** (100k SELL, multi-leg payout, receipt, ₹220k margin) — `apps/web/e2e/demo.spec.ts`.
+- [ ] **MFA enrolled for every operator; OWNER break-glass tested** — *open, operational.* The domain refuses an
+      operator without MFA; who is enrolled is a fact about the deployment, not the code.
+- [ ] **Backups + PITR restore drill completed** — *open, needs staging.* The drill is scripted
+      (`scripts/backup-drill.ts`) and its checks are tested against deliberately corrupted databases; it has
+      never been run against real infrastructure (TD-16).
+- [ ] **Audit seal exported off-site daily** — *open, operational.* The seal chain is written and verified;
+      exporting it off-site is a deployment job that does not exist yet (TD-17).
+- [ ] **TRON dual provider configured; scanner lag alert tested** — *open.* The verifier and the alert
+      definition exist (`scanner_lag_seconds`); no real provider has ever been configured (TD-07).
+- [x] **Rate limits and CSP verified in production config** — the policy is asserted on all three surfaces end
+      to end, and every limit in SECURITY §7 now has an implementation and a test.
+- [ ] **Penetration test done, criticals fixed** — *open, external.*
+- [x] **Runbooks**: stuck USDT confirmation, failed bank transfer, duplicate UTR, provider outage, capacity
+      emergency, suspected account takeover — `docs/RUNBOOKS.md`, plus five more; every alert points at one and
+      a test keeps the two in agreement.
+- [x] **Public site, receipts, notifications reviewed**: no fabricated volume/rates/times; no regulatory claims
+      unless confirmed by counsel — enforced as a test rather than a review.
+- [ ] **Custody provider deposit-address capability recorded** in `custody_provider_config` (not `UNSUPPORTED`)
+      — *open.* Recorded for the fake provider in every fixture; no real provider has been configured.
+- [x] **Route settlement runbook for `PER_TRADE` routes; overdue obligation alert tested** —
+      `route-settlement-overdue`, with its alert definition and threshold.
