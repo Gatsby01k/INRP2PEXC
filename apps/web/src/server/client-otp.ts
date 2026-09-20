@@ -4,31 +4,158 @@ import type { EmailOtpSender } from '@inrp2p/identity';
 import { optionalEnv } from './env.ts';
 
 /**
- * How a client's sign-in code leaves the server.
+ * Client sign-in OTP delivery.
  *
- * There is no transactional email provider in V1 (TD-04), so the only honest default is a sender that fails.
- * Failing is not a gap to be patched over with a log line: a login code in a log is a login code in whatever
- * reads the logs, and a code that silently goes nowhere leaves a person staring at a form that will never work.
+ * Production: Resend.
+ * Development / E2E: optional file sink.
  *
- * The one alternative is a **file sink**, which exists so an end-to-end run can sign a client in through the real
- * form rather than forging a session row. It is off unless a path is named, and it is refused outright in
- * production — the same shape, and the same reasoning, as `INRP2P_ALLOW_INSECURE_COOKIES`.
+ * OTP values must never be logged or exposed through provider errors.
  */
 export function clientOtpSender(): EmailOtpSender {
+  const env = (optionalEnv('INRP2P_ENV') ?? '').toLowerCase();
   const sink = optionalEnv('INRP2P_CLIENT_OTP_SINK_FILE');
-  if (!sink) {
+
+  /**
+   * Test / development file sink.
+   * Explicitly forbidden in production.
+   */
+  if (sink) {
+    if (env === 'production') {
+      throw new Error(
+        'INRP2P_CLIENT_OTP_SINK_FILE must never be set in production',
+      );
+    }
+
     return {
-      send: async () => {
-        throw new Error('NOTIFICATION_PROVIDER_NOT_CONFIGURED: no email provider is configured for client sign-in codes');
+      send: async ({ email, otp, type }) => {
+        await appendFile(
+          sink,
+          `${JSON.stringify({
+            email,
+            otp,
+            type,
+            at: new Date().toISOString(),
+          })}\n`,
+          'utf8',
+        );
       },
     };
   }
-  if ((optionalEnv('INRP2P_ENV') ?? '').toLowerCase() === 'production') {
-    throw new Error('INRP2P_CLIENT_OTP_SINK_FILE must never be set in production');
+
+  /**
+   * Production email provider.
+   */
+  const apiKey = optionalEnv('RESEND_API_KEY');
+  const from = optionalEnv('RESEND_FROM');
+
+  if (!apiKey || !from) {
+    return {
+      send: async () => {
+        throw new Error(
+          'NOTIFICATION_PROVIDER_NOT_CONFIGURED: no email provider is configured for client sign-in codes',
+        );
+      },
+    };
   }
+
   return {
-    send: async ({ email, otp, type }) => {
-      await appendFile(sink, `${JSON.stringify({ email, otp, type, at: new Date().toISOString() })}\n`, 'utf8');
+    send: async ({ email, otp }) => {
+      const response = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          from,
+          to: [email],
+          subject: 'Your INRP2P Exchange sign-in code',
+
+          text: [
+            'INRP2P Exchange',
+            '',
+            `Your sign-in code is: ${otp}`,
+            '',
+            'This code expires in 10 minutes.',
+            '',
+            'If you did not request this code, you can ignore this email.',
+          ].join('\n'),
+
+          html: `
+            <!doctype html>
+            <html>
+              <body style="
+                margin:0;
+                padding:0;
+                background:#F7F5F0;
+                font-family:Arial,Helvetica,sans-serif;
+                color:#171717;
+              ">
+                <div style="
+                  max-width:520px;
+                  margin:0 auto;
+                  padding:48px 24px;
+                ">
+                  <div style="
+                    font-size:20px;
+                    font-weight:700;
+                    letter-spacing:-0.3px;
+                    margin-bottom:40px;
+                  ">
+                    INRP2P Exchange
+                  </div>
+
+                  <div style="
+                    background:#FFFFFF;
+                    border:1px solid #E8E5DE;
+                    border-radius:16px;
+                    padding:32px;
+                  ">
+                    <div style="
+                      font-size:14px;
+                      color:#6B6F77;
+                      margin-bottom:12px;
+                    ">
+                      Sign-in code
+                    </div>
+
+                    <div style="
+                      font-size:34px;
+                      line-height:1;
+                      font-weight:700;
+                      letter-spacing:8px;
+                      margin-bottom:24px;
+                    ">
+                      ${otp}
+                    </div>
+
+                    <div style="
+                      font-size:14px;
+                      line-height:1.6;
+                      color:#6B6F77;
+                    ">
+                      This code expires in 10 minutes.
+                      If you did not request this code, you can ignore this email.
+                    </div>
+                  </div>
+
+                  <div style="
+                    margin-top:20px;
+                    font-size:12px;
+                    color:#8A8D93;
+                  ">
+                    INRP2P Exchange · USDT ↔ INR OTC
+                  </div>
+                </div>
+              </body>
+            </html>
+          `,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('EMAIL_DELIVERY_FAILED');
+      }
     },
   };
 }
