@@ -112,20 +112,22 @@ test('the finance outputs of a settled trade', async ({ page }) => {
   });
 
   await test.step('a bank statement is imported through the INR screen and reconciles', async () => {
-    const confirmed = await sql<{ utr: string; amount: string }>`
-    select distinct f.utr, (f.amount_minor / 100.0)::numeric(20,2)::text as amount
+    // Every confirmed movement through this account, whichever way it went: payouts and refunds out, a client's
+    // INR and a route's settlement in. The import checks all of them against the bank (SECURITY S7).
+    const confirmed = await sql<{ utr: string; amount: string; direction: 'CREDIT' | 'DEBIT' }>`
+    select f.utr, (f.amount_minor / 100.0)::numeric(20,2)::text as amount,
+           case when f.payer_type = 'EXCHANGE_ACCOUNT' and f.payer_id = ${s.inrAccountId} then 'DEBIT' else 'CREDIT' end as direction
     from fiat_transfer f
-    join transfer_allocation a on a.fiat_transfer_id = f.id and a.voided_at is null
-    join settlement_leg l on l.id = a.settlement_leg_id
-    where f.status = 'CONFIRMED' and l.inr_account_id = ${s.inrAccountId}
+    where f.status = 'CONFIRMED'
+      and ((f.payer_type = 'EXCHANGE_ACCOUNT' and f.payer_id = ${s.inrAccountId}) or (f.payee_type = 'EXCHANGE_ACCOUNT' and f.payee_id = ${s.inrAccountId}))
     order by f.utr`.execute(appDb());
     expect(confirmed.rows.length).toBeGreaterThan(0);
 
-    // Every payment the desk confirmed, plus one line that is the bank's own charge. The charge is not ours and
+    // Every movement the desk confirmed, plus one line that is the bank's own charge. The charge is not ours and
     // does not open a case; a real statement is full of them and burying the real cases is the failure mode.
     const lines = [
       'value_date,direction,amount,reference,description',
-      ...confirmed.rows.map((r) => `${day},DEBIT,${r.amount},${r.utr},NEFT OUTWARD`),
+      ...confirmed.rows.map((r) => `${day},${r.direction},${r.amount},${r.utr},${r.direction === 'DEBIT' ? 'NEFT OUTWARD' : 'NEFT INWARD'}`),
       `${day},DEBIT,236.00,BANKCHG${day.replace(/-/g, '')},MONTHLY CHARGES`,
     ].join('\r\n');
 

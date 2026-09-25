@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from 'kysely';
 import { runAs } from '@inrp2p/identity/testing';
 import { dispatchOutbox } from '@inrp2p/outbox';
-import { confirmPayout, createPayoutLeg, recordLegEvidence, sendPayoutLeg } from '@inrp2p/settlement';
+import { approveAdjustment, confirmPayout, createPayoutLeg, recordLegEvidence, requestAdjustment, sendPayoutLeg } from '@inrp2p/settlement';
 import { FORBIDDEN_CLIENT_KEY } from '@inrp2p/quotes';
 import {
   type ReceiptSnapshot, buildReceiptSnapshot, canonicalJson, getReceipt, issueReceipt, receiptArtifacts,
@@ -245,3 +245,31 @@ function flatten(value: unknown, prefix = '$', out: Record<string, unknown> = {}
   for (const [k, v] of Object.entries(value as Record<string, unknown>)) flatten(v, `${prefix}.${k}`, out);
   return out;
 }
+
+describe('an adjusted trade is receipted at what actually changed hands (FI-12)', () => {
+  // Its own world: the suite above archives the client's bank account to prove a snapshot does not follow it.
+  let a: World;
+  beforeAll(async () => { a = await createWorld('receipts_adjusted', { capacityInr: '500000000.00' }); });
+  afterAll(async () => a.close());
+
+  it('writing off an unpaid remainder receipts the INR the client received, not the INR it was quoted', async () => {
+    const w = a;
+    const trade = await openTrade(w, { baseUsdt: '100', clientRate: CLIENT_RATE, routeRate: ROUTE_RATE, executionMode: 'TO_EXCHANGE' });
+    await settleFirstLeg(w, trade.tradeId);
+    const leg = await runAs(w.app, createPayoutLeg(w.settlementOp.actor, {}), w.settlementOp.ref, 'payout_leg.create', {
+      tradeId: trade.tradeId, amount: '8900.00', payer: 'EXCHANGE_ACCOUNT' as const, inrAccountId: w.inrAccountId,
+    });
+    await runAs(w.app, sendPayoutLeg(w.settlementOp.actor), w.settlementOp.ref, 'payout_leg.send', { legId: leg.legId });
+    await runAs(w.app, recordLegEvidence(w.settlementOp.actor, w.settlementDeps), w.settlementOp.ref, 'payout_leg.record_evidence', { legId: leg.legId, rail: 'IMPS' as const, utr: newUtr() });
+    await confirmPayout(w.app, w.settlementOp.actor, w.settlementDeps, { legId: leg.legId, idempotencyKey: randomUUID() });
+    const requested = await runAs(w.app, requestAdjustment(w.financeOp.actor), w.financeOp.ref, 'adjustment.request', {
+      tradeId: trade.tradeId, type: 'WRITE_OFF' as const, deltaClientInr: '-100.00', reason: 'client agreed to settle the last ₹100 as a fee',
+    });
+    await runAs(w.app, approveAdjustment(w.financeOp2.actor), w.financeOp2.ref, 'adjustment.approve', { adjustmentId: requested.adjustmentId });
+
+    const s = await buildReceiptSnapshot(w.app, trade.tradeId);
+    expect(s.inr).toEqual({ amount: '8900.00', currency: 'INR' });
+    expect(s.totalPaid).toEqual({ amount: '8900.00', currency: 'INR' });
+    expect(s.base).toEqual({ amount: '100.000000', currency: 'USDT' });
+  });
+});

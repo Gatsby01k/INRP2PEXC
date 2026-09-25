@@ -5,9 +5,10 @@ import { appendAudit } from '@inrp2p/audit';
 import { enqueueOutbox } from '@inrp2p/outbox';
 import { type OperatorActor, operatorCommand } from '@inrp2p/identity';
 import { adjustmentJournal, postJournal } from '@inrp2p/ledger';
-import { lockTrade, tradeEconomics } from '@inrp2p/trades';
+import { type TradeRow, effectiveObligations, legTotals, lockTrade, tradeEconomics } from '@inrp2p/trades';
 import { resolveExceptionInTx } from './exceptions.ts';
-import { obligationOfTrade } from './obligations.ts';
+import { type ObligationRow, lockObligation, obligationRemaining, refreshObligationStatus } from './obligations.ts';
+import { advanceTrade } from './progress.ts';
 
 export interface RequestAdjustmentPayload {
   readonly tradeId: string;
@@ -28,6 +29,66 @@ const signedMinor = (value: string | undefined, currency: 'INR' | 'USDT'): bigin
   return negative ? -parsed.minor : parsed.minor;
 };
 
+interface AdjustmentDeltas {
+  readonly base: bigint;
+  readonly client: bigint;
+  readonly route: bigint;
+}
+
+/**
+ * What an adjustment may do to a trade (FI-12 together with FI-20, FI-21 and FI-61). The frozen economics never
+ * change, but the effective terms do, and every invariant measured against them must still hold afterwards:
+ *
+ * - a cancelled trade has been reversed in full, so there is nothing left to adjust;
+ * - a completed trade is settled with the client, so only the route side and the margin may still move — a change
+ *   to what the client pays or receives would leave a COMPLETED trade owing or owed (FI-21);
+ * - the payout obligation stays positive and never falls below the payouts already committed (FI-20), and what
+ *   the client owes never falls below what already arrived — otherwise neither side could ever settle;
+ * - neither route side falls below what the route already settled against it (FI-61), and a settled obligation
+ *   is not re-opened (SETTLED is terminal, STATE_MACHINES §9).
+ *
+ * Deltas are checked against the effective terms **including every adjustment already posted**, so two
+ * adjustments approved one after the other cannot add up to something neither would have been allowed to do.
+ */
+async function assertAdjustmentFits(
+  ex: Executor,
+  trade: TradeRow,
+  direction: 'SELL_USDT' | 'BUY_USDT',
+  obligation: Pick<ObligationRow, 'id' | 'status'>,
+  d: AdjustmentDeltas,
+): Promise<void> {
+  if (trade.lifecycle_state === 'CANCELLED') throw new DomainError('INVALID_TRANSITION', 'the trade is cancelled; there is nothing left to adjust');
+  const sell = direction === 'SELL_USDT';
+  const payoutDelta = sell ? d.client : d.base;
+  const receivableDelta = sell ? d.base : d.client;
+  if (trade.lifecycle_state === 'COMPLETED' && (payoutDelta !== 0n || receivableDelta !== 0n)) {
+    throw new DomainError('INVALID_AMOUNT', 'a completed trade is settled with the client; only the route side and the margin can still be corrected');
+  }
+  const { payout, receivable } = await effectiveObligations(ex, trade.id);
+  const totals = await legTotals(ex, trade.id);
+  const payoutAfter = payout.minor + payoutDelta;
+  if (payoutAfter <= 0n || payoutAfter < totals.committed) {
+    throw new DomainError('INVALID_AMOUNT', 'the adjusted payout obligation would be smaller than the payouts already committed', {
+      payoutAfter: payoutAfter.toString(), committed: totals.committed.toString(),
+    });
+  }
+  const receivableAfter = receivable.minor + receivableDelta;
+  if (receivableAfter <= 0n || receivableAfter < totals.received) {
+    throw new DomainError('INVALID_AMOUNT', 'the adjusted amount the client owes would be smaller than what the client already sent', {
+      receivableAfter: receivableAfter.toString(), received: totals.received.toString(),
+    });
+  }
+  const routeDeliversDelta = sell ? d.route : d.base;
+  const exchangeDeliversDelta = sell ? d.base : d.route;
+  if (obligation.status === 'SETTLED' && (routeDeliversDelta > 0n || exchangeDeliversDelta > 0n)) {
+    throw new DomainError('INVALID_TRANSITION', 'the route obligation is already settled and cannot be re-opened by an adjustment');
+  }
+  const remaining = await obligationRemaining(ex, obligation.id);
+  if (remaining.routeDelivers.minor + routeDeliversDelta < 0n || remaining.exchangeDelivers.minor + exchangeDeliversDelta < 0n) {
+    throw new DomainError('INVALID_AMOUNT', 'the adjusted route obligation would be smaller than what was already settled with the route');
+  }
+}
+
 /**
  * `adjustment.request` — `adjustment:request`. A correction never edits the frozen economics (FI-12): it records
  * a signed delta that, once approved, changes the effective terms and posts its own compensating journal.
@@ -44,21 +105,9 @@ export function requestAdjustment(actor: OperatorActor) {
     const deltaRoute = signedMinor(p.deltaRouteInr, 'INR');
     const deltaMargin = econ.direction === 'SELL_USDT' ? deltaRoute - deltaClient : deltaClient - deltaRoute;
     if (deltaBase === 0n && deltaClient === 0n && deltaRoute === 0n) throw new DomainError('INVALID_AMOUNT', 'an adjustment must change something');
-
-    // The effective terms must stay positive and never fall below what is already settled.
-    const settled = await ctx.tx
-      .selectFrom('settlement_leg')
-      .select(({ fn }) => [fn.sum<string>('amount_minor').as('total')])
-      .where('trade_id', '=', trade.id)
-      .where('side', '=', 'EXCHANGE_TO_CLIENT')
-      .where('status', 'in', ['PENDING', 'PROCESSING', 'COMPLETED'])
-      .executeTakeFirst();
-    const committed = BigInt(settled?.total ?? '0');
-    const payoutDelta = econ.direction === 'SELL_USDT' ? deltaClient : deltaBase;
-    const payoutAfter = (econ.direction === 'SELL_USDT' ? econ.clientInr.minor : econ.base.minor) + payoutDelta;
-    if (payoutAfter < committed) {
-      throw new DomainError('INVALID_AMOUNT', 'the adjusted payout obligation would be smaller than the payouts already committed');
-    }
+    // Early answer for the requester; approval checks again under its locks, against whatever happened since.
+    const obligation = await ctx.tx.selectFrom('route_obligation').select(['id', 'status']).where('id', '=', econ.routeObligationId).executeTakeFirstOrThrow();
+    await assertAdjustmentFits(ctx.tx, trade, econ.direction, obligation, { base: deltaBase, client: deltaClient, route: deltaRoute });
 
     const row = await ctx.tx
       .insertInto('financial_adjustment')
@@ -97,9 +146,12 @@ export function approveAdjustment(actor: OperatorActor) {
     if (a.status !== 'REQUESTED') throw new DomainError('INVALID_TRANSITION', `adjustment is ${a.status}`);
     const approver = ctx.actor.id ?? 'SYSTEM';
     if (approver === a.requested_by) throw new DomainError('SECOND_APPROVER_REQUIRED', 'an adjustment is approved by a different person than the one who requested it');
+    // Lock order: trade → route obligation (ARCHITECTURE §4). Both are re-checked here, not trusted from the
+    // request: payouts, receipts and route settlements may all have moved since the adjustment was asked for.
     const trade = await lockTrade(ctx.tx, a.trade_id);
     const econ = await tradeEconomics(ctx.tx, trade.id);
-    const obligation = await obligationOfTrade(ctx.tx, trade.id);
+    const obligation = await lockObligation(ctx, econ.routeObligationId);
+    await assertAdjustmentFits(ctx.tx, trade, econ.direction, obligation, { base: a.delta_base_minor, client: a.delta_quote_inr_minor, route: a.delta_route_inr_minor });
 
     const journal = await postJournal(
       ctx,
@@ -128,6 +180,10 @@ export function approveAdjustment(actor: OperatorActor) {
       action: 'adjustment.approved', entityType: 'financial_adjustment', entityId: a.id,
       before: { status: 'REQUESTED' }, after: { status: 'POSTED', approved_by: approver, journal: journal.postingKey },
     });
+    // The effective terms moved without a movement, so whatever they now say is settled is settled now: an
+    // obligation side brought down to what the route delivered, a trade brought down to what was received or paid.
+    await refreshObligationStatus(ctx, obligation);
+    await advanceTrade(ctx, trade.id);
     return { status: 'POSTED' as const, postingKey: journal.postingKey };
   });
 }

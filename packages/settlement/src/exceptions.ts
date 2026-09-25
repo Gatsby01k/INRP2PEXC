@@ -4,6 +4,8 @@ import type { ExceptionSubjectType, ExceptionType, TxContext } from '@inrp2p/db'
 import { appendAudit } from '@inrp2p/audit';
 import { enqueueOutbox } from '@inrp2p/outbox';
 import { type OperatorActor, operatorCommand } from '@inrp2p/identity';
+import { lockTrade } from '@inrp2p/trades';
+import { advanceTrade } from './progress.ts';
 
 /** Exceptions that stop a trade from progressing (DOMAIN_MODEL §3, "Blocking" column). */
 export const BLOCKING_TYPES: readonly ExceptionType[] = Object.freeze([
@@ -85,6 +87,8 @@ export async function openExceptionInTx(ctx: TxContext, input: OpenExceptionInpu
 export function openException(actor: OperatorActor) {
   return operatorCommand(actor, 'exception:open', async (ctx, p: OpenExceptionInput & { notes?: string }) => {
     const type = requireOneOf(p.type, 'type', EXCEPTION_TYPES);
+    // A blocking case moves the trade's hold, so the trade is locked first, like every other command that does.
+    if (p.tradeId) await lockTrade(ctx.tx, p.tradeId);
     const out = await openExceptionInTx(ctx, { ...p, type, detectedBy: 'OPERATOR', details: { ...(p.details ?? {}), ...(p.notes ? { notes: requireText(p.notes, 'notes', 2000) } : {}) } });
     return out;
   });
@@ -147,17 +151,36 @@ export async function resolveExceptionInTx(
   return { status: 'RESOLVED' };
 }
 
-/** `exception.resolve` — `exception:resolve`, for the resolutions that do not move money. */
+/**
+ * The trade a case holds, locked before the case (trade → case, the order the movement commands use), so closing
+ * a case can never deadlock against a command already working on the same trade.
+ */
+async function lockTradeOfException(ctx: TxContext, exceptionId: string): Promise<string | null> {
+  const peek = await ctx.tx.selectFrom('exception_case').select('trade_id').where('id', '=', requireUuid(exceptionId, 'exceptionId')).executeTakeFirst();
+  if (!peek) throw new DomainError('NOT_FOUND', 'exception case not found');
+  if (peek.trade_id) await lockTrade(ctx.tx, peek.trade_id);
+  return peek.trade_id;
+}
+
+/**
+ * `exception.resolve` — `exception:resolve`, for the resolutions that do not move money. When the last blocking
+ * case goes, the trade resumes from where it stands: a client leg that already arrived in full makes it payable
+ * (`await_top_up`), a trade already paid in full completes (H2).
+ */
 export function resolveException(actor: OperatorActor) {
   return operatorCommand(actor, 'exception:resolve', async (ctx, p: { exceptionId: string; resolution: (typeof NON_FINANCIAL_RESOLUTIONS)[number]; notes: string }) => {
     const resolution = requireOneOf(p.resolution, 'resolution', NON_FINANCIAL_RESOLUTIONS);
-    return resolveExceptionInTx(ctx, { exceptionId: p.exceptionId, resolution, notes: p.notes });
+    const tradeId = await lockTradeOfException(ctx, p.exceptionId);
+    const out = await resolveExceptionInTx(ctx, { exceptionId: p.exceptionId, resolution, notes: p.notes });
+    if (tradeId) await advanceTrade(ctx, tradeId);
+    return out;
   });
 }
 
 /** `exception.void` — `exception:resolve`. For false positives and idempotent replays only. */
 export function voidException(actor: OperatorActor) {
   return operatorCommand(actor, 'exception:resolve', async (ctx, p: { exceptionId: string; reason: string }) => {
+    const tradeId = await lockTradeOfException(ctx, p.exceptionId);
     const c = await lockException(ctx, p.exceptionId);
     if (c.status !== 'OPEN' && c.status !== 'IN_PROGRESS') throw new DomainError('INVALID_TRANSITION', `exception is ${c.status}`);
     const reason = requireText(p.reason, 'reason', 2000);
@@ -168,6 +191,7 @@ export function voidException(actor: OperatorActor) {
       .execute();
     if (c.trade_id) await syncTradeHold(ctx, c.trade_id);
     await appendAudit(ctx, { action: 'exception.voided', entityType: 'exception_case', entityId: c.id, before: { status: c.status }, after: { status: 'VOID', reason } });
+    if (tradeId) await advanceTrade(ctx, tradeId);
     return { status: 'VOID' as const };
   });
 }

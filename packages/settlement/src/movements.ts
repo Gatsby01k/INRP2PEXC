@@ -141,6 +141,7 @@ export type VerificationFailure =
   | 'NOT_ON_CHAIN'
   | 'WRONG_CONTRACT'
   | 'DESTINATION_MISMATCH'
+  | 'SENDER_MISMATCH'
   | 'AMOUNT_MISMATCH'
   | 'RECEIPT_FAILED'
   | 'NOT_SOLIDIFIED'
@@ -170,6 +171,9 @@ export async function verifyCryptoTransfer(ctx: TxContext, deps: SettlementDeps,
     return notConfirmed('WRONG_CONTRACT', 'the transfer is not a USDT transfer on the configured contract');
   }
   if (receipt.toAddress !== t.to_address) return notConfirmed('DESTINATION_MISMATCH', 'the destination does not match the recorded transfer');
+  // Who paid decides which account the journal credits (FINANCIAL_INVARIANTS §3.4): a treasury payout, a route
+  // payment and a stranger's transfer post differently, so the recorded sender must be the chain's.
+  if (receipt.fromAddress !== t.from_address) return notConfirmed('SENDER_MISMATCH', 'the sender on chain does not match the recorded sender');
   if (receipt.amountMinor !== t.amount_minor) return notConfirmed('AMOUNT_MISMATCH', 'the on-chain amount does not match the recorded amount');
   if (receipt.receiptStatus !== 'SUCCESS') {
     await ctx.tx.updateTable('crypto_transfer').set({ state: 'FAILED', failed_at: sql<Date>`inrp2p_now()`, receipt_status: 'FAILED', block_number: receipt.blockNumber, block_time: receipt.blockTime }).where('id', '=', t.id).execute();

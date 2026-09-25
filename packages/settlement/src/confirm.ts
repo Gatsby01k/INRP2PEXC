@@ -1,20 +1,20 @@
 import { randomUUID } from 'node:crypto';
 import { sql } from 'kysely';
 import { DomainError, Money, requireUuid } from '@inrp2p/kernel';
-import type { Db, TxContext } from '@inrp2p/db';
+import type { Db } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
 import { enqueueOutbox } from '@inrp2p/outbox';
 import { executeCommand } from '@inrp2p/commands';
-import { type MovementParty, postJournal, tradeCompleteJournal } from '@inrp2p/ledger';
+import type { MovementParty } from '@inrp2p/ledger';
 import { type OperatorActor, operatorCommand } from '@inrp2p/identity';
-import { releaseReservation } from '@inrp2p/inr-accounts';
-import { consumeTreasuryReservation, releaseDepositAssignment, releaseTreasuryReservation } from '@inrp2p/treasury';
-import { type TradeRow, effectiveObligations, legTotals, lockTrade, tradeEconomics, transitionTrade } from '@inrp2p/trades';
+import { consumeTreasuryReservation } from '@inrp2p/treasury';
+import { effectiveObligations, legTotals, lockTrade, tradeEconomics, transitionTrade } from '@inrp2p/trades';
 import { openExceptionInTx } from './exceptions.ts';
-import { lockLeg } from './legs.ts';
+import { assertNoRefundUnderway, lockLeg } from './legs.ts';
 import { lockMovement, postMovement, verifyCryptoTransfer } from './movements.ts';
 import { allocateToObligation, lockObligation, obligationOfTrade, obligationRemaining } from './obligations.ts';
 import type { SettlementDeps } from './policy.ts';
+import { completeTrade } from './progress.ts';
 
 export interface ConfirmPayoutResult {
   readonly legRef: string;
@@ -44,6 +44,8 @@ export function confirmPayoutLeg(actor: OperatorActor, deps: SettlementDeps) {
     const obligation = legPeek.payer === 'ROUTE' ? await lockObligation(ctx, (await obligationOfTrade(ctx.tx, trade.id)).id) : null;
     const leg = await lockLeg(ctx, p.legId);
     if (leg.status !== 'PROCESSING') throw new DomainError('INVALID_TRANSITION', `leg ${leg.ref} is ${leg.status}`);
+    if (leg.side !== 'EXCHANGE_TO_CLIENT') throw new DomainError('INVALID_ARGUMENT', `leg ${leg.ref} is not a payout leg`);
+    await assertNoRefundUnderway(ctx.tx, trade.id);
 
     const allocation = await ctx.tx
       .selectFrom('transfer_allocation')
@@ -174,34 +176,6 @@ export function confirmPayoutLeg(actor: OperatorActor, deps: SettlementDeps) {
       completed,
     };
   });
-}
-
-/**
- * T7: both sides of the client's trade are settled. Margin moves from deferred to realized (FI-43), the
- * remaining commitments are released, and the deposit address goes to cooldown. Completion never waits for the
- * route obligation (FI-62) — a residual may stay open.
- */
-export async function completeTrade(ctx: TxContext, trade: TradeRow, econ: Awaited<ReturnType<typeof tradeEconomics>>): Promise<void> {
-  const reservations = await ctx.tx.selectFrom('capacity_reservation').select('id').where('trade_id', '=', trade.id).where('status', '=', 'ACTIVE').orderBy('id').execute();
-  for (const r of reservations) await releaseReservation(ctx, r.id, 'TRADE_COMPLETED');
-  await releaseTreasuryReservation(ctx, { tradeId: trade.id, reason: 'TRADE_COMPLETED' });
-  if (trade.direction === 'SELL_USDT') {
-    const assignment = await ctx.tx.selectFrom('deposit_assignment').select('id').where('trade_id', '=', trade.id).where('released_at', 'is', null).executeTakeFirst();
-    if (assignment) await releaseDepositAssignment(ctx, { tradeId: trade.id, reason: 'TRADE_COMPLETED' });
-  }
-  // The realized margin is the effective one: frozen margin ⊕ margin deltas of posted adjustments (FI-12, FI-43),
-  // so the deferred-margin account ends this trade at zero.
-  const deltas = await ctx.tx
-    .selectFrom('financial_adjustment')
-    .select(({ fn }) => fn.sum<string>('delta_margin_inr_minor').as('total'))
-    .where('trade_id', '=', trade.id)
-    .where('status', '=', 'POSTED')
-    .executeTakeFirst();
-  const effectiveMargin = Money.ofMinor(econ.grossMargin.minor + BigInt(deltas?.total ?? '0'), 'INR');
-  await transitionTrade(ctx, trade, 'COMPLETED', { extra: { gross_margin: effectiveMargin } });
-  const journal = tradeCompleteJournal({ ...econ, grossMargin: effectiveMargin }, { tradeId: trade.id });
-  if (journal) await postJournal(ctx, journal);
-  await enqueueOutbox(ctx, { type: 'receipt.generate', aggregateType: 'trade', aggregateId: trade.id, payload: { tradeId: trade.id, clientId: trade.client_id } });
 }
 
 /**

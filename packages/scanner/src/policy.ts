@@ -18,7 +18,6 @@ export interface ScannerPolicy {
    * runs of this size; the cursor advances only across what was actually processed, so no block is skipped.
    */
   readonly maxBlocksPerRun: bigint;
-  readonly maxAddressesPerRun: number;
   readonly maxTransfersPerAddress: number;
   readonly maxTransfersPerRun: number;
   /** How many DETECTED transfers one confirmation run verifies. */
@@ -34,7 +33,6 @@ export const DEFAULT_SCANNER_POLICY: ScannerPolicy = Object.freeze({
   rescanOverlapBlocks: 200n,
   startLookbackBlocks: 1_000n,
   maxBlocksPerRun: 20_000n,
-  maxAddressesPerRun: 200,
   maxTransfersPerAddress: 200,
   maxTransfersPerRun: 500,
   confirmBatch: 100,

@@ -4,6 +4,7 @@ import { UnconfiguredNotificationAdapter, isNotificationProviderConfigured } fro
 import { acknowledgedSignalHandler, clientNotificationEmailHandler, clientNotificationHandler } from '@inrp2p/notifications';
 import { acceptanceCodeHandler } from '@inrp2p/quotes';
 import { receiptHandler } from '@inrp2p/reporting';
+import { destinationArchivedHandler } from '@inrp2p/settlement';
 import { CRONTAB, buildTaskList, quoteExpiryScheduler } from './tasks.ts';
 import { UNCONFIGURED_PROTECTOR, chainMonitoringFromEnv, chainMonitoringReady, describeChainMonitoring, fieldProtectorFromEnv } from './config.ts';
 
@@ -49,7 +50,7 @@ const runner = await run({
   concurrency: 5,
   noHandleSignals: false,
   pollInterval: 2000,
-  taskList: buildTaskList(db, [quoteExpiryScheduler(db), acceptanceCodeHandler(db, { protector }, notifications), clientNotificationHandler(db), receiptHandler(db), acknowledgedSignalHandler(), ...emailChannel], {
+  taskList: buildTaskList(db, [quoteExpiryScheduler(db), acceptanceCodeHandler(db, { protector }, notifications), clientNotificationHandler(db), receiptHandler(db), destinationArchivedHandler(db), acknowledgedSignalHandler(), ...emailChannel], {
     monitoring,
     ...(monitoring.config ? { scanner: monitoring.config } : {}),
   }),

@@ -21,6 +21,9 @@ Non-blocking items accepted at phase review. Each entry names the phase that mus
 | TD-15 | The public site cannot be edge-cached while its CSP nonce is per-request | Phase 9 implementation (2026-09-20) | The public site needs to be served from a CDN | Open |
 | TD-16 | The backup/restore drill has never been run against real infrastructure | Phase 9 implementation (2026-09-20) | Production launch (launch checklist) | Open — scripted, never executed |
 | TD-17 | Audit seals are written but never exported off-site | Phase 9 implementation (2026-09-20) | Production launch (launch checklist) | Open |
+| TD-18 | `CLIENT_BANK_CHANGED` is detected but cannot be resolved by moving the trade to a new destination | Audit (2026-09-25) | A client replacing a destination while one of its trades is open | Open |
+| TD-19 | `refund_excess` (partial refund of an overpayment) does not exist; the completion predicate does not net refunds | Audit (2026-09-25) | The desk needing to return part of an overpayment and still complete the trade | Open |
+| TD-20 | The OWNER-grant second approval is nominal: the requester names the approver | Audit (2026-09-25) | Any path that exposes `assignOperatorRole` (none does today) | Open |
 
 ## TD-01 — Better Auth schema warning for `auth_rate_limit.last_request`
 
@@ -367,3 +370,46 @@ difference between "we would notice" and "we can prove".
 storage (object lock, or an append-only log service), plus a verification step that compares the exported chain
 against the database's own and alarms on divergence. The data is tiny — a few hashes a day — so the work is
 entirely in the destination and its credentials, not in the producing.
+
+## TD-18 — A changed destination is detected but cannot be followed
+
+**Observed.** Archiving a client's bank account or wallet now opens a blocking `CLIENT_BANK_CHANGED` case on every
+open trade that captured it (SECURITY S8, `settlement/destinations.ts`), so the desk learns of it at once instead of
+at payout time. The resolutions DOMAIN_MODEL §3 names are `confirm_new_destination` and `keep_original`, and neither
+can succeed: a trade's destination is frozen in the insert-only `trade_economics`, payout legs refuse an archived
+destination (`DESTINATION_CHANGED`), and an archived destination stays archived. Today the only way out for such a
+trade is `refund_and_cancel`.
+
+**Risk.** A trade whose client legitimately changed bank mid-trade cannot be paid; it can only be unwound. That is
+safe — money never follows a destination swap silently, which is the S8 attack — but it is a dead end for an
+honest client.
+
+**Resolution (to do, needs a security decision).** A step-up, two-person `trade.change_destination` command that
+records an append-only destination change for the trade (the new destination must be ACTIVE and belong to the same
+client), notifies every client admin, resolves the case as `confirm_new_destination`, and is what `createPayoutLeg`
+reads instead of the frozen id. Legs already PENDING on the old destination are cancelled and re-created, never
+edited.
+
+## TD-19 — Overpayments can be adjusted to, not partly refunded
+
+**Observed.** DOMAIN_MODEL §3 lists `refund_excess` for `USDT_OVERPAYMENT`. No command implements it: a refund leg
+always returns everything received (`createRefundLeg`), and completion (FI-21, trigger `inrp2p_guard_trade_completion`)
+compares the client legs received with the receivable without netting refunds, so a partly refunded trade could
+never complete. The desk's working paths are `adjust_trade_to_received` (re-price to what arrived, two-person) or a
+full `refund_and_cancel`.
+
+**Resolution (to do).** A `refund_excess` command limited to `received − receivable`, a refund leg of that amount,
+and a completion predicate — in the command and in the trigger (new migration) — that compares received minus
+refunded excess with the receivable.
+
+## TD-20 — Granting OWNER names a second approver instead of obtaining one
+
+**Observed.** SECURITY §3 requires another OWNER's approval (✱) to grant OWNER once more than one OWNER exists.
+`assignOperatorRole` (`packages/identity/src/rbac/assign-role.ts`) enforces this by checking that the payload's
+`approverUserId` is some other active OWNER — but that OWNER never acts: they do not sign in, step up, or even learn
+of it. Nothing in the web app, the worker or `scripts/` calls the command today, so the gap is latent.
+
+**Resolution (to do, before any operator-administration surface ships).** Split the grant into a request (OWNER A,
+⧗) and an approval (OWNER B, ⧗, in B's own session), the same shape as `adjustment.request` / `adjustment.approve`,
+with the approver taken from the approving session and never from a payload.
+

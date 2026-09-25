@@ -2,13 +2,13 @@ import { sql } from 'kysely';
 import { DomainError, Money, requireOneOf, requireText, requireUuid } from '@inrp2p/kernel';
 import type { FiatRail, TxContext } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
-import { enqueueOutbox } from '@inrp2p/outbox';
 import { type OperatorActor, operatorCommand } from '@inrp2p/identity';
 import { effectiveObligations, legTotals, lockTrade, transitionTrade } from '@inrp2p/trades';
 import { openExceptionInTx } from './exceptions.ts';
 import { lockLeg, nextLegSeq } from './legs.ts';
 import { lockMovement, postMovement, recordCryptoTransfer, recordFiatTransfer, verifyCryptoTransfer } from './movements.ts';
 import type { SettlementDeps } from './policy.ts';
+import { advanceTrade, clientLegsInFlight } from './progress.ts';
 
 /**
  * `fiat_in.record` (T2, BUY) — `settlement:record_incoming`. The client says it sent the INR; the desk records the
@@ -19,7 +19,11 @@ export function recordIncomingFiat(actor: OperatorActor) {
   return operatorCommand(actor, 'settlement:record_incoming', async (ctx, p: { tradeId: string; rail: FiatRail; utr: string; amount: string; inrAccountId: string; valueDate?: string | null }) => {
     const trade = await lockTrade(ctx.tx, p.tradeId);
     if (trade.direction !== 'BUY_USDT') throw new DomainError('INVALID_ARGUMENT', 'only a BUY trade receives INR from the client');
-    if (trade.lifecycle_state !== 'AWAITING_FIRST_LEG') throw new DomainError('INVALID_TRANSITION', `trade is ${trade.lifecycle_state}`);
+    // A client may send the INR in several transfers (IMPS is capped per transfer), so a second reference is
+    // recorded while the first is still being checked. Once the first leg is confirmed nothing more is expected.
+    if (trade.lifecycle_state !== 'AWAITING_FIRST_LEG' && trade.lifecycle_state !== 'FIRST_LEG_DETECTED') {
+      throw new DomainError('INVALID_TRANSITION', `trade is ${trade.lifecycle_state}`);
+    }
     const amount = Money.parse(p.amount, 'INR');
     const inrAccountId = requireUuid(p.inrAccountId, 'inrAccountId');
     const account = await ctx.tx.selectFrom('inr_settlement_account').select(['status', 'direction']).where('id', '=', inrAccountId).forShare().executeTakeFirstOrThrow();
@@ -49,7 +53,7 @@ export function recordIncomingFiat(actor: OperatorActor) {
       .insertInto('transfer_allocation')
       .values({ transfer_kind: 'FIAT', fiat_transfer_id: movement.transferId, dimension: 'CLIENT', settlement_leg_id: leg.id, amount_minor: amount.minor, allocated_by: ctx.actor.id ?? 'SYSTEM' })
       .execute();
-    await transitionTrade(ctx, trade, 'FIRST_LEG_DETECTED', { extra: { leg_ref: leg.ref, amount } });
+    if (trade.lifecycle_state === 'AWAITING_FIRST_LEG') await transitionTrade(ctx, trade, 'FIRST_LEG_DETECTED', { extra: { leg_ref: leg.ref, amount } });
     await appendAudit(ctx, { action: 'leg.created', entityType: 'settlement_leg', entityId: leg.id, after: { ref: leg.ref, side: 'CLIENT_TO_EXCHANGE', amount, inr_account_id: inrAccountId } });
     return { legId: leg.id, ref: leg.ref, transferId: movement.transferId };
   });
@@ -72,7 +76,7 @@ export async function recordClientDeposit(
   const assignment = address
     ? await ctx.tx
         .selectFrom('deposit_assignment')
-        .select(['id', 'trade_id', 'expected_amount_minor', 'released_at'])
+        .select(['id', 'trade_id', 'released_at'])
         .where('deposit_address_id', '=', address.id)
         .orderBy('assigned_at', 'desc')
         .executeTakeFirst()
@@ -113,6 +117,15 @@ export async function recordClientDeposit(
     .executeTakeFirst();
   if (existingTx) return { transferId: existingTx.id, tradeId: trade.id, legId: null };
 
+  // What the client still owes on this trade, before this transfer: the effective receivable (after approved
+  // adjustments) less every client leg already detected or confirmed. A top-up of exactly the shortfall is what
+  // the desk asked for, not a second wrong amount; a repeat of a deposit that was already complete is an excess.
+  const { receivable } = await effectiveObligations(ctx.tx, trade.id);
+  const already = await sql<{ total: string }>`
+    select coalesce(sum(amount_minor), 0)::text as total from settlement_leg
+    where trade_id = ${trade.id} and side = 'CLIENT_TO_EXCHANGE' and status in ('PROCESSING', 'COMPLETED')`.execute(ctx.tx);
+  const outstanding = receivable.minor - BigInt(already.rows[0]!.total);
+
   const recorded = await recordCryptoTransfer(ctx, {
     ...input,
     payerType: 'CLIENT',
@@ -136,12 +149,11 @@ export async function recordClientDeposit(
   if (trade.lifecycle_state === 'AWAITING_FIRST_LEG') await transitionTrade(ctx, trade, 'FIRST_LEG_DETECTED', { extra: { leg_ref: leg.ref, amount: input.amount } });
 
   // The amount and the sender are checked, and disagreements become exceptions — never silent adjustments.
-  const expected = open.expected_amount_minor;
-  if (expected !== null && input.amount.minor !== expected) {
+  if (input.amount.minor !== outstanding) {
     await openExceptionInTx(ctx, {
-      type: input.amount.minor < expected ? 'USDT_WRONG_AMOUNT' : 'USDT_OVERPAYMENT',
+      type: input.amount.minor < outstanding ? 'USDT_WRONG_AMOUNT' : 'USDT_OVERPAYMENT',
       subjectType: 'CRYPTO_TRANSFER', subjectId: recorded.transferId, tradeId: trade.id,
-      details: { expected: Money.ofMinor(expected, 'USDT').toDecimalString(), received: input.amount.toDecimalString() },
+      details: { expected: Money.ofMinor(outstanding < 0n ? 0n : outstanding, 'USDT').toDecimalString(), received: input.amount.toDecimalString() },
     });
   }
   const sources = await ctx.tx
@@ -201,7 +213,12 @@ export async function confirmClientLegInTx(ctx: TxContext, deps: SettlementDeps,
   const leg = await lockLeg(ctx, id);
   if (leg.side !== 'CLIENT_TO_EXCHANGE') throw new DomainError('INVALID_ARGUMENT', 'this is not the client leg');
   if (leg.status !== 'PROCESSING') throw new DomainError('INVALID_TRANSITION', `leg is ${leg.status}`);
-  if (trade.lifecycle_state !== 'FIRST_LEG_DETECTED') throw new DomainError('INVALID_TRANSITION', `trade is ${trade.lifecycle_state}`);
+  // A detected client leg belongs to a live trade (cancellation fails and detaches it). A trade past its first leg
+  // can still have one: the client sent again after the deposit was complete. That money is real and is confirmed
+  // below like any other; it just cannot move the trade.
+  if (trade.lifecycle_state === 'AWAITING_FIRST_LEG' || trade.lifecycle_state === 'CANCELLED') {
+    throw new DomainError('INVALID_TRANSITION', `trade is ${trade.lifecycle_state}`);
+  }
 
   const allocation = await ctx.tx
     .selectFrom('transfer_allocation')
@@ -241,7 +258,12 @@ export async function confirmClientLegInTx(ctx: TxContext, deps: SettlementDeps,
 
   const { receivable } = await effectiveObligations(ctx.tx, trade.id);
   const totals = await legTotals(ctx.tx, trade.id);
-  if (totals.received !== receivable.minor) {
+  const matched = totals.received === receivable.minor;
+  // While another part of the client's funds is still being confirmed, the total is not final yet.
+  if (trade.lifecycle_state === 'FIRST_LEG_DETECTED' && (await clientLegsInFlight(ctx.tx, trade.id)) > 0) {
+    return { status: trade.lifecycle_state, confirmed: true, matchedObligation: false };
+  }
+  if (!matched) {
     await openExceptionInTx(ctx, {
       type: totals.received < receivable.minor ? 'USDT_WRONG_AMOUNT' : 'USDT_OVERPAYMENT',
       subjectType: 'TRADE', subjectId: trade.id, tradeId: trade.id,
@@ -249,10 +271,8 @@ export async function confirmClientLegInTx(ctx: TxContext, deps: SettlementDeps,
     });
     return { status: trade.lifecycle_state, confirmed: true, matchedObligation: false };
   }
-  if (trade.hold) return { status: trade.lifecycle_state, confirmed: true, matchedObligation: true };
-  await transitionTrade(ctx, trade, 'FIRST_LEG_CONFIRMED', { extra: { received: Money.ofMinor(totals.received, receivable.currency) } });
-  await enqueueOutbox(ctx, { type: 'desk.payout_actionable', aggregateType: 'trade', aggregateId: trade.id, payload: { tradeId: trade.id } });
-  return { status: 'FIRST_LEG_CONFIRMED' as const, confirmed: true, matchedObligation: true };
+  const status = await advanceTrade(ctx, trade.id);
+  return { status, confirmed: true, matchedObligation: true };
 }
 
 /**
@@ -283,8 +303,16 @@ export async function revertClientLegInTx(ctx: TxContext, legId: string, reason:
     .where('settlement_leg_id', '=', leg.id)
     .where('voided_at', 'is', null)
     .execute();
-  if (trade.lifecycle_state === 'FIRST_LEG_DETECTED') await transitionTrade(ctx, trade, 'AWAITING_FIRST_LEG', { reason: text });
   await appendAudit(ctx, { action: 'leg.failed', entityType: 'settlement_leg', entityId: leg.id, before: { status: 'PROCESSING' }, after: { status: 'FAILED', reason: text } });
+  if (trade.lifecycle_state === 'FIRST_LEG_DETECTED') {
+    // Back to awaiting the client only if nothing else of theirs has arrived. When another part of the client's
+    // funds is detected or already confirmed (a top-up beside a first transfer), the trade stays where it is and
+    // is judged on what remains.
+    const others = await ctx.tx.selectFrom('settlement_leg').select('id').where('trade_id', '=', trade.id).where('side', '=', 'CLIENT_TO_EXCHANGE')
+      .where('status', 'in', ['PROCESSING', 'COMPLETED']).executeTakeFirst();
+    if (others) await advanceTrade(ctx, trade.id);
+    else await transitionTrade(ctx, trade, 'AWAITING_FIRST_LEG', { reason: text });
+  }
   return { status: 'FAILED' as const };
 }
 

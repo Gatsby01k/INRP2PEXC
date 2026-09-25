@@ -84,24 +84,39 @@ export function importBankStatement(actor: OperatorActor) {
 
     // Resolved before anything is written, so the import row can be inserted with its final counts and stay
     // genuinely immutable. Evidence that gets updated after the fact is evidence with a gap in it.
+    // A reference is matched the way FI-22 makes it unique — trimmed and upper-cased — and only against movements
+    // that went through this account, in the direction the statement says. The operator may have typed the UTR in
+    // lower case; the bank prints it in upper case; both are the same payment.
     const resolved = [];
     const seen = new Set<string>();
     for (const line of lines) {
-      const transfer = await ctx.tx.selectFrom('fiat_transfer').select(['id', 'amount_minor']).where('utr', '=', line.reference).executeTakeFirst();
-      const outcome: StatementLineOutcome = !transfer ? 'UNRECORDED' : transfer.amount_minor === line.amount.minor ? 'MATCHED' : 'MISMATCHED';
+      const transfer = await ctx.tx
+        .selectFrom('fiat_transfer')
+        .select(['id', 'amount_minor', 'payer_type', 'payer_id'])
+        .where(sql<boolean>`upper(btrim(utr)) = ${line.reference}`)
+        .where((eb) => eb.or([
+          eb.and([eb('payer_type', '=', 'EXCHANGE_ACCOUNT'), eb('payer_id', '=', accountId)]),
+          eb.and([eb('payee_type', '=', 'EXCHANGE_ACCOUNT'), eb('payee_id', '=', accountId)]),
+        ]))
+        .orderBy('recorded_at')
+        .executeTakeFirst();
+      const expectedDirection = transfer && transfer.payer_type === 'EXCHANGE_ACCOUNT' && transfer.payer_id === accountId ? 'DEBIT' : 'CREDIT';
+      const outcome: StatementLineOutcome = !transfer
+        ? 'UNRECORDED'
+        : transfer.amount_minor === line.amount.minor && line.direction === expectedDirection ? 'MATCHED' : 'MISMATCHED';
       counts[outcome] += 1;
       if (transfer) seen.add(transfer.id);
-      resolved.push({ line, outcome, transfer: transfer ?? null });
+      resolved.push({ line, outcome, transfer: transfer ?? null, expectedDirection });
     }
 
-    // The second question: what did we say we paid that the bank has never heard of?
+    // The second question: what did we say moved through this account that the bank has never heard of? Every
+    // confirmed movement counts — payouts and refunds out, the client's INR in, route settlements both ways. The
+    // incoming client payment matters most: a fake UTR there is how USDT would be released for rupees that never came.
     const recorded = await sql<{ id: string; utr: string; amount_minor: bigint }>`
-      select distinct f.id, f.utr, f.amount_minor
+      select f.id, f.utr, f.amount_minor
       from fiat_transfer f
-      join transfer_allocation a on a.fiat_transfer_id = f.id and a.voided_at is null
-      join settlement_leg l on l.id = a.settlement_leg_id
       where f.status = 'CONFIRMED'
-        and l.inr_account_id = ${accountId}
+        and ((f.payer_type = 'EXCHANGE_ACCOUNT' and f.payer_id = ${accountId}) or (f.payee_type = 'EXCHANGE_ACCOUNT' and f.payee_id = ${accountId}))
         and (f.confirmed_at AT TIME ZONE 'Asia/Kolkata')::date between ${from}::date and ${to}::date
       order by f.id`.execute(ctx.tx);
     const absent = recorded.rows.filter((r) => !seen.has(r.id));
@@ -117,7 +132,7 @@ export function importBankStatement(actor: OperatorActor) {
       .executeTakeFirstOrThrow();
 
     let casesOpened = 0;
-    for (const { line, outcome, transfer } of resolved) {
+    for (const { line, outcome, transfer, expectedDirection } of resolved) {
       await ctx.tx
         .insertInto('bank_statement_line')
         .values({
@@ -130,7 +145,11 @@ export function importBankStatement(actor: OperatorActor) {
       const opened = await openExceptionInTx(ctx, {
         type: 'RECONCILIATION_MISMATCH', subjectType: 'FIAT_TRANSFER', subjectId: transfer.id,
         tradeId: await tradeOfTransfer(ctx.tx, transfer.id), detectedBy: 'SYSTEM',
-        details: { reason: 'STATEMENT_AMOUNT_DIFFERS', reference: line.reference, recorded: Money.ofMinor(transfer.amount_minor, 'INR').toDecimalString(), statement: line.amount.toDecimalString() },
+        details: {
+          reason: line.direction === expectedDirection ? 'STATEMENT_AMOUNT_DIFFERS' : 'STATEMENT_DIRECTION_DIFFERS', reference: line.reference,
+          recorded: Money.ofMinor(transfer.amount_minor, 'INR').toDecimalString(), statement: line.amount.toDecimalString(),
+          recorded_direction: expectedDirection, statement_direction: line.direction,
+        },
       });
       if (opened.opened) casesOpened += 1;
     }

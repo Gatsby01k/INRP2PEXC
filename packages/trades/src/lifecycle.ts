@@ -22,6 +22,18 @@ export async function lockTrade(tx: Tx, tradeId: string): Promise<TradeRow> {
   return row;
 }
 
+/**
+ * Re-reads a trade the caller has **already locked** in this transaction. `hold` and `version` move whenever an
+ * exception opens or closes, so a step that transitions a trade after one of those must start from this row,
+ * not from the one it locked at the top of the command.
+ */
+export async function reloadTrade(tx: Tx, tradeId: string): Promise<TradeRow> {
+  const rows = await sql<TradeRow>`select id, ref, client_id, direction, lifecycle_state, hold, version from trade where id = ${requireUuid(tradeId, 'tradeId')}`.execute(tx);
+  const row = rows.rows[0];
+  if (!row) throw new DomainError('NOT_FOUND', 'trade not found');
+  return row;
+}
+
 export async function lockInOrderRow(tx: Tx, resource: LockResource, table: string, id: string): Promise<void> {
   assertLockOrder(tx, resource);
   const r = await sql`select 1 from ${sql.table(table)} where id = ${id} for update`.execute(tx);
@@ -101,7 +113,7 @@ export async function transitionTrade(
   if (from === to) return;
   if (!ALLOWED[from].includes(to)) throw new DomainError('INVALID_TRANSITION', `trade ${trade.ref} cannot go ${from} → ${to}`);
   const now = sql<Date>`inrp2p_now()`;
-  await ctx.tx
+  const updated = await ctx.tx
     .updateTable('trade')
     .set({
       lifecycle_state: to,
@@ -111,7 +123,11 @@ export async function transitionTrade(
     })
     .where('id', '=', trade.id)
     .where('version', '=', trade.version)
-    .execute();
+    .executeTakeFirst();
+  // A stale row would otherwise update nothing while the history and the audit below said it moved.
+  if (updated.numUpdatedRows !== 1n) {
+    throw new DomainError('STALE_TRADE_VERSION', `trade ${trade.ref} changed since it was read (expected version ${trade.version}); reload it before transitioning`);
+  }
   await ctx.tx
     .insertInto('trade_transition')
     .values({ trade_id: trade.id, from_state: from, to_state: to, command: ctx.commandName, actor: ctx.actor.id ?? 'SYSTEM', correlation_id: ctx.correlationId })

@@ -73,6 +73,16 @@ export async function buildReceiptSnapshot(ex: Executor, tradeId: string): Promi
     throw new DomainError('INVALID_TRANSITION', `a receipt describes a completed trade; this one is ${trade.lifecycle_state}`);
   }
 
+  // The amounts that actually changed hands are the effective terms — the frozen economics plus every approved
+  // adjustment (FI-12). A trade adjusted to what the client really sent, or with an unpaid remainder written off,
+  // must not be receipted at the numbers it was quoted at: the payments below would contradict the document's own
+  // headline. The rate stays the agreed client rate.
+  const deltas = await sql<{ base: string; inr: string }>`
+    select coalesce(sum(delta_base_minor), 0)::text as base, coalesce(sum(delta_quote_inr_minor), 0)::text as inr
+    from financial_adjustment where trade_id = ${id} and status = 'POSTED'`.execute(ex);
+  const effectiveBase = trade.base_minor + BigInt(deltas.rows[0]!.base);
+  const effectiveInr = trade.quote_inr_minor + BigInt(deltas.rows[0]!.inr);
+
   const payoutAsset = trade.direction === 'SELL_USDT' ? ('INR' as const) : ('USDT' as const);
   const fundingAsset = trade.direction === 'SELL_USDT' ? ('USDT' as const) : ('INR' as const);
 
@@ -104,8 +114,8 @@ export async function buildReceiptSnapshot(ex: Executor, tradeId: string): Promi
     tradeRef: trade.ref,
     clientName: trade.display_name,
     direction: trade.direction,
-    base: Money.ofMinor(trade.base_minor, 'USDT').toJSON(),
-    inr: Money.ofMinor(trade.quote_inr_minor, 'INR').toJSON(),
+    base: Money.ofMinor(effectiveBase, 'USDT').toJSON(),
+    inr: Money.ofMinor(effectiveInr, 'INR').toJSON(),
     clientRate: Rate.ofMicro(trade.client_rate_micro, 'CLIENT').toDecimalString(),
     network: trade.network,
     destination: await maskedDestination(ex, trade),

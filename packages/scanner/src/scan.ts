@@ -63,7 +63,7 @@ export async function runTronScan(db: Db, deps: ScannerDeps): Promise<ScanReport
   const fromBlock = cursor.lastScannedBlock > policy.rescanOverlapBlocks ? cursor.lastScannedBlock - policy.rescanOverlapBlocks : 0n;
   const windowEnd = head - fromBlock > policy.maxBlocksPerRun ? fromBlock + policy.maxBlocksPerRun : head;
 
-  const addresses = await watchedAddresses(db, policy.maxAddressesPerRun);
+  const addresses = await watchedAddresses(db);
   const report = { seen: 0, detected: 0, alreadyKnown: 0, attributed: 0, unattributed: 0, wrongContract: 0 };
   const handled = new Set<string>();
   // Lowest block we are not sure we read completely: a full page means there may be more in that range.

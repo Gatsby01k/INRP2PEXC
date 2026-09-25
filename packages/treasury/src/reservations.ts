@@ -47,10 +47,13 @@ export async function consumeTreasuryReservation(ctx: TxContext, input: { tradeI
   const w = await ctx.tx.selectFrom('treasury_wallet').select(['reserved_minor']).where('id', '=', r.treasury_wallet_id).forUpdate().executeTakeFirstOrThrow();
   const res = await ctx.tx.selectFrom('treasury_reservation').selectAll().where('id', '=', r.id).forUpdate().executeTakeFirstOrThrow();
   if (res.status !== 'ACTIVE') return { consumed: false, status: res.status === 'CONSUMED' ? 'CONSUMED' : 'ACTIVE' };
-  const consumed = res.consumed_minor + input.amount.minor;
-  if (consumed > res.amount_minor) throw new DomainError('INVALID_AMOUNT', 'cannot consume more than the treasury reservation');
+  // The reservation covers the USDT frozen at acceptance. An approved adjustment can raise what the trade pays out
+  // above that; the part beyond the reservation was never reserved, so it is not un-reserved either. Refusing it
+  // instead would make a correctly adjusted payout impossible to confirm.
+  const take = input.amount.minor < res.amount_minor - res.consumed_minor ? input.amount.minor : res.amount_minor - res.consumed_minor;
+  const consumed = res.consumed_minor + take;
   const full = consumed === res.amount_minor;
-  await ctx.tx.updateTable('treasury_wallet').set({ reserved_minor: w.reserved_minor - input.amount.minor, updated_at: sql<Date>`statement_timestamp()` }).where('id', '=', r.treasury_wallet_id).execute();
+  await ctx.tx.updateTable('treasury_wallet').set({ reserved_minor: w.reserved_minor - take, updated_at: sql<Date>`statement_timestamp()` }).where('id', '=', r.treasury_wallet_id).execute();
   await ctx.tx
     .updateTable('treasury_reservation')
     .set({ consumed_minor: consumed, ...(full ? { status: 'CONSUMED' as const, closed_at: sql<Date>`statement_timestamp()` } : {}) })

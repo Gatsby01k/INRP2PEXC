@@ -99,8 +99,9 @@ recorded a reference.
 **What to do.** Mark the leg failed on the desk if the bank has confirmed it will not settle — that releases the
 capacity it reserved — and then create a replacement leg for the same amount. The trade stays open and its
 obligation is unchanged: a failed payout is not a smaller debt. If the destination itself is wrong, resolve the
-`CLIENT_BANK_CHANGED` case first; confirming a new destination is step-up protected and audited for exactly
-this reason.
+`CLIENT_BANK_CHANGED` case first (it opens by itself when the client archives the destination). Moving an open
+trade to a new destination is not built yet (TECH_DEBT TD-18): until it is, such a trade is unwound with a refund
+and cancellation and re-quoted to the new destination.
 
 **What never to do.** Do not create the replacement leg before the original is marked failed. For a few
 minutes the trade would have two live legs for one obligation, and if the first one settles after all, the

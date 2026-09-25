@@ -120,6 +120,19 @@ async function verifyOne(ctx: TxContext, deps: ScannerDeps, candidate: Candidate
     await confirmClientLegInTx(ctx, deps, leg.id);
     return { outcome: 'CLIENT_LEG_CONFIRMED', caseOpened: false };
   }
+  if (leg && (leg.status === 'FAILED' || leg.status === 'CANCELLED')) {
+    // The chain says money moved for a leg the desk had given up on — a payout marked failed that went out after
+    // all. Nothing posts on its own (an operator decides what it paid for), but it is never just "verified":
+    // treasury moved and the ledger has not, so finance hears about it now.
+    const opened = await openExceptionInTx(ctx, {
+      type: 'RECONCILIATION_MISMATCH',
+      subjectType: 'CRYPTO_TRANSFER',
+      subjectId: transfer.id,
+      tradeId: leg.trade_id,
+      details: { reason: 'CONFIRMED_ON_CHAIN_FOR_CLOSED_LEG', leg_id: leg.id, leg_status: leg.status, amount: Money.ofMinor(transfer.amount_minor, 'USDT').toDecimalString() },
+    });
+    return { outcome: 'VERIFIED', caseOpened: opened.opened };
+  }
   if (leg) return { outcome: 'VERIFIED', caseOpened: false };
 
   // Nobody claimed it (the detection step already opened the case). Suspense keeps the ledger whole: the

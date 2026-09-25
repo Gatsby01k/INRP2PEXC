@@ -84,3 +84,17 @@ describe('rounding by who pays (FINANCIAL_INVARIANTS §1.2)', () => {
     expect(() => computeTradeEconomics({ direction: 'SELL_USDT', fixedSide: 'BASE', amount: usdt('0'), clientRate: client('1'), routeRate: route('1') })).toThrow();
   });
 });
+
+describe('amounts too small to trade', () => {
+  it('refuses a SELL dust amount whose INR side rounds down to zero, instead of leaving it to a database constraint', () => {
+    const clientRate = Rate.parse('102.000000', 'CLIENT');
+    const routeRate = Rate.parse('104.200000', 'ROUTE');
+    // 0.000001 USDT is worth ₹0.000102: nothing on the INR side survives rounding.
+    expect(() => computeTradeEconomics({ direction: 'SELL_USDT', fixedSide: 'BASE', amount: Money.parse('0.000001', 'USDT'), clientRate, routeRate }))
+      .toThrow(expect.objectContaining({ code: 'INVALID_AMOUNT' }));
+    // A BUY rounds the INR the client pays up, so the same amount still prices (at ₹0.01): not dust.
+    expect(computeTradeEconomics({ direction: 'BUY_USDT', fixedSide: 'BASE', amount: Money.parse('0.000001', 'USDT'), clientRate, routeRate }).clientInr.toDecimalString()).toBe('0.01');
+    // The smallest amount that prices on every side is still accepted.
+    expect(computeTradeEconomics({ direction: 'SELL_USDT', fixedSide: 'BASE', amount: Money.parse('0.0001', 'USDT'), clientRate, routeRate }).clientInr.toDecimalString()).toBe('0.01');
+  });
+});

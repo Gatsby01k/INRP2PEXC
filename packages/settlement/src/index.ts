@@ -12,3 +12,5 @@ export * from './projections.ts';
 export * from './pnl.ts';
 export * from './jobs.ts';
 export * from './statements.ts';
+export * from './destinations.ts';
+export * from './progress.ts';

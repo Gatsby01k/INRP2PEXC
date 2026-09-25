@@ -58,6 +58,23 @@ export async function obligationRemaining(ex: Executor, obligationId: string): P
 }
 
 /**
+ * Settles an obligation whose sides have nothing left to deliver without a new allocation — an approved
+ * adjustment brought a side down to exactly what the route already settled (FI-60: the row never changes, the
+ * effective side does). The caller holds the obligation lock. Allocation keeps doing this itself.
+ */
+export async function refreshObligationStatus(ctx: TxContext, obligation: ObligationRow): Promise<ObligationRow['status']> {
+  if (obligation.status !== 'OPEN' && obligation.status !== 'PARTIALLY_SETTLED') return obligation.status;
+  const remaining = await obligationRemaining(ctx.tx, obligation.id);
+  if (!remaining.routeDelivers.isZero() || !remaining.exchangeDelivers.isZero()) return obligation.status;
+  await ctx.tx.updateTable('route_obligation').set({ status: 'SETTLED', settled_at: sql<Date>`inrp2p_now()` }).where('id', '=', obligation.id).execute();
+  await appendAudit(ctx, {
+    action: 'route_obligation.settled', entityType: 'route_obligation', entityId: obligation.id,
+    before: { status: obligation.status }, after: { status: 'SETTLED', by: 'adjustment' },
+  });
+  return 'SETTLED';
+}
+
+/**
  * Records that a confirmed route settlement satisfied part of one obligation side and moves the obligation's
  * status. No journal is posted here: the movement already posted the only one (FI-27).
  */

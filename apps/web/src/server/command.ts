@@ -112,8 +112,31 @@ export function failure(e: unknown): CommandResult<never> {
       ...(Object.keys(e.details).length ? { details: e.details } : {}),
     };
   }
-  // Anything unexpected is reported as itself, not dressed up as a domain rule.
+  // Anything unexpected is reported as itself, not dressed up as a domain rule — to the operator as a refusal,
+  // and to the log with enough to find it. A database trigger refusing a write (a broken invariant) lands here, and
+  // an error nobody can see is one nobody fixes.
+  logUnexpected(e);
   return { ok: false, code: 'INTERNAL', message: 'Something went wrong. The action was not applied.' };
+}
+
+/**
+ * One structured line per unexpected failure. Deliberately not the payload, and not a Postgres error's `detail`
+ * (which repeats the offending values — a UTR, an account): the message, the SQLSTATE and constraint name, and the
+ * stack are what an engineer needs and none of them carries client data (SECURITY §5).
+ */
+function logUnexpected(e: unknown): void {
+  const err = e instanceof Error ? e : new Error(String(e));
+  const pg = e as { code?: unknown; constraint?: unknown; table?: unknown };
+  console.error(JSON.stringify({
+    level: 'error',
+    event: 'command.unexpected_error',
+    name: err.name,
+    message: err.message,
+    ...(typeof pg.code === 'string' ? { sqlstate: pg.code } : {}),
+    ...(typeof pg.constraint === 'string' ? { constraint: pg.constraint } : {}),
+    ...(typeof pg.table === 'string' ? { table: pg.table } : {}),
+    stack: err.stack,
+  }));
 }
 
 /** Used by actions that need a `TxContext` helper inline. */

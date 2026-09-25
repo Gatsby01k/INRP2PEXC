@@ -199,8 +199,10 @@ function exceptionLabel(r: RawRow): string {
   const detail = parseDetails(r.case_detail);
   const expected = typeof detail.expected === 'string' ? detail.expected : null;
   const received = typeof detail.received === 'string' ? detail.received : null;
-  if (type === 'USDT_WRONG_AMOUNT' && expected && received) return `Short by ${difference(expected, received)} USDT`;
-  if (type === 'USDT_OVERPAYMENT' && expected && received) return `Over by ${difference(received, expected)} USDT`;
+  // The amount cases count the client's first leg, which is USDT for a SELL and INR for a BUY.
+  const currency = r.direction === 'BUY_USDT' ? 'INR' : 'USDT';
+  if (type === 'USDT_WRONG_AMOUNT' && expected && received) return `Short by ${difference(expected, received, currency)} ${currency}`;
+  if (type === 'USDT_OVERPAYMENT' && expected && received) return `Over by ${difference(received, expected, currency)} ${currency}`;
   return HUMAN_CASE[type] ?? type.replace(/_/g, ' ').toLowerCase();
 }
 
@@ -231,9 +233,13 @@ const HUMAN_CASE: Record<string, string> = {
   RECONCILIATION_MISMATCH: 'Reconciliation mismatch',
 };
 
-/** Exact decimal difference of two USDT decimal strings (never floats). */
-function difference(a: string, b: string): string {
-  return Money.parse(a, 'USDT').sub(Money.parse(b, 'USDT')).toDecimalString();
+/** Exact decimal difference of two decimal strings in one currency (never floats); `?` if they do not parse. */
+function difference(a: string, b: string, currency: 'INR' | 'USDT'): string {
+  try {
+    return Money.parse(a, currency).sub(Money.parse(b, currency)).toDecimalString();
+  } catch {
+    return '?';
+  }
 }
 
 function view(r: RawRow, access: DeskAccess, status: string, action: QueueAction): QueueRow {

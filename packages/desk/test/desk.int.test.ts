@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Money } from '@inrp2p/kernel';
 import { runAs } from '@inrp2p/identity/testing';
 import { createRequest } from '@inrp2p/quotes';
-import { cancelTrade, confirmPayout, createPayoutLeg, openException, recordLegEvidence, sendPayoutLeg } from '@inrp2p/settlement';
+import { cancelTrade, confirmFirstLeg, confirmPayout, createPayoutLeg, openException, recordIncomingFiat, recordLegEvidence, sendPayoutLeg } from '@inrp2p/settlement';
 import {
   FULL_ACCESS, NO_ECONOMICS, accessFor, clientBook, clientDetail, deskQueue, deskStrip, deskTrade,
   inrView, listOrders, routePositions, searchOrders, usdtView,
@@ -118,6 +118,15 @@ describe('the desk queue', () => {
     expect(placed?.row.status).toBe('Short by 0.050000 USDT');
     expect(placed?.row.action).toBe('RESOLVE_EXCEPTION');
     expect(placed?.row.hold).toBe(true);
+  });
+
+  it('counts a short BUY first leg in rupees, because that is what the client sent', async () => {
+    const trade = await openTrade(w, { direction: 'BUY_USDT', baseUsdt: '10', clientRate: '106.000000', routeRate: '104.200000', executionMode: 'TO_EXCHANGE' });
+    const recorded = await runAs(w.app, recordIncomingFiat(w.settlementOp.actor), w.settlementOp.ref, 'fiat_in.record', {
+      tradeId: trade.tradeId, rail: 'IMPS' as const, utr: newUtr('IN'), amount: '1000.00', inrAccountId: w.inrAccountId,
+    });
+    await runAs(w.app, confirmFirstLeg(w.settlementOp.actor, w.settlementDeps), w.settlementOp.ref, 'settlement.confirm_incoming', { legId: recorded.legId });
+    expect(rowFor(await deskQueue(w.app, FULL_ACCESS), trade.tradeId)?.row.status).toBe('Short by 60.00 INR');
   });
 
   it('never carries a rate or a margin for an operator without economics:view', async () => {

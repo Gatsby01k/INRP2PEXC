@@ -29,8 +29,11 @@ export async function pnlSummary(ex: Executor, period: PnlPeriod): Promise<PnlSu
     join ledger_journal j on j.id = e.journal_id
     where a.code = 'REVENUE:GROSS_MARGIN'
       and (j.posted_at AT TIME ZONE 'Asia/Kolkata')::date between ${period.from}::date and ${period.to}::date`.execute(ex);
+  // Completed volume is the effective base: frozen economics plus approved base adjustments (§4 "+ adjustments").
   const completed = await sql<{ volume: string; trades: string }>`
-    select coalesce(sum(e.base_minor), 0)::text as volume, count(*)::text as trades
+    select coalesce(sum(e.base_minor + coalesce((select sum(a.delta_base_minor) from financial_adjustment a
+                                                 where a.trade_id = t.id and a.status = 'POSTED'), 0)), 0)::text as volume,
+           count(*)::text as trades
     from trade t join trade_economics e on e.trade_id = t.id
     where t.lifecycle_state = 'COMPLETED'
       and (t.completed_at AT TIME ZONE 'Asia/Kolkata')::date between ${period.from}::date and ${period.to}::date`.execute(ex);

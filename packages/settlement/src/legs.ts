@@ -1,6 +1,6 @@
 import { sql } from 'kysely';
 import { DomainError, Money, requireOneOf, requireText, requireUuid } from '@inrp2p/kernel';
-import { type AssetCode, type FiatRail, type LegPayer, type TxContext, assertLockOrder } from '@inrp2p/db';
+import { type AssetCode, type Executor, type FiatRail, type LegPayer, type TxContext, assertLockOrder } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
 import { enqueueOutbox } from '@inrp2p/outbox';
 import { type OperatorActor, authorizeOperator, operatorCommand } from '@inrp2p/identity';
@@ -19,6 +19,25 @@ export async function nextLegSeq(ctx: TxContext, tradeId: string): Promise<numbe
     .where('trade_id', '=', tradeId)
     .executeTakeFirst();
   return (r?.max_seq ?? 0) + 1;
+}
+
+/**
+ * FI-25: a trade either pays the client out or gives the client's funds back — never both at once. A refund that
+ * is planned or done stops every payout, and a payout that has left (or is leaving) stops every refund; otherwise
+ * the client could be sent the payout and the refund of the funds it was paid for. Callers hold the trade lock.
+ */
+export async function assertNoRefundUnderway(ex: Executor, tradeId: string): Promise<void> {
+  const refund = await ex.selectFrom('settlement_leg').select('ref').where('trade_id', '=', tradeId).where('side', '=', 'REFUND_TO_CLIENT')
+    .where('status', 'in', ['PENDING', 'PROCESSING', 'COMPLETED']).executeTakeFirst();
+  if (refund) throw new DomainError('REFUND_IN_PROGRESS', `refund ${refund.ref} is planned or done for this trade; cancel it before paying out`);
+}
+
+export async function assertNoPayoutUnderway(ex: Executor, tradeId: string): Promise<void> {
+  const payout = await ex.selectFrom('settlement_leg').select(['ref', 'status']).where('trade_id', '=', tradeId).where('side', '=', 'EXCHANGE_TO_CLIENT')
+    .where('status', 'in', ['PROCESSING', 'COMPLETED']).executeTakeFirst();
+  if (!payout) return;
+  if (payout.status === 'COMPLETED') throw new DomainError('PAYOUT_ALREADY_CONFIRMED', 'a payout was already confirmed; correct it with a financial adjustment');
+  throw new DomainError('PAYOUT_IN_FLIGHT', `payout ${payout.ref} is already sent; confirm or fail it before refunding`);
 }
 
 export async function lockLeg(ctx: TxContext, legId: string) {
@@ -60,6 +79,7 @@ export function createPayoutLeg(actor: OperatorActor, deps: Pick<SettlementDeps,
     if (!['FIRST_LEG_CONFIRMED', 'SETTLING', 'PARTIALLY_SETTLED'].includes(trade.lifecycle_state)) {
       throw new DomainError('INVALID_TRANSITION', `payouts need a confirmed client leg (trade is ${trade.lifecycle_state})`);
     }
+    await assertNoRefundUnderway(ctx.tx, trade.id);
     const econ = await tradeEconomics(ctx.tx, trade.id);
     const asset = payoutAssetOf(trade.direction);
     const amount = Money.parse(p.amount, asset);
@@ -169,6 +189,7 @@ export function sendPayoutLeg(actor: OperatorActor) {
       if (trade.hold) throw new DomainError('TRADE_ON_HOLD', 'the trade has an open blocking exception');
       const leg = await lockLeg(ctx, p.legId);
       if (leg.status !== 'PENDING') throw new DomainError('INVALID_TRANSITION', `leg is ${leg.status}`);
+      if (leg.side === 'EXCHANGE_TO_CLIENT') await assertNoRefundUnderway(ctx.tx, trade.id);
       if (leg.payer === 'EXCHANGE_ACCOUNT' && leg.asset === 'INR') {
         const account = await ctx.tx.selectFrom('inr_settlement_account').select('status').where('id', '=', leg.inr_account_id!).forShare().executeTakeFirstOrThrow();
         if (account.status !== 'ACTIVE') throw new DomainError('ACCOUNT_NOT_ACTIVE', `INR account is ${account.status}`);
@@ -254,11 +275,17 @@ export function recordLegEvidence(actor: OperatorActor, deps: SettlementDeps) {
     } else {
       const { recordCryptoTransfer } = await import('./movements.ts');
       const wallet = await ctx.tx.selectFrom('crypto_wallet').select('address').where('id', '=', leg.destination_wallet_id!).executeTakeFirstOrThrow();
+      // An exchange-paid leg is paid by its own treasury wallet — that is the account the journal will credit — so
+      // the sender is that wallet's address, not whatever the screen had selected. Verification then holds the
+      // chain to it (FI-24). A route-paid leg names the route's sending address, which the chain also checks.
+      const fromAddress = leg.payer === 'EXCHANGE_ACCOUNT'
+        ? (await ctx.tx.selectFrom('treasury_wallet').select('address').where('id', '=', leg.treasury_wallet_id!).executeTakeFirstOrThrow()).address
+        : requireText(p.fromAddress, 'fromAddress', 64);
       const recorded = await recordCryptoTransfer(ctx, {
         txHash: p.txHash ?? '',
         logIndex: p.logIndex ?? 0,
         tokenContract: deps.chain.tokenContract,
-        fromAddress: requireText(p.fromAddress, 'fromAddress', 64),
+        fromAddress,
         toAddress: wallet.address,
         amount: Money.ofMinor(leg.amount_minor, 'USDT'),
         payerType: leg.payer === 'ROUTE' ? 'ROUTE' : 'EXCHANGE_TREASURY',
@@ -323,6 +350,12 @@ export function failPayoutLeg(actor: OperatorActor) {
     if (allocation?.fiat_transfer_id) {
       const { markFiatFailed } = await import('./movements.ts');
       await markFiatFailed(ctx, allocation.fiat_transfer_id, reason);
+    }
+    if (allocation?.crypto_transfer_id) {
+      // A transfer the chain has already made final did leave the treasury: failing its leg would leave that money
+      // with no journal and invite a replacement payout on top of it (FI-25). It is confirmed, not failed.
+      const c = await ctx.tx.selectFrom('crypto_transfer').select('state').where('id', '=', allocation.crypto_transfer_id).executeTakeFirstOrThrow();
+      if (c.state === 'CONFIRMED') throw new DomainError('TRANSFER_ALREADY_CONFIRMED', 'the chain has confirmed this payout; confirm the leg instead of failing it');
     }
     await ctx.tx
       .updateTable('settlement_leg')

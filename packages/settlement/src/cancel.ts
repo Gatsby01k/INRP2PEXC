@@ -8,16 +8,56 @@ import { reverseJournal, tradeCancelReversal } from '@inrp2p/ledger';
 import { releaseReservation, reserveCapacity } from '@inrp2p/inr-accounts';
 import { releaseDepositAssignment, releaseTreasuryReservation } from '@inrp2p/treasury';
 import { type TradeRow, legTotals, lockTrade, transitionTrade } from '@inrp2p/trades';
-import { resolveExceptionInTx } from './exceptions.ts';
-import { lockLeg, nextLegSeq } from './legs.ts';
+import { openExceptionInTx, resolveExceptionInTx } from './exceptions.ts';
+import { assertNoPayoutUnderway, lockLeg, nextLegSeq } from './legs.ts';
 import { lockMovement, postMovement, recordFiatTransfer, verifyCryptoTransfer } from './movements.ts';
 import { lockObligation, obligationOfTrade } from './obligations.ts';
 import type { SettlementDeps } from './policy.ts';
 
-/** Everything a cancelled trade must give back, in one place (T9, T10). */
-async function releaseCommitments(ctx: TxContext, trade: TradeRow): Promise<void> {
-  // Lock order: route obligation → capacity day → treasury wallet → deposit address (ARCHITECTURE §4).
+/**
+ * Everything a cancelled trade must give back, in one place (T9, T10), in the global lock order: route obligation →
+ * legs → capacity day → treasury wallet → deposit address (ARCHITECTURE §4).
+ *
+ * A client transfer that was detected but never confirmed stops being this trade's evidence: its leg fails and its
+ * allocation is voided, so the transfer no longer points at a closed trade. It is not forgotten — the funds may
+ * still land — so it becomes a `FUNDS_AFTER_TRADE_CLOSED` case, and when the chain confirms it the scanner parks
+ * it in suspense (STATE_MACHINES T9). Left attached to a failed leg it would confirm with no journal and no case.
+ */
+async function releaseCommitments(ctx: TxContext, trade: TradeRow, reason: string): Promise<void> {
   const obligation = await lockObligation(ctx, (await obligationOfTrade(ctx.tx, trade.id)).id);
+  if (obligation.status !== 'OPEN' && obligation.status !== 'CANCELLED') {
+    throw new DomainError('ROUTE_OBLIGATION_SETTLED', 'the route obligation already has allocations; cancel through a financial adjustment');
+  }
+
+  const detected = await ctx.tx.selectFrom('settlement_leg').select('id').where('trade_id', '=', trade.id).where('side', '=', 'CLIENT_TO_EXCHANGE').where('status', '=', 'PROCESSING').orderBy('id').execute();
+  for (const d of detected) {
+    const leg = await lockLeg(ctx, d.id);
+    await ctx.tx.updateTable('settlement_leg').set({ status: 'FAILED', failed_at: sql<Date>`inrp2p_now()`, failure_reason: 'trade cancelled before confirmation' }).where('id', '=', leg.id).execute();
+    const evidence = await ctx.tx
+      .updateTable('transfer_allocation')
+      .set({ voided_at: sql<Date>`inrp2p_now()`, voided_by: ctx.actor.id ?? `SYSTEM:${ctx.commandName}`, void_reason: `trade cancelled: ${reason}`.slice(0, 500) })
+      .where('settlement_leg_id', '=', leg.id)
+      .where('voided_at', 'is', null)
+      .returning(['transfer_kind', 'fiat_transfer_id', 'crypto_transfer_id', 'amount_minor'])
+      .execute();
+    for (const e of evidence) {
+      await openExceptionInTx(ctx, {
+        type: 'FUNDS_AFTER_TRADE_CLOSED',
+        subjectType: e.transfer_kind === 'FIAT' ? 'FIAT_TRANSFER' : 'CRYPTO_TRANSFER',
+        subjectId: (e.fiat_transfer_id ?? e.crypto_transfer_id)!,
+        tradeId: null,
+        details: { reason: 'TRADE_CANCELLED_BEFORE_CONFIRMATION', previous_trade_id: trade.id, amount: Money.ofMinor(e.amount_minor, leg.asset).toDecimalString(), leg_ref: leg.ref },
+      });
+    }
+    await appendAudit(ctx, { action: 'leg.failed', entityType: 'settlement_leg', entityId: leg.id, before: { status: 'PROCESSING' }, after: { status: 'FAILED', reason: 'trade cancelled before confirmation' } });
+  }
+  const pending = await ctx.tx.selectFrom('settlement_leg').select('id').where('trade_id', '=', trade.id).where('status', '=', 'PENDING').orderBy('id').execute();
+  for (const l of pending) {
+    const leg = await lockLeg(ctx, l.id);
+    await ctx.tx.updateTable('settlement_leg').set({ status: 'CANCELLED', cancelled_at: sql<Date>`inrp2p_now()` }).where('id', '=', leg.id).execute();
+    await appendAudit(ctx, { action: 'leg.cancelled', entityType: 'settlement_leg', entityId: leg.id, before: { status: 'PENDING' }, after: { status: 'CANCELLED', reason: 'trade cancelled' } });
+  }
+
   const reservations = await ctx.tx.selectFrom('capacity_reservation').select('id').where('trade_id', '=', trade.id).where('status', '=', 'ACTIVE').orderBy('id').execute();
   for (const r of reservations) await releaseReservation(ctx, r.id, 'TRADE_CANCELLED');
   await releaseTreasuryReservation(ctx, { tradeId: trade.id, reason: 'TRADE_CANCELLED' });
@@ -26,9 +66,20 @@ async function releaseCommitments(ctx: TxContext, trade: TradeRow): Promise<void
   if (obligation.status === 'OPEN') {
     await ctx.tx.updateTable('route_obligation').set({ status: 'CANCELLED', cancelled_at: sql<Date>`inrp2p_now()` }).where('id', '=', obligation.id).execute();
     await appendAudit(ctx, { action: 'route_obligation.cancelled', entityType: 'route_obligation', entityId: obligation.id, before: { status: obligation.status }, after: { status: 'CANCELLED', trade_id: trade.id } });
-  } else if (obligation.status !== 'CANCELLED') {
-    throw new DomainError('ROUTE_OBLIGATION_SETTLED', 'the route obligation already has allocations; cancel through a financial adjustment');
   }
+}
+
+/**
+ * `trade:{t}:cancel` is the exact reversal of the acceptance (FINANCIAL_INVARIANTS §3.3). Every approved adjustment
+ * moved the same accounts after it, so each one is reversed too (`adj:{id}:cancel`) — otherwise a cancelled trade
+ * would leave a client owing or owed, and a route payable, that nothing will ever settle.
+ */
+async function reverseTradeJournals(ctx: TxContext, tradeId: string): Promise<void> {
+  const posted = await ctx.tx.selectFrom('financial_adjustment').select('id').where('trade_id', '=', tradeId).where('status', '=', 'POSTED').orderBy('approved_at').orderBy('id').execute();
+  for (const a of posted) {
+    await reverseJournal(ctx, { originalPostingKey: `adj:${a.id}`, postingKey: `adj:${a.id}:cancel`, eventType: 'adjustment.reversed' });
+  }
+  await reverseJournal(ctx, tradeCancelReversal(tradeId));
 }
 
 /**
@@ -54,19 +105,8 @@ export function cancelTrade(actor: OperatorActor) {
       .executeTakeFirst();
     if (livePayout) throw new DomainError('PAYOUT_IN_FLIGHT', 'a payout is already sent; resolve it before cancelling');
 
-    // A detected-but-unconfirmed client transfer stops being this trade's business.
-    const detected = await ctx.tx.selectFrom('settlement_leg').select('id').where('trade_id', '=', trade.id).where('side', '=', 'CLIENT_TO_EXCHANGE').where('status', '=', 'PROCESSING').execute();
-    for (const d of detected) {
-      await ctx.tx.updateTable('settlement_leg').set({ status: 'FAILED', failed_at: sql<Date>`inrp2p_now()`, failure_reason: 'trade cancelled before confirmation' }).where('id', '=', d.id).execute();
-    }
-    const pending = await ctx.tx.selectFrom('settlement_leg').select('id').where('trade_id', '=', trade.id).where('status', '=', 'PENDING').execute();
-    for (const l of pending) {
-      const leg = await lockLeg(ctx, l.id);
-      await ctx.tx.updateTable('settlement_leg').set({ status: 'CANCELLED', cancelled_at: sql<Date>`inrp2p_now()` }).where('id', '=', leg.id).execute();
-    }
-
-    await releaseCommitments(ctx, trade);
-    await reverseJournal(ctx, tradeCancelReversal(trade.id));
+    await releaseCommitments(ctx, trade, reason);
+    await reverseTradeJournals(ctx, trade.id);
     await transitionTrade(ctx, trade, 'CANCELLED', { reason });
     if (p.exceptionId) await resolveExceptionInTx(ctx, { exceptionId: p.exceptionId, resolution: 'cancel_trade', notes: reason });
     await enqueueOutbox(ctx, { type: 'client.trade_cancelled', aggregateType: 'trade', aggregateId: trade.id, payload: { tradeId: trade.id, clientId: trade.client_id, reason } });
@@ -84,7 +124,7 @@ export function createRefundLeg(actor: OperatorActor) {
     if (trade.lifecycle_state === 'COMPLETED' || trade.lifecycle_state === 'CANCELLED') throw new DomainError('INVALID_TRANSITION', `trade is ${trade.lifecycle_state}`);
     const totals = await legTotals(ctx.tx, trade.id);
     if (totals.received === 0n) throw new DomainError('INVALID_TRANSITION', 'there is nothing to refund');
-    if (totals.paid > 0n) throw new DomainError('PAYOUT_ALREADY_CONFIRMED', 'a payout was already confirmed; correct it with a financial adjustment');
+    await assertNoPayoutUnderway(ctx.tx, trade.id);
     const refunded = await refundedTotal(ctx, trade.id);
     const outstanding = totals.received - refunded;
     if (outstanding <= 0n) throw new DomainError('INVALID_TRANSITION', 'the client funds are already refunded');
@@ -139,6 +179,7 @@ export function confirmRefundLeg(actor: OperatorActor, deps: SettlementDeps) {
     const leg = await lockLeg(ctx, p.legId);
     if (leg.side !== 'REFUND_TO_CLIENT') throw new DomainError('INVALID_ARGUMENT', 'this is not a refund leg');
     if (leg.status !== 'PENDING' && leg.status !== 'PROCESSING') throw new DomainError('INVALID_TRANSITION', `leg is ${leg.status}`);
+    await assertNoPayoutUnderway(ctx.tx, trade.id);
     const amount = Money.ofMinor(leg.amount_minor, leg.asset);
 
     let kind: 'FIAT' | 'CRYPTO';
@@ -228,13 +269,14 @@ export function refundAndCancel(actor: OperatorActor) {
     const trade = await lockTrade(ctx.tx, p.tradeId);
     if (trade.lifecycle_state === 'COMPLETED' || trade.lifecycle_state === 'CANCELLED') throw new DomainError('INVALID_TRANSITION', `trade is ${trade.lifecycle_state}`);
     const totals = await legTotals(ctx.tx, trade.id);
-    if (totals.paid > 0n) throw new DomainError('PAYOUT_ALREADY_CONFIRMED', 'a payout was confirmed; use a financial adjustment');
+    // A payout already sent may yet reach the client; refunding and cancelling on top of it would pay twice (FI-25).
+    await assertNoPayoutUnderway(ctx.tx, trade.id);
     const refunded = await refundedTotal(ctx, trade.id);
     if (refunded !== totals.received) {
       throw new DomainError('REFUND_INCOMPLETE', `confirmed client funds ${totals.received} are not fully refunded (${refunded})`);
     }
-    await releaseCommitments(ctx, trade);
-    await reverseJournal(ctx, tradeCancelReversal(trade.id));
+    await releaseCommitments(ctx, trade, reason);
+    await reverseTradeJournals(ctx, trade.id);
     await transitionTrade(ctx, trade, 'CANCELLED', { reason, extra: { refunded: refunded.toString() } });
     if (p.exceptionId) await resolveExceptionInTx(ctx, { exceptionId: p.exceptionId, resolution: 'refund_and_cancel', notes: reason });
     await enqueueOutbox(ctx, { type: 'client.trade_cancelled', aggregateType: 'trade', aggregateId: trade.id, payload: { tradeId: trade.id, clientId: trade.client_id, reason } });

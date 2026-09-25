@@ -91,7 +91,7 @@ SELL, base 100,000.000000 USDT, client ₹102.00, route ₹104.20:
 | FI-28 | A movement may satisfy at most one client settlement leg and at most one route settlement, each for the full movement amount (no splitting one UTR/tx across legs of the same dimension). It may satisfy both only when `payer = ROUTE` and `payee = CLIENT` (`DIRECT_TO_CLIENT`) | `transfer_allocation(transfer_kind, transfer_id, dimension)` unique where dimension ∈ {CLIENT, ROUTE}; CHECK `amount = transfer.amount`; trigger rejects ROUTE+CLIENT pair unless payer/payee is route→client | same UTR linked to two legs rejected; exchange-account payout cannot reduce route obligation; direct payout counted once per dimension |
 | FI-24 | USDT is CONFIRMED only when in a solidified block, receipt `SUCCESS`, contract = configured USDT contract, `to` = the expected destination (trade's assigned deposit address; for route settlements the route's registered address or our treasury wallet) | Confirmation job checks all four; state machine forbids DETECTED→CONFIRMED otherwise | seen-not-final; wrong contract; wrong destination |
 | FI-26 | Client USDT is attributed to a trade only through that trade's open deposit assignment; each SELL trade has exactly one assignment and each address at most one open assignment | Unique `deposit_assignment(trade_id)`; partial unique on open assignment per address; no allocation API accepts (amount, sender) as matching input | two open trades never share an address; funds to cooled-down / unassigned address go to suspense |
-| FI-25 | Client never double-paid: a payout leg can reach CONFIRMED once; failed legs can't be re-confirmed; retry = new leg | Leg state machine; unique confirmation per leg | failed leg then retry |
+| FI-25 | Client never double-paid: a payout leg can reach CONFIRMED once; failed legs can't be re-confirmed; retry = new leg; a trade never pays out and refunds at once; a USDT payout the chain already made final cannot be failed | Leg state machine; unique confirmation per leg; refund/payout exclusivity checked under the trade lock | failed leg then retry; refund refused while a payout is in flight; payout refused once a refund is planned |
 
 ### Capacity
 | ID | Invariant | Enforcement | Test |
@@ -132,7 +132,7 @@ SELL, base 100,000.000000 USDT, client ₹102.00, route ₹104.20:
 ### 3.1 Posting principle: one movement, one journal
 Every **real value movement** is exactly one evidence row — a `fiat_transfer` (unique `(rail, utr_normalized)`) or a `crypto_transfer` (unique `(network, tx_hash, log_index)`) — and posts **exactly one journal**, keyed by that evidence: `fiat:{f}:confirm` or `crypto:{x}:confirm`. Settlement legs, route settlements and allocations are *views of what a movement satisfied*; they never post journals of their own. The debit and credit accounts are chosen from the movement's `(payer, payee)` pair, so a direct route-to-client payout debits the client payable and credits the route receivable in the same two entries — it cannot be posted twice as a "client payout" and a "route settlement".
 
-Non-movement business events post their own keyed journals: `trade:{t}:accept`, `trade:{t}:complete`, `trade:{t}:cancel`, `adj:{id}`.
+Non-movement business events post their own keyed journals: `trade:{t}:accept`, `trade:{t}:complete`, `trade:{t}:cancel`, `adj:{id}`, `adj:{id}:cancel`.
 
 All entries carry dimensions `trade_id` and, for route accounts, `route_obligation_id`, so balances can be read per trade and per obligation.
 
@@ -159,6 +159,7 @@ All entries carry dimensions `trade_id` and, for route accounts, `route_obligati
 | `trade:{t}:accept` | USDT: Dr CLIENT_RECEIVABLE 100,000 / Cr ROUTE_PAYABLE 100,000 · INR: Dr ROUTE_RECEIVABLE ₹10,420,000 / Cr CLIENT_PAYABLE ₹10,200,000 / Cr DEFERRED_MARGIN ₹220,000 | INR: Dr CLIENT_RECEIVABLE ₹10,200,000 / Cr ROUTE_PAYABLE ₹10,000,000 / Cr DEFERRED_MARGIN ₹200,000 · USDT: Dr ROUTE_RECEIVABLE 100,000 / Cr CLIENT_PAYABLE 100,000 |
 | `trade:{t}:complete` | Dr DEFERRED_MARGIN ₹220,000 / Cr GROSS_MARGIN ₹220,000 | Dr DEFERRED_MARGIN ₹200,000 / Cr GROSS_MARGIN ₹200,000 |
 | `trade:{t}:cancel` | Exact reversal of `accept`; allowed only when the trade and its route obligation carry no net confirmed movements (none, or fully refunded/returned) | same |
+| `adj:{id}:cancel` | Exact reversal of a posted adjustment, posted with `trade:{t}:cancel` so a cancelled trade leaves every client, route and margin account at zero | same |
 | `adj:{id}` | Reversal of affected lines + re-posting of corrected lines | same |
 
 ### 3.4 Movement journals (by payer → payee)

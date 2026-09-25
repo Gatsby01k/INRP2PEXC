@@ -48,6 +48,10 @@ export function createQuote(actor: OperatorActor, deps: Pick<QuoteDeps, 'policy'
     const snapshot = await requireCurrentRouteRate(ctx.tx, route.id, request.direction);
     const clientRate = Rate.parse(p.clientRate, 'CLIENT');
     const fixedSide = p.fixedSide ? requireOneOf(p.fixedSide, 'fixedSide', ['BASE', 'QUOTE'] as const) : request.fixed_side;
+    // The requested amount is in the request's own fixed side; quoting the other side needs its own amount.
+    if (fixedSide !== request.fixed_side && p.amount === undefined) {
+      throw new DomainError('INVALID_ARGUMENT', 'an amount is required when the quote fixes a different side than the request', { field: 'amount' });
+    }
     const amount = p.amount !== undefined
       ? (fixedSide === 'BASE' ? Money.parse(p.amount, 'USDT') : Money.parse(p.amount, 'INR'))
       : (request.fixed_side === 'BASE' ? Money.ofMinor(request.requested_base_minor!, 'USDT') : Money.ofMinor(request.requested_quote_minor!, 'INR'));

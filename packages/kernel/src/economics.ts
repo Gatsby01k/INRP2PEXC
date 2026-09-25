@@ -41,6 +41,7 @@ export function computeTradeEconomics(input: EconomicsInput): TradeEconomics {
       base = inrToUsdt(clientInr, clientRate, 'UP');
     }
     const routeInr = usdtToInr(base, routeRate, 'DOWN');
+    assertPriceable(base, clientInr, routeInr);
     return Object.freeze({ direction, fixedSide: input.fixedSide, base, clientInr, routeInr, grossMargin: routeInr.sub(clientInr) });
   }
 
@@ -52,5 +53,16 @@ export function computeTradeEconomics(input: EconomicsInput): TradeEconomics {
     base = inrToUsdt(clientInr, clientRate, 'DOWN');
   }
   const routeInr = usdtToInr(base, routeRate, 'UP');
+  assertPriceable(base, clientInr, routeInr);
   return Object.freeze({ direction, fixedSide: input.fixedSide, base, clientInr, routeInr, grossMargin: clientInr.sub(routeInr) });
+}
+
+/**
+ * A trade needs something on every side: an amount so small that one side rounds to zero (a few micro-USDT, a
+ * paisa at an extreme rate) is not a trade, and is refused here rather than by a database constraint later.
+ */
+function assertPriceable(base: Money<'USDT'>, clientInr: Money<'INR'>, routeInr: Money<'INR'>): void {
+  if (!base.isPositive() || !clientInr.isPositive() || !routeInr.isPositive()) {
+    throw new DomainError('INVALID_AMOUNT', 'amount is too small to price at these rates');
+  }
 }
