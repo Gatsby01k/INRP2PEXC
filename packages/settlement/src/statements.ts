@@ -46,7 +46,10 @@ export interface StatementImportResult {
   readonly importId: string;
   readonly lines: number;
   readonly matched: number;
+  /** Lines that need review: a different amount or direction, a failed transfer, or an ambiguous reference. */
   readonly mismatched: number;
+  /** Of those, lines whose reference several recorded transfers share with none singled out. */
+  readonly ambiguous: number;
   readonly unrecorded: number;
   /** Confirmed payments in the period that the statement does not show. Each one opened a blocking case. */
   readonly missing: number;
@@ -80,33 +83,71 @@ export function importBankStatement(actor: OperatorActor) {
     if (already) throw new DomainError('DUPLICATE_STATEMENT', 'this statement file has already been imported for this account', { importId: already.id });
 
     const lines = p.lines.map((line, i) => readLine(line, i));
-    const counts: Record<StatementLineOutcome, number> = { MATCHED: 0, MISMATCHED: 0, UNRECORDED: 0 };
+    const counts: Record<StatementLineOutcome, number> = { MATCHED: 0, MISMATCHED: 0, UNRECORDED: 0, AMBIGUOUS: 0 };
 
     // Resolved before anything is written, so the import row can be inserted with its final counts and stay
     // genuinely immutable. Evidence that gets updated after the fact is evidence with a gap in it.
-    // A reference is matched the way FI-22 makes it unique — trimmed and upper-cased — and only against movements
-    // that went through this account, in the direction the statement says. The operator may have typed the UTR in
-    // lower case; the bank prints it in upper case; both are the same payment.
-    const resolved = [];
+    //
+    // A line matches only when account, reference, direction and amount together identify exactly one recorded
+    // transfer. The reference is compared the way FI-22 makes it unique — trimmed and upper-cased (the operator may
+    // have typed it in lower case, the bank prints it in upper) — and only movements through this account count.
+    // FI-22 makes a UTR unique per rail, not across rails, so one reference can name several transfers here; when
+    // the line does not single one out, it names none and goes to review. Picking the first would be a guess.
+    const resolved: {
+      line: (typeof lines)[number];
+      outcome: StatementLineOutcome;
+      transferId: string | null;
+      review: { transfers: readonly { id: string; amount_minor: bigint }[]; details: Record<string, unknown> } | null;
+    }[] = [];
     const seen = new Set<string>();
     for (const line of lines) {
-      const transfer = await ctx.tx
+      const candidates = await ctx.tx
         .selectFrom('fiat_transfer')
-        .select(['id', 'amount_minor', 'payer_type', 'payer_id'])
+        .select(['id', 'amount_minor', 'status', 'payer_type', 'payer_id'])
         .where(sql<boolean>`upper(btrim(utr)) = ${line.reference}`)
         .where((eb) => eb.or([
           eb.and([eb('payer_type', '=', 'EXCHANGE_ACCOUNT'), eb('payer_id', '=', accountId)]),
           eb.and([eb('payee_type', '=', 'EXCHANGE_ACCOUNT'), eb('payee_id', '=', accountId)]),
         ]))
-        .orderBy('recorded_at')
-        .executeTakeFirst();
-      const expectedDirection = transfer && transfer.payer_type === 'EXCHANGE_ACCOUNT' && transfer.payer_id === accountId ? 'DEBIT' : 'CREDIT';
-      const outcome: StatementLineOutcome = !transfer
-        ? 'UNRECORDED'
-        : transfer.amount_minor === line.amount.minor && line.direction === expectedDirection ? 'MATCHED' : 'MISMATCHED';
-      counts[outcome] += 1;
-      if (transfer) seen.add(transfer.id);
-      resolved.push({ line, outcome, transfer: transfer ?? null, expectedDirection });
+        .orderBy('id')
+        .execute();
+      const directionOf = (c: (typeof candidates)[number]): 'CREDIT' | 'DEBIT' => (c.payer_type === 'EXCHANGE_ACCOUNT' && c.payer_id === accountId ? 'DEBIT' : 'CREDIT');
+      const exact = candidates.filter((c) => c.amount_minor === line.amount.minor && directionOf(c) === line.direction);
+      const statement = { reference: line.reference, statement: line.amount.toDecimalString(), statement_direction: line.direction };
+
+      let entry: (typeof resolved)[number];
+      if (candidates.length === 0) {
+        entry = { line, outcome: 'UNRECORDED', transferId: null, review: null };
+      } else if (exact.length === 1 && exact[0]!.status !== 'FAILED') {
+        entry = { line, outcome: 'MATCHED', transferId: exact[0]!.id, review: null };
+      } else if (exact.length === 1) {
+        // The bank moved money the desk recorded as never having moved (a payment marked not received, a leg
+        // failed): the transfer is identified, and it is exactly the one that needs a person.
+        const t = exact[0]!;
+        entry = { line, outcome: 'MISMATCHED', transferId: t.id, review: { transfers: [t], details: { reason: 'STATEMENT_SHOWS_FAILED_TRANSFER', ...statement, recorded_status: t.status } } };
+      } else if (candidates.length === 1) {
+        const t = candidates[0]!;
+        const direction = directionOf(t);
+        entry = {
+          line, outcome: 'MISMATCHED', transferId: t.id,
+          review: {
+            transfers: [t],
+            details: {
+              reason: line.direction === direction ? 'STATEMENT_AMOUNT_DIFFERS' : 'STATEMENT_DIRECTION_DIFFERS', ...statement,
+              recorded: Money.ofMinor(t.amount_minor, 'INR').toDecimalString(), recorded_direction: direction,
+            },
+          },
+        };
+      } else {
+        entry = { line, outcome: 'AMBIGUOUS', transferId: null, review: { transfers: candidates, details: { reason: 'STATEMENT_REFERENCE_AMBIGUOUS', ...statement, candidates: candidates.length } } };
+      }
+      // What the statement accounted for: the transfer the line resolved to, or every candidate of an ambiguous line
+      // (each of those gets a review case). A sibling on another rail that the line did not match is not seen, so
+      // if the bank never shows it, it is still reported missing.
+      if (entry.transferId) seen.add(entry.transferId);
+      for (const t of entry.review?.transfers ?? []) seen.add(t.id);
+      counts[entry.outcome] += 1;
+      resolved.push(entry);
     }
 
     // The second question: what did we say moved through this account that the bank has never heard of? Every
@@ -125,33 +166,31 @@ export function importBankStatement(actor: OperatorActor) {
       .insertInto('bank_statement_import')
       .values({
         inr_account_id: accountId, period_from: from, period_to: to, filename, sha256: digest,
-        line_count: lines.length, matched: counts.MATCHED, mismatched: counts.MISMATCHED, unrecorded: counts.UNRECORDED,
+        // An ambiguous line needs the same thing a mismatched one does — a person — so the summary counts it there.
+        line_count: lines.length, matched: counts.MATCHED, mismatched: counts.MISMATCHED + counts.AMBIGUOUS, unrecorded: counts.UNRECORDED,
         missing: absent.length, imported_by: actorLabel(ctx),
       })
       .returning('id')
       .executeTakeFirstOrThrow();
 
     let casesOpened = 0;
-    for (const { line, outcome, transfer, expectedDirection } of resolved) {
+    for (const { line, outcome, transferId, review } of resolved) {
       await ctx.tx
         .insertInto('bank_statement_line')
         .values({
           import_id: importRow.id, seq: line.seq, value_date: line.valueDate, direction: line.direction,
           amount_minor: line.amount.minor, reference: line.reference, description: line.description,
-          outcome, fiat_transfer_id: transfer?.id ?? null,
+          outcome, fiat_transfer_id: transferId,
         })
         .execute();
-      if (outcome !== 'MISMATCHED' || !transfer) continue;
-      const opened = await openExceptionInTx(ctx, {
-        type: 'RECONCILIATION_MISMATCH', subjectType: 'FIAT_TRANSFER', subjectId: transfer.id,
-        tradeId: await tradeOfTransfer(ctx.tx, transfer.id), detectedBy: 'SYSTEM',
-        details: {
-          reason: line.direction === expectedDirection ? 'STATEMENT_AMOUNT_DIFFERS' : 'STATEMENT_DIRECTION_DIFFERS', reference: line.reference,
-          recorded: Money.ofMinor(transfer.amount_minor, 'INR').toDecimalString(), statement: line.amount.toDecimalString(),
-          recorded_direction: expectedDirection, statement_direction: line.direction,
-        },
-      });
-      if (opened.opened) casesOpened += 1;
+      for (const t of review?.transfers ?? []) {
+        const opened = await openExceptionInTx(ctx, {
+          type: 'RECONCILIATION_MISMATCH', subjectType: 'FIAT_TRANSFER', subjectId: t.id,
+          tradeId: await tradeOfTransfer(ctx.tx, t.id), detectedBy: 'SYSTEM',
+          details: review!.details,
+        });
+        if (opened.opened) casesOpened += 1;
+      }
     }
 
     for (const row of absent) {
@@ -168,11 +207,14 @@ export function importBankStatement(actor: OperatorActor) {
       action: 'statement.imported', entityType: 'bank_statement_import', entityId: importRow.id,
       after: {
         inr_account_id: accountId, account: account.label, period_from: from, period_to: to, filename, sha256: digest,
-        lines: lines.length, matched: counts.MATCHED, mismatched: counts.MISMATCHED, unrecorded: counts.UNRECORDED, missing, cases_opened: casesOpened,
+        lines: lines.length, matched: counts.MATCHED, mismatched: counts.MISMATCHED + counts.AMBIGUOUS, ambiguous: counts.AMBIGUOUS, unrecorded: counts.UNRECORDED, missing, cases_opened: casesOpened,
       },
     });
 
-    return { importId: importRow.id, lines: lines.length, matched: counts.MATCHED, mismatched: counts.MISMATCHED, unrecorded: counts.UNRECORDED, missing, casesOpened };
+    return {
+      importId: importRow.id, lines: lines.length, matched: counts.MATCHED, mismatched: counts.MISMATCHED + counts.AMBIGUOUS,
+      ambiguous: counts.AMBIGUOUS, unrecorded: counts.UNRECORDED, missing, casesOpened,
+    };
   });
 }
 

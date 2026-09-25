@@ -8,7 +8,7 @@ import { cancelQuote, createQuote, createQuoteLink, createRequest, declineReques
 import {
   type NON_FINANCIAL_RESOLUTIONS, approveAdjustment, cancelPayoutLeg, cancelTrade, confirmFirstLeg, confirmPayout,
   confirmRefundLeg, confirmRouteSettlement, createPayoutLeg, createRefundLeg, failPayoutLeg, recordIncomingFiat,
-  recordLegEvidence, recordRouteSettlement, refundAndCancel, requestAdjustment, resolveException, sendPayoutLeg,
+  recordLegEvidence, recordRouteSettlement, refundAndCancel, requestAdjustment, resolveException, revertFirstLeg, sendPayoutLeg,
   takeException, voidException,
 } from '@inrp2p/settlement';
 import { type CommandResult, failure, runCommand, withOperator } from '../command.ts';
@@ -159,6 +159,16 @@ export async function recordIncomingFiatAction(
 
 export async function confirmIncomingAction(input: { legId: string }, key: string): Promise<CommandResult<unknown>> {
   const out = await runCommand((ctx, deps) => confirmFirstLeg(ctx.actor, deps), input, { name: 'settlement.confirm_incoming', idempotencyKey: key });
+  if (out.ok) refresh();
+  return out;
+}
+
+/**
+ * The other answer to a recorded INR payment: it never arrived. The leg fails, the recorded transfer is closed as
+ * FAILED, and the trade goes back to awaiting the client — which is also what makes it cancellable again (T3).
+ */
+export async function revertIncomingAction(input: { legId: string; reason: string }, key: string): Promise<CommandResult<unknown>> {
+  const out = await runCommand((ctx) => revertFirstLeg(ctx.actor), input, { name: 'settlement.revert_incoming', idempotencyKey: key });
   if (out.ok) refresh();
   return out;
 }

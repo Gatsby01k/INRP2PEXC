@@ -3,12 +3,13 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from 'kysely';
 import { Money, encodeTronAddress } from '@inrp2p/kernel';
 import { runAs } from '@inrp2p/identity/testing';
+import { pgErrorCode } from '@inrp2p/db';
 import { effectiveObligations } from '@inrp2p/trades';
 import { archiveBankAccount } from '@inrp2p/clients';
 import {
   approveAdjustment, cancelTrade, confirmFirstLeg, confirmPayout, confirmRouteSettlement, createPayoutLeg, createRefundLeg, importBankStatement,
   obligationRemaining, recordIncomingFiat, recordLegEvidence, recordRouteSettlement, requestAdjustment, resolveException, sendPayoutLeg,
-  destinationArchivedHandler, submitTxForVerification, voidException,
+  cancelPayoutLeg, confirmRefundLeg, destinationArchivedHandler, refundAndCancel, revertFirstLeg, submitTxForVerification, voidException,
 } from '../src/index.ts';
 import { balanceOf, createWorld, newUtr, openTrade, settleFirstLeg, type World } from './world.ts';
 
@@ -327,5 +328,152 @@ describe('a destination archived under an open trade opens CLIENT_BANK_CHANGED (
     expect((await cases(open.tradeId)).map((c) => c.type)).toEqual(['CLIENT_BANK_CHANGED']);
     expect((await d.app.selectFrom('trade').select('hold').where('id', '=', open.tradeId).executeTakeFirstOrThrow()).hold).toBe(true);
     expect(await cases(closed.tradeId)).toEqual([]);
+  });
+});
+
+describe('refunds never exceed the client funds they return (FI-25, IX025)', () => {
+  const refund = (tradeId: string, op = w.owner, key?: string) =>
+    runAs(w.app, createRefundLeg(op.actor), op.ref, 'refund_leg.create', { tradeId, treasuryWalletId: w.treasuryWalletId }, key ?? randomUUID());
+  const refundLegs = (tradeId: string) =>
+    w.app.selectFrom('settlement_leg').select(['id', 'status', 'amount_minor']).where('trade_id', '=', tradeId).where('side', '=', 'REFUND_TO_CLIENT').execute();
+
+  it('a planned refund counts: a second refund of the same funds is refused until the first is cancelled', async () => {
+    const trade = await sellTrade('100');
+    await settleFirstLeg(w, trade.tradeId);
+    const first = await refund(trade.tradeId);
+    await expect(refund(trade.tradeId)).rejects.toMatchObject({ code: 'REFUND_IN_PROGRESS' });
+    await runAs(w.app, cancelPayoutLeg(w.settlementOp.actor), w.settlementOp.ref, 'payout_leg.cancel', { legId: first.legId, reason: 'refund planned in error' });
+    await refund(trade.tradeId);
+    expect((await refundLegs(trade.tradeId)).map((l) => l.status).sort()).toEqual(['CANCELLED', 'PENDING']);
+  });
+
+  it('two operators refunding the same trade at the same moment produce one refund', async () => {
+    const trade = await sellTrade('100');
+    await settleFirstLeg(w, trade.tradeId);
+    const results = await Promise.allSettled([refund(trade.tradeId, w.owner), refund(trade.tradeId, w.settlementOp)]);
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    expect(results.find((r) => r.status === 'rejected')).toMatchObject({ reason: { code: 'REFUND_IN_PROGRESS' } });
+    expect(await refundLegs(trade.tradeId)).toHaveLength(1);
+  });
+
+  it('a retried request with the same idempotency key returns the same refund, not a second one', async () => {
+    const trade = await sellTrade('100');
+    await settleFirstLeg(w, trade.tradeId);
+    const key = randomUUID();
+    const a = await refund(trade.tradeId, w.owner, key);
+    const b = await refund(trade.tradeId, w.owner, key);
+    expect(b.legId).toBe(a.legId);
+    expect(await refundLegs(trade.tradeId)).toHaveLength(1);
+  });
+
+  it('the database refuses refund legs that together exceed the confirmed client funds, however they are written', async () => {
+    const trade = await sellTrade('100');
+    await settleFirstLeg(w, trade.tradeId);
+    await refund(trade.tradeId);
+    const insertSecond = w.t.owner.insertInto('settlement_leg').values({
+      trade_id: trade.tradeId, seq: 99, ref: 'placeholder', side: 'REFUND_TO_CLIENT', asset: 'USDT', amount_minor: usdt('100'), payer: 'EXCHANGE_ACCOUNT',
+      treasury_wallet_id: w.treasuryWalletId, created_by: 'test',
+    }).execute();
+    await expect(insertSecond).rejects.toSatisfy((e) => pgErrorCode(e) === 'IX025');
+    expect(await refundLegs(trade.tradeId)).toHaveLength(1);
+  });
+});
+
+describe('a BUY trade is not cancelled around a recorded, unconfirmed INR payment', () => {
+  const buyTrade = () => openTrade(w, { direction: 'BUY_USDT', executionMode: 'TO_EXCHANGE', baseUsdt: '10', clientRate: '106.000000', routeRate: '104.200000' });
+  const recordInr = (tradeId: string, amount: string) =>
+    runAs(w.app, recordIncomingFiat(w.settlementOp.actor), w.settlementOp.ref, 'fiat_in.record', { tradeId, rail: 'IMPS' as const, utr: newUtr('IN'), amount, inrAccountId: w.inrAccountId });
+
+  it('refuses the cancellation, and allows it once the desk records that the payment did not arrive', async () => {
+    const trade = await buyTrade();
+    const recorded = await recordInr(trade.tradeId, '1060.00');
+    await expect(runAs(w.app, cancelTrade(w.dealer.actor), w.dealer.ref, 'trade.cancel', { tradeId: trade.tradeId, reason: 'client asked to cancel' }))
+      .rejects.toMatchObject({ code: 'INCOMING_FIAT_UNCONFIRMED' });
+    const live = await w.app.selectFrom('transfer_allocation').select('id').where('fiat_transfer_id', '=', recorded.transferId).where('voided_at', 'is', null).execute();
+    expect(live).toHaveLength(1);
+
+    await runAs(w.app, revertFirstLeg(w.settlementOp.actor), w.settlementOp.ref, 'settlement.revert_incoming', { legId: recorded.legId, reason: 'no matching credit in the collection account' });
+    expect((await w.app.selectFrom('fiat_transfer').select('status').where('id', '=', recorded.transferId).executeTakeFirstOrThrow()).status).toBe('FAILED');
+    expect((await stateOf(trade.tradeId)).lifecycle_state).toBe('AWAITING_FIRST_LEG');
+    await runAs(w.app, cancelTrade(w.dealer.actor), w.dealer.ref, 'trade.cancel', { tradeId: trade.tradeId, reason: 'client asked to cancel' });
+    expect((await stateOf(trade.tradeId)).lifecycle_state).toBe('CANCELLED');
+    // The closed claim can never be confirmed into a payment afterwards.
+    await expect(confirmLeg(recorded.legId)).rejects.toMatchObject({ code: 'INVALID_TRANSITION' });
+  });
+
+  it('refund-and-cancel is refused too while part of the client INR is still unconfirmed', async () => {
+    const trade = await buyTrade();
+    const first = await recordInr(trade.tradeId, '600.00');
+    await confirmLeg(first.legId);
+    await recordInr(trade.tradeId, '460.00');
+    const planned = await runAs(w.app, createRefundLeg(w.owner.actor), w.owner.ref, 'refund_leg.create', { tradeId: trade.tradeId, inrAccountId: w.inrAccountId });
+    await runAs(w.app, confirmRefundLeg(w.financeOp.actor, w.settlementDeps), w.financeOp.ref, 'refund_leg.confirm', { legId: planned.legId, rail: 'IMPS' as const, utr: newUtr('RF') });
+    await expect(runAs(w.app, refundAndCancel(w.dealer.actor), w.dealer.ref, 'trade.refund_and_cancel', { tradeId: trade.tradeId, reason: 'client withdrew' }))
+      .rejects.toMatchObject({ code: 'INCOMING_FIAT_UNCONFIRMED' });
+  });
+});
+
+describe('a statement reference shared across rails is never matched by guess (SECURITY S7)', () => {
+  let r: World;
+  beforeAll(async () => { r = await createWorld('audit_statement_rails', { capacityInr: '500000000.00' }); });
+  afterAll(async () => r.close());
+
+  const today = async () => (await sql<{ day: string }>`select to_char((inrp2p_now() AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD') as day`.execute(r.app)).rows[0]!.day;
+  async function importLines(lines: readonly { reference: string; amount: string; direction: 'CREDIT' | 'DEBIT' }[]) {
+    const day = await today();
+    return runAs(r.app, importBankStatement(r.financeOp.actor), r.financeOp.ref, 'statement.import', {
+      inrAccountId: r.inrAccountId, periodFrom: day, periodTo: day, filename: 'statement.csv',
+      sha256: createHash('sha256').update(randomUUID()).digest('hex'), lines: lines.map((l) => ({ valueDate: day, ...l })),
+    });
+  }
+  async function paidLeg(tradeId: string, amount: string, rail: 'IMPS' | 'NEFT', utr: string) {
+    const leg = await runAs(r.app, createPayoutLeg(r.settlementOp.actor, {}), r.settlementOp.ref, 'payout_leg.create', { tradeId, amount, payer: 'EXCHANGE_ACCOUNT' as const, inrAccountId: r.inrAccountId });
+    await runAs(r.app, sendPayoutLeg(r.settlementOp.actor), r.settlementOp.ref, 'payout_leg.send', { legId: leg.legId });
+    const ev = await runAs(r.app, recordLegEvidence(r.settlementOp.actor, r.settlementDeps), r.settlementOp.ref, 'payout_leg.record_evidence', { legId: leg.legId, rail, utr });
+    await confirmPayout(r.app, r.settlementOp.actor, r.settlementDeps, { legId: leg.legId, idempotencyKey: randomUUID() });
+    return ev.transferId;
+  }
+  const lineOf = (importId: string) => r.app.selectFrom('bank_statement_line').select(['outcome', 'fiat_transfer_id']).where('import_id', '=', importId).orderBy('seq').execute();
+  const reasonsOn = async (transferId: string) =>
+    (await r.app.selectFrom('exception_case').select(sql<string>`details ->> 'reason'`.as('reason')).where('subject_id', '=', transferId).execute()).map((c) => c.reason);
+
+  it('matches only the transfer that account, reference, direction and amount single out; otherwise it is ambiguous and reviewed', async () => {
+    const t1 = await openTrade(r, { executionMode: 'TO_EXCHANGE', baseUsdt: '100', clientRate: '102.000000', routeRate: '104.200000' });
+    await settleFirstLeg(r, t1.tradeId);
+    const t2 = await openTrade(r, { executionMode: 'TO_EXCHANGE', baseUsdt: '100', clientRate: '102.000000', routeRate: '104.200000' });
+    await settleFirstLeg(r, t2.tradeId);
+    const x = newUtr('XR');
+    const y = newUtr('YR');
+    const onImps = await paidLeg(t1.tradeId, '5000.00', 'IMPS', x);
+    const onNeft = await paidLeg(t1.tradeId, '5200.00', 'NEFT', x.toLowerCase());
+    const sameImps = await paidLeg(t2.tradeId, '3000.00', 'IMPS', y);
+    const sameNeft = await paidLeg(t2.tradeId, '3000.00', 'NEFT', y);
+
+    // One statement: a line whose amount singles out one of the two transfers sharing its reference, and a line
+    // whose reference, amount and direction fit two transfers equally.
+    const out = await importLines([{ reference: x, amount: '5200.00', direction: 'DEBIT' }, { reference: y, amount: '3000.00', direction: 'DEBIT' }]);
+    expect(await lineOf(out.importId)).toEqual([{ outcome: 'MATCHED', fiat_transfer_id: onNeft }, { outcome: 'AMBIGUOUS', fiat_transfer_id: null }]);
+    expect(out).toMatchObject({ matched: 1, ambiguous: 1, mismatched: 1 });
+    expect(await reasonsOn(onNeft)).toEqual([]);
+    expect(await reasonsOn(sameImps)).toEqual(['STATEMENT_REFERENCE_AMBIGUOUS']);
+    expect(await reasonsOn(sameNeft)).toEqual(['STATEMENT_REFERENCE_AMBIGUOUS']);
+    // The sibling of the matched transfer, on the other rail, was not on the statement: still reported missing.
+    expect(await reasonsOn(onImps)).toEqual(['NOT_IN_STATEMENT']);
+
+    // A shared reference whose amount fits neither: ambiguous as well, not a mismatch against an arbitrary one.
+    const neither = await importLines([{ reference: x, amount: '7000.00', direction: 'DEBIT' }]);
+    expect(await lineOf(neither.importId)).toEqual([{ outcome: 'AMBIGUOUS', fiat_transfer_id: null }]);
+  });
+
+  it('a statement that shows a payment the desk recorded as not received goes to review, not to a match', async () => {
+    const trade = await openTrade(r, { direction: 'BUY_USDT', executionMode: 'TO_EXCHANGE', baseUsdt: '10', clientRate: '106.000000', routeRate: '104.200000' });
+    const utr = newUtr('NR');
+    const recorded = await runAs(r.app, recordIncomingFiat(r.settlementOp.actor), r.settlementOp.ref, 'fiat_in.record', {
+      tradeId: trade.tradeId, rail: 'IMPS' as const, utr, amount: '1060.00', inrAccountId: r.inrAccountId,
+    });
+    await runAs(r.app, revertFirstLeg(r.settlementOp.actor), r.settlementOp.ref, 'settlement.revert_incoming', { legId: recorded.legId, reason: 'no matching credit in the collection account' });
+    const out = await importLines([{ reference: utr, amount: '1060.00', direction: 'CREDIT' }]);
+    expect(await lineOf(out.importId)).toEqual([{ outcome: 'MISMATCHED', fiat_transfer_id: recorded.transferId }]);
+    expect(await reasonsOn(recorded.transferId)).toEqual(['STATEMENT_SHOWS_FAILED_TRANSFER']);
   });
 });

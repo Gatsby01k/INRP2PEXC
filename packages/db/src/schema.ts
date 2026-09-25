@@ -898,7 +898,7 @@ export interface BankStatementImportTable {
   imported_at: Generated<Date>;
 }
 
-export type StatementLineOutcome = 'MATCHED' | 'MISMATCHED' | 'UNRECORDED';
+export type StatementLineOutcome = 'MATCHED' | 'MISMATCHED' | 'UNRECORDED' | 'AMBIGUOUS';
 
 export interface BankStatementLineTable {
   id: Generated<string>;

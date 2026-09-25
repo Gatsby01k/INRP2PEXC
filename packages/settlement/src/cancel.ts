@@ -70,6 +70,26 @@ async function releaseCommitments(ctx: TxContext, trade: TradeRow, reason: strin
 }
 
 /**
+ * A recorded client INR payment that nobody has confirmed or rejected yet is a claim the bank may still honour. If
+ * the trade were cancelled around it, the payment could land with nothing left to attach it to — no trade, no leg,
+ * no journal. So a trade is not cancelled while one is open: the desk first confirms it (and then refunds it) or
+ * records that it did not arrive (`revertFirstLeg`), which closes the transfer as FAILED.
+ */
+async function assertNoUnconfirmedIncomingFiat(ctx: TxContext, tradeId: string): Promise<void> {
+  const open = await ctx.tx
+    .selectFrom('settlement_leg')
+    .select('ref')
+    .where('trade_id', '=', tradeId)
+    .where('side', '=', 'CLIENT_TO_EXCHANGE')
+    .where('asset', '=', 'INR')
+    .where('status', '=', 'PROCESSING')
+    .executeTakeFirst();
+  if (open) {
+    throw new DomainError('INCOMING_FIAT_UNCONFIRMED', `the client's INR payment ${open.ref} is recorded but not confirmed; confirm it or mark it not received before cancelling`);
+  }
+}
+
+/**
  * `trade:{t}:cancel` is the exact reversal of the acceptance (FINANCIAL_INVARIANTS §3.3). Every approved adjustment
  * moved the same accounts after it, so each one is reversed too (`adj:{id}:cancel`) — otherwise a cancelled trade
  * would leave a client owing or owed, and a route payable, that nothing will ever settle.
@@ -104,6 +124,7 @@ export function cancelTrade(actor: OperatorActor) {
       .where('status', 'in', ['PROCESSING', 'COMPLETED'])
       .executeTakeFirst();
     if (livePayout) throw new DomainError('PAYOUT_IN_FLIGHT', 'a payout is already sent; resolve it before cancelling');
+    await assertNoUnconfirmedIncomingFiat(ctx, trade.id);
 
     await releaseCommitments(ctx, trade, reason);
     await reverseTradeJournals(ctx, trade.id);
@@ -125,9 +146,12 @@ export function createRefundLeg(actor: OperatorActor) {
     const totals = await legTotals(ctx.tx, trade.id);
     if (totals.received === 0n) throw new DomainError('INVALID_TRANSITION', 'there is nothing to refund');
     await assertNoPayoutUnderway(ctx.tx, trade.id);
-    const refunded = await refundedTotal(ctx, trade.id);
-    const outstanding = totals.received - refunded;
-    if (outstanding <= 0n) throw new DomainError('INVALID_TRANSITION', 'the client funds are already refunded');
+    // Everything already promised back counts, not only what has left: a planned or in-flight refund is money
+    // the client will receive, and a second refund of the same funds would pay them twice (FI-25). The trade lock
+    // serializes concurrent requests; the database re-checks the total at commit (IX025, migration 0021).
+    const committed = await refundTotal(ctx, trade.id, ['PENDING', 'PROCESSING', 'COMPLETED']);
+    const outstanding = totals.received - committed;
+    if (outstanding <= 0n) throw new DomainError('REFUND_IN_PROGRESS', 'the client funds are already refunded, or a refund of them is already planned');
 
     const asset = trade.direction === 'SELL_USDT' ? 'USDT' : 'INR';
     const amount = Money.ofMinor(outstanding, asset);
@@ -156,13 +180,13 @@ export function createRefundLeg(actor: OperatorActor) {
   });
 }
 
-async function refundedTotal(ctx: TxContext, tradeId: string): Promise<bigint> {
+async function refundTotal(ctx: TxContext, tradeId: string, statuses: readonly ('PENDING' | 'PROCESSING' | 'COMPLETED')[]): Promise<bigint> {
   const r = await ctx.tx
     .selectFrom('settlement_leg')
     .select(({ fn }) => fn.sum<string>('amount_minor').as('total'))
     .where('trade_id', '=', tradeId)
     .where('side', '=', 'REFUND_TO_CLIENT')
-    .where('status', '=', 'COMPLETED')
+    .where('status', 'in', statuses)
     .executeTakeFirst();
   return BigInt(r?.total ?? '0');
 }
@@ -271,7 +295,8 @@ export function refundAndCancel(actor: OperatorActor) {
     const totals = await legTotals(ctx.tx, trade.id);
     // A payout already sent may yet reach the client; refunding and cancelling on top of it would pay twice (FI-25).
     await assertNoPayoutUnderway(ctx.tx, trade.id);
-    const refunded = await refundedTotal(ctx, trade.id);
+    await assertNoUnconfirmedIncomingFiat(ctx, trade.id);
+    const refunded = await refundTotal(ctx, trade.id, ['COMPLETED']);
     if (refunded !== totals.received) {
       throw new DomainError('REFUND_INCOMPLETE', `confirmed client funds ${totals.received} are not fully refunded (${refunded})`);
     }

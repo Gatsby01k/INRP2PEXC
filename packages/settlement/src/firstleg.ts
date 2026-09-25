@@ -6,7 +6,7 @@ import { type OperatorActor, operatorCommand } from '@inrp2p/identity';
 import { effectiveObligations, legTotals, lockTrade, transitionTrade } from '@inrp2p/trades';
 import { openExceptionInTx } from './exceptions.ts';
 import { lockLeg, nextLegSeq } from './legs.ts';
-import { lockMovement, postMovement, recordCryptoTransfer, recordFiatTransfer, verifyCryptoTransfer } from './movements.ts';
+import { lockMovement, markFiatFailed, postMovement, recordCryptoTransfer, recordFiatTransfer, verifyCryptoTransfer } from './movements.ts';
 import type { SettlementDeps } from './policy.ts';
 import { advanceTrade, clientLegsInFlight } from './progress.ts';
 
@@ -297,12 +297,16 @@ export async function revertClientLegInTx(ctx: TxContext, legId: string, reason:
   const leg = await lockLeg(ctx, id);
   if (leg.side !== 'CLIENT_TO_EXCHANGE' || leg.status !== 'PROCESSING') throw new DomainError('INVALID_TRANSITION', `leg ${leg.ref} is ${leg.status}`);
   await ctx.tx.updateTable('settlement_leg').set({ status: 'FAILED', failed_at: sql<Date>`inrp2p_now()`, failure_reason: text }).where('id', '=', leg.id).execute();
-  await ctx.tx
+  const voided = await ctx.tx
     .updateTable('transfer_allocation')
     .set({ voided_at: sql<Date>`inrp2p_now()`, voided_by: ctx.actor.id ?? `SYSTEM:${ctx.commandName}`, void_reason: text })
     .where('settlement_leg_id', '=', leg.id)
     .where('voided_at', 'is', null)
+    .returning('fiat_transfer_id')
     .execute();
+  // A recorded INR payment the desk says never arrived is closed, not left as a live claim with nothing attached:
+  // FAILED is terminal, and a statement that later shows it anyway goes to review rather than matching it.
+  for (const v of voided) if (v.fiat_transfer_id) await markFiatFailed(ctx, v.fiat_transfer_id, `not received: ${text}`.slice(0, 500));
   await appendAudit(ctx, { action: 'leg.failed', entityType: 'settlement_leg', entityId: leg.id, before: { status: 'PROCESSING' }, after: { status: 'FAILED', reason: text } });
   if (trade.lifecycle_state === 'FIRST_LEG_DETECTED') {
     // Back to awaiting the client only if nothing else of theirs has arrived. When another part of the client's

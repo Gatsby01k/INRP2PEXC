@@ -6,7 +6,7 @@ import type { DeskTrade } from '@inrp2p/desk';
 import { Button, CapacityMeter, MoneyInput, PayerSelector, SettlementProgress, StepUpMark, UTRField, normalizeUtr } from '@inrp2p/ui';
 import { formatInr, formatUsdt, maskUtr, shortenHash } from '@inrp2p/ui/format';
 import {
-  confirmIncomingAction, confirmPayoutAction, createPayoutLegAction, recordEvidenceAction, sendPayoutLegAction,
+  confirmIncomingAction, confirmPayoutAction, createPayoutLegAction, recordEvidenceAction, revertIncomingAction, sendPayoutLegAction,
 } from '../../server/actions/desk.ts';
 import { useCommand } from '../useCommand.tsx';
 import styles from './panel.module.css';
@@ -111,6 +111,20 @@ export function PayoutPanel({ trade, canCreate, canSend, canRecord, canConfirm, 
             >
               Confirm received
             </Button>
+            {clientLeg.asset === 'INR' ? (
+              // A bank payment is the desk's to judge; an on-chain one is the chain's, so only INR offers this.
+              <Button
+                intent="secondary"
+                disabled={!canConfirm}
+                onClick={() =>
+                  cmd.run(`Mark the client's INR on ${trade.ref} as not received`, (key) =>
+                    revertIncomingAction({ legId: clientLeg.id, reason: 'no matching credit found in the collection account' }, key),
+                  )
+                }
+              >
+                Not received
+              </Button>
+            ) : null}
           </div>
           {!canConfirm ? <p className={styles.notice}>Confirming incoming funds needs the settlement role.</p> : null}
         </section>

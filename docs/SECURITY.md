@@ -12,7 +12,7 @@ Status: Phase 0, revision 3 (`DECISIONS.md` Revision 3).
 | S4 | Insider manipulation of history | Hidden margin/theft | Append-only ledger + audit, sealed audit hash chain, adjustments two-person, no direct DB access for app users |
 | S5 | Client-side data exposure of internals | Route rate / provider / margin leak | Separate client projection types, serializer allow-lists, tests asserting forbidden keys absent |
 | S6 | Fake blockchain evidence | Payout against unpaid trade | Only scanner/adapter facts confirm USDT; operator tx-hash submission triggers verification, never confirms by itself; dual provider above threshold |
-| S7 | Fake UTR | Trade marked paid when not | UTR uniqueness, proof attachment, step-up, reconciliation against bank statements (manual import V1) |
+| S7 | Fake UTR | Trade marked paid when not | UTR uniqueness, proof attachment, step-up, reconciliation against bank statements (manual import V1): every confirmed movement on the account is checked; a line matches only when account, reference, direction and amount identify exactly one transfer — otherwise `AMBIGUOUS` or `MISMATCHED` with a review case, never a guess |
 | S8 | Destination swap | Payout to attacker account | Destinations immutable per quote/trade; changes = archive + new, step-up, `CLIENT_BANK_CHANGED` exception, notify all client admins |
 | S9 | Sensitive data in logs/backups | Bank data leak | Envelope encryption, redaction, restricted reveal permission |
 | S10 | Misattributed USDT deposit | Payout against another client's funds | Unique per-trade deposit address from CustodyAdapter; no amount/sender heuristics; unassigned-address funds to suspense (D-02) |
