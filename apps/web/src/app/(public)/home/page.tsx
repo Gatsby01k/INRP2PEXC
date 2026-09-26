@@ -1,11 +1,15 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { pageForPath } from '../../../content/site.ts';
-import { publicOrigin } from '../../../server/site.ts';
+import { Audience } from '../_landing/audience/Audience.tsx';
+import { Business } from '../_landing/business/Business.tsx';
+import { Closing } from '../_landing/closing/Closing.tsx';
+import { Desk } from '../_landing/desk/Desk.tsx';
 import { Flow } from '../_landing/flow/Flow.tsx';
 import { Hero } from '../_landing/Hero.tsx';
 import { Story } from '../_landing/Story.tsx';
 import { Trust } from '../_landing/trust/Trust.tsx';
+import { pageMetadata } from '../metadata.ts';
 import { SitePageView } from '../SitePageView.tsx';
 
 export const dynamic = 'force-dynamic';
@@ -22,15 +26,7 @@ const PATH: string = '/';
 
 export async function generateMetadata(): Promise<Metadata> {
   const page = pageForPath(PATH);
-  if (!page) return {};
-  const origin = await publicOrigin();
-  const url = `${origin}${PATH === '/' ? '' : PATH}`;
-  return {
-    title: page.title,
-    description: page.description,
-    alternates: { canonical: url },
-    openGraph: { title: page.title, description: page.description, url, type: 'website' },
-  };
+  return page ? pageMetadata(page) : {};
 }
 
 export default function Page() {
@@ -44,6 +40,10 @@ export default function Page() {
         <Story>
           <Flow />
           <Trust />
+          <Audience />
+          <Desk />
+          <Business />
+          <Closing />
         </Story>
       }
     />

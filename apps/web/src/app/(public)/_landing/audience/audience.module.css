@@ -1,0 +1,113 @@
+/* Who it's for.
+
+   Back on the paper after the controls' dark field. Three rows, each a name set large on the left and what fits
+   it in the lede's column on the right, so the eye runs down one column of names and one of reasons. No boxes:
+   a rule over each row, with a short stroke of orange where it starts. */
+
+.audience {
+  position: relative;
+  background: var(--bg-app);
+}
+
+.groups {
+  margin: clamp(56px, 9vh, 104px) 0 0;
+  padding: 0;
+  list-style: none;
+  border-bottom: 1px solid var(--border-default);
+}
+
+.group {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+  column-gap: var(--space-8);
+  align-items: start;
+  padding: var(--space-10) 0 var(--space-12);
+  border-top: 1px solid var(--border-default);
+}
+
+.group::before {
+  content: '';
+  position: absolute;
+  top: -1px;
+  left: 0;
+  width: 56px;
+  height: 2px;
+  background: var(--brand-primary);
+  transform-origin: left center;
+}
+
+.name {
+  max-width: 14ch;
+  margin: 0;
+  font-size: clamp(28px, 2.8vw, 40px);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.08;
+  letter-spacing: -0.03em;
+  color: var(--text-primary);
+  text-wrap: balance;
+}
+
+.text {
+  display: grid;
+  gap: var(--space-2);
+  max-width: 34rem;
+  padding-top: var(--space-1);
+}
+
+.situation {
+  margin: 0;
+  font-size: 18px;
+  font-weight: var(--font-weight-medium);
+  line-height: 1.4;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+  text-wrap: balance;
+}
+
+.fit {
+  margin: 0;
+  font-size: var(--font-size-body);
+  line-height: 1.62;
+  color: var(--text-secondary);
+  text-wrap: pretty;
+}
+
+/* The orange stroke draws along its rule as the row comes up the screen. Decoration only: where the browser
+   cannot tie an animation to the scroll, or the visitor asked for less motion, it is simply there. */
+@media (prefers-reduced-motion: no-preference) {
+  @supports (animation-timeline: view()) {
+    .group::before {
+      animation: draw linear both;
+      animation-timeline: view();
+      animation-range: entry 20% cover 40%;
+    }
+  }
+}
+
+@keyframes draw {
+  from {
+    transform: scaleX(0);
+  }
+}
+
+@media (max-width: 1099px) {
+  .groups {
+    margin-top: var(--space-12);
+  }
+
+  .group {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: var(--space-3);
+    padding: var(--space-6) 0 var(--space-8);
+  }
+
+  .name {
+    max-width: none;
+    font-size: clamp(24px, 6.4vw, 30px);
+  }
+
+  .situation {
+    font-size: var(--font-size-body-lg);
+  }
+}

@@ -25,9 +25,8 @@ export async function generateMetadata(): Promise<Metadata> {
     description: TAGLINE,
     // The public site is the only part of this build that may be indexed.
     robots: { index: true, follow: true },
+    // A page's own `openGraph` replaces this one; every page sets its own, with the share card (metadata.ts).
     openGraph: { siteName: SITE_NAME, type: 'website', locale: 'en_IN' },
-    // No images are declared: an OG card we have not drawn would be a broken preview, and a stock one would be
-    // a picture of nothing. Text previews are correct until there is a real card to serve.
   };
 }
 

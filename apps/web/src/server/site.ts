@@ -28,6 +28,29 @@ export function appOrigin(): string {
   return `${scheme}://${host}`;
 }
 
+/**
+ * The addresses the public site gives out: where a prospective client or partner writes to the desk
+ * (`PUBLIC_DESK_EMAIL`), and where a security issue is reported (`PUBLIC_SECURITY_EMAIL`).
+ *
+ * Configuration rather than copy, because an address is a promise that someone reads it — and one that nobody
+ * reads is worse than none. Each is published only when it is set to something shaped like an address; unset,
+ * the link it would carry is simply not drawn.
+ */
+export interface SiteContacts {
+  readonly desk: string | null;
+  readonly security: string | null;
+}
+
+const ADDRESS = /^[^\s@<>"'()]+@[^\s@<>"'()]+\.[^\s@<>"'()]+$/;
+
+export function siteContacts(): SiteContacts {
+  const address = (name: string): string | null => {
+    const value = optionalEnv(name)?.trim();
+    return value && ADDRESS.test(value) ? value : null;
+  };
+  return { desk: address('PUBLIC_DESK_EMAIL'), security: address('PUBLIC_SECURITY_EMAIL') };
+}
+
 /** The per-request CSP nonce the proxy generated, for the one inline script the site serves (its JSON-LD). */
 export async function requestNonce(): Promise<string | undefined> {
   return (await headers()).get('x-inrp2p-nonce') ?? undefined;

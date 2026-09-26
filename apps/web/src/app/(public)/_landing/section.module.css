@@ -1,0 +1,66 @@
+/* What the sections after the operational controls share: the frame, and a heading set exactly as the execution
+   flow and the controls set theirs — eyebrow, a balanced title on the left, the lede on the right, bottoms
+   aligned. One file, so the four of them cannot drift apart. */
+
+.inner {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: clamp(96px, 13vh, 144px) var(--space-10) clamp(88px, 12vh, 128px);
+}
+
+.head {
+  display: grid;
+  grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+  column-gap: var(--space-8);
+  align-items: end;
+}
+
+.eyebrow {
+  margin: 0 0 var(--space-5);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--brand-action);
+}
+
+.title {
+  max-width: 22ch;
+  margin: 0;
+  font-size: clamp(36px, 3.9vw, 56px);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.04;
+  letter-spacing: -0.035em;
+  color: var(--text-primary);
+  text-wrap: balance;
+}
+
+.lede {
+  max-width: 34rem;
+  margin: 0;
+  padding-bottom: var(--space-1);
+  font-size: var(--font-size-body-lg);
+  line-height: 1.6;
+  color: var(--text-secondary);
+  text-wrap: pretty;
+}
+
+@media (max-width: 1099px) {
+  .inner {
+    max-width: 640px;
+    padding: var(--space-16) var(--space-4);
+  }
+
+  .head {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: var(--space-5);
+  }
+
+  .eyebrow {
+    margin-bottom: var(--space-4);
+  }
+
+  .title {
+    font-size: clamp(32px, 8.4vw, 44px);
+  }
+}

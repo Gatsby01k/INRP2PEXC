@@ -1,0 +1,411 @@
+/* The execution desk.
+
+   The trade's timeline, set as a log: one spine down the left, a node on it for every entry, and beside each
+   node who acted, when, what happened and the status that followed. Stages sit on the spine as larger marks with
+   their name on a rule. The client's own moves are rings, the desk's are solid, and the ways off the main path
+   (a decline, an expired quote, a held trade) are dashed, with a warning-toned status. The spine runs on through
+   them, because the trade does.
+
+   On a wide screen the heading holds still on the left while the log scrolls past it, the counterpart of the
+   controls' record on the right. With `data-live` (DeskStage.tsx), entries not yet read are drawn pending —
+   hollow node, grey spine, outlined status — and fill in as they are logged; without it the log is complete. */
+
+.desk {
+  --rail: 24px;
+  --node: 11px;
+  /* The centre of an entry's first line, measured from the top of the entry: where its node sits. */
+  --anchor: 25px;
+  position: relative;
+  background: var(--bg-app);
+  border-top: 1px solid var(--border-default);
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  column-gap: clamp(var(--space-12), 6vw, 112px);
+  align-items: start;
+}
+
+.head {
+  position: sticky;
+  top: clamp(var(--space-12), 12vh, 120px);
+}
+
+.lede {
+  margin-top: var(--space-6);
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-5);
+  margin: var(--space-8) 0 0;
+  padding: var(--space-5) 0 0;
+  border-top: 1px solid var(--border-default);
+  list-style: none;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.legendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.legendMark {
+  width: var(--node);
+  height: var(--node);
+  border-radius: 50%;
+  background: var(--brand-primary);
+}
+
+.legendItem[data-kind='you'] .legendMark {
+  border: 2px solid var(--brand-primary);
+  background: transparent;
+}
+
+.legendItem[data-kind='branch'] .legendMark {
+  border: 1.5px dashed var(--status-warning);
+  background: transparent;
+}
+
+.stages,
+.entries {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* ——— The spine ———
+   Drawn in pieces, one per stage mark and one per entry, so each piece can fill when its entry is logged:
+   `::before` is the grey rail, `::after` the orange that fills it. */
+
+.stageHead,
+.entry {
+  position: relative;
+}
+
+.stageHead::before,
+.stageHead::after,
+.entry::before,
+.entry::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--rail) / 2);
+  pointer-events: none;
+}
+
+.stageHead::before,
+.entry::before {
+  width: 1px;
+  background: var(--border-strong);
+  transform: translateX(-50%);
+}
+
+.stageHead::after,
+.entry::after {
+  width: 2px;
+  margin-left: -1px;
+  background: var(--brand-primary);
+  transform-origin: center top;
+}
+
+/* The spine starts at the first stage's mark and ends at the last entry's node. */
+.stage:first-child .stageHead::before,
+.stage:first-child .stageHead::after {
+  top: 50%;
+}
+
+.stage:last-child .entry:last-child::before,
+.stage:last-child .entry:last-child::after {
+  bottom: auto;
+  height: var(--anchor);
+}
+
+/* ——— Stages ——— */
+
+.stageHead {
+  display: grid;
+  grid-template-columns: var(--rail) minmax(0, 1fr);
+  column-gap: var(--space-4);
+  align-items: center;
+  padding: var(--space-8) 0 var(--space-2);
+}
+
+.stage:first-child .stageHead {
+  padding-top: 0;
+}
+
+.stageMark {
+  position: relative;
+  z-index: 1;
+  justify-self: center;
+  width: 15px;
+  height: 15px;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  background: var(--bg-surface);
+  box-shadow: 0 0 0 4px var(--bg-app);
+  transform: rotate(45deg);
+  transition:
+    border-color var(--dur-complete) var(--ease),
+    background-color var(--dur-complete) var(--ease);
+}
+
+.stageName {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.2;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-primary);
+  transition: color var(--dur-complete) var(--ease);
+}
+
+.stageName::after {
+  content: '';
+  flex: 1 1 auto;
+  border-top: 1px solid var(--border-strong);
+}
+
+/* ——— Entries ——— */
+
+.entry {
+  display: grid;
+  grid-template-columns: var(--rail) minmax(0, 1fr);
+  column-gap: var(--space-4);
+}
+
+.node {
+  position: relative;
+  z-index: 1;
+  justify-self: center;
+  width: var(--node);
+  height: var(--node);
+  margin-top: calc(var(--anchor) - var(--node) / 2);
+  border-radius: 50%;
+  background: var(--brand-primary);
+  box-shadow: 0 0 0 4px var(--bg-app);
+  transition:
+    background-color var(--dur-complete) var(--ease),
+    border-color var(--dur-complete) var(--ease);
+}
+
+/* The client's own moves are rings; the desk's are solid; a way off the main path is dashed. */
+.entry[data-side='you'] .node {
+  border: 2px solid var(--brand-primary);
+  background: var(--bg-app);
+}
+
+.entry[data-branch] .node {
+  border: 1.5px dashed var(--status-warning);
+  background: var(--bg-app);
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 6.5rem minmax(0, 1fr) auto;
+  column-gap: var(--space-4);
+  align-items: start;
+  padding: calc(var(--anchor) - 11px) 0 var(--space-4);
+  border-top: 1px solid var(--border-default);
+}
+
+.entries > .entry:first-child .row {
+  border-top-color: transparent;
+}
+
+.meta {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding-top: 3px;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.4;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.actor {
+  color: var(--text-primary);
+}
+
+.entry[data-side='you'] .actor {
+  color: var(--brand-action);
+}
+
+.time {
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.event {
+  margin: 0;
+  font-size: var(--font-size-body);
+  line-height: 1.5;
+  color: var(--text-primary);
+  text-wrap: pretty;
+}
+
+.entry[data-branch] .event {
+  color: var(--text-secondary);
+}
+
+.status {
+  display: inline-flex;
+  align-items: center;
+  justify-self: end;
+  margin: 1px 0 0;
+  padding: 3px var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  background: var(--brand-soft);
+  color: var(--brand-action);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.2;
+  white-space: nowrap;
+  transition:
+    background-color var(--dur-complete) var(--ease),
+    border-color var(--dur-complete) var(--ease),
+    color var(--dur-complete) var(--ease);
+}
+
+.status[data-tone='done'] {
+  background: var(--status-success-soft);
+  color: var(--status-success);
+}
+
+.status[data-tone='branch'] {
+  background: var(--status-warning-soft);
+  color: var(--status-warning);
+}
+
+/* ——— Logging, as the timeline is read ———
+   Not yet logged: the node hollow and grey, the spine grey, the status only outlined — every word still there, in
+   full contrast. Logged: the spine behind it fills downwards, then the node and the status take their colour. */
+
+.desk[data-live] .entry::after,
+.desk[data-live] .stageHead::after {
+  transform: scaleY(0);
+  transition: transform var(--dur-complete) var(--ease);
+}
+
+.desk[data-live] .entry[data-logged]::after,
+.desk[data-live] .stage:has([data-logged]) .stageHead::after {
+  transform: none;
+}
+
+.desk[data-live] .entry[data-logged]::after {
+  transition-delay: var(--log-delay, 0ms);
+}
+
+.desk[data-live] .stage:not(:has([data-logged])) .stageMark {
+  border-color: var(--border-default);
+}
+
+.desk[data-live] .stage:has([data-logged]) .stageMark {
+  border-color: var(--brand-primary);
+}
+
+.desk[data-live] .stage:not(:has([data-logged])) .stageName {
+  color: var(--text-secondary);
+}
+
+.desk[data-live] .entry:not([data-logged]) .node {
+  border: 1.5px solid var(--border-control);
+  background: var(--bg-app);
+}
+
+.desk[data-live] .entry:not([data-logged]) .status {
+  border-color: var(--border-strong);
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.desk[data-live] .entry[data-logged] .node,
+.desk[data-live] .entry[data-logged] .status {
+  transition-delay: calc(var(--log-delay, 0ms) + 160ms);
+}
+
+/* ——— Narrower ——— */
+
+@media (max-width: 1279px) {
+  .row {
+    grid-template-columns: 5.5rem minmax(0, 1fr);
+  }
+
+  .status {
+    grid-column: 2;
+    justify-self: start;
+    margin-top: var(--space-2);
+  }
+}
+
+@media (max-width: 1099px) {
+  .desk {
+    --anchor: 20px;
+  }
+
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: var(--space-12);
+  }
+
+  .head {
+    position: static;
+  }
+
+  .lede {
+    margin-top: var(--space-5);
+  }
+
+  .legend {
+    margin-top: var(--space-6);
+  }
+
+  .entry {
+    column-gap: var(--space-3);
+  }
+
+  .stageHead {
+    column-gap: var(--space-3);
+    padding-top: var(--space-6);
+  }
+
+  .row {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: var(--space-1);
+    padding: calc(var(--anchor) - 8px) 0 var(--space-4);
+  }
+
+  .meta {
+    display: flex;
+    gap: var(--space-2);
+    padding-top: 0;
+  }
+
+  .event {
+    font-size: var(--font-size-body-sm);
+  }
+
+  .status {
+    grid-column: 1;
+    margin-top: var(--space-1);
+  }
+}

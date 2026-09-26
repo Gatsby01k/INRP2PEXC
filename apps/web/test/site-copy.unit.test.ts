@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { draftFor } from '@inrp2p/notifications';
 import { RECEIPT_SNAPSHOT_VERSION, type ReceiptSnapshot, receiptHtml } from '@inrp2p/reporting';
 import type { NotificationKind } from '@inrp2p/db';
-import { ACTIONS, FLOW, FOOTER_NOTE, HERO, NAV, SITE_NAME, SITE_PAGES, SITE_PATHS, TAGLINE, TRUST } from '../src/content/site.ts';
+import {
+  ACTIONS, AUDIENCE, BUSINESS, CLOSING, DESK, FLOW, FOOTER, FOOTER_NOTE, HERO, NAV, SITE_NAME, SITE_PAGES, SITE_PATHS, TAGLINE, TRUST,
+} from '../src/content/site.ts';
 
 /**
  * The copy review, as a test (D-07, PRODUCT §7.4, launch checklist).
@@ -75,10 +77,11 @@ const HERO_MODULE_COPY = Object.entries(HERO.quote as unknown as Record<string, 
 
 /**
  * Every string inside a structure of copy, each named by its path. Keys that hold identifiers rather than words —
- * a station's or a control's key, where a line belongs, the shape a masked figure is drawn in — are not copy
+ * a station's or a control's key, where a line belongs, the shape a masked figure is drawn in, who acted on a
+ * timeline entry, the client app path an action leads to — are not copy
  * and are skipped; everything else is read, so a string added anywhere in the structure is read with it.
  */
-const IDENTIFIER_KEYS = new Set(['key', 'at', 'kind', 'mask', 'regions']);
+const IDENTIFIER_KEYS = new Set(['key', 'at', 'kind', 'mask', 'regions', 'actor', 'appPath']);
 function copyIn(value: unknown, where: string): { where: string; text: string }[] {
   if (typeof value === 'string') return [{ where, text: value }];
   if (Array.isArray(value)) return value.flatMap((v, i) => copyIn(v, `${where}[${i}]`));
@@ -106,6 +109,11 @@ const SITE_COPY: readonly { readonly where: string; readonly text: string }[] = 
   ...ACTIONS.map((a) => ({ where: `ACTIONS ${a.label}`, text: a.label })),
   ...copyIn(FLOW, 'FLOW'),
   ...copyIn(TRUST, 'TRUST'),
+  ...copyIn(AUDIENCE, 'AUDIENCE'),
+  ...copyIn(DESK, 'DESK'),
+  ...copyIn(BUSINESS, 'BUSINESS'),
+  ...copyIn(CLOSING, 'CLOSING'),
+  ...copyIn(FOOTER, 'FOOTER'),
   ...SITE_PAGES.flatMap((p) => [
     { where: `${p.path} title`, text: p.title },
     { where: `${p.path} description`, text: p.description },
@@ -257,7 +265,8 @@ describe('the pages themselves', () => {
       expect(page.title.length, `${page.path} title`).toBeLessThanOrEqual(70);
       expect(page.description.length, `${page.path} description`).toBeGreaterThanOrEqual(70);
       expect(page.description.length, `${page.path} description`).toBeLessThanOrEqual(200);
-      expect(page.sections.length, `${page.path} sections`).toBeGreaterThanOrEqual(2);
+      // The home page is told in its own sections (FLOW … CLOSING, read above); every other page in its column.
+      if (page.path !== '/') expect(page.sections.length, `${page.path} sections`).toBeGreaterThanOrEqual(2);
       expect(page.h1.length).toBeGreaterThan(3);
     }
   });

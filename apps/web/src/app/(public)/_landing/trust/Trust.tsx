@@ -14,7 +14,7 @@ import styles from './trust.module.css';
 export function Trust() {
   const { eyebrow, heading, lede, controls } = TRUST;
   return (
-    <section className={styles.trust} aria-labelledby="trust-title" data-trust="">
+    <section id="controls" className={styles.trust} aria-labelledby="trust-title" data-trust="">
       <div className={styles.inner}>
         <header className={styles.head}>
           <div>

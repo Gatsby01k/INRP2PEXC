@@ -2,6 +2,15 @@
    instrument, and it is read on a phone more often than anywhere else. */
 
 .site {
+  /* The desk's navy, for the page's closing field and the footer that continues it. The design system is drawn
+     for light surfaces; these are the public site's own, each text colour chosen for AA on the navy (the
+     operational controls define the same values for their field). */
+  --field: #0e1522;
+  --field-2: #172238;
+  --field-rule: rgb(236 232 224 / 0.12);
+  --field-ink: #f2efe9;
+  --field-ink-2: #b3b9c5;
+  --field-ink-3: #8e95a3;
   display: flex;
   flex-direction: column;
   min-height: 100vh;
@@ -160,38 +169,102 @@
   color: var(--text-secondary);
 }
 
+/* The footer: on the navy field, which the home page's closing section opens and every other page reaches here. */
 .footer {
-  border-top: 1px solid var(--border-default);
-  padding: var(--space-5);
+  background: var(--field);
+  color: var(--field-ink);
+}
+
+.footerInner {
+  display: grid;
+  grid-template-columns: minmax(0, 4fr) minmax(0, 8fr);
+  column-gap: var(--space-8);
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: var(--space-16) var(--space-10) var(--space-12);
+  border-top: 1px solid var(--field-rule);
+}
+
+.footerBrand {
+  display: grid;
+  align-content: start;
+  gap: var(--space-4);
+}
+
+.footerTagline {
+  max-width: 18rem;
+  margin: 0;
+  font-size: var(--font-size-body-sm);
+  line-height: 1.55;
+  color: var(--field-ink-2);
 }
 
 .footerNav {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2) var(--space-5);
-  max-width: 720px;
-  margin: 0 auto var(--space-4);
-  font-size: var(--font-size-meta);
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--space-8);
+}
+
+.footerHeading {
+  margin: 0 0 var(--space-4);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--field-ink-3);
+}
+
+.footerList {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
 .footerLink {
-  color: var(--text-secondary);
+  display: inline-grid;
+  gap: 2px;
+  padding: 6px 0;
+  font-size: var(--font-size-body-sm);
+  color: var(--field-ink);
   text-decoration: none;
+  text-underline-offset: 4px;
+  transition: color var(--dur-fast) var(--ease);
 }
 
 .footerLink:hover {
-  color: var(--text-primary);
   text-decoration: underline;
-  text-underline-offset: 2px;
+  text-decoration-color: var(--brand-primary);
 }
 
-.footerNote,
-.footerMeta {
-  max-width: 720px;
-  margin: 0 auto var(--space-2);
+.footerDetail {
+  font-family: var(--font-mono);
   font-size: var(--font-size-meta);
-  color: var(--text-muted);
-  line-height: 1.5;
+  color: var(--field-ink-3);
+}
+
+.footerBase {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  column-gap: var(--space-8);
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-10) var(--space-10);
+  border-top: 1px solid var(--field-rule);
+}
+
+.footerNote {
+  max-width: 40rem;
+  margin: 0;
+  font-size: var(--font-size-meta);
+  line-height: 1.6;
+  color: var(--field-ink-3);
+}
+
+.footer .brandName {
+  color: var(--field-ink);
 }
 
 @media (max-width: 1199px) {
@@ -203,5 +276,30 @@
 
   .nav {
     display: none;
+  }
+}
+
+@media (max-width: 1099px) {
+  .footerInner {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: var(--space-10);
+    max-width: 640px;
+    padding: var(--space-12) var(--space-4) var(--space-10);
+  }
+
+  .footerNav {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-8) var(--space-6);
+  }
+
+  .footerLink {
+    padding-block: 10px;
+  }
+
+  .footerBase {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: var(--space-3);
+    max-width: 640px;
+    padding: var(--space-6) var(--space-4) var(--space-10);
   }
 }

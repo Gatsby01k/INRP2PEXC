@@ -428,6 +428,233 @@ export const TRUST: TrustCopy = {
   },
 };
 
+/**
+ * Who the desk is for: three kinds of counterparty, and the part of the product that answers to each.
+ *
+ * A description of fit, never of customers — nothing here says that anyone already trades here, or how many.
+ */
+export const AUDIENCE_GROUPS = ['traders', 'business', 'partners'] as const;
+export type AudienceGroup = (typeof AUDIENCE_GROUPS)[number];
+
+export interface AudienceCopy {
+  readonly eyebrow: string;
+  readonly heading: string;
+  readonly lede: string;
+  readonly groups: readonly {
+    readonly key: AudienceGroup;
+    readonly name: string;
+    /** Who they are, in their own terms. */
+    readonly situation: string;
+    /** What in the product fits them. Mechanism only. */
+    readonly fit: string;
+  }[];
+}
+
+export const AUDIENCE: AudienceCopy = {
+  eyebrow: 'Who it’s for',
+  heading: 'For trades too large to leave to a screen.',
+  lede: 'Three kinds of counterparty come to a desk rather than a book. What they have in common is size: amounts where a price that moves while an order fills is expensive, and where the record has to hold up afterwards.',
+  groups: [
+    {
+      key: 'traders',
+      name: 'Active traders',
+      situation: 'You trade size often, and decide on the move.',
+      fit: 'A firm price reaches your phone as a private link, and the bank accounts and wallets you registered once are there to choose on every trade after.',
+    },
+    {
+      key: 'business',
+      name: 'Businesses & treasury teams',
+      situation: 'Several people share one account, and the books have to close.',
+      fit: 'One client record for the whole team, with each person holding only the permissions you give them.',
+    },
+    {
+      key: 'partners',
+      name: 'OTC & liquidity partners',
+      situation: 'You fill other people’s size, or you supply it.',
+      fit: 'Each trade is settled on its own, against its own agreed terms, and every movement between us is evidenced the same way as a client’s.',
+    },
+  ],
+};
+
+/**
+ * The execution desk: the timeline one trade leaves behind, from the request to the receipt.
+ *
+ * Each entry is something that happens on every trade, told by who does it — the client, a dealer, an operator,
+ * or the system's own checks — with the status the client sees once it has happened. An entry marked `branch` is
+ * the way off the main path at that step, and where the trade goes instead. Times are drawn masked, like every
+ * other figure on the page.
+ */
+export const DESK_STAGES = ['request', 'review', 'quote', 'settlement', 'complete'] as const;
+export type DeskStage = (typeof DESK_STAGES)[number];
+
+/** Who acted. `you` is the client; the other three are the desk. */
+export type DeskActor = 'you' | 'dealer' | 'operator' | 'system';
+
+export interface DeskEntry {
+  readonly actor: DeskActor | Record<Direction, DeskActor>;
+  readonly event: string | Record<Direction, string>;
+  /** The status the client sees once this has happened. */
+  readonly status?: string | Record<Direction, string>;
+  readonly branch?: true;
+}
+
+export interface DeskCopy {
+  readonly eyebrow: string;
+  readonly heading: string;
+  readonly lede: string;
+  /** The timeline's accessible name, and the key to how its entries are drawn. */
+  readonly timeline: string;
+  readonly legend: { readonly you: string; readonly desk: string; readonly branch: string };
+  /** Read before a status by assistive technology; drawn as a mark. */
+  readonly statusLabel: string;
+  readonly actors: Record<DeskActor, string>;
+  readonly stages: readonly { readonly key: DeskStage; readonly name: string; readonly entries: readonly DeskEntry[] }[];
+}
+
+export const DESK: DeskCopy = {
+  eyebrow: 'Execution desk',
+  heading: 'From request to receipt, every step has an owner.',
+  lede: 'This is the timeline a trade leaves behind: who acted at each step, and the status you saw once they had. The ways off the main path are on it too, and where each one leads.',
+  timeline: 'The timeline of one trade',
+  legend: { you: 'Your move', desk: 'The desk’s move', branch: 'Off the main path' },
+  statusLabel: 'Status:',
+  actors: { you: 'You', dealer: 'Dealer', operator: 'Operator', system: 'System' },
+  stages: [
+    {
+      key: 'request',
+      name: 'Request',
+      entries: [
+        { actor: 'you', event: 'Request sent: direction, amount, the side that is fixed, and a registered destination', status: 'Open' },
+        { actor: 'system', event: 'Checked on arrival — your client record is active, the destination is yours, the amount is within the desk’s limit' },
+      ],
+    },
+    {
+      key: 'review',
+      name: 'Desk review',
+      entries: [
+        { actor: 'dealer', event: 'Reviewed, and priced for this trade alone' },
+        { actor: 'dealer', event: 'Or declined, with the reason written on it', status: 'Declined', branch: true },
+      ],
+    },
+    {
+      key: 'quote',
+      name: 'Quote',
+      entries: [
+        { actor: 'dealer', event: 'Quote sent: one firm rate, and the moment it expires', status: 'Quoted' },
+        { actor: 'you', event: 'Accepted with a code sent to your verified email; rate, amounts and destination are frozen', status: 'Accepted' },
+        { actor: 'system', event: 'Expired or rejected instead: the request goes back to the desk to be priced again', branch: true },
+      ],
+    },
+    {
+      key: 'settlement',
+      name: 'Settlement',
+      entries: [
+        {
+          actor: 'you',
+          event: { BUY_USDT: 'INR sent to the account the trade names, with its reference', SELL_USDT: 'USDT sent to the deposit address issued for this trade' },
+          status: { BUY_USDT: 'Waiting for your INR', SELL_USDT: 'Waiting for your USDT' },
+        },
+        {
+          actor: { BUY_USDT: 'operator', SELL_USDT: 'system' },
+          event: { BUY_USDT: 'Your INR matched against the bank’s own record', SELL_USDT: 'Your USDT final on chain' },
+          status: 'Funds confirmed',
+        },
+        {
+          actor: 'operator',
+          event: {
+            BUY_USDT: 'USDT sent to your registered wallet, and confirmed with a second factor',
+            SELL_USDT: 'INR paid to your registered account, each transfer confirmed with a second factor',
+          },
+          status: 'Paying out',
+        },
+        { actor: 'operator', event: 'Anything that does not match opens a case, and the trade holds until a person resolves it', status: 'On hold', branch: true },
+      ],
+    },
+    {
+      key: 'complete',
+      name: 'Complete',
+      entries: [{ actor: 'system', event: 'Confirmed payments equal the agreed amount, and the receipt is written', status: 'Completed' }],
+    },
+  ],
+};
+
+/**
+ * Large-volume execution: what changes when the amount is large, for a business or a desk of its own.
+ *
+ * Four terms, each one a rule the software enforces on every trade rather than a service level.
+ */
+export interface BusinessCopy {
+  readonly eyebrow: string;
+  readonly heading: string;
+  readonly lede: string;
+  readonly terms: readonly { readonly label: string; readonly title: string; readonly body: string }[];
+}
+
+export const BUSINESS: BusinessCopy = {
+  eyebrow: 'Large-volume execution',
+  heading: 'Large amounts, agreed as one trade.',
+  lede: 'At size the questions change: whether the price holds for the whole amount, who is allowed to say yes, how a large payout arrives, and what you can show for it afterwards.',
+  terms: [
+    {
+      label: 'Pricing',
+      title: 'Name the rate you want.',
+      body: 'Put a target rate on the request. The dealer quotes at it, counters at another, or declines and says why — for the full size, whichever it is.',
+    },
+    {
+      label: 'Authority',
+      title: 'Only the people you name can say yes.',
+      body: 'Accepting a quote commits your organisation, so it takes a person your administrator has allowed to accept. Granting or removing that permission takes the administrator’s second factor, and is recorded.',
+    },
+    {
+      label: 'Payout',
+      title: 'A large payout, in parts you can follow.',
+      body: 'INR may arrive as several transfers to your registered account. Each one appears on your trade as it is confirmed, with its own bank reference, so a large payout can be followed as it lands.',
+    },
+    {
+      label: 'Records',
+      title: 'A receipt your books can use.',
+      body: 'Every completed trade leaves a receipt as a document, CSV and JSON. It is written once, when the trade completes, and is the same every time it is downloaded.',
+    },
+  ],
+};
+
+/**
+ * The page's last word: one call to action, and the honest answer for someone who is not a client yet.
+ *
+ * A trade is requested from a client account, so the action leads there. A visitor without one is told what the
+ * desk sets up before a first trade; the address to write to is configuration (server/site.ts `siteContacts`),
+ * published only when it is set, never a placeholder.
+ */
+export const CLOSING = {
+  heading: 'Ask for a firm price on your trade.',
+  body: 'Requested from your client account, priced by a dealer, and firm until it expires.',
+  cta: { label: 'Request a quote', appPath: '/exchange' },
+  newClient: {
+    title: 'New to the desk?',
+    body: 'Before a first trade, the desk sets up your client record, the people who may accept quotes, and the bank accounts and wallets you settle to.',
+    contact: 'Write to the desk',
+  },
+} as const;
+
+/**
+ * The footer's links, by what they are for. Every one leads somewhere that exists: a page, a section of the home
+ * page, the client app, or an address that is configured. Nothing is linked that has not been written.
+ */
+export const FOOTER = {
+  groups: { product: 'Product', pages: 'Guides', security: 'Security', contact: 'Contact' },
+  links: {
+    request: 'Request a quote',
+    signIn: 'Client sign in',
+    flow: 'How a trade runs',
+    desk: 'Execution desk',
+    controls: 'Operational controls',
+    securityReport: 'Report a security issue',
+    deskContact: 'Write to the desk',
+  },
+  /** Whose names these are. */
+  marks: 'USDT is a token issued by Tether; TRON and TRC20 are names of the network it is sent on. Neither is affiliated with this desk.',
+} as const;
+
 /** The masthead's links: pages that explain the desk. Buying and selling are chosen in one place — the hero. */
 export const NAV: readonly { readonly label: string; readonly path: string }[] = [
   { label: 'OTC desk', path: '/usdt-otc-india' },
@@ -442,29 +669,9 @@ const HOME: SitePage = {
     'An OTC desk for USDT and Indian rupees. Ask for a price on your trade, accept it while it is firm, and settle to a bank account or wallet you registered in advance.',
   h1: `${HERO.headline.lead} ${HERO.headline.accent} ${HERO.headline.tail}`,
   lede: TAGLINE,
-  sections: [
-    {
-      heading: 'A desk, not an order book',
-      body: [
-        'Every trade here is priced by a dealer for that trade. You say the direction, the amount and which side is fixed; you get one firm price with an expiry on it, and you decide.',
-        'That is the right shape for a large trade. A book fills you in pieces at prices you find out afterwards. A quote tells you the rate before you commit to it, and the rate you accepted is the rate the trade is written with.',
-      ],
-    },
-    {
-      heading: 'Both directions',
-      body: [
-        'Sell USDT and receive INR to a registered Indian bank account. Buy USDT with INR and receive it at a registered TRC20 wallet.',
-        'Destinations are registered before a trade, not typed during one. A trade pays where it agreed to pay, and changing that is a separate, deliberate act.',
-      ],
-    },
-    {
-      heading: 'What you get at the end',
-      body: [
-        'A settlement receipt for every completed trade: what was agreed, what arrived, and each payment that settled it with its own bank reference.',
-        'The receipt is written once, when the trade completes, and regenerates identically afterwards. It is the record of the trade, not a view of a screen that may have moved on.',
-      ],
-    },
-  ],
+  // The home page tells its story in its own sections (FLOW, TRUST, AUDIENCE, DESK, BUSINESS, CLOSING), which
+  // say everything the reading column once did: a desk rather than a book, both directions, and the receipt.
+  sections: [],
   priority: 1,
 };
 

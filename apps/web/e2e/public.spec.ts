@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { CLIP_MEASUREMENTS } from '../src/app/(public)/_landing/voice/clips/measurements.ts';
-import { SITE_PAGES, SITE_PATHS } from '../src/content/site.ts';
+import { AUDIENCE, BUSINESS, CLOSING, DESK, SITE_PAGES, SITE_PATHS } from '../src/content/site.ts';
 import { appBaseUrl, deskSendsQuoteWithLink, linkBaseUrl, operatorBaseUrl } from './support.ts';
 
 /**
@@ -37,6 +37,34 @@ test('the home page is served at / and has no second address', async ({ page }) 
   const direct = await page.request.get(`${linkBaseUrl()}/home`, { maxRedirects: 0 });
   expect(direct.status()).toBe(308);
   expect(new URL(direct.headers()['location']!, linkBaseUrl()).pathname).toBe('/');
+});
+
+test('the home page ends with one call to action, and its footer links only to what exists', async ({ page }) => {
+  await page.goto(linkBaseUrl());
+  for (const heading of [AUDIENCE.heading, DESK.heading, BUSINESS.heading, CLOSING.heading]) {
+    await expect(page.getByRole('heading', { level: 2, name: heading })).toBeVisible();
+  }
+  // The old reading column is gone: the home page says everything in its own sections, once.
+  await expect(page.getByRole('heading', { name: 'A desk, not an order book' })).toHaveCount(0);
+
+  // One action at the end, into the client app — not a second pair of Buy and Sell buttons. The harness sets no
+  // desk address, so the new-client note carries no link rather than a placeholder one.
+  const closing = page.getByRole('region', { name: CLOSING.heading });
+  const actions = closing.getByRole('link');
+  await expect(actions).toHaveCount(1);
+  await expect(actions).toHaveText(CLOSING.cta.label);
+  await expect(actions).toHaveAttribute('href', `${appBaseUrl()}${CLOSING.cta.appPath}`);
+
+  // Every footer link is a published page, a section of the home page that is there, or the client app.
+  const footer = page.getByRole('contentinfo');
+  const hrefs = await footer.getByRole('link').evaluateAll((links) => links.map((a) => a.getAttribute('href') ?? ''));
+  expect(hrefs.length).toBeGreaterThan(SITE_PATHS.length);
+  for (const href of hrefs) {
+    if (href.startsWith('/#')) await expect(page.locator(href.slice(1)), href).toHaveCount(1);
+    else if (href.startsWith('/')) expect(SITE_PATHS, href).toContain(href);
+    else expect(href.startsWith(appBaseUrl()), href).toBe(true);
+  }
+  expect(hrefs.some((h) => h.startsWith('mailto:')), 'no address is published that is not configured').toBe(false);
 });
 
 test('the public host still refuses everything it does not publish', async ({ page }) => {

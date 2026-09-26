@@ -60,36 +60,39 @@ export async function SitePageView({ page, hero, story }: { page: SitePage; hero
       {hero}
       {story}
 
-      <div className={styles.column}>
-        {hero ? null : (
-          <section className={styles.hero}>
-            <h1 className={styles.h1}>{page.h1}</h1>
-            <p className={styles.lede}>{page.lede}</p>
-            <div className={styles.actions}>
-              {ACTIONS.map((a) => (
-                <a key={a.label} className={a.kind === 'primary' ? styles.actionPrimary : styles.actionSecondary} href={`${app}${a.appPath}`}>
-                  {a.label}
-                </a>
-              ))}
-            </div>
-            <p className={styles.actionNote}>
-              Trading needs a client record with its settlement destinations registered in advance. The desk sets that up; there is no form here that can.
-            </p>
-          </section>
-        )}
-
-        {page.sections.map((s) => (
-          <section key={s.heading} className={styles.section}>
-            <h2 className={styles.h2}>{s.heading}</h2>
-            {s.body.map((p) => (
-              <p key={p.slice(0, 40)} className={styles.body}>
-                {p}
+      {/* The reading column: every SEO page's heading and sections. A page that brings its own first screen and
+          story (the home page) has neither, and draws no empty column after its story. */}
+      {hero && page.sections.length === 0 ? null : (
+        <div className={styles.column}>
+          {hero ? null : (
+            <section className={styles.hero}>
+              <h1 className={styles.h1}>{page.h1}</h1>
+              <p className={styles.lede}>{page.lede}</p>
+              <div className={styles.actions}>
+                {ACTIONS.map((a) => (
+                  <a key={a.label} className={a.kind === 'primary' ? styles.actionPrimary : styles.actionSecondary} href={`${app}${a.appPath}`}>
+                    {a.label}
+                  </a>
+                ))}
+              </div>
+              <p className={styles.actionNote}>
+                Trading needs a client record with its settlement destinations registered in advance. The desk sets that up; there is no form here that can.
               </p>
-            ))}
-          </section>
-        ))}
+            </section>
+          )}
 
-      </div>
+          {page.sections.map((s) => (
+            <section key={s.heading} className={styles.section}>
+              <h2 className={styles.h2}>{s.heading}</h2>
+              {s.body.map((p) => (
+                <p key={p.slice(0, 40)} className={styles.body}>
+                  {p}
+                </p>
+              ))}
+            </section>
+          ))}
+        </div>
+      )}
     </>
   );
 }

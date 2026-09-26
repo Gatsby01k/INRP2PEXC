@@ -1,0 +1,180 @@
+/* The final call to action.
+
+   The page returns to the desk's navy for its last screen, and the footer continues the same field below it, so
+   the page ends on one surface rather than a stack of bands. The heading is the largest thing since the hero; the
+   one action is the only filled button below it. The colours are the public field's (public.module.css), each
+   chosen for AA on the navy. */
+
+.closing {
+  position: relative;
+  isolation: isolate;
+  overflow: clip;
+  background:
+    radial-gradient(ellipse 50% 90% at 18% 0%, color-mix(in srgb, var(--field-2) 95%, transparent), transparent 70%),
+    var(--field);
+  color: var(--field-ink);
+}
+
+/* The same hairline the controls open with, where the paper ends. */
+.closing::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgb(236 232 224 / 0.18) 30%, rgb(236 232 224 / 0.05));
+}
+
+.inner {
+  display: grid;
+  grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+  column-gap: var(--space-8);
+  align-items: end;
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: clamp(112px, 16vh, 176px) var(--space-10) clamp(80px, 11vh, 120px);
+}
+
+.main {
+  display: grid;
+  justify-items: start;
+}
+
+.title {
+  max-width: 16ch;
+  margin: 0;
+  font-size: clamp(40px, 4.6vw, var(--font-size-display-xl));
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.02;
+  letter-spacing: -0.04em;
+  color: var(--field-ink);
+  text-wrap: balance;
+}
+
+.body {
+  max-width: 30rem;
+  margin: var(--space-6) 0 0;
+  font-size: var(--font-size-body-lg);
+  line-height: 1.6;
+  color: var(--field-ink-2);
+  text-wrap: pretty;
+}
+
+.cta {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 52px;
+  margin-top: var(--space-10);
+  padding: 0 var(--space-6);
+  border-radius: var(--radius-control);
+  background: var(--brand-action);
+  color: var(--text-on-action);
+  font-size: var(--font-size-body-lg);
+  font-weight: var(--font-weight-medium);
+  text-decoration: none;
+  box-shadow:
+    0 1px 0 rgb(255 255 255 / 0.14) inset,
+    0 14px 30px -16px rgb(240 78 35 / 0.7);
+  transition:
+    background-color var(--dur-fast) var(--ease),
+    box-shadow var(--dur-base) var(--ease);
+}
+
+.cta:hover {
+  background: var(--brand-action-hover);
+}
+
+.ctaArrow {
+  transition: transform var(--dur-base) var(--ease);
+}
+
+.cta:hover .ctaArrow,
+.cta:focus-visible .ctaArrow {
+  transform: translateX(3px);
+}
+
+.cta:focus-visible,
+.contact:focus-visible {
+  outline-color: var(--brand-primary);
+  outline-offset: 3px;
+}
+
+/* For someone without a client account yet: what happens before a first trade, beside the action it needs. */
+.newClient {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-3);
+  max-width: 30rem;
+  padding: var(--space-6) 0 var(--space-1) var(--space-8);
+  border-left: 1px solid var(--field-rule);
+}
+
+.newTitle {
+  margin: 0;
+  font-size: var(--font-size-heading);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.015em;
+  color: var(--field-ink);
+}
+
+.newBody {
+  margin: 0;
+  font-size: var(--font-size-body);
+  line-height: 1.6;
+  color: var(--field-ink-2);
+  text-wrap: pretty;
+}
+
+.contact {
+  display: inline-grid;
+  gap: 2px;
+  margin-top: var(--space-2);
+  padding: var(--space-1) 0;
+  color: var(--field-ink);
+  text-decoration: none;
+}
+
+.contactLabel {
+  font-weight: var(--font-weight-medium);
+  text-decoration: underline;
+  text-decoration-color: rgb(240 78 35 / 0.7);
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 4px;
+  transition: text-decoration-color var(--dur-fast) var(--ease);
+}
+
+.contact:hover .contactLabel {
+  text-decoration-color: var(--brand-primary);
+}
+
+.contactAddress {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-meta);
+  letter-spacing: 0.02em;
+  color: var(--field-ink-3);
+}
+
+@media (max-width: 1099px) {
+  .inner {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: var(--space-12);
+    max-width: 640px;
+    padding: var(--space-20) var(--space-4) var(--space-16);
+  }
+
+  .title {
+    font-size: clamp(34px, 9vw, 48px);
+  }
+
+  .cta {
+    width: 100%;
+    justify-content: center;
+    margin-top: var(--space-8);
+  }
+
+  .newClient {
+    padding: var(--space-6) 0 0;
+    border-top: 1px solid var(--field-rule);
+    border-left: 0;
+  }
+}
