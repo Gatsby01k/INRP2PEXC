@@ -14,7 +14,7 @@ const RobotCanvas = lazy(() => import('./RobotCanvas.tsx'));
  * small image and a large desktop the large one.
  */
 const POSTER_SRCSET = `${small.src} 720w, ${medium.src} 1080w, ${large.src} 1600w`;
-const POSTER_SIZES = '(max-width: 1199px) min(calc(100vw - 32px), 460px), min(max(602px, calc(94vh - 68px)), 808px, 58vw)';
+const POSTER_SIZES = '(max-width: 1199px) min(calc(100vw - 32px), 256px), min(max(487px, calc(76vh - 55px)), 654px, 46vw)';
 
 /**
  * Whether this device should run the live robot or keep the still one it is already showing.

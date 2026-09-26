@@ -310,6 +310,20 @@ describe('the body while it speaks', () => {
     }
   });
 
+  it('wears the expression of what it says: a greeting, pleasure at a received request, concern for a check', () => {
+    const held = (line: VoiceLine) => {
+      const { frames, heard } = speak(line);
+      return frames.filter((f) => f.state === 'speaking' && heard(f) > 0.4).at(-1)!.pose;
+    };
+    expect(held('ready').smile).toBeGreaterThan(0.95);
+    const received = held('received');
+    expect(received.smile).toBeGreaterThan(0.45);
+    expect(received.smile).toBeLessThan(0.55);
+    const check = held('check');
+    expect(check.lidTilt).toBeLessThan(-0.2);
+    expect(check.beacon).toBeGreaterThan(0.5);
+  });
+
   it('completes the emblem for a received request, and for nothing else', () => {
     const arcs = (line: VoiceLine) => Math.max(...speak(line).frames.map((f) => Math.min(...f.pose.arcGlow)));
     expect(arcs('received')).toBeGreaterThan(0.3);

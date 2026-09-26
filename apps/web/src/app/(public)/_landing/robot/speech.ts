@@ -1,6 +1,6 @@
 import type { VoiceLine } from '../../../../content/site.ts';
 import { CLIP_MEASUREMENTS, type ClipMeasurement, LEVEL_RATE } from '../voice/clips/measurements.ts';
-import { STATES, type LookTarget, type StateSpec } from './states.ts';
+import { EXPRESSIONS, STATES, type LookTarget, type StateSpec } from './states.ts';
 
 /**
  * How the robot moves while it speaks: one authored timeline per recorded line.
@@ -16,12 +16,10 @@ import { STATES, type LookTarget, type StateSpec } from './states.ts';
  */
 export interface SpeechScript {
   readonly look: readonly { readonly from: number; readonly target: LookTarget }[];
-  /** The body while speaking: head dynamics, optics and posture, as for any state. */
-  readonly spec: Pick<StateSpec, 'head' | 'eyes' | 'lean' | 'chin' | 'accent'>;
+  /** The body while speaking: head dynamics, optics, face and posture, as for any state. */
+  readonly spec: Pick<StateSpec, 'head' | 'eyes' | 'face' | 'lean' | 'chin' | 'roll' | 'accent'>;
   /** One small nod, on the first or last stressed syllable, this deep (radians of chin). */
   readonly nod: { readonly on: 'first' | 'last'; readonly depth: number } | null;
-  /** A head tilt held across the line — attention, not a gesture. Radians of roll. */
-  readonly tilt: number;
   /** How brightly the chest hub follows the voice. */
   readonly light: number;
   /** Whether the emblem resolves on the nod: the three arcs of a completed request. */
@@ -31,23 +29,25 @@ export interface SpeechScript {
 }
 
 export const SPEECH: Record<VoiceLine, SpeechScript> = {
-  // The first move of the visit: face the visitor, lift a touch, open up — and acknowledge them on "Ready".
+  // The first move of the visit: face the visitor, lift a touch, smile — and acknowledge them on "Ready".
   ready: {
     look: [{ from: 0, target: 'viewer' }],
     spec: {
       head: { yaw: 0.5, pitch: 0.58, share: 0.5, ease: 0.3 },
       eyes: { aperture: 1, time: 0.2, gain: 1.05, notice: true, focus: 0 },
+      face: EXPRESSIONS.welcome,
       lean: -0.004,
       chin: 0.012,
-      accent: 0.15,
+      roll: 0.03,
+      accent: 0.5,
     },
     nod: { on: 'first', depth: 0.016 },
-    tilt: 0,
     light: 0.45,
     resolve: false,
     hold: 0.35,
   },
-  // A request is with the desk: a glance at it, then the visitor, a firm nod on "-ceived" and the mark complete.
+  // A request is with the desk: a glance at it, then the visitor, pleased, a firm nod on "-ceived" and the mark
+  // complete.
   received: {
     look: [
       { from: 0, target: 'panel' },
@@ -56,29 +56,31 @@ export const SPEECH: Record<VoiceLine, SpeechScript> = {
     spec: {
       head: { yaw: 0.42, pitch: 0.5, share: 0.5, ease: 0.3 },
       eyes: { aperture: 1, time: 0.25, gain: 1.1, notice: true, focus: 0 },
+      face: EXPRESSIONS.success,
       lean: -0.008,
       chin: 0.01,
-      accent: 0.16,
+      roll: 0,
+      accent: 0.5,
     },
     nod: { on: 'last', depth: 0.024 },
-    tilt: 0,
     light: 0.4,
     resolve: true,
     hold: 0.6,
   },
-  // Something needs another look: attention goes to the amount and stays there, the optics narrow once, the head
-  // tilts a little as it reads. No nod — nothing has been agreed.
+  // Something needs another look: attention goes to the amount and stays there, concerned rather than stern, the
+  // antenna's tip lit, the head tilting a little as it reads. No nod — nothing has been agreed.
   check: {
     look: [{ from: 0, target: 'amount' }],
     spec: {
       head: { yaw: 0.44, pitch: 0.52, share: 0.5, ease: 0.4 },
-      eyes: { aperture: 0.94, time: 0.18, gain: 1.03, notice: false, focus: 0.08 },
-      lean: 0.006,
+      eyes: { aperture: 1.04, time: 0.18, gain: 1.04, notice: false, focus: 0 },
+      face: EXPRESSIONS.alert,
+      lean: 0.008,
       chin: -0.01,
-      accent: 0.15,
+      roll: -0.03,
+      accent: 0.45,
     },
     nod: null,
-    tilt: 0.02,
     light: 0.35,
     resolve: false,
     hold: 0.45,
@@ -96,6 +98,7 @@ export function speakingSpec(line: VoiceLine): StateSpec {
       for (const step of script.look) if (elapsed >= step.from) target = step.target;
       return target;
     },
+    faceTime: 0.16,
     turn: 0,
     breath: 0.6,
     blinks: false,

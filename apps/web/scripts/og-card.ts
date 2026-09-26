@@ -53,7 +53,7 @@ const html = `<!doctype html>
   h1 > span { display: block; white-space: nowrap; }
   .accent { color: #F04E23; }
   .tagline { margin: 30px 0 0; padding-top: 26px; border-top: 1px solid #E8E4DC; font-size: 26px; line-height: 1.35; color: #656A73; letter-spacing: -0.01em; }
-  .robot { position: absolute; right: -36px; bottom: -118px; width: 560px; height: 560px; }
+  .robot { position: absolute; right: -2px; bottom: 6px; width: 520px; height: 520px; }
   .rule { position: absolute; left: 0; right: 0; bottom: 0; height: 10px; background: #0e1522; }
 </style>
 </head>

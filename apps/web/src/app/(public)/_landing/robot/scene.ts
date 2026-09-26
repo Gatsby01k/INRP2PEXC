@@ -12,12 +12,14 @@ import { studio } from './studio.ts';
  * page stays free of a dependency that has to be re-released for every React minor version.
  *
  * The camera is fixed and long (22° vertical), like a product photograph: little perspective distortion, so
- * the shell's curves read as designed rather than as a wide-angle bulge. Framing is set vertically, so every
- * stage size shows the same crop — the still image and the live figure line up exactly.
+ * the shell's curves read as designed rather than as a wide-angle bulge. It frames a bust — the antenna's tip to the
+ * middle of the chest, the mark just inside the lower edge — at the height of the eyes, so the robot stands beside
+ * the quote module as an assistant rather than towering over it. Framing is set vertically, so every stage size
+ * shows the same crop — the still image and the live figure line up exactly.
  */
 
-const CAMERA_POSITION = new Vector3(0, -0.45, 8.4);
-const CAMERA_TARGET = new Vector3(0, -0.91, 0);
+const CAMERA_POSITION = new Vector3(0, -0.1, 6.9);
+const CAMERA_TARGET = new Vector3(0, -0.28, 0);
 const CAMERA_FOV = 22;
 /** Page elements are placed on this plane in front of the robot, so a look at one lands where it is drawn. */
 const TARGET_PLANE_Z = 2.4;
@@ -47,8 +49,10 @@ export interface RobotSceneOptions {
   /** The element the robot's look targets live in (the hero). */
   readonly scope: HTMLElement | null;
   readonly direction: Direction;
-  /** Hold the rest pose and draw only when the size changes. */
+  /** Hold one pose and draw only when the size changes. */
   readonly still: boolean;
+  /** The pose a still robot holds: rest, unless another is given (a state, drawn for the robot's sheet). */
+  readonly pose?: Pose;
   /** After the first frames are drawn — called in the same task, so the drawing buffer can still be read. */
   readonly onFirstFrame?: () => void;
   /** The GPU took the context away; the caller shows the still robot again. */
@@ -194,7 +198,7 @@ export class RobotScene {
   private draw(now: number): void {
     this.timer.update(now);
     this.canvasRect = null;
-    this.figure.apply(this.options.still ? REST_POSE : this.pose());
+    this.figure.apply(this.options.still ? (this.options.pose ?? REST_POSE) : this.pose());
     this.renderer.render(this.scene, this.camera);
     // A live robot is revealed once its motion has started (two frames); a still one as soon as it exists.
     const reveal = this.options.still ? 1 : 2;

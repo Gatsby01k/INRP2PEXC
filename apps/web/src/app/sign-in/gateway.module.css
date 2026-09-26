@@ -2,7 +2,7 @@
 
    Every measure that places something is the hero's own (_landing/hero.module.css): the masthead's height and
    gutters, the lit off-white field, the grid with the right-hand column at the quote module's width, the robot's
-   size and centre line relative to that column, the words' width left of its shoulder. Arriving from the home
+   size and centre line relative to that column, the words' width left of its near ear. Arriving from the home
    page, the robot and the surface are where the robot and the quote module just were; the words change.
 
    Below 1200px, where the home page stacks, the gateway does not: the robot is left out and the surface leads,
@@ -113,8 +113,8 @@
 .frame {
   --panel-width: 392px;
   --hero-height: clamp(640px, calc(100svh - 72px), 860px);
-  --stage-size: min(var(--hero-height) * 0.94, 58vw);
-  --robot-x: calc(var(--space-10) + 100cqw - var(--panel-width) - var(--stage-size) * 0.22);
+  --stage-size: min(var(--hero-height) * 0.76, 46vw);
+  --robot-x: calc(var(--space-10) + 100cqw - var(--panel-width) - var(--stage-size) * 0.36);
   container-type: inline-size;
   position: relative;
   display: grid;
@@ -135,7 +135,7 @@
   grid-area: copy;
   position: relative;
   z-index: 2;
-  max-width: min(34rem, calc(100cqw - var(--panel-width) - var(--stage-size) * 0.6 - var(--space-6)));
+  max-width: min(34rem, calc(100cqw - var(--panel-width) - var(--stage-size) * 0.72 - var(--space-6)));
 }
 
 .eyebrow {

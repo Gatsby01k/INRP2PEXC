@@ -25,9 +25,15 @@ export type { LookTarget, RobotState } from './states.ts';
  * from one cycle to the next, a small correction of posture every few seconds at irregular intervals, and a
  * slower drift of weight. None of it repeats on a period an eye could learn.
  *
+ * The face shows one of the robot's five expressions (`states.ts` `EXPRESSIONS`): a greeting when it comes online
+ * and when the visitor starts, reading while a value changes, waiting while something is on its way, pleasure when
+ * something is accepted, and concern when something needs changing. Each is a state's target like any other, eased
+ * into from wherever the face is.
+ *
  * Lights run on their own clock: one short, faint sweep of the emblem when a value is confirmed or the direction
- * changes, a pulse at its hub for a new rate, the whole mark resolving when a rate locks. Each starts at an event
- * and ends.
+ * changes, a pulse at its hub for a new rate, the whole mark resolving when a rate locks or a request is accepted, a
+ * band of light through the eyes for each change read, and the antenna's tip — one soft pulse for a greeting, two
+ * blinks and a steady glow for a problem. Each starts at an event and ends.
  *
  * When the voice says a line, the body follows that line's own timeline (`speech.ts`): attention at once, then a
  * nod on the stressed syllable and the hub light following the voice, timed to when the sound is heard.
@@ -75,6 +81,19 @@ export interface Pose {
   readonly gazeY: number;
   readonly eyeOpen: number;
   readonly eyeGain: number;
+  /** The expression (`materials.ts` `FaceUniforms`): the lower lids' smile, the upper lids' drop and slope. */
+  readonly smile: number;
+  readonly lid: number;
+  readonly lidTilt: number;
+  readonly squint: number;
+  /** A band of light passing through the eyes while reading: its strength, and where it is (0 → 1). */
+  readonly scan: number;
+  readonly scanAt: number;
+  /** 0 two eyes, 1 three dots; and each dot's brightness, left to right. */
+  readonly dots: number;
+  readonly dotLevel: readonly [number, number, number];
+  /** Glow of the antenna's tip: dark at rest, lit when the robot is asking for attention. */
+  readonly beacon: number;
   /**
    * How far the arms trail the body: sideways when it rolls (both arms alike), fore-and-aft when it leans, and
    * in opposition when the chest turns — the arm on the side turning away stays forward a moment.
@@ -117,7 +136,16 @@ const RESPONSE_GAP = 1.2;
 const REST: Record<RobotFocus, RobotState> = { none: 'idle', cta: 'intent', entry: 'entry' };
 
 /** States an event starts and time ends. The others follow the visitor's focus. */
-const TRANSIENT: ReadonlySet<RobotState> = new Set<RobotState>(['value', 'direction', 'rate', 'locked', 'speaking']);
+const TRANSIENT: ReadonlySet<RobotState> = new Set<RobotState>(['welcome', 'value', 'direction', 'rate', 'locked', 'accepted', 'problem', 'waiting', 'speaking']);
+
+/** States a greeting may interrupt: only rest. Anything the visitor has started matters more than saying hello. */
+const GREETS_FROM: ReadonlySet<RobotState> = new Set<RobotState>(['idle', 'intent', 'entry']);
+
+/** How long one pass of the reading band takes, and the shortest time between two passes. */
+const SCAN = { duration: 0.55, gap: 0.5 } as const;
+
+/** One breath of the waiting face: the dots brighten in turn over this many seconds. */
+const WAIT_BREATH = 1.6;
 
 /** The line being spoken: when it was asked for, how long until it is heard, and when it stopped early, if it did. */
 interface Speech {
@@ -168,6 +196,12 @@ export class RobotBehaviour {
   private focusAt = -10;
   private focusDepth = 0;
   private speech: Speech | null = null;
+  /** When coming online, the greeting that follows the emblem's sweep. */
+  private welcomeAt = Number.POSITIVE_INFINITY;
+  private greetAt = -10;
+  private alertAt = -10;
+  private scanAt = -10;
+  private nodAt = -10;
 
   /** Where the head is aimed: the look target, taken up first so a move starts as the state asks, not at once. */
   private readonly aimYaw = follower();
@@ -194,8 +228,15 @@ export class RobotBehaviour {
   private readonly armLagRoll = follower();
   private readonly armLagYaw = follower();
   private readonly armLagLean = follower();
-  private readonly tilt = follower();
+  private readonly headTilt = follower();
   private readonly voiceLight = follower();
+  // The face: one follower per number of the rig, so every expression eases into every other.
+  private readonly smile = follower();
+  private readonly lid = follower();
+  private readonly lidTilt = follower();
+  private readonly squint = follower();
+  private readonly dots = follower();
+  private readonly beacon = follower();
 
   constructor(options: { direction: Direction; wakeAt?: number; random?: () => number }) {
     this.random = options.random ?? Math.random;
@@ -204,10 +245,12 @@ export class RobotBehaviour {
     this.nextBlinkAt = between(2.2, 3.6, this.random);
     this.loadPeriod = between(4.6, 6.8, this.random);
     this.loadDepth = between(0.65, 1, this.random);
-    // Coming online is reported the way the robot reports everything: one short sweep of the emblem, and done.
+    // Coming online is reported the way the robot reports everything: one short sweep of the emblem — and then,
+    // as the sweep ends, a greeting.
     if (options.wakeAt !== undefined) {
       this.respondAt = options.wakeAt;
       this.blinkAt = options.wakeAt - 0.12;
+      this.welcomeAt = options.wakeAt + 0.3;
     }
   }
 
@@ -222,6 +265,8 @@ export class RobotBehaviour {
         this.valuePending = true;
         this.confirmAt = time + (cue.settled ? DURATION.settledSettle : DURATION.typedSettle);
         this.enter('value', time, Number.POSITIVE_INFINITY);
+        // Each change is read: one pass of light through the eyes, unless one is still passing.
+        if (time - this.scanAt >= SCAN.gap) this.scanAt = time;
         return;
       case 'direction':
         if (cue.direction === this.direction) return;
@@ -238,7 +283,32 @@ export class RobotBehaviour {
         // A locked rate supersedes a value still settling: there is nothing left to confirm.
         this.valuePending = false;
         this.resolveAt = time;
+        this.nodAt = time + 0.4;
         this.enter('locked', time, time + DURATION.locked);
+        return;
+      case 'submitted':
+        // Accepted: the mark resolves, as for a locked rate, and the robot nods once after its glance.
+        this.valuePending = false;
+        this.resolveAt = time;
+        this.nodAt = time + 0.36;
+        this.enter('accepted', time, time + DURATION.accepted);
+        return;
+      case 'problem':
+        this.valuePending = false;
+        this.alertAt = time;
+        this.enter('problem', time, time + DURATION.problem);
+        return;
+      case 'wait':
+        if (cue.on) {
+          // What was being typed has been sent: there is nothing left to confirm.
+          this.valuePending = false;
+          this.enter('waiting', time, time + DURATION.waiting);
+        } else if (this.state === 'waiting') {
+          this.until = time;
+        }
+        return;
+      case 'engage':
+        this.greet(time);
         return;
       case 'speak': {
         const at = time;
@@ -255,11 +325,6 @@ export class RobotBehaviour {
         this.speech.stoppedAt = time;
         if (this.state === 'speaking') this.until = Math.min(this.until, time + 0.2);
         return;
-      case 'engage':
-      case 'submitted':
-      case 'problem':
-        // Answered by the voice, and through it by the body (`speak`); muted, the page itself shows them.
-        return;
     }
   }
 
@@ -269,6 +334,10 @@ export class RobotBehaviour {
     const since = (t: number) => time - t;
 
     // ---- state -----------------------------------------------------------------------------------------
+    if (time >= this.welcomeAt) {
+      this.welcomeAt = Number.POSITIVE_INFINITY;
+      this.greet(time);
+    }
     if (this.valuePending && time >= this.confirmAt) {
       // The value has settled: confirm it once, and let attention go.
       this.valuePending = false;
@@ -368,6 +437,26 @@ export class RobotBehaviour {
     follow(this.gain, spec.eyes.gain, 0.25, dt);
     follow(this.accent, spec.accent, spec.settle, dt);
 
+    // The face eases to the state's expression. A problem's two blinks of the antenna come first; its steady glow
+    // follows them.
+    const { face, faceTime } = spec;
+    follow(this.smile, face.smile, faceTime, dt);
+    follow(this.lid, face.lid, faceTime, dt);
+    follow(this.lidTilt, face.tilt, faceTime, dt);
+    follow(this.squint, face.squint, faceTime, dt);
+    follow(this.dots, face.dots, faceTime, dt);
+    const alerting = since(this.alertAt) < 0.95;
+    follow(this.beacon, alerting ? 0 : face.beacon, 0.3, dt);
+    const blinks = Math.max(envelope(since(this.alertAt), 0.05, 0.1, 0.22), envelope(since(this.alertAt) - 0.5, 0.05, 0.1, 0.22));
+    const greeting = envelope(since(this.greetAt) - 0.1, 0.25, 0.15, 0.7) * 0.55;
+    // Waiting: the dots brighten in turn, left to right, slowly.
+    const waiting = this.dots.value > 1e-3;
+    const dot = (i: number) => (waiting ? 0.3 + 0.7 * (0.5 + 0.5 * Math.cos(2 * Math.PI * (time / WAIT_BREATH - i * 0.2))) ** 3 : 1);
+    // Reading: a band of light passes through the eyes, only while they are narrowed to read.
+    const reading = since(this.scanAt);
+    // Full strength while it crosses the eyes; it fades only where there is nothing left to light.
+    const scan = envelope(reading, 0.06, SCAN.duration - 0.15, 0.09) * this.squint.value;
+
     // Speech: a held tilt while the line lasts, one nod on its stressed syllable, the hub light on the voice and,
     // for a received request, the emblem resolving with the nod. All timed from when the sound is heard, and
     // all ending with the line — or at once, eased, if it is stopped.
@@ -376,14 +465,16 @@ export class RobotBehaviour {
     const speaking = speech !== null && this.state === 'speaking';
     const script = speech ? SPEECH[speech.line] : null;
     const cut = speech ? speech.stoppedAt - speech.at - speech.lead : Number.POSITIVE_INFINITY;
-    follow(this.tilt, speaking && script ? script.tilt : 0, speaking ? 0.35 : 0.6, dt);
+    follow(this.headTilt, spec.roll, speaking ? 0.35 : spec.settle, dt);
     const voice = speech && script && heard < cut ? loudness(speech.line, heard) ** 1.5 * script.light : 0;
     follow(this.voiceLight, voice, 0.045, dt);
     const nodAt = speech?.nod ?? null;
     // The nod starts a little before its syllable so that its lowest point lands on it; a stopped line only
     // keeps a nod already under way.
     const nodStart = nodAt === null ? Number.POSITIVE_INFINITY : nodAt - 0.1;
-    const nod = speech && script?.nod && nodStart < cut ? envelope(heard - nodStart, 0.14, 0.04, 0.42) * script.nod.depth : 0;
+    const spoken = speech && script?.nod && nodStart < cut ? envelope(heard - nodStart, 0.14, 0.04, 0.42) * script.nod.depth : 0;
+    // Something accepted gets one small nod of its own, after the glance that confirms it.
+    const nod = spoken + envelope(since(this.nodAt), 0.14, 0.05, 0.45) * 0.022;
     const complete =
       speech && script?.resolve && nodAt !== null && nodAt < cut
         ? envelope(heard - nodAt, 0.22, Math.max(0, clipOf(speech.line).duration - nodAt) + script.hold * 0.5, 0.8) * 0.8
@@ -411,7 +502,7 @@ export class RobotBehaviour {
       chestRoll,
       headYaw: this.headYaw.value,
       headPitch: this.headPitch.value + this.chin.value - nod,
-      headRoll: -0.1 * this.headYaw.value + this.headRollBias.value + this.tilt.value,
+      headRoll: -0.1 * this.headYaw.value + this.headRollBias.value + this.headTilt.value,
       neckYaw: this.neckYaw.value,
       neckPitch: this.neckPitch.value - nod * 0.3,
       neckRoll: clamp(-0.02 * this.headYaw.velocity, -0.012, 0.012),
@@ -419,6 +510,15 @@ export class RobotBehaviour {
       gazeY: this.eyePitch.value * EYE_UNITS_Y,
       eyeOpen: blinkOpenness(since(this.blinkAt)) * this.aperture.value * (1 + 0.05 * notice) * (1 - focus),
       eyeGain: this.gain.value + 0.07 * notice + 0.08 * pulse,
+      smile: this.smile.value,
+      lid: this.lid.value,
+      lidTilt: this.lidTilt.value,
+      squint: this.squint.value,
+      scan,
+      scanAt: clamp(reading / SCAN.duration, 0, 1),
+      dots: this.dots.value,
+      dotLevel: [dot(0), dot(1), dot(2)],
+      beacon: Math.max(this.beacon.value, blinks, greeting),
       armSwing: (this.armLagRoll.value - bodyRoll) * 0.9,
       armPitch: (this.armLagLean.value - bodyLean) * 1.2,
       armTwist: (this.armLagYaw.value - bodyYaw) * 1.2,
@@ -446,6 +546,13 @@ export class RobotBehaviour {
     }
     this.state = state;
     this.until = until;
+  }
+
+  /** A greeting, from rest only: a warm face for a moment, and one soft pulse of the antenna's tip. */
+  private greet(time: number): void {
+    if (!GREETS_FROM.has(this.state)) return;
+    this.greetAt = time;
+    this.enter('welcome', time, time + DURATION.welcome);
   }
 
   /** The emblem's one response, unless another was shown less than `gap` seconds ago. */
@@ -488,10 +595,19 @@ export const REST_POSE: Pose = {
   gazeY: 0,
   eyeOpen: 1,
   eyeGain: 1,
+  smile: 0,
+  lid: 0,
+  lidTilt: 0,
+  squint: 0,
+  scan: 0,
+  scanAt: 0,
+  dots: 0,
+  dotLevel: [1, 1, 1],
+  beacon: 0,
   armSwing: 0,
   armPitch: 0,
   armTwist: 0,
-  accentGlow: 0.14,
+  accentGlow: STATES.idle.accent,
   arcGlow: [0, 0, 0],
   hubGlow: 0,
 };

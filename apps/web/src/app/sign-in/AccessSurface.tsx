@@ -138,6 +138,9 @@ export function AccessSurface({ onboarding, unlinked }: { onboarding: string | n
     onBlur: () => markAction('focus', false),
   };
 
+  // The robot follows the same moments the visitor sees: it reads what they type, waits with them while a request
+  // is out, is pleased when the code is taken and concerned when something is refused. It is told, never asked:
+  // nothing here waits on it, and the surface works the same when it never loads.
   const sendCode = async (mode: 'send' | 'resend') => {
     if (inFlight.current) return;
     inFlight.current = true;
@@ -145,13 +148,16 @@ export function AccessSurface({ onboarding, unlinked }: { onboarding: string | n
     setNotice(null);
     if (mode === 'send') setEmailProblem(null);
     else setCodeProblem(null);
+    robotCues.emit({ kind: 'wait', on: true });
     const res = await post('/email-otp/send-verification-otp', { email: address, type: 'sign-in' });
     inFlight.current = false;
     setBusy(null);
+    robotCues.emit({ kind: 'wait', on: false });
     if (!res?.ok) {
       const problem = { message: res?.status === 429 ? MESSAGES.tooMany : MESSAGES.unsent, field: false };
       if (mode === 'send') setEmailProblem(problem);
       else setCodeProblem(problem);
+      robotCues.emit({ kind: 'problem' });
       return;
     }
     // A new code replaces the last one on the server, so whatever was typed for it is cleared too.
@@ -173,8 +179,11 @@ export function AccessSurface({ onboarding, unlinked }: { onboarding: string | n
     setBusy('verify');
     setCodeProblem(null);
     setNotice(null);
+    robotCues.emit({ kind: 'wait', on: true });
     const res = await post('/sign-in/email-otp', { email: address, otp });
+    robotCues.emit({ kind: 'wait', on: false });
     if (res?.ok) {
+      robotCues.emit({ kind: 'submitted' });
       // Still busy: the surface stays as it is until the workspace replaces it.
       router.push('/exchange');
       router.refresh();
@@ -182,6 +191,7 @@ export function AccessSurface({ onboarding, unlinked }: { onboarding: string | n
     }
     inFlight.current = false;
     setBusy(null);
+    robotCues.emit({ kind: 'problem' });
     setCodeProblem(
       res === null ? { message: MESSAGES.unchecked, field: false } : res.status === 429 ? { message: MESSAGES.tooMany, field: false } : { message: MESSAGES.refused, field: true },
     );
@@ -194,6 +204,7 @@ export function AccessSurface({ onboarding, unlinked }: { onboarding: string | n
     if (busy) return;
     if (!looksLikeEmail(address)) {
       setEmailProblem({ message: MESSAGES.email, field: true });
+      robotCues.emit({ kind: 'problem' });
       emailInput.current?.focus();
       return;
     }
@@ -209,6 +220,7 @@ export function AccessSurface({ onboarding, unlinked }: { onboarding: string | n
   const changeCode = (next: string) => {
     setCode(next);
     setNotice(null);
+    robotCues.emit({ kind: 'value' });
     if (codeProblem?.field) setCodeProblem(null);
     // A complete code is checked at once — typed, pasted or offered by the keyboard — and only once as it stands.
     if (next.length === CODE_LENGTH && next !== tried.current) void verify(next);
@@ -252,6 +264,7 @@ export function AccessSurface({ onboarding, unlinked }: { onboarding: string | n
                 onChange={(e) => {
                   setEmail(e.target.value);
                   if (emailProblem) setEmailProblem(null);
+                  robotCues.emit({ kind: 'value' });
                 }}
                 aria-invalid={emailProblem?.field || undefined}
                 aria-describedby={`${ids.emailMessage} ${ids.emailNote}`}

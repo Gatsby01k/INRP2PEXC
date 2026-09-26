@@ -27,13 +27,24 @@ export type RobotCue =
   | { readonly kind: 'lock' }
   /**
    * The visitor started working in the module: the first press or focus inside it — not a press on the call to
-   * action, which answers for itself. Heard by the voice.
+   * action, which answers for itself. The robot greets them; the voice, if it is on, says so.
    */
   | { readonly kind: 'engage' }
-  /** A request was accepted by the desk. Only from UI that submits one — the home page's module does not. */
+  /**
+   * What the visitor sent was accepted — a request by the desk, a sign-in code by the workspace. Only from UI that
+   * submits something; the home page's module does not.
+   */
   | { readonly kind: 'submitted' }
-  /** The request cannot go as it is (no amount): recoverable, and shown next to what needs changing. */
+  /**
+   * What the visitor asked for cannot go as it is (no amount, a refused code): recoverable, and shown next to what
+   * needs changing. The robot turns to it and signals, gently; the voice, if it is on, says so.
+   */
   | { readonly kind: 'problem' }
+  /**
+   * Something the visitor asked for is on its way (`on`), or has answered (`!on`) — a code being sent, or checked.
+   * The robot waits with them in between.
+   */
+  | { readonly kind: 'wait'; readonly on: boolean }
   /**
    * The voice has started a line. `lead` is how long until its first sound reaches the speakers — the body's
    * attention moves now, its timing to the words waits that long.

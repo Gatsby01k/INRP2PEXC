@@ -43,14 +43,15 @@ export function studio(renderer: WebGLRenderer): { environment: Texture; lights:
   panel(1.8, 12, '#ffffff', 4.2, [-8.5, 2, 2.5]); // key strip, the visitor's left
   panel(1.6, 12, '#fff2e8', 2.2, [8.5, 1, 1.5]); // fill strip, the visitor's right
   panel(14, 6, '#ffffff', 2.6, [0, 3, -11]); // rim, behind
-  panel(30, 30, '#efe2d4', 0.45, [0, -10, 0]); // warm floor bounce
+  panel(10, 2.6, '#ffffff', 1.25, [0, 6.2, 10]); // a broad diffuser above the camera: the long sweep across the visor
+  panel(30, 30, '#efe2d4', 0.3, [0, -10, 0]); // warm floor bounce
 
   const pmrem = new PMREMGenerator(renderer);
   const environment = pmrem.fromScene(set, 0.03).texture;
   pmrem.dispose();
   for (const d of disposables) d.dispose();
 
-  const key = new DirectionalLight('#fff5ec', 2.35);
+  const key = new DirectionalLight('#fff5ec', 2.6);
   key.position.set(3.4, 4.8, 6.5);
   key.castShadow = true;
   key.shadow.mapSize.set(1024, 1024);
@@ -62,7 +63,7 @@ export function studio(renderer: WebGLRenderer): { environment: Texture; lights:
 
   const rim = new DirectionalLight('#ffffff', 1.5);
   rim.position.set(-4.5, 3.2, -5.5);
-  const fill = new HemisphereLight('#ffffff', '#e2d9cc', 0.62);
+  const fill = new HemisphereLight('#ffffff', '#d9cfc2', 0.5);
 
   return {
     environment,

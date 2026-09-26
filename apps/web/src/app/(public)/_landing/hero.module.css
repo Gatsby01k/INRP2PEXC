@@ -1,12 +1,13 @@
 /* The home page's first screen.
 
-   Desktop: words on the left, the quote module on the right, and the robot standing between them. The robot is
-   placed relative to the module, not the page: its visor always sits just clear of the module's edge, and the
-   module overlaps the far shoulder, so the two read as one desk. The words are given exactly the width left of
-   the robot's near shoulder. Its torso ends at the hero's lower edge, the way a person stands behind a counter.
+   Desktop: words on the left, the quote module on the right, and the robot beside the module — a bust, head, neck
+   and upper chest, an assistant at the desk rather than a figure towering over it. The robot is placed relative to
+   the module, not the page: its head and ear cups always stand just clear of the module's edge, even while it turns
+   to look at it. The words are given exactly the width left of the robot's near ear. Its chest ends at the hero's
+   lower edge, the way a person stands behind a counter.
 
-   Below 1200px the three stack: words, then the robot, then the module rising over the robot's chest, so the one
-   action on the page is reached with the thumb. */
+   Below 1200px the three stack: words, then the robot, then the module just under the robot's chest mark, so the
+   one action on the page is reached with the thumb. */
 
 .hero {
   position: relative;
@@ -21,12 +22,12 @@
 .frame {
   --panel-width: 392px;
   --hero-height: clamp(640px, calc(100svh - 72px), 860px);
-  /* The stage is square and its framing fixed, so one number sets the robot's size: nearly the hero's height,
-     which puts the top of the head just under the masthead. */
-  --stage-size: min(var(--hero-height) * 0.94, 58vw);
-  /* The robot's centre line, far enough left of the module (0.22 of the stage) that its face stays clear of it
-     even while it turns to look at the module. */
-  --robot-x: calc(var(--space-10) + 100cqw - var(--panel-width) - var(--stage-size) * 0.22);
+  /* The stage is square and its framing fixed, so one number sets the robot's size: three quarters of the hero's
+     height, which sets the robot's eyes a little below the middle of the module beside it. */
+  --stage-size: min(var(--hero-height) * 0.76, 46vw);
+  /* The robot's centre line, far enough left of the module (0.36 of the stage) that its head and ear cups (0.35)
+     stay clear of it, even while it turns to look at the module. */
+  --robot-x: calc(var(--space-10) + 100cqw - var(--panel-width) - var(--stage-size) * 0.36);
   container-type: inline-size;
   position: relative;
   display: grid;
@@ -46,8 +47,8 @@
 
 .copy,
 .points {
-  /* Everything left of the robot's near arm (0.38 of the stage from its centre line), less a gap. */
-  max-width: min(34rem, calc(100cqw - var(--panel-width) - var(--stage-size) * 0.6 - var(--space-6)));
+  /* Everything left of the robot's near ear (0.36 of the stage from its centre line), less a gap. */
+  max-width: min(34rem, calc(100cqw - var(--panel-width) - var(--stage-size) * 0.72 - var(--space-6)));
 }
 
 .copy {
@@ -162,7 +163,8 @@
 
 @media (max-width: 1199px) {
   .frame {
-    --stage-size: min(100%, 460px);
+    /* The size that keeps the module where it has always been on a phone, just under the robot's chest mark. */
+    --stage-size: min(100%, 256px);
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: none;
     grid-template-areas:
@@ -188,7 +190,7 @@
     margin-top: var(--space-4);
   }
 
-  /* The module rises over the robot's waist: head, shoulders and the chest mark stay in view. */
+  /* The module comes up just under the robot's chest mark: head, shoulders and the mark stay in view. */
   .stage {
     grid-area: stage;
     position: relative;
@@ -199,7 +201,7 @@
     aspect-ratio: 1;
     height: auto;
     width: var(--stage-size);
-    margin: var(--space-2) 0 calc(var(--stage-size) * -0.3);
+    margin: var(--space-2) 0 calc(var(--stage-size) * -0.05);
   }
 
   .points {

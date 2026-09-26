@@ -3,7 +3,7 @@ import { type Mesh, type Object3D, Quaternion, Vector3 } from 'three';
 import type { RobotFocus } from '../src/app/(public)/_landing/robot/cues.ts';
 import { type LookAngles, type LookTarget, type Pose, REST_POSE, type RobotState, RobotBehaviour } from '../src/app/(public)/_landing/robot/behaviour.ts';
 import { buildFigure } from '../src/app/(public)/_landing/robot/figure.ts';
-import { STATES } from '../src/app/(public)/_landing/robot/states.ts';
+import { DURATION, EXPRESSIONS, STATES } from '../src/app/(public)/_landing/robot/states.ts';
 import { blinkOpenness, envelope, follow, follower, loadCycle } from '../src/app/(public)/_landing/robot/motion.ts';
 import { requestHref } from '../src/app/(public)/_landing/request.ts';
 
@@ -173,6 +173,10 @@ describe('idle', () => {
       expect(Math.abs(pose.gazeX)).toBeLessThan(0.002);
       expect(brightestArc(pose)).toBe(0);
       expect(pose.hubGlow).toBeLessThan(1e-3);
+      expect(pose.beacon).toBe(0);
+      expect(pose.smile).toBe(0);
+      expect(pose.squint).toBe(0);
+      expect(pose.dots).toBe(0);
       expect(Math.abs(pose.torsoRoll)).toBeLessThanOrEqual(0.006);
       chest.min = Math.min(chest.min, pose.chestPitch);
       chest.max = Math.max(chest.max, pose.chestPitch);
@@ -615,14 +619,211 @@ describe('every response', () => {
     b.cue({ kind: 'lock' }, run.time);
     run.step(0.2);
     b.cue({ kind: 'value', settled: true }, run.time);
+    run.step(0.3);
+    b.cue({ kind: 'problem' }, run.time);
+    run.step(0.4);
+    b.cue({ kind: 'wait', on: true }, run.time);
+    run.step(1);
+    b.cue({ kind: 'wait', on: false }, run.time);
+    b.cue({ kind: 'submitted' }, run.time);
+    run.step(0.2);
+    b.cue({ kind: 'engage' }, run.time);
     run.step(8);
     run.step(30, {}, ({ pose, state }) => {
       expect(state).toBe('idle');
       expect(brightestArc(pose)).toBe(0);
       expect(pose.hubGlow).toBeLessThan(1e-3);
+      expect(pose.beacon).toBeLessThan(1e-3);
+      expect(pose.smile + pose.squint + pose.dots + Math.abs(pose.lidTilt)).toBeLessThan(1e-3);
+      expect(pose.scan).toBe(0);
       expect(pose.accentGlow).toBeCloseTo(STATES.idle.accent, 3);
       expect(Math.abs(pose.chestYaw)).toBeLessThan(0.002);
     });
+  });
+});
+
+describe('the five expressions', () => {
+  /** The largest step any face number takes from one frame to the next: an expression eases, it never cuts. */
+  const largestFaceStep = (frames: readonly Pose[]) => {
+    let largest = 0;
+    for (let i = 1; i < frames.length; i++) {
+      const a = frames[i - 1]!;
+      const b = frames[i]!;
+      largest = Math.max(largest, Math.abs(b.smile - a.smile), Math.abs(b.lid - a.lid), Math.abs(b.lidTilt - a.lidTilt), Math.abs(b.squint - a.squint), Math.abs(b.dots - a.dots));
+    }
+    return largest;
+  };
+
+  it('are five distinct settings of one face, and a neutral one to rest in', () => {
+    const { neutral, ...five } = EXPRESSIONS;
+    expect(Object.keys(five).sort()).toEqual(['alert', 'success', 'verifying', 'waiting', 'welcome']);
+    expect(Object.values(neutral).every((v) => v === 0)).toBe(true);
+    const settings = Object.values(five).map((e) => JSON.stringify(e));
+    expect(new Set(settings).size).toBe(5);
+    expect(STATES.idle.face).toBe(neutral);
+  });
+
+  it('welcome: comes online, sweeps the emblem, then greets — smiling arcs, a tilt towards the visitor, one soft pulse of the tip', () => {
+    const run = start({ wakeAt: 0.5 });
+    const frames: Frame[] = [];
+    run.step(4.5, {}, (f) => frames.push(f));
+    const greeting = frames.filter((f) => f.state === 'welcome');
+    expect(greeting.length, 'a greeting').toBeGreaterThan(0);
+    const firstGreeting = greeting[0]!.time;
+    const firstSweep = frames.find((f) => brightestArc(f.pose) > 0.3)!.time;
+    expect(firstGreeting).toBeGreaterThan(firstSweep);
+    expect(Math.max(...greeting.map((f) => f.pose.smile))).toBeGreaterThan(0.95);
+    expect(Math.max(...greeting.map((f) => f.pose.headRoll))).toBeGreaterThan(0.03);
+    const tip = frames.map((f) => f.pose.beacon);
+    expect(Math.max(...tip)).toBeGreaterThan(0.4);
+    expect(Math.max(...tip)).toBeLessThan(0.7);
+    const after = frames.at(-1)!;
+    expect(after.state).toBe('idle');
+    expect(after.pose.smile).toBeLessThan(0.01);
+    expect(after.pose.beacon).toBeLessThan(0.01);
+    expect(largestFaceStep(frames.map((f) => f.pose))).toBeLessThan(0.2);
+  });
+
+  it('welcome: greets a visitor who starts — but never interrupts work to do it', () => {
+    const run = settled();
+    run.behaviour.cue({ kind: 'engage' }, run.time);
+    const greeted = run.step(0.8);
+    expect(greeted.state).toBe('welcome');
+    expect(greeted.pose.smile).toBeGreaterThan(0.95);
+    expect(run.step(DURATION.welcome).state).toBe('idle');
+
+    const busy = settled();
+    busy.behaviour.cue({ kind: 'value' }, busy.time);
+    busy.step(0.1);
+    busy.behaviour.cue({ kind: 'engage' }, busy.time);
+    expect(busy.step(0.3).state).toBe('value');
+  });
+
+  it('verifying: narrows to read while a value changes, one pass of light through the eyes per change, then opens again', () => {
+    const run = settled();
+    const frames: Pose[] = [];
+    let passes = 0;
+    let lit = false;
+    let sweptAcross = false;
+    typing(run, 1.6, ({ pose }) => {
+      frames.push(pose);
+      const on = pose.scan > 0.2;
+      if (on && !lit) passes += 1;
+      lit = on;
+      // The band crosses the far eye's centre three quarters of the way through a pass.
+      if (pose.scan > 0.6 && pose.scanAt > 0.75) sweptAcross = true;
+    });
+    const reading = frames.at(-1)!;
+    expect(reading.squint).toBeGreaterThan(0.8);
+    expect(reading.smile).toBe(0);
+    // Eight changes, a fifth of a second apart; a pass takes longer than that, so they are read in fewer passes.
+    expect(passes).toBeGreaterThanOrEqual(2);
+    expect(passes).toBeLessThanOrEqual(4);
+    expect(sweptAcross, 'each pass crosses both eyes').toBe(true);
+    run.step(3, {}, ({ pose }) => frames.push(pose));
+    expect(frames.at(-1)!.squint).toBeLessThan(0.01);
+    expect(largestFaceStep(frames)).toBeLessThan(0.2);
+  });
+
+  it('waiting: three dots brightening in turn, left to right, slowly; nothing else lights; the answer ends it', () => {
+    const run = settled();
+    run.behaviour.cue({ kind: 'wait', on: true }, run.time);
+    const frames: Frame[] = [];
+    run.step(4, {}, (f) => frames.push(f));
+    const held = frames.filter((f) => f.time - frames[0]!.time > 1);
+    expect(held.every((f) => f.state === 'waiting' && f.pose.dots > 0.95)).toBe(true);
+    // Each dot's first peak once waiting is established: left, then middle, then right.
+    const peakOf = (i: 0 | 1 | 2) => held.reduce((best, f) => (f.pose.dotLevel[i] > best.pose.dotLevel[i] + 1e-6 && f.time - held[0]!.time < 1.6 ? f : best)).time;
+    expect(peakOf(0)).toBeLessThan(peakOf(1));
+    expect(peakOf(1)).toBeLessThan(peakOf(2));
+    expect(Math.max(...held.map((f) => f.pose.beacon)), 'the dots are the whole signal').toBe(0);
+    expect(Math.max(...held.map((f) => brightestArc(f.pose)))).toBe(0);
+
+    run.behaviour.cue({ kind: 'wait', on: false }, run.time);
+    const after = run.step(2.5);
+    expect(after.state).toBe('idle');
+    expect(after.pose.dots).toBeLessThan(0.01);
+  });
+
+  it('waiting: lets go of a wait that never answers', () => {
+    const run = settled();
+    run.behaviour.cue({ kind: 'wait', on: true }, run.time);
+    expect(run.step(DURATION.waiting - 1).state).toBe('waiting');
+    expect(run.step(2).state).toBe('idle');
+  });
+
+  it('success: something accepted — full arches, the mark resolved, one small nod after a glance', () => {
+    const run = settled();
+    const resting = run.step(0.01).pose;
+    run.behaviour.cue({ kind: 'submitted' }, run.time);
+    const frames: Frame[] = [];
+    run.step(2, {}, (f) => frames.push(f));
+    const pleased = frames.at(-1)!;
+    expect(pleased.state).toBe('accepted');
+    expect(pleased.pose.smile).toBeGreaterThan(0.45);
+    expect(pleased.pose.smile).toBeLessThan(0.55);
+    expect(Math.min(...pleased.pose.arcGlow)).toBeGreaterThan(1);
+    const pitch = frames.map((f) => f.pose.headPitch - f.pose.neckPitch);
+    const lowest = Math.min(...pitch.slice(20, 70));
+    expect(lowest, 'a nod').toBeLessThan(pitch.at(-1)! - 0.01);
+    expect(resting.headPitch - lowest).toBeLessThan(0.06);
+    const after = run.step(3);
+    expect(after.state).toBe('idle');
+    expect(brightestArc(after.pose)).toBe(0);
+    expect(after.pose.smile).toBeLessThan(0.01);
+  });
+
+  it('success: a locked rate is met with the same pleased face', () => {
+    const run = settled();
+    run.behaviour.cue({ kind: 'lock' }, run.time);
+    const pose = run.step(1.2).pose;
+    expect(pose.smile).toBeGreaterThan(0.45);
+    expect(pose.smile).toBeLessThan(0.55);
+  });
+
+  it('help / alert: concern, not alarm — attention on what needs changing, inner lids raised, two blinks of the tip, then a steady glow', () => {
+    const run = settled();
+    run.behaviour.cue({ kind: 'problem' }, run.time);
+    const frames: Frame[] = [];
+    run.step(2, {}, (f) => frames.push(f));
+    const concerned = frames.at(-1)!;
+    expect(concerned.state).toBe('problem');
+    expect(concerned.pose.headYaw, 'towards the amount').toBeGreaterThan(0.1);
+    expect(concerned.pose.lidTilt).toBeLessThan(-0.2);
+    expect(concerned.pose.eyeOpen, 'open, not narrowed').toBeGreaterThan(1);
+    expect(concerned.pose.smile).toBe(0);
+    let blinks = 0;
+    let on = false;
+    for (const f of frames.slice(0, 60)) {
+      const bright = f.pose.beacon > 0.8;
+      if (bright && !on) blinks += 1;
+      on = bright;
+    }
+    expect(blinks).toBe(2);
+    expect(concerned.pose.beacon).toBeGreaterThan(0.6);
+    expect(concerned.pose.beacon).toBeLessThan(0.8);
+    const after = run.step(2.5);
+    expect(after.state).toBe('idle');
+    expect(after.pose.beacon).toBeLessThan(0.01);
+    expect(Math.abs(after.pose.lidTilt)).toBeLessThan(0.01);
+  });
+
+  it('any expression eases into any other without a cut', () => {
+    const run = settled();
+    const frames: Pose[] = [];
+    const record = (seconds: number) => run.step(seconds, {}, ({ pose }) => frames.push(pose));
+    run.behaviour.cue({ kind: 'engage' }, run.time);
+    record(0.4);
+    run.behaviour.cue({ kind: 'problem' }, run.time);
+    record(0.4);
+    run.behaviour.cue({ kind: 'wait', on: true }, run.time);
+    record(0.4);
+    run.behaviour.cue({ kind: 'wait', on: false }, run.time);
+    run.behaviour.cue({ kind: 'submitted' }, run.time);
+    record(0.4);
+    run.behaviour.cue({ kind: 'value' }, run.time);
+    record(2);
+    expect(largestFaceStep(frames)).toBeLessThan(0.2);
   });
 });
 

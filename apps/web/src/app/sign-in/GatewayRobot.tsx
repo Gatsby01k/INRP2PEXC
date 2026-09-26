@@ -13,7 +13,7 @@ const RobotCanvas = lazy(() => import('../(public)/_landing/robot/RobotCanvas.ts
 const WIDE = '(min-width: 1200px)';
 const POSTER_SRCSET = `${small.src} 720w, ${medium.src} 1080w, ${large.src} 1600w`;
 /** The home page's desktop `sizes`, so a desktop fetches the same poster it just showed there. */
-const POSTER_SIZES = 'min(max(602px, calc(94vh - 68px)), 808px, 58vw)';
+const POSTER_SIZES = 'min(max(487px, calc(76vh - 55px)), 654px, 46vw)';
 /** One transparent pixel: what a narrow screen is given instead of the poster, so it fetches nothing. */
 const NOTHING = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 
