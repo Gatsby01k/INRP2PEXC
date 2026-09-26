@@ -27,13 +27,20 @@ const HEAD = new Vector3(HEAD_CENTRE.x, HEAD_CENTRE.y, HEAD_CENTRE.z);
  * Where each look target lives on the page. `rate` is marked only by UI that shows a firm rate; without it,
  * attention falls back to the module (`states.ts`).
  */
-const TARGET_SELECTORS: Record<Exclude<LookTarget, 'viewer'>, string> = {
+const TARGET_SELECTORS: Record<Exclude<LookTarget, 'viewer' | 'entry'>, string> = {
   panel: '[data-robot-target="panel"]',
   amount: '[data-robot-target="amount"]',
   toggle: '[data-robot-target="toggle"]',
   rate: '[data-robot-target="rate"]',
   cta: '[data-robot-target="cta"]',
 };
+
+/**
+ * The one target outside the hero: the masthead's way into the workspace. The masthead is drawn on the server and
+ * ships no script, so the robot listens to it itself — and only a live robot does, because only a live one looks.
+ */
+const ENTRY_SELECTOR = '[data-robot-target="entry"]';
+const ENTRY_EVENTS = ['pointerenter', 'pointerleave', 'focus', 'blur'] as const;
 
 export interface RobotSceneOptions {
   readonly canvas: HTMLCanvasElement;
@@ -58,6 +65,8 @@ export class RobotScene {
   private readonly lighting: ReturnType<typeof studio>;
   private readonly behaviour: RobotBehaviour;
   private readonly targets = new Map<LookTarget, Element>();
+  private readonly entry: Element | null;
+  private readonly entryHeld = { pointer: false, focus: false };
   private readonly resize: ResizeObserver;
   private readonly unsubscribe: () => void;
   private readonly ray = new Raycaster();
@@ -100,6 +109,11 @@ export class RobotScene {
         const el = options.scope.querySelector(selector);
         if (el) this.targets.set(name as LookTarget, el);
       }
+    }
+    this.entry = options.still ? null : document.querySelector(ENTRY_SELECTOR);
+    if (this.entry) {
+      this.targets.set('entry', this.entry);
+      for (const type of ENTRY_EVENTS) this.entry.addEventListener(type, this.onEntry);
     }
     canvas.addEventListener('webglcontextlost', this.onContextLost);
 
@@ -144,6 +158,10 @@ export class RobotScene {
     this.raf = 0;
     this.resize.disconnect();
     this.unsubscribe();
+    if (this.entry) {
+      for (const type of ENTRY_EVENTS) this.entry.removeEventListener(type, this.onEntry);
+      robotCues.setEntry(false);
+    }
     this.options.canvas.removeEventListener('webglcontextlost', this.onContextLost);
     this.timer.dispose();
     // Programs still compiling belong to the driver until it answers; release them once it has.
@@ -155,6 +173,14 @@ export class RobotScene {
     if (this.compiling) void this.compiling.then(release, release);
     else release();
   }
+
+  /** Pointer and keyboard count the same; the robot looks while either is on the entry. */
+  private onEntry = (e: Event) => {
+    const on = e.type === 'pointerenter' || e.type === 'focus';
+    if (e.type === 'focus' || e.type === 'blur') this.entryHeld.focus = on;
+    else this.entryHeld.pointer = on;
+    robotCues.setEntry(this.entryHeld.pointer || this.entryHeld.focus);
+  };
 
   private loop = () => {
     this.raf = requestAnimationFrame((now) => {

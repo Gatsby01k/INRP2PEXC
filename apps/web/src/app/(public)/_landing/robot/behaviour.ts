@@ -11,8 +11,8 @@ export type { LookTarget, RobotState } from './states.ts';
  * The robot's state machine: quote events in, a pose out, once per frame.
  *
  * One state at a time, chosen by what just happened to the quote (`states.ts` says what each asks of the body).
- * Events start short states that end on their own and hand back to rest; the call to action is the only
- * sustained input. Every transition is an ease towards new targets from wherever the body is — never a clip —
+ * Events start short states that end on their own and hand back to rest; what the visitor is on — the call to
+ * action, or the masthead's way into the workspace — is the only sustained input. Every transition is an ease towards new targets from wherever the body is — never a clip —
  * so the robot can be interrupted mid-response and still move directly and calmly to the next one.
  *
  * The body moves as one connected mechanism, each link driven by the one above it: the eyes reach a new target
@@ -112,6 +112,9 @@ const SWEEP_ORDER: Record<Direction, readonly [number, number, number]> = {
 
 /** The shortest gap between two emblem responses: a settled value may not repeat a light just seen. */
 const RESPONSE_GAP = 1.2;
+
+/** Where the robot rests while nothing is happening: on whatever the visitor is on, or with the visitor. */
+const REST: Record<RobotFocus, RobotState> = { none: 'idle', cta: 'intent', entry: 'entry' };
 
 /** States an event starts and time ends. The others follow the visitor's focus. */
 const TRANSIENT: ReadonlySet<RobotState> = new Set<RobotState>(['value', 'direction', 'rate', 'locked', 'speaking']);
@@ -272,7 +275,7 @@ export class RobotBehaviour {
       this.respond(time, RESPONSE_GAP);
       if (this.state === 'value') this.until = time + DURATION.confirmHold;
     }
-    const rest: RobotState = input.focus === 'cta' ? 'intent' : 'idle';
+    const rest = REST[input.focus];
     const done = TRANSIENT.has(this.state) ? time >= this.until : this.state !== rest;
     if (done) this.enter(rest, time, Number.POSITIVE_INFINITY);
     const spec = this.specOf(this.state);

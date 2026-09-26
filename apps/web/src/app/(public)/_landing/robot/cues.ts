@@ -45,13 +45,17 @@ export type RobotCue =
 /** The direction the quote module opens on; the robot starts the conversation facing the same way. */
 export const INITIAL_DIRECTION: Direction = 'SELL_USDT';
 
-/** Whether the visitor is on the call to action — hovering it or focused on it. The one sustained input. */
-export type RobotFocus = 'none' | 'cta';
+/**
+ * What the visitor is on — hovering or focused on — that the robot attends to: the call to action, or the
+ * masthead's way into the workspace. The one sustained input.
+ */
+export type RobotFocus = 'none' | 'cta' | 'entry';
 
 type Listener = (cue: RobotCue) => void;
 
 const listeners = new Set<Listener>();
-let focus: RobotFocus = 'none';
+let focus: Exclude<RobotFocus, 'entry'> = 'none';
+let entry = false;
 let direction: Direction = INITIAL_DIRECTION;
 
 export const robotCues = {
@@ -69,10 +73,17 @@ export const robotCues = {
       listeners.delete(listener);
     };
   },
-  setFocus(next: RobotFocus): void {
+  setFocus(next: Exclude<RobotFocus, 'entry'>): void {
     focus = next;
   },
+  /**
+   * The masthead's way into the workspace is hovered or focused. Kept apart from the module's own focus, so
+   * leaving one never clears the other; while both hold, the entry — the latest move — has the robot's eyes.
+   */
+  setEntry(on: boolean): void {
+    entry = on;
+  },
   focus(): RobotFocus {
-    return focus;
+    return entry ? 'entry' : focus;
   },
 };

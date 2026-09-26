@@ -662,6 +662,13 @@ export const FOOTER = {
   marks: 'USDT is a token issued by Tether; TRON and TRC20 are names of the network it is sent on. Neither is affiliated with this desk.',
 } as const;
 
+/**
+ * The masthead's way into the product. It opens the workspace itself — the client app's Exchange screen — and the
+ * app decides what that takes: a client with a session is in at once, one without is asked for a code first. The
+ * public host never holds a session, so it cannot tell which and names neither.
+ */
+export const WORKSPACE_ENTRY = { label: 'Open workspace', appPath: '/exchange' } as const;
+
 /** The masthead's links: pages that explain the desk. Buying and selling are chosen in one place — the hero. */
 export const NAV: readonly { readonly label: string; readonly path: string }[] = [
   { label: 'OTC desk', path: '/usdt-otc-india' },

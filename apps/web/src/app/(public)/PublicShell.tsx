@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import Link from 'next/link';
 import { getImageProps } from 'next/image';
 import mark from '../../../../../brand/inrp2p-mark.png';
-import { CLOSING, FOOTER, FOOTER_NOTE, NAV, SITE_NAME, SITE_PAGES, TAGLINE } from '../../content/site.ts';
+import { CLOSING, FOOTER, FOOTER_NOTE, NAV, SITE_NAME, SITE_PAGES, TAGLINE, WORKSPACE_ENTRY } from '../../content/site.ts';
 import { appOrigin, mailto, onboardingHref, siteContacts } from '../../server/site.ts';
 import styles from './public.module.css';
 
@@ -40,6 +40,21 @@ function FooterGroup({ title, links }: { title: string; links: readonly FooterLi
         ))}
       </ul>
     </div>
+  );
+}
+
+/**
+ * The masthead entry's glyph, in the execution flow's own drawing: a station on the rail and the line leaving it.
+ * The head carries a stub of the line with it, so when it moves along the line reads as running further rather
+ * than coming apart. Drawn on a 1:1 grid, with room left at the tip for that move.
+ */
+function EntryGlyph({ className, headClassName }: { className?: string | undefined; headClassName?: string | undefined }) {
+  return (
+    <svg className={className} width="22" height="12" viewBox="0 0 22 12" fill="none" aria-hidden="true" focusable="false">
+      <circle cx="2" cy="6" r="1.6" fill="currentColor" />
+      <path d="M6 6h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <path className={headClassName} d="M11 6h6.5 M14 2.5 17.5 6 14 9.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   );
 }
 
@@ -98,8 +113,11 @@ export function PublicShell({ children, nonce }: { children: ReactNode; nonce?: 
               </Link>
             ))}
           </nav>
-          <a className={styles.signIn} href={`${app}/sign-in`}>
-            Client sign in
+          {/* The way into the workspace. `data-robot-target` lets the home page's robot glance at it; the shell
+              itself still ships no script. */}
+          <a className={styles.entry} href={`${app}${WORKSPACE_ENTRY.appPath}`} data-robot-target="entry">
+            {WORKSPACE_ENTRY.label}
+            <EntryGlyph className={styles.entryGlyph} headClassName={styles.entryHead} />
           </a>
         </div>
       </header>

@@ -35,6 +35,7 @@ const ANGLES: Record<LookTarget, LookAngles> = {
   toggle: { yaw: 0.4, pitch: 0.06 },
   rate: { yaw: 0.46, pitch: -0.14 },
   cta: { yaw: 0.44, pitch: -0.3 },
+  entry: { yaw: 0.5, pitch: 0.32 },
 };
 
 const FRAME = 1 / 60;
@@ -565,6 +566,39 @@ describe('call to action', () => {
     run.behaviour.cue({ kind: 'direction', direction: 'BUY_USDT' }, run.time);
     expect(run.step(0.3, { focus: 'cta' }).state).toBe('direction');
     expect(run.step(1, { focus: 'cta' }).state).toBe('intent');
+  });
+});
+
+describe('the way into the workspace', () => {
+  it('draws a glance up to the masthead, carried by the eyes — and nothing else moves', () => {
+    const run = settled();
+    const before = run.step(0.5).pose;
+    let brightest = 0;
+    const on = run.step(1.5, { focus: 'entry' }, ({ pose }) => {
+      brightest = Math.max(brightest, brightestArc(pose));
+    });
+    expect(on.state).toBe('entry');
+    expect(on.pose.gazeX).toBeGreaterThan(0.03);
+    expect(on.pose.gazeY, 'up, towards the masthead').toBeGreaterThan(0.03);
+    expect(on.pose.torsoPitch).toBeCloseTo(before.torsoPitch, 4);
+    expect(on.pose.eyeGain).toBeCloseTo(1, 3);
+    expect(brightest).toBe(0);
+    const off = run.step(2.5);
+    expect(off.state).toBe('idle');
+    expect(Math.abs(off.pose.headYaw), 'straight back, without a detour').toBeLessThan(0.02);
+  });
+
+  it('turns the head less than it does for the call to action', () => {
+    const toEntry = settled().step(1.5, { focus: 'entry' }).pose;
+    const toCta = settled().step(1.5, { focus: 'cta' }).pose;
+    expect(Math.abs(toEntry.headYaw)).toBeLessThan(Math.abs(toCta.headYaw));
+  });
+
+  it('stays with the visitor when the masthead is not on the page', () => {
+    const run = settled();
+    const frame = run.step(1.5, { focus: 'entry', angles: (t) => (t === 'entry' ? null : ANGLES[t]) });
+    expect(frame.state).toBe('entry');
+    expect(Math.abs(frame.pose.headYaw)).toBeLessThan(0.02);
   });
 });
 

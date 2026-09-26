@@ -68,24 +68,51 @@
   color: var(--text-primary);
 }
 
-.signIn {
+/* The way into the workspace: set in the navigation's type, one step heavier and in the primary ink, with no box,
+   fill or border of its own. The glyph is the only part that answers. On hover or keyboard focus its line runs
+   three pixels further and takes the brand orange, as one move on the page's own easing. Nothing scales, glows or
+   lifts, and the words stay as they are. The touch-height box is invisible and sized for a thumb. */
+.entry {
   display: inline-flex;
   align-items: center;
-  min-height: 36px;
+  gap: var(--space-2);
+  min-height: var(--touch-min);
   margin-left: auto;
-  padding: 0 var(--space-4);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-control);
-  background: var(--bg-surface);
   font-size: var(--font-size-body-sm);
   font-weight: var(--font-weight-medium);
   color: var(--text-primary);
   text-decoration: none;
-  transition: border-color var(--dur-fast) var(--ease);
+  white-space: nowrap;
 }
 
-.signIn:hover {
-  border-color: var(--text-muted);
+.entryGlyph {
+  flex: none;
+  display: block;
+  color: var(--text-secondary);
+  transition: color var(--dur-base) var(--ease);
+}
+
+.entryHead {
+  transition: transform var(--dur-base) var(--ease);
+}
+
+.entry:focus-visible .entryGlyph {
+  color: var(--brand-action);
+}
+
+.entry:focus-visible .entryHead {
+  transform: translateX(3px);
+}
+
+/* Only where hovering is real: on a touchscreen a tap would leave the glyph extended when the visitor comes back. */
+@media (hover: hover) {
+  .entry:hover .entryGlyph {
+    color: var(--brand-action);
+  }
+
+  .entry:hover .entryHead {
+    transform: translateX(3px);
+  }
 }
 
 .main {
@@ -309,7 +336,10 @@
 }
 
 @media (max-width: 1199px) {
+  /* With the navigation hidden, the gap is only the least room between the name and the way in (`margin-left:
+     auto` sets the real distance); kept small so the name stays on one line on a phone. */
   .mastheadInner {
+    gap: var(--space-4);
     max-width: 640px;
     min-height: 64px;
     padding: var(--space-3) var(--space-4);

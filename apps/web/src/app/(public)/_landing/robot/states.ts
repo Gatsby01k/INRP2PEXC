@@ -23,13 +23,21 @@ export type RobotState =
   | 'locked'
   /** The visitor is on the call to action: the eyes go there and the head barely follows. Nothing else. */
   | 'intent'
+  /** The visitor is on the masthead's way into the workspace: a glance up at it, even quieter than `intent`. */
+  | 'entry'
   /** The robot is saying one of its lines: each has its own authored timeline (`speech.ts`). */
   | 'speaking';
 
-/** The places attention can go. The page supplies where they are; `viewer` is the camera. */
-export type LookTarget = 'viewer' | 'panel' | 'amount' | 'toggle' | 'rate' | 'cta';
+/**
+ * The places attention can go. The page supplies where they are; `viewer` is the camera. `entry` is the one
+ * target outside the hero: the masthead's way into the workspace.
+ */
+export type LookTarget = 'viewer' | 'panel' | 'amount' | 'toggle' | 'rate' | 'cta' | 'entry';
 
-/** When a target is not on the page, attention falls back towards the module, then the visitor. */
+/**
+ * When a target is not on the page, attention falls back towards the module, then the visitor. The masthead is
+ * not the module: without it, the robot simply keeps the visitor's eye.
+ */
 export const LOOK_FALLBACK: Record<LookTarget, LookTarget | null> = {
   viewer: null,
   panel: 'viewer',
@@ -37,6 +45,7 @@ export const LOOK_FALLBACK: Record<LookTarget, LookTarget | null> = {
   toggle: 'panel',
   rate: 'panel',
   cta: 'panel',
+  entry: 'viewer',
 };
 
 /**
@@ -172,6 +181,21 @@ export const STATES: Record<RobotState, StateSpec> = {
     // A shift of attention, not a gesture: the eyes go to the button, the head follows only a little, and the
     // body, the optics and the lights stay exactly as they were.
     head: { yaw: 0.5, pitch: 0.56, share: 0.22, ease: 0.3 },
+    eyes: { aperture: 1, time: 0.25, gain: 1, notice: false, focus: 0 },
+    lean: 0,
+    turn: 0,
+    chin: 0,
+    breath: 1,
+    blinks: true,
+    accent: 0.14,
+    settle: 0.6,
+    drift: false,
+  },
+  entry: {
+    attention: () => 'entry',
+    // The same glance as `intent`, carried almost entirely by the eyes: the masthead is far from the module, and
+    // a head that swung up to it would be a gesture. The body, the optics and the lights stay as they were.
+    head: { yaw: 0.5, pitch: 0.56, share: 0.14, ease: 0.3 },
     eyes: { aperture: 1, time: 0.25, gain: 1, notice: false, focus: 0 },
     lean: 0,
     turn: 0,

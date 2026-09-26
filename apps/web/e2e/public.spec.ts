@@ -82,8 +82,8 @@ test('a visitor without a client account is offered one way in, wherever the que
   await expect(onboarding).toBeVisible();
   await expect(onboarding).toHaveAttribute('href', onboardingHref);
   await expect(hero.getByRole('link', { name: 'Request quote' })).toHaveAttribute('href', new RegExp(`^${appBaseUrl()}/exchange`));
-  // Existing clients still sign in from the masthead.
-  await expect(page.getByRole('banner').getByRole('link', { name: 'Client sign in' })).toHaveAttribute('href', `${appBaseUrl()}/sign-in`);
+  // Existing clients go into the workspace from the masthead; the client app asks for a code if it needs one.
+  await expect(page.getByRole('banner').getByRole('link', { name: 'Open workspace' })).toHaveAttribute('href', `${appBaseUrl()}/exchange`);
 
   // And on a page a search engine sends someone to, under its actions.
   await page.goto(`${linkBaseUrl()}/usdt-to-inr`);
