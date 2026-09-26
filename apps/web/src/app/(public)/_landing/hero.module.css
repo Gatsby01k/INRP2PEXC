@@ -133,6 +133,8 @@
   align-self: center;
   position: relative;
   z-index: 3;
+  display: grid;
+  gap: var(--space-3);
 }
 
 /* Entrance: the words settle, then the module; the robot's own arrival is its business. CSS rather than script,

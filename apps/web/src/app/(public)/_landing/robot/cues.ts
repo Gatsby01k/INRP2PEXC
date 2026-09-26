@@ -23,7 +23,16 @@ export type RobotCue =
   /** A firm rate arrived or changed. Only from UI that shows one. */
   | { readonly kind: 'rate' }
   /** The firm rate was accepted and is now locked. Only from UI that shows one. */
-  | { readonly kind: 'lock' };
+  | { readonly kind: 'lock' }
+  /** The visitor started working in the module: the first press or focus inside it. Heard, not shown. */
+  | { readonly kind: 'engage' }
+  /**
+   * The visitor turned to the call to action: keyboard focus, a deliberate hover, or activating it in a way that
+   * keeps this page open. The body already follows the button through focus; this is for the voice.
+   */
+  | { readonly kind: 'cta' }
+  /** A request was accepted by the desk. Only from UI that submits one — the home page's module does not. */
+  | { readonly kind: 'submitted' };
 
 /** The direction the quote module opens on; the robot starts the conversation facing the same way. */
 export const INITIAL_DIRECTION: Direction = 'SELL_USDT';

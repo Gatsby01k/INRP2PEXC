@@ -98,9 +98,24 @@ export interface HeroCopy {
   readonly lede: string;
   readonly points: readonly { readonly icon: HeroPointIcon; readonly label: string }[];
   readonly quote: QuoteModuleCopy;
+  readonly voice: HeroVoiceCopy;
 }
 
 export type HeroPointIcon = 'rupee' | 'lock' | 'dealer' | 'destination';
+
+/** The robot's spoken confirmations, one per meaningful action. */
+export type VoiceLine = 'ready' | 'direction' | 'amount' | 'request' | 'received';
+
+/**
+ * The robot's voice: a handful of short confirmations spoken after something the visitor did, never on its own.
+ * `lines` are spoken, not shown; `control` names the button that mutes them, `on` and `off` describe its state.
+ */
+export interface HeroVoiceCopy {
+  readonly control: string;
+  readonly on: string;
+  readonly off: string;
+  readonly lines: Record<VoiceLine, string>;
+}
 
 /** Words that change with the direction are keyed by it, so the module can never pair a label with the wrong side. */
 export interface QuoteModuleCopy {
@@ -139,6 +154,18 @@ export const HERO: HeroCopy = {
     presets: 'Common amounts',
     cta: 'Request quote',
     note: 'Sent from your client account. New clients are onboarded by the desk first.',
+  },
+  voice: {
+    control: 'Voice',
+    on: 'Voice cues are on. Press to mute them.',
+    off: 'Voice cues are off. Press to turn them on.',
+    lines: {
+      ready: 'Ready when you are.',
+      direction: 'Direction updated.',
+      amount: 'Got it.',
+      request: "I'll send this to the desk.",
+      received: 'Request received.',
+    },
   },
 };
 

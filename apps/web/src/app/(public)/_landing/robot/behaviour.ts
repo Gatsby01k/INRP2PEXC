@@ -219,6 +219,12 @@ export class RobotBehaviour {
         this.resolveAt = time;
         this.enter('locked', time, time + DURATION.locked);
         return;
+      case 'engage':
+      case 'cta':
+      case 'submitted':
+        // Answered by the voice. The body already follows the call to action through focus, and has nothing
+        // to add to the others.
+        return;
     }
   }
 

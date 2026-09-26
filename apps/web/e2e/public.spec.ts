@@ -177,3 +177,71 @@ test('a page under the policy loads without the browser refusing anything', asyn
   // best-practices failure, and on these pages there is nothing that should be logging one.
   expect(errors, errors.join('\n')).toEqual([]);
 });
+
+/**
+ * The robot's voice: short confirmations after something the visitor did, and never before (the hero's
+ * `voice/controller.ts`). Speech is stubbed with a device that has a good voice — the one thing a headless
+ * browser lacks — so what is asserted is the page's behaviour: when it asks to speak, and what it says.
+ */
+test('the robot speaks only after the visitor acts, once per line, and never once muted', async ({ browser }) => {
+  const context = await browser.newContext();
+  await context.addInitScript(() => {
+    const said: string[] = [];
+    (window as unknown as { said: string[] }).said = said;
+    const voices = [{ name: 'Google UK English Female', lang: 'en-GB', voiceURI: 'Google UK English Female' }];
+    class Utterance {
+      text: string;
+      onend: (() => void) | null = null;
+      constructor(text: string) {
+        this.text = text;
+      }
+    }
+    const speech = {
+      getVoices: () => voices,
+      speak: (u: Utterance) => {
+        if (u.text.trim()) said.push(u.text);
+        setTimeout(() => u.onend?.(), 300);
+      },
+      cancel: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    };
+    Object.defineProperty(window, 'speechSynthesis', { value: speech, configurable: true });
+    Object.defineProperty(window, 'SpeechSynthesisUtterance', { value: Utterance, configurable: true });
+  });
+  const page = await context.newPage();
+  const said = () => page.evaluate(() => (window as unknown as { said: string[] }).said);
+  await page.goto(linkBaseUrl());
+  const control = page.getByRole('button', { name: 'Voice' });
+  await expect(control).toHaveAttribute('aria-pressed', 'true');
+
+  // Nothing on arrival, however long the page is left open.
+  await page.waitForTimeout(1500);
+  expect(await said()).toEqual([]);
+
+  // Starting work is greeted; an amount is confirmed once the typing stops.
+  const amount = page.getByLabel('You sell');
+  await amount.click();
+  await expect.poll(said).toEqual(['Ready when you are.']);
+  await amount.press('End');
+  await amount.press('Backspace');
+  await amount.press('5');
+  await expect.poll(said).toEqual(['Ready when you are.', 'Got it.']);
+  await amount.press('Backspace');
+  await amount.press('7');
+  await page.waitForTimeout(1500);
+  expect(await said(), 'each line once').toEqual(['Ready when you are.', 'Got it.']);
+
+  // Muted, it says nothing — and stays muted on the next visit.
+  await control.click();
+  await expect(control).toHaveAttribute('aria-pressed', 'false');
+  await page.getByRole('radio', { name: 'Buy USDT' }).click();
+  await page.waitForTimeout(1200);
+  expect(await said()).toEqual(['Ready when you are.', 'Got it.']);
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Voice' })).toHaveAttribute('aria-pressed', 'false');
+  await page.getByLabel('You sell').click();
+  await page.waitForTimeout(1200);
+  expect(await said()).toEqual([]);
+  await context.close();
+});

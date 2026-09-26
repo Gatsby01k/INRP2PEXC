@@ -24,6 +24,8 @@ import styles from './quote.module.css';
 /** Whole-USDT amounts offered as shortcuts. A typed amount is never rounded towards them. */
 const PRESETS = ['25000', '100000', '500000'] as const;
 const INITIAL_AMOUNT = '100000';
+/** How long a pointer must rest on the call to action before it counts as attention rather than passing. */
+const CTA_INTENT_MS = 600;
 const EASE = [0.2, 0, 0, 1] as const;
 
 /** A term that changes with the direction: the old words leave upwards as the new ones arrive. */
@@ -57,7 +59,23 @@ export function QuoteModule({ appOrigin, copy }: { appOrigin: string; copy: Quot
     onCta.current[key] = on;
     robotCues.setFocus(onCta.current.hover || onCta.current.focus ? 'cta' : 'none');
   };
-  useEffect(() => () => robotCues.setFocus('none'), []);
+  // The first press or focus inside the module is the visitor starting work; a deliberate turn to the call to
+  // action is attention to it. Both are heard by the robot's voice. Activating the button is not announced when
+  // it navigates away — a line cut off by the next page is worse than no line — only when this page stays open.
+  const engaged = useRef(false);
+  const engage = () => {
+    if (engaged.current) return;
+    engaged.current = true;
+    robotCues.emit({ kind: 'engage' });
+  };
+  const intent = useRef<number | undefined>(undefined);
+  useEffect(
+    () => () => {
+      robotCues.setFocus('none');
+      window.clearTimeout(intent.current);
+    },
+    [],
+  );
 
   const changeDirection = (next: Direction) => {
     if (next === direction) return;
@@ -84,6 +102,8 @@ export function QuoteModule({ appOrigin, copy }: { appOrigin: string; copy: Quot
           className={styles.panel}
           aria-labelledby={titleId}
           data-robot-target="panel"
+          onPointerDownCapture={engage}
+          onFocusCapture={engage}
         >
           <h2 id={titleId} className="ix-visually-hidden">
             {copy.title}
@@ -131,10 +151,26 @@ export function QuoteModule({ appOrigin, copy }: { appOrigin: string; copy: Quot
               className={styles.cta}
               href={requestHref(appOrigin, direction, amount)}
               data-robot-target="cta"
-              onPointerEnter={() => markCta('hover', true)}
-              onPointerLeave={() => markCta('hover', false)}
-              onFocus={() => markCta('focus', true)}
+              onPointerEnter={(e) => {
+                markCta('hover', true);
+                if (e.pointerType !== 'touch') intent.current = window.setTimeout(() => robotCues.emit({ kind: 'cta' }), CTA_INTENT_MS);
+              }}
+              onPointerLeave={() => {
+                markCta('hover', false);
+                window.clearTimeout(intent.current);
+              }}
+              onFocus={(e) => {
+                markCta('focus', true);
+                if (e.currentTarget.matches(':focus-visible')) robotCues.emit({ kind: 'cta' });
+              }}
               onBlur={() => markCta('focus', false)}
+              onClick={(e) => {
+                // Opened elsewhere (a new tab or window): this page stays, and the line can be heard.
+                if (e.metaKey || e.ctrlKey || e.shiftKey) robotCues.emit({ kind: 'cta' });
+              }}
+              onAuxClick={(e) => {
+                if (e.button === 1) robotCues.emit({ kind: 'cta' });
+              }}
             >
               <span>{copy.cta}</span>
               <ArrowIcon className={styles.ctaIcon} />
