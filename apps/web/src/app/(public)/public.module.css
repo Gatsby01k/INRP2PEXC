@@ -153,6 +153,20 @@
   color: var(--text-muted);
 }
 
+.actionLink {
+  color: var(--text-primary);
+  font-weight: var(--font-weight-medium);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--brand-action) 60%, transparent);
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 3px;
+  white-space: nowrap;
+}
+
+.actionLink:hover {
+  text-decoration-color: var(--brand-action);
+}
+
 .section {
   margin-bottom: var(--space-6);
 }
@@ -167,6 +181,31 @@
   margin: 0 0 var(--space-3);
   line-height: 1.6;
   color: var(--text-secondary);
+}
+
+/* Skip to content: off screen until a keyboard reaches it, then over the masthead's first corner. */
+.skip {
+  position: absolute;
+  z-index: 100;
+  top: var(--space-2);
+  left: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-medium);
+  text-decoration: none;
+  box-shadow: 0 0 0 1px var(--border-default), 0 8px 20px -10px color-mix(in srgb, var(--text-primary) 40%, transparent);
+  transform: translateY(calc(-100% - var(--space-4)));
+}
+
+.skip:focus-visible {
+  transform: none;
+}
+
+.main:focus {
+  outline: none;
 }
 
 /* The footer: on the navy field, which the home page's closing section opens and every other page reaches here. */
@@ -245,9 +284,11 @@
   color: var(--field-ink-3);
 }
 
+/* The fine print, side by side: what this site is not, the one risk that is the visitor's to manage, and whose
+   names these are. */
 .footerBase {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   column-gap: var(--space-8);
   max-width: 1440px;
   margin: 0 auto;

@@ -142,3 +142,20 @@
   line-height: var(--line-height-normal);
   color: var(--text-muted);
 }
+
+/* The way in for a visitor without a client account: a plain link in the note's own size, clearly second to the
+   call to action above it. */
+.onboarding {
+  color: var(--text-primary);
+  font-weight: var(--font-weight-medium);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--brand-action) 60%, transparent);
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 3px;
+  white-space: nowrap;
+  transition: text-decoration-color var(--dur-fast) var(--ease);
+}
+
+.onboarding:hover {
+  text-decoration-color: var(--brand-action);
+}

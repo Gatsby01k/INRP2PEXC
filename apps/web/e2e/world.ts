@@ -63,6 +63,12 @@ export function e2eFieldProtector(): FieldProtector {
 /** The custody provider the world records a POOL capability for; the app is configured with the same slug (D-02). */
 export const E2E_CUSTODY_PROVIDER = 'fake-custody';
 
+/**
+ * The addresses the public site is configured to publish in this run, on the reserved `.test` domain, so the way
+ * in for a new client can be followed end to end. Nothing on the public site links to an address not listed here.
+ */
+export const E2E_PUBLIC_CONTACTS = { desk: 'desk@inrp2p.test', security: 'security@inrp2p.test' } as const;
+
 /** The client user who may accept quotes (D-01); the run signs in as them and receives acceptance codes. */
 export const ACCEPTOR_EMAIL = 'treasury@acmepay.test';
 

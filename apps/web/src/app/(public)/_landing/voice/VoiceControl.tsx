@@ -4,17 +4,20 @@ import { useEffect, useRef, useState } from 'react';
 import type { HeroVoiceCopy } from '../../../../content/site.ts';
 import { robotCues } from '../robot/cues.ts';
 import { type Clock, VoiceController } from './controller.ts';
-import { createVoicePlayer } from './player.ts';
+import { type VoicePlayer, createVoicePlayer } from './player.ts';
 import styles from './voice.module.css';
 
 /**
- * The robot's voice, and the control that mutes it.
+ * The robot's voice, and the control that turns it on and off.
  *
- * The voice listens to the same cues as the robot's body and answers three of them with a recorded line
- * (`controller.ts`); when it speaks, it tells the body, which moves with the line. The clips load once the page
- * has settled, and the control stays out of sight — its space kept, so nothing moves — until they have: before
- * then, and in a browser that cannot play them, there is nothing to mute. The visitor's choice is kept in this
- * browser, as a convenience: losing it only means the voice is on again next time.
+ * The voice is an extra, never the way anything works: it is off until the visitor turns it on, and the page says
+ * and does everything without it. Once on, it listens to the same cues as the robot's body and answers three of
+ * them with a recorded line (`controller.ts`); when it speaks, it tells the body, which moves with the line. The
+ * clips are fetched only once the voice is on (`player.ts`).
+ *
+ * The control shows its position in words, not only in its icon. It is drawn once the page knows the browser can
+ * play audio at all — its space kept until then, so nothing moves — and not at all where it cannot. The visitor's
+ * choice is kept in this browser, as a convenience: losing it only means the voice is off again next time.
  */
 const PREFERENCE_KEY = 'inrp2p.robot-voice';
 
@@ -23,9 +26,9 @@ const GESTURES = ['pointerdown', 'pointerup', 'touchend', 'keydown', 'click'] as
 
 function readPreference(): boolean {
   try {
-    return window.localStorage.getItem(PREFERENCE_KEY) !== 'off';
+    return window.localStorage.getItem(PREFERENCE_KEY) === 'on';
   } catch {
-    return true;
+    return false;
   }
 }
 
@@ -54,17 +57,22 @@ function SpeakerIcon({ on }: { on: boolean }) {
 
 export function VoiceControl({ copy }: { copy: HeroVoiceCopy }) {
   const [available, setAvailable] = useState(false);
-  const [on, setOn] = useState(true);
+  const [on, setOn] = useState(false);
   const controller = useRef<VoiceController | null>(null);
+  const audio = useRef<VoicePlayer | null>(null);
 
   useEffect(() => {
     const player = createVoicePlayer();
     if (!player) return;
     const enabled = readPreference();
     setOn(enabled);
+    setAvailable(true);
+    if (enabled) player.enable();
+    audio.current = player;
     const voice = new VoiceController({ player, clock, muted: !enabled, onRobot: (cue) => robotCues.emit(cue) });
     controller.current = voice;
-    player.onLoaded(() => setAvailable(true));
+    // Clips that arrive while a greeting is still in time for them let it be said.
+    player.onLoaded(() => voice.unlocked());
     const stopCues = robotCues.subscribe((cue) => voice.onCue(cue));
     // Audio is unlocked by the visitor's own gestures, on the window and before the page's handlers see them, so
     // a press that is also the visitor's first move is heard at once.
@@ -87,6 +95,7 @@ export function VoiceControl({ copy }: { copy: HeroVoiceCopy }) {
       voice.dispose();
       player.dispose();
       controller.current = null;
+      audio.current = null;
     };
   }, []);
 
@@ -94,6 +103,11 @@ export function VoiceControl({ copy }: { copy: HeroVoiceCopy }) {
     const next = !on;
     setOn(next);
     writePreference(next);
+    if (next && audio.current) {
+      // This press is a gesture: the moment audio may be started, whether or not the clips have arrived yet.
+      audio.current.enable();
+      audio.current.unlock();
+    }
     controller.current?.setMuted(!next);
   };
 
@@ -108,6 +122,10 @@ export function VoiceControl({ copy }: { copy: HeroVoiceCopy }) {
     >
       <SpeakerIcon on={on} />
       <span>{copy.control}</span>
+      {/* The position, in words; its name and state are already said by the button's name and `aria-pressed`. */}
+      <span className={styles.state} aria-hidden="true">
+        {on ? copy.state.on : copy.state.off}
+      </span>
     </button>
   );
 }

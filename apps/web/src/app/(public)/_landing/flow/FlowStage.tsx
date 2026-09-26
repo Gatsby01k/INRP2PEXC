@@ -3,9 +3,9 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Direction } from '@inrp2p/kernel';
 import { FLOW_STATIONS, type FlowCopy, type FlowStation } from '../../../../content/site.ts';
+import { storyDirection } from '../direction.ts';
 import { ArrowIcon } from '../icons.tsx';
 import { robotCues } from '../robot/cues.ts';
-import { DIRECTION_ATTRIBUTE, STORY_DIRECTION } from '../story.ts';
 import styles from './flow.module.css';
 
 /**
@@ -42,15 +42,13 @@ const stationIndex = (key: string | undefined): number => FLOW_STATIONS.indexOf(
 
 export function FlowStage({ copy, ends }: { copy: FlowCopy['direction']; ends: { from: Record<Direction, string>; to: Record<Direction, string> } }) {
   const root = useRef<HTMLDivElement>(null);
-  const [direction, setDirection] = useState<Direction>(STORY_DIRECTION);
+  const [direction, setDirection] = useState<Direction>(storyDirection.get);
 
-  // The story below the hero reads its direction from one attribute (Story.tsx).
-  useEffect(() => {
-    root.current?.closest('[data-story]')?.setAttribute(DIRECTION_ATTRIBUTE, direction);
-  }, [direction]);
+  // The story's direction is shared with the controls' switch (direction.ts); this one shows whichever was chosen.
+  useEffect(() => storyDirection.subscribe(setDirection), []);
 
   // A direction chosen in the quote module is the visitor's own, and the story follows it.
-  useEffect(() => robotCues.subscribe((cue) => (cue.kind === 'direction' ? setDirection(cue.direction) : undefined)), []);
+  useEffect(() => robotCues.subscribe((cue) => (cue.kind === 'direction' ? storyDirection.set(cue.direction) : undefined)), []);
 
   useEffect(() => {
     const section = root.current?.closest<HTMLElement>('[data-flow]');
@@ -182,7 +180,7 @@ export function FlowStage({ copy, ends }: { copy: FlowCopy['direction']; ends: {
   return (
     <div ref={root} className={styles.switch} role="group" aria-label={copy.label}>
       {(['BUY_USDT', 'SELL_USDT'] as const).map((d) => (
-        <button key={d} type="button" className={styles.switchOption} aria-pressed={direction === d} onClick={() => setDirection(d)}>
+        <button key={d} type="button" className={styles.switchOption} aria-pressed={direction === d} onClick={() => storyDirection.set(d)}>
           <span className="ix-visually-hidden">{copy.options[d]}</span>
           <span className={styles.switchEnds} aria-hidden="true">
             {ends.from[d]}

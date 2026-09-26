@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { rm } from 'node:fs/promises';
 import { deskBaseUrl, startDesk, surfacePorts } from '../harness/desk-server.ts';
-import { CLIENT_AUTH_SECRET, E2E_CUSTODY_PROVIDER, E2E_FIELD_KEYS, OPERATOR_AUTH_SECRET, seedE2E } from './world.ts';
+import { CLIENT_AUTH_SECRET, E2E_CUSTODY_PROVIDER, E2E_FIELD_KEYS, E2E_PUBLIC_CONTACTS, OPERATOR_AUTH_SECRET, seedE2E } from './world.ts';
 
 /** Where the built app writes client sign-in codes for this run (test-only; the runtime refuses it in production). */
 export const OTP_SINK_FILE = path.join(import.meta.dirname, '.client-otp.jsonl');
@@ -29,6 +29,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     fieldKeys: E2E_FIELD_KEYS,
     custodyProvider: E2E_CUSTODY_PROVIDER,
     clientOtpSinkFile: OTP_SINK_FILE,
+    publicContacts: E2E_PUBLIC_CONTACTS,
     label: 'e2e',
   });
   console.log(`e2e: desk ${deskBaseUrl(ports.desk)} · app ${deskBaseUrl(ports.app)} · link ${deskBaseUrl(ports.public)}`);

@@ -1,5 +1,6 @@
 import 'server-only';
 import { headers } from 'next/headers';
+import { ONBOARDING } from '../content/site.ts';
 import { getRuntime } from './runtime.ts';
 import { optionalEnv } from './env.ts';
 
@@ -49,6 +50,17 @@ export function siteContacts(): SiteContacts {
     return value && ADDRESS.test(value) ? value : null;
   };
   return { desk: address('PUBLIC_DESK_EMAIL'), security: address('PUBLIC_SECURITY_EMAIL') };
+}
+
+/** A link that opens a message to a configured address, with a subject when the message has a purpose. */
+export function mailto(address: string, subject?: string): string {
+  return subject ? `mailto:${address}?subject=${encodeURIComponent(subject)}` : `mailto:${address}`;
+}
+
+/** Where a visitor without a client account asks to become one: the desk's address, or nowhere when none is set. */
+export function onboardingHref(): string | null {
+  const { desk } = siteContacts();
+  return desk ? mailto(desk, ONBOARDING.subject) : null;
 }
 
 /** The per-request CSP nonce the proxy generated, for the one inline script the site serves (its JSON-LD). */

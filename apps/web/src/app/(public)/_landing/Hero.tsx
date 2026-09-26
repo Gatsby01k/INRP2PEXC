@@ -1,5 +1,5 @@
 import { HERO } from '../../../content/site.ts';
-import { appOrigin } from '../../../server/site.ts';
+import { appOrigin, onboardingHref } from '../../../server/site.ts';
 import { PointIcon } from './icons.tsx';
 import { QuoteModule } from './QuoteModule.tsx';
 import { RobotStage } from './robot/RobotStage.tsx';
@@ -43,7 +43,7 @@ export function Hero() {
         </div>
 
         <div className={styles.quote}>
-          <QuoteModule appOrigin={appOrigin()} copy={quote} />
+          <QuoteModule appOrigin={appOrigin()} onboarding={onboardingHref()} copy={quote} />
           <VoiceControl copy={voice} />
         </div>
       </div>

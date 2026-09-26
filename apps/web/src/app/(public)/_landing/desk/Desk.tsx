@@ -1,97 +1,103 @@
 import type { Direction } from '@inrp2p/kernel';
-import { DESK, type DeskActor, type DeskEntry } from '../../../../content/site.ts';
-import { MASKS } from '../masks.ts';
+import { DESK, type DeskActor, type DeskStepCopy } from '../../../../content/site.ts';
 import { ByDirection } from '../Story.tsx';
 import section from '../section.module.css';
-import { DeskStage } from './DeskStage.tsx';
 import styles from './desk.module.css';
 
 /**
- * The execution desk: the timeline one trade leaves behind, from the request to the receipt, set as the log it
- * is — who acted, when, what happened and the status that followed — with the ways off the main path in place.
+ * The execution desk: who owns each step of a trade, and what happens at that step when something goes wrong.
  *
- * Server markup, complete without script, and read as an ordered list of stages, each an ordered list of
- * entries. One small island (DeskStage.tsx) marks each entry as logged when it comes up the screen, so the spine
- * fills in behind the reader; every word is on the page before and after.
+ * Set as a matrix — step, who acts, what they do, and the way off the main path — so the page answers "who" in one
+ * pass after the execution flow has answered "how". Each step is a list item holding a description list, so it
+ * reads as a whole to assistive technology; on a wide screen the terms are drawn once, as column heads, and on a
+ * narrow one above each value. Server markup only.
  */
 
-/** Which side an actor is on: the desk is three kinds of actor, the client one. Drawn as a solid or a ring. */
+/** Which side an actor is on: the desk is three kinds of actor, the client one. Drawn as a ring or a solid mark. */
 const SIDE: Record<DeskActor, 'you' | 'desk'> = { you: 'you', dealer: 'desk', operator: 'desk', system: 'desk' };
 
-const both = <T,>(value: T): Record<Direction, T> => ({ BUY_USDT: value, SELL_USDT: value });
+const DIRECTIONS = ['BUY_USDT', 'SELL_USDT'] as const satisfies readonly Direction[];
 
-function Entry({ entry, done }: { entry: DeskEntry; done: boolean }) {
-  const actor = typeof entry.actor === 'string' ? both(entry.actor) : entry.actor;
-  const event = typeof entry.event === 'string' ? both(entry.event) : entry.event;
-  const status = entry.status === undefined ? null : typeof entry.status === 'string' ? both(entry.status) : entry.status;
-  const tone = entry.branch ? 'branch' : done ? 'done' : 'progress';
+function Actors({ actors }: { actors: readonly DeskActor[] }) {
   return (
-    <li className={styles.entry} data-side={SIDE[actor.BUY_USDT]} data-branch={entry.branch ? '' : undefined} data-desk-entry="">
-      <span className={styles.node} aria-hidden="true" />
-      <div className={styles.row}>
-        <p className={styles.meta}>
-          <span className={styles.actor}>
-            <ByDirection value={{ BUY_USDT: DESK.actors[actor.BUY_USDT], SELL_USDT: DESK.actors[actor.SELL_USDT] }} />
-          </span>
-          {entry.branch ? null : (
-            <span className={styles.time} aria-hidden="true">
-              {MASKS.time}
-            </span>
-          )}
-        </p>
-        <p className={styles.event}>
-          <ByDirection value={event} />
-        </p>
-        {status ? (
-          <p className={styles.status} data-tone={tone}>
-            <span className="ix-visually-hidden">{DESK.statusLabel} </span>
-            <ByDirection value={status} />
-          </p>
-        ) : null}
-      </div>
-    </li>
+    <ul className={styles.actors}>
+      {actors.map((a) => (
+        <li key={a} className={styles.actor} data-side={SIDE[a]}>
+          <span className={styles.actorMark} aria-hidden="true" />
+          {DESK.actors[a]}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function StepActors({ actor }: { actor: DeskStepCopy['actor'] }) {
+  if (!('BUY_USDT' in actor)) return <Actors actors={actor} />;
+  return (
+    <>
+      {DIRECTIONS.map((d) => (
+        <div key={d} data-dir={d}>
+          <Actors actors={actor[d]} />
+        </div>
+      ))}
+    </>
   );
 }
 
 export function Desk() {
-  const { eyebrow, heading, lede, timeline, legend, stages } = DESK;
+  const { eyebrow, heading, lede, list, columns, steps } = DESK;
   return (
-    <section id="execution-desk" className={styles.desk} aria-labelledby="desk-title" data-desk="">
+    <section id="execution-desk" className={styles.desk} aria-labelledby="desk-title">
       <div className={section.inner}>
-        <div className={styles.layout}>
-          <header className={styles.head}>
+        <header className={section.head}>
+          <div>
             <p className={section.eyebrow}>{eyebrow}</p>
             <h2 id="desk-title" className={section.title}>
               {heading}
             </h2>
-            <p className={`${section.lede} ${styles.lede}`}>{lede}</p>
-            <ul className={styles.legend} aria-hidden="true">
-              {(['you', 'desk', 'branch'] as const).map((k) => (
-                <li key={k} className={styles.legendItem} data-kind={k}>
-                  <span className={styles.legendMark} />
-                  {legend[k]}
-                </li>
-              ))}
-            </ul>
-          </header>
+          </div>
+          <p className={section.lede}>{lede}</p>
+        </header>
 
-          <ol className={styles.stages} aria-label={timeline}>
-            {stages.map((stage, i) => (
-              <li key={stage.key} className={styles.stage}>
-                <div className={styles.stageHead}>
-                  <span className={styles.stageMark} aria-hidden="true" />
-                  <h3 className={styles.stageName}>{stage.name}</h3>
-                </div>
-                <ol className={styles.entries}>
-                  {stage.entries.map((entry, j) => (
-                    <Entry key={j} entry={entry} done={i === stages.length - 1} />
-                  ))}
-                </ol>
-              </li>
-            ))}
+        <div className={styles.matrix}>
+          <div className={styles.columns} aria-hidden="true">
+            <span />
+            <span>{columns.actor}</span>
+            <span>{columns.does}</span>
+            <span>{columns.exception}</span>
+          </div>
+          <ol className={styles.steps} aria-label={list}>
+            {steps.map((step) => {
+              const does = typeof step.does === 'string' ? { BUY_USDT: step.does, SELL_USDT: step.does } : step.does;
+              return (
+                <li key={step.key} className={styles.step}>
+                  <h3 className={styles.name}>{step.name}</h3>
+                  <dl className={styles.cells}>
+                    <div className={styles.cell}>
+                      <dt className={styles.term}>{columns.actor}</dt>
+                      <dd className={styles.value}>
+                        <StepActors actor={step.actor} />
+                      </dd>
+                    </div>
+                    <div className={styles.cell}>
+                      <dt className={styles.term}>{columns.does}</dt>
+                      <dd className={`${styles.value} ${styles.does}`}>
+                        <ByDirection value={does} />
+                      </dd>
+                    </div>
+                    <div className={`${styles.cell} ${styles.exceptionCell}`}>
+                      <dt className={styles.term}>{columns.exception}</dt>
+                      <dd className={`${styles.value} ${styles.exception}`}>
+                        {step.exception.status ? <span className={styles.status}>{step.exception.status}</span> : null}
+                        <span>{step.exception.text}</span>
+                      </dd>
+                    </div>
+                  </dl>
+                </li>
+              );
+            })}
           </ol>
         </div>
-        <DeskStage />
       </div>
     </section>
   );

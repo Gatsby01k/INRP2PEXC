@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { getImageProps } from 'next/image';
 import mark from '../../../../../brand/inrp2p-mark.png';
 import { CLOSING, FOOTER, FOOTER_NOTE, NAV, SITE_NAME, SITE_PAGES, TAGLINE } from '../../content/site.ts';
-import { appOrigin, siteContacts } from '../../server/site.ts';
+import { appOrigin, mailto, onboardingHref, siteContacts } from '../../server/site.ts';
 import styles from './public.module.css';
 
 /**
@@ -47,7 +47,7 @@ function FooterGroup({ title, links }: { title: string; links: readonly FooterLi
  * The frame every public page is drawn in.
  *
  * A server component with no interactivity of its own. The home page hydrates a few small islands (the hero's
- * quote module and robot stage, the execution flow's switch, the controls' reader and the desk's timeline);
+ * quote module, the robot stage and its voice, the execution flow's switch and the controls' reader);
  * everything else on the public site is plain server-rendered HTML, which keeps it fast on a phone on Indian
  * mobile data and keeps its Content-Security-Policy to one nonce.
  */
@@ -69,11 +69,21 @@ export function PublicShell({ children, nonce }: { children: ReactNode; nonce?: 
   const pages: FooterLink[] = SITE_PAGES.filter((p) => p.path !== '/').map((p) => ({ label: p.h1, href: p.path }));
   const security: FooterLink[] = [
     { label: links.controls, href: '/#controls' },
-    ...(contacts.security ? [{ label: links.securityReport, href: `mailto:${contacts.security}`, detail: contacts.security }] : []),
+    ...(contacts.security ? [{ label: links.securityReport, href: mailto(contacts.security), detail: contacts.security }] : []),
   ];
-  const contact: FooterLink[] = contacts.desk ? [{ label: links.deskContact, href: `mailto:${contacts.desk}`, detail: contacts.desk }] : [];
+  const onboarding = onboardingHref();
+  const contact: FooterLink[] = contacts.desk
+    ? [
+        ...(onboarding ? [{ label: links.onboarding, href: onboarding }] : []),
+        { label: links.deskContact, href: mailto(contacts.desk), detail: contacts.desk },
+      ]
+    : [];
   return (
     <div className={styles.site} data-nonce-present={nonce ? 'yes' : 'no'}>
+      {/* The first thing a keyboard reaches: past the masthead, straight to the page. Seen only when focused. */}
+      <a className={styles.skip} href="#content">
+        Skip to content
+      </a>
       <header className={styles.masthead}>
         <div className={styles.mastheadInner}>
           <Link href="/" className={styles.brand}>
@@ -94,7 +104,9 @@ export function PublicShell({ children, nonce }: { children: ReactNode; nonce?: 
         </div>
       </header>
 
-      <main className={styles.main}>{children}</main>
+      <main id="content" className={styles.main} tabIndex={-1}>
+        {children}
+      </main>
 
       <footer className={styles.footer}>
         <div className={styles.footerInner}>
@@ -115,6 +127,7 @@ export function PublicShell({ children, nonce }: { children: ReactNode; nonce?: 
         </div>
         <div className={styles.footerBase}>
           <p className={styles.footerNote}>{FOOTER_NOTE}</p>
+          <p className={styles.footerNote}>{FOOTER.risk}</p>
           <p className={styles.footerNote}>{FOOTER.marks}</p>
         </div>
       </footer>

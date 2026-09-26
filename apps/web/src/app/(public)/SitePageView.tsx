@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
-import { ACTIONS, SITE_NAME, type SitePage } from '../../content/site.ts';
-import { appOrigin, publicOrigin, requestNonce } from '../../server/site.ts';
+import { ACTIONS, ONBOARDING, SITE_NAME, type SitePage } from '../../content/site.ts';
+import { appOrigin, onboardingHref, publicOrigin, requestNonce } from '../../server/site.ts';
 import styles from './public.module.css';
 
 /**
@@ -48,6 +48,7 @@ function structuredData(page: SitePage, origin: string): string {
 export async function SitePageView({ page, hero, story }: { page: SitePage; hero?: ReactNode; story?: ReactNode }) {
   const [origin, nonce] = await Promise.all([publicOrigin(), requestNonce()]);
   const app = appOrigin();
+  const onboarding = onboardingHref();
 
   return (
     <>
@@ -76,7 +77,15 @@ export async function SitePageView({ page, hero, story }: { page: SitePage; hero
                 ))}
               </div>
               <p className={styles.actionNote}>
-                Trading needs a client record with its settlement destinations registered in advance. The desk sets that up; there is no form here that can.
+                {ONBOARDING.requirement}
+                {onboarding ? (
+                  <>
+                    {' '}
+                    <a className={styles.actionLink} href={onboarding}>
+                      {ONBOARDING.label}
+                    </a>
+                  </>
+                ) : null}
               </p>
             </section>
           )}

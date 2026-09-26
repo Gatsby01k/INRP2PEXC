@@ -4,16 +4,18 @@ import type { Player } from './controller.ts';
 /**
  * The robot's recorded lines, played from memory with the Web Audio API.
  *
- * All the clips are fetched and decoded once the page has settled, long before any is needed, and kept decoded;
- * saying a line is starting a buffer already in memory — no request, no decoding, no wait. Decoding needs no
- * audio device, so it happens in an offline context.
+ * Nothing is fetched and no audio is set up until the voice is turned on (`enable`): most visitors never turn it
+ * on, and they pay nothing for it. From then on, the clips are fetched and decoded once the page has settled and
+ * kept decoded; saying a line is starting a buffer already in memory — no request, no decoding, no wait.
+ * Decoding needs no audio device, so it happens in an offline context.
  *
  * The live audio context is the one costly step: creating one can hold the main thread for a noticeable
- * fraction of a second while the browser brings up its audio service. That must land neither on the page's
- * load nor on the visitor's first press, so it happens in between: at the first sign someone is there — a
- * pointer moving, a touch starting, a scroll, a key — in the next idle moment, and it is held suspended. The
- * press itself only resumes it (`unlock`) and plays a silent frame through it, which is what the strictest
- * browsers ask. The clips are decoded again at the device's own rate then, in the background.
+ * fraction of a second while the browser brings up its audio service. For a visitor whose voice was already on,
+ * that must land neither on the page's load nor on their first press, so it happens in between: at the first
+ * sign someone is there — a pointer moving, a touch starting, a scroll, a key — in the next idle moment, and it
+ * is held suspended. A press only resumes it (`unlock`) and plays a silent frame through it, which is what the
+ * strictest browsers ask; the press that turns the voice on creates it, since that press is the only gesture
+ * there is. The clips are decoded again at the device's own rate then, in the background.
  *
  * AAC where the browser plays it, which is nearly everywhere; 16-bit PCM for the few that cannot.
  */
@@ -33,11 +35,13 @@ const STOP_FADE = 0.06;
 const PRESENCE = ['pointermove', 'pointerdown', 'touchstart', 'wheel', 'scroll', 'keydown', 'focusin'] as const;
 
 export interface VoicePlayer extends Player {
-  /** Calls back once every clip is decoded — the moment there is something to mute. */
+  /** The voice is on: fetch the clips once the page has settled, and prepare audio at the first sign of a visitor. */
+  enable(): void;
+  /** Calls back once every clip is decoded. */
   onLoaded(listener: () => void): void;
   /**
-   * Called from the visitor's gestures. Resumes the audio context while the browser counts the event as a
-   * gesture, and reports whether audio is now running or starting.
+   * Called from the visitor's gestures, once enabled. Resumes the audio context while the browser counts the event
+   * as a gesture, and reports whether audio is now running or starting.
    */
   unlock(): boolean;
   dispose(): void;
@@ -54,7 +58,7 @@ const idleCallback = (run: () => void, timeout: number): (() => void) => {
   return () => window.clearTimeout(handle);
 };
 
-/** Null where there is no Web Audio at all; the robot is silent there, and its control never appears. */
+/** Null where there is no Web Audio at all; the robot is silent there, and its control is not drawn. */
 export function createVoicePlayer(): VoicePlayer | null {
   if (typeof window === 'undefined' || typeof window.AudioContext !== 'function' || typeof window.OfflineAudioContext !== 'function') return null;
 
@@ -63,6 +67,7 @@ export function createVoicePlayer(): VoicePlayer | null {
   const buffers = new Map<VoiceLine, AudioBuffer>();
   const loadedListeners: (() => void)[] = [];
   const cancels: (() => void)[] = [];
+  let enabled = false;
   let loaded = false;
   let disposed = false;
   let ctx: Ctx | null = null;
@@ -128,23 +133,26 @@ export function createVoicePlayer(): VoicePlayer | null {
     return ctx;
   };
 
-  // The clips: once the page has loaded and gone idle, so they never compete with the page for anything.
-  const onLoad = () => cancels.push(idleCallback(() => void load(), 1500));
-  if (document.readyState === 'complete') onLoad();
-  else {
-    window.addEventListener('load', onLoad, { once: true });
-    cancels.push(() => window.removeEventListener('load', onLoad));
-  }
-
-  // The live context: at the first sign of a visitor, in the next idle moment.
-  const presence = () => {
-    for (const type of PRESENCE) window.removeEventListener(type, presence, { capture: true });
-    cancels.push(idleCallback(() => void prepare(), 250));
+  const enable = () => {
+    if (enabled || disposed) return;
+    enabled = true;
+    // The clips: once the page has loaded and gone idle, so they never compete with the page for anything.
+    const onLoad = () => cancels.push(idleCallback(() => void load(), 1500));
+    if (document.readyState === 'complete') onLoad();
+    else {
+      window.addEventListener('load', onLoad, { once: true });
+      cancels.push(() => window.removeEventListener('load', onLoad));
+    }
+    // The live context: at the first sign of a visitor, in the next idle moment.
+    const presence = () => {
+      for (const type of PRESENCE) window.removeEventListener(type, presence, { capture: true });
+      cancels.push(idleCallback(() => void prepare(), 250));
+    };
+    for (const type of PRESENCE) window.addEventListener(type, presence, { capture: true, passive: true });
+    cancels.push(() => {
+      for (const type of PRESENCE) window.removeEventListener(type, presence, { capture: true });
+    });
   };
-  for (const type of PRESENCE) window.addEventListener(type, presence, { capture: true, passive: true });
-  cancels.push(() => {
-    for (const type of PRESENCE) window.removeEventListener(type, presence, { capture: true });
-  });
 
   /** Real user activation, as the browser counts it — the event must be one that grants it (a tap's end, a key). */
   const activated = () => {
@@ -174,12 +182,13 @@ export function createVoicePlayer(): VoicePlayer | null {
   };
 
   return {
+    enable,
     onLoaded(listener) {
       if (loaded) listener();
       else loadedListeners.push(listener);
     },
     unlock() {
-      if (disposed || !loaded) return false;
+      if (disposed || !enabled) return false;
       if (ctx?.state === 'running') return true;
       if (!activated()) return false;
       // Normally prepared already; a press that is the very first sign of the visitor prepares it here.

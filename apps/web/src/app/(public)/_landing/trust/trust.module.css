@@ -1,9 +1,9 @@
 /* Operational trust.
 
    The page changes register here: from the warm paper of the flow to deep navy, the colour of the desk behind the
-   counter. On it, one light object — the trade's record — held in view while the controls scroll past it, the
-   way a document is held up to be checked. The control being read lights the lines it is responsible for; the
-   rest of the record steps back. On a phone each control carries its own excerpt of the record instead.
+   counter. On it, one light object — the trade's record — held up beside the controls the way a document is held
+   up to be checked. One control is open at a time; the record lights the lines it is responsible for, and the
+   rest of the record steps back. On a phone the open control carries its own excerpt of the record instead.
 
    The navy is this section's own: the design system is drawn for light surfaces, and this is the one dark field on
    the public site. Every text colour on it is chosen for AA against the navy, orange included (4.9:1). */
@@ -79,49 +79,41 @@
   text-wrap: pretty;
 }
 
-/* ——— Controls beside the record ——— */
+/* ——— The controls beside the record ———
+   The controls take the left column, from the top; the record's switch sits over the record on the right. */
 
 .layout {
   display: grid;
   grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  grid-template-rows: auto 1fr;
+  grid-template-areas:
+    'list tools'
+    'list record';
   column-gap: clamp(var(--space-12), 7vw, 128px);
-  margin-top: clamp(56px, 9vh, 104px);
+  margin-top: clamp(56px, 8vh, 96px);
 }
 
 .controls {
+  grid-area: list;
+  align-self: start;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-/* Each control is given most of a screen, so exactly one is being read as the page moves. */
+/* Each control hangs off one rule down the left; beside the open one, the rule turns orange. */
 .control {
   position: relative;
-  display: grid;
-  align-content: center;
-  gap: var(--space-3);
-  min-height: 58vh;
-  padding: var(--space-8) 0 var(--space-8) var(--space-8);
+  padding-left: var(--space-8);
   border-left: 1px solid var(--rule);
 }
 
-.control:first-child {
-  min-height: 46vh;
-  align-content: start;
-  padding-top: var(--space-2);
-}
-
-.control:last-child {
-  min-height: 52vh;
-}
-
-/* The part of the rule beside the control being read turns orange. */
 .control::before {
   content: '';
   position: absolute;
   left: -1px;
-  top: var(--space-8);
-  bottom: var(--space-8);
+  top: var(--space-4);
+  bottom: var(--space-4);
   width: 2px;
   background: var(--brand-primary);
   transform: scaleY(0);
@@ -129,12 +121,70 @@
   transition: transform var(--dur-complete) var(--ease);
 }
 
-.control:first-child::before {
-  top: var(--space-2);
+.control[data-open]::before {
+  transform: none;
+}
+
+.controlHead {
+  margin: 0;
+  font: inherit;
+}
+
+/* The heading is the control: its label and its claim, pressed to open it. Its claim is always on the page, so the
+   five read at a glance; only how it works is folded away. */
+.toggle {
+  position: relative;
+  display: grid;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-4) var(--space-10) var(--space-4) 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: default;
+}
+
+.trust[data-live] .control:not([data-open]) .toggle {
+  cursor: pointer;
+}
+
+.toggle:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 4px;
+  border-radius: 6px;
+}
+
+/* A plus beside a closed control, once pressing it does something. */
+.toggle::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  right: var(--space-2);
+  width: 12px;
+  height: 12px;
+  margin-top: -6px;
+  background:
+    linear-gradient(currentColor, currentColor) center / 12px 1.5px no-repeat,
+    linear-gradient(currentColor, currentColor) center / 1.5px 12px no-repeat;
+  color: var(--ink-3);
+  opacity: 0;
+  transition:
+    opacity var(--dur-base) var(--ease),
+    transform var(--dur-complete) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+
+.trust[data-live] .control:not([data-open]) .toggle::after {
+  opacity: 1;
+}
+
+.control[data-open] .toggle::after {
+  transform: rotate(90deg);
 }
 
 .label {
-  margin: 0;
   font-family: var(--font-mono);
   font-size: var(--font-size-micro);
   font-weight: var(--font-weight-medium);
@@ -145,75 +195,116 @@
 }
 
 .controlTitle {
-  max-width: 20ch;
-  margin: 0;
-  font-size: clamp(22px, 1.9vw, 28px);
+  max-width: 24ch;
+  font-size: clamp(19px, 1.6vw, 24px);
   font-weight: var(--font-weight-semibold);
-  line-height: 1.18;
-  letter-spacing: -0.02em;
-  color: var(--ink);
+  line-height: 1.22;
+  letter-spacing: -0.018em;
+  color: var(--ink-2);
   text-wrap: balance;
   transition: color var(--dur-complete) var(--ease);
 }
 
+.control[data-open] .label {
+  color: var(--brand-primary);
+}
+
+.control[data-open] .controlTitle,
+.trust[data-live] .control:not([data-open]) .toggle:hover .controlTitle {
+  color: var(--ink);
+}
+
+.trust[data-live] .control:not([data-open]) .toggle:hover::after {
+  color: var(--ink);
+}
+
+/* How the open control works. Closed, its body folds to nothing and is neither seen nor read. */
+.panel {
+  display: grid;
+  grid-template-rows: 0fr;
+  visibility: hidden;
+  transition:
+    grid-template-rows var(--dur-complete) var(--ease),
+    visibility 0s linear var(--dur-complete);
+}
+
+.control[data-open] .panel {
+  grid-template-rows: 1fr;
+  visibility: visible;
+  transition:
+    grid-template-rows var(--dur-complete) var(--ease),
+    visibility 0s linear 0s;
+}
+
+.panelInner {
+  min-height: 0;
+  overflow: hidden;
+}
+
 .controlBody {
-  max-width: 31rem;
-  margin: var(--space-1) 0 0;
+  max-width: 32rem;
+  margin: 0;
+  padding-bottom: var(--space-6);
   font-size: var(--font-size-body);
   line-height: 1.62;
   color: var(--ink-2);
   text-wrap: pretty;
-  transition: color var(--dur-complete) var(--ease);
 }
 
-/* While one control is read, the others step back — still well above AA on the navy. */
-.trust[data-active] .control .controlTitle {
+/* The switch between the record's two examples, in the controls' own quiet type, over the record. */
+.tools {
+  grid-area: tools;
+  justify-self: end;
+  margin-bottom: var(--space-5);
+}
+
+.switch {
+  display: inline-flex;
+  padding: 3px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-pill);
+  background: rgb(255 255 255 / 0.03);
+}
+
+.switchOption {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 0 var(--space-4);
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
   color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition:
+    background-color var(--dur-base) var(--ease),
+    color var(--dur-base) var(--ease);
 }
 
-.trust[data-active] .control .controlBody {
-  color: var(--ink-3);
-}
-
-.trust[data-active='destinations'] [data-trust-control='destinations']::before,
-.trust[data-active='evidence'] [data-trust-control='evidence']::before,
-.trust[data-active='settlement'] [data-trust-control='settlement']::before,
-.trust[data-active='reconciliation'] [data-trust-control='reconciliation']::before,
-.trust[data-active='desk'] [data-trust-control='desk']::before {
-  transform: none;
-}
-
-.trust[data-active='destinations'] [data-trust-control='destinations'] .label,
-.trust[data-active='evidence'] [data-trust-control='evidence'] .label,
-.trust[data-active='settlement'] [data-trust-control='settlement'] .label,
-.trust[data-active='reconciliation'] [data-trust-control='reconciliation'] .label,
-.trust[data-active='desk'] [data-trust-control='desk'] .label {
-  color: var(--brand-primary);
-}
-
-.trust[data-active='destinations'] [data-trust-control='destinations'] .controlTitle,
-.trust[data-active='evidence'] [data-trust-control='evidence'] .controlTitle,
-.trust[data-active='settlement'] [data-trust-control='settlement'] .controlTitle,
-.trust[data-active='reconciliation'] [data-trust-control='reconciliation'] .controlTitle,
-.trust[data-active='desk'] [data-trust-control='desk'] .controlTitle {
+.switchOption:hover {
   color: var(--ink);
 }
 
-.trust[data-active='destinations'] [data-trust-control='destinations'] .controlBody,
-.trust[data-active='evidence'] [data-trust-control='evidence'] .controlBody,
-.trust[data-active='settlement'] [data-trust-control='settlement'] .controlBody,
-.trust[data-active='reconciliation'] [data-trust-control='reconciliation'] .controlBody,
-.trust[data-active='desk'] [data-trust-control='desk'] .controlBody {
-  color: var(--ink-2);
+.switchOption[aria-pressed='true'] {
+  background: rgb(255 255 255 / 0.1);
+  color: var(--ink);
 }
 
-/* The record stays in view, centred, while the controls pass it. */
+.switchOption:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 2px;
+}
+
+/* The record, held up beside the controls. */
 .aside {
-  position: sticky;
-  top: max(var(--space-12), calc(50vh - 330px));
+  grid-area: record;
   align-self: start;
   display: grid;
-  justify-items: center;
+  justify-items: end;
 }
 
 .stand {
@@ -457,17 +548,43 @@
     transform var(--dur-complete) var(--ease);
 }
 
-.trust[data-active] .line,
-.trust[data-active] .gate {
-  opacity: 0.36;
+/* The lines another control put there step back in colour rather than opacity, so every word on the record stays
+   readable (AA on the sheet) while the open control's lines stand forward. */
+.lineValue,
+.state {
+  transition:
+    color var(--dur-complete) var(--ease),
+    background-color var(--dur-complete) var(--ease),
+    box-shadow var(--dur-complete) var(--ease);
 }
 
-.trust[data-active='destinations'] [data-regions~='destinations'],
-.trust[data-active='evidence'] [data-regions~='evidence'],
-.trust[data-active='settlement'] [data-regions~='settlement'],
-.trust[data-active='reconciliation'] [data-regions~='reconciliation'],
-.trust[data-active='desk'] [data-regions~='desk'] {
-  opacity: 1;
+.trust[data-active] .lineValue,
+.trust[data-active] .gate {
+  color: var(--text-muted);
+}
+
+.trust[data-active] .state {
+  background: transparent;
+  color: var(--text-muted);
+  box-shadow: inset 0 0 0 1px var(--border-default);
+}
+
+.trust[data-active='destinations'] [data-regions~='destinations'] .lineValue,
+.trust[data-active='evidence'] [data-regions~='evidence'] .lineValue,
+.trust[data-active='settlement'] [data-regions~='settlement'] .lineValue,
+.trust[data-active='reconciliation'] [data-regions~='reconciliation'] .lineValue,
+.trust[data-active='desk'] [data-regions~='desk'] .lineValue {
+  color: var(--text-primary);
+}
+
+.trust[data-active='destinations'] [data-regions~='destinations'] .state,
+.trust[data-active='evidence'] [data-regions~='evidence'] .state,
+.trust[data-active='settlement'] [data-regions~='settlement'] .state,
+.trust[data-active='reconciliation'] [data-regions~='reconciliation'] .state,
+.trust[data-active='desk'] [data-regions~='desk'] .state {
+  background: var(--status-success-soft);
+  color: var(--status-success);
+  box-shadow: none;
 }
 
 .trust[data-active='destinations'] .line[data-regions~='destinations']::before,
@@ -506,7 +623,8 @@
   border-top-style: solid;
 }
 
-/* ——— A phone ——— */
+/* ——— A phone ———
+   One column: the switch, then the controls, the open one carrying its own excerpt of the record. */
 
 @media (max-width: 1099px) {
   .inner {
@@ -529,34 +647,45 @@
 
   .layout {
     grid-template-columns: minmax(0, 1fr);
-    margin-top: var(--space-12);
+    grid-template-rows: auto auto;
+    grid-template-areas:
+      'tools'
+      'list';
+    margin-top: var(--space-10);
+  }
+
+  .tools {
+    justify-self: start;
+    margin-bottom: var(--space-6);
   }
 
   .aside {
     display: none;
   }
 
-  .control,
-  .control:first-child,
-  .control:last-child {
-    min-height: 0;
-    align-content: start;
-    padding: var(--space-2) 0 var(--space-12) var(--space-5);
+  .control {
+    padding-left: var(--space-5);
   }
 
-  .control:last-child {
-    padding-bottom: var(--space-2);
+  .toggle {
+    padding-right: var(--space-8);
   }
 
-  .control::before,
-  .control:first-child::before {
-    top: var(--space-2);
-    bottom: var(--space-12);
+  .toggle::after {
+    right: 0;
+  }
+
+  .controlTitle {
+    font-size: 19px;
   }
 
   .excerptFrame {
     display: block;
-    margin-top: var(--space-4);
+    margin-bottom: var(--space-6);
+  }
+
+  .controlBody {
+    padding-bottom: var(--space-4);
   }
 
   .excerpt {
@@ -601,5 +730,15 @@
     flex-wrap: wrap;
     justify-content: space-between;
     row-gap: var(--space-1);
+  }
+}
+
+/* Asked for less motion: the controls open and close without folding. */
+@media (prefers-reduced-motion: reduce) {
+  .panel,
+  .control[data-open] .panel,
+  .control::before,
+  .toggle::after {
+    transition: none;
   }
 }

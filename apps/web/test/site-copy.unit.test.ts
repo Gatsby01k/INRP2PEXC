@@ -3,7 +3,7 @@ import { draftFor } from '@inrp2p/notifications';
 import { RECEIPT_SNAPSHOT_VERSION, type ReceiptSnapshot, receiptHtml } from '@inrp2p/reporting';
 import type { NotificationKind } from '@inrp2p/db';
 import {
-  ACTIONS, AUDIENCE, BUSINESS, CLOSING, DESK, FLOW, FOOTER, FOOTER_NOTE, HERO, NAV, SITE_NAME, SITE_PAGES, SITE_PATHS, TAGLINE, TRUST,
+  ACTIONS, AUDIENCE, BUSINESS, CLOSING, DESK, FLOW, FOOTER, FOOTER_NOTE, HERO, NAV, ONBOARDING, SITE_NAME, SITE_PAGES, SITE_PATHS, TAGLINE, TRUST,
 } from '../src/content/site.ts';
 
 /**
@@ -78,7 +78,7 @@ const HERO_MODULE_COPY = Object.entries(HERO.quote as unknown as Record<string, 
 /**
  * Every string inside a structure of copy, each named by its path. Keys that hold identifiers rather than words —
  * a station's or a control's key, where a line belongs, the shape a masked figure is drawn in, who acted on a
- * timeline entry, the client app path an action leads to — are not copy
+ * step, the client app path an action leads to — are not copy
  * and are skipped; everything else is read, so a string added anywhere in the structure is read with it.
  */
 const IDENTIFIER_KEYS = new Set(['key', 'at', 'kind', 'mask', 'regions', 'actor', 'appPath']);
@@ -100,6 +100,8 @@ const SITE_COPY: readonly { readonly where: string; readonly text: string }[] = 
   ...HERO.points.map((p) => ({ where: `HERO.points ${p.label}`, text: p.label })),
   ...HERO_MODULE_COPY,
   { where: 'HERO.voice.control', text: HERO.voice.control },
+  { where: 'HERO.voice.state.on', text: HERO.voice.state.on },
+  { where: 'HERO.voice.state.off', text: HERO.voice.state.off },
   { where: 'HERO.voice.on', text: HERO.voice.on },
   { where: 'HERO.voice.off', text: HERO.voice.off },
   ...Object.entries(HERO.voice.lines).map(([line, text]) => ({ where: `HERO.voice.lines.${line}`, text })),
@@ -113,6 +115,7 @@ const SITE_COPY: readonly { readonly where: string; readonly text: string }[] = 
   ...copyIn(DESK, 'DESK'),
   ...copyIn(BUSINESS, 'BUSINESS'),
   ...copyIn(CLOSING, 'CLOSING'),
+  ...copyIn(ONBOARDING, 'ONBOARDING'),
   ...copyIn(FOOTER, 'FOOTER'),
   ...SITE_PAGES.flatMap((p) => [
     { where: `${p.path} title`, text: p.title },

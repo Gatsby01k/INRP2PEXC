@@ -87,16 +87,33 @@ export const VOICE_LINES = ['ready', 'received', 'check'] as const;
 export type VoiceLine = (typeof VOICE_LINES)[number];
 
 /**
- * The robot's voice: three short, recorded lines, each said only after something the visitor did.
- * `lines` are the words of the recordings (`voice/clips`), spoken, not shown; `control` names the button that
- * mutes them, `on` and `off` describe its state.
+ * The robot's voice: three short, recorded lines, each said only after something the visitor did, and only once
+ * the visitor has turned the voice on. `lines` are the words of the recordings (`voice/clips`), spoken, not
+ * shown; `control` names the button that turns them on and off, `state` is the word it shows for each position,
+ * and `on` and `off` describe that position in full.
  */
 export interface HeroVoiceCopy {
   readonly control: string;
+  readonly state: { readonly on: string; readonly off: string };
   readonly on: string;
   readonly off: string;
   readonly lines: Record<VoiceLine, string>;
 }
+
+/**
+ * The way in for someone who is not a client yet. Trading needs a client record the desk sets up, so the path is
+ * a message to the desk — drawn only when an address to write to is configured (server/site.ts `siteContacts`),
+ * and replaced by `unlinked`, which says how onboarding works without offering a way in that does not exist.
+ */
+export const ONBOARDING = {
+  prompt: 'New to the desk?',
+  label: 'Request onboarding',
+  /** The subject the message opens with, so the desk can tell it from other mail. */
+  subject: 'Onboarding request',
+  unlinked: 'New clients are onboarded by the desk first.',
+  /** What an SEO page says under its actions, before the link. */
+  requirement: 'Trading needs a client record with its settlement destinations registered in advance. The desk sets that up; there is no form here that can.',
+} as const;
 
 /** Words that change with the direction are keyed by it, so the module can never pair a label with the wrong side. */
 export interface QuoteModuleCopy {
@@ -112,6 +129,7 @@ export interface QuoteModuleCopy {
   readonly cta: string;
   /** Shown under the amount when "Request quote" is pressed without one; the visitor stays on the page. */
   readonly amountRequired: string;
+  /** Under the call to action, followed by the way in for a visitor who is not a client yet (ONBOARDING). */
   readonly note: string;
 }
 
@@ -137,11 +155,12 @@ export const HERO: HeroCopy = {
     presets: 'Common amounts',
     cta: 'Request quote',
     amountRequired: 'Enter an amount to request a quote.',
-    note: 'Sent from your client account. New clients are onboarded by the desk first.',
+    note: 'Sent from your client account.',
   },
   voice: {
     control: 'Voice',
-    on: 'Voice cues are on. Press to mute them.',
+    state: { on: 'On', off: 'Off' },
+    on: 'Voice cues are on. Press to turn them off.',
     off: 'Voice cues are off. Press to turn them on.',
     lines: {
       ready: 'Ready when you are.',
@@ -201,7 +220,7 @@ export interface FlowCopy {
 export const FLOW: FlowCopy = {
   eyebrow: 'Execution flow',
   heading: 'The price is fixed before any money moves.',
-  lede: 'Both directions run through the same stations. A dealer prices the whole trade, you accept while the price is firm, your side arrives and is confirmed — and only then is the other side paid, to a destination registered before the trade began.',
+  lede: 'Both directions pass the same five steps. Switch between them to follow the money either way.',
   direction: { label: 'Direction shown', options: { BUY_USDT: 'INR to USDT', SELL_USDT: 'USDT to INR' } },
   stations: [
     {
@@ -226,8 +245,8 @@ export const FLOW: FlowCopy = {
       name: both('Execution'),
       title: both('Accepted while firm'),
       body: {
-        BUY_USDT: 'A code sent to someone authorised to decide confirms it. Rate, amounts and destination are frozen, and the trade names the account to pay.',
-        SELL_USDT: 'A code sent to someone authorised to decide confirms it. Rate, amounts and destination are frozen, and the trade gets a deposit address of its own.',
+        BUY_USDT: 'Rate, amounts and destination are frozen, and the trade names the account to pay and the reference to use.',
+        SELL_USDT: 'Rate, amounts and destination are frozen, and the trade gets a deposit address of its own.',
       },
       record: both('Frozen terms'),
     },
@@ -236,8 +255,8 @@ export const FLOW: FlowCopy = {
       name: both('Settlement'),
       title: both('Your side, then ours'),
       body: {
-        BUY_USDT: 'Your INR is matched to the trade by its reference and confirmed against the bank’s record. Only then is the USDT sent.',
-        SELL_USDT: 'Your USDT counts once the TRON block that carries it is final. Only then is the INR paid.',
+        BUY_USDT: 'You pay INR as the trade instructs. Only once it is confirmed is the USDT sent.',
+        SELL_USDT: 'You send USDT to that address. Only once it is final is the INR paid.',
       },
       record: { BUY_USDT: 'Bank reference · transaction hash', SELL_USDT: 'Transaction hash · bank references' },
     },
@@ -247,7 +266,7 @@ export const FLOW: FlowCopy = {
       title: { BUY_USDT: 'Your registered wallet', SELL_USDT: 'Your registered bank account' },
       body: {
         BUY_USDT: 'Delivered on TRC20 to the wallet registered before the trade, and to no other address.',
-        SELL_USDT: 'Paid to the account registered before the trade, in one transfer or several, each with its own bank reference.',
+        SELL_USDT: 'Paid to the bank account registered before the trade, and to no other account.',
       },
       record: both('Settlement receipt'),
     },
@@ -270,7 +289,8 @@ export const FLOW: FlowCopy = {
  *
  * Each control is something the software does on every trade — not a policy, not a promise — and each one
  * governs particular lines of the record: `regions` on a line names the controls that put it there. The record
- * is a specimen of the record's shape, with every figure masked; its words are the product's own.
+ * is a specimen of the record's shape, with every figure masked; its words are the product's own. One control
+ * is read at a time: its title is always shown, its body when it is the one open.
  */
 export const TRUST_CONTROLS = ['destinations', 'evidence', 'settlement', 'reconciliation', 'desk'] as const;
 export type TrustControl = (typeof TRUST_CONTROLS)[number];
@@ -300,6 +320,8 @@ export interface TrustCopy {
   readonly heading: string;
   readonly lede: string;
   readonly controls: readonly TrustControlCopy[];
+  /** The switch between the record's two examples; it moves the flow's switch with it, and the other way round. */
+  readonly direction: { readonly label: string; readonly options: Record<Direction, string> };
   readonly record: {
     readonly title: string;
     readonly status: string;
@@ -321,39 +343,40 @@ const TOTAL: RecordLine = { label: 'Total paid', value: 'Equals the agreed amoun
 export const TRUST: TrustCopy = {
   eyebrow: 'Operational controls',
   heading: 'Built to be checked, not taken on trust.',
-  lede: 'A large trade should not rest on anyone’s word. Each control below is part of how every trade settles, and each one leaves a line in the trade’s record.',
+  lede: 'Each control runs on every trade, and each leaves its own lines in the trade’s record.',
   controls: [
     {
       key: 'destinations',
       label: 'Destinations',
       title: 'Money goes only where you registered it.',
-      body: 'Bank accounts and wallets are added before a trade, never typed during one. Each addition needs a second factor and is announced to you. Nothing is edited in place: a change is a new registration, so the destination a trade agreed to cannot quietly move.',
+      body: 'Bank accounts and wallets are registered before a trade, never typed during one; each takes a second factor, and you are told of it. A change is a new registration, not an edit, so an agreed destination cannot move.',
     },
     {
       key: 'evidence',
       label: 'Evidence',
       title: 'Every payment carries its own reference.',
-      body: 'A bank transfer is recorded with its UTR, a USDT transfer with its transaction hash. USDT is attributed only by the deposit address issued for that one trade — never by amount or sender — and one real transfer is recorded once.',
+      body: 'Bank transfers are recorded with their UTR, USDT transfers with their transaction hash. USDT is matched to a trade only by the deposit address issued for it — never by amount or sender — and each transfer is recorded once.',
     },
     {
       key: 'settlement',
       label: 'Controlled settlement',
       title: 'Your side is final before ours is sent.',
-      body: 'USDT counts once the TRON block that carries it is final, and larger transfers must be confirmed by independent sources. INR counts once it matches the bank’s record. Only then can a payout go out, and the desk confirms each one with a second factor.',
+      body: 'USDT counts once its TRON block is final, and larger transfers need independent sources to agree. INR counts once it matches the bank’s own record. The desk then confirms each payout with a second factor.',
     },
     {
       key: 'reconciliation',
       label: 'Reconciliation',
       title: 'A trade closes only when the payments add up.',
-      body: 'Every movement is posted once to a double-entry ledger that is added to and never edited. A trade completes only when confirmed payments equal what was agreed. A correction is written as a correction, and needs a second person’s approval.',
+      body: 'Every movement is posted once to a double-entry ledger that is only ever added to. A correction is a new entry, and a second person must approve it.',
     },
     {
       key: 'desk',
       label: 'The desk',
       title: 'A person on every trade, and on every exception.',
-      body: 'A dealer prices each trade and an operator confirms each payout. Anything that does not match — a different amount, an unexpected sender, a failed transfer — opens a case and holds the trade until a person resolves it, with the decision recorded.',
+      body: 'A dealer prices each trade and an operator confirms each payout, and the record says so. Anything that does not match becomes a case, and a person resolves it.',
     },
   ],
+  direction: { label: 'Example shown', options: { BUY_USDT: 'Buy USDT', SELL_USDT: 'Sell USDT' } },
   record: {
     title: 'Trade record',
     status: 'Completed',
@@ -453,7 +476,7 @@ export interface AudienceCopy {
 export const AUDIENCE: AudienceCopy = {
   eyebrow: 'Who it’s for',
   heading: 'For trades too large to leave to a screen.',
-  lede: 'Three kinds of counterparty come to a desk rather than a book. What they have in common is size: amounts where a price that moves while an order fills is expensive, and where the record has to hold up afterwards.',
+  lede: 'Three kinds of counterparty come to a desk rather than a book. What they share is size: a price that moves while an order fills is expensive, and the record has to hold up afterwards.',
   groups: [
     {
       key: 'traders',
@@ -465,7 +488,7 @@ export const AUDIENCE: AudienceCopy = {
       key: 'business',
       name: 'Businesses & treasury teams',
       situation: 'Several people share one account, and the books have to close.',
-      fit: 'One client record for the whole team, with each person holding only the permissions you give them.',
+      fit: 'One client record for the whole team, with each person holding only the permissions you choose for them.',
     },
     {
       key: 'partners',
@@ -477,103 +500,85 @@ export const AUDIENCE: AudienceCopy = {
 };
 
 /**
- * The execution desk: the timeline one trade leaves behind, from the request to the receipt.
+ * The execution desk: who owns each step of a trade, and what happens at that step when something goes wrong.
  *
- * Each entry is something that happens on every trade, told by who does it — the client, a dealer, an operator,
- * or the system's own checks — with the status the client sees once it has happened. An entry marked `branch` is
- * the way off the main path at that step, and where the trade goes instead. Times are drawn masked, like every
- * other figure on the page.
+ * The execution flow above says how the price is fixed and the money moves; this says who does it. Each step
+ * names the people who act — the client, a dealer, an operator, or the system's own checks — what they do, and
+ * the way off the main path at that step, with the status the client sees when the trade takes it.
  */
-export const DESK_STAGES = ['request', 'review', 'quote', 'settlement', 'complete'] as const;
-export type DeskStage = (typeof DESK_STAGES)[number];
+export const DESK_STEPS = ['request', 'price', 'accept', 'settle', 'complete'] as const;
+export type DeskStep = (typeof DESK_STEPS)[number];
 
-/** Who acted. `you` is the client; the other three are the desk. */
+/** Who acts. `you` is the client; the other three are the desk. */
 export type DeskActor = 'you' | 'dealer' | 'operator' | 'system';
 
-export interface DeskEntry {
-  readonly actor: DeskActor | Record<Direction, DeskActor>;
-  readonly event: string | Record<Direction, string>;
-  /** The status the client sees once this has happened. */
-  readonly status?: string | Record<Direction, string>;
-  readonly branch?: true;
+export interface DeskStepCopy {
+  readonly key: DeskStep;
+  readonly name: string;
+  /** In the order they act. */
+  readonly actor: readonly DeskActor[] | Record<Direction, readonly DeskActor[]>;
+  readonly does: string | Record<Direction, string>;
+  /** What happens at this step when it does not go as planned, and the status the client sees if there is one. */
+  readonly exception: { readonly text: string; readonly status?: string };
 }
 
 export interface DeskCopy {
   readonly eyebrow: string;
   readonly heading: string;
   readonly lede: string;
-  /** The timeline's accessible name, and the key to how its entries are drawn. */
-  readonly timeline: string;
-  readonly legend: { readonly you: string; readonly desk: string; readonly branch: string };
-  /** Read before a status by assistive technology; drawn as a mark. */
-  readonly statusLabel: string;
+  /** The steps' accessible name. */
+  readonly list: string;
+  /** Column heads on a wide screen; a label on each step on a narrow one. */
+  readonly columns: { readonly actor: string; readonly does: string; readonly exception: string };
   readonly actors: Record<DeskActor, string>;
-  readonly stages: readonly { readonly key: DeskStage; readonly name: string; readonly entries: readonly DeskEntry[] }[];
+  readonly steps: readonly DeskStepCopy[];
 }
 
 export const DESK: DeskCopy = {
   eyebrow: 'Execution desk',
   heading: 'From request to receipt, every step has an owner.',
-  lede: 'This is the timeline a trade leaves behind: who acted at each step, and the status you saw once they had. The ways off the main path are on it too, and where each one leads.',
-  timeline: 'The timeline of one trade',
-  legend: { you: 'Your move', desk: 'The desk’s move', branch: 'Off the main path' },
-  statusLabel: 'Status:',
+  lede: 'Who acts at each step, and what happens when something does not match.',
+  list: 'Who owns each step of a trade',
+  columns: { actor: 'Who acts', does: 'What they do', exception: 'If it goes wrong' },
   actors: { you: 'You', dealer: 'Dealer', operator: 'Operator', system: 'System' },
-  stages: [
+  steps: [
     {
       key: 'request',
       name: 'Request',
-      entries: [
-        { actor: 'you', event: 'Request sent: direction, amount, the side that is fixed, and a registered destination', status: 'Open' },
-        { actor: 'system', event: 'Checked on arrival — your client record is active, the destination is yours, the amount is within the desk’s limit' },
-      ],
+      actor: ['you', 'system'],
+      does: 'You ask for a price to a registered destination. The system checks your client record, the destination and the desk’s limit.',
+      exception: { text: 'A request that fails a check is not opened.' },
     },
     {
-      key: 'review',
-      name: 'Desk review',
-      entries: [
-        { actor: 'dealer', event: 'Reviewed, and priced for this trade alone' },
-        { actor: 'dealer', event: 'Or declined, with the reason written on it', status: 'Declined', branch: true },
-      ],
+      key: 'price',
+      name: 'Price',
+      actor: ['dealer'],
+      does: 'A dealer prices the trade and sends you a firm quote.',
+      exception: { text: 'The dealer declines instead, with the reason written on it.', status: 'Declined' },
     },
     {
-      key: 'quote',
-      name: 'Quote',
-      entries: [
-        { actor: 'dealer', event: 'Quote sent: one firm rate, and the moment it expires', status: 'Quoted' },
-        { actor: 'you', event: 'Accepted with a code sent to your verified email; rate, amounts and destination are frozen', status: 'Accepted' },
-        { actor: 'system', event: 'Expired or rejected instead: the request goes back to the desk to be priced again', branch: true },
-      ],
+      key: 'accept',
+      name: 'Accept',
+      actor: ['you'],
+      does: 'You accept while the quote is firm: in your client account, or from its private link with a code sent to your verified email.',
+      exception: { text: 'A quote that expires or is rejected sends the request back to the dealer, who may price it again.' },
     },
     {
-      key: 'settlement',
-      name: 'Settlement',
-      entries: [
-        {
-          actor: 'you',
-          event: { BUY_USDT: 'INR sent to the account the trade names, with its reference', SELL_USDT: 'USDT sent to the deposit address issued for this trade' },
-          status: { BUY_USDT: 'Waiting for your INR', SELL_USDT: 'Waiting for your USDT' },
-        },
-        {
-          actor: { BUY_USDT: 'operator', SELL_USDT: 'system' },
-          event: { BUY_USDT: 'Your INR matched against the bank’s own record', SELL_USDT: 'Your USDT final on chain' },
-          status: 'Funds confirmed',
-        },
-        {
-          actor: 'operator',
-          event: {
-            BUY_USDT: 'USDT sent to your registered wallet, and confirmed with a second factor',
-            SELL_USDT: 'INR paid to your registered account, each transfer confirmed with a second factor',
-          },
-          status: 'Paying out',
-        },
-        { actor: 'operator', event: 'Anything that does not match opens a case, and the trade holds until a person resolves it', status: 'On hold', branch: true },
-      ],
+      key: 'settle',
+      name: 'Settle',
+      actor: { BUY_USDT: ['you', 'operator'], SELL_USDT: ['you', 'system', 'operator'] },
+      does: {
+        BUY_USDT: 'You pay INR. An operator confirms it against the bank’s record, then sends your USDT.',
+        SELL_USDT: 'You send USDT. The system confirms it once final on chain, then an operator pays your INR.',
+      },
+      exception: { text: 'A wrong amount, an unexpected sender or a failed transfer opens a case, and the trade holds until a person resolves it.', status: 'On hold' },
     },
     {
       key: 'complete',
       name: 'Complete',
-      entries: [{ actor: 'system', event: 'Confirmed payments equal the agreed amount, and the receipt is written', status: 'Completed' }],
+      actor: ['system'],
+      does: 'The system completes the trade when confirmed payments equal the agreed amount, and writes the receipt.',
+      exception: { text: 'An open case keeps it from completing, even when the amounts add up.' },
     },
   ],
 };
@@ -597,18 +602,18 @@ export const BUSINESS: BusinessCopy = {
   terms: [
     {
       label: 'Pricing',
-      title: 'Name the rate you want.',
-      body: 'Put a target rate on the request. The dealer quotes at it, counters at another, or declines and says why — for the full size, whichever it is.',
+      title: 'Set your target rate.',
+      body: 'Put a target rate on the request. The dealer may quote at it, counter with another rate, or decline and say why — for the full amount either way.',
     },
     {
       label: 'Authority',
       title: 'Only the people you name can say yes.',
-      body: 'Accepting a quote commits your organisation, so it takes a person your administrator has allowed to accept. Granting or removing that permission takes the administrator’s second factor, and is recorded.',
+      body: 'Accepting a quote commits your organisation, so only the people you name may do it. Granting or removing that permission takes a second factor, and is recorded.',
     },
     {
       label: 'Payout',
       title: 'A large payout, in parts you can follow.',
-      body: 'INR may arrive as several transfers to your registered account. Each one appears on your trade as it is confirmed, with its own bank reference, so a large payout can be followed as it lands.',
+      body: 'INR may arrive as several transfers to your registered account. Each one appears on your trade as it is confirmed, with its own bank reference.',
     },
     {
       label: 'Records',
@@ -619,26 +624,25 @@ export const BUSINESS: BusinessCopy = {
 };
 
 /**
- * The page's last word: one call to action, and the honest answer for someone who is not a client yet.
+ * The page's last word: the call to action for a client, and the way in for someone who is not one yet.
  *
  * A trade is requested from a client account, so the action leads there. A visitor without one is told what the
- * desk sets up before a first trade; the address to write to is configuration (server/site.ts `siteContacts`),
- * published only when it is set, never a placeholder.
+ * desk sets up before a first trade, and offered the way in (ONBOARDING) when an address to write to is set.
  */
 export const CLOSING = {
   heading: 'Ask for a firm price on your trade.',
   body: 'Requested from your client account, priced by a dealer, and firm until it expires.',
   cta: { label: 'Request a quote', appPath: '/exchange' },
   newClient: {
-    title: 'New to the desk?',
+    title: ONBOARDING.prompt,
     body: 'Before a first trade, the desk sets up your client record, the people who may accept quotes, and the bank accounts and wallets you settle to.',
-    contact: 'Write to the desk',
   },
 } as const;
 
 /**
  * The footer's links, by what they are for. Every one leads somewhere that exists: a page, a section of the home
- * page, the client app, or an address that is configured. Nothing is linked that has not been written.
+ * page, the client app, or an address that is configured. Nothing is linked that has not been written — there
+ * is no privacy notice, no terms and no operating entity to name until they exist, so none is linked or named.
  */
 export const FOOTER = {
   groups: { product: 'Product', pages: 'Guides', security: 'Security', contact: 'Contact' },
@@ -649,8 +653,11 @@ export const FOOTER = {
     desk: 'Execution desk',
     controls: 'Operational controls',
     securityReport: 'Report a security issue',
-    deskContact: 'Write to the desk',
+    onboarding: ONBOARDING.label,
+    deskContact: 'Contact the desk',
   },
+  /** The one risk that is the visitor's to manage and cannot be undone: where USDT is sent. */
+  risk: 'A USDT transfer on TRON cannot be recalled once it is final. Send USDT only to the deposit address issued for your trade.',
   /** Whose names these are. */
   marks: 'USDT is a token issued by Tether; TRON and TRC20 are names of the network it is sent on. Neither is affiliated with this desk.',
 } as const;

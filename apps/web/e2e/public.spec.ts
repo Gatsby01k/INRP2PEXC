@@ -1,7 +1,8 @@
 import { expect, test } from '@playwright/test';
 import { CLIP_MEASUREMENTS } from '../src/app/(public)/_landing/voice/clips/measurements.ts';
-import { AUDIENCE, BUSINESS, CLOSING, DESK, SITE_PAGES, SITE_PATHS } from '../src/content/site.ts';
+import { AUDIENCE, BUSINESS, CLOSING, DESK, FLOW, HERO, ONBOARDING, SITE_PAGES, SITE_PATHS, TRUST } from '../src/content/site.ts';
 import { appBaseUrl, deskSendsQuoteWithLink, linkBaseUrl, operatorBaseUrl } from './support.ts';
+import { E2E_PUBLIC_CONTACTS } from './world.ts';
 
 /**
  * The public site and the headers that protect every surface (PRODUCT §7.4, SECURITY §7).
@@ -47,24 +48,97 @@ test('the home page ends with one call to action, and its footer links only to w
   // The old reading column is gone: the home page says everything in its own sections, once.
   await expect(page.getByRole('heading', { name: 'A desk, not an order book' })).toHaveCount(0);
 
-  // One action at the end, into the client app — not a second pair of Buy and Sell buttons. The harness sets no
-  // desk address, so the new-client note carries no link rather than a placeholder one.
+  // One action at the end, into the client app — not a second pair of Buy and Sell buttons — and beside it the
+  // way in for someone who is not a client yet.
   const closing = page.getByRole('region', { name: CLOSING.heading });
-  const actions = closing.getByRole('link');
-  await expect(actions).toHaveCount(1);
-  await expect(actions).toHaveText(CLOSING.cta.label);
-  await expect(actions).toHaveAttribute('href', `${appBaseUrl()}${CLOSING.cta.appPath}`);
+  const request = closing.getByRole('link', { name: CLOSING.cta.label });
+  await expect(request).toHaveAttribute('href', `${appBaseUrl()}${CLOSING.cta.appPath}`);
+  await expect(closing.getByRole('link')).toHaveCount(2);
+  await expect(closing.getByRole('link', { name: new RegExp(`^${ONBOARDING.label}`) })).toHaveAttribute('href', onboardingHref);
 
-  // Every footer link is a published page, a section of the home page that is there, or the client app.
+  // Every footer link is a published page, a section of the home page that is there, the client app, or one of the
+  // addresses this run configured.
   const footer = page.getByRole('contentinfo');
   const hrefs = await footer.getByRole('link').evaluateAll((links) => links.map((a) => a.getAttribute('href') ?? ''));
   expect(hrefs.length).toBeGreaterThan(SITE_PATHS.length);
+  const configured = Object.values(E2E_PUBLIC_CONTACTS);
   for (const href of hrefs) {
     if (href.startsWith('/#')) await expect(page.locator(href.slice(1)), href).toHaveCount(1);
     else if (href.startsWith('/')) expect(SITE_PATHS, href).toContain(href);
+    else if (href.startsWith('mailto:')) expect(configured, href).toContain(href.slice('mailto:'.length).split('?')[0]);
     else expect(href.startsWith(appBaseUrl()), href).toBe(true);
   }
-  expect(hrefs.some((h) => h.startsWith('mailto:')), 'no address is published that is not configured').toBe(false);
+  expect(hrefs).toContain(onboardingHref);
+});
+
+/** Where a visitor without a client account asks to become one: a message to the configured desk address. */
+const onboardingHref = `mailto:${E2E_PUBLIC_CONTACTS.desk}?subject=${encodeURIComponent(ONBOARDING.subject)}`;
+
+test('a visitor without a client account is offered one way in, wherever the question comes up', async ({ page }) => {
+  await page.goto(linkBaseUrl());
+  // Under the hero's call to action, which is for clients: the request itself still goes to the client app.
+  const hero = page.getByRole('region', { name: 'Request a quote' });
+  const onboarding = hero.getByRole('link', { name: ONBOARDING.label });
+  await expect(onboarding).toBeVisible();
+  await expect(onboarding).toHaveAttribute('href', onboardingHref);
+  await expect(hero.getByRole('link', { name: 'Request quote' })).toHaveAttribute('href', new RegExp(`^${appBaseUrl()}/exchange`));
+  // Existing clients still sign in from the masthead.
+  await expect(page.getByRole('banner').getByRole('link', { name: 'Client sign in' })).toHaveAttribute('href', `${appBaseUrl()}/sign-in`);
+
+  // And on a page a search engine sends someone to, under its actions.
+  await page.goto(`${linkBaseUrl()}/usdt-to-inr`);
+  await expect(page.getByRole('main').getByRole('link', { name: ONBOARDING.label })).toHaveAttribute('href', onboardingHref);
+});
+
+test('the operational controls are read one at a time, beside the record they leave', async ({ page }) => {
+  await page.goto(linkBaseUrl());
+  const section = page.locator('#controls');
+  const heading = (label: string) => section.getByRole('button', { name: new RegExp(`^${label}`) });
+  const [first, second] = [TRUST.controls[0]!, TRUST.controls[1]!];
+
+  // Every control's claim is on the page; only the first is open.
+  for (const c of TRUST.controls) await expect(heading(c.label)).toContainText(c.title);
+  await expect(heading(first.label)).toHaveAttribute('aria-expanded', 'true');
+  await expect(section.getByText(first.body)).toBeVisible();
+  await expect(section.getByText(second.body)).toBeHidden();
+
+  // Opening another closes the first, and the record lights the new one's lines.
+  await heading(second.label).click();
+  await expect(heading(second.label)).toHaveAttribute('aria-expanded', 'true');
+  await expect(heading(first.label)).toHaveAttribute('aria-expanded', 'false');
+  await expect(section.getByText(second.body)).toBeVisible();
+  await expect(section.getByText(first.body)).toBeHidden();
+  await expect(section).toHaveAttribute('data-active', second.key);
+
+  // From the keyboard: arrows move between the headings, and Enter opens one.
+  await heading(second.label).focus();
+  await page.keyboard.press('ArrowDown');
+  await expect(heading(TRUST.controls[2]!.label)).toBeFocused();
+  await page.keyboard.press('End');
+  await expect(heading(TRUST.controls.at(-1)!.label)).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(heading(TRUST.controls.at(-1)!.label)).toHaveAttribute('aria-expanded', 'true');
+
+  // The record's example and the execution flow's direction are one choice: moving either moves both.
+  const example = section.getByRole('group', { name: TRUST.direction.label });
+  const flow = page.locator('#execution-flow').getByRole('group', { name: FLOW.direction.label });
+  await example.getByRole('button', { name: TRUST.direction.options.SELL_USDT }).click();
+  await expect(page.locator('[data-story]')).toHaveAttribute('data-direction', 'SELL_USDT');
+  await expect(flow.getByRole('button', { name: FLOW.direction.options.SELL_USDT })).toHaveAttribute('aria-pressed', 'true');
+  await flow.getByRole('button', { name: FLOW.direction.options.BUY_USDT }).click();
+  await expect(example.getByRole('button', { name: TRUST.direction.options.BUY_USDT })).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('the execution desk names who acts at every step, and what happens when something goes wrong', async ({ page }) => {
+  await page.goto(linkBaseUrl());
+  const steps = page.getByRole('list', { name: DESK.list }).getByRole('listitem').filter({ has: page.getByRole('heading', { level: 3 }) });
+  await expect(steps).toHaveCount(DESK.steps.length);
+  for (const [i, step] of DESK.steps.entries()) {
+    const row = steps.nth(i);
+    await expect(row.getByRole('heading', { level: 3 })).toHaveText(step.name);
+    await expect(row.getByText(step.exception.text)).toBeVisible();
+    if (step.exception.status) await expect(row.getByText(step.exception.status, { exact: true })).toBeVisible();
+  }
 });
 
 test('the public host still refuses everything it does not publish', async ({ page }) => {
@@ -208,15 +282,16 @@ test('a page under the policy loads without the browser refusing anything', asyn
 });
 
 /**
- * The robot's voice: three recorded lines, each after something the visitor did and never before (the hero's
- * `voice/controller.ts`). Real Web Audio, under the site's real policy; what is recorded is every clip the page
- * starts, when, and every clip it fetches — so "at once" and "from memory" are measured, not assumed.
+ * The robot's voice: off until the visitor turns it on, then three recorded lines, each after something the
+ * visitor did and never before (the hero's `voice/controller.ts`). Real Web Audio, under the site's real policy;
+ * what is recorded is every clip the page starts, when, and every clip it fetches — so "nothing until asked",
+ * "at once" and "from memory" are measured, not assumed.
  */
-test('the robot speaks from memory, at once, only three lines — and never once muted', async ({ browser }) => {
+test('the robot is silent until asked, then speaks from memory, at once, only three lines — and never once off', async ({ browser }) => {
   const context = await browser.newContext();
   await context.addInitScript(() => {
     // What the page's audio does, as it does it: every clip started, when, and in what state the audio was.
-    const log = { played: [] as { duration: number; at: number; state: string }[], pressedAt: 0 };
+    const log = { played: [] as { duration: number; at: number; state: string }[], pressedAt: 0, contexts: 0 };
     (window as unknown as { voiceLog: typeof log }).voiceLog = log;
     window.addEventListener('pointerdown', () => (log.pressedAt = performance.now()), { capture: true });
     const start = AudioBufferSourceNode.prototype.start;
@@ -226,6 +301,13 @@ test('the robot speaks from memory, at once, only three lines — and never once
       if (duration > 0.05) log.played.push({ duration, at: performance.now(), state: this.context.state });
       return start.apply(this, args);
     };
+    const Live = window.AudioContext;
+    window.AudioContext = class extends Live {
+      constructor(options?: AudioContextOptions) {
+        super(options);
+        log.contexts += 1;
+      }
+    };
   });
   const page = await context.newPage();
   const clipRequests: { url: string; afterFirstPress: boolean }[] = [];
@@ -233,34 +315,37 @@ test('the robot speaks from memory, at once, only three lines — and never once
   page.on('request', (request) => {
     if (/\/_next\/static\/media\/(ready|received|check)\./.test(request.url())) clipRequests.push({ url: request.url(), afterFirstPress: pressed });
   });
-  const log = () => page.evaluate(() => (window as unknown as { voiceLog: { played: { duration: number; at: number; state: string }[]; pressedAt: number } }).voiceLog);
+  type Log = { played: { duration: number; at: number; state: string }[]; pressedAt: number; contexts: number };
+  const log = () => page.evaluate(() => (window as unknown as { voiceLog: Log }).voiceLog);
   const lines = async () => (await log()).played.map((p) => p.duration);
 
   await page.goto(linkBaseUrl());
   const control = page.getByRole('button', { name: 'Voice' });
-  // The control appears once every clip is loaded and decoded — before anything could need one.
+  // Off for a first visit, and saying so in words.
   await expect(control).toHaveAttribute('data-available', 'true');
-  await expect(control).toHaveAttribute('aria-pressed', 'true');
-  expect(clipRequests, 'one format of each of the three clips').toHaveLength(3);
+  await expect(control).toHaveAttribute('aria-pressed', 'false');
+  await expect(control).toContainText(HERO.voice.state.off);
 
-  // Nothing on arrival, however long the page is left open.
-  await page.waitForTimeout(1500);
-  expect(await lines()).toEqual([]);
-
-  // The first move in the quote module is answered at once — started inside the same press, from memory. The
-  // pointer arrives first, as a visitor's does: that is when the audio device is prepared, off the press.
+  // Off, it costs nothing and says nothing: no clip is fetched, no audio is set up, working in the module is quiet.
   const amount = page.getByLabel('You sell');
   await amount.hover();
-  await page.waitForTimeout(400);
-  pressed = true;
   await amount.click();
-  await expect.poll(lines).toHaveLength(1);
-  const greeting = await log();
-  expect(greeting.played[0]!.duration).toBeCloseTo(CLIP_MEASUREMENTS.ready.duration, 1);
-  expect(greeting.played[0]!.at - greeting.pressedAt, 'started within the press').toBeLessThan(50);
-  expect(greeting.played[0]!.state).not.toBe('closed');
+  await page.waitForTimeout(1500);
+  expect(await lines()).toEqual([]);
+  expect(clipRequests, 'nothing fetched while the voice is off').toEqual([]);
+  expect((await log()).contexts, 'no audio context while the voice is off').toBe(0);
 
-  // Amounts and directions are shown, never spoken.
+  // Turned on: the clips are fetched then, and the press is answered once, as soon as they are ready.
+  await control.click();
+  await expect(control).toHaveAttribute('aria-pressed', 'true');
+  await expect(control).toContainText(HERO.voice.state.on);
+  await expect.poll(lines).toHaveLength(1);
+  expect((await lines())[0]).toBeCloseTo(CLIP_MEASUREMENTS.ready.duration, 1);
+  expect(clipRequests, 'one format of each of the three clips').toHaveLength(3);
+  pressed = true;
+
+  // The greeting is not said again for a first move, and amounts and directions are shown, never spoken.
+  await amount.click();
   await amount.press('End');
   await amount.press('Backspace');
   await amount.press('5');
@@ -268,7 +353,7 @@ test('the robot speaks from memory, at once, only three lines — and never once
   await page.waitForTimeout(1500);
   expect(await lines()).toHaveLength(1);
 
-  // A request without an amount stays here, says why next to the field, and is answered once.
+  // A request without an amount stays here, says why next to the field, and is answered at once, from memory, once.
   const buying = page.getByLabel('You buy');
   await buying.fill('');
   const cta = page.getByRole('link', { name: 'Request quote' });
@@ -278,7 +363,9 @@ test('the robot speaks from memory, at once, only three lines — and never once
   await expect(buying).toBeFocused();
   expect(page.url()).toBe(here);
   await expect.poll(lines).toHaveLength(2);
-  expect((await lines())[1]).toBeCloseTo(CLIP_MEASUREMENTS.check.duration, 1);
+  const check = await log();
+  expect(check.played[1]!.duration).toBeCloseTo(CLIP_MEASUREMENTS.check.duration, 1);
+  expect(check.played[1]!.at - check.pressedAt, 'started within the press').toBeLessThan(50);
   await page.waitForTimeout(1500);
   await cta.click();
   await page.waitForTimeout(600);
@@ -287,13 +374,30 @@ test('the robot speaks from memory, at once, only three lines — and never once
   await expect(page.getByText('Enter an amount to request a quote.')).toHaveCount(0);
   expect(clipRequests.filter((r) => r.afterFirstPress), 'no request when the robot speaks').toEqual([]);
 
-  // Muted, it says nothing — and stays muted on the next visit.
-  await control.click();
-  await expect(control).toHaveAttribute('aria-pressed', 'false');
+  // The choice is kept: on the next visit the voice is on, its clips arrive once the page has settled, and the
+  // first move in the module is answered within the press. The pointer arrives first, as a visitor's does: that is
+  // when the audio device is prepared, off the press.
   await page.reload();
   const again = page.getByRole('button', { name: 'Voice' });
-  await expect(again).toHaveAttribute('data-available', 'true');
+  await expect(again).toHaveAttribute('aria-pressed', 'true');
+  // Settled, idle, fetched and decoded: the idle wait allows up to a second and a half, the rest is the clips.
+  await page.waitForTimeout(3000);
+  const selling = page.getByLabel('You sell');
+  await selling.hover();
+  await page.waitForTimeout(400);
+  await selling.click();
+  await expect.poll(lines).toHaveLength(1);
+  const greeting = await log();
+  expect(greeting.played[0]!.at - greeting.pressedAt, 'started within the press').toBeLessThan(50);
+  expect(greeting.played[0]!.state).not.toBe('closed');
+
+  // Turned off, it says nothing — and stays off on the next visit.
+  await again.click();
   await expect(again).toHaveAttribute('aria-pressed', 'false');
+  await page.reload();
+  const off = page.getByRole('button', { name: 'Voice' });
+  await expect(off).toHaveAttribute('data-available', 'true');
+  await expect(off).toHaveAttribute('aria-pressed', 'false');
   await page.getByLabel('You sell').click();
   await page.waitForTimeout(1200);
   expect(await lines()).toEqual([]);

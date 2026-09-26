@@ -1,5 +1,6 @@
-/* The voice control: small, quiet, under the quote and clear of the robot. Its space is held even while it is
-   hidden, so it can appear without moving anything. */
+/* The voice control: small, quiet, under the quote and clear of the robot. It says its position in words — Off
+   until the visitor turns the voice on. Its space is held even while it is hidden, so it can appear without
+   moving anything. */
 
 .control {
   justify-self: end;
@@ -28,6 +29,16 @@
 
 .control[aria-pressed='false'] {
   color: var(--text-muted);
+}
+
+.state {
+  padding-left: var(--space-2);
+  border-left: 1px solid var(--border-default);
+  color: var(--text-muted);
+}
+
+.control[aria-pressed='true'] .state {
+  color: var(--brand-action);
 }
 
 /* No voice worth using on this device: nothing to mute, so nothing to see or reach. */

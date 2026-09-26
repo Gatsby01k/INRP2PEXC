@@ -5,7 +5,7 @@ import { AnimatePresence, LazyMotion, MotionConfig, domAnimation, m } from 'fram
 import { Money, type Direction } from '@inrp2p/kernel';
 import { DirectionToggle, MoneyInput } from '@inrp2p/ui';
 import { formatUsdtCompact, groupDigits } from '@inrp2p/ui/format';
-import type { QuoteModuleCopy } from '../../../content/site.ts';
+import { ONBOARDING, type QuoteModuleCopy } from '../../../content/site.ts';
 import { ArrowIcon } from './icons.tsx';
 import { requestHref } from './request.ts';
 import { INITIAL_DIRECTION, robotCues } from './robot/cues.ts';
@@ -45,7 +45,11 @@ function Swap({ text, delay = 0 }: { text: string; delay?: number }) {
 }
 
 
-export function QuoteModule({ appOrigin, copy }: { appOrigin: string; copy: QuoteModuleCopy }) {
+/**
+ * `onboarding` is where a visitor without a client account asks for one (server/site.ts `onboardingHref`), or null
+ * when no address is configured — then the note says how onboarding works and offers no link.
+ */
+export function QuoteModule({ appOrigin, onboarding, copy }: { appOrigin: string; onboarding: string | null; copy: QuoteModuleCopy }) {
   const titleId = useId();
   const [direction, setDirection] = useState<Direction>(INITIAL_DIRECTION);
   const [amount, setAmount] = useState<string>(INITIAL_AMOUNT);
@@ -64,6 +68,8 @@ export function QuoteModule({ appOrigin, copy }: { appOrigin: string; copy: Quot
   const engaged = useRef(false);
   const engage = (e: PointerEvent | FocusEvent) => {
     if (engaged.current) return;
+    // A visitor on the way to ask for onboarding has not started a request.
+    if (e.target instanceof Element && e.target.closest('[data-onboarding]')) return;
     const cta = e.target instanceof Element ? e.target.closest('[data-robot-target="cta"]') : null;
     if (cta && !(e.type === 'focus' && cta.matches(':focus-visible'))) return;
     engaged.current = true;
@@ -177,7 +183,19 @@ export function QuoteModule({ appOrigin, copy }: { appOrigin: string; copy: Quot
               <span>{copy.cta}</span>
               <ArrowIcon className={styles.ctaIcon} />
             </a>
-            <p className={styles.note}>{copy.note}</p>
+            <p className={styles.note}>
+              {copy.note}{' '}
+              {onboarding ? (
+                <>
+                  {ONBOARDING.prompt}{' '}
+                  <a className={styles.onboarding} href={onboarding} data-onboarding="">
+                    {ONBOARDING.label}
+                  </a>
+                </>
+              ) : (
+                ONBOARDING.unlinked
+              )}
+            </p>
           </div>
         </section>
       </MotionConfig>

@@ -56,6 +56,8 @@ export interface DeskServerOptions {
   readonly custodyProvider?: string;
   /** Where the client sign-in code is written, so a run can sign in through the real form. Test-only. */
   readonly clientOtpSinkFile?: string;
+  /** The addresses the public site publishes (server/site.ts `siteContacts`); unset, it publishes none. */
+  readonly publicContacts?: { readonly desk?: string; readonly security?: string };
 }
 
 /**
@@ -87,6 +89,8 @@ export function deskServerEnv(opts: Omit<DeskServerOptions, 'label' | 'surfaces'
       ? { INRP2P_KEK_ID: opts.fieldKeys.keyId, INRP2P_KEK_BASE64: opts.fieldKeys.kekBase64, INRP2P_FIELD_HMAC_BASE64: opts.fieldKeys.hmacBase64 }
       : {}),
     ...(opts.clientOtpSinkFile ? { INRP2P_CLIENT_OTP_SINK_FILE: opts.clientOtpSinkFile } : {}),
+    ...(opts.publicContacts?.desk ? { PUBLIC_DESK_EMAIL: opts.publicContacts.desk } : {}),
+    ...(opts.publicContacts?.security ? { PUBLIC_SECURITY_EMAIL: opts.publicContacts.security } : {}),
   };
 }
 

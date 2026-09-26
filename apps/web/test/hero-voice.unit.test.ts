@@ -172,6 +172,38 @@ describe('the mute control', () => {
     expect(robot.at(-1)).toEqual({ kind: 'hush' });
   });
 
+  it('answers being turned on as soon as the clips it has just started fetching are ready', () => {
+    const { audio, controller, advance } = setup({ muted: true, unlocked: false });
+    controller.setMuted(false);
+    expect(audio.played).toEqual([]);
+    advance(0.4);
+    audio.unlock();
+    controller.unlocked();
+    expect(audio.played).toEqual(['ready']);
+  });
+
+  it('drops the answer to being turned on when the clips take too long, and says nothing late', () => {
+    const { audio, controller, advance } = setup({ muted: true, unlocked: false });
+    controller.setMuted(false);
+    advance(3);
+    audio.unlock();
+    controller.unlocked();
+    expect(audio.played).toEqual([]);
+    // The greeting was never heard, so the visitor's first move may still be answered.
+    controller.onCue({ kind: 'engage' });
+    expect(audio.played).toEqual(['ready']);
+  });
+
+  it('drops a waiting answer when it is turned off again before the clips arrive', () => {
+    const { audio, controller, advance } = setup({ muted: true, unlocked: false });
+    controller.setMuted(false);
+    controller.setMuted(true);
+    advance(0.2);
+    audio.unlock();
+    controller.unlocked();
+    expect(audio.played).toEqual([]);
+  });
+
   it('confirms being turned on, once, only if nothing has been said yet', () => {
     const { audio, controller } = setup({ muted: true });
     controller.setMuted(false);
