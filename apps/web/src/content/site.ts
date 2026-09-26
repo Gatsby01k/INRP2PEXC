@@ -60,30 +60,6 @@ export const ACTIONS: readonly SiteAction[] = [
   { label: 'Request OTC quote', kind: 'secondary', appPath: '/exchange' },
 ];
 
-/** How a trade actually runs, in the order it happens. Mechanism only — no timing is claimed anywhere. */
-export const STEPS: readonly { readonly title: string; readonly body: string }[] = [
-  {
-    title: 'Ask for a price',
-    body: 'Say which direction you want, how much, and where the money should end up. A dealer prices it for your trade rather than matching you against a book.',
-  },
-  {
-    title: 'Accept while it is firm',
-    body: 'A quote states its rate and the moment it expires. Accepting it before then locks that rate for the trade; after then it is gone and you can ask again.',
-  },
-  {
-    title: 'Send your side',
-    body: 'Selling USDT, you send TRC20 USDT to an address issued for that one trade. Buying USDT, you transfer INR to the settlement account named on the trade.',
-  },
-  {
-    title: 'Receive the other side',
-    body: 'INR arrives at a bank account you registered in advance, or USDT at your registered wallet. Every payment carries its own bank reference or transaction hash.',
-  },
-  {
-    title: 'Keep the receipt',
-    body: 'A completed trade produces a settlement receipt listing what was agreed and every payment that settled it, downloadable as a document, CSV or JSON.',
-  },
-];
-
 /**
  * The home page's hero, word for word.
  *
@@ -172,6 +148,283 @@ export const HERO: HeroCopy = {
       received: 'Request received.',
       check: "Let's check that.",
     },
+  },
+};
+
+/** Words that are the same in both directions, written once. */
+const both = (text: string): Record<Direction, string> => ({ SELL_USDT: text, BUY_USDT: text });
+
+/**
+ * The home page's execution flow: the stations every trade passes, in the order it passes them.
+ *
+ * Both directions run through the same five stations; the ends swap and the settlement changes hands. Every
+ * station says what happens there and what the trade holds once it is past — a mechanism, never a duration.
+ * The ticket that travels the rail fills in as it goes; a rate or an expiry is drawn masked, because a real one
+ * exists only inside a quote issued to a client.
+ */
+export const FLOW_STATIONS = ['source', 'quote', 'execution', 'settlement', 'destination'] as const;
+export type FlowStation = (typeof FLOW_STATIONS)[number];
+
+/** A figure that belongs to a real trade, shown only as its shape. */
+export type MaskedValue = 'rate' | 'time' | 'amount' | 'account' | 'wallet' | 'hash' | 'reference';
+
+export interface FlowStationCopy {
+  readonly key: FlowStation;
+  /** The station's name on the rail. At the ends it is the currency, which depends on the direction. */
+  readonly name: Record<Direction, string>;
+  readonly title: Record<Direction, string>;
+  readonly body: Record<Direction, string>;
+  /** What the trade holds once it has passed this station. */
+  readonly record: Record<Direction, string>;
+}
+
+export interface FlowCopy {
+  readonly eyebrow: string;
+  readonly heading: string;
+  readonly lede: string;
+  /** The switch that shows the other direction. Its options are named for the accessible name; arrows are drawn. */
+  readonly direction: { readonly label: string; readonly options: Record<Direction, string> };
+  readonly stations: readonly FlowStationCopy[];
+  readonly ticket: {
+    /** The trade's status as the ticket leaves each station, in station order. */
+    readonly status: Record<FlowStation, string>;
+    readonly rows: readonly {
+      readonly label: string;
+      /** Written words, or the shape of a figure that only a real trade has. */
+      readonly value: string | { readonly mask: MaskedValue };
+      /** The station after which the row is filled in. */
+      readonly at: FlowStation;
+    }[];
+  };
+}
+
+export const FLOW: FlowCopy = {
+  eyebrow: 'Execution flow',
+  heading: 'The price is fixed before any money moves.',
+  lede: 'Both directions run through the same stations. A dealer prices the whole trade, you accept while the price is firm, your side arrives and is confirmed — and only then is the other side paid, to a destination registered before the trade began.',
+  direction: { label: 'Direction shown', options: { BUY_USDT: 'INR to USDT', SELL_USDT: 'USDT to INR' } },
+  stations: [
+    {
+      key: 'source',
+      name: { BUY_USDT: 'INR', SELL_USDT: 'USDT' },
+      title: { BUY_USDT: 'Your rupees', SELL_USDT: 'Your USDT' },
+      body: {
+        BUY_USDT: 'Fix the rupees you will spend or the USDT you want to end with. Nothing is sent yet.',
+        SELL_USDT: 'Fix the USDT you will sell or the rupees you need to receive. Nothing is sent yet.',
+      },
+      record: both('Request: direction, amount, destination'),
+    },
+    {
+      key: 'quote',
+      name: both('Quote'),
+      title: both('Priced by a dealer'),
+      body: both('One rate for the whole amount rather than fills from a book, with the moment it expires written on it.'),
+      record: both('Firm rate · expiry'),
+    },
+    {
+      key: 'execution',
+      name: both('Execution'),
+      title: both('Accepted while firm'),
+      body: {
+        BUY_USDT: 'A code sent to someone authorised to decide confirms it. Rate, amounts and destination are frozen, and the trade names the account to pay.',
+        SELL_USDT: 'A code sent to someone authorised to decide confirms it. Rate, amounts and destination are frozen, and the trade gets a deposit address of its own.',
+      },
+      record: both('Frozen terms'),
+    },
+    {
+      key: 'settlement',
+      name: both('Settlement'),
+      title: both('Your side, then ours'),
+      body: {
+        BUY_USDT: 'Your INR is matched to the trade by its reference and confirmed against the bank’s record. Only then is the USDT sent.',
+        SELL_USDT: 'Your USDT counts once the TRON block that carries it is final. Only then is the INR paid.',
+      },
+      record: { BUY_USDT: 'Bank reference · transaction hash', SELL_USDT: 'Transaction hash · bank references' },
+    },
+    {
+      key: 'destination',
+      name: { BUY_USDT: 'USDT', SELL_USDT: 'INR' },
+      title: { BUY_USDT: 'Your registered wallet', SELL_USDT: 'Your registered bank account' },
+      body: {
+        BUY_USDT: 'Delivered on TRC20 to the wallet registered before the trade, and to no other address.',
+        SELL_USDT: 'Paid to the account registered before the trade, in one transfer or several, each with its own bank reference.',
+      },
+      record: both('Settlement receipt'),
+    },
+  ],
+  ticket: {
+    status: { source: 'Request', quote: 'Quoted', execution: 'Accepted', settlement: 'Settling', destination: 'Completed' },
+    rows: [
+      { label: 'Rate', value: { mask: 'rate' }, at: 'quote' },
+      { label: 'Expires', value: { mask: 'time' }, at: 'quote' },
+      { label: 'Terms', value: 'Frozen', at: 'execution' },
+      { label: 'Your side', value: 'Confirmed', at: 'settlement' },
+      { label: 'Paid to you', value: 'Confirmed', at: 'destination' },
+      { label: 'Receipt', value: 'Issued', at: 'destination' },
+    ],
+  },
+};
+
+/**
+ * The home page's operational controls, and the trade record they are drawn against.
+ *
+ * Each control is something the software does on every trade — not a policy, not a promise — and each one
+ * governs particular lines of the record: `regions` on a line names the controls that put it there. The record
+ * is a specimen of the record's shape, with every figure masked; its words are the product's own.
+ */
+export const TRUST_CONTROLS = ['destinations', 'evidence', 'settlement', 'reconciliation', 'desk'] as const;
+export type TrustControl = (typeof TRUST_CONTROLS)[number];
+
+export interface TrustControlCopy {
+  readonly key: TrustControl;
+  readonly label: string;
+  readonly title: string;
+  readonly body: string;
+}
+
+export interface RecordLine {
+  readonly label: string;
+  readonly value: string | { readonly mask: MaskedValue; readonly unit?: string };
+  /** A state the line has reached, shown as a status mark. */
+  readonly state?: string;
+  readonly regions: readonly TrustControl[];
+}
+
+/** A group of lines under a heading, or the rule between the client's side and the payout. */
+export type RecordBlock =
+  | { readonly kind: 'lines'; readonly heading: string; readonly lines: readonly RecordLine[] }
+  | { readonly kind: 'gate'; readonly text: string; readonly regions: readonly TrustControl[] };
+
+export interface TrustCopy {
+  readonly eyebrow: string;
+  readonly heading: string;
+  readonly lede: string;
+  readonly controls: readonly TrustControlCopy[];
+  readonly record: {
+    readonly title: string;
+    readonly status: string;
+    readonly summary: Record<Direction, string>;
+    readonly blocks: Record<Direction, readonly RecordBlock[]>;
+    /** The record's last line: open cases and the receipt, side by side. */
+    readonly footer: readonly RecordLine[];
+  };
+}
+
+const TERMS_HEADING = 'Terms · frozen at acceptance';
+const DESTINATION_HEADING = 'Destination · registered before the trade';
+const GATE: RecordBlock = { kind: 'gate', text: 'Payout released only after your side is confirmed', regions: ['settlement'] };
+const PRICED_BY: RecordLine = { label: 'Priced by', value: 'A dealer, for this trade', regions: ['desk'] };
+const RATE: RecordLine = { label: 'Rate', value: { mask: 'rate', unit: 'INR per USDT' }, regions: [] };
+const CONFIRMED_BY: RecordLine = { label: 'Confirmed by', value: 'The desk, with a second factor', regions: ['desk', 'settlement'] };
+const TOTAL: RecordLine = { label: 'Total paid', value: 'Equals the agreed amount', state: 'Matched', regions: ['reconciliation'] };
+
+export const TRUST: TrustCopy = {
+  eyebrow: 'Operational controls',
+  heading: 'Built to be checked, not taken on trust.',
+  lede: 'A large trade should not rest on anyone’s word. Each control below is part of how every trade settles, and each one leaves a line in the trade’s record.',
+  controls: [
+    {
+      key: 'destinations',
+      label: 'Destinations',
+      title: 'Money goes only where you registered it.',
+      body: 'Bank accounts and wallets are added before a trade, never typed during one. Each addition needs a second factor and is announced to you. Nothing is edited in place: a change is a new registration, so the destination a trade agreed to cannot quietly move.',
+    },
+    {
+      key: 'evidence',
+      label: 'Evidence',
+      title: 'Every payment carries its own reference.',
+      body: 'A bank transfer is recorded with its UTR, a USDT transfer with its transaction hash. USDT is attributed only by the deposit address issued for that one trade — never by amount or sender — and one real transfer is recorded once.',
+    },
+    {
+      key: 'settlement',
+      label: 'Controlled settlement',
+      title: 'Your side is final before ours is sent.',
+      body: 'USDT counts once the TRON block that carries it is final, and larger transfers must be confirmed by independent sources. INR counts once it matches the bank’s record. Only then can a payout go out, and the desk confirms each one with a second factor.',
+    },
+    {
+      key: 'reconciliation',
+      label: 'Reconciliation',
+      title: 'A trade closes only when the payments add up.',
+      body: 'Every movement is posted once to a double-entry ledger that is added to and never edited. A trade completes only when confirmed payments equal what was agreed. A correction is written as a correction, and needs a second person’s approval.',
+    },
+    {
+      key: 'desk',
+      label: 'The desk',
+      title: 'A person on every trade, and on every exception.',
+      body: 'A dealer prices each trade and an operator confirms each payout. Anything that does not match — a different amount, an unexpected sender, a failed transfer — opens a case and holds the trade until a person resolves it, with the decision recorded.',
+    },
+  ],
+  record: {
+    title: 'Trade record',
+    status: 'Completed',
+    summary: { SELL_USDT: 'Sell USDT · paid to a registered bank account', BUY_USDT: 'Buy USDT · delivered to a registered wallet' },
+    blocks: {
+      SELL_USDT: [
+        {
+          kind: 'lines',
+          heading: TERMS_HEADING,
+          lines: [PRICED_BY, RATE, { label: 'You sell', value: { mask: 'amount', unit: 'USDT' }, regions: [] }],
+        },
+        {
+          kind: 'lines',
+          heading: DESTINATION_HEADING,
+          lines: [{ label: 'Bank account', value: { mask: 'account' }, state: 'Registered', regions: ['destinations'] }],
+        },
+        {
+          kind: 'lines',
+          heading: 'Your side · USDT on TRC20',
+          lines: [
+            { label: 'Sent to', value: 'The deposit address issued for this trade', regions: ['evidence'] },
+            { label: 'Transaction', value: { mask: 'hash' }, state: 'Final on chain', regions: ['evidence', 'settlement'] },
+          ],
+        },
+        GATE,
+        {
+          kind: 'lines',
+          heading: 'Payout · INR',
+          lines: [
+            { label: 'Bank reference', value: { mask: 'reference' }, state: 'Confirmed', regions: ['evidence'] },
+            { label: 'Bank reference', value: { mask: 'reference' }, state: 'Confirmed', regions: ['evidence'] },
+            CONFIRMED_BY,
+            TOTAL,
+          ],
+        },
+      ],
+      BUY_USDT: [
+        {
+          kind: 'lines',
+          heading: TERMS_HEADING,
+          lines: [PRICED_BY, RATE, { label: 'You buy', value: { mask: 'amount', unit: 'USDT' }, regions: [] }],
+        },
+        {
+          kind: 'lines',
+          heading: DESTINATION_HEADING,
+          lines: [{ label: 'TRC20 wallet', value: { mask: 'wallet' }, state: 'Registered', regions: ['destinations'] }],
+        },
+        {
+          kind: 'lines',
+          heading: 'Your side · INR',
+          lines: [
+            { label: 'Paid to', value: 'The settlement account named on the trade', regions: ['evidence'] },
+            { label: 'Bank reference', value: { mask: 'reference' }, state: 'Confirmed', regions: ['evidence', 'settlement'] },
+          ],
+        },
+        GATE,
+        {
+          kind: 'lines',
+          heading: 'Payout · USDT on TRC20',
+          lines: [
+            { label: 'Transaction', value: { mask: 'hash' }, state: 'Final on chain', regions: ['evidence'] },
+            CONFIRMED_BY,
+            TOTAL,
+          ],
+        },
+      ],
+    },
+    footer: [
+      { label: 'Open cases', value: 'None', regions: ['desk'] },
+      { label: 'Receipt', value: 'Document · CSV · JSON', regions: ['reconciliation'] },
+    ],
   },
 };
 

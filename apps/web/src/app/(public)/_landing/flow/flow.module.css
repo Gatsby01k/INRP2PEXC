@@ -1,0 +1,716 @@
+/* The execution flow.
+
+   One rail, five stations, one trade. Across the page from 1100px: the two currencies are machined discs at the
+   ends, the three stations between them are plain marks, and every station's words sit in a column under its
+   node, left edges aligned. Above the rail, a ticket rides from station to station and fills in. Below 1100px
+   the rail turns and runs down the page beside the words, and the ticket is left out — each station's own
+   record line says the same thing.
+
+   The motion is driven from FlowStage.tsx: `data-mode` on the section picks the layout, `data-state` on each
+   station and `data-reached` / `data-now` inside the ticket say where the trade is, and the fill, the signal and
+   the ticket are moved with transforms. Without script none of those attributes exist, and what shows is the
+   plain diagram: every station, every word, nothing lit. */
+
+.flow {
+  --gap: var(--space-8);
+  --node: 56px;
+  --disc: 40px;
+  --ticket-zone: 244px;
+  --flip: 900ms cubic-bezier(0.3, 0.1, 0.2, 1);
+  position: relative;
+  background: var(--bg-app);
+}
+
+.inner {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: clamp(96px, 13vh, 144px) var(--space-10) clamp(88px, 12vh, 128px);
+}
+
+/* Pinned: the section is as tall as the scroll it takes to run the trade, and the scene holds still inside it. */
+.flow[data-mode='pinned'] {
+  height: calc(100vh + 120vh);
+}
+
+.flow[data-mode='pinned'] .stage {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: center;
+  height: 100vh;
+  overflow: clip;
+}
+
+.flow[data-mode='pinned'] .inner {
+  width: 100%;
+  padding-block: clamp(32px, 6vh, 72px);
+}
+
+/* ——— Heading ——— */
+
+.head {
+  display: grid;
+  grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+  column-gap: var(--gap);
+  align-items: end;
+}
+
+.eyebrow {
+  margin: 0 0 var(--space-5);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--brand-action);
+}
+
+.title {
+  max-width: 22ch;
+  margin: 0;
+  font-size: clamp(36px, 3.9vw, 56px);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.04;
+  letter-spacing: -0.035em;
+  color: var(--text-primary);
+  text-wrap: balance;
+}
+
+.aside {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-6);
+  padding-bottom: var(--space-1);
+}
+
+.lede {
+  max-width: 34rem;
+  margin: 0;
+  font-size: var(--font-size-body-lg);
+  line-height: 1.6;
+  color: var(--text-secondary);
+  text-wrap: pretty;
+}
+
+/* The direction switch: a quiet two-way control in the diagram's own type, not a second pair of trade buttons. */
+.switch {
+  display: inline-flex;
+  padding: 3px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--bg-surface) 70%, transparent);
+}
+
+.switchOption {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 0 var(--space-4);
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition:
+    background-color var(--dur-base) var(--ease),
+    color var(--dur-base) var(--ease),
+    box-shadow var(--dur-base) var(--ease);
+}
+
+.switchOption:hover {
+  color: var(--text-primary);
+}
+
+.switchOption[aria-pressed='true'] {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  box-shadow:
+    0 0 0 1px var(--border-default),
+    0 2px 6px -2px color-mix(in srgb, var(--text-primary) 18%, transparent);
+}
+
+.switchEnds {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.switchArrow,
+.endsArrow {
+  width: 12px;
+  height: 12px;
+}
+
+.switchOption[aria-pressed='true'] .switchArrow {
+  color: var(--brand-primary);
+}
+
+/* ——— Diagram ——— */
+
+.diagram {
+  position: relative;
+  margin-top: clamp(40px, 7vh, 80px);
+  padding-top: var(--ticket-zone);
+}
+
+.stations {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  column-gap: var(--gap);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* The rail: a hairline with a fine scale under it, from the first currency's centre to the last one's. Its
+   extent is plain geometry of the five equal columns, so it is drawn right before any script has measured. */
+.track {
+  position: absolute;
+  left: calc(var(--node) / 2);
+  top: calc(var(--ticket-zone) + var(--node) / 2);
+  width: calc(80% + 0.8 * var(--gap));
+  height: 1px;
+  background: var(--border-strong);
+}
+
+.track::after {
+  content: '';
+  position: absolute;
+  inset: 3px 0 auto;
+  height: 4px;
+  background: repeating-linear-gradient(90deg, var(--border-strong) 0 1px, transparent 1px 12px);
+  opacity: 0.7;
+}
+
+/* How far the trade has come, and the point of light at its head. Placed from what FlowStage measured. */
+.fill,
+.signal {
+  position: absolute;
+  z-index: 1;
+  display: none;
+  pointer-events: none;
+}
+
+.flow[data-mode] .fill,
+.flow[data-mode] .signal {
+  display: block;
+}
+
+.fill {
+  left: var(--rail-start);
+  top: calc(var(--rail-across) - 1px);
+  width: var(--rail-length);
+  height: 2px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--brand-primary) 55%, transparent), var(--brand-primary));
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform 160ms linear;
+}
+
+.signal {
+  left: calc(var(--rail-start) - 5px);
+  top: calc(var(--rail-across) - 5px);
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--brand-primary);
+  box-shadow:
+    0 0 0 4px color-mix(in srgb, var(--brand-primary) 18%, transparent),
+    0 0 18px 2px color-mix(in srgb, var(--brand-primary) 45%, transparent);
+  transition: transform 160ms linear;
+}
+
+.flow[data-complete] .signal {
+  opacity: 0;
+  transition:
+    transform 160ms linear,
+    opacity var(--dur-complete) var(--ease);
+}
+
+/* ——— Stations ——— */
+
+.station {
+  position: relative;
+  min-width: 0;
+}
+
+.node {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  align-items: center;
+  justify-items: start;
+  height: var(--node);
+}
+
+/* A station between the ends: a plain mark on a white disc. */
+.disc {
+  display: grid;
+  place-items: center;
+  width: var(--disc);
+  height: var(--disc);
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  background: var(--bg-surface);
+  color: var(--text-disabled);
+  box-shadow:
+    0 1px 0 color-mix(in srgb, var(--text-primary) 4%, transparent),
+    0 8px 16px -10px color-mix(in srgb, var(--text-primary) 30%, transparent);
+  transition:
+    border-color var(--dur-complete) var(--ease),
+    color var(--dur-complete) var(--ease),
+    box-shadow var(--dur-complete) var(--ease);
+}
+
+.station[data-state='passed'] .disc {
+  border-color: color-mix(in srgb, var(--text-primary) 38%, transparent);
+  color: var(--text-primary);
+}
+
+.station[data-state='current'] .disc {
+  border-color: var(--brand-primary);
+  color: var(--brand-primary);
+  box-shadow:
+    0 0 0 6px color-mix(in srgb, var(--brand-primary) 11%, transparent),
+    0 8px 16px -10px color-mix(in srgb, var(--brand-primary) 60%, transparent);
+}
+
+/* An end of the rail: a machined disc, one currency on each face. The metal is a conic sweep of warm greys — the
+   robot's cream, in steel — with a turned rim and an engraved mark. When the direction changes, both ends turn
+   over: the currency you bring and the one you receive trade places. */
+.coin {
+  position: relative;
+  width: var(--node);
+  height: var(--node);
+  perspective: 520px;
+}
+
+.coin::before {
+  content: '';
+  position: absolute;
+  inset: 8% 6% -4%;
+  border-radius: 50%;
+  box-shadow: 0 14px 22px -12px color-mix(in srgb, var(--text-primary) 55%, transparent);
+}
+
+.coin::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border: 1.5px solid var(--brand-primary);
+  border-radius: 50%;
+  opacity: 0;
+  transform: scale(0.92);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--brand-primary) 10%, transparent);
+  transition:
+    opacity var(--dur-complete) var(--ease),
+    transform var(--dur-complete) var(--ease);
+}
+
+.station[data-state='current'] .coin::after {
+  opacity: 1;
+  transform: none;
+}
+
+.coinBody {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+  transition: transform var(--flip);
+}
+
+:global([data-direction='SELL_USDT']) .coinBody {
+  transform: rotateY(180deg);
+}
+
+.face {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  backface-visibility: hidden;
+  color: #57534c;
+  background:
+    radial-gradient(circle, transparent 0 62%, rgb(255 255 255 / 0.6) 63.5%, transparent 66%),
+    conic-gradient(from 215deg, #cdc7bb, #f5f2ec 9%, #b8b1a4 23%, #ece8e1 38%, #c2bbaf 54%, #f7f4ef 69%, #bcb5a8 84%, #cdc7bb);
+  box-shadow:
+    inset 0 0 0 1px rgb(18 19 23 / 0.16),
+    inset 0 1.5px 0 rgb(255 255 255 / 0.9),
+    inset 0 -3px 5px rgb(18 19 23 / 0.12);
+}
+
+/* The turned inner rim. */
+.face::after {
+  content: '';
+  position: absolute;
+  inset: 7px;
+  border-radius: 50%;
+  box-shadow:
+    inset 0 1px 1px rgb(18 19 23 / 0.14),
+    0 1px 0 rgb(255 255 255 / 0.7);
+}
+
+.faceBack {
+  transform: rotateY(180deg);
+}
+
+.faceRupee {
+  width: 17px;
+  height: 21px;
+  filter: drop-shadow(0 1px 0 rgb(255 255 255 / 0.8));
+}
+
+.faceText {
+  font-size: 10.5px;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.06em;
+  text-shadow: 0 1px 0 rgb(255 255 255 / 0.8);
+}
+
+/* The words under a node. */
+.text {
+  display: grid;
+  align-content: start;
+  gap: var(--space-2);
+  max-width: 17.5rem;
+  margin-top: var(--space-5);
+}
+
+.name {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  transition: color var(--dur-complete) var(--ease);
+}
+
+.station[data-state='passed'] .name {
+  color: var(--text-primary);
+}
+
+.station[data-state='current'] .name {
+  color: var(--brand-action);
+}
+
+.stationTitle {
+  margin: 0;
+  font-size: 18px;
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-snug);
+  letter-spacing: -0.012em;
+  color: var(--text-primary);
+}
+
+.stationBody {
+  margin: 0;
+  font-size: var(--font-size-body-sm);
+  line-height: 1.55;
+  color: var(--text-secondary);
+  text-wrap: pretty;
+}
+
+/* What the trade holds once it is past this station. The mark fills when the trade gets here. */
+.record {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin: var(--space-2) 0 0;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-default);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-micro);
+  line-height: 1.5;
+  letter-spacing: 0.02em;
+  color: var(--text-secondary);
+}
+
+.recordMark {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border: 1px solid var(--border-control);
+  border-radius: 50%;
+  transform: translateY(-1px);
+  transition:
+    background-color var(--dur-complete) var(--ease),
+    border-color var(--dur-complete) var(--ease);
+}
+
+.station[data-state='passed'] .recordMark,
+.station[data-state='current'] .recordMark {
+  border-color: var(--brand-primary);
+  background: var(--brand-primary);
+}
+
+/* ——— The ticket ——— */
+
+.ticket {
+  position: absolute;
+  z-index: 3;
+  top: 0;
+  left: 0;
+  width: 248px;
+  padding: var(--space-3) var(--space-4) var(--space-2);
+  border: 1px solid var(--border-default);
+  border-radius: 12px;
+  background: var(--bg-surface);
+  box-shadow:
+    0 1px 0 color-mix(in srgb, var(--text-primary) 4%, transparent),
+    0 24px 48px -30px color-mix(in srgb, var(--text-primary) 40%, transparent);
+  transition: transform 720ms var(--ease);
+}
+
+/* The ticket moves only when there is a trade to follow. */
+.flow:not([data-mode]) .ticket,
+.flow:not([data-mode]) .leader {
+  display: none;
+}
+
+.flow:not([data-mode]) .diagram {
+  padding-top: 0;
+}
+
+.flow:not([data-mode]) .track {
+  top: calc(var(--node) / 2);
+}
+
+/* A hairline from the ticket down to the node it is at; it runs behind the ticket and the node. */
+.leader {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: calc(var(--ticket-zone) + var(--node) / 2);
+  border-left: 1px dashed color-mix(in srgb, var(--text-primary) 28%, transparent);
+  transition: transform 720ms var(--ease);
+}
+
+.ticketHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--border-default);
+}
+
+.ticketEnds {
+  display: inline-flex;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+}
+
+.ticketEnds > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* One status at a time, each rising into place as the trade leaves its station. */
+.ticketStatus {
+  display: grid;
+}
+
+.status {
+  grid-area: 1 / 1;
+  justify-self: end;
+  padding: 3px var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--brand-soft);
+  color: var(--brand-action);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.2;
+  white-space: nowrap;
+  opacity: 0;
+  transform: translateY(5px);
+  transition:
+    opacity var(--dur-base) var(--ease),
+    transform var(--dur-complete) var(--ease);
+}
+
+.status[data-when='destination'] {
+  background: var(--status-success-soft);
+  color: var(--status-success);
+}
+
+.status[data-now] {
+  opacity: 1;
+  transform: none;
+  transition-delay: 160ms;
+}
+
+.ticketRows {
+  display: grid;
+  margin: var(--space-1) 0 0;
+}
+
+.ticketRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-height: 29px;
+  font-size: var(--font-size-table);
+}
+
+.ticketRow + .ticketRow {
+  border-top: 1px solid color-mix(in srgb, var(--border-default) 70%, transparent);
+}
+
+.ticketRow dt {
+  color: var(--text-secondary);
+}
+
+.ticketRow dd {
+  display: grid;
+  justify-items: end;
+  align-items: center;
+  margin: 0;
+}
+
+/* Not filled yet: a dashed blank where the value will be. */
+.pending {
+  grid-area: 1 / 1;
+  width: 40px;
+  height: 1px;
+  background: repeating-linear-gradient(90deg, var(--border-strong) 0 3px, transparent 3px 6px);
+  transition: opacity var(--dur-base) var(--ease);
+}
+
+.value {
+  grid-area: 1 / 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: var(--font-weight-medium);
+  color: var(--text-primary);
+  opacity: 0;
+  transform: translateY(4px);
+  transition:
+    opacity var(--dur-base) var(--ease),
+    transform var(--dur-complete) var(--ease);
+}
+
+.mask {
+  font-family: var(--font-mono);
+  letter-spacing: 0.08em;
+}
+
+.check {
+  color: var(--status-success);
+}
+
+.ticketRow[data-reached] .pending {
+  opacity: 0;
+}
+
+.ticketRow[data-reached] .value {
+  opacity: 1;
+  transform: none;
+  transition-delay: 220ms;
+}
+
+.ticketRow[data-reached] + .ticketRow[data-reached] .value {
+  transition-delay: 300ms;
+}
+
+/* ——— Down the page ——— */
+
+@media (max-width: 1099px) {
+  .flow {
+    --node: 48px;
+    --disc: 40px;
+    --gap: var(--space-8);
+  }
+
+  .inner {
+    max-width: 640px;
+    padding: var(--space-16) var(--space-4) var(--space-16);
+  }
+
+  .head {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: var(--space-5);
+  }
+
+  .eyebrow {
+    margin-bottom: var(--space-4);
+  }
+
+  .title {
+    font-size: clamp(32px, 8.4vw, 44px);
+  }
+
+  .diagram,
+  .flow:not([data-mode]) .diagram {
+    margin-top: var(--space-10);
+    padding-top: 0;
+  }
+
+  .ticket,
+  .leader,
+  .track {
+    display: none;
+  }
+
+  .stations {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: var(--gap);
+  }
+
+  .station {
+    display: grid;
+    grid-template-columns: var(--node) minmax(0, 1fr);
+    column-gap: var(--space-5);
+  }
+
+  /* The rail, down the page: each station draws the stretch from its node to the next one's. */
+  .station:not(:last-child)::after {
+    content: '';
+    position: absolute;
+    left: calc(var(--node) / 2);
+    top: calc(var(--node) / 2);
+    width: 1px;
+    height: calc(100% + var(--gap));
+    background: var(--border-strong);
+  }
+
+  .node {
+    justify-items: center;
+    align-self: start;
+  }
+
+  .text {
+    max-width: none;
+    margin-top: var(--space-1);
+  }
+
+  .fill {
+    left: calc(var(--rail-across) - 1px);
+    top: var(--rail-start);
+    width: 2px;
+    height: var(--rail-length);
+    background: linear-gradient(180deg, color-mix(in srgb, var(--brand-primary) 55%, transparent), var(--brand-primary));
+    transform: scaleY(0);
+    transform-origin: center top;
+  }
+
+  .signal {
+    left: calc(var(--rail-across) - 5px);
+    top: calc(var(--rail-start) - 5px);
+  }
+}

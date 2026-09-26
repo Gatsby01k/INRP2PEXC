@@ -9,9 +9,10 @@ import styles from './public.module.css';
 /**
  * The frame every public page is drawn in.
  *
- * A server component with no interactivity of its own. The home page's hero hydrates two small islands (the
- * quote module and the robot's stage); everything else on the public site is plain server-rendered HTML, which
- * keeps it fast on a phone on Indian mobile data and keeps its Content-Security-Policy to one nonce.
+ * A server component with no interactivity of its own. The home page hydrates a few small islands (the hero's
+ * quote module and robot stage, the execution flow's switch and the controls' reader below it); everything else
+ * on the public site is plain server-rendered HTML, which keeps it fast on a phone on Indian mobile data and keeps
+ * its Content-Security-Policy to one nonce.
  */
 export function PublicShell({ children, nonce }: { children: ReactNode; nonce?: string | undefined }) {
   const app = appOrigin();

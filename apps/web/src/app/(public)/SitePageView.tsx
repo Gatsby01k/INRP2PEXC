@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { ACTIONS, STEPS, SITE_NAME, type SitePage } from '../../content/site.ts';
+import { ACTIONS, SITE_NAME, type SitePage } from '../../content/site.ts';
 import { appOrigin, publicOrigin, requestNonce } from '../../server/site.ts';
 import styles from './public.module.css';
 
@@ -41,13 +41,13 @@ function structuredData(page: SitePage, origin: string): string {
 
 /**
  * One public page. A page may bring its own first screen as `hero` — the home page does — in place of the plain
- * heading, lede and actions every SEO page opens with. It is passed in rather than imported here so that only the
- * page that shows it loads its code: everything this component imports is shipped to all six pages.
+ * heading, lede and actions every SEO page opens with, and a `story` told between that screen and its sections.
+ * Both are passed in rather than imported here so that only the page that shows them loads their code: everything
+ * this component imports is shipped to all six pages.
  */
-export async function SitePageView({ page, hero }: { page: SitePage; hero?: ReactNode }) {
+export async function SitePageView({ page, hero, story }: { page: SitePage; hero?: ReactNode; story?: ReactNode }) {
   const [origin, nonce] = await Promise.all([publicOrigin(), requestNonce()]);
   const app = appOrigin();
-  const home = page.path === '/';
 
   return (
     <>
@@ -58,6 +58,7 @@ export async function SitePageView({ page, hero }: { page: SitePage; hero?: Reac
       />
 
       {hero}
+      {story}
 
       <div className={styles.column}>
         {hero ? null : (
@@ -88,21 +89,6 @@ export async function SitePageView({ page, hero }: { page: SitePage; hero?: Reac
           </section>
         ))}
 
-        {home ? (
-          <section className={styles.section} aria-labelledby="how">
-            <h2 className={styles.h2} id="how">
-              How a trade runs
-            </h2>
-            <ol className={styles.steps}>
-              {STEPS.map((s) => (
-                <li key={s.title} className={styles.step}>
-                  <h3 className={styles.stepTitle}>{s.title}</h3>
-                  <p className={styles.body}>{s.body}</p>
-                </li>
-              ))}
-            </ol>
-          </section>
-        ) : null}
       </div>
     </>
   );

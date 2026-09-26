@@ -27,3 +27,37 @@ export function ArrowIcon({ className }: { className?: string | undefined }) {
     </svg>
   );
 }
+
+/** The execution flow's station marks, in the same hand: a price tag, the lock, the two sides changing hands. */
+const STATION_PATHS = {
+  quote: 'M4 12.3V5.5A1.5 1.5 0 0 1 5.5 4h6.8l7.4 7.4a1.5 1.5 0 0 1 0 2.1l-6.2 6.2a1.5 1.5 0 0 1-2.1 0Z M8.6 7.3a1.3 1.3 0 1 0 0 2.6 1.3 1.3 0 0 0 0-2.6Z',
+  execution: PATHS.lock,
+  settlement: 'M4.5 8.5h14.5 M15.5 5l3.5 3.5-3.5 3.5 M19.5 15.5H5 M8.5 12 5 15.5 8.5 19',
+} as const;
+
+export type StationMark = keyof typeof STATION_PATHS;
+
+export function StationIcon({ name, className }: { name: StationMark; className?: string | undefined }) {
+  return (
+    <svg className={className} width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+      <path d={STATION_PATHS[name]} stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/** The rupee sign alone — the hero's rupee without its ring — for a face that is already round. */
+export function RupeeMark({ className }: { className?: string | undefined }) {
+  return (
+    <svg className={className} viewBox="7 6 10 12.5" fill="none" aria-hidden="true" focusable="false">
+      <path d="M8.5 7.5h7 M8.5 10.5h7 M10 7.5c2.6 0 3.9 1.1 3.9 2.9 0 1.9-1.4 3-3.9 3H9l4.8 3.6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+export function CheckIcon({ className }: { className?: string | undefined }) {
+  return (
+    <svg className={className} width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true" focusable="false">
+      <path d="M2.6 6.3l2.2 2.2 4.6-4.9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}

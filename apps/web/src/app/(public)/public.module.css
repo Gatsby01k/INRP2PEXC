@@ -160,25 +160,6 @@
   color: var(--text-secondary);
 }
 
-.steps {
-  margin: 0;
-  padding: 0 0 0 var(--space-5);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-}
-
-.step {
-  padding-left: var(--space-2);
-}
-
-.stepTitle {
-  margin: 0 0 var(--space-1);
-  font-size: var(--font-size-body);
-  font-weight: var(--font-weight-medium);
-  color: var(--text-primary);
-}
-
 .footer {
   border-top: 1px solid var(--border-default);
   padding: var(--space-5);

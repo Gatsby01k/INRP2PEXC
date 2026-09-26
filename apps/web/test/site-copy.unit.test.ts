@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { draftFor } from '@inrp2p/notifications';
 import { RECEIPT_SNAPSHOT_VERSION, type ReceiptSnapshot, receiptHtml } from '@inrp2p/reporting';
 import type { NotificationKind } from '@inrp2p/db';
-import { ACTIONS, FOOTER_NOTE, HERO, NAV, SITE_NAME, SITE_PAGES, SITE_PATHS, STEPS, TAGLINE } from '../src/content/site.ts';
+import { ACTIONS, FLOW, FOOTER_NOTE, HERO, NAV, SITE_NAME, SITE_PAGES, SITE_PATHS, TAGLINE, TRUST } from '../src/content/site.ts';
 
 /**
  * The copy review, as a test (D-07, PRODUCT §7.4, launch checklist).
@@ -73,6 +73,21 @@ const HERO_MODULE_COPY = Object.entries(HERO.quote as unknown as Record<string, 
     : Object.entries(value).map(([direction, text]) => ({ where: `HERO.quote.${key}.${direction}`, text })),
 );
 
+/**
+ * Every string inside a structure of copy, each named by its path. Keys that hold identifiers rather than words —
+ * a station's or a control's key, where a line belongs, the shape a masked figure is drawn in — are not copy
+ * and are skipped; everything else is read, so a string added anywhere in the structure is read with it.
+ */
+const IDENTIFIER_KEYS = new Set(['key', 'at', 'kind', 'mask', 'regions']);
+function copyIn(value: unknown, where: string): { where: string; text: string }[] {
+  if (typeof value === 'string') return [{ where, text: value }];
+  if (Array.isArray(value)) return value.flatMap((v, i) => copyIn(v, `${where}[${i}]`));
+  if (value && typeof value === 'object') {
+    return Object.entries(value).flatMap(([k, v]) => (IDENTIFIER_KEYS.has(k) ? [] : copyIn(v, `${where}.${k}`)));
+  }
+  return [];
+}
+
 /** Every sentence the public site says, in one string, with its source named for the failure message. */
 const SITE_COPY: readonly { readonly where: string; readonly text: string }[] = [
   { where: 'SITE_NAME', text: SITE_NAME },
@@ -89,10 +104,8 @@ const SITE_COPY: readonly { readonly where: string; readonly text: string }[] = 
   { where: 'TAGLINE', text: TAGLINE },
   { where: 'FOOTER_NOTE', text: FOOTER_NOTE },
   ...ACTIONS.map((a) => ({ where: `ACTIONS ${a.label}`, text: a.label })),
-  ...STEPS.flatMap((s) => [
-    { where: `STEPS ${s.title}`, text: s.title },
-    { where: `STEPS ${s.title} body`, text: s.body },
-  ]),
+  ...copyIn(FLOW, 'FLOW'),
+  ...copyIn(TRUST, 'TRUST'),
   ...SITE_PAGES.flatMap((p) => [
     { where: `${p.path} title`, text: p.title },
     { where: `${p.path} description`, text: p.description },

@@ -2,7 +2,10 @@ import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { pageForPath } from '../../../content/site.ts';
 import { publicOrigin } from '../../../server/site.ts';
+import { Flow } from '../_landing/flow/Flow.tsx';
 import { Hero } from '../_landing/Hero.tsx';
+import { Story } from '../_landing/Story.tsx';
+import { Trust } from '../_landing/trust/Trust.tsx';
 import { SitePageView } from '../SitePageView.tsx';
 
 export const dynamic = 'force-dynamic';
@@ -33,5 +36,16 @@ export async function generateMetadata(): Promise<Metadata> {
 export default function Page() {
   const page = pageForPath(PATH);
   if (!page) notFound();
-  return <SitePageView page={page} hero={<Hero />} />;
+  return (
+    <SitePageView
+      page={page}
+      hero={<Hero />}
+      story={
+        <Story>
+          <Flow />
+          <Trust />
+        </Story>
+      }
+    />
+  );
 }

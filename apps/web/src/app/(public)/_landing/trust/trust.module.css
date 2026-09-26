@@ -1,0 +1,605 @@
+/* Operational trust.
+
+   The page changes register here: from the warm paper of the flow to deep navy, the colour of the desk behind the
+   counter. On it, one light object — the trade's record — held in view while the controls scroll past it, the
+   way a document is held up to be checked. The control being read lights the lines it is responsible for; the
+   rest of the record steps back. On a phone each control carries its own excerpt of the record instead.
+
+   The navy is this section's own: the design system is drawn for light surfaces, and this is the one dark field on
+   the public site. Every text colour on it is chosen for AA against the navy, orange included (4.9:1). */
+
+.trust {
+  --navy: #0e1522;
+  --navy-light: #172238;
+  --rule: rgb(236 232 224 / 0.12);
+  --ink: #f2efe9;
+  --ink-2: #b3b9c5;
+  --ink-3: #8e95a3;
+  --gap: var(--space-8);
+  position: relative;
+  isolation: isolate;
+  overflow: clip;
+  background:
+    radial-gradient(ellipse 46% 58% at 76% 52%, color-mix(in srgb, var(--navy-light) 90%, transparent), transparent 72%),
+    var(--navy);
+  color: var(--ink);
+}
+
+/* A single hairline where the paper ends and the desk begins, lit at the far edge. */
+.trust::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgb(236 232 224 / 0.18) 30%, rgb(236 232 224 / 0.05));
+}
+
+.inner {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: clamp(104px, 14vh, 152px) var(--space-10) clamp(96px, 13vh, 144px);
+}
+
+/* ——— Heading ——— */
+
+.head {
+  display: grid;
+  grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+  column-gap: var(--gap);
+  align-items: end;
+}
+
+.eyebrow {
+  margin: 0 0 var(--space-5);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--brand-primary);
+}
+
+.title {
+  max-width: 21ch;
+  margin: 0;
+  font-size: clamp(36px, 3.9vw, 56px);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.04;
+  letter-spacing: -0.035em;
+  color: var(--ink);
+  text-wrap: balance;
+}
+
+.lede {
+  max-width: 34rem;
+  margin: 0;
+  padding-bottom: var(--space-1);
+  font-size: var(--font-size-body-lg);
+  line-height: 1.6;
+  color: var(--ink-2);
+  text-wrap: pretty;
+}
+
+/* ——— Controls beside the record ——— */
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  column-gap: clamp(var(--space-12), 7vw, 128px);
+  margin-top: clamp(56px, 9vh, 104px);
+}
+
+.controls {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Each control is given most of a screen, so exactly one is being read as the page moves. */
+.control {
+  position: relative;
+  display: grid;
+  align-content: center;
+  gap: var(--space-3);
+  min-height: 58vh;
+  padding: var(--space-8) 0 var(--space-8) var(--space-8);
+  border-left: 1px solid var(--rule);
+}
+
+.control:first-child {
+  min-height: 46vh;
+  align-content: start;
+  padding-top: var(--space-2);
+}
+
+.control:last-child {
+  min-height: 52vh;
+}
+
+/* The part of the rule beside the control being read turns orange. */
+.control::before {
+  content: '';
+  position: absolute;
+  left: -1px;
+  top: var(--space-8);
+  bottom: var(--space-8);
+  width: 2px;
+  background: var(--brand-primary);
+  transform: scaleY(0);
+  transform-origin: top;
+  transition: transform var(--dur-complete) var(--ease);
+}
+
+.control:first-child::before {
+  top: var(--space-2);
+}
+
+.label {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  transition: color var(--dur-complete) var(--ease);
+}
+
+.controlTitle {
+  max-width: 20ch;
+  margin: 0;
+  font-size: clamp(22px, 1.9vw, 28px);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.18;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  text-wrap: balance;
+  transition: color var(--dur-complete) var(--ease);
+}
+
+.controlBody {
+  max-width: 31rem;
+  margin: var(--space-1) 0 0;
+  font-size: var(--font-size-body);
+  line-height: 1.62;
+  color: var(--ink-2);
+  text-wrap: pretty;
+  transition: color var(--dur-complete) var(--ease);
+}
+
+/* While one control is read, the others step back — still well above AA on the navy. */
+.trust[data-active] .control .controlTitle {
+  color: var(--ink-2);
+}
+
+.trust[data-active] .control .controlBody {
+  color: var(--ink-3);
+}
+
+.trust[data-active='destinations'] [data-trust-control='destinations']::before,
+.trust[data-active='evidence'] [data-trust-control='evidence']::before,
+.trust[data-active='settlement'] [data-trust-control='settlement']::before,
+.trust[data-active='reconciliation'] [data-trust-control='reconciliation']::before,
+.trust[data-active='desk'] [data-trust-control='desk']::before {
+  transform: none;
+}
+
+.trust[data-active='destinations'] [data-trust-control='destinations'] .label,
+.trust[data-active='evidence'] [data-trust-control='evidence'] .label,
+.trust[data-active='settlement'] [data-trust-control='settlement'] .label,
+.trust[data-active='reconciliation'] [data-trust-control='reconciliation'] .label,
+.trust[data-active='desk'] [data-trust-control='desk'] .label {
+  color: var(--brand-primary);
+}
+
+.trust[data-active='destinations'] [data-trust-control='destinations'] .controlTitle,
+.trust[data-active='evidence'] [data-trust-control='evidence'] .controlTitle,
+.trust[data-active='settlement'] [data-trust-control='settlement'] .controlTitle,
+.trust[data-active='reconciliation'] [data-trust-control='reconciliation'] .controlTitle,
+.trust[data-active='desk'] [data-trust-control='desk'] .controlTitle {
+  color: var(--ink);
+}
+
+.trust[data-active='destinations'] [data-trust-control='destinations'] .controlBody,
+.trust[data-active='evidence'] [data-trust-control='evidence'] .controlBody,
+.trust[data-active='settlement'] [data-trust-control='settlement'] .controlBody,
+.trust[data-active='reconciliation'] [data-trust-control='reconciliation'] .controlBody,
+.trust[data-active='desk'] [data-trust-control='desk'] .controlBody {
+  color: var(--ink-2);
+}
+
+/* The record stays in view, centred, while the controls pass it. */
+.aside {
+  position: sticky;
+  top: max(var(--space-12), calc(50vh - 330px));
+  align-self: start;
+  display: grid;
+  justify-items: center;
+}
+
+.stand {
+  width: 100%;
+  max-width: 580px;
+  perspective: 2200px;
+}
+
+/* Held up to be read: turned a few degrees towards the controls it answers to. */
+.stand > .sheet {
+  transform: rotateY(-7deg) rotateX(2deg);
+  transform-origin: 20% 50%;
+}
+
+.excerptFrame {
+  display: none;
+}
+
+/* ——— The record ——— */
+
+.sheet {
+  position: relative;
+  padding: var(--space-6) var(--space-8) var(--space-5);
+  border-radius: var(--radius-surface);
+  background: var(--bg-subtle);
+  color: var(--text-primary);
+  box-shadow:
+    0 0 0 1px rgb(255 255 255 / 0.06),
+    0 1px 0 rgb(255 255 255 / 0.5) inset,
+    0 50px 90px -40px rgb(0 0 0 / 0.75),
+    0 20px 40px -24px rgb(0 0 0 / 0.5);
+}
+
+.sheetHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding-bottom: var(--space-4);
+  border-bottom: 1px solid var(--border-strong);
+}
+
+.sheetTitle {
+  margin: 0 0 var(--space-1);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.sheetSummary {
+  margin: 0;
+  font-size: var(--font-size-body-lg);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.01em;
+}
+
+.sheetStatus {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--status-success-soft);
+  color: var(--status-success);
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-medium);
+}
+
+.sheetStatusDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.block {
+  margin-top: var(--space-4);
+}
+
+.blockHeading {
+  margin: 0 0 var(--space-1);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.lines {
+  margin: 0;
+}
+
+.line {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  grid-template-columns: 7.5rem minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 31px;
+  font-size: var(--font-size-table);
+  transition:
+    opacity var(--dur-complete) var(--ease),
+    background-color var(--dur-complete) var(--ease),
+    box-shadow var(--dur-complete) var(--ease);
+}
+
+.lines .line + .line {
+  border-top: 1px solid var(--border-default);
+}
+
+.lineLabel {
+  color: var(--text-secondary);
+}
+
+.lineValue {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-width: 0;
+  margin: 0;
+  font-weight: var(--font-weight-medium);
+}
+
+.mask {
+  font-family: var(--font-mono);
+  letter-spacing: 0.08em;
+}
+
+.unit {
+  font-weight: var(--font-weight-regular);
+  color: var(--text-muted);
+}
+
+.state {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px 2px 6px;
+  border-radius: var(--radius-pill);
+  background: var(--status-success-soft);
+  color: var(--status-success);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+}
+
+/* The rule between the client's side and the payout: nothing is paid out above this line until it is crossed. */
+.gate {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: var(--space-4) 0 0;
+  padding: 7px 0;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  transition:
+    opacity var(--dur-complete) var(--ease),
+    color var(--dur-complete) var(--ease),
+    background-color var(--dur-complete) var(--ease),
+    box-shadow var(--dur-complete) var(--ease);
+}
+
+.gate::before,
+.gate::after {
+  content: '';
+  flex: 1 1 0;
+  height: 0;
+  border-top: 1px dashed var(--border-control);
+  transition: border-color var(--dur-complete) var(--ease);
+}
+
+.gate::before {
+  flex: 0 0 var(--space-3);
+}
+
+.gate > span {
+  flex: none;
+}
+
+.footer {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: var(--space-6);
+  margin: var(--space-4) 0 0;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border-strong);
+}
+
+.footer .line {
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.footer .lineValue {
+  justify-content: flex-end;
+}
+
+/* A line the control being read put there is lifted off the page — white on the paper, with a mark in the
+   sheet's margin — and the rule it governs lights. The rest of the record steps back. */
+.line::before {
+  content: '';
+  position: absolute;
+  left: calc(-1 * var(--space-8));
+  top: 7px;
+  bottom: 7px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--brand-primary);
+  opacity: 0;
+  transform: scaleY(0.4);
+  transition:
+    opacity var(--dur-complete) var(--ease),
+    transform var(--dur-complete) var(--ease);
+}
+
+.line::after {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  inset: 1px calc(-1 * var(--space-3));
+  border-radius: 7px;
+  background: var(--bg-surface);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--text-primary) 7%, transparent),
+    0 10px 22px -14px color-mix(in srgb, var(--text-primary) 55%, transparent);
+  opacity: 0;
+  transform: translateY(2px);
+  transition:
+    opacity var(--dur-complete) var(--ease),
+    transform var(--dur-complete) var(--ease);
+}
+
+.trust[data-active] .line,
+.trust[data-active] .gate {
+  opacity: 0.36;
+}
+
+.trust[data-active='destinations'] [data-regions~='destinations'],
+.trust[data-active='evidence'] [data-regions~='evidence'],
+.trust[data-active='settlement'] [data-regions~='settlement'],
+.trust[data-active='reconciliation'] [data-regions~='reconciliation'],
+.trust[data-active='desk'] [data-regions~='desk'] {
+  opacity: 1;
+}
+
+.trust[data-active='destinations'] .line[data-regions~='destinations']::before,
+.trust[data-active='evidence'] .line[data-regions~='evidence']::before,
+.trust[data-active='settlement'] .line[data-regions~='settlement']::before,
+.trust[data-active='reconciliation'] .line[data-regions~='reconciliation']::before,
+.trust[data-active='desk'] .line[data-regions~='desk']::before,
+.trust[data-active='destinations'] .line[data-regions~='destinations']::after,
+.trust[data-active='evidence'] .line[data-regions~='evidence']::after,
+.trust[data-active='settlement'] .line[data-regions~='settlement']::after,
+.trust[data-active='reconciliation'] .line[data-regions~='reconciliation']::after,
+.trust[data-active='desk'] .line[data-regions~='desk']::after {
+  opacity: 1;
+  transform: none;
+}
+
+.trust[data-active='destinations'] .gate[data-regions~='destinations'],
+.trust[data-active='evidence'] .gate[data-regions~='evidence'],
+.trust[data-active='settlement'] .gate[data-regions~='settlement'],
+.trust[data-active='reconciliation'] .gate[data-regions~='reconciliation'],
+.trust[data-active='desk'] .gate[data-regions~='desk'] {
+  color: var(--brand-action);
+}
+
+.trust[data-active='destinations'] .gate[data-regions~='destinations']::before,
+.trust[data-active='evidence'] .gate[data-regions~='evidence']::before,
+.trust[data-active='settlement'] .gate[data-regions~='settlement']::before,
+.trust[data-active='reconciliation'] .gate[data-regions~='reconciliation']::before,
+.trust[data-active='desk'] .gate[data-regions~='desk']::before,
+.trust[data-active='destinations'] .gate[data-regions~='destinations']::after,
+.trust[data-active='evidence'] .gate[data-regions~='evidence']::after,
+.trust[data-active='settlement'] .gate[data-regions~='settlement']::after,
+.trust[data-active='reconciliation'] .gate[data-regions~='reconciliation']::after,
+.trust[data-active='desk'] .gate[data-regions~='desk']::after {
+  border-top-color: var(--brand-primary);
+  border-top-style: solid;
+}
+
+/* ——— A phone ——— */
+
+@media (max-width: 1099px) {
+  .inner {
+    max-width: 640px;
+    padding: var(--space-20) var(--space-4) var(--space-16);
+  }
+
+  .head {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: var(--space-5);
+  }
+
+  .eyebrow {
+    margin-bottom: var(--space-4);
+  }
+
+  .title {
+    font-size: clamp(32px, 8.4vw, 44px);
+  }
+
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+    margin-top: var(--space-12);
+  }
+
+  .aside {
+    display: none;
+  }
+
+  .control,
+  .control:first-child,
+  .control:last-child {
+    min-height: 0;
+    align-content: start;
+    padding: var(--space-2) 0 var(--space-12) var(--space-5);
+  }
+
+  .control:last-child {
+    padding-bottom: var(--space-2);
+  }
+
+  .control::before,
+  .control:first-child::before {
+    top: var(--space-2);
+    bottom: var(--space-12);
+  }
+
+  .excerptFrame {
+    display: block;
+    margin-top: var(--space-4);
+  }
+
+  .excerpt {
+    padding: var(--space-3) var(--space-4) var(--space-2);
+    border-radius: var(--radius-input);
+  }
+
+  .excerpt .block:first-child {
+    margin-top: 0;
+  }
+
+  .excerpt .footer {
+    grid-template-columns: minmax(0, 1fr);
+    margin-top: var(--space-2);
+  }
+
+  .excerpt .body:empty + .footer,
+  .excerpt .gate:first-child {
+    margin-top: 0;
+    border-top: 0;
+    padding-top: 0;
+  }
+
+  .excerpt .line::before {
+    left: calc(-1 * var(--space-4));
+  }
+
+  /* A phone's sheet is too narrow for label, value and state on one line: the label goes above. */
+  .line,
+  .footer .line {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+    padding-block: var(--space-2);
+  }
+
+  .lineLabel {
+    font-size: var(--font-size-meta);
+  }
+
+  .lineValue,
+  .footer .lineValue {
+    flex-wrap: wrap;
+    justify-content: space-between;
+    row-gap: var(--space-1);
+  }
+}

@@ -1,0 +1,17 @@
+/* One direction at a time: whatever is marked for the other one is not drawn, and not read. */
+.story[data-direction='BUY_USDT'] [data-dir='SELL_USDT'],
+.story[data-direction='SELL_USDT'] [data-dir='BUY_USDT'] {
+  display: none;
+}
+
+/* Words that change with the direction arrive softly rather than snapping in. Showing an element restarts its
+   animation, so this runs each time the direction brings a word back — and once, unseen, when the page loads. */
+.story [data-dir] {
+  animation: arrive var(--dur-complete) var(--ease) both;
+}
+
+@keyframes arrive {
+  from {
+    opacity: 0;
+  }
+}
