@@ -141,6 +141,55 @@ test('the execution desk names who acts at every step, and what happens when som
   }
 });
 
+/**
+ * The home page's way into the workspace is a real navigation to the client host, and the gateway it lands on is
+ * drawn as the same room: the access surface where the quote module was, at its size, and the robot where the
+ * hero stands it. Measured, because "it looks the same" is exactly the claim that drifts unnoticed.
+ */
+test('the way into the workspace keeps the room: the gateway stands where the hero stood', async ({ page }) => {
+  const box = (selector: string) =>
+    page.locator(selector).first().evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      return { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) };
+    });
+  const near = (a: { x: number; y: number; width: number; height: number }, b: typeof a, what: string) => {
+    for (const k of ['x', 'y', 'width', 'height'] as const) expect(Math.abs(a[k] - b[k]), `${what} ${k}`).toBeLessThanOrEqual(2);
+  };
+
+  await page.goto(linkBaseUrl());
+  // Measured at rest: the module rises into place as the page opens.
+  await expect.poll(() => page.locator('[data-robot-target="panel"]').evaluate((el) => new DOMMatrixReadOnly(getComputedStyle(el.parentElement!).transform).isIdentity)).toBe(true);
+  const module = await box('[data-robot-target="panel"]');
+  const robot = await box('img[srcset*="robot-"]');
+
+  await page.getByRole('banner').getByRole('link', { name: 'Open workspace' }).click();
+  // Signed out, the workspace's gate sends the visitor to its sign-in: the gateway, on the client host.
+  await expect(page).toHaveURL(`${appBaseUrl()}/sign-in`);
+  await expect(page).toHaveTitle('Workspace access — INRP2P Exchange');
+  await expect(page.getByRole('heading', { level: 1, name: 'Enter the desk.' })).toBeVisible();
+  await expect(page.getByText('Access is limited to clients onboarded by the INRP2P desk.')).toBeVisible();
+  near(await box('[data-robot-target="panel"]'), module, 'access surface against the quote module');
+  near(await box('img[srcset*="robot-"]'), robot, 'robot against the hero robot');
+
+  // Validation is the surface's own, beside the field; the browser's bubble is never used.
+  // The field is where the page puts focus on arrival. (Asked of the document rather than with `toBeFocused`,
+  // which also wants the window focused — and headless Chromium never focuses one after a cross-origin click.)
+  const email = page.getByLabel('Work email');
+  await expect.poll(() => email.evaluate((el) => document.activeElement === el)).toBe(true);
+  await expect(page.getByRole('button', { name: 'Continue' })).toBeDisabled();
+  await email.fill('treasury@acmepay');
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await expect(page.getByRole('alert').filter({ hasText: 'Enter your full work email, like name@company.com.' })).toBeVisible();
+  await expect(email).toHaveAttribute('aria-invalid', 'true');
+  await expect(page.locator('form').first()).toHaveAttribute('novalidate', '');
+  await expect(page.getByRole('heading', { name: 'Welcome back.' })).toBeVisible();
+
+  // The way in for a new client is the configured one; the way back is the home page.
+  await expect(page.getByRole('link', { name: 'Request onboarding' })).toHaveAttribute('href', `mailto:${E2E_PUBLIC_CONTACTS.desk}?subject=${encodeURIComponent(ONBOARDING.subject)}`);
+  await page.getByRole('banner').getByRole('link', { name: 'Back to exchange' }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Buy & sell USDT in India' })).toBeVisible();
+});
+
 test('the public host still refuses everything it does not publish', async ({ page }) => {
   for (const path of ['/exchange', '/orders', '/pnl', '/sign-in', '/api/receipts/IX-000000-0000']) {
     const res = await page.request.get(`${linkBaseUrl()}${path}`, { maxRedirects: 0 });

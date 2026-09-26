@@ -308,15 +308,22 @@ export async function clientSignInCode(email: string, after = 0): Promise<string
   throw new Error(`no new sign-in code was written for ${email}`);
 }
 
-/** Signs a client in through the real form: an address the desk knows, then the code sent to it. */
+/** How many sign-in codes have been written for an address so far — the `after` for `clientSignInCode`. */
+export async function clientSignInCodeCount(email: string): Promise<number> {
+  return (await signInCodes(email)).length;
+}
+
+/**
+ * Signs a client in through the real gateway: an address the desk knows, then the code sent to it. A complete code
+ * is checked as soon as it is in the field, so there is nothing to press after it.
+ */
 export async function signInAsClient(page: Page, email: string): Promise<void> {
-  const before = (await signInCodes(email)).length;
+  const before = await clientSignInCodeCount(email);
   await page.goto(`${appBaseUrl()}/sign-in`);
   await page.getByLabel('Work email').fill(email);
-  await page.getByRole('button', { name: 'Send me a code' }).click();
-  await page.getByLabel('Six-digit code').fill(await clientSignInCode(email, before));
-  await page.getByRole('button', { name: 'Sign in' }).click();
-  // Exact: the sign-in page's own heading is "INRP2P Exchange", which a substring match would happily accept.
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await page.getByLabel('Verification code').fill(await clientSignInCode(email, before));
+  // Exact: "Exchange" is the workspace's own first heading; the gateway's words contain it elsewhere.
   await expect(page.getByRole('heading', { name: 'Exchange', exact: true })).toBeVisible();
 }
 

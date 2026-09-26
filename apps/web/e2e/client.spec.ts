@@ -1,7 +1,10 @@
 import { type Page, expect, test } from '@playwright/test';
+import { maskEmail } from '../src/app/sign-in/access.ts';
 import {
   acceptanceCodeFor,
   appBaseUrl,
+  clientSignInCode,
+  clientSignInCodeCount,
   clientSendsUsdt,
   deskPaysOut,
   deliverNotifications,
@@ -73,6 +76,60 @@ test('“Not now” on the link is a local dismissal and nothing else (D-15)', a
   // And the link still works afterwards — the dismissal was in the browser, not in the exchange.
   await page.getByRole('button', { name: 'Back to the quote' }).click();
   await expect(page.getByRole('button', { name: 'Accept quote' })).toBeVisible();
+});
+
+/**
+ * The workspace gateway, on the phone the client product is built for: the access surface is the page, the robot is
+ * left out altogether, and the code step happens on the same surface. Real codes from the product's own delivery
+ * path, and a refusal that says the same thing whatever was wrong.
+ */
+test('a client signs in on their phone: the surface first, no robot, and the code on the same surface', async ({ page }) => {
+  const email = state().acceptorEmail;
+  const robot: string[] = [];
+  page.on('request', (request) => {
+    if (/\/robot-\d+\.[^/]*\.webp/.test(request.url())) robot.push(request.url());
+  });
+  const before = await clientSignInCodeCount(email);
+  await page.goto(`${appBaseUrl()}/sign-in`);
+  await expect(page.getByRole('heading', { level: 1, name: 'Enter the desk.' })).toBeVisible();
+
+  // The field and its action are in the upper half of the screen, clear of where the keyboard opens.
+  const field = page.getByLabel('Work email');
+  const continueButton = page.getByRole('button', { name: 'Continue' });
+  const height = page.viewportSize()!.height;
+  expect((await continueButton.boundingBox())!.y + 52, 'the action above the keyboard').toBeLessThan(height * 0.7);
+  await expect(field).toHaveAttribute('autocomplete', 'username');
+  await expect(field).toHaveAttribute('inputmode', 'email');
+
+  await field.fill('treasury');
+  await continueButton.click();
+  await expect(page.getByRole('alert').filter({ hasText: 'Enter your full work email' })).toBeVisible();
+  await expect(field).toHaveAttribute('aria-invalid', 'true');
+
+  await field.fill(email);
+  await continueButton.click();
+  await expect(page.getByRole('heading', { name: 'Check your email.' })).toBeVisible();
+  await expect(page.getByText(maskEmail(email), { exact: true })).toBeVisible();
+  await expect(page.getByText(/^Resend in 00:\d\d$/)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Use another email' })).toBeVisible();
+
+  // One field under the six cells: the keyboard's own code suggestion, a paste and a screen reader all use it.
+  const code = page.getByLabel('Verification code');
+  await expect(code).toBeFocused();
+  await expect(code).toHaveAttribute('autocomplete', 'one-time-code');
+  await expect(code).toHaveAttribute('inputmode', 'numeric');
+
+  // A complete code is checked at once. A wrong one is refused next to the cells and nowhere else.
+  const real = await clientSignInCode(email, before);
+  await code.fill(real === '000000' ? '111111' : '000000');
+  await expect(page.getByRole('alert').filter({ hasText: /That code wasn.t accepted/ })).toBeVisible();
+  await expect(code).toHaveAttribute('aria-invalid', 'true');
+
+  // The real one, entered in one go with the space an email puts in it, is taken whole.
+  await code.fill(`${real.slice(0, 3)} ${real.slice(3)}`);
+  await expect(page.getByRole('heading', { name: 'Exchange', exact: true })).toBeVisible();
+
+  expect(robot, 'a phone signing in fetches no robot').toEqual([]);
 });
 
 test('the client follows that trade to completion on their phone', async ({ page }) => {

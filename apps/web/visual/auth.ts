@@ -44,10 +44,10 @@ export async function signInClientAndSave(baseURL: string, email: string, sinkFi
     const page = await context.newPage();
     await page.goto('/sign-in');
     await page.getByLabel('Work email').fill(email);
-    await page.getByRole('button', { name: 'Send me a code' }).click();
-    await page.getByLabel('Six-digit code').fill(await codeFromSink(sinkFile, email));
-    await page.getByRole('button', { name: 'Sign in' }).click();
-    // Exact: the sign-in page's own heading is "INRP2P Exchange", which a substring match would happily accept.
+    await page.getByRole('button', { name: 'Continue' }).click();
+    // A complete code is checked as soon as it is in the field; there is nothing to press after it.
+    await page.getByLabel('Verification code').fill(await codeFromSink(sinkFile, email));
+    // Exact: "Exchange" is the workspace's own first heading; the gateway's words contain it elsewhere.
     await expect(page.getByRole('heading', { name: 'Exchange', exact: true })).toBeVisible();
     await context.storageState({ path: CLIENT_AUTH_FILE });
     await context.close();

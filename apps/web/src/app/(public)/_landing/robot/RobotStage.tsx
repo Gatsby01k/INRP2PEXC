@@ -24,7 +24,7 @@ const POSTER_SIZES = '(max-width: 1199px) min(calc(100vw - 32px), 460px), min(ma
  * that can only draw WebGL in software: there, a moving robot would cost the page its responsiveness, which is
  * a bad trade on a page whose whole job is to take a quote request.
  */
-function liveRobotAllowed(): boolean {
+export function liveRobotAllowed(): boolean {
   if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return false;
   const nav = navigator as Navigator & { connection?: { saveData?: boolean }; deviceMemory?: number };
   if (nav.connection?.saveData) return false;
@@ -40,7 +40,7 @@ function liveRobotAllowed(): boolean {
 }
 
 /** Runs once the page has finished loading and the main thread is idle, so the robot never delays the page. */
-function whenSettled(run: () => void): () => void {
+export function whenSettled(run: () => void): () => void {
   let idle: number | undefined;
   let timer: number | undefined;
   const schedule = () => {
