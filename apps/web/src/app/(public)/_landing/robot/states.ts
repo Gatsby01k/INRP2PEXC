@@ -22,7 +22,9 @@ export type RobotState =
   /** The rate was accepted: a glance to confirm, then a confident, level hold on the visitor. */
   | 'locked'
   /** The visitor is on the call to action: the eyes go there and the head barely follows. Nothing else. */
-  | 'intent';
+  | 'intent'
+  /** The robot is saying one of its lines: each has its own authored timeline (`speech.ts`). */
+  | 'speaking';
 
 /** The places attention can go. The page supplies where they are; `viewer` is the camera. */
 export type LookTarget = 'viewer' | 'panel' | 'amount' | 'toggle' | 'rate' | 'cta';
@@ -178,6 +180,20 @@ export const STATES: Record<RobotState, StateSpec> = {
     blinks: true,
     accent: 0.14,
     settle: 0.6,
+    drift: false,
+  },
+  // Stands in for the line being spoken: the behaviour uses that line's own spec from `speech.ts`.
+  speaking: {
+    attention: () => 'viewer',
+    head: { yaw: 0.5, pitch: 0.56, share: 0.5, ease: 0.3 },
+    eyes: { aperture: 1, time: 0.25, gain: 1, notice: false, focus: 0 },
+    lean: 0,
+    turn: 0,
+    chin: 0,
+    breath: 0.6,
+    blinks: false,
+    accent: 0.14,
+    settle: 0.5,
     drift: false,
   },
 };

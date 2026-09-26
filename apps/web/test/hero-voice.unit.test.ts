@@ -1,298 +1,326 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { HERO } from '../src/content/site.ts';
-import { type Clock, PAUSE_AFTER_LINE, type Speaker, VoiceController } from '../src/app/(public)/_landing/voice/controller.ts';
-import { selectVoice, voiceQuality } from '../src/app/(public)/_landing/voice/select.ts';
+import { HERO, VOICE_LINES, type VoiceLine } from '../src/content/site.ts';
+import type { RobotCue } from '../src/app/(public)/_landing/robot/cues.ts';
+import { type LookAngles, type LookTarget, type Pose, REST_POSE, type RobotState, RobotBehaviour } from '../src/app/(public)/_landing/robot/behaviour.ts';
+import { SPEECH, nodTime } from '../src/app/(public)/_landing/robot/speech.ts';
+import { type Player, VoiceController } from '../src/app/(public)/_landing/voice/controller.ts';
+import { CLIP_MEASUREMENTS } from '../src/app/(public)/_landing/voice/clips/measurements.ts';
 
 /**
- * The robot's voice, held to what it is for: a short confirmation after something the visitor did, never
- * conversation. Nothing before an interaction, each line once, one at a time, nothing queued behind the visitor's
- * back — and only in a voice worth hearing.
+ * The robot's voice, held to what it is for: three recorded lines, each a confirmation of something the visitor
+ * did, played the instant it is asked for or not at all — and a body that moves with each line as authored.
  */
 
-/** A clock that only moves when the test moves it, with the timers that are due run in order. */
-function fakeClock() {
-  let now = 0;
-  let next = 0;
-  const timers = new Map<number, { at: number; run: () => void }>();
-  const clock: Clock = {
-    now: () => now,
-    setTimeout: (run, ms) => {
-      const id = ++next;
-      timers.set(id, { at: now + ms / 1000, run });
-      return id;
-    },
-    clearTimeout: (handle) => {
-      if (typeof handle === 'number') timers.delete(handle);
-    },
-  };
-  const advance = (seconds: number) => {
-    const until = now + seconds;
-    for (;;) {
-      const due = [...timers.entries()].filter(([, t]) => t.at <= until).sort((a, b) => a[1].at - b[1].at)[0];
-      if (!due) break;
-      timers.delete(due[0]);
-      now = due[1].at;
-      due[1].run();
-    }
-    now = until;
-  };
-  return { clock, advance, now: () => now };
-}
-
-/** A speaker that records what was said and finishes each line when the test says so. */
-function fakeSpeaker() {
-  const said: string[] = [];
+/** A player whose clips are loaded; audio is unlocked when the test says so, and each line ends when it says so. */
+function fakePlayer(options: { unlocked?: boolean; plays?: boolean } = {}) {
+  const played: VoiceLine[] = [];
+  let unlocked = options.unlocked ?? true;
   let finish: (() => void) | null = null;
-  let cancels = 0;
-  let unlocks = 0;
-  const speaker: Speaker = {
-    speak: (text, onEnd) => {
-      said.push(text);
+  let stops = 0;
+  const player: Player = {
+    ready: () => unlocked,
+    play: (line, onEnd) => {
+      if (!unlocked || options.plays === false) return null;
+      played.push(line);
       finish = onEnd;
+      return { lead: 0.02 };
     },
-    cancel: () => {
-      cancels += 1;
+    stop: () => {
+      stops += 1;
+      const f = finish;
       finish = null;
-    },
-    unlock: () => {
-      unlocks += 1;
+      f?.();
     },
   };
   return {
-    speaker,
-    said,
-    /** The current line finishes. */
+    player,
+    played,
+    unlock: () => {
+      unlocked = true;
+    },
+    /** The current line plays to its end. */
     end: () => {
       const f = finish;
       finish = null;
       f?.();
     },
-    cancels: () => cancels,
-    unlocks: () => unlocks,
+    stops: () => stops,
   };
 }
 
-const LINES = HERO.voice.lines;
-
-function setup(options: { muted?: boolean } = {}) {
-  const time = fakeClock();
-  const voice = fakeSpeaker();
-  const controller = new VoiceController({ speaker: voice.speaker, clock: time.clock, lines: LINES, muted: options.muted ?? false });
-  /** Lets the current line finish and the pause after it pass. */
-  const settle = () => {
-    voice.end();
-    time.advance(PAUSE_AFTER_LINE + 0.05);
+function setup(options: { muted?: boolean; unlocked?: boolean; plays?: boolean } = {}) {
+  let now = 0;
+  const audio = fakePlayer(options);
+  const robot: RobotCue[] = [];
+  const controller = new VoiceController({
+    player: audio.player,
+    clock: { now: () => now },
+    muted: options.muted ?? false,
+    onRobot: (cue) => robot.push(cue),
+  });
+  return {
+    audio,
+    robot,
+    controller,
+    advance: (seconds: number) => {
+      now += seconds;
+    },
   };
-  return { time, voice, controller, settle };
 }
 
 describe('when the robot speaks', () => {
-  it('says nothing on its own: no line before the visitor has done anything, however long the page is open', () => {
-    const { time, voice } = setup();
-    time.advance(120);
-    expect(voice.said).toEqual([]);
-    expect(voice.unlocks()).toBe(0);
+  it('says nothing before the visitor has done anything, and nothing late for a gesture that came too late', () => {
+    const { audio, controller, advance } = setup({ unlocked: false });
+    controller.onCue({ kind: 'engage' });
+    advance(2);
+    audio.unlock();
+    controller.unlocked();
+    expect(audio.played).toEqual([]);
   });
 
-  it('greets the first interaction that is not itself an action, a moment after it', () => {
-    const { time, voice, controller } = setup();
+  it('answers the first move in the quote module at once, in the same call', () => {
+    const { audio, robot, controller } = setup();
     controller.onCue({ kind: 'engage' });
-    expect(voice.unlocks(), 'unlocked inside the gesture').toBe(1);
-    expect(voice.said).toEqual([]);
-    time.advance(0.4);
-    expect(voice.said).toEqual([LINES.ready]);
+    expect(audio.played).toEqual(['ready']);
+    expect(robot).toEqual([{ kind: 'speak', line: 'ready', lead: 0.02 }]);
   });
 
-  it('lets an action answer for itself when it is the first interaction: no greeting before or after it', () => {
-    const { time, voice, controller, settle } = setup();
+  it('waits for the end of a tap, and no longer, where a touch screen only unlocks audio then', () => {
+    const { audio, controller, advance } = setup({ unlocked: false });
     controller.onCue({ kind: 'engage' });
-    controller.onCue({ kind: 'direction', direction: 'BUY_USDT' });
-    time.advance(0.3);
-    expect(voice.said).toEqual([LINES.direction]);
-    settle();
-    controller.onCue({ kind: 'engage' });
-    time.advance(2);
-    expect(voice.said).toEqual([LINES.direction]);
+    advance(0.15);
+    audio.unlock();
+    controller.unlocked();
+    expect(audio.played).toEqual(['ready']);
   });
 
-  it('confirms a typed amount once the typing stops, not while it continues', () => {
-    const { time, voice, controller, settle } = setup();
+  it('never speaks about an amount, a direction, a rate or a lock', () => {
+    const { audio, controller } = setup();
+    const quiet: RobotCue[] = [
+      { kind: 'value' },
+      { kind: 'value', settled: true },
+      { kind: 'direction', direction: 'BUY_USDT' },
+      { kind: 'rate' },
+      { kind: 'lock' },
+    ];
+    for (const cue of quiet) controller.onCue(cue);
+    expect(audio.played).toEqual([]);
+  });
+
+  it('greets once per visit', () => {
+    const { audio, controller } = setup();
     controller.onCue({ kind: 'engage' });
-    time.advance(0.4);
-    settle();
-    for (let i = 0; i < 6; i++) {
-      controller.onCue({ kind: 'value' });
-      time.advance(0.2);
+    audio.end();
+    controller.onCue({ kind: 'engage' });
+    expect(audio.played).toEqual(['ready']);
+  });
+
+  it('asks for a second look once per visit, and confirms every received request', () => {
+    const { audio, controller } = setup();
+    for (let i = 0; i < 2; i++) {
+      controller.onCue({ kind: 'problem' });
+      audio.end();
+      controller.onCue({ kind: 'submitted' });
+      audio.end();
     }
-    expect(voice.said).toEqual([LINES.ready]);
-    time.advance(0.4);
-    expect(voice.said).toEqual([LINES.ready, LINES.amount]);
+    expect(audio.played).toEqual(['check', 'received', 'received']);
   });
 
-  it('confirms an amount picked in one step sooner', () => {
-    const { time, voice, controller } = setup();
-    controller.onCue({ kind: 'value', settled: true });
-    time.advance(0.3);
-    expect(voice.said).toEqual([LINES.amount]);
-  });
-
-  it('answers the call to action and a received request with their own lines', () => {
-    const { time, voice, controller, settle } = setup();
-    controller.onCue({ kind: 'cta' });
-    settle();
-    controller.onCue({ kind: 'submitted' });
-    time.advance(0.1);
-    expect(voice.said).toEqual([LINES.request, LINES.received]);
-  });
-
-  it('leaves a rate and a lock to the robot’s body: the figure on screen is the confirmation', () => {
-    const { time, voice, controller } = setup();
-    controller.onCue({ kind: 'rate' });
-    controller.onCue({ kind: 'lock' });
-    time.advance(2);
-    expect(voice.said).toEqual([]);
-  });
-});
-
-describe('how little it says', () => {
-  it('says each line at most once per visit', () => {
-    const { time, voice, controller, settle } = setup();
-    for (const direction of ['BUY_USDT', 'SELL_USDT', 'BUY_USDT'] as const) {
-      controller.onCue({ kind: 'direction', direction });
-      time.advance(0.2);
-      settle();
-    }
-    for (let i = 0; i < 3; i++) {
-      controller.onCue({ kind: 'value', settled: true });
-      time.advance(0.3);
-      settle();
-    }
-    expect(voice.said).toEqual([LINES.direction, LINES.amount]);
-  });
-
-  it('never talks over itself: a line asked for mid-line waits for it, briefly — only the most recent one', () => {
-    const { time, voice, controller } = setup();
-    controller.onCue({ kind: 'cta' });
-    controller.onCue({ kind: 'value', settled: true });
-    time.advance(0.3);
-    controller.onCue({ kind: 'submitted' });
-    expect(voice.said).toEqual([LINES.request]);
-    voice.end();
-    time.advance(PAUSE_AFTER_LINE + 0.05);
-    // The amount was superseded by the newer line while it waited: it is dropped, not queued behind it.
-    expect(voice.said).toEqual([LINES.request, LINES.received]);
-    voice.end();
-    time.advance(5);
-    expect(voice.said).toEqual([LINES.request, LINES.received]);
-  });
-
-  it('drops a waiting line that is no longer news', () => {
-    const { time, voice, controller } = setup();
-    controller.onCue({ kind: 'cta' });
-    controller.onCue({ kind: 'submitted' });
-    // The current line runs long: by the time it ends, the waiting one is stale.
-    time.advance(2);
-    voice.end();
-    time.advance(PAUSE_AFTER_LINE + 0.05);
-    expect(voice.said).toEqual([LINES.request]);
-  });
-
-  it('confirms an amount typed straight after the greeting, once the greeting and its pause are over', () => {
-    const { time, voice, controller } = setup();
+  it('retires the greeting once another line has been said: a first move that was a problem is not greeted', () => {
+    const { audio, controller } = setup();
+    controller.onCue({ kind: 'problem' });
+    audio.end();
     controller.onCue({ kind: 'engage' });
-    time.advance(0.4);
-    controller.onCue({ kind: 'value' });
-    time.advance(0.6);
-    expect(voice.said).toEqual([LINES.ready]);
-    voice.end();
-    time.advance(PAUSE_AFTER_LINE + 0.05);
-    expect(voice.said).toEqual([LINES.ready, LINES.amount]);
+    expect(audio.played).toEqual(['check']);
   });
 
-  it('keeps a pause after every line', () => {
-    const { time, voice, controller } = setup();
-    controller.onCue({ kind: 'cta' });
-    voice.end();
-    time.advance(PAUSE_AFTER_LINE / 2);
-    controller.onCue({ kind: 'submitted' });
-    expect(voice.said, 'not yet').toEqual([LINES.request]);
-    time.advance(PAUSE_AFTER_LINE / 2 + 0.05);
-    expect(voice.said, 'after the pause').toEqual([LINES.request, LINES.received]);
+  it('lets a more important line cut a lesser one short — never the other way round, and nothing waits', () => {
+    const { audio, robot, controller } = setup();
+    controller.onCue({ kind: 'engage' });
+    controller.onCue({ kind: 'problem' });
+    expect(audio.stops()).toBe(1);
+    expect(robot.map((c) => c.kind)).toEqual(['speak', 'hush', 'speak']);
+    controller.onCue({ kind: 'engage' });
+    audio.end();
+    expect(audio.played).toEqual(['ready', 'check']);
+  });
+
+  it('tells the body nothing when a line could not start', () => {
+    const { robot, controller } = setup({ plays: false });
+    controller.onCue({ kind: 'engage' });
+    controller.onCue({ kind: 'problem' });
+    expect(robot).toEqual([]);
   });
 });
 
 describe('the mute control', () => {
   it('silences everything while muted', () => {
-    const { time, voice, controller } = setup({ muted: true });
+    const { audio, controller } = setup({ muted: true });
     controller.onCue({ kind: 'engage' });
-    controller.onCue({ kind: 'value', settled: true });
-    controller.onCue({ kind: 'cta' });
-    time.advance(3);
-    expect(voice.said).toEqual([]);
+    controller.onCue({ kind: 'problem' });
+    controller.onCue({ kind: 'submitted' });
+    expect(audio.played).toEqual([]);
   });
 
-  it('stops the current line the moment it is pressed', () => {
-    const { voice, controller } = setup();
-    controller.onCue({ kind: 'cta' });
+  it('stops the current line the moment it is pressed, and tells the body', () => {
+    const { audio, robot, controller } = setup();
+    controller.onCue({ kind: 'submitted' });
     controller.setMuted(true);
-    expect(voice.cancels()).toBe(1);
+    expect(audio.stops()).toBe(1);
+    expect(robot.at(-1)).toEqual({ kind: 'hush' });
   });
 
-  it('confirms being turned on, once, if nothing has been said yet', () => {
-    const { voice, controller, settle } = setup({ muted: true });
+  it('confirms being turned on, once, only if nothing has been said yet', () => {
+    const { audio, controller } = setup({ muted: true });
     controller.setMuted(false);
-    expect(voice.said).toEqual([LINES.ready]);
-    settle();
+    audio.end();
     controller.setMuted(true);
     controller.setMuted(false);
-    expect(voice.said).toEqual([LINES.ready]);
+    expect(audio.played).toEqual(['ready']);
+  });
+
+  it('stops a line when the page is hidden, without muting the voice', () => {
+    const { audio, controller } = setup();
+    controller.onCue({ kind: 'problem' });
+    controller.hush();
+    expect(audio.stops()).toBe(1);
+    controller.onCue({ kind: 'submitted' });
+    expect(audio.played).toEqual(['check', 'received']);
   });
 });
 
-describe('which voice', () => {
-  const v = (name: string, lang: string, voiceURI = name) => ({ name, lang, voiceURI });
-  const desktop = { android: false };
+// ---- the body, moving with a line ----------------------------------------------------------------------
 
-  it('prefers a natural voice, and Indian English among equals', () => {
-    const voices = [v('Microsoft Aria Online (Natural) - English (United States)', 'en-US'), v('Microsoft Neerja Online (Natural) - English (India)', 'en-IN'), v('Samantha', 'en-US')];
-    expect(selectVoice(voices, desktop)?.name).toContain('Neerja');
+const ANGLES: Record<LookTarget, LookAngles> = {
+  viewer: { yaw: 0, pitch: -0.05 },
+  panel: { yaw: 0.45, pitch: -0.1 },
+  amount: { yaw: 0.42, pitch: -0.02 },
+  toggle: { yaw: 0.4, pitch: 0.06 },
+  rate: { yaw: 0.46, pitch: -0.14 },
+  cta: { yaw: 0.44, pitch: -0.3 },
+};
+const FRAME = 1 / 60;
+const LEAD = 0.03;
+
+interface Frame {
+  readonly pose: Pose;
+  readonly state: RobotState;
+  readonly time: number;
+}
+
+function robotAtRest() {
+  let s = 11;
+  const random = () => {
+    s = (s * 16807) % 2147483647;
+    return s / 2147483647;
+  };
+  const behaviour = new RobotBehaviour({ direction: 'SELL_USDT', random });
+  let time = 0;
+  const step = (seconds: number, each?: (frame: Frame) => void): Frame => {
+    let frame: Frame = { pose: REST_POSE, state: behaviour.current, time };
+    for (let i = 0; i < Math.round(seconds / FRAME); i++) {
+      time += FRAME;
+      const pose = behaviour.update({ time, dt: FRAME, focus: 'none', angles: (t) => ANGLES[t] });
+      frame = { pose, state: behaviour.current, time };
+      each?.(frame);
+    }
+    return frame;
+  };
+  step(4);
+  return { behaviour, step, now: () => time };
+}
+
+/** Speaks `line` on a robot at rest and records every frame until it is back at rest. */
+function speak(line: VoiceLine) {
+  const robot = robotAtRest();
+  const at = robot.now();
+  const rest = robot.step(0);
+  robot.behaviour.cue({ kind: 'speak', line, lead: LEAD }, at);
+  const frames: Frame[] = [];
+  robot.step(CLIP_MEASUREMENTS[line].duration + 3, (f) => frames.push(f));
+  const heard = (f: Frame) => f.time - at - LEAD;
+  return { robot, at, rest, frames, heard };
+}
+
+describe('the body while it speaks', () => {
+  it('moves its attention the moment a line starts: the eyes are on their way within the first frames', () => {
+    const { frames, rest } = speak('check');
+    const early = frames[5]!;
+    expect(early.state).toBe('speaking');
+    expect(early.pose.gazeX - rest.pose.gazeX).toBeGreaterThan(0.01);
   });
 
-  it('puts quality before region', () => {
-    const voices = [v('Rishi', 'en-IN'), v('Ava (Premium)', 'en-US')];
-    expect(selectVoice(voices, desktop)?.name).toBe('Ava (Premium)');
+  it('nods once, on the syllable each line stresses, and only on lines that have a nod', () => {
+    for (const line of VOICE_LINES) {
+      const { frames, rest, heard } = speak(line);
+      const dip = frames.map((f) => ({ t: heard(f), pitch: f.pose.headPitch - f.pose.neckPitch }));
+      const target = nodTime(line);
+      if (target === null) continue;
+      // The nod's lowest point, against the pitch the pose would hold without it.
+      const around = dip.filter((d) => d.t > target - 0.4 && d.t < target + 0.6);
+      const deepest = around.reduce((a, b) => (b.pitch < a.pitch ? b : a));
+      expect(Math.abs(deepest.t - (target + 0.04)), line).toBeLessThan(0.12);
+      expect(rest.pose.headPitch - deepest.pitch, line).toBeLessThan(0.08);
+    }
   });
 
-  it('refuses mechanical engines, novelty voices and unknown desktop voices — and stays silent if that is all there is', () => {
-    const voices = [v('English (America)', 'en-US', 'espeak-ng en-us'), v('Zarvox', 'en-US'), v('Bad News', 'en-US'), v('Microsoft David Desktop - English (United States)', 'en-US')];
-    expect(selectVoice(voices, desktop)).toBeNull();
-    for (const voice of voices) expect(voiceQuality(voice, desktop)).toBe(0);
+  it('lights the hub with the voice and only while it is heard', () => {
+    for (const line of VOICE_LINES) {
+      const { frames, heard } = speak(line);
+      const duration = CLIP_MEASUREMENTS[line].duration;
+      const during = frames.filter((f) => heard(f) > 0.1 && heard(f) < duration - 0.1).map((f) => f.pose.hubGlow);
+      const after = frames.filter((f) => heard(f) > duration + 2).map((f) => f.pose.hubGlow);
+      expect(Math.max(...during), line).toBeGreaterThan(0.1);
+      expect(Math.max(...after), line).toBeLessThan(0.01);
+    }
   });
 
-  it('accepts the Android engine’s plainly named English voices, on Android only', () => {
-    const voices = [v('English United Kingdom', 'en-GB')];
-    expect(selectVoice(voices, { android: true })?.name).toBe('English United Kingdom');
-    expect(selectVoice(voices, desktop)).toBeNull();
+  it('completes the emblem for a received request, and for nothing else', () => {
+    const arcs = (line: VoiceLine) => Math.max(...speak(line).frames.map((f) => Math.min(...f.pose.arcGlow)));
+    expect(arcs('received')).toBeGreaterThan(0.3);
+    expect(arcs('ready')).toBeLessThan(0.05);
+    expect(arcs('check')).toBeLessThan(0.05);
   });
 
-  it('knows Apple voices by their URI, whatever language the names are shown in', () => {
-    const voices = [
-      v('Саманта', 'en-US', 'com.apple.voice.compact.en-US.Samantha'),
-      v('Ава (улучшенное)', 'en-US', 'com.apple.voice.premium.en-US.Ava'),
-      v('Зарвокс', 'en-US', 'com.apple.speech.synthesis.voice.Zarvox'),
-      v('Rocko', 'en-US', 'com.apple.eloquence.en-US.Rocko'),
-    ];
-    expect(selectVoice(voices, desktop)?.voiceURI).toBe('com.apple.voice.premium.en-US.Ava');
-    expect(voiceQuality(voices[0]!, desktop)).toBe(2);
-    expect(voiceQuality(voices[2]!, desktop)).toBe(0);
-    expect(voiceQuality(voices[3]!, desktop)).toBe(0);
+  it('holds a moment after the line, then returns to rest by itself', () => {
+    for (const line of VOICE_LINES) {
+      const { frames, heard } = speak(line);
+      const end = CLIP_MEASUREMENTS[line].duration + SPEECH[line].hold;
+      expect(frames.find((f) => heard(f) > end - 0.1 && heard(f) < end - 0.05)?.state, line).toBe('speaking');
+      expect(frames.at(-1)?.state, line).toBe('idle');
+    }
   });
 
-  it('refuses translated names it cannot identify, rather than guess', () => {
-    expect(selectVoice([v('Саманта', 'en-US'), v('Мойра', 'en-IE')], desktop)).toBeNull();
+  it('lets go at once when the line is stopped', () => {
+    const robot = robotAtRest();
+    robot.behaviour.cue({ kind: 'speak', line: 'received', lead: LEAD }, robot.now());
+    robot.step(0.3);
+    robot.behaviour.cue({ kind: 'hush' }, robot.now());
+    const after = robot.step(0.4);
+    expect(after.state).toBe('idle');
+    expect(after.pose.hubGlow).toBeLessThan(0.05);
   });
+});
 
-  it('never picks a voice that does not speak English', () => {
-    expect(selectVoice([v('Google हिन्दी', 'hi-IN'), v('Microsoft Swara Online (Natural) - Hindi (India)', 'hi-IN')], desktop)).toBeNull();
+// ---- the clips -------------------------------------------------------------------------------------------
+
+const clip = (line: VoiceLine, ext: 'wav' | 'm4a') => fileURLToPath(new URL(`../src/app/(public)/_landing/voice/clips/${line}.${ext}`, import.meta.url));
+
+describe('the clips', () => {
+  it('are exactly the three lines of the copy, short, and speak from their first moment', () => {
+    expect(Object.keys(HERO.voice.lines).sort()).toEqual([...VOICE_LINES].sort());
+    for (const line of VOICE_LINES) {
+      const wav = readFileSync(clip(line, 'wav'));
+      expect(readFileSync(clip(line, 'm4a')).length, line).toBeGreaterThan(4000);
+      const rate = wav.readUInt32LE(24);
+      const samples = (wav.length - 44) / 2;
+      expect(samples / rate, line).toBeCloseTo(CLIP_MEASUREMENTS[line].duration, 2);
+      expect(samples / rate, line).toBeLessThan(2);
+      // The first sound within 25 ms: the robot moves the moment a clip starts, so the clip must too.
+      const first = Array.from({ length: samples }, (_, i) => Math.abs(wav.readInt16LE(44 + i * 2))).findIndex((v) => v > 32767 * 0.004);
+      expect(first / rate, line).toBeLessThan(0.025);
+    }
   });
 });

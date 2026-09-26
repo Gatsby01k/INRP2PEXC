@@ -4,182 +4,136 @@ import type { RobotCue } from '../robot/cues.ts';
 /**
  * When the robot speaks, and when it keeps quiet.
  *
- * Speech is confirmation, not conversation. Each line answers one thing the visitor did, and the rules that keep
- * it that way are all here:
+ * Three recorded lines, each an answer to something the visitor did — and rarity is part of what makes them
+ * worth hearing, so the rules that keep them rare are all here:
  *
  *   - nothing is ever said before the visitor has interacted with the page;
- *   - each line is said at most once per visit — a confirmation heard twice is a prompt;
- *   - one line at a time, with a pause after it; a line asked for meanwhile waits — only the most recent one,
- *     and never longer than a moment — or is dropped, so the voice can never fall behind what is on screen;
- *   - the greeting belongs to the first interaction only when that interaction is not itself an action — once
- *     the visitor has acted, "ready when you are" no longer fits and is retired unsaid;
- *   - a typed amount is confirmed when the typing stops, at the moment the robot's own confirmation shows;
+ *   - "Ready when you are." answers the visitor's first move in the quote module, once per visit, the moment it
+ *     happens. Changing the amount or the direction is never spoken — the page and the robot's body show those;
+ *   - "Let's check that." answers a request that cannot go as it is, once per visit: a second time is nagging;
+ *   - "Request received." answers every request the desk accepts;
+ *   - a line plays at once or not at all: nothing waits for audio, and nothing is queued to play later. The one
+ *     allowance is the moment a touch screen takes to count a tap as a gesture (the tap's end, not its start);
+ *   - one line at a time: a more important line cuts a lesser one short, never the other way round;
  *   - muting stops the current line at once.
  *
- * The browser is behind `Speaker`, and time behind `Clock`, so the rules can be tested as rules.
+ * Audio is behind `Player` and time behind `Clock`, so the rules can be tested as rules.
  */
 
-export interface Speaker {
-  /** Starts a line and reports when it has finished (or failed). Must never throw or block. */
-  speak(text: string, onEnd: () => void): void;
-  cancel(): void;
-  /** Called inside the visitor's first gesture: some browsers only allow speech that began in one. */
-  unlock(): void;
+export interface Player {
+  /** Whether a line started now would be heard now: clips decoded, audio unlocked by a gesture. */
+  ready(): boolean;
+  /**
+   * Starts a line from memory, now, and reports when it ends (or is stopped). Returns how long until its first
+   * sound reaches the speakers, or null when it cannot start at once. Never throws, never blocks.
+   */
+  play(line: VoiceLine, onEnd: () => void): { readonly lead: number } | null;
+  /** Stops the current line with a short fade. */
+  stop(): void;
 }
 
 export interface Clock {
   now(): number;
-  setTimeout(run: () => void, ms: number): unknown;
-  clearTimeout(handle: unknown): void;
 }
 
-/** Seconds of quiet after a line before another may start. */
-export const PAUSE_AFTER_LINE = 0.9;
-/** A line that has not reported its end after this long is treated as finished. */
-const LONGEST_LINE = 4;
-/** How long the greeting waits, so a first press that is itself an action is answered by that action's line. */
-const GREETING_DELAY = 0.35;
-/** When a typed or picked amount counts as settled — the same moments the robot confirms it (`states.ts`). */
-const AMOUNT_SETTLE = { typed: 0.55, picked: 0.25 } as const;
-/** A short beat after a direction change, so the line follows the click rather than landing on it. */
-const DIRECTION_DELAY = 0.12;
-/** The longest a line may wait for the one before it to finish; after that it is no longer news. */
-const LONGEST_WAIT = 1.5;
+/** Which line may cut which short: a received request over a problem over the greeting. */
+const PRIORITY: Record<VoiceLine, number> = { ready: 0, check: 1, received: 2 };
+/** Lines said at most once per visit. */
+const ONCE: ReadonlySet<VoiceLine> = new Set<VoiceLine>(['ready', 'check']);
+/** How long the greeting may wait for the gesture that unlocks audio — a tap's length, no more. */
+const UNLOCK_WINDOW = 0.6;
 
 export class VoiceController {
-  private readonly speaker: Speaker;
+  private readonly player: Player;
   private readonly clock: Clock;
-  private readonly lines: Record<VoiceLine, string>;
+  private readonly onRobot: (cue: RobotCue) => void;
   private readonly spoken = new Set<VoiceLine>();
   private muted: boolean;
-  private activated = false;
-  private speakingSince: number | null = null;
-  private quietUntil = 0;
-  private greeting: unknown = null;
-  private amount: unknown = null;
-  private direction: unknown = null;
-  /** The one line waiting for the current line to finish: the most recent asked for. */
-  private waiting: { readonly line: VoiceLine; readonly until: number } | null = null;
-  private flush: unknown = null;
+  private playing: VoiceLine | null = null;
+  /** Monotonic: tells a finished line's callback whether it is still the current one. */
+  private generation = 0;
+  /** When the visitor's first move came before audio could be unlocked, the time it came. */
+  private greetingSince: number | null = null;
 
-  constructor(options: { speaker: Speaker; clock: Clock; lines: Record<VoiceLine, string>; muted: boolean }) {
-    this.speaker = options.speaker;
+  constructor(options: { player: Player; clock: Clock; muted: boolean; onRobot: (cue: RobotCue) => void }) {
+    this.player = options.player;
     this.clock = options.clock;
-    this.lines = options.lines;
+    this.onRobot = options.onRobot;
     this.muted = options.muted;
   }
 
-  /** The visitor pressed, clicked, typed or tabbed: speech is now allowed, and unlocked where that is needed. */
-  activate(): void {
-    if (this.activated) return;
-    this.activated = true;
-    this.speaker.unlock();
+  /** Audio was just unlocked by a gesture: a greeting that was waiting for it is said now, if still timely. */
+  unlocked(): void {
+    const since = this.greetingSince;
+    this.greetingSince = null;
+    if (since !== null && this.clock.now() - since <= UNLOCK_WINDOW) this.say('ready');
   }
 
   setMuted(muted: boolean): void {
     this.muted = muted;
     if (muted) {
-      this.cancelPending();
-      this.speaker.cancel();
-      this.speakingSince = null;
+      this.greetingSince = null;
+      this.stop();
       return;
     }
-    // Turning the voice on is itself a first interaction worth answering — once.
-    this.activate();
+    // Turning the voice on is answered the way a first move is — once, and only if nothing has been said yet.
     this.say('ready');
   }
 
   onCue(cue: RobotCue): void {
     switch (cue.kind) {
       case 'engage':
-        this.activate();
-        if (this.spoken.has('ready') || this.greeting !== null) return;
-        this.greeting = this.clock.setTimeout(() => {
-          this.greeting = null;
-          this.say('ready');
-        }, GREETING_DELAY * 1000);
+        if (this.spoken.has('ready')) return;
+        if (this.player.ready()) this.say('ready');
+        else if (!this.muted) this.greetingSince = this.clock.now();
         return;
-      case 'value':
-        this.acted();
-        this.clock.clearTimeout(this.amount);
-        this.amount = this.clock.setTimeout(() => {
-          this.amount = null;
-          this.say('amount');
-        }, (cue.settled ? AMOUNT_SETTLE.picked : AMOUNT_SETTLE.typed) * 1000);
-        return;
-      case 'direction':
-        this.acted();
-        this.clock.clearTimeout(this.direction);
-        this.direction = this.clock.setTimeout(() => {
-          this.direction = null;
-          this.say('direction');
-        }, DIRECTION_DELAY * 1000);
-        return;
-      case 'cta':
-        this.acted();
-        this.say('request');
+      case 'problem':
+        this.say('check');
         return;
       case 'submitted':
-        this.acted();
         this.say('received');
         return;
-      case 'rate':
-      case 'lock':
-        // Shown by the robot, not spoken: the figure on screen is the confirmation.
+      default:
         return;
     }
+  }
+
+  /** Stops the current line, if any, without changing whether the voice is on: the page was hidden or left. */
+  hush(): void {
+    this.greetingSince = null;
+    this.stop();
   }
 
   dispose(): void {
-    this.cancelPending();
-    this.speaker.cancel();
-  }
-
-  /** The visitor has acted: the greeting no longer fits, whether or not it was said. */
-  private acted(): void {
-    this.activate();
-    this.clock.clearTimeout(this.greeting);
-    this.greeting = null;
-    this.spoken.add('ready');
+    this.stop();
   }
 
   private say(line: VoiceLine): void {
-    const now = this.clock.now();
-    if (this.muted || !this.activated || this.spoken.has(line)) return;
-    const speaking = this.speakingSince !== null && now - this.speakingSince < LONGEST_LINE;
-    if (speaking || now < this.quietUntil) {
-      // A confirmation may wait its turn, briefly; the greeting never does — by then it would be late.
-      if (line === 'ready') return;
-      this.waiting = { line, until: now + LONGEST_WAIT };
-      if (!speaking) this.flushIn(this.quietUntil - now);
+    if (this.muted || this.spoken.has(line)) return;
+    if (this.playing !== null && PRIORITY[this.playing] >= PRIORITY[line]) {
+      // A lesser line never waits to be said later; the greeting's moment has simply passed.
+      if (line === 'ready') this.spoken.add(line);
       return;
     }
-    this.spoken.add(line);
-    this.speakingSince = now;
-    this.speaker.speak(this.lines[line], () => {
-      this.speakingSince = null;
-      this.quietUntil = this.clock.now() + PAUSE_AFTER_LINE;
-      if (this.waiting) this.flushIn(PAUSE_AFTER_LINE);
+    // Whether it is heard or not, the moment for the greeting is over once anything else is said.
+    this.spoken.add('ready');
+    if (ONCE.has(line)) this.spoken.add(line);
+    if (this.playing !== null) this.stop();
+    const generation = ++this.generation;
+    const started = this.player.play(line, () => {
+      if (generation !== this.generation) return;
+      this.playing = null;
     });
+    if (!started) return;
+    this.playing = line;
+    this.onRobot({ kind: 'speak', line, lead: started.lead });
   }
 
-  /** Says the waiting line once the pause is over, if it is still recent enough to be worth saying. */
-  private flushIn(seconds: number): void {
-    this.clock.clearTimeout(this.flush);
-    this.flush = this.clock.setTimeout(() => {
-      this.flush = null;
-      const waiting = this.waiting;
-      this.waiting = null;
-      if (waiting && this.clock.now() <= waiting.until) this.say(waiting.line);
-    }, Math.max(0, seconds) * 1000);
-  }
-
-  private cancelPending(): void {
-    for (const handle of [this.greeting, this.amount, this.direction, this.flush]) this.clock.clearTimeout(handle);
-    this.greeting = null;
-    this.amount = null;
-    this.direction = null;
-    this.flush = null;
-    this.waiting = null;
+  private stop(): void {
+    this.generation += 1;
+    if (this.playing === null) return;
+    this.playing = null;
+    this.player.stop();
+    this.onRobot({ kind: 'hush' });
   }
 }

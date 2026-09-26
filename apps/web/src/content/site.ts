@@ -103,12 +103,17 @@ export interface HeroCopy {
 
 export type HeroPointIcon = 'rupee' | 'lock' | 'dealer' | 'destination';
 
-/** The robot's spoken confirmations, one per meaningful action. */
-export type VoiceLine = 'ready' | 'direction' | 'amount' | 'request' | 'received';
+/**
+ * Everything the robot ever says: the visitor's first move, a request received, and a problem worth a second
+ * look. Changing an amount or a direction is shown, never spoken — rarity is what keeps a voice worth hearing.
+ */
+export const VOICE_LINES = ['ready', 'received', 'check'] as const;
+export type VoiceLine = (typeof VOICE_LINES)[number];
 
 /**
- * The robot's voice: a handful of short confirmations spoken after something the visitor did, never on its own.
- * `lines` are spoken, not shown; `control` names the button that mutes them, `on` and `off` describe its state.
+ * The robot's voice: three short, recorded lines, each said only after something the visitor did.
+ * `lines` are the words of the recordings (`voice/clips`), spoken, not shown; `control` names the button that
+ * mutes them, `on` and `off` describe its state.
  */
 export interface HeroVoiceCopy {
   readonly control: string;
@@ -129,6 +134,8 @@ export interface QuoteModuleCopy {
   readonly rateValue: string;
   readonly presets: string;
   readonly cta: string;
+  /** Shown under the amount when "Request quote" is pressed without one; the visitor stays on the page. */
+  readonly amountRequired: string;
   readonly note: string;
 }
 
@@ -153,6 +160,7 @@ export const HERO: HeroCopy = {
     rateValue: 'Firm, locked when you accept',
     presets: 'Common amounts',
     cta: 'Request quote',
+    amountRequired: 'Enter an amount to request a quote.',
     note: 'Sent from your client account. New clients are onboarded by the desk first.',
   },
   voice: {
@@ -161,10 +169,8 @@ export const HERO: HeroCopy = {
     off: 'Voice cues are off. Press to turn them on.',
     lines: {
       ready: 'Ready when you are.',
-      direction: 'Direction updated.',
-      amount: 'Got it.',
-      request: "I'll send this to the desk.",
       received: 'Request received.',
+      check: "Let's check that.",
     },
   },
 };

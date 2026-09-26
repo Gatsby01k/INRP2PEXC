@@ -1,4 +1,5 @@
 import type { Direction } from '@inrp2p/kernel';
+import type { VoiceLine } from '../../../../content/site.ts';
 
 /**
  * How quote UI tells the robot what just happened.
@@ -24,15 +25,22 @@ export type RobotCue =
   | { readonly kind: 'rate' }
   /** The firm rate was accepted and is now locked. Only from UI that shows one. */
   | { readonly kind: 'lock' }
-  /** The visitor started working in the module: the first press or focus inside it. Heard, not shown. */
-  | { readonly kind: 'engage' }
   /**
-   * The visitor turned to the call to action: keyboard focus, a deliberate hover, or activating it in a way that
-   * keeps this page open. The body already follows the button through focus; this is for the voice.
+   * The visitor started working in the module: the first press or focus inside it — not a press on the call to
+   * action, which answers for itself. Heard by the voice.
    */
-  | { readonly kind: 'cta' }
+  | { readonly kind: 'engage' }
   /** A request was accepted by the desk. Only from UI that submits one — the home page's module does not. */
-  | { readonly kind: 'submitted' };
+  | { readonly kind: 'submitted' }
+  /** The request cannot go as it is (no amount): recoverable, and shown next to what needs changing. */
+  | { readonly kind: 'problem' }
+  /**
+   * The voice has started a line. `lead` is how long until its first sound reaches the speakers — the body's
+   * attention moves now, its timing to the words waits that long.
+   */
+  | { readonly kind: 'speak'; readonly line: VoiceLine; readonly lead: number }
+  /** The line stopped before its end (muted, interrupted, the page hidden). */
+  | { readonly kind: 'hush' };
 
 /** The direction the quote module opens on; the robot starts the conversation facing the same way. */
 export const INITIAL_DIRECTION: Direction = 'SELL_USDT';

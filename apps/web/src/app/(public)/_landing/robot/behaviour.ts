@@ -1,7 +1,9 @@
 import type { Direction } from '@inrp2p/kernel';
+import type { VoiceLine } from '../../../../content/site.ts';
 import type { RobotCue, RobotFocus } from './cues.ts';
 import { between, blinkOpenness, clamp, envelope, follow, follower, loadCycle } from './motion.ts';
-import { DURATION, LOOK_FALLBACK, type LookTarget, type RobotState, STATES } from './states.ts';
+import { SPEECH, clipOf, loudness, nodTime, speakingSpec } from './speech.ts';
+import { DURATION, LOOK_FALLBACK, type LookTarget, type RobotState, type StateSpec, STATES } from './states.ts';
 
 export type { LookTarget, RobotState } from './states.ts';
 
@@ -26,6 +28,9 @@ export type { LookTarget, RobotState } from './states.ts';
  * Lights run on their own clock: one short, faint sweep of the emblem when a value is confirmed or the direction
  * changes, a pulse at its hub for a new rate, the whole mark resolving when a rate locks. Each starts at an event
  * and ends.
+ *
+ * When the voice says a line, the body follows that line's own timeline (`speech.ts`): attention at once, then a
+ * nod on the stressed syllable and the hub light following the voice, timed to when the sound is heard.
  *
  * Pure: time, focus and where things are come in; the frame loop owns the scene.
  */
@@ -109,7 +114,17 @@ const SWEEP_ORDER: Record<Direction, readonly [number, number, number]> = {
 const RESPONSE_GAP = 1.2;
 
 /** States an event starts and time ends. The others follow the visitor's focus. */
-const TRANSIENT: ReadonlySet<RobotState> = new Set<RobotState>(['value', 'direction', 'rate', 'locked']);
+const TRANSIENT: ReadonlySet<RobotState> = new Set<RobotState>(['value', 'direction', 'rate', 'locked', 'speaking']);
+
+/** The line being spoken: when it was asked for, how long until it is heard, and when it stopped early, if it did. */
+interface Speech {
+  readonly line: VoiceLine;
+  readonly spec: StateSpec;
+  readonly at: number;
+  readonly lead: number;
+  readonly nod: number | null;
+  stoppedAt: number;
+}
 
 export class RobotBehaviour {
   private readonly random: () => number;
@@ -149,6 +164,7 @@ export class RobotBehaviour {
   private noticeAt = -10;
   private focusAt = -10;
   private focusDepth = 0;
+  private speech: Speech | null = null;
 
   /** Where the head is aimed: the look target, taken up first so a move starts as the state asks, not at once. */
   private readonly aimYaw = follower();
@@ -175,6 +191,8 @@ export class RobotBehaviour {
   private readonly armLagRoll = follower();
   private readonly armLagYaw = follower();
   private readonly armLagLean = follower();
+  private readonly tilt = follower();
+  private readonly voiceLight = follower();
 
   constructor(options: { direction: Direction; wakeAt?: number; random?: () => number }) {
     this.random = options.random ?? Math.random;
@@ -219,11 +237,25 @@ export class RobotBehaviour {
         this.resolveAt = time;
         this.enter('locked', time, time + DURATION.locked);
         return;
+      case 'speak': {
+        const at = time;
+        const lead = clamp(cue.lead, 0, 0.3);
+        const nod = nodTime(cue.line);
+        this.speech = { line: cue.line, spec: speakingSpec(cue.line), at, lead, nod, stoppedAt: Number.POSITIVE_INFINITY };
+        // Speaking supersedes a value still settling: its confirmation would land on the words.
+        this.valuePending = false;
+        this.enter('speaking', time, at + lead + clipOf(cue.line).duration + SPEECH[cue.line].hold);
+        return;
+      }
+      case 'hush':
+        if (!this.speech || this.speech.stoppedAt <= time) return;
+        this.speech.stoppedAt = time;
+        if (this.state === 'speaking') this.until = Math.min(this.until, time + 0.2);
+        return;
       case 'engage':
-      case 'cta':
       case 'submitted':
-        // Answered by the voice. The body already follows the call to action through focus, and has nothing
-        // to add to the others.
+      case 'problem':
+        // Answered by the voice, and through it by the body (`speak`); muted, the page itself shows them.
         return;
     }
   }
@@ -243,7 +275,7 @@ export class RobotBehaviour {
     const rest: RobotState = input.focus === 'cta' ? 'intent' : 'idle';
     const done = TRANSIENT.has(this.state) ? time >= this.until : this.state !== rest;
     if (done) this.enter(rest, time, Number.POSITIVE_INFINITY);
-    const spec = STATES[this.state];
+    const spec = this.specOf(this.state);
 
     // ---- attention: eyes, head, neck -------------------------------------------------------------------
     const wanted = spec.attention(time - this.since, this.from);
@@ -333,6 +365,28 @@ export class RobotBehaviour {
     follow(this.gain, spec.eyes.gain, 0.25, dt);
     follow(this.accent, spec.accent, spec.settle, dt);
 
+    // Speech: a held tilt while the line lasts, one nod on its stressed syllable, the hub light on the voice and,
+    // for a received request, the emblem resolving with the nod. All timed from when the sound is heard, and
+    // all ending with the line — or at once, eased, if it is stopped.
+    const speech = this.speech;
+    const heard = speech ? time - speech.at - speech.lead : Number.NEGATIVE_INFINITY;
+    const speaking = speech !== null && this.state === 'speaking';
+    const script = speech ? SPEECH[speech.line] : null;
+    const cut = speech ? speech.stoppedAt - speech.at - speech.lead : Number.POSITIVE_INFINITY;
+    follow(this.tilt, speaking && script ? script.tilt : 0, speaking ? 0.35 : 0.6, dt);
+    const voice = speech && script && heard < cut ? loudness(speech.line, heard) ** 1.5 * script.light : 0;
+    follow(this.voiceLight, voice, 0.045, dt);
+    const nodAt = speech?.nod ?? null;
+    // The nod starts a little before its syllable so that its lowest point lands on it; a stopped line only
+    // keeps a nod already under way.
+    const nodStart = nodAt === null ? Number.POSITIVE_INFINITY : nodAt - 0.1;
+    const nod = speech && script?.nod && nodStart < cut ? envelope(heard - nodStart, 0.14, 0.04, 0.42) * script.nod.depth : 0;
+    const complete =
+      speech && script?.resolve && nodAt !== null && nodAt < cut
+        ? envelope(heard - nodAt, 0.22, Math.max(0, clipOf(speech.line).duration - nodAt) + script.hold * 0.5, 0.8) * 0.8
+        : 0;
+    if (speech && !speaking && heard > clipOf(speech.line).duration + 2) this.speech = null;
+
     // Noticing opens and brightens the optics a touch; focusing narrows them briefly, once.
     const notice = envelope(since(this.noticeAt), 0.07, 0.05, 0.3);
     const focus = envelope(since(this.focusAt), 0.1, 0.15, 0.3) * this.focusDepth;
@@ -342,7 +396,7 @@ export class RobotBehaviour {
     const resolved = envelope(since(this.resolveAt), 0.3, DURATION.locked - 1.3, 0.9);
     // The response to a meaningful change: one short, faint pass through the arcs in the direction of flow.
     const response = since(this.respondAt);
-    const arc = (slot: number) => envelope(response - this.sweepOrder.indexOf(slot) * 0.06, 0.05, 0.02, 0.28) * 0.75 + resolved * 1.2;
+    const arc = (slot: number) => envelope(response - this.sweepOrder.indexOf(slot) * 0.06, 0.05, 0.02, 0.28) * 0.75 + resolved * 1.2 + complete;
 
     return {
       load: loadCycle(this.loadPhase) * this.loadDepth * this.loadDepthOfState.value,
@@ -353,10 +407,10 @@ export class RobotBehaviour {
       chestYaw: this.chestYaw.value,
       chestRoll,
       headYaw: this.headYaw.value,
-      headPitch: this.headPitch.value + this.chin.value,
-      headRoll: -0.1 * this.headYaw.value + this.headRollBias.value,
+      headPitch: this.headPitch.value + this.chin.value - nod,
+      headRoll: -0.1 * this.headYaw.value + this.headRollBias.value + this.tilt.value,
       neckYaw: this.neckYaw.value,
-      neckPitch: this.neckPitch.value,
+      neckPitch: this.neckPitch.value - nod * 0.3,
       neckRoll: clamp(-0.02 * this.headYaw.velocity, -0.012, 0.012),
       gazeX: this.eyeYaw.value * EYE_UNITS_X,
       gazeY: this.eyePitch.value * EYE_UNITS_Y,
@@ -365,17 +419,22 @@ export class RobotBehaviour {
       armSwing: (this.armLagRoll.value - bodyRoll) * 0.9,
       armPitch: (this.armLagLean.value - bodyLean) * 1.2,
       armTwist: (this.armLagYaw.value - bodyYaw) * 1.2,
-      accentGlow: this.accent.value + 0.35 * resolved,
+      accentGlow: this.accent.value + 0.35 * resolved + 0.2 * complete,
       arcGlow: [arc(0), arc(1), arc(2)],
-      hubGlow: 1.1 * pulse + 1.2 * resolved,
+      hubGlow: 1.1 * pulse + 1.2 * resolved + this.voiceLight.value + 0.6 * complete,
     };
   }
 
+  /** What a state asks of the body; speaking asks what the line being spoken asks. */
+  private specOf(state: RobotState): StateSpec {
+    return state === 'speaking' && this.speech ? this.speech.spec : STATES[state];
+  }
+
   private enter(state: RobotState, time: number, until: number): void {
-    if (state !== this.state) {
-      this.from = this.state;
+    if (state !== this.state || state === 'speaking') {
+      this.from = state === this.state ? this.from : this.state;
       this.since = time;
-      const { eyes } = STATES[state];
+      const { eyes } = this.specOf(state);
       if (eyes.notice) this.noticeAt = time;
       if (eyes.focus > 0) {
         this.focusAt = time;

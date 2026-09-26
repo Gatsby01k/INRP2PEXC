@@ -12,7 +12,8 @@
     "test:visual:update": "UPDATE_VISUALS=1 playwright test -c visual/playwright.config.ts",
     "test:visual:selfcheck": "VISUAL_SELFCHECK=1 playwright test -c visual/playwright.config.ts",
     "test:lighthouse": "node lighthouse/run.ts",
-    "poster:robot": "node scripts/robot-poster.ts"
+    "poster:robot": "node scripts/robot-poster.ts",
+    "voice:clips": "node scripts/voice-clips.ts"
   },
   "dependencies": {
     "@inrp2p/adapters": "workspace:*",

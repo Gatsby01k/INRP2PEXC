@@ -63,8 +63,8 @@ export function contentSecurityPolicy(ctx: HeaderContext): string {
     "img-src 'self' data:",
     "font-src 'self'",
     // The desk and the client app call their own server actions and API routes; the public site calls nothing
-    // at all — its only scripts are the home page hero's, which load their own code and fetch no data. One origin
-    // covers all three.
+    // at all — its only scripts are the home page hero's, which load their own code and the robot's recorded voice
+    // clips, and fetch no data. One origin covers all three.
     "connect-src 'self'",
     "form-action 'self'",
     // Nothing here may be framed, and nothing here frames anything.

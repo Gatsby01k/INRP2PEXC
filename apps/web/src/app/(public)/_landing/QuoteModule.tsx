@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useId, useRef, useState } from 'react';
+import { type FocusEvent, type MouseEvent, type PointerEvent, useEffect, useId, useRef, useState } from 'react';
 import { AnimatePresence, LazyMotion, MotionConfig, domAnimation, m } from 'framer-motion';
 import { Money, type Direction } from '@inrp2p/kernel';
 import { DirectionToggle, MoneyInput } from '@inrp2p/ui';
@@ -18,14 +18,13 @@ import styles from './quote.module.css';
  * It is the page's one primary action, and the only place on the page where a direction is chosen. It prints no
  * rate and no converted amount: the desk prices a trade, and a figure computed here would be a price nobody
  * offered. What it does print is what the request will say and what happens to it, which is true for every
- * amount. "Request quote" opens the client app's Exchange screen with the direction and amount already chosen.
+ * amount. "Request quote" opens the client app's Exchange screen with the direction and amount already chosen —
+ * or, with no amount yet, keeps the visitor here and asks for one next to the field.
  */
 
 /** Whole-USDT amounts offered as shortcuts. A typed amount is never rounded towards them. */
 const PRESETS = ['25000', '100000', '500000'] as const;
 const INITIAL_AMOUNT = '100000';
-/** How long a pointer must rest on the call to action before it counts as attention rather than passing. */
-const CTA_INTENT_MS = 600;
 const EASE = [0.2, 0, 0, 1] as const;
 
 /** A term that changes with the direction: the old words leave upwards as the new ones arrive. */
@@ -59,23 +58,32 @@ export function QuoteModule({ appOrigin, copy }: { appOrigin: string; copy: Quot
     onCta.current[key] = on;
     robotCues.setFocus(onCta.current.hover || onCta.current.focus ? 'cta' : 'none');
   };
-  // The first press or focus inside the module is the visitor starting work; a deliberate turn to the call to
-  // action is attention to it. Both are heard by the robot's voice. Activating the button is not announced when
-  // it navigates away — a line cut off by the next page is worse than no line — only when this page stays open.
+  // The first press or focus inside the module is the visitor starting work, and the robot's voice answers it.
+  // Not a press on the call to action: that answers for itself, by leaving for the request or by asking for an
+  // amount. Keyboard focus arriving on it is still a first move.
   const engaged = useRef(false);
-  const engage = () => {
+  const engage = (e: PointerEvent | FocusEvent) => {
     if (engaged.current) return;
+    const cta = e.target instanceof Element ? e.target.closest('[data-robot-target="cta"]') : null;
+    if (cta && !(e.type === 'focus' && cta.matches(':focus-visible'))) return;
     engaged.current = true;
     robotCues.emit({ kind: 'engage' });
   };
-  const intent = useRef<number | undefined>(undefined);
-  useEffect(
-    () => () => {
-      robotCues.setFocus('none');
-      window.clearTimeout(intent.current);
-    },
-    [],
-  );
+  useEffect(() => () => robotCues.setFocus('none'), []);
+
+  // A request with no amount is caught here rather than sent on: the visitor stays, the field says why and has
+  // the focus, and the robot's voice says so once. Typing an amount clears it.
+  const [missingAmount, setMissingAmount] = useState(false);
+  const amountField = useRef<HTMLDivElement>(null);
+  const hasAmount = (value: string) => /[1-9]/.test(value);
+  const request = (e: MouseEvent<HTMLAnchorElement>) => {
+    if (hasAmount(amount)) return;
+    e.preventDefault();
+    setMissingAmount(true);
+    // Heard before the focus moves: focusing the field is not the visitor's first move, and must not greet them.
+    robotCues.emit({ kind: 'problem' });
+    amountField.current?.querySelector('input')?.focus();
+  };
 
   const changeDirection = (next: Direction) => {
     if (next === direction) return;
@@ -86,6 +94,7 @@ export function QuoteModule({ appOrigin, copy }: { appOrigin: string; copy: Quot
   const changeAmount = (next: string, settled = false) => {
     if (next === amount) return;
     setAmount(next);
+    if (hasAmount(next)) setMissingAmount(false);
     robotCues.emit({ kind: 'value', settled });
   };
 
@@ -113,8 +122,16 @@ export function QuoteModule({ appOrigin, copy }: { appOrigin: string; copy: Quot
             <DirectionToggle value={direction} onChange={changeDirection} />
           </div>
 
-          <div className={styles.amount} data-robot-target="amount">
-            <MoneyInput label={copy.amount[direction]} currency="USDT" size="display" suffix="USDT · TRC20" value={amount} onChange={(next) => changeAmount(next)} />
+          <div ref={amountField} className={styles.amount} data-robot-target="amount">
+            <MoneyInput
+              label={copy.amount[direction]}
+              currency="USDT"
+              size="display"
+              suffix="USDT · TRC20"
+              value={amount}
+              onChange={(next) => changeAmount(next)}
+              {...(missingAmount ? { error: copy.amountRequired } : {})}
+            />
             <div className={styles.presets} role="group" aria-label={copy.presets}>
               {PRESETS.map((preset) => (
                 <button
@@ -151,26 +168,11 @@ export function QuoteModule({ appOrigin, copy }: { appOrigin: string; copy: Quot
               className={styles.cta}
               href={requestHref(appOrigin, direction, amount)}
               data-robot-target="cta"
-              onPointerEnter={(e) => {
-                markCta('hover', true);
-                if (e.pointerType !== 'touch') intent.current = window.setTimeout(() => robotCues.emit({ kind: 'cta' }), CTA_INTENT_MS);
-              }}
-              onPointerLeave={() => {
-                markCta('hover', false);
-                window.clearTimeout(intent.current);
-              }}
-              onFocus={(e) => {
-                markCta('focus', true);
-                if (e.currentTarget.matches(':focus-visible')) robotCues.emit({ kind: 'cta' });
-              }}
+              onPointerEnter={() => markCta('hover', true)}
+              onPointerLeave={() => markCta('hover', false)}
+              onFocus={() => markCta('focus', true)}
               onBlur={() => markCta('focus', false)}
-              onClick={(e) => {
-                // Opened elsewhere (a new tab or window): this page stays, and the line can be heard.
-                if (e.metaKey || e.ctrlKey || e.shiftKey) robotCues.emit({ kind: 'cta' });
-              }}
-              onAuxClick={(e) => {
-                if (e.button === 1) robotCues.emit({ kind: 'cta' });
-              }}
+              onClick={request}
             >
               <span>{copy.cta}</span>
               <ArrowIcon className={styles.ctaIcon} />

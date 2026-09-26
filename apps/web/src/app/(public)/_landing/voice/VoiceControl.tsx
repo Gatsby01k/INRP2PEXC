@@ -4,18 +4,22 @@ import { useEffect, useRef, useState } from 'react';
 import type { HeroVoiceCopy } from '../../../../content/site.ts';
 import { robotCues } from '../robot/cues.ts';
 import { type Clock, VoiceController } from './controller.ts';
-import { createBrowserSpeaker } from './speaker.ts';
+import { createVoicePlayer } from './player.ts';
 import styles from './voice.module.css';
 
 /**
  * The robot's voice, and the control that mutes it.
  *
- * The voice listens to the same cues as the robot's body and answers a few of them in words (`controller.ts`).
- * The control stays out of sight — its space kept, so nothing moves — until the device turns out to have a voice
- * worth using; where none exists there is nothing to mute and it never appears. The visitor's choice is kept
- * in this browser, as a convenience: losing it only means the voice is on again next time.
+ * The voice listens to the same cues as the robot's body and answers three of them with a recorded line
+ * (`controller.ts`); when it speaks, it tells the body, which moves with the line. The clips load once the page
+ * has settled, and the control stays out of sight — its space kept, so nothing moves — until they have: before
+ * then, and in a browser that cannot play them, there is nothing to mute. The visitor's choice is kept in this
+ * browser, as a convenience: losing it only means the voice is on again next time.
  */
 const PREFERENCE_KEY = 'inrp2p.robot-voice';
+
+/** The events a browser counts as a gesture that may start audio: a key, a mouse press, the end of a tap. */
+const GESTURES = ['pointerdown', 'pointerup', 'touchend', 'keydown', 'click'] as const;
 
 function readPreference(): boolean {
   try {
@@ -33,13 +37,7 @@ function writePreference(on: boolean): void {
   }
 }
 
-const clock: Clock = {
-  now: () => performance.now() / 1000,
-  setTimeout: (run, ms) => window.setTimeout(run, ms),
-  clearTimeout: (handle) => {
-    if (typeof handle === 'number') window.clearTimeout(handle);
-  },
-};
+const clock: Clock = { now: () => performance.now() / 1000 };
 
 function SpeakerIcon({ on }: { on: boolean }) {
   return (
@@ -58,31 +56,36 @@ export function VoiceControl({ copy }: { copy: HeroVoiceCopy }) {
   const [available, setAvailable] = useState(false);
   const [on, setOn] = useState(true);
   const controller = useRef<VoiceController | null>(null);
-  const lines = useRef(copy.lines);
 
   useEffect(() => {
-    const speaker = createBrowserSpeaker();
-    if (!speaker) return;
+    const player = createVoicePlayer();
+    if (!player) return;
     const enabled = readPreference();
     setOn(enabled);
-    const voice = new VoiceController({ speaker, clock, lines: lines.current, muted: !enabled });
+    const voice = new VoiceController({ player, clock, muted: !enabled, onRobot: (cue) => robotCues.emit(cue) });
     controller.current = voice;
-    const stopAvailability = speaker.onAvailability(setAvailable);
+    player.onLoaded(() => setAvailable(true));
     const stopCues = robotCues.subscribe((cue) => voice.onCue(cue));
+    // Audio is unlocked by the visitor's own gestures, on the window and before the page's handlers see them, so
+    // a press that is also the visitor's first move is heard at once.
+    const gesture = () => {
+      if (player.unlock()) voice.unlocked();
+    };
+    for (const type of GESTURES) window.addEventListener(type, gesture, { capture: true, passive: true });
     // A line is never left playing once the visitor has looked away or left.
     const hush = () => {
-      if (document.visibilityState === 'hidden') speaker.cancel();
+      if (document.visibilityState === 'hidden') voice.hush();
     };
-    const leave = () => speaker.cancel();
+    const leave = () => voice.hush();
     document.addEventListener('visibilitychange', hush);
     window.addEventListener('pagehide', leave);
     return () => {
+      for (const type of GESTURES) window.removeEventListener(type, gesture, { capture: true });
       document.removeEventListener('visibilitychange', hush);
       window.removeEventListener('pagehide', leave);
       stopCues();
-      stopAvailability();
       voice.dispose();
-      speaker.dispose();
+      player.dispose();
       controller.current = null;
     };
   }, []);
