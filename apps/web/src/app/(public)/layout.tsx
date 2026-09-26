@@ -12,8 +12,8 @@ export const dynamic = 'force-dynamic';
  *
  * It is the one surface with no session, no client data and nothing behind a permission — which is exactly why
  * it needs its own rules rather than the app's. It is indexed (the rest of this build never is), it is rendered
- * on the server with no client JavaScript of its own, and everything it says is generated from
- * `src/content/site.ts`, which a test holds to D-07.
+ * on the server — only the home page's hero hydrates, as two small islands — and everything it says is generated
+ * from `src/content/site.ts`, which a test holds to D-07.
  */
 export async function generateMetadata(): Promise<Metadata> {
   const origin = await publicOrigin();

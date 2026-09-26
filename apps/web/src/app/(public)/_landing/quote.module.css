@@ -1,0 +1,144 @@
+/* The quote module. The client app's request form in a marketing frame: the frame gets a little more air and
+   one soft shadow, because it sits over a lit scene; the controls inside are the design system's own. */
+
+.panel {
+  position: relative;
+  display: grid;
+  gap: var(--space-6);
+  padding: var(--space-6);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-surface);
+  box-shadow:
+    0 1px 0 color-mix(in srgb, var(--text-primary) 4%, transparent),
+    0 28px 64px -32px color-mix(in srgb, var(--text-primary) 30%, transparent);
+}
+
+/* The design system's toggle, stretched to the module's width so the two directions weigh the same. */
+.direction {
+  display: grid;
+}
+
+.amount {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.preset {
+  min-height: 32px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-pill);
+  background: var(--bg-subtle);
+  color: var(--text-secondary);
+  font-size: var(--font-size-table);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition:
+    border-color var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease),
+    background-color var(--dur-fast) var(--ease);
+}
+
+.preset:hover {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+/* Selected by its border and fill; the label stays in the primary text colour, which keeps AA on the soft fill. */
+.preset[aria-pressed='true'] {
+  border-color: var(--brand-primary);
+  background: var(--brand-soft);
+  color: var(--text-primary);
+}
+
+/* What the request will say and what happens to it. A trade ticket, not a calculator. */
+.terms {
+  display: grid;
+  margin: 0;
+  border-top: 1px solid var(--border-default);
+}
+
+.term {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--border-default);
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-snug);
+}
+
+.termLabel {
+  position: relative;
+  flex: none;
+  color: var(--text-secondary);
+}
+
+.termValue {
+  position: relative;
+  margin: 0;
+  min-width: 0;
+  color: var(--text-primary);
+  font-weight: var(--font-weight-medium);
+  text-align: right;
+}
+
+.swap {
+  display: inline-block;
+}
+
+.action {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: 52px;
+  padding: 0 var(--space-6);
+  border-radius: var(--radius-input);
+  background: var(--brand-action);
+  color: var(--text-on-action);
+  font-size: var(--font-size-body-lg);
+  font-weight: var(--font-weight-medium);
+  text-decoration: none;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--text-on-action) 16%, transparent);
+  transition:
+    background-color var(--dur-fast) var(--ease),
+    transform var(--dur-fast) var(--ease);
+}
+
+.cta:hover {
+  background: var(--brand-action-hover);
+}
+
+.cta:active {
+  transform: translateY(1px);
+}
+
+.ctaIcon {
+  transition: transform var(--dur-base) var(--ease);
+}
+
+.cta:hover .ctaIcon,
+.cta:focus-visible .ctaIcon {
+  transform: translateX(2px);
+}
+
+.note {
+  margin: 0;
+  font-size: var(--font-size-meta);
+  line-height: var(--line-height-normal);
+  color: var(--text-muted);
+}

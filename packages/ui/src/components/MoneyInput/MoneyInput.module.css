@@ -31,6 +31,8 @@
 }
 .prefix,
 .suffix {
+  flex: none;
+  white-space: nowrap;
   color: var(--text-muted);
   font-weight: var(--font-weight-medium);
 }

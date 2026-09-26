@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { ACTIONS, STEPS, SITE_NAME, type SitePage } from '../../content/site.ts';
 import { appOrigin, publicOrigin, requestNonce } from '../../server/site.ts';
 import styles from './public.module.css';
@@ -38,7 +39,12 @@ function structuredData(page: SitePage, origin: string): string {
   return JSON.stringify({ '@context': 'https://schema.org', '@graph': graph }).replaceAll('<', '\\u003c');
 }
 
-export async function SitePageView({ page }: { page: SitePage }) {
+/**
+ * One public page. A page may bring its own first screen as `hero` — the home page does — in place of the plain
+ * heading, lede and actions every SEO page opens with. It is passed in rather than imported here so that only the
+ * page that shows it loads its code: everything this component imports is shipped to all six pages.
+ */
+export async function SitePageView({ page, hero }: { page: SitePage; hero?: ReactNode }) {
   const [origin, nonce] = await Promise.all([publicOrigin(), requestNonce()]);
   const app = appOrigin();
   const home = page.path === '/';
@@ -51,47 +57,53 @@ export async function SitePageView({ page }: { page: SitePage }) {
         dangerouslySetInnerHTML={{ __html: structuredData(page, origin) }}
       />
 
-      <section className={styles.hero}>
-        <h1 className={styles.h1}>{page.h1}</h1>
-        <p className={styles.lede}>{page.lede}</p>
-        <div className={styles.actions}>
-          {ACTIONS.map((a) => (
-            <a key={a.label} className={a.kind === 'primary' ? styles.actionPrimary : styles.actionSecondary} href={`${app}${a.appPath}`}>
-              {a.label}
-            </a>
-          ))}
-        </div>
-        <p className={styles.actionNote}>
-          Trading needs a client record with its settlement destinations registered in advance. The desk sets that up; there is no form here that can.
-        </p>
-      </section>
+      {hero}
 
-      {page.sections.map((s) => (
-        <section key={s.heading} className={styles.section}>
-          <h2 className={styles.h2}>{s.heading}</h2>
-          {s.body.map((p) => (
-            <p key={p.slice(0, 40)} className={styles.body}>
-              {p}
+      <div className={styles.column}>
+        {hero ? null : (
+          <section className={styles.hero}>
+            <h1 className={styles.h1}>{page.h1}</h1>
+            <p className={styles.lede}>{page.lede}</p>
+            <div className={styles.actions}>
+              {ACTIONS.map((a) => (
+                <a key={a.label} className={a.kind === 'primary' ? styles.actionPrimary : styles.actionSecondary} href={`${app}${a.appPath}`}>
+                  {a.label}
+                </a>
+              ))}
+            </div>
+            <p className={styles.actionNote}>
+              Trading needs a client record with its settlement destinations registered in advance. The desk sets that up; there is no form here that can.
             </p>
-          ))}
-        </section>
-      ))}
+          </section>
+        )}
 
-      {home ? (
-        <section className={styles.section} aria-labelledby="how">
-          <h2 className={styles.h2} id="how">
-            How a trade runs
-          </h2>
-          <ol className={styles.steps}>
-            {STEPS.map((s) => (
-              <li key={s.title} className={styles.step}>
-                <h3 className={styles.stepTitle}>{s.title}</h3>
-                <p className={styles.body}>{s.body}</p>
-              </li>
+        {page.sections.map((s) => (
+          <section key={s.heading} className={styles.section}>
+            <h2 className={styles.h2}>{s.heading}</h2>
+            {s.body.map((p) => (
+              <p key={p.slice(0, 40)} className={styles.body}>
+                {p}
+              </p>
             ))}
-          </ol>
-        </section>
-      ) : null}
+          </section>
+        ))}
+
+        {home ? (
+          <section className={styles.section} aria-labelledby="how">
+            <h2 className={styles.h2} id="how">
+              How a trade runs
+            </h2>
+            <ol className={styles.steps}>
+              {STEPS.map((s) => (
+                <li key={s.title} className={styles.step}>
+                  <h3 className={styles.stepTitle}>{s.title}</h3>
+                  <p className={styles.body}>{s.body}</p>
+                </li>
+              ))}
+            </ol>
+          </section>
+        ) : null}
+      </div>
     </>
   );
 }

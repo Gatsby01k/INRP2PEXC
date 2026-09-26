@@ -27,6 +27,7 @@
     "e2e/**/*.ts",
     "harness/**/*.ts",
     "visual/**/*.ts",
+    "scripts/**/*.ts",
     ".next/types/**/*.ts"
   ],
   "exclude": [

@@ -1,0 +1,211 @@
+/* The home page's first screen.
+
+   Desktop: words on the left, the quote module on the right, and the robot standing between them. The robot is
+   placed relative to the module, not the page: its visor always sits just clear of the module's edge, and the
+   module overlaps the far shoulder, so the two read as one desk. The words are given exactly the width left of
+   the robot's near shoulder. Its torso ends at the hero's lower edge, the way a person stands behind a counter.
+
+   Below 1200px the three stack: words, then the robot, then the module rising over the robot's chest, so the one
+   action on the page is reached with the thumb. */
+
+.hero {
+  position: relative;
+  isolation: isolate;
+  overflow: clip;
+  border-bottom: 1px solid var(--border-default);
+  background:
+    radial-gradient(ellipse 30% 58% at var(--light-x, 58%) 38%, color-mix(in srgb, var(--bg-surface) 92%, transparent) 0%, transparent 100%),
+    var(--bg-app);
+}
+
+.frame {
+  --panel-width: 392px;
+  --hero-height: clamp(640px, calc(100svh - 72px), 860px);
+  /* The stage is square and its framing fixed, so one number sets the robot's size: nearly the hero's height,
+     which puts the top of the head just under the masthead. */
+  --stage-size: min(var(--hero-height) * 0.94, 58vw);
+  /* The robot's centre line, far enough left of the module (0.22 of the stage) that its face stays clear of it
+     even while it turns to look at the module. */
+  --robot-x: calc(var(--space-10) + 100cqw - var(--panel-width) - var(--stage-size) * 0.22);
+  container-type: inline-size;
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--panel-width);
+  grid-template-rows: 1fr auto auto 1fr;
+  grid-template-areas:
+    '.      quote'
+    'copy   quote'
+    'points quote'
+    '.      quote';
+  column-gap: var(--space-8);
+  max-width: 1440px;
+  min-height: var(--hero-height);
+  margin: 0 auto;
+  padding: var(--space-8) var(--space-10) var(--space-12);
+}
+
+.copy,
+.points {
+  /* Everything left of the robot's near arm (0.38 of the stage from its centre line), less a gap. */
+  max-width: min(34rem, calc(100cqw - var(--panel-width) - var(--stage-size) * 0.6 - var(--space-6)));
+}
+
+.copy {
+  grid-area: copy;
+  position: relative;
+  z-index: 2;
+}
+
+.eyebrow {
+  margin: 0 0 var(--space-5);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--brand-action);
+}
+
+.title {
+  margin: 0;
+  font-size: clamp(var(--font-size-title), 4.6vw, var(--font-size-display-xl));
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.02;
+  letter-spacing: -0.04em;
+  color: var(--text-primary);
+}
+
+.line {
+  display: block;
+}
+
+.accent {
+  color: var(--brand-primary);
+}
+
+.lede {
+  margin: var(--space-6) 0 0;
+  font-size: clamp(var(--font-size-body-lg), 1.4vw, var(--font-size-heading));
+  line-height: var(--line-height-normal);
+  color: var(--text-secondary);
+  text-wrap: pretty;
+}
+
+.points {
+  grid-area: points;
+  position: relative;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-5);
+  margin: var(--space-10) 0 0;
+  padding: var(--space-6) 0 0;
+  border-top: 1px solid var(--border-default);
+  list-style: none;
+}
+
+.point {
+  display: grid;
+  align-content: start;
+  gap: var(--space-2);
+  font-size: var(--font-size-table);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-snug);
+  color: var(--text-primary);
+}
+
+.pointIcon {
+  color: var(--brand-primary);
+}
+
+.stage {
+  position: absolute;
+  z-index: 1;
+  bottom: 0;
+  left: var(--robot-x);
+  width: var(--stage-size);
+  height: var(--stage-size);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.quote {
+  grid-area: quote;
+  align-self: center;
+  position: relative;
+  z-index: 3;
+}
+
+/* Entrance: the words settle, then the module; the robot's own arrival is its business. CSS rather than script,
+   so it runs on first paint whether or not anything has hydrated, and not at all under reduced motion. */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+
+.copy,
+.points,
+.quote {
+  animation: rise 720ms var(--ease) both;
+}
+
+.points {
+  animation-delay: 120ms;
+}
+
+.quote {
+  animation-delay: 180ms;
+}
+
+@media (max-width: 1199px) {
+  .frame {
+    --stage-size: min(100%, 460px);
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
+    grid-template-areas:
+      'copy'
+      'stage'
+      'quote'
+      'points';
+    max-width: 640px;
+    min-height: 0;
+    padding: var(--space-6) var(--space-4) var(--space-10);
+  }
+
+  .copy,
+  .points {
+    max-width: none;
+  }
+
+  .eyebrow {
+    margin-bottom: var(--space-4);
+  }
+
+  .lede {
+    margin-top: var(--space-4);
+  }
+
+  /* The module rises over the robot's waist: head, shoulders and the chest mark stay in view. */
+  .stage {
+    grid-area: stage;
+    position: relative;
+    left: auto;
+    bottom: auto;
+    justify-self: center;
+    transform: none;
+    aspect-ratio: 1;
+    height: auto;
+    width: var(--stage-size);
+    margin: var(--space-2) 0 calc(var(--stage-size) * -0.3);
+  }
+
+  .points {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-top: var(--space-8);
+  }
+
+  .hero {
+    --light-x: 50%;
+  }
+}

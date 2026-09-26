@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { draftFor } from '@inrp2p/notifications';
 import { RECEIPT_SNAPSHOT_VERSION, type ReceiptSnapshot, receiptHtml } from '@inrp2p/reporting';
 import type { NotificationKind } from '@inrp2p/db';
-import { ACTIONS, FOOTER_NOTE, SITE_NAME, SITE_PAGES, SITE_PATHS, STEPS, TAGLINE } from '../src/content/site.ts';
+import { ACTIONS, FOOTER_NOTE, HERO, NAV, SITE_NAME, SITE_PAGES, SITE_PATHS, STEPS, TAGLINE } from '../src/content/site.ts';
 
 /**
  * The copy review, as a test (D-07, PRODUCT §7.4, launch checklist).
@@ -63,9 +63,25 @@ const FABRICATED = [
 /** Digits that are part of a name rather than a claim. Everything else in site copy must be spelled out. */
 const ALLOWED_DIGIT_TOKENS = [/TRC20/g, /INRP2P/g, /TRON/g];
 
+/**
+ * The hero's module words, flattened: plain strings, and the ones that change with the direction under each
+ * direction, so a label added for one side of the trade is read as surely as one shared by both.
+ */
+const HERO_MODULE_COPY = Object.entries(HERO.quote as unknown as Record<string, string | Record<string, string>>).flatMap(([key, value]) =>
+  typeof value === 'string'
+    ? [{ where: `HERO.quote.${key}`, text: value }]
+    : Object.entries(value).map(([direction, text]) => ({ where: `HERO.quote.${key}.${direction}`, text })),
+);
+
 /** Every sentence the public site says, in one string, with its source named for the failure message. */
 const SITE_COPY: readonly { readonly where: string; readonly text: string }[] = [
   { where: 'SITE_NAME', text: SITE_NAME },
+  { where: 'HERO.eyebrow', text: HERO.eyebrow },
+  { where: 'HERO.headline', text: `${HERO.headline.lead} ${HERO.headline.accent} ${HERO.headline.tail}` },
+  { where: 'HERO.lede', text: HERO.lede },
+  ...HERO.points.map((p) => ({ where: `HERO.points ${p.label}`, text: p.label })),
+  ...HERO_MODULE_COPY,
+  ...NAV.map((n) => ({ where: `NAV ${n.label}`, text: n.label })),
   { where: 'TAGLINE', text: TAGLINE },
   { where: 'FOOTER_NOTE', text: FOOTER_NOTE },
   ...ACTIONS.map((a) => ({ where: `ACTIONS ${a.label}`, text: a.label })),
@@ -232,5 +248,14 @@ describe('the pages themselves', () => {
   it('send every call to action into the client app rather than to a form that cannot work', () => {
     expect(ACTIONS).toHaveLength(3);
     for (const action of ACTIONS) expect(action.appPath.startsWith('/exchange')).toBe(true);
+  });
+
+  it('give the home page the hero\u2019s headline as its one h1', () => {
+    const home = SITE_PAGES.find((p) => p.path === '/');
+    expect(home?.h1).toBe(`${HERO.headline.lead} ${HERO.headline.accent} ${HERO.headline.tail}`);
+  });
+
+  it('link the masthead only to pages that are published', () => {
+    for (const item of NAV) expect(SITE_PATHS, item.label).toContain(item.path);
   });
 });

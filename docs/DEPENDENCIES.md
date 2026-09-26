@@ -52,6 +52,22 @@ Status: Phase 2 (no new external dependencies; six new workspace packages: adapt
 
 Zod is still not a direct dependency (installed transitively by Better Auth only); it is added with the first HTTP/command boundary that needs it.
 
+### Added for the public home page's hero
+
+| Package | Version | Used by | License |
+|---|---|---|---|
+| three | 0.186.0 | apps/web — the hero's live robot (WebGL), fetched on demand after the page has loaded | MIT |
+| @types/three | 0.186.0 | apps/web type checking; same minor as `three`; dev only | MIT |
+| framer-motion | 13.4.3 | apps/web — the hero quote module's term transitions (`LazyMotion` + `domAnimation`, `MotionConfig reducedMotion="user"`) | MIT |
+
+**three (approved for the hero).** The robot is a brand element drawn live: it watches the quote module, reads while an amount is typed and acknowledges it, and shows which way value flows when the direction changes. Only the live path loads three.js (≈140 KB gzip, one lazy chunk, after `load` and an idle callback). The still robot — rendered from the same scene by `pnpm --filter @inrp2p/web poster:robot` and committed as three WebP sizes of 21–47 KB — is what everyone sees on first paint, and all that is shown to reduced-motion and Save-Data visitors, low-memory devices, and browsers that can only draw WebGL in software (`failIfMajorPerformanceCaveat`, SwiftShader/llvmpipe). That includes the headless browsers the e2e, visual and Lighthouse runs use, so those runs are deterministic and measure the page without the robot's cost. Nothing is downloaded at runtime: the environment map is generated from a small studio scene, and there is no model file.
+
+**No React renderer for it.** `@react-three/fiber` was evaluated and not added: 9.7 refuses React 19.3 (peer `<19.3`), 9.8 exists specifically to accept it — a dependency that has to be re-released for every React minor is a poor fit for a matrix pinned this tightly — and with three ≥ r183 it logs a `THREE.Clock` deprecation warning on every page view. For one figure in one fixed shot a reconciler adds nothing; the scene is plain three.js behind a small React component.
+
+**Versions.** three 0.186.0 rather than 0.186.1, which was a day old. framer-motion 13.4.3 rather than 13.4.4: 13.4.4 and its `motion-dom` were younger than pnpm's minimum release age, and this repository takes no release-age exclusions (`motion-dom` resolves to 13.4.2). framer-motion's peers are `react`/`react-dom ^18 || ^19`; three has none. None of the added packages or their dependencies (`motion-dom`, `motion-utils`, `tslib`; `@types/three`'s type-only dependencies) has an install script, so `allowBuilds` is unchanged.
+
+**Tree-shaking the workspace packages.** `@inrp2p/ui` declares `"sideEffects": ["*.css"]` and `@inrp2p/kernel` `"sideEffects": false`; neither has a module-level side effect other than a component importing its own CSS module. Without them, any client component importing from either barrel shipped the whole package: every public page carried all forty design-system components (158 KB gzip) through the masthead's `ArcMotif`, and anything importing `Money` pulled in the kernel's `node:crypto` users (TRON checksums, id generation) and the browser polyfill that replaces them (138 KB gzip). Measured on the production build: SEO pages now load only the framework (138 KB gzip); the home page adds ≈35 KB gzip for the hero's two islands.
+
 ## Compatibility verification (performed 2026-09-17 from registry metadata and local execution)
 
 | Check | Evidence |
@@ -69,6 +85,9 @@ Zod is still not a direct dependency (installed transitively by Better Auth only
 | @axe-core/playwright 4.13.0 ↔ @playwright/test 1.56.1 | peer `playwright-core >= 1.0.0` |
 | Storybook addon-a11y + Playwright axe | addon panel is set to manual inside the test run (`globals=a11y.manual:!true`) so only one axe run executes per page |
 | Better Auth schema | integration test runs Better Auth's migration planner against migration 0006 and asserts nothing to create or add |
+| framer-motion 13.4.3 ↔ react 19.3.0 | peers `react ^18.0.0 \|\| ^19.0.0`, `react-dom ^18.0.0 \|\| ^19.0.0` |
+| three 0.186.0 ↔ next 16.3.5 (Turbopack) / TypeScript 6.0.3 | no peers; `next build` succeeds with three in its own lazy chunk; `@types/three` 0.186.0 typechecks under the repository's strict settings |
+| Workspace `sideEffects` declarations | `next build` and every unit test pass; production home page script 329 → 174 KB gzip on the still path |
 
 ## Build scripts (pnpm `allowBuilds`)
 

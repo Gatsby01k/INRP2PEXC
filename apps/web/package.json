@@ -11,7 +11,8 @@
     "test:visual": "playwright test -c visual/playwright.config.ts",
     "test:visual:update": "UPDATE_VISUALS=1 playwright test -c visual/playwright.config.ts",
     "test:visual:selfcheck": "VISUAL_SELFCHECK=1 playwright test -c visual/playwright.config.ts",
-    "test:lighthouse": "node lighthouse/run.ts"
+    "test:lighthouse": "node lighthouse/run.ts",
+    "poster:robot": "node scripts/robot-poster.ts"
   },
   "dependencies": {
     "@inrp2p/adapters": "workspace:*",
@@ -36,11 +37,13 @@
     "@inrp2p/treasury": "workspace:*",
     "@inrp2p/ui": "workspace:*",
     "better-auth": "1.7.5",
+    "framer-motion": "13.4.3",
     "next": "16.3.5",
     "pg": "8.23.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
-    "server-only": "0.0.1"
+    "server-only": "0.0.1",
+    "three": "0.186.0"
   },
   "devDependencies": {
     "@better-auth/utils": "0.4.2",
@@ -50,6 +53,7 @@
     "@types/node": "24.13.5",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
+    "@types/three": "0.186.0",
     "kysely": "0.29.6",
     "lighthouse": "13.4.1",
     "typescript": "6.0.3"

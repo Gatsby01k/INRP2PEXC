@@ -16,6 +16,8 @@
  * minutes" is a claim about the world, and the world includes banks.
  */
 
+import type { Direction } from '@inrp2p/kernel';
+
 export interface SiteSection {
   readonly heading: string;
   readonly body: readonly string[];
@@ -82,12 +84,77 @@ export const STEPS: readonly { readonly title: string; readonly body: string }[]
   },
 ];
 
+/**
+ * The home page's hero, word for word.
+ *
+ * Its quote module shows how a request becomes a quote and never shows a rate: a rate exists only inside a quote
+ * issued to a client for a specific trade (FOOTER_NOTE), so the side of the trade the desk prices is described,
+ * not estimated. The amount a visitor types is theirs; nothing the page prints is a figure of ours.
+ */
+export interface HeroCopy {
+  readonly eyebrow: string;
+  /** Rendered on two lines with the asset in brand orange; read as one sentence. */
+  readonly headline: { readonly lead: string; readonly accent: string; readonly tail: string };
+  readonly lede: string;
+  readonly points: readonly { readonly icon: HeroPointIcon; readonly label: string }[];
+  readonly quote: QuoteModuleCopy;
+}
+
+export type HeroPointIcon = 'rupee' | 'lock' | 'dealer' | 'destination';
+
+/** Words that change with the direction are keyed by it, so the module can never pair a label with the wrong side. */
+export interface QuoteModuleCopy {
+  readonly title: string;
+  readonly amount: Record<Direction, string>;
+  readonly counter: Record<Direction, string>;
+  readonly counterValue: string;
+  readonly destination: Record<Direction, string>;
+  readonly destinationValue: Record<Direction, string>;
+  readonly rate: string;
+  readonly rateValue: string;
+  readonly presets: string;
+  readonly cta: string;
+  readonly note: string;
+}
+
+export const HERO: HeroCopy = {
+  eyebrow: 'OTC desk for USDT and INR',
+  headline: { lead: 'Buy & Sell', accent: 'USDT', tail: 'in India.' },
+  lede: 'Large trades at one firm rate for the whole amount, settled only to the bank account or wallet you registered in advance.',
+  points: [
+    { icon: 'rupee', label: 'INR settlement' },
+    { icon: 'lock', label: 'Locked rates' },
+    { icon: 'dealer', label: 'A dealer on every trade' },
+    { icon: 'destination', label: 'Registered destinations' },
+  ],
+  quote: {
+    title: 'Request a quote',
+    amount: { SELL_USDT: 'You sell', BUY_USDT: 'You buy' },
+    counter: { SELL_USDT: 'You receive', BUY_USDT: 'You pay' },
+    counterValue: 'INR, priced by the desk',
+    destination: { SELL_USDT: 'Paid to', BUY_USDT: 'Delivered to' },
+    destinationValue: { SELL_USDT: 'Your registered bank account', BUY_USDT: 'Your registered TRC20 wallet' },
+    rate: 'Rate',
+    rateValue: 'Firm, locked when you accept',
+    presets: 'Common amounts',
+    cta: 'Request quote',
+    note: 'Sent from your client account. New clients are onboarded by the desk first.',
+  },
+};
+
+/** The masthead's links: pages that explain the desk. Buying and selling are chosen in one place — the hero. */
+export const NAV: readonly { readonly label: string; readonly path: string }[] = [
+  { label: 'OTC desk', path: '/usdt-otc-india' },
+  { label: 'USDT to INR', path: '/usdt-to-inr' },
+  { label: 'INR to USDT', path: '/inr-to-usdt' },
+];
+
 const HOME: SitePage = {
   path: '/',
   title: `Buy and sell USDT in India — ${SITE_NAME}`,
   description:
     'An OTC desk for USDT and Indian rupees. Ask for a price on your trade, accept it while it is firm, and settle to a bank account or wallet you registered in advance.',
-  h1: 'Buy & sell USDT in India',
+  h1: `${HERO.headline.lead} ${HERO.headline.accent} ${HERO.headline.tail}`,
   lede: TAGLINE,
   sections: [
     {

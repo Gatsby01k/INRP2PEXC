@@ -41,6 +41,10 @@ export const MATRIX: Record<string, string> = {
   uqr: '0.1.3',
   // Phase 7: the quote link is opened on a phone, so its mobile budget is measured rather than assumed.
   lighthouse: '13.4.1',
+  // The public home page's hero: the live robot (three.js, loaded on demand) and the quote module's transitions.
+  three: '0.186.0',
+  '@types/three': '0.186.0',
+  'framer-motion': '13.4.3',
 };
 export const POSTGRES = '18.6';
 
