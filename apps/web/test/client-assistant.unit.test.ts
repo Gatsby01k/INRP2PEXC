@@ -8,7 +8,9 @@ import {
   quoteLive,
   readiness,
   requestSteps,
+  soundForTransition,
   tradeAssistant,
+  type AssistantState,
 } from '../src/app/(client)/_assistant/model.ts';
 
 /**
@@ -53,7 +55,7 @@ const view = (over: Partial<ExchangeView>): ExchangeView => ({ destinations: bot
 describe('exchange', () => {
   it('welcomes a client with nothing live, and says what happens to a request', () => {
     const s = exchangeAssistant(view({}), { canAccept: true, now: NOW });
-    expect(s.mood).toBe('none');
+    expect(s.mood).toBe('ready');
     expect(s.body).toMatch(/firm quote/);
     expect(s.body).not.toMatch(/₹|rate/);
   });
@@ -177,11 +179,21 @@ const row = (over: Partial<HistoryRow>): HistoryRow => ({
 });
 
 describe('history', () => {
-  it('points at the trade waiting for the client’s funds before anything else in progress', () => {
+  it('among waits, names the trade waiting for the client’s funds before one paying out', () => {
     const rows = [row({ ref: 'IX-3', status: 'SETTLING', closedAt: null }), row({ ref: 'IX-2', status: 'AWAITING_FIRST_LEG', closedAt: null }), row({})];
     const s = historyAssistant(rows, { all: 3, open: 2, completed: 1 });
-    expect(s).toMatchObject({ mood: 'focused', label: 'Needs you' });
+    expect(s).toMatchObject({ mood: 'waiting', label: 'Awaiting your funds' });
     expect(s.title).toBe('IX-2 is waiting for your USDT');
+  });
+
+  it('reports the strongest state across its trades: held, then verifying, then waiting', () => {
+    const awaiting = row({ ref: 'IX-2', status: 'AWAITING_FIRST_LEG', closedAt: null });
+    const seen = row({ ref: 'IX-4', status: 'FIRST_LEG_DETECTED', closedAt: null });
+    const held = row({ ref: 'IX-5', status: 'SETTLING', onHold: true, closedAt: null });
+    expect(historyAssistant([awaiting, seen], { all: 2, open: 2, completed: 0 }).mood).toBe('verifying');
+    expect(historyAssistant([awaiting, seen, held], { all: 3, open: 3, completed: 0 }).mood).toBe('alert');
+    // A held trade is not also reported as waiting or verifying.
+    expect(historyAssistant([row({ ref: 'IX-6', status: 'FIRST_LEG_DETECTED', onHold: true, closedAt: null })], { all: 1, open: 1, completed: 0 }).label).toBe('On hold');
   });
 
   it('puts a held trade first of all', () => {
@@ -190,8 +202,8 @@ describe('history', () => {
   });
 
   it('is calm when everything is settled, and when there is nothing yet', () => {
-    expect(historyAssistant([row({})], { all: 1, open: 0, completed: 1 })).toMatchObject({ mood: 'none', label: 'All settled' });
-    expect(historyAssistant([], { all: 0, open: 0, completed: 0 })).toMatchObject({ mood: 'none', label: 'No trades yet' });
+    expect(historyAssistant([row({})], { all: 1, open: 0, completed: 1 })).toMatchObject({ mood: 'ready', label: 'All settled' });
+    expect(historyAssistant([], { all: 0, open: 0, completed: 0 })).toMatchObject({ mood: 'ready', label: 'No trades yet' });
   });
 
   it('draws a row’s stages from its status alone — and none for a cancelled trade', () => {
@@ -208,8 +220,29 @@ describe('destinations', () => {
   it('knows which directions an active destination makes possible', () => {
     expect(readiness(both)).toEqual({ sell: true, buy: true });
     expect(readiness({ banks: [{ ...bank, status: 'ARCHIVED' }], wallets: [{ ...wallet, purpose: 'SOURCE' }] })).toEqual({ sell: false, buy: false });
-    expect(destinationsAssistant(both)).toMatchObject({ mood: 'none', label: 'Ready' });
+    expect(destinationsAssistant(both)).toMatchObject({ mood: 'ready', label: 'Ready' });
     expect(destinationsAssistant({ banks: [bank], wallets: [] })).toMatchObject({ label: 'Ready to sell', title: 'Buying USDT needs a wallet' });
     expect(destinationsAssistant(none)).toMatchObject({ mood: 'alert', label: 'Setup needed' });
+  });
+});
+
+describe('sounds', () => {
+  const at = (mood: AssistantState['mood']): AssistantState => ({ mood, label: '', title: '', body: '' });
+
+  it('sound only for a change seen live: a quote arriving, something settling, something coming to need the client', () => {
+    expect(soundForTransition(at('waiting'), at('focused'))).toBe('quote');
+    expect(soundForTransition(at('waiting'), at('success'))).toBe('success');
+    expect(soundForTransition(at('verifying'), at('success'))).toBe('success');
+    expect(soundForTransition(at('focused'), at('alert'))).toBe('alert');
+    expect(soundForTransition(at('waiting'), at('alert'))).toBe('alert');
+  });
+
+  it('never on a page’s first state, nor for waiting, verifying, rest, or a state that has not changed', () => {
+    for (const m of ['ready', 'waiting', 'focused', 'verifying', 'success', 'alert'] as const) expect(soundForTransition(null, at(m))).toBeNull();
+    expect(soundForTransition(at('ready'), at('waiting'))).toBeNull();
+    expect(soundForTransition(at('waiting'), at('verifying'))).toBeNull();
+    expect(soundForTransition(at('alert'), at('ready'))).toBeNull();
+    expect(soundForTransition(at('focused'), at('focused'))).toBeNull();
+    expect(soundForTransition(at('alert'), at('alert'))).toBeNull();
   });
 });

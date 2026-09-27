@@ -4,32 +4,45 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Rate } from '@inrp2p/kernel';
 import type { ClientQuoteView } from '@inrp2p/quotes';
-import type { ExchangeView } from '@inrp2p/portal';
 import { ArcLoader, EXPIRING_THRESHOLD_MS } from '@inrp2p/ui';
 import { formatCountdown, formatIstTime, formatRate } from '@inrp2p/ui/format';
 import { robotCues } from '../../(public)/_landing/robot/cues.ts';
 import { useCommand } from '../../../components/useCommand.tsx';
 import { acceptQuoteAction, rejectQuoteAction } from '../../../server/actions/client.ts';
-import { requestSteps } from '../_assistant/model.ts';
+import { playSound } from '../_assistant/sound.ts';
 import { ArrowIcon, ClockIcon, InfoIcon } from '../_workspace/icons.tsx';
-import { Stepper } from '../_workspace/Stepper.tsx';
 import { legAmount } from './amounts.ts';
 import { LEGS } from './Legs.tsx';
 import shell from '../shell.module.css';
 import styles from './exchange.module.css';
 
+/** The time a quote is still held, as the ticket and the robot's panel both show it. */
+export function HeldFor({ expiresAt, now }: { expiresAt: Date; now: number }) {
+  const remaining = Math.max(0, expiresAt.getTime() - now);
+  return (
+    <span className={styles.countdown} data-state={remaining <= EXPIRING_THRESHOLD_MS ? 'expiring' : 'held'} role="timer" aria-live="off">
+      <ClockIcon />
+      <span>
+        Held <span className={styles.countdownTime}>{formatCountdown(remaining)}</span>
+      </span>
+      <span className="ix-visually-hidden">, until {formatIstTime(expiresAt)}</span>
+    </span>
+  );
+}
+
 /**
- * A firm quote the desk has sent, counting down on the database's clock. Accepting opens the trade and takes the
- * client straight to it; declining is a formal answer to the desk, so it asks once before it is sent.
+ * A firm quote the desk has sent, as an execution ticket: which quote and which side, how long it is held, what
+ * leaves and what arrives, at what rate, on what terms — and the decision. The countdown runs on the database's
+ * clock. Accepting opens the trade and takes the client straight to it; declining is a formal answer to the desk,
+ * so it asks once before it is sent.
  */
-export function QuoteCard({ view, quote, canAccept, now }: { view: ExchangeView; quote: ClientQuoteView; canAccept: boolean; now: number }) {
+export function QuoteCard({ quote, canAccept, now }: { quote: ClientQuoteView; canAccept: boolean; now: number }) {
   const router = useRouter();
   const { run, busy, error, dialog } = useCommand();
   const [declining, setDeclining] = useState(false);
   const expiresAt = new Date(quote.expiresAt!);
-  const remaining = Math.max(0, expiresAt.getTime() - now);
-  const expiring = remaining <= EXPIRING_THRESHOLD_MS;
   const sell = quote.direction === 'SELL_USDT';
+  const rate = formatRate(Rate.parse(quote.clientRate, 'CLIENT'));
 
   const accept = async () => {
     robotCues.emit({ kind: 'wait', on: true });
@@ -37,6 +50,7 @@ export function QuoteCard({ view, quote, canAccept, now }: { view: ExchangeView;
     robotCues.emit({ kind: 'wait', on: false });
     if (out.ok) {
       robotCues.emit({ kind: 'lock' });
+      playSound('success');
       router.push(`/trades/${out.result.tradeRef}`);
     } else {
       robotCues.emit({ kind: 'problem' });
@@ -51,49 +65,39 @@ export function QuoteCard({ view, quote, canAccept, now }: { view: ExchangeView;
   return (
     <>
       <section className={shell.surface} aria-label="Firm quote" data-robot-target="panel">
-        <div className={styles.head}>
-          <div className={styles.headText}>
+        <header className={styles.ticketHead}>
+          <div className={styles.ticketId}>
             <span className={shell.label}>Firm quote</span>
-            <span className={styles.ref}>{quote.ref}</span>
+            <span className={styles.ticketRef}>{quote.ref}</span>
+            <span className={styles.side}>{sell ? 'Sell USDT' : 'Buy USDT'}</span>
           </div>
-          <span className={styles.countdown} data-state={expiring ? 'expiring' : 'held'} role="timer" aria-live="off">
-            <ClockIcon />
-            <span>
-              Held for <span className={styles.countdownTime}>{formatCountdown(remaining)}</span>
-            </span>
-            <span className="ix-visually-hidden">, until {formatIstTime(expiresAt)}</span>
-          </span>
-        </div>
+          <HeldFor expiresAt={expiresAt} now={now} />
+        </header>
 
-        <div className={styles.legs}>
+        <dl className={styles.ledger}>
           {LEGS[quote.direction].map((leg) => (
-            <div key={leg.currency} className={styles.leg} data-fixed="true">
-              <span className={styles.legLabel}>{leg.label}</span>
-              <div className={styles.legBox}>
-                <span className={styles.legValue}>{legAmount(leg.currency === 'USDT' ? quote.base.amount : quote.inr.amount, leg.currency)}</span>
-                <span className={styles.currency}>
-                  <span className={styles.coin} data-coin={leg.currency} aria-hidden="true">
-                    {leg.currency === 'INR' ? '₹' : '₮'}
-                  </span>
-                  {leg.currency}
-                </span>
-              </div>
+            <div key={leg.currency} className={styles.ledgerRow}>
+              <dt>{leg.label}</dt>
+              <dd>
+                <span className={styles.figure}>{legAmount(leg.currency === 'USDT' ? quote.base.amount : quote.inr.amount, leg.currency)}</span>
+                <span className={styles.unit}>{leg.currency}</span>
+              </dd>
             </div>
           ))}
-        </div>
+        </dl>
 
         <div className={styles.rate} data-robot-target="rate">
           <div className={styles.headText}>
             <span className={shell.label}>Your rate</span>
             <span className={styles.rateFigure}>
-              <span className={styles.rateValue}>{formatRate(Rate.parse(quote.clientRate, 'CLIENT'))}</span>
+              <span className={styles.rateValue}>{rate}</span>
               <span className={styles.rateUnit}>/ USDT</span>
             </span>
           </div>
           <span className={styles.rateNote}>Locked until {formatIstTime(expiresAt)}</span>
         </div>
 
-        <dl className={shell.facts}>
+        <dl className={`${shell.facts} ${styles.terms}`}>
           <div>
             <dt>{sell ? 'Receive INR to' : 'Deliver USDT to'}</dt>
             <dd>{quote.destination}</dd>
@@ -107,9 +111,6 @@ export function QuoteCard({ view, quote, canAccept, now }: { view: ExchangeView;
             <dd>{sell ? 'INR in one or more transfers, each with its bank reference' : 'USDT to your wallet once your INR is confirmed'}</dd>
           </div>
         </dl>
-
-        <hr className={styles.divider} />
-        <Stepper steps={requestSteps(view, now)} label="From request to trade" />
 
         {canAccept ? (
           declining ? (
@@ -125,20 +126,9 @@ export function QuoteCard({ view, quote, canAccept, now }: { view: ExchangeView;
             </div>
           ) : (
             <div className={styles.actions}>
-              <button
-                type="button"
-                className={shell.action}
-                data-robot-target="cta"
-                onClick={() => void accept()}
-                disabled={busy}
-                aria-busy={busy || undefined}
-                onPointerEnter={() => robotCues.setFocus('cta')}
-                onPointerLeave={() => robotCues.setFocus('none')}
-                onFocus={() => robotCues.setFocus('cta')}
-                onBlur={() => robotCues.setFocus('none')}
-              >
+              <button type="button" className={shell.action} data-robot-target="cta" onClick={() => void accept()} disabled={busy} aria-busy={busy || undefined}>
                 {busy ? <ArcLoader size="sm" label="Accepting" tone="inherit" /> : null}
-                <span>Accept quote</span>
+                <span>Accept quote at {rate}</span>
                 {busy ? null : <ArrowIcon className={shell.actionIcon} />}
               </button>
               <button type="button" className={shell.secondaryAction} onClick={() => setDeclining(true)} disabled={busy}>

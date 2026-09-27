@@ -5,6 +5,7 @@ import { CopyButton } from '@inrp2p/ui';
 import { shortenAddress } from '@inrp2p/ui/format';
 import { AssistantPanel } from '../_assistant/AssistantPanel.tsx';
 import { destinationsAssistant, readiness } from '../_assistant/model.ts';
+import { EmptyState } from '../_workspace/EmptyState.tsx';
 import { BankIcon, CheckIcon, InfoIcon, ShieldIcon, WalletIcon } from '../_workspace/icons.tsx';
 import shell from '../shell.module.css';
 import styles from './destinations.module.css';
@@ -77,7 +78,7 @@ export function DestinationsScreen({ destinations, clientName, role, canAccept }
             <span className={shell.muted}>For INR payouts when you sell</span>
           </div>
           {banks.length === 0 ? (
-            <p className={styles.none}>No bank account yet. INR payouts need somewhere to land — ask the desk to add one.</p>
+            <EmptyState icon={<BankIcon />} title="No bank account yet" body="INR payouts need somewhere to land. The desk adds an account after checking it — ask on your usual channel." />
           ) : (
             <ul className={styles.rows}>
               {banks.map((b) => (
@@ -117,7 +118,7 @@ export function DestinationsScreen({ destinations, clientName, role, canAccept }
             <span className={shell.muted}>USDT on TRC20</span>
           </div>
           {wallets.length === 0 ? (
-            <p className={styles.none}>No wallet yet. A wallet is where the USDT you buy is delivered — ask the desk to add one.</p>
+            <EmptyState icon={<WalletIcon />} title="No wallet yet" body="A TRC20 wallet is where the USDT you buy is delivered. The desk adds one after checking it — ask on your usual channel." />
           ) : (
             <ul className={styles.rows}>
               {wallets.map((w) => (

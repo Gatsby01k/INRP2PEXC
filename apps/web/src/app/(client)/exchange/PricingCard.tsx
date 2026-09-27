@@ -8,19 +8,19 @@ import { formatIstTime, formatRate } from '@inrp2p/ui/format';
 import { robotCues } from '../../(public)/_landing/robot/cues.ts';
 import { useCommand } from '../../../components/useCommand.tsx';
 import { withdrawRequestAction } from '../../../server/actions/client.ts';
-import { at, requestSteps } from '../_assistant/model.ts';
+import { at } from '../_assistant/model.ts';
 import { InfoIcon } from '../_workspace/icons.tsx';
-import { Stepper } from '../_workspace/Stepper.tsx';
 import { legAmount } from './amounts.ts';
-import { LEGS, LegStatic } from './Legs.tsx';
+import { LEGS } from './Legs.tsx';
 import shell from '../shell.module.css';
 import styles from './exchange.module.css';
 
 /**
- * A request the desk has: what was asked, where it goes, how far it has got — and, if the desk's last quote for
- * it ran out, that it did. Withdrawing closes it for good, so it asks once before it is sent.
+ * A request the desk has, as a ticket: what was asked — the side the client fixed, and the side the desk is
+ * pricing — where it goes, and, if the desk's last quote for it ran out, that it did. Withdrawing closes it for
+ * good, so it asks once before it is sent.
  */
-export function PricingCard({ view, now }: { view: ExchangeView; now: number }) {
+export function PricingCard({ view }: { view: ExchangeView }) {
   const { run, busy, error, dialog } = useCommand();
   const [withdrawing, setWithdrawing] = useState(false);
   const request = view.request!;
@@ -36,16 +36,17 @@ export function PricingCard({ view, now }: { view: ExchangeView; now: number }) 
   return (
     <>
       <section className={shell.surface} aria-label="Request with the desk" data-robot-target="panel">
-        <div className={styles.head}>
-          <div className={styles.headText}>
+        <header className={styles.ticketHead}>
+          <div className={styles.ticketId}>
             <span className={shell.label}>Request</span>
-            <span className={styles.ref}>{request.ref}</span>
+            <span className={styles.ticketRef}>{request.ref}</span>
+            <span className={styles.side}>{sell ? 'Sell USDT' : 'Buy USDT'}</span>
           </div>
           <span className={styles.pricing}>
             <ArcLoader size="sm" label="The desk is pricing this request" />
             With the desk
           </span>
-        </div>
+        </header>
 
         {expired ? (
           <p className={shell.info} data-tone="warning" role="status">
@@ -58,13 +59,23 @@ export function PricingCard({ view, now }: { view: ExchangeView; now: number }) 
           </p>
         ) : null}
 
-        <div className={styles.legs} data-robot-target="amount">
+        <dl className={styles.ledger} data-robot-target="amount">
           {LEGS[request.direction].map((leg) => (
-            <LegStatic key={leg.currency} label={leg.label} currency={leg.currency} amount={leg.currency === request.currency ? legAmount(request.amount, leg.currency) : null} />
+            <div key={leg.currency} className={styles.ledgerRow}>
+              <dt>{leg.label}</dt>
+              <dd>
+                {leg.currency === request.currency ? (
+                  <span className={styles.figure}>{legAmount(request.amount, leg.currency)}</span>
+                ) : (
+                  <span className={styles.figurePending}>Priced by the desk</span>
+                )}
+                <span className={styles.unit}>{leg.currency}</span>
+              </dd>
+            </div>
           ))}
-        </div>
+        </dl>
 
-        <dl className={shell.facts}>
+        <dl className={`${shell.facts} ${styles.terms}`}>
           <div>
             <dt>{sell ? 'Receive INR to' : 'Deliver USDT to'}</dt>
             <dd>{request.destination}</dd>
@@ -75,12 +86,9 @@ export function PricingCard({ view, now }: { view: ExchangeView; now: number }) 
           </div>
         </dl>
 
-        <hr className={styles.divider} />
-        <Stepper steps={requestSteps(view, now)} label="From request to trade" />
-
         <p className={shell.info}>
           <InfoIcon className={shell.infoIcon} />
-          <span>This page shows the desk’s quote as soon as it is sent — no need to reload. It also arrives in Notifications.</span>
+          <span>The desk’s quote appears here as soon as it is sent — no need to reload. It also arrives in Notifications.</span>
         </p>
 
         {withdrawing ? (

@@ -1,6 +1,8 @@
 'use client';
 
+import { useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Money, Rate } from '@inrp2p/kernel';
 import type { PortalTrade } from '@inrp2p/portal';
 import { DepositAddress, type LegStatus, SettlementLegList, SettlementLegRow, SettlementProgress, TransactionHash } from '@inrp2p/ui';
@@ -47,8 +49,26 @@ function stepsOf(view: PortalTrade): Step[] {
  * Everything here came from the domain's client projections. There is no figure on this page the desk has not
  * already committed to, and nothing about how the desk sourced the other side of the trade (SECURITY §5).
  */
+/** How often the screen looks again while money is still moving, or a settled trade's receipt is still to come. */
+const LIVE_POLL_MS = 10_000;
+
 export function TradeScreen({ view }: { view: PortalTrade }) {
+  const router = useRouter();
   const { trade, settlement } = view;
+  const moving = trade.status !== 'COMPLETED' && trade.status !== 'CANCELLED';
+  const receiptDue = trade.status === 'COMPLETED' && !view.receipt;
+
+  // The trade's state changes on the desk's side and the chain's, not the client's: while it can still change,
+  // the page looks again every few seconds (only while it is being looked at), so a transfer arriving, a payment
+  // going out or the trade settling is seen — and reported by the robot — as it happens.
+  useEffect(() => {
+    if (!moving && !receiptDue) return;
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') router.refresh();
+    }, LIVE_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [moving, receiptDue, router]);
+  const steps = stepsOf(view);
   const sell = trade.direction === 'SELL_USDT';
   const usdt = formatUsdtHeadline(Money.parse(trade.base.amount, 'USDT'));
   const inr = formatInr(Money.parse(trade.inr.amount, 'INR'));
@@ -72,7 +92,7 @@ export function TradeScreen({ view }: { view: PortalTrade }) {
             </h2>
             {view.completedAt ? <span className={shell.muted}>Settled {at(view.completedAt)}</span> : null}
           </div>
-          <Stepper steps={stepsOf(view)} label="Trade progress" />
+          <Stepper steps={steps} label="Trade progress" />
           {view.incoming ? (
             <div className={styles.transfer}>
               <span className={shell.label}>Your transfer</span>
@@ -179,7 +199,7 @@ export function TradeScreen({ view }: { view: PortalTrade }) {
           ) : null}
         </section>
       </main>
-      <AssistantPanel state={tradeAssistant(view)}>
+      <AssistantPanel state={tradeAssistant(view)} steps={steps}>
         <div className={styles.noteLinks}>
           <Link className={shell.textAction} href="/history">
             All trades

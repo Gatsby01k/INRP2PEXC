@@ -16,9 +16,9 @@
   gap: var(--space-1);
   margin: var(--space-5) var(--space-6) var(--space-4);
   padding: var(--space-1);
-  border: 1px solid var(--border-default);
   border-radius: var(--radius-input);
   background: var(--bg-subtle);
+  box-shadow: inset 0 0 0 1px var(--line-soft);
 }
 
 .filter {
@@ -49,8 +49,8 @@
   color: var(--text-primary);
   font-weight: var(--font-weight-semibold);
   box-shadow:
-    inset 0 0 0 1px var(--brand-primary),
-    0 1px 2px color-mix(in srgb, var(--text-primary) 8%, transparent);
+    0 0 0 1px var(--line),
+    0 2px 6px -2px color-mix(in srgb, var(--text-primary) 14%, transparent);
 }
 
 .count {
@@ -70,16 +70,6 @@
   color: var(--brand-action);
 }
 
-.empty {
-  display: grid;
-  gap: var(--space-2);
-  padding: var(--space-8) var(--space-6) var(--space-10);
-}
-
-.empty p {
-  margin: 0;
-}
-
 /* ——— The table ——— */
 
 .table {
@@ -91,9 +81,9 @@
 
 .table th {
   padding: var(--space-3);
-  border-top: 1px solid var(--border-default);
-  border-bottom: 1px solid var(--border-default);
-  background: var(--bg-subtle);
+  border-top: 1px solid var(--line-soft);
+  border-bottom: 1px solid var(--line-soft);
+  background: color-mix(in srgb, var(--bg-subtle) 70%, var(--bg-surface));
   color: var(--text-muted);
   font-size: var(--font-size-meta);
   font-weight: var(--font-weight-medium);
@@ -105,7 +95,7 @@
 
 .table td {
   padding: var(--space-4) var(--space-3);
-  border-bottom: 1px solid var(--border-default);
+  border-bottom: 1px solid var(--line-soft);
   vertical-align: middle;
 }
 
@@ -227,6 +217,10 @@
   text-underline-offset: 3px;
 }
 
+.cardUnit {
+  display: none;
+}
+
 .receiptIcon {
   width: 18px;
   height: 18px;
@@ -278,7 +272,7 @@
   gap: var(--space-3);
   margin: 0;
   padding-top: var(--space-4);
-  border-top: 1px solid var(--border-default);
+  border-top: 1px solid var(--line-soft);
 }
 
 .legend div {
@@ -356,6 +350,7 @@
   .row {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto auto;
+    border-top: 1px solid var(--line-soft);
     grid-template-areas:
       'ref status toggle'
       'started started started'
@@ -364,7 +359,7 @@
     gap: var(--space-2) var(--space-3);
     align-items: center;
     padding: var(--space-4);
-    border-top: 1px solid var(--border-default);
+    border-top: 1px solid var(--line-soft);
   }
 
   .row td,
@@ -412,6 +407,11 @@
   .inr {
     font-size: var(--font-size-body);
     font-weight: var(--font-weight-semibold);
+  }
+
+  /* On a card the column header is gone, so the unit comes back beside the figure. */
+  .cardUnit {
+    display: inline;
   }
 
   .receipt {

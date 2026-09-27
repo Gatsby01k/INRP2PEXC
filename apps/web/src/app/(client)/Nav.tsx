@@ -18,16 +18,14 @@ export function ClientNav({ entries }: { entries: readonly ClientNavEntry[] }) {
   const section = pathname.startsWith('/trades/') ? '/history' : pathname;
   return (
     <nav className={styles.nav} aria-label="Sections">
-      <div className={styles.navInner}>
-        {entries.map((e) => {
-          const current = section === e.href || section.startsWith(`${e.href}/`);
-          return (
-            <Link key={e.href} href={e.href} className={styles.navItem} {...(current ? { 'aria-current': 'page' as const } : {})}>
-              {e.label}
-            </Link>
-          );
-        })}
-      </div>
+      {entries.map((e) => {
+        const current = section === e.href || section.startsWith(`${e.href}/`);
+        return (
+          <Link key={e.href} href={e.href} className={styles.navItem} {...(current ? { 'aria-current': 'page' as const } : {})}>
+            {e.label}
+          </Link>
+        );
+      })}
     </nav>
   );
 }

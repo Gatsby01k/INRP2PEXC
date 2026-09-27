@@ -5,6 +5,7 @@ import { unreadCount } from '@inrp2p/notifications';
 import mark from '../../../../../brand/inrp2p-mark.png';
 import { clientPage } from '../../server/client.ts';
 import { AssistantRobot } from './_assistant/AssistantRobot.tsx';
+import { SoundToggle } from './_assistant/SoundToggle.tsx';
 import { BellIcon } from './_workspace/icons.tsx';
 import { ClientNav, type ClientNavEntry } from './Nav.tsx';
 import { ClientSignOut } from './SignOut.tsx';
@@ -20,8 +21,9 @@ const ENTRIES: ClientNavEntry[] = [
 
 /**
  * The client workspace. Everything inside it has already been through `clientPage()`, so a page never asks whether
- * someone is signed in — only what their client has. The masthead carries the one thing a client wants without
- * navigating: whether anything has happened since they last looked.
+ * someone is signed in — only what their client has. The masthead is one row — who the client is, the sections,
+ * and the things a client wants without navigating: whether anything has happened since they last looked, and
+ * whether the workspace may make a sound when it does.
  *
  * The robot lives here rather than in a page, so it stays through navigation; each page reports its own state to
  * it (`_assistant/AssistantPanel.tsx`) and lays itself out around it — its heading across the top, its work on the
@@ -36,13 +38,17 @@ export default async function ClientLayout({ children }: { children: ReactNode }
     <div className={styles.shell}>
       <header className={styles.header}>
         <div className={styles.mastheadInner}>
-          <Link href="/exchange" className={styles.brand} aria-label="INRP2P workspace">
-            <img {...markProps} className={styles.brandMark} />
-            <span className={styles.brandName}>INRP2P</span>
-          </Link>
-          <span className={styles.rule} aria-hidden="true" />
-          <span className={styles.clientName}>{ctx.access.clientName}</span>
+          <div className={styles.identity}>
+            <Link href="/exchange" className={styles.brand} aria-label="INRP2P workspace">
+              <img {...markProps} className={styles.brandMark} />
+              <span className={styles.brandName}>INRP2P</span>
+            </Link>
+            <span className={styles.rule} aria-hidden="true" />
+            <span className={styles.clientName}>{ctx.access.clientName}</span>
+          </div>
+          <ClientNav entries={ENTRIES} />
           <div className={styles.headerActions}>
+            <SoundToggle className={styles.sound} iconClassName={styles.bellIcon} labelClassName={styles.soundText} />
             <Link href="/notifications" className={styles.bell}>
               <BellIcon className={styles.bellIcon} />
               <span className={styles.bellText}>Notifications</span>
@@ -56,7 +62,6 @@ export default async function ClientLayout({ children }: { children: ReactNode }
             <ClientSignOut className={styles.signOut} />
           </div>
         </div>
-        <ClientNav entries={ENTRIES} />
       </header>
 
       <div className={styles.workspace} data-robot-scope="">

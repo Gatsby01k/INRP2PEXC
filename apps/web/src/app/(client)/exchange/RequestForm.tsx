@@ -58,7 +58,8 @@ export function RequestForm({ view, draft }: { view: ExchangeView; draft?: Reque
   };
   const changeAmount = (side: 'BASE' | 'QUOTE', raw: string) => {
     const next = sanitizeAmountInput(raw, side === 'BASE' ? 'USDT' : 'INR');
-    if (next === null) return;
+    // Only a real change of the number is news to the robot: a refused character, or one that changes nothing, is not.
+    if (next === null || (next === amount && side === fixedSide)) return;
     setFixedSide(side);
     setAmount(next);
     if (hasAmount(next)) setMissing(false);

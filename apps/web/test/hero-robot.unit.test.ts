@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { type Mesh, type Object3D, Quaternion, Vector3 } from 'three';
-import type { RobotFocus, RobotMood } from '../src/app/(public)/_landing/robot/cues.ts';
+import { INPUT_PRIORITY, MOOD_PRIORITY, type RobotFocus, type RobotMood, strongestMood } from '../src/app/(public)/_landing/robot/cues.ts';
 import { type LookAngles, type LookTarget, type Pose, REST_POSE, type RobotState, RobotBehaviour } from '../src/app/(public)/_landing/robot/behaviour.ts';
 import { buildFigure } from '../src/app/(public)/_landing/robot/figure.ts';
 import { DURATION, EXPRESSIONS, STATES } from '../src/app/(public)/_landing/robot/states.ts';
@@ -249,7 +249,7 @@ describe('quote value changed', () => {
 
     let confirmations = 0;
     let lit = false;
-    run.step(3, {}, ({ pose }) => {
+    run.step(4, {}, ({ pose }) => {
       const on = brightestArc(pose) > 0.3;
       if (on && !lit) confirmations += 1;
       lit = on;
@@ -284,6 +284,80 @@ describe('quote value changed', () => {
     expect(away).toBeLessThan(2.6);
     const peak = yaws.indexOf(Math.max(...yaws));
     expect(oneWay(yaws.slice(peak))).toBe(true);
+  });
+});
+
+describe('typing one number', () => {
+  /** Times the optics narrowed to focus: shallow dips of the eye's opening. A blink closes it, and is not one. */
+  const focusesIn = (frames: readonly Frame[]) => {
+    let focuses = 0;
+    let dip: number[] = [];
+    for (const f of [...frames, null]) {
+      if (f && f.pose.eyeOpen < 0.935) {
+        dip.push(f.pose.eyeOpen);
+        continue;
+      }
+      if (dip.length > 0 && Math.min(...dip) > 0.5) focuses += 1;
+      dip = [];
+    }
+    return focuses;
+  };
+
+  /** Types `gaps.length` digits, each followed by its gap, calling `each` on every frame. */
+  const typeWith = (run: Run, gaps: readonly number[], each: (frame: Frame) => void) => {
+    for (const gap of gaps) {
+      run.behaviour.cue({ kind: 'value' }, run.time);
+      run.step(gap, {}, each);
+    }
+  };
+
+  it('is one response, however the digits are paced: one look, one focus, one confirmation, one return', () => {
+    for (const gaps of [
+      [0.18, 0.18, 0.18, 0.18, 0.18, 0.18],
+      [0.25, 0.9, 0.25, 0.9, 0.25, 0.25],
+      [0.2, 0.2, 0.95, 0.2, 0.2, 0.2],
+    ]) {
+      const run = settled();
+      const frames: Frame[] = [];
+      typeWith(run, gaps, (f) => frames.push(f));
+      run.step(5, {}, (f) => frames.push(f));
+      const entries = frames.filter((f, i) => f.state === 'value' && (i === 0 || frames[i - 1]!.state !== 'value')).length;
+      expect(entries, `one reaction for ${gaps.join(', ')}`).toBe(1);
+      let confirmations = 0;
+      let lit = false;
+      for (const f of frames) {
+        const on = brightestArc(f.pose) > 0.3;
+        if (on && !lit) confirmations += 1;
+        lit = on;
+      }
+      expect(confirmations).toBe(1);
+      expect(focusesIn(frames), 'the optics focus once').toBe(1);
+      // The head goes to the number and comes back: its pitch turns round once, not once per pause.
+      const pitch = frames.map((f) => f.pose.headPitch);
+      let turns = 0;
+      let dir = 0;
+      for (let i = 1; i < pitch.length; i++) {
+        const v = (pitch[i]! - pitch[i - 1]!) / FRAME;
+        const d = Math.abs(v) > 0.03 ? Math.sign(v) : 0;
+        if (d && d !== dir) {
+          turns += 1;
+          dir = d;
+        }
+      }
+      expect(turns, `no nodding along with ${gaps.join(', ')}`).toBeLessThanOrEqual(2);
+      expect(frames.at(-1)!.state).toBe('idle');
+    }
+  });
+
+  it('takes up a digit typed while it is still lingering on the number without focusing again', () => {
+    const run = settled();
+    const frames: Frame[] = [];
+    typeWith(run, [0.2, 0.2], (f) => frames.push(f));
+    run.step(DURATION.typedSettle + DURATION.confirmHold + 0.1, {}, (f) => frames.push(f));
+    expect(frames.at(-1)!.state, 'let go of the number').toBe('idle');
+    typeWith(run, [0.2], (f) => frames.push(f));
+    expect(frames.at(-1)!.state).toBe('value');
+    expect(focusesIn(frames)).toBe(1);
   });
 });
 
@@ -879,16 +953,16 @@ describe('the workspace’s moods (held states of record)', () => {
     mood(run, 'verifying');
     const starts: number[] = [];
     let lit = false;
-    const last = run.step(16, {}, ({ state, pose, time }) => {
+    const last = run.step(40, {}, ({ state, pose, time }) => {
       expect(state).toBe('checking');
       const on = pose.scan > 0.2;
       if (on && !lit) starts.push(time);
       lit = on;
     });
     expect(last.pose.squint).toBeGreaterThan(0.8);
-    expect(starts.length).toBeGreaterThanOrEqual(5);
+    expect(starts.length).toBeGreaterThanOrEqual(6);
     const gaps = starts.slice(1).map((t, i) => t - starts[i]!);
-    expect(Math.min(...gaps)).toBeGreaterThan(1.8);
+    expect(Math.min(...gaps), 'now and then, never a loop an eye could follow').toBeGreaterThan(3.4);
     expect(new Set(gaps.map((g) => g.toFixed(2))).size, 'not on a period').toBeGreaterThan(1);
   });
 
@@ -967,6 +1041,69 @@ describe('the workspace’s moods (held states of record)', () => {
     // Concerned, facing the visitor: the head tilts away from the page, whichever side the page is on.
     expect(at('alert', false).headRoll).toBeLessThan(-0.02);
     expect(at('alert', true).headRoll).toBeCloseTo(-at('alert', false).headRoll, 4);
+  });
+
+  it('ready: the workspace’s rest — idle’s calm, turned a touch towards the page, and it still greets', () => {
+    const run = settled();
+    mood(run, 'ready');
+    const held = run.step(4);
+    expect(held.state).toBe('ready');
+    expect(held.pose.torsoYaw, 'towards the page').toBeGreaterThan(0.004);
+    expect(held.pose.smile + held.pose.squint + held.pose.dots + held.pose.beacon).toBeLessThan(1e-3);
+    expect(Math.abs(held.pose.headYaw), 'with the visitor').toBeLessThan(0.03);
+    run.behaviour.cue({ kind: 'engage' }, run.time);
+    expect(run.step(0.6).state).toBe('welcome');
+    expect(run.step(DURATION.welcome + 0.5).state).toBe('ready');
+  });
+
+  it('ranks every state of record above the client’s input: typing, direction, a first move and the button move nothing', () => {
+    for (const m of ['alert', 'focused', 'success', 'verifying', 'waiting'] as const) {
+      const run = settled();
+      mood(run, m);
+      const before = run.step(3);
+      const frames: Frame[] = [];
+      const record = (f: Frame) => frames.push(f);
+      for (let i = 0; i < 5; i++) {
+        run.behaviour.cue({ kind: 'value' }, run.time);
+        run.step(0.2, {}, record);
+      }
+      run.behaviour.cue({ kind: 'direction', direction: 'BUY_USDT' }, run.time);
+      run.behaviour.cue({ kind: 'engage' }, run.time);
+      run.step(1.5, { focus: 'cta' }, record);
+      expect(frames.every((f) => f.state === before.state), `${m} holds through input`).toBe(true);
+      const face = (p: Pose) => [p.smile, p.squint, p.dots, p.lidTilt].map((v) => v.toFixed(2)).join();
+      expect(face(frames.at(-1)!.pose), `${m} keeps its face`).toBe(face(before.pose));
+    }
+  });
+
+  it('hears the client’s input again the moment nothing outranks it, facing the way they last chose', () => {
+    const run = settled();
+    mood(run, 'waiting');
+    run.step(1);
+    run.behaviour.cue({ kind: 'direction', direction: 'BUY_USDT' }, run.time);
+    mood(run, 'ready');
+    run.step(2);
+    run.behaviour.cue({ kind: 'value' }, run.time);
+    expect(run.step(0.2).state).toBe('value');
+    // The direction it was told while it could not answer is the one it now sweeps in: INR to USDT for a buy.
+    let first = -1;
+    run.step(DURATION.typedSettle + 0.5, {}, ({ pose }) => {
+      if (first < 0) {
+        const lit = pose.arcGlow.findIndex((a) => a > 0.3);
+        if (lit >= 0) first = lit;
+      }
+    });
+    expect(first).toBe(2);
+  });
+
+  it('picks the strongest of several states of record, highest first', () => {
+    const pick = (...moods: RobotMood[]) => strongestMood(moods.map((m) => ({ mood: m })))?.mood;
+    expect(pick('waiting', 'verifying')).toBe('verifying');
+    expect(pick('verifying', 'focused', 'waiting')).toBe('focused');
+    expect(pick('focused', 'alert')).toBe('alert');
+    expect(pick('ready', 'waiting')).toBe('waiting');
+    expect(MOOD_PRIORITY.waiting).toBeGreaterThan(INPUT_PRIORITY);
+    expect(MOOD_PRIORITY.ready).toBeLessThan(INPUT_PRIORITY);
   });
 
   it('marks a mood once: the same state of record reported again changes nothing', () => {

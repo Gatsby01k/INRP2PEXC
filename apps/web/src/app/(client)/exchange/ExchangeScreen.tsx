@@ -4,9 +4,9 @@ import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import type { ExchangeView } from '@inrp2p/portal';
 import { AssistantPanel } from '../_assistant/AssistantPanel.tsx';
-import { exchangeAssistant, quoteLive } from '../_assistant/model.ts';
+import { exchangeAssistant, quoteLive, requestSteps } from '../_assistant/model.ts';
 import { PricingCard } from './PricingCard.tsx';
-import { QuoteCard } from './QuoteCard.tsx';
+import { HeldFor, QuoteCard } from './QuoteCard.tsx';
 import { RequestForm } from './RequestForm.tsx';
 import { useServerClock } from './useServerClock.ts';
 import shell from '../shell.module.css';
@@ -63,14 +63,18 @@ export function ExchangeScreen({ view, canAccept, serverTime, draft }: { view: E
     <>
       <main className={`${shell.main} ${shell.centred}`}>
         {quote && live ? (
-          <QuoteCard view={view} quote={quote} canAccept={canAccept} now={now} />
+          <QuoteCard quote={quote} canAccept={canAccept} now={now} />
         ) : withDesk ? (
-          <PricingCard view={view} now={now} />
+          <PricingCard view={view} />
         ) : (
           <RequestForm view={view} {...(draft ? { draft } : {})} />
         )}
       </main>
-      <AssistantPanel state={exchangeAssistant(view, { canAccept, now })} />
+      <AssistantPanel
+        state={exchangeAssistant(view, { canAccept, now })}
+        steps={withDesk ? requestSteps(view, now) : null}
+        meta={quote && live && quote.expiresAt ? <HeldFor expiresAt={new Date(quote.expiresAt)} now={now} /> : null}
+      />
     </>
   );
 }

@@ -9,15 +9,16 @@ import { formatIstDateTime } from '@inrp2p/ui/format';
 import { markNotificationsReadAction } from '../../../server/actions/client.ts';
 import { AssistantPanel } from '../_assistant/AssistantPanel.tsx';
 import type { AssistantState } from '../_assistant/model.ts';
-import { ArrowIcon } from '../_workspace/icons.tsx';
+import { EmptyState } from '../_workspace/EmptyState.tsx';
+import { ArrowIcon, BellIcon } from '../_workspace/icons.tsx';
 import shell from '../shell.module.css';
 import styles from './inbox.module.css';
 
 /** The robot on the inbox says only how much of it is new — the messages say the rest. */
 function inboxAssistant(total: number, unread: number): AssistantState {
-  if (total === 0) return { mood: 'none', label: 'Up to date', title: 'Nothing to report', body: 'You will hear from the desk here when a quote is ready or a payment goes out.' };
-  if (unread === 0) return { mood: 'none', label: 'Up to date', title: 'You have read everything', body: 'New messages from the desk appear at the top.' };
-  return { mood: 'none', label: `${unread} new`, title: unread === 1 ? 'One message since you last looked' : `${unread} messages since you last looked`, body: 'Each links to the quote or trade it is about.' };
+  if (total === 0) return { mood: 'ready', label: 'Up to date', title: 'Nothing to report', body: 'You will hear from the desk here when a quote is ready or a payment goes out.' };
+  if (unread === 0) return { mood: 'ready', label: 'Up to date', title: 'You have read everything', body: 'New messages from the desk appear at the top.' };
+  return { mood: 'ready', label: `${unread} new`, title: unread === 1 ? 'One message since you last looked' : `${unread} messages since you last looked`, body: 'Each links to the quote or trade it is about.' };
 }
 
 export function Inbox({ rows }: { rows: readonly ClientNotification[] }) {
@@ -30,8 +31,7 @@ export function Inbox({ rows }: { rows: readonly ClientNotification[] }) {
       <main className={shell.main}>
         {rows.length === 0 ? (
           <section className={shell.card}>
-            <p className={shell.cardTitle}>Nothing to report</p>
-            <p className={shell.muted}>You will hear from us when a quote is ready or a payment goes out.</p>
+            <EmptyState icon={<BellIcon />} title="Nothing to report yet" body="You will hear from the desk here when a quote is ready, a payment goes out or a destination changes." />
           </section>
         ) : (
           <>

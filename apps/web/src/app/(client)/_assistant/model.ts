@@ -1,7 +1,7 @@
 import { Money, Rate } from '@inrp2p/kernel';
 import type { ClientDestinations, ExchangeView, HistoryRow, PortalTrade } from '@inrp2p/portal';
 import { formatInr, formatIstDateTime, formatIstTime, formatRate, formatUsdtHeadline } from '@inrp2p/ui/format';
-import type { RobotMood } from '../../(public)/_landing/robot/cues.ts';
+import { type RobotMood, strongestMood } from '../../(public)/_landing/robot/cues.ts';
 
 /**
  * What the workspace's robot reports on each page, derived from what the server returned for it and nothing else.
@@ -103,7 +103,7 @@ export function exchangeAssistant(view: ExchangeView, opts: { canAccept: boolean
     };
   }
   return {
-    mood: 'none',
+    mood: 'ready',
     label: 'Ready',
     title: 'Ready for your request',
     body: 'Choose a direction and an amount. The desk prices it and sends you a firm quote to accept or decline.',
@@ -213,51 +213,84 @@ export function tradeAssistant(view: PortalTrade): AssistantState {
 }
 
 export function historyAssistant(rows: readonly HistoryRow[], counts: { readonly all: number; readonly open: number; readonly completed: number }): AssistantState {
+  // Every state the open trades are in is a candidate, and the strongest is reported (`MOOD_PRIORITY`): a trade the
+  // desk holds, then a transfer being verified, then a trade waiting for the client's funds, then one paying out.
   const held = rows.filter((r) => r.onHold && isOpenTrade(r.status));
+  const moving = rows.filter((r) => !r.onHold);
+  const seen = moving.filter((r) => r.status === 'FIRST_LEG_DETECTED');
+  const yours = moving.filter((r) => r.status === 'AWAITING_FIRST_LEG');
+  const paying = moving.filter((r) => PAYING.has(r.status));
+  const candidates: AssistantState[] = [];
   if (held.length > 0) {
-    return {
+    candidates.push({
       mood: 'alert',
       label: 'On hold',
       title: held.length === 1 ? `${held[0]!.ref} is paused` : `${held.length} trades are paused`,
       body: 'The desk is checking something. Nothing is lost, and each trade moves on as soon as the check is done.',
-    };
+    });
   }
-  const yours = rows.filter((r) => r.status === 'AWAITING_FIRST_LEG');
-  if (yours.length > 0) {
-    const first = yours.at(-1)!;
-    return {
-      mood: 'focused',
-      label: 'Needs you',
-      title: yours.length === 1 ? `${first.ref} is waiting for your ${first.direction === 'SELL_USDT' ? 'USDT' : 'INR'}` : `${yours.length} trades are waiting for your funds`,
-      body: 'Open a trade for the exact amount and where it goes.',
-    };
-  }
-  const seen = rows.filter((r) => r.status === 'FIRST_LEG_DETECTED');
   if (seen.length > 0) {
-    return {
+    candidates.push({
       mood: 'verifying',
       label: 'Verifying',
       title: seen.length === 1 ? `USDT for ${seen[0]!.ref} is on-chain` : `${seen.length} transfers are on-chain`,
       body: 'Waiting for them to be final on TRON. Nothing more is needed from you.',
-    };
+    });
   }
-  if (counts.open > 0) {
-    return {
+  if (yours.length > 0) {
+    const first = yours.at(-1)!;
+    candidates.push({
+      mood: 'waiting',
+      label: 'Awaiting your funds',
+      title: yours.length === 1 ? `${first.ref} is waiting for your ${first.direction === 'SELL_USDT' ? 'USDT' : 'INR'}` : `${yours.length} trades are waiting for your funds`,
+      body: 'Open a trade for the exact amount and where it goes.',
+    });
+  }
+  if (paying.length > 0) {
+    candidates.push({
       mood: 'waiting',
       label: 'In progress',
-      title: counts.open === 1 ? 'One trade is paying out' : `${counts.open} trades are paying out`,
+      title: paying.length === 1 ? 'One trade is paying out' : `${paying.length} trades are paying out`,
       body: 'Each payment appears on its trade with its reference as it lands.',
-    };
+    });
   }
+  const strongest = strongestMood(candidates);
+  if (strongest) return strongest;
   if (counts.all === 0) {
-    return { mood: 'none', label: 'No trades yet', title: 'Nothing here yet', body: 'A trade appears here the moment a quote is accepted.' };
+    return { mood: 'ready', label: 'No trades yet', title: 'Nothing here yet', body: 'A trade appears here the moment a quote is accepted.' };
   }
   return {
-    mood: 'none',
+    mood: 'ready',
     label: 'All settled',
     title: 'Nothing in progress',
     body: `${counts.completed === 1 ? 'One trade' : `${counts.completed} trades`} settled. A receipt is issued for each one.`,
   };
+}
+
+/** Lifecycle states in which the client's leg is in and the desk is paying out. */
+const PAYING = new Set(['FIRST_LEG_CONFIRMED', 'SETTLING', 'PARTIALLY_SETTLED']);
+
+/** The sounds the workspace makes (`sound.ts`), each for one kind of meaningful event and nothing else. */
+export type SoundCue = 'quote' | 'success' | 'alert';
+
+/**
+ * Whether a change of state, seen live on the same page, is worth a sound: a firm quote arriving, something
+ * settling, something coming to need the client. A page's first state is not an event — it is what the client
+ * came to look at — so nothing sounds on arrival, on navigation or on reload; and waiting, verifying and
+ * returning to rest never sound at all.
+ */
+export function soundForTransition(previous: AssistantState | null, next: AssistantState): SoundCue | null {
+  if (previous === null || previous.mood === next.mood) return null;
+  switch (next.mood) {
+    case 'focused':
+      return 'quote';
+    case 'success':
+      return 'success';
+    case 'alert':
+      return 'alert';
+    default:
+      return null;
+  }
 }
 
 export interface Readiness {
@@ -277,17 +310,17 @@ export function destinationsAssistant(destinations: ClientDestinations): Assista
   const ready = readiness(destinations);
   if (ready.sell && ready.buy) {
     return {
-      mood: 'none',
+      mood: 'ready',
       label: 'Ready',
       title: 'Ready for both directions',
       body: 'Selling pays INR to your bank account; buying delivers USDT to your wallet.',
     };
   }
   if (ready.sell) {
-    return { mood: 'none', label: 'Ready to sell', title: 'Buying USDT needs a wallet', body: 'Ask the desk to add a TRC20 wallet for deliveries. Selling is ready now.' };
+    return { mood: 'ready', label: 'Ready to sell', title: 'Buying USDT needs a wallet', body: 'Ask the desk to add a TRC20 wallet for deliveries. Selling is ready now.' };
   }
   if (ready.buy) {
-    return { mood: 'none', label: 'Ready to buy', title: 'Selling USDT needs a bank account', body: 'Ask the desk to add an account for INR payouts. Buying is ready now.' };
+    return { mood: 'ready', label: 'Ready to buy', title: 'Selling USDT needs a bank account', body: 'Ask the desk to add an account for INR payouts. Buying is ready now.' };
   }
   return {
     mood: 'alert',

@@ -7,7 +7,8 @@ import type { HistoryCounts, HistoryRow } from '@inrp2p/portal';
 import { formatInr, formatIstDateTime, formatRate, formatUsdtHeadline } from '@inrp2p/ui/format';
 import { AssistantPanel } from '../_assistant/AssistantPanel.tsx';
 import { historyAssistant, isOpenTrade, lifecycleSteps } from '../_assistant/model.ts';
-import { ArrowIcon, ChevronIcon, ReceiptIcon } from '../_workspace/icons.tsx';
+import { EmptyState } from '../_workspace/EmptyState.tsx';
+import { ArrowIcon, ChevronIcon, ClockIcon, ReceiptIcon } from '../_workspace/icons.tsx';
 import { Stepper } from '../_workspace/Stepper.tsx';
 import { StatusPill } from '../_workspace/StatusPill.tsx';
 import shell from '../shell.module.css';
@@ -80,10 +81,30 @@ export function HistoryScreen({ rows, open, counts, filter }: { rows: readonly H
           </nav>
 
           {rows.length === 0 ? (
-            <div className={styles.empty}>
-              <p className={shell.cardTitle}>{filter === 'all' ? 'Nothing here yet' : 'No trades in this view'}</p>
-              <p className={shell.muted}>Trades and their payments appear here from the moment a quote is accepted.</p>
-            </div>
+            filter === 'all' ? (
+              <EmptyState
+                icon={<ReceiptIcon />}
+                title="No trades yet"
+                body="A trade appears here the moment you accept a quote, with its payments as they land and its receipt once it settles."
+                action={
+                  <Link className={shell.secondaryAction} href="/exchange">
+                    Request a quote
+                    <ArrowIcon className={shell.actionIcon} />
+                  </Link>
+                }
+              />
+            ) : (
+              <EmptyState
+                icon={<ClockIcon />}
+                title={filter === 'open' ? 'Nothing in progress' : 'Nothing settled yet'}
+                body={filter === 'open' ? 'Every trade you have is settled or closed.' : 'Settled trades, with their receipts, appear here.'}
+                action={
+                  <Link className={shell.textAction} href="/history">
+                    Show all trades
+                  </Link>
+                }
+              />
+            )
           ) : (
             <table className={styles.table}>
               <caption className="ix-visually-hidden">Your trades, newest first</caption>
@@ -144,7 +165,8 @@ export function HistoryScreen({ rows, open, counts, filter }: { rows: readonly H
                           <StatusPill status={r.status} onHold={r.onHold} />
                         </td>
                         <td className={`${styles.num} ${styles.usdt}`} data-label="USDT">
-                          {usdt(r)}
+                          {formatUsdtHeadline(Money.parse(r.base, 'USDT'), { unit: false })}
+                          <span className={styles.cardUnit}> USDT</span>
                         </td>
                         <td className={`${styles.num} ${styles.inr}`} data-label="INR">
                           {inr(r)}
@@ -155,9 +177,16 @@ export function HistoryScreen({ rows, open, counts, filter }: { rows: readonly H
                         <td className={styles.receipt}>
                           {r.receipt ? (
                             // Stops the row's own toggle: someone clicking the receipt wants the document.
-                            <a className={styles.receiptLink} href={`/api/receipts/${encodeURIComponent(r.ref)}`} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>
+                            <a
+                              className={styles.receiptLink}
+                              href={`/api/receipts/${encodeURIComponent(r.ref)}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              aria-label={`View the receipt for ${r.ref}`}
+                              onClick={(e) => e.stopPropagation()}
+                            >
                               <ReceiptIcon className={styles.receiptIcon} />
-                              Receipt
+                              View
                             </a>
                           ) : (
                             <span className={shell.muted} aria-label="No receipt yet">

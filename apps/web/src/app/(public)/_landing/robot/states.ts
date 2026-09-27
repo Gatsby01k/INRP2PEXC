@@ -47,7 +47,9 @@ export type RobotState =
   /** Settled: the pleased face, held, the body at rest around it. */
   | 'done'
   /** Something needs the client: concern, the antenna's tip lit and held. */
-  | 'attention';
+  | 'attention'
+  /** The workspace with nothing live: rest, standing by, turned a touch towards the page. */
+  | 'ready';
 
 /**
  * The places attention can go. The page supplies where they are; `viewer` is the camera. `entry` is the one
@@ -379,9 +381,28 @@ export const STATES: Record<RobotState, StateSpec> = {
     settle: 0.8,
     drift: false,
   },
+  ready: {
+    // Rest, as a working posture rather than a showroom one: the same slow load cycle, corrections and drift as
+    // idle, with the body turned a touch towards the page it serves and the accents a shade warmer. It returns
+    // through the page after work in it, exactly as idle does.
+    attention: (elapsed, from) => (RETURNS_THROUGH_MODULE.has(from) && elapsed < DURATION.linger ? 'panel' : 'viewer'),
+    head: { yaw: 0.78, pitch: 0.88, share: 0.5, ease: 0.42 },
+    eyes: { aperture: 1, time: 0.3, gain: 1, notice: false, focus: 0 },
+    face: EXPRESSIONS.neutral,
+    faceTime: 0.3,
+    lean: 0.003,
+    turn: 0.008,
+    chin: 0,
+    roll: 0,
+    breath: 1,
+    blinks: true,
+    accent: 0.34,
+    settle: 0.9,
+    drift: true,
+  },
   checking: {
     // The reading face of `value`, held: narrowed optics on the trade, the head a little down to it. The band of
-    // light passes through the eyes at irregular intervals of a few seconds (`behaviour.ts`), never faster.
+    // light passes through the eyes now and then, at irregular intervals of several seconds (`behaviour.ts`).
     attention: () => 'panel',
     head: { yaw: 0.55, pitch: 0.62, share: 0.4, ease: 0.4 },
     eyes: { aperture: 0.95, time: 0.3, gain: 1.04, notice: false, focus: 0 },
@@ -462,12 +483,15 @@ export const DURATION = {
   problem: 2.6,
   /** The longest the robot will wait on something that never answers before it lets the wait go. */
   waiting: 30,
-  /** Quiet time after the last keystroke before a typed value counts as settled. */
-  typedSettle: 0.55,
+  /**
+   * Quiet time after the last keystroke before a typed value counts as settled. Long enough that the pause a
+   * person leaves between digits of one number does not read as a finished number: one number, one response.
+   */
+  typedSettle: 1.0,
   /** The same for a value set in one step. */
   settledSettle: 0.25,
   /** How long attention stays on the amount after the confirmation. */
-  confirmHold: 0.2,
+  confirmHold: 0.45,
   /** How long attention rests on the module, after working in it, before returning to the visitor. */
   linger: 0.8,
 } as const;

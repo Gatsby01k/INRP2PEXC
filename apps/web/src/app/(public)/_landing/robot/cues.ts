@@ -63,14 +63,40 @@ export type RobotCue =
  * The workspace derives it from what the server returned for the page, so the robot can only rest in a state the
  * backend is actually in. Events still play over it and hand back to it when they end.
  *
- * - `none`: nothing is live; the robot rests as on the home page, and greets on arrival (Welcome).
- * - `waiting`: something the client asked for is with the desk (Waiting).
+ * - `none`: no state of record at all — the home page. The robot rests as it always has.
+ * - `ready`: the workspace with nothing live: standing by, turned a touch towards the page (Ready / idle).
+ * - `waiting`: something is with someone else — the desk pricing, the chain or the desk moving money (Waiting).
  * - `focused`: a firm quote is live and the client can act on it (Focused / Quote ready).
  * - `verifying`: money has been seen and is being confirmed (Verifying).
  * - `success`: done — a trade settled (Success).
  * - `alert`: something needs the client, or the desk is holding something (Help / Alert).
  */
-export type RobotMood = 'none' | 'waiting' | 'focused' | 'verifying' | 'success' | 'alert';
+export type RobotMood = 'none' | 'ready' | 'waiting' | 'focused' | 'verifying' | 'success' | 'alert';
+
+/**
+ * Which state wins when more than one could hold, highest first: something needs the client, then a live quote,
+ * then a result, then a check, then a wait — and only then the client's own input. A state of record therefore
+ * outranks typing, switching direction, a first move or the pointer on a button: those move the robot only while
+ * nothing ranks above them, so a quote counting down is never displaced by a keystroke. Where a page could report
+ * more than one state (a list of trades), it reports the strongest (`strongestMood`).
+ */
+export const MOOD_PRIORITY: Record<RobotMood, number> = {
+  alert: 60,
+  focused: 50,
+  success: 45,
+  verifying: 40,
+  waiting: 30,
+  ready: 0,
+  none: 0,
+};
+
+/** Where the client's own input ranks: above rest, below every state of record. */
+export const INPUT_PRIORITY = 10;
+
+/** The mood that wins among several, by `MOOD_PRIORITY`; the first given wins a tie. */
+export function strongestMood<T extends { readonly mood: RobotMood }>(candidates: readonly T[]): T | undefined {
+  return candidates.reduce<T | undefined>((best, c) => (best === undefined || MOOD_PRIORITY[c.mood] > MOOD_PRIORITY[best.mood] ? c : best), undefined);
+}
 
 /** The direction the quote module opens on; the robot starts the conversation facing the same way. */
 export const INITIAL_DIRECTION: Direction = 'SELL_USDT';

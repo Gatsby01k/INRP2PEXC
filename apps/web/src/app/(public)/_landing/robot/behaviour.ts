@@ -1,6 +1,6 @@
 import type { Direction } from '@inrp2p/kernel';
 import type { VoiceLine } from '../../../../content/site.ts';
-import type { RobotCue, RobotFocus, RobotMood } from './cues.ts';
+import { INPUT_PRIORITY, MOOD_PRIORITY, type RobotCue, type RobotFocus, type RobotMood } from './cues.ts';
 import { between, blinkOpenness, clamp, envelope, follow, follower, loadCycle } from './motion.ts';
 import { SPEECH, clipOf, loudness, nodTime, speakingSpec } from './speech.ts';
 import { DURATION, LOOK_FALLBACK, type LookTarget, type RobotState, type StateSpec, STATES } from './states.ts';
@@ -145,6 +145,7 @@ const REST: Record<RobotFocus, RobotState> = { none: 'idle', cta: 'intent', entr
  */
 const MOOD_REST: Record<RobotMood, RobotState> = {
   none: 'idle',
+  ready: 'ready',
   waiting: 'waiting',
   focused: 'focused',
   verifying: 'checking',
@@ -153,10 +154,10 @@ const MOOD_REST: Record<RobotMood, RobotState> = {
 };
 
 /** The gap between two passes of the reading band while a check is held: irregular, and never faster than this. */
-const CHECK_SCAN = { min: 1.9, max: 2.9 } as const;
+const CHECK_SCAN = { min: 3.5, max: 6 } as const;
 
 /** States a greeting may interrupt: only rest. Anything the visitor has started matters more than saying hello. */
-const GREETS_FROM: ReadonlySet<RobotState> = new Set<RobotState>(['idle', 'intent', 'entry']);
+const GREETS_FROM: ReadonlySet<RobotState> = new Set<RobotState>(['idle', 'ready', 'intent', 'entry']);
 
 /** How long one pass of the reading band takes, and the shortest time between two passes. */
 const SCAN = { duration: 0.55, gap: 0.5 } as const;
@@ -227,6 +228,8 @@ export class RobotBehaviour {
   private alertAt = -10;
   private scanAt = -10;
   private nextCheckScan = 0;
+  /** When attention last left a typed value, so a keystroke soon after continues that number rather than starting over. */
+  private valueLeftAt = Number.NEGATIVE_INFINITY;
   private nodAt = -10;
 
   /** Where the head is aimed: the look target, taken up first so a move starts as the state asks, not at once. */
@@ -294,16 +297,24 @@ export class RobotBehaviour {
 
   cue(cue: RobotCue, time: number): void {
     switch (cue.kind) {
-      case 'value':
+      case 'value': {
+        // The client's input moves the robot only while no state of record outranks it (`cues.ts` MOOD_PRIORITY).
+        if (!this.inputHeard()) return;
         this.valuePending = true;
         this.confirmAt = time + (cue.settled ? DURATION.settledSettle : DURATION.typedSettle);
-        this.enter('value', time, Number.POSITIVE_INFINITY);
+        // A keystroke while attention is still lingering on the number is the same number: the robot takes it up
+        // again without a second narrowing of the optics.
+        const continuing = this.state !== 'value' && time - this.valueLeftAt < DURATION.linger;
+        this.enter('value', time, Number.POSITIVE_INFINITY, false, continuing);
         // Each change is read: one pass of light through the eyes, unless one is still passing.
         if (time - this.scanAt >= SCAN.gap) this.scanAt = time;
         return;
+      }
       case 'direction':
         if (cue.direction === this.direction) return;
         this.direction = cue.direction;
+        // Remembered either way, so the flow is right when input is heard again; answered only while it is.
+        if (!this.inputHeard()) return;
         this.enter('direction', time, time + DURATION.direction);
         // Always answered, even straight after another response: the sweep is what shows the new flow.
         this.respond(time, 0);
@@ -341,7 +352,7 @@ export class RobotBehaviour {
         }
         return;
       case 'engage':
-        this.greet(time);
+        if (this.inputHeard()) this.greet(time);
         return;
       case 'speak': {
         const at = time;
@@ -380,9 +391,13 @@ export class RobotBehaviour {
       this.respond(time, RESPONSE_GAP);
       if (this.state === 'value') this.until = time + DURATION.confirmHold;
     }
-    const rest = input.focus === 'none' ? MOOD_REST[this.mood] : REST[input.focus];
+    // What the client is on is input too: it draws the eyes only while nothing of record outranks it.
+    const rest = input.focus === 'none' || !this.inputHeard() ? MOOD_REST[this.mood] : REST[input.focus];
     const done = this.resting ? this.state !== rest : time >= this.until;
-    if (done) this.enter(rest, time, Number.POSITIVE_INFINITY, true);
+    if (done) {
+      if (this.state === 'value') this.valueLeftAt = time;
+      this.enter(rest, time, Number.POSITIVE_INFINITY, true);
+    }
     const spec = this.specOf(this.state);
     // A held check reads again every few seconds, at irregular intervals: the band of light is what shows it working.
     if (this.state === 'checking' && time >= this.nextCheckScan) {
@@ -575,14 +590,20 @@ export class RobotBehaviour {
     return state === 'speaking' && this.speech ? this.speech.spec : STATES[state];
   }
 
-  private enter(state: RobotState, time: number, until: number, resting = false): void {
+  /** Whether the client's own input may move the robot now: only while no state of record outranks it. */
+  private inputHeard(): boolean {
+    return MOOD_PRIORITY[this.mood] < INPUT_PRIORITY;
+  }
+
+  /** `continuing` takes a state up again without the optics' one-off response to entering it. */
+  private enter(state: RobotState, time: number, until: number, resting = false, continuing = false): void {
     this.resting = resting;
     if (state !== this.state || state === 'speaking') {
       this.from = state === this.state ? this.from : this.state;
       this.since = time;
       const { eyes } = this.specOf(state);
-      if (eyes.notice) this.noticeAt = time;
-      if (eyes.focus > 0) {
+      if (eyes.notice && !continuing) this.noticeAt = time;
+      if (eyes.focus > 0 && !continuing) {
         this.focusAt = time;
         this.focusDepth = eyes.focus;
       }
@@ -617,6 +638,7 @@ export class RobotBehaviour {
         this.nextCheckScan = time + between(CHECK_SCAN.min, CHECK_SCAN.max, this.random);
         return;
       case 'waiting':
+      case 'ready':
       case 'none':
         return;
     }

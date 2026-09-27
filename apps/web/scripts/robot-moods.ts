@@ -69,6 +69,7 @@ function held(mood: RobotMood, seconds: number): Pose {
 /** Each mood once its arrival has passed, so the still is the state as it holds — not the moment it began. */
 const MOODS: Record<RobotMood, Pose> = {
   none: REST_POSE,
+  ready: held('ready', 4),
   waiting: held('waiting', 2.05),
   focused: held('focused', 2.5),
   // Between two passes of the reading band, so the eyes are shown narrowed and even.
