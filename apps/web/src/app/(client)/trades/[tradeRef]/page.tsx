@@ -2,8 +2,10 @@ import { notFound } from 'next/navigation';
 import { isDomainError } from '@inrp2p/kernel';
 import { type PortalTrade, portalTrade } from '@inrp2p/portal';
 import { clientPage } from '../../../../server/client.ts';
+import { at } from '../../_assistant/model.ts';
+import { PageHead } from '../../_workspace/PageHead.tsx';
+import { StatusPill } from '../../_workspace/StatusPill.tsx';
 import { TradeScreen } from './TradeScreen.tsx';
-import styles from '../../shell.module.css';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,8 +27,14 @@ export default async function TradePage({ params }: { params: Promise<{ tradeRef
   }
 
   return (
-    <main className={`${styles.content} ${styles.wide}`}>
+    <>
+      <PageHead
+        eyebrow={view.trade.direction === 'SELL_USDT' ? 'Trade · Sell USDT' : 'Trade · Buy USDT'}
+        title={view.trade.ref}
+        lede={`Started ${at(view.trade.openedAt)}`}
+        aside={<StatusPill status={view.trade.status} onHold={view.onHold} />}
+      />
       <TradeScreen view={view} />
-    </main>
+    </>
   );
 }

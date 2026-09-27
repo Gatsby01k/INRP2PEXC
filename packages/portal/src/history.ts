@@ -1,3 +1,4 @@
+import { sql } from 'kysely';
 import { Money, Rate } from '@inrp2p/kernel';
 import type { Executor } from '@inrp2p/db';
 import { clientSafe } from './access.ts';
@@ -60,4 +61,25 @@ export async function clientHistory(ex: Executor, clientId: string, query: Histo
       receipt: r.has_receipt === true,
     })),
   );
+}
+
+export interface HistoryCounts {
+  readonly all: number;
+  /** Still in flight — the `open` filter. */
+  readonly open: number;
+  /** Settled — the `completed` filter. Cancelled trades are counted in `all` only, as the filters list them. */
+  readonly completed: number;
+}
+
+/** How many of the client's trades each filter holds, over all of them rather than the page a list shows. */
+export async function historyCounts(ex: Executor, clientId: string): Promise<HistoryCounts> {
+  const r = await sql<{ all: number; open: number; completed: number }>`
+    select count(*)::int as "all",
+           count(*) filter (where lifecycle_state not in ('COMPLETED', 'CANCELLED'))::int as "open",
+           count(*) filter (where lifecycle_state = 'COMPLETED')::int as "completed"
+    from trade
+    where client_id = ${clientId}
+  `.execute(ex);
+  const row = r.rows[0]!;
+  return clientSafe({ all: row.all, open: row.open, completed: row.completed });
 }

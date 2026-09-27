@@ -1,0 +1,253 @@
+/*
+ * The workspace robot and the status it reports. On a desktop the two make one card in the right-hand column: the
+ * robot in the room's warm light on top, standing on the page's status below, with the chip beside its head like a
+ * word said. Narrower, the card is the status alone, leading the page, with a small still of the robot in its mood.
+ */
+
+.stage {
+  /* Fills the column's robot box (`shell.module.css` .robot); the bust stands on its lower edge. */
+  position: absolute;
+  inset: var(--space-3) 0 0;
+  width: auto;
+  height: auto;
+}
+
+/* One still per mood, all lazy; the page's status names the one to show, so only that one is ever fetched. */
+.still {
+  display: none;
+}
+
+:global([data-robot-scope]):has([data-assistant-mood='none']) .still[data-mood='none'],
+:global([data-robot-scope]):has([data-assistant-mood='waiting']) .still[data-mood='waiting'],
+:global([data-robot-scope]):has([data-assistant-mood='focused']) .still[data-mood='focused'],
+:global([data-robot-scope]):has([data-assistant-mood='verifying']) .still[data-mood='verifying'],
+:global([data-robot-scope]):has([data-assistant-mood='success']) .still[data-mood='success'],
+:global([data-robot-scope]):has([data-assistant-mood='alert']) .still[data-mood='alert'],
+:global([data-robot-scope]):not(:has([data-assistant-mood])) .still[data-mood='none'] {
+  display: block;
+}
+
+/* ——— The chip: the state in a word or two ——— */
+
+.chip,
+.bubble {
+  --tone: var(--status-success);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.2;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+
+.chip[data-mood='waiting'],
+.bubble[data-mood='waiting'],
+.chip[data-mood='verifying'],
+.bubble[data-mood='verifying'],
+.chip[data-mood='focused'],
+.bubble[data-mood='focused'] {
+  --tone: var(--brand-primary);
+}
+
+.chip[data-mood='alert'],
+.bubble[data-mood='alert'] {
+  --tone: var(--status-warning);
+}
+
+.dot {
+  position: relative;
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--tone);
+}
+
+/* Something is under way: a slow ring leaves the dot, no faster than a breath. */
+[data-mood='waiting'] > .dot::after,
+[data-mood='verifying'] > .dot::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  border: 1.5px solid var(--tone);
+  opacity: 0;
+  animation: ring 2.4s var(--ease) infinite;
+}
+
+/* A live quote: the dot holds a steady halo. */
+[data-mood='focused'] > .dot {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--tone) 22%, transparent);
+}
+
+@keyframes ring {
+  0% {
+    transform: scale(0.6);
+    opacity: 0.7;
+  }
+  70%,
+  100% {
+    transform: scale(1.4);
+    opacity: 0;
+  }
+}
+
+/* Beside the robot's head, as a word said: a white pill with a small tail towards it. */
+.bubble {
+  grid-area: robot;
+  align-self: start;
+  justify-self: start;
+  position: relative;
+  z-index: 2;
+  margin: var(--space-4) 0 0 var(--space-4);
+  padding: var(--space-2) var(--space-4) var(--space-2) var(--space-3);
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface);
+  box-shadow:
+    0 1px 0 color-mix(in srgb, var(--text-primary) 5%, transparent),
+    0 10px 24px -12px color-mix(in srgb, var(--text-primary) 30%, transparent);
+  pointer-events: none;
+}
+
+.bubble::after {
+  content: '';
+  position: absolute;
+  right: 18px;
+  bottom: -4px;
+  width: 10px;
+  height: 10px;
+  background: var(--bg-surface);
+  transform: rotate(45deg);
+  border-radius: 0 0 3px 0;
+}
+
+/* ——— The status: under the robot, on the column's card ——— */
+
+.note {
+  grid-area: note;
+  align-self: start;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-5) var(--space-6) var(--space-6);
+  border: 1px solid var(--border-default);
+  border-radius: 0 0 var(--radius-surface) var(--radius-surface);
+  background: var(--bg-surface);
+  box-shadow: 0 24px 48px -36px color-mix(in srgb, var(--text-primary) 30%, transparent);
+}
+
+/* Its children belong to the note itself: the avatar only narrower, the chip read but not shown here. */
+.noteHead {
+  display: contents;
+}
+
+.avatar {
+  display: none;
+}
+
+.noteTitle {
+  margin: 0;
+  font-size: var(--font-size-body-lg);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-snug);
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+
+.noteBody {
+  margin: var(--space-1) 0 0;
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-normal);
+  color: var(--text-secondary);
+  text-wrap: pretty;
+}
+
+/* The chip under the robot is said, not read twice: the column's copy is for sight, this one for everyone. */
+.note .chip {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* What the status offers next: a link or two, under a rule. */
+.noteActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-default);
+  font-size: var(--font-size-body-sm);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-mood='waiting'] > .dot::after,
+  [data-mood='verifying'] > .dot::after {
+    animation: none;
+  }
+}
+
+/* ——— Narrower: the status leads the page, with the robot small beside it ——— */
+
+@media (max-width: 1199px) {
+  .bubble {
+    display: none;
+  }
+
+  .note {
+    display: grid;
+    grid-template-columns: 56px minmax(0, 1fr);
+    column-gap: var(--space-4);
+    row-gap: var(--space-1);
+    align-items: start;
+    padding: var(--space-4);
+    border-radius: var(--radius-surface);
+    box-shadow: 0 1px 0 color-mix(in srgb, var(--text-primary) 4%, transparent);
+  }
+
+  .note > * {
+    grid-column: 2;
+  }
+
+  /* The robot's head, from the same still the desktop shows: the bust scaled so the face fills the circle. */
+  .avatar {
+    display: block;
+    grid-column: 1;
+    grid-row: 1 / span 3;
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    object-fit: cover;
+    object-position: 50% 8%;
+    background:
+      radial-gradient(ellipse 70% 70% at 50% 35%, var(--bg-surface) 0%, var(--ivory) 60%, color-mix(in srgb, var(--brand-soft) 80%, var(--ivory)) 100%);
+    box-shadow: inset 0 0 0 1px var(--border-default);
+  }
+
+  .note .chip {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip: auto;
+    grid-column: 2;
+    grid-row: 1;
+    font-size: var(--font-size-meta);
+  }
+
+  .note > div[aria-live] {
+    grid-column: 2;
+  }
+
+  .noteTitle {
+    font-size: var(--font-size-body);
+  }
+
+  .noteActions {
+    grid-column: 1 / -1;
+  }
+}

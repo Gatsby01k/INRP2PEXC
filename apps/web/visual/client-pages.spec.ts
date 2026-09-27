@@ -52,19 +52,19 @@ test('trade: settled in full', async ({ page }) => {
 
 test('history', async ({ page }) => {
   await page.goto('/history');
-  await expect(page.getByRole('heading', { name: 'History' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'History', exact: true })).toBeVisible();
   await capture(page, 'client-history');
 });
 
-test('accounts: where the money is allowed to go', async ({ page }) => {
-  await page.goto('/accounts');
-  await expect(page.getByRole('heading', { name: 'Accounts' })).toBeVisible();
-  await capture(page, 'client-accounts');
+test('destinations: where the money is allowed to go', async ({ page }) => {
+  await page.goto('/destinations');
+  await expect(page.getByRole('heading', { name: 'Destinations', exact: true })).toBeVisible();
+  await capture(page, 'client-destinations');
 });
 
 test('notifications', async ({ page }) => {
   await page.goto('/notifications');
-  await expect(page.getByRole('heading', { name: 'Notifications' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Notifications', exact: true })).toBeVisible();
   await capture(page, 'client-notifications');
 });
 

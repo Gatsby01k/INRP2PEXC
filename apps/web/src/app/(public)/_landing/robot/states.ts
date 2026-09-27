@@ -35,7 +35,19 @@ export type RobotState =
   /** The visitor is on the masthead's way into the workspace: a glance up at it, even quieter than `intent`. */
   | 'entry'
   /** The robot is saying one of its lines: each has its own authored timeline (`speech.ts`). */
-  | 'speaking';
+  | 'speaking'
+  /*
+   * The workspace's held states: each is what the robot rests in while a mood lasts (`cues.ts` `RobotMood`). A held
+   * `waiting` is `waiting` itself; the others have no event of their own to borrow from.
+   */
+  /** A firm quote is live: attention on the price, the optics focused, the accents a touch brighter. */
+  | 'focused'
+  /** Money seen and being confirmed: reading, with a pass of light through the eyes every few seconds. */
+  | 'checking'
+  /** Settled: the pleased face, held, the body at rest around it. */
+  | 'done'
+  /** Something needs the client: concern, the antenna's tip lit and held. */
+  | 'attention';
 
 /**
  * The places attention can go. The page supplies where they are; `viewer` is the camera. `entry` is the one
@@ -346,6 +358,78 @@ export const STATES: Record<RobotState, StateSpec> = {
     breath: 1,
     blinks: true,
     accent: REST_ACCENT,
+    settle: 0.6,
+    drift: false,
+  },
+  focused: {
+    // Watching a live price with the client: the eyes stay on it and the head carries little of the look, so
+    // it reads as attention rather than a turn. Blinks are allowed — a quote can be live for minutes.
+    attention: () => 'rate',
+    head: { yaw: 0.5, pitch: 0.56, share: 0.35, ease: 0.35 },
+    eyes: { aperture: 0.9, time: 0.3, gain: 1.08, notice: true, focus: 0 },
+    face: EXPRESSIONS.neutral,
+    faceTime: 0.3,
+    lean: 0.006,
+    turn: 0.012,
+    chin: -0.004,
+    roll: 0,
+    breath: 0.8,
+    blinks: true,
+    accent: 0.45,
+    settle: 0.8,
+    drift: false,
+  },
+  checking: {
+    // The reading face of `value`, held: narrowed optics on the trade, the head a little down to it. The band of
+    // light passes through the eyes at irregular intervals of a few seconds (`behaviour.ts`), never faster.
+    attention: () => 'panel',
+    head: { yaw: 0.55, pitch: 0.62, share: 0.4, ease: 0.4 },
+    eyes: { aperture: 0.95, time: 0.3, gain: 1.04, notice: false, focus: 0 },
+    face: EXPRESSIONS.verifying,
+    faceTime: 0.3,
+    lean: 0.006,
+    turn: 0.01,
+    chin: -0.01,
+    roll: 0,
+    breath: 0.8,
+    blinks: true,
+    accent: REST_ACCENT,
+    settle: 0.8,
+    drift: false,
+  },
+  done: {
+    // The pleased face of `accepted`, held for as long as the trade is settled — so the body is allowed to rest,
+    // blink and drift around it; nothing else is asked of it.
+    attention: () => 'viewer',
+    head: { yaw: 0.6, pitch: 0.7, share: 0.5, ease: 0.4 },
+    eyes: { aperture: 1, time: 0.3, gain: 1.06, notice: false, focus: 0 },
+    face: EXPRESSIONS.success,
+    faceTime: 0.3,
+    lean: -0.006,
+    turn: 0,
+    chin: 0.012,
+    roll: 0,
+    breath: 0.9,
+    blinks: true,
+    accent: 0.42,
+    settle: 0.9,
+    drift: true,
+  },
+  attention: {
+    // Concern, held: a look at what needs the client first, then the client. The tip's two blinks happen once, as
+    // the mood arrives (`behaviour.ts`); its steady glow is the expression's own, and lasts as long as the mood.
+    attention: (elapsed) => (elapsed < 1.2 ? 'panel' : 'viewer'),
+    head: { yaw: 0.5, pitch: 0.56, share: 0.5, ease: 0.3 },
+    eyes: { aperture: 1.04, time: 0.25, gain: 1.04, notice: true, focus: 0 },
+    face: EXPRESSIONS.alert,
+    faceTime: 0.2,
+    lean: 0.008,
+    turn: 0,
+    chin: -0.004,
+    roll: -0.03,
+    breath: 0.8,
+    blinks: true,
+    accent: 0.4,
     settle: 0.6,
     drift: false,
   },

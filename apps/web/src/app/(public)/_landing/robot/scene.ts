@@ -1,7 +1,7 @@
 import { NeutralToneMapping, PCFShadowMap, PerspectiveCamera, Raycaster, SRGBColorSpace, Scene, Timer, Vector2, Vector3, WebGLRenderer } from 'three';
 import type { Direction } from '@inrp2p/kernel';
 import { type LookAngles, type LookTarget, type Pose, REST_POSE, RobotBehaviour } from './behaviour.ts';
-import { robotCues } from './cues.ts';
+import { type RobotMood, robotCues } from './cues.ts';
 import { HEAD_CENTRE, buildFigure } from './figure.ts';
 import { studio } from './studio.ts';
 
@@ -44,11 +44,22 @@ const TARGET_SELECTORS: Record<Exclude<LookTarget, 'viewer' | 'entry'>, string> 
 const ENTRY_SELECTOR = '[data-robot-target="entry"]';
 const ENTRY_EVENTS = ['pointerenter', 'pointerleave', 'focus', 'blur'] as const;
 
+/**
+ * How long a target that was not on the page stays "not on the page" before it is looked for again. The
+ * workspace keeps the robot across client-side navigation, so the elements it looks at are replaced under it; the
+ * home page's never are, and finds each once.
+ */
+const TARGET_RECHECK_MS = 400;
+
 export interface RobotSceneOptions {
   readonly canvas: HTMLCanvasElement;
   /** The element the robot's look targets live in (the hero). */
   readonly scope: HTMLElement | null;
   readonly direction: Direction;
+  /** The mood the page is already in (`cues.ts`), rested in from the first frame. */
+  readonly mood?: RobotMood;
+  /** The robot stands to the right of what it attends to (the workspace), not to its left (the home page). */
+  readonly mirror?: boolean;
   /** Hold one pose and draw only when the size changes. */
   readonly still: boolean;
   /** The pose a still robot holds: rest, unless another is given (a state, drawn for the robot's sheet). */
@@ -69,6 +80,8 @@ export class RobotScene {
   private readonly lighting: ReturnType<typeof studio>;
   private readonly behaviour: RobotBehaviour;
   private readonly targets = new Map<LookTarget, Element>();
+  /** When each target missing from the page may next be looked for. */
+  private readonly missingUntil = new Map<LookTarget, number>();
   private readonly entry: Element | null;
   private readonly entryHeld = { pointer: false, focus: false };
   private readonly resize: ResizeObserver;
@@ -105,14 +118,16 @@ export class RobotScene {
     this.camera.position.copy(CAMERA_POSITION);
     this.camera.lookAt(CAMERA_TARGET);
 
-    this.behaviour = new RobotBehaviour({ direction: options.direction, wakeAt: 0.9 });
+    this.behaviour = new RobotBehaviour({
+      direction: options.direction,
+      ...(options.mood ? { mood: options.mood } : {}),
+      ...(options.mirror ? { mirror: true } : {}),
+      wakeAt: 0.9,
+    });
     this.unsubscribe = options.still ? () => {} : robotCues.subscribe((cue) => this.behaviour.cue(cue, this.timer.getElapsed()));
 
     if (options.scope) {
-      for (const [name, selector] of Object.entries(TARGET_SELECTORS)) {
-        const el = options.scope.querySelector(selector);
-        if (el) this.targets.set(name as LookTarget, el);
-      }
+      for (const name of Object.keys(TARGET_SELECTORS) as (keyof typeof TARGET_SELECTORS)[]) this.find(name);
     }
     this.entry = options.still ? null : document.querySelector(ENTRY_SELECTOR);
     if (this.entry) {
@@ -216,10 +231,29 @@ export class RobotScene {
 
   private anglesTo(target: LookTarget): LookAngles | null {
     if (target === 'viewer') return this.anglesFrom(this.hit.copy(this.camera.position));
-    const el = this.targets.get(target);
+    let el = this.targets.get(target);
+    // An element the page has since replaced is looked for again; one that is gone stays gone for a moment.
+    if ((!el || !el.isConnected) && target !== 'entry') el = this.find(target);
     if (!el) return null;
     const r = el.getBoundingClientRect();
     return this.anglesAt(r.left + r.width / 2, r.top + r.height / 2);
+  }
+
+  /** The element a target names, from the scope, unless it was looked for and missing a moment ago. */
+  private find(target: keyof typeof TARGET_SELECTORS): Element | undefined {
+    const scope = this.options.scope;
+    this.targets.delete(target);
+    if (!scope) return undefined;
+    const now = performance.now();
+    if ((this.missingUntil.get(target) ?? 0) > now) return undefined;
+    const el = scope.querySelector(TARGET_SELECTORS[target]);
+    if (el) {
+      this.targets.set(target, el);
+      this.missingUntil.delete(target);
+      return el;
+    }
+    this.missingUntil.set(target, now + TARGET_RECHECK_MS);
+    return undefined;
   }
 
   /** The look towards a point on screen: a ray through that pixel, met on the plane in front of the robot. */

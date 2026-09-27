@@ -4,13 +4,13 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
 /** Ends the client session through Better Auth, which clears the cookie on this host and audits the logout. */
-export function ClientSignOut() {
+export function ClientSignOut({ className }: { className?: string | undefined }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   return (
     <button
       type="button"
-      className="ix-linkish"
+      className={`ix-linkish${className ? ` ${className}` : ''}`}
       disabled={busy}
       onClick={async () => {
         setBusy(true);

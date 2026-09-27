@@ -14,6 +14,7 @@
     "test:lighthouse": "node lighthouse/run.ts",
     "poster:robot": "node scripts/robot-poster.ts",
     "robot:sheet": "node scripts/robot-sheet.ts",
+    "robot:moods": "node scripts/robot-moods.ts",
     "og:card": "node scripts/og-card.ts",
     "voice:clips": "node scripts/voice-clips.ts"
   },

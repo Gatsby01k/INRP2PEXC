@@ -69,6 +69,9 @@ export async function portalTrade(ex: Executor, clientId: string, tradeRef: stri
 
   const paid = Money.parse(settlement.paid.amount, settlement.paid.currency);
   const completed = row.lifecycle_state === 'COMPLETED';
+  // The client's leg is confirmed once the trade is past it. For a SELL that is the chain's finality, which the
+  // transfer also shows; for a BUY it is the desk confirming the INR by its UTR, which no transfer row carries.
+  const funded = FUNDED.has(row.lifecycle_state) || transfer?.state === 'CONFIRMED';
   // Issued by a worker after completion, so a trade can be complete for a moment before its receipt exists. The
   // page offers the download when there is one rather than promising a link that would 404.
   const receipt = completed ? await ex.selectFrom('receipt').select('id').where('trade_id', '=', row.id).executeTakeFirst() : undefined;
@@ -79,8 +82,9 @@ export async function portalTrade(ex: Executor, clientId: string, tradeRef: stri
     trade,
     settlement,
     stages: stagesFor({
+      direction: trade.direction,
       openedAt: row.opened_at.toISOString(),
-      funded: transfer?.state === 'CONFIRMED',
+      funded,
       detected: transfer !== undefined,
       paidSomething: paid.isPositive(),
       completed,
@@ -103,11 +107,15 @@ export async function portalTrade(ex: Executor, clientId: string, tradeRef: stri
   });
 }
 
+/** Lifecycle states past the client's own leg. */
+const FUNDED: ReadonlySet<string> = new Set(['FIRST_LEG_CONFIRMED', 'SETTLING', 'PARTIALLY_SETTLED', 'COMPLETED']);
+
 /**
  * The four stages the client product shows, in the order they happen. A stage is `current` when it is the one
  * being waited on — which is also the only place the screen offers the client something to do.
  */
 function stagesFor(f: {
+  direction: 'SELL_USDT' | 'BUY_USDT';
   openedAt: string;
   detected: boolean;
   funded: boolean;
@@ -119,7 +127,12 @@ function stagesFor(f: {
   const accepted: TradeStage = { key: 'accepted', status: 'done', at: f.openedAt, detail: null };
   const funded: TradeStage = f.funded
     ? { key: 'funded', status: 'done', at: f.detectedAt, detail: null }
-    : { key: 'funded', status: 'current', at: f.detectedAt, detail: f.detected ? 'seen, waiting to be final' : 'waiting for your USDT' };
+    : {
+        key: 'funded',
+        status: 'current',
+        at: f.detectedAt,
+        detail: f.detected ? 'seen, waiting to be final' : f.direction === 'SELL_USDT' ? 'waiting for your USDT' : 'waiting for your INR',
+      };
   const settling: TradeStage = f.completed
     ? { key: 'settling', status: 'done', at: f.closedAt, detail: null }
     : f.funded

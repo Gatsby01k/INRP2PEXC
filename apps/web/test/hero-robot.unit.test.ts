@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { type Mesh, type Object3D, Quaternion, Vector3 } from 'three';
-import type { RobotFocus } from '../src/app/(public)/_landing/robot/cues.ts';
+import type { RobotFocus, RobotMood } from '../src/app/(public)/_landing/robot/cues.ts';
 import { type LookAngles, type LookTarget, type Pose, REST_POSE, type RobotState, RobotBehaviour } from '../src/app/(public)/_landing/robot/behaviour.ts';
 import { buildFigure } from '../src/app/(public)/_landing/robot/figure.ts';
 import { DURATION, EXPRESSIONS, STATES } from '../src/app/(public)/_landing/robot/states.ts';
@@ -824,6 +824,159 @@ describe('the five expressions', () => {
     run.behaviour.cue({ kind: 'value' }, run.time);
     record(2);
     expect(largestFaceStep(frames)).toBeLessThan(0.2);
+  });
+});
+
+describe('the workspace’s moods (held states of record)', () => {
+  const mood = (run: Run, m: RobotMood) => run.behaviour.cue({ kind: 'mood', mood: m }, run.time);
+
+  /** Rising edges of the antenna's tip above `level` within `frames`. */
+  const tipBlinks = (frames: readonly Frame[], level = 0.8) => {
+    let blinks = 0;
+    let on = false;
+    for (const f of frames) {
+      const bright = f.pose.beacon > level;
+      if (bright && !on) blinks += 1;
+      on = bright;
+    }
+    return blinks;
+  };
+
+  it('waiting: holds the three dots for as long as the desk has the request — past the limit of a one-off wait', () => {
+    const run = settled();
+    mood(run, 'waiting');
+    run.step(1);
+    run.step(DURATION.waiting + 10, {}, ({ state, pose }) => {
+      expect(state).toBe('waiting');
+      expect(pose.dots).toBeGreaterThan(0.95);
+      expect(pose.beacon).toBe(0);
+    });
+    mood(run, 'none');
+    const after = run.step(2.5);
+    expect(after.state).toBe('idle');
+    expect(after.pose.dots).toBeLessThan(0.01);
+  });
+
+  it('focused: a pulse at the hub as the quote arrives, then eyes held on the price, optics narrowed, face neutral', () => {
+    const run = settled();
+    mood(run, 'focused');
+    const frames: Frame[] = [];
+    run.step(20, {}, (f) => frames.push(f));
+    expect(Math.max(...frames.slice(0, 40).map((f) => f.pose.hubGlow)), 'the arrival').toBeGreaterThan(0.5);
+    const held = frames.filter((f) => f.time - frames[0]!.time > 2);
+    expect(held.every((f) => f.state === 'focused')).toBe(true);
+    const last = held.at(-1)!.pose;
+    expect(last.headYaw, 'towards the price').toBeGreaterThan(0.08);
+    expect(last.gazeX, 'the eyes carry most of the look').toBeGreaterThan(0.03);
+    expect(last.smile + last.squint + last.dots).toBe(0);
+    expect(last.hubGlow).toBeLessThan(1e-3);
+    expect(Math.min(...held.map((f) => f.pose.eyeOpen))).toBeLessThan(0.3);
+    expect(held.filter((f) => f.pose.eyeOpen > 0.5).every((f) => f.pose.eyeOpen < 0.95), 'narrowed').toBe(true);
+  });
+
+  it('verifying: the reading face, held, with a pass of light every few seconds — irregular, never faster than that', () => {
+    const run = settled();
+    mood(run, 'verifying');
+    const starts: number[] = [];
+    let lit = false;
+    const last = run.step(16, {}, ({ state, pose, time }) => {
+      expect(state).toBe('checking');
+      const on = pose.scan > 0.2;
+      if (on && !lit) starts.push(time);
+      lit = on;
+    });
+    expect(last.pose.squint).toBeGreaterThan(0.8);
+    expect(starts.length).toBeGreaterThanOrEqual(5);
+    const gaps = starts.slice(1).map((t, i) => t - starts[i]!);
+    expect(Math.min(...gaps)).toBeGreaterThan(1.8);
+    expect(new Set(gaps.map((g) => g.toFixed(2))).size, 'not on a period').toBeGreaterThan(1);
+  });
+
+  it('success: the mark resolves and the robot nods once as the trade settles; the pleased face then holds on its own', () => {
+    const run = settled();
+    mood(run, 'success');
+    const frames: Frame[] = [];
+    run.step(12, {}, (f) => frames.push(f));
+    expect(Math.min(...frames[60]!.pose.arcGlow), 'resolved on arrival').toBeGreaterThan(1);
+    const last = frames.at(-1)!;
+    expect(last.state).toBe('done');
+    expect(last.pose.smile).toBeGreaterThan(0.45);
+    expect(last.pose.smile).toBeLessThan(0.55);
+    expect(brightestArc(last.pose), 'the mark lets go').toBe(0);
+    expect(last.pose.headYaw, 'with the visitor').toBeLessThan(0.05);
+  });
+
+  it('alert: two blinks of the tip as it arrives, then a steady glow and the concerned face for as long as it holds', () => {
+    const run = settled();
+    mood(run, 'alert');
+    const frames: Frame[] = [];
+    run.step(20, {}, (f) => frames.push(f));
+    expect(tipBlinks(frames.slice(0, 60))).toBe(2);
+    const held = frames.filter((f) => f.time - frames[0]!.time > 2);
+    expect(held.every((f) => f.state === 'attention' && f.pose.beacon > 0.6 && f.pose.beacon < 0.8)).toBe(true);
+    expect(held.at(-1)!.pose.lidTilt).toBeLessThan(-0.2);
+    expect(held.at(-1)!.pose.smile).toBe(0);
+  });
+
+  it('lets events play over a mood and hands back to it', () => {
+    const run = settled();
+    mood(run, 'waiting');
+    run.step(2);
+    run.behaviour.cue({ kind: 'problem' }, run.time);
+    expect(run.step(0.5).state).toBe('problem');
+    expect(run.step(DURATION.problem + 1).state).toBe('waiting');
+    run.behaviour.cue({ kind: 'wait', on: true }, run.time);
+    run.behaviour.cue({ kind: 'wait', on: false }, run.time);
+    expect(run.step(1).state, 'the answer to a one-off wait does not end the held one').toBe('waiting');
+  });
+
+  it('greets nobody while a mood holds: a greeting never interrupts a state of record', () => {
+    const run = settled();
+    mood(run, 'focused');
+    run.step(1);
+    run.behaviour.cue({ kind: 'engage' }, run.time);
+    expect(run.step(0.5).state).toBe('focused');
+  });
+
+  it('a robot that arrives while a mood holds rests in it from the first frame, without marking its arrival', () => {
+    const behaviour = new RobotBehaviour({ direction: 'SELL_USDT', mood: 'alert', random: seeded(7) });
+    const frames: Frame[] = [];
+    let time = 0;
+    for (let i = 0; i < 180; i++) {
+      time += FRAME;
+      const pose = behaviour.update({ time, dt: FRAME, focus: 'none', angles: (t) => ANGLES[t] });
+      frames.push({ pose, state: behaviour.current, time });
+    }
+    expect(frames[0]!.state).toBe('attention');
+    expect(tipBlinks(frames), 'no arrival blinks').toBe(0);
+    expect(frames.at(-1)!.pose.beacon).toBeGreaterThan(0.6);
+  });
+
+  it('standing to the right of the page, leans and tilts towards it — the look itself follows the page either way', () => {
+    const mirrored: Record<LookTarget, LookAngles> = Object.fromEntries(Object.entries(ANGLES).map(([k, a]) => [k, { yaw: -a.yaw, pitch: a.pitch }])) as Record<LookTarget, LookAngles>;
+    const at = (mood: RobotMood, mirror: boolean) => {
+      const behaviour = new RobotBehaviour({ direction: 'SELL_USDT', mood, mirror, random: seeded(7) });
+      let pose = REST_POSE;
+      for (let t = FRAME; t < 4; t += FRAME) pose = behaviour.update({ time: t, dt: FRAME, focus: 'none', angles: (k) => (mirror ? mirrored : ANGLES)[k] });
+      return pose;
+    };
+    // Watching the price: the head, the eyes and the torso all turn the other way.
+    expect(at('focused', false).torsoYaw).toBeGreaterThan(0.005);
+    expect(at('focused', true).torsoYaw).toBeCloseTo(-at('focused', false).torsoYaw, 4);
+    expect(at('focused', true).headYaw).toBeCloseTo(-at('focused', false).headYaw, 4);
+    // Concerned, facing the visitor: the head tilts away from the page, whichever side the page is on.
+    expect(at('alert', false).headRoll).toBeLessThan(-0.02);
+    expect(at('alert', true).headRoll).toBeCloseTo(-at('alert', false).headRoll, 4);
+  });
+
+  it('marks a mood once: the same state of record reported again changes nothing', () => {
+    const run = settled();
+    mood(run, 'success');
+    run.step(6);
+    mood(run, 'success');
+    const frames: Frame[] = [];
+    run.step(2, {}, (f) => frames.push(f));
+    expect(Math.max(...frames.map((f) => brightestArc(f.pose)))).toBe(0);
   });
 });
 

@@ -51,7 +51,26 @@ export type RobotCue =
    */
   | { readonly kind: 'speak'; readonly line: VoiceLine; readonly lead: number }
   /** The line stopped before its end (muted, interrupted, the page hidden). */
-  | { readonly kind: 'hush' };
+  | { readonly kind: 'hush' }
+  /** The state of record changed (`RobotMood`): what the robot rests in until the next change. */
+  | { readonly kind: 'mood'; readonly mood: RobotMood };
+
+/**
+ * What the robot rests in while a state of record lasts — the workspace's, never the home page's, which has none.
+ *
+ * Every other cue is an event that ends. A mood is a fact that holds: a request the desk is pricing, a firm quote
+ * that is live, a transfer seen on the chain and not yet final, a trade settled, something that needs the client.
+ * The workspace derives it from what the server returned for the page, so the robot can only rest in a state the
+ * backend is actually in. Events still play over it and hand back to it when they end.
+ *
+ * - `none`: nothing is live; the robot rests as on the home page, and greets on arrival (Welcome).
+ * - `waiting`: something the client asked for is with the desk (Waiting).
+ * - `focused`: a firm quote is live and the client can act on it (Focused / Quote ready).
+ * - `verifying`: money has been seen and is being confirmed (Verifying).
+ * - `success`: done — a trade settled (Success).
+ * - `alert`: something needs the client, or the desk is holding something (Help / Alert).
+ */
+export type RobotMood = 'none' | 'waiting' | 'focused' | 'verifying' | 'success' | 'alert';
 
 /** The direction the quote module opens on; the robot starts the conversation facing the same way. */
 export const INITIAL_DIRECTION: Direction = 'SELL_USDT';
@@ -68,15 +87,24 @@ const listeners = new Set<Listener>();
 let focus: Exclude<RobotFocus, 'entry'> = 'none';
 let entry = false;
 let direction: Direction = INITIAL_DIRECTION;
+let mood: RobotMood = 'none';
 
 export const robotCues = {
   emit(cue: RobotCue): void {
     if (cue.kind === 'direction') direction = cue.direction;
+    if (cue.kind === 'mood') {
+      if (cue.mood === mood) return;
+      mood = cue.mood;
+    }
     for (const listener of listeners) listener(cue);
   },
   /** The direction the module shows now — where a robot that arrives late starts from. */
   direction(): Direction {
     return direction;
+  },
+  /** The mood the page is in now — what a robot that arrives late rests in from its first frame. */
+  mood(): RobotMood {
+    return mood;
   },
   subscribe(listener: Listener): () => void {
     listeners.add(listener);

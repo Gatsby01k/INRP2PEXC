@@ -1,0 +1,461 @@
+/*
+ * The history list: one card, the filters across its top, then the trades. A trade opened in place is drawn as one
+ * piece with its details — a warm tint and the brand's orange down its edge — so the eye reads them together.
+ * Below 760px the same rows are laid out as cards.
+ */
+
+.list {
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.filters {
+  display: inline-flex;
+  align-self: flex-start;
+  gap: var(--space-1);
+  margin: var(--space-5) var(--space-6) var(--space-4);
+  padding: var(--space-1);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-input);
+  background: var(--bg-subtle);
+}
+
+.filter {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 38px;
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-control);
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-medium);
+  text-decoration: none;
+  white-space: nowrap;
+  transition:
+    background-color var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+
+@media (hover: hover) {
+  .filter:hover {
+    color: var(--text-primary);
+  }
+}
+
+.filter[aria-current='page'] {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-weight: var(--font-weight-semibold);
+  box-shadow:
+    inset 0 0 0 1px var(--brand-primary),
+    0 1px 2px color-mix(in srgb, var(--text-primary) 8%, transparent);
+}
+
+.count {
+  min-width: 22px;
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--border-default) 70%, transparent);
+  color: var(--text-secondary);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.filter[aria-current='page'] .count {
+  background: var(--brand-soft);
+  color: var(--brand-action);
+}
+
+.empty {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-8) var(--space-6) var(--space-10);
+}
+
+.empty p {
+  margin: 0;
+}
+
+/* ——— The table ——— */
+
+.table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: var(--font-size-body-sm);
+}
+
+.table th {
+  padding: var(--space-3);
+  border-top: 1px solid var(--border-default);
+  border-bottom: 1px solid var(--border-default);
+  background: var(--bg-subtle);
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.04em;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.table td {
+  padding: var(--space-4) var(--space-3);
+  border-bottom: 1px solid var(--border-default);
+  vertical-align: middle;
+}
+
+.table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.num {
+  text-align: right !important;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.row {
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease);
+}
+
+@media (hover: hover) {
+  .row:hover td {
+    background: color-mix(in srgb, var(--bg-subtle) 80%, var(--bg-surface));
+  }
+}
+
+/* A trade opened in place: the row and its details as one piece. */
+.row[data-expanded] td,
+.detailRow td {
+  background: color-mix(in srgb, var(--brand-soft) 38%, var(--bg-surface));
+}
+
+.row[data-expanded] td {
+  border-bottom-color: transparent;
+}
+
+.row[data-expanded] td:first-child,
+.detailRow td:first-child {
+  box-shadow: inset 3px 0 0 var(--brand-primary);
+}
+
+.toggleCell {
+  width: 1%;
+  padding-right: 0 !important;
+}
+
+.toggle {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .toggle:hover {
+    background: var(--bg-surface);
+    color: var(--text-primary);
+  }
+}
+
+.chevron {
+  width: 18px;
+  height: 18px;
+  transition: transform var(--dur-base) var(--ease);
+}
+
+.toggle[aria-expanded='true'] .chevron {
+  transform: rotate(90deg);
+}
+
+.ref {
+  white-space: nowrap;
+}
+
+.ref a {
+  display: block;
+  color: var(--text-primary);
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+  text-decoration: none;
+}
+
+@media (hover: hover) {
+  .ref a:hover {
+    text-decoration: underline;
+    text-decoration-color: var(--brand-action);
+    text-underline-offset: 3px;
+  }
+}
+
+.direction {
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+}
+
+.started {
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.time {
+  display: block;
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+}
+
+.receiptLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-primary);
+  font-weight: var(--font-weight-medium);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--brand-action) 55%, transparent);
+  text-underline-offset: 3px;
+}
+
+.receiptIcon {
+  width: 18px;
+  height: 18px;
+  color: var(--text-secondary);
+}
+
+/* ——— A trade's details, in place ——— */
+
+.detailRow td {
+  padding: 0;
+}
+
+.detail {
+  display: grid;
+  gap: var(--space-5);
+  padding: var(--space-2) var(--space-6) var(--space-6) calc(var(--space-4) + 32px + var(--space-4));
+}
+
+.detailGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) minmax(0, 1.1fr);
+  gap: var(--space-4) var(--space-8);
+  padding-top: var(--space-5);
+  border-top: 1px solid color-mix(in srgb, var(--brand-primary) 18%, var(--border-default));
+}
+
+.next {
+  display: grid;
+  align-content: start;
+  gap: var(--space-2);
+}
+
+.next p {
+  margin: 0;
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-normal);
+}
+
+.detailActions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* ——— The robot's legend: what each status means ——— */
+
+.legend {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border-default);
+}
+
+.legend div {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.legend dt {
+  display: flex;
+}
+
+.legend dd {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-meta);
+  line-height: var(--line-height-normal);
+}
+
+@media (max-width: 1199px) {
+  .legend {
+    display: none;
+  }
+}
+
+/* ——— Narrower: each trade a card ——— */
+
+@media (max-width: 959px) {
+  .detailGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .next {
+    grid-column: 1 / -1;
+  }
+
+  .rate,
+  .table th:nth-child(7) {
+    display: none;
+  }
+}
+
+@media (max-width: 759px) {
+  .filters {
+    align-self: stretch;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, auto));
+    margin: var(--space-4);
+    overflow-x: auto;
+  }
+
+  .filter {
+    justify-content: center;
+    gap: 6px;
+    padding: 0 var(--space-2);
+  }
+
+  .count {
+    min-width: 0;
+    padding: 1px 6px;
+  }
+
+  .table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+
+  .table,
+  .table tbody {
+    display: block;
+  }
+
+  .row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    grid-template-areas:
+      'ref status toggle'
+      'started started started'
+      'usdt inr inr'
+      'receipt receipt receipt';
+    gap: var(--space-2) var(--space-3);
+    align-items: center;
+    padding: var(--space-4);
+    border-top: 1px solid var(--border-default);
+  }
+
+  .row td,
+  .row[data-expanded] td {
+    display: block;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none !important;
+  }
+
+  .row[data-expanded] {
+    background: color-mix(in srgb, var(--brand-soft) 38%, var(--bg-surface));
+    box-shadow: inset 3px 0 0 var(--brand-primary);
+  }
+
+  .toggleCell {
+    grid-area: toggle;
+    width: auto;
+  }
+
+  .ref {
+    grid-area: ref;
+  }
+
+  .status {
+    grid-area: status;
+  }
+
+  .started {
+    grid-area: started;
+    font-size: var(--font-size-meta);
+  }
+
+  .usdt {
+    grid-area: usdt;
+    text-align: left !important;
+  }
+
+  .inr {
+    grid-area: inr;
+  }
+
+  .usdt,
+  .inr {
+    font-size: var(--font-size-body);
+    font-weight: var(--font-weight-semibold);
+  }
+
+  .receipt {
+    grid-area: receipt;
+  }
+
+  .row .receipt:has(> span),
+  .row .rate {
+    display: none !important;
+  }
+
+  .time {
+    display: inline;
+  }
+
+  .time::before {
+    content: ', ';
+  }
+
+  .detailRow {
+    display: block;
+    background: color-mix(in srgb, var(--brand-soft) 38%, var(--bg-surface));
+    box-shadow: inset 3px 0 0 var(--brand-primary);
+  }
+
+  .detailRow td {
+    display: block;
+    background: transparent;
+    box-shadow: none !important;
+  }
+
+  .detail {
+    padding: 0 var(--space-4) var(--space-5);
+  }
+
+  .detailGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .detailActions {
+    justify-content: stretch;
+  }
+
+  .detailActions a {
+    width: 100%;
+  }
+}

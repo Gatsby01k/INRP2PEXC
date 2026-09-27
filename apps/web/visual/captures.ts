@@ -32,7 +32,7 @@ export const CAPTURES = [
   'client-trade-settling',
   'client-trade-completed',
   'client-history',
-  'client-accounts',
+  'client-destinations',
   'client-notifications',
   'link-quote-mobile',
   'link-verification-mobile',

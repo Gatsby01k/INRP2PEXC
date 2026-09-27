@@ -1,0 +1,435 @@
+/*
+ * The Exchange surface: the home page's quote module grown into the real thing. What leaves the client on top,
+ * what reaches them below, each in its own box with its currency; then where it goes, what happens next, and the
+ * one action. A live quote replaces the form in the same frame, with the desk's rate in the brand's soft orange.
+ */
+
+.direction :global([role='radiogroup']) {
+  display: grid;
+  width: 100%;
+}
+
+.direction :global([role='radio']) {
+  min-height: 46px;
+  font-size: var(--font-size-body-lg);
+}
+
+/* ——— The two legs ——— */
+
+.legs {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-4);
+}
+
+/* One column that may shrink: an input's intrinsic width must never set the surface's. */
+.leg {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-2);
+}
+
+.legLabel {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.legNote {
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.legBox {
+  display: flex;
+  align-items: stretch;
+  min-height: 76px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-input);
+  background: var(--bg-surface);
+  transition:
+    border-color var(--dur-fast) var(--ease),
+    box-shadow var(--dur-fast) var(--ease),
+    background-color var(--dur-fast) var(--ease);
+}
+
+.legBox:focus-within {
+  border-color: var(--brand-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-primary) 16%, transparent);
+}
+
+/* The leg the desk prices: the same box, quieter, until the client types into it. */
+.leg[data-fixed='false'] .legBox {
+  background: var(--bg-subtle);
+  border-color: var(--border-default);
+}
+
+.leg[data-invalid] .legBox {
+  border-color: var(--status-danger);
+}
+
+.legInput,
+.legValue {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  padding: 0 var(--space-5);
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: clamp(26px, 4vw, 34px);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  outline: none;
+}
+
+.legValue {
+  display: flex;
+  align-items: center;
+  overflow-wrap: anywhere;
+}
+
+.legInput::placeholder {
+  color: var(--text-disabled);
+}
+
+.leg[data-fixed='false'] .legInput::placeholder,
+.legPending {
+  color: var(--text-muted);
+  font-size: var(--font-size-body-lg);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0;
+}
+
+.legPending {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1 1 auto;
+  padding: 0 var(--space-5);
+}
+
+.currency {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 128px;
+  padding: 0 var(--space-5);
+  border-left: 1px solid var(--border-default);
+  font-size: var(--font-size-body-lg);
+  font-weight: var(--font-weight-semibold);
+}
+
+.currencySub {
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-medium);
+}
+
+/* A monogram, not a logo: the rupee sign in the room's warm orange, the tether sign in green. */
+.coin {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  font-size: 16px;
+  font-weight: var(--font-weight-semibold);
+  line-height: 1;
+}
+
+.coin[data-coin='INR'] {
+  background: var(--brand-soft);
+  color: var(--brand-action);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand-action) 18%, transparent);
+}
+
+.coin[data-coin='USDT'] {
+  background: var(--status-success-soft);
+  color: var(--status-success);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--status-success) 18%, transparent);
+}
+
+.hint {
+  margin: 0;
+  font-size: var(--font-size-meta);
+  line-height: var(--line-height-normal);
+  color: var(--text-muted);
+}
+
+.hint[role='alert'] {
+  color: var(--status-danger);
+  font-weight: var(--font-weight-medium);
+}
+
+/* ——— Where it goes ——— */
+
+.destinations {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.destinations legend {
+  margin-bottom: var(--space-2);
+  padding: 0;
+}
+
+.option {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-input);
+  background: var(--bg-surface);
+  cursor: pointer;
+  transition:
+    border-color var(--dur-fast) var(--ease),
+    background-color var(--dur-fast) var(--ease);
+}
+
+.option:has(input:checked) {
+  border-color: var(--brand-primary);
+  background: color-mix(in srgb, var(--brand-soft) 45%, var(--bg-surface));
+}
+
+.option:has(input:focus-visible) {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-primary) 22%, transparent);
+}
+
+.radio {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.optionIcon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--bg-subtle);
+  color: var(--text-secondary);
+  box-shadow: inset 0 0 0 1px var(--border-default);
+}
+
+.optionIcon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.optionText {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.optionName {
+  overflow: hidden;
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-semibold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.optionMeta {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The radio, drawn: a ring that fills with the brand's orange. */
+.optionCheck {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border-control);
+  background: var(--bg-surface);
+}
+
+.option:has(input:checked) .optionCheck {
+  border: 5px solid var(--brand-primary);
+}
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: var(--space-2);
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--status-success-soft);
+  color: var(--status-success);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-semibold);
+  vertical-align: 1px;
+}
+
+/* ——— A quote, and a request with the desk ——— */
+
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.headText {
+  display: grid;
+  gap: 2px;
+}
+
+.ref {
+  font-size: var(--font-size-heading);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.countdown,
+.pricing {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 34px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-semibold);
+  white-space: nowrap;
+}
+
+.countdown {
+  background: var(--brand-soft);
+  color: var(--brand-action);
+}
+
+.countdown[data-state='expiring'] {
+  background: var(--status-warning-soft);
+  color: var(--status-warning);
+}
+
+.countdown svg {
+  width: 16px;
+  height: 16px;
+}
+
+.countdownTime {
+  font-variant-numeric: tabular-nums;
+}
+
+.pricing {
+  background: var(--bg-subtle);
+  color: var(--text-secondary);
+  box-shadow: inset 0 0 0 1px var(--border-default);
+}
+
+/* The desk's rate: the figure the whole quote turns on, in the brand's soft orange. */
+.rate {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-input);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--brand-soft) 80%, var(--bg-surface)), var(--brand-soft));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand-primary) 30%, transparent);
+}
+
+.rateFigure {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.rateValue {
+  font-size: var(--font-size-title);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+
+.rateUnit {
+  color: var(--text-secondary);
+  font-size: var(--font-size-body);
+}
+
+.rateNote {
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-sm);
+}
+
+.actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-3);
+}
+
+.confirmRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-input);
+  background: var(--status-warning-soft);
+  font-size: var(--font-size-body-sm);
+}
+
+.confirmRow p {
+  flex: 1 1 16rem;
+  margin: 0;
+}
+
+.divider {
+  height: 1px;
+  margin: 0;
+  border: 0;
+  background: var(--border-default);
+}
+
+@media (max-width: 599px) {
+  .legBox {
+    min-height: 64px;
+  }
+
+  .legInput,
+  .legValue,
+  .legPending {
+    padding: 0 var(--space-4);
+  }
+
+  .currency {
+    min-width: 0;
+    padding: 0 var(--space-4);
+  }
+
+  .currencySub {
+    display: none;
+  }
+
+  .actions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

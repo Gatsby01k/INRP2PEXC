@@ -57,7 +57,7 @@ Status is never color-only: every status carries a text label and, where used, t
 | **Exchange** (home) | `/` | Direction toggle, amount, destination, request quote → firm quote → accept |
 | Trades | `/trades` | Active (non-terminal) trades, most recent first |
 | History | `/history` | Completed/cancelled, receipts, CSV export |
-| Bank & Wallets | `/accounts` | INR bank accounts, USDT wallets (add/archive with verification) |
+| Destinations | `/destinations` | INR bank accounts, USDT wallets — read-only, added and archived by the desk until client TOTP exists (TD-11); `/accounts` redirects here |
 | Account | `/account` | Profile, users (client admin), security, notifications |
 
 Desktop: top bar with logo left, nav center, account right; content column max 560px (Exchange) / 960px (Trades, History).
@@ -134,8 +134,8 @@ Scanner detects `99,950 USDT` on a 100,000 trade → trade hold → queue group 
 | `SettlementProgress` | received / remaining with bar | | Trade |
 | `SettlementLegRow` | amount · status · UTR masked · time | `density`, `audience` | Trade, payout panel |
 | `CapacityMeter` | capacity / used / reserved / available | `status` | INR |
-| `BankAccountRow` | masked account + bank + status | | Accounts, pickers |
-| `WalletRow` | shortened address + network + label | | Accounts, pickers, USDT |
+| `BankAccountRow` | masked account + bank + status | | Destinations, pickers |
+| `WalletRow` | shortened address + network + label | | Destinations, pickers, USDT |
 | `UTRField` | normalized entry with duplicate check feedback | | Payout |
 | `TransactionHash` | mono, middle-ellipsis, copy, explorer link | | Trade, USDT |
 | `OperationalStatus` | lifecycle label + hold overlay | | Desk, Orders |

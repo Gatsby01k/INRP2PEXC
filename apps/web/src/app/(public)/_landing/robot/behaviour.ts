@@ -1,6 +1,6 @@
 import type { Direction } from '@inrp2p/kernel';
 import type { VoiceLine } from '../../../../content/site.ts';
-import type { RobotCue, RobotFocus } from './cues.ts';
+import type { RobotCue, RobotFocus, RobotMood } from './cues.ts';
 import { between, blinkOpenness, clamp, envelope, follow, follower, loadCycle } from './motion.ts';
 import { SPEECH, clipOf, loudness, nodTime, speakingSpec } from './speech.ts';
 import { DURATION, LOOK_FALLBACK, type LookTarget, type RobotState, type StateSpec, STATES } from './states.ts';
@@ -14,6 +14,10 @@ export type { LookTarget, RobotState } from './states.ts';
  * Events start short states that end on their own and hand back to rest; what the visitor is on — the call to
  * action, or the masthead's way into the workspace — is the only sustained input. Every transition is an ease towards new targets from wherever the body is — never a clip —
  * so the robot can be interrupted mid-response and still move directly and calmly to the next one.
+ *
+ * In the workspace a second sustained input sets what "rest" is: the mood (`cues.ts` `RobotMood`), the state of
+ * record the page's server data is in. The robot rests in the mood's held state instead of idle, marks the
+ * mood's arrival once, and lets events play over it as before. The home page sets no mood, so nothing changes there.
  *
  * The body moves as one connected mechanism, each link driven by the one above it: the eyes reach a new target
  * first; the head takes up the aim and follows, softly or crisply depending on what asked; the neck finishes the
@@ -135,8 +139,21 @@ const RESPONSE_GAP = 1.2;
 /** Where the robot rests while nothing is happening: on whatever the visitor is on, or with the visitor. */
 const REST: Record<RobotFocus, RobotState> = { none: 'idle', cta: 'intent', entry: 'entry' };
 
-/** States an event starts and time ends. The others follow the visitor's focus. */
-const TRANSIENT: ReadonlySet<RobotState> = new Set<RobotState>(['welcome', 'value', 'direction', 'rate', 'locked', 'accepted', 'problem', 'waiting', 'speaking']);
+/**
+ * Where the robot rests while a mood holds (`cues.ts` `RobotMood`) and the visitor is on nothing in particular.
+ * Without a mood it rests as it always has; the home page never sets one.
+ */
+const MOOD_REST: Record<RobotMood, RobotState> = {
+  none: 'idle',
+  waiting: 'waiting',
+  focused: 'focused',
+  verifying: 'checking',
+  success: 'done',
+  alert: 'attention',
+};
+
+/** The gap between two passes of the reading band while a check is held: irregular, and never faster than this. */
+const CHECK_SCAN = { min: 1.9, max: 2.9 } as const;
 
 /** States a greeting may interrupt: only rest. Anything the visitor has started matters more than saying hello. */
 const GREETS_FROM: ReadonlySet<RobotState> = new Set<RobotState>(['idle', 'intent', 'entry']);
@@ -164,6 +181,14 @@ export class RobotBehaviour {
   private from: RobotState = 'idle';
   private since = 0;
   private until = Number.POSITIVE_INFINITY;
+  /**
+   * Whether the current state is where the robot rests (and lasts until the rest changes), rather than one an
+   * event started (and time ends). A held `waiting` rests; the same state from a `wait` cue does not.
+   */
+  private resting = true;
+  private mood: RobotMood;
+  /** -1 when the page's module is on the robot's right (the workspace) rather than its left (the home page). */
+  private readonly side: 1 | -1;
 
   private direction: Direction;
   private valuePending = false;
@@ -201,6 +226,7 @@ export class RobotBehaviour {
   private greetAt = -10;
   private alertAt = -10;
   private scanAt = -10;
+  private nextCheckScan = 0;
   private nodAt = -10;
 
   /** Where the head is aimed: the look target, taken up first so a move starts as the state asks, not at once. */
@@ -238,9 +264,16 @@ export class RobotBehaviour {
   private readonly dots = follower();
   private readonly beacon = follower();
 
-  constructor(options: { direction: Direction; wakeAt?: number; random?: () => number }) {
+  /**
+   * `mirror` for a robot standing to the right of what it attends to. Its look is aimed at wherever things are on
+   * the page either way; what flips is the little each state leans, turns and tilts relative to the module.
+   */
+  constructor(options: { direction: Direction; mood?: RobotMood; mirror?: boolean; wakeAt?: number; random?: () => number }) {
+    this.side = options.mirror ? -1 : 1;
     this.random = options.random ?? Math.random;
     this.direction = options.direction;
+    // A robot that arrives while a mood already holds rests in it from its first frame, without the mood's arrival.
+    this.mood = options.mood ?? 'none';
     this.sweepOrder = SWEEP_ORDER[options.direction];
     this.nextBlinkAt = between(2.2, 3.6, this.random);
     this.loadPeriod = between(4.6, 6.8, this.random);
@@ -325,6 +358,9 @@ export class RobotBehaviour {
         this.speech.stoppedAt = time;
         if (this.state === 'speaking') this.until = Math.min(this.until, time + 0.2);
         return;
+      case 'mood':
+        this.arrive(cue.mood, time);
+        return;
     }
   }
 
@@ -344,10 +380,15 @@ export class RobotBehaviour {
       this.respond(time, RESPONSE_GAP);
       if (this.state === 'value') this.until = time + DURATION.confirmHold;
     }
-    const rest = REST[input.focus];
-    const done = TRANSIENT.has(this.state) ? time >= this.until : this.state !== rest;
-    if (done) this.enter(rest, time, Number.POSITIVE_INFINITY);
+    const rest = input.focus === 'none' ? MOOD_REST[this.mood] : REST[input.focus];
+    const done = this.resting ? this.state !== rest : time >= this.until;
+    if (done) this.enter(rest, time, Number.POSITIVE_INFINITY, true);
     const spec = this.specOf(this.state);
+    // A held check reads again every few seconds, at irregular intervals: the band of light is what shows it working.
+    if (this.state === 'checking' && time >= this.nextCheckScan) {
+      if (time - this.scanAt >= SCAN.gap) this.scanAt = time;
+      this.nextCheckScan = time + between(CHECK_SCAN.min, CHECK_SCAN.max, this.random);
+    }
 
     // ---- attention: eyes, head, neck -------------------------------------------------------------------
     const wanted = spec.attention(time - this.since, this.from);
@@ -398,7 +439,8 @@ export class RobotBehaviour {
     follow(this.correctionPitch, this.correctPitch * resting, 0.35, dt);
     follow(this.correctionRoll, this.correctRoll * resting, 0.35, dt);
     // A direction change turns the body a touch towards the side value is moving to.
-    const flowSide = this.state === 'direction' && this.direction === 'SELL_USDT' ? -1 : 1;
+    // The flow is the visitor's left and right, wherever the robot stands; everything else is relative to the module.
+    const flowSide = this.state === 'direction' ? (this.direction === 'SELL_USDT' ? -1 : 1) : this.side;
     follow(this.lean, spec.lean, spec.settle, dt);
     follow(this.turn, spec.turn * flowSide + this.driftYaw * resting, spec.settle * 1.6, dt);
     follow(this.chin, spec.chin, spec.settle, dt);
@@ -465,7 +507,7 @@ export class RobotBehaviour {
     const speaking = speech !== null && this.state === 'speaking';
     const script = speech ? SPEECH[speech.line] : null;
     const cut = speech ? speech.stoppedAt - speech.at - speech.lead : Number.POSITIVE_INFINITY;
-    follow(this.headTilt, spec.roll, speaking ? 0.35 : spec.settle, dt);
+    follow(this.headTilt, spec.roll * this.side, speaking ? 0.35 : spec.settle, dt);
     const voice = speech && script && heard < cut ? loudness(speech.line, heard) ** 1.5 * script.light : 0;
     follow(this.voiceLight, voice, 0.045, dt);
     const nodAt = speech?.nod ?? null;
@@ -533,7 +575,8 @@ export class RobotBehaviour {
     return state === 'speaking' && this.speech ? this.speech.spec : STATES[state];
   }
 
-  private enter(state: RobotState, time: number, until: number): void {
+  private enter(state: RobotState, time: number, until: number, resting = false): void {
+    this.resting = resting;
     if (state !== this.state || state === 'speaking') {
       this.from = state === this.state ? this.from : this.state;
       this.since = time;
@@ -546,6 +589,37 @@ export class RobotBehaviour {
     }
     this.state = state;
     this.until = until;
+  }
+
+  /**
+   * A new state of record. The robot rests in it from the next frame (or once the event it is answering has
+   * ended), and marks its arrival once, the way it marks the event each mood resembles: the whole mark resolving
+   * and a nod for a settled trade, the tip's two blinks for something that needs the client, a pulse at the hub for
+   * a live quote, a pass of light through the eyes for a check. Waiting arrives quietly; so does no mood at all.
+   */
+  private arrive(mood: RobotMood, time: number): void {
+    if (mood === this.mood) return;
+    this.mood = mood;
+    switch (mood) {
+      case 'success':
+        this.valuePending = false;
+        this.resolveAt = time;
+        this.nodAt = time + 0.36;
+        return;
+      case 'alert':
+        this.alertAt = time;
+        return;
+      case 'focused':
+        this.pulseAt = time;
+        return;
+      case 'verifying':
+        this.scanAt = time;
+        this.nextCheckScan = time + between(CHECK_SCAN.min, CHECK_SCAN.max, this.random);
+        return;
+      case 'waiting':
+      case 'none':
+        return;
+    }
   }
 
   /** A greeting, from rest only: a warm face for a moment, and one soft pulse of the antenna's tip. */

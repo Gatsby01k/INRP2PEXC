@@ -1,7 +1,7 @@
 import { clientInbox } from '@inrp2p/notifications';
 import { clientPage } from '../../../server/client.ts';
+import { PageHead } from '../_workspace/PageHead.tsx';
 import { Inbox } from './Inbox.tsx';
-import styles from '../shell.module.css';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,9 +14,9 @@ export default async function NotificationsPage() {
   const rows = await clientInbox(ctx.db, ctx.access.clientId, { limit: 50 });
 
   return (
-    <main className={styles.content}>
-      <h1 className={styles.pageTitle}>Notifications</h1>
+    <>
+      <PageHead title="Notifications" lede="What the desk has told you, newest first — quotes, payments and changes to your destinations." />
       <Inbox rows={rows} />
-    </main>
+    </>
   );
 }

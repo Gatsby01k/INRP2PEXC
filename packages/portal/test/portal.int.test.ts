@@ -4,7 +4,7 @@ import { Money } from '@inrp2p/kernel';
 import { runAs } from '@inrp2p/identity/testing';
 import { createQuote, createRequest, declineRequest, sendQuote } from '@inrp2p/quotes';
 import { confirmPayout, createPayoutLeg, recordLegEvidence, sendPayoutLeg } from '@inrp2p/settlement';
-import { clientDestinations, clientHistory, exchangeView, portalAccess, portalTrade } from '../src/index.ts';
+import { clientDestinations, clientHistory, exchangeView, historyCounts, portalAccess, portalTrade } from '../src/index.ts';
 import { type World, createWorld, newUtr, openTrade, settleFirstLeg } from '../../settlement/test/world.ts';
 
 let w: World;
@@ -80,6 +80,20 @@ describe('the exchange screen', () => {
     const view = await exchangeView(w.app, w.clientId);
     expect(view.request).toMatchObject({ ref: request.ref, status: 'DECLINED', statusReason: 'No liquidity for that size today' });
   });
+
+  it('shows only the latest request: a decline is not news once a later quote has been accepted', async () => {
+    const declined = await runAs(w.app, createRequest(w.dealer.actor, {}), w.dealer.ref, 'request.create', {
+      clientId: w.clientId, direction: 'SELL_USDT' as const, fixedSide: 'BASE' as const, amount: '12', bankAccountId: w.bankAccountId,
+    });
+    await runAs(w.app, declineRequest(w.dealer.actor), w.dealer.ref, 'request.decline', { requestId: declined.requestId, reason: 'Too small' });
+    const trade = await openTrade(w, { baseUsdt: '30', clientRate: '90.000000', routeRate: '92.500000', executionMode: 'TO_EXCHANGE' });
+
+    const view = await exchangeView(w.app, w.clientId);
+    expect(view.request).toBeNull();
+    expect(view.quote).toBeNull();
+    // The trade the latest request became, so the screen can point the client at it.
+    expect(view.openTradeRef).toBe(trade.tradeRef);
+  });
 });
 
 describe('one trade, as its client sees it', () => {
@@ -114,6 +128,23 @@ describe('one trade, as its client sees it', () => {
     expect(Money.parse(done.settlement.remaining.amount, 'INR').isZero()).toBe(true);
   });
 
+  it('walks a BUY the same way: the INR the client pays is their leg, confirmed by the desk', async () => {
+    const trade = await openTrade(w, { direction: 'BUY_USDT', baseUsdt: '100', clientRate: '106.000000', routeRate: '104.000000', executionMode: 'TO_EXCHANGE' });
+
+    const awaiting = await portalTrade(w.app, w.clientId, trade.tradeRef);
+    expect(awaiting.trade.direction).toBe('BUY_USDT');
+    expect(awaiting.stages.map((s) => s.status)).toEqual(['done', 'current', 'pending', 'pending']);
+    expect(awaiting.stages[1]!.detail).toBe('waiting for your INR');
+    expect(awaiting.trade.depositInstructions).toBeNull();
+
+    await settleFirstLeg(w, trade.tradeId);
+    const funded = await portalTrade(w.app, w.clientId, trade.tradeRef);
+    expect(funded.trade.status).toBe('FIRST_LEG_CONFIRMED');
+    expect(funded.stages.map((s) => s.status)).toEqual(['done', 'done', 'current', 'pending']);
+    expect(funded.stages[2]!.detail).toBe('preparing your payment');
+    expect(funded.incoming).toBeNull();
+  });
+
   it('never tells one client about another client’s trade', async () => {
     const trade = await openTrade(w, { baseUsdt: '10', clientRate: '90.000000', routeRate: '92.500000', executionMode: 'TO_EXCHANGE' });
     await expect(portalTrade(w.app, randomUUID(), trade.tradeRef)).rejects.toMatchObject({ code: 'NOT_FOUND' });
@@ -144,5 +175,16 @@ describe('history', () => {
 
   it('is empty for a client with no trades', async () => {
     expect(await clientHistory(w.app, randomUUID())).toEqual([]);
+    expect(await historyCounts(w.app, randomUUID())).toEqual({ all: 0, open: 0, completed: 0 });
+  });
+
+  it('counts what each filter holds, over every trade and not only the page shown', async () => {
+    const counts = await historyCounts(w.app, w.clientId);
+    const all = await clientHistory(w.app, w.clientId, { limit: 200 });
+    expect(counts.all).toBe(all.length);
+    expect(counts.open).toBe((await clientHistory(w.app, w.clientId, { filter: 'open', limit: 200 })).length);
+    expect(counts.completed).toBe((await clientHistory(w.app, w.clientId, { filter: 'completed', limit: 200 })).length);
+    expect(counts.completed).toBeGreaterThan(0);
+    expect(counts.open).toBeGreaterThan(0);
   });
 });

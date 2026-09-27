@@ -106,7 +106,7 @@ export function draftFor(kind: NotificationKind, facts: NotificationFacts): Noti
         title: 'A destination was added',
         body: `${facts.label ?? 'A new destination'} was added to your account. If you did not expect this, tell us straight away.`,
         subjectRef: null,
-        href: '/accounts',
+        href: '/destinations',
       };
     case 'DESTINATION_ARCHIVED':
       return {
@@ -114,7 +114,7 @@ export function draftFor(kind: NotificationKind, facts: NotificationFacts): Noti
         title: 'A destination was archived',
         body: `${facts.label ?? 'A destination'} can no longer be used for payouts.`,
         subjectRef: null,
-        href: '/accounts',
+        href: '/destinations',
       };
   }
 }

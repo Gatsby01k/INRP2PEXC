@@ -230,8 +230,9 @@ it: `authorizeClientAdmin` raises `MFA_ENROLLMENT_REQUIRED` without an enrolled 
 carries the email-OTP plugin and no `twoFactor` plugin, so a client user has no way to enrol an authenticator and
 no endpoint to verify one against. There is therefore no code a client could type that would satisfy the rule.
 
-**Consequence, and what Phase 7 did about it.** The client Accounts screen shows destinations and says plainly
-that changes are made with the desk; there are no add/archive controls and **no client server actions** for them.
+**Consequence, and what Phase 7 did about it.** The client Destinations screen (`/destinations`; Accounts until
+2026-09-27, and `/accounts` still redirects there) shows destinations and says plainly that changes are made with
+the desk; there are no add/archive controls and **no client server actions** for them.
 An action that every call would refuse is not a smaller gap than no action — it is the same gap with an attack
 surface. Destinations are managed today by operators through `client_bank:add` and `client_wallet:manage` (both
 ⧗), which is what every fixture and every test already does, and which D-08 allows.

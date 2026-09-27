@@ -54,6 +54,11 @@ export async function settle(page: Page): Promise<void> {
     .poll(() => page.evaluate((faces) => document.fonts.status === 'loaded' && faces.every((f) => document.fonts.check(f)), FONT_FACES))
     .toBe(true);
   await pinWallClockText(page);
+  // Every image being drawn has arrived and decoded — the workspace robot's still is lazy, and a capture must not
+  // race it. Images not drawn at all (the other moods' stills) are left alone: a lazy one of those never loads.
+  await expect
+    .poll(() => page.evaluate(() => [...document.images].filter((i) => i.checkVisibility()).every((i) => i.complete && i.naturalWidth > 0)))
+    .toBe(true);
   // Two animation frames, so layout has settled after the font swap.
   await page.evaluate(() => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))));
 }

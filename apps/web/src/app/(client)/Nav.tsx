@@ -9,19 +9,25 @@ export interface ClientNavEntry {
   readonly label: string;
 }
 
-/** The four places a client goes: trade, watch, look back, and manage where their money lands. */
+/**
+ * The workspace's three sections: ask for a price, look back, and see where money may land. A trade's own page
+ * belongs to History, where it is found — so History stays marked while one is open.
+ */
 export function ClientNav({ entries }: { entries: readonly ClientNavEntry[] }) {
   const pathname = usePathname();
+  const section = pathname.startsWith('/trades/') ? '/history' : pathname;
   return (
     <nav className={styles.nav} aria-label="Sections">
-      {entries.map((e) => {
-        const current = pathname === e.href || pathname.startsWith(`${e.href}/`);
-        return (
-          <Link key={e.href} href={e.href} className={styles.navItem} {...(current ? { 'aria-current': 'page' as const } : {})}>
-            {e.label}
-          </Link>
-        );
-      })}
+      <div className={styles.navInner}>
+        {entries.map((e) => {
+          const current = section === e.href || section.startsWith(`${e.href}/`);
+          return (
+            <Link key={e.href} href={e.href} className={styles.navItem} {...(current ? { 'aria-current': 'page' as const } : {})}>
+              {e.label}
+            </Link>
+          );
+        })}
+      </div>
     </nav>
   );
 }

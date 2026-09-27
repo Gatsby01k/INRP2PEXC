@@ -1,63 +1,120 @@
 /*
- * The client shell. A different product from the desk, and it should feel like one: one column, generous
- * spacing, one thing to do per screen (UX_FLOWS §3). Most clients open this on a phone to check whether their
- * money has arrived, so the phone layout is the design and the desktop one is the phone layout with room.
+ * The client workspace. A different product from the desk, and it should feel like one: the home page's room —
+ * its lit off-white field, its surfaces, its type — with the work in the middle and the robot beside it as the
+ * execution assistant. From 1200px the page takes the left and the robot a column on the right, under the page's
+ * heading; narrower, it is one column and the page's status leads, with a small still of the robot instead of the
+ * live one. Most clients check a trade on a phone, so the single column is designed, not left over.
  */
 .shell {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
-  background: var(--bg-app);
+  min-height: 100svh;
+  color: var(--text-primary);
+  /* The home page's light, from the same place. */
+  background:
+    radial-gradient(ellipse 42% 46% at 72% 18%, color-mix(in srgb, var(--bg-surface) 88%, transparent) 0%, transparent 100%),
+    radial-gradient(ellipse 60% 40% at 100% 0%, color-mix(in srgb, var(--brand-soft) 55%, transparent) 0%, transparent 100%),
+    var(--bg-app);
+  background-attachment: fixed;
 }
 
+/* ——— Masthead and sections: one sticky band ——— */
+
 .header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  padding: var(--space-3) var(--space-4);
-  border-bottom: 1px solid var(--border-default);
-  background: var(--bg-surface);
   position: sticky;
   top: 0;
-  z-index: 2;
+  z-index: 20;
+  background: color-mix(in srgb, var(--bg-surface) 92%, transparent);
+  backdrop-filter: saturate(1.4) blur(12px);
+  border-bottom: 1px solid var(--border-default);
+}
+
+.mastheadInner,
+.navInner {
+  display: flex;
+  align-items: center;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 0 var(--space-10);
+}
+
+.mastheadInner {
+  gap: var(--space-4);
+  min-height: 64px;
 }
 
 .brand {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-3);
+  color: inherit;
+  text-decoration: none;
+}
+
+.brandMark {
+  display: block;
+  border-radius: 50%;
+}
+
+.brandName {
+  font-size: var(--font-size-body-lg);
   font-weight: var(--font-weight-semibold);
-  letter-spacing: -0.01em;
+  letter-spacing: -0.02em;
+}
+
+.rule {
+  width: 1px;
+  height: 20px;
+  background: var(--border-strong);
 }
 
 .clientName {
+  overflow: hidden;
   color: var(--text-secondary);
-  font-size: var(--font-size-meta);
-  font-weight: var(--font-weight-regular);
+  font-size: var(--font-size-body-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .headerActions {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-3);
+  margin-left: auto;
 }
 
 .bell {
+  position: relative;
   display: inline-flex;
   align-items: center;
-  gap: var(--space-1);
-  min-height: 36px;
+  gap: var(--space-2);
+  min-height: var(--touch-min);
   padding: 0 var(--space-2);
   border-radius: var(--radius-control);
   color: var(--text-secondary);
+  font-size: var(--font-size-body-sm);
   text-decoration: none;
-  font-size: var(--font-size-meta);
+  transition:
+    color var(--dur-fast) var(--ease),
+    background-color var(--dur-fast) var(--ease);
 }
 
-.bell:hover {
-  background: var(--bg-subtle);
+.bellIcon {
+  flex: none;
+  width: 20px;
+  height: 20px;
+}
+
+.bell[aria-current='page'] {
   color: var(--text-primary);
+}
+
+@media (hover: hover) {
+  .bell:hover {
+    background: var(--bg-subtle);
+    color: var(--text-primary);
+  }
 }
 
 .unread {
@@ -67,129 +124,534 @@
   min-width: 20px;
   height: 20px;
   padding: 0 6px;
-  border-radius: 10px;
+  border-radius: var(--radius-pill);
   background: var(--brand-primary);
-  color: var(--text-on-brand, #fff);
-  font-size: var(--font-size-meta);
+  color: var(--text-on-action);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-semibold);
   font-variant-numeric: tabular-nums;
 }
 
-.nav {
-  display: flex;
-  gap: 2px;
-  padding: var(--space-2) var(--space-4);
-  border-bottom: 1px solid var(--border-default);
-  background: var(--bg-surface);
-  overflow-x: auto;
+.signOut {
+  font-size: var(--font-size-body-sm);
 }
 
+.nav {
+  border-top: 1px solid color-mix(in srgb, var(--border-default) 70%, transparent);
+  background: color-mix(in srgb, var(--bg-subtle) 80%, transparent);
+}
+
+.navInner {
+  gap: var(--space-1);
+  min-height: 52px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+/* A section is a tab raised out of the band; the one you are on stands on an orange rule. */
 .navItem {
+  position: relative;
   display: inline-flex;
   align-items: center;
-  min-height: 40px;
-  padding: 0 var(--space-3);
-  border-radius: var(--radius-control);
+  align-self: stretch;
+  padding: 0 var(--space-5);
+  margin-top: var(--space-2);
+  border-radius: var(--radius-input) var(--radius-input) 0 0;
   color: var(--text-secondary);
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-medium);
   text-decoration: none;
   white-space: nowrap;
+  transition:
+    color var(--dur-fast) var(--ease),
+    background-color var(--dur-fast) var(--ease);
 }
 
-.navItem:hover {
-  background: var(--bg-subtle);
-  color: var(--text-primary);
+.navItem::after {
+  content: '';
+  position: absolute;
+  right: var(--space-3);
+  bottom: 0;
+  left: var(--space-3);
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: transparent;
+  transition: background-color var(--dur-base) var(--ease);
+}
+
+@media (hover: hover) {
+  .navItem:hover {
+    color: var(--text-primary);
+  }
 }
 
 .navItem[aria-current='page'] {
-  background: var(--bg-subtle);
+  background: var(--bg-surface);
   color: var(--text-primary);
-  font-weight: var(--font-weight-medium);
-  box-shadow: inset 0 -2px 0 var(--brand-primary);
+  font-weight: var(--font-weight-semibold);
+  box-shadow:
+    0 -1px 0 var(--border-default),
+    1px 0 0 var(--border-default),
+    -1px 0 0 var(--border-default);
 }
 
-.content {
+.navItem[aria-current='page']::after {
+  background: var(--brand-primary);
+}
+
+/* ——— The workspace: heading, then the page and the robot's column ——— */
+
+.workspace {
+  --rail: 320px;
+  --robot-size: 296px;
   flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--rail);
+  grid-template-rows: auto auto auto 1fr;
+  grid-template-areas:
+    'head head'
+    'main robot'
+    'main note'
+    'main .';
+  column-gap: var(--space-8);
   width: 100%;
-  max-width: 720px;
+  max-width: 1280px;
   margin: 0 auto;
-  padding: var(--space-5) var(--space-4);
+  padding: var(--space-8) var(--space-10) var(--space-16);
+}
+
+.workspace:has([data-assistant-size='large']) {
+  --rail: 368px;
+  --robot-size: 336px;
+}
+
+.workspace:has([data-assistant-size='compact']) {
+  --rail: 300px;
+  --robot-size: 212px;
+}
+
+/* The robot's half of the column's card: the room's warm light, the bust standing on the page's status below. */
+.robot {
+  grid-area: robot;
+  position: relative;
+  height: var(--robot-size);
+  overflow: hidden;
+  border: 1px solid var(--border-default);
+  border-bottom: 0;
+  border-radius: var(--radius-surface) var(--radius-surface) 0 0;
+  background:
+    radial-gradient(ellipse 70% 80% at 50% 30%, var(--bg-surface) 0%, color-mix(in srgb, var(--ivory) 90%, transparent) 55%, transparent 100%),
+    linear-gradient(180deg, var(--ivory) 0%, color-mix(in srgb, var(--brand-soft) 70%, var(--ivory)) 100%);
+}
+
+.main {
+  grid-area: main;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
-  min-width: 0;
+  gap: var(--space-6);
 }
 
-/* The trade and history screens earn a second column once there is room for one. */
-.wide {
-  max-width: 1040px;
+/* The Exchange is one surface, at a measure its figures read well at, under the heading. */
+.centred {
+  width: 100%;
+  max-width: 760px;
+}
+
+.pageHead {
+  grid-area: head;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-4) var(--space-8);
+  margin-bottom: var(--space-6);
+}
+
+.pageHeadText {
+  display: grid;
+  gap: var(--space-2);
+  max-width: 44rem;
+}
+
+.eyebrow {
+  margin: 0;
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--brand-action);
 }
 
 .pageTitle {
   margin: 0;
-  font-size: var(--font-size-heading);
+  font-size: clamp(28px, 3vw, 40px);
   font-weight: var(--font-weight-semibold);
+  line-height: 1.05;
+  letter-spacing: -0.035em;
 }
 
-.sectionTitle {
-  font-size: var(--font-size-meta);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+.lede {
+  margin: 0;
+  font-size: var(--font-size-body-lg);
+  line-height: var(--line-height-normal);
+  color: var(--text-secondary);
+  text-wrap: pretty;
+}
+
+.footer {
+  border-top: 1px solid var(--border-default);
+}
+
+.footerInner {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-6);
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: var(--space-5) var(--space-10);
   color: var(--text-muted);
+  font-size: var(--font-size-meta);
 }
 
-.panel {
+/* ——— Surfaces the pages share ——— */
+
+.surface {
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
-  background: var(--bg-surface);
+  gap: var(--space-5);
+  padding: var(--space-6);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-surface);
-  padding: var(--space-4);
+  background: var(--bg-surface);
+  box-shadow:
+    0 1px 0 color-mix(in srgb, var(--text-primary) 4%, transparent),
+    0 28px 64px -36px color-mix(in srgb, var(--text-primary) 26%, transparent);
 }
 
-.split {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: var(--space-4);
-  align-items: start;
-}
-
-.row {
+.card {
   display: flex;
-  align-items: baseline;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-5) var(--space-6);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-surface);
+  background: var(--bg-surface);
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--text-primary) 4%, transparent);
+}
+
+.cardHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
+}
+
+.cardTitle {
+  margin: 0;
+  font-size: var(--font-size-heading);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.02em;
+}
+
+.label {
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
 }
 
 .muted {
   color: var(--text-muted);
 }
 
-.notice {
-  border-left: 2px solid var(--status-warning);
-  padding-left: var(--space-3);
+/* A fact the client should read before acting: a quiet band, an icon, one or two sentences. */
+.info {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-input);
+  background: var(--bg-subtle);
+  border: 1px solid color-mix(in srgb, var(--border-default) 70%, transparent);
   color: var(--text-secondary);
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-normal);
 }
 
-.footer {
-  padding: var(--space-4);
-  text-align: center;
+.info[data-tone='warning'] {
+  background: var(--status-warning-soft);
+  border-color: color-mix(in srgb, var(--status-warning) 22%, transparent);
+  color: var(--text-primary);
+}
+
+/* A link inside a sentence stays in the sentence: no touch-height box of its own. */
+.info .textAction {
+  display: inline;
+  min-height: 0;
+}
+
+.infoIcon {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
   color: var(--text-muted);
-  font-size: var(--font-size-meta);
 }
 
-@media (min-width: 900px) {
-  .split {
-    grid-template-columns: minmax(0, 1fr) 320px;
+.info[data-tone='warning'] .infoIcon {
+  color: var(--status-warning);
+}
+
+/* Definition rows: a quiet term, the fact, on one line. */
+.facts {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+}
+
+.facts > div {
+  display: grid;
+  grid-template-columns: minmax(96px, 38%) minmax(0, 1fr);
+  gap: var(--space-3);
+  align-items: baseline;
+}
+
+.facts dt {
+  color: var(--text-muted);
+  font-size: var(--font-size-body-sm);
+}
+
+.facts dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-medium);
+}
+
+/* ——— Actions: the quote module's call to action, and the quieter ones beside it ——— */
+
+.action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: 52px;
+  padding: 0 var(--space-6);
+  border: 1px solid var(--brand-action);
+  border-radius: var(--radius-input);
+  background: var(--brand-action);
+  color: var(--text-on-action);
+  font: inherit;
+  font-size: var(--font-size-body-lg);
+  font-weight: var(--font-weight-medium);
+  text-decoration: none;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--text-on-action) 16%, transparent),
+    0 10px 24px -14px color-mix(in srgb, var(--brand-action) 70%, transparent);
+  cursor: pointer;
+  transition:
+    background-color var(--dur-base) var(--ease),
+    border-color var(--dur-base) var(--ease),
+    transform var(--dur-fast) var(--ease);
+}
+
+.actionIcon {
+  width: 18px;
+  height: 18px;
+  transition: transform var(--dur-base) var(--ease);
+}
+
+.action:not(:disabled):active {
+  transform: translateY(1px);
+}
+
+.action:focus-visible .actionIcon {
+  transform: translateX(2px);
+}
+
+@media (hover: hover) {
+  .action:not(:disabled):hover {
+    border-color: var(--brand-action-hover);
+    background: var(--brand-action-hover);
+  }
+
+  .action:not(:disabled):hover .actionIcon {
+    transform: translateX(2px);
+  }
+}
+
+/* Waiting for what it needs: the same shape in the surface's quiet materials, so it reads as the next step. */
+.action:disabled {
+  border-color: var(--border-strong);
+  background: var(--bg-subtle);
+  color: var(--text-muted);
+  box-shadow: none;
+  cursor: default;
+}
+
+.action[aria-busy='true']:disabled {
+  border-color: var(--brand-action);
+  background: var(--brand-action);
+  color: var(--text-on-action);
+  cursor: progress;
+}
+
+.wide {
+  width: 100%;
+}
+
+.secondaryAction {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: 44px;
+  padding: 0 var(--space-5);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-input);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-medium);
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    border-color var(--dur-fast) var(--ease),
+    background-color var(--dur-fast) var(--ease);
+}
+
+@media (hover: hover) {
+  .secondaryAction:not(:disabled):hover {
+    border-color: var(--text-muted);
+    background: var(--bg-subtle);
+  }
+}
+
+.secondaryAction:disabled {
+  color: var(--text-disabled);
+  cursor: default;
+}
+
+/* A quieter way out: words, underlined in the brand's orange. */
+.textAction {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: var(--touch-min);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-medium);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--brand-action) 55%, transparent);
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 3px;
+  cursor: pointer;
+  transition: text-decoration-color var(--dur-fast) var(--ease);
+}
+
+@media (hover: hover) {
+  .textAction:not(:disabled):hover {
+    text-decoration-color: var(--brand-action);
+  }
+}
+
+.textAction:disabled {
+  color: var(--text-disabled);
+  text-decoration-color: var(--border-strong);
+  cursor: default;
+}
+
+.error {
+  margin: 0;
+  color: var(--status-danger);
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-medium);
+}
+
+/* ——— Below the desktop layout: one column, the status first ——— */
+
+@media (max-width: 1199px) {
+  .workspace {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto;
+    grid-template-areas:
+      'head'
+      'note'
+      'main';
+    row-gap: var(--space-5);
+    max-width: 760px;
+    padding: var(--space-6) var(--space-6) var(--space-12);
+  }
+
+  .robot {
+    display: none;
+  }
+
+  .pageHead {
+    margin-bottom: 0;
+  }
+
+  .centred {
+    max-width: none;
+  }
+
+  .mastheadInner,
+  .navInner,
+  .footerInner {
+    max-width: 760px;
+    padding-left: var(--space-6);
+    padding-right: var(--space-6);
   }
 }
 
 @media (max-width: 599px) {
-  .content {
-    padding: var(--space-4) var(--space-3);
+  .workspace {
+    padding: var(--space-5) var(--space-4) var(--space-10);
   }
-  .header,
-  .nav {
-    padding-left: var(--space-3);
-    padding-right: var(--space-3);
+
+  .mastheadInner,
+  .navInner,
+  .footerInner {
+    padding-left: var(--space-4);
+    padding-right: var(--space-4);
+  }
+
+  .mastheadInner {
+    gap: var(--space-3);
+    min-height: 56px;
+  }
+
+  .bellText {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .navItem {
+    padding: 0 var(--space-4);
+  }
+
+  .surface,
+  .card {
+    padding: var(--space-5) var(--space-4);
+  }
+
+  .lede {
+    font-size: var(--font-size-body);
   }
 }

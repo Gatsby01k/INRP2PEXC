@@ -1,0 +1,64 @@
+/* The trade screen's own pieces; its surfaces are the workspace's. */
+
+.transfer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border-default);
+}
+
+.details {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4) var(--space-8);
+}
+
+.receipt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border-default);
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-medium);
+}
+
+.receiptIcon {
+  width: 20px;
+  height: 20px;
+  color: var(--text-secondary);
+}
+
+.deliveries {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.deliveries li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-input);
+  background: var(--bg-subtle);
+  font-size: var(--font-size-body-sm);
+}
+
+.noteLinks {
+  display: flex;
+  gap: var(--space-4);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border-default);
+}
+
+@media (max-width: 599px) {
+  .details {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

@@ -30,42 +30,57 @@ export interface ExchangeView {
   readonly request: OpenRequest | null;
   /** The live quote for that request: SENT and not yet expired, or the one that just expired, so the screen can say so. */
   readonly quote: ClientQuoteView | null;
-  /** The trade a just-accepted quote became, so the screen can take the client straight to it. */
+  /** The trade the latest request became, when it was accepted, so the screen can point the client at it. */
   readonly openTradeRef: string | null;
 }
+
+/** The request states the screen has something to say about. Anything else is history, and the screen offers a new request. */
+const SHOWN: readonly string[] = ['OPEN', 'QUOTED', 'DECLINED'];
 
 export async function exchangeView(ex: Executor, clientId: string): Promise<ExchangeView> {
   const destinations = await clientDestinations(ex, clientId);
 
-  const request = await ex
+  // The latest request of any status, and only then whether it is one to show: filtering first would reach past
+  // a request that was accepted or withdrawn to an older decline, and tell the client about it as if it were news.
+  const latest = await ex
     .selectFrom('trade_request')
     .select([
       'id', 'ref', 'direction', 'fixed_side', 'requested_base_minor', 'requested_quote_minor', 'target_rate_micro',
       'bank_account_id', 'crypto_wallet_id', 'status', 'status_reason', 'created_at',
     ])
     .where('client_id', '=', clientId)
-    .where('status', 'in', ['OPEN', 'QUOTED', 'DECLINED'])
     .orderBy('created_at', 'desc')
     // Two rows can share a timestamp; the id breaks the tie, so "the latest" is one row and always the same one.
     .orderBy('id', 'desc')
     .executeTakeFirst();
+  const request = latest && SHOWN.includes(latest.status) ? latest : undefined;
 
-  const quoteRow = request
+  // Likewise the latest quote the client was sent for it, and only then whether it is live or just ran out: an
+  // older expired quote must not resurface after a newer one was declined or withdrawn by the desk.
+  const latestQuote = request
     ? await ex
         .selectFrom('quote')
         .select(['id', 'status'])
         .where('trade_request_id', '=', request.id)
-        .where('status', 'in', ['SENT', 'EXPIRED', 'ACCEPTED'])
+        .where('status', '!=', 'DRAFT')
         .orderBy('created_at', 'desc')
         .orderBy('id', 'desc')
         .executeTakeFirst()
     : undefined;
+  const quoteRow = latestQuote && (latestQuote.status === 'SENT' || latestQuote.status === 'EXPIRED') ? latestQuote : undefined;
 
   const quote = quoteRow ? await toClientQuoteView(ex, quoteRow.id) : null;
 
+  // An accepted request became a trade: the one its accepted quote opened.
   const openTrade =
-    quoteRow?.status === 'ACCEPTED'
-      ? await ex.selectFrom('trade').select('ref').where('quote_id', '=', quoteRow.id).executeTakeFirst()
+    latest?.status === 'ACCEPTED'
+      ? await ex
+          .selectFrom('trade as t')
+          .innerJoin('quote as q', 'q.id', 't.quote_id')
+          .select('t.ref')
+          .where('q.trade_request_id', '=', latest.id)
+          .where('q.status', '=', 'ACCEPTED')
+          .executeTakeFirst()
       : undefined;
 
   return clientSafe({
