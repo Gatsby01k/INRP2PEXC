@@ -5,7 +5,7 @@ import { isDomainError } from '@inrp2p/kernel';
 import type { ActorRef, Db } from '@inrp2p/db';
 import { executeCommand, limitFinancialMutations } from '@inrp2p/commands';
 import { type ClientActor, type DomainCommand, hasFreshStepUp, requireClientSession } from '@inrp2p/identity';
-import { type PortalAccess, portalAccess } from '@inrp2p/portal';
+import { type PortalAccess, type WorkspaceAccess, portalAccess, workspaceAccess } from '@inrp2p/portal';
 import type { QuoteDeps } from '@inrp2p/quotes';
 import { getRuntime } from './runtime.ts';
 import { quoteDepsForWeb } from './quotes.ts';
@@ -40,14 +40,52 @@ export async function clientContext(): Promise<ClientContext> {
 
 const SIGN_IN_CODES = ['UNAUTHENTICATED', 'SESSION_IDLE_TIMEOUT', 'SESSION_SURFACE_MISMATCH'];
 
-/** Page-level variant: an expired or missing session sends the client to sign in rather than showing an error. */
+/**
+ * Page-level variant, for the Exchange's own pages. An expired or missing session goes to sign in; someone signed in
+ * without the Exchange — a trader applicant, or a client that provides capacity only — goes to Traders, which is
+ * the whole of their workspace. The server decides from what the account is, never from where it came in.
+ */
 export async function clientPage(): Promise<ClientContext> {
   try {
     return await clientContext();
   } catch (e) {
     if (isDomainError(e) && SIGN_IN_CODES.includes(e.code)) redirect('/sign-in');
+    if (isDomainError(e, 'EXCHANGE_NOT_ENABLED')) redirect('/traders');
     throw e;
   }
+}
+
+/**
+ * Anyone who may hold a client session: a member of a client (with or without the Exchange) or a person who
+ * verified their email to apply as a trader and has no client yet. The workspace frame and the Traders pages use
+ * this; everything that touches the Exchange uses `clientContext`.
+ */
+export interface WorkspaceContext {
+  readonly actor: ClientActor;
+  readonly db: Db;
+  readonly access: WorkspaceAccess;
+}
+
+export async function workspaceContext(): Promise<WorkspaceContext> {
+  const rt = getRuntime();
+  const actor = await requireClientSession(rt.clientAuth, rt.appDb, await headers());
+  return { actor, db: rt.appDb, access: await workspaceAccess(rt.appDb, actor.userId) };
+}
+
+export async function workspacePage(): Promise<WorkspaceContext> {
+  try {
+    return await workspaceContext();
+  } catch (e) {
+    if (isDomainError(e) && SIGN_IN_CODES.includes(e.code)) redirect('/sign-in');
+    throw e;
+  }
+}
+
+/** A member of a client, with or without the Exchange — notifications and a working trader's pages. */
+export async function memberPage(): Promise<WorkspaceContext & { readonly member: PortalAccess }> {
+  const ctx = await workspacePage();
+  if (ctx.access.kind !== 'MEMBER') redirect('/traders');
+  return { ...ctx, member: ctx.access.member };
 }
 
 /**
@@ -79,6 +117,49 @@ export async function runClientCommand<P, R>(
     return { ok: true, result: out.result };
   } catch (e) {
     return failure(e, opts.keepMessages);
+  }
+}
+
+/**
+ * Runs a Traders command as the signed-in person, member of a client or not: trader commands authorize against the
+ * trader membership themselves (and `trader.apply` accepts a person with no client yet), so the Exchange's gate
+ * does not apply here.
+ */
+export async function runWorkspaceCommand<P, R>(
+  build: (ctx: WorkspaceContext, deps: QuoteDeps) => DomainCommand<P, R>,
+  payload: P,
+  opts: { name: string; idempotencyKey: string; financial?: boolean; keepMessages?: ReadonlySet<string> },
+): Promise<CommandResult<R>> {
+  let ctx: WorkspaceContext;
+  try {
+    ctx = await workspaceContext();
+  } catch (e) {
+    return failure(e, opts.keepMessages);
+  }
+  const ref: ActorRef = { type: 'USER', id: ctx.actor.userId, surface: 'CLIENT', sessionId: ctx.actor.sessionId };
+  try {
+    if (opts.financial ?? true) await limitFinancialMutations(ctx.db, ref);
+    const out = await executeCommand(ctx.db, build(ctx, quoteDepsForWeb()), {
+      name: opts.name,
+      actor: ref,
+      payload,
+      idempotencyKey: opts.idempotencyKey,
+      financial: opts.financial ?? true,
+    });
+    return { ok: true, result: out.result };
+  } catch (e) {
+    return failure(e, opts.keepMessages);
+  }
+}
+
+/** A read as a member of a client, Exchange or not (notifications). */
+export async function withMember<R>(fn: (ctx: WorkspaceContext, member: PortalAccess) => Promise<R>): Promise<CommandResult<R>> {
+  try {
+    const ctx = await workspaceContext();
+    if (ctx.access.kind !== 'MEMBER') return { ok: false, code: 'FORBIDDEN', message: 'This account is not linked to a client yet.' };
+    return { ok: true, result: await fn(ctx, ctx.access.member) };
+  } catch (e) {
+    return failure(e);
   }
 }
 

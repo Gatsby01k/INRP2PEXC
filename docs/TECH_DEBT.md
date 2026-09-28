@@ -27,7 +27,7 @@ Non-blocking items accepted at phase review. Each entry names the phase that mus
 | TD-21 | A trader's Security Reserve cannot be applied to an obligation the trader leaves unsettled | Traders (2026-09-27) | Traders providing real money | Open |
 | TD-22 | The trader programme's agreement, tax treatment and counterparty checks have not been reviewed | Traders (2026-09-27) | Traders providing real money | Open |
 | TD-23 | The Traders screens have no page baselines, and the client shell changed around them | Traders (2026-09-27) | The `visual-pages` CI job can pass | Open |
-| TD-24 | A trader cannot ask to change its registered bank account or wallet in the product | Traders (2026-09-27) | A trader replacing a destination without the desk's usual channel | Open |
+| TD-24 | A trader cannot ask to change its registered bank account or wallet in the product | Traders (2026-09-27) | A trader replacing a destination without the desk's usual channel | Closed (2026-09-28) |
 
 ## TD-01 — Better Auth schema warning for `auth_rate_limit.last_request`
 
@@ -459,4 +459,12 @@ the baselines in the canonical environment.
 (`trader.set_settlement_details`, `traders:configure` ⧗). The trader's screen says to ask on the usual channel.
 
 **Resolution (to do, low).** A change request from the trader, reviewed on the desk page, reusing the same command.
+
+**Closed (2026-09-28, migration 0023).** An approved trader's administrator submits a new bank account and/or TRC20
+wallet (`trader.propose_settlement_change`, with the ownership confirmation). It is registered PENDING_REVIEW and
+named on the profile (`proposed_bank_account_id`, `proposed_wallet_id`); the registered pair keeps settling every
+order. The desk approves or rejects it on the trader's page (`trader.review_settlement_change`, `traders:configure`
+⧗): approval verifies it, registers it and moves the trader's routes, and is refused while an order is accepted or
+in progress (`TRADER_ORDERS_OPEN`) — as is the desk's own `trader.set_settlement_details`. A rejection keeps the
+registered details and shows the trader the note. The previous destination stays on the client's file unchanged.
 

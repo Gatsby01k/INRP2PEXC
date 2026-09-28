@@ -85,6 +85,28 @@
   white-space: nowrap;
 }
 
+/* "Become a trader": the navigation's own quiet link, pushed to the right beside the workspace entry. On a phone
+   the masthead has room for one way in, so it gives way there to the footer's and the closing section's. */
+.traderEntry {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--touch-min);
+  margin-left: auto;
+  font-size: var(--font-size-body-sm);
+  color: var(--text-secondary);
+  text-decoration: none;
+  white-space: nowrap;
+  transition: color var(--dur-fast) var(--ease);
+}
+
+.traderEntry:hover {
+  color: var(--text-primary);
+}
+
+.traderEntry + .entry {
+  margin-left: 0;
+}
+
 .entryGlyph {
   flex: none;
   display: block;
@@ -347,6 +369,16 @@
 
   .nav {
     display: none;
+  }
+}
+
+@media (max-width: 599px) {
+  .traderEntry {
+    display: none;
+  }
+
+  .traderEntry + .entry {
+    margin-left: auto;
   }
 }
 

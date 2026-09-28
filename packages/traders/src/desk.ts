@@ -1,6 +1,6 @@
 import { sql } from 'kysely';
 import { DomainError, Money, Rate, requireUuid } from '@inrp2p/kernel';
-import type { Executor, TraderOrderStatus, TraderSide, TraderStatus } from '@inrp2p/db';
+import type { DestinationStatus, Executor, P2pExperience, TraderOrderStatus, TraderSide, TraderStatus } from '@inrp2p/db';
 import { obligationRemaining } from '@inrp2p/settlement';
 import { standingIssues, type StandingIssue } from './eligibility.ts';
 import { traderProgram, type TraderProgram } from '@inrp2p/trader-core';
@@ -53,19 +53,28 @@ export interface DeskTraderRow {
   readonly unresolved: number;
   readonly issues: readonly StandingIssue[];
   readonly appliedAt: string;
+  /** Submitted bank accounts and wallets waiting for the desk: an application's own, or a change an approved trader proposed. */
+  readonly awaitingReview: number;
+  /** The client may use the Exchange too; a self-registered trader's client may not until the desk opens it. */
+  readonly exchangeAccess: boolean;
 }
 
-/** Every trader, applications first, then those with unresolved orders, then the rest. */
+/** Every trader: applications first, then traders with submitted details to review, then the rest by reference. */
 export async function deskTraders(ex: Executor): Promise<{ program: DeskProgram; traders: readonly DeskTraderRow[] }> {
-  const rows = await sql<{ id: string; ref: string; client_id: string; display_name: string; status: TraderStatus; available: boolean; assignments_enabled: boolean; offers_buy: boolean; offers_sell: boolean; applied_at: Date; open: string; offers: string; completed: string; unresolved: string }>`
-    select t.id, t.ref, t.client_id, c.display_name, t.status, t.available, t.assignments_enabled, t.offers_buy, t.offers_sell, t.applied_at,
+  const rows = await sql<{ id: string; ref: string; client_id: string; display_name: string; exchange_access: boolean; status: TraderStatus; available: boolean; assignments_enabled: boolean; offers_buy: boolean; offers_sell: boolean; applied_at: Date; open: string; offers: string; completed: string; unresolved: string; awaiting: string }>`
+    select t.id, t.ref, t.client_id, c.display_name, c.exchange_access, t.status, t.available, t.assignments_enabled, t.offers_buy, t.offers_sell, t.applied_at,
+           ((select count(*) from bank_account b where b.status = 'PENDING_REVIEW' and b.id in (t.bank_account_id, t.proposed_bank_account_id))
+            + (select count(*) from crypto_wallet w where w.status = 'PENDING_REVIEW' and w.id in (t.wallet_id, t.proposed_wallet_id)))::text as awaiting,
            (select count(*) from trader_order o where o.trader_id = t.id and o.status in ('ACCEPTED', 'IN_PROGRESS'))::text as open,
            (select count(*) from trader_order o where o.trader_id = t.id and o.status = 'OFFERED')::text as offers,
            (select count(*) from trader_order o where o.trader_id = t.id and o.status = 'COMPLETED')::text as completed,
            (select count(*) from trader_order o join route_obligation r on r.id = o.route_obligation_id
              where o.trader_id = t.id and o.status = 'IN_PROGRESS' and r.status in ('OPEN', 'PARTIALLY_SETTLED'))::text as unresolved
     from trader_profile t join client c on c.id = t.client_id
-    order by (t.status = 'UNDER_REVIEW') desc, t.ref`.execute(ex);
+    order by (t.status = 'UNDER_REVIEW') desc,
+             ((t.proposed_bank_account_id is not null and exists (select 1 from bank_account b where b.id = t.proposed_bank_account_id and b.status = 'PENDING_REVIEW'))
+              or (t.proposed_wallet_id is not null and exists (select 1 from crypto_wallet w where w.id = t.proposed_wallet_id and w.status = 'PENDING_REVIEW'))) desc,
+             t.ref`.execute(ex);
   const traders: DeskTraderRow[] = [];
   for (const r of rows.rows) {
     const { standing, reserve } = await readStanding(ex, r.id);
@@ -87,6 +96,8 @@ export async function deskTraders(ex: Executor): Promise<{ program: DeskProgram;
       unresolved: Number.parseInt(r.unresolved, 10),
       issues: r.status === 'UNDER_REVIEW' || r.status === 'REJECTED' ? [] : standingIssues(standing),
       appliedAt: r.applied_at.toISOString(),
+      awaitingReview: Number.parseInt(r.awaiting, 10),
+      exchangeAccess: r.exchange_access,
     });
   }
   return { program: programView(await traderProgram(ex)), traders };
@@ -198,8 +209,53 @@ async function deskOrderRows(ex: Executor, where: { traderId?: string; requestId
   return out;
 }
 
+/** A bank account as the reviewer sees it: everything the trader submitted but the full number (revealed on request). */
+export interface DeskBankView {
+  readonly bankAccountId: string;
+  readonly bankName: string;
+  readonly holderName: string;
+  readonly ifsc: string;
+  readonly last4: string;
+  readonly rails: readonly string[];
+  readonly status: DestinationStatus;
+  readonly submittedAt: string;
+  readonly reviewedAt: string | null;
+  readonly reviewNote: string | null;
+  /** Other clients on whose file the same account number is registered or waiting — something to ask about. */
+  readonly alsoOnFile: readonly string[];
+}
+
+export interface DeskWalletView {
+  readonly walletId: string;
+  readonly address: string;
+  readonly label: string;
+  readonly purpose: string;
+  readonly status: DestinationStatus;
+  readonly submittedAt: string;
+  readonly reviewedAt: string | null;
+  readonly reviewNote: string | null;
+  readonly alsoOnFile: readonly string[];
+}
+
 export interface DeskTraderDetail {
   readonly program: DeskProgram;
+  /** Who applied, in their own words. */
+  readonly applicant: {
+    readonly fullName: string;
+    readonly clientRef: string;
+    readonly entityType: 'INDIVIDUAL' | 'COMPANY';
+    readonly email: string | null;
+    readonly telegram: string | null;
+    readonly phoneLast4: string | null;
+    readonly experience: P2pExperience | null;
+    readonly profileLink: string | null;
+    readonly dailyInr: string | null;
+    readonly dailyUsdt: string | null;
+    readonly ownershipConfirmedAt: string | null;
+    readonly exchangeAccess: boolean;
+  };
+  /** A replacement the trader proposed, until the desk decides (TD-24). */
+  readonly proposal: { readonly bank: DeskBankView | null; readonly wallet: DeskWalletView | null };
   readonly trader: DeskTraderRow & {
     readonly typicalInr: string | null;
     readonly typicalUsdt: string | null;
@@ -209,8 +265,8 @@ export interface DeskTraderDetail {
     readonly rewardBps: number | null;
     readonly limits: { readonly maxOrderInr: string | null; readonly maxOrderUsdt: string | null; readonly maxCapacityInr: string | null; readonly maxCapacityUsdt: string | null };
   };
-  readonly bank: { readonly bankAccountId: string; readonly bankName: string; readonly holderName: string; readonly ifsc: string; readonly last4: string; readonly status: string };
-  readonly wallet: { readonly walletId: string; readonly address: string; readonly label: string; readonly purpose: string; readonly status: string };
+  readonly bank: DeskBankView;
+  readonly wallet: DeskWalletView;
   readonly clientDestinations: { readonly banks: readonly { id: string; label: string }[]; readonly wallets: readonly { id: string; label: string }[] };
   readonly blocks: readonly { side: TraderSide; status: string; rate: string | null; capacity: string; held: string; minOrder: string | null; maxOrder: string | null }[];
   readonly reserve: { readonly balance: string; readonly required: string | null; readonly locked: string; readonly available: string; readonly pendingRelease: string; readonly shortfall: string; readonly depositAddress: string | null };
@@ -221,6 +277,44 @@ export interface DeskTraderDetail {
   readonly decisions: readonly { at: string; action: string; actor: string | null; detail: string }[];
 }
 
+async function deskBank(ex: Executor, id: string): Promise<DeskBankView> {
+  const b = await ex
+    .selectFrom('bank_account')
+    .select(['id', 'client_id', 'bank_name', 'holder_name', 'ifsc', 'account_last4', 'account_hmac', 'rail_preferences', 'status', 'created_at', 'reviewed_at', 'review_note'])
+    .where('id', '=', id)
+    .executeTakeFirstOrThrow();
+  const others = await ex
+    .selectFrom('bank_account as o')
+    .innerJoin('client as c', 'c.id', 'o.client_id')
+    .select('c.ref')
+    .distinct()
+    .where('o.account_hmac', '=', b.account_hmac)
+    .where('o.client_id', '<>', b.client_id)
+    .where('o.status', 'in', ['ACTIVE', 'PENDING_REVIEW'])
+    .execute();
+  return {
+    bankAccountId: b.id, bankName: b.bank_name, holderName: b.holder_name, ifsc: b.ifsc, last4: b.account_last4, rails: b.rail_preferences, status: b.status,
+    submittedAt: b.created_at.toISOString(), reviewedAt: b.reviewed_at?.toISOString() ?? null, reviewNote: b.review_note, alsoOnFile: others.map((o) => o.ref),
+  };
+}
+
+async function deskWallet(ex: Executor, id: string): Promise<DeskWalletView> {
+  const w = await ex.selectFrom('crypto_wallet').select(['id', 'client_id', 'address', 'label', 'purpose', 'status', 'created_at', 'reviewed_at', 'review_note']).where('id', '=', id).executeTakeFirstOrThrow();
+  const others = await ex
+    .selectFrom('crypto_wallet as o')
+    .innerJoin('client as c', 'c.id', 'o.client_id')
+    .select('c.ref')
+    .distinct()
+    .where('o.address', '=', w.address)
+    .where('o.client_id', '<>', w.client_id)
+    .where('o.status', 'in', ['ACTIVE', 'PENDING_REVIEW'])
+    .execute();
+  return {
+    walletId: w.id, address: w.address, label: w.label, purpose: w.purpose, status: w.status,
+    submittedAt: w.created_at.toISOString(), reviewedAt: w.reviewed_at?.toISOString() ?? null, reviewNote: w.review_note, alsoOnFile: others.map((o) => o.ref),
+  };
+}
+
 /** One trader, with everything the desk may need to decide about it — and the record of what was decided. */
 export async function deskTrader(ex: Executor, traderId: string): Promise<DeskTraderDetail> {
   const id = requireUuid(traderId, 'traderId');
@@ -228,8 +322,8 @@ export async function deskTrader(ex: Executor, traderId: string): Promise<DeskTr
   const row = list.traders.find((t) => t.traderId === id);
   if (!row) throw new DomainError('NOT_FOUND', 'trader not found');
   const p = await ex.selectFrom('trader_profile').selectAll().where('id', '=', id).executeTakeFirstOrThrow();
-  const bank = await ex.selectFrom('bank_account').select(['id', 'bank_name', 'holder_name', 'ifsc', 'account_last4', 'status']).where('id', '=', p.bank_account_id).executeTakeFirstOrThrow();
-  const wallet = await ex.selectFrom('crypto_wallet').select(['id', 'address', 'label', 'purpose', 'status']).where('id', '=', p.wallet_id).executeTakeFirstOrThrow();
+  const client = await ex.selectFrom('client').select(['ref', 'display_name', 'type', 'exchange_access']).where('id', '=', p.client_id).executeTakeFirstOrThrow();
+  const applicant = await ex.selectFrom('auth_user').select('email').where('id', '=', p.applied_by).executeTakeFirst();
   const banks = await ex.selectFrom('bank_account').select(['id', 'bank_name', 'account_last4']).where('client_id', '=', p.client_id).where('status', '=', 'ACTIVE').execute();
   const wallets = await ex.selectFrom('crypto_wallet').select(['id', 'label', 'address', 'purpose']).where('client_id', '=', p.client_id).where('status', '=', 'ACTIVE').where('purpose', '=', 'BOTH').execute();
   const blocks = await readBlocks(ex, id);
@@ -269,6 +363,24 @@ export async function deskTrader(ex: Executor, traderId: string): Promise<DeskTr
 
   return {
     program: list.program,
+    applicant: {
+      fullName: client.display_name,
+      clientRef: client.ref,
+      entityType: client.type,
+      email: applicant?.email ?? null,
+      telegram: p.telegram_handle,
+      phoneLast4: p.phone_last4,
+      experience: p.p2p_experience,
+      profileLink: p.profile_link,
+      dailyInr: p.daily_capacity_inr_minor === null ? null : inr(p.daily_capacity_inr_minor),
+      dailyUsdt: p.daily_capacity_usdt_minor === null ? null : usdt(p.daily_capacity_usdt_minor),
+      ownershipConfirmedAt: p.ownership_confirmed_at?.toISOString() ?? null,
+      exchangeAccess: client.exchange_access,
+    },
+    proposal: {
+      bank: p.proposed_bank_account_id ? await deskBank(ex, p.proposed_bank_account_id) : null,
+      wallet: p.proposed_wallet_id ? await deskWallet(ex, p.proposed_wallet_id) : null,
+    },
     trader: {
       ...row,
       typicalInr: p.typical_inr_minor === null ? null : inr(p.typical_inr_minor),
@@ -284,8 +396,8 @@ export async function deskTrader(ex: Executor, traderId: string): Promise<DeskTr
         maxCapacityUsdt: p.max_capacity_usdt_minor === null ? null : usdt(p.max_capacity_usdt_minor),
       },
     },
-    bank: { bankAccountId: bank.id, bankName: bank.bank_name, holderName: bank.holder_name, ifsc: bank.ifsc, last4: bank.account_last4, status: bank.status },
-    wallet: { walletId: wallet.id, address: wallet.address, label: wallet.label, purpose: wallet.purpose, status: wallet.status },
+    bank: await deskBank(ex, p.bank_account_id),
+    wallet: await deskWallet(ex, p.wallet_id),
     clientDestinations: {
       banks: banks.map((b) => ({ id: b.id, label: `${b.bank_name} ••••${b.account_last4}` })),
       wallets: wallets.map((w) => ({ id: w.id, label: `${w.label} · ${w.address.slice(0, 4)}…${w.address.slice(-4)}` })),
@@ -328,7 +440,7 @@ function summarizeAudit(after: unknown): string {
   if (!after || typeof after !== 'object') return '';
   const a = after as Record<string, unknown>;
   const parts: string[] = [];
-  for (const key of ['status', 'available', 'assignments_enabled', 'reason', 'note', 'required_reserve', 'reward_bps']) {
+  for (const key of ['status', 'available', 'assignments_enabled', 'destination', 'label', 'bank', 'wallet', 'reason', 'note', 'required_reserve', 'reward_bps']) {
     const v = a[key];
     if (v === undefined || v === null) continue;
     parts.push(`${key.replace(/_/g, ' ')}: ${typeof v === 'object' ? JSON.stringify(v) : String(v)}`);

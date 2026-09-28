@@ -1,4 +1,4 @@
-import { CLOSING, ONBOARDING } from '../../../../content/site.ts';
+import { CLOSING, ONBOARDING, TRADER_ENTRY } from '../../../../content/site.ts';
 import { appOrigin, onboardingHref, siteContacts } from '../../../../server/site.ts';
 import { ArrowIcon } from '../icons.tsx';
 import styles from './closing.module.css';
@@ -35,6 +35,11 @@ export function Closing() {
               <span className={styles.contactAddress}>{desk}</span>
             </a>
           ) : null}
+          <h3 className={`${styles.newTitle} ${styles.traderTitle}`}>{TRADER_ENTRY.title}</h3>
+          <p className={styles.newBody}>{TRADER_ENTRY.body}</p>
+          <a className={styles.contact} href={`${appOrigin()}${TRADER_ENTRY.appPath}`}>
+            <span className={styles.contactLabel}>{TRADER_ENTRY.label}</span>
+          </a>
         </div>
       </div>
     </section>

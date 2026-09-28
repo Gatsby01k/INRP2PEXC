@@ -1,6 +1,7 @@
 # INRP2P Exchange — Traders
 
-Status: implemented (migration `0022_traders.sql`, packages `trader-core` and `traders`), 2026-09-27.
+Status: implemented (migration `0022_traders.sql`, packages `trader-core` and `traders`), 2026-09-27. Self-onboarding
+and trader-submitted settlement details: migration `0023_trader_self_onboarding.sql`, 2026-09-28.
 
 A **trader** is an onboarded client that provides INR or USDT capacity. INRP2P sends it matching client orders,
 privately, one order to one trader, and the trader earns a configured reward on each completed order. It is not a
@@ -39,7 +40,71 @@ Extensions to existing tables: `liquidity_route.trader_id` (trader routes are `T
 `rate_snapshot` source `TRADER` (owner-checked); `deposit_assignment` subject may be a trade, a trader's reserve, or
 a route obligation (exactly one); crypto payer/payee and fiat payee `TRADER`; client notification kinds `TRADER_*`.
 
-## 3. Trader states (`trader_profile.status`)
+Migration 0023: `client.exchange_access` (IX080 on `trade_request`); `PENDING_REVIEW` / `REJECTED` destination states
+with `reviewed_by`, `reviewed_at`, `review_note`; on `trader_profile` the application's own details (`p2p_experience`,
+`profile_link`, `telegram_handle`, sealed `phone_enc` + `phone_last4`, `daily_capacity_*`, `ownership_confirmed_at`)
+and a proposed replacement (`proposed_bank_account_id`, `proposed_wallet_id`, same-client guard IX070).
+
+## 3. Onboarding, access and trader states
+
+### 3.1 Becoming a trader (self-onboarding)
+
+Anyone may apply; nobody is provisioned by hand, allow-listed or seeded.
+
+```
+public site "Become a trader" ─▶ app host /become-a-trader ─▶ email ─▶ code ─▶ /traders/apply ─▶ submit
+   ─▶ UNDER_REVIEW ─▶ desk verifies the bank account and the wallet ─▶ desk approves ─▶ trader workspace
+```
+
+1. **Identity.** `/become-a-trader` (app host, no session) calls `startTraderAccessAction`, which makes sure the
+   address has a CLIENT sign-in identity (`ensureClientIdentity`): an address that already has one keeps it (an
+   existing client applies as itself — never a duplicate); a new one gets a bare identity with **no client, no role
+   and no permission**. Rate-limited per caller and per address; the answer never says which addresses exist. The
+   code is Better Auth's own email OTP, exactly as for the workspace sign-in, whose sign-up stays closed.
+2. **Application** (`trader.apply`): full name, Individual/Company, Telegram and/or phone (sealed), P2P experience
+   (Binance/Bybit/Other/No) and an optional profile link, what the trader provides (INR/USDT/both), typical order
+   and daily capacity per side, and settlement details — account holder, bank, account number (sealed, fingerprinted),
+   IFSC, IMPS/NEFT/RTGS, a TRC20 wallet and optional label — with the confirmation *"I confirm this bank account and
+   wallet belong to me or my company."* No rate is asked for; rates belong to an approved trader.
+   - A person with no client: the application creates their client **without Exchange access**
+     (`client.exchange_access = false`) and makes them its `CLIENT_ADMIN` **without** `can_accept_quotes`.
+   - A client's `CLIENT_ADMIN`: the application is that client's, under its name and type with the desk; it may use
+     bank accounts and wallets the desk already verified, or submit new ones.
+3. **Review.** Submitted details are `PENDING_REVIEW` and unusable (everything that settles asks for ACTIVE). The
+   desk verifies or rejects each (`trader.review_destination`, `traders:configure` ⧗) without retyping anything,
+   seeing the full address, the account number on request (`bank_account:reveal` ⧗) and any other client that has
+   the same account or wallet on file. A rejected detail can be replaced by the applicant while the application is
+   under review (`trader.propose_settlement_change`).
+4. **Approval** (`trader.approve` ⧗) is refused until both details are verified. It sets the reserve and the
+   ceilings as before, and — for a client without Exchange access only — grants the applicant `can_accept_quotes`,
+   the authority every trader action that binds money checks. Available is never switched on for the trader.
+
+Destination states (`bank_account.status`, `crypto_wallet.status`): `PENDING_REVIEW` (pending review) ─▶ `ACTIVE`
+(verified) ─▶ `ARCHIVED`; `PENDING_REVIEW` ─▶ `REJECTED`; `PENDING_REVIEW` ─▶ `ARCHIVED` when withdrawn or replaced.
+
+### 3.2 Access: one sign-in, routed by what the account is
+
+| Account | Exchange / History / Destinations | Traders | Notifications |
+|---|---|---|---|
+| Client onboarded by the desk (`exchange_access`) | ✔ | ✔ (apply, or trader screens) | ✔ |
+| Client that applied as a trader only | — (redirected to Traders) | ✔ | ✔ |
+| Verified email, no application yet | — (redirected to Traders) | apply only | — |
+
+`portalAccess` (the Exchange's gate) refuses anything but a member of a client with Exchange access
+(`EXCHANGE_NOT_ENABLED`, which the pages turn into a redirect to `/traders`), and the database refuses a trade
+request for a client without it (IX080), so no quote, trade or payout can exist for one. The desk opens the
+Exchange for a trader-only client with `client.set_exchange_access` (`client:manage`); the workspace sign-in has no
+client/trader choice.
+
+### 3.3 Settlement changes by an approved trader (TD-24, closed)
+
+An approved trader's administrator submits a new bank account and/or wallet (`trader.propose_settlement_change`).
+It waits `PENDING_REVIEW` beside the registered pair, which keeps settling every order. The desk approves
+(`trader.review_settlement_change` ⧗: verifies it, registers it, moves the trader's routes) or rejects it with a
+note the trader sees. Approval — and the desk's own `trader.set_settlement_details` — is refused while an order is
+accepted or in progress (`TRADER_ORDERS_OPEN`): an order settles with the details it was accepted under.
+
+### 3.4 Trader states (`trader_profile.status`)
 
 ```
 (none) ──apply──▶ UNDER_REVIEW ──approve (⧗)──▶ APPROVED ◀──resume (⧗)── PAUSED
@@ -47,8 +112,8 @@ a route obligation (exactly one); crypto payer/payee and fiat payee `TRADER`; cl
                        └──reject──▶ REJECTED ──apply again──▶ UNDER_REVIEW
 ```
 
-- **Apply** (`trader.apply`, CLIENT_ADMIN): sides, typical amounts, one registered bank account of the client and
-  one registered TRON wallet with purpose `BOTH`. No third-party destinations (IX070). Nothing is live.
+- **Apply** (`trader.apply`, §3.1): a new applicant or a client's CLIENT_ADMIN; one bank account and one TRON wallet
+  with purpose `BOTH`, of the trader's own client (IX070), verified before approval. Nothing is live.
 - **Approve** (`trader.approve`, `traders:configure` ⧗): sets the required reserve (from the programme or
   per trader — never invented), creates one route and one block per side (routes named `Trader TR-xxxx · Buy USDT`).
 - **Available** is the trader's own switch. Switching on requires approval, a set and funded reserve and active
@@ -193,7 +258,7 @@ traders were excluded.
 | `traders:view` | ✔ | ✔ | ✔ | Desk pages |
 | `traders:assign` | ✔ | ✔ | | Route a request, withdraw/release an order |
 | `traders:pause` | ⧗ | ⧗ | ⧗ | Pause, resume, assignments on/off |
-| `traders:configure` | ⧗ | | ⧗ | Programme, approve, reject, limits, reserve, reward, settlement details |
+| `traders:configure` | ⧗ | | ⧗ | Programme, approve, reject, limits, reserve, reward, settlement details, verify/reject submitted details, approve/reject settlement changes, reveal an applicant's phone |
 | `trader_payout:record` | ✔ | | ✔ | Record reserve withdrawal sent, reward payout |
 | `trader_payout:confirm` | ⧗ | | ⧗ | Confirm/reject withdrawals, confirm/fail payouts |
 
@@ -208,7 +273,8 @@ Through the existing outbox and client inbox (and email, where a provider is bou
 
 ## 13. Client surfaces
 
-`/traders` (onboarding, application status, or the working screen), `/traders/apply` (five steps),
+`/become-a-trader` (public entry on the app host), `/traders` (onboarding, application status with each detail's
+review state, or the working screen), `/traders/apply` (six steps), `/traders/settlement` (new bank account or wallet),
 `/traders/orders` (Active / Completed), `/traders/orders/[ref]` (progress, what to do now, payment details or the
 delivery address, evidence), `/traders/reserve`. The workspace robot reports the trader's own projection in one
 sentence (ready, focused for a new order, waiting, verifying, success, alert); no chat, no LLM, no voice. Sounds

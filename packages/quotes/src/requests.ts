@@ -33,6 +33,9 @@ export function createRequest(actor: QuoteActor, deps: Pick<QuoteDeps, 'policy'>
   const policy = policyOf(deps);
   return operatorOrMemberCommand(actor, 'request:create', async (_ctx, p: CreateRequestPayload) => requireUuid(p.clientId, 'clientId'), async (ctx, p, clientId) => {
     const client = await requireActiveClient(ctx.tx, clientId);
+    // A client that exists only as a trader has no Exchange until the desk opens it (migration 0023; IX080 backs this).
+    const access = await ctx.tx.selectFrom('client').select('exchange_access').where('id', '=', clientId).executeTakeFirstOrThrow();
+    if (!access.exchange_access) throw new DomainError('EXCHANGE_NOT_ENABLED', `the Exchange is not open for client ${client.ref}`);
     const direction = requireOneOf(p.direction, 'direction', ['SELL_USDT', 'BUY_USDT'] as const);
     if (!policy.enabledDirections.includes(direction)) throw new DomainError('DIRECTION_DISABLED', `${direction} is not enabled`);
     const fixedSide = requireOneOf(p.fixedSide, 'fixedSide', ['BASE', 'QUOTE'] as const);

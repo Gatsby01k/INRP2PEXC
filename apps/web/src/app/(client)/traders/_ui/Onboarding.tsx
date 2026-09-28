@@ -29,7 +29,7 @@ export function Onboarding({ canApply }: { canApply: boolean }) {
         </li>
         <li>
           <strong>Settle with INRP2P</strong>
-          Only through your own registered bank account and TRC20 wallet.
+          Only through your own bank account and TRC20 wallet, once the desk has verified them.
         </li>
       </ol>
       {canApply ? (

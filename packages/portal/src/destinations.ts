@@ -1,4 +1,4 @@
-import type { Executor } from '@inrp2p/db';
+import type { DestinationStatus, Executor } from '@inrp2p/db';
 import { clientSafe } from './access.ts';
 
 /**
@@ -16,7 +16,8 @@ export interface ClientBankAccount {
   readonly last4: string;
   readonly holderName: string;
   readonly rails: readonly string[];
-  readonly status: 'ACTIVE' | 'ARCHIVED';
+  /** ACTIVE is verified and usable; PENDING_REVIEW and REJECTED are details the client submitted (migration 0023). */
+  readonly status: DestinationStatus;
   readonly verified: boolean;
 }
 
@@ -26,7 +27,7 @@ export interface ClientWallet {
   readonly address: string;
   readonly label: string;
   readonly purpose: 'SOURCE' | 'DESTINATION' | 'BOTH';
-  readonly status: 'ACTIVE' | 'ARCHIVED';
+  readonly status: DestinationStatus;
 }
 
 export interface ClientDestinations {

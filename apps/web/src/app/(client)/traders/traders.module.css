@@ -1102,3 +1102,57 @@
     white-space: normal;
   }
 }
+
+/* ——— Settlement details the trader submits (application and changes) ——— */
+
+.railSet {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.rails {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-5);
+}
+
+.detailRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+}
+
+.detailNote {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-meta);
+  line-height: var(--line-height-normal);
+}
+
+.segmented {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.subhead {
+  margin: 0;
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-semibold);
+}
+
+.pill[data-tone='neutral'] {
+  --tone: var(--text-secondary);
+  --tone-soft: var(--bg-subtle);
+}
+
+@media (max-width: 599px) {
+  .segmented {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

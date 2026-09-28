@@ -5,7 +5,7 @@ import { getMigrations } from 'better-auth/db/migration';
 import { createTestDatabase, type TestDatabase } from '@inrp2p/db/testing';
 import { pgErrorCode } from '@inrp2p/db';
 import {
-  authorizeOperator, clientAuthOptions, operatorAuthOptions, provisionClientUser, provisionOperator,
+  authorizeOperator, clientAuthOptions, ensureClientIdentity, operatorAuthOptions, provisionClientUser, provisionOperator,
   requireClientSession, requireOperatorSession, type ClientAuth, type OperatorAuth,
 } from '../src/index.ts';
 import { APP, CookieJar, DESK, buildAuths, call, currentTotp, totpFromUri } from './support.ts';
@@ -166,6 +166,35 @@ describe('client email OTP login', () => {
     await call(client, APP, jar, '/sign-in/email-otp', { email, otp });
     expect(await t.app.selectFrom('auth_user').select('id').where('email', '=', email).execute()).toHaveLength(0);
     expect((await call(operator, DESK, new CookieJar(), '/sign-up/email', { email, password: PASSWORD, name: 'x' })).status).toBeGreaterThanOrEqual(400);
+  });
+});
+
+describe('the trader entry identity (docs/TRADERS.md §3)', () => {
+  it('creates a bare client identity for a new address, which the ordinary code then signs in — and nothing more', async () => {
+    const email = `Trader-${randomUUID()}@Example.com`;
+    const first = await ensureClientIdentity(client, t.app, { email });
+    expect(first).toMatchObject({ created: true });
+    const userId = (first as { userId: string }).userId;
+    const row = await t.app.selectFrom('auth_user').select(['email', 'kind', 'status', 'email_verified']).where('id', '=', userId).executeTakeFirstOrThrow();
+    expect(row).toEqual({ email: email.toLowerCase(), kind: 'CLIENT', status: 'ACTIVE', email_verified: false });
+    // No client, no role: an identity is not a client.
+    expect(await t.app.selectFrom('client_user').select('id').where('user_id', '=', userId).execute()).toHaveLength(0);
+
+    const jar = new CookieJar();
+    expect((await call(client, APP, jar, '/email-otp/send-verification-otp', { email, type: 'sign-in' })).status).toBe(200);
+    const otp = sentOtps.filter((m) => m.email === email.toLowerCase()).at(-1)!.otp;
+    expect((await call(client, APP, jar, '/sign-in/email-otp', { email, otp })).status).toBe(200);
+    expect((await requireClientSession(client, t.app, jar.headers(APP))).userId).toBe(userId);
+    expect((await t.app.selectFrom('auth_user').select('email_verified').where('id', '=', userId).executeTakeFirstOrThrow()).email_verified).toBe(true);
+  });
+
+  it('reuses an existing client identity — never a duplicate — and never hands out an operator’s address', async () => {
+    const email = `client-${randomUUID()}@acmepay.in`;
+    const userId = await provisionClientUser(client, { email, name: 'Existing Client' });
+    expect(await ensureClientIdentity(client, t.app, { email: ` ${email.toUpperCase()} ` })).toEqual({ userId, created: false });
+    expect(await t.app.selectFrom('auth_user').select('id').where('email', '=', email).execute()).toHaveLength(1);
+    const { email: operatorEmail } = await enrolledOperator();
+    expect(await ensureClientIdentity(client, t.app, { email: operatorEmail })).toEqual({ unavailable: true });
   });
 });
 

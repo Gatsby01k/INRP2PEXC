@@ -4,6 +4,7 @@ import { type FormEvent, type ReactNode, useEffect, useId, useRef, useState } fr
 import { useRouter } from 'next/navigation';
 import { ArcLoader } from '@inrp2p/ui';
 import { robotCues } from '../(public)/_landing/robot/cues.ts';
+import { startTraderAccessAction } from '../../server/actions/trader-access.ts';
 import { CodeField } from './CodeField.tsx';
 import { CODE_LENGTH, CODE_MINUTES, RESEND_AFTER_SECONDS, clock, looksLikeEmail, maskEmail } from './access.ts';
 import styles from './gateway.module.css';
@@ -71,7 +72,13 @@ async function post(path: string, body: unknown): Promise<Response | null> {
  *
  * Validation is the surface's own, next to the field it concerns, never the browser's bubble.
  */
-export function AccessSurface({ onboarding, unlinked }: { onboarding: string | null; unlinked: string }) {
+/**
+ * `TRADER` is the same surface for "Become a trader": before the first code is sent it asks the server to make sure
+ * the address has a sign-in identity (never more than that — see `startTraderAccessAction`), and once the code is
+ * taken it opens Traders, where the application starts. The code, its limits and its refusals are the same.
+ */
+export function AccessSurface({ onboarding, unlinked, mode = 'SIGN_IN' }: { onboarding: string | null; unlinked: string; mode?: 'SIGN_IN' | 'TRADER' }) {
+  const trader = mode === 'TRADER';
   const router = useRouter();
   const id = useId();
   const ids = {
@@ -149,6 +156,19 @@ export function AccessSurface({ onboarding, unlinked }: { onboarding: string | n
     if (mode === 'send') setEmailProblem(null);
     else setCodeProblem(null);
     robotCues.emit({ kind: 'wait', on: true });
+    if (trader && mode === 'send') {
+      const started = await startTraderAccessAction({ email: address }).catch(() => null);
+      if (!started?.ok) {
+        inFlight.current = false;
+        setBusy(null);
+        robotCues.emit({ kind: 'wait', on: false });
+        setEmailProblem(
+          started?.code === 'INVALID_EMAIL' ? { message: MESSAGES.email, field: true } : { message: started?.code === 'RATE_LIMITED' ? MESSAGES.tooMany : MESSAGES.unsent, field: false },
+        );
+        robotCues.emit({ kind: 'problem' });
+        return;
+      }
+    }
     const res = await post('/email-otp/send-verification-otp', { email: address, type: 'sign-in' });
     inFlight.current = false;
     setBusy(null);
@@ -184,8 +204,9 @@ export function AccessSurface({ onboarding, unlinked }: { onboarding: string | n
     robotCues.emit({ kind: 'wait', on: false });
     if (res?.ok) {
       robotCues.emit({ kind: 'submitted' });
-      // Still busy: the surface stays as it is until the workspace replaces it.
-      router.push('/exchange');
+      // Still busy: the surface stays as it is until the workspace replaces it. The server routes by what the
+      // account is: a client with the Exchange lands there, anyone else in Traders.
+      router.push(trader ? '/traders' : '/exchange');
       router.refresh();
       return;
     }
@@ -237,16 +258,16 @@ export function AccessSurface({ onboarding, unlinked }: { onboarding: string | n
   const busyLabel = busy === 'verify' ? 'Checking the code' : 'Sending a code';
 
   return (
-    <section className={styles.surface} aria-label="Workspace sign-in" data-robot-target="panel">
+    <section className={styles.surface} aria-label={trader ? 'Become a trader' : 'Workspace sign-in'} data-robot-target="panel">
       <p className={styles.product}>INRP2P Exchange</p>
 
       <div className={styles.faces} data-robot-target="cta">
         <Face face="EMAIL" stage={stage}>
           <form className={styles.form} noValidate onSubmit={submitEmail}>
-            <h2 className={styles.heading}>Welcome back.</h2>
+            <h2 className={styles.heading}>{trader ? 'Become a trader.' : 'Welcome back.'}</h2>
             <div className={styles.field} data-invalid={emailProblem?.field || undefined}>
               <label htmlFor={ids.email} className={styles.label}>
-                Work email
+                {trader ? 'Email' : 'Work email'}
               </label>
               <input
                 id={ids.email}
@@ -285,10 +306,20 @@ export function AccessSurface({ onboarding, unlinked }: { onboarding: string | n
                 )}
               </button>
               <p id={ids.emailNote} className={styles.note}>
-                We’ll send a 6-digit verification code to the work email registered with your desk account.
+                {trader
+                  ? 'We’ll send a 6-digit code to confirm it. Your application comes next; nothing is traded until the desk approves you.'
+                  : 'We’ll send a 6-digit verification code to the work email registered with your desk account.'}
               </p>
               <p className={styles.onboarding}>
-                {onboarding ? (
+                {trader ? (
+                  <>
+                    Already have a workspace?{' '}
+                    <a className={styles.onboardingLink} href="/sign-in">
+                      Open workspace
+                      <Arrow className={styles.onboardingIcon} />
+                    </a>
+                  </>
+                ) : onboarding ? (
                   <>
                     New to INRP2P?{' '}
                     <a className={styles.onboardingLink} href={onboarding}>

@@ -62,8 +62,14 @@ export function traderHomeAssistant(home: TraderHome): AssistantState {
   switch (home.state) {
     case 'NONE':
       return { mood: 'ready', label: 'Traders', title: 'Provide liquidity', body: 'Set how much INR or USDT you can provide. INRP2P sends matching orders to you.' };
-    case 'UNDER_REVIEW':
-      return { mood: 'waiting', label: 'Under review', title: 'Your application is under review', body: 'The desk checks your registered bank account and wallet. You will be told here and in Notifications.' };
+    case 'UNDER_REVIEW': {
+      const a = home.application;
+      const refused = a ? ([['bank account', a.bank], ['wallet', a.wallet]] as const).find(([, d]) => d.state === 'REJECTED') : undefined;
+      if (refused) {
+        return { mood: 'alert', label: 'Under review', title: `The desk could not verify your ${refused[0]}`, body: `${refused[1].note ? `${refused[1].note}. ` : ''}Submit new details to continue.` };
+      }
+      return { mood: 'waiting', label: 'Under review', title: 'Your application is under review', body: 'The desk verifies your bank account and wallet. You will be told here and in Notifications.' };
+    }
     case 'REJECTED':
       return { mood: 'alert', label: 'Not approved', title: 'Your application was not approved', body: home.application?.reviewNote ?? 'You can apply again.' };
     case 'PAUSED':
@@ -80,8 +86,9 @@ export function traderHomeAssistant(home: TraderHome): AssistantState {
     return { mood: 'alert', label: 'Reserve', title: 'Top up your Security Reserve', body: `${usdt(home.reserve.shortfall)} more is needed before new orders can be assigned.` };
   }
   if (home.issues.includes('DESTINATIONS_INACTIVE')) {
-    return { mood: 'alert', label: 'Settlement details', title: 'Your registered details changed', body: 'Your registered bank account or wallet is no longer active. Ask the desk to review them.' };
+    return { mood: 'alert', label: 'Settlement details', title: 'Your registered details changed', body: 'Your registered bank account or wallet is no longer active. Submit new details for the desk to review.' };
   }
+
   if (home.issues.includes('ASSIGNMENTS_DISABLED')) {
     return { mood: 'alert', label: 'On hold', title: 'New orders are paused by INRP2P', body: home.controlNote ?? 'Orders in progress continue.' };
   }

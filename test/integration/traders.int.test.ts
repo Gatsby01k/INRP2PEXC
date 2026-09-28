@@ -10,13 +10,13 @@ import { acceptQuote, createQuote, declineRequest, sendQuote } from '@inrp2p/quo
 import { confirmRouteSettlement, recordRouteSettlement } from '@inrp2p/settlement';
 import { globalImbalance, routeObligationBalances } from '@inrp2p/ledger';
 import {
-  acceptOrder, applyAsTrader, approveTrader, assignRequest, confirmRewardPayout, confirmReserveWithdrawal, declineOrder, deskTrader, orderDeliveryAddress,
+  acceptOrder, approveTrader, assignRequest, confirmRewardPayout, confirmReserveWithdrawal, declineOrder, deskTrader, orderDeliveryAddress,
   pauseTrader, reconcileOrderNow, recordReserveWithdrawalSent, recordRewardPayout, rejectTrader, requestReserveWithdrawal, reserveFigures, resumeTrader,
   runTraderSweep, setAvailability, setTraderLimits, setTraderRequiredReserve, submitOrderPayment, traderHome, traderOrderDetail, traderReserveAddress, traderRoutingHandler, updateBlock,
 } from '@inrp2p/traders';
 import { settleFirstLeg } from '../../packages/settlement/test/world.ts';
 import {
-  type TradersWorld, clientRequest, configureProgram, confirmOnChain, createTradersWorld, liveTrader, sendUsdt, traderClient, traderIdOf, tradeThroughTrader, utr,
+  type TradersWorld, applyAs, clientRequest, configureProgram, confirmOnChain, createTradersWorld, liveTrader, sendUsdt, traderClient, traderIdOf, tradeThroughTrader, utr,
 } from './traders-world.ts';
 
 let w: TradersWorld;
@@ -37,17 +37,17 @@ describe('applying and approval', () => {
   it('only an administrator applies, with its own send-and-receive wallet; nothing is traded before approval', async () => {
     const t = await traderClient(w, 'Kiran Capital');
     const destinationOnly = await traderClient(w, 'Wallet Only', 'DESTINATION');
-    await expect(runAs(w.app, applyAsTrader(t.member.actor), t.member.ref, 'trader.apply', { offersBuy: true, offersSell: false, typicalInr: '500000', bankAccountId: t.bankAccountId, walletId: t.walletId }))
+    await expect(applyAs(w, t.member, { offersBuy: true, offersSell: false, typicalInr: '500000', bankAccountId: t.bankAccountId, walletId: t.walletId }))
       .rejects.toMatchObject({ code: 'TRADER_ACTION_NOT_PERMITTED' });
-    await expect(runAs(w.app, applyAsTrader(destinationOnly.admin.actor), destinationOnly.admin.ref, 'trader.apply', { offersBuy: true, offersSell: false, typicalInr: '500000', bankAccountId: destinationOnly.bankAccountId, walletId: destinationOnly.walletId }))
+    await expect(applyAs(w, destinationOnly.admin, { offersBuy: true, offersSell: false, typicalInr: '500000', bankAccountId: destinationOnly.bankAccountId, walletId: destinationOnly.walletId }))
       .rejects.toMatchObject({ code: 'TRADER_DESTINATION_INVALID' });
     // Another client's bank account is never a trader's settlement account.
-    await expect(runAs(w.app, applyAsTrader(t.admin.actor), t.admin.ref, 'trader.apply', { offersBuy: true, offersSell: false, typicalInr: '500000', bankAccountId: w.bankAccountId, walletId: t.walletId }))
+    await expect(applyAs(w, t.admin, { offersBuy: true, offersSell: false, typicalInr: '500000', bankAccountId: w.bankAccountId, walletId: t.walletId }))
       .rejects.toMatchObject({ code: 'TRADER_DESTINATION_INVALID' });
 
-    const applied = await runAs(w.app, applyAsTrader(t.admin.actor), t.admin.ref, 'trader.apply', { offersBuy: true, offersSell: true, typicalInr: '500000', typicalUsdt: '5000', bankAccountId: t.bankAccountId, walletId: t.walletId });
+    const applied = await applyAs(w, t.admin, { offersBuy: true, offersSell: true, typicalInr: '500000', typicalUsdt: '5000', bankAccountId: t.bankAccountId, walletId: t.walletId });
     expect(applied.status).toBe('UNDER_REVIEW');
-    await expect(runAs(w.app, applyAsTrader(t.admin.actor), t.admin.ref, 'trader.apply', { offersBuy: true, offersSell: false, typicalInr: '1', bankAccountId: t.bankAccountId, walletId: t.walletId }))
+    await expect(applyAs(w, t.admin, { offersBuy: true, offersSell: false, typicalInr: '1', bankAccountId: t.bankAccountId, walletId: t.walletId }))
       .rejects.toMatchObject({ code: 'TRADER_EXISTS' });
     await expect(runAs(w.app, setAvailability(t.admin.actor), t.admin.ref, 'trader.set_availability', { available: true })).rejects.toMatchObject({ code: 'TRADER_NOT_APPROVED' });
     const home = await traderHome(w.app, t.member.userId);
@@ -56,7 +56,7 @@ describe('applying and approval', () => {
 
   it('approval needs a reserve the desk set — none is invented — and a finance or owner step-up', async () => {
     const t = await traderClient(w, 'Reserve First');
-    await runAs(w.app, applyAsTrader(t.admin.actor), t.admin.ref, 'trader.apply', { offersBuy: true, offersSell: false, typicalInr: '100000', bankAccountId: t.bankAccountId, walletId: t.walletId });
+    await applyAs(w, t.admin, { offersBuy: true, offersSell: false, typicalInr: '100000', bankAccountId: t.bankAccountId, walletId: t.walletId });
     const traderId = await traderIdOf(w.app, t.clientId);
     await expect(runAs(w.app, approveTrader(w.dealer.actor), w.dealer.ref, 'trader.approve', { traderId, requiredReserve: '500' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
     await expect(runAs(w.app, approveTrader(w.finance.actor), w.finance.ref, 'trader.approve', { traderId })).rejects.toMatchObject({ code: 'TRADER_RESERVE_NOT_SET' });
@@ -73,11 +73,11 @@ describe('applying and approval', () => {
 
   it('a rejected applicant sees the note and may apply again', async () => {
     const t = await traderClient(w, 'Second Try');
-    await runAs(w.app, applyAsTrader(t.admin.actor), t.admin.ref, 'trader.apply', { offersBuy: false, offersSell: true, typicalUsdt: '1000', bankAccountId: t.bankAccountId, walletId: t.walletId });
+    await applyAs(w, t.admin, { offersBuy: false, offersSell: true, typicalUsdt: '1000', bankAccountId: t.bankAccountId, walletId: t.walletId });
     const traderId = await traderIdOf(w.app, t.clientId);
     await runAs(w.app, rejectTrader(w.finance.actor), w.finance.ref, 'trader.reject', { traderId, note: 'Registered bank account name does not match.' });
     expect((await traderHome(w.app, t.admin.userId)).application?.reviewNote).toBe('Registered bank account name does not match.');
-    const again = await runAs(w.app, applyAsTrader(t.admin.actor), t.admin.ref, 'trader.apply', { offersBuy: false, offersSell: true, typicalUsdt: '1000', bankAccountId: t.bankAccountId, walletId: t.walletId });
+    const again = await applyAs(w, t.admin, { offersBuy: false, offersSell: true, typicalUsdt: '1000', bankAccountId: t.bankAccountId, walletId: t.walletId });
     expect(again.status).toBe('UNDER_REVIEW');
   });
 });
@@ -86,7 +86,7 @@ describe('the Security Reserve', () => {
   it('is credited only from the trader’s registered wallet, on chain finality, and must cover the requirement to switch on', async () => {
     await configureProgram(w, { reserve: '500', rewardBps: 10, collection: true });
     const t = await traderClient(w, 'Reserve Holder');
-    await runAs(w.app, applyAsTrader(t.admin.actor), t.admin.ref, 'trader.apply', { offersBuy: true, offersSell: false, typicalInr: '100000', bankAccountId: t.bankAccountId, walletId: t.walletId });
+    await applyAs(w, t.admin, { offersBuy: true, offersSell: false, typicalInr: '100000', bankAccountId: t.bankAccountId, walletId: t.walletId });
     const traderId = await traderIdOf(w.app, t.clientId);
     await runAs(w.app, approveTrader(w.finance.actor), w.finance.ref, 'trader.approve', { traderId });
     await expect(runAs(w.app, setAvailability(t.admin.actor), t.admin.ref, 'trader.set_availability', { available: true })).rejects.toMatchObject({ code: 'TRADER_RESERVE_SHORT' });

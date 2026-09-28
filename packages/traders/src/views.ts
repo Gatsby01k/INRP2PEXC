@@ -1,10 +1,10 @@
 import { sql } from 'kysely';
 import { DomainError, Money, Rate, requireText } from '@inrp2p/kernel';
-import type { Executor, TraderOrderStatus, TraderSide, TraderStatus } from '@inrp2p/db';
+import type { DestinationStatus, Executor, P2pExperience, TraderOrderStatus, TraderSide, TraderStatus } from '@inrp2p/db';
 import type { FieldProtector } from '@inrp2p/adapters';
 import { inrAccountSealContext } from '@inrp2p/inr-accounts';
 import { obligationRemaining } from '@inrp2p/settlement';
-import { traderMembership, traderProgram } from '@inrp2p/trader-core';
+import { traderApplicant, traderMembership, traderProgram } from '@inrp2p/trader-core';
 import { COUNTERPARTY_FUNDED } from './delivery.ts';
 import { type BlockIssue, type StandingIssue, blockIssues, freeCapacity, standingIssues } from './eligibility.ts';
 import { type OrderStage, type OrderStep, orderStage, orderSteps } from './progress.ts';
@@ -203,19 +203,42 @@ export interface EarningsView {
   readonly completedInr: string;
 }
 
+/**
+ * A bank account or wallet as its trader sees it: what it is, and where the desk's review of it stands. `VERIFIED`
+ * is the only state anything settles through.
+ */
+export type ReviewState = 'PENDING_REVIEW' | 'VERIFIED' | 'REJECTED' | 'ARCHIVED';
+
+export interface DestinationView {
+  readonly label: string;
+  readonly state: ReviewState;
+  /** The desk's note when it rejected it. */
+  readonly note: string | null;
+}
+
+export const reviewState = (status: DestinationStatus): ReviewState => (status === 'ACTIVE' ? 'VERIFIED' : status);
+
 export interface TraderHome {
   readonly state: 'NONE' | TraderStatus;
   readonly ref: string | null;
-  /** This user may apply (CLIENT_ADMIN) / act for the trader (can accept quotes). */
+  /** This user may apply (a person with no client yet, or a CLIENT_ADMIN) / act for the trader (can accept quotes). */
   readonly canApply: boolean;
   readonly canAct: boolean;
   readonly application: {
+    readonly fullName: string;
+    readonly entityType: 'INDIVIDUAL' | 'COMPANY';
     readonly offersBuy: boolean;
     readonly offersSell: boolean;
     readonly typicalInr: string | null;
     readonly typicalUsdt: string | null;
-    readonly bank: string;
-    readonly wallet: string;
+    readonly dailyInr: string | null;
+    readonly dailyUsdt: string | null;
+    readonly experience: P2pExperience | null;
+    readonly profileLink: string | null;
+    readonly telegram: string | null;
+    readonly phoneLast4: string | null;
+    readonly bank: DestinationView;
+    readonly wallet: DestinationView;
     readonly appliedAt: string;
     readonly reviewNote: string | null;
   } | null;
@@ -231,6 +254,13 @@ export interface TraderHome {
   readonly recentlyCompleted: OrderSummary | null;
   readonly earnings: EarningsView | null;
   readonly registered: { readonly bank: string; readonly wallet: string; readonly walletAddress: string } | null;
+  /**
+   * A replacement bank account or wallet the trader submitted (TD-24): waiting for the desk, or refused with its note.
+   * The registered details above keep settling every order until the desk approves it.
+   */
+  readonly proposal: { readonly bank: DestinationView | null; readonly wallet: DestinationView | null };
+  /** Orders accepted or in progress — the desk changes settlement details only once there are none. */
+  readonly openOrders: number;
   readonly paymentDetailsPublished: boolean;
   /** Database time, so a countdown on the page starts from the server's clock. */
   readonly now: string;
@@ -290,35 +320,68 @@ async function reserveView(ex: Executor, traderId: string): Promise<ReserveView>
   };
 }
 
-/** The trader's working screen: standing, capacity, reserve, offers, active orders and earnings. */
+const bankText = (name: string, digits: string) => `${name} ••••${digits}`;
+
+async function bankView(ex: Executor, id: string | null): Promise<DestinationView | null> {
+  if (!id) return null;
+  const b = await ex.selectFrom('bank_account').select(['bank_name', 'account_last4', 'status', 'review_note']).where('id', '=', id).executeTakeFirstOrThrow();
+  return { label: bankText(b.bank_name, b.account_last4), state: reviewState(b.status), note: b.status === 'REJECTED' ? b.review_note : null };
+}
+
+async function walletView(ex: Executor, id: string | null): Promise<DestinationView | null> {
+  if (!id) return null;
+  const w = await ex.selectFrom('crypto_wallet').select(['address', 'status', 'review_note']).where('id', '=', id).executeTakeFirstOrThrow();
+  return { label: `TRC20 · ${maskWallet(w.address)}`, state: reviewState(w.status), note: w.status === 'REJECTED' ? w.review_note : null };
+}
+
+const NO_PROPOSAL = { bank: null, wallet: null } as const;
+
+/**
+ * The trader's working screen: standing, capacity, reserve, offers, active orders and earnings — or, before that,
+ * the application and where the desk's review of each part of it stands. A person who verified their email but has
+ * not applied yet has no client, and sees the way to apply.
+ */
 export async function traderHome(ex: Executor, userId: string): Promise<TraderHome> {
-  const member = await traderMembership(ex, userId);
+  const { member } = await traderApplicant(ex, userId);
   const now = await nowOf(ex);
-  const profile = await ex
-    .selectFrom('trader_profile as t')
-    .innerJoin('bank_account as b', 'b.id', 't.bank_account_id')
-    .innerJoin('crypto_wallet as w', 'w.id', 't.wallet_id')
-    .select([
-      't.id', 't.ref', 't.status', 't.available', 't.assignments_enabled', 't.control_note', 't.offers_buy', 't.offers_sell', 't.typical_inr_minor', 't.typical_usdt_minor',
-      't.applied_at', 't.review_note', 'b.bank_name', 'b.account_last4', 'w.address',
-    ])
-    .where('t.client_id', '=', member.clientId)
-    .executeTakeFirst();
-  const base = { canApply: member.role === 'CLIENT_ADMIN', canAct: member.canCommit, now: now.toISOString() };
+  const profile = member
+    ? await ex
+        .selectFrom('trader_profile as t')
+        .innerJoin('client as c', 'c.id', 't.client_id')
+        .innerJoin('bank_account as b', 'b.id', 't.bank_account_id')
+        .innerJoin('crypto_wallet as w', 'w.id', 't.wallet_id')
+        .select([
+          't.id', 't.ref', 't.status', 't.available', 't.assignments_enabled', 't.control_note', 't.offers_buy', 't.offers_sell', 't.typical_inr_minor', 't.typical_usdt_minor',
+          't.daily_capacity_inr_minor', 't.daily_capacity_usdt_minor', 't.p2p_experience', 't.profile_link', 't.telegram_handle', 't.phone_last4',
+          't.applied_at', 't.review_note', 't.bank_account_id', 't.wallet_id', 't.proposed_bank_account_id', 't.proposed_wallet_id',
+          'c.display_name', 'c.type', 'b.bank_name', 'b.account_last4', 'w.address',
+        ])
+        .where('t.client_id', '=', member.clientId)
+        .executeTakeFirst()
+    : undefined;
+  const base = { canApply: member === null || member.role === 'CLIENT_ADMIN', canAct: member?.canCommit ?? false, now: now.toISOString() };
   if (!profile) {
     return traderSafe({
       state: 'NONE' as const, ref: null, ...base, application: null, available: false, controlNote: null, assignmentsEnabled: true, issues: [], blocks: [], reserve: null,
-      offers: [], active: [], recentlyCompleted: null, earnings: null, registered: null, paymentDetailsPublished: false,
+      offers: [], active: [], recentlyCompleted: null, earnings: null, registered: null, proposal: NO_PROPOSAL, openOrders: 0, paymentDetailsPublished: false,
     });
   }
-  const bank = `${profile.bank_name} ••••${profile.account_last4}`;
+  const bank = bankText(profile.bank_name, profile.account_last4);
   const application = {
+    fullName: profile.display_name,
+    entityType: profile.type,
     offersBuy: profile.offers_buy,
     offersSell: profile.offers_sell,
     typicalInr: profile.typical_inr_minor === null ? null : inr(profile.typical_inr_minor),
     typicalUsdt: profile.typical_usdt_minor === null ? null : usdt(profile.typical_usdt_minor),
-    bank,
-    wallet: maskWallet(profile.address),
+    dailyInr: profile.daily_capacity_inr_minor === null ? null : inr(profile.daily_capacity_inr_minor),
+    dailyUsdt: profile.daily_capacity_usdt_minor === null ? null : usdt(profile.daily_capacity_usdt_minor),
+    experience: profile.p2p_experience,
+    profileLink: profile.profile_link,
+    telegram: profile.telegram_handle,
+    phoneLast4: profile.phone_last4,
+    bank: (await bankView(ex, profile.bank_account_id))!,
+    wallet: (await walletView(ex, profile.wallet_id))!,
     appliedAt: profile.applied_at.toISOString(),
     reviewNote: profile.review_note,
   };
@@ -326,9 +389,10 @@ export async function traderHome(ex: Executor, userId: string): Promise<TraderHo
   if (profile.status === 'UNDER_REVIEW' || profile.status === 'REJECTED') {
     return traderSafe({
       state: profile.status, ref: profile.ref, ...base, application, available: false, controlNote: null, assignmentsEnabled: profile.assignments_enabled, issues: [], blocks: [],
-      reserve: null, offers: [], active: [], recentlyCompleted: null, earnings: null, registered, paymentDetailsPublished: false,
+      reserve: null, offers: [], active: [], recentlyCompleted: null, earnings: null, registered, proposal: NO_PROPOSAL, openOrders: 0, paymentDetailsPublished: false,
     });
   }
+  const proposal = { bank: await bankView(ex, profile.proposed_bank_account_id), wallet: await walletView(ex, profile.proposed_wallet_id) };
 
   const { standing } = await readStanding(ex, profile.id);
   const blocks = await readBlocks(ex, profile.id);
@@ -388,6 +452,8 @@ export async function traderHome(ex: Executor, userId: string): Promise<TraderHo
       completedInr: e.completedInr.toDecimalString(),
     },
     registered,
+    proposal,
+    openOrders: summaries.filter((x) => x.status === 'ACCEPTED' || x.status === 'IN_PROGRESS').length,
     paymentDetailsPublished: program.collectionAccountId !== null,
   });
 }
@@ -516,22 +582,46 @@ export async function traderOrderDetail(ex: Executor, userId: string, ref: strin
   });
 }
 
-/** Step 3 and 4 of the application: the client's own registered destinations, and the reserve the desk requires. */
-export async function traderApplicationOptions(ex: Executor, userId: string): Promise<{
-  banks: readonly { id: string; label: string; holder: string }[];
-  wallets: readonly { id: string; label: string; address: string; usable: boolean }[];
-  reserveRequired: string | null;
-  canApply: boolean;
-}> {
-  const member = await traderMembership(ex, userId);
+/**
+ * What the application form starts from: the applicant's name and type (an existing client's are its record with the
+ * desk and are shown, not asked), the bank accounts and wallets already verified on its file that it may use as they
+ * are, and the reserve the desk requires. A new applicant has nothing on file and types everything.
+ */
+export interface TraderApplicationOptions {
+  readonly banks: readonly { id: string; label: string; holder: string }[];
+  readonly wallets: readonly { id: string; label: string; address: string; usable: boolean }[];
+  readonly reserveRequired: string | null;
+  readonly canApply: boolean;
+  readonly profile: {
+    readonly fullName: string | null;
+    readonly entityType: 'INDIVIDUAL' | 'COMPANY' | null;
+    /** The name is the desk's record for a client it onboarded; a trader-only client may correct its own. */
+    readonly nameFixed: boolean;
+    readonly typeFixed: boolean;
+    readonly telegram: string | null;
+    readonly email: string;
+  };
+}
+
+export async function traderApplicationOptions(ex: Executor, userId: string): Promise<TraderApplicationOptions> {
+  const { member } = await traderApplicant(ex, userId);
+  const program = await traderProgram(ex);
+  const user = await ex.selectFrom('auth_user').select('email').where('id', '=', userId).executeTakeFirstOrThrow();
+  if (!member) {
+    return traderSafe({
+      banks: [], wallets: [], reserveRequired: program.defaultRequiredReserve?.toDecimalString() ?? null, canApply: true,
+      profile: { fullName: null, entityType: null, nameFixed: false, typeFixed: false, telegram: null, email: user.email },
+    });
+  }
+  const client = await ex.selectFrom('client').select(['display_name', 'type', 'exchange_access']).where('id', '=', member.clientId).executeTakeFirstOrThrow();
+  const previous = await ex.selectFrom('trader_profile').select('telegram_handle').where('client_id', '=', member.clientId).executeTakeFirst();
   const banks = await ex.selectFrom('bank_account').select(['id', 'bank_name', 'account_last4', 'holder_name']).where('client_id', '=', member.clientId).where('status', '=', 'ACTIVE').orderBy('created_at').execute();
   const wallets = await ex.selectFrom('crypto_wallet').select(['id', 'label', 'address', 'purpose']).where('client_id', '=', member.clientId).where('status', '=', 'ACTIVE').where('network', '=', 'TRON').orderBy('created_at').execute();
-  const program = await traderProgram(ex);
   return traderSafe({
     banks: banks.map((b) => ({ id: b.id, label: `${b.bank_name} ••••${b.account_last4}`, holder: b.holder_name })),
     wallets: wallets.map((w) => ({ id: w.id, label: w.label, address: w.address, usable: w.purpose === 'BOTH' })),
     reserveRequired: program.defaultRequiredReserve?.toDecimalString() ?? null,
     canApply: member.role === 'CLIENT_ADMIN',
+    profile: { fullName: client.display_name, entityType: client.type, nameFixed: client.exchange_access, typeFixed: true, telegram: previous?.telegram_handle ?? null, email: user.email },
   });
 }
-

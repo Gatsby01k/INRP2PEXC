@@ -2,7 +2,7 @@ import { notFound } from 'next/navigation';
 import { isDomainError } from '@inrp2p/kernel';
 import { type TraderOrderDetail, traderOrderDetail } from '@inrp2p/traders';
 import { formatIstDateTime } from '@inrp2p/ui/format';
-import { clientPage } from '../../../../../server/client.ts';
+import { memberPage } from '../../../../../server/client.ts';
 import { protectorForWeb } from '../../../../../server/quotes.ts';
 import { PageHead } from '../../../_workspace/PageHead.tsx';
 import { OrderPill } from '../../_ui/OrderPill.tsx';
@@ -14,7 +14,7 @@ export const dynamic = 'force-dynamic';
 /** One order, as its trader sees it. Another trader's reference is "not found", never "forbidden". */
 export default async function TraderOrderPage({ params }: { params: Promise<{ ref: string }> }) {
   const { ref } = await params;
-  const ctx = await clientPage();
+  const ctx = await memberPage();
   let detail: TraderOrderDetail;
   try {
     detail = await traderOrderDetail(ctx.db, ctx.actor.userId, decodeURIComponent(ref), protectorForWeb());
@@ -31,7 +31,7 @@ export default async function TraderOrderPage({ params }: { params: Promise<{ re
         status={<OrderPill stage={o.stage} status={o.status} size="lg" />}
         lede={`${o.side === 'BUY_USDT' ? 'Buy' : 'Sell'} ${usdt(o.usdt)} · offered ${formatIstDateTime(new Date(o.offeredAt))}`}
       />
-      <OrderScreen detail={detail} canAct={ctx.access.canAcceptQuotes} />
+      <OrderScreen detail={detail} canAct={ctx.member.canAcceptQuotes} />
     </>
   );
 }

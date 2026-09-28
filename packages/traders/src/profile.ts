@@ -3,9 +3,9 @@ import { DomainError, Money, requireText, requireUuid } from '@inrp2p/kernel';
 import type { Tx, TxContext } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
 import { enqueueOutbox } from '@inrp2p/outbox';
-import { type ClientActor, type OperatorActor, actorLabel, operatorCommand } from '@inrp2p/identity';
+import { type OperatorActor, actorLabel, operatorCommand } from '@inrp2p/identity';
 import { createTraderRoute, updateTraderRouteRegistration } from '@inrp2p/routes';
-import { lockTrader, traderClientCommand, parseRewardBps, traderProgram, withdrawOffers } from '@inrp2p/trader-core';
+import { lockTrader, parseRewardBps, traderProgram, withdrawOffers } from '@inrp2p/trader-core';
 
 export interface RegisteredDestinations {
   readonly bank: { id: string; bankName: string; last4: string; holderName: string };
@@ -13,108 +13,65 @@ export interface RegisteredDestinations {
 }
 
 /**
- * The trader's own registered settlement details (step 3 of the application): one bank account and one TRC20
- * wallet, both already on this client's file with the desk — never an account typed in here, never a third party's.
+ * The trader's registered settlement details: one bank account and one TRC20 wallet of its own client, both verified
+ * (ACTIVE) — details the trader submitted itself count only once an operator has verified them (migration 0023).
  *
  * The wallet must be usable both ways (`BOTH`): a trader's USDT leaves from it (Sell USDT orders, Security Reserve
  * deposits) and comes back to it (Buy USDT orders, reserve withdrawals). The bank account is where the trader's INR
  * comes from and where INR is paid to it.
  */
-export async function requireRegisteredDestinations(tx: Tx, clientId: string, input: { bankAccountId: string; walletId: string }): Promise<RegisteredDestinations> {
+export async function requireVerifiedBank(tx: Tx, clientId: string, bankAccountId: string): Promise<RegisteredDestinations['bank']> {
   const bank = await tx
     .selectFrom('bank_account')
     .select(['id', 'client_id', 'status', 'bank_name', 'account_last4', 'holder_name'])
-    .where('id', '=', requireUuid(input.bankAccountId, 'bankAccountId'))
+    .where('id', '=', requireUuid(bankAccountId, 'bankAccountId'))
     .forShare()
     .executeTakeFirst();
-  if (!bank || bank.client_id !== clientId || bank.status !== 'ACTIVE') {
-    throw new DomainError('TRADER_DESTINATION_INVALID', 'choose an active bank account registered to your account');
-  }
+  if (!bank || bank.client_id !== clientId) throw new DomainError('TRADER_DESTINATION_INVALID', 'choose a bank account registered to your account');
+  if (bank.status === 'PENDING_REVIEW') throw new DomainError('TRADER_DESTINATION_UNVERIFIED', 'the bank account is waiting for the desk to verify it');
+  if (bank.status !== 'ACTIVE') throw new DomainError('TRADER_DESTINATION_INVALID', 'choose an active bank account registered to your account');
+  return { id: bank.id, bankName: bank.bank_name, last4: bank.account_last4, holderName: bank.holder_name };
+}
+
+export async function requireVerifiedWallet(tx: Tx, clientId: string, walletId: string): Promise<RegisteredDestinations['wallet']> {
   const wallet = await tx
     .selectFrom('crypto_wallet')
     .select(['id', 'client_id', 'status', 'purpose', 'address', 'label', 'network'])
-    .where('id', '=', requireUuid(input.walletId, 'walletId'))
+    .where('id', '=', requireUuid(walletId, 'walletId'))
     .forShare()
     .executeTakeFirst();
-  if (!wallet || wallet.client_id !== clientId || wallet.status !== 'ACTIVE' || wallet.network !== 'TRON') {
-    throw new DomainError('TRADER_DESTINATION_INVALID', 'choose an active TRC20 wallet registered to your account');
-  }
+  if (!wallet || wallet.client_id !== clientId || wallet.network !== 'TRON') throw new DomainError('TRADER_DESTINATION_INVALID', 'choose a TRC20 wallet registered to your account');
+  if (wallet.status === 'PENDING_REVIEW') throw new DomainError('TRADER_DESTINATION_UNVERIFIED', 'the wallet is waiting for the desk to verify it');
+  if (wallet.status !== 'ACTIVE') throw new DomainError('TRADER_DESTINATION_INVALID', 'choose an active TRC20 wallet registered to your account');
   if (wallet.purpose !== 'BOTH') {
     throw new DomainError('TRADER_DESTINATION_INVALID', 'the wallet must be registered for sending and receiving: your USDT leaves from it and returns to it');
   }
-  return {
-    bank: { id: bank.id, bankName: bank.bank_name, last4: bank.account_last4, holderName: bank.holder_name },
-    wallet: { id: wallet.id, address: wallet.address, label: wallet.label },
-  };
+  return { id: wallet.id, address: wallet.address, label: wallet.label };
 }
 
-const positiveOrNull = (value: string | null | undefined, currency: 'INR' | 'USDT', field: string): bigint | null => {
+export async function requireRegisteredDestinations(tx: Tx, clientId: string, input: { bankAccountId: string; walletId: string }): Promise<RegisteredDestinations> {
+  return { bank: await requireVerifiedBank(tx, clientId, input.bankAccountId), wallet: await requireVerifiedWallet(tx, clientId, input.walletId) };
+}
+
+/** The payout identity a trader route carries: the bank, never the full account number. */
+export const payoutIdentityOf = (bank: { bankName: string; last4: string }): string => `${bank.bankName} ••••${bank.last4}`;
+
+export const positiveOrNull = (value: string | null | undefined, currency: 'INR' | 'USDT', field: string): bigint | null => {
   if (value === undefined || value === null || value === '') return null;
   const m = Money.parse(value, currency);
   if (!m.isPositive()) throw new DomainError('INVALID_AMOUNT', `${field} must be positive`, { field });
   return m.minor;
 };
 
-export interface ApplyPayload {
-  readonly offersBuy: boolean;
-  readonly offersSell: boolean;
-  /** Typical INR the trader can provide (Buy USDT), decimal INR. */
-  readonly typicalInr?: string | null;
-  /** Typical USDT the trader can provide (Sell USDT), decimal USDT. */
-  readonly typicalUsdt?: string | null;
-  readonly bankAccountId: string;
-  readonly walletId: string;
-}
-
 /**
- * `trader.apply` — a `CLIENT_ADMIN` of the client. Records the application as UNDER_REVIEW; nothing can be traded
- * until an operator approves it. A rejected application may be made again; a pending or approved one may not.
+ * Settlement details change only between orders: an order accepted or in progress settles with the details it was
+ * accepted under, so the desk switches them once the trader has none open (TD-24).
  */
-export function applyAsTrader(actor: ClientActor) {
-  return traderClientCommand(actor, 'ADMIN', async (ctx, p: ApplyPayload, member) => {
-    const offersBuy = p.offersBuy === true;
-    const offersSell = p.offersSell === true;
-    if (!offersBuy && !offersSell) throw new DomainError('INVALID_ARGUMENT', 'choose INR, USDT or both', { field: 'offers' });
-    const typicalInr = offersBuy ? positiveOrNull(p.typicalInr, 'INR', 'typicalInr') : null;
-    const typicalUsdt = offersSell ? positiveOrNull(p.typicalUsdt, 'USDT', 'typicalUsdt') : null;
-    if (offersBuy && typicalInr === null) throw new DomainError('INVALID_AMOUNT', 'enter the INR you can typically provide', { field: 'typicalInr' });
-    if (offersSell && typicalUsdt === null) throw new DomainError('INVALID_AMOUNT', 'enter the USDT you can typically provide', { field: 'typicalUsdt' });
-    const destinations = await requireRegisteredDestinations(ctx.tx, member.clientId, p);
-
-    const existing = await ctx.tx.selectFrom('trader_profile').select(['id', 'status', 'version']).where('client_id', '=', member.clientId).forUpdate().executeTakeFirst();
-    const values = {
-      offers_buy: offersBuy,
-      offers_sell: offersSell,
-      typical_inr_minor: typicalInr,
-      typical_usdt_minor: typicalUsdt,
-      bank_account_id: destinations.bank.id,
-      wallet_id: destinations.wallet.id,
-      applied_by: member.userId,
-    };
-    let traderId: string;
-    let ref: string;
-    if (existing) {
-      if (existing.status !== 'REJECTED') throw new DomainError('TRADER_EXISTS', existing.status === 'UNDER_REVIEW' ? 'your application is already under review' : 'this account is already a trader');
-      const row = await ctx.tx
-        .updateTable('trader_profile')
-        .set({ ...values, status: 'UNDER_REVIEW', applied_at: sql<Date>`inrp2p_now()`, reviewed_by: null, reviewed_at: null, review_note: null, updated_at: sql<Date>`inrp2p_now()`, version: existing.version + 1 })
-        .where('id', '=', existing.id)
-        .returning(['id', 'ref'])
-        .executeTakeFirstOrThrow();
-      traderId = row.id;
-      ref = row.ref;
-    } else {
-      const row = await ctx.tx.insertInto('trader_profile').values({ client_id: member.clientId, ...values }).returning(['id', 'ref']).executeTakeFirstOrThrow();
-      traderId = row.id;
-      ref = row.ref;
-    }
-    await appendAudit(ctx, {
-      action: 'trader.applied', entityType: 'trader_profile', entityId: traderId,
-      after: { ref, offers_buy: offersBuy, offers_sell: offersSell, typical_inr_minor: typicalInr, typical_usdt_minor: typicalUsdt, bank_account_id: destinations.bank.id, wallet_id: destinations.wallet.id, reapplied: Boolean(existing) },
-    });
-    await enqueueOutbox(ctx, { type: 'trader.applied', aggregateType: 'trader_profile', aggregateId: traderId, payload: { traderId, clientId: member.clientId } });
-    return { traderId, ref, status: 'UNDER_REVIEW' as const };
-  });
+export async function assertNoOpenOrders(tx: Tx, traderId: string): Promise<void> {
+  const open = await tx.selectFrom('trader_order').select('ref').where('trader_id', '=', traderId).where('status', 'in', ['ACCEPTED', 'IN_PROGRESS']).execute();
+  if (open.length > 0) {
+    throw new DomainError('TRADER_ORDERS_OPEN', `the trader has ${open.length === 1 ? 'an order' : `${open.length} orders`} in progress (${open.map((o) => o.ref).join(', ')}); change settlement details once they are finished`);
+  }
 }
 
 export interface LimitsPayload {
@@ -144,10 +101,13 @@ export interface ApprovePayload extends LimitsPayload {
 }
 
 /**
- * `trader.approve` — `traders:configure` (⧗). The operator confirms the registered bank account and wallet,
- * fixes the Security Reserve the trader must keep locked, and the trader's route and capacity block are opened for
- * each side it applied for. The trader starts offline, with its blocks paused: nothing is assigned until the
- * trader has funded its reserve, set its rates and switched on.
+ * `trader.approve` — `traders:configure` (⧗). The bank account and wallet must already be verified (each is its own
+ * decision, `trader.review_destination`); approval fixes the Security Reserve the trader must keep locked and opens
+ * the trader's route and capacity block for each side it applied for. The trader starts offline, with its blocks
+ * paused: nothing is assigned until the trader has funded its reserve, set its rates and switched on itself.
+ *
+ * A client that exists only to provide capacity (no Exchange access) gets, here and only here, the authority to
+ * commit to orders: its applicant becomes able to accept orders for it. Verifying an email never grants that.
  */
 export function approveTrader(actor: OperatorActor) {
   return operatorCommand(actor, 'traders:configure', async (ctx, p: ApprovePayload) => {
@@ -157,10 +117,12 @@ export function approveTrader(actor: OperatorActor) {
     const program = await traderProgram(ctx.tx);
     const reserve = p.requiredReserve ? Money.parse(p.requiredReserve, 'USDT') : program.defaultRequiredReserve;
     if (!reserve || !reserve.isPositive()) throw new DomainError('TRADER_RESERVE_NOT_SET', 'set the Security Reserve for this trader, or a programme default, before approving');
+    const unverified = await pendingRegistered(ctx.tx, profile.bank_account_id, profile.wallet_id);
+    if (unverified.length > 0) throw new DomainError('TRADER_DESTINATION_UNVERIFIED', `verify the submitted ${unverified.join(' and ')} before approving`);
     const destinations = await requireRegisteredDestinations(ctx.tx, trader.client_id, { bankAccountId: profile.bank_account_id, walletId: profile.wallet_id });
     const note = typeof p.note === 'string' && p.note.trim() ? p.note.trim().slice(0, 500) : null;
 
-    const payoutIdentity = `${destinations.bank.bankName} ••••${destinations.bank.last4}`;
+    const payoutIdentity = payoutIdentityOf(destinations.bank);
     const sides = [...(profile.offers_buy ? (['BUY_USDT'] as const) : []), ...(profile.offers_sell ? (['SELL_USDT'] as const) : [])];
     for (const side of sides) {
       const existing = await ctx.tx.selectFrom('trader_block').select('id').where('trader_id', '=', trader.id).where('side', '=', side).executeTakeFirst();
@@ -192,6 +154,7 @@ export function approveTrader(actor: OperatorActor) {
       .returning(['required_reserve_minor', 'reward_bps', 'max_order_inr_minor', 'max_order_usdt_minor', 'max_capacity_inr_minor', 'max_capacity_usdt_minor'])
       .executeTakeFirstOrThrow();
     await appendAudit(ctx, { action: 'trader.approved', entityType: 'trader_profile', entityId: trader.id, before: { status: trader.status }, after: { status: 'APPROVED', sides, note, ...after } });
+    await grantTraderCommitment(ctx, trader.client_id, profile.applied_by);
     await enqueueOutbox(ctx, { type: 'trader.approved', aggregateType: 'trader_profile', aggregateId: trader.id, payload: { traderId: trader.id, clientId: trader.client_id } });
     return { status: 'APPROVED' as const, sides };
   });
@@ -334,26 +297,67 @@ export function setTraderReward(actor: OperatorActor) {
 }
 
 /**
- * `trader.set_settlement_details` — `traders:configure` (⧗). The one way a trader's registered bank account or
- * wallet changes once approved: the desk reviews it (the trader's own screen cannot). The trader's routes follow,
- * so deliveries are expected from, and paid to, the new wallet.
+ * `trader.set_settlement_details` — `traders:configure` (⧗). The desk points the trader at another of its client's
+ * verified bank accounts or wallets (a trader proposes its own with `trader.propose_settlement_change`). Refused
+ * while an order is accepted or in progress. The trader's routes follow, so deliveries are expected from, and paid
+ * to, the new wallet.
  */
 export function setTraderSettlementDetails(actor: OperatorActor) {
   return operatorCommand(actor, 'traders:configure', async (ctx, p: { traderId: string; bankAccountId: string; walletId: string; reason: string }) => {
     const reason = requireText(p.reason, 'reason', 500);
     const trader = await lockTrader(ctx, p.traderId);
     const destinations = await requireRegisteredDestinations(ctx.tx, trader.client_id, p);
+    if (destinations.bank.id !== trader.bank_account_id || destinations.wallet.id !== trader.wallet_id) await assertNoOpenOrders(ctx.tx, trader.id);
+    // A proposal the trader made for the side the desk just set is settled by this decision.
+    const profile = await ctx.tx.selectFrom('trader_profile').select(['proposed_bank_account_id', 'proposed_wallet_id']).where('id', '=', trader.id).executeTakeFirstOrThrow();
     await ctx.tx
       .updateTable('trader_profile')
-      .set({ bank_account_id: destinations.bank.id, wallet_id: destinations.wallet.id, updated_at: sql<Date>`inrp2p_now()`, version: trader.version + 1 })
+      .set({
+        bank_account_id: destinations.bank.id,
+        wallet_id: destinations.wallet.id,
+        ...(profile.proposed_bank_account_id === destinations.bank.id ? { proposed_bank_account_id: null } : {}),
+        ...(profile.proposed_wallet_id === destinations.wallet.id ? { proposed_wallet_id: null } : {}),
+        updated_at: sql<Date>`inrp2p_now()`,
+        version: trader.version + 1,
+      })
       .where('id', '=', trader.id)
       .execute();
-    await updateTraderRouteRegistration(ctx, { traderId: trader.id, registeredRouteAddress: destinations.wallet.address, registeredPayoutIdentity: `${destinations.bank.bankName} ••••${destinations.bank.last4}`, reason });
+    await updateTraderRouteRegistration(ctx, { traderId: trader.id, registeredRouteAddress: destinations.wallet.address, registeredPayoutIdentity: payoutIdentityOf(destinations.bank), reason });
     await appendAudit(ctx, {
       action: 'trader.settlement_details_changed', entityType: 'trader_profile', entityId: trader.id,
       before: { bank_account_id: trader.bank_account_id, wallet_id: trader.wallet_id }, after: { bank_account_id: destinations.bank.id, wallet_id: destinations.wallet.id, reason },
     });
     return { changed: true };
+  });
+}
+
+/** Which of a profile's registered destinations still wait for the desk. */
+async function pendingRegistered(tx: Tx, bankAccountId: string, walletId: string): Promise<string[]> {
+  const bank = await tx.selectFrom('bank_account').select('status').where('id', '=', bankAccountId).executeTakeFirstOrThrow();
+  const wallet = await tx.selectFrom('crypto_wallet').select('status').where('id', '=', walletId).executeTakeFirstOrThrow();
+  return [...(bank.status === 'PENDING_REVIEW' ? ['bank account'] : []), ...(wallet.status === 'PENDING_REVIEW' ? ['wallet'] : [])];
+}
+
+/**
+ * On approval of a client that provides capacity only, its applicant may commit to orders — the authority every
+ * trader action that binds money checks (`can_accept_quotes`, D-01). Such a client has no Exchange access, so this
+ * opens no quote to anyone (IX080 refuses its requests). A client the desk onboarded keeps the authority it set.
+ */
+async function grantTraderCommitment(ctx: TxContext, clientId: string, userId: string): Promise<void> {
+  const client = await ctx.tx.selectFrom('client').select('exchange_access').where('id', '=', clientId).executeTakeFirstOrThrow();
+  if (client.exchange_access) return;
+  const cu = await ctx.tx
+    .selectFrom('client_user')
+    .select(['id', 'role', 'status', 'can_accept_quotes'])
+    .where('client_id', '=', clientId)
+    .where('user_id', '=', userId)
+    .forUpdate()
+    .executeTakeFirst();
+  if (!cu || cu.status !== 'ACTIVE' || cu.role !== 'CLIENT_ADMIN' || cu.can_accept_quotes) return;
+  await ctx.tx.updateTable('client_user').set({ can_accept_quotes: true, updated_at: sql<Date>`statement_timestamp()` }).where('id', '=', cu.id).execute();
+  await appendAudit(ctx, {
+    action: 'client_user.accept_permission_changed', entityType: 'client_user', entityId: cu.id,
+    before: { can_accept_quotes: false }, after: { can_accept_quotes: true, changed_via: 'trader.approve' },
   });
 }
 

@@ -6,7 +6,7 @@ import { markNotificationsRead } from '@inrp2p/notifications';
 import { quoteIdForRef, requestIdForRef } from '@inrp2p/portal';
 import { acceptQuote, createRequest, rejectQuote, withdrawRequest } from '@inrp2p/quotes';
 import { type CommandResult, failure } from '../command.ts';
-import { runClientCommand, withClient } from '../client.ts';
+import { runClientCommand, withClient, withMember } from '../client.ts';
 
 /**
  * What a client can do, as server actions.
@@ -74,7 +74,7 @@ export async function rejectQuoteAction(input: { quoteRef: string }, key: string
  */
 export async function markNotificationsReadAction(ids: readonly string[]): Promise<CommandResult<{ marked: number }>> {
   try {
-    const out = await withClient(async (ctx) => ({ marked: await markNotificationsRead(ctx.db, ctx.access.clientId, ids) }));
+    const out = await withMember(async (ctx, member) => ({ marked: await markNotificationsRead(ctx.db, member.clientId, ids) }));
     if (out.ok) revalidatePath('/notifications', 'layout');
     return out;
   } catch (e) {

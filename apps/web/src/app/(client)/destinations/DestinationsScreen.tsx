@@ -18,11 +18,14 @@ const PURPOSE: Record<ClientWallet['purpose'], string> = {
   BOTH: 'Sends and receives USDT',
 };
 
-function Status({ active }: { active: boolean }) {
+const STATUS_WORDS: Record<ClientWallet['status'], string> = { ACTIVE: 'Verified', PENDING_REVIEW: 'Pending review', REJECTED: 'Rejected', ARCHIVED: 'Archived' };
+
+/** Only a verified destination is ever paid to; one the client submitted waits for the desk (migration 0023). */
+function Status({ status }: { status: ClientWallet['status'] }) {
   return (
-    <span className={styles.status} data-active={active}>
+    <span className={styles.status} data-active={status === 'ACTIVE'} data-state={status.toLowerCase()}>
       <span className={styles.statusDot} aria-hidden="true" />
-      {active ? 'Active' : 'Archived'}
+      {STATUS_WORDS[status]}
     </span>
   );
 }
@@ -82,7 +85,7 @@ export function DestinationsScreen({ destinations, clientName, role, canAccept }
           ) : (
             <ul className={styles.rows}>
               {banks.map((b) => (
-                <li key={b.id} className={styles.row} data-archived={b.status === 'ARCHIVED' || undefined}>
+                <li key={b.id} className={styles.row} data-archived={b.status === 'ARCHIVED' || b.status === 'REJECTED' || undefined}>
                   <span className={styles.icon}>
                     <BankIcon />
                   </span>
@@ -102,7 +105,7 @@ export function DestinationsScreen({ destinations, clientName, role, canAccept }
                         Verified
                       </span>
                     ) : null}
-                    <Status active={b.status === 'ACTIVE'} />
+                    <Status status={b.status} />
                   </span>
                 </li>
               ))}
@@ -122,7 +125,7 @@ export function DestinationsScreen({ destinations, clientName, role, canAccept }
           ) : (
             <ul className={styles.rows}>
               {wallets.map((w) => (
-                <li key={w.id} className={styles.row} data-archived={w.status === 'ARCHIVED' || undefined}>
+                <li key={w.id} className={styles.row} data-archived={w.status === 'ARCHIVED' || w.status === 'REJECTED' || undefined}>
                   <span className={styles.icon}>
                     <WalletIcon />
                   </span>
@@ -137,7 +140,7 @@ export function DestinationsScreen({ destinations, clientName, role, canAccept }
                   </span>
                   <span className={styles.tags}>
                     <CopyButton value={w.address} label={`address of ${w.label}`} />
-                    <Status active={w.status === 'ACTIVE'} />
+                    <Status status={w.status} />
                   </span>
                 </li>
               ))}

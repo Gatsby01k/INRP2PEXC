@@ -2,6 +2,7 @@ export * from '@inrp2p/trader-core';
 export * from './eligibility.ts';
 export * from './standing.ts';
 export * from './profile.ts';
+export * from './onboarding.ts';
 export * from './blocks.ts';
 export * from './routing.ts';
 export * from './orders.ts';

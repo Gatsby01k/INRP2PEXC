@@ -45,6 +45,16 @@ describe('proxy gating', () => {
     }
   });
 
+  it('serves "Become a trader" without a session on the client host only, and nothing beneath it', () => {
+    expect(gateFor('CLIENT', '/become-a-trader')).toBe('CLIENT_SIGN_IN');
+    expect(gateFor('CLIENT', '/become-a-trader/')).toBe('CLIENT_SIGN_IN');
+    for (const path of ['/become-a-trader/x', '/become-a-traderx', '/traders', '/traders/apply']) {
+      expect(gateFor('CLIENT', path), path).toBe('CLIENT_SESSION');
+    }
+    expect(gateFor('PUBLIC', '/become-a-trader')).toBe('CLIENT_SESSION');
+    expect(gateFor('OPERATOR', '/become-a-trader')).toBe('OPERATOR_SESSION');
+  });
+
   it('publishes the quote link on the public host (D-01)', () => {
     expect(gateFor('PUBLIC', '/q/AbCdEfGhIjKlMnOpQrStUv')).toBe('PUBLIC');
     expect(gateFor('PUBLIC', '/q')).toBe('PUBLIC');

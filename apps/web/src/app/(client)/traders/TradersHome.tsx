@@ -16,6 +16,7 @@ import { EarningsCard } from './_ui/EarningsCard.tsx';
 import { OfferCard } from './_ui/OfferCard.tsx';
 import { Onboarding } from './_ui/Onboarding.tsx';
 import { ReserveCard } from './_ui/ReserveCard.tsx';
+import { SettlementCard } from './_ui/SettlementCard.tsx';
 import shell from '../shell.module.css';
 import styles from './traders.module.css';
 
@@ -74,24 +75,7 @@ export function TradersHome({ home }: { home: TraderHome }) {
               {home.earnings ? <EarningsCard earnings={home.earnings} /> : null}
               {home.reserve ? <ReserveCard reserve={home.reserve} /> : null}
             </div>
-            {home.registered ? (
-              <section className={shell.card} aria-labelledby="registered-title">
-                <h2 id="registered-title" className={shell.cardTitle}>
-                  Registered settlement details
-                </h2>
-                <dl className={shell.facts}>
-                  <div>
-                    <dt>Bank account</dt>
-                    <dd>{home.registered.bank}</dd>
-                  </div>
-                  <div>
-                    <dt>TRC20 wallet</dt>
-                    <dd title={home.registered.walletAddress}>{home.registered.wallet}</dd>
-                  </div>
-                </dl>
-                <p className={styles.note}>You settle only through these. Changing them is reviewed by the desk — ask on your usual channel.</p>
-              </section>
-            ) : null}
+            {home.registered ? <SettlementCard home={home} /> : null}
           </>
         ) : null}
       </main>

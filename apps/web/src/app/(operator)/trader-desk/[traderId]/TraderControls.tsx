@@ -5,9 +5,10 @@ import type { DeskTraderDetail } from '@inrp2p/traders';
 import { Button } from '@inrp2p/ui';
 import { useCommand } from '../../../../components/useCommand.tsx';
 import {
-  approveTraderAction, pauseTraderAction, rejectTraderAction, resumeTraderAction, revealBankAccountAction, setAssignmentsAction, setLimitsAction,
-  setRequiredReserveAction, setRewardAction, setSettlementDetailsAction,
+  approveTraderAction, pauseTraderAction, rejectTraderAction, resumeTraderAction, setAssignmentsAction, setLimitsAction, setRequiredReserveAction, setRewardAction,
+  setSettlementDetailsAction,
 } from '../../../../server/actions/traders-desk.ts';
+import { TraderReview } from './TraderReview.tsx';
 import styles from '../traders.module.css';
 
 export interface TraderPerms {
@@ -50,8 +51,9 @@ export function TraderControls({ detail, perms }: { detail: DeskTraderDetail; pe
   const [reason, setReason] = useState('');
   const [bankId, setBankId] = useState(detail.bank.bankAccountId);
   const [walletId, setWalletId] = useState(detail.wallet.walletId);
-  const [revealed, setRevealed] = useState<string | null>(null);
   const approved = t.status === 'APPROVED' || t.status === 'PAUSED';
+  // Approval waits for both submitted details to be verified (each its own decision, in the review beside this).
+  const detailsVerified = detail.bank.status === 'ACTIVE' && detail.wallet.status === 'ACTIVE';
   const hasReason = reason.trim().length >= 3;
   const limits = { maxOrderInr: blank(maxOrderInr), maxOrderUsdt: blank(maxOrderUsdt), maxCapacityInr: blank(maxCapInr), maxCapacityUsdt: blank(maxCapUsdt) };
 
@@ -104,7 +106,7 @@ export function TraderControls({ detail, perms }: { detail: DeskTraderDetail; pe
               <div className="ix-row">
                 <Button
                   intent="primary"
-                  disabled={cmd.busy || blank(reserve) === null}
+                  disabled={cmd.busy || blank(reserve) === null || !detailsVerified}
                   onClick={() =>
                     cmd.run(`Approve ${t.ref}`, (key) =>
                       approveTraderAction({ traderId: t.traderId, requiredReserve: blank(reserve), rewardBps: reward.trim() === '' ? null : Number.parseInt(reward, 10), ...limits, note: blank(reason) }, key),
@@ -117,6 +119,7 @@ export function TraderControls({ detail, perms }: { detail: DeskTraderDetail; pe
                   Reject
                 </Button>
               </div>
+              {detailsVerified ? null : <span className="ix-hint">Verify the submitted bank account and wallet first.</span>}
             </>
           ) : null}
           {approved && perms.pause ? (
@@ -172,30 +175,11 @@ export function TraderControls({ detail, perms }: { detail: DeskTraderDetail; pe
         </div>
       </section>
 
-      <section className="ix-card" aria-label="Registered settlement details">
-        <h2 className="ix-sectionTitle">Registered settlement details</h2>
-        <dl className={styles.facts}>
-          <dt>Bank</dt>
-          <dd>
-            {detail.bank.bankName} · {detail.bank.holderName} · {detail.bank.ifsc} · {revealed ?? `••••${detail.bank.last4}`} ({detail.bank.status.toLowerCase()})
-          </dd>
-          <dt>Wallet</dt>
-          <dd className={styles.mono}>
-            {detail.wallet.address} · {detail.wallet.label} · {detail.wallet.purpose.toLowerCase()} ({detail.wallet.status.toLowerCase()})
-          </dd>
-        </dl>
-        {perms.reveal && !revealed ? (
-          <Button
-            intent="ghost"
-            onClick={async () => {
-              const out = await cmd.run('Reveal the bank account number', () => revealBankAccountAction({ bankAccountId: detail.bank.bankAccountId }));
-              if (out.ok) setRevealed(out.result.accountNumber);
-            }}
-          >
-            Reveal account number
-          </Button>
-        ) : null}
-        {perms.configure && approved ? (
+      <TraderReview detail={detail} perms={perms} />
+
+      {perms.configure && approved ? (
+        <section className="ix-card" aria-label="Switch settlement details">
+          <h2 className="ix-sectionTitle">Switch to another verified destination</h2>
           <div className={styles.form}>
             <div className="ix-field">
               <label htmlFor="c-bank">Bank account</label>
@@ -218,14 +202,15 @@ export function TraderControls({ detail, perms }: { detail: DeskTraderDetail; pe
               </select>
             </div>
             <Button
-              disabled={cmd.busy || !hasReason || (bankId === detail.bank.bankAccountId && walletId === detail.wallet.walletId)}
+              disabled={cmd.busy || !hasReason || t.openOrders > 0 || (bankId === detail.bank.bankAccountId && walletId === detail.wallet.walletId)}
               onClick={() => cmd.run(`Change settlement details for ${t.ref}`, (key) => setSettlementDetailsAction({ traderId: t.traderId, bankAccountId: bankId, walletId, reason }, key))}
             >
               Change settlement details
             </Button>
+            {t.openOrders > 0 ? <span className="ix-hint">Not while an order is accepted or in progress.</span> : null}
           </div>
-        ) : null}
-      </section>
+        </section>
+      ) : null}
 
       <section className="ix-card" aria-label="Capacity">
         <h2 className="ix-sectionTitle">Capacity and rates (set by the trader)</h2>

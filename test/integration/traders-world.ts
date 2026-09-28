@@ -10,7 +10,7 @@ import { acceptQuote, createQuote, createRequest, sendQuote } from '@inrp2p/quot
 import { submitTxForVerification } from '@inrp2p/settlement';
 import { runTronConfirm } from '@inrp2p/scanner';
 import {
-  type TraderDeps, acceptOrder, applyAsTrader, approveTrader, assignRequest, configureTraderProgram, setAvailability, traderReserveAddress, updateBlock,
+  type ApplyPayload, type TraderDeps, acceptOrder, applyAsTrader, approveTrader, assignRequest, configureTraderProgram, setAvailability, traderReserveAddress, updateBlock,
 } from '@inrp2p/traders';
 import { createWorld, type World } from '../../packages/settlement/test/world.ts';
 
@@ -99,13 +99,27 @@ export async function sendUsdt(w: TradersWorld, from: string, to: string, amount
   return { receipt, detected };
 }
 
+/**
+ * `trader.apply` with the details every application carries (a contact, P2P experience, the ownership confirmation,
+ * and a daily capacity no lower than the typical order) filled in, so a test states only what it is about.
+ */
+export function applyAs(w: TradersWorld, who: TraderPerson, p: Partial<ApplyPayload> & Pick<ApplyPayload, 'offersBuy' | 'offersSell'>) {
+  const payload: ApplyPayload = {
+    experience: 'BINANCE', telegram: '@desk_tester', confirmOwnership: true,
+    ...(p.typicalInr ? { dailyInr: p.typicalInr } : {}),
+    ...(p.typicalUsdt ? { dailyUsdt: p.typicalUsdt } : {}),
+    ...p,
+  };
+  return runAs(w.app, applyAsTrader(who.actor, w.traderDeps), who.ref, 'trader.apply', payload);
+}
+
 /** Apply → approve → fund the reserve → set blocks → switch on. */
 export async function liveTrader(
   w: TradersWorld,
   setup: TraderSetup,
   opts: { buy?: { capacity: string; rate: string; min: string; max: string }; sell?: { capacity: string; rate: string; min: string; max: string }; reserve?: string } = {},
 ): Promise<{ traderId: string; buyRouteId: string | null; sellRouteId: string | null }> {
-  await runAs(w.app, applyAsTrader(setup.admin.actor), setup.admin.ref, 'trader.apply', {
+  await applyAs(w, setup.admin, {
     offersBuy: Boolean(opts.buy), offersSell: Boolean(opts.sell), typicalInr: opts.buy ? opts.buy.capacity : null, typicalUsdt: opts.sell ? opts.sell.capacity : null,
     bankAccountId: setup.bankAccountId, walletId: setup.walletId,
   });

@@ -37,6 +37,23 @@ export async function traderMembership(ex: Executor, userId: string): Promise<Tr
   return { userId, clientUserId: row.id, clientId: row.client_id, role: row.role, canCommit: row.can_accept_quotes };
 }
 
+/**
+ * Who is applying: a signed-in client user, and their client when they have one. Someone who verified their email
+ * through "Become a trader" has none yet — their application creates it (docs/TRADERS.md §3). An existing client's
+ * user applies as that client, so no one is ever duplicated.
+ */
+export interface TraderApplicant {
+  readonly userId: string;
+  readonly member: TraderMember | null;
+}
+
+export async function traderApplicant(ex: Executor, userId: string): Promise<TraderApplicant> {
+  const user = await ex.selectFrom('auth_user').select(['kind', 'status']).where('id', '=', requireUuid(userId, 'userId')).executeTakeFirst();
+  if (!user || user.kind !== 'CLIENT' || user.status !== 'ACTIVE') throw new DomainError('FORBIDDEN', 'this account cannot apply');
+  const linked = await ex.selectFrom('client_user').select('id').where('user_id', '=', userId).executeTakeFirst();
+  return { userId, member: linked ? await traderMembership(ex, userId) : null };
+}
+
 export function assertAuthority(member: TraderMember, need: TraderAuthority): void {
   if (need === 'ADMIN' && member.role !== 'CLIENT_ADMIN') {
     throw new DomainError('TRADER_ACTION_NOT_PERMITTED', 'only an administrator of this account can apply to be a trader');

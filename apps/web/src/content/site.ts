@@ -640,6 +640,18 @@ export const CLOSING = {
 } as const;
 
 /**
+ * The way in for someone who wants to provide capacity rather than trade: the client app's own trader entry, where
+ * an email and a code start an application. Anyone may apply; the desk reviews every trader before any order is
+ * sent, and applying opens nothing else.
+ */
+export const TRADER_ENTRY = {
+  label: 'Become a trader',
+  appPath: '/become-a-trader',
+  title: 'Provide INR or USDT capacity?',
+  body: 'Apply with your own email. The desk reviews every trader before any order is sent.',
+} as const;
+
+/**
  * The footer's links, by what they are for. Every one leads somewhere that exists: a page, a section of the home
  * page, the client app, or an address that is configured. Nothing is linked that has not been written — there
  * is no privacy notice, no terms and no operating entity to name until they exist, so none is linked or named.
@@ -649,6 +661,7 @@ export const FOOTER = {
   links: {
     request: 'Request a quote',
     signIn: 'Client sign in',
+    trader: TRADER_ENTRY.label,
     flow: 'How a trade runs',
     desk: 'Execution desk',
     controls: 'Operational controls',

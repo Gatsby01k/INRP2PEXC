@@ -51,16 +51,42 @@ const home = (over: Partial<TraderHome> = {}): TraderHome => ({
   recentlyCompleted: null,
   earnings: null,
   registered: { bank: 'Kotak Mahindra Bank ••••1234', wallet: 'TAjV…CTnD', walletAddress: 'TAjV000000000000000000000000000CTnD' },
+  proposal: { bank: null, wallet: null },
+  openOrders: 0,
   paymentDetailsPublished: true,
   now: '2026-09-27T17:51:00.000Z',
   ...over,
 });
 
+const application = (over: Partial<NonNullable<TraderHome['application']>> = {}): NonNullable<TraderHome['application']> => ({
+  fullName: 'Kiran Capital', entityType: 'COMPANY', offersBuy: true, offersSell: false, typicalInr: '100000.00', typicalUsdt: null, dailyInr: '500000.00', dailyUsdt: null,
+  experience: 'BINANCE', profileLink: null, telegram: '@kiran_p2p', phoneLast4: null,
+  bank: { label: 'Kotak Mahindra Bank ••••1234', state: 'PENDING_REVIEW', note: null },
+  wallet: { label: 'TRC20 · TAjV…CTnD', state: 'PENDING_REVIEW', note: null },
+  appliedAt: '2026-09-27T17:00:00.000Z', reviewNote: null,
+  ...over,
+});
+
 describe('the trader home robot', () => {
+  it('under review, says which submitted detail the desk could not verify', () => {
+    const waiting = traderHomeAssistant(home({ state: 'UNDER_REVIEW', application: application() }));
+    expect(waiting).toMatchObject({ mood: 'waiting', label: 'Under review' });
+    const refused = traderHomeAssistant(home({ state: 'UNDER_REVIEW', application: application({ wallet: { label: 'TRC20 · TAjV…CTnD', state: 'REJECTED', note: 'Not your wallet' } }) }));
+    expect(refused).toMatchObject({ mood: 'alert', title: 'The desk could not verify your wallet' });
+    expect(refused.body).toContain('Not your wallet');
+  });
+
+  it('an approved trader’s replacement details change nothing it reports: the registered ones still settle', () => {
+    for (const state of ['PENDING_REVIEW', 'REJECTED'] as const) {
+      const r = traderHomeAssistant(home({ available: false, proposal: { bank: { label: 'HDFC Bank ••••9876', state, note: null }, wallet: null } }));
+      expect(r).toMatchObject({ mood: 'ready', label: 'Offline' });
+    }
+  });
+
   it('before applying, under review, rejected and paused each say exactly that', () => {
     expect(traderHomeAssistant(home({ state: 'NONE', ref: null }))).toMatchObject({ mood: 'ready', title: 'Provide liquidity' });
     expect(traderHomeAssistant(home({ state: 'UNDER_REVIEW' }))).toMatchObject({ mood: 'waiting', label: 'Under review' });
-    expect(traderHomeAssistant(home({ state: 'REJECTED', application: { offersBuy: true, offersSell: false, typicalInr: '1', typicalUsdt: null, bank: 'b', wallet: 'w', appliedAt: 'x', reviewNote: 'Bank account name does not match' } })))
+    expect(traderHomeAssistant(home({ state: 'REJECTED', application: application({ reviewNote: 'Bank account name does not match' }) })))
       .toMatchObject({ mood: 'alert', body: 'Bank account name does not match' });
     const paused = traderHomeAssistant(home({ state: 'PAUSED', controlNote: 'Statement check', active: [order({ ref: 'TO-1', stage: 'YOUR_TURN', youOwe: '104700.00' })] }));
     expect(paused).toMatchObject({ mood: 'alert', label: 'Paused' });

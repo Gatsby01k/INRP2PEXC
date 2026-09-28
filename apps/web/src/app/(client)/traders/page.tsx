@@ -1,5 +1,5 @@
 import { traderHome } from '@inrp2p/traders';
-import { clientPage } from '../../../server/client.ts';
+import { workspacePage } from '../../../server/client.ts';
 import { PageHead } from '../_workspace/PageHead.tsx';
 import { TradersHome } from './TradersHome.tsx';
 
@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic';
  * the trader projection (`@inrp2p/traders` views), which carries nothing about the client on the other side.
  */
 export default async function TradersPage() {
-  const ctx = await clientPage();
+  const ctx = await workspacePage();
   const home = await traderHome(ctx.db, ctx.actor.userId);
   const working = home.state === 'APPROVED' || home.state === 'PAUSED';
   return (

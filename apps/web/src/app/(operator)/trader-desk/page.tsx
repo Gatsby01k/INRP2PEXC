@@ -21,8 +21,10 @@ const ISSUE: Record<string, string> = {
 };
 
 /**
- * Traders, for the desk (`traders:view`): applications waiting first, then every trader with what matters for
- * routing — status, online, reserve against requirement, open and unresolved orders — and the programme settings.
+ * Traders, for the desk (`traders:view`): new applications first, then traders with submitted bank accounts or
+ * wallets to review, then every trader with what matters for routing — status, online, reserve against requirement,
+ * open and unresolved orders — and the programme settings. Anyone can apply through "Become a trader"; nothing an
+ * applicant submits is usable until it is verified here.
  */
 export default async function TradersDeskPage() {
   const ctx = await operatorPage();
@@ -34,7 +36,9 @@ export default async function TradersDeskPage() {
     <>
       <header className={shell.header}>
         <h1 className={shell.title}>Traders</h1>
-        <span className="ix-muted">{traders.filter((t) => t.status === 'UNDER_REVIEW').length} waiting for review</span>
+        <span className="ix-muted">
+          {traders.filter((t) => t.status === 'UNDER_REVIEW').length} new applications · {traders.filter((t) => t.status !== 'UNDER_REVIEW' && t.awaitingReview > 0).length} settlement changes to review
+        </span>
       </header>
       <div className={shell.content}>
         <div className={styles.grid}>
@@ -64,7 +68,10 @@ export default async function TradersDeskPage() {
                           {t.ref}
                         </Link>{' '}
                         {t.clientName}
-                        <div className="ix-muted">applied {formatIstDateTime(new Date(t.appliedAt))}</div>
+                        <div className="ix-muted">
+                          applied {formatIstDateTime(new Date(t.appliedAt))}
+                          {t.exchangeAccess ? '' : ' · trader only'}
+                        </div>
                       </td>
                       <td>
                         <span className={styles.tag} data-tone={t.status === 'APPROVED' ? (t.available ? 'good' : undefined) : t.status === 'UNDER_REVIEW' ? 'brand' : 'warn'}>
@@ -82,7 +89,14 @@ export default async function TradersDeskPage() {
                       </td>
                       <td className={styles.num}>{t.unresolved}</td>
                       <td className={styles.num}>{t.completedOrders}</td>
-                      <td className="ix-muted">{t.issues.map((i) => ISSUE[i] ?? i).join(', ') || '—'}</td>
+                      <td className="ix-muted">
+                        {t.awaitingReview > 0 ? (
+                          <span className={styles.tag} data-tone="warn">
+                            {t.awaitingReview === 1 ? '1 detail' : `${t.awaitingReview} details`} to verify
+                          </span>
+                        ) : null}{' '}
+                        {t.issues.map((i) => ISSUE[i] ?? i).join(', ') || (t.awaitingReview > 0 ? '' : '—')}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

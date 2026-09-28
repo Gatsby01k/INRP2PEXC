@@ -2,13 +2,13 @@
 
 import { revalidatePath } from 'next/cache';
 import type { FiatRail } from '@inrp2p/db';
-import { revealBankAccount } from '@inrp2p/clients';
+import { revealBankAccount, setClientExchangeAccess } from '@inrp2p/clients';
 import { executeCommand } from '@inrp2p/commands';
 import { confirmRouteSettlement, recordRouteSettlement } from '@inrp2p/settlement';
 import {
   approveTrader, assignRequest, configureTraderProgram, confirmReserveWithdrawal, confirmRewardPayout, failRewardPayout, pauseTrader, reconcileOrderNow,
-  recordReserveWithdrawalSent, recordRewardPayout, rejectReserveWithdrawal, rejectTrader, releaseOrder, resumeTrader, setTraderAssignments, setTraderLimits,
-  setTraderRequiredReserve, setTraderReward, setTraderSettlementDetails,
+  recordReserveWithdrawalSent, recordRewardPayout, rejectReserveWithdrawal, rejectTrader, releaseOrder, resumeTrader, revealTraderPhone, reviewSettlementChange,
+  reviewTraderDestination, setTraderAssignments, setTraderLimits, setTraderRequiredReserve, setTraderReward, setTraderSettlementDetails,
 } from '@inrp2p/traders';
 import { type CommandResult, failure, runCommand } from '../command.ts';
 import { operatorContext } from '../operator.ts';
@@ -76,6 +76,27 @@ export async function setRewardAction(input: { traderId: string; rewardBps: numb
 
 export async function setSettlementDetailsAction(input: { traderId: string; bankAccountId: string; walletId: string; reason: string }, key: string): Promise<CommandResult<unknown>> {
   return run('trader.set_settlement_details', (ctx) => setTraderSettlementDetails(ctx.actor), input, key);
+}
+
+/** Verify or reject the bank account or wallet an application submitted — the operator's decision, not a retyping. */
+export async function reviewDestinationAction(
+  input: { traderId: string; destination: 'BANK' | 'WALLET'; decision: 'VERIFY' | 'REJECT'; note?: string | null },
+  key: string,
+): Promise<CommandResult<unknown>> {
+  return run('trader.review_destination', (ctx) => reviewTraderDestination(ctx.actor), input, key);
+}
+
+/** Approve (switch to) or reject a replacement bank account or wallet an approved trader proposed (TD-24). */
+export async function reviewSettlementChangeAction(
+  input: { traderId: string; destination: 'BANK' | 'WALLET'; decision: 'APPROVE' | 'REJECT'; note?: string | null },
+  key: string,
+): Promise<CommandResult<unknown>> {
+  return run('trader.review_settlement_change', (ctx) => reviewSettlementChange(ctx.actor), input, key);
+}
+
+/** Open (or close) the Exchange for a trader's client. A self-registered trader has none until the desk decides. */
+export async function setExchangeAccessAction(input: { clientId: string; exchangeAccess: boolean; reason: string }, key: string): Promise<CommandResult<unknown>> {
+  return run('client.set_exchange_access', (ctx) => setClientExchangeAccess(ctx.actor), input, key);
 }
 
 /** Route a request to the best eligible trader. The refusal, when nobody can take it, carries why. */
@@ -152,6 +173,22 @@ export async function revealBankAccountAction(input: { bankAccountId: string }):
       name: 'bank_account.reveal',
       actor: { type: 'USER', id: ctx.actor.userId, surface: 'OPERATOR', sessionId: ctx.actor.sessionId },
       payload: { bankAccountId: input.bankAccountId, purpose: 'trader settlement details review' },
+      financial: false,
+    });
+    return { ok: true, result: out.result };
+  } catch (e) {
+    return failure(e);
+  }
+}
+
+/** The applicant's phone number, for the reviewer to call (`traders:configure`, ⧗, audited). No idempotency key, as above. */
+export async function revealTraderPhoneAction(input: { traderId: string }): Promise<CommandResult<{ phone: string }>> {
+  try {
+    const ctx = await operatorContext();
+    const out = await executeCommand(ctx.db, revealTraderPhone(ctx.actor, protectorForWeb()), {
+      name: 'trader.reveal_phone',
+      actor: { type: 'USER', id: ctx.actor.userId, surface: 'OPERATOR', sessionId: ctx.actor.sessionId },
+      payload: { traderId: input.traderId },
       financial: false,
     });
     return { ok: true, result: out.result };

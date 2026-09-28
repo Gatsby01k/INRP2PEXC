@@ -1,5 +1,5 @@
 import { requireUuid } from '@inrp2p/kernel';
-import type { Executor } from '@inrp2p/db';
+import type { DestinationStatus, Executor } from '@inrp2p/db';
 
 /** Masked destination views. Sealed values never leave the module through queries. */
 export interface BankAccountView {
@@ -10,7 +10,7 @@ export interface BankAccountView {
   readonly ifsc: string;
   readonly last4: string;
   readonly rails: readonly string[];
-  readonly status: 'ACTIVE' | 'ARCHIVED';
+  readonly status: DestinationStatus;
 }
 
 export async function listBankAccounts(ex: Executor, clientId: string, opts: { includeArchived?: boolean } = {}): Promise<BankAccountView[]> {

@@ -178,3 +178,8 @@
     border-left: 0;
   }
 }
+
+/* The trader's way in follows the client's, as a second short block under the same rule. */
+.traderTitle {
+  margin-top: var(--space-6);
+}

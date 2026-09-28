@@ -34,6 +34,9 @@ export function surfaceForHost(host: string | null, cfg: HostConfig): Surface {
   return 'PUBLIC';
 }
 
+/** Where a new trader starts, on the client app's host: email, code, application. */
+export const TRADER_ENTRY_PATH = '/become-a-trader';
+
 /** The shareable quote link (D-01): opening it authorizes nothing, so it is reachable without a session. */
 export const isQuoteLinkPath = (path: string): boolean => path === '/q' || path.startsWith('/q/');
 
@@ -85,8 +88,9 @@ export function gateFor(surface: Surface, pathname: string): Gate {
   }
   if (surface === 'CLIENT') {
     if (path === '/api/auth' || path.startsWith('/api/auth/')) return 'AUTH_ENDPOINT';
-    // Same reasoning as the desk: without an unauthenticated sign-in page nobody can ever get a session.
-    if (path === '/sign-in') return 'CLIENT_SIGN_IN';
+    // Same reasoning as the desk: without an unauthenticated sign-in page nobody can ever get a session. "Become a
+    // trader" is the other way in: the same email code, for someone who has no workspace yet (docs/TRADERS.md §3).
+    if (path === '/sign-in' || path === TRADER_ENTRY_PATH) return 'CLIENT_SIGN_IN';
     return 'CLIENT_SESSION';
   }
   // Public host: the site's own pages and the shareable quote link, and nothing else. Auth endpoints are not

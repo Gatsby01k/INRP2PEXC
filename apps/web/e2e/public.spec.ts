@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { CLIP_MEASUREMENTS } from '../src/app/(public)/_landing/voice/clips/measurements.ts';
-import { AUDIENCE, BUSINESS, CLOSING, DESK, FLOW, HERO, ONBOARDING, SITE_PAGES, SITE_PATHS, TRUST } from '../src/content/site.ts';
+import { AUDIENCE, BUSINESS, CLOSING, DESK, FLOW, HERO, ONBOARDING, SITE_PAGES, SITE_PATHS, TRADER_ENTRY, TRUST } from '../src/content/site.ts';
 import { appBaseUrl, deskSendsQuoteWithLink, linkBaseUrl, operatorBaseUrl } from './support.ts';
 import { E2E_PUBLIC_CONTACTS } from './world.ts';
 
@@ -49,12 +49,13 @@ test('the home page ends with one call to action, and its footer links only to w
   await expect(page.getByRole('heading', { name: 'A desk, not an order book' })).toHaveCount(0);
 
   // One action at the end, into the client app — not a second pair of Buy and Sell buttons — and beside it the
-  // way in for someone who is not a client yet.
+  // way in for someone who is not a client yet, and for someone who wants to provide capacity instead.
   const closing = page.getByRole('region', { name: CLOSING.heading });
   const request = closing.getByRole('link', { name: CLOSING.cta.label });
   await expect(request).toHaveAttribute('href', `${appBaseUrl()}${CLOSING.cta.appPath}`);
-  await expect(closing.getByRole('link')).toHaveCount(2);
+  await expect(closing.getByRole('link')).toHaveCount(3);
   await expect(closing.getByRole('link', { name: new RegExp(`^${ONBOARDING.label}`) })).toHaveAttribute('href', onboardingHref);
+  await expect(closing.getByRole('link', { name: TRADER_ENTRY.label })).toHaveAttribute('href', `${appBaseUrl()}${TRADER_ENTRY.appPath}`);
 
   // Every footer link is a published page, a section of the home page that is there, the client app, or one of the
   // addresses this run configured.
@@ -84,6 +85,8 @@ test('a visitor without a client account is offered one way in, wherever the que
   await expect(hero.getByRole('link', { name: 'Request quote' })).toHaveAttribute('href', new RegExp(`^${appBaseUrl()}/exchange`));
   // Existing clients go into the workspace from the masthead; the client app asks for a code if it needs one.
   await expect(page.getByRole('banner').getByRole('link', { name: 'Open workspace' })).toHaveAttribute('href', `${appBaseUrl()}/exchange`);
+  // Beside it, the way in for a new trader: the client app's own entry, open to anyone.
+  await expect(page.getByRole('banner').getByRole('link', { name: TRADER_ENTRY.label })).toHaveAttribute('href', `${appBaseUrl()}${TRADER_ENTRY.appPath}`);
 
   // And on a page a search engine sends someone to, under its actions.
   await page.goto(`${linkBaseUrl()}/usdt-to-inr`);

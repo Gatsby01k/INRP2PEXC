@@ -180,6 +180,8 @@ export interface ClientTable {
   display_name: string;
   type: 'COMPANY' | 'INDIVIDUAL';
   status: Generated<ClientStatus>;
+  /** Exchange, History and quotes (migration 0023). Off for a client that exists only because it applied to be a trader. */
+  exchange_access: Generated<boolean>;
   typical_direction: DirectionValue | null;
   typical_size_usdt_minor: bigint | null;
   pricing_notes: string | null;
@@ -227,6 +229,12 @@ export interface ClientUserTable {
 
 export type Rail = 'IMPS' | 'NEFT' | 'RTGS' | 'UPI';
 
+/**
+ * A destination's review state (migration 0023). ACTIVE is "verified": the only state anything settles through. A
+ * destination the client submitted itself starts PENDING_REVIEW until an operator verifies or rejects it.
+ */
+export type DestinationStatus = 'PENDING_REVIEW' | 'ACTIVE' | 'REJECTED' | 'ARCHIVED';
+
 export interface BankAccountTable {
   id: Generated<string>;
   client_id: string;
@@ -237,13 +245,16 @@ export interface BankAccountTable {
   account_last4: string;
   account_hmac: string;
   rail_preferences: Rail[];
-  status: Generated<'ACTIVE' | 'ARCHIVED'>;
+  status: Generated<DestinationStatus>;
   verified_at: Date | null;
   created_by: string;
   created_at: Generated<Date>;
   archived_by: string | null;
   archived_at: Date | null;
   archive_reason: string | null;
+  reviewed_by: string | null;
+  reviewed_at: Date | null;
+  review_note: string | null;
 }
 
 export interface CryptoWalletTable {
@@ -253,12 +264,15 @@ export interface CryptoWalletTable {
   address: string;
   label: string;
   purpose: 'SOURCE' | 'DESTINATION' | 'BOTH';
-  status: Generated<'ACTIVE' | 'ARCHIVED'>;
+  status: Generated<DestinationStatus>;
   created_by: string;
   created_at: Generated<Date>;
   archived_by: string | null;
   archived_at: Date | null;
   archive_reason: string | null;
+  reviewed_by: string | null;
+  reviewed_at: Date | null;
+  review_note: string | null;
 }
 
 export interface SettlementEntityTable {
@@ -935,6 +949,8 @@ export interface BankStatementLineTable {
 // ---- Traders (migration 0022) ----
 
 export type TraderStatus = 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED' | 'PAUSED';
+/** What an applicant says about their P2P experience (migration 0023). */
+export type P2pExperience = 'BINANCE' | 'BYBIT' | 'OTHER' | 'NONE';
 /** A trader's side, in the trader's own words: Buy USDT (it has INR) or Sell USDT (it has USDT). */
 export type TraderSide = 'BUY_USDT' | 'SELL_USDT';
 export type TraderOrderStatus = 'OFFERED' | 'ACCEPTED' | 'DECLINED' | 'EXPIRED' | 'WITHDRAWN' | 'RELEASED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
@@ -980,6 +996,17 @@ export interface TraderProfileTable {
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
   version: Generated<number>;
+  // The application's own details, and a proposed replacement destination (migration 0023).
+  p2p_experience: P2pExperience | null;
+  profile_link: string | null;
+  telegram_handle: string | null;
+  phone_enc: string | null;
+  phone_last4: string | null;
+  daily_capacity_inr_minor: bigint | null;
+  daily_capacity_usdt_minor: bigint | null;
+  ownership_confirmed_at: Date | null;
+  proposed_bank_account_id: Generated<string | null>;
+  proposed_wallet_id: Generated<string | null>;
 }
 
 export interface TraderBlockTable {

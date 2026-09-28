@@ -10,6 +10,7 @@ import {
   deliverNotifications,
   deskSendsQuoteWithLink,
   linkBaseUrl,
+  resetAuthThrottle,
   signInAsClient,
   state,
   tradeIdForRef,
@@ -191,6 +192,32 @@ test('the client host refuses what belongs to the desk, and the public host refu
   // The public host publishes the quote link and nothing else — not even the sign-in page.
   const signIn = await page.request.get(`${linkBaseUrl()}/sign-in`, { maxRedirects: 0 });
   expect(signIn.status()).toBe(401);
+});
+
+test('a stranger becomes a trader applicant with an email and a code, and gets Traders — never the Exchange', async ({ page }) => {
+  const email = `new-trader-${Date.now()}@trader.test`;
+  // The earlier scenarios spent this address's code allowance on the same IP; real time would have reset it.
+  await resetAuthThrottle();
+  await page.goto(`${appBaseUrl()}/become-a-trader`);
+  await expect(page.getByRole('heading', { level: 1, name: 'Provide liquidity.' })).toBeVisible();
+  await expect(page.getByRole('link', { name: /Open workspace/ })).toHaveAttribute('href', '/sign-in');
+
+  // Nobody provisioned this address: the entry makes the bare identity, and the ordinary code signs it in.
+  await page.getByLabel('Email', { exact: true }).fill(email);
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await expect(page.getByRole('heading', { name: 'Check your email.' })).toBeVisible();
+  await page.getByLabel('Verification code').fill(await clientSignInCode(email));
+
+  await expect(page.getByRole('heading', { name: 'Traders', exact: true })).toBeVisible();
+  const sections = page.getByRole('navigation', { name: 'Sections' }).getByRole('link');
+  await expect(sections).toHaveText(['Traders']);
+  await expect(page.getByRole('link', { name: /Become a trader/ })).toHaveAttribute('href', '/traders/apply');
+
+  // The Exchange's pages send this account to Traders; verifying an email opened none of them.
+  for (const path of ['/exchange', '/history', '/destinations']) {
+    await page.goto(`${appBaseUrl()}${path}`);
+    await expect(page).toHaveURL(`${appBaseUrl()}/traders`);
+  }
 });
 
 async function quoteStatus(quoteId: string): Promise<string> {

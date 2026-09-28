@@ -25,7 +25,14 @@ function BackGlyph() {
  *
  * A server component. Two islands hydrate inside it: the surface (the form) and the robot.
  */
-export function WorkspaceGateway({ home, onboarding, unlinked }: { home: string; onboarding: string | null; unlinked: string }) {
+/** The room's words: returning to a workspace, or starting as a trader (the same code, the same room). */
+const COPY = {
+  SIGN_IN: { eyebrow: 'Workspace access', title: 'Enter the desk.', lede: 'Access is limited to clients onboarded by the INRP2P desk.' },
+  TRADER: { eyebrow: 'Become a trader', title: 'Provide liquidity.', lede: 'Apply with your email. The desk reviews every trader before any order is sent.' },
+} as const;
+
+export function WorkspaceGateway({ home, onboarding, unlinked, mode = 'SIGN_IN' }: { home: string; onboarding: string | null; unlinked: string; mode?: 'SIGN_IN' | 'TRADER' }) {
+  const copy = COPY[mode];
   const { props: markProps } = getImageProps({ src: mark, alt: '', width: 32, height: 32 });
   return (
     <div className={styles.page}>
@@ -47,9 +54,9 @@ export function WorkspaceGateway({ home, onboarding, unlinked }: { home: string;
       <main className={styles.gateway} data-robot-scope="">
         <div className={styles.frame}>
           <div className={styles.copy}>
-            <p className={styles.eyebrow}>Workspace access</p>
-            <h1 className={styles.title}>Enter the desk.</h1>
-            <p className={styles.lede}>Access is limited to clients onboarded by the INRP2P desk.</p>
+            <p className={styles.eyebrow}>{copy.eyebrow}</p>
+            <h1 className={styles.title}>{copy.title}</h1>
+            <p className={styles.lede}>{copy.lede}</p>
           </div>
 
           <div className={styles.stage} aria-hidden="true">
@@ -57,7 +64,7 @@ export function WorkspaceGateway({ home, onboarding, unlinked }: { home: string;
           </div>
 
           <div className={styles.access}>
-            <AccessSurface onboarding={onboarding} unlinked={unlinked} />
+            <AccessSurface onboarding={onboarding} unlinked={unlinked} mode={mode} />
           </div>
         </div>
       </main>

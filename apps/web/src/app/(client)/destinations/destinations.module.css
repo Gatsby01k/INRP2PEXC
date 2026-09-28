@@ -193,6 +193,10 @@
   background: var(--status-success);
 }
 
+.status[data-state='pending_review'] .statusDot {
+  background: var(--status-warning);
+}
+
 /* ——— Readiness, under the robot ——— */
 
 .readiness {
