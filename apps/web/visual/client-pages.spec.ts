@@ -27,7 +27,7 @@ test.afterAll(async () => {
 test('exchange: the firm quote, counting down', async ({ page }) => {
   await page.goto('/exchange');
   await expect(page.getByRole('heading', { name: 'Exchange', exact: true })).toBeVisible();
-  await expect(page.getByLabel('Firm quote')).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Firm quote', exact: true })).toBeVisible();
   await capture(page, 'client-exchange-quote');
 });
 
