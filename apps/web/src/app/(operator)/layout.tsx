@@ -27,6 +27,8 @@ export default async function OperatorLayout({ children }: { children: ReactNode
     { href: '/inr', label: 'INR' },
     { href: '/usdt', label: 'USDT' },
     { href: '/clients', label: 'Clients' },
+    // A trader's rate is a route rate: the page is not found without `traders:view`, so neither is the link.
+    ...(can(ctx, 'traders:view') ? [{ href: '/trader-desk', label: 'Traders' }] : []),
     // Not rendered without `pnl:view`, because the page itself is not found without it: a settlement operator
     // who can see a link to the desk's margin has already been told the desk has one.
     ...(can(ctx, 'pnl:view') ? [{ href: '/pnl', label: 'P&L' }] : []),

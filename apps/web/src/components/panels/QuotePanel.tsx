@@ -2,9 +2,11 @@
 
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { Money, Rate, computeTradeEconomics } from '@inrp2p/kernel';
-import type { DeskRequest } from '@inrp2p/desk';
+import type { DeskRequest, QuoteRouteOption } from '@inrp2p/desk';
 import { Button, CopyButton, MoneyInput, RateComparison } from '@inrp2p/ui';
+import { formatIstTime } from '@inrp2p/ui/format';
 import { createAndSendQuoteAction, declineRequestAction } from '../../server/actions/desk.ts';
+import { assignRequestAction } from '../../server/actions/traders-desk.ts';
 import { useCommand } from '../useCommand.tsx';
 import { useHotkey } from '../useHotkey.ts';
 import styles from './panel.module.css';
@@ -17,7 +19,93 @@ export interface QuotePanelProps {
   readonly request: DeskRequest;
   readonly canQuote: boolean;
   readonly canDecline: boolean;
+  /** `traders:assign`: may route the request to a trader (docs/TRADERS.md). */
+  readonly canAssign?: boolean;
   readonly linkBase: string;
+}
+
+const EXCLUSION_TEXT: Record<string, string> = {
+  OFFLINE: 'offline', PAUSED: 'paused', NOT_APPROVED: 'not approved', RESERVE_NOT_SET: 'reserve not set', RESERVE_SHORT: 'reserve short',
+  DESTINATIONS_INACTIVE: 'settlement details inactive', ASSIGNMENTS_DISABLED: 'assignments off', NO_SIDE: 'side not offered', NO_RATE: 'no rate',
+  NO_LIMITS: 'no order size', BLOCK_PAUSED: 'side paused', NO_CAPACITY: 'no capacity', BELOW_MINIMUM: 'below their minimum', ABOVE_MAXIMUM: 'above their maximum',
+  NOT_ENOUGH_CAPACITY: 'not enough capacity', ALREADY_OFFERED: 'already declined or let lapse', OWN_REQUEST: 'own request',
+};
+
+/**
+ * The request's trader side: route it to the best eligible trader, see the offer and its answer, and — once the
+ * trader has accepted — quote on its rate (the route is picked for the dealer, and the server holds the quote to
+ * exactly what the trader accepted). When nobody is eligible, say why each trader was left out.
+ */
+function TraderSection({ request, canAssign, plannedRate }: { request: DeskRequest; canAssign: boolean; plannedRate: string }) {
+  const cmd = useCommand();
+  const [miss, setMiss] = useState<string | null>(null);
+  const live = request.trader?.live ?? null;
+  const last = request.trader?.history.find((h) => h.status === 'DECLINED' || h.status === 'EXPIRED' || h.status === 'WITHDRAWN' || h.status === 'RELEASED');
+  const assign = async () => {
+    setMiss(null);
+    const out = await cmd.run(`Route ${request.ref} to a trader`, (key) =>
+      assignRequestAction({ requestId: request.requestId, ...(request.fixedSide === 'QUOTE' ? { plannedClientRate: plannedRate } : {}) }, key),
+    );
+    if (!out.ok && out.code === 'TRADER_NONE_ELIGIBLE') {
+      const excluded = (out.details?.excluded ?? {}) as Record<string, number>;
+      const parts = Object.entries(excluded).map(([k, n]) => `${n} ${EXCLUSION_TEXT[k] ?? k}`);
+      setMiss(parts.length > 0 ? `No trader can take it: ${parts.join(', ')}.` : 'No trader can take it right now.');
+    }
+  };
+  return (
+    <section className={styles.section} data-testid="trader-section">
+      <h3 className={styles.sectionTitle}>Trader</h3>
+      {live ? (
+        <dl className={styles.rows}>
+          <div className={styles.row}>
+            <dt>{live.ref}</dt>
+            <dd>
+              {request.trader?.liveTraderRef} · {live.status === 'OFFERED' ? 'offered' : live.status === 'ACCEPTED' ? 'accepted — quote on its rate' : live.status.toLowerCase().replace('_', ' ')}
+            </dd>
+          </div>
+          <div className={styles.row}>
+            <dt>Trader rate</dt>
+            <dd className="ix-num">
+              ₹{live.rate} · {live.usdt} USDT · ₹{live.inr}
+            </dd>
+          </div>
+          {live.status === 'OFFERED' ? (
+            <div className={styles.row}>
+              <dt>Answer by</dt>
+              <dd>{formatIstTime(new Date(live.offerExpiresAt))}</dd>
+            </div>
+          ) : null}
+          {live.status === 'ACCEPTED' && live.holdUntil ? (
+            <div className={styles.row}>
+              <dt>Held until</dt>
+              <dd>{formatIstTime(new Date(live.holdUntil))}</dd>
+            </div>
+          ) : null}
+        </dl>
+      ) : (
+        <>
+          {last ? <p className={styles.notice}>{last.ref} ({last.traderRef}): {last.status.toLowerCase()}{last.closeNote ? ` — ${last.closeNote}` : ''}</p> : null}
+          {canAssign ? (
+            <div className={styles.actions}>
+              <Button disabled={cmd.busy || (request.fixedSide === 'QUOTE' && plannedRate === '')} onClick={() => void assign()}>
+                Route to a trader
+              </Button>
+            </div>
+          ) : (
+            <p className={styles.notice}>Routing to a trader needs traders:assign.</p>
+          )}
+          {request.fixedSide === 'QUOTE' ? <p className={styles.notice}>An INR-fixed request is sized at the client rate above; quote the trader’s order at that same rate.</p> : null}
+        </>
+      )}
+      {miss ? <p className={styles.notice}>{miss}</p> : null}
+      {cmd.error && !miss ? (
+        <p className={styles.error} role="alert">
+          {cmd.error}
+        </p>
+      ) : null}
+      {cmd.dialog}
+    </section>
+  );
 }
 
 /**
@@ -25,10 +113,16 @@ export interface QuotePanelProps {
  * never typed, with the same kernel function the command uses — so what the panel previews is what the quote
  * will say (FI-02, FI-03). Sending is one intent: create and send, with the link when asked for.
  */
-export function QuotePanel({ request, canQuote, canDecline, linkBase }: QuotePanelProps) {
+export function QuotePanel({ request, canQuote, canDecline, canAssign = false, linkBase }: QuotePanelProps) {
   const cmd = useCommand();
   const panel = useRef<HTMLElement>(null);
-  const routes = request.routes ?? [];
+  // A trader's accepted order prices on its own route, at its own rate; it is offered first while it holds.
+  const traderLive = request.trader?.live;
+  const traderOption: QuoteRouteOption | null =
+    traderLive && traderLive.status === 'ACCEPTED' && request.trader?.liveRouteId
+      ? { routeId: request.trader.liveRouteId, name: `Trader ${request.trader.liveTraderRef ?? ''} (accepted)`, executionMode: 'TO_EXCHANGE', rate: traderLive.rate, publishedAt: traderLive.startedAt, stale: false }
+      : null;
+  const routes = [...(traderOption ? [traderOption] : []), ...(request.routes ?? [])];
   const usable = routes.filter((r) => r.rate !== null);
   const [routeId, setRouteId] = useState(usable[0]?.routeId ?? '');
   const [rate, setRate] = useState(request.targetRate ?? '');
@@ -164,6 +258,8 @@ export function QuotePanel({ request, canQuote, canDecline, linkBase }: QuotePan
           {canDecline ? <p className={styles.notice}>Declining needs a reason — type it in the field above.</p> : null}
         </section>
       )}
+
+      {request.trader ? <TraderSection request={request} canAssign={canAssign} plannedRate={rate} /> : null}
 
       {link ? (
         <section className={styles.section} data-testid="quote-link">

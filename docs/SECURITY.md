@@ -99,6 +99,12 @@ Legend: ✔ allowed · ⧗ allowed with step-up MFA · ✱ requires second appro
 | `bank_account:reveal` | ⧗ | — | ⧗ | ⧗ | — | — |
 | `ledger:view` / `pnl:view` / `export` | ✔ | pnl only | — | ✔ | — | — |
 | `statement:import` (manual bank statement, reconciled against recorded UTRs — S7) | ⧗ | — | — | ⧗ | — | — |
+| `traders:view` (traders, their rates, capacity, orders and reserve) | ✔ | ✔ | — | ✔ | — | — |
+| `traders:assign` (route a request to a trader; release an accepted order) | ✔ | ✔ | — | — | — | — |
+| `traders:pause` (pause or resume a trader; disable or enable new assignments) | ⧗ | ⧗ | — | ⧗ | — | — |
+| `traders:configure` (approve or reject; limits, Security Reserve, reward, settlement details, programme settings) | ⧗ | — | — | ⧗ | — | — |
+| `trader_payout:record` (record a reserve withdrawal or reward payout sent) | ✔ | — | — | ✔ | — | — |
+| `trader_payout:confirm` (confirm or reject it — posts the movement) | ⧗ | — | — | ⧗ | — | — |
 | `receipt:view` | ✔ | ✔ | ✔ | ✔ | ✔ | ✔ |
 | `audit:view` | ✔ | — | — | ✔ | — | — |
 | `users:manage` / `roles:assign` | ⧗ | — | — | — | — | — |

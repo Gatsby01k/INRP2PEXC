@@ -8,6 +8,7 @@ import { requireActiveClient } from '@inrp2p/clients';
 import { type QuoteActor, lockRow, operatorOrMemberCommand } from './actors.ts';
 import { type QuoteDeps, policyOf } from './policy.ts';
 import { closePendingChallenges } from './challenges.ts';
+import { closeOrdersForRequest } from '@inrp2p/trader-core';
 
 export interface CreateRequestPayload {
   readonly clientId: string;
@@ -115,6 +116,7 @@ export function declineRequest(actor: OperatorActor) {
     const r = await ctx.tx.selectFrom('trade_request').select(['id', 'status', 'version', 'client_id']).where('id', '=', p.requestId).executeTakeFirstOrThrow();
     if (r.status !== 'OPEN' && r.status !== 'QUOTED') throw new DomainError('REQUEST_NOT_OPEN', `request is ${r.status}`);
     await cancelSentQuoteOfRequest(ctx, r.id, 'DECLINED_BY_DESK');
+    await closeOrdersForRequest(ctx, r.id);
     await closeRequest(ctx.tx, r.id, 'DECLINED', reason, r.version);
     await appendAudit(ctx, { action: 'request.declined', entityType: 'trade_request', entityId: r.id, before: { status: r.status }, after: { status: 'DECLINED', reason } });
     await enqueueOutbox(ctx, { type: 'client.request_declined', aggregateType: 'trade_request', aggregateId: r.id, payload: { requestId: r.id, clientId: r.client_id } });
@@ -130,6 +132,7 @@ export function withdrawRequest(actor: QuoteActor) {
     if (r.status !== 'OPEN' && r.status !== 'QUOTED') throw new DomainError('REQUEST_NOT_OPEN', `request is ${r.status}`);
     const reason = typeof p.reason === 'string' && p.reason.trim() ? p.reason.trim().slice(0, 500) : null;
     await cancelSentQuoteOfRequest(ctx, r.id, 'WITHDRAWN');
+    await closeOrdersForRequest(ctx, r.id);
     await closeRequest(ctx.tx, r.id, 'WITHDRAWN', reason, r.version);
     await appendAudit(ctx, { action: 'request.withdrawn', entityType: 'trade_request', entityId: r.id, before: { status: r.status }, after: { status: 'WITHDRAWN', reason, by: actor.kind } });
     return { status: 'WITHDRAWN' as const };
@@ -146,6 +149,7 @@ export async function expireInactiveRequests(ctx: TxContext, deps: Pick<QuoteDep
     for update skip locked`.execute(ctx.tx);
   for (const { id } of due.rows) {
     const r = await ctx.tx.selectFrom('trade_request').select(['version']).where('id', '=', id).executeTakeFirstOrThrow();
+    await closeOrdersForRequest(ctx, id);
     await closeRequest(ctx.tx, id, 'EXPIRED', 'no activity', r.version);
     await appendAudit(ctx, { action: 'request.expired', entityType: 'trade_request', entityId: id, before: { status: 'OPEN' }, after: { status: 'EXPIRED' } });
   }

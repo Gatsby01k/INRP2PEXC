@@ -11,7 +11,7 @@ export interface RecordFiatInput {
   readonly amount: Money<'INR'>;
   readonly payerType: 'CLIENT' | 'EXCHANGE_ACCOUNT' | 'ROUTE';
   readonly payerId: string;
-  readonly payeeType: 'CLIENT_BANK' | 'EXCHANGE_ACCOUNT' | 'ROUTE';
+  readonly payeeType: 'CLIENT_BANK' | 'EXCHANGE_ACCOUNT' | 'ROUTE' | 'TRADER';
   readonly payeeId: string;
   readonly destinationMasked: string;
   readonly valueDate?: string | null;
@@ -91,9 +91,9 @@ export interface RecordCryptoInput {
   readonly fromAddress: string;
   readonly toAddress: string;
   readonly amount: Money<'USDT'>;
-  readonly payerType: 'CLIENT' | 'EXCHANGE_TREASURY' | 'ROUTE' | 'UNKNOWN';
+  readonly payerType: 'CLIENT' | 'EXCHANGE_TREASURY' | 'ROUTE' | 'TRADER' | 'UNKNOWN';
   readonly payerId?: string | null;
-  readonly payeeType: 'CLIENT_WALLET' | 'EXCHANGE_TREASURY' | 'ROUTE' | 'UNKNOWN';
+  readonly payeeType: 'CLIENT_WALLET' | 'EXCHANGE_TREASURY' | 'ROUTE' | 'TRADER' | 'UNKNOWN';
   readonly payeeId?: string | null;
   readonly source: 'SCANNER' | 'OPERATOR_SUBMITTED';
 }
@@ -238,7 +238,7 @@ export interface PostMovementInput {
   readonly from: MovementParty;
   readonly to: MovementParty;
   readonly tradeId?: string | null;
-  readonly purpose: 'CLIENT_FIRST_LEG' | 'CLIENT_PAYOUT' | 'ROUTE_SETTLEMENT' | 'REFUND' | 'UNALLOCATED';
+  readonly purpose: 'CLIENT_FIRST_LEG' | 'CLIENT_PAYOUT' | 'ROUTE_SETTLEMENT' | 'REFUND' | 'UNALLOCATED' | 'TRADER_RESERVE' | 'TRADER_REWARD_PAYOUT';
 }
 
 /** The one journal a movement ever posts (FI-27, FI-42). A replay hits the unique posting key. */

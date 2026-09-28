@@ -1,7 +1,8 @@
 import { run } from 'graphile-worker';
 import { createDb, createPool } from '@inrp2p/db';
 import { UnconfiguredNotificationAdapter, isNotificationProviderConfigured } from '@inrp2p/adapters';
-import { acknowledgedSignalHandler, clientNotificationEmailHandler, clientNotificationHandler } from '@inrp2p/notifications';
+import { acknowledgedSignalHandler, clientNotificationEmailHandler, clientNotificationHandler, traderNotificationHandler } from '@inrp2p/notifications';
+import { traderRoutingHandler } from '@inrp2p/traders';
 import { acceptanceCodeHandler } from '@inrp2p/quotes';
 import { receiptHandler } from '@inrp2p/reporting';
 import { destinationArchivedHandler } from '@inrp2p/settlement';
@@ -50,7 +51,7 @@ const runner = await run({
   concurrency: 5,
   noHandleSignals: false,
   pollInterval: 2000,
-  taskList: buildTaskList(db, [quoteExpiryScheduler(db), acceptanceCodeHandler(db, { protector }, notifications), clientNotificationHandler(db), receiptHandler(db), destinationArchivedHandler(db), acknowledgedSignalHandler(), ...emailChannel], {
+  taskList: buildTaskList(db, [quoteExpiryScheduler(db), acceptanceCodeHandler(db, { protector }, notifications), clientNotificationHandler(db), traderNotificationHandler(db), traderRoutingHandler(db), receiptHandler(db), destinationArchivedHandler(db), acknowledgedSignalHandler(), ...emailChannel], {
     monitoring,
     ...(monitoring.config ? { scanner: monitoring.config } : {}),
   }),

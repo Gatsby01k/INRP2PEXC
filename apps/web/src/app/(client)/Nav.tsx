@@ -10,8 +10,9 @@ export interface ClientNavEntry {
 }
 
 /**
- * The workspace's three sections: ask for a price, look back, and see where money may land. A trade's own page
- * belongs to History, where it is found — so History stays marked while one is open.
+ * The workspace's sections: ask for a price, look back, see where money may land, and — for a client that provides
+ * capacity — Traders. A trade's own page belongs to History, where it is found, so History stays marked while one
+ * is open; a trader's order pages belong to Traders.
  */
 export function ClientNav({ entries }: { entries: readonly ClientNavEntry[] }) {
   const pathname = usePathname();

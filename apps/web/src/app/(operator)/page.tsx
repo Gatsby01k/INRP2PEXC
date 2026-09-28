@@ -44,6 +44,7 @@ export default async function DeskPage({ searchParams }: { searchParams: Promise
               request={request}
               canQuote={can(ctx, 'quote:create') && can(ctx, 'quote:send')}
               canDecline={can(ctx, 'request:decline')}
+              canAssign={can(ctx, 'traders:assign')}
               linkBase={optionalEnv('CLIENT_LINK_BASE') ?? ''}
             />
           ) : null}

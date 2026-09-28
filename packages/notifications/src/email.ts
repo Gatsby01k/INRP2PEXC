@@ -16,7 +16,11 @@ import type { OutboxHandler } from '@inrp2p/outbox';
  * whose quote is ready, whose request was declined, whose trade settled, or whose payout destinations changed, is
  * probably not. The quiet kinds stay in the inbox.
  */
-const EMAILED = new Set(['QUOTE_SENT', 'REQUEST_DECLINED', 'TRADE_COMPLETED', 'TRADE_CANCELLED', 'DESTINATION_ADDED', 'DESTINATION_ARCHIVED']);
+const EMAILED = new Set([
+  'QUOTE_SENT', 'REQUEST_DECLINED', 'TRADE_COMPLETED', 'TRADE_CANCELLED', 'DESTINATION_ADDED', 'DESTINATION_ARCHIVED',
+  // A trader is often not looking at the product when an order arrives or its turn comes.
+  'TRADER_APPROVED', 'TRADER_REJECTED', 'TRADER_PAUSED', 'TRADER_ORDER_NEW', 'TRADER_ACTION_REQUIRED', 'TRADER_ORDER_COMPLETED', 'TRADER_RESERVE_ISSUE',
+]);
 
 export interface EmailChannelOptions {
   /** Origin of the client product, so a link in an email opens the right deployment. No link is sent without it. */
@@ -90,7 +94,7 @@ export async function emailNotification(db: Db, adapter: NotificationAdapter, in
 export function clientNotificationEmailHandler(db: Db, adapter: NotificationAdapter, opts: EmailChannelOptions = {}): OutboxHandler {
   return {
     name: 'client_notification_email',
-    handles: (type) => type.startsWith('client.') || type === 'quote.sent' || type === 'trade.opened',
+    handles: (type) => type.startsWith('client.') || type.startsWith('trader.') || type === 'quote.sent' || type === 'trade.opened' || type === 'desk.payout_actionable',
     run: async (event) => {
       await emailNotification(db, adapter, { outboxEventId: event.id, ...opts });
     },

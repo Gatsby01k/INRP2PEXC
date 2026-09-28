@@ -305,13 +305,14 @@ export interface InrAccountDayTable {
 }
 
 export type ReservationStatus = 'ACTIVE' | 'CONSUMED' | 'RELEASED';
-export type ReservationReleaseReason = 'TRADE_CANCELLED' | 'LEG_CANCELLED' | 'LEG_FAILED' | 'TRADE_COMPLETED' | 'ROUTE_SETTLEMENT_FAILED' | 'DAY_ROLLOVER' | 'OPERATOR';
+export type ReservationReleaseReason = 'TRADE_CANCELLED' | 'LEG_CANCELLED' | 'LEG_FAILED' | 'TRADE_COMPLETED' | 'ROUTE_SETTLEMENT_FAILED' | 'DAY_ROLLOVER' | 'OPERATOR' | 'TRADER_PAYOUT_FAILED';
 
 export interface CapacityReservationTable {
   id: Generated<string>;
-  purpose: 'CLIENT_PAYOUT' | 'ROUTE_SETTLEMENT';
+  purpose: 'CLIENT_PAYOUT' | 'ROUTE_SETTLEMENT' | 'TRADER_REWARD_PAYOUT';
   trade_id: string | null;
   route_settlement_id: string | null;
+  trader_reward_payout_id: Generated<string | null>;
   account_id: string;
   day: string;
   amount_minor: bigint;
@@ -341,6 +342,8 @@ export interface LiquidityRouteTable {
   registered_route_address: string | null;
   available_base_minor: Generated<bigint>;
   notes: string | null;
+  /** Set on a trader's own route (migration 0022): its rate is the trader's, never the desk's. */
+  trader_id: Generated<string | null>;
   created_by: string;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
@@ -404,14 +407,19 @@ export interface DepositAddressTable {
   updated_at: Generated<Date>;
 }
 
+/** What a deposit address is assigned to: a trade (D-02), a trader's reserve, or a trader's delivery on one obligation. */
+export type DepositReleaseReason = 'TRADE_COMPLETED' | 'TRADE_CANCELLED' | 'OBLIGATION_SETTLED' | 'OBLIGATION_CANCELLED' | 'TRADER_CLOSED';
+
 export interface DepositAssignmentTable {
   id: Generated<string>;
   deposit_address_id: string;
-  trade_id: string;
+  trade_id: string | null;
+  trader_id: Generated<string | null>;
+  route_obligation_id: Generated<string | null>;
   expected_amount_minor: bigint;
   assigned_at: Generated<Date>;
   released_at: Date | null;
-  release_reason: 'TRADE_COMPLETED' | 'TRADE_CANCELLED' | null;
+  release_reason: DepositReleaseReason | null;
   created_by: string;
 }
 
@@ -682,7 +690,7 @@ export interface SettlementLegTable {
 export type FiatRail = 'IMPS' | 'NEFT' | 'RTGS' | 'UPI';
 export type MovementStatus = 'RECORDED' | 'CONFIRMED' | 'FAILED';
 export type FiatPayerType = 'CLIENT' | 'EXCHANGE_ACCOUNT' | 'ROUTE';
-export type FiatPayeeType = 'CLIENT_BANK' | 'EXCHANGE_ACCOUNT' | 'ROUTE';
+export type FiatPayeeType = 'CLIENT_BANK' | 'EXCHANGE_ACCOUNT' | 'ROUTE' | 'TRADER';
 
 export interface FiatTransferTable {
   id: Generated<string>;
@@ -703,8 +711,8 @@ export interface FiatTransferTable {
   failure_reason: string | null;
 }
 
-export type CryptoPayerType = 'CLIENT' | 'EXCHANGE_TREASURY' | 'ROUTE' | 'UNKNOWN';
-export type CryptoPayeeType = 'CLIENT_WALLET' | 'EXCHANGE_TREASURY' | 'ROUTE' | 'UNKNOWN';
+export type CryptoPayerType = 'CLIENT' | 'EXCHANGE_TREASURY' | 'ROUTE' | 'TRADER' | 'UNKNOWN';
+export type CryptoPayeeType = 'CLIENT_WALLET' | 'EXCHANGE_TREASURY' | 'ROUTE' | 'TRADER' | 'UNKNOWN';
 export type CryptoTransferState = 'DETECTED' | 'CONFIRMED' | 'FAILED' | 'ORPHANED';
 
 export interface CryptoTransferTable {
@@ -835,7 +843,18 @@ export type NotificationKind =
   | 'TRADE_COMPLETED'
   | 'TRADE_CANCELLED'
   | 'DESTINATION_ADDED'
-  | 'DESTINATION_ARCHIVED';
+  | 'DESTINATION_ARCHIVED'
+  | 'TRADER_APPROVED'
+  | 'TRADER_REJECTED'
+  | 'TRADER_PAUSED'
+  | 'TRADER_RESUMED'
+  | 'TRADER_ORDER_NEW'
+  | 'TRADER_ORDER_ACCEPTED'
+  | 'TRADER_ACTION_REQUIRED'
+  | 'TRADER_PAYMENT_CONFIRMED'
+  | 'TRADER_ORDER_COMPLETED'
+  | 'TRADER_ORDER_CLOSED'
+  | 'TRADER_RESERVE_ISSUE';
 
 export interface ClientNotificationTable {
   id: Generated<string>;
@@ -913,6 +932,144 @@ export interface BankStatementLineTable {
   fiat_transfer_id: string | null;
 }
 
+// ---- Traders (migration 0022) ----
+
+export type TraderStatus = 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED' | 'PAUSED';
+/** A trader's side, in the trader's own words: Buy USDT (it has INR) or Sell USDT (it has USDT). */
+export type TraderSide = 'BUY_USDT' | 'SELL_USDT';
+export type TraderOrderStatus = 'OFFERED' | 'ACCEPTED' | 'DECLINED' | 'EXPIRED' | 'WITHDRAWN' | 'RELEASED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
+
+export interface TraderProgramTable {
+  id: Generated<number>;
+  default_required_reserve_minor: bigint | null;
+  reward_bps: number | null;
+  offer_ttl_seconds: Generated<number>;
+  hold_ttl_seconds: Generated<number>;
+  auto_assign: Generated<boolean>;
+  collection_account_id: string | null;
+  updated_by: string;
+  updated_at: Generated<Date>;
+  version: Generated<number>;
+}
+
+export interface TraderProfileTable {
+  id: Generated<string>;
+  ref: Generated<string>;
+  client_id: string;
+  status: Generated<TraderStatus>;
+  offers_buy: boolean;
+  offers_sell: boolean;
+  typical_inr_minor: bigint | null;
+  typical_usdt_minor: bigint | null;
+  bank_account_id: string;
+  wallet_id: string;
+  required_reserve_minor: bigint | null;
+  reward_bps: number | null;
+  max_order_inr_minor: bigint | null;
+  max_order_usdt_minor: bigint | null;
+  max_capacity_inr_minor: bigint | null;
+  max_capacity_usdt_minor: bigint | null;
+  available: Generated<boolean>;
+  assignments_enabled: Generated<boolean>;
+  control_note: string | null;
+  applied_by: string;
+  applied_at: Generated<Date>;
+  reviewed_by: string | null;
+  reviewed_at: Date | null;
+  review_note: string | null;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+  version: Generated<number>;
+}
+
+export interface TraderBlockTable {
+  id: Generated<string>;
+  trader_id: string;
+  side: TraderSide;
+  route_id: string;
+  capacity_minor: Generated<bigint>;
+  reserved_minor: Generated<bigint>;
+  rate_micro: bigint | null;
+  min_order_minor: bigint | null;
+  max_order_minor: bigint | null;
+  status: Generated<'ACTIVE' | 'PAUSED'>;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+  version: Generated<number>;
+}
+
+export interface TraderOrderTable {
+  id: Generated<string>;
+  ref: Generated<string>;
+  trader_id: string;
+  block_id: string;
+  route_id: string;
+  trade_request_id: string;
+  side: TraderSide;
+  base_minor: bigint;
+  inr_minor: bigint;
+  rate_micro: bigint;
+  capacity_minor: bigint;
+  planned_client_rate_micro: bigint | null;
+  status: Generated<TraderOrderStatus>;
+  offered_by: string;
+  offered_at: Generated<Date>;
+  offer_expires_at: Date;
+  accepted_at: Date | null;
+  accepted_by: string | null;
+  hold_until: Date | null;
+  route_rate_snapshot_id: string | null;
+  trade_id: string | null;
+  route_obligation_id: string | null;
+  quote_id: string | null;
+  started_at: Date | null;
+  delivered_at: Date | null;
+  reward_bps: number | null;
+  reward_inr_minor: bigint | null;
+  completed_at: Date | null;
+  closed_at: Date | null;
+  closed_by: string | null;
+  close_reason: string | null;
+  version: Generated<number>;
+}
+
+export interface TraderReserveWithdrawalTable {
+  id: Generated<string>;
+  ref: Generated<string>;
+  trader_id: string;
+  amount_minor: bigint;
+  status: Generated<'REQUESTED' | 'SENT' | 'COMPLETED' | 'REJECTED' | 'CANCELLED'>;
+  destination_address: string;
+  requested_by: string;
+  requested_at: Generated<Date>;
+  treasury_wallet_id: string | null;
+  crypto_transfer_id: string | null;
+  sent_recorded_by: string | null;
+  sent_at: Date | null;
+  completed_at: Date | null;
+  closed_at: Date | null;
+  closed_by: string | null;
+  close_reason: string | null;
+}
+
+export interface TraderRewardPayoutTable {
+  id: Generated<string>;
+  ref: Generated<string>;
+  trader_id: string;
+  amount_minor: bigint;
+  status: Generated<'RECORDED' | 'CONFIRMED' | 'FAILED'>;
+  inr_account_id: string;
+  fiat_transfer_id: string;
+  capacity_reservation_id: string | null;
+  destination_bank_account_id: string;
+  recorded_by: string;
+  recorded_at: Generated<Date>;
+  confirmed_by: string | null;
+  confirmed_at: Date | null;
+  failed_at: Date | null;
+  failure_reason: string | null;
+}
+
 export interface Database {
   currency: CurrencyTable;
   idempotency_key: IdempotencyKeyTable;
@@ -970,4 +1127,10 @@ export interface Database {
   receipt: ReceiptTable;
   bank_statement_import: BankStatementImportTable;
   bank_statement_line: BankStatementLineTable;
+  trader_program: TraderProgramTable;
+  trader_profile: TraderProfileTable;
+  trader_block: TraderBlockTable;
+  trader_order: TraderOrderTable;
+  trader_reserve_withdrawal: TraderReserveWithdrawalTable;
+  trader_reward_payout: TraderRewardPayoutTable;
 }

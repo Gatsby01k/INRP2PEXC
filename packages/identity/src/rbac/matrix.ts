@@ -70,6 +70,14 @@ export const PERMISSION_MATRIX = Object.freeze({
   // Importing a bank statement is what checks the desk's own record against the bank's (SECURITY S7). It is
   // step-up because a forged statement is how a fake payment would be made to look reconciled.
   'statement:import': r(S, D, D, S, D, D),
+  // Traders (docs/TRADERS.md). A trader's rate is a route rate, so seeing traders is limited to the roles that
+  // already see route economics. Controls that change who may provide liquidity, and on what terms, are step-up.
+  'traders:view': r(A, A, D, A, D, D),
+  'traders:assign': r(A, A, D, D, D, D),
+  'traders:pause': r(S, S, D, S, D, D),
+  'traders:configure': r(S, D, D, S, D, D),
+  'trader_payout:record': r(A, D, D, A, D, D),
+  'trader_payout:confirm': r(S, D, D, S, D, D),
   'receipt:view': r(A, A, A, A, A, A),
   'audit:view': r(A, D, D, A, D, D),
   'users:manage': r(S, D, D, D, D, D),

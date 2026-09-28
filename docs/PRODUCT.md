@@ -87,6 +87,7 @@ Full permission matrix: `SECURITY.md §3`.
 ### 7.1 Client app (mobile-first quality)
 Navigation: **Exchange** (default home) · **Trades** · **History** · **Bank & Wallets** · **Account**.
 No dashboard before Exchange.
+**Traders** is a section of the same app for a client that provides INR or USDT capacity: it applies, is approved by the desk, sets its capacity and rates, switches on, and receives matching orders privately — one order to one trader — earning a configured reward on completed orders. It is not an order board (`TRADERS.md`).
 
 ### 7.2 Quote Link — `inrp2p.com/q/{token}`
 Single clean page opened from a messenger. Shows branding, direction, amount, rate, expected settlement amount, network, bank/wallet target (masked), expiry, Accept / Reject. Nothing else.
@@ -96,6 +97,7 @@ Viewing the link never changes the quote. **Accept** — and formal **Reject** �
 ### 7.3 Operator app (desktop-first)
 Navigation: **Desk** · **Orders** · **Rates** · **INR** · **USDT** · **Clients** · **P&L** · **Settings**.
 The Desk answers *what needs action right now?* — it is not an analytics dashboard.
+**Traders** (`/trader-desk`): the trader programme, the review queue, each trader's controls, orders, Security Reserve and rewards (`TRADERS.md` §11).
 
 ### 7.4 Public site / SEO
 Routes: `/`, `/usdt-to-inr`, `/inr-to-usdt`, `/sell-usdt-in-india`, `/buy-usdt-in-india`, `/usdt-otc-india`.

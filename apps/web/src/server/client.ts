@@ -57,13 +57,13 @@ export async function clientPage(): Promise<ClientContext> {
 export async function runClientCommand<P, R>(
   build: (ctx: ClientContext, deps: QuoteDeps) => DomainCommand<P, R>,
   payload: P,
-  opts: { name: string; idempotencyKey: string; financial?: boolean },
+  opts: { name: string; idempotencyKey: string; financial?: boolean; keepMessages?: ReadonlySet<string> },
 ): Promise<CommandResult<R>> {
   let ctx: ClientContext;
   try {
     ctx = await clientContext();
   } catch (e) {
-    return failure(e);
+    return failure(e, opts.keepMessages);
   }
   const ref: ActorRef = { type: 'USER', id: ctx.actor.userId, surface: 'CLIENT', sessionId: ctx.actor.sessionId };
   try {
@@ -78,7 +78,7 @@ export async function runClientCommand<P, R>(
     });
     return { ok: true, result: out.result };
   } catch (e) {
-    return failure(e);
+    return failure(e, opts.keepMessages);
   }
 }
 

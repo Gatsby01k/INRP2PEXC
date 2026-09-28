@@ -8,6 +8,7 @@ import type { ClientActor } from '@inrp2p/identity';
 import { openTradeFromAcceptedQuote } from '@inrp2p/trades';
 import { getClientTradeView, type ClientTradeView } from '@inrp2p/trades';
 import { allocateDepositAddress, assertSellAcceptanceSupported, reserveTreasuryUsdt } from '@inrp2p/treasury';
+import { startOrderForTrade } from '@inrp2p/trader-core';
 import { lockRow, requireQuoteDecider } from './actors.ts';
 import { consumeChallengeInCommand, hitDecisionRateLimit, resolveLink, verifyChallengeCode } from './challenges.ts';
 import { closePendingChallenges } from './challenges.ts';
@@ -85,7 +86,7 @@ async function acceptCore(ctx: TxContext, deps: QuoteDeps, input: { quote: Decis
     .where('id', '=', quote.trade_request_id)
     .execute();
 
-  const route = await ctx.tx.selectFrom('liquidity_route').select(['execution_mode']).where('id', '=', quote.route_id).forShare().executeTakeFirstOrThrow();
+  const route = await ctx.tx.selectFrom('liquidity_route').select(['execution_mode', 'trader_id']).where('id', '=', quote.route_id).forShare().executeTakeFirstOrThrow();
   const trade = await openTradeFromAcceptedQuote(ctx, {
     quoteId: quote.id,
     tradeRequestId: quote.trade_request_id,
@@ -104,6 +105,10 @@ async function acceptCore(ctx: TxContext, deps: QuoteDeps, input: { quote: Decis
     bankAccountId: quote.bank_account_id,
     cryptoWalletId: quote.crypto_wallet_id,
   }, route.execution_mode);
+  // A quote on a trader's route starts that trader's accepted order, bound to this trade and its obligation.
+  if (route.trader_id) {
+    await startOrderForTrade(ctx, { requestId: quote.trade_request_id, routeId: quote.route_id, quoteId: quote.id, tradeId: trade.tradeId, routeObligationId: trade.routeObligationId });
+  }
 
   if (quote.direction === 'SELL_USDT') {
     await allocateDepositAddress(ctx, deps.custody, { network: 'TRON', tradeId: trade.tradeId, tradeRef: trade.ref, expectedAmount: Money.ofMinor(quote.base_minor, 'USDT') });

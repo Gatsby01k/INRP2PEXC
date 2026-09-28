@@ -29,6 +29,11 @@ export interface NotificationFacts {
   readonly label?: string;
   readonly expiresAt?: Date;
   readonly direction?: 'SELL_USDT' | 'BUY_USDT';
+  /** Trader messages: the order, its side in the trader's words, and its figures at the trader's own rate. */
+  readonly orderRef?: string;
+  readonly side?: 'BUY_USDT' | 'SELL_USDT';
+  readonly rate?: string;
+  readonly reward?: string;
 }
 
 const inr = (amount: string): string => `₹${Money.parse(amount, 'INR').toDecimalString()}`;
@@ -116,5 +121,94 @@ export function draftFor(kind: NotificationKind, facts: NotificationFacts): Noti
         subjectRef: null,
         href: '/destinations',
       };
+    default:
+      return traderDraft(kind, facts);
+  }
+}
+
+const sideWords = (side: NotificationFacts['side']): string => (side === 'SELL_USDT' ? 'Sell' : 'Buy');
+const orderHref = (facts: NotificationFacts): string | null => (facts.orderRef ? `/traders/orders/${facts.orderRef}` : '/traders');
+
+/**
+ * What a trader is told. The same rules as every client message: the trader's own reference and figures, and
+ * nothing about the client on the other side — who they are, what they were quoted, or what INRP2P keeps.
+ */
+function traderDraft(kind: NotificationKind, facts: NotificationFacts): NotificationDraft {
+  const ref = facts.orderRef ?? null;
+  const usdtAmount = facts.base ? usdt(facts.base) : 'the USDT';
+  const inrAmount = facts.inr ? inr(facts.inr) : 'the INR';
+  switch (kind) {
+    case 'TRADER_APPROVED':
+      return { kind, title: 'You are approved as a trader', body: 'Set your capacity and rates on Traders, then switch on to receive matching orders.', subjectRef: null, href: '/traders' };
+    case 'TRADER_REJECTED':
+      return {
+        kind,
+        title: 'Your trader application was not approved',
+        body: facts.reason ? short(`The desk's note: ${facts.reason}`, 400) : 'You can apply again from Traders.',
+        subjectRef: null,
+        href: '/traders',
+      };
+    case 'TRADER_PAUSED':
+      return {
+        kind,
+        title: 'Your trader account is paused',
+        body: short(`No new orders are assigned. Orders already in progress continue.${facts.reason ? ` Reason: ${facts.reason}` : ''}`, 400),
+        subjectRef: null,
+        href: '/traders',
+      };
+    case 'TRADER_RESUMED':
+      return { kind, title: 'Your trader account is active again', body: 'You can switch on to receive matching orders.', subjectRef: null, href: '/traders' };
+    case 'TRADER_ORDER_NEW':
+      return {
+        kind,
+        title: ref ? `New order ${ref}` : 'New order',
+        body: `${sideWords(facts.side)} ${usdtAmount}${facts.rate ? ` at ₹${facts.rate} per USDT` : ''}. Accept or decline it on Traders.`,
+        subjectRef: ref,
+        href: orderHref(facts),
+      };
+    case 'TRADER_ORDER_ACCEPTED':
+      return { kind, title: ref ? `Order ${ref} is confirmed` : 'Your order is confirmed', body: 'The trade is open. You will be told when it is your turn to send.', subjectRef: ref, href: orderHref(facts) };
+    case 'TRADER_ACTION_REQUIRED':
+      return {
+        kind,
+        title: `Send your ${facts.side === 'SELL_USDT' ? 'USDT' : 'INR'} for ${ref ?? 'your order'}`,
+        body: `The other side is funded. Send ${facts.side === 'SELL_USDT' ? usdtAmount : inrAmount} as shown on the order.`,
+        subjectRef: ref,
+        href: orderHref(facts),
+      };
+    case 'TRADER_PAYMENT_CONFIRMED':
+      return {
+        kind,
+        title: `Payment received for ${ref ?? 'your order'}`,
+        body: `INRP2P confirmed your ${facts.side === 'SELL_USDT' ? usdtAmount : inrAmount}. Your ${facts.side === 'SELL_USDT' ? 'INR' : 'USDT'} is on its way.`,
+        subjectRef: ref,
+        href: orderHref(facts),
+      };
+    case 'TRADER_ORDER_COMPLETED':
+      return {
+        kind,
+        title: ref ? `Order ${ref} completed` : 'Order completed',
+        body: `Settled in full.${facts.reward ? ` Reward earned: ${inr(facts.reward)}.` : ''}`,
+        subjectRef: ref,
+        href: orderHref(facts),
+      };
+    case 'TRADER_ORDER_CLOSED':
+      return {
+        kind,
+        title: ref ? `Order ${ref} closed` : 'Order closed',
+        body: short(facts.reason ?? 'Nothing is held for it any more.', 400),
+        subjectRef: ref,
+        href: orderHref(facts),
+      };
+    case 'TRADER_RESERVE_ISSUE':
+      return {
+        kind,
+        title: 'Your Security Reserve needs attention',
+        body: short(facts.reason ?? 'Open Traders to see what is needed.', 400),
+        subjectRef: null,
+        href: '/traders/reserve',
+      };
+    default:
+      throw new Error(`no message for ${kind}`);
   }
 }

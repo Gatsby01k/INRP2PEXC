@@ -26,6 +26,12 @@ export const Accounts = {
   grossMargin: () => sub('REVENUE', 'GROSS_MARGIN', null, 'INR'),
   fees: (currency: CurrencyCode) => sub('EXPENSE', 'FEES', null, currency),
   suspenseUnallocated: (currency: CurrencyCode) => sub('SUSPENSE', 'UNALLOCATED', null, currency),
+  /** USDT a trader has deposited as its Security Reserve: owed back to the trader, never trading capacity. */
+  traderReserve: (traderId: string) => sub('LIAB', 'TRADER_RESERVE', traderId, 'USDT'),
+  /** Rewards accrued on a trader's completed orders and not yet paid out. */
+  traderRewardPayable: (traderId: string) => sub('LIAB', 'TRADER_REWARD_PAYABLE', traderId, 'INR'),
+  /** What rewards cost the exchange, recognized when the order they are paid on completes. */
+  traderRewards: () => sub('EXPENSE', 'TRADER_REWARDS', null, 'INR'),
 } as const;
 
 /** Resolves (creating if needed) ledger account ids. Accounts themselves are append-only. */

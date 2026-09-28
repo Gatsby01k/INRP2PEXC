@@ -71,6 +71,14 @@ async function lockRoute(tx: Tx, routeId: string) {
 }
 
 /**
+ * A trader's route is configured by the trader programme (its registered wallet, its status through the trader's
+ * own controls), never by the route screens: a desk edit there would change a trader's terms behind its back.
+ */
+function refuseTraderRoute(row: { trader_id: string | null }): void {
+  if (row.trader_id) throw new DomainError('TRADER_ROUTE_MANAGED', 'this route belongs to a trader and is managed from Traders');
+}
+
+/**
  * `routes.set_settlement_model` — `routes:configure` (⧗). Rejects models not implemented in V1 before touching the
  * row; the database constraint `liquidity_route_v1_per_trade_only` rejects them independently.
  */
@@ -79,6 +87,7 @@ export function setSettlementModel(actor: OperatorActor) {
     const model = acceptedModel(p.settlementModel);
     const reason = requireText(p.reason, 'reason', 500);
     const before = await lockRoute(ctx.tx, p.routeId);
+    refuseTraderRoute(before);
     if (before.settlement_model === model) return { changed: false };
     try {
       await ctx.tx.updateTable('liquidity_route').set({ settlement_model: model, version: before.version + 1, updated_at: sql<Date>`statement_timestamp()` }).where('id', '=', before.id).execute();
@@ -110,6 +119,7 @@ export function configureRoute(actor: OperatorActor) {
   return operatorCommand(actor, 'routes:configure', async (ctx, p: ConfigureRoutePayload) => {
     const reason = requireText(p.reason, 'reason', 500);
     const before = await lockRoute(ctx.tx, p.routeId);
+    refuseTraderRoute(before);
     if (before.version !== p.expectedVersion) throw new DomainError('STALE_VERSION', `route is at version ${before.version}`);
     const changes = {
       ...(p.executionMode !== undefined ? { execution_mode: requireOneOf(p.executionMode, 'executionMode', ['DIRECT_TO_CLIENT', 'TO_EXCHANGE'] as const) } : {}),
@@ -140,6 +150,7 @@ export function setRouteStatus(actor: OperatorActor) {
     const status = requireOneOf(p.status, 'status', ['ACTIVE', 'PAUSED', 'RETIRED'] as const);
     const reason = requireText(p.reason, 'reason', 500);
     const before = await lockRoute(ctx.tx, p.routeId);
+    refuseTraderRoute(before);
     if (before.status === status) return { changed: false };
     if (before.status === 'RETIRED') throw new DomainError('INVALID_TRANSITION', 'route is retired');
     await ctx.tx.updateTable('liquidity_route').set({ status, version: before.version + 1, updated_at: sql<Date>`statement_timestamp()` }).where('id', '=', before.id).execute();
@@ -151,6 +162,8 @@ export function setRouteStatus(actor: OperatorActor) {
 export interface RouteView {
   readonly id: string;
   readonly name: string;
+  /** Set when the route is a trader's own (docs/TRADERS.md). */
+  readonly traderId: string | null;
   readonly direction: DirectionValue | 'BOTH';
   readonly status: RouteStatus;
   readonly settlementModel: SettlementModel;
@@ -163,7 +176,7 @@ export interface RouteView {
 export async function getRoute(ex: Executor, routeId: string): Promise<RouteView> {
   const r = await ex.selectFrom('liquidity_route').selectAll().where('id', '=', requireUuid(routeId, 'routeId')).executeTakeFirst();
   if (!r) throw new DomainError('NOT_FOUND', 'route not found');
-  return { id: r.id, name: r.name, direction: r.direction, status: r.status, settlementModel: r.settlement_model, executionMode: r.execution_mode, availableBase: Money.ofMinor(r.available_base_minor, 'USDT'), version: r.version };
+  return { id: r.id, name: r.name, traderId: r.trader_id, direction: r.direction, status: r.status, settlementModel: r.settlement_model, executionMode: r.execution_mode, availableBase: Money.ofMinor(r.available_base_minor, 'USDT'), version: r.version };
 }
 
 /**
@@ -176,7 +189,7 @@ export async function requireUsableRoute(tx: Tx, routeId: string, direction: Dir
   if (r.status !== 'ACTIVE') throw new DomainError('ROUTE_INACTIVE', `route is ${r.status}`);
   if (!IMPLEMENTED_SETTLEMENT_MODELS.includes(r.settlement_model)) throw new DomainError('ROUTE_SETTLEMENT_MODEL_UNSUPPORTED', `route uses ${r.settlement_model}`);
   if (r.direction !== 'BOTH' && r.direction !== direction) throw new DomainError('ROUTE_DIRECTION_MISMATCH', `route serves ${r.direction} only`);
-  return { id: r.id, name: r.name, direction: r.direction, status: r.status, settlementModel: r.settlement_model, executionMode: r.execution_mode, availableBase: Money.ofMinor(r.available_base_minor, 'USDT'), version: r.version };
+  return { id: r.id, name: r.name, traderId: r.trader_id, direction: r.direction, status: r.status, settlementModel: r.settlement_model, executionMode: r.execution_mode, availableBase: Money.ofMinor(r.available_base_minor, 'USDT'), version: r.version };
 }
 
 export interface OpenRouteObligationInput {
@@ -217,4 +230,54 @@ export async function openRouteObligation(ctx: TxContext, input: OpenRouteObliga
     after: { trade_id: input.tradeId, route_id: input.routeId, direction: input.direction, execution_mode: input.executionMode, exchange_delivers: sell ? input.base : input.routeValueInr, route_delivers: sell ? input.routeValueInr : input.base },
   });
   return { routeObligationId: row.id, ref: row.ref };
+}
+
+/**
+ * Opens a trader's own route for one direction, inside the trader approval command (docs/TRADERS.md), which has
+ * already authorized the operator. A trader route always delivers to the exchange (`TO_EXCHANGE`): a client's
+ * destination is never handed to a trader. The database refuses any other shape (`liquidity_route_trader_shape`).
+ */
+export async function createTraderRoute(
+  ctx: TxContext,
+  input: { traderId: string; name: string; direction: DirectionValue; registeredRouteAddress: string; registeredPayoutIdentity: string },
+): Promise<{ routeId: string }> {
+  const row = await ctx.tx
+    .insertInto('liquidity_route')
+    .values({
+      name: requireText(input.name, 'name', 80),
+      direction: requireOneOf(input.direction, 'direction', ['SELL_USDT', 'BUY_USDT'] as const),
+      settlement_model: 'PER_TRADE',
+      execution_mode: 'TO_EXCHANGE',
+      registered_payout_identity: optionalText(input.registeredPayoutIdentity, 'registeredPayoutIdentity', 200),
+      registered_route_address: parseTronAddress(input.registeredRouteAddress.trim()),
+      available_base_minor: 0n,
+      trader_id: requireUuid(input.traderId, 'traderId'),
+      created_by: actorLabel(ctx),
+    })
+    .returning(['id', 'name', 'direction', 'execution_mode', 'registered_route_address'])
+    .executeTakeFirstOrThrow();
+  await appendAudit(ctx, { action: 'routes.created', entityType: 'liquidity_route', entityId: row.id, after: { ...row, trader_id: input.traderId } });
+  return { routeId: row.id };
+}
+
+/**
+ * Keeps a trader's routes pointing at its registered settlement details after an operator changed them: the
+ * wallet the route delivers from and is paid to, and the bank identity its INR is expected from.
+ */
+export async function updateTraderRouteRegistration(ctx: TxContext, input: { traderId: string; registeredRouteAddress: string; registeredPayoutIdentity: string; reason: string }): Promise<{ updated: number }> {
+  const routes = await ctx.tx.selectFrom('liquidity_route').selectAll().where('trader_id', '=', requireUuid(input.traderId, 'traderId')).orderBy('id').forUpdate().execute();
+  const address = parseTronAddress(input.registeredRouteAddress.trim());
+  for (const r of routes) {
+    await ctx.tx
+      .updateTable('liquidity_route')
+      .set({ registered_route_address: address, registered_payout_identity: optionalText(input.registeredPayoutIdentity, 'registeredPayoutIdentity', 200), version: r.version + 1, updated_at: sql<Date>`statement_timestamp()` })
+      .where('id', '=', r.id)
+      .execute();
+    await appendAudit(ctx, {
+      action: 'routes.configured', entityType: 'liquidity_route', entityId: r.id,
+      before: { registered_route_address: r.registered_route_address, registered_payout_identity: r.registered_payout_identity, version: r.version },
+      after: { registered_route_address: address, registered_payout_identity: input.registeredPayoutIdentity, version: r.version + 1, reason: input.reason },
+    });
+  }
+  return { updated: routes.length };
 }

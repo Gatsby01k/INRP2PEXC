@@ -17,6 +17,7 @@ const ENTRIES: ClientNavEntry[] = [
   { href: '/exchange', label: 'Exchange' },
   { href: '/history', label: 'History' },
   { href: '/destinations', label: 'Destinations' },
+  { href: '/traders', label: 'Traders' },
 ];
 
 /**

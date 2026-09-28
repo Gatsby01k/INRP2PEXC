@@ -5,7 +5,8 @@ import { appendAudit } from '@inrp2p/audit';
 import { enqueueOutbox } from '@inrp2p/outbox';
 import { type OperatorActor, authorizeOperator, operatorCommand } from '@inrp2p/identity';
 import { requireUsableRoute } from '@inrp2p/routes';
-import { requireCurrentRouteRate } from '@inrp2p/pricing';
+import { requireCurrentRouteRate, routeRateSnapshot } from '@inrp2p/pricing';
+import { requireOrderForQuote } from '@inrp2p/trader-core';
 import { type QuoteDeps, policyOf } from './policy.ts';
 import { lockRow } from './actors.ts';
 import { closePendingChallenges } from './challenges.ts';
@@ -45,7 +46,10 @@ export function createQuote(actor: OperatorActor, deps: Pick<QuoteDeps, 'policy'
     if (client.status !== 'ACTIVE') throw new DomainError('CLIENT_NOT_ACTIVE', 'client is suspended');
 
     const route = await requireUsableRoute(ctx.tx, requireUuid(p.routeId, 'routeId'), request.direction);
-    const snapshot = await requireCurrentRouteRate(ctx.tx, route.id, request.direction);
+    // A trader's route prices only the order its trader accepted, on the snapshot that acceptance published
+    // (docs/TRADERS.md); a desk route prices on its current snapshot.
+    const traderOrder = route.traderId ? await requireOrderForQuote(ctx, { requestId: request.id, routeId: route.id }) : null;
+    const snapshot = traderOrder ? await routeRateSnapshot(ctx.tx, traderOrder.snapshotId) : await requireCurrentRouteRate(ctx.tx, route.id, request.direction);
     const clientRate = Rate.parse(p.clientRate, 'CLIENT');
     const fixedSide = p.fixedSide ? requireOneOf(p.fixedSide, 'fixedSide', ['BASE', 'QUOTE'] as const) : request.fixed_side;
     // The requested amount is in the request's own fixed side; quoting the other side needs its own amount.
@@ -60,6 +64,11 @@ export function createQuote(actor: OperatorActor, deps: Pick<QuoteDeps, 'policy'
         ? { direction: request.direction, fixedSide: 'BASE', amount: amount as Money<'USDT'>, clientRate, routeRate: snapshot.rate }
         : { direction: request.direction, fixedSide: 'QUOTE', amount: amount as Money<'INR'>, clientRate, routeRate: snapshot.rate },
     );
+    if (traderOrder && (econ.base.minor !== traderOrder.baseMinor || econ.routeInr.minor !== traderOrder.inrMinor)) {
+      throw new DomainError('TRADER_ORDER_MISMATCH', `the trader accepted ${Money.ofMinor(traderOrder.baseMinor, 'USDT').toDecimalString()} USDT on ${traderOrder.ref}; quote exactly that`, {
+        base: Money.ofMinor(traderOrder.baseMinor, 'USDT').toDecimalString(),
+      });
+    }
     const negativeReason = econ.grossMargin.isNegative() ? requireText(p.negativeMarginReason, 'negativeMarginReason', 500) : null;
     const isCounter = request.target_rate_micro !== null && request.target_rate_micro !== clientRate.micro;
 
@@ -149,7 +158,8 @@ export function sendQuote(actor: OperatorActor, deps: Pick<QuoteDeps, 'policy'>,
     const now = await businessNow(ctx.tx);
     const ageSeconds = (BigInt(now.getTime()) - BigInt(snapshot.effective_at.getTime())) / 1000n;
     if (ageSeconds > BigInt(policy.maxSnapshotAgeSeconds)) throw new DomainError('ROUTE_RATE_STALE', `route snapshot is ${ageSeconds}s old; refresh the rate`);
-    await requireUsableRoute(ctx.tx, quote.route_id, quote.direction);
+    const route = await requireUsableRoute(ctx.tx, quote.route_id, quote.direction);
+    if (route.traderId) await requireOrderForQuote(ctx, { requestId: request.id, routeId: route.id });
 
     const superseded = await cancelSentQuoteOfRequest(ctx, request.id, 'SUPERSEDED');
     const expiresAt = new Date(now.getTime() + quote.valid_for_seconds * 1000);

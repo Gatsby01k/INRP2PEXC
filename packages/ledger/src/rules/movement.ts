@@ -12,6 +12,7 @@ export type MovementParty =
   | { readonly kind: 'EXCHANGE_ACCOUNT'; readonly inrAccountId: string }
   | { readonly kind: 'EXCHANGE_TREASURY'; readonly walletId: string }
   | { readonly kind: 'ROUTE'; readonly routeId: string; readonly routeObligationId?: string | null }
+  | { readonly kind: 'TRADER'; readonly traderId: string }
   | { readonly kind: 'SUSPENSE' };
 
 export interface MovementJournalInput {
@@ -25,8 +26,10 @@ export interface MovementJournalInput {
   /**
    * `CLIENT_FIRST_LEG` and `REFUND` move the client receivable; `CLIENT_PAYOUT` moves the client payable.
    * `ROUTE_SETTLEMENT` moves the route side. `UNALLOCATED` parks funds in suspense until an operator decides.
+   * `TRADER_RESERVE` moves a trader's Security Reserve in (deposit) or out (withdrawal); `TRADER_REWARD_PAYOUT`
+   * pays accrued rewards to the trader.
    */
-  readonly purpose: 'CLIENT_FIRST_LEG' | 'CLIENT_PAYOUT' | 'ROUTE_SETTLEMENT' | 'REFUND' | 'UNALLOCATED';
+  readonly purpose: 'CLIENT_FIRST_LEG' | 'CLIENT_PAYOUT' | 'ROUTE_SETTLEMENT' | 'REFUND' | 'UNALLOCATED' | 'TRADER_RESERVE' | 'TRADER_REWARD_PAYOUT';
 }
 
 const exchangeAsset = (p: MovementParty, amount: Money) => {
@@ -96,6 +99,33 @@ export function movementJournal(input: MovementJournalInput): JournalInput {
       entries = [
         { account: exchangeAsset(to, amount), direction: 'DR', amount },
         { account: Accounts.suspenseUnallocated(amount.currency), direction: 'CR', amount },
+      ];
+      break;
+    }
+    case 'TRADER_RESERVE': {
+      if (amount.currency !== 'USDT') throw new DomainError('INVALID_ARGUMENT', 'a Security Reserve moves USDT only');
+      if (from.kind === 'TRADER') {
+        // Deposit: the treasury grows by USDT the exchange now owes back to the trader.
+        entries = [
+          { account: exchangeAsset(to, amount), direction: 'DR', amount },
+          { account: Accounts.traderReserve(from.traderId), direction: 'CR', amount },
+        ];
+      } else if (to.kind === 'TRADER') {
+        // Withdrawal: the debt to the trader shrinks by what left the treasury.
+        entries = [
+          { account: Accounts.traderReserve(to.traderId), direction: 'DR', amount },
+          { account: exchangeAsset(from, amount), direction: 'CR', amount },
+        ];
+      } else {
+        throw new DomainError('INVALID_ARGUMENT', `a reserve movement must involve the trader (${key})`);
+      }
+      break;
+    }
+    case 'TRADER_REWARD_PAYOUT': {
+      if (to.kind !== 'TRADER' || amount.currency !== 'INR') throw new DomainError('INVALID_ARGUMENT', `a reward payout pays INR to the trader (${key})`);
+      entries = [
+        { account: Accounts.traderRewardPayable(to.traderId), direction: 'DR', amount },
+        { account: exchangeAsset(from, amount), direction: 'CR', amount },
       ];
       break;
     }

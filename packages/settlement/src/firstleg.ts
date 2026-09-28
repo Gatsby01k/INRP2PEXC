@@ -2,11 +2,13 @@ import { sql } from 'kysely';
 import { DomainError, Money, requireOneOf, requireText, requireUuid } from '@inrp2p/kernel';
 import type { FiatRail, TxContext } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
+import { enqueueOutbox } from '@inrp2p/outbox';
 import { type OperatorActor, operatorCommand } from '@inrp2p/identity';
 import { effectiveObligations, legTotals, lockTrade, transitionTrade } from '@inrp2p/trades';
 import { openExceptionInTx } from './exceptions.ts';
 import { lockLeg, nextLegSeq } from './legs.ts';
 import { lockMovement, markFiatFailed, postMovement, recordCryptoTransfer, recordFiatTransfer, verifyCryptoTransfer } from './movements.ts';
+import { lockObligation, obligationRemaining } from './obligations.ts';
 import type { SettlementDeps } from './policy.ts';
 import { advanceTrade, clientLegsInFlight } from './progress.ts';
 
@@ -76,7 +78,7 @@ export async function recordClientDeposit(
   const assignment = address
     ? await ctx.tx
         .selectFrom('deposit_assignment')
-        .select(['id', 'trade_id', 'released_at'])
+        .select(['id', 'trade_id', 'trader_id', 'route_obligation_id', 'released_at'])
         .where('deposit_address_id', '=', address.id)
         .orderBy('assigned_at', 'desc')
         .executeTakeFirst()
@@ -107,7 +109,12 @@ export async function recordClientDeposit(
     return { transferId: recorded.transferId, tradeId: null, legId: null, exceptionId: opened.exceptionId };
   }
 
-  const trade = await lockTrade(ctx.tx, open.trade_id);
+  // A trader's own address: its Security Reserve, or the USDT of one of its orders. The address attributes the
+  // transfer exactly as a trade's does; only what it pays for differs.
+  if (open.trader_id) return recordTraderReserveDeposit(ctx, input, { traderId: open.trader_id, treasuryWalletId: address!.treasury_wallet_id });
+  if (open.route_obligation_id) return recordTraderDelivery(ctx, input, { routeObligationId: open.route_obligation_id, treasuryWalletId: address!.treasury_wallet_id });
+
+  const trade = await lockTrade(ctx.tx, open.trade_id!);
   const existingTx = await ctx.tx
     .selectFrom('crypto_transfer')
     .select('id')
@@ -170,6 +177,110 @@ export async function recordClientDeposit(
     });
   }
   return { transferId: recorded.transferId, tradeId: trade.id, legId: leg.id };
+}
+
+type DepositInput = Parameters<typeof recordClientDeposit>[1];
+type DepositOutcome = Awaited<ReturnType<typeof recordClientDeposit>>;
+
+async function knownTransfer(ctx: TxContext, input: DepositInput): Promise<string | null> {
+  const existing = await ctx.tx
+    .selectFrom('crypto_transfer')
+    .select('id')
+    .where('network', '=', 'TRON')
+    .where('tx_hash', '=', input.txHash.toLowerCase())
+    .where('log_index', '=', input.logIndex)
+    .executeTakeFirst();
+  return existing?.id ?? null;
+}
+
+/**
+ * USDT at a trader's reserve address. It is the trader's Security Reserve when it came from the trader's own
+ * registered wallet; the ledger credits it when the chain makes it final (the scanner posts `TRADER_RESERVE`).
+ * From any other wallet it is not credited — a reserve funded by a third party is exactly what the registered
+ * wallet rule exists to prevent — so it is recorded as money of unknown origin, parked in suspense on
+ * confirmation, and the desk gets a case (and the trader is told) instead.
+ */
+async function recordTraderReserveDeposit(ctx: TxContext, input: DepositInput, target: { traderId: string; treasuryWalletId: string }): Promise<DepositOutcome> {
+  const known = await knownTransfer(ctx, input);
+  if (known) return { transferId: known, tradeId: null, legId: null };
+  const expected = await sql<{ address: string | null }>`select inrp2p_trader_wallet_address(${target.traderId}) as address`.execute(ctx.tx);
+  const registered = expected.rows[0]?.address ?? null;
+  if (registered !== null && registered === input.fromAddress) {
+    const recorded = await recordCryptoTransfer(ctx, { ...input, payerType: 'TRADER', payerId: target.traderId, payeeType: 'EXCHANGE_TREASURY', payeeId: target.treasuryWalletId });
+    await appendAudit(ctx, { action: 'trader_reserve.deposit_detected', entityType: 'trader_profile', entityId: target.traderId, after: { transfer_id: recorded.transferId, amount: input.amount } });
+    return { transferId: recorded.transferId, tradeId: null, legId: null };
+  }
+  const recorded = await recordCryptoTransfer(ctx, { ...input, payerType: 'UNKNOWN', payeeType: 'EXCHANGE_TREASURY', payeeId: target.treasuryWalletId });
+  const opened = await openExceptionInTx(ctx, {
+    type: 'USDT_UNEXPECTED_SENDER', subjectType: 'CRYPTO_TRANSFER', subjectId: recorded.transferId, tradeId: null,
+    details: { reason: 'RESERVE_FROM_UNREGISTERED_WALLET', trader_id: target.traderId, from: input.fromAddress, amount: input.amount.toDecimalString() },
+  });
+  await enqueueOutbox(ctx, { type: 'trader.reserve_issue', aggregateType: 'trader_profile', aggregateId: target.traderId, payload: { traderId: target.traderId, reason: 'UNREGISTERED_SENDER', amount: input.amount.toDecimalString() } });
+  return { transferId: recorded.transferId, tradeId: null, legId: null, exceptionId: opened.exceptionId };
+}
+
+/**
+ * USDT at a trader order's delivery address: the route delivering its side of one obligation (TO_EXCHANGE). From
+ * the route's registered wallet and within what the side still owes, it becomes a RECORDED route settlement with
+ * its ROUTE allocation, which the scanner confirms — posting the one movement journal and allocating the side —
+ * once the chain makes it final. The chain, never an operator, decides that USDT arrived (S6).
+ *
+ * From another wallet, or more than the side still owes, nothing is allocated: the transfer is recorded, parked in
+ * suspense on confirmation, and the desk gets a case — the client trade is untouched either way (FI-62).
+ */
+async function recordTraderDelivery(ctx: TxContext, input: DepositInput, target: { routeObligationId: string; treasuryWalletId: string }): Promise<DepositOutcome> {
+  const obligation = await lockObligation(ctx, target.routeObligationId);
+  const known = await knownTransfer(ctx, input);
+  if (known) return { transferId: known, tradeId: null, legId: null };
+  const route = await ctx.tx.selectFrom('liquidity_route').select(['id', 'registered_route_address']).where('id', '=', obligation.route_id).executeTakeFirstOrThrow();
+
+  if (!route.registered_route_address || route.registered_route_address !== input.fromAddress) {
+    const recorded = await recordCryptoTransfer(ctx, { ...input, payerType: 'UNKNOWN', payeeType: 'EXCHANGE_TREASURY', payeeId: target.treasuryWalletId });
+    const opened = await openExceptionInTx(ctx, {
+      type: 'USDT_UNEXPECTED_SENDER', subjectType: 'CRYPTO_TRANSFER', subjectId: recorded.transferId, tradeId: null,
+      details: { reason: 'DELIVERY_FROM_UNREGISTERED_WALLET', route_obligation_id: obligation.id, from: input.fromAddress, amount: input.amount.toDecimalString() },
+    });
+    return { transferId: recorded.transferId, tradeId: null, legId: null, exceptionId: opened.exceptionId };
+  }
+
+  const remaining = await obligationRemaining(ctx.tx, obligation.id);
+  const pending = await sql<{ total: string }>`
+    select coalesce(sum(amount_minor), 0)::text as total from route_settlement
+    where route_obligation_id = ${obligation.id} and obligation_side = 'ROUTE_DELIVERS' and status = 'RECORDED'`.execute(ctx.tx);
+  const open = remaining.routeDelivers.minor - BigInt(pending.rows[0]!.total);
+  const recorded = await recordCryptoTransfer(ctx, { ...input, payerType: 'ROUTE', payerId: route.id, payeeType: 'EXCHANGE_TREASURY', payeeId: target.treasuryWalletId });
+  if ((obligation.status !== 'OPEN' && obligation.status !== 'PARTIALLY_SETTLED') || input.amount.minor > open) {
+    const opened = await openExceptionInTx(ctx, {
+      type: 'ROUTE_SETTLEMENT_MISMATCH', subjectType: 'CRYPTO_TRANSFER', subjectId: recorded.transferId, tradeId: null,
+      details: { reason: 'DELIVERY_EXCEEDS_OBLIGATION', route_obligation_id: obligation.id, owed: Money.ofMinor(open < 0n ? 0n : open, 'USDT').toDecimalString(), received: input.amount.toDecimalString() },
+    });
+    return { transferId: recorded.transferId, tradeId: null, legId: null, exceptionId: opened.exceptionId };
+  }
+
+  const settlement = await ctx.tx
+    .insertInto('route_settlement')
+    .values({
+      route_id: route.id,
+      route_obligation_id: obligation.id,
+      obligation_side: 'ROUTE_DELIVERS',
+      flow: 'FROM_ROUTE_TO_EXCHANGE',
+      asset: 'USDT',
+      amount_minor: input.amount.minor,
+      transfer_kind: 'CRYPTO',
+      crypto_transfer_id: recorded.transferId,
+      created_by: ctx.actor.id ?? `SYSTEM:${ctx.commandName}`,
+    })
+    .returning(['id', 'ref'])
+    .executeTakeFirstOrThrow();
+  await ctx.tx
+    .insertInto('transfer_allocation')
+    .values({ transfer_kind: 'CRYPTO', crypto_transfer_id: recorded.transferId, dimension: 'ROUTE', route_settlement_id: settlement.id, amount_minor: input.amount.minor, allocated_by: ctx.actor.id ?? `SYSTEM:${ctx.commandName}` })
+    .execute();
+  await appendAudit(ctx, {
+    action: 'route_settlement.recorded', entityType: 'route_settlement', entityId: settlement.id,
+    after: { ref: settlement.ref, flow: 'FROM_ROUTE_TO_EXCHANGE', asset: 'USDT', amount: input.amount, route_obligation_id: obligation.id, side: 'ROUTE_DELIVERS', evidence: 'CRYPTO', via: 'DELIVERY_ADDRESS' },
+  });
+  return { transferId: recorded.transferId, tradeId: null, legId: null };
 }
 
 /**

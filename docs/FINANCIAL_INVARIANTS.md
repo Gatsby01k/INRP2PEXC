@@ -120,6 +120,9 @@ SELL, base 100,000.000000 USDT, client ₹102.00, route ₹104.20:
 | FI-64 | For each route obligation and side: obligation remaining = ledger balance of the route account lines carrying that `route_obligation_id` | Reconciliation job + integration assertion after every route-affecting command in tests | walkthrough §3.5 at every step |
 | FI-65 | `TO_EXCHANGE` obligations accept only route→exchange and exchange→route movements; `DIRECT_TO_CLIENT` obligations additionally accept route→client movements; route→client payouts require a client payout leg with `payer = ROUTE` | Command validation + trigger on `transfer_allocation` | direct payout on TO_EXCHANGE route rejected |
 
+### Traders (`TRADERS.md` §10)
+A trader's order settles through an ordinary `TO_EXCHANGE` route obligation, so FI-60…FI-65 apply to it unchanged. The programme's own invariants (TR-01…TR-11: registered destinations only, held capacity = open orders, one order per request, quote = accepted order, trader-set rates, one subject per delivery address, reserve and rewards in the ledger, locked reserve never withdrawable, trader projections private, business-clock expiry) and their enforcement are listed there.
+
 ### Idempotency & audit
 | ID | Invariant | Enforcement | Test |
 |---|---|---|---|
@@ -132,7 +135,7 @@ SELL, base 100,000.000000 USDT, client ₹102.00, route ₹104.20:
 ### 3.1 Posting principle: one movement, one journal
 Every **real value movement** is exactly one evidence row — a `fiat_transfer` (unique `(rail, utr_normalized)`) or a `crypto_transfer` (unique `(network, tx_hash, log_index)`) — and posts **exactly one journal**, keyed by that evidence: `fiat:{f}:confirm` or `crypto:{x}:confirm`. Settlement legs, route settlements and allocations are *views of what a movement satisfied*; they never post journals of their own. The debit and credit accounts are chosen from the movement's `(payer, payee)` pair, so a direct route-to-client payout debits the client payable and credits the route receivable in the same two entries — it cannot be posted twice as a "client payout" and a "route settlement".
 
-Non-movement business events post their own keyed journals: `trade:{t}:accept`, `trade:{t}:complete`, `trade:{t}:cancel`, `adj:{id}`, `adj:{id}:cancel`.
+Non-movement business events post their own keyed journals: `trade:{t}:accept`, `trade:{t}:complete`, `trade:{t}:cancel`, `adj:{id}`, `adj:{id}:cancel`, and `trader_reward:{order}:accrue` (Dr `EXPENSE:TRADER_REWARDS` / Cr `LIAB:TRADER_REWARD_PAYABLE`, no trade dimension).
 
 All entries carry dimensions `trade_id` and, for route accounts, `route_obligation_id`, so balances can be read per trade and per obligation.
 
@@ -152,6 +155,9 @@ All entries carry dimensions `trade_id` and, for route accounts, `route_obligati
 | `ASSET:ROUTE_PREFUND:{r}` | asset | Reserved for `PREFUNDED`; unused in V1 |
 | `EXPENSE:FEES` | expense | Explicit fee lines (V1: zero) |
 | `SUSPENSE:UNALLOCATED` | suspense | Funds at an address without an open deposit assignment, or directly at a treasury wallet |
+| `LIAB:TRADER_RESERVE:{t}` (USDT) | liability | A trader's Security Reserve held by the exchange (`TRADERS.md` §8) |
+| `LIAB:TRADER_REWARD_PAYABLE:{t}` (INR) | liability | Rewards accrued on a trader's completed orders, not yet paid |
+| `EXPENSE:TRADER_REWARDS` (INR) | expense | Rewards the exchange pays traders |
 
 ### 3.3 Business-event journals
 | posting_key | SELL_USDT (100,000 @ client 102.00, route 104.20) | BUY_USDT (100,000 @ client 102.00, route 100.00) |
@@ -176,6 +182,9 @@ All entries carry dimensions `trade_id` and, for route accounts, `route_obligati
 | Treasury USDT → route | crypto | Dr ROUTE_PAYABLE / Cr TREASURY_USDT | route obligation (exchange side) |
 | Exchange account INR → route | fiat | Dr ROUTE_PAYABLE / Cr INR_SETTLEMENT | route obligation (exchange side) |
 | Refund of received client funds | fiat/crypto | Dr CLIENT_RECEIVABLE / Cr TREASURY_USDT or INR_SETTLEMENT | refund leg (`REFUND_TO_CLIENT`), exception resolution |
+| Trader USDT → its reserve address | crypto | Dr TREASURY_USDT / Cr TRADER_RESERVE | Security Reserve deposit (registered wallet only) |
+| Treasury USDT → trader's registered wallet (reserve withdrawal) | crypto | Dr TRADER_RESERVE / Cr TREASURY_USDT | reserve withdrawal |
+| Exchange account INR → trader's registered bank (reward) | fiat | Dr TRADER_REWARD_PAYABLE / Cr INR_SETTLEMENT | reward payout |
 
 ### 3.5 Canonical direct-settlement walkthrough (SELL, `DIRECT_TO_CLIENT`)
 | Step | Journal | ROUTE_RECEIVABLE (INR) | CLIENT_PAYABLE (INR) | DEFERRED / REVENUE | Trade | Route obligation |

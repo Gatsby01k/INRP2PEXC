@@ -113,7 +113,7 @@ describe('POOL deposit addresses', () => {
   });
 
   it('a trade gets one assignment only; release puts the address in COOLDOWN; the job returns it to the pool', async () => {
-    const tradeId = (await t.app.selectFrom('deposit_assignment').select('trade_id').where('released_at', 'is', null).limit(1).executeTakeFirstOrThrow()).trade_id;
+    const tradeId = (await t.app.selectFrom('deposit_assignment').select('trade_id').where('released_at', 'is', null).limit(1).executeTakeFirstOrThrow()).trade_id!;
     await expect(system(t.app, async (ctx) => allocateDepositAddress(ctx, adapter, { network: 'TRON', tradeId, tradeRef: 'IX-DUP', expectedAmount: usdt('1') }))).rejects.toMatchObject({ code: 'DEPOSIT_ASSIGNMENT_EXISTS' });
     const released = await system(t.app, (ctx) => releaseDepositAssignment(ctx, { tradeId, reason: 'TRADE_CANCELLED', cooldownSeconds: 0 }));
     const again = await system(t.app, (ctx) => releaseDepositAssignment(ctx, { tradeId, reason: 'TRADE_CANCELLED', cooldownSeconds: 0 }));
@@ -121,7 +121,7 @@ describe('POOL deposit addresses', () => {
     const addr = await t.app.selectFrom('deposit_assignment as a').innerJoin('deposit_address as d', 'd.id', 'a.deposit_address_id').select(['d.id', 'd.status']).where('a.trade_id', '=', tradeId).executeTakeFirstOrThrow();
     expect(addr.status).toBe('COOLDOWN');
 
-    const long = (await t.app.selectFrom('deposit_assignment').select('trade_id').where('released_at', 'is', null).limit(1).executeTakeFirstOrThrow()).trade_id;
+    const long = (await t.app.selectFrom('deposit_assignment').select('trade_id').where('released_at', 'is', null).limit(1).executeTakeFirstOrThrow()).trade_id!;
     await system(t.app, (ctx) => releaseDepositAssignment(ctx, { tradeId: long, reason: 'TRADE_COMPLETED' }));
 
     const job = await system(t.app, (ctx) => releaseCooledDownAddresses(ctx));
@@ -176,7 +176,7 @@ describe('DERIVED deposit addresses', () => {
   });
 
   it('derived addresses are retired after cooldown, never reused', async () => {
-    const tradeId = (await t.app.selectFrom('deposit_assignment').select('trade_id').limit(1).executeTakeFirstOrThrow()).trade_id;
+    const tradeId = (await t.app.selectFrom('deposit_assignment').select('trade_id').limit(1).executeTakeFirstOrThrow()).trade_id!;
     await system(t.app, (ctx) => releaseDepositAssignment(ctx, { tradeId, reason: 'TRADE_COMPLETED', cooldownSeconds: 0 }));
     expect(await system(t.app, (ctx) => releaseCooledDownAddresses(ctx))).toEqual({ available: 0, retired: 1 });
     expect(await getDepositPoolStatus(t.app, 'TRON')).toMatchObject({ capability: 'DERIVED', assigned: 11, retired: 1, available: 0 });

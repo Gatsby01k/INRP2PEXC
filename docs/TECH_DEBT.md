@@ -24,6 +24,10 @@ Non-blocking items accepted at phase review. Each entry names the phase that mus
 | TD-18 | `CLIENT_BANK_CHANGED` is detected but cannot be resolved by moving the trade to a new destination | Audit (2026-09-25) | A client replacing a destination while one of its trades is open | Open |
 | TD-19 | `refund_excess` (partial refund of an overpayment) does not exist; the completion predicate does not net refunds | Audit (2026-09-25) | The desk needing to return part of an overpayment and still complete the trade | Open |
 | TD-20 | The OWNER-grant second approval is nominal: the requester names the approver | Audit (2026-09-25) | Any path that exposes `assignOperatorRole` (none does today) | Open |
+| TD-21 | A trader's Security Reserve cannot be applied to an obligation the trader leaves unsettled | Traders (2026-09-27) | Traders providing real money | Open |
+| TD-22 | The trader programme's agreement, tax treatment and counterparty checks have not been reviewed | Traders (2026-09-27) | Traders providing real money | Open |
+| TD-23 | The Traders screens have no page baselines, and the client shell changed around them | Traders (2026-09-27) | The `visual-pages` CI job can pass | Open |
+| TD-24 | A trader cannot ask to change its registered bank account or wallet in the product | Traders (2026-09-27) | A trader replacing a destination without the desk's usual channel | Open |
 
 ## TD-01 — Better Auth schema warning for `auth_rate_limit.last_request`
 
@@ -413,4 +417,46 @@ of it. Nothing in the web app, the worker or `scripts/` calls the command today,
 **Resolution (to do, before any operator-administration surface ships).** Split the grant into a request (OWNER A,
 ⧗) and an approval (OWNER B, ⧗, in B's own session), the same shape as `adjustment.request` / `adjustment.approve`,
 with the approver taken from the approving session and never from a payload.
+
+## TD-21 — The Security Reserve cannot be applied to an unsettled obligation
+
+**Observed.** `docs/TRADERS.md` §8: the reserve is credited, locked while the trader is engaged, and withdrawn —
+all through the ledger — but no command uses it. If a trader accepts an order, the client funds the trade and the
+trader never delivers, the client is still served (on a `TO_EXCHANGE` route INRP2P pays the client from its own
+accounts), and the route obligation stays open with the trader's side unpaid. Recovering that from the reserve has
+no path today; the desk can only pause the trader and keep its reserve locked.
+
+**Resolution (to do).** A two-person `trader_reserve.apply` (request ⧗, approve ⧗ in another session) that
+allocates reserve USDT against the obligation's route side — a route settlement from the reserve, Dr
+`LIAB:TRADER_RESERVE` / Cr the route receivable, keyed once — with the trader notified and the reason audited.
+An INR shortfall on a Buy USDT order needs the rate the desk applies to be recorded on the same approval.
+
+## TD-22 — The trader programme has not been reviewed for agreement, tax and counterparty checks
+
+**Observed.** A trader applies with a confirmation that it understands the Security Reserve; it does not accept a
+versioned programme agreement, and nothing records one. Tax withholding and reporting on rewards, and on USDT bought
+from or sold to traders, has not been reviewed. A trader is an onboarded client, so its identity checks are the
+client onboarding's; whether a liquidity provider needs more has not been decided. The product shows no compliance
+status for traders and invents none.
+
+**Resolution (to do).** Legal review of the programme; a versioned agreement accepted at application (stored with
+the profile and audited); any withholding the review requires, posted through the ledger with the reward.
+
+## TD-23 — The Traders screens have no page baselines
+
+**Observed.** The client screens `/traders`, `/traders/apply`, `/traders/orders`, `/traders/orders/[ref]` and
+`/traders/reserve`, and the desk pages `/trader-desk` and `/trader-desk/[id]`, were checked in a browser against a
+seeded database (desktop, 1024 px and phone widths) but have no recorded baselines. The shared client shell changed
+with them: a fourth section in the navigation, the sound and notification controls shown as icons below 1200 px,
+and tighter section tabs on phones — so the existing client baselines need re-recording.
+
+**Resolution (to do).** Add the trader states to the visual fixture world (`apps/web/visual/world.ts`) and record
+the baselines in the canonical environment.
+
+## TD-24 — A trader cannot ask to change its registered settlement details in the product
+
+**Observed.** A trader's registered bank account and wallet are set at application and changed only by the desk
+(`trader.set_settlement_details`, `traders:configure` ⧗). The trader's screen says to ask on the usual channel.
+
+**Resolution (to do, low).** A change request from the trader, reviewed on the desk page, reusing the same command.
 

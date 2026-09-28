@@ -1,6 +1,7 @@
 import { DomainError, Money, requireUuid } from '@inrp2p/kernel';
 import type { DirectionValue, Executor, FixedSideValue } from '@inrp2p/db';
 import { currentRouteRate } from '@inrp2p/pricing';
+import { type DeskOrderRow, requestTraderOrders } from '@inrp2p/traders';
 import type { DeskAccess } from './access.ts';
 import { microToDecimal } from './strip.ts';
 
@@ -31,6 +32,16 @@ export interface DeskRequest {
   readonly createdAt: string;
   /** Routes a quote could be priced against. Absent without `economics:view` — a quote is economics. */
   readonly routes?: readonly QuoteRouteOption[];
+  /**
+   * The request's trader side (docs/TRADERS.md): its live order, if one is offered, held or started, and what came
+   * before. A trader's rate is a route rate, so this is absent without `economics:view` too.
+   */
+  readonly trader?: {
+    readonly live: DeskOrderRow | null;
+    readonly liveTraderRef: string | null;
+    readonly liveRouteId: string | null;
+    readonly history: readonly (DeskOrderRow & { readonly traderRef: string })[];
+  };
 }
 
 /**
@@ -78,7 +89,8 @@ export async function deskRequest(ex: Executor, requestId: string, access: DeskA
   if (!access.economics) return base;
 
   const maxAge = (opts.maxRateAgeSeconds ?? 15 * 60) * 1000;
-  const routes = await ex.selectFrom('liquidity_route').select(['id', 'name', 'execution_mode']).where('status', '=', 'ACTIVE').orderBy('name').execute();
+  // Desk routes only: a trader's route is quoted through its accepted order (below), never picked by hand.
+  const routes = await ex.selectFrom('liquidity_route').select(['id', 'name', 'execution_mode']).where('status', '=', 'ACTIVE').where('trader_id', 'is', null).orderBy('name').execute();
   const options: QuoteRouteOption[] = [];
   for (const r of routes) {
     const snapshot = await currentRouteRate(ex, r.id, row.direction);
@@ -91,5 +103,16 @@ export async function deskRequest(ex: Executor, requestId: string, access: DeskA
       stale: snapshot ? Date.now() - snapshot.effectiveAt.getTime() > maxAge : true,
     });
   }
-  return { ...base, routes: options };
+  const trader = await requestTraderOrders(ex, row.id);
+  const liveRoute = trader.live ? await ex.selectFrom('trader_order').select('route_id').where('id', '=', trader.live.orderId).executeTakeFirst() : undefined;
+  return {
+    ...base,
+    routes: options,
+    trader: {
+      live: trader.live,
+      liveTraderRef: trader.live ? (trader.traderRefs[trader.live.orderId] ?? null) : null,
+      liveRouteId: liveRoute?.route_id ?? null,
+      history: trader.history.map((h) => ({ ...h, traderRef: trader.traderRefs[h.orderId] ?? '' })),
+    },
+  };
 }

@@ -102,12 +102,17 @@ export async function withOperator<R>(fn: (ctx: OperatorContext, deps: Settlemen
   }
 }
 
-export function failure(e: unknown): CommandResult<never> {
+/**
+ * `keep` names codes whose domain message says more than the desk's phrasing above — the trader screens pass the
+ * two that mean something different there (a trader's capacity is not an INR account's; a trader's order is not a
+ * trade).
+ */
+export function failure(e: unknown, keep?: ReadonlySet<string>): CommandResult<never> {
   if (isDomainError(e)) {
     return {
       ok: false,
       code: e.code,
-      message: MESSAGES[e.code] ?? e.message,
+      message: keep?.has(e.code) ? e.message : (MESSAGES[e.code] ?? e.message),
       ...(e.code === 'STEP_UP_REQUIRED' ? { stepUp: true as const } : {}),
       ...(Object.keys(e.details).length ? { details: e.details } : {}),
     };

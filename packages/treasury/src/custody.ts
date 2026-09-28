@@ -1,6 +1,6 @@
 import { sql } from 'kysely';
 import { DomainError, type Money, isTronAddress, optionalText, requireOneOf, requireText, requireUuid } from '@inrp2p/kernel';
-import { type Executor, type TxContext, assertLockOrder, isUniqueViolation } from '@inrp2p/db';
+import { type DepositReleaseReason, type Executor, type TxContext, assertLockOrder, isUniqueViolation } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
 import type { CustodyAdapter, CustodyNetwork, DepositAddressCapability } from '@inrp2p/adapters';
 import { type OperatorActor, actorLabel, operatorCommand } from '@inrp2p/identity';
@@ -139,22 +139,106 @@ export interface DepositAddressAllocation {
 }
 
 /**
+ * What a deposit address can be assigned to. A client trade (D-02), a trader's Security Reserve, or the USDT one
+ * trader route owes the exchange on one obligation. In every case the address is the only attribution: whatever
+ * arrives there belongs to its subject, and nothing is matched by amount or by sender (FI-26).
+ */
+export type DepositSubject =
+  | { readonly kind: 'TRADE'; readonly tradeId: string }
+  | { readonly kind: 'TRADER_RESERVE'; readonly traderId: string }
+  | { readonly kind: 'ROUTE_OBLIGATION'; readonly routeObligationId: string };
+
+const subjectColumns = (subject: DepositSubject) => ({
+  trade_id: subject.kind === 'TRADE' ? requireUuid(subject.tradeId, 'tradeId') : null,
+  trader_id: subject.kind === 'TRADER_RESERVE' ? requireUuid(subject.traderId, 'traderId') : null,
+  route_obligation_id: subject.kind === 'ROUTE_OBLIGATION' ? requireUuid(subject.routeObligationId, 'routeObligationId') : null,
+});
+
+/**
  * Allocates the unique deposit address of a SELL trade (D-02, FI-26), inside the acceptance transaction (Phase 3).
  * POOL: locks one AVAILABLE address with `FOR UPDATE SKIP LOCKED`. DERIVED: records the provider's new address as
  * ASSIGNED. Uniqueness is enforced by the database (unique address, one open assignment per address, one
  * assignment per trade) — never trusted from the provider. No fallback: failures abort the caller's transaction.
  */
 export async function allocateDepositAddress(ctx: TxContext, adapter: CustodyAdapter, input: AllocateDepositAddressInput): Promise<DepositAddressAllocation> {
-  const network = requireOneOf(input.network, 'network', NETWORKS);
   const tradeId = requireUuid(input.tradeId, 'tradeId');
+  const existing = await ctx.tx.selectFrom('deposit_assignment').select('id').where('trade_id', '=', tradeId).executeTakeFirst();
+  if (existing) throw new DomainError('DEPOSIT_ASSIGNMENT_EXISTS', 'trade already has a deposit assignment');
+  return allocateAddressFor(ctx, adapter, {
+    network: input.network,
+    subject: { kind: 'TRADE', tradeId },
+    reference: input.tradeRef,
+    expectedAmount: input.expectedAmount,
+    ...(input.treasuryWalletId ? { treasuryWalletId: input.treasuryWalletId } : {}),
+  });
+}
+
+/**
+ * The address a trader sends its Security Reserve to: one per trader, open for as long as the trader exists, so a
+ * top-up needs no request of its own. Returns the open one when it already exists.
+ */
+export async function allocateTraderReserveAddress(
+  ctx: TxContext,
+  adapter: CustodyAdapter,
+  input: { network: CustodyNetwork; traderId: string; traderRef: string; expectedAmount: Money<'USDT'> },
+): Promise<DepositAddressAllocation> {
+  const open = await openAssignment(ctx, { kind: 'TRADER_RESERVE', traderId: input.traderId });
+  if (open) return open;
+  return allocateAddressFor(ctx, adapter, { network: input.network, subject: { kind: 'TRADER_RESERVE', traderId: input.traderId }, reference: input.traderRef, expectedAmount: input.expectedAmount });
+}
+
+/**
+ * The address a trader sends the USDT of one order to (its route obligation's route-delivers side). One per
+ * obligation, ever: a second call returns the same address, and a released one is not reissued.
+ */
+export async function allocateObligationDeliveryAddress(
+  ctx: TxContext,
+  adapter: CustodyAdapter,
+  input: { network: CustodyNetwork; routeObligationId: string; reference: string; expectedAmount: Money<'USDT'> },
+): Promise<DepositAddressAllocation> {
+  const any = await ctx.tx
+    .selectFrom('deposit_assignment as a')
+    .innerJoin('deposit_address as d', 'd.id', 'a.deposit_address_id')
+    .select(['a.id', 'a.deposit_address_id', 'a.released_at', 'd.address', 'd.source'])
+    .where('a.route_obligation_id', '=', requireUuid(input.routeObligationId, 'routeObligationId'))
+    .executeTakeFirst();
+  if (any) {
+    if (any.released_at) throw new DomainError('DEPOSIT_ASSIGNMENT_CLOSED', 'the delivery address of this order is closed');
+    return { depositAddressId: any.deposit_address_id, assignmentId: any.id, address: any.address, source: any.source };
+  }
+  return allocateAddressFor(ctx, adapter, {
+    network: input.network,
+    subject: { kind: 'ROUTE_OBLIGATION', routeObligationId: input.routeObligationId },
+    reference: input.reference,
+    expectedAmount: input.expectedAmount,
+  });
+}
+
+async function openAssignment(ctx: TxContext, subject: DepositSubject): Promise<DepositAddressAllocation | null> {
+  const cols = subjectColumns(subject);
+  let q = ctx.tx
+    .selectFrom('deposit_assignment as a')
+    .innerJoin('deposit_address as d', 'd.id', 'a.deposit_address_id')
+    .select(['a.id', 'a.deposit_address_id', 'd.address', 'd.source'])
+    .where('a.released_at', 'is', null);
+  if (cols.trade_id) q = q.where('a.trade_id', '=', cols.trade_id);
+  if (cols.trader_id) q = q.where('a.trader_id', '=', cols.trader_id);
+  if (cols.route_obligation_id) q = q.where('a.route_obligation_id', '=', cols.route_obligation_id);
+  const row = await q.executeTakeFirst();
+  return row ? { depositAddressId: row.deposit_address_id, assignmentId: row.id, address: row.address, source: row.source } : null;
+}
+
+async function allocateAddressFor(
+  ctx: TxContext,
+  adapter: CustodyAdapter,
+  input: { network: CustodyNetwork; subject: DepositSubject; reference: string; expectedAmount: Money<'USDT'>; treasuryWalletId?: string },
+): Promise<DepositAddressAllocation> {
+  const network = requireOneOf(input.network, 'network', NETWORKS);
   if (input.expectedAmount.currency !== 'USDT' || !input.expectedAmount.isPositive()) throw new DomainError('INVALID_AMOUNT', 'expected amount must be positive USDT');
   const cap = await getDepositAddressCapability(ctx.tx, network);
   if (cap.capability === 'UNSUPPORTED') throw new DomainError('CUSTODY_CAPABILITY_UNSUPPORTED', 'no unique deposit address capability recorded (D-02)');
   await requireAdapterMatchesRecord(ctx.tx, adapter, network, cap.capability);
   assertLockOrder(ctx.tx, 'deposit_address');
-
-  const existing = await ctx.tx.selectFrom('deposit_assignment').select('id').where('trade_id', '=', tradeId).executeTakeFirst();
-  if (existing) throw new DomainError('DEPOSIT_ASSIGNMENT_EXISTS', 'trade already has a deposit assignment');
 
   let address: { id: string; address: string };
   if (cap.capability === 'POOL') {
@@ -170,7 +254,7 @@ export async function allocateDepositAddress(ctx: TxContext, adapter: CustodyAda
     address = row;
   } else {
     const walletId = await requireDepositPoolWallet(ctx, network, input.treasuryWalletId);
-    const provided = await adapter.allocateDepositAddress(network, requireText(input.tradeRef, 'tradeRef', 40));
+    const provided = await adapter.allocateDepositAddress(network, requireText(input.reference, 'reference', 40));
     if (!isTronAddress(provided.address)) throw new DomainError('INVALID_ADDRESS', 'provider returned an invalid TRON address');
     try {
       address = await ctx.tx
@@ -186,10 +270,16 @@ export async function allocateDepositAddress(ctx: TxContext, adapter: CustodyAda
 
   const assignment = await ctx.tx
     .insertInto('deposit_assignment')
-    .values({ deposit_address_id: address.id, trade_id: tradeId, expected_amount_minor: input.expectedAmount.minor, created_by: actorLabel(ctx) })
+    .values({ deposit_address_id: address.id, ...subjectColumns(input.subject), expected_amount_minor: input.expectedAmount.minor, created_by: actorLabel(ctx) })
     .returning('id')
     .executeTakeFirstOrThrow();
-  await appendAudit(ctx, { action: 'deposit_address.assigned', entityType: 'deposit_address', entityId: address.id, after: { trade_id: tradeId, assignment_id: assignment.id, source: cap.capability, provider: adapter.provider, expected: input.expectedAmount } });
+  await appendAudit(ctx, {
+    action: 'deposit_address.assigned', entityType: 'deposit_address', entityId: address.id,
+    after: {
+      ...(input.subject.kind === 'TRADE' ? { trade_id: input.subject.tradeId } : { subject: input.subject }),
+      assignment_id: assignment.id, source: cap.capability, provider: adapter.provider, expected: input.expectedAmount,
+    },
+  });
   return { depositAddressId: address.id, assignmentId: assignment.id, address: address.address, source: cap.capability };
 }
 
@@ -199,10 +289,29 @@ export async function allocateDepositAddress(ctx: TxContext, adapter: CustodyAda
  */
 export async function releaseDepositAssignment(ctx: TxContext, input: { tradeId: string; reason: 'TRADE_COMPLETED' | 'TRADE_CANCELLED'; cooldownSeconds?: number }): Promise<{ released: boolean }> {
   const reason = requireOneOf(input.reason, 'reason', ['TRADE_COMPLETED', 'TRADE_CANCELLED'] as const);
-  const cooldown = input.cooldownSeconds ?? DEFAULT_DEPOSIT_COOLDOWN_SECONDS;
-  if (!Number.isInteger(cooldown) || cooldown < 0) throw new DomainError('INVALID_ARGUMENT', 'cooldown must be a non-negative integer of seconds');
-  const a = await ctx.tx.selectFrom('deposit_assignment').select(['id', 'deposit_address_id', 'released_at']).where('trade_id', '=', requireUuid(input.tradeId, 'tradeId')).executeTakeFirst();
+  const a = await ctx.tx.selectFrom('deposit_assignment').select(['id']).where('trade_id', '=', requireUuid(input.tradeId, 'tradeId')).executeTakeFirst();
   if (!a) throw new DomainError('NOT_FOUND', 'deposit assignment not found');
+  return releaseAssignment(ctx, a.id, reason, input.cooldownSeconds, { trade_id: input.tradeId });
+}
+
+/**
+ * Releases the open assignment of a trader reserve or a trader delivery, if there is one (the address goes to
+ * COOLDOWN, so a late transfer is still seen and becomes a case). State-idempotent; nothing open is a no-op.
+ */
+export async function releaseSubjectAssignment(
+  ctx: TxContext,
+  input: { subject: Exclude<DepositSubject, { kind: 'TRADE' }>; reason: 'OBLIGATION_SETTLED' | 'OBLIGATION_CANCELLED' | 'TRADER_CLOSED'; cooldownSeconds?: number },
+): Promise<{ released: boolean }> {
+  const reason = requireOneOf(input.reason, 'reason', ['OBLIGATION_SETTLED', 'OBLIGATION_CANCELLED', 'TRADER_CLOSED'] as const);
+  const open = await openAssignment(ctx, input.subject);
+  if (!open) return { released: false };
+  return releaseAssignment(ctx, open.assignmentId, reason, input.cooldownSeconds, { subject: input.subject });
+}
+
+async function releaseAssignment(ctx: TxContext, assignmentId: string, reason: DepositReleaseReason, cooldownSeconds: number | undefined, auditSubject: Record<string, unknown>): Promise<{ released: boolean }> {
+  const cooldown = cooldownSeconds ?? DEFAULT_DEPOSIT_COOLDOWN_SECONDS;
+  if (!Number.isInteger(cooldown) || cooldown < 0) throw new DomainError('INVALID_ARGUMENT', 'cooldown must be a non-negative integer of seconds');
+  const a = await ctx.tx.selectFrom('deposit_assignment').select(['id', 'deposit_address_id']).where('id', '=', assignmentId).executeTakeFirstOrThrow();
   assertLockOrder(ctx.tx, 'deposit_address');
   await ctx.tx.selectFrom('deposit_address').select('id').where('id', '=', a.deposit_address_id).forUpdate().executeTakeFirstOrThrow();
   const current = await ctx.tx.selectFrom('deposit_assignment').select(['released_at']).where('id', '=', a.id).executeTakeFirstOrThrow();
@@ -213,7 +322,7 @@ export async function releaseDepositAssignment(ctx: TxContext, input: { tradeId:
     .set({ status: 'COOLDOWN', cooldown_until: sql<Date>`statement_timestamp() + make_interval(secs => ${cooldown})`, updated_at: sql<Date>`statement_timestamp()` })
     .where('id', '=', a.deposit_address_id)
     .execute();
-  await appendAudit(ctx, { action: 'deposit_address.released', entityType: 'deposit_address', entityId: a.deposit_address_id, after: { trade_id: input.tradeId, reason, cooldown_seconds: cooldown } });
+  await appendAudit(ctx, { action: 'deposit_address.released', entityType: 'deposit_address', entityId: a.deposit_address_id, after: { ...auditSubject, reason, cooldown_seconds: cooldown } });
   return { released: true };
 }
 

@@ -61,7 +61,10 @@ export async function lockAccountDay(tx: Tx, accountId: string, day: string): Pr
 
 export const remainingOf = (d: Pick<AccountDayRow, 'capacity_minor' | 'used_minor' | 'reserved_minor'>): bigint => d.capacity_minor - d.used_minor - d.reserved_minor;
 
-export type ReservationSubject = { readonly purpose: 'CLIENT_PAYOUT'; readonly tradeId: string } | { readonly purpose: 'ROUTE_SETTLEMENT'; readonly routeSettlementId: string };
+export type ReservationSubject =
+  | { readonly purpose: 'CLIENT_PAYOUT'; readonly tradeId: string }
+  | { readonly purpose: 'ROUTE_SETTLEMENT'; readonly routeSettlementId: string }
+  | { readonly purpose: 'TRADER_REWARD_PAYOUT'; readonly traderRewardPayoutId: string };
 
 export interface ReserveInput {
   readonly accountId: string;
@@ -101,6 +104,7 @@ export async function reserveCapacity(ctx: TxContext, input: ReserveInput): Prom
       purpose: input.subject.purpose,
       trade_id: input.subject.purpose === 'CLIENT_PAYOUT' ? requireUuid(input.subject.tradeId, 'tradeId') : null,
       route_settlement_id: input.subject.purpose === 'ROUTE_SETTLEMENT' ? requireUuid(input.subject.routeSettlementId, 'routeSettlementId') : null,
+      trader_reward_payout_id: input.subject.purpose === 'TRADER_REWARD_PAYOUT' ? requireUuid(input.subject.traderRewardPayoutId, 'traderRewardPayoutId') : null,
       account_id: accountId,
       day,
       amount_minor: input.amount.minor,
@@ -169,7 +173,7 @@ export async function consumeReservation(ctx: TxContext, reservationId: string, 
  * reservation is a no-op; a fully CONSUMED reservation cannot be released.
  */
 export async function releaseReservation(ctx: TxContext, reservationId: string, reason: ReservationReleaseReason): Promise<{ released: boolean; releasedAmount: Money<'INR'> }> {
-  requireOneOf(reason, 'reason', ['TRADE_CANCELLED', 'LEG_CANCELLED', 'LEG_FAILED', 'TRADE_COMPLETED', 'ROUTE_SETTLEMENT_FAILED', 'DAY_ROLLOVER', 'OPERATOR'] as const);
+  requireOneOf(reason, 'reason', ['TRADE_CANCELLED', 'LEG_CANCELLED', 'LEG_FAILED', 'TRADE_COMPLETED', 'ROUTE_SETTLEMENT_FAILED', 'DAY_ROLLOVER', 'OPERATOR', 'TRADER_PAYOUT_FAILED'] as const);
   const { day, res } = await locateReservation(ctx.tx, reservationId);
   if (res.status === 'RELEASED') return { released: false, releasedAmount: Money.zero('INR') };
   if (res.status !== 'ACTIVE') throw new DomainError('RESERVATION_NOT_ACTIVE', `reservation is ${res.status}`);

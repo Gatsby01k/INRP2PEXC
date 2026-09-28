@@ -71,7 +71,8 @@ export async function deskStrip(ex: Executor, access: DeskAccess): Promise<DeskS
                order by s.effective_at desc limit 1) as published_at
       from liquidity_route r
       cross join (values ('SELL_USDT'), ('BUY_USDT')) as d(direction)
-      where r.status = 'ACTIVE'
+      -- The desk's own routes. A trader's route carries the trader's rate and is read on Traders, not published here.
+      where r.status = 'ACTIVE' and r.trader_id is null
       order by r.name, d.direction`.execute(ex);
     extras.routes = rows.rows.map((r) => ({
       routeId: r.route_id,

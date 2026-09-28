@@ -47,6 +47,7 @@ export function publishRouteRate(actor: OperatorActor) {
     const direction = requireOneOf(p.direction, 'direction', DIRECTIONS);
     const rate = Rate.parse(p.rate, 'ROUTE');
     const route = await requireUsableRoute(ctx.tx, p.routeId, direction);
+    if (route.traderId) throw new DomainError('TRADER_ROUTE_MANAGED', 'the rate of a trader route is set by the trader');
     await lockSeries(ctx.tx, `ROUTE:${route.id}:${direction}`);
     const head = await seriesHead(ctx.tx, 'ROUTE', route.id, direction);
     const row = await ctx.tx
@@ -61,6 +62,42 @@ export function publishRouteRate(actor: OperatorActor) {
     });
     return { snapshotId: row.id, supersedesId: head?.id ?? null };
   });
+}
+
+/**
+ * Publishes a trader's own rate on its own route (source TRADER), inside the trader command that set or confirmed
+ * it — a rate edit, or the acceptance of an order at that rate. The caller authorized the trader; the database
+ * refuses TRADER snapshots on any other route and OPERATOR snapshots on this one. Append-only like every snapshot,
+ * so quotes and trades keep the one they copied (FI-11).
+ */
+export async function publishTraderRate(ctx: TxContext, input: { routeId: string; direction: DirectionValue; rate: Rate<'ROUTE'> }): Promise<{ snapshotId: string }> {
+  const direction = requireOneOf(input.direction, 'direction', DIRECTIONS);
+  const route = await requireUsableRoute(ctx.tx, input.routeId, direction);
+  if (!route.traderId) throw new DomainError('INVALID_ARGUMENT', 'only a trader route takes a trader rate');
+  await lockSeries(ctx.tx, `ROUTE:${route.id}:${direction}`);
+  const head = await seriesHead(ctx.tx, 'ROUTE', route.id, direction);
+  const row = await ctx.tx
+    .insertInto('rate_snapshot')
+    .values({ kind: 'ROUTE', route_id: route.id, direction, rate_micro: input.rate.micro, source: 'TRADER', supersedes_id: head?.id ?? null, created_by: actorLabel(ctx) })
+    .returning(['id'])
+    .executeTakeFirstOrThrow();
+  await appendAudit(ctx, {
+    action: 'rate.changed', entityType: 'rate_snapshot', entityId: row.id,
+    before: head ? { snapshot_id: head.id, rate: Rate.ofMicro(head.rate_micro, 'ROUTE') } : null,
+    after: { kind: 'ROUTE', route_id: route.id, direction, rate: input.rate, source: 'TRADER' },
+  });
+  return { snapshotId: row.id };
+}
+
+/** A route snapshot by id, with its age in database time — the one a trader's accepted order pinned. */
+export async function routeRateSnapshot(ex: Executor, snapshotId: string): Promise<RouteRateSnapshot> {
+  const r = await sql<SnapshotRow>`
+    select id, route_id, direction, rate_micro, source, effective_at,
+           extract(epoch from (statement_timestamp() - effective_at))::bigint::text as age_seconds
+    from rate_snapshot where id = ${requireUuid(snapshotId, 'snapshotId')} and kind = 'ROUTE'`.execute(ex);
+  const row = r.rows[0];
+  if (!row) throw new DomainError('NOT_FOUND', 'route rate snapshot not found');
+  return { id: row.id, routeId: row.route_id!, direction: row.direction, rate: Rate.ofMicro(row.rate_micro, 'ROUTE'), source: row.source, effectiveAt: row.effective_at, ageSeconds: parseInt(row.age_seconds, 10) };
 }
 
 /** Records a REFERENCE rate (market context only; never used as client or route rate — FI-01). */

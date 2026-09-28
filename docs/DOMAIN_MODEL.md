@@ -176,6 +176,9 @@ Balances are computed from entries; a `ledger_balance` cache may exist but is re
 | `idempotency_key` | scope, key, request_hash, response, status, created_at, expires_at — unique `(scope, key)` |
 | `receipt` | trade_id, version, snapshot_json (immutable), sha256, pdf_key, csv_key, json_key, generated_at |
 
+### 2.12 Traders (`TRADERS.md`)
+`trader_program` (singleton configuration), `trader_profile` (one per client that applies), `trader_block` (one per side, on the trader's own `liquidity_route`), `trader_order` (one offer of one request to one trader; starts as an ordinary trade on the trader route), `trader_reserve_withdrawal`, `trader_reward_payout`. A trader is a client; its routes are `TO_EXCHANGE` routes with `trader_id` set; its reserve and rewards are ledger accounts. Packages: `trader-core` (policy, access, offers, hooks the quote commands call) and `traders` (everything else).
+
 ## 3. Exception types
 
 | Type | Detected by | Blocking | Typical resolution commands |

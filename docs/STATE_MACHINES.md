@@ -248,6 +248,16 @@ Flows: `FROM_ROUTE_TO_EXCHANGE` (route → exchange account / treasury), `TO_ROU
 | PENDING → FAILED | wrong code #5 | — | link shows "Request a new code" while quote still valid | `acceptance_otp.failed` |
 | PENDING → EXPIRED | lazily on verify, or sweeper | — | — | — |
 
+## 12a. Traders (`TRADERS.md` §3–§4, §8–§9)
+| Machine | States | Terminal |
+|---|---|---|
+| `trader_profile.status` | UNDER_REVIEW → APPROVED ⇄ PAUSED; UNDER_REVIEW → REJECTED → (apply again) UNDER_REVIEW | — |
+| `trader_order.status` | OFFERED → ACCEPTED → IN_PROGRESS → COMPLETED; OFFERED → DECLINED / EXPIRED / WITHDRAWN; ACCEPTED → RELEASED; IN_PROGRESS → CANCELLED | COMPLETED, DECLINED, EXPIRED, WITHDRAWN, RELEASED, CANCELLED |
+| `trader_reserve_withdrawal.status` | REQUESTED → SENT → COMPLETED; REQUESTED → CANCELLED; REQUESTED / SENT → REJECTED | COMPLETED, CANCELLED, REJECTED |
+| `trader_reward_payout.status` | RECORDED → CONFIRMED / FAILED | CONFIRMED, FAILED |
+
+Transitions are guarded by `inrp2p_guard_status_transition`; frozen order columns by `inrp2p_guard_immutable_columns`.
+
 ## 13. Matrix summary
 
 | Machine | States | Terminal | Driven by system | Driven by humans |

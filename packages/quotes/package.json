@@ -19,7 +19,8 @@
     "@inrp2p/pricing": "workspace:*",
     "@inrp2p/treasury": "workspace:*",
     "@inrp2p/trades": "workspace:*",
-    "kysely": "0.29.6"
+    "kysely": "0.29.6",
+    "@inrp2p/trader-core": "workspace:*"
   },
   "devDependencies": {
     "@inrp2p/commands": "workspace:*",

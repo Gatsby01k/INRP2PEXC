@@ -627,6 +627,22 @@
   .centred {
     max-width: none;
   }
+
+  /* The masthead row keeps its sections centred; the tools give up their words first (still read aloud). */
+  .bellText,
+  .soundText {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .bell,
+  .sound {
+    padding: 0 var(--space-2);
+  }
 }
 
 /* The sections take their own row under the masthead once the row cannot hold all three groups. */
@@ -683,6 +699,17 @@
 
   .brandName {
     font-size: var(--font-size-body);
+  }
+
+  /* Four sections share a phone's width without scrolling; the row still scrolls on the narrowest screens. */
+  .navItem {
+    padding: 0 var(--space-2);
+    font-size: var(--font-size-body-sm);
+  }
+
+  .navItem::after {
+    right: var(--space-2);
+    left: var(--space-2);
   }
 
   .bellText,
