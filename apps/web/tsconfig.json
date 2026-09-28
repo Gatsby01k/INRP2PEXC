@@ -28,6 +28,8 @@
     "harness/**/*.ts",
     "visual/**/*.ts",
     "scripts/**/*.ts",
+    "film/**/*.ts",
+    "film/**/*.tsx",
     ".next/types/**/*.ts"
   ],
   "exclude": [

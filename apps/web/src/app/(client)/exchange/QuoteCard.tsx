@@ -4,31 +4,18 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Rate } from '@inrp2p/kernel';
 import type { ClientQuoteView } from '@inrp2p/quotes';
-import { ArcLoader, EXPIRING_THRESHOLD_MS } from '@inrp2p/ui';
-import { formatCountdown, formatIstTime, formatRate } from '@inrp2p/ui/format';
+import { ArcLoader } from '@inrp2p/ui';
+import { formatIstTime, formatRate } from '@inrp2p/ui/format';
 import { robotCues } from '../../(public)/_landing/robot/cues.ts';
 import { useCommand } from '../../../components/useCommand.tsx';
 import { acceptQuoteAction, rejectQuoteAction } from '../../../server/actions/client.ts';
 import { playSound } from '../_assistant/sound.ts';
-import { ArrowIcon, ClockIcon, InfoIcon } from '../_workspace/icons.tsx';
+import { ArrowIcon, InfoIcon } from '../_workspace/icons.tsx';
+import { HeldFor } from './HeldFor.tsx';
 import { legAmount } from './amounts.ts';
 import { LEGS } from './Legs.tsx';
 import shell from '../shell.module.css';
 import styles from './exchange.module.css';
-
-/** The time a quote is still held, as the ticket and the robot's panel both show it. */
-export function HeldFor({ expiresAt, now }: { expiresAt: Date; now: number }) {
-  const remaining = Math.max(0, expiresAt.getTime() - now);
-  return (
-    <span className={styles.countdown} data-state={remaining <= EXPIRING_THRESHOLD_MS ? 'expiring' : 'held'} role="timer" aria-live="off">
-      <ClockIcon />
-      <span>
-        Held <span className={styles.countdownTime}>{formatCountdown(remaining)}</span>
-      </span>
-      <span className="ix-visually-hidden">, until {formatIstTime(expiresAt)}</span>
-    </span>
-  );
-}
 
 /**
  * A firm quote the desk has sent, as an execution ticket: which quote and which side, how long it is held, what

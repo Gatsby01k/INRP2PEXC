@@ -233,6 +233,7 @@ const ANGLES: Record<LookTarget, LookAngles> = {
   rate: { yaw: 0.46, pitch: -0.14 },
   cta: { yaw: 0.44, pitch: -0.3 },
   entry: { yaw: 0.5, pitch: 0.32 },
+  row: { yaw: 0.44, pitch: -0.2 },
 };
 const FRAME = 1 / 60;
 const LEAD = 0.03;

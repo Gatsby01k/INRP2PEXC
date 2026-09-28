@@ -77,5 +77,19 @@ export function loadCycle(phase: number): number {
   return p < 0.4 ? easeInOutSine(p / 0.4) : 1 - easeInOutSine((p - 0.4) / 0.6);
 }
 
+/**
+ * A small seeded generator (mulberry32): the same run every time, for anything that must be reproducible — the film
+ * renders frame by frame, and a frame drawn twice must be the same frame.
+ */
+export function seeded(seed: number): () => number {
+  let s = seed | 0;
+  return () => {
+    s = (s + 0x6d2b79f5) | 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
 /** Uniform random value in [min, max). Isolated so tests can reason about the ranges rather than the dice. */
 export const between = (min: number, max: number, random: () => number = Math.random): number => min + (max - min) * random();

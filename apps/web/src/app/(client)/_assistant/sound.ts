@@ -87,9 +87,10 @@ export function wireSoundUnlock(): void {
 
 /**
  * One strike of a felt mallet: a sine at the note with a soft octave above it that fades faster, a four-millisecond
- * onset (tactile, not clicky) and an exponential decay. `bright` sets how much of the octave is heard.
+ * onset (tactile, not clicky) and an exponential decay. `bright` sets how much of the octave is heard. Any audio
+ * context will do — the film's soundtrack is scored with the same mallet, offline (`apps/web/film/sound.ts`).
  */
-function strike(ctx: AudioContext, out: AudioNode, at: number, freq: number, level: number, decay: number, bright = 0.28): void {
+export function strike(ctx: BaseAudioContext, out: AudioNode, at: number, freq: number, level: number, decay: number, bright = 0.28): void {
   const body = ctx.createOscillator();
   body.type = 'sine';
   body.frequency.setValueAtTime(freq, at);
@@ -115,7 +116,7 @@ function strike(ctx: AudioContext, out: AudioNode, at: number, freq: number, lev
 }
 
 /** The three figures. Notes in Hz; times in seconds from now. Each is over in well under a second. */
-const FIGURES: Record<SoundCue, { tone: number; strikes: readonly { at: number; freq: number; level: number; decay: number; bright?: number }[] }> = {
+export const FIGURES: Record<SoundCue, { tone: number; strikes: readonly { at: number; freq: number; level: number; decay: number; bright?: number }[] }> = {
   // A quote arrives: two light strikes rising a fourth — something has come in.
   quote: {
     tone: 2600,

@@ -1,0 +1,26 @@
+/* The film's page: the design system's tokens, fonts and base rules, and the site's globals, on a fixed 1600 × 900
+   frame. Nothing scrolls, no caret blinks, nothing answers a pointer: the film is drawn, not used. */
+@import '../src/app/globals.css';
+
+html,
+body {
+  width: 1600px;
+  height: 900px;
+  margin: 0;
+  overflow: hidden;
+  background: var(--bg-app);
+}
+
+body {
+  caret-color: transparent;
+  pointer-events: none;
+}
+
+#robot {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 1;
+  width: 1600px;
+  height: 900px;
+}

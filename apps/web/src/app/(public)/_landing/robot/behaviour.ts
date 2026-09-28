@@ -1,6 +1,6 @@
 import type { Direction } from '@inrp2p/kernel';
 import type { VoiceLine } from '../../../../content/site.ts';
-import { INPUT_PRIORITY, MOOD_PRIORITY, type RobotCue, type RobotFocus, type RobotMood } from './cues.ts';
+import { INPUT_PRIORITY, MOOD_PRIORITY, type RobotCue, type RobotFocus, type RobotMood, type TradeStage } from './cues.ts';
 import { between, blinkOpenness, clamp, envelope, follow, follower, loadCycle } from './motion.ts';
 import { SPEECH, clipOf, loudness, nodTime, speakingSpec } from './speech.ts';
 import { DURATION, LOOK_FALLBACK, type LookTarget, type RobotState, type StateSpec, STATES } from './states.ts';
@@ -41,6 +41,11 @@ export type { LookTarget, RobotState } from './states.ts';
  *
  * When the voice says a line, the body follows that line's own timeline (`speech.ts`): attention at once, then a
  * nod on the stressed syllable and the hub light following the voice, timed to when the sound is heard.
+ *
+ * Where the page shows a trade, the chest holds how far it has got (`stage`): one arc per stage, lit as the stage
+ * is reached and kept lit, and the hub with the third — the mark made whole by a settled trade. The body answers
+ * each stage once: the accepted quote as a lock, the client's side final with a flicker of notice and nothing more,
+ * the completed trade as something accepted. A confirmed payment (`tally`) is read like a line of a ledger.
  *
  * Pure: time, focus and where things are come in; the frame loop owns the scene.
  */
@@ -132,6 +137,11 @@ const SWEEP_ORDER: Record<Direction, readonly [number, number, number]> = {
   BUY_USDT: [2, 1, 0],
   SELL_USDT: [0, 1, 2],
 };
+
+/** How brightly a reached stage holds its arc (and, with the third, the hub); how quickly it lights, and lets go. */
+const STAGE_GLOW = 1;
+const STAGE_ON = 0.16;
+const STAGE_OFF = 0.5;
 
 /** The shortest gap between two emblem responses: a settled value may not repeat a light just seen. */
 const RESPONSE_GAP = 1.2;
@@ -231,6 +241,14 @@ export class RobotBehaviour {
   /** When attention last left a typed value, so a keystroke soon after continues that number rather than starting over. */
   private valueLeftAt = Number.NEGATIVE_INFINITY;
   private nodAt = -10;
+  /** A confirmed payment's faint tick at the hub. */
+  private tickAt = -10;
+
+  /** How far the trade on the page has got, and the order its arcs light in (the flow at the time of lighting). */
+  private stage: TradeStage = 0;
+  private stageOrder: readonly [number, number, number];
+  private readonly stageArcs = [follower(), follower(), follower()] as const;
+  private readonly stageHub = follower();
 
   /** Where the head is aimed: the look target, taken up first so a move starts as the state asks, not at once. */
   private readonly aimYaw = follower();
@@ -278,6 +296,7 @@ export class RobotBehaviour {
     // A robot that arrives while a mood already holds rests in it from its first frame, without the mood's arrival.
     this.mood = options.mood ?? 'none';
     this.sweepOrder = SWEEP_ORDER[options.direction];
+    this.stageOrder = SWEEP_ORDER[options.direction];
     this.nextBlinkAt = between(2.2, 3.6, this.random);
     this.loadPeriod = between(4.6, 6.8, this.random);
     this.loadDepth = between(0.65, 1, this.random);
@@ -321,6 +340,8 @@ export class RobotBehaviour {
         return;
       case 'rate':
         this.pulseAt = time;
+        // A new figure is read like any other change: one pass of light through the narrowed eyes.
+        if (time - this.scanAt >= SCAN.gap) this.scanAt = time;
         this.enter('rate', time, time + DURATION.rate);
         return;
       case 'lock':
@@ -371,6 +392,14 @@ export class RobotBehaviour {
         return;
       case 'mood':
         this.arrive(cue.mood, time);
+        return;
+      case 'stage':
+        this.reach(cue.stage, time);
+        return;
+      case 'tally':
+        this.tickAt = time;
+        if (time - this.scanAt >= SCAN.gap) this.scanAt = time;
+        this.enter('tally', time, time + DURATION.tally);
         return;
     }
   }
@@ -547,7 +576,16 @@ export class RobotBehaviour {
     const resolved = envelope(since(this.resolveAt), 0.3, DURATION.locked - 1.3, 0.9);
     // The response to a meaningful change: one short, faint pass through the arcs in the direction of flow.
     const response = since(this.respondAt);
-    const arc = (slot: number) => envelope(response - this.sweepOrder.indexOf(slot) * 0.06, 0.05, 0.02, 0.28) * 0.75 + resolved * 1.2 + complete;
+    // The trade's stage, held: an arc for each stage reached, in the order value flows, and the hub with the last.
+    this.stageArcs.forEach((f, slot) => {
+      const lit = this.stageOrder.indexOf(slot) < this.stage;
+      follow(f, lit ? 1 : 0, lit ? STAGE_ON : STAGE_OFF, dt);
+    });
+    const whole = this.stage === 3;
+    follow(this.stageHub, whole ? 1 : 0, whole ? STAGE_ON * 1.5 : STAGE_OFF, dt);
+    const tick = envelope(since(this.tickAt), 0.06, 0.04, 0.4);
+    const arc = (slot: number) =>
+      envelope(response - this.sweepOrder.indexOf(slot) * 0.06, 0.05, 0.02, 0.28) * 0.75 + resolved * 1.2 + complete + STAGE_GLOW * this.stageArcs[slot as 0 | 1 | 2].value;
 
     return {
       load: loadCycle(this.loadPhase) * this.loadDepth * this.loadDepthOfState.value,
@@ -579,9 +617,9 @@ export class RobotBehaviour {
       armSwing: (this.armLagRoll.value - bodyRoll) * 0.9,
       armPitch: (this.armLagLean.value - bodyLean) * 1.2,
       armTwist: (this.armLagYaw.value - bodyYaw) * 1.2,
-      accentGlow: this.accent.value + 0.35 * resolved + 0.2 * complete,
+      accentGlow: this.accent.value + 0.35 * resolved + 0.2 * complete + 0.12 * this.stageHub.value,
       arcGlow: [arc(0), arc(1), arc(2)],
-      hubGlow: 1.1 * pulse + 1.2 * resolved + this.voiceLight.value + 0.6 * complete,
+      hubGlow: 1.1 * pulse + 1.2 * resolved + this.voiceLight.value + 0.6 * complete + STAGE_GLOW * this.stageHub.value + 0.45 * tick,
     };
   }
 
@@ -624,6 +662,8 @@ export class RobotBehaviour {
     switch (mood) {
       case 'success':
         this.valuePending = false;
+        // A trade whose completion the chest already holds has been marked; it is not marked twice.
+        if (this.stage === 3) return;
         this.resolveAt = time;
         this.nodAt = time + 0.36;
         return;
@@ -640,6 +680,40 @@ export class RobotBehaviour {
       case 'waiting':
       case 'ready':
       case 'none':
+        return;
+    }
+  }
+
+  /**
+   * A trade reached a stage (or, going back to 0, the page no longer shows one). The chest follows on its own in
+   * `update`; the body answers a stage once, as it is reached: the accepted quote as a lock — a glance at the rate,
+   * then the visitor, pleased, one nod — the client's side final with the optics noticing and nothing more, because
+   * a check passing is not news; the completed trade as something accepted. The order the arcs light in is the flow
+   * at the moment the first one lights.
+   */
+  private reach(stage: TradeStage, time: number): void {
+    if (stage === this.stage) return;
+    const from = this.stage;
+    this.stage = stage;
+    if (stage < from) return;
+    if (from === 0) this.stageOrder = SWEEP_ORDER[this.direction];
+    // The stage supersedes a value still settling: there is nothing left to confirm.
+    this.valuePending = false;
+    switch (stage) {
+      case 1:
+        this.nodAt = time + 0.4;
+        this.enter('locked', time, time + DURATION.locked);
+        return;
+      case 2:
+        this.noticeAt = time;
+        return;
+      case 3:
+        // Settled already, by the page's state of record: the mark completes, and nothing is marked twice.
+        if (this.mood === 'success') return;
+        this.nodAt = time + 0.36;
+        this.enter('accepted', time, time + DURATION.accepted);
+        return;
+      case 0:
         return;
     }
   }

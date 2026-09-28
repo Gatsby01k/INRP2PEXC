@@ -16,6 +16,8 @@ pnpm --filter @inrp2p/web build
 pnpm run test:integration   # Testcontainers postgres:18.6 (or TEST_DATABASE_URL)
 pnpm --filter @inrp2p/ui storybook                              # component gallery :6006
 bash packages/ui/visual/docker.sh compare                        # axe + visual + reduced motion, canonical image (docs/VISUAL_BASELINES.md)
+pnpm --filter @inrp2p/web film:preview                           # "Three Arcs", the flagship film: preview with scrubber and sound
+FFMPEG=/path/to/ffmpeg pnpm --filter @inrp2p/web film:render -- --out three-arcs.mp4   # render it (H.264 + AAC, 1920×1080)
 ```
 
 ## Documents

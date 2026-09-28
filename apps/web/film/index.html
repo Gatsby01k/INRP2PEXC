@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Three Arcs — preview</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #121317; color: #f2efe9; font: 14px/1.4 system-ui, sans-serif; }
+      main { display: grid; grid-template-rows: 1fr auto; height: 100%; }
+      .frame { position: relative; overflow: hidden; }
+      iframe { position: absolute; left: 50%; top: 50%; width: 1600px; height: 900px; border: 0; transform-origin: 0 0; }
+      .bar { display: flex; gap: 12px; align-items: center; padding: 12px 16px; }
+      input[type='range'] { flex: 1; }
+      button { font: inherit; padding: 6px 14px; border-radius: 8px; border: 1px solid #3a3d45; background: #1d1f25; color: inherit; cursor: pointer; }
+      output { font-variant-numeric: tabular-nums; min-width: 5.5em; text-align: right; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="frame"><iframe src="./film.html" title="Three Arcs"></iframe></div>
+      <div class="bar">
+        <button type="button" id="play">Play</button>
+        <input type="range" id="scrub" min="0" max="30" step="0.0333" value="0" aria-label="Time" />
+        <output id="time">0.00 s</output>
+      </div>
+    </main>
+    <script type="module" src="./player.ts"></script>
+  </body>
+</html>

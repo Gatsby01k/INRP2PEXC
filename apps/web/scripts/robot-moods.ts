@@ -36,6 +36,7 @@ const ANGLES: Record<LookTarget, LookAngles> = {
   rate: { yaw: -0.42, pitch: -0.06 },
   cta: { yaw: -0.42, pitch: -0.28 },
   entry: { yaw: 0, pitch: 0.32 },
+  row: { yaw: -0.44, pitch: -0.2 },
 };
 
 /** A small seeded generator, so the stills are the same stills every time. */

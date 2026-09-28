@@ -1,4 +1,4 @@
-import { type BufferGeometry, CylinderGeometry, DataTexture, Group, type Material, Mesh, SphereGeometry, Sprite, SpriteMaterial, TorusGeometry, Vector3 } from 'three';
+import { type BufferGeometry, CylinderGeometry, DataTexture, Group, type Material, Mesh, type Object3D, SphereGeometry, Sprite, SpriteMaterial, TorusGeometry, Vector3 } from 'three';
 import { COLOR } from '@inrp2p/ui/tokens';
 import type { Pose } from './behaviour.ts';
 import { type Outline, type Superquadric, frontBead, frontPanel, frontZ, superellipsoid, superquadric, sweptBand, tapered, turned } from './geometry.ts';
@@ -49,6 +49,8 @@ const MARK_Y = -0.3;
 
 export interface Figure {
   readonly root: Group;
+  /** The chest mark, whose own frame has the disc in x–z with its face towards +y: where the film finds its arcs. */
+  readonly mark: Object3D;
   apply(pose: Pose): void;
   dispose(): void;
 }
@@ -210,6 +212,7 @@ export function buildFigure(): Figure {
 
   return {
     root,
+    mark,
     apply(pose) {
       const load = pose.load;
       hips.rotation.set(pose.torsoPitch, pose.torsoYaw, pose.torsoRoll);

@@ -36,6 +36,8 @@ export type RobotState =
   | 'entry'
   /** The robot is saying one of its lines: each has its own authored timeline (`speech.ts`). */
   | 'speaking'
+  /** A payment on the trade was confirmed: the eyes step to it and read it, the head barely following. */
+  | 'tally'
   /*
    * The workspace's held states: each is what the robot rests in while a mood lasts (`cues.ts` `RobotMood`). A held
    * `waiting` is `waiting` itself; the others have no event of their own to borrow from.
@@ -53,9 +55,9 @@ export type RobotState =
 
 /**
  * The places attention can go. The page supplies where they are; `viewer` is the camera. `entry` is the one
- * target outside the hero: the masthead's way into the workspace.
+ * target outside the hero: the masthead's way into the workspace. `row` is the newest confirmed payment on a trade.
  */
-export type LookTarget = 'viewer' | 'panel' | 'amount' | 'toggle' | 'rate' | 'cta' | 'entry';
+export type LookTarget = 'viewer' | 'panel' | 'amount' | 'toggle' | 'rate' | 'cta' | 'entry' | 'row';
 
 /**
  * When a target is not on the page, attention falls back towards the module, then the visitor. The masthead is
@@ -69,6 +71,7 @@ export const LOOK_FALLBACK: Record<LookTarget, LookTarget | null> = {
   rate: 'panel',
   cta: 'panel',
   entry: 'viewer',
+  row: 'panel',
 };
 
 /**
@@ -165,7 +168,7 @@ export interface StateSpec {
  * States whose end hands attention back through the module rather than straight to the visitor. Not the call to
  * action: attention there is a glance, and leaving it is simply returning.
  */
-const RETURNS_THROUGH_MODULE: ReadonlySet<RobotState> = new Set<RobotState>(['value', 'direction', 'rate', 'problem', 'waiting']);
+const RETURNS_THROUGH_MODULE: ReadonlySet<RobotState> = new Set<RobotState>(['value', 'direction', 'rate', 'problem', 'waiting', 'tally']);
 
 const REST_ACCENT = 0.3;
 
@@ -454,6 +457,25 @@ export const STATES: Record<RobotState, StateSpec> = {
     settle: 0.6,
     drift: false,
   },
+  tally: {
+    // A payment confirmed: the reading face of a check, the eyes stepping down to the new line the way a clerk
+    // ticks a ledger. The head carries little of the look and the body nothing, so a run of payments reads as
+    // counting, not as nodding; each is read with one pass of light (`behaviour.ts`).
+    attention: () => 'row',
+    head: { yaw: 0.42, pitch: 0.5, share: 0.3, ease: 0.3 },
+    eyes: { aperture: 0.95, time: 0.2, gain: 1.04, notice: true, focus: 0 },
+    face: EXPRESSIONS.verifying,
+    faceTime: 0.2,
+    lean: 0.006,
+    turn: 0.01,
+    chin: -0.01,
+    roll: 0,
+    breath: 0.8,
+    blinks: false,
+    accent: REST_ACCENT,
+    settle: 0.6,
+    drift: false,
+  },
   // Stands in for the line being spoken: the behaviour uses that line's own spec from `speech.ts`.
   speaking: {
     attention: () => 'viewer',
@@ -481,6 +503,8 @@ export const DURATION = {
   locked: 2.8,
   accepted: 2.6,
   problem: 2.6,
+  /** A confirmed payment is read, then attention goes back to the trade. */
+  tally: 0.9,
   /** The longest the robot will wait on something that never answers before it lets the wait go. */
   waiting: 30,
   /**

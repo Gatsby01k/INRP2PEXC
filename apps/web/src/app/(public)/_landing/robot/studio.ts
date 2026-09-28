@@ -25,7 +25,13 @@ import {
  * The direct lights then do what the environment cannot: a warm key that casts the head's shadow onto the neck,
  * and a rim that separates a white shell from a near-white page.
  */
-export function studio(renderer: WebGLRenderer): { environment: Texture; lights: readonly (DirectionalLight | HemisphereLight)[]; dispose: () => void } {
+export function studio(renderer: WebGLRenderer): {
+  environment: Texture;
+  lights: readonly (DirectionalLight | HemisphereLight)[];
+  /** The key, which the film lowers and warms as its day goes on (`RobotScene.light`). */
+  key: DirectionalLight;
+  dispose: () => void;
+} {
   const set = new Scene();
   const disposables: { dispose: () => void }[] = [];
   const room = new Mesh(new SphereGeometry(24, 32, 16), new MeshBasicMaterial({ color: new Color('#5d5955'), side: BackSide }));
@@ -68,6 +74,7 @@ export function studio(renderer: WebGLRenderer): { environment: Texture; lights:
   return {
     environment,
     lights: [key, rim, fill],
+    key,
     dispose() {
       environment.dispose();
       key.shadow.map?.dispose();

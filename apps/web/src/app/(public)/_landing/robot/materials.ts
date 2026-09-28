@@ -285,6 +285,9 @@ export function torsoMaterial(mark: Vector3): MeshPhysicalMaterial {
   });
 }
 
+/** The radius of the centre line of the chest mark's arcs, in the mark's own units (its disc is 0.178 across the enamel). */
+export const MARK_ARC_RADIUS = 0.105;
+
 /** What the behaviour writes every frame to drive the chest mark: one glow value per arc, and the hub. */
 export interface MarkUniforms {
   readonly uArcGlow: { value: Vector3 };
@@ -306,7 +309,7 @@ export function emblemMaterial(): { material: MeshPhysicalMaterial; mark: MarkUn
       uniform vec3 uBrand;
       uniform vec3 uArcGlow;
       uniform float uHubGlow;
-      const float ARC_RADIUS = 0.105;
+      const float ARC_RADIUS = ${MARK_ARC_RADIUS.toFixed(4)};
       const float ARC_HALF_WIDTH = 0.0135;
       // Each arc spans 120° less a 30° gap, as in the mark: half-aperture 45°.
       const vec2 ARC_APERTURE = vec2(0.70710678, 0.70710678);
@@ -315,28 +318,33 @@ export function emblemMaterial(): { material: MeshPhysicalMaterial; mark: MarkUn
       // The disc faces +Y in its own frame; its up is -Z.
       vec2 pm = vec2(vSurface.x, -vSurface.z);
       // Arcs centred at 30°, 270° and 150°: the gaps sit where the mark's three nodes are.
-      vec3 arcs = vec3(
-        fill(sdArc(rotate2(pm, radians(60.0)), ARC_APERTURE, ARC_RADIUS, ARC_HALF_WIDTH)),
-        fill(sdArc(rotate2(pm, radians(-180.0)), ARC_APERTURE, ARC_RADIUS, ARC_HALF_WIDTH)),
-        fill(sdArc(rotate2(pm, radians(-60.0)), ARC_APERTURE, ARC_RADIUS, ARC_HALF_WIDTH))
-      );
-      float hub = fill(length(pm) - 0.03);
-      float inlay = max(max(arcs.x, arcs.y), max(arcs.z, hub));
-      diffuseColor.rgb = mix(diffuseColor.rgb, uInlay, inlay);
-      // How close the enamel is to each arc: a lit arc's light spreads a little way into the enamel around it.
-      vec3 near = exp(-max(vec3(
+      vec3 sd = vec3(
         sdArc(rotate2(pm, radians(60.0)), ARC_APERTURE, ARC_RADIUS, ARC_HALF_WIDTH),
         sdArc(rotate2(pm, radians(-180.0)), ARC_APERTURE, ARC_RADIUS, ARC_HALF_WIDTH),
         sdArc(rotate2(pm, radians(-60.0)), ARC_APERTURE, ARC_RADIUS, ARC_HALF_WIDTH)
-      ), 0.0) * 55.0);
+      );
+      vec3 arcs = vec3(fill(sd.x), fill(sd.y), fill(sd.z));
+      float hubSd = length(pm) - 0.03;
+      float hub = fill(hubSd);
+      float inlay = max(max(arcs.x, arcs.y), max(arcs.z, hub));
+      diffuseColor.rgb = mix(diffuseColor.rgb, uInlay, inlay);
+      // How close the enamel is to each arc: right at its edge, where a lit arc brightens the enamel; and around it,
+      // where its light falls.
+      vec3 near = exp(-max(sd, 0.0) * 55.0);
+      vec3 around = exp(-max(sd, 0.0) * 36.0);
+      float hubAround = exp(-max(hubSd, 0.0) * 36.0);
     `,
     roughness: /* glsl */ `
       roughnessFactor = mix(roughnessFactor, 0.22, inlay);
     `,
     emissive: /* glsl */ `
       totalEmissiveRadiance += uArcLight * 0.9 * (dot(arcs, uArcGlow) + hub * uHubGlow);
-      // The enamel around a lit arc glows with it, and warms a little all over under the light behind it.
-      totalEmissiveRadiance += uBrand * (0.4 * dot(near, uArcGlow) * (1.0 - inlay) + 0.04 * (uArcGlow.x + uArcGlow.y + uArcGlow.z + uHubGlow));
+      // A lit arc is a light guide: its light falls on the enamel around it — lighting the enamel's own orange, as
+      // light does, so the halo is a brighter orange rather than a paler one — and brightens it at its edge. An unlit
+      // arc has no halo, so lit and unlit read apart at any size. The enamel also warms a little all over under the
+      // light behind it.
+      totalEmissiveRadiance += (diffuseColor.rgb * uArcLight * 1.6 * (dot(around, uArcGlow) + hubAround * uHubGlow) + uBrand * 0.55 * dot(near, uArcGlow)) * (1.0 - inlay);
+      totalEmissiveRadiance += uBrand * 0.04 * (uArcGlow.x + uArcGlow.y + uArcGlow.z + uHubGlow);
     `,
   });
   return { material, mark };

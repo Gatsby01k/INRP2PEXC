@@ -1,0 +1,159 @@
+/* What the film adds to the page, and nothing else: its layers, its lines in the headline slot, the pointer, the
+   illustrative tag and the logo card. Everything inside the product and the hero is the product's and the site's
+   own CSS. */
+
+/* ——— Layers: the backdrop and the page move with the camera (stage.tsx); the robot's canvas lies between them. ——— */
+
+.backdrop,
+.content {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 1600px;
+  height: 900px;
+  transform-origin: 0 0;
+}
+
+.backdrop {
+  z-index: 0;
+}
+
+/* The page's field runs on past its edges, so no shot ever finds where it ends. */
+.backdrop::before {
+  content: '';
+  position: absolute;
+  inset: -6000px;
+  background: var(--bg-app);
+}
+
+/* The hero's own light (hero.module.css .hero), placed over the hero's box by stage.tsx. */
+.light,
+.evening {
+  position: absolute;
+}
+
+.light {
+  background: radial-gradient(ellipse 30% 58% at 58% 38%, color-mix(in srgb, var(--bg-surface) 92%, transparent) 0%, transparent 100%);
+}
+
+/* The afternoon going: warmer, lower light from the left, a little less of it overall. Its strength is set per frame. */
+.evening {
+  inset: -6000px;
+  background:
+    radial-gradient(ellipse 1500px 1100px at calc(6000px + 180px) calc(6000px + 260px), rgb(255 190 130 / 0.22), transparent 70%),
+    rgb(120 70 30 / 0.05);
+  opacity: 0;
+}
+
+.content {
+  z-index: 2;
+}
+
+/* ——— The page, without the backgrounds the backdrop now draws ——— */
+
+.page.page {
+  min-height: 900px;
+  background: none;
+}
+
+.hero.hero {
+  background: none;
+  border-bottom: 0;
+}
+
+/* Through the trade the quote slot holds the trade page's cards, which need the width the workspace gives them. */
+.tradeFrame {
+  --panel-width: 480px;
+}
+
+/* ——— The product column ——— */
+
+/* A state handing over to the next: both in one cell, the new one arriving over the old. */
+.stack {
+  display: grid;
+  align-items: center;
+}
+
+.stack > * {
+  grid-area: 1 / 1;
+}
+
+.column {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.row {
+  display: block;
+}
+
+.accepted.accepted {
+  color: var(--text-primary);
+}
+
+.accepted svg {
+  color: var(--status-success);
+}
+
+/* The product's own :active press, held for the frames the pointer presses it. */
+.pressed.pressed {
+  transform: translateY(1px);
+}
+
+/* ——— The film's lines, in the hero's headline slot, set one step smaller than its headline ——— */
+
+.super {
+  will-change: auto;
+}
+
+.superTitle.superTitle {
+  margin: 0;
+  font-size: var(--font-size-display);
+  line-height: 1.06;
+  letter-spacing: -0.035em;
+  text-wrap: balance;
+}
+
+/* ——— Over the frame ——— */
+
+.cursor {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 20;
+  opacity: 0;
+  transform-origin: 2px 2px;
+  filter: drop-shadow(0 2px 3px rgb(18 19 23 / 0.22));
+}
+
+.tag {
+  position: fixed;
+  right: 28px;
+  bottom: 22px;
+  z-index: 3;
+  margin: 0;
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* The supplied mark's own field, measured from the file (brand/inrp2p-mark-1024.png), so the card has no edge. */
+.logoCard {
+  position: fixed;
+  inset: 0;
+  z-index: 4;
+  overflow: hidden;
+  background: #f4512a;
+}
+
+.logo {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1024px;
+  height: 1024px;
+  max-width: none;
+  transform-origin: 0 0;
+}

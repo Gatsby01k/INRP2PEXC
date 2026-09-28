@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { type Mesh, type Object3D, Quaternion, Vector3 } from 'three';
-import { INPUT_PRIORITY, MOOD_PRIORITY, type RobotFocus, type RobotMood, strongestMood } from '../src/app/(public)/_landing/robot/cues.ts';
+import { INPUT_PRIORITY, MOOD_PRIORITY, type RobotFocus, type RobotMood, type TradeStage, strongestMood } from '../src/app/(public)/_landing/robot/cues.ts';
 import { type LookAngles, type LookTarget, type Pose, REST_POSE, type RobotState, RobotBehaviour } from '../src/app/(public)/_landing/robot/behaviour.ts';
 import { buildFigure } from '../src/app/(public)/_landing/robot/figure.ts';
 import { DURATION, EXPRESSIONS, STATES } from '../src/app/(public)/_landing/robot/states.ts';
@@ -36,6 +36,7 @@ const ANGLES: Record<LookTarget, LookAngles> = {
   rate: { yaw: 0.46, pitch: -0.14 },
   cta: { yaw: 0.44, pitch: -0.3 },
   entry: { yaw: 0.5, pitch: 0.32 },
+  row: { yaw: 0.44, pitch: -0.2 },
 };
 
 const FRAME = 1 / 60;
@@ -546,22 +547,25 @@ describe('the body as one mechanism', () => {
 });
 
 describe('rate updated (from UI that shows a firm rate)', () => {
-  it('reads the new rate — attention, the optics noticing then focusing, a pulse at the hub — and returns', () => {
+  it('reads the new rate — attention, the optics noticing then focusing, a pass of light, a pulse at the hub — and returns', () => {
     const run = settled();
     run.behaviour.cue({ kind: 'rate' }, run.time);
     let widest = 0;
     let narrowest = 1;
     let hub = 0;
+    let scan = 0;
     const during = run.step(0.6, {}, ({ pose }) => {
       widest = Math.max(widest, pose.eyeOpen);
       narrowest = Math.min(narrowest, pose.eyeOpen);
       hub = Math.max(hub, pose.hubGlow);
+      scan = Math.max(scan, pose.scan);
     });
     expect(during.state).toBe('rate');
     expect(during.pose.headYaw).toBeGreaterThan(0.1);
     expect(widest).toBeGreaterThan(1);
     expect(narrowest).toBeLessThan(0.87);
     expect(hub).toBeGreaterThan(0.9);
+    expect(scan, 'read, like any change').toBeGreaterThan(0.5);
     expect(run.step(2.5).state).toBe('idle');
   });
 
@@ -1114,6 +1118,134 @@ describe('the workspace’s moods (held states of record)', () => {
     const frames: Frame[] = [];
     run.step(2, {}, (f) => frames.push(f));
     expect(Math.max(...frames.map((f) => brightestArc(f.pose)))).toBe(0);
+  });
+});
+
+describe('a trade’s stage, held on the chest', () => {
+  const reach = (run: Run, stage: TradeStage) => run.behaviour.cue({ kind: 'stage', stage }, run.time);
+  const lit = (pose: Pose) => pose.arcGlow.map((g) => g > 0.5);
+
+  it('lights one arc per stage in the order value flows, keeps each lit, and the hub only with the last', () => {
+    const run = settled();
+    reach(run, 1);
+    let frame = run.step(4);
+    // Selling moves value from USDT to INR: the arc at 30° first, then 270°, then 150°.
+    expect(lit(frame.pose)).toEqual([true, false, false]);
+    expect(frame.pose.hubGlow).toBeLessThan(0.05);
+    reach(run, 2);
+    frame = run.step(4);
+    expect(lit(frame.pose)).toEqual([true, true, false]);
+    expect(frame.pose.hubGlow).toBeLessThan(0.05);
+    reach(run, 3);
+    frame = run.step(6);
+    expect(lit(frame.pose)).toEqual([true, true, true]);
+    expect(frame.pose.hubGlow, 'the mark is whole').toBeGreaterThan(0.9);
+  });
+
+  it('lights the other way round for a buy', () => {
+    const run = settled();
+    run.behaviour.cue({ kind: 'direction', direction: 'BUY_USDT' }, run.time);
+    run.step(2);
+    reach(run, 1);
+    expect(lit(run.step(3).pose)).toEqual([false, false, true]);
+  });
+
+  it('lights an arc in the time of a significant change, rising one way, and holds it without a flicker', () => {
+    const run = settled();
+    reach(run, 1);
+    const start = run.time;
+    const rise: number[] = [];
+    let arrived = Number.POSITIVE_INFINITY;
+    run.step(1.5, {}, ({ pose, time }) => {
+      rise.push(pose.arcGlow[0]);
+      if (pose.arcGlow[0] > 0.9 && arrived === Number.POSITIVE_INFINITY) arrived = time - start;
+    });
+    expect(arrived).toBeLessThan(0.45);
+    expect(oneWay(rise.slice(0, Math.round(0.4 / FRAME))), 'no pulse on the way up').toBe(true);
+    run.step(3);
+    const held: number[] = [];
+    run.step(20, {}, ({ pose }) => held.push(pose.arcGlow[0]));
+    expect(Math.max(...held) - Math.min(...held), 'steady for as long as the stage holds').toBeLessThan(1e-6);
+  });
+
+  it('answers each stage once: the quote accepted as a lock, the client’s side with notice only, completion as something accepted', () => {
+    const run = settled();
+    reach(run, 1);
+    let others = 0;
+    const lock = run.step(0.9, {}, ({ pose }) => (others = Math.max(others, pose.arcGlow[1], pose.arcGlow[2])));
+    expect(lock.state).toBe('locked');
+    expect(lock.pose.smile, 'pleased').toBeGreaterThan(0.4);
+    expect(others, 'the whole mark is kept for the trade that completes it').toBeLessThan(0.05);
+    expect(run.step(4).state).toBe('idle');
+
+    reach(run, 2);
+    const states = new Set<RobotState>();
+    let gain = 0;
+    run.step(1.5, {}, ({ state, pose }) => {
+      states.add(state);
+      gain = Math.max(gain, pose.eyeGain);
+    });
+    expect([...states], 'a check passing is not news').toEqual(['idle']);
+    expect(gain, 'but it is noticed').toBeGreaterThan(1.03);
+
+    reach(run, 3);
+    const done = run.step(0.9);
+    expect(done.state).toBe('accepted');
+    expect(done.pose.smile).toBeGreaterThan(0.4);
+  });
+
+  it('marks a settled trade once, whichever the page reports first', () => {
+    const first = settled();
+    reach(first, 1);
+    reach(first, 2);
+    first.step(4);
+    reach(first, 3);
+    first.step(4);
+    first.behaviour.cue({ kind: 'mood', mood: 'success' }, first.time);
+    let brightest = 0;
+    first.step(3, {}, ({ pose }) => (brightest = Math.max(brightest, brightestArc(pose))));
+    expect(brightest, 'no second resolve over the completed mark').toBeLessThan(1.05);
+
+    const second = settled();
+    second.behaviour.cue({ kind: 'mood', mood: 'success' }, second.time);
+    second.step(4);
+    reach(second, 3);
+    const states = new Set<RobotState>();
+    second.step(2, {}, ({ state }) => states.add(state));
+    expect([...states], 'no second acceptance over a settled trade').toEqual(['done']);
+  });
+
+  it('lets the arcs go when the page no longer shows a trade', () => {
+    const run = settled();
+    reach(run, 1);
+    reach(run, 2);
+    reach(run, 3);
+    run.step(5);
+    reach(run, 0);
+    const after = run.step(3);
+    expect(brightestArc(after.pose)).toBeLessThan(0.01);
+    expect(after.pose.hubGlow).toBeLessThan(0.01);
+  });
+});
+
+describe('a payment confirmed', () => {
+  it('steps the eyes down to the newest payment and reads it — one pass of light, a faint tick at the hub — then returns to the trade', () => {
+    const run = settled();
+    run.behaviour.cue({ kind: 'mood', mood: 'verifying' }, run.time);
+    run.step(2);
+    const before = run.step(0.01).pose;
+    run.behaviour.cue({ kind: 'tally' }, run.time);
+    const frames: Frame[] = [];
+    run.step(0.7, {}, (f) => frames.push(f));
+    const reading = frames.at(-1)!;
+    expect(reading.state).toBe('tally');
+    expect(reading.pose.headPitch + reading.pose.gazeY / 0.17, 'down to the row').toBeLessThan(before.headPitch + before.gazeY / 0.17 - 0.05);
+    expect(Math.abs(reading.pose.gazeX) + Math.abs(reading.pose.gazeY), 'the eyes carry most of it').toBeGreaterThan(0.02);
+    expect(Math.max(...frames.map((f) => f.pose.scan)), 'one pass of light').toBeGreaterThan(0.5);
+    const tick = Math.max(...frames.map((f) => f.pose.hubGlow));
+    expect(tick, 'a tick, not a pulse').toBeGreaterThan(0.2);
+    expect(tick).toBeLessThan(0.6);
+    expect(run.step(1.5).state).toBe('checking');
   });
 });
 

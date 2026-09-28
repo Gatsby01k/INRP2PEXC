@@ -37,6 +37,7 @@ const ANGLES: Record<LookTarget, LookAngles> = {
   rate: { yaw: 0.46, pitch: -0.12 },
   cta: { yaw: 0.44, pitch: -0.28 },
   entry: { yaw: 0.5, pitch: 0.32 },
+  row: { yaw: 0.44, pitch: -0.2 },
 };
 
 /** A small seeded generator, so the sheet is the same sheet every time. */

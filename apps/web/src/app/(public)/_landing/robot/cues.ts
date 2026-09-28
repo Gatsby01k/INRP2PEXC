@@ -53,7 +53,24 @@ export type RobotCue =
   /** The line stopped before its end (muted, interrupted, the page hidden). */
   | { readonly kind: 'hush' }
   /** The state of record changed (`RobotMood`): what the robot rests in until the next change. */
-  | { readonly kind: 'mood'; readonly mood: RobotMood };
+  | { readonly kind: 'mood'; readonly mood: RobotMood }
+  /**
+   * How far a trade has got, held on the chest (`TradeStage`). Only from UI that shows a trade. It stands in for
+   * `lock` there: the first arc is the accepted quote, so the whole mark is kept for the trade that completes it.
+   */
+  | { readonly kind: 'stage'; readonly stage: TradeStage }
+  /**
+   * A payment on the trade was confirmed. The robot's eyes step to it — the element marked
+   * `data-robot-target="row"`, the newest confirmed payment — it reads it, and the hub ticks once, faintly.
+   */
+  | { readonly kind: 'tally' };
+
+/**
+ * A trade's stages as the chest mark holds them: nothing yet, the quote accepted, the client's side final, the
+ * payout complete. Each lights one arc of the brand's motif, in the order value flows, and stays lit; at 3 the hub
+ * lights with it and the mark is whole — the brand's three arcs are what a settled trade looks like.
+ */
+export type TradeStage = 0 | 1 | 2 | 3;
 
 /**
  * What the robot rests in while a state of record lasts — the workspace's, never the home page's, which has none.
