@@ -46,7 +46,7 @@ test('quote to payout, keyboard only', async ({ page }) => {
   await page.keyboard.type(trade.tradeRef);
   await expect(bar.getByText(trade.tradeRef).first()).toBeVisible();
   await page.keyboard.press('Enter');
-  await expect(page).toHaveURL(new RegExp(`/orders\\?trade=${trade.tradeId}`));
+  await expect(page).toHaveURL(new RegExp(`/orders/${trade.tradeRef}$`));
   await expect(page.getByText(trade.tradeRef).first()).toBeVisible();
 
   // Back on the desk, the row's own hotkey opens the settlement panel.
@@ -56,7 +56,7 @@ test('quote to payout, keyboard only', async ({ page }) => {
   await pressUntilFocused(page, row);
   await page.keyboard.press('p');
 
-  const panel = page.getByTestId('payout-panel');
+  const panel = page.getByTestId('trade-panel');
   await expect(panel).toBeVisible();
 
   // One leg for the whole obligation: amount, reserve, mark sent, reference, confirm — all by keyboard.

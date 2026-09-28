@@ -110,3 +110,17 @@ function toOrder(
   if (!access.economics) return row;
   return { ...row, clientRate: microToDecimal(r.client_rate_micro), margin: Money.ofMinor(r.gross_margin_inr_minor, 'INR').toDecimalString() };
 }
+
+/** How many trades each Orders tab holds, so the tabs can say so before they are opened. */
+export async function orderCounts(ex: Executor): Promise<{ readonly OPEN: number; readonly COMPLETED: number; readonly CANCELLED: number; readonly ALL: number; readonly HOLD: number }> {
+  const r = await sql<{ open: string; completed: string; cancelled: string; all: string; hold: string }>`
+    select count(*) filter (where lifecycle_state not in ('COMPLETED', 'CANCELLED'))::text as open,
+           count(*) filter (where lifecycle_state = 'COMPLETED')::text as completed,
+           count(*) filter (where lifecycle_state = 'CANCELLED')::text as cancelled,
+           count(*)::text as all,
+           count(*) filter (where hold and lifecycle_state not in ('COMPLETED', 'CANCELLED'))::text as hold
+    from trade`.execute(ex);
+  const row = r.rows[0]!;
+  const n = (v: string) => Number.parseInt(v, 10);
+  return { OPEN: n(row.open), COMPLETED: n(row.completed), CANCELLED: n(row.cancelled), ALL: n(row.all), HOLD: n(row.hold) };
+}

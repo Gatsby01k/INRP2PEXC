@@ -1,108 +1,145 @@
 'use client';
 
-import { useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Money, Rate } from '@inrp2p/kernel';
+import { useState } from 'react';
+import { Money } from '@inrp2p/kernel';
 import type { PnlPage, PnlRow } from '@inrp2p/desk';
-import { Button, EmptyState, MarginDisplay, PnlSummary, TradeTable, formatInr, formatIstDateTime, formatRate, formatUsdtHeadline } from '@inrp2p/ui';
-import styles from './pnl.module.css';
-
-const PRESETS = [
-  { key: 'today', label: 'Today' },
-  { key: 'week', label: 'Last 7 days' },
-  { key: 'month', label: 'Last 30 days' },
-] as const;
-
-const shift = (day: string, days: number): string => {
-  const d = new Date(`${day}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() - days);
-  return d.toISOString().slice(0, 10);
-};
+import { Button, averageMarginPerUsdt } from '@inrp2p/ui';
+import { Cell, type Column, DataTable } from '../_desk/DataTable.tsx';
+import { TextField } from '../_desk/fields.tsx';
+import { dateTime, inr, isNegative, rate, usdt } from '../_desk/format.ts';
+import { Empty, KpiBand, Notice, Side } from '../_desk/ui.tsx';
+import d from '../_desk/desk.module.css';
+import p from './pnl.module.css';
 
 /**
- * Realized and expected, side by side and never added.
+ * Realized and expected, side by side and never added (FI-43, brief "P&L").
  *
- * The summary reports the ledger's own realized margin; the table below says, row by row, which kind each figure
- * is. The reconciliation line is the part worth keeping: it shows the ledger's realized total next to the same
- * total summed from the completed trades, so a page that has drifted from the books says so on its own face
- * instead of being quietly believed (FI-44).
+ * The headline is the ledger's realized margin for the period; open trades' expected margin sits apart, labelled
+ * as a forecast. The reconciliation line is the part worth keeping: the ledger's realized total beside the same
+ * total summed from the completed trades, so a page that has drifted from the books says so on its own face.
  */
-export function PnlScreen({ view, today, canExport }: { view: PnlPage; today: string; canExport: boolean }) {
+export function PnlScreen({ view, canExport }: { view: PnlPage; canExport: boolean }) {
   const router = useRouter();
   const [from, setFrom] = useState(view.period.from);
   const [to, setTo] = useState(view.period.to);
+  const realized = view.rows.filter((r) => r.kind === 'realized');
+  const expected = view.rows.filter((r) => r.kind === 'expected');
+  const s = view.summary;
 
-  const go = (nextFrom: string, nextTo: string) => router.push(`/pnl?from=${nextFrom}&to=${nextTo}`);
-  const preset = (key: (typeof PRESETS)[number]['key']) => go(key === 'today' ? today : shift(today, key === 'week' ? 6 : 29), today);
+  const columns: Column<PnlRow>[] = [
+    {
+      key: 'ref',
+      header: 'Trade',
+      render: (r) => (
+        <Cell
+          main={
+            <Link href={`/orders/${encodeURIComponent(r.tradeRef)}`} className={d.link}>
+              {r.tradeRef}
+            </Link>
+          }
+          sub={r.clientName}
+        />
+      ),
+    },
+    { key: 'side', header: 'Side', render: (r) => <Side direction={r.direction} /> },
+    { key: 'at', header: 'When', render: (r) => <span className={d.num}>{dateTime(r.at)}</span> },
+    { key: 'base', header: 'USDT', align: 'right', render: (r) => usdt(r.base, { unit: false }) },
+    { key: 'inr', header: 'INR', align: 'right', render: (r) => inr(r.inr) },
+    { key: 'client', header: 'Client rate', align: 'right', render: (r) => rate(r.clientRate) },
+    { key: 'route', header: 'Route rate', align: 'right', render: (r) => <span className={d.muted}>{rate(r.routeRate)}</span> },
+    {
+      key: 'margin',
+      header: 'Gross margin',
+      align: 'right',
+      render: (r) => (
+        <span className={isNegative(r.margin, 'INR') ? d.negative : r.kind === 'realized' ? d.positive : d.secondary}>
+          {inr(r.margin, { sign: true })}
+          {r.kind === 'expected' ? <span className={p.kind}> expected</span> : null}
+        </span>
+      ),
+    },
+  ];
 
   return (
-    <div className="ix-stack">
-      <div className="ix-row" role="group" aria-label="Period">
-        {PRESETS.map((p) => (
-          <Button key={p.key} intent="ghost" size="sm" onClick={() => preset(p.key)}>
-            {p.label}
-          </Button>
-        ))}
-        <span className={styles.range}>
-          <label htmlFor="from">From</label>
-          <input id="from" className="ix-input" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
-          <label htmlFor="to">To</label>
-          <input id="to" className="ix-input" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
-          <Button intent="secondary" size="sm" onClick={() => go(from, to)}>
+    <div className={d.stack}>
+      <div className={p.controls}>
+        <form
+          className={p.range}
+          onSubmit={(e) => {
+            e.preventDefault();
+            router.push(`/pnl?from=${from}&to=${to}`);
+          }}
+        >
+          <TextField label="From" type="date" value={from} onChange={setFrom} />
+          <TextField label="To" type="date" value={to} onChange={setTo} />
+          <Button type="submit" intent="secondary" size="sm">
             Show
           </Button>
-        </span>
+        </form>
         {canExport ? (
-          <span className={styles.exports}>
+          <div className={p.exports}>
+            <span className={d.meta}>Export this period</span>
             {(['trades', 'ledger', 'receipts'] as const).map((kind) => (
-              <a key={kind} className="ix-linkish" href={`/api/exports/${kind}?from=${view.period.from}&to=${view.period.to}`} download>
-                Export {kind}
+              <a key={kind} className={p.exportLink} href={`/api/exports/${kind}?from=${view.period.from}&to=${view.period.to}`} download>
+                {kind} CSV
               </a>
             ))}
-          </span>
+          </div>
         ) : null}
       </div>
 
-      <PnlSummary
-        periodLabel={view.period.from === view.period.to ? view.period.from : `${view.period.from} → ${view.period.to}`}
-        realizedMargin={Money.parse(view.summary.realizedGrossMargin, 'INR')}
-        completedVolume={Money.parse(view.summary.completedVolume, 'USDT')}
-        completedTrades={view.summary.completedTrades}
-        openExpectedMargin={Money.parse(view.summary.openExpectedMargin, 'INR')}
-        openTrades={view.summary.openTrades}
-      />
-
-      <p className={view.ledgerCheck.agrees ? styles.agrees : styles.drifted} role="status" data-testid="ledger-check">
-        {view.ledgerCheck.agrees
-          ? `Ledger and trades agree on realized margin: ${formatInr(Money.parse(view.ledgerCheck.ledger, 'INR'), { sign: 'always' })}.`
-          : `Realized margin does not reconcile: the ledger has ${formatInr(Money.parse(view.ledgerCheck.ledger, 'INR'), { sign: 'always' })}, the completed trades sum to ${formatInr(Money.parse(view.ledgerCheck.trades, 'INR'), { sign: 'always' })}. Treat this page as unreliable until it is explained.`}
-      </p>
-
-      {view.rows.length === 0 ? (
-        <EmptyState title="Nothing in this period" body="No trade completed and none is open. Widen the dates to see more." />
-      ) : (
-        <TradeTable
-          caption="Trades"
-          rowKey={(r: PnlRow) => r.tradeRef}
-          onRowOpen={(r: PnlRow) => router.push(`/orders?trade=${encodeURIComponent(r.tradeRef)}`)}
-          columns={[
-            { key: 'ref', header: 'Trade', render: (r: PnlRow) => r.tradeRef },
-            { key: 'client', header: 'Client', render: (r: PnlRow) => r.clientName },
-            { key: 'at', header: 'When', render: (r: PnlRow) => formatIstDateTime(new Date(r.at)) },
-            { key: 'direction', header: 'Direction', render: (r: PnlRow) => (r.direction === 'SELL_USDT' ? 'SELL' : 'BUY') },
-            { key: 'base', header: 'USDT', numeric: true, render: (r: PnlRow) => formatUsdtHeadline(Money.parse(r.base, 'USDT')) },
-            { key: 'client_rate', header: 'Client', numeric: true, render: (r: PnlRow) => formatRate(Rate.parse(r.clientRate, 'CLIENT')) },
-            { key: 'route_rate', header: 'Route', numeric: true, render: (r: PnlRow) => formatRate(Rate.parse(r.routeRate, 'ROUTE')) },
-            {
-              key: 'margin',
-              header: 'Gross margin',
-              numeric: true,
-              render: (r: PnlRow) => <MarginDisplay amount={Money.parse(r.margin, 'INR')} kind={r.kind} size="sm" label="" />,
-            },
+      <div className={p.summary}>
+        <KpiBand
+          label="Realized in the period"
+          items={[
+            { key: 'r', label: 'Realized gross margin', value: inr(s.realizedGrossMargin, { sign: true }), sub: 'from the ledger', size: 'lg', ...(isNegative(s.realizedGrossMargin, 'INR') ? { tone: 'danger' as const } : { tone: 'success' as const }) },
+            { key: 'v', label: 'Completed volume', value: usdt(s.completedVolume), sub: `${s.completedTrades} trade${s.completedTrades === 1 ? '' : 's'}` },
+            { key: 'a', label: 'Average margin / USDT', value: averageMarginPerUsdt(Money.parse(s.realizedGrossMargin, 'INR'), Money.parse(s.completedVolume, 'USDT')), sub: 'realized over completed volume' },
+            { key: 'c', label: 'Completed trades', value: String(s.completedTrades) },
           ]}
-          rows={view.rows}
         />
-      )}
+        <dl className={p.expected} aria-label="Open trades, expected">
+          <dt>Open trades · expected, not realized</dt>
+          <dd className={p.expectedValue}>{inr(s.openExpectedMargin, { sign: true })}</dd>
+          <dd className={p.expectedSub}>
+            across {s.openTrades} open trade{s.openTrades === 1 ? '' : 's'} — a forecast, never added to the figure beside it
+          </dd>
+        </dl>
+      </div>
+
+      <div data-testid="ledger-check" role="status">
+        {view.ledgerCheck.agrees ? (
+          <Notice tone="success" icon="check">
+            Ledger and trades agree on realized margin: {inr(view.ledgerCheck.ledger, { sign: true })}.
+          </Notice>
+        ) : (
+          <Notice tone="danger" icon="exceptions">
+            <strong>Realized margin does not reconcile:</strong> the ledger has {inr(view.ledgerCheck.ledger, { sign: true })}, the completed trades sum to {inr(view.ledgerCheck.trades, { sign: true })}. Treat
+            this page as unreliable until it is explained.
+          </Notice>
+        )}
+      </div>
+
+      <section className={p.table} aria-label="Trades">
+        {view.rows.length === 0 ? (
+          <Empty title="Nothing in this period" body="No trade completed and none is open. Widen the dates to see more." />
+        ) : (
+          <DataTable<PnlRow>
+            caption="Trades"
+            label="Trades"
+            columns={columns}
+            groups={[
+              { key: 'realized', title: 'Realized · completed in the period', rows: realized },
+              { key: 'expected', title: 'Expected · still open', rows: expected },
+            ]}
+            rowKey={(r) => r.tradeRef}
+            onOpen={(r) => router.push(`/orders/${encodeURIComponent(r.tradeRef)}`)}
+            dim={(r) => r.kind === 'expected'}
+          />
+        )}
+      </section>
     </div>
   );
 }

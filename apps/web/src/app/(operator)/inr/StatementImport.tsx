@@ -3,10 +3,15 @@
 import { useRef, useState } from 'react';
 import type { InrAccountView } from '@inrp2p/desk';
 import type { StatementImportResult, StatementImportSummary } from '@inrp2p/settlement';
-import { Button, EmptyState, StepUpMark, TradeTable, formatIstDateTime } from '@inrp2p/ui';
+import { Button, StepUpMark } from '@inrp2p/ui';
 import { importStatementAction } from '../../../server/actions/finance.ts';
 import { useCommand } from '../../../components/useCommand.tsx';
-import styles from './inr.module.css';
+import { Cell, type Column, DataTable } from '../_desk/DataTable.tsx';
+import { SelectField, TextField } from '../_desk/fields.tsx';
+import { dateTime } from '../_desk/format.ts';
+import { Chip, Empty, KpiBand, Notice } from '../_desk/ui.tsx';
+import d from '../_desk/desk.module.css';
+import s from './inr.module.css';
 
 interface Picked {
   readonly filename: string;
@@ -17,25 +22,16 @@ interface Picked {
  * Manual bank statement reconciliation (SECURITY §5 S7).
  *
  * Everything else in the payout path proves an operator said a payment was made. Only the bank's own statement
- * proves the bank moved it, and until there is a bank API a person brings that file here. The screen says what
- * the import found in the four words that matter — matched, mismatched, unrecorded, missing — and it is the
- * last one that opens cases: a payment we confirmed that the bank has never heard of.
+ * proves the bank moved it, and until there is a bank API a person brings that file here. The outcome is said in
+ * the four words that matter — matched, mismatched, not ours, missing — and it is the last one that opens cases:
+ * a payment the desk confirmed that the bank has never heard of.
  */
-export function StatementImport({
-  accounts,
-  statements,
-  canImport,
-}: {
-  accounts: readonly InrAccountView[];
-  statements: readonly StatementImportSummary[];
-  canImport: boolean;
-}) {
+export function StatementImport({ accounts, statements, canImport }: { accounts: readonly InrAccountView[]; statements: readonly StatementImportSummary[]; canImport: boolean }) {
   const cmd = useCommand();
   const fileInput = useRef<HTMLInputElement>(null);
   const [accountId, setAccountId] = useState(accounts[0]?.accountId ?? '');
-  // The period starts empty rather than on today. A statement is almost never for today — it is for yesterday,
-  // or last week, or the month that just closed — and a date the screen guessed is a date nobody checked. The
-  // period is what everything in the import is judged against, so the operator states it.
+  // The period starts empty rather than on today. A statement is almost never for today, and a date the screen
+  // guessed is a date nobody checked; the period is what everything in the import is judged against.
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [picked, setPicked] = useState<Picked | null>(null);
@@ -55,43 +51,35 @@ export function StatementImport({
       });
   };
 
-  return (
-    <section className="ix-card" data-testid="statement-import">
-      <h2 className="ix-sectionTitle">Bank statement</h2>
-      <p className="ix-muted">
-        Reconciles what the bank says it moved against what this desk recorded. A payment we confirmed that the statement does not show opens a
-        blocking case on its trade.
-      </p>
+  const columns: Column<StatementImportSummary>[] = [
+    { key: 'at', header: 'Imported', render: (r) => <span className={d.num}>{dateTime(r.importedAt)}</span> },
+    { key: 'file', header: 'Account · file', render: (r) => <Cell main={r.accountLabel} sub={<span className={d.mono}>{r.filename}</span>} /> },
+    { key: 'period', header: 'Period', render: (r) => `${r.periodFrom} → ${r.periodTo}` },
+    { key: 'lines', header: 'Lines', align: 'right', render: (r) => r.lines },
+    { key: 'matched', header: 'Matched', align: 'right', render: (r) => r.matched },
+    { key: 'mismatched', header: 'Mismatched', align: 'right', render: (r) => (r.mismatched > 0 ? <strong className={d.negative}>{r.mismatched}</strong> : r.mismatched) },
+    { key: 'unrecorded', header: 'Not ours', align: 'right', render: (r) => r.unrecorded },
+    { key: 'missing', header: 'Missing', align: 'right', render: (r) => (r.missing > 0 ? <strong className={d.negative}>{r.missing}</strong> : r.missing) },
+    { key: 'result', header: 'Result', render: (r) => (r.missing > 0 || r.mismatched > 0 ? <Chip tone="danger">cases opened</Chip> : <Chip tone="success" glyph="done">reconciled</Chip>) },
+  ];
 
+  return (
+    <div className={d.stack} data-testid="statement-import">
       {canImport ? (
-        <div className={styles.statementForm}>
-          <div className="ix-field">
-            <label htmlFor="statement-account">Account</label>
-            <select id="statement-account" className="ix-input" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
-              {accounts.map((a) => (
-                <option key={a.accountId} value={a.accountId}>
-                  {a.bankName} · {a.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="ix-field">
-            <label htmlFor="statement-from">Period from</label>
-            <input id="statement-from" className="ix-input" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
-          </div>
-          <div className="ix-field">
-            <label htmlFor="statement-to">Period to</label>
-            <input id="statement-to" className="ix-input" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
-          </div>
-          <div className="ix-field">
-            <span id="statement-file-label">Statement file (CSV)</span>
+        <div className={s.importForm}>
+          <SelectField label="Account" value={accountId} onChange={setAccountId} options={accounts.map((a) => ({ value: a.accountId, label: `${a.bankName} · ${a.label}` }))} />
+          <TextField label="Period from" type="date" value={from} onChange={setFrom} />
+          <TextField label="Period to" type="date" value={to} onChange={setTo} />
+          <div className={d.field}>
+            <span id="statement-file-label" className={d.fieldLabel}>
+              Statement file (CSV)
+            </span>
             {/* The native control is kept for what it does — opening the file picker — and not for how it looks:
-                it draws "No file chosen" in a system font, which every page baseline forbids (VISUAL_BASELINES
-                §4). The button and the filename beside it are ours, in the desk's own type. */}
+                it draws "No file chosen" in a system font, which every page baseline forbids (VISUAL_BASELINES §4). */}
             <input
               ref={fileInput}
               id="statement-file"
-              className={styles.fileInput}
+              className={s.fileInput}
               type="file"
               accept=".csv,text/csv"
               aria-labelledby="statement-file-label"
@@ -105,56 +93,58 @@ export function StatementImport({
                 void file.text().then((csv) => setPicked({ filename: file.name, csv }));
               }}
             />
-            <span className="ix-row">
+            <span className={d.row} style={{ flexWrap: 'nowrap' }}>
               <Button intent="secondary" size="sm" onClick={() => fileInput.current?.click()}>
                 Choose file
               </Button>
-              <span className="ix-hint">{picked ? picked.filename : 'No file chosen'}</span>
+              <span className={s.fileName}>{picked ? picked.filename : 'No file chosen'}</span>
             </span>
-            <span className="ix-hint">Columns: value_date, direction, amount, reference, description</span>
           </div>
-          <Button disabled={!picked || !accountId || !from || !to || cmd.busy || from > to} onClick={submit}>
-            Import statement <StepUpMark />
-          </Button>
+          <div className={s.importAction}>
+            <Button intent="primary" size="sm" disabled={!picked || !accountId || !from || !to || cmd.busy || from > to} onClick={submit} shortcut={<StepUpMark label="needs your authenticator code" />}>
+              Import statement
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <Notice icon="lock">Importing a statement needs the owner or finance role.</Notice>
+      )}
+      {canImport ? <p className={d.fieldHint}>Columns: value_date, direction, amount, reference, description. The file is hashed and never stored — only what it reconciled.</p> : null}
+
+      {outcome ? (
+        <div role="status" data-testid="statement-outcome" className={d.stackTight}>
+          <KpiBand
+            label="Import outcome"
+            items={[
+              { key: 'l', label: 'Lines', value: String(outcome.lines) },
+              { key: 'm', label: 'Matched', value: String(outcome.matched), tone: 'success' },
+              { key: 'x', label: 'Mismatched', value: String(outcome.mismatched), ...(outcome.mismatched > 0 ? { tone: 'danger' as const } : {}) },
+              { key: 'u', label: 'Not ours', value: String(outcome.unrecorded), sub: 'bank charges, other traffic' },
+              { key: 'g', label: 'Missing', value: String(outcome.missing), sub: 'confirmed by us, not on the statement', ...(outcome.missing > 0 ? { tone: 'danger' as const } : {}) },
+            ]}
+          />
+          <Notice tone={outcome.missing > 0 || outcome.mismatched > 0 ? 'danger' : 'success'} icon={outcome.missing > 0 || outcome.mismatched > 0 ? 'exceptions' : 'check'}>
+            {outcome.lines} lines · {outcome.matched} matched · {outcome.mismatched} mismatched · {outcome.unrecorded} not ours · {outcome.missing} confirmed payments the statement does not show.
+            {outcome.casesOpened > 0 ? ` ${outcome.casesOpened} case${outcome.casesOpened === 1 ? '' : 's'} opened.` : ' No case opened.'}
+          </Notice>
         </div>
       ) : null}
 
-      {outcome ? (
-        <p className={outcome.missing > 0 || outcome.mismatched > 0 ? styles.statementAlarm : styles.statementQuiet} role="status" data-testid="statement-outcome">
-          {outcome.lines} lines · {outcome.matched} matched · {outcome.mismatched} mismatched · {outcome.unrecorded} not ours · {outcome.missing} confirmed
-          payments the statement does not show.
-          {outcome.casesOpened > 0 ? ` ${outcome.casesOpened} case${outcome.casesOpened === 1 ? '' : 's'} opened.` : ' No case opened.'}
-        </p>
-      ) : null}
-
-      {statements.length === 0 ? (
-        <EmptyState title="No statement imported yet" body="Until one is, nothing here has been checked against the bank." />
-      ) : (
-        <TradeTable
-          caption="Recent imports"
-          rowKey={(r: StatementImportSummary) => r.importId}
-          columns={[
-            { key: 'at', header: 'Imported', render: (r: StatementImportSummary) => formatIstDateTime(new Date(r.importedAt)) },
-            { key: 'account', header: 'Account', render: (r: StatementImportSummary) => r.accountLabel },
-            { key: 'file', header: 'File', render: (r: StatementImportSummary) => r.filename },
-            { key: 'period', header: 'Period', render: (r: StatementImportSummary) => `${r.periodFrom} → ${r.periodTo}` },
-            { key: 'lines', header: 'Lines', numeric: true, render: (r: StatementImportSummary) => r.lines },
-            { key: 'matched', header: 'Matched', numeric: true, render: (r: StatementImportSummary) => r.matched },
-            { key: 'mismatched', header: 'Mismatched', numeric: true, render: (r: StatementImportSummary) => r.mismatched },
-            { key: 'unrecorded', header: 'Not ours', numeric: true, render: (r: StatementImportSummary) => r.unrecorded },
-            { key: 'missing', header: 'Missing', numeric: true, render: (r: StatementImportSummary) => r.missing },
-            { key: 'by', header: 'By', render: (r: StatementImportSummary) => r.importedBy },
-          ]}
-          rows={statements}
-        />
-      )}
-
       {cmd.error ? (
-        <p className="ix-error" role="alert">
+        <p className={d.errorLine} role="alert">
           {cmd.error}
         </p>
       ) : null}
+
+      <DataTable<StatementImportSummary>
+        caption="Recent imports"
+        label="Recent imports"
+        columns={columns}
+        rows={statements}
+        rowKey={(r) => r.importId}
+        empty={<Empty title="No statement imported yet" body="Until one is, nothing here has been checked against the bank." />}
+      />
       {cmd.dialog}
-    </section>
+    </div>
   );
 }

@@ -2,100 +2,71 @@
 
 import { useState } from 'react';
 import type { DeskBankView, DeskTraderDetail, DeskWalletView } from '@inrp2p/traders';
-import { Button } from '@inrp2p/ui';
-import { formatIstDateTime } from '@inrp2p/ui/format';
+import { Button, StepUpMark } from '@inrp2p/ui';
 import { useCommand } from '../../../../components/useCommand.tsx';
 import {
   revealBankAccountAction, revealTraderPhoneAction, reviewDestinationAction, reviewSettlementChangeAction, setExchangeAccessAction,
 } from '../../../../server/actions/traders-desk.ts';
+import { PanelSection } from '../../_desk/ContextPanel.tsx';
+import { TextArea } from '../../_desk/fields.tsx';
+import { dateTime, inr, usdt } from '../../_desk/format.ts';
+import { Chip, KeyValues, Notice } from '../../_desk/ui.tsx';
 import type { TraderPerms } from './TraderControls.tsx';
-import styles from '../traders.module.css';
+import d from '../../_desk/desk.module.css';
 
-const STATUS: Record<string, { word: string; tone?: 'good' | 'warn' | 'brand' }> = {
-  PENDING_REVIEW: { word: 'pending review', tone: 'warn' },
-  ACTIVE: { word: 'verified', tone: 'good' },
-  REJECTED: { word: 'rejected' },
-  ARCHIVED: { word: 'archived' },
+const STATUS: Record<string, { word: string; tone: 'success' | 'warning' | 'muted' | 'danger' }> = {
+  PENDING_REVIEW: { word: 'pending review', tone: 'warning' },
+  ACTIVE: { word: 'verified', tone: 'success' },
+  REJECTED: { word: 'rejected', tone: 'danger' },
+  ARCHIVED: { word: 'archived', tone: 'muted' },
 };
 const EXPERIENCE: Record<string, string> = { BINANCE: 'Binance P2P', BYBIT: 'Bybit P2P', OTHER: 'Other P2P platform', NONE: 'None' };
 
-function StatusTag({ status }: { status: string }) {
-  const s = STATUS[status] ?? { word: status.toLowerCase() };
+function StatusTag({ status, note }: { status: string; note: string | null }) {
+  const s = STATUS[status] ?? { word: status.toLowerCase(), tone: 'muted' as const };
   return (
-    <span className={styles.tag} {...(s.tone ? { 'data-tone': s.tone } : {})}>
-      {s.word}
+    <span className={d.row}>
+      <Chip tone={s.tone}>{s.word}</Chip>
+      {note ? <span className={d.muted}>{note}</span> : null}
     </span>
   );
 }
 
 function BankFacts({ bank, revealed }: { bank: DeskBankView; revealed: string | null }) {
   return (
-    <dl className={styles.facts}>
-      <dt>Status</dt>
-      <dd>
-        <StatusTag status={bank.status} />
-        {bank.reviewNote ? <span className="ix-muted"> · {bank.reviewNote}</span> : null}
-      </dd>
-      <dt>Holder</dt>
-      <dd>{bank.holderName}</dd>
-      <dt>Bank</dt>
-      <dd>{bank.bankName}</dd>
-      <dt>Account</dt>
-      <dd className={styles.mono}>{revealed ?? `••••${bank.last4}`}</dd>
-      <dt>IFSC</dt>
-      <dd className={styles.mono}>{bank.ifsc}</dd>
-      <dt>Rails</dt>
-      <dd>{bank.rails.join(' · ')}</dd>
-      <dt>Submitted</dt>
-      <dd>{formatIstDateTime(new Date(bank.submittedAt))}</dd>
-      {bank.alsoOnFile.length > 0 ? (
-        <>
-          <dt>Also on file for</dt>
-          <dd>
-            <span className={styles.tag} data-tone="warn">
-              {bank.alsoOnFile.join(', ')}
-            </span>
-          </dd>
-        </>
-      ) : null}
-    </dl>
+    <KeyValues
+      items={[
+        { label: 'Status', value: <StatusTag status={bank.status} note={bank.reviewNote} /> },
+        { label: 'Holder', value: bank.holderName },
+        { label: 'Bank', value: bank.bankName },
+        { label: 'Account', value: <span className={d.mono}>{revealed ?? `••••${bank.last4}`}</span> },
+        { label: 'IFSC', value: <span className={d.mono}>{bank.ifsc}</span> },
+        { label: 'Rails', value: bank.rails.join(' · ') },
+        { label: 'Submitted', value: dateTime(bank.submittedAt) },
+        ...(bank.alsoOnFile.length > 0 ? [{ label: 'Also on file for', value: <Chip tone="warning">{bank.alsoOnFile.join(', ')}</Chip> }] : []),
+      ]}
+    />
   );
 }
 
 function WalletFacts({ wallet }: { wallet: DeskWalletView }) {
   return (
-    <dl className={styles.facts}>
-      <dt>Status</dt>
-      <dd>
-        <StatusTag status={wallet.status} />
-        {wallet.reviewNote ? <span className="ix-muted"> · {wallet.reviewNote}</span> : null}
-      </dd>
-      <dt>Address</dt>
-      <dd className={styles.mono}>{wallet.address}</dd>
-      <dt>Label</dt>
-      <dd>
-        {wallet.label} · {wallet.purpose.toLowerCase()}
-      </dd>
-      <dt>Submitted</dt>
-      <dd>{formatIstDateTime(new Date(wallet.submittedAt))}</dd>
-      {wallet.alsoOnFile.length > 0 ? (
-        <>
-          <dt>Also on file for</dt>
-          <dd>
-            <span className={styles.tag} data-tone="warn">
-              {wallet.alsoOnFile.join(', ')}
-            </span>
-          </dd>
-        </>
-      ) : null}
-    </dl>
+    <KeyValues
+      items={[
+        { label: 'Status', value: <StatusTag status={wallet.status} note={wallet.reviewNote} /> },
+        { label: 'Address', value: <span className={d.mono}>{wallet.address}</span> },
+        { label: 'Label', value: `${wallet.label} · ${wallet.purpose.toLowerCase()}` },
+        { label: 'Submitted', value: dateTime(wallet.submittedAt) },
+        ...(wallet.alsoOnFile.length > 0 ? [{ label: 'Also on file for', value: <Chip tone="warning">{wallet.alsoOnFile.join(', ')}</Chip> }] : []),
+      ]}
+    />
   );
 }
 
 /**
  * What an applicant submitted, and the desk's decisions on it — each one a command with its own audit event, none of
  * them asking the operator to type in what the trader already gave. The bank account and the wallet are verified or
- * rejected one at a time; the trader is approved (in the controls beside this) only once both are verified. For an
+ * rejected one at a time; the trader is approved (in the decision beside this) only once both are verified. For an
  * approved trader, a replacement it proposed is approved or rejected here, and approval waits until no order is
  * accepted or in progress.
  */
@@ -110,7 +81,8 @@ export function TraderReview({ detail, perms }: { detail: DeskTraderDetail; perm
   const underReview = t.status === 'UNDER_REVIEW';
   const approved = t.status === 'APPROVED' || t.status === 'PAUSED';
   const { bank: proposedBank, wallet: proposedWallet } = detail.proposal;
-  const waitingChange = (proposedBank?.status === 'PENDING_REVIEW' || proposedBank?.status === 'ACTIVE') || (proposedWallet?.status === 'PENDING_REVIEW' || proposedWallet?.status === 'ACTIVE');
+  const waitingChange = proposedBank?.status === 'PENDING_REVIEW' || proposedBank?.status === 'ACTIVE' || proposedWallet?.status === 'PENDING_REVIEW' || proposedWallet?.status === 'ACTIVE';
+  const step = <StepUpMark label="needs your authenticator code" />;
 
   const reveal = async (bankAccountId: string) => {
     const out = await cmd.run('Reveal the bank account number', () => revealBankAccountAction({ bankAccountId }));
@@ -127,96 +99,75 @@ export function TraderReview({ detail, perms }: { detail: DeskTraderDetail; perm
 
   const reviewButtons = (destination: 'BANK' | 'WALLET', status: string) =>
     underReview && perms.configure && status === 'PENDING_REVIEW' ? (
-      <div className="ix-row">
-        <Button intent="primary" disabled={cmd.busy} onClick={() => review(destination, 'VERIFY')}>
+      <div className={d.actions}>
+        <Button intent="primary" size="sm" shortcut={step} disabled={cmd.busy} onClick={() => review(destination, 'VERIFY')}>
           Verify
         </Button>
-        <Button intent="ghost" disabled={cmd.busy || !hasNote} onClick={() => review(destination, 'REJECT')}>
+        <Button intent="ghost" size="sm" shortcut={step} disabled={cmd.busy || !hasNote} onClick={() => review(destination, 'REJECT')}>
           Reject
         </Button>
+        {!hasNote ? <span className={d.fieldHint}>A rejection needs the note above.</span> : null}
       </div>
     ) : null;
 
   const changeButtons = (destination: 'BANK' | 'WALLET', status: string) =>
     approved && perms.configure && (status === 'PENDING_REVIEW' || status === 'ACTIVE') ? (
       <>
-        <div className="ix-row">
-          <Button intent="primary" disabled={cmd.busy || t.openOrders > 0} onClick={() => decideChange(destination, 'APPROVE')}>
+        <div className={d.actions}>
+          <Button intent="primary" size="sm" shortcut={step} disabled={cmd.busy || t.openOrders > 0} onClick={() => decideChange(destination, 'APPROVE')}>
             Verify and switch
           </Button>
-          <Button intent="ghost" disabled={cmd.busy || !hasNote} onClick={() => decideChange(destination, 'REJECT')}>
+          <Button intent="ghost" size="sm" shortcut={step} disabled={cmd.busy || !hasNote} onClick={() => decideChange(destination, 'REJECT')}>
             Reject
           </Button>
         </div>
-        {t.openOrders > 0 ? <span className="ix-hint">{t.openOrders === 1 ? 'An order is' : `${t.openOrders} orders are`} in progress: they settle with the current details. Switch once they finish.</span> : null}
+        {t.openOrders > 0 ? <p className={d.fieldHint}>{t.openOrders === 1 ? 'An order is' : `${t.openOrders} orders are`} in progress: they settle with the current details. Switch once they finish.</p> : null}
       </>
     ) : null;
 
   return (
-    <>
-      <section className="ix-card" aria-label="Applicant">
-        <h2 className="ix-sectionTitle">Applicant</h2>
-        <dl className={styles.facts}>
-          <dt>Name</dt>
-          <dd>
-            {a.fullName} · {a.entityType === 'COMPANY' ? 'company' : 'individual'} · {a.clientRef}
-          </dd>
-          <dt>Email</dt>
-          <dd>{a.email ?? '—'}</dd>
-          <dt>Telegram</dt>
-          <dd>{a.telegram ?? '—'}</dd>
-          <dt>Phone</dt>
-          <dd>
-            {a.phoneLast4 ? (phone ?? `••••${a.phoneLast4}`) : '—'}
-            {a.phoneLast4 && !phone && perms.configure ? (
-              <>
-                {' '}
-                <button
-                  type="button"
-                  className="ix-linkish"
-                  onClick={async () => {
-                    const out = await cmd.run('Reveal the applicant’s phone number', () => revealTraderPhoneAction({ traderId: t.traderId }));
-                    if (out.ok) setPhone(out.result.phone);
-                  }}
-                >
-                  reveal
-                </button>
-              </>
-            ) : null}
-          </dd>
-          <dt>P2P experience</dt>
-          <dd>{a.experience ? EXPERIENCE[a.experience] : '—'}</dd>
-          <dt>Profile</dt>
-          <dd className={styles.mono}>{a.profileLink ?? '—'}</dd>
-          {t.typicalInr || a.dailyInr ? (
-            <>
-              <dt>INR typical / daily</dt>
-              <dd>
-                ₹{t.typicalInr ?? '—'} / ₹{a.dailyInr ?? '—'}
-              </dd>
-            </>
-          ) : null}
-          {t.typicalUsdt || a.dailyUsdt ? (
-            <>
-              <dt>USDT typical / daily</dt>
-              <dd>
-                {t.typicalUsdt ?? '—'} / {a.dailyUsdt ?? '—'} USDT
-              </dd>
-            </>
-          ) : null}
-          <dt>Owns the details</dt>
-          <dd>{a.ownershipConfirmedAt ? `confirmed ${formatIstDateTime(new Date(a.ownershipConfirmedAt))}` : 'not recorded'}</dd>
-          <dt>Exchange</dt>
-          <dd>{a.exchangeAccess ? 'open (a client of the desk)' : 'closed (trader only)'}</dd>
-        </dl>
-        <div className="ix-field">
-          <label htmlFor="r-note">Note (the trader sees a rejection note)</label>
-          <input id="r-note" className="ix-input" value={note} onChange={(e) => setNote(e.target.value)} />
-        </div>
+    <div className={d.stack}>
+      <PanelSection title="Applicant">
+        <KeyValues
+          items={[
+            { label: 'Name', value: `${a.fullName} · ${a.entityType === 'COMPANY' ? 'company' : 'individual'} · ${a.clientRef}` },
+            { label: 'Email', value: a.email ?? '—' },
+            { label: 'Telegram', value: a.telegram ?? '—' },
+            {
+              label: 'Phone',
+              value: (
+                <span className={d.row}>
+                  {a.phoneLast4 ? (phone ?? `••••${a.phoneLast4}`) : '—'}
+                  {a.phoneLast4 && !phone && perms.configure ? (
+                    <button
+                      type="button"
+                      className={d.linkButton}
+                      onClick={async () => {
+                        const out = await cmd.run('Reveal the applicant’s phone number', () => revealTraderPhoneAction({ traderId: t.traderId }));
+                        if (out.ok) setPhone(out.result.phone);
+                      }}
+                    >
+                      reveal
+                    </button>
+                  ) : null}
+                </span>
+              ),
+            },
+            { label: 'P2P experience', value: a.experience ? EXPERIENCE[a.experience] : '—' },
+            { label: 'Profile', value: <span className={d.mono}>{a.profileLink ?? '—'}</span> },
+            ...(t.typicalInr || a.dailyInr ? [{ label: 'INR typical / daily', value: `${t.typicalInr ? inr(t.typicalInr) : '—'} / ${a.dailyInr ? inr(a.dailyInr) : '—'}` }] : []),
+            ...(t.typicalUsdt || a.dailyUsdt ? [{ label: 'USDT typical / daily', value: `${t.typicalUsdt ? usdt(t.typicalUsdt, { unit: false }) : '—'} / ${a.dailyUsdt ? usdt(a.dailyUsdt) : '—'}` }] : []),
+            { label: 'Owns the details', value: a.ownershipConfirmedAt ? `confirmed ${dateTime(a.ownershipConfirmedAt)}` : 'not recorded' },
+            { label: 'Exchange', value: a.exchangeAccess ? 'open (a client of the desk)' : 'closed (trader only)' },
+          ]}
+        />
+        <TextArea label="Note (the trader sees a rejection note)" value={note} onChange={setNote} />
         {!a.exchangeAccess && approved && perms.configure ? (
-          <div>
+          <div className={d.actions}>
             <Button
               intent="ghost"
+              size="sm"
+              shortcut={step}
               disabled={cmd.busy || !hasNote}
               onClick={() => cmd.run(`Open the Exchange for ${a.clientRef}`, (key) => setExchangeAccessAction({ clientId: t.clientId, exchangeAccess: true, reason: note.trim() }, key))}
             >
@@ -224,57 +175,58 @@ export function TraderReview({ detail, perms }: { detail: DeskTraderDetail; perm
             </Button>
           </div>
         ) : null}
-      </section>
+      </PanelSection>
 
-      <section className="ix-card" aria-label="Bank account">
-        <h2 className="ix-sectionTitle">{underReview ? 'Submitted bank account' : 'Registered bank account'}</h2>
+      <PanelSection title={underReview ? 'Submitted bank account' : 'Registered bank account'}>
         <BankFacts bank={detail.bank} revealed={revealed[detail.bank.bankAccountId] ?? null} />
         {perms.reveal && !revealed[detail.bank.bankAccountId] ? (
-          <Button intent="ghost" onClick={() => void reveal(detail.bank.bankAccountId)}>
-            Reveal account number
-          </Button>
+          <div className={d.actions}>
+            <Button intent="ghost" size="sm" shortcut={step} onClick={() => void reveal(detail.bank.bankAccountId)}>
+              Reveal account number
+            </Button>
+          </div>
         ) : null}
         {reviewButtons('BANK', detail.bank.status)}
-      </section>
+      </PanelSection>
 
-      <section className="ix-card" aria-label="Wallet">
-        <h2 className="ix-sectionTitle">{underReview ? 'Submitted TRC20 wallet' : 'Registered TRC20 wallet'}</h2>
+      <PanelSection title={underReview ? 'Submitted TRC20 wallet' : 'Registered TRC20 wallet'}>
         <WalletFacts wallet={detail.wallet} />
         {reviewButtons('WALLET', detail.wallet.status)}
-      </section>
+      </PanelSection>
 
       {approved && (proposedBank || proposedWallet) ? (
-        <section className="ix-card" aria-label="Proposed settlement details">
-          <h2 className="ix-sectionTitle">Proposed by the trader{waitingChange ? ' · waiting for review' : ''}</h2>
-          <p className="ix-muted">The registered details keep settling every order until a change is approved.</p>
+        <PanelSection title={`Proposed by the trader${waitingChange ? ' · waiting for review' : ''}`}>
+          <Notice>The registered details keep settling every order until a change is approved.</Notice>
           {proposedBank ? (
-            <div className="ix-stack">
-              <h3 className="ix-muted">New bank account</h3>
+            <div className={d.stackTight}>
+              <span className={d.fieldLabel}>New bank account</span>
               <BankFacts bank={proposedBank} revealed={revealed[proposedBank.bankAccountId] ?? null} />
               {perms.reveal && !revealed[proposedBank.bankAccountId] ? (
-                <Button intent="ghost" onClick={() => void reveal(proposedBank.bankAccountId)}>
-                  Reveal account number
-                </Button>
+                <div className={d.actions}>
+                  <Button intent="ghost" size="sm" shortcut={step} onClick={() => void reveal(proposedBank.bankAccountId)}>
+                    Reveal account number
+                  </Button>
+                </div>
               ) : null}
               {changeButtons('BANK', proposedBank.status)}
             </div>
           ) : null}
           {proposedWallet ? (
-            <div className="ix-stack">
-              <h3 className="ix-muted">New TRC20 wallet</h3>
+            <div className={d.stackTight}>
+              <span className={d.fieldLabel}>New TRC20 wallet</span>
               <WalletFacts wallet={proposedWallet} />
               {changeButtons('WALLET', proposedWallet.status)}
             </div>
           ) : null}
-        </section>
+        </PanelSection>
       ) : null}
 
       {cmd.error ? (
-        <p className="ix-error" role="alert">
+        <p className={d.errorLine} role="alert">
           {cmd.error}
         </p>
       ) : null}
       {cmd.dialog}
-    </>
+    </div>
   );
 }

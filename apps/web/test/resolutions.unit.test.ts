@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { EXCEPTION_TYPES, NON_FINANCIAL_RESOLUTIONS } from '@inrp2p/settlement';
-import { FALLBACK, RESOLUTIONS, resolutionsFor } from '../src/components/panels/resolutions.ts';
+import { FALLBACK, RESOLUTIONS, resolutionsFor } from '../src/app/(operator)/_trade/resolutions.ts';
 
 /**
  * Every exception type must be closable from the desk.

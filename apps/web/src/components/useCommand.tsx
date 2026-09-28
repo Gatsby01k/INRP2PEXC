@@ -4,6 +4,14 @@ import { useCallback, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { StepUpDialog } from '@inrp2p/ui';
 
+/**
+ * Tells the desk shell a command went through, so it can say so. A plain DOM event: the hook stays usable on any
+ * page, and a page without a listener simply says nothing.
+ */
+function announce(summary: string): void {
+  if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('desk:command', { detail: { ok: true, summary } }));
+}
+
 export interface ActionFailure {
   readonly ok: false;
   readonly code: string;
@@ -66,6 +74,7 @@ export function useCommand(): CommandState & {
       }
       if (out.ok) {
         router.refresh();
+        announce(actionSummary);
         return out;
       }
       if (out.stepUp) {
@@ -113,8 +122,10 @@ export function useCommand(): CommandState & {
       }
       pending.current = null;
       setOpen(false);
-      if (out.ok) router.refresh();
-      else setError(out.message);
+      if (out.ok) {
+        router.refresh();
+        announce(p.summary);
+      } else setError(out.message);
       p.resolve(out);
     } finally {
       setBusy(false);

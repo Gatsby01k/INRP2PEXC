@@ -2,11 +2,14 @@ import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Money } from '@inrp2p/kernel';
 import { runAs } from '@inrp2p/identity/testing';
-import { createRequest } from '@inrp2p/quotes';
-import { cancelTrade, confirmFirstLeg, confirmPayout, createPayoutLeg, openException, recordIncomingFiat, recordLegEvidence, sendPayoutLeg } from '@inrp2p/settlement';
+import { createQuote, createQuoteLink, createRequest, sendQuote } from '@inrp2p/quotes';
+import { publishRouteRate } from '@inrp2p/pricing';
 import {
-  FULL_ACCESS, NO_ECONOMICS, accessFor, clientBook, clientDetail, deskQueue, deskStrip, deskTrade,
-  inrView, listOrders, routePositions, searchOrders, usdtView,
+  cancelTrade, confirmFirstLeg, confirmPayout, createPayoutLeg, openException, recordIncomingFiat, recordLegEvidence, requestAdjustment, sendPayoutLeg,
+} from '@inrp2p/settlement';
+import {
+  FULL_ACCESS, NO_ECONOMICS, accessFor, clientBook, clientDetail, deskApprovals, deskExceptions, deskQueue, deskStrip, deskTrade, deskTradeRecord,
+  deskQuote, findByRef, inrView, listOrders, orderCounts, rateHistory, routePositions, searchOrders, tradeIdByRef, usdtView,
 } from '../src/index.ts';
 import { type World, createWorld, newUtr, openTrade, settleFirstLeg } from '../../settlement/test/world.ts';
 
@@ -306,5 +309,107 @@ describe('the client book', () => {
     await runAs(w.app, cancelTrade(w.dealer.actor), w.dealer.ref, 'trade.cancel', { tradeId: trade.tradeId, reason: 'client stood down' });
     expect(rowFor(await deskQueue(w.app, FULL_ACCESS), trade.tradeId)).toBeUndefined();
     expect((await listOrders(w.app, FULL_ACCESS, { state: 'CANCELLED' })).some((o) => o.tradeId === trade.tradeId)).toBe(true);
+  });
+});
+
+describe('the trade record', () => {
+  it('reads a trade by its reference, with where it came from, where it pays and what happened, newest first', async () => {
+    const trade = await openTrade(w, { baseUsdt: '1000', clientRate: '102.000000', routeRate: '104.200000', executionMode: 'TO_EXCHANGE' });
+    await settleFirstLeg(w, trade.tradeId);
+    await payoutLeg(trade.tradeId, '40000.00');
+
+    expect(await tradeIdByRef(w.app, trade.tradeRef.toLowerCase())).toBe(trade.tradeId);
+    expect(await tradeIdByRef(w.app, 'IX-000000-0000')).toBeNull();
+
+    const record = await deskTradeRecord(w.app, trade.tradeId, FULL_ACCESS);
+    expect(record.trade.ref).toBe(trade.tradeRef);
+    expect(record.requestRef).toBeTruthy();
+    expect(record.quoteRef).toBeTruthy();
+    expect(record.destination).toMatchObject({ kind: 'BANK', active: true });
+    expect(record.destination?.detail).toMatch(/••••\d{4}$/);
+    const titles = record.timeline.map((e) => e.title);
+    expect(titles).toContain('Payout confirmed');
+    expect(titles).toContain('Client funds confirmed');
+    // Newest first.
+    const times = record.timeline.map((e) => e.at);
+    expect([...times].sort().reverse()).toEqual(times);
+    // A leg says who created it, which is what the two-person rules key on.
+    expect(record.trade.legs.every((l) => l.createdBy.length > 0 && l.createdByLabel.length > 0)).toBe(true);
+  });
+
+  it('lists a requested adjustment as waiting for a second person, and hides its route side without economics:view', async () => {
+    const trade = await openTrade(w, { baseUsdt: '100', clientRate: '102.000000', routeRate: '104.200000', executionMode: 'TO_EXCHANGE' });
+    await settleFirstLeg(w, trade.tradeId, { amountUsdt: '99.5' });
+    await runAs(w.app, requestAdjustment(w.settlementOp.actor), w.settlementOp.ref, 'adjustment.request', {
+      tradeId: trade.tradeId, type: 'AMOUNT_CORRECTION' as const, deltaBaseUsdt: '-0.500000', deltaClientInr: '-51.00', reason: 'client sent less than agreed; accepted as is',
+    });
+    const approvals = await deskApprovals(w.app, FULL_ACCESS);
+    const mine = approvals.adjustments.find((a) => a.tradeId === trade.tradeId);
+    expect(mine).toMatchObject({ status: 'REQUESTED', type: 'AMOUNT_CORRECTION', deltaBase: '-0.500000', deltaClientInr: '-51.00' });
+    expect(mine?.deltaMargin).toBeDefined();
+    const masked = await deskApprovals(w.app, NO_ECONOMICS);
+    const hidden = masked.adjustments.find((a) => a.tradeId === trade.tradeId)!;
+    expect('deltaMargin' in hidden).toBe(false);
+    expect('deltaRouteInr' in hidden).toBe(false);
+    expect((await deskTradeRecord(w.app, trade.tradeId, FULL_ACCESS)).adjustments.map((a) => a.ref)).toContain(mine!.ref);
+  });
+
+  it('lists every open exception case, including the ones no trade owns, and finds one by its reference', async () => {
+    const trade = await openTrade(w, { baseUsdt: '100', clientRate: '102.000000', routeRate: '104.200000', executionMode: 'TO_EXCHANGE' });
+    await runAs(w.app, openException(w.settlementOp.actor), w.settlementOp.ref, 'exception.open', {
+      type: 'OPERATOR_MISTAKE' as const, subjectType: 'TRADE' as const, subjectId: trade.tradeId, tradeId: trade.tradeId, details: { note: 'reference typed on the wrong trade' },
+    });
+    const cases = await deskExceptions(w.app);
+    const onTrade = cases.find((c) => c.trade?.id === trade.tradeId);
+    expect(onTrade).toMatchObject({ type: 'OPERATOR_MISTAKE', status: 'OPEN', trade: { ref: trade.tradeRef } });
+    // Blocking cases lead.
+    const firstWarning = cases.findIndex((c) => c.severity === 'WARNING');
+    if (firstWarning >= 0) expect(cases.slice(firstWarning).every((c) => c.severity === 'WARNING')).toBe(true);
+    expect((await findByRef(w.app, onTrade!.ref.toLowerCase())).map((h) => h.kind)).toEqual(['EXCEPTION']);
+    expect(await findByRef(w.app, 'EX-999999')).toEqual([]);
+  });
+
+  it('counts the orders tabs and reads the route-rate history with the rate each one replaced', async () => {
+    const counts = await orderCounts(w.app);
+    expect(counts.ALL).toBe(counts.OPEN + counts.COMPLETED + counts.CANCELLED);
+    const history = await rateHistory(w.app, { limit: 10 });
+    expect(history.length).toBeGreaterThan(0);
+    expect(history[0]!.rate).toMatch(/^\d+\.\d{6}$/);
+  });
+
+  it('adds the latest client rate and margin to the book only with economics:view', async () => {
+    const full = (await clientBook(w.app, { access: FULL_ACCESS })).find((c) => c.clientId === w.clientId)!;
+    expect(full.marginGenerated).toBeDefined();
+    const plain = (await clientBook(w.app, { access: NO_ECONOMICS })).find((c) => c.clientId === w.clientId)!;
+    expect('marginGenerated' in plain).toBe(false);
+    expect('lastRate' in plain).toBe(false);
+    const detail = await clientDetail(w.app, w.clientId, FULL_ACCESS, { contacts: true });
+    expect(detail.stats.completedTrades).toBeGreaterThan(0);
+    expect(Array.isArray(detail.contacts)).toBe(true);
+    expect('contacts' in (await clientDetail(w.app, w.clientId, FULL_ACCESS))).toBe(false);
+  });
+});
+
+describe('a sent quote', () => {
+  it('shows its terms, its link without the token, and its economics only with economics:view', async () => {
+    await runAs(w.app, publishRouteRate(w.dealer.actor), w.dealer.ref, 'rates.publish_route', { routeId: w.routeId, direction: 'SELL_USDT' as const, rate: '104.200000' });
+    const request = await runAs(w.app, createRequest(w.dealer.actor, {}), w.dealer.ref, 'request.create', {
+      clientId: w.clientId, direction: 'SELL_USDT' as const, fixedSide: 'BASE' as const, amount: '1000', bankAccountId: w.bankAccountId,
+    });
+    const quote = await runAs(w.app, createQuote(w.dealer.actor, {}), w.dealer.ref, 'quote.create', { requestId: request.requestId, routeId: w.routeId, clientRate: '102.000000', validitySeconds: 300 });
+    await runAs(w.app, sendQuote(w.dealer.actor, {}), w.dealer.ref, 'quote.send', { quoteId: quote.quoteId });
+    await runAs(w.app, createQuoteLink(w.dealer.actor, {}, () => {}), w.dealer.ref, 'quote_link.create', { quoteId: quote.quoteId });
+
+    const view = await deskQuote(w.app, quote.quoteId, FULL_ACCESS);
+    expect(view).toMatchObject({ status: 'SENT', base: '1000.000000', quoteInr: '102000.00', clientRate: '102.000000', margin: '2200.00', tradeRef: null });
+    expect(view.link).toMatchObject({ openCount: 0, revoked: false });
+    expect(JSON.stringify(view)).not.toMatch(/token/i);
+    const masked = await deskQuote(w.app, quote.quoteId, NO_ECONOMICS);
+    for (const key of ['routeName', 'routeRate', 'margin']) expect(key in masked).toBe(false);
+
+    const row = (await deskQueue(w.app, FULL_ACCESS)).flatMap((g) => g.rows).find((r) => r.subject.id === quote.quoteId);
+    expect(row).toMatchObject({ hasLink: true, payout: null });
+    expect(row?.expiresAt).toBeTruthy();
+    expect((await findByRef(w.app, view.ref)).map((h) => h.kind)).toEqual(['QUOTE']);
   });
 });

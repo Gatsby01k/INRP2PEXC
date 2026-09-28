@@ -10,7 +10,8 @@ import { microToDecimal } from './strip.ts';
 export interface DeskLeg {
   readonly id: string;
   readonly ref: string;
-  readonly side: 'CLIENT_TO_EXCHANGE' | 'EXCHANGE_TO_CLIENT';
+  /** `REFUND_TO_CLIENT` is the leg that returns a client's own confirmed funds before a cancellation (T10). */
+  readonly side: 'CLIENT_TO_EXCHANGE' | 'EXCHANGE_TO_CLIENT' | 'REFUND_TO_CLIENT';
   readonly asset: 'INR' | 'USDT';
   readonly amount: string;
   readonly status: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
@@ -18,12 +19,23 @@ export interface DeskLeg {
   /** Where an exchange-paid INR leg draws from, for the panel's account line. */
   readonly accountLabel: string | null;
   readonly routeName: string | null;
+  /** A USDT leg's treasury wallet address — the `from` its transaction must show. */
+  readonly walletAddress: string | null;
   /** Bank reference or transaction hash, whichever this leg's evidence is. */
   readonly reference: string | null;
   readonly referenceKind: 'UTR' | 'TX' | null;
+  readonly createdAt: string;
   readonly sentAt: string | null;
   readonly confirmedAt: string | null;
+  readonly failedAt: string | null;
+  readonly cancelledAt: string | null;
   readonly failureReason: string | null;
+  /**
+   * Who created the leg (the operator's user id, or SYSTEM), and a readable name for it. Shown because the desk's
+   * two-person rules key on it: a refund is confirmed by someone other than its creator (FI-31, SECURITY §4).
+   */
+  readonly createdBy: string;
+  readonly createdByLabel: string;
 }
 
 export interface DeskCase {
@@ -34,6 +46,9 @@ export interface DeskCase {
   readonly status: 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'VOID';
   readonly details: Record<string, unknown>;
   readonly openedAt: string;
+  /** Whoever took the case (`exception.take`), so two operators do not work the same one. */
+  readonly takenBy: string | null;
+  readonly takenByLabel: string | null;
 }
 
 export interface PayoutAccountOption {
@@ -189,18 +204,22 @@ export async function deskTrade(ex: Executor, tradeId: string, access: DeskAcces
 async function deskLegs(ex: Executor, tradeId: string): Promise<DeskLeg[]> {
   const rows = await sql<{
     id: string; ref: string; side: DeskLeg['side']; asset: 'INR' | 'USDT'; amount_minor: bigint; status: DeskLeg['status'];
-    payer: DeskLeg['payer']; account_label: string | null; route_name: string | null; utr: string | null; tx_hash: string | null;
-    sent_at: Date | null; confirmed_at: Date | null; failure_reason: string | null;
+    payer: DeskLeg['payer']; account_label: string | null; route_name: string | null; wallet_address: string | null; utr: string | null; tx_hash: string | null;
+    created_at: Date; sent_at: Date | null; confirmed_at: Date | null; failed_at: Date | null; cancelled_at: Date | null; failure_reason: string | null;
+    created_by: string; created_by_label: string | null;
   }>`
     select l.id, l.ref, l.side, l.asset, l.amount_minor, l.status, l.payer,
-           a.label as account_label, r.name as route_name, f.utr, c.tx_hash,
-           l.sent_at, l.confirmed_at, l.failure_reason
+           a.label as account_label, r.name as route_name, tw.address as wallet_address, f.utr, c.tx_hash,
+           l.created_at, l.sent_at, l.confirmed_at, l.failed_at, l.cancelled_at, l.failure_reason,
+           l.created_by, coalesce(u.name, u.email) as created_by_label
     from settlement_leg l
     left join inr_settlement_account a on a.id = l.inr_account_id
     left join liquidity_route r on r.id = l.route_id
+    left join treasury_wallet tw on tw.id = l.treasury_wallet_id
     left join transfer_allocation al on al.settlement_leg_id = l.id and al.voided_at is null
     left join fiat_transfer f on f.id = al.fiat_transfer_id
     left join crypto_transfer c on c.id = al.crypto_transfer_id
+    left join auth_user u on u.id::text = l.created_by
     where l.trade_id = ${tradeId}
     order by l.seq`.execute(ex);
   return rows.rows.map((r) => ({
@@ -213,23 +232,31 @@ async function deskLegs(ex: Executor, tradeId: string): Promise<DeskLeg[]> {
     payer: r.payer,
     accountLabel: r.account_label,
     routeName: r.route_name,
+    walletAddress: r.wallet_address,
     reference: r.utr ?? r.tx_hash ?? null,
     referenceKind: r.utr ? 'UTR' : r.tx_hash ? 'TX' : null,
+    createdAt: r.created_at.toISOString(),
     sentAt: r.sent_at ? r.sent_at.toISOString() : null,
     confirmedAt: r.confirmed_at ? r.confirmed_at.toISOString() : null,
+    failedAt: r.failed_at ? r.failed_at.toISOString() : null,
+    cancelledAt: r.cancelled_at ? r.cancelled_at.toISOString() : null,
     failureReason: r.failure_reason,
+    createdBy: r.created_by,
+    createdByLabel: r.created_by.startsWith('SYSTEM') ? 'System' : (r.created_by_label ?? 'an operator'),
   }));
 }
 
 async function deskCases(ex: Executor, tradeId: string): Promise<DeskCase[]> {
-  const rows = await ex
-    .selectFrom('exception_case')
-    .select(['id', 'ref', 'type', 'severity', 'status', 'details', 'opened_at'])
-    .where('trade_id', '=', tradeId)
-    .where('status', 'in', ['OPEN', 'IN_PROGRESS'])
-    .orderBy('opened_at')
-    .execute();
-  return rows.map((r) => ({
+  const rows = await sql<{
+    id: string; ref: string; type: string; severity: DeskCase['severity']; status: DeskCase['status']; details: unknown; opened_at: Date;
+    taken_by: string | null; taken_by_label: string | null;
+  }>`
+    select x.id, x.ref, x.type, x.severity, x.status, x.details, x.opened_at, x.taken_by, coalesce(u.name, u.email) as taken_by_label
+    from exception_case x
+    left join auth_user u on u.id::text = x.taken_by
+    where x.trade_id = ${tradeId} and x.status in ('OPEN', 'IN_PROGRESS')
+    order by x.opened_at`.execute(ex);
+  return rows.rows.map((r) => ({
     id: r.id,
     ref: r.ref,
     type: r.type,
@@ -237,6 +264,8 @@ async function deskCases(ex: Executor, tradeId: string): Promise<DeskCase[]> {
     status: r.status,
     details: (r.details ?? {}) as Record<string, unknown>,
     openedAt: r.opened_at.toISOString(),
+    takenBy: r.taken_by,
+    takenByLabel: r.taken_by ? (r.taken_by_label ?? 'an operator') : null,
   }));
 }
 

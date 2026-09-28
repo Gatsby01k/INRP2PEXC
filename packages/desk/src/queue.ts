@@ -37,6 +37,15 @@ export interface QueueRow {
   readonly hold: boolean;
   /** Sort key within a group: oldest work first. */
   readonly since: string;
+  /** A sent quote's expiry, so the desk can count it down; null for every other row. */
+  readonly expiresAt: string | null;
+  /** A sent quote that carries a live shareable link. */
+  readonly hasLink: boolean;
+  /**
+   * A trade's payout so far, in the payout asset (INR for a SELL, USDT for a BUY): confirmed, committed to legs
+   * (pending, in flight or confirmed) and the obligation. Not economics — it is what the client is owed.
+   */
+  readonly payout: { readonly asset: 'INR' | 'USDT'; readonly paid: string; readonly committed: string; readonly obligation: string } | null;
 }
 
 export interface QueueGroup {
@@ -243,6 +252,7 @@ function difference(a: string, b: string, currency: 'INR' | 'USDT'): string {
 }
 
 function view(r: RawRow, access: DeskAccess, status: string, action: QueueAction): QueueRow {
+  const payoutAsset = r.direction === 'SELL_USDT' ? 'INR' : 'USDT';
   const row: QueueRow = {
     id: `${r.kind.toLowerCase()}:${r.id}`,
     subject: { kind: r.kind, id: r.id, ref: r.ref },
@@ -255,6 +265,17 @@ function view(r: RawRow, access: DeskAccess, status: string, action: QueueAction
     action,
     hold: r.hold,
     since: r.since.toISOString(),
+    expiresAt: r.expires_at ? r.expires_at.toISOString() : null,
+    hasLink: r.has_link,
+    payout:
+      r.kind === 'TRADE' && r.payout_minor !== null
+        ? {
+            asset: payoutAsset,
+            paid: Money.ofMinor(r.paid_minor, payoutAsset).toDecimalString(),
+            committed: Money.ofMinor(r.committed_minor, payoutAsset).toDecimalString(),
+            obligation: Money.ofMinor(r.payout_minor, payoutAsset).toDecimalString(),
+          }
+        : null,
   };
   if (!access.economics) return row;
   return {

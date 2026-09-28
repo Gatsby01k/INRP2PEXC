@@ -23,7 +23,7 @@ test('the demo scenario, driven through the operator UI', async ({ page }) => {
 
   const quotePanel = page.getByTestId('quote-panel');
   await expect(quotePanel).toBeVisible();
-  await expect(quotePanel.getByText('100000.000000 USDT')).toBeVisible();
+  await expect(quotePanel.getByText('Sell 100,000 USDT')).toBeVisible();
   await quotePanel.getByLabel('Client rate (INR per USDT)').fill('102');
 
   // The margin is computed by the desk from the kernel's own economics, never typed (FI-02).
@@ -40,13 +40,13 @@ test('the demo scenario, driven through the operator UI', async ({ page }) => {
   await clientSendsUsdt(trade.tradeId, '100000');
   expect(await tradeState(trade.tradeId)).toBe('FIRST_LEG_CONFIRMED');
 
-  // 4. The desk sees the trade waiting for a payout and opens its panel.
+  // 4. The desk sees the trade waiting for a payout and opens its panel on the payout step.
   await page.goto('/');
   const queue = page.getByTestId('desk-queue');
   await expect(queue.getByText('USDT confirmed')).toBeVisible();
   await queue.getByRole('button', { name: /Create payout/ }).click();
 
-  const panel = page.getByTestId('payout-panel');
+  const panel = page.getByTestId('trade-panel');
   await expect(panel).toBeVisible();
   await expect(panel.getByText('₹10,200,000').first()).toBeVisible();
 
@@ -54,7 +54,7 @@ test('the demo scenario, driven through the operator UI', async ({ page }) => {
   // first, so confirming money out has to be re-verified (SECURITY §2.1).
   await expireStepUp();
   await payLeg(page, '6000000', s.owner);
-  await expect(page.getByTestId('payout-panel').getByText('₹6,000,000').first()).toBeVisible();
+  await expect(page.getByTestId('trade-panel').getByText('₹6,000,000').first()).toBeVisible();
 
   // 6. Second leg clears the rest — no second prompt, because that verification is still inside its window —
   // and the trade completes with its margin realized.
@@ -72,7 +72,7 @@ test('the demo scenario, driven through the operator UI', async ({ page }) => {
  * be asked to re-verify; `null` asserts the desk did not ask.
  */
 async function payLeg(page: Page, amount: string, who: ReturnType<typeof state>['owner'] | null): Promise<void> {
-  const panel = page.getByTestId('payout-panel');
+  const panel = page.getByTestId('trade-panel');
   await panel.getByTestId('new-leg').getByLabel('Amount').fill(amount);
   await panel.getByRole('button', { name: 'Reserve & create leg' }).click();
 

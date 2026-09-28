@@ -1,162 +1,392 @@
-/* Operator shell: 220px sidebar · workspace · optional 380px context panel (UX_FLOWS §2, §6). */
+/*
+ * The operator shell: an ink sidebar that holds navigation, search and the operator, beside a warm off-white
+ * workspace (UX_FLOWS §2, §6). The sidebar is the one dark surface in the product; its colours are mixed from the
+ * two tokens it sits between, so it stays on the palette.
+ */
+
 .shell {
+  --rail-bg: var(--text-primary);
+  --rail-text: color-mix(in srgb, var(--bg-surface) 90%, var(--text-primary));
+  --rail-muted: color-mix(in srgb, var(--bg-surface) 60%, var(--text-primary));
+  --rail-line: color-mix(in srgb, var(--bg-surface) 12%, var(--text-primary));
+  --rail-hover: color-mix(in srgb, var(--bg-surface) 7%, var(--text-primary));
+  --rail-active: color-mix(in srgb, var(--bg-surface) 12%, var(--text-primary));
+  --rail-width: 232px;
+
   display: grid;
-  grid-template-columns: 220px minmax(0, 1fr);
+  grid-template-columns: var(--rail-width) minmax(0, 1fr);
   min-height: 100vh;
-  background: var(--bg-app);
+  /* The rail colour runs the full height of the page, so a long page never shows the rail ending under the fold. */
+  background: linear-gradient(to right, var(--rail-bg) var(--rail-width), var(--bg-app) var(--rail-width));
 }
 
 .sidebar {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-  padding: var(--space-4) var(--space-3);
-  border-right: 1px solid var(--border-default);
-  background: var(--bg-surface);
   position: sticky;
   top: 0;
-  align-self: start;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
   height: 100vh;
+  padding: var(--space-4) var(--space-3) var(--space-3);
+  background: var(--rail-bg);
+  color: var(--rail-text);
+  overflow-y: auto;
 }
 
 .brand {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: 0 var(--space-2);
+  padding: 0 var(--space-2) var(--space-1);
+}
+
+.brandMark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  border-radius: var(--radius-control);
+  background: var(--rail-active);
+}
+
+.brandText {
+  display: flex;
+  flex-direction: column;
+  line-height: var(--line-height-snug);
+}
+
+.brandName {
+  color: var(--bg-surface);
+  font-size: var(--font-size-body-sm);
   font-weight: var(--font-weight-semibold);
-  letter-spacing: -0.01em;
+  letter-spacing: 0.02em;
+}
+
+.brandSub {
+  color: var(--rail-muted);
+  font-size: var(--font-size-micro);
+}
+
+.search {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  height: 34px;
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: var(--rail-hover);
+  box-shadow: inset 0 0 0 1px var(--rail-line);
+  color: var(--rail-muted);
+  font-size: var(--font-size-table);
+  cursor: pointer;
+}
+
+.search:hover {
+  background: var(--rail-active);
+  color: var(--rail-text);
+}
+
+.searchText {
+  flex: 1;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.searchKeys {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-control);
+  box-shadow: inset 0 0 0 1px var(--rail-line);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-micro);
 }
 
 .nav {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--space-3);
+}
+
+.navGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.navGroupLabel {
+  padding: var(--space-1) var(--space-2);
+  color: var(--rail-muted);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
 .navItem {
+  position: relative;
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: var(--space-2);
-  min-height: 36px;
+  min-height: 32px;
   padding: 0 var(--space-2);
   border-radius: var(--radius-control);
-  color: var(--text-secondary);
+  color: var(--rail-text);
+  font-size: var(--font-size-body-sm);
   text-decoration: none;
-  font-size: var(--font-size-body);
 }
 
 .navItem:hover {
-  background: var(--bg-subtle);
-  color: var(--text-primary);
+  background: var(--rail-hover);
+  color: var(--bg-surface);
 }
 
 .navItem[aria-current='page'] {
-  background: var(--bg-subtle);
-  color: var(--text-primary);
+  background: var(--rail-active);
+  color: var(--bg-surface);
   font-weight: var(--font-weight-medium);
-  box-shadow: inset 2px 0 0 var(--brand-primary);
+}
+
+.navItem[aria-current='page']::before {
+  content: '';
+  position: absolute;
+  top: 7px;
+  bottom: 7px;
+  left: -12px;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+  background: var(--brand-primary);
+}
+
+.navIcon {
+  flex: none;
+  color: var(--rail-muted);
+}
+
+.navItem[aria-current='page'] .navIcon,
+.navItem:hover .navIcon {
+  color: var(--bg-surface);
+}
+
+.navLabel {
+  flex: 1;
+  white-space: nowrap;
 }
 
 .navCount {
+  min-width: 20px;
+  padding: 1px var(--space-1);
+  border-radius: var(--radius-pill);
+  background: var(--rail-active);
+  color: var(--rail-text);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-semibold);
+  text-align: center;
   font-variant-numeric: tabular-nums;
-  font-size: var(--font-size-meta);
-  color: var(--text-muted);
 }
 
-.sidebarFoot {
-  margin-top: auto;
+.navCount[data-tone='action'] {
+  background: var(--brand-action);
+  color: var(--text-on-action);
+}
+
+.navCount[data-tone='alert'] {
+  background: var(--status-danger);
+  color: var(--text-on-action);
+}
+
+.foot {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  padding: var(--space-2);
-  border-top: 1px solid var(--border-default);
+  margin-top: auto;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--rail-line);
+}
+
+.footButton {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 30px;
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--rail-muted);
+  font-size: var(--font-size-table);
+  cursor: pointer;
+}
+
+.footButton:hover {
+  background: var(--rail-hover);
+  color: var(--rail-text);
+}
+
+.footKey {
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-control);
+  box-shadow: inset 0 0 0 1px var(--rail-line);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-micro);
+}
+
+.operator {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-1) var(--space-1) var(--space-2);
+}
+
+.avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--brand-action);
+  color: var(--text-on-action);
   font-size: var(--font-size-meta);
-  color: var(--text-muted);
+  font-weight: var(--font-weight-semibold);
 }
 
-.roles {
-  color: var(--text-secondary);
+.operatorText {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  line-height: var(--line-height-snug);
 }
 
-/* Header, then whatever the page puts above its content (the desk adds the strip), then the content, which
-   takes the rest. A two-row grid template silently gave the leftover height to whichever child landed in the
-   second row — on the desk that was the strip, which then floated in a band of its own background. */
+.operatorName {
+  overflow: hidden;
+  color: var(--rail-text);
+  font-size: var(--font-size-table);
+  font-weight: var(--font-weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.operatorRoles {
+  overflow: hidden;
+  color: var(--rail-muted);
+  font-size: var(--font-size-micro);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.signOut {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--rail-muted);
+  cursor: pointer;
+}
+
+.signOut:hover {
+  background: var(--rail-hover);
+  color: var(--bg-surface);
+}
+
+.sidebar :focus-visible {
+  outline-color: var(--brand-primary);
+}
+
 .workspace {
   display: flex;
   flex-direction: column;
   min-width: 0;
 }
 
-.header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-4);
-  padding: var(--space-3) var(--space-5);
-  border-bottom: 1px solid var(--border-default);
-  background: var(--bg-surface);
-}
-
-.title {
-  margin: 0;
-  font-size: var(--font-size-heading);
-  font-weight: var(--font-weight-semibold);
-}
-
-.content {
-  flex: 1 1 auto;
-  padding: var(--space-5);
-  min-width: 0;
-  min-height: 0;
-}
-
-.withPanel {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 380px;
-  gap: var(--space-5);
-  align-items: start;
-}
-
-/* The queue stays inside its column when a panel opens. Without this the table keeps its full width, slides
-   under the panel and the operator reads half a row — a queue you cannot read is worse than one you scroll. */
-.withPanel > :first-child {
-  min-width: 0;
-  overflow-x: auto;
-}
-
+/* 1024–1279: the sidebar becomes an icon rail; the tooltip (title) names each item. */
 @media (max-width: 1279px) {
   .shell {
-    grid-template-columns: 64px minmax(0, 1fr);
+    --rail-width: 60px;
   }
+  .brandText,
+  .searchText,
+  .searchKeys,
+  .navGroupLabel,
   .navLabel,
-  .brandName,
-  .sidebarFoot {
+  .operatorText,
+  .footKey {
     display: none;
   }
-  .withPanel {
-    grid-template-columns: minmax(0, 1fr);
+  .sidebar {
+    align-items: center;
+    padding-left: var(--space-2);
+    padding-right: var(--space-2);
+  }
+  .search {
+    justify-content: center;
+    width: 40px;
+  }
+  .navItem,
+  .footButton {
+    justify-content: center;
+    width: 40px;
+    padding: 0;
+  }
+  .navItem[aria-current='page']::before {
+    left: -8px;
+  }
+  .navCount {
+    position: absolute;
+    top: -2px;
+    right: -4px;
+    min-width: 16px;
+    padding: 0 3px;
+  }
+  .operator {
+    flex-direction: column;
+    padding: 0;
   }
 }
 
+/* Below 768: monitoring mode (UX_FLOWS §6). The rail becomes a bar across the top. */
 @media (max-width: 767px) {
-  /* Monitoring mode: the queue reads as cards and building work is hidden (UX_FLOWS §6). */
   .shell {
     grid-template-columns: minmax(0, 1fr);
   }
   .sidebar {
-    position: static;
-    height: auto;
+    position: sticky;
+    z-index: 20;
     flex-direction: row;
+    align-items: center;
+    height: auto;
+    padding: var(--space-2) var(--space-3);
     overflow-x: auto;
-    border-right: none;
-    border-bottom: 1px solid var(--border-default);
   }
   .nav {
     flex-direction: row;
   }
-  .content {
-    padding: var(--space-3);
+  .navGroup {
+    flex-direction: row;
+  }
+  .foot {
+    flex-direction: row;
+    margin-top: 0;
+    margin-left: auto;
+    padding-top: 0;
+    border-top: 0;
+  }
+  .footButton {
+    display: none;
+  }
+  .navItem[aria-current='page']::before {
+    display: none;
   }
 }

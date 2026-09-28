@@ -64,18 +64,44 @@ Desktop: top bar with logo left, nav center, account right; content column max 5
 Mobile: bottom tab bar (5 items), primary CTA sticky above it.
 
 ### Operator (`desk.inrp2p.com`)
-| Item | Route | Content |
-|---|---|---|
-| **Desk** (home) | `/` | Operational strip + priority queue |
-| Orders | `/orders` | All requests/quotes/trades, filters, search by ref/UTR/tx hash |
-| Rates | `/rates` | Route rates per direction, update, history; **Route positions** section (open route obligations, route settlements — visible only with `route_positions:view`) |
-| INR | `/inr` | Settlement entities, accounts, today's capacity |
-| USDT | `/usdt` | Treasury wallets, deposit addresses (capability from custody adapter, available / assigned / cooldown counts, low-pool warning), transfers |
-| Clients | `/clients` | Dealer book, client detail |
-| P&L | `/pnl` | Realized vs expected, trade-level |
-| Settings | `/settings` | Users & roles, thresholds, routes, notifications, audit log |
 
-Desktop: persistent 220px sidebar, central workspace, optional 380px right context panel (opens on row select, keeps queue visible). Global command bar `⌘K`: find trade by ref / UTR / tx hash / client.
+The desk is organised by the operator's job, not by table: **Work** (what needs a person now), **Liquidity** (what
+the desk can price and pay with), **Book** (who it trades with and what it made). Items the operator's roles cannot
+use are not shown (Traders needs `traders:view`; P&L `pnl:view`; System health `economics:view`); the server
+re-checks every page and every command regardless.
+
+| Group | Item | Route | Go to | Content |
+|---|---|---|---|---|
+| Work | **Desk** (home) | `/` | `G D` | Operational strip (route rates with staleness, INR and USDT available, open trades, margin), then the priority queue — Needs action · Exceptions · Settlement · Waiting on client · Processing — filterable by group. Selecting a row opens the **context panel** beside the queue: the quote builder for a request, the sent quote for a quote, the trade workspace for a trade. |
+| Work | Exceptions | `/exceptions` | `G E` | Every open exception case — trade-bound and not (unattributed deposits, statement lines nobody recorded) — by severity, with who has taken it; pending **approvals** (adjustments, cancellations) as their own list. A case opens beside the list with its resolutions. |
+| Work | Orders | `/orders` | `G O` | Every trade, by state (open, on hold, completed, cancelled), searchable by ref / client / UTR / tx hash. |
+| Work | Trade record | `/orders/{ref}` | — | One trade, full page: lifecycle, money in, payout legs, cases, adjustments, the audited timeline (UTRs masked), and every action the trade allows in its current state. |
+| Liquidity | Rates | `/rates` | `G R` | A rate board per route and direction (publish with ↑/↓ steps of ₹0.01), recent rate changes with the rate each replaced, and **Route positions** (open route obligations and route settlements — `route_positions:view`). |
+| Liquidity | INR accounts | `/inr` | `G I` | Settlement accounts with today's capacity as a meter (used / reserved / available), capacity changes (step-up), bank statement import and reconciliation history. |
+| Liquidity | USDT treasury | `/usdt` | `G U` | Treasury position, watch-only wallets, the deposit-address pool with its low-pool warning, scanner state, transfers (filter: awaiting finality, unattributed). |
+| Liquidity | Traders | `/trader-desk` | `G T` | Applications and settlement-detail changes to review, approved traders, the programme defaults; per trader: decision and terms, submitted details, Security Reserve, rewards, orders with their settlement. |
+| Book | Clients | `/clients` | `G C` | The dealer book with volume, margin and last trade; client detail with a new request form, recent trades (repeat), destinations and who may accept a quote. |
+| Book | P&L | `/pnl` | `G P` | Realized (ledger) against expected (open trades, labelled a forecast), the ledger ↔ trades reconciliation line, exports. |
+| Book | System health | `/system` | `G S` | The nine monitored signals (`HEALTH_CHECKS`) against their thresholds, grouped Money · Pipelines · Desk, each with its runbook and the desk page to act on. |
+
+Desktop: persistent 232px ink sidebar (search, grouped navigation with live counts on Desk and Exceptions,
+shortcut sheet, operator), a warm off-white workspace, and a right **context panel** that keeps the list visible.
+Pages refresh themselves after a command succeeds (and on a quiet interval), so a list never lies about a row the
+operator just changed.
+
+**Command bar** (`⌘K` or `/`): find a trade by ref / UTR / tx hash, a client by name, a request or quote by ref, a
+case by ref; jump to any page; start an action (new request for a client). Results open where the work is done —
+a trade opens its record, a case opens Exceptions on that case.
+
+**Keyboard** (`?` shows the sheet): `G` then a letter goes to a page; in any list ↑/↓ or `J`/`K` move, `Enter` opens;
+on the queue `Q` quotes, `P` opens the payout (or client-funds confirmation), `U` records or confirms a reference,
+`E` resolves an exception; in the quote builder ↑/↓ steps the rate and `Q` sends. Nothing fires while typing or
+with a modifier held.
+
+**High-impact actions** are never one click. A destructive action (cancel, refund, reject, fail a leg, pause a
+trader) opens a guarded confirmation that states its consequence in words and, where the audit needs one, asks
+for the reason; actions marked ⧗ ask for the authenticator (step-up) at the moment they run. Each intent carries
+one idempotency key, so a retry after a network error cannot act twice.
 
 ## 3. Core flows
 
@@ -354,4 +380,4 @@ Other rules: minimum touch target 44px; amounts never truncate — they wrap or 
 
 ## 7. Validation list (before design sign-off)
 Client: Exchange desktop/mobile, Firm quote, Expired quote, Quote link mobile, Active trade, Partial INR settlement, Completed trade, History, Receipt.
-Operator: Desk, New request, Quote creation, Trade processing, Partial settlement, Exception trade, Rates, INR accounts, USDT treasury, Clients, P&L.
+Operator: Desk, New request, Quote creation, Trade processing, Partial settlement, Exception trade, Exceptions & approvals, Trade record, Rates, INR accounts, USDT treasury, Clients, P&L, System health.

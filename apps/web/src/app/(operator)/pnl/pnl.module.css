@@ -1,33 +1,104 @@
-/* P&L: the period controls, and the one line that says whether the page agrees with the books. */
+/* P&L: period controls, realized headline with the expected forecast set apart, and the trades behind both. */
+
+.controls {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
 .range {
-  display: inline-flex;
-  align-items: center;
+  display: flex;
+  align-items: flex-end;
   gap: var(--space-2);
-  font-size: var(--font-size-meta);
-  color: var(--text-secondary);
+}
+
+.range > div {
+  width: 170px;
 }
 
 .exports {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: var(--space-3);
-  margin-left: auto;
-  font-size: var(--font-size-meta);
 }
 
-/* Reconciliation is stated in words, not signalled by colour alone: a desk reading this in grayscale, or at a
-   glance, must be able to tell "agrees" from "does not" without noticing a hue. */
-.agrees {
-  margin: 0;
-  font-size: var(--font-size-meta);
-  color: var(--text-muted);
-}
-
-.drifted {
-  margin: 0;
-  padding: var(--space-3);
-  border-left: 3px solid var(--status-danger);
-  background: var(--bg-subtle);
+.exportLink {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
   color: var(--text-primary);
+  font-size: var(--font-size-table);
   font-weight: var(--font-weight-medium);
+  text-decoration: none;
+}
+
+.exportLink:hover {
+  border-color: var(--text-muted);
+}
+
+.summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: var(--space-3);
+}
+
+/* The forecast: same structure, quieter ink, a dashed edge — it is not the headline and must not read as one. */
+.expected {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-surface);
+  background: var(--bg-subtle);
+}
+
+.expected dt {
+  color: var(--text-muted);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.expected dd {
+  margin: 0;
+}
+
+.expectedValue {
+  color: var(--text-secondary);
+  font-size: var(--font-size-heading);
+  font-weight: var(--font-weight-medium);
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+.expectedSub {
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+}
+
+.kind {
+  color: var(--text-muted);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-regular);
+}
+
+.table {
+  overflow: hidden;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-surface);
+  background: var(--bg-surface);
+}
+
+@media (max-width: 1023px) {
+  .summary {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }

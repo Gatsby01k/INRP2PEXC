@@ -1,0 +1,73 @@
+/* System health: one reading per signal, placed on its own threshold scale. Tokens only. */
+
+.why {
+  display: block;
+  max-width: 64ch;
+  color: var(--text-muted);
+  white-space: normal;
+}
+
+.reading {
+  font-size: var(--font-size-body);
+  font-variant-numeric: tabular-nums lining-nums;
+  font-weight: var(--font-weight-semibold);
+}
+
+.reading[data-state='warn'] {
+  color: var(--status-warning);
+}
+
+.reading[data-state='alarm'] {
+  color: var(--status-danger);
+}
+
+.scale {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--font-size-meta);
+}
+
+.gauge {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--status-success-soft);
+  overflow: visible;
+}
+
+.zoneWarn,
+.zoneAlarm {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+}
+
+.zoneWarn {
+  background: var(--status-warning-soft);
+}
+
+.zoneAlarm {
+  border-radius: 0 var(--radius-pill) var(--radius-pill) 0;
+  background: var(--status-danger-soft);
+}
+
+.marker {
+  position: absolute;
+  top: -3px;
+  width: 3px;
+  height: 12px;
+  margin-left: -1px;
+  border-radius: var(--radius-pill);
+  background: var(--status-success);
+}
+
+.marker[data-state='warn'] {
+  background: var(--status-warning);
+}
+
+.marker[data-state='alarm'] {
+  background: var(--status-danger);
+}

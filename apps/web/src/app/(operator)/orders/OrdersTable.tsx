@@ -1,90 +1,81 @@
 'use client';
 
+import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Money } from '@inrp2p/kernel';
 import type { OrderRow } from '@inrp2p/desk';
-import { EmptyState, NumericCell, OperationalStatus, type TradeLifecycleState, TradeTable } from '@inrp2p/ui';
-import { formatInr, formatIstDateTime, formatUsdt } from '@inrp2p/ui/format';
+import { Ago } from '../_desk/clock.tsx';
+import { Cell, type Column, DataTable } from '../_desk/DataTable.tsx';
+import { dateTime, inr, isNegative, rate, usdt } from '../_desk/format.ts';
+import { Empty, LifecycleChip, Side } from '../_desk/ui.tsx';
+import d from '../_desk/desk.module.css';
 
-const FILTERS = [
-  { value: 'OPEN', label: 'Open' },
-  { value: 'COMPLETED', label: 'Completed' },
-  { value: 'CANCELLED', label: 'Cancelled' },
-  { value: 'ALL', label: 'All' },
-] as const;
-
-/** Orders (UX_FLOWS §2): every trade, filtered, with the row opening the same panel the desk uses. */
-export function OrdersTable({ rows, state, economics }: { rows: readonly OrderRow[]; state: string; economics: boolean }) {
+/**
+ * Every trade, newest first. A row opens the same trade workspace the desk uses, beside the list; the reference is
+ * a link to the full record. Margin and client rate exist only for operators with `economics:view` — the read
+ * model leaves them out otherwise, so there is nothing here to hide.
+ */
+export function OrdersTable({ rows, economics, selected }: { rows: readonly OrderRow[]; economics: boolean; selected: string | null }) {
   const router = useRouter();
   const params = useSearchParams();
 
-  const setParam = (key: string, value: string) => {
+  const open = (r: OrderRow) => {
     const next = new URLSearchParams(params.toString());
-    next.set(key, value);
-    if (key === 'state') next.delete('trade');
-    router.push(`?${next.toString()}`, { scroll: false });
+    next.set('trade', r.tradeId);
+    router.push(`/orders?${next.toString()}`, { scroll: false });
   };
 
-  return (
-    <div className="ix-stack">
-      <div className="ix-row" role="group" aria-label="Filter by state">
-        {FILTERS.map((f) => (
-          <button
-            key={f.value}
-            type="button"
-            className="ix-linkish"
-            aria-pressed={state === f.value}
-            style={state === f.value ? { color: 'var(--text-primary)', fontWeight: 600 } : undefined}
-            onClick={() => setParam('state', f.value)}
-          >
-            {f.label}
-          </button>
-        ))}
-      </div>
-
-      {rows.length === 0 ? (
-        <EmptyState title="No trades here" body="Nothing matches this filter yet." />
-      ) : (
-        <TradeTable
-          caption="Trades"
-          rows={rows}
-          rowKey={(r) => r.tradeId}
-          onRowOpen={(r) => setParam('trade', r.tradeId)}
-          columns={[
-            { key: 'ref', header: 'Ref', render: (r) => r.ref },
-            { key: 'client', header: 'Client', render: (r) => r.clientName },
-            { key: 'direction', header: 'Direction', render: (r) => (r.direction === 'SELL_USDT' ? 'SELL' : 'BUY') },
-            {
-              key: 'base',
-              header: 'USDT',
-              numeric: true,
-              render: (r) => <NumericCell as="span">{formatUsdt(Money.parse(r.base, 'USDT'))}</NumericCell>,
-            },
-            {
-              key: 'inr',
-              header: 'INR',
-              numeric: true,
-              render: (r) => <NumericCell as="span">{formatInr(Money.parse(r.quoteInr, 'INR'))}</NumericCell>,
-            },
-            ...(economics
-              ? [
-                  {
-                    key: 'margin',
-                    header: 'Margin',
-                    numeric: true,
-                    render: (r: OrderRow) => <NumericCell as="span">{r.margin ? formatInr(Money.parse(r.margin, 'INR'), { sign: 'always' }) : '—'}</NumericCell>,
-                  },
-                ]
-              : []),
-            {
-              key: 'status',
-              header: 'Status',
-              render: (r) => <OperationalStatus state={r.lifecycle as TradeLifecycleState} hold={r.hold} />,
-            },
-            { key: 'opened', header: 'Opened', render: (r) => formatIstDateTime(new Date(r.openedAt)) },
-          ]}
+  const columns: Column<OrderRow>[] = [
+    {
+      key: 'ref',
+      header: 'Trade',
+      render: (r) => (
+        <Cell
+          main={
+            <Link href={`/orders/${encodeURIComponent(r.ref)}`} className={d.link}>
+              {r.ref}
+            </Link>
+          }
+          sub={r.clientName}
         />
-      )}
-    </div>
+      ),
+    },
+    { key: 'side', header: 'Side', render: (r) => <Side direction={r.direction} /> },
+    { key: 'usdt', header: 'USDT', align: 'right', render: (r) => usdt(r.base, { unit: false }) },
+    { key: 'inr', header: 'INR', align: 'right', render: (r) => inr(r.quoteInr) },
+    ...(economics
+      ? ([
+          { key: 'rate', header: 'Client rate', align: 'right', render: (r: OrderRow) => (r.clientRate ? rate(r.clientRate) : '—') },
+          {
+            key: 'margin',
+            header: 'Margin',
+            align: 'right',
+            render: (r: OrderRow) =>
+              r.margin ? (
+                <span className={isNegative(r.margin, 'INR') ? d.negative : r.lifecycle === 'COMPLETED' ? d.positive : d.secondary} title={r.lifecycle === 'COMPLETED' ? 'Realized' : 'Expected'}>
+                  {inr(r.margin, { sign: true })}
+                </span>
+              ) : (
+                '—'
+              ),
+          },
+        ] as Column<OrderRow>[])
+      : []),
+    { key: 'status', header: 'Status', render: (r) => <LifecycleChip state={r.lifecycle} hold={r.hold} /> },
+    { key: 'opened', header: 'Opened', render: (r) => <Cell main={<span className={d.num}>{dateTime(r.openedAt)}</span>} sub={r.completedAt ? `completed ${dateTime(r.completedAt)}` : <Ago at={r.openedAt} />} /> },
+  ];
+
+  return (
+    <DataTable<OrderRow>
+      caption="Trades"
+      label="Trades"
+      columns={columns}
+      rows={rows}
+      rowKey={(r) => r.tradeId}
+      onOpen={open}
+      selectedKey={selected}
+      rail={(r) => (r.hold ? 'danger' : null)}
+      dim={(r) => r.lifecycle === 'CANCELLED'}
+      empty={<Empty title="No trades here" body="Nothing matches this view. Try another tab or clear the search." />}
+    />
   );
 }

@@ -16,7 +16,9 @@ export const CAPTURES = [
   'operator-trade-panel',
   'operator-payout-direct-route',
   'operator-exception',
+  'operator-exceptions',
   'operator-orders',
+  'operator-trade-record',
   'operator-rates',
   'operator-inr',
   'operator-usdt',
@@ -26,6 +28,7 @@ export const CAPTURES = [
   'operator-statement',
   'operator-command-bar',
   'operator-step-up',
+  'operator-system',
   // The client product (Phase 7). Same rules, same environment; different surface and, for the link, a phone.
   'client-exchange-quote',
   'client-trade-awaiting-usdt',

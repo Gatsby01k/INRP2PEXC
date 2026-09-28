@@ -29,14 +29,14 @@ test('desk: operational strip and grouped queue', async ({ page }) => {
 test('desk: trade context panel', async ({ page }) => {
   const s = state();
   await openPanel(page, `trade:${s.trades.awaitingPayout}`, 'payout');
-  await expect(page.getByTestId('payout-panel')).toBeVisible();
+  await expect(page.getByTestId('trade-panel')).toBeVisible();
   await capture(page, 'operator-trade-panel');
 });
 
 test('desk: payout panel on a direct route, with the payer selector', async ({ page }) => {
   const s = state();
   await openPanel(page, `trade:${s.trades.directRoute}`, 'payout');
-  const panel = page.getByTestId('payout-panel');
+  const panel = page.getByTestId('trade-panel');
   await expect(panel).toBeVisible();
   await expect(panel.getByRole('radiogroup', { name: 'Pay from' })).toBeVisible();
   await capture(page, 'operator-payout-direct-route');
@@ -45,14 +45,27 @@ test('desk: payout panel on a direct route, with the payer selector', async ({ p
 test('desk: blocking exception', async ({ page }) => {
   const s = state();
   await openPanel(page, `trade:${s.trades.shortPaid}`, 'exception');
-  await expect(page.getByTestId('exception-panel')).toBeVisible();
+  await expect(page.getByTestId('trade-panel').getByTestId('exceptions')).toBeVisible();
   await capture(page, 'operator-exception');
+});
+
+test('exceptions and approvals', async ({ page }) => {
+  await page.goto('/exceptions');
+  await expect(page.getByRole('heading', { name: 'Exceptions', exact: true })).toBeVisible();
+  await capture(page, 'operator-exceptions');
 });
 
 test('orders', async ({ page }) => {
   await page.goto('/orders');
   await expect(page.getByRole('heading', { name: 'Orders' })).toBeVisible();
   await capture(page, 'operator-orders');
+});
+
+test('trade record', async ({ page }) => {
+  const s = state();
+  await page.goto(`/orders/${s.tradeRefs.completed}`);
+  await expect(page.getByTestId('trade-workspace')).toBeVisible();
+  await capture(page, 'operator-trade-record');
 });
 
 test('rates and route positions', async ({ page }) => {
@@ -63,7 +76,7 @@ test('rates and route positions', async ({ page }) => {
 
 test('inr accounts', async ({ page }) => {
   await page.goto('/inr');
-  await expect(page.getByRole('heading', { name: 'INR' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'INR accounts', exact: true })).toBeVisible();
   await capture(page, 'operator-inr');
 });
 
@@ -84,7 +97,7 @@ test('p&l: realized against expected, and the ledger check', async ({ page }) =>
 
 test('usdt treasury, deposit pool and scanner state', async ({ page }) => {
   await page.goto('/usdt');
-  await expect(page.getByRole('heading', { name: 'USDT' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'USDT treasury', exact: true })).toBeVisible();
   await expect(page.getByText(/Scanner at block/)).toBeVisible();
   await capture(page, 'operator-usdt');
 });
@@ -93,6 +106,12 @@ test('clients', async ({ page }) => {
   await page.goto('/clients');
   await expect(page.getByRole('heading', { name: 'Clients' })).toBeVisible();
   await capture(page, 'operator-clients');
+});
+
+test('system health', async ({ page }) => {
+  await page.goto('/system');
+  await expect(page.getByTestId('health-checks')).toBeVisible();
+  await capture(page, 'operator-system');
 });
 
 test('command bar', async ({ page }) => {

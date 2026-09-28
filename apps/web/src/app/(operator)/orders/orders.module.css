@@ -1,0 +1,85 @@
+.search {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 300px;
+  height: 32px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+}
+
+.search:focus-within {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: -1px;
+  border-color: var(--brand-primary);
+}
+
+.searchIcon {
+  flex: none;
+  color: var(--text-muted);
+}
+
+.searchInput {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  font-size: var(--font-size-table);
+  outline: none;
+}
+
+.searchInput:focus-visible {
+  outline: none;
+}
+
+.clear {
+  display: inline-flex;
+  color: var(--text-muted);
+}
+
+.searchNote {
+  margin: 0;
+  padding: var(--space-2) var(--space-6);
+  border-bottom: 1px solid var(--border-default);
+  background: var(--brand-soft);
+  font-size: var(--font-size-meta);
+  color: var(--text-secondary);
+}
+
+/* ── The trade record ───────────────────────────────────────────────────────────────────────────── */
+
+.hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+  gap: var(--space-5);
+  align-items: center;
+  padding: var(--space-5);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-surface);
+  background: var(--bg-surface);
+}
+
+.heroSide {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+@media (max-width: 1023px) {
+  .hero {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 767px) {
+  .search {
+    width: 100%;
+  }
+  .searchNote {
+    padding: var(--space-2) var(--space-4);
+  }
+}

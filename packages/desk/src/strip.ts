@@ -11,6 +11,9 @@ export interface StripRoute {
   /** Decimal route rate, or null when no current snapshot exists for that direction. */
   readonly rate: string | null;
   readonly publishedAt: string | null;
+  /** What the route says it can take on, in USDT, and how it settles (DIRECT_TO_CLIENT / TO_EXCHANGE). */
+  readonly availableUsdt: string;
+  readonly executionMode: 'DIRECT_TO_CLIENT' | 'TO_EXCHANGE';
 }
 
 export interface DeskStrip {
@@ -61,8 +64,11 @@ export async function deskStrip(ex: Executor, access: DeskAccess): Promise<DeskS
 
   const extras: { routes?: readonly StripRoute[]; realizedMarginToday?: string } = {};
   if (access.economics) {
-    const rows = await sql<{ route_id: string; name: string; direction: DirectionValue; rate: string | null; published_at: Date | null }>`
-      select r.id as route_id, r.name, d.direction,
+    const rows = await sql<{
+      route_id: string; name: string; direction: DirectionValue; rate: string | null; published_at: Date | null;
+      available_base_minor: bigint; execution_mode: 'DIRECT_TO_CLIENT' | 'TO_EXCHANGE';
+    }>`
+      select r.id as route_id, r.name, d.direction, r.available_base_minor, r.execution_mode,
              (select s.rate_micro::text from rate_snapshot s
                where s.route_id = r.id and s.direction = d.direction and s.kind = 'ROUTE'
                order by s.effective_at desc limit 1) as rate,
@@ -80,6 +86,8 @@ export async function deskStrip(ex: Executor, access: DeskAccess): Promise<DeskS
       direction: r.direction,
       rate: r.rate === null ? null : microToDecimal(BigInt(r.rate)),
       publishedAt: r.published_at ? r.published_at.toISOString() : null,
+      availableUsdt: Money.ofMinor(r.available_base_minor, 'USDT').toDecimalString(),
+      executionMode: r.execution_mode,
     }));
   }
   if (access.pnl) {

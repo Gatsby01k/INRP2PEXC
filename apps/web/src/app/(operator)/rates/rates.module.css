@@ -1,60 +1,219 @@
-.rates {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
+/* Rates: one card per desk route, both directions side by side; route positions as a list of obligations. */
+
+.board {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(520px, 1fr));
+  gap: var(--space-4);
 }
 
-.rateRow {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto minmax(0, 320px);
-  gap: var(--space-4);
-  align-items: end;
-  padding-bottom: var(--space-3);
+.route {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-surface);
+  background: var(--bg-surface);
+}
+
+.routeHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
   border-bottom: 1px solid var(--border-default);
 }
 
-.publish {
+.routeName {
+  margin: 0;
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-semibold);
+}
+
+.sides {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.side {
   display: flex;
+  flex-direction: column;
   gap: var(--space-2);
-  align-items: end;
+  min-width: 0;
+  padding: var(--space-4);
+}
+
+.side + .side {
+  box-shadow: -1px 0 0 var(--border-default);
+}
+
+.sideLabel {
+  color: var(--text-secondary);
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-medium);
+}
+
+.current {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+}
+
+.currentValue {
+  font-size: var(--font-size-title);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: -0.02em;
+  line-height: var(--line-height-tight);
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+.currentValue[data-stale] {
+  color: var(--text-secondary);
+}
+
+.change {
+  color: var(--text-muted);
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-medium);
+  font-variant-numeric: tabular-nums;
+}
+
+.change[data-sign='1'] {
+  color: var(--status-success);
+}
+
+.change[data-sign='-1'] {
+  color: var(--status-danger);
+}
+
+.sideMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+}
+
+.staleTag {
+  color: var(--status-warning);
+  font-weight: var(--font-weight-medium);
+}
+
+.publish {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-2);
+  align-items: start;
+  padding-top: var(--space-2);
+}
+
+.publish > :last-child {
+  margin-top: 22px;
+}
+
+/* ── Route positions ────────────────────────────────────────────────────────────────────────────── */
+
+.positions {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
 }
 
 .position {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
-  padding: var(--space-3);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-surface);
+  padding: var(--space-3) var(--space-4);
+}
+
+.position + .position {
+  border-top: 1px solid var(--border-default);
+}
+
+.position[data-attention] {
+  box-shadow: inset 3px 0 0 var(--brand-primary);
+}
+
+.positionHead {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: var(--space-4);
+  align-items: center;
+}
+
+.positionActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.sideFigure {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.figureLabel {
+  color: var(--text-muted);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.figureValue {
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+.figureSub {
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+  font-variant-numeric: tabular-nums;
 }
 
 .settlements {
-  list-style: none;
-  margin: 0;
-  padding: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: var(--space-1);
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  list-style: none;
+  border-radius: var(--radius-control);
+  background: var(--bg-subtle);
 }
 
 .settlement {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  flex-wrap: wrap;
   gap: var(--space-3);
-  font-size: var(--font-size-body-sm);
+  min-height: 32px;
+  font-size: var(--font-size-table);
 }
 
-.record {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  border-top: 1px solid var(--border-default);
-  padding-top: var(--space-3);
-}
-
-@media (max-width: 1023px) {
-  .rateRow {
+@media (max-width: 1279px) {
+  .board {
     grid-template-columns: minmax(0, 1fr);
+  }
+  .positionHead {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 767px) {
+  .sides,
+  .positionHead {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .side + .side {
+    box-shadow: 0 -1px 0 var(--border-default);
   }
 }

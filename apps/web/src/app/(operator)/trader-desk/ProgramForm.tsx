@@ -2,10 +2,12 @@
 
 import { useState } from 'react';
 import type { DeskProgram } from '@inrp2p/traders';
-import { Button } from '@inrp2p/ui';
+import { Button, StepUpMark } from '@inrp2p/ui';
 import { configureProgramAction } from '../../../server/actions/traders-desk.ts';
 import { useCommand } from '../../../components/useCommand.tsx';
-import styles from './traders.module.css';
+import { Checkbox, SelectField, TextArea, TextField } from '../_desk/fields.tsx';
+import { Notice } from '../_desk/ui.tsx';
+import d from '../_desk/desk.module.css';
 
 /**
  * The programme settings (`traders:configure`, ⧗). Nothing here has a default that stands in for a decision: the
@@ -39,70 +41,46 @@ export function ProgramForm({ program, accounts, canConfigure }: { program: Desk
     );
 
   return (
-    <section className="ix-card" aria-label="Programme">
-      <h2 className="ix-sectionTitle">Programme</h2>
-      <form
-        className={styles.form}
-        onSubmit={(e) => {
-          e.preventDefault();
-          void save();
-        }}
-      >
-        <div className="ix-field">
-          <label htmlFor="p-reserve">Default Security Reserve (USDT)</label>
-          <input id="p-reserve" className="ix-input" inputMode="decimal" value={reserve} onChange={(e) => setReserve(e.target.value)} placeholder="Not set" disabled={!canConfigure} />
-          <span className="ix-hint">Offered at approval; each trader’s own requirement can differ.</span>
-        </div>
-        <div className="ix-field">
-          <label htmlFor="p-reward">Reward (basis points of the order’s INR value)</label>
-          <input id="p-reward" className="ix-input" inputMode="numeric" value={reward} onChange={(e) => setReward(e.target.value)} placeholder="No reward" disabled={!canConfigure} />
-          <span className="ix-hint">Fixed on each order when it starts; paid when it completes. Empty means none.</span>
-        </div>
-        <div className={styles.row}>
-          <div className="ix-field">
-            <label htmlFor="p-offer">Offer time (s)</label>
-            <input id="p-offer" className="ix-input" inputMode="numeric" value={offer} onChange={(e) => setOffer(e.target.value)} disabled={!canConfigure} />
-          </div>
-          <div className="ix-field">
-            <label htmlFor="p-hold">Hold time (s)</label>
-            <input id="p-hold" className="ix-input" inputMode="numeric" value={hold} onChange={(e) => setHold(e.target.value)} disabled={!canConfigure} />
-          </div>
-        </div>
-        <div className="ix-field">
-          <label htmlFor="p-collection">Traders pay INR into</label>
-          <select id="p-collection" className="ix-input" value={collection} onChange={(e) => setCollection(e.target.value)} disabled={!canConfigure}>
-            <option value="">Not set</option>
-            {accounts.map((a) => (
-              <option key={a.accountId} value={a.accountId}>
-                {a.bankName} ••••{a.last4} · {a.label}
-              </option>
-            ))}
-          </select>
-        </div>
-        <label className="ix-row">
-          <input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} disabled={!canConfigure} />
-          <span>Route new USDT-fixed requests to a trader automatically</span>
-        </label>
-        {canConfigure ? (
-          <>
-            <div className="ix-field">
-              <label htmlFor="p-reason">Reason for the change</label>
-              <input id="p-reason" className="ix-input" value={reason} onChange={(e) => setReason(e.target.value)} />
-            </div>
-            <Button intent="primary" type="submit" disabled={cmd.busy || reason.trim().length < 3}>
+    <form
+      className={d.stackTight}
+      aria-label="Programme"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void save();
+      }}
+    >
+      <div className={d.formGrid} style={{ alignItems: 'start' }}>
+        <TextField label="Default Security Reserve (USDT)" value={reserve} onChange={setReserve} placeholder="Not set" disabled={!canConfigure} hint="Offered at approval; each trader’s own can differ." />
+        <TextField label="Reward (bps of the order’s INR)" value={reward} onChange={setReward} placeholder="No reward" disabled={!canConfigure} hint="Fixed when an order starts; paid when it completes." />
+        <TextField label="Offer time (s)" value={offer} onChange={setOffer} disabled={!canConfigure} hint="How long a trader has to take an offer." />
+        <TextField label="Hold time (s)" value={hold} onChange={setHold} disabled={!canConfigure} hint="How long an accepted order holds the request." />
+        <SelectField
+          label="Traders pay INR into"
+          value={collection}
+          onChange={setCollection}
+          disabled={!canConfigure}
+          options={[{ value: '', label: 'Not set' }, ...accounts.map((a) => ({ value: a.accountId, label: `${a.bankName} ••••${a.last4} · ${a.label}` }))]}
+        />
+      </div>
+      <Checkbox label="Route new USDT-fixed requests to a trader automatically" checked={auto} onChange={setAuto} disabled={!canConfigure} />
+      {canConfigure ? (
+        <>
+          <TextArea label="Reason for the change" value={reason} onChange={setReason} />
+          <div className={d.actions}>
+            <Button intent="primary" size="sm" type="submit" disabled={cmd.busy || reason.trim().length < 3} shortcut={<StepUpMark label="needs your authenticator code" />}>
               Save programme
             </Button>
-          </>
-        ) : (
-          <p className="ix-muted">Changing the programme needs traders:configure.</p>
-        )}
-      </form>
+          </div>
+        </>
+      ) : (
+        <Notice icon="lock">Changing the programme needs traders:configure.</Notice>
+      )}
       {cmd.error ? (
-        <p className="ix-error" role="alert">
+        <p className={d.errorLine} role="alert">
           {cmd.error}
         </p>
       ) : null}
       {cmd.dialog}
-    </section>
+    </form>
   );
 }

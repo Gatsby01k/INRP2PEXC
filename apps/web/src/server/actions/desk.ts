@@ -4,11 +4,11 @@ import { revalidatePath } from 'next/cache';
 import type { DirectionValue, FiatRail } from '@inrp2p/db';
 import { setDayCapacity } from '@inrp2p/inr-accounts';
 import { publishRouteRate } from '@inrp2p/pricing';
-import { cancelQuote, createQuote, createQuoteLink, createRequest, declineRequest, sendQuote } from '@inrp2p/quotes';
+import { cancelQuote, createQuote, createQuoteLink, createRequest, declineRequest, sendQuote, withdrawRequest } from '@inrp2p/quotes';
 import {
   type NON_FINANCIAL_RESOLUTIONS, approveAdjustment, cancelPayoutLeg, cancelTrade, confirmFirstLeg, confirmPayout,
-  confirmRefundLeg, confirmRouteSettlement, createPayoutLeg, createRefundLeg, failPayoutLeg, recordIncomingFiat,
-  recordLegEvidence, recordRouteSettlement, refundAndCancel, requestAdjustment, resolveException, revertFirstLeg, sendPayoutLeg,
+  confirmRefundLeg, confirmRouteSettlement, createPayoutLeg, createRefundLeg, failPayoutLeg, openException, recordIncomingFiat,
+  recordLegEvidence, recordRouteSettlement, refundAndCancel, rejectAdjustment, requestAdjustment, resolveException, revertFirstLeg, sendPayoutLeg,
   takeException, voidException,
 } from '@inrp2p/settlement';
 import { type CommandResult, failure, runCommand, withOperator } from '../command.ts';
@@ -29,6 +29,16 @@ export async function createRequestAction(
 
 export async function declineRequestAction(input: { requestId: string; reason: string }, key: string): Promise<CommandResult<unknown>> {
   const out = await runCommand((ctx) => declineRequest(ctx.actor), input, { name: 'request.decline', idempotencyKey: key });
+  if (out.ok) refresh();
+  return out;
+}
+
+/**
+ * `request.withdraw` on the client's behalf (`request:withdraw`): the client told the desk they no longer want it.
+ * Distinct from a decline, which is the desk's own refusal and is what the client is notified of.
+ */
+export async function withdrawRequestAction(input: { requestId: string; reason: string }, key: string): Promise<CommandResult<unknown>> {
+  const out = await runCommand((ctx) => withdrawRequest(ctx.actor), input, { name: 'request.withdraw', idempotencyKey: key });
   if (out.ok) refresh();
   return out;
 }
@@ -211,6 +221,30 @@ export async function requestAdjustmentAction(
   return out;
 }
 
+/** The other answer a second person can give: nothing posts, and the request stays on the record. */
+export async function rejectAdjustmentAction(input: { adjustmentId: string; reason: string }, key: string): Promise<CommandResult<unknown>> {
+  const out = await runCommand((ctx) => rejectAdjustment(ctx.actor), input, { name: 'adjustment.reject', idempotencyKey: key });
+  if (out.ok) refresh();
+  return out;
+}
+
+/**
+ * `exception.open` — the cases the system cannot detect by itself: USDT sent on the wrong network, a client asking
+ * to cancel, a payout the bank is sitting on, a mistake the desk made. A blocking type puts the trade on hold.
+ */
+export async function openTradeExceptionAction(
+  input: { tradeId: string; type: 'WRONG_NETWORK' | 'TRADE_CANCELLATION' | 'OPERATOR_MISTAKE' | 'INR_PAYOUT_DELAYED'; notes: string },
+  key: string,
+): Promise<CommandResult<{ exceptionId: string; ref: string; opened: boolean }>> {
+  const out = await runCommand(
+    (ctx) => openException(ctx.actor),
+    { type: input.type, subjectType: 'TRADE' as const, subjectId: input.tradeId, tradeId: input.tradeId, notes: input.notes },
+    { name: 'exception.open', idempotencyKey: key },
+  );
+  if (out.ok) refresh();
+  return out as CommandResult<{ exceptionId: string; ref: string; opened: boolean }>;
+}
+
 /** The second half of FI-31: a different person approves, and only then does the adjustment post. */
 export async function approveAdjustmentAction(input: { adjustmentId: string }, key: string): Promise<CommandResult<unknown>> {
   const out = await runCommand((ctx) => approveAdjustment(ctx.actor), input, { name: 'adjustment.approve', idempotencyKey: key });
@@ -218,7 +252,7 @@ export async function approveAdjustmentAction(input: { adjustmentId: string }, k
   return out;
 }
 
-export async function cancelTradeAction(input: { tradeId: string; reason: string }, key: string): Promise<CommandResult<unknown>> {
+export async function cancelTradeAction(input: { tradeId: string; reason: string; exceptionId?: string | null }, key: string): Promise<CommandResult<unknown>> {
   const out = await runCommand((ctx) => cancelTrade(ctx.actor), input, { name: 'trade.cancel', idempotencyKey: key });
   if (out.ok) refresh();
   return out;

@@ -1,47 +1,42 @@
 import Link from 'next/link';
-import { Money } from '@inrp2p/kernel';
 import { clientBook } from '@inrp2p/desk';
-import { EmptyState } from '@inrp2p/ui';
-import { formatIstDateTime, formatUsdt } from '@inrp2p/ui/format';
-import { operatorPage } from '../../../server/operator.ts';
-import styles from '../shell.module.css';
-import book from './clients.module.css';
+import { can, operatorPage } from '../../../server/operator.ts';
+import { Icon } from '../_desk/icons.tsx';
+import { Page, PageBody, PageHeader, Section } from '../_desk/ui.tsx';
+import { ClientBook } from './ClientBook.tsx';
+import o from '../orders/orders.module.css';
 
 export const dynamic = 'force-dynamic';
 
 export default async function ClientsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const ctx = await operatorPage();
   const params = await searchParams;
-  const search = typeof params.q === 'string' ? params.q : '';
-  const rows = await clientBook(ctx.db, search ? { search } : {});
+  const search = typeof params.q === 'string' ? params.q.trim() : '';
+  const rows = await clientBook(ctx.db, { ...(search ? { search } : {}), access: ctx.access, limit: 300 });
+  const open = rows.reduce((n, c) => n + c.openTrades, 0);
 
   return (
-    <>
-      <header className={styles.header}>
-        <h1 className={styles.title}>Clients</h1>
-      </header>
-      <div className={styles.content}>
-        {rows.length === 0 ? (
-          <EmptyState title="No clients" body="Nobody matches that search." />
-        ) : (
-          <ul className={book.list}>
-            {rows.map((c) => (
-              <li key={c.clientId} className={book.row}>
-                <Link href={`/clients/${c.clientId}`} className={book.name}>
-                  {c.name}
-                </Link>
-                <span className="ix-muted">
-                  {c.status.toLowerCase()} · KYC {c.kycStatus.toLowerCase().replace(/_/g, ' ')}
-                </span>
-                <span className="ix-num">{c.openTrades} open</span>
-                <span className="ix-num">{c.completedTrades} completed</span>
-                <span className="ix-num">{formatUsdt(Money.parse(c.completedVolume, 'USDT'), { unit: true })}</span>
-                <span className="ix-muted">{c.lastActivityAt ? formatIstDateTime(new Date(c.lastActivityAt)) : 'no trades yet'}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-    </>
+    <Page>
+      <PageHeader
+        title="Clients"
+        meta={`${rows.length} client${rows.length === 1 ? '' : 's'}${search ? ` matching “${search}”` : ''} · ${open} open trade${open === 1 ? '' : 's'}`}
+        actions={
+          <form action="/clients" method="get" className={o.search} role="search">
+            <Icon name="search" size={14} className={o.searchIcon} />
+            <input className={o.searchInput} name="q" defaultValue={search} placeholder="Client name" aria-label="Search clients by name" />
+            {search ? (
+              <Link href="/clients" className={o.clear} aria-label="Clear search">
+                <Icon name="close" size={12} />
+              </Link>
+            ) : null}
+          </form>
+        }
+      />
+      <PageBody>
+        <Section flush>
+          <ClientBook rows={rows} economics={ctx.access.economics} canRequest={can(ctx, 'request:create')} />
+        </Section>
+      </PageBody>
+    </Page>
   );
 }

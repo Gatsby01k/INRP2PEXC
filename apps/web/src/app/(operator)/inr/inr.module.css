@@ -1,62 +1,135 @@
-.totals {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-6);
-  margin: 0;
-}
-
-.totals div {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.totals dt {
-  font-size: var(--font-size-meta);
-  color: var(--text-secondary);
-}
-
-.totals dd {
-  margin: 0;
-  font-size: var(--font-size-body-lg);
-  font-weight: var(--font-weight-medium);
-}
+/* INR accounts: one aligned row per account, figures in columns, and the statement import form. */
 
 .accounts {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
-  gap: var(--space-4);
+  display: flex;
+  flex-direction: column;
 }
 
-.capacityForm {
+.accountsHead,
+.accountRow {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.6fr) minmax(180px, 1.2fr) repeat(3, minmax(90px, 0.7fr)) minmax(120px, 0.9fr) 130px;
+  gap: var(--space-4);
+  align-items: center;
+}
+
+.accountsHead {
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--border-default);
+  color: var(--text-muted);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.account {
+  border-bottom: 1px solid var(--border-default);
+}
+
+.account[data-inactive] {
+  background: var(--bg-subtle);
+}
+
+.accountRow {
+  padding: var(--space-3) var(--space-4);
+}
+
+.accountName {
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-semibold);
+}
+
+.right {
+  justify-self: end;
+  text-align: right;
+}
+
+.figure {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-size: var(--font-size-table);
+  font-variant-numeric: tabular-nums lining-nums;
+  white-space: nowrap;
+}
+
+.figure[data-strong] {
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-semibold);
+}
+
+.figure[data-low] {
+  color: var(--status-warning);
+}
+
+.figureSub {
+  color: var(--text-muted);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-regular);
+}
+
+.editor {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
-  margin-top: var(--space-3);
-  border-top: 1px solid var(--border-default);
-  padding-top: var(--space-3);
+  margin: 0 var(--space-4) var(--space-3);
+  padding: var(--space-3);
+  border-radius: var(--radius-control);
+  background: var(--bg-subtle);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
 }
 
-.statementForm {
+.legendRow {
+  padding: var(--space-3) var(--space-4);
+}
+
+.importForm {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  align-items: end;
+  grid-template-columns: minmax(200px, 1.2fr) repeat(2, minmax(150px, 0.8fr)) minmax(220px, 1.2fr) auto;
   gap: var(--space-3);
-  margin: var(--space-3) 0;
+  align-items: end;
 }
 
-.statementQuiet {
-  color: var(--text-secondary);
+.importAction {
+  padding-bottom: 2px;
 }
 
-.statementAlarm {
-  color: var(--status-danger);
-  font-weight: var(--font-weight-medium);
+.fileName {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Present for the picker it opens, never for its own rendering: a native file input draws its text in a system
-   font, which no page baseline may contain (VISUAL_BASELINES §4). `display: none` keeps it out of the layout
-   and out of the font census; the button beside it is what an operator sees and tabs to. */
+   font, which no page baseline may contain (VISUAL_BASELINES §4). */
 .fileInput {
   display: none;
+}
+
+@media (max-width: 1279px) {
+  .accountsHead {
+    display: none;
+  }
+  .accountRow {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .importForm {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 767px) {
+  .accountRow,
+  .importForm {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .figure {
+    align-items: flex-start;
+  }
+  .right {
+    justify-self: start;
+  }
 }
