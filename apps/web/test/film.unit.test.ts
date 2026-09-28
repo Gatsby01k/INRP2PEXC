@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { FLOW, HERO, TRUST } from '../src/content/site.ts';
-import { AT, BEATS, CUES, DURATION, ILLUSTRATIVE, SHOTS, SUPERS, TRADE, eveningAt, progress, shotAt } from '../film/timeline.ts';
+import { AT, BEATS, CUES, DURATION, ILLUSTRATIVE, SHOTS, SUPERS, TRADE, eveningAt, productEase, progress, shotAt } from '../film/timeline.ts';
 
 /**
  * The flagship film's score (`apps/web/film/timeline.ts`), held to what the film is about.
@@ -91,5 +91,13 @@ describe('the picture', () => {
     expect(progress(0, 0, 1)).toBe(0);
     expect(progress(1, 0, 1)).toBe(1);
     expect(progress(0.5, 0, 1)).toBeCloseTo(0.5, 6);
+  });
+
+  it('moves the interface on the product’s own curve, cubic-bezier(0.2, 0, 0, 1): quick to leave, long to settle', () => {
+    expect(productEase(0)).toBe(0);
+    expect(productEase(1)).toBeCloseTo(1, 9);
+    expect(productEase(0.5)).toBeCloseTo(0.878, 2);
+    const samples = Array.from({ length: 101 }, (_, i) => productEase(i / 100));
+    expect(samples.every((v, i) => i === 0 || v >= samples[i - 1]! - 1e-12)).toBe(true);
   });
 });

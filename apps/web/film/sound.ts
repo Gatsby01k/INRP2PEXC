@@ -69,9 +69,9 @@ export async function renderSoundtrack(): Promise<string> {
   air.connect(airTone).connect(airLevel).connect(master);
   air.start(0);
 
-  // The quote arrives: the workspace's own figure.
+  // The quote arrives — as it appears, once the request has left: the workspace's own figure.
   const quote = mallet(FIGURES.quote.tone, 0.32);
-  for (const s of FIGURES.quote.strikes) strike(ctx, quote, AT.quote + 0.02 + s.at, s.freq, s.level, s.decay, s.bright);
+  for (const s of FIGURES.quote.strikes) strike(ctx, quote, AT.quote + 0.15 + s.at, s.freq, s.level, s.decay, s.bright);
 
   // "Accept quote" pressed: a key's click, felt more than heard.
   const click = mallet(1800, 0.12);
@@ -83,8 +83,9 @@ export async function renderSoundtrack(): Promise<string> {
   strike(ctx, arcs, AT.final + 0.08, ARC_NOTES[1], 0.46, 1.8);
   strike(ctx, arcs, AT.complete + 0.08, ARC_NOTES[2], 0.5, 1.6);
   const chord = mallet(2200, 0.3);
-  for (const [i, f] of ARC_NOTES.entries()) strike(ctx, chord, AT.complete + 0.2 + i * 0.012, f, 0.34, 4.4, 0.2);
-  strike(ctx, chord, AT.complete + 0.2, ARC_NOTES[0] / 2, 0.3, 4.6, 0.1);
+  // Long enough to ring through the push to the chest, and gone by the cut to the logo.
+  for (const [i, f] of ARC_NOTES.entries()) strike(ctx, chord, AT.complete + 0.2 + i * 0.012, f, 0.34, 7.5, 0.2);
+  strike(ctx, chord, AT.complete + 0.2, ARC_NOTES[0] / 2, 0.3, 8, 0.1);
 
   // Each payment confirmed: a soft, low tap — counted, not celebrated.
   const taps = mallet(1400, 0.2);

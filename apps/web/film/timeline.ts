@@ -89,8 +89,9 @@ const mood = (m: RobotMood): RobotCue => ({ kind: 'mood', mood: m });
 const stage = (s: TradeStage): RobotCue => ({ kind: 'stage', stage: s });
 
 export const BEATS: readonly Beat[] = [
-  { ui: AT.quote, at: AT.quote, cue: mood('focused'), what: 'a firm quote is live' },
-  { ui: AT.quote, at: AT.quote + 0.05, cue: { kind: 'rate' }, what: 'the rate arrives, and is read' },
+  // The request leaves first; the quote is on screen a moment after AT.quote, and the robot answers it there.
+  { ui: AT.quote, at: AT.quote + 0.2, cue: mood('focused'), what: 'a firm quote is live' },
+  { ui: AT.quote, at: AT.quote + 0.25, cue: { kind: 'rate' }, what: 'the rate arrives, and is read' },
   { ui: AT.press, at: AT.press, cue: { kind: 'wait', on: true }, what: 'accept pressed: the button waits' },
   { ui: AT.accepted, at: AT.accepted, cue: { kind: 'wait', on: false }, what: 'the acceptance returns' },
   { ui: AT.accepted, at: AT.accepted + 0.02, cue: stage(1), what: 'the quote is accepted: the first arc' },
@@ -179,11 +180,11 @@ export function progress(t: number, from: number, to: number, ease: (x: number) 
 
 /** The product's own curve (`--ease`, cubic-bezier(0.2, 0, 0, 1)), for anything the interface itself moves. */
 export function productEase(x: number): number {
-  // Solve the bezier's x(s) = x for s, then return y(s). Control points (0.2, 0) and (0, 1).
+  // Control points (0.2, 0) and (0, 1): x(s) = 0.6(1−s)²s + s³ and y(s) = 3(1−s)s² + s³. Solve x(s) = x by Newton.
   let s = x;
   for (let i = 0; i < 8; i++) {
-    const bx = 3 * (1 - s) ** 2 * s * 0.2 + 3 * (1 - s) * s * s * 0 + s ** 3;
-    const dx = 3 * (1 - s) ** 2 * 0.2 + 6 * (1 - s) * s * (0 - 0.2) + 3 * s * s * (1 - 0);
+    const bx = 0.6 * (1 - s) ** 2 * s + s ** 3;
+    const dx = 0.6 * (1 - s) ** 2 - 1.2 * (1 - s) * s + 3 * s * s;
     if (Math.abs(dx) < 1e-6) break;
     s = Math.min(1, Math.max(0, s - (bx - x) / dx));
   }
@@ -210,5 +211,5 @@ export function spillAt(t: number): number {
   return 0.35 * live + 0.25 * pressed;
 }
 
-/** Where the viewer's eye is not being asked for: the illustrative tag shows while the trade's figures do. */
+/** The illustrative tag shows for as long as the trade's figures are on screen, and never on the home page. */
 export const ILLUSTRATIVE = { from: 0.9, to: AT.logo } as const;

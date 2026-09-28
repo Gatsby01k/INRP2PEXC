@@ -114,7 +114,7 @@ export class RobotScene {
   /** A manual scene's time, and the pose it last reached. */
   private clock = 0;
   private reached: Pose = REST_POSE;
-  /** Where the robot's shot lies in a larger canvas (`frame`), or null for the stage's own framing. */
+  /** Where the robot's shot lies in a larger canvas (`place`), or null for the stage's own framing. */
   private box: ShotBox | null = null;
   /** The warm light of the page's orange on the robot (`light`), made only when first asked for. */
   private spill: HemisphereLight | null = null;

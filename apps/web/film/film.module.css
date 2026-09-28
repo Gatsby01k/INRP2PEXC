@@ -102,10 +102,6 @@
 
 /* ——— The film's lines, in the hero's headline slot, set one step smaller than its headline ——— */
 
-.super {
-  will-change: auto;
-}
-
 .superTitle.superTitle {
   margin: 0;
   font-size: var(--font-size-display);

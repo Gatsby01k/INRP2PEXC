@@ -25,15 +25,18 @@ import styles from './film.module.css';
 const RATE = formatRate(Rate.parse(TRADE.rate, 'CLIENT'));
 const time = (iso: string) => formatIstTime(new Date(iso));
 
-/** The product's entrance for something new: 220 ms, a few pixels of rise, on the product's curve. */
+/** The product's entrance for something new: a quarter of a second, a few pixels of rise, on the product's curve. */
 export function entrance(t: number, at: number, rise = 6): CSSProperties {
   const p = progress(t, at, at + 0.26, productEase);
   return p >= 1 ? {} : { opacity: p, transform: `translateY(${(1 - p) * rise}px)` };
 }
 
-/** Leaving: 140 ms, fading as the new state takes its place. */
+/** How long the old state takes to leave; the new one arrives once it has gone, as a page does in the workspace. */
+const LEAVE = 0.14;
+
+/** Leaving: fading out before the new state takes its place. */
 function exit(t: number, at: number): CSSProperties {
-  const p = progress(t, at, at + 0.16, productEase);
+  const p = progress(t, at, at + LEAVE, productEase);
   return p <= 0 ? {} : { opacity: 1 - p };
 }
 
@@ -271,11 +274,13 @@ export function ProductColumn({ t }: { t: number }) {
     return (
       <Surface>
         <div className={styles.stack} style={reveal < 1 ? { opacity: reveal } : undefined}>
-          <div style={exit(t, AT.quote)}>
-            <RequestTicket />
-          </div>
-          {t >= AT.quote ? (
-            <div style={entrance(t, AT.quote + 0.04)}>
+          {t < AT.quote + LEAVE ? (
+            <div style={exit(t, AT.quote)}>
+              <RequestTicket />
+            </div>
+          ) : null}
+          {t >= AT.quote + LEAVE ? (
+            <div style={entrance(t, AT.quote + LEAVE)}>
               <QuoteTicket t={t} />
             </div>
           ) : null}
@@ -287,11 +292,13 @@ export function ProductColumn({ t }: { t: number }) {
     return (
       <Surface>
         <div className={styles.stack}>
-          <div style={exit(t, AT.trade)}>
-            <QuoteTicket t={t} />
-          </div>
-          {t >= AT.trade ? (
-            <div style={entrance(t, AT.trade + 0.04)}>
+          {t < AT.trade + LEAVE ? (
+            <div style={exit(t, AT.trade)}>
+              <QuoteTicket t={t} />
+            </div>
+          ) : null}
+          {t >= AT.trade + LEAVE ? (
+            <div style={entrance(t, AT.trade + LEAVE)}>
               <TradeRecord t={t} />
             </div>
           ) : null}

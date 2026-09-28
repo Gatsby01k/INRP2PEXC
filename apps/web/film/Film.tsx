@@ -72,7 +72,7 @@ function SuperLine({ t }: { t: number }) {
   const leave = progress(t, line.to, line.to + 0.22, productEase);
   const style: CSSProperties = { opacity: rise * (1 - leave), transform: `translateY(${(1 - rise) * 10}px)` };
   return (
-    <div className={styles.super} style={style}>
+    <div style={style}>
       <p className={hero.eyebrow}>{line.eyebrow}</p>
       <p className={`${hero.title} ${styles.superTitle}`}>{line.text}</p>
     </div>
