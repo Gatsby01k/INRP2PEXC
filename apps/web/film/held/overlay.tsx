@@ -2,7 +2,7 @@ import type { CSSProperties, ReactNode } from 'react';
 import { Money, Rate } from '@inrp2p/kernel';
 import { Button, FirmQuote } from '@inrp2p/ui';
 import link from '../../src/app/q/[token]/link.module.css';
-import { AT, HELD_RATE, HOOK_MESSAGES as MESSAGES, HOOK_SHOUTS, TRADE, clamp01, illustrative, inOut, out, outExpo, productEase, span } from './score.ts';
+import { AT, DURATION, HELD_RATE, HOOK_MESSAGES as MESSAGES, HOOK_SHOUTS, TRADE, illustrative, inOut, out, outExpo, productEase, span } from './score.ts';
 import styles from './held.module.css';
 
 /**
@@ -84,9 +84,9 @@ function HeldCard({ t }: { t: number }) {
 
 // ——— the phone ————————————————————————————————————————————————————————————————————————————————————————
 
-function Device({ children, dark = false }: { children: ReactNode; dark?: boolean }) {
+function Device({ children }: { children: ReactNode }) {
   return (
-    <div className={styles.device} data-dark={dark || undefined}>
+    <div className={styles.device}>
       <div className={styles.screen}>{children}</div>
       <div className={styles.glass} />
     </div>
@@ -137,52 +137,17 @@ function QuotePhone({ t }: { t: number }) {
   );
 }
 
-/** The bank's own message on the lock screen, at night: the money has arrived. */
-function SmsPhone({ t }: { t: number }) {
-  const inbound = productEase(span(t, AT.ping - 0.05, AT.ping + 0.3));
-  const push = inOut(span(t, AT.sms, AT.pleased));
-  return (
-    <div className={styles.night}>
-      <div className={styles.nightGlow} />
-      {/* The camera closes on the bank's message until it is what the frame is about. */}
-      <div className={styles.nightCamera} style={{ transform: `translate(-50%, -50%) translateY(${push * 120}px) scale(${1.02 + push * 0.3})` }}>
-        <Device dark>
-          <div className={styles.lock}>
-            <p className={styles.lockDate}>Wednesday, 16 September</p>
-            <p className={styles.lockTime}>19:23</p>
-            <div className={styles.note} style={{ opacity: inbound, transform: `translateY(${(1 - inbound) * -26}px)` }}>
-              <span className={styles.noteIcon} aria-hidden="true">
-                <svg viewBox="0 0 24 24" width="22" height="22" fill="none">
-                  <path d="M5 6.5h14a1.5 1.5 0 0 1 1.5 1.5v7a1.5 1.5 0 0 1-1.5 1.5H10l-4 3v-3H5A1.5 1.5 0 0 1 3.5 15V8A1.5 1.5 0 0 1 5 6.5Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
-                </svg>
-              </span>
-              <div className={styles.noteText}>
-                <p className={styles.noteHead}>
-                  <span>BANK</span>
-                  <span>now</span>
-                </p>
-                <p className={styles.noteBody}>
-                  INR {TRADE.credited} credited to A/c {TRADE.account} by RTGS. UTR ••••{TRADE.utr}.
-                </p>
-              </div>
-            </div>
-          </div>
-        </Device>
-      </div>
-    </div>
-  );
-}
-
 // ——— the mark, and the last card ——————————————————————————————————————————————————————————————————————————
 
 /** The arcs' centre and centre-line radius in the supplied 1024-pixel mark, measured from the file. */
 const LOGO_ARCS = { x: 511.5, y: 514.5, r: 330 };
 
 function Finale({ t, registration }: { t: number; registration: Registration }) {
-  // From the chest's arcs, full frame, to the mark in its place on the card.
-  const end = registration.lockup ?? { x: 700, y: 640, size: 64 };
+  // From the chest's arcs, full frame, to the mark at the head of the card. The mark is drawn on its own field, and
+  // the card is that field: nothing changes colour, the mark only comes to rest.
+  const end = registration.lockup ?? { x: 872, y: 150, size: 176 };
   const start = registration.mark ?? { x: 960, y: 540, r: 250 };
-  const k = inOut(span(t, AT.lockup, AT.card - 0.05));
+  const k = inOut(span(t, AT.logo + 0.15, AT.card));
   const s0 = start.r / LOGO_ARCS.r;
   const s1 = end.size / 1024;
   const scale = s0 * (s1 / s0) ** k;
@@ -190,36 +155,36 @@ function Finale({ t, registration }: { t: number; registration: Registration }) 
   const cy0 = start.y - (LOGO_ARCS.y - 512) * s0;
   const cx = cx0 + (end.x + end.size / 2 - cx0) * k;
   const cy = cy0 + (end.y + end.size / 2 - cy0) * k;
-  // The mark is drawn on its own field; as it shrinks the field closes to the circle the site shows it in.
-  const round = k;
-  const cardIn = out(span(t, AT.card, AT.card + 0.7));
-  const lineIn = (i: number) => out(span(t, AT.card + 0.05 + i * 0.12, AT.card + 0.75 + i * 0.12));
+  const rise = (at: number, by = 18) => {
+    const e = out(span(t, at, at + 0.6));
+    return { opacity: e, transform: `translateY(${(1 - e) * by}px)` };
+  };
+  // Held, the card breathes in by a hair: alive, not moving.
+  const breathe = 1 + 0.018 * span(t, AT.card, DURATION);
   return (
     <div className={styles.finale}>
-      <div className={styles.field} style={{ opacity: 1 - span(t, AT.lockup, AT.lockup + 0.25) }} />
+      <div className={styles.breathe} style={{ transform: `scale(${breathe})` }}>
+      <div className={styles.card}>
+        <span className={styles.lockupSpace} data-film="lockup" aria-hidden="true" />
+        <p className={styles.name} style={rise(AT.card - 0.1, 10)}>
+          INRP2P Exchange
+        </p>
+        <p className={styles.line} style={rise(AT.card + 0.1)}>
+          The market moves.
+        </p>
+        <p className={`${styles.line} ${styles.lineStrong}`} style={rise(AT.card + 0.3)}>
+          Your rate doesn’t.
+        </p>
+        <span className={styles.cta} style={rise(AT.card + 0.6, 12)}>
+          Request a quote <span aria-hidden="true">→</span>
+        </span>
+      </div>
       <img
         src={MARK}
         alt=""
         className={styles.mark}
-        style={{
-          transform: `translate(${cx - 512 * scale}px, ${cy - 512 * scale}px) scale(${scale})`,
-          borderRadius: `${round * 50}%`,
-        }}
+        style={{ transform: `translate(${cx - 512 * scale}px, ${cy - 512 * scale}px) scale(${scale})` }}
       />
-      <div className={styles.card} style={{ opacity: clamp01(cardIn * 1.4) }}>
-        <p className={styles.line} style={{ opacity: lineIn(0), transform: `translateY(${(1 - lineIn(0)) * 14}px)` }}>
-          The market moves.
-        </p>
-        <p className={styles.line} style={{ opacity: lineIn(1), transform: `translateY(${(1 - lineIn(1)) * 14}px)` }}>
-          Your rate doesn’t.
-        </p>
-        <div className={styles.sign} style={{ opacity: lineIn(2), transform: `translateY(${(1 - lineIn(2)) * 10}px)` }}>
-          <span className={styles.lockupSpace} data-film="lockup" aria-hidden="true" />
-          <span className={styles.name}>INRP2P Exchange</span>
-          <span className={styles.cta}>
-            Request a quote <span aria-hidden="true">→</span>
-          </span>
-        </div>
       </div>
     </div>
   );
@@ -229,12 +194,10 @@ function Finale({ t, registration }: { t: number; registration: Registration }) 
 
 export function Overlay({ t, registration }: { t: number; registration: Registration }) {
   const tag = illustrative(t);
-  const dark = t >= AT.sms && t < AT.pleased;
   let scene: ReactNode = null;
   if (t < AT.hookEnd) scene = <Hook t={t} />;
   else if (t >= AT.held && t < AT.ringClose) scene = <HeldCard t={t} />;
   else if (t >= AT.phone && t < AT.resume) scene = <QuotePhone t={t} />;
-  else if (t >= AT.sms && t < AT.pleased) scene = <SmsPhone t={t} />;
   else if (t >= AT.logo) scene = <Finale t={t} registration={registration} />;
   const flash = outExpo(1 - span(t, AT.snap, AT.snap + 0.22)) * (t >= AT.snap ? 1 : 0);
   return (
@@ -242,7 +205,7 @@ export function Overlay({ t, registration }: { t: number; registration: Registra
       {scene}
       {flash > 0.01 && t < AT.frozen ? <div className={styles.flash} style={{ opacity: flash * 0.3 }} /> : null}
       {tag ? (
-        <p className={styles.tag} data-dark={dark || undefined}>
+        <p className={styles.tag}>
           Illustrative
         </p>
       ) : null}

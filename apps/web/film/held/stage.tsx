@@ -6,6 +6,8 @@ import { COLOR } from '@inrp2p/ui/tokens';
 import type { Pose } from '../../src/app/(public)/_landing/robot/behaviour.ts';
 import type { RobotCue } from '../../src/app/(public)/_landing/robot/cues.ts';
 import { MARK_ARC_RADIUS } from '../../src/app/(public)/_landing/robot/materials.ts';
+import { Handset } from './handset.ts';
+import { Monument } from './monument.ts';
 import { Overlay, type Registration } from './overlay.tsx';
 import { Price } from './price.ts';
 import { type ArcState, CLOSED, OPEN, Rings } from './rings.ts';
@@ -15,14 +17,18 @@ import {
   DURATION,
   FPS,
   FRAME,
+  HANDSET,
   HELD_RATE,
   type Lens,
+  MONUMENT,
   RING,
   ROBOT_CUES,
   SHOTS,
+  TRADE,
   WAVE_SPEED,
   inOut,
   out,
+  productEase,
   shotAt,
   smooth,
   span,
@@ -30,7 +36,7 @@ import {
   worldShown,
 } from './score.ts';
 import { renderSoundtrack } from './sound.ts';
-import { Storm, type StormFrame } from './storm.ts';
+import { type Obstacle, Storm, type StormFrame } from './storm.ts';
 import { World } from './world.ts';
 
 /**
@@ -71,13 +77,15 @@ let storm!: Storm;
 let rings!: Rings;
 let price!: Price;
 let ringLight!: PointLight;
+let monument!: Monument;
+let handset!: Handset;
 let anchors!: Anchors;
 /** Where the 3D ring sits on screen as the film cuts to the phone: the product's own ring takes its place. */
 let ringOnScreen = { x: FRAME.width / 2, y: FRAME.height / 2, r: 240 };
 
 const ready = (async () => {
   // The storm and the price are set in Geist on canvases: the faces must be loaded before a letter is drawn.
-  await Promise.all(['600 104px Geist', '500 20px Geist', '400 20px Geist'].map((f) => document.fonts.load(f)));
+  await Promise.all(['600 104px Geist', '500 20px Geist', '400 20px Geist', '600 520px Geist'].map((f) => document.fonts.load(f)));
   await document.fonts.ready;
   canvas.style.width = `${FRAME.width}px`;
   canvas.style.height = `${FRAME.height}px`;
@@ -89,7 +97,14 @@ const ready = (async () => {
   ringLight.position.copy(RING.centre);
   // The price hangs where the ring will close, facing the robot's audience.
   price.mesh.position.copy(RING.centre);
-  world.scene.add(storm.mesh, ...rings.arcs, rings.wave, price.mesh, ringLight);
+  // The rate, set in the ground behind the robot; it stands from the moment the market moves again.
+  monument = new Monument({ text: `₹${HELD_RATE}`, height: MONUMENT.height, depth: MONUMENT.depth, x: MONUMENT.x, z: MONUMENT.z });
+  // The client's phone, face up on the plain at dusk (text set as the site sets it; figures illustrative).
+  handset = new Handset({ date: 'Wednesday, 16 September', time: '18:52', sender: 'BANK', body: `INR ${TRADE.credited} credited to A/c ${TRADE.account} by RTGS. UTR ••••${TRADE.utr}.` });
+  handset.group.position.copy(HANDSET.at);
+  handset.group.rotation.order = 'YXZ';
+  handset.group.rotation.set(-Math.PI / 2, HANDSET.yaw, 0);
+  world.scene.add(storm.mesh, ...rings.arcs, rings.wave, price.mesh, ringLight, monument.mesh, handset.group);
   world.moveRobot(PREROLL, { cues: [], look: { viewer: new Vector3(0, 0.4, 30) } });
   anchors = { mark: world.figure.mark.getWorldPosition(new Vector3()).add(new Vector3(0, 0, 0.03)) };
   await world.ready();
@@ -99,8 +114,8 @@ const ready = (async () => {
   setCamera(ringShot.lens(1, AT.phone, anchors), 0, 0);
   ringOnScreen = project(RING.centre, new Vector3(RING.radius, 0, 0));
 
-  // Where the mark comes to rest on the last card.
-  draw(AT.card + 1);
+  // Where the mark comes to rest on the last card (measured as the card lands, before it breathes).
+  draw(AT.card);
   const lockup = q('[data-film="lockup"]');
   if (lockup) {
     const r = lockup.getBoundingClientRect();
@@ -163,11 +178,17 @@ function acting(t: number) {
       return t < AT.ending ? charge * leave : home;
     };
     const hub = t < AT.ending ? smooth(span(t, AT.charge[2] + 0.15, AT.charge[2] + 0.3)) * 2 * (1 - span(t, AT.launch, AT.launch + 0.2)) : smooth(span(t, AT.hub, AT.hub + 0.25)) * 1.4;
+    // While the market streams past, the mark on its chest holds, lit: the rate, kept.
+    const kept = t >= AT.resume && t < AT.sms ? smooth(span(t, AT.resume, AT.restart)) * 0.9 : 0;
+    // Level and sure: never a smile, the upper lids a touch lowered once the money is in.
+    const calm = t >= AT.sms ? 0.12 : 0;
     return {
       ...pose,
       eyeOpen: pose.eyeOpen * open,
-      arcGlow: [pose.arcGlow[0] + arc(0), pose.arcGlow[1] + arc(1), pose.arcGlow[2] + arc(2)],
-      hubGlow: pose.hubGlow + hub,
+      smile: 0,
+      lid: Math.max(pose.lid, calm),
+      arcGlow: [pose.arcGlow[0] + arc(0) + kept, pose.arcGlow[1] + arc(1) + kept, pose.arcGlow[2] + arc(2) + kept],
+      hubGlow: pose.hubGlow + hub + kept * 0.8,
     };
   };
 }
@@ -191,11 +212,11 @@ const CARD_FROM_MARK = new Quaternion().setFromEuler(new Euler(-Math.PI / 2, 0, 
 function setLock(ts: number): void {
   // The figure the market shows is the frame's own, whole across its exposure: a price is read, not smeared.
   const moving = Price.moving(Math.round(ts * FPS) / FPS);
-  if (ts < AT.launch || ts >= AT.sms) {
+  if (ts < AT.launch || ts >= AT.resume) {
     rings.set([null, null, null]);
     rings.setWave(RING.centre, FRONT, 1, 0);
     ringLight.intensity = 0;
-    price.show(moving, ts >= AT.price && ts < AT.sms ? smooth(span(ts, AT.price, AT.price + 0.5)) : 0);
+    price.show(moving, ts >= AT.price && ts < AT.resume ? smooth(span(ts, AT.price, AT.price + 0.5)) : 0);
     return;
   }
   const from = world.figure.mark.getWorldPosition(new Vector3());
@@ -206,7 +227,7 @@ function setLock(ts: number): void {
       if (p <= 0) return null;
       const lift = out(p);
       // Up and forward from the chest to the price, on a curve; growing all the way; spinning up, then settling.
-      const control = from.clone().add(new Vector3(0, 1.7, 2.6));
+      const control = from.clone().add(new Vector3(0, 1.3, 1.7));
       const a = from.clone().lerp(control, lift);
       const b = control.clone().lerp(RING.centre, lift);
       const position = a.lerp(b, lift);
@@ -226,16 +247,22 @@ function setLock(ts: number): void {
   price.show(ts < AT.snap ? moving : HELD_RATE, 1);
 }
 
+/** The robot, as a window the storm keeps out of and an obstacle the torrent goes round. */
+const ROBOT_BODY = { centre: new Vector3(0, -0.75, 0.1), radius: 1.9 };
+
 function stormFrame(ts: number, lens: Lens): StormFrame {
   const distance = lens.pos.distanceTo(lens.at);
+  const torrent = ts >= AT.resume && ts < AT.sms;
+  const obstacles: Obstacle[] = [{ kind: 'box', ...monument.box }, { kind: 'sphere', centre: ROBOT_BODY.centre, radius: ROBOT_BODY.radius }];
   return {
     t: ts,
     force: smooth(span(ts, AT.reveal - 0.3, AT.reveal + 1.0)),
     freeze: { at: AT.snap, origin: RING.centre, speed: WAVE_SPEED },
     resume: AT.restart,
     ring: ts >= AT.restart ? { centre: RING.centre, normal: new Vector3(0, 0, 1), radius: RING.radius } : null,
-    fallen: ts >= AT.pleased ? 1 : 0,
-    clear: ts >= AT.price && ts < AT.sms ? { centre: RING.centre, radius: RING.radius } : null,
+    fallen: ts >= AT.sms ? 1 : 0,
+    clear: [...(ts >= AT.price && ts < AT.resume ? [{ centre: RING.centre, radius: RING.radius }] : []), ROBOT_BODY],
+    torrent: torrent ? { since: ts - AT.restart, obstacles } : null,
     focus: { distance, depth: Math.max(1.2, distance * 0.85) },
   };
 }
@@ -266,6 +293,9 @@ function placePhone(t: number): void {
   if (!device) return;
   const dr = device.getBoundingClientRect();
   const accept = [...device.querySelectorAll('button')].find((b) => b.textContent?.includes('Accept'));
+  // The accepted rate, as the quote shows it: the camera punches into it for the cut to the rate in the ground.
+  const figure = [...device.querySelectorAll('*')].find((e) => e.childElementCount === 0 && e.textContent?.trim() === `₹${HELD_RATE}`);
+  const fr = figure?.getBoundingClientRect();
   const rr = ring?.getBoundingClientRect();
   const ringC = rr ? { x: rr.x + rr.width / 2, y: rr.y + rr.height / 2 } : null;
   // Measured while the quote is open (accepted, the countdown and the button are gone), and kept.
@@ -280,11 +310,17 @@ function placePhone(t: number): void {
   const k = ringC ? inOut(span(t, AT.phone + 0.08, AT.phone + 1.25)) : 1;
   const start = ringC && rr ? { s: ringOnScreen.r / (rr.width / 2), x: ringOnScreen.x, y: ringOnScreen.y, ox: ringC.x, oy: ringC.y } : rest;
   const push = 1 + 0.035 * span(t, AT.accepted, AT.resume);
-  const s = start.s * (rest.s / start.s) ** k * push;
-  const ox = start.ox + (rest.ox - start.ox) * k;
-  const oy = start.oy + (rest.oy - start.oy) * k;
+  let s = start.s * (rest.s / start.s) ** k * push;
+  let ox = start.ox + (rest.ox - start.ox) * k;
+  let oy = start.oy + (rest.oy - start.oy) * k;
   const x = start.x + (rest.x - start.x) * k;
   const y = start.y + (rest.y - start.y) * k;
+  const punch = span(t, AT.resume - 0.5, AT.resume) ** 3;
+  if (punch > 0 && fr) {
+    s *= 3.6 ** punch;
+    ox += (fr.x + fr.width / 2 - ox) * punch;
+    oy += (fr.y + fr.height / 2 - oy) * punch;
+  }
   camera.style.transform = `translate(${x - ox * s}px, ${y - oy * s}px) scale(${s})`;
   // The thumb lands on "Accept quote".
   const touch = q('[data-film="touch"]');
@@ -310,7 +346,13 @@ async function seek(t: number): Promise<void> {
   }
   canvas.style.visibility = 'visible';
   const shot = shotAt(t)!;
-  world.evening = t >= AT.pleased ? 1 : 0;
+  // The day goes while the market streams past; dusk when the money arrives.
+  world.evening = t >= AT.sms ? 1 : t >= AT.resume ? 0.55 * smooth(span(t, AT.resume, AT.sms)) : 0;
+  monument.mesh.visible = t >= AT.resume;
+  handset.group.visible = shot.name === 'message';
+  // At dusk the plain is clear round the phone: the storm is over, and nothing competes with the message.
+  storm.mesh.visible = shot.name !== 'message';
+  handset.show(out(span(t, AT.ping - 0.02, AT.ping + 0.14)), productEase(span(t, AT.ping, AT.ping + 0.35)));
   const lensNow = shot.lens(span(t, shot.from, shot.to), t, anchors);
   world.moveRobot(t + PREROLL, {
     cues,

@@ -14,8 +14,9 @@ import { AT, DURATION, FPS, HOOK_MESSAGES, HOOK_SHOUTS, clamp01, smooth, span } 
  * than heard — and the storm's tape stops. Then silence, which is what the film is about.
  *
  * After it, only a few quiet sounds, each for something that matters: the word; the ring's note; the quote accepted,
- * with the product's own sound; the storm coming back while the ring's note does not move; one clean ping when the
- * money arrives; and the arcs' notes again as the mark is made whole, over A. The last card is silent.
+ * with the product's own sound; the weight of the rate set in the ground, and the market streaming back round it
+ * while the rate's note does not move; one clean ping when the money arrives; and the arcs' notes again as the mark
+ * is made whole, over A. The last card is silent.
  *
  * Everything is computed here, sample by sample or with Web Audio, and rendered offline: the same soundtrack every
  * time, exact to the score. Every sound starts on the frame its picture does, never ahead of it.
@@ -198,7 +199,7 @@ function storm(mix: Mix): void {
     [AT.restart, 1500],
     [AT.restart + TAPE.start, 15000, 'exp'],
     [20, 15000],
-    // Closing on the ring, the one still place in it.
+    // The camera lifting away from the torrent, over the rate.
     [sms, 5500, 'exp'],
   ]);
 
@@ -300,9 +301,8 @@ function word(mix: Mix): void {
 }
 
 /**
- * The ring's note, A and the E above it: quiet from the ring on, under the phone, and steady through the storm's
- * return — the one thing in the film that does not move — growing as the camera closes on it. It lets go at the
- * cut to night.
+ * The rate's note, A and the E above it: quiet from the ring on, under the phone, and steady through the market's
+ * return round the monument — the one thing in the film that does not move. It lets go at the cut to dusk.
  */
 function ring(mix: Mix): void {
   const on = heard(AT.ringClose);
@@ -326,9 +326,10 @@ function ring(mix: Mix): void {
   note.buffer = ringNote(mix.ctx, sms + 1.6 - on);
   note.connect(level);
   note.start(on);
-  // The storm comes back: a breath in before it.
+  // The cut to the rate set in the ground: the weight of it, low, before the market comes back round it.
   const resume = heard(AT.resume);
-  mix.play(whoosh(mix.ctx, { seconds: AT.restart - resume, from: 200, to: 1400, peak: 1, q: 1, pan: [0, 0], seed: 141 }), resume, mix.channel({ level: 0.18 }));
+  mix.play(blow(mix.ctx, { from: 72, to: 36, decay: 1.1, sub: 31 }), resume, mix.channel({ level: 0.6, hall: 0.12 }));
+  strike(mix.ctx, mix.mallet(900, { level: 0.5, room: 0.3, hall: 0.25 }), resume + 0.01, A1, 0.7, 2.4, 0.1);
 }
 
 /** The quote on the phone: its seconds; the thumb on the glass; the product's own sound for a quote accepted. */
@@ -341,7 +342,7 @@ function phone(mix: Mix): void {
   for (const s of FIGURES.success.strikes) strike(ctx, product, heard(AT.accepted) + s.at, s.freq, s.level, s.decay, s.bright);
 }
 
-/** Night, and the bank's message: one clean ping. */
+/** Dusk, and the bank's message: one clean ping as the phone wakes. */
 function night(mix: Mix): void {
   mix.play(ping(mix.ctx), heard(AT.ping), mix.channel({ level: 0.3, room: 0.35, hall: 0.12 }));
 }

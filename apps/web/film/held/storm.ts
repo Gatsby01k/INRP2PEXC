@@ -94,11 +94,21 @@ export interface StormFrame {
   readonly ring: { readonly centre: Vector3; readonly normal: Vector3; readonly radius: number } | null;
   /** 1 once every word lies on the plain. */
   readonly fallen: number;
-  /** The window round the price that no word may cross in front of (what lies behind it is dimmed), or null. */
-  readonly clear: { readonly centre: Vector3; readonly radius: number } | null;
+  /** Windows no word may cross in front of (what lies behind one is dimmed): round the price, round the robot. */
+  readonly clear: readonly { readonly centre: Vector3; readonly radius: number }[];
+  /**
+   * The market as a torrent instead of a storm: every word in a lane, streaming past left to right, going round
+   * what stands in its way. `since` is seconds since it started to move (before that it hangs, stopped).
+   */
+  readonly torrent: { readonly since: number; readonly obstacles: readonly Obstacle[] } | null;
   /** Where the lens is focused, and how deep its field is (units). */
   readonly focus: { readonly distance: number; readonly depth: number };
 }
+
+/** Something the torrent goes round: a box standing on the plain, or a sphere. */
+export type Obstacle =
+  | { readonly kind: 'box'; readonly x0: number; readonly x1: number; readonly z0: number; readonly z1: number; readonly top: number }
+  | { readonly kind: 'sphere'; readonly centre: Vector3; readonly radius: number };
 
 interface Card {
   readonly entry: number;
@@ -220,17 +230,27 @@ export class Storm {
     const view = camera.matrixWorldInverse;
     const camPos = camera.position;
     const temp = new Vector3();
-    // The window, as the lens sees it: a centre and radius in view space, per unit of depth.
-    const win = frame.clear ? frame.clear.centre.clone().applyMatrix4(view) : null;
-    const window = win && win.z < 0 ? { x: win.x / -win.z, y: win.y / -win.z, r: frame.clear!.radius / -win.z, depth: -win.z } : null;
+    // The windows, as the lens sees them: a centre and radius in view space, per unit of depth.
+    const windows = frame.clear
+      .map((w) => ({ c: w.centre.clone().applyMatrix4(view), radius: w.radius }))
+      .filter((w) => w.c.z < 0)
+      .map((w) => ({ x: w.c.x / -w.c.z, y: w.c.y / -w.c.z, r: w.radius / -w.c.z, depth: -w.c.z }));
     for (let i = 0; i < COUNT; i++) {
       const c = this.cards[i]!;
-      const clock = this.clock(c, frame);
       const p = this.positions[i]!;
       const q = this.rotations[i]!;
-      this.place(c, clock, p, q);
-      if (frame.ring && frame.resume !== null && t > frame.resume) this.flowAround(p, frame.ring, t - frame.resume);
-      if (frame.fallen > 0) this.fall(c, p, q, frame.fallen, camPos);
+      let clock: number;
+      if (frame.torrent) {
+        const since = frame.torrent.since;
+        // Up to speed over half a second, as a stopped tape is.
+        clock = since <= 0 ? 0 : since < 0.5 ? since * since : since - 0.25;
+        this.stream(c, clock, p, q, frame.torrent.obstacles);
+      } else {
+        clock = this.clock(c, frame);
+        this.place(c, clock, p, q);
+        if (frame.ring && frame.resume !== null && t > frame.resume) this.flowAround(p, frame.ring, t - frame.resume);
+        if (frame.fallen > 0) this.fall(c, p, q, frame.fallen, camPos);
+      }
       const e = this.entries[this.entryAt(c, clock)]!;
       const h = c.size;
       this.scales[i]!.set(h * e.aspect, h, 1);
@@ -243,12 +263,13 @@ export class Storm {
       const defocus = Math.abs(distance - frame.focus.distance) / frame.focus.depth;
       const blur = Math.min(5.5, defocus * 2.2);
       // Out of focus, a word's ink spreads thin, as a lens spreads light: it veils less, not more.
-      let seen = (frame.fallen > 0 ? 0.4 : grow) / (1 + 0.18 * blur);
-      if (window && distance > 0) {
+      let seen = (frame.torrent ? 1 : frame.fallen > 0 ? 0.4 : grow) / (1 + 0.18 * blur);
+      for (const window of windows) {
+        if (distance <= 0) break;
         const off = Math.hypot(temp.x / distance - window.x, temp.y / distance - window.y);
         const overlap = window.r * 1.08 + (h * e.aspect * 0.5) / distance - off;
         const inside = Math.min(1, Math.max(0, overlap / (window.r * 0.35)));
-        // In front of the price: gone. Behind it: dimmed, so the figure is always what is read.
+        // In front of it: gone. Behind it: dimmed, so what the window holds is always what is read.
         seen *= 1 - inside * (distance < window.depth + 0.4 ? 1 : 0.7);
       }
       this.visible[i] = seen;
@@ -303,6 +324,40 @@ export class Storm {
       q.setFromAxisAngle(c.axis, c.spin * s + c.phase);
     }
     return p;
+  }
+
+  /** A card in the torrent at its clock `s`: its lane, its speed, and the way round whatever is in the way. */
+  private stream(c: Card, s: number, p: Vector3, q: Quaternion, obstacles: readonly Obstacle[]): void {
+    const SPAN = 150;
+    const u = c.angle / (Math.PI * 2);
+    const lane = (c.phase / (Math.PI * 2)) % 1;
+    const speed = 14 + 30 * ((c.bobRate - 0.4) / 0.9);
+    const x = ((((-SPAN / 2 + u * SPAN + speed * s) % SPAN) + SPAN * 1.5) % SPAN) - SPAN / 2;
+    // Most of it low and near, the way a flood is: heights crowd the plain, depths crowd the middle distance.
+    const y = FLOOR_Y + 0.35 + 13 * ((lane * 7.31) % 1) ** 1.6;
+    const z = -34 + 44 * ((lane * 3.17 + u * 1.93) % 1);
+    p.set(x, y + 0.25 * Math.sin(s * c.bobRate * 3 + c.phase), z);
+    for (const o of obstacles) {
+      if (o.kind === 'box') {
+        // Round a building: whatever would run into it is carried in front or behind, and over its top.
+        const ramp = 7;
+        const along = Math.min(1, Math.max(0, (p.x - (o.x0 - ramp)) / ramp)) * Math.min(1, Math.max(0, (o.x1 + ramp - p.x) / ramp));
+        const mid = (o.z0 + o.z1) / 2;
+        const half = (o.z1 - o.z0) / 2 + 2.6;
+        const dz = p.z - mid;
+        if (Math.abs(dz) < half && p.y < o.top + 1.2 && along > 0) {
+          const push = (half - Math.abs(dz)) * along * smoothstep(p.y, o.top + 1.2, o.top - 1.5);
+          p.z += Math.sign(dz || 1) * push;
+        }
+      } else {
+        const d = p.clone().sub(o.centre);
+        d.x *= 0.45;
+        const r = d.length();
+        const reach = o.radius * 1.6;
+        if (r < reach && r > 1e-4) p.addScaledVector(d.multiplyScalar(1 / r), (reach - r) * 0.9);
+      }
+    }
+    q.setFromEuler(new Euler(0.12 * Math.sin(s * 1.7 + c.phase), 0.2 * Math.sin(c.phase * 3), 0.1 * Math.sin(s * 1.1 + c.phase * 2)));
   }
 
   /** Once the market resumes, the ring's air stays clear: anything that would pass through is pushed round it. */
@@ -426,4 +481,10 @@ export class Storm {
     texture.anisotropy = 8;
     return texture;
   }
+}
+
+/** 0 at `a`, 1 at `b` (either way round), smooth between. */
+function smoothstep(v: number, a: number, b: number): number {
+  const x = Math.min(1, Math.max(0, (a - v) / (a - b)));
+  return x * x * (3 - 2 * x);
 }

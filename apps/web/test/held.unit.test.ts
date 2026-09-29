@@ -50,6 +50,11 @@ describe('the film', () => {
     expect(DURATION - AT.card).toBeGreaterThanOrEqual(2);
   });
 
+  it('stays in the world from the market’s return to the mark: the monument, the phone at dusk, the robot', () => {
+    for (const t of FRAMES.filter((f) => f >= AT.resume && f < AT.logo)) expect(worldShown(t), `${t.toFixed(3)} s`).toBe(true);
+    expect(SHOTS.map((s) => s.name)).toEqual(expect.arrayContaining(['monument', 'message']));
+  });
+
   it('frames a shot whenever it is in the world, and only then', () => {
     for (const t of FRAMES) expect(shotAt(t) !== null, `${t.toFixed(3)} s`).toBe(worldShown(t));
     for (let i = 1; i < SHOTS.length; i++) expect(SHOTS[i]!.from).toBeGreaterThanOrEqual(SHOTS[i - 1]!.to);
@@ -72,20 +77,20 @@ describe('the rate, held', () => {
   });
 
   it('is labelled as an illustration wherever a figure of the product is on screen, and nowhere else', () => {
-    const shown = { 'the price in the sky': 9.6, 'the ring closing': 11.9, 'the frozen world': 13, 'the ring': 15.5, 'the quote': 16.5, 'the market again': 19.5, 'the bank': 22.4 };
+    const shown = { 'the price in the sky': 9.6, 'the ring closing': 11.9, 'the frozen world': 13, 'the ring': 15.5, 'the quote': 16.5, 'the rate in the ground': 19.5, 'the bank': 22.4, 'the rate behind the robot': 24.6 };
     for (const [what, t] of Object.entries(shown)) expect(illustrative(t), what).toBe(true);
-    const clear = { 'the chat': 2, 'the eyes': 5.3, 'the word': 14.5, 'the robot, pleased': 23.8, 'the mark': 27, 'the card': 29 };
+    const clear = { 'the chat': 2, 'the eyes': 5.3, 'the word': 14.5, 'the mark': 27, 'the card': 29 };
     for (const [what, t] of Object.entries(clear)) expect(illustrative(t), what).toBe(false);
   });
 });
 
 describe('the robot', () => {
-  it('reads the price only once it is there, and is pleased only once the money has arrived', () => {
+  it('reads the price only once it is there — and never performs: it is not made to smile', () => {
     expect(ROBOT_CUES.map((c) => c.at)).toEqual([...ROBOT_CUES.map((c) => c.at)].sort((a, b) => a - b));
     const read = ROBOT_CUES.find((c) => c.cue.kind === 'rate')!;
     expect(read.at).toBeGreaterThan(AT.price);
-    const pleased = ROBOT_CUES.find((c) => c.cue.kind === 'mood' && c.cue.mood === 'success')!;
-    expect(pleased.at).toBeGreaterThan(AT.ping);
+    const moods: readonly string[] = ROBOT_CUES.flatMap((c) => (c.cue.kind === 'mood' ? [c.cue.mood] : []));
+    expect(moods).not.toContain('success');
   });
 });
 
