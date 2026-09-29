@@ -51,6 +51,8 @@ export interface Figure {
   readonly root: Group;
   /** The chest mark, whose own frame has the disc in x–z with its face towards +y: where the film finds its arcs. */
   readonly mark: Object3D;
+  /** The antenna, pivoting at its collar on the crown: the one part a film's wind may move. */
+  readonly antenna: Object3D;
   apply(pose: Pose): void;
   dispose(): void;
 }
@@ -213,6 +215,7 @@ export function buildFigure(): Figure {
   return {
     root,
     mark,
+    antenna,
     apply(pose) {
       const load = pose.load;
       hips.rotation.set(pose.torsoPitch, pose.torsoYaw, pose.torsoRoll);

@@ -1,5 +1,6 @@
 /**
- * The preview: the stage in a frame scaled to the window, a scrubber, and play — the soundtrack in time with it.
+ * The preview (`?film=held` for HELD): the stage in a frame scaled to the window, a scrubber, and play — the
+ * soundtrack in time with it.
  * Playing asks the stage for the frame at the audio clock's time, as fast as the stage can draw; a slow machine
  * drops frames rather than drifting from the sound. The render (`scripts/film.ts`) is what makes the film itself.
  */
@@ -11,8 +12,17 @@ const play = document.querySelector<HTMLButtonElement>('#play')!;
 const scrub = document.querySelector<HTMLInputElement>('#scrub')!;
 const time = document.querySelector('output')!;
 
+const FILMS: Record<string, { src: string; width: number; height: number }> = {
+  'three-arcs': { src: './film.html', width: 1600, height: 900 },
+  held: { src: './held/held.html', width: 1920, height: 1080 },
+};
+const chosen = FILMS[new URLSearchParams(location.search).get('film') ?? 'three-arcs'] ?? FILMS['three-arcs']!;
+iframe.style.width = `${chosen.width}px`;
+iframe.style.height = `${chosen.height}px`;
+iframe.src = chosen.src;
+
 const fit = () => {
-  const s = Math.min(frame.clientWidth / 1600, frame.clientHeight / 900);
+  const s = Math.min(frame.clientWidth / chosen.width, frame.clientHeight / chosen.height);
   iframe.style.transform = `scale(${s}) translate(-50%, -50%)`;
 };
 new ResizeObserver(fit).observe(frame);

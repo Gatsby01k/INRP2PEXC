@@ -18,6 +18,8 @@ pnpm --filter @inrp2p/ui storybook                              # component gall
 bash packages/ui/visual/docker.sh compare                        # axe + visual + reduced motion, canonical image (docs/VISUAL_BASELINES.md)
 pnpm --filter @inrp2p/web film:preview                           # "Three Arcs", the flagship film: preview with scrubber and sound
 FFMPEG=/path/to/ffmpeg pnpm --filter @inrp2p/web film:render -- --out three-arcs.mp4   # render it (H.264 + AAC, 1920×1080)
+pnpm --filter @inrp2p/web film:preview -- --film held            # "HELD", the advertisement (--film held works with every film: command)
+FFMPEG=/path/to/ffmpeg pnpm --filter @inrp2p/web film:render -- --film held --out held.mp4
 ```
 
 ## Documents

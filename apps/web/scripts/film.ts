@@ -7,11 +7,14 @@ import { type Browser, chromium } from '@playwright/test';
 import { createServer } from 'vite';
 
 /**
- * "Three Arcs", the flagship film (`apps/web/film`): previewed in a browser, or rendered to a video file.
+ * The films (`apps/web/film`): "Three Arcs", the product film, and "HELD", the advertisement (`--film held`) —
+ * previewed in a browser, or rendered to a video file.
  *
  *   pnpm --filter @inrp2p/web film:preview                       # a local page with the film, a scrubber and sound
  *   pnpm --filter @inrp2p/web film:render -- --out three-arcs.mp4 # every frame, the soundtrack, encoded
+ *   pnpm --filter @inrp2p/web film:render -- --film held          # HELD, to held.mp4
  *   pnpm --filter @inrp2p/web film:stills -- --at 3,9.5,20.5 --out stills  # chosen moments, as PNGs
+ *   pnpm --filter @inrp2p/web film:soundtrack -- --film held      # the soundtrack alone, as a WAV
  *
  * Rendering draws the film one frame at a time, in software WebGL (the same result on any machine), with the robot
  * moved exactly as far as each frame asks: a slow frame is the same frame. It photographs each, renders the
@@ -22,11 +25,35 @@ const APP = fileURLToPath(new URL('..', import.meta.url));
 const REPO = path.resolve(APP, '../..');
 const FILM = path.join(APP, 'film');
 
+/** The films' third-party modules, bundled up front (`optimizeDeps`). */
+const OPTIMIZED = [
+  'react',
+  'react/jsx-runtime',
+  'react-dom',
+  'react-dom/client',
+  'framer-motion',
+  'three',
+  'three/addons/postprocessing/EffectComposer.js',
+  'three/addons/postprocessing/Pass.js',
+  'three/addons/postprocessing/OutputPass.js',
+  'three/addons/postprocessing/ShaderPass.js',
+  'three/addons/postprocessing/UnrealBloomPass.js',
+];
+
 const [mode = 'preview', ...rest] = process.argv.slice(2).filter((a) => a !== '--');
 const option = (name: string) => {
   const i = rest.indexOf(`--${name}`);
   return i >= 0 ? rest[i + 1] : undefined;
 };
+
+/** Each film: its stage, and the size it is drawn at (HELD is drawn at its full 1920 × 1080). */
+const FILMS = {
+  'three-arcs': { page: 'film.html', viewport: { width: 1600, height: 900 }, scale: 1.2 },
+  held: { page: 'held/held.html', viewport: { width: 1920, height: 1080 }, scale: 1 },
+} as const;
+const name = option('film') ?? 'three-arcs';
+if (!(name in FILMS)) throw new Error(`unknown film "${name}": ${Object.keys(FILMS).join(' or ')}`);
+const FILM_PAGE = FILMS[name as keyof typeof FILMS];
 
 const server = await createServer({
   root: FILM,
@@ -35,6 +62,9 @@ const server = await createServer({
   // The app compiles its JSX with Next; here Vite does, with React's automatic runtime.
   oxc: { jsx: { runtime: 'automatic' } },
   resolve: { alias: { 'node:crypto': path.join(FILM, 'node-crypto.ts') } },
+  // Every dependency the pages use, bundled before the first request: the optimiser must never discover one late
+  // and reload a page halfway through a render.
+  optimizeDeps: { include: OPTIMIZED },
   server: {
     port: mode === 'preview' ? Number(option('port') ?? 5178) : 0,
     host: '127.0.0.1',
@@ -49,27 +79,27 @@ if (!address || typeof address === 'string') throw new Error('vite did not repor
 const origin = `http://127.0.0.1:${address.port}`;
 
 if (mode === 'preview') {
-  console.log(`Three Arcs: ${origin}/  (the stage alone: ${origin}/film.html)`);
-} else if (mode === 'render' || mode === 'stills') {
+  console.log(`${name}: ${origin}/?film=${name}  (the stage alone: ${origin}/${FILM_PAGE.page})`);
+} else if (mode === 'render' || mode === 'stills' || mode === 'soundtrack') {
   try {
-    await (mode === 'render' ? render() : stills());
+    await (mode === 'render' ? render() : mode === 'stills' ? stills() : soundtrack());
   } finally {
     await server.close();
   }
 } else {
   await server.close();
-  throw new Error(`unknown mode "${mode}": preview, render or stills`);
+  throw new Error(`unknown mode "${mode}": preview, render, stills or soundtrack`);
 }
 
 /** The film's page in software WebGL at 1920 × 1080, loaded and ready, with anything it reports as an error collected. */
 async function open(browser: Browser) {
-  const page = await browser.newPage({ viewport: { width: 1600, height: 900 }, deviceScaleFactor: 1.2 });
+  const page = await browser.newPage({ viewport: FILM_PAGE.viewport, deviceScaleFactor: FILM_PAGE.scale });
   const failures: string[] = [];
   page.on('pageerror', (e) => failures.push(e.message));
   page.on('console', (m) => {
     if (m.type() === 'error') failures.push(m.text());
   });
-  await page.goto(`${origin}/film.html`);
+  await page.goto(`${origin}/${FILM_PAGE.page}`);
   await page.waitForFunction(() => 'film' in window, null, { timeout: 120_000 });
   await page.evaluate(() => window.film.ready);
   if (failures.length) throw new Error(`the film did not load cleanly:\n${failures.join('\n')}`);
@@ -99,8 +129,20 @@ async function stills(): Promise<void> {
   }
 }
 
+async function soundtrack(): Promise<void> {
+  const out = path.resolve(option('out') ?? path.join(REPO, `${name}.wav`));
+  const browser = await launch();
+  try {
+    const { page } = await open(browser);
+    writeFileSync(out, Buffer.from(await page.evaluate(() => window.film.soundtrack()), 'base64'));
+    console.log(path.relative(process.cwd(), out));
+  } finally {
+    await browser.close();
+  }
+}
+
 async function render(): Promise<void> {
-  const out = path.resolve(option('out') ?? path.join(REPO, 'three-arcs.mp4'));
+  const out = path.resolve(option('out') ?? path.join(REPO, `${name}.mp4`));
   const keep = option('frames');
   const frames = keep ? path.resolve(keep) : mkdtempSync(path.join(tmpdir(), 'inrp2p-film-'));
   mkdirSync(frames, { recursive: true });

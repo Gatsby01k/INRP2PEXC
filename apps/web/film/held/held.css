@@ -1,0 +1,32 @@
+/* HELD's page: the design system's tokens, fonts and base rules on a fixed 1920 × 1080 frame. Nothing scrolls,
+   nothing blinks, nothing answers a pointer: the film is drawn, not used. */
+@import '../../src/app/globals.css';
+
+html,
+body {
+  width: 1920px;
+  height: 1080px;
+  margin: 0;
+  overflow: hidden;
+  background: #0b0c0e;
+}
+
+body {
+  caret-color: transparent;
+  pointer-events: none;
+}
+
+#world {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 0;
+  width: 1920px;
+  height: 1080px;
+}
+
+#overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2;
+}
