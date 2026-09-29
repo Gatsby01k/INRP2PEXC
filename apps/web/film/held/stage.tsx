@@ -106,6 +106,9 @@ const ready = (async () => {
     const r = lockup.getBoundingClientRect();
     registration.lockup = { x: r.x, y: r.y, size: r.width };
   }
+  // Where the phone comes to rest, measured on the open quote, so any frame can be drawn in any order.
+  draw(AT.phone + 1);
+  placePhone(AT.phone + 1);
   draw(0);
 })();
 
@@ -250,7 +253,10 @@ function runMotion(t: number) {
   }
 }
 
-/** The phone: from the product's ring, where the sky's ring was, back to the whole quote. */
+/** Where the phone comes to rest, on the phone, unscaled: the quote itself — its price, its countdown, its Accept. */
+let quoteFocus: { x: number; y: number } | null = null;
+
+/** The phone: from the product's ring, where the sky's ring was, back to the quote, close enough to read. */
 function placePhone(t: number): void {
   const camera = q('[data-film="phone-camera"]');
   if (!camera) return;
@@ -259,14 +265,20 @@ function placePhone(t: number): void {
   const device = camera.firstElementChild as HTMLElement | null;
   if (!device) return;
   const dr = device.getBoundingClientRect();
-  const restScale = 1.12;
-  const rest = { s: restScale, x: FRAME.width / 2, y: FRAME.height / 2 + 8, ox: dr.x + dr.width / 2, oy: dr.y + dr.height / 2 };
+  const accept = [...device.querySelectorAll('button')].find((b) => b.textContent?.includes('Accept'));
+  const rr = ring?.getBoundingClientRect();
+  const ringC = rr ? { x: rr.x + rr.width / 2, y: rr.y + rr.height / 2 } : null;
+  // Measured while the quote is open (accepted, the countdown and the button are gone), and kept.
+  if (ringC && accept) {
+    const a = accept.getBoundingClientRect();
+    quoteFocus = { x: dr.width / 2, y: ringC.y + 0.2 * (a.y + a.height / 2 - ringC.y) - dr.y };
+  }
+  const focus = quoteFocus ?? { x: dr.width / 2, y: dr.height / 2 };
+  const rest = { s: 1.6, x: FRAME.width / 2, y: FRAME.height / 2, ox: dr.x + focus.x, oy: dr.y + focus.y };
   // The match cut starts on the countdown's circle (its own box is the circle); once accepted there is none, and
   // the phone is long since at rest.
-  const k = ring ? inOut(span(t, AT.phone + 0.08, AT.phone + 1.25)) : 1;
-  const rr = ring?.getBoundingClientRect();
-  const ringC = rr ? { x: rr.x + rr.width / 2, y: rr.y + rr.height / 2 } : { x: rest.ox, y: rest.oy };
-  const start = rr ? { s: ringOnScreen.r / (rr.width / 2), x: ringOnScreen.x, y: ringOnScreen.y, ox: ringC.x, oy: ringC.y } : rest;
+  const k = ringC ? inOut(span(t, AT.phone + 0.08, AT.phone + 1.25)) : 1;
+  const start = ringC && rr ? { s: ringOnScreen.r / (rr.width / 2), x: ringOnScreen.x, y: ringOnScreen.y, ox: ringC.x, oy: ringC.y } : rest;
   const push = 1 + 0.035 * span(t, AT.accepted, AT.resume);
   const s = start.s * (rest.s / start.s) ** k * push;
   const ox = start.ox + (rest.ox - start.ox) * k;
@@ -276,7 +288,6 @@ function placePhone(t: number): void {
   camera.style.transform = `translate(${x - ox * s}px, ${y - oy * s}px) scale(${s})`;
   // The thumb lands on "Accept quote".
   const touch = q('[data-film="touch"]');
-  const accept = [...device.querySelectorAll('button')].find((b) => b.textContent?.includes('Accept'));
   if (touch && accept) {
     const b = accept.getBoundingClientRect();
     const d = device.getBoundingClientRect();
