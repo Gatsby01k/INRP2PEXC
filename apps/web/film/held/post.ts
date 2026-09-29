@@ -65,6 +65,9 @@ class ExposurePass extends Pass {
   }
 
   override render(renderer: WebGLRenderer, writeBuffer: WebGLRenderTarget): void {
+    // Each sub-frame is added to the ones before it: nothing may clear the frame between them.
+    const autoClear = renderer.autoClear;
+    renderer.autoClear = false;
     for (let i = 0; i < this.samples; i++) {
       this.expose(i, this.samples, this.samples === 1 ? 0 : i / (this.samples - 1) - 0.5);
       renderer.setRenderTarget(this.exposure);
@@ -79,6 +82,7 @@ class ExposurePass extends Pass {
       this.weights.uWeight.value = 1 / this.samples;
       this.add.render(renderer);
     }
+    renderer.autoClear = autoClear;
   }
 
   override dispose(): void {
@@ -92,7 +96,7 @@ const GradeShader = {
   uniforms: {
     tDiffuse: { value: null },
     uVignette: { value: 0.07 },
-    uFringe: { value: 0.0016 },
+    uFringe: { value: 0.0006 },
     uGrain: { value: 0.035 },
     uSeed: { value: 0 },
     uLift: { value: 0 },

@@ -144,7 +144,8 @@ function SmsPhone({ t }: { t: number }) {
   return (
     <div className={styles.night}>
       <div className={styles.nightGlow} />
-      <div className={styles.nightCamera} style={{ transform: `translate(-50%, -50%) scale(${1.02 + push * 0.1})` }}>
+      {/* The camera closes on the bank's message until it is what the frame is about. */}
+      <div className={styles.nightCamera} style={{ transform: `translate(-50%, -50%) translateY(${push * 120}px) scale(${1.02 + push * 0.3})` }}>
         <Device dark>
           <div className={styles.lock}>
             <p className={styles.lockDate}>Wednesday, 16 September</p>
@@ -235,11 +236,11 @@ export function Overlay({ t, registration }: { t: number; registration: Registra
   else if (t >= AT.phone && t < AT.resume) scene = <QuotePhone t={t} />;
   else if (t >= AT.sms && t < AT.pleased) scene = <SmsPhone t={t} />;
   else if (t >= AT.logo) scene = <Finale t={t} registration={registration} />;
-  const flash = outExpo(1 - span(t, AT.snap, AT.snap + 0.35)) * (t >= AT.snap ? 1 : 0);
+  const flash = outExpo(1 - span(t, AT.snap, AT.snap + 0.22)) * (t >= AT.snap ? 1 : 0);
   return (
     <>
       {scene}
-      {flash > 0.01 && t < AT.frozen ? <div className={styles.flash} style={{ opacity: flash * 0.55 }} /> : null}
+      {flash > 0.01 && t < AT.frozen ? <div className={styles.flash} style={{ opacity: flash * 0.3 }} /> : null}
       {tag ? (
         <p className={styles.tag} data-dark={dark || undefined}>
           Illustrative

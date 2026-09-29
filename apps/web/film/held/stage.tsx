@@ -87,6 +87,8 @@ const ready = (async () => {
   price = new Price();
   ringLight = new PointLight(COLOR['brand-primary'], 0, 18, 1.6);
   ringLight.position.copy(RING.centre);
+  // The price hangs where the ring will close, facing the robot's audience.
+  price.mesh.position.copy(RING.centre);
   world.scene.add(storm.mesh, ...rings.arcs, rings.wave, price.mesh, ringLight);
   world.moveRobot(PREROLL, { cues: [], look: { viewer: new Vector3(0, 0.4, 30) } });
   anchors = { mark: world.figure.mark.getWorldPosition(new Vector3()).add(new Vector3(0, 0, 0.03)) };
@@ -230,6 +232,7 @@ function stormFrame(ts: number, lens: Lens): StormFrame {
     resume: AT.restart,
     ring: ts >= AT.restart ? { centre: RING.centre, normal: new Vector3(0, 0, 1), radius: RING.radius } : null,
     fallen: ts >= AT.pleased ? 1 : 0,
+    clear: ts >= AT.price && ts < AT.sms ? { centre: RING.centre, radius: RING.radius } : null,
     focus: { distance, depth: Math.max(1.2, distance * 0.85) },
   };
 }
@@ -254,16 +257,16 @@ function placePhone(t: number): void {
   camera.style.transform = 'none';
   const ring = q('[data-motion="countdown-arc"]');
   const device = camera.firstElementChild as HTMLElement | null;
-  if (!ring || !device) return;
-  const rr = ring.getBoundingClientRect();
+  if (!device) return;
   const dr = device.getBoundingClientRect();
-  // The countdown's circle is r = 20 in a 48-unit box.
-  const ringR = (rr.width * 20) / 48;
-  const ringC = { x: rr.x + rr.width / 2, y: rr.y + rr.height / 2 };
-  const start = { s: ringOnScreen.r / ringR, x: ringOnScreen.x, y: ringOnScreen.y, ox: ringC.x, oy: ringC.y };
   const restScale = 1.12;
   const rest = { s: restScale, x: FRAME.width / 2, y: FRAME.height / 2 + 8, ox: dr.x + dr.width / 2, oy: dr.y + dr.height / 2 };
-  const k = inOut(span(t, AT.phone + 0.08, AT.phone + 1.25));
+  // The match cut starts on the countdown's circle (its own box is the circle); once accepted there is none, and
+  // the phone is long since at rest.
+  const k = ring ? inOut(span(t, AT.phone + 0.08, AT.phone + 1.25)) : 1;
+  const rr = ring?.getBoundingClientRect();
+  const ringC = rr ? { x: rr.x + rr.width / 2, y: rr.y + rr.height / 2 } : { x: rest.ox, y: rest.oy };
+  const start = rr ? { s: ringOnScreen.r / (rr.width / 2), x: ringOnScreen.x, y: ringOnScreen.y, ox: ringC.x, oy: ringC.y } : rest;
   const push = 1 + 0.035 * span(t, AT.accepted, AT.resume);
   const s = start.s * (rest.s / start.s) ** k * push;
   const ox = start.ox + (rest.ox - start.ox) * k;

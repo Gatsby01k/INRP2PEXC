@@ -297,7 +297,7 @@
 
 .line {
   margin: 0;
-  font-size: 96px;
+  font-size: 112px;
   font-weight: var(--font-weight-semibold);
   letter-spacing: -0.045em;
   line-height: 1.04;
@@ -316,7 +316,7 @@
 }
 
 .name {
-  font-size: 34px;
+  font-size: 38px;
   font-weight: var(--font-weight-semibold);
   letter-spacing: -0.02em;
 }
@@ -330,7 +330,7 @@
   border-radius: var(--radius-input);
   background: var(--brand-action);
   color: var(--text-on-action);
-  font-size: 26px;
+  font-size: 28px;
   font-weight: var(--font-weight-medium);
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.16), 0 14px 30px -16px color-mix(in srgb, var(--brand-action) 70%, transparent);
 }

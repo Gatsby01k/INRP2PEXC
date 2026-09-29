@@ -99,17 +99,17 @@ function hook(mix: Mix): void {
     mix.play(clicks[k % 3]!, k / 14, ticking, Math.min(1, Math.sqrt(shown) * 0.4));
   }
   // The words that stop being messages and become the noise itself: each one a blow.
-  for (const [i, s] of HOOK_SHOUTS.entries()) mix.play(thump(ctx, 500 + i), heard(s.at), mix.channel({ level: 0.75, room: 0.25 }, 'hook'));
+  for (const [i, s] of HOOK_SHOUTS.entries()) mix.play(thump(ctx, 500 + i), heard(s.at), mix.channel({ level: 0.5, room: 0.25 }, 'hook'));
   // Under it all: a rise that never arrives, a semitone apart with itself; then a roar, and the screen turning.
   const anxious = mix.envelope(
     [
       [1.4, 0.0001],
-      [cut, 0.16, 'exp'],
+      [cut, 0.2, 'exp'],
     ],
     mix.channel({}, 'hook'),
   );
   mix.play(shepard(ctx, cut - 1.4, [A1, 58.27], 0.32, 23), 1.4, anxious);
-  mix.play(roar(ctx, cut - 2.6, 21), 2.6, mix.channel({ level: 0.45 }, 'hook'));
+  mix.play(roar(ctx, cut - 2.6, 21), 2.6, mix.channel({ level: 0.9 }, 'hook'));
   mix.play(swirl(ctx, cut - 3.1, 22), 3.1, mix.channel({ level: 0.25 }, 'hook'));
   // And then nothing: not even its echo.
   mix.cutHook(cut);
@@ -122,8 +122,8 @@ function wake(mix: Mix): void {
   const presence = mix.envelope(
     [
       [after, 0],
-      [heard(AT.reveal), 0.1],
-      [AT.price, 0.07],
+      [heard(AT.reveal), 0.06],
+      [AT.price, 0.045],
       [AT.price + 0.8, 0],
     ],
     mix.channel({ room: 0.1 }),
@@ -281,11 +281,11 @@ function charge(mix: Mix): void {
 function snap(mix: Mix): void {
   const { ctx } = mix;
   const at = heard(AT.snap);
-  mix.play(dha(ctx, 101), at, mix.channel({ level: 0.9, room: 0.25, hall: 0.6 }));
-  mix.play(clank(ctx, 102), at + 0.004, mix.channel({ level: 0.4, room: 0.3, hall: 0.35 }));
-  mix.play(blow(ctx, { from: 115, to: 55, decay: 0.34, sub: 38 }), at, mix.channel({ level: 0.85, hall: 0.1 }));
+  mix.play(dha(ctx, 101), at, mix.channel({ level: 0.9, room: 0.2, hall: 0.28 }));
+  mix.play(clank(ctx, 102), at + 0.004, mix.channel({ level: 0.4, room: 0.25, hall: 0.2 }));
+  mix.play(blow(ctx, { from: 115, to: 55, decay: 0.34, sub: 38 }), at, mix.channel({ level: 0.85, hall: 0.05 }));
   // The wave that stops the world, going out.
-  mix.play(whoosh(ctx, { seconds: 0.8, from: 3200, to: 500, peak: 0.03, q: 0.7, pan: [0, 0], seed: 105 }), at, mix.channel({ level: 0.28, hall: 0.25 }));
+  mix.play(whoosh(ctx, { seconds: 0.8, from: 3200, to: 500, peak: 0.03, q: 0.7, pan: [0, 0], seed: 105 }), at, mix.channel({ level: 0.28, hall: 0.12 }));
   // What hangs in the air after it: the ring's light, as a sound.
   mix.play(shimmer(ctx, 5), at + 0.06, mix.channel({ level: 0.05, hall: 0.6 }));
 }
@@ -424,7 +424,7 @@ class Mix {
     this.ctx = ctx;
     this.master = ctx.createGain();
     this.master.connect(ctx.destination);
-    this.sends = { room: this.reverb(1.2, 5000, 12, this.master), hall: this.reverb(4.8, 3600, 31, this.master) };
+    this.sends = { room: this.reverb(1.2, 5000, 12, this.master), hall: this.reverb(3.8, 3600, 31, this.master) };
     this.hookOut = ctx.createGain();
     this.hookOut.connect(this.master);
     this.hookRoom = this.reverb(0.7, 6500, 47, this.hookOut);
@@ -827,7 +827,7 @@ function blow(ctx: BaseAudioContext, { from, to, decay, sub }: { from: number; t
       const onset = 1 - Math.exp(-t / 0.002);
       const f = to + (from - to) * Math.exp(-t / 0.028);
       let s = (body(f) * Math.exp(-t / decay) + knock(f * 2) * Math.exp(-t / (decay * 0.3)) * 0.3) * onset;
-      if (sub) s += low(sub) * Math.exp(-t / 1) * (1 - Math.exp(-t / 0.012)) * 0.75;
+      if (sub) s += low(sub) * Math.exp(-t / 0.75) * (1 - Math.exp(-t / 0.012)) * 0.75;
       return s;
     }),
   );

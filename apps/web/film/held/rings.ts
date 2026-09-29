@@ -1,5 +1,6 @@
 import type { Quaternion, Vector3 } from 'three';
 import { Color, DoubleSide, type IUniform, Mesh, PlaneGeometry, ShaderMaterial } from 'three';
+import { beforeNeutral } from './tone.ts';
 
 /**
  * The lock: the three arcs of the robot's chest mark, as light.
@@ -20,7 +21,7 @@ export const OPEN = Math.PI / 4;
 export const CLOSED = Math.PI / 3;
 
 /** Band width relative to radius: the chest mark's own (0.0135 / 0.105), a touch finer at the ring's size. */
-const WIDTH = 0.1;
+const WIDTH = 0.15;
 
 const vertex = /* glsl */ `
   varying vec2 vP;
@@ -49,7 +50,8 @@ export class Rings {
 
   constructor() {
     const core = new Color('#fff1e4');
-    const halo = new Color('#f04e23');
+    // The brand's orange exactly, after the frame's tone mapping; only the thin core runs hot enough to bloom.
+    const halo = beforeNeutral('#F04E23');
     ARC_CENTRES.forEach((centre) => {
       const lit = { uHalf: { value: OPEN }, uLight: { value: 1 }, uOpacity: { value: 1 } };
       const material = new ShaderMaterial({
@@ -86,12 +88,12 @@ export class Rings {
             float body = 1.0 - smoothstep(-aa, aa, d);
             // On an ivory sky light alone does not show: the arc is the brand's orange, lit from within, with a
             // white-hot line along its centre (the only part bright enough to bloom) and an orange halo round it.
-            float centre = 1.0 - smoothstep(0.0, uWidth * 0.32, abs(d + uWidth * 0.5));
+            float centre = 1.0 - smoothstep(0.0, uWidth * 0.2, abs(d + uWidth * 0.5));
             float halo = (exp(-max(d, 0.0) * 7.0) * 0.5 + exp(-max(d, 0.0) * 28.0) * 0.45) * (1.0 - body);
-            vec3 band = mix(uHalo * 1.7, uCore * 3.6, centre * centre);
-            vec3 col = band * body + uHalo * 1.25 * halo;
+            vec3 band = mix(uHalo, uCore * 2.6 * uLight, centre * centre * centre);
+            vec3 col = band * body + uHalo * halo;
             float a = clamp(body + halo, 0.0, 1.0) * uOpacity;
-            gl_FragColor = vec4(col * uLight, a);
+            gl_FragColor = vec4(col, a);
           }
         `,
         transparent: true,
@@ -120,7 +122,7 @@ export class Rings {
           float edge = r - uRadius;
           float line = exp(-abs(edge) * 90.0);
           float trail = edge < 0.0 ? exp(edge * 5.0) * 0.18 : 0.0;
-          vec3 col = mix(uHalo * 1.6, uCore * 2.4, line * line);
+          vec3 col = mix(uHalo, uCore * 2.4, line * line * line);
           gl_FragColor = vec4(col, clamp(line + trail, 0.0, 1.0) * uLight);
         }
       `,

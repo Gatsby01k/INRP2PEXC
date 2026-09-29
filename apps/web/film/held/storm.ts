@@ -94,6 +94,8 @@ export interface StormFrame {
   readonly ring: { readonly centre: Vector3; readonly normal: Vector3; readonly radius: number } | null;
   /** 1 once every word lies on the plain. */
   readonly fallen: number;
+  /** The window round the price that no word may cross in front of (what lies behind it is dimmed), or null. */
+  readonly clear: { readonly centre: Vector3; readonly radius: number } | null;
   /** Where the lens is focused, and how deep its field is (units). */
   readonly focus: { readonly distance: number; readonly depth: number };
 }
@@ -218,6 +220,9 @@ export class Storm {
     const view = camera.matrixWorldInverse;
     const camPos = camera.position;
     const temp = new Vector3();
+    // The window, as the lens sees it: a centre and radius in view space, per unit of depth.
+    const win = frame.clear ? frame.clear.centre.clone().applyMatrix4(view) : null;
+    const window = win && win.z < 0 ? { x: win.x / -win.z, y: win.y / -win.z, r: frame.clear!.radius / -win.z, depth: -win.z } : null;
     for (let i = 0; i < COUNT; i++) {
       const c = this.cards[i]!;
       const clock = this.clock(c, frame);
@@ -234,10 +239,20 @@ export class Storm {
       // Force brings the storm in from nothing: the far words first, the near ones last.
       const inner = 1 - Math.min(1, Math.max(0, (c.radius - 3) / 40));
       const grow = Math.min(1, Math.max(0, (frame.force - inner * 0.4) / 0.6));
-      this.visible[i] = frame.fallen > 0 ? 1 : grow;
       const distance = -temp.z;
       const defocus = Math.abs(distance - frame.focus.distance) / frame.focus.depth;
-      this.blur.setX(i, Math.min(5.5, defocus * 2.2));
+      const blur = Math.min(5.5, defocus * 2.2);
+      // Out of focus, a word's ink spreads thin, as a lens spreads light: it veils less, not more.
+      let seen = (frame.fallen > 0 ? 0.4 : grow) / (1 + 0.18 * blur);
+      if (window && distance > 0) {
+        const off = Math.hypot(temp.x / distance - window.x, temp.y / distance - window.y);
+        const overlap = window.r * 1.08 + (h * e.aspect * 0.5) / distance - off;
+        const inside = Math.min(1, Math.max(0, overlap / (window.r * 0.35)));
+        // In front of the price: gone. Behind it: dimmed, so the figure is always what is read.
+        seen *= 1 - inside * (distance < window.depth + 0.4 ? 1 : 0.7);
+      }
+      this.visible[i] = seen;
+      this.blur.setX(i, blur);
       this.shade.setX(i, c.shade);
       this.uv.setXYZW(i, e.u0, e.v0, e.u1, e.v1);
     }

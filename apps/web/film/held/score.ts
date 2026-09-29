@@ -200,7 +200,8 @@ const move = (a: Lens, b: Lens, ease: (x: number) => number = inOut) => (p: numb
   return { pos: lerpV(a.pos, b.pos, k), at: lerpV(a.at, b.at, k), fov: lerp(a.fov, b.fov, k) };
 };
 
-const EYES: Lens = { pos: v(0, 0.01, 1.62), at: v(0, -0.03, 0), fov: 17 };
+const EYES: Lens = { pos: v(0, 0.01, 2.35), at: v(0, -0.03, 0), fov: 20 };
+const EYES_CLOSE: Lens = { pos: v(0, 0.01, 2.15), at: v(0, -0.03, 0), fov: 20 };
 
 export const SHOTS: readonly Shot[] = [
   {
@@ -208,7 +209,7 @@ export const SHOTS: readonly Shot[] = [
     name: 'eyes',
     from: AT.hookEnd,
     to: AT.reveal,
-    lens: move(EYES, { pos: v(0, 0.01, 1.5), at: v(0, -0.03, 0), fov: 17 }, (x) => x),
+    lens: move(EYES, EYES_CLOSE, (x) => x),
     samples: 3,
   },
   {
@@ -216,7 +217,7 @@ export const SHOTS: readonly Shot[] = [
     name: 'reveal',
     from: AT.reveal,
     to: AT.price,
-    lens: move({ pos: v(0, 0.01, 1.5), at: v(0, -0.03, 0), fov: 17 }, { pos: v(7.5, 4.6, 26), at: v(0, 0.2, 0), fov: 36 }, (x) => 1 - (1 - x) ** 4),
+    lens: move(EYES_CLOSE, { pos: v(7.5, 4.6, 26), at: v(0, 0.2, 0), fov: 36 }, (x) => 1 - (1 - x) ** 4),
     samples: 9,
   },
   {
@@ -224,7 +225,7 @@ export const SHOTS: readonly Shot[] = [
     name: 'look',
     from: AT.price,
     to: AT.charge[0] - 0.1,
-    lens: move({ pos: v(4.6, -2.7, 8.6), at: v(0, 1.7, 1.6), fov: 40 }, { pos: v(4.1, -2.6, 7.9), at: v(0, 1.8, 1.7), fov: 39 }, (x) => x),
+    lens: move({ pos: v(5.5, -2.4, 11), at: v(0, 2.1, 2.0), fov: 42 }, { pos: v(5.0, -2.3, 10.2), at: v(0, 2.2, 2.1), fov: 42 }, (x) => x),
     samples: 5,
   },
   {
@@ -251,8 +252,8 @@ export const SHOTS: readonly Shot[] = [
     lens: (p) => {
       const k = inOut(p);
       const angle = lerp(-0.62, 0.42, k);
-      const r = lerp(12.5, 10.8, k);
-      return { pos: v(Math.sin(angle) * r, lerp(-1.9, -0.4, k), Math.cos(angle) * r + 1.6), at: v(0, lerp(1.2, 1.5, k), 1.8), fov: 40 };
+      const r = lerp(13.5, 12, k);
+      return { pos: v(Math.sin(angle) * r, lerp(-1.9, -0.4, k), Math.cos(angle) * r + 1.6), at: v(0, lerp(2.1, 2.3, k), 1.8), fov: 48 };
     },
     samples: 6,
   },
