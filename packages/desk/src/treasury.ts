@@ -4,6 +4,7 @@ import type { Executor } from '@inrp2p/db';
 import { istToday } from '@inrp2p/inr-accounts';
 import { type StatementImportSummary, listStatementImports } from '@inrp2p/settlement';
 import { getDepositPoolStatus } from '@inrp2p/treasury';
+import { providerStatus } from '@inrp2p/scanner';
 
 export interface InrAccountView {
   readonly accountId: string;
@@ -131,7 +132,44 @@ export interface UsdtView {
   readonly pool: Awaited<ReturnType<typeof getDepositPoolStatus>>;
   readonly transfers: readonly TransferView[];
   /** Where the scanner has read to, so an operator can see it is alive and how far behind it is (Phase 5). */
-  readonly scanner: { readonly scanner: string; readonly lastScannedBlock: string; readonly lastSolidifiedBlock: string; readonly lastRunAt: string | null } | null;
+  readonly scanner: {
+    readonly scanner: string;
+    readonly lastScannedBlock: string;
+    readonly lastSolidifiedBlock: string;
+    readonly lastRunAt: string | null;
+    /** Whether the last run proved its whole window read, and if not, why (A2). */
+    readonly lastComplete: boolean | null;
+    readonly lastIncompleteReason: string | null;
+    readonly lastServedBy: string | null;
+  } | null;
+  /** Each configured chain provider's last answer (A3): degradation is shown, not inferred. */
+  readonly providers: readonly ProviderView[];
+  /** Historical backfills (TD-06), newest first. */
+  readonly backfills: readonly BackfillView[];
+}
+
+export interface ProviderView {
+  readonly provider: string;
+  readonly independenceGroup: string;
+  readonly health: 'OK' | 'DEGRADED' | 'DOWN' | 'UNKNOWN';
+  readonly lastOkAt: string | null;
+  readonly lastErrorAt: string | null;
+  readonly lastError: string | null;
+  readonly consecutiveFailures: number;
+  readonly lastHead: string | null;
+  readonly lastSolidified: string | null;
+}
+
+export interface BackfillView {
+  readonly ref: string;
+  readonly status: 'RUNNING' | 'COMPLETED' | 'CANCELLED' | 'FAILED';
+  readonly fromBlock: string;
+  readonly toBlock: string;
+  readonly nextBlock: string;
+  readonly addresses: number;
+  readonly detected: number;
+  readonly lastError: string | null;
+  readonly requestedAt: string;
 }
 
 /** The USDT screen: treasury, the deposit pool (D-02) and what the chain has been doing lately. */
@@ -160,10 +198,17 @@ export async function usdtView(ex: Executor, opts: { transferLimit?: number } = 
     limit ${opts.transferLimit ?? 50}`.execute(ex);
   const cursor = await ex
     .selectFrom('chain_cursor')
-    .select(['scanner', 'last_scanned_block', 'last_solidified_block', 'last_run_at'])
+    .select(['scanner', 'last_scanned_block', 'last_solidified_block', 'last_run_at', 'last_complete', 'last_incomplete_reason', 'last_served_by'])
     .where('network', '=', 'TRON')
     .orderBy('scanner')
     .executeTakeFirst();
+  const providers = await providerStatus(ex);
+  const backfills = await ex
+    .selectFrom('chain_backfill')
+    .select(['ref', 'status', 'from_block', 'to_block', 'next_block', 'addresses', 'detected', 'last_error', 'requested_at'])
+    .orderBy('requested_at', 'desc')
+    .limit(10)
+    .execute();
 
   return {
     wallets: wallets.map((w) => {
@@ -201,7 +246,32 @@ export async function usdtView(ex: Executor, opts: { transferLimit?: number } = 
           lastScannedBlock: cursor.last_scanned_block.toString(),
           lastSolidifiedBlock: cursor.last_solidified_block.toString(),
           lastRunAt: cursor.last_run_at ? cursor.last_run_at.toISOString() : null,
+          lastComplete: cursor.last_complete,
+          lastIncompleteReason: cursor.last_incomplete_reason,
+          lastServedBy: cursor.last_served_by,
         }
       : null,
+    providers: providers.map((p) => ({
+      provider: p.provider,
+      independenceGroup: p.independenceGroup,
+      health: p.health,
+      lastOkAt: p.lastOkAt ? p.lastOkAt.toISOString() : null,
+      lastErrorAt: p.lastErrorAt ? p.lastErrorAt.toISOString() : null,
+      lastError: p.lastError,
+      consecutiveFailures: p.consecutiveFailures,
+      lastHead: p.lastHead === null ? null : p.lastHead.toString(),
+      lastSolidified: p.lastSolidified === null ? null : p.lastSolidified.toString(),
+    })),
+    backfills: backfills.map((b) => ({
+      ref: b.ref,
+      status: b.status,
+      fromBlock: b.from_block.toString(),
+      toBlock: b.to_block.toString(),
+      nextBlock: b.next_block.toString(),
+      addresses: b.addresses.length,
+      detected: b.detected,
+      lastError: b.last_error,
+      requestedAt: b.requested_at.toISOString(),
+    })),
   };
 }

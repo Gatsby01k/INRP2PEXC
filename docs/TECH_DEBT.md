@@ -9,8 +9,8 @@ Non-blocking items accepted at phase review. Each entry names the phase that mus
 | TD-03 | Encryption: production KMS-backed key-encryption key not implemented | Phase 2 implementation (2026-09-17) | First deployment holding real bank or contact data | Open |
 | TD-04 | Notifications: no email provider bound — acceptance codes, client sign-in codes and notification emails | Phase 3 implementation (2026-09-17) | Any environment where a client signs in or accepts a quote through a shareable link | Open — widened at Phase 7 |
 | TD-05 | Chain verification: no TRON provider bound; scanning not implemented | Phase 4 implementation (2026-09-18) | Any environment that settles real USDT | Closed in Phase 5 (2026-09-18) |
-| TD-06 | Scanner: no tooling for a deliberate historical backfill behind the cursor | Phase 5 implementation (2026-09-18) | First production incident needing a historical rescan | Open (narrowed at Phase 5 review) |
-| TD-07 | Scanner: the TRON provider smoke gate has never been executed against real providers | Phase 5 implementation (2026-09-18) | Any environment that settles real USDT | Open — gate exists, **NOT RUN** |
+| TD-06 | Scanner: no tooling for a deliberate historical backfill behind the cursor | Phase 5 implementation (2026-09-18) | First production incident needing a historical rescan | Closed (2026-10-05, migration 0024) |
+| TD-07 | Scanner: the TRON provider smoke gate has never been executed against real providers | Phase 5 implementation (2026-09-18) | Any environment that settles real USDT | Open — gate extended 2026-10-05 (window read, report file), **NOT RUN** |
 | TD-08 | Visual regression covers the Storybook validation stories, not the built operator pages | Phase 6 implementation (2026-09-19) | Production deploy (launch checklist) | Closed in Phase 6 review (2026-09-19) |
 | TD-09 | The page baselines have not been recorded in the canonical environment | Phase 6 review (2026-09-19) | The `visual-pages` CI job can pass | Closed in Phase 7 review (2026-09-19) — 20 baselines recorded, `visual` / `visual-pages` green on main |
 | TD-10 | Outbox: the desk's own signals and the receipt trigger are acknowledged, not consumed | Phase 7 implementation (2026-09-19) | A desk push channel (desk signals) and Phase 8 (receipts) | Open |
@@ -100,6 +100,17 @@ sink is the only way to sign a client in outside production.
 
 **Resolution (to do).** A `chain.backfill` system command taking an explicit block range and address set, running the same detection step, audited, and refusing ranges above the solidified head. The cursor stays monotonic; a backfill never rewinds it.
 
+**Closed (2026-10-05, production hardening A3, migration 0024).** `chain.backfill_request` (`chain:backfill`, ⧗,
+OWNER/FINANCE) records a backfill: an explicit block range (at or below the solidified head the scanner last
+recorded, at most 2,000,000 blocks) and up to 200 addresses, each of which must be one of the exchange's own deposit
+addresses or treasury wallets, with a reason. The `tron_backfill` job reads one bounded slice a minute through the
+scanner's own `readAddress` + `detect` path (attribution by address, one idempotent step per chain event) and moves
+the backfill's own `next_block` only as far as every address was proved read; the database refuses a backwards move
+(IX081) and a second running backfill. The main cursor is never touched. Requests, progress and completion are
+audited; the USDT screen lists backfills. Tests: `packages/scanner/test/hardening.int.test.ts` (a deposit far below
+the cursor is found and attributed, the cursor does not move, a second pass records nothing twice; RBAC, step-up,
+live-edge, stranger-address, range and one-at-a-time refusals; cancel). Runbook: `chain-backfill`.
+
 ## TD-07 — The provider smoke gate has never been executed
 
 **Observed.** `TronHttpProvider` is tested against recorded TronGrid-shaped JSON (`packages/adapters/test/tron.unit.test.ts`), and the scanner is tested end to end against `FakeTronProvider` over a fake chain. The Phase 5 review added the real gate — `scripts/tron-smoke.ts`, run by `pnpm smoke:tron` or the manual `tron-smoke` GitHub workflow — which checks connectivity, canonical parsing, identical facts across two providers, the finality line and the real `DualProviderChainVerifier` decision for one known transaction with expected sender, destination and amount.
@@ -109,6 +120,16 @@ sink is the only way to sign a client in outside production.
 **Risk.** A provider whose payloads differ from the fixtures fails loudly (every field is parsed and validated — an unreadable answer raises rather than becoming a missing fact), so the failure mode is "the scanner stops", not "money is misread". Still, that failure would first appear in a deployed environment.
 
 **Resolution (to do, before real USDT).** Configure the `tron-smoke` workflow's environment with two genuinely independent endpoints (the gate refuses two providers declaring the same independence group), a reference transaction and its expected facts, run it, and record the result here. **Phase 5 is not fully closed until this gate has passed against real configured providers.**
+
+**Updated 2026-10-05 (production hardening A1–A3).** The fixtures the gate was designed against were not the
+documented wire formats: a receipt log's `address` is 20-byte hex without the `41` prefix, and the account TRC20
+history carries no block number and no log index. The adapter now parses the documented shapes (and the gate itself
+was the first place they would have failed in a deployed environment). The gate also exercises the scanner's real
+path — the destination's history around the transaction's block, every page and receipt, the right log index — and
+writes a secret-free JSON report (`INRP2P_SMOKE_REPORT_FILE`: environment, time, expected facts, finality, agreement
+groups, every check). A dry run against two in-memory TronGrid-compatible nodes passes and a facts mismatch fails it
+(`scripts/test/tron-smoke.unit.test.ts`); that proves the gate, not the providers. **Status stays NOT RUN** until a
+person with two real independent endpoints runs it (docs/PRODUCTION_HARDENING.md A3).
 
 ## TD-08 — Visual regression compares stories, not the pages an operator sees
 

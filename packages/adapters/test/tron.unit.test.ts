@@ -1,23 +1,30 @@
 import { describe, expect, it } from 'vitest';
 import { isDomainError } from '@inrp2p/kernel';
-import { DualProviderChainVerifier, TronHttpProvider, sameTransfer } from '../src/index.ts';
+import { QuorumChainVerifier, type TransferReceipt, TronHttpProvider, sameTransfer } from '../src/index.ts';
 import { FAKE_USDT_CONTRACT, FakeTronChain, FakeTronProvider, fakeTronAddress } from '../src/testing/index.ts';
 
 const chainWith = () => {
   const chain = new FakeTronChain({ tokenContract: FAKE_USDT_CONTRACT });
   const primary = new FakeTronProvider('node-a', chain);
   const secondary = new FakeTronProvider('node-b', chain);
-  const verifier = new DualProviderChainVerifier({ primary, secondary, tokenContract: FAKE_USDT_CONTRACT });
+  const verifier = new QuorumChainVerifier({ providers: [primary, secondary], tokenContract: FAKE_USDT_CONTRACT });
   return { chain, primary, secondary, verifier };
 };
+
+/** The receipt of a FOUND answer, or a failed expectation naming what came back instead. */
+async function found(verifier: QuorumChainVerifier, txHash: string, logIndex: number): Promise<TransferReceipt> {
+  const v = await verifier.verifyTransfer('TRON', txHash, logIndex);
+  if (v.status !== 'FOUND') throw new Error(`expected FOUND, got ${v.status}`);
+  return v.receipt;
+}
 
 describe('dual-provider verification (D-05)', () => {
   it('names both providers when they report the same facts', async () => {
     const { chain, verifier } = chainWith();
     const t = chain.add({ to: fakeTronAddress('deposit-1'), amountMinor: 1_000_000n });
     chain.solidifyAll();
-    const receipt = await verifier.lookupTransfer('TRON', t.txHash, t.logIndex);
-    expect(receipt).toMatchObject({ network: 'TRON', amountMinor: 1_000_000n, receiptStatus: 'SUCCESS' });
+    const receipt = await found(verifier, t.txHash, t.logIndex);
+    expect(receipt).toMatchObject({ network: 'TRON', amountMinor: 1_000_000n, receiptStatus: 'SUCCESS', degraded: false, unavailable: [] });
     expect(receipt!.agreedBy).toEqual(['node-a', 'node-b']);
     expect(receipt!.agreedGroups).toEqual(['group-node-a', 'group-node-b']);
     expect(receipt!.blockNumber <= receipt!.solidifiedBlock).toBe(true);
@@ -28,25 +35,56 @@ describe('dual-provider verification (D-05)', () => {
     const t = chain.add({ to: fakeTronAddress('deposit-2'), amountMinor: 5n });
     chain.solidifyAll();
     secondary.hide(t.txHash);
-    const receipt = await verifier.lookupTransfer('TRON', t.txHash, t.logIndex);
-    expect(receipt!.agreedBy).toEqual(['node-a']);
+    const receipt = await found(verifier, t.txHash, t.logIndex);
+    expect(receipt.agreedBy).toEqual(['node-a']);
+    // A lagging provider is not unavailable: it answered, it just does not know the transfer yet.
+    expect(receipt.degraded).toBe(false);
   });
 
-  it('names only the primary when the second provider reports different facts', async () => {
+  it('reports a contradiction between providers as a CONFLICT, never as the word of the primary', async () => {
     const { chain, secondary, verifier } = chainWith();
     const t = chain.add({ to: fakeTronAddress('deposit-3'), amountMinor: 42n });
     chain.solidifyAll();
     secondary.distort = (x) => ({ ...x, amountMinor: x.amountMinor + 1n });
-    const receipt = await verifier.lookupTransfer('TRON', t.txHash, t.logIndex);
-    expect(receipt!.agreedBy).toEqual(['node-a']);
-    // The facts are the primary's, never a blend of the two.
-    expect(receipt!.amountMinor).toBe(42n);
+    const v = await verifier.verifyTransfer('TRON', t.txHash, t.logIndex);
+    expect(v.status).toBe('CONFLICT');
   });
 
-  it('reports a transfer the chain does not know as null, and refuses another network', async () => {
-    const { verifier } = chainWith();
-    expect(await verifier.lookupTransfer('TRON', 'a'.repeat(64), 0)).toBeNull();
-    await expect(verifier.lookupTransfer('ETHEREUM' as 'TRON', 'a'.repeat(64), 0)).rejects.toSatisfy((e) => isDomainError(e, 'INVALID_ARGUMENT'));
+  it('reports a provider that cannot answer as unavailable and the answer as degraded, never as absent', async () => {
+    const { chain, secondary, verifier } = chainWith();
+    const t = chain.add({ to: fakeTronAddress('deposit-down'), amountMinor: 7n });
+    chain.solidifyAll();
+    secondary.failWith = new Error('ECONNREFUSED');
+    const receipt = await found(verifier, t.txHash, t.logIndex);
+    expect(receipt).toMatchObject({ agreedBy: ['node-a'], agreedGroups: ['group-node-a'], unavailable: ['node-b'], degraded: true });
+
+    const nobody = new QuorumChainVerifier({ providers: [new FakeTronProvider('x', chain, { failWith: new Error('down') })], tokenContract: FAKE_USDT_CONTRACT });
+    expect((await nobody.verifyTransfer('TRON', t.txHash, t.logIndex)).status).toBe('UNAVAILABLE');
+  });
+
+  it('reports a transfer nobody knows as NOT_FOUND with who said so, and refuses another network', async () => {
+    const { verifier, secondary } = chainWith();
+    expect(await verifier.verifyTransfer('TRON', 'a'.repeat(64), 0)).toMatchObject({ status: 'NOT_FOUND', absentBy: ['node-a', 'node-b'], unavailable: [] });
+    secondary.failWith = new Error('down');
+    expect(await verifier.verifyTransfer('TRON', 'a'.repeat(64), 0)).toMatchObject({ status: 'NOT_FOUND', absentBy: ['node-a'], unavailable: ['node-b'] });
+    await expect(verifier.verifyTransfer('ETHEREUM' as 'TRON', 'a'.repeat(64), 0)).rejects.toSatisfy((e) => isDomainError(e, 'INVALID_ARGUMENT'));
+  });
+
+  it('agreement on facts is not agreement on finality: only providers that call the block final count', async () => {
+    const { chain, secondary, verifier } = chainWith();
+    const t = chain.add({ to: fakeTronAddress('deposit-final'), amountMinor: 3n });
+    chain.solidifyAll();
+    secondary.lagBlocks = chain.solidificationLag + 1n; // knows the transfer, but its solidified head is behind it
+    const receipt = await found(verifier, t.txHash, t.logIndex);
+    expect(receipt.agreedBy).toEqual(['node-a']);
+    expect(receipt.blockNumber <= receipt.solidifiedBlock).toBe(true);
+  });
+
+  it('a failed transaction is TX_FAILED with the providers that call it final', async () => {
+    const { chain, verifier } = chainWith();
+    const t = chain.add({ to: fakeTronAddress('deposit-reverted'), amountMinor: 9n, receiptStatus: 'FAILED' });
+    chain.solidifyAll();
+    expect(await verifier.verifyTransfer('TRON', t.txHash, t.logIndex)).toMatchObject({ status: 'TX_FAILED', agreedBy: ['node-a', 'node-b'] });
   });
 
   it('two adapters onto the same source are one independent source, however they are named', async () => {
@@ -54,22 +92,23 @@ describe('dual-provider verification (D-05)', () => {
     // Different names, same operator behind them — a mirror of one node, not a second opinion.
     const primary = new FakeTronProvider('vendor-eu', chain, { independenceGroup: 'acme-cloud' });
     const secondary = new FakeTronProvider('vendor-us', chain, { independenceGroup: 'ACME-Cloud' });
-    const verifier = new DualProviderChainVerifier({ primary, secondary, tokenContract: FAKE_USDT_CONTRACT });
+    const verifier = new QuorumChainVerifier({ providers: [primary, secondary], tokenContract: FAKE_USDT_CONTRACT });
     expect(verifier.providers).toEqual(['vendor-eu', 'vendor-us']);
     expect(verifier.independenceGroups).toEqual(['acme-cloud']);
 
     const t = chain.add({ to: fakeTronAddress('deposit-dup'), amountMinor: 20_000_000_000n });
     chain.solidifyAll();
-    const receipt = await verifier.lookupTransfer('TRON', t.txHash, t.logIndex);
+    const receipt = await found(verifier, t.txHash, t.logIndex);
     // Both answered identically, and it still counts as one source: no quorum is reachable here at any amount.
-    expect(receipt!.agreedBy).toEqual(['vendor-eu', 'vendor-us']);
-    expect(receipt!.agreedGroups).toEqual(['acme-cloud']);
+    expect(receipt.agreedBy).toEqual(['vendor-eu', 'vendor-us']);
+    expect(receipt.agreedGroups).toEqual(['acme-cloud']);
   });
 
   it('refuses a provider identity that is not a stable identifier', () => {
     const chain = new FakeTronChain({ tokenContract: FAKE_USDT_CONTRACT });
     const nameless = new FakeTronProvider('ok', chain, { independenceGroup: '   ' });
-    expect(() => new DualProviderChainVerifier({ primary: nameless, tokenContract: FAKE_USDT_CONTRACT })).toThrow();
+    expect(() => new QuorumChainVerifier({ providers: [nameless], tokenContract: FAKE_USDT_CONTRACT })).toThrow();
+    expect(() => new QuorumChainVerifier({ providers: [], tokenContract: FAKE_USDT_CONTRACT })).toThrow();
     expect(() => new TronHttpProvider({ name: 'n', independenceGroup: '', baseUrl: 'https://api.example.test' })).toThrow();
   });
 
@@ -104,40 +143,20 @@ describe('the TronGrid HTTP provider', () => {
     expect(await p.getSolidifiedBlockNumber()).toBe(990n);
   });
 
-  it('keeps only transfers of the asked contract, at or above the asked block', async () => {
-    const to = fakeTronAddress('watched');
-    const from = fakeTronAddress('sender');
-    const other = fakeTronAddress('other-token');
-    const p = provider(() => ({
-      data: [
-        { transaction_id: 'AA'.repeat(32), event_index: 0, token_info: { address: FAKE_USDT_CONTRACT }, from, to, value: '1000000', block: 100, block_timestamp: 1_700_000_000_000 },
-        { transaction_id: 'BB'.repeat(32), event_index: 1, token_info: { address: FAKE_USDT_CONTRACT }, from, to, value: '2000000', block: 50, block_timestamp: 1_700_000_000_000 },
-        { transaction_id: 'CC'.repeat(32), event_index: 0, token_info: { address: other }, from, to, value: '3000000', block: 120, block_timestamp: 1_700_000_000_000 },
-      ],
-    }));
-    const rows = await p.listIncomingTransfers({ address: to, contract: FAKE_USDT_CONTRACT, sinceBlock: 100n });
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ txHash: 'aa'.repeat(32), logIndex: 0, amountMinor: 1_000_000n, blockNumber: 100n, receiptStatus: null });
-  });
-
   it('refuses a provider answer it cannot read rather than guessing', async () => {
     const p = provider(() => ({ block_header: { raw_data: { number: 'not-a-number' } } }));
-    await expect(p.getLatestBlockNumber()).rejects.toSatisfy((e) => isDomainError(e, 'INVALID_ARGUMENT'));
-
-    const badAddress = provider(() => ({ data: [{ transaction_id: 'AA'.repeat(32), token_info: { address: 'not-an-address' }, from: 'x', to: 'y', value: '1', block: 1, block_timestamp: 1 }] }));
-    await expect(badAddress.listIncomingTransfers({ address: fakeTronAddress('watched'), contract: FAKE_USDT_CONTRACT, sinceBlock: 0n }))
-      .rejects.toSatisfy((e) => isDomainError(e, 'INVALID_ADDRESS'));
+    await expect(p.getLatestBlockNumber()).rejects.toSatisfy((e) => isDomainError(e, 'CHAIN_EVIDENCE_INVALID'));
   });
 
   it('turns an unreachable or failing node into a CHAIN_PROVIDER_ERROR', async () => {
     const failing = new TronHttpProvider({
-      name: 'node-down', independenceGroup: 'group-down', baseUrl: 'https://api.example.test',
+      name: 'node-down', independenceGroup: 'group-down', baseUrl: 'https://api.example.test', retryBaseDelayMs: 0,
       fetchImpl: (async () => new Response('nope', { status: 503 })) as typeof fetch,
     });
     await expect(failing.getLatestBlockNumber()).rejects.toSatisfy((e) => isDomainError(e, 'CHAIN_PROVIDER_ERROR'));
 
     const unreachable = new TronHttpProvider({
-      name: 'node-gone', independenceGroup: 'group-gone', baseUrl: 'https://api.example.test',
+      name: 'node-gone', independenceGroup: 'group-gone', baseUrl: 'https://api.example.test', retryBaseDelayMs: 0,
       fetchImpl: (async () => { throw new Error('ECONNREFUSED'); }) as typeof fetch,
     });
     await expect(unreachable.getSolidifiedBlockNumber()).rejects.toSatisfy((e) => isDomainError(e, 'CHAIN_PROVIDER_ERROR'));
@@ -157,9 +176,9 @@ describe('the fake TRON chain', () => {
     const { chain, primary, secondary } = chainWith();
     const t = chain.add({ to: fakeTronAddress('deposit-5'), amountMinor: 1n });
     secondary.lagBlocks = 100n;
-    expect(await secondary.getTransfer(t.txHash, t.logIndex)).toBeNull();
-    expect(await primary.getTransfer(t.txHash, t.logIndex)).not.toBeNull();
+    expect((await secondary.getTransfer(t.txHash, t.logIndex)).status).toBe('NOT_FOUND');
+    expect((await primary.getTransfer(t.txHash, t.logIndex)).status).toBe('FOUND');
     chain.orphan(t.txHash, t.logIndex);
-    expect(await primary.getTransfer(t.txHash, t.logIndex)).toBeNull();
+    expect((await primary.getTransfer(t.txHash, t.logIndex)).status).toBe('NOT_FOUND');
   });
 });

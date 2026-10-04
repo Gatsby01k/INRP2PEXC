@@ -1,7 +1,7 @@
 import { DomainError, isTronAddress } from '@inrp2p/kernel';
 import {
   type ChainVerifier,
-  DualProviderChainVerifier,
+  QuorumChainVerifier,
   type FieldProtector,
   LocalKeyEncryptionKey,
   type TronProvider,
@@ -26,7 +26,8 @@ export function fieldProtectorFromEnv(env: NodeJS.ProcessEnv = process.env): Fie
 }
 
 export interface ChainConfig {
-  readonly provider: TronProvider;
+  /** In priority order: the scanner reads through the first that answers and fails over to the next (A3). */
+  readonly providers: readonly TronProvider[];
   readonly chain: ChainVerifier;
 }
 
@@ -123,7 +124,8 @@ export function chainMonitoringFromEnv(env: NodeJS.ProcessEnv = process.env): Ch
           ...(env.INRP2P_TRON_SECONDARY_KEY ? { apiKey: env.INRP2P_TRON_SECONDARY_KEY } : {}),
         })
       : undefined;
-    config = { provider: primary, chain: new DualProviderChainVerifier({ primary, ...(secondary ? { secondary } : {}), tokenContract: contract }) };
+    const providers = secondary ? [primary, secondary] : [primary];
+    config = { providers, chain: new QuorumChainVerifier({ providers, tokenContract: contract }) };
   } catch (e) {
     return { state: 'UNCONFIGURED', reasons: [(e as Error).message] };
   }

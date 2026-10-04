@@ -5,7 +5,7 @@ import { type Locator, type Page, expect } from '@playwright/test';
 import { sql } from 'kysely';
 import { Money } from '@inrp2p/kernel';
 import { type Db, createDb, createPool } from '@inrp2p/db';
-import { DualProviderChainVerifier, UnconfiguredChainVerifier } from '@inrp2p/adapters';
+import { QuorumChainVerifier, UnconfiguredChainVerifier } from '@inrp2p/adapters';
 import { FAKE_USDT_CONTRACT, FakeCustodyAdapter, FakeNotificationAdapter, FakeTronChain, FakeTronProvider } from '@inrp2p/adapters/testing';
 import { executeCommand } from '@inrp2p/commands';
 import type { ClientActor, DomainCommand, OperatorActor } from '@inrp2p/identity';
@@ -174,8 +174,8 @@ export async function clientSendsUsdt(tradeId: string, amount: string): Promise<
   const primary = new FakeTronProvider('e2e-node-a', chain);
   const secondary = new FakeTronProvider('e2e-node-b', chain);
   const deps = {
-    chain: new DualProviderChainVerifier({ primary, secondary, tokenContract: FAKE_USDT_CONTRACT }),
-    provider: primary,
+    chain: new QuorumChainVerifier({ providers: [primary, secondary], tokenContract: FAKE_USDT_CONTRACT }),
+    providers: [primary, secondary],
     scanner: { scanner: `e2e_${Date.now()}` },
   };
   const address = await appDb()

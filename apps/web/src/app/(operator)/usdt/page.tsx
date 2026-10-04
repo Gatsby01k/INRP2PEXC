@@ -3,7 +3,7 @@ import { HEALTH_CHECKS, deskNow, stateOf, usdtView } from '@inrp2p/desk';
 import { operatorPage } from '../../../server/operator.ts';
 import { age, dateTime, usdt } from '../_desk/format.ts';
 import { Chip, KpiBand, Meter, Notice, Page, PageBody, PageHeader, Section, Segmented } from '../_desk/ui.tsx';
-import { TransfersTable, WalletsTable } from './UsdtTables.tsx';
+import { BackfillsTable, ProvidersTable, TransfersTable, WalletsTable } from './UsdtTables.tsx';
 import d from '../_desk/desk.module.css';
 
 export const dynamic = 'force-dynamic';
@@ -73,6 +73,13 @@ export default async function UsdtPage({ searchParams }: { searchParams: Promise
           ]}
         />
 
+        {view.scanner && view.scanner.lastComplete === false ? (
+          <Notice tone="warning" icon="exceptions" role="status">
+            <strong>The last scan could not prove its whole window read.</strong> The cursor stays below the gap until a run reads it:{' '}
+            {view.scanner.lastIncompleteReason ?? 'no reason recorded'}
+          </Notice>
+        ) : null}
+
         {pool.capability === 'UNSUPPORTED' ? (
           <Notice tone="danger" icon="lock">
             <strong>Unique deposit addresses are not supported by the custody provider.</strong> SELL USDT acceptance is disabled; there is no fallback attribution by amount or sender.
@@ -108,6 +115,21 @@ export default async function UsdtPage({ searchParams }: { searchParams: Promise
             <Notice>No addresses have been imported yet.</Notice>
           )}
         </Section>
+
+        <Section
+          title="Chain providers"
+          count={view.providers.length}
+          hint="Detection reads through the first provider that answers; confirmation asks every one and never confirms on a single word above the D-05 threshold."
+          flush
+        >
+          <ProvidersTable providers={view.providers} />
+        </Section>
+
+        {view.backfills.length > 0 ? (
+          <Section title="Backfills" count={view.backfills.length} hint="Historical ranges read again for named exchange addresses (TD-06). The scanner cursor never moves for them." flush>
+            <BackfillsTable backfills={view.backfills} />
+          </Section>
+        ) : null}
 
         <Section
           title="Transfers"

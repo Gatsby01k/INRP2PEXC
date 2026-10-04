@@ -887,6 +887,9 @@ importers:
       '@inrp2p/db':
         specifier: workspace:*
         version: link:../db
+      '@inrp2p/identity':
+        specifier: workspace:*
+        version: link:../identity
       '@inrp2p/kernel':
         specifier: workspace:*
         version: link:../kernel
@@ -906,9 +909,6 @@ importers:
       '@inrp2p/clients':
         specifier: workspace:*
         version: link:../clients
-      '@inrp2p/identity':
-        specifier: workspace:*
-        version: link:../identity
       '@inrp2p/inr-accounts':
         specifier: workspace:*
         version: link:../inr-accounts

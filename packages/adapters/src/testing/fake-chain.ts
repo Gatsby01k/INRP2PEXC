@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { encodeTronAddress } from '@inrp2p/kernel';
-import type { ChainNetwork, ChainVerifier, TransferReceipt } from '../chain.ts';
+import type { ChainNetwork, ChainVerification, ChainVerifier, TransactionTransfers, TransferReceipt } from '../chain.ts';
 
 export const FAKE_USDT_CONTRACT = encodeTronAddress(createHash('sha256').update('fake-usdt-contract').digest().subarray(0, 20));
 
@@ -16,6 +16,10 @@ export class FakeChainVerifier implements ChainVerifier {
   #head = 1_000n;
   /** Tx hashes the second provider disagrees about (D-05): only the primary vouches for them. */
   readonly disagreements = new Set<string>();
+  /** Tx hashes the providers contradict each other about (facts differ, or one says failed). */
+  readonly conflicts = new Set<string>();
+  /** When set, every provider is unreachable: verification answers UNAVAILABLE. */
+  outage = false;
 
   constructor(opts: { providers?: readonly string[]; independenceGroups?: readonly string[]; tokenContract?: string } = {}) {
     this.providers = opts.providers ?? ['fake-node-a', 'fake-node-b'];
@@ -53,6 +57,8 @@ export class FakeChainVerifier implements ChainVerifier {
       solidifiedBlock: this.#head,
       agreedBy: this.providers,
       agreedGroups: this.independenceGroups,
+      unavailable: [],
+      degraded: false,
     };
     this.#events.set(`TRON:${txHash}:${logIndex}`, receipt);
     this.#head += 1n;
@@ -65,12 +71,36 @@ export class FakeChainVerifier implements ChainVerifier {
     for (const [key, r] of this.#events) this.#events.set(key, { ...r, solidifiedBlock: this.#head });
   }
 
-  async lookupTransfer(network: ChainNetwork, txHash: string, logIndex: number): Promise<TransferReceipt | null> {
+  async verifyTransfer(network: ChainNetwork, txHash: string, logIndex: number): Promise<ChainVerification> {
+    if (this.outage) return { status: 'UNAVAILABLE', reason: 'every provider is unreachable (test outage)', unavailable: this.providers };
     const receipt = this.#events.get(`${network}:${txHash}:${logIndex}`);
-    if (!receipt) return null;
-    return this.disagreements.has(receipt.txHash)
-      ? { ...receipt, agreedBy: this.providers.slice(0, 1), agreedGroups: this.independenceGroups.slice(0, 1) }
-      : receipt;
+    if (!receipt) return { status: 'NOT_FOUND', absentBy: this.providers, absentGroups: this.independenceGroups, unavailable: [] };
+    if (this.conflicts.has(receipt.txHash)) return { status: 'CONFLICT', reason: 'the providers report different facts (test)', unavailable: [] };
+    if (receipt.receiptStatus === 'FAILED') {
+      const final = receipt.blockNumber <= receipt.solidifiedBlock;
+      const groups = this.disagreements.has(receipt.txHash) ? this.independenceGroups.slice(0, 1) : this.independenceGroups;
+      return {
+        status: 'TX_FAILED', txHash: receipt.txHash, blockNumber: receipt.blockNumber, blockTime: receipt.blockTime, result: 'REVERT',
+        agreedBy: final ? this.providers.slice(0, groups.length) : [], agreedGroups: final ? groups : [], unavailable: [],
+      };
+    }
+    return {
+      status: 'FOUND',
+      receipt: this.disagreements.has(receipt.txHash)
+        ? { ...receipt, agreedBy: this.providers.slice(0, 1), agreedGroups: this.independenceGroups.slice(0, 1), unavailable: this.providers.slice(1), degraded: this.providers.length > 1 }
+        : receipt,
+    };
+  }
+
+  async transactionTransfers(network: ChainNetwork, txHash: string): Promise<TransactionTransfers> {
+    const hash = txHash.toLowerCase();
+    const logs = [...this.#events.values()].filter((r) => r.network === network && r.txHash === hash).sort((a, b) => a.logIndex - b.logIndex);
+    if (logs.length === 0) return { status: 'NOT_FOUND', txHash: hash, transfers: [], provider: this.providers[0] ?? 'fake' };
+    if (logs.some((r) => r.receiptStatus === 'FAILED')) return { status: 'TX_FAILED', txHash: hash, transfers: [], provider: this.providers[0] ?? 'fake' };
+    return {
+      status: 'FOUND', txHash: hash, provider: this.providers[0] ?? 'fake',
+      transfers: logs.map(({ solidifiedBlock: _s, agreedBy: _a, agreedGroups: _g, unavailable: _u, degraded: _d, ...t }) => t),
+    };
   }
 
   /** Test hook: the second provider stops vouching for this transfer. */

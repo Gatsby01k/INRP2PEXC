@@ -4,3 +4,5 @@ export * from './watch.ts';
 export * from './scan.ts';
 export * from './confirm.ts';
 export * from './orphan.ts';
+export * from './providers.ts';
+export * from './backfill.ts';

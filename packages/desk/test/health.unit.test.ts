@@ -22,10 +22,10 @@ describe('every alert knows where to send the person it wakes', () => {
   });
 
   it('has no runbook nobody can reach from an alert', () => {
-    // Two exceptions, both deliberate: the drill is scheduled rather than triggered, and the takeover runbook
-    // answers a report from a person rather than a threshold.
+    // Deliberate exceptions: the drill and the backfill are procedures someone starts rather than alarms, and the
+    // others answer a report from a person or a case on the desk rather than a threshold.
     const unreachable = headings.filter((h) => !HEALTH_CHECKS.some((c) => c.runbook === h));
-    expect(unreachable.sort()).toEqual(['account-takeover', 'backup-restore-drill', 'duplicate-utr', 'failed-bank-transfer', 'provider-outage']);
+    expect(unreachable.sort()).toEqual(['account-takeover', 'backup-restore-drill', 'chain-backfill', 'duplicate-utr', 'failed-bank-transfer']);
   });
 
   it('says why each signal matters, in words an operator would use', () => {

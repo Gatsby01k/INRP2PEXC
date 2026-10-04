@@ -15,10 +15,10 @@ export interface ScannerPolicy {
   readonly startLookbackBlocks: bigint;
   /**
    * The widest block window one run will read. A worker that was offline for a week catches up over several
-   * runs of this size; the cursor advances only across what was actually processed, so no block is skipped.
+   * runs of this size; the cursor advances only across what was actually proved read, so no block is skipped.
    */
   readonly maxBlocksPerRun: bigint;
-  readonly maxTransfersPerAddress: number;
+  /** Detection steps one run performs at most; past it the cursor stops below the first block left unprocessed. */
   readonly maxTransfersPerRun: number;
   /** How many DETECTED transfers one confirmation run verifies. */
   readonly confirmBatch: number;
@@ -26,6 +26,8 @@ export interface ScannerPolicy {
   readonly notFinalAfterMinutes: number;
   /** A detected transfer the providers no longer know after this long is treated as orphaned (T3). */
   readonly orphanAfterMinutes: number;
+  /** Blocks one backfill run reads per address (TD-06). */
+  readonly backfillBlocksPerRun: bigint;
 }
 
 export const DEFAULT_SCANNER_POLICY: ScannerPolicy = Object.freeze({
@@ -33,20 +35,20 @@ export const DEFAULT_SCANNER_POLICY: ScannerPolicy = Object.freeze({
   rescanOverlapBlocks: 200n,
   startLookbackBlocks: 1_000n,
   maxBlocksPerRun: 20_000n,
-  maxTransfersPerAddress: 200,
   maxTransfersPerRun: 500,
   confirmBatch: 100,
   notFinalAfterMinutes: 30,
   orphanAfterMinutes: 60,
+  backfillBlocksPerRun: 20_000n,
 });
 
 /**
- * The scanner reads the chain through one provider (the primary) and *verifies* through the settlement
- * `ChainVerifier`, which is where dual-provider agreement lives (D-05). Detection is therefore never the thing
- * that confirms money.
+ * The scanner *reads* the chain through its providers, in priority order, failing over to the next when one cannot
+ * answer — detection never confirms money, so reading through any configured provider is safe. It *verifies*
+ * through the settlement `ChainVerifier`, which asks every provider and measures the D-05 quorum.
  */
 export interface ScannerDeps extends SettlementDeps {
-  readonly provider: TronProvider;
+  readonly providers: readonly TronProvider[];
   readonly scanner?: Partial<ScannerPolicy>;
 }
 

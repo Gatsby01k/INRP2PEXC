@@ -286,21 +286,43 @@ async function recordTraderDelivery(ctx: TxContext, input: DepositInput, target:
 /**
  * `crypto.submit_tx_for_verification` — `crypto:submit_tx_for_verification`. An operator (or the client through
  * the desk) hands over a tx hash; the chain, not the operator, decides what it was (FI-24, FI-26).
+ *
+ * A transaction can move USDT several times (a batch payout, a contract call), so the log is never assumed to be
+ * the first one: with no `logIndex` the transaction must contain exactly one USDT transfer into an address this
+ * exchange watches, and otherwise the operator names the log.
  */
 export function submitTxForVerification(actor: OperatorActor, deps: SettlementDeps) {
   return operatorCommand(actor, 'crypto:submit_tx_for_verification', async (ctx, p: { txHash: string; logIndex?: number }) => {
     const txHash = requireText(p.txHash, 'txHash', 66).toLowerCase().replace(/^0x/, '');
-    const logIndex = p.logIndex ?? 0;
-    const receipt = await deps.chain.lookupTransfer('TRON', txHash, logIndex);
-    if (!receipt) throw new DomainError('NOT_FOUND', 'the chain does not know this transfer');
-    if (receipt.tokenContract !== deps.chain.tokenContract) throw new DomainError('INVALID_ARGUMENT', 'this transfer is not a USDT transfer on the configured contract');
+    const tx = await deps.chain.transactionTransfers('TRON', txHash);
+    if (tx.status === 'NOT_FOUND') throw new DomainError('NOT_FOUND', 'the chain does not know this transaction');
+    if (tx.status === 'TX_FAILED') throw new DomainError('INVALID_ARGUMENT', 'this transaction failed on chain; it moved no USDT');
+    const usdt = tx.transfers.filter((t) => t.tokenContract === deps.chain.tokenContract && t.amountMinor > 0n);
+    let chosen;
+    if (p.logIndex !== undefined && p.logIndex !== null) {
+      chosen = tx.transfers.find((t) => t.logIndex === p.logIndex);
+      if (!chosen) throw new DomainError('NOT_FOUND', `log ${p.logIndex} of this transaction is not a TRC20 transfer`);
+      if (chosen.tokenContract !== deps.chain.tokenContract) throw new DomainError('INVALID_ARGUMENT', 'this transfer is not a USDT transfer on the configured contract');
+    } else {
+      const ours = [];
+      for (const t of usdt) {
+        const watched = await ctx.tx.selectFrom('deposit_address').select('id').where('address', '=', t.toAddress).executeTakeFirst()
+          ?? await ctx.tx.selectFrom('treasury_wallet').select('id').where('network', '=', 'TRON').where('address', '=', t.toAddress).executeTakeFirst();
+        if (watched) ours.push(t);
+      }
+      if (ours.length === 0) throw new DomainError('NOT_FOUND', 'this transaction moves no USDT into an address of this exchange');
+      if (ours.length > 1) {
+        throw new DomainError('INVALID_ARGUMENT', `this transaction moves USDT into our addresses ${ours.length} times; name the log`, { logIndexes: ours.map((t) => t.logIndex) });
+      }
+      chosen = ours[0]!;
+    }
     return recordClientDeposit(ctx, {
       txHash,
-      logIndex,
-      tokenContract: receipt.tokenContract,
-      fromAddress: receipt.fromAddress,
-      toAddress: receipt.toAddress,
-      amount: Money.ofMinor(receipt.amountMinor, 'USDT'),
+      logIndex: chosen.logIndex,
+      tokenContract: chosen.tokenContract,
+      fromAddress: chosen.fromAddress,
+      toAddress: chosen.toAddress,
+      amount: Money.ofMinor(chosen.amountMinor, 'USDT'),
       source: 'OPERATOR_SUBMITTED',
     });
   });

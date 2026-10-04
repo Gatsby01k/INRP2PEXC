@@ -49,6 +49,34 @@ export const HEALTH_CHECKS: readonly HealthCheckDefinition[] = Object.freeze([
     why: 'A scanner that has stopped does not fail loudly — it simply stops finding deposits, and every SELL trade waits. This is the difference between quiet and broken.',
   },
   {
+    id: 'scanner_block_lag',
+    title: 'Blocks between the solidified head and what the scanner proved read',
+    // D-05: 40 TRON blocks is two minutes behind the solidified head.
+    warn: 40,
+    alarm: 200,
+    unit: 'count',
+    runbook: 'stuck-usdt-confirmation',
+    why: 'A scanner can run every minute and still prove nothing: an index that pages badly, receipts it cannot fetch. The cursor then stands still below the gap instead of skipping it, and this is the number that says so.',
+  },
+  {
+    id: 'chain_providers_degraded',
+    title: 'Chain providers whose last run failed',
+    warn: 0,
+    alarm: 1,
+    unit: 'count',
+    runbook: 'provider-outage',
+    why: 'Detection fails over to the next provider, but a failing one lowers the evidence behind every confirmation; with both down, USDT stops confirming.',
+  },
+  {
+    id: 'chain_quorum_waiting',
+    title: 'Transfers held for provider quorum, conflict or outage',
+    warn: 0,
+    alarm: 3,
+    unit: 'count',
+    runbook: 'chain-quorum-failure',
+    why: 'A transfer that the providers cannot confirm together waits rather than confirming on one word (D-05). Clients are waiting on each of these.',
+  },
+  {
     id: 'outbox_failed',
     title: 'Outbox events that have exhausted their retries',
     warn: 1,
@@ -149,6 +177,9 @@ export async function systemHealth(ex: Executor): Promise<SystemHealth> {
   const r = await sql<{
     ledger_imbalance: string;
     scanner_lag_seconds: string;
+    scanner_block_lag: string;
+    chain_providers_degraded: string;
+    chain_quorum_waiting: string;
     outbox_failed: string;
     outbox_oldest_pending_seconds: string;
     audit_seal_age_seconds: string;
@@ -162,6 +193,11 @@ export async function systemHealth(ex: Executor): Promise<SystemHealth> {
       (select count(*) from ledger_global_imbalance)::text as ledger_imbalance,
       coalesce((select extract(epoch from (statement_timestamp() - max(last_run_at)))::bigint
                 from chain_cursor), 0)::text as scanner_lag_seconds,
+      coalesce((select max(greatest(last_solidified_block - last_scanned_block, 0)) from chain_cursor), 0)::text as scanner_block_lag,
+      (select count(*) from chain_provider_status where consecutive_failures > 0)::text as chain_providers_degraded,
+      (select count(*) from exception_case
+        where type = 'TX_NOT_FINAL' and status in ('OPEN', 'IN_PROGRESS')
+          and details ->> 'code' in ('INSUFFICIENT_PROVIDER_QUORUM', 'PROVIDER_CONFLICT', 'PROVIDER_UNAVAILABLE'))::text as chain_quorum_waiting,
       (select count(*) from outbox_event where failed_at is not null and dispatched_at is null)::text as outbox_failed,
       coalesce((select extract(epoch from (statement_timestamp() - min(created_at)))::bigint
                 from outbox_event where dispatched_at is null and failed_at is null), 0)::text as outbox_oldest_pending_seconds,
@@ -190,6 +226,9 @@ export async function systemHealth(ex: Executor): Promise<SystemHealth> {
   const values: Record<string, number> = {
     ledger_imbalance: int(row.ledger_imbalance),
     scanner_lag_seconds: int(row.scanner_lag_seconds),
+    scanner_block_lag: int(row.scanner_block_lag),
+    chain_providers_degraded: int(row.chain_providers_degraded),
+    chain_quorum_waiting: int(row.chain_quorum_waiting),
     outbox_failed: int(row.outbox_failed),
     outbox_oldest_pending_seconds: int(row.outbox_oldest_pending_seconds),
     audit_seal_age_seconds: int(row.audit_seal_age_seconds),

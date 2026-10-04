@@ -1,5 +1,5 @@
 import 'server-only';
-import { type ChainVerifier, DualProviderChainVerifier, TronHttpProvider, UnconfiguredChainVerifier } from '@inrp2p/adapters';
+import { type ChainVerifier, QuorumChainVerifier, TronHttpProvider, UnconfiguredChainVerifier } from '@inrp2p/adapters';
 import { isTronAddress } from '@inrp2p/kernel';
 import { optionalEnv } from './env.ts';
 
@@ -40,6 +40,6 @@ export function chainForWeb(): ChainVerifier {
           ...(secondaryKey ? { apiKey: secondaryKey } : {}),
         })
       : undefined;
-  verifier = new DualProviderChainVerifier({ primary, ...(secondary ? { secondary } : {}), tokenContract: contract });
+  verifier = new QuorumChainVerifier({ providers: secondary ? [primary, secondary] : [primary], tokenContract: contract });
   return verifier;
 }

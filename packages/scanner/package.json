@@ -15,10 +15,10 @@
     "@inrp2p/ledger": "workspace:*",
     "@inrp2p/trades": "workspace:*",
     "@inrp2p/settlement": "workspace:*",
-    "kysely": "0.29.6"
+    "kysely": "0.29.6",
+    "@inrp2p/identity": "workspace:*"
   },
   "devDependencies": {
-    "@inrp2p/identity": "workspace:*",
     "@inrp2p/treasury": "workspace:*",
     "@inrp2p/clients": "workspace:*",
     "@inrp2p/inr-accounts": "workspace:*",

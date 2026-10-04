@@ -151,12 +151,20 @@ export function recordReserveWithdrawalSent(actor: OperatorActor, deps: Pick<Tra
     const w = await ctx.tx.selectFrom('trader_reserve_withdrawal').selectAll().where('id', '=', p.withdrawalId).forUpdate().executeTakeFirstOrThrow();
     if (w.status !== 'REQUESTED') throw new DomainError('INVALID_TRANSITION', `the withdrawal is ${w.status}`);
     const txHash = requireText(p.txHash, 'txHash', 66).toLowerCase().replace(/^0x/, '');
-    const logIndex = p.logIndex ?? 0;
-    const receipt = await deps.chain.lookupTransfer('TRON', txHash, logIndex);
-    if (!receipt) throw new DomainError('NOT_FOUND', 'the chain does not know this transfer');
-    if (receipt.tokenContract !== deps.chain.tokenContract) throw new DomainError('INVALID_ARGUMENT', 'this transfer is not USDT on the configured contract');
-    if (receipt.toAddress !== w.destination_address) throw new DomainError('INVALID_ARGUMENT', "this transfer does not pay the trader's registered wallet");
-    if (receipt.amountMinor !== w.amount_minor) throw new DomainError('INVALID_AMOUNT', 'this transfer does not pay the requested amount');
+    const tx = await deps.chain.transactionTransfers('TRON', txHash);
+    if (tx.status === 'NOT_FOUND') throw new DomainError('NOT_FOUND', 'the chain does not know this transfer');
+    if (tx.status === 'TX_FAILED') throw new DomainError('INVALID_ARGUMENT', 'this transaction failed on chain; it moved no USDT');
+    // The log that pays this withdrawal — never "the first log" of a transaction that may move USDT several times.
+    const candidates = tx.transfers.filter((t) => (p.logIndex === undefined || p.logIndex === null || t.logIndex === p.logIndex));
+    const usdt = candidates.filter((t) => t.tokenContract === deps.chain.tokenContract);
+    if (usdt.length === 0) throw new DomainError('INVALID_ARGUMENT', 'this transfer is not USDT on the configured contract');
+    const paying = usdt.filter((t) => t.toAddress === w.destination_address);
+    if (paying.length === 0) throw new DomainError('INVALID_ARGUMENT', "this transfer does not pay the trader's registered wallet");
+    const exact = paying.filter((t) => t.amountMinor === w.amount_minor);
+    if (exact.length === 0) throw new DomainError('INVALID_AMOUNT', 'this transfer does not pay the requested amount');
+    if (exact.length > 1) throw new DomainError('INVALID_ARGUMENT', 'this transaction pays the registered wallet that amount more than once; name the log', { logIndexes: exact.map((t) => t.logIndex) });
+    const receipt = exact[0]!;
+    const logIndex = receipt.logIndex;
     const wallet = await ctx.tx.selectFrom('treasury_wallet').select(['id', 'status']).where('network', '=', 'TRON').where('address', '=', receipt.fromAddress).executeTakeFirst();
     if (!wallet || wallet.status !== 'ACTIVE') throw new DomainError('TREASURY_WALLET_NOT_ACTIVE', 'this transfer does not leave an active treasury wallet');
     const recorded = await recordCryptoTransfer(ctx, {

@@ -35,19 +35,42 @@ export async function ensureCursorInTx(ctx: TxContext, scanner: string, startBlo
   return created;
 }
 
+export interface CursorAdvance {
+  /** Highest block every watched address was proved read through. */
+  readonly scannedThrough: bigint;
+  readonly solidified: bigint;
+  readonly window: { readonly from: bigint; readonly to: bigint };
+  readonly complete: boolean;
+  readonly incompleteReason: string | null;
+  readonly servedBy: string | null;
+}
+
 /**
- * Moves the cursor forward. The database refuses a backwards move (IX066): a provider that suddenly reports a
- * lower head is lagging, and rewinding on its word would re-emit work and hide the regression.
+ * Moves the cursor forward — never backwards (the database refuses that too, IX066) — and records what the run
+ * proved. The row is locked first, so two scanner runs that finish together are applied one after the other and
+ * the later one can only keep or raise what the earlier one wrote.
  */
-export async function advanceCursorInTx(ctx: TxContext, scanner: string, to: { scannedThrough: bigint; solidified: bigint }): Promise<void> {
-  const current = await readCursor(ctx.tx, scanner);
+export async function advanceCursorInTx(ctx: TxContext, scanner: string, to: CursorAdvance): Promise<{ lastScannedBlock: bigint }> {
+  const locked = await sql<{ last_scanned_block: bigint; last_solidified_block: bigint }>`
+    select last_scanned_block, last_solidified_block from chain_cursor where network = 'TRON' and scanner = ${scanner} for update`.execute(ctx.tx);
+  const current = locked.rows[0];
   if (!current) throw new DomainError('NOT_FOUND', `chain cursor ${scanner} does not exist`);
-  const scanned = to.scannedThrough > current.lastScannedBlock ? to.scannedThrough : current.lastScannedBlock;
-  const solidified = to.solidified > current.lastSolidifiedBlock ? to.solidified : current.lastSolidifiedBlock;
+  const scanned = to.scannedThrough > current.last_scanned_block ? to.scannedThrough : current.last_scanned_block;
+  const solidified = to.solidified > current.last_solidified_block ? to.solidified : current.last_solidified_block;
   await ctx.tx
     .updateTable('chain_cursor')
-    .set({ last_scanned_block: scanned, last_solidified_block: solidified, last_run_at: sql<Date>`inrp2p_now()` })
+    .set({
+      last_scanned_block: scanned,
+      last_solidified_block: solidified,
+      last_run_at: sql<Date>`inrp2p_now()`,
+      last_window_from: to.window.from,
+      last_window_to: to.window.to,
+      last_complete: to.complete,
+      last_incomplete_reason: to.incompleteReason ? to.incompleteReason.slice(0, 500) : null,
+      last_served_by: to.servedBy ? to.servedBy.slice(0, 200) : null,
+    })
     .where('network', '=', 'TRON')
     .where('scanner', '=', scanner)
     .execute();
+  return { lastScannedBlock: scanned };
 }

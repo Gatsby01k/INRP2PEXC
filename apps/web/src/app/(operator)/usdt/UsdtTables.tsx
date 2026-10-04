@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import type { TransferView, TreasuryWalletView } from '@inrp2p/desk';
+import type { BackfillView, TransferView, TreasuryWalletView, UsdtView } from '@inrp2p/desk';
 import { CopyButton } from '@inrp2p/ui';
 import { shortenAddress, shortenHash } from '@inrp2p/ui/format';
 import { Cell, type Column, DataTable } from '../_desk/DataTable.tsx';
@@ -94,4 +94,37 @@ export function TransfersTable({ transfers }: { transfers: readonly TransferView
       empty={<Empty title="Nothing on chain here" body="The scanner reports transfers to the desk's addresses as it sees them." />}
     />
   );
+}
+
+type ProviderRow = UsdtView['providers'][number];
+const HEALTH: Record<ProviderRow['health'], { label: string; tone: 'success' | 'warning' | 'danger' | 'neutral' }> = {
+  OK: { label: 'answering', tone: 'success' },
+  DEGRADED: { label: 'failing', tone: 'warning' },
+  DOWN: { label: 'down', tone: 'danger' },
+  UNKNOWN: { label: 'not used yet', tone: 'neutral' },
+};
+
+/** Each chain provider's last answer (A3): which one is failing, since when, and why — never a credential. */
+export function ProvidersTable({ providers }: { providers: readonly ProviderRow[] }) {
+  const columns: Column<ProviderRow>[] = [
+    { key: 'provider', header: 'Provider', render: (p) => <Cell main={p.provider} sub={`independence group ${p.independenceGroup}`} /> },
+    { key: 'health', header: 'State', render: (p) => <Chip tone={HEALTH[p.health].tone}>{HEALTH[p.health].label}</Chip> },
+    { key: 'heads', header: 'Head · solidified', render: (p) => <span className={d.num}>{p.lastHead ?? '—'} · {p.lastSolidified ?? '—'}</span> },
+    { key: 'ok', header: 'Last answered', render: (p) => <span className={d.secondary}>{p.lastOkAt ? dateTime(p.lastOkAt) : 'never'}</span> },
+    { key: 'error', header: 'Last failure', render: (p) => <span className={d.secondary}>{p.lastErrorAt ? `${dateTime(p.lastErrorAt)} · ${p.lastError ?? ''}` : 'none'}</span> },
+  ];
+  return <DataTable<ProviderRow> caption="Chain providers" columns={columns} rows={providers} rowKey={(p) => p.provider} empty={<Empty title="No provider has been used yet" />} />;
+}
+
+/** Historical backfills (TD-06): what range, how far it has been proved read, what it found. */
+export function BackfillsTable({ backfills }: { backfills: readonly BackfillView[] }) {
+  const columns: Column<BackfillView>[] = [
+    { key: 'ref', header: 'Backfill', render: (b) => <Cell main={b.ref} sub={dateTime(b.requestedAt)} /> },
+    { key: 'status', header: 'Status', render: (b) => <Chip tone={b.status === 'COMPLETED' ? 'success' : b.status === 'RUNNING' ? 'brand' : 'warning'}>{b.status.toLowerCase()}</Chip> },
+    { key: 'range', header: 'Blocks', render: (b) => <span className={d.num}>{b.fromBlock} – {b.toBlock}</span> },
+    { key: 'next', header: 'Proved read to', render: (b) => <span className={d.num}>{BigInt(b.nextBlock) > BigInt(b.fromBlock) ? (BigInt(b.nextBlock) - 1n).toString() : '—'}</span> },
+    { key: 'found', header: 'Found', align: 'right', render: (b) => `${b.detected} in ${b.addresses} ${b.addresses === 1 ? 'address' : 'addresses'}` },
+    { key: 'error', header: 'Last problem', render: (b) => <span className={d.secondary}>{b.lastError ?? 'none'}</span> },
+  ];
+  return <DataTable<BackfillView> caption="Backfills" columns={columns} rows={backfills} rowKey={(b) => b.ref} empty={<Empty title="No backfill requested" />} />;
 }

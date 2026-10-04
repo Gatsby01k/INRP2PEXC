@@ -845,6 +845,51 @@ export interface ChainCursorTable {
   last_run_at: Date | null;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
+  /** What the last run read and could prove (migration 0024). */
+  last_window_from: Generated<bigint | null>;
+  last_window_to: Generated<bigint | null>;
+  last_complete: Generated<boolean | null>;
+  last_incomplete_reason: Generated<string | null>;
+  last_served_by: Generated<string | null>;
+}
+
+/** Each configured chain provider's last answer (migration 0024). Not financial. */
+export interface ChainProviderStatusTable {
+  network: 'TRON';
+  provider: string;
+  independence_group: string;
+  last_ok_at: Date | null;
+  last_error_at: Date | null;
+  last_error: string | null;
+  consecutive_failures: Generated<number>;
+  last_head: bigint | null;
+  last_solidified: bigint | null;
+  updated_at: Generated<Date>;
+}
+
+export type ChainBackfillStatus = 'RUNNING' | 'COMPLETED' | 'CANCELLED' | 'FAILED';
+
+/** An audited historical read behind the cursor (TD-06, migration 0024). */
+export interface ChainBackfillTable {
+  id: Generated<string>;
+  ref: Generated<string>;
+  network: 'TRON';
+  from_block: bigint;
+  to_block: bigint;
+  addresses: string[];
+  reason: string;
+  status: Generated<ChainBackfillStatus>;
+  next_block: bigint;
+  runs: Generated<number>;
+  detected: Generated<number>;
+  already_known: Generated<number>;
+  last_error: string | null;
+  last_run_at: Date | null;
+  requested_by: string;
+  requested_at: Generated<Date>;
+  closed_by: string | null;
+  closed_at: Date | null;
+  close_reason: string | null;
 }
 
 /** Client-facing in-app notifications (migration 0017). Written by the outbox handler, read by the client product. */
@@ -1150,6 +1195,8 @@ export interface Database {
   route_settlement_allocation: RouteSettlementAllocationTable;
   financial_adjustment: FinancialAdjustmentTable;
   chain_cursor: ChainCursorTable;
+  chain_provider_status: ChainProviderStatusTable;
+  chain_backfill: ChainBackfillTable;
   client_notification: ClientNotificationTable;
   receipt: ReceiptTable;
   bank_statement_import: BankStatementImportTable;

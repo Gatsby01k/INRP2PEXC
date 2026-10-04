@@ -9,7 +9,7 @@ import { Money, encodeTronAddress } from '@inrp2p/kernel';
 import { type Db, createDb, createPool } from '@inrp2p/db';
 import { migrate } from '@inrp2p/db/migrate';
 import { dispatchOutbox, installQueue } from '@inrp2p/outbox';
-import { DualProviderChainVerifier, type FieldProtector, LocalKeyEncryptionKey, createFieldProtector } from '@inrp2p/adapters';
+import { QuorumChainVerifier, type FieldProtector, LocalKeyEncryptionKey, createFieldProtector } from '@inrp2p/adapters';
 import { FAKE_USDT_CONTRACT, FakeCustodyAdapter, FakeTronChain, FakeTronProvider } from '@inrp2p/adapters/testing';
 import { executeCommand } from '@inrp2p/commands';
 import type { ClientActor, DomainCommand, OperatorActor, OperatorRole } from '@inrp2p/identity';
@@ -148,7 +148,7 @@ function chainDeps(scanner: string) {
   const chain = new FakeTronChain({ tokenContract: FAKE_USDT_CONTRACT });
   const primary = new FakeTronProvider('visual-node-a', chain);
   const secondary = new FakeTronProvider('visual-node-b', chain);
-  return { chain, primary, deps: { chain: new DualProviderChainVerifier({ primary, secondary, tokenContract: FAKE_USDT_CONTRACT }), provider: primary, scanner: { scanner } } };
+  return { chain, primary, deps: { chain: new QuorumChainVerifier({ providers: [primary, secondary], tokenContract: FAKE_USDT_CONTRACT }), providers: [primary, secondary], scanner: { scanner } } };
 }
 
 export async function seedVisual(adminUrl: string): Promise<VisualState> {

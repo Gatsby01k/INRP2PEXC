@@ -89,7 +89,7 @@ export async function traderIdOf(db: Db, clientId: string): Promise<string> {
 
 /** Scanner confirmation over whatever the fake chain now says (only the verifier is used by this job). */
 export function confirmOnChain(w: TradersWorld) {
-  return runTronConfirm(w.app, { chain: w.chain, provider: undefined as never });
+  return runTronConfirm(w.app, { chain: w.chain, providers: [] });
 }
 
 /** USDT from `from` to `to`, detected through the operator's tx-hash submission (same path as the scanner). */

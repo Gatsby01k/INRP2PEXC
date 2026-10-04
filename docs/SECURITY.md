@@ -96,6 +96,7 @@ Legend: ✔ allowed · ⧗ allowed with step-up MFA · ✱ requires second appro
 | `route_settlement:confirm` (confirms the movement and allocates the obligation side it was recorded against) | ⧗ | — | — | ⧗ | — | — |
 | `route_positions:view` | ✔ | ✔ | — | ✔ | — | — |
 | `custody:configure` (adapter, deposit pool) | ⧗ | — | — | ⧗ | — | — |
+| `chain:backfill` (read a historical block range again for named exchange addresses, TD-06) | ⧗ | — | — | ⧗ | — | — |
 | `bank_account:reveal` | ⧗ | — | ⧗ | ⧗ | — | — |
 | `ledger:view` / `pnl:view` / `export` | ✔ | pnl only | — | ✔ | — | — |
 | `statement:import` (manual bank statement, reconciled against recorded UTRs — S7) | ⧗ | — | — | ⧗ | — | — |

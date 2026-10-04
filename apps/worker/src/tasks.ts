@@ -9,7 +9,7 @@ import { releasePastDayReservations } from '@inrp2p/inr-accounts';
 import { releaseCooledDownAddresses } from '@inrp2p/treasury';
 import { type QuotePolicy, expireQuote, runExpirySweep } from '@inrp2p/quotes';
 import { runReconciliation, runSettlementSla } from '@inrp2p/settlement';
-import { type ScannerDeps, runOrphanSweep, runTronConfirm, runTronScan } from '@inrp2p/scanner';
+import { type ScannerDeps, runChainBackfill, runOrphanSweep, runTronConfirm, runTronScan } from '@inrp2p/scanner';
 import { runTraderSweep } from '@inrp2p/traders';
 import { DomainError } from '@inrp2p/kernel';
 import type { ChainMonitoring } from './config.ts';
@@ -87,6 +87,8 @@ export function buildTaskList(
   const tronScan = chainJob((deps) => runTronScan(db, deps));
   const tronConfirm = chainJob((deps) => runTronConfirm(db, deps));
   const tronOrphanSweep = chainJob((deps) => runOrphanSweep(db, deps));
+  // TD-06: one bounded slice of a requested historical backfill per run; nothing to do is the common case.
+  const tronBackfill = chainJob((deps) => runChainBackfill(db, deps));
   // Traders (docs/TRADERS.md): offers that lapsed are routed on, ended holds give capacity back, started orders
   // catch up with their route obligation (completed, cancelled, the trader's side confirmed).
   const traderOrdersSweep: Task = async () => {
@@ -104,6 +106,7 @@ export function buildTaskList(
     tron_scan: tronScan,
     tron_confirm: tronConfirm,
     tron_orphan_sweep: tronOrphanSweep,
+    tron_backfill: tronBackfill,
     trader_orders_sweep: traderOrdersSweep,
   };
 }
@@ -136,7 +139,8 @@ export function quoteExpiryScheduler(db: Db): OutboxHandler {
  * deposit addresses every 10 minutes, sweep quote/request expiry every minute, sweep settlement SLAs every
  * 15 minutes and reconcile the ledger nightly. The TRON scanner reads new transfers every minute, offers
  * detected transfers to the verifier every minute (a transfer solidifies in about a minute) and sweeps for
- * orphans every 10 minutes. The trader sweep runs every minute (an offer's own expiry is minutes, not hours).
+ * orphans every 10 minutes; a requested historical backfill reads one bounded slice a minute (TD-06). The trader
+ * sweep runs every minute (an offer's own expiry is minutes, not hours).
  */
 export const CRONTAB = [
   '* * * * * outbox_dispatch ?max=1&jobKey=outbox_dispatch',
@@ -149,5 +153,6 @@ export const CRONTAB = [
   '* * * * * tron_scan ?max=1&jobKey=tron_scan',
   '* * * * * tron_confirm ?max=1&jobKey=tron_confirm',
   '*/10 * * * * tron_orphan_sweep ?max=2&jobKey=tron_orphan_sweep',
+  '* * * * * tron_backfill ?max=1&jobKey=tron_backfill',
   '* * * * * trader_orders_sweep ?max=1&jobKey=trader_orders_sweep',
 ].join('\n');

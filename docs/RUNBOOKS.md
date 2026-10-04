@@ -61,8 +61,10 @@ trade still shows nothing.
 
 **What to check first.**
 
-1. The USDT screen: it shows the scanner's block cursor and when it last ran. A cursor that is not moving is a
-   scanner that has stopped; a cursor that moves with nothing found is a quiet day.
+1. The USDT screen: it shows the scanner's block cursor, when it last ran, and whether that run could prove its
+   whole window read. A cursor that is not moving while the scanner runs is a window it cannot prove — the notice
+   says why (an interrupted page, a receipt a provider could not produce, a provider down); `scanner_block_lag`
+   counts how far the cursor trails the solidified head. A cursor that moves with nothing found is a quiet day.
 2. Is the worker process running, and is `outbox_oldest_pending_seconds` also climbing? Both climbing means the
    worker; only the scanner means the provider.
 3. The transaction on a block explorer: does it exist, is it final, and is it to **that trade's own address**?
@@ -134,20 +136,79 @@ control that catches a payment the bank never made.
 
 ## provider-outage — a chain provider is unavailable
 
-**What you were told.** Scanner lag climbing, provider errors in the worker log, or both providers failing.
+**What you were told.** `chain_providers_degraded` above zero, scanner lag climbing, or both providers failing.
 
-**What to check first.** Which provider, and whether it is failing for everyone (its own status page) or only
-for us (credentials, rate limits, IP allow-lists).
+**What to check first.**
 
-**What to do.** One provider down is not an incident: the scanner reads through both and requires both to agree
-before it calls a transfer final, so it keeps working on the other one with a lag. Both down means USDT
-confirmation stops; trades stay in their state and nothing is lost, but clients wait. Tell the desk to stop
-promising timings, and do not pay out against unconfirmed deposits — a provider outage is precisely when that
-temptation appears.
+1. The USDT screen's **Chain providers** table: which provider, its state (answering / failing / down), when it
+   last answered, and the last failure it reported. The worker writes this after every run
+   (`chain_provider_status`); it never contains a credential.
+2. Whether it is failing for everyone (the provider's own status page) or only for us (credentials, rate limits,
+   IP allow-lists — a run of `429` answers is the rate limit).
 
-**What never to do.** Do not lower the confirmation threshold or switch the verifier to a single provider to
-"get things moving". The dual-provider rule exists because a single compromised or forked provider can report a
-transfer that never happened, and a payout made against one is gone.
+**What actually happens, so you know what not to fix.**
+
+* **Detection fails over.** The scanner reads heads and account history through the first provider that
+  answers and moves to the next one when it cannot; the USDT screen says which provider served the last run.
+  Detection never confirms money, so reading through any configured provider is safe.
+* **Confirmation asks every provider, every time.** A provider that cannot answer is recorded as *unavailable*
+  on the confirmation, never as "the transfer does not exist". Below the D-05 threshold one independent source
+  is the documented minimum and the confirmation is marked *degraded* in the audit trail; at or above it, two
+  independent sources must agree, so large transfers wait (`chain-quorum-failure`).
+* **Nothing is orphaned while a provider is unreachable.** A detected transfer is stripped from its trade only
+  when every configured provider answered and none of them knows it any more.
+
+**What to do.** One provider down: fix it at its source (credentials, quota, endpoint) and watch it return to
+*answering* on the next run; nothing else is needed. Both down: USDT detection and confirmation stop; trades stay
+in their state and nothing is lost. Tell the desk to stop promising timings, and do not pay out against
+unconfirmed deposits — an outage is exactly when that temptation appears. When the providers return, the scanner
+reads the gap window by window (the cursor never jumped it); a range older than the rescan overlap that you know
+was missed is read with `chain-backfill`.
+
+**What never to do.** Do not lower the confirmation threshold, declare two endpoints of one vendor as separate
+independence groups, or switch the verifier to a single provider to "get things moving". The dual-provider rule
+exists because a single compromised or forked provider can report a transfer that never happened, and a payout
+made against one is gone.
+
+---
+
+## chain-quorum-failure — transfers are held for provider quorum
+
+**What you were told.** `chain_quorum_waiting` above zero: open `TX_NOT_FINAL` cases whose reason is
+`INSUFFICIENT_PROVIDER_QUORUM` (a large transfer only one independent source vouches for), `PROVIDER_CONFLICT`
+(two providers report different facts, or one says the transaction failed while the other reports the transfer) or
+`PROVIDER_UNAVAILABLE` (nobody answered).
+
+**What to check first.** The case's details (machine-readable code and reason), the Chain providers table, and the
+transaction on two independent block explorers.
+
+**What to do.**
+
+* `INSUFFICIENT_PROVIDER_QUORUM` / `PROVIDER_UNAVAILABLE`: restore the second provider (`provider-outage`). The
+  transfer confirms by itself on the next run; the case closes with the confirmation path.
+* `PROVIDER_CONFLICT`: treat as an incident. One provider is lagging on a fork, misconfigured (wrong network or
+  contract), or wrong. Do not pick the answer you prefer. Capture both answers, pause payouts that depend on the
+  transfer (they cannot be released anyway), and escalate to engineering with the provider names and the case.
+
+**What never to do.** Do not resolve the case by confirming the client leg by hand, and do not remove the
+disagreeing provider from the configuration to make the conflict disappear — the conflict is the evidence.
+
+---
+
+## chain-backfill — reading a historical range again
+
+**Not an alert.** Use it when funds are known to have reached one of the exchange's own addresses in a block range
+the scanner will not read again (below its rescan overlap): an address that became watched after the funds
+arrived, or a range a provider served incompletely long ago.
+
+**How.** `chain.backfill_request` (`chain:backfill`, step-up — OWNER or FINANCE) with the block range (at or below
+the solidified head the scanner last recorded, at most 2,000,000 blocks), the addresses (deposit addresses or
+treasury wallets of this exchange only, at most 200) and a reason. The worker reads one bounded slice a minute
+through exactly the scanner's detection path; the USDT screen's **Backfills** table shows how far it has been
+proved read. One backfill runs at a time; `chain.backfill_cancel` stops it and keeps what it found.
+
+**What it never does.** Move the scanner cursor, attribute anything other than by address (D-02), or record a
+transfer twice — a second pass over the same range finds what the first one recorded and changes nothing.
 
 ---
 
