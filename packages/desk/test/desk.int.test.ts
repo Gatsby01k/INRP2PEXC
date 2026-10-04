@@ -11,7 +11,7 @@ import {
   FULL_ACCESS, NO_ECONOMICS, accessFor, clientBook, clientDetail, deskApprovals, deskExceptions, deskQueue, deskStrip, deskTrade, deskTradeRecord,
   deskQuote, findByRef, inrView, listOrders, orderCounts, rateHistory, routePositions, searchOrders, tradeIdByRef, usdtView,
 } from '../src/index.ts';
-import { type World, createWorld, newUtr, openTrade, settleFirstLeg } from '../../settlement/test/world.ts';
+import { type World, createWorld, newUtr, openTrade, settleFirstLeg, ensureCounterpartyFunds } from '../../settlement/test/world.ts';
 
 let w: World;
 beforeAll(async () => { w = await createWorld('desk_views', { capacityInr: '500000000.00' }); });
@@ -22,6 +22,7 @@ const rowFor = (groups: Awaited<ReturnType<typeof deskQueue>>, tradeId: string) 
   groups.flatMap((g) => g.rows.map((r) => ({ group: g.key, row: r }))).find((x) => x.row.subject.id === tradeId);
 
 async function payoutLeg(tradeId: string, amount: string, opts: { confirm?: boolean } = {}) {
+  await ensureCounterpartyFunds(w, tradeId);
   const leg = await runAs(w.app, createPayoutLeg(w.settlementOp.actor, {}), w.settlementOp.ref, 'payout_leg.create', {
     tradeId, amount, payer: 'EXCHANGE_ACCOUNT' as const, inrAccountId: w.inrAccountId,
   });
@@ -84,6 +85,7 @@ describe('the desk queue', () => {
     });
 
     // A leg in flight without its reference is the desk's next job; with it, the confirm is.
+    await ensureCounterpartyFunds(w, trade.tradeId);
     const leg = await runAs(w.app, createPayoutLeg(w.settlementOp.actor, {}), w.settlementOp.ref, 'payout_leg.create', {
       tradeId: trade.tradeId, amount: '50000.00', payer: 'EXCHANGE_ACCOUNT' as const, inrAccountId: w.inrAccountId,
     });
@@ -248,6 +250,7 @@ describe('route positions', () => {
   it('shows a direct route payout as a read-only settlement linked to its client leg', async () => {
     const trade = await openTrade(w, { baseUsdt: '100', clientRate: '102.000000', routeRate: '104.200000', executionMode: 'DIRECT_TO_CLIENT' });
     await settleFirstLeg(w, trade.tradeId);
+    // The route pays the client directly: its own movement, no exchange money involved.
     const leg = await runAs(w.app, createPayoutLeg(w.settlementOp.actor, {}), w.settlementOp.ref, 'payout_leg.create', {
       tradeId: trade.tradeId, amount: '10200.00', payer: 'ROUTE' as const,
     });

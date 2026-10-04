@@ -7,9 +7,10 @@ import { type OperatorActor, authorizeOperator, operatorCommand } from '@inrp2p/
 import { reverseJournal, tradeCancelReversal } from '@inrp2p/ledger';
 import { releaseReservation, reserveCapacity } from '@inrp2p/inr-accounts';
 import { releaseDepositAssignment, releaseTreasuryReservation } from '@inrp2p/treasury';
-import { type TradeRow, legTotals, lockTrade, transitionTrade } from '@inrp2p/trades';
+import { type TradeRow, isCounterpartyFunded, legTotals, lockTrade, transitionTrade } from '@inrp2p/trades';
 import { openExceptionInTx, resolveExceptionInTx } from './exceptions.ts';
-import { assertNoPayoutUnderway, lockLeg, nextLegSeq } from './legs.ts';
+import { assertNoPayoutUnderway, lockLeg, nextLegSeq, requireSourceDepositAddress } from './legs.ts';
+import { allocateFunding, inrLocation, settleFunding, tronLocation } from './funding.ts';
 import { lockMovement, postMovement, recordFiatTransfer, verifyCryptoTransfer } from './movements.ts';
 import { lockObligation, obligationOfTrade } from './obligations.ts';
 import type { SettlementDeps } from './policy.ts';
@@ -55,6 +56,7 @@ async function releaseCommitments(ctx: TxContext, trade: TradeRow, reason: strin
   for (const l of pending) {
     const leg = await lockLeg(ctx, l.id);
     await ctx.tx.updateTable('settlement_leg').set({ status: 'CANCELLED', cancelled_at: sql<Date>`inrp2p_now()` }).where('id', '=', leg.id).execute();
+    await settleFunding(ctx, { kind: leg.side === 'REFUND_TO_CLIENT' ? 'REFUND' : 'CLIENT_PAYOUT', legId: leg.id }, 'RELEASED', 'trade cancelled');
     await appendAudit(ctx, { action: 'leg.cancelled', entityType: 'settlement_leg', entityId: leg.id, before: { status: 'PENDING' }, after: { status: 'CANCELLED', reason: 'trade cancelled' } });
   }
 
@@ -140,7 +142,7 @@ export function cancelTrade(actor: OperatorActor) {
  * plan; paying it out is a second, two-person step (`refund:approve`, SECURITY §4).
  */
 export function createRefundLeg(actor: OperatorActor) {
-  return operatorCommand(actor, 'settlement:create_payout', async (ctx, p: { tradeId: string; inrAccountId?: string | null; treasuryWalletId?: string | null; notes?: string | null }) => {
+  return operatorCommand(actor, 'settlement:create_payout', async (ctx, p: { tradeId: string; inrAccountId?: string | null; treasuryWalletId?: string | null; sourceDepositAddressId?: string | null; notes?: string | null }) => {
     const trade = await lockTrade(ctx.tx, p.tradeId);
     if (trade.lifecycle_state === 'COMPLETED' || trade.lifecycle_state === 'CANCELLED') throw new DomainError('INVALID_TRANSITION', `trade is ${trade.lifecycle_state}`);
     const totals = await legTotals(ctx.tx, trade.id);
@@ -157,24 +159,37 @@ export function createRefundLeg(actor: OperatorActor) {
     const amount = Money.ofMinor(outstanding, asset);
     let inrAccountId: string | null = null;
     let treasuryWalletId: string | null = null;
+    let sourceDepositAddressId: string | null = null;
+    let sourceAddress: string | null = null;
     let reservationId: string | null = null;
     if (asset === 'INR') {
       inrAccountId = requireUuid(p.inrAccountId, 'inrAccountId');
       const reserved = await reserveCapacity(ctx, { accountId: inrAccountId, amount: amount as Money<'INR'>, subject: { purpose: 'CLIENT_PAYOUT', tradeId: trade.id } });
       reservationId = reserved.reservationId;
+    } else if (p.sourceDepositAddressId) {
+      // A refund of a counterparty-funded trade returns the client's own USDT from where it arrived (D-16).
+      const source = await requireSourceDepositAddress(ctx, p.sourceDepositAddressId);
+      sourceDepositAddressId = source.id;
+      sourceAddress = source.address;
+      treasuryWalletId = source.treasuryWalletId;
     } else {
       treasuryWalletId = requireUuid(p.treasuryWalletId, 'treasuryWalletId');
+      sourceAddress = (await ctx.tx.selectFrom('treasury_wallet').select('address').where('id', '=', treasuryWalletId).executeTakeFirstOrThrow()).address;
     }
     const seq = await nextLegSeq(ctx, trade.id);
     const leg = await ctx.tx
       .insertInto('settlement_leg')
       .values({
         trade_id: trade.id, seq, side: 'REFUND_TO_CLIENT', asset, amount_minor: amount.minor, payer: 'EXCHANGE_ACCOUNT',
-        inr_account_id: inrAccountId, treasury_wallet_id: treasuryWalletId, capacity_reservation_id: reservationId,
+        inr_account_id: inrAccountId, treasury_wallet_id: treasuryWalletId, source_deposit_address_id: sourceDepositAddressId, capacity_reservation_id: reservationId,
         notes: p.notes ? requireText(p.notes, 'notes', 2000) : null, created_by: ctx.actor.id ?? 'SYSTEM',
       })
       .returning(['id', 'ref'])
       .executeTakeFirstOrThrow();
+    if (await isCounterpartyFunded(ctx.tx, trade.id)) {
+      // FI-74: a refund gives back the client's own money of this trade — never the counterparty's, never the platform's.
+      await allocateFunding(ctx, { tradeId: trade.id, use: { kind: 'REFUND', legId: leg.id }, asset, amount, location: asset === 'INR' ? inrLocation(inrAccountId!) : tronLocation(sourceAddress!) });
+    }
     await appendAudit(ctx, { action: 'leg.created', entityType: 'settlement_leg', entityId: leg.id, after: { ref: leg.ref, side: 'REFUND_TO_CLIENT', amount, trade_id: trade.id } });
     return { legId: leg.id, ref: leg.ref, amount: amount.toDecimalString() };
   });
@@ -226,12 +241,14 @@ export function confirmRefundLeg(actor: OperatorActor, deps: SettlementDeps) {
       const { recordCryptoTransfer } = await import('./movements.ts');
       const wallet = await ctx.tx.selectFrom('crypto_wallet').select('address').where('client_id', '=', trade.client_id).where('status', '=', 'ACTIVE').where('purpose', 'in', ['SOURCE', 'BOTH']).executeTakeFirst();
       if (!wallet) throw new DomainError('DESTINATION_INVALID', 'the client has no active source wallet to refund to');
-      const treasury = await ctx.tx.selectFrom('treasury_wallet').select('address').where('id', '=', leg.treasury_wallet_id!).executeTakeFirstOrThrow();
+      const fromAddress = leg.source_deposit_address_id
+        ? (await ctx.tx.selectFrom('deposit_address').select('address').where('id', '=', leg.source_deposit_address_id).executeTakeFirstOrThrow()).address
+        : (await ctx.tx.selectFrom('treasury_wallet').select('address').where('id', '=', leg.treasury_wallet_id!).executeTakeFirstOrThrow()).address;
       const recorded = await recordCryptoTransfer(ctx, {
         txHash: p.txHash ?? '',
         logIndex: p.logIndex ?? 0,
         tokenContract: deps.chain.tokenContract,
-        fromAddress: treasury.address,
+        fromAddress,
         toAddress: wallet.address,
         amount: amount as Money<'USDT'>,
         payerType: 'EXCHANGE_TREASURY',
@@ -273,6 +290,7 @@ export function confirmRefundLeg(actor: OperatorActor, deps: SettlementDeps) {
     });
     if (leg.status === 'PENDING') await ctx.tx.updateTable('settlement_leg').set({ status: 'PROCESSING', sent_at: sql<Date>`inrp2p_now()` }).where('id', '=', leg.id).execute();
     await ctx.tx.updateTable('settlement_leg').set({ status: 'COMPLETED', confirmed_at: sql<Date>`inrp2p_now()` }).where('id', '=', leg.id).execute();
+    await settleFunding(ctx, { kind: 'REFUND', legId: leg.id }, 'CONSUMED', `refund ${leg.ref} confirmed`);
     if (leg.capacity_reservation_id) {
       const { consumeReservation } = await import('@inrp2p/inr-accounts');
       await consumeReservation(ctx, leg.capacity_reservation_id, amount as Money<'INR'>);

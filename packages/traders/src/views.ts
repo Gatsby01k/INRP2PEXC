@@ -5,7 +5,7 @@ import type { FieldProtector } from '@inrp2p/adapters';
 import { inrAccountSealContext } from '@inrp2p/inr-accounts';
 import { obligationRemaining } from '@inrp2p/settlement';
 import { traderApplicant, traderMembership, traderProgram } from '@inrp2p/trader-core';
-import { COUNTERPARTY_FUNDED } from './delivery.ts';
+import { CLIENT_FUNDED_STATES } from './delivery.ts';
 import { type BlockIssue, type StandingIssue, blockIssues, freeCapacity, standingIssues } from './eligibility.ts';
 import { type OrderStage, type OrderStep, orderStage, orderSteps } from './progress.ts';
 import { earnings } from './rewards.ts';
@@ -126,7 +126,7 @@ async function progressFacts(ex: Executor, o: OrderRowFull): Promise<OrderProgre
   return {
     stage: orderStage({
       status: o.status,
-      counterpartyFunded: COUNTERPARTY_FUNDED.has(trade.lifecycle_state),
+      counterpartyFunded: CLIENT_FUNDED_STATES.has(trade.lifecycle_state),
       traderOwedMinor: traderOwed,
       traderPaymentPending: pending.some((p) => p.obligation_side === 'ROUTE_DELIVERS'),
       inrp2pOwedMinor: inrp2pOwed,

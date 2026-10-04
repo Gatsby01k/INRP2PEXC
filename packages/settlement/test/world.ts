@@ -10,7 +10,7 @@ import { addWallet } from '@inrp2p/clients';
 import { createInrAccount, createSettlementEntity, setDayCapacity } from '@inrp2p/inr-accounts';
 import { configureRoute } from '@inrp2p/routes';
 import { acceptQuote, createQuote, createRequest, sendQuote } from '@inrp2p/quotes';
-import { confirmFirstLeg, submitTxForVerification, type SettlementDeps } from '../src/index.ts';
+import { confirmFirstLeg, confirmRouteSettlement, obligationRemaining, recordRouteSettlement, submitTxForVerification, type SettlementDeps } from '../src/index.ts';
 import { createScenario, type Scenario } from '../../quotes/test/scenario.ts';
 
 export type { Scenario };
@@ -131,6 +131,57 @@ export async function settleFirstLeg(w: World, tradeId: string, opts: { amountUs
   });
   await runAs(db, confirmFirstLeg(w.settlementOp.actor, w.settlementDeps), w.settlementOp.ref, 'settlement.confirm_incoming', { legId: recorded.legId });
   return { legId: recorded.legId, transferId: recorded.transferId };
+}
+
+/**
+ * The counterparty (the trade's route, or a trader) delivers its side to the exchange (D-16), through the real
+ * commands: FINANCE records the movement against the route obligation and confirms it (INR against the bank, USDT on
+ * the fake chain). It lands where the exchange will pay the client from — the world's payout account for INR, the
+ * HOT treasury wallet for USDT — so an exchange-paid payout of the trade is funded by it, and by nothing else.
+ */
+export async function deliverCounterparty(
+  w: World,
+  tradeId: string,
+  opts: { amount?: string; inrAccountId?: string; treasuryWalletId?: string; db?: Db } = {},
+): Promise<{ routeSettlementId: string; amount: string }> {
+  const db = opts.db ?? w.app;
+  const obligation = await w.app.selectFrom('route_obligation').select(['id', 'route_id', 'route_delivers_asset']).where('trade_id', '=', tradeId).executeTakeFirstOrThrow();
+  const remaining = await obligationRemaining(w.app, obligation.id);
+  const amount = opts.amount ?? remaining.routeDelivers.toDecimalString();
+  let recorded: { routeSettlementId: string };
+  if (obligation.route_delivers_asset === 'INR') {
+    recorded = await runAs(db, recordRouteSettlement(w.financeOp.actor, w.settlementDeps), w.financeOp.ref, 'route_settlement.record', {
+      routeObligationId: obligation.id, flow: 'FROM_ROUTE_TO_EXCHANGE' as const, amount, rail: 'IMPS' as const, utr: newUtr('RT'), inrAccountId: opts.inrAccountId ?? w.inrAccountId,
+    });
+  } else {
+    const walletId = opts.treasuryWalletId ?? w.treasuryWalletId;
+    const wallet = await w.app.selectFrom('treasury_wallet').select('address').where('id', '=', walletId).executeTakeFirstOrThrow();
+    const routeAddress = (await w.app.selectFrom('liquidity_route').select('registered_route_address').where('id', '=', obligation.route_id).executeTakeFirstOrThrow()).registered_route_address
+      ?? encodeTronAddress(randomBytes(20));
+    const receipt = w.chain.add({ from: routeAddress, to: wallet.address, amountMinor: Money.parse(amount, 'USDT').minor });
+    recorded = await runAs(db, recordRouteSettlement(w.financeOp.actor, w.settlementDeps), w.financeOp.ref, 'route_settlement.record', {
+      routeObligationId: obligation.id, flow: 'FROM_ROUTE_TO_EXCHANGE' as const, amount, txHash: receipt.txHash, logIndex: receipt.logIndex, fromAddress: routeAddress, treasuryWalletId: walletId,
+    });
+  }
+  await runAs(db, confirmRouteSettlement(w.financeOp.actor, w.settlementDeps), w.financeOp.ref, 'route_settlement.confirm', { routeSettlementId: recorded.routeSettlementId });
+  return { routeSettlementId: recorded.routeSettlementId, amount };
+}
+
+/** Delivers the counterparty's side once: a no-op when the trade already holds counterparty funds. */
+export async function ensureCounterpartyFunds(w: World, tradeId: string, opts: { db?: Db } = {}): Promise<void> {
+  const delivered = await w.app.selectFrom('funding_source').select('source_id').where('trade_id', '=', tradeId).where('kind', '=', 'COUNTERPARTY_FUNDS').executeTakeFirst();
+  if (!delivered) await deliverCounterparty(w, tradeId, opts);
+}
+
+/** The deposit address a trade's client USDT arrived at (where its client funds are, D-16). */
+export async function clientDepositAddressOf(w: World, tradeId: string): Promise<{ id: string; address: string }> {
+  const row = await w.app
+    .selectFrom('deposit_assignment as a')
+    .innerJoin('deposit_address as d', 'd.id', 'a.deposit_address_id')
+    .select(['d.id', 'd.address'])
+    .where('a.trade_id', '=', tradeId)
+    .executeTakeFirstOrThrow();
+  return row;
 }
 
 /** A SETTLEMENT_OPERATOR whose TOTP step-up is older than the freshness window. */

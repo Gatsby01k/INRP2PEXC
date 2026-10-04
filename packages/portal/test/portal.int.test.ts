@@ -5,7 +5,7 @@ import { runAs } from '@inrp2p/identity/testing';
 import { createQuote, createRequest, declineRequest, sendQuote } from '@inrp2p/quotes';
 import { confirmPayout, createPayoutLeg, recordLegEvidence, sendPayoutLeg } from '@inrp2p/settlement';
 import { clientDestinations, clientHistory, exchangeView, historyCounts, portalAccess, portalTrade } from '../src/index.ts';
-import { type World, createWorld, newUtr, openTrade, settleFirstLeg } from '../../settlement/test/world.ts';
+import { type World, createWorld, newUtr, openTrade, settleFirstLeg, ensureCounterpartyFunds } from '../../settlement/test/world.ts';
 
 let w: World;
 beforeAll(async () => {
@@ -14,6 +14,7 @@ beforeAll(async () => {
 afterAll(async () => w.close());
 
 async function payLeg(tradeId: string, amount: string) {
+  await ensureCounterpartyFunds(w, tradeId);
   const leg = await runAs(w.app, createPayoutLeg(w.settlementOp.actor, {}), w.settlementOp.ref, 'payout_leg.create', {
     tradeId, amount, payer: 'EXCHANGE_ACCOUNT' as const, inrAccountId: w.inrAccountId,
   });

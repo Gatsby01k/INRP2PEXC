@@ -4,7 +4,7 @@ import { sql } from 'kysely';
 import { isDomainError } from '@inrp2p/kernel';
 import { runAs } from '@inrp2p/identity/testing';
 import { confirmPayout, createPayoutLeg, recordLegEvidence, sendPayoutLeg } from '../src/index.ts';
-import { type World, createWorld, newUtr, openTrade, settleFirstLeg } from './world.ts';
+import { type World, createWorld, deliverCounterparty, newUtr, openTrade, settleFirstLeg } from './world.ts';
 
 /**
  * The load test the launch checklist asks for: **quote accept and payout confirm, under contention**
@@ -99,6 +99,8 @@ describe(`accepting ${TOTAL} quotes on ${WORKERS} lanes`, () => {
 describe(`settling ${TOTAL} trades on ${WORKERS} lanes`, () => {
   it('pays each one once, against a single account-day row every lane is competing for', async () => {
     await inParallel(accepted.length, async (i) => timed('first_leg', () => settleFirstLeg(w, accepted[i]!.tradeId)));
+    // D-16: each client is paid with what its counterparty delivered, so the counterparty delivers first.
+    await inParallel(accepted.length, async (i) => timed('counterparty_delivery', () => deliverCounterparty(w, accepted[i]!.tradeId)));
 
     await inParallel(accepted.length, async (i) => {
       const tradeId = accepted[i]!.tradeId;
@@ -125,6 +127,7 @@ describe(`settling ${TOTAL} trades on ${WORKERS} lanes`, () => {
     // key means one payment; two keys against one leg means the second is refused by the leg's own state.
     const trade = await openTrade(w, { baseUsdt: BASE_USDT, clientRate: CLIENT_RATE, executionMode: 'TO_EXCHANGE' });
     await settleFirstLeg(w, trade.tradeId);
+    await deliverCounterparty(w, trade.tradeId);
     const leg = await runAs(w.app, createPayoutLeg(w.settlementOp.actor, {}), w.settlementOp.ref, 'payout_leg.create', {
       tradeId: trade.tradeId, amount: PAYOUT_INR, payer: 'EXCHANGE_ACCOUNT' as const, inrAccountId: w.inrAccountId,
     });

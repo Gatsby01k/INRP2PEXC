@@ -11,7 +11,7 @@ import {
   obligationRemaining, recordIncomingFiat, recordLegEvidence, recordRouteSettlement, requestAdjustment, resolveException, sendPayoutLeg,
   cancelPayoutLeg, confirmRefundLeg, destinationArchivedHandler, refundAndCancel, revertFirstLeg, submitTxForVerification, voidException,
 } from '../src/index.ts';
-import { balanceOf, createWorld, newUtr, openTrade, settleFirstLeg, type World } from './world.ts';
+import { balanceOf, clientDepositAddressOf, createWorld, deliverCounterparty, ensureCounterpartyFunds, newUtr, openTrade, settleFirstLeg, type World } from './world.ts';
 
 /**
  * Regressions found by the end-to-end audit (2026-09-25). Each test states the flow a desk actually runs and the
@@ -40,7 +40,9 @@ const confirmLeg = (legId: string) => runAs(w.app, confirmFirstLeg(w.settlementO
 const resolve = (exceptionId: string, resolution: 'await_top_up' | 'escalate' = 'await_top_up') =>
   runAs(w.app, resolveException(w.dealer.actor), w.dealer.ref, 'exception.resolve', { exceptionId, resolution, notes: 'resolved by the desk after checking with the client' });
 
+/** Pays the client from the payout account — with the counterparty's money, which it delivers first if it has not (D-16). */
 async function payout(tradeId: string, amount: string) {
+  await ensureCounterpartyFunds(w, tradeId);
   const leg = await runAs(w.app, createPayoutLeg(w.settlementOp.actor, {}), w.settlementOp.ref, 'payout_leg.create', { tradeId, amount, payer: 'EXCHANGE_ACCOUNT' as const, inrAccountId: w.inrAccountId });
   await runAs(w.app, sendPayoutLeg(w.settlementOp.actor), w.settlementOp.ref, 'payout_leg.send', { legId: leg.legId });
   await runAs(w.app, recordLegEvidence(w.settlementOp.actor, w.settlementDeps), w.settlementOp.ref, 'payout_leg.record_evidence', { legId: leg.legId, rail: 'IMPS' as const, utr: newUtr() });
@@ -144,18 +146,24 @@ describe('approval re-checks the effective terms (FI-20, FI-21, FI-61)', () => {
       routeObligationId: trade.routeObligationId, flow: 'FROM_ROUTE_TO_EXCHANGE' as const, amount: '10000.00', rail: 'NEFT' as const, utr: newUtr('RS'), inrAccountId: w.inrAccountId,
     });
     await runAs(w.app, confirmRouteSettlement(w.financeOp.actor, w.settlementDeps), w.financeOp.ref, 'route_settlement.confirm', { routeSettlementId: rs.routeSettlementId });
-    const treasury = await w.app.selectFrom('treasury_wallet').select('address').where('id', '=', w.treasuryWalletId).executeTakeFirstOrThrow();
-    const route = await w.app.selectFrom('liquidity_route').select('registered_route_address').where('id', '=', w.routeId).executeTakeFirstOrThrow();
-    const sent = w.chain.add({ from: treasury.address, to: route.registered_route_address!, amountMinor: usdt('100') });
-    const back = await runAs(w.app, recordRouteSettlement(w.financeOp.actor, w.settlementDeps), w.financeOp.ref, 'route_settlement.record', {
-      routeObligationId: trade.routeObligationId, flow: 'TO_ROUTE' as const, amount: '100', txHash: sent.txHash, logIndex: sent.logIndex, treasuryWalletId: w.treasuryWalletId,
-    });
-    await runAs(w.app, confirmRouteSettlement(w.financeOp.actor, w.settlementDeps), w.financeOp.ref, 'route_settlement.confirm', { routeSettlementId: back.routeSettlementId });
     expect((await obligationRemaining(w.app, trade.routeObligationId)).routeDelivers.toDecimalString()).toBe('420.00');
+    const deposit = await clientDepositAddressOf(w, trade.tradeId);
+    const route = await w.app.selectFrom('liquidity_route').select('registered_route_address').where('id', '=', w.routeId).executeTakeFirstOrThrow();
+    const sendBack = async () => {
+      const sent = w.chain.add({ from: deposit.address, to: route.registered_route_address!, amountMinor: usdt('100') });
+      return runAs(w.app, recordRouteSettlement(w.financeOp.actor, w.settlementDeps), w.financeOp.ref, 'route_settlement.record', {
+        routeObligationId: trade.routeObligationId, flow: 'TO_ROUTE' as const, amount: '100', txHash: sent.txHash, logIndex: sent.logIndex, sourceDepositAddressId: deposit.id,
+      });
+    };
+    // The route still owes ₹420: the client's USDT is not handed over before it has delivered in full (D-16).
+    await expect(sendBack()).rejects.toMatchObject({ code: 'COUNTERPARTY_NOT_DELIVERED' });
 
     await expect(adjust(trade.tradeId, { deltaRouteInr: '-500.00' }, { type: 'RATE_CORRECTION' })).rejects.toMatchObject({ code: 'INVALID_AMOUNT' });
     const exact = await adjust(trade.tradeId, { deltaRouteInr: '-420.00' }, { type: 'RATE_CORRECTION' });
     await exact.approve();
+    // The corrected route side is now delivered in full, so the exchange's side may go — from the client's deposit.
+    const back = await sendBack();
+    await runAs(w.app, confirmRouteSettlement(w.financeOp.actor, w.settlementDeps), w.financeOp.ref, 'route_settlement.confirm', { routeSettlementId: back.routeSettlementId });
     const o = await w.app.selectFrom('route_obligation').select(['status', 'settled_at']).where('id', '=', trade.routeObligationId).executeTakeFirstOrThrow();
     expect(o.status).toBe('SETTLED');
     expect(o.settled_at).not.toBeNull();
@@ -198,6 +206,7 @@ describe('payout evidence must be what the chain says it is (FI-24)', () => {
   it('refuses a USDT payout whose on-chain sender is not the recorded sender', async () => {
     const trade = await openTrade(w, { direction: 'BUY_USDT', executionMode: 'TO_EXCHANGE', baseUsdt: '50', clientRate: '106.000000', routeRate: '104.200000' });
     await settleFirstLeg(w, trade.tradeId);
+    await deliverCounterparty(w, trade.tradeId);
     const leg = await runAs(w.app, createPayoutLeg(w.settlementOp.actor, {}), w.settlementOp.ref, 'payout_leg.create', { tradeId: trade.tradeId, amount: '50', payer: 'EXCHANGE_ACCOUNT' as const, treasuryWalletId: w.treasuryWalletId });
     await runAs(w.app, sendPayoutLeg(w.settlementOp.actor), w.settlementOp.ref, 'payout_leg.send', { legId: leg.legId });
     const row = await w.app.selectFrom('settlement_leg').select('destination_wallet_id').where('id', '=', leg.legId).executeTakeFirstOrThrow();
@@ -229,6 +238,7 @@ describe('the bank statement check covers every movement on the account (SECURIT
   it('matches a reference the operator typed in lower case', async () => {
     const trade = await openTrade(s, { executionMode: 'TO_EXCHANGE', baseUsdt: '100', clientRate: '102.000000', routeRate: '104.200000' });
     await settleFirstLeg(s, trade.tradeId);
+    await deliverCounterparty(s, trade.tradeId);
     const leg = await runAs(s.app, createPayoutLeg(s.settlementOp.actor, {}), s.settlementOp.ref, 'payout_leg.create', { tradeId: trade.tradeId, amount: '10200.00', payer: 'EXCHANGE_ACCOUNT' as const, inrAccountId: s.inrAccountId });
     await runAs(s.app, sendPayoutLeg(s.settlementOp.actor), s.settlementOp.ref, 'payout_leg.send', { legId: leg.legId });
     const utr = newUtr('lc').toLowerCase();
@@ -275,6 +285,7 @@ describe('a trade never pays out and refunds at once (FI-25)', () => {
   it('refuses a refund while a payout is in flight', async () => {
     const trade = await sellTrade('100');
     await settleFirstLeg(w, trade.tradeId);
+    await deliverCounterparty(w, trade.tradeId);
     const leg = await runAs(w.app, createPayoutLeg(w.settlementOp.actor, {}), w.settlementOp.ref, 'payout_leg.create', { tradeId: trade.tradeId, amount: '10200.00', payer: 'EXCHANGE_ACCOUNT' as const, inrAccountId: w.inrAccountId });
     await runAs(w.app, sendPayoutLeg(w.settlementOp.actor), w.settlementOp.ref, 'payout_leg.send', { legId: leg.legId });
     await expect(runAs(w.app, createRefundLeg(w.owner.actor), w.owner.ref, 'refund_leg.create', { tradeId: trade.tradeId, treasuryWalletId: w.treasuryWalletId }))
@@ -284,7 +295,9 @@ describe('a trade never pays out and refunds at once (FI-25)', () => {
   it('refuses a payout once a refund of the client funds is planned', async () => {
     const trade = await sellTrade('100');
     await settleFirstLeg(w, trade.tradeId);
-    await runAs(w.app, createRefundLeg(w.owner.actor), w.owner.ref, 'refund_leg.create', { tradeId: trade.tradeId, treasuryWalletId: w.treasuryWalletId });
+    await deliverCounterparty(w, trade.tradeId);
+    const deposit = await clientDepositAddressOf(w, trade.tradeId);
+    await runAs(w.app, createRefundLeg(w.owner.actor), w.owner.ref, 'refund_leg.create', { tradeId: trade.tradeId, sourceDepositAddressId: deposit.id });
     await expect(runAs(w.app, createPayoutLeg(w.settlementOp.actor, {}), w.settlementOp.ref, 'payout_leg.create', { tradeId: trade.tradeId, amount: '10200.00', payer: 'EXCHANGE_ACCOUNT' as const, inrAccountId: w.inrAccountId }))
       .rejects.toMatchObject({ code: 'REFUND_IN_PROGRESS' });
   });
@@ -332,8 +345,9 @@ describe('a destination archived under an open trade opens CLIENT_BANK_CHANGED (
 });
 
 describe('refunds never exceed the client funds they return (FI-25, IX025)', () => {
-  const refund = (tradeId: string, op = w.owner, key?: string) =>
-    runAs(w.app, createRefundLeg(op.actor), op.ref, 'refund_leg.create', { tradeId, treasuryWalletId: w.treasuryWalletId }, key ?? randomUUID());
+  // A SELL client's USDT goes back from the deposit address it arrived at (D-16).
+  const refund = async (tradeId: string, op = w.owner, key?: string) =>
+    runAs(w.app, createRefundLeg(op.actor), op.ref, 'refund_leg.create', { tradeId, sourceDepositAddressId: (await clientDepositAddressOf(w, tradeId)).id }, key ?? randomUUID());
   const refundLegs = (tradeId: string) =>
     w.app.selectFrom('settlement_leg').select(['id', 'status', 'amount_minor']).where('trade_id', '=', tradeId).where('side', '=', 'REFUND_TO_CLIENT').execute();
 
@@ -374,7 +388,9 @@ describe('refunds never exceed the client funds they return (FI-25, IX025)', () 
       trade_id: trade.tradeId, seq: 99, ref: 'placeholder', side: 'REFUND_TO_CLIENT', asset: 'USDT', amount_minor: usdt('100'), payer: 'EXCHANGE_ACCOUNT',
       treasury_wallet_id: w.treasuryWalletId, created_by: 'test',
     }).execute();
-    await expect(insertSecond).rejects.toSatisfy((e) => pgErrorCode(e) === 'IX025');
+    // Two guards refuse it at commit: the refund total (IX025) and, the trade being counterparty-funded, the missing
+    // earmark of the client's money (IX086). Whichever fires first, nothing is written.
+    await expect(insertSecond).rejects.toSatisfy((e) => pgErrorCode(e) === 'IX025' || pgErrorCode(e) === 'IX086');
     expect(await refundLegs(trade.tradeId)).toHaveLength(1);
   });
 });
@@ -440,8 +456,11 @@ describe('a statement reference shared across rails is never matched by guess (S
   it('matches only the transfer that account, reference, direction and amount single out; otherwise it is ambiguous and reviewed', async () => {
     const t1 = await openTrade(r, { executionMode: 'TO_EXCHANGE', baseUsdt: '100', clientRate: '102.000000', routeRate: '104.200000' });
     await settleFirstLeg(r, t1.tradeId);
+    // The counterparty's INR arrives on the account the client is paid from (D-16).
+    await deliverCounterparty(r, t1.tradeId);
     const t2 = await openTrade(r, { executionMode: 'TO_EXCHANGE', baseUsdt: '100', clientRate: '102.000000', routeRate: '104.200000' });
     await settleFirstLeg(r, t2.tradeId);
+    await deliverCounterparty(r, t2.tradeId);
     const x = newUtr('XR');
     const y = newUtr('YR');
     const onImps = await paidLeg(t1.tradeId, '5000.00', 'IMPS', x);
@@ -453,7 +472,9 @@ describe('a statement reference shared across rails is never matched by guess (S
     // whose reference, amount and direction fit two transfers equally.
     const out = await importLines([{ reference: x, amount: '5200.00', direction: 'DEBIT' }, { reference: y, amount: '3000.00', direction: 'DEBIT' }]);
     expect(await lineOf(out.importId)).toEqual([{ outcome: 'MATCHED', fiat_transfer_id: onNeft }, { outcome: 'AMBIGUOUS', fiat_transfer_id: null }]);
-    expect(out).toMatchObject({ matched: 1, ambiguous: 1, mismatched: 1 });
+    // Missing: the IMPS sibling below, and the two counterparty credits this statement does not show — the check
+    // covers the money a payout was funded with as much as the payout itself (S7, D-16).
+    expect(out).toMatchObject({ matched: 1, ambiguous: 1, mismatched: 1, missing: 3 });
     expect(await reasonsOn(onNeft)).toEqual([]);
     expect(await reasonsOn(sameImps)).toEqual(['STATEMENT_REFERENCE_AMBIGUOUS']);
     expect(await reasonsOn(sameNeft)).toEqual(['STATEMENT_REFERENCE_AMBIGUOUS']);

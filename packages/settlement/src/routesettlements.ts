@@ -9,6 +9,9 @@ import { openExceptionInTx } from './exceptions.ts';
 import { lockMovement, postMovement, recordCryptoTransfer, recordFiatTransfer, verifyCryptoTransfer } from './movements.ts';
 import { allocateToObligation, lockObligation, obligationRemaining } from './obligations.ts';
 import type { SettlementDeps } from './policy.ts';
+import { allocateFunding, assertCounterpartyDelivered, inrLocation, settleFunding, tronLocation } from './funding.ts';
+import { requireSourceDepositAddress } from './legs.ts';
+import { isCounterpartyFunded, lockTrade } from '@inrp2p/trades';
 
 export interface RecordRouteSettlementPayload {
   /** V1 obligations are PER_TRADE, so a settlement is always recorded against one obligation side (D-03). */
@@ -26,6 +29,11 @@ export interface RecordRouteSettlementPayload {
   readonly fromAddress?: string;
   readonly toAddress?: string;
   readonly treasuryWalletId?: string | null;
+  /**
+   * TO_ROUTE USDT, pass-through (D-16): sent from the deposit address where the client's USDT arrived, which is
+   * where a counterparty-funded trade's client funds are.
+   */
+  readonly sourceDepositAddressId?: string | null;
 }
 
 const sideOfFlow = (flow: RouteSettlementFlow): ObligationSide => (flow === 'TO_ROUTE' ? 'EXCHANGE_DELIVERS' : 'ROUTE_DELIVERS');
@@ -46,7 +54,13 @@ export function recordRouteSettlement(actor: OperatorActor, deps: SettlementDeps
  */
 export async function recordRouteSettlementInTx(ctx: TxContext, deps: SettlementDeps, p: RecordRouteSettlementPayload): Promise<{ routeSettlementId: string; ref: string; side: ObligationSide; obligationId: string }> {
   const flow = requireOneOf(p.flow, 'flow', ['FROM_ROUTE_TO_EXCHANGE', 'TO_ROUTE'] as const);
+  // A payment to the route draws on the client's funds of the trade, which refunds also draw on: both happen under
+  // the trade lock, taken first (lock order: trade → route obligation).
+  const peek = await ctx.tx.selectFrom('route_obligation').select('trade_id').where('id', '=', requireUuid(p.routeObligationId, 'routeObligationId')).executeTakeFirst();
+  const fundedTrade = flow === 'TO_ROUTE' && peek?.trade_id && (await isCounterpartyFunded(ctx.tx, peek.trade_id)) ? peek.trade_id : null;
+  if (fundedTrade) await lockTrade(ctx.tx, fundedTrade);
   const obligation = await lockObligation(ctx, p.routeObligationId);
+  if (fundedTrade) await assertCounterpartyDelivered(ctx.tx, obligation.id);
   if (obligation.status === 'CANCELLED' || obligation.status === 'SETTLED') throw new DomainError('INVALID_TRANSITION', `obligation is ${obligation.status}`);
   const route = await ctx.tx.selectFrom('liquidity_route').select(['id', 'status', 'registered_route_address']).where('id', '=', obligation.route_id).forShare().executeTakeFirstOrThrow();
   if (route.status !== 'ACTIVE') throw new DomainError('ROUTE_NOT_USABLE', `route is ${route.status}`);
@@ -78,11 +92,20 @@ export async function recordRouteSettlementInTx(ctx: TxContext, deps: Settlement
     transferKind = 'FIAT';
     transferId = movement.transferId;
   } else {
-    const walletId = requireUuid(p.treasuryWalletId, 'treasuryWalletId');
-    const wallet = await ctx.tx.selectFrom('treasury_wallet').select(['address', 'status']).where('id', '=', walletId).forShare().executeTakeFirstOrThrow();
-    if (wallet.status !== 'ACTIVE') throw new DomainError('TREASURY_WALLET_NOT_ACTIVE', `treasury wallet is ${wallet.status}`);
-    const toAddress = flow === 'TO_ROUTE' ? requireText(p.toAddress ?? route.registered_route_address ?? '', 'toAddress', 64) : wallet.address;
-    const fromAddress = flow === 'TO_ROUTE' ? wallet.address : requireText(p.fromAddress, 'fromAddress', 64);
+    let walletId: string;
+    let sendingAddress: string;
+    if (flow === 'TO_ROUTE' && p.sourceDepositAddressId) {
+      const source = await requireSourceDepositAddress(ctx, p.sourceDepositAddressId);
+      walletId = source.treasuryWalletId;
+      sendingAddress = source.address;
+    } else {
+      walletId = requireUuid(p.treasuryWalletId, 'treasuryWalletId');
+      const wallet = await ctx.tx.selectFrom('treasury_wallet').select(['address', 'status']).where('id', '=', walletId).forShare().executeTakeFirstOrThrow();
+      if (wallet.status !== 'ACTIVE') throw new DomainError('TREASURY_WALLET_NOT_ACTIVE', `treasury wallet is ${wallet.status}`);
+      sendingAddress = wallet.address;
+    }
+    const toAddress = flow === 'TO_ROUTE' ? requireText(p.toAddress ?? route.registered_route_address ?? '', 'toAddress', 64) : sendingAddress;
+    const fromAddress = flow === 'TO_ROUTE' ? sendingAddress : requireText(p.fromAddress, 'fromAddress', 64);
     const movement = await recordCryptoTransfer(ctx, {
       txHash: p.txHash ?? '',
       logIndex: p.logIndex ?? 0,
@@ -137,6 +160,13 @@ export async function recordRouteSettlementInTx(ctx: TxContext, deps: Settlement
       allocated_by: ctx.actor.id ?? 'SYSTEM',
     })
     .execute();
+  if (fundedTrade) {
+    // FI-73: the counterparty is paid with the client's money of this trade, from where that money is.
+    const movement = transferKind === 'FIAT'
+      ? inrLocation((await ctx.tx.selectFrom('fiat_transfer').select('payer_id').where('id', '=', transferId).executeTakeFirstOrThrow()).payer_id)
+      : tronLocation((await ctx.tx.selectFrom('crypto_transfer').select('from_address').where('id', '=', transferId).executeTakeFirstOrThrow()).from_address);
+    await allocateFunding(ctx, { tradeId: fundedTrade, use: { kind: 'ROUTE_PAYMENT', routeSettlementId: row.id }, asset, amount, location: movement });
+  }
   await appendAudit(ctx, {
     action: 'route_settlement.recorded', entityType: 'route_settlement', entityId: row.id,
     after: { ref: row.ref, flow, asset, amount, route_obligation_id: obligation.id, side, evidence: transferKind },
@@ -194,6 +224,7 @@ export async function confirmRouteSettlementInTx(ctx: TxContext, deps: Settlemen
   });
   await ctx.tx.updateTable('route_settlement').set({ status: 'CONFIRMED', confirmed_at: sql<Date>`inrp2p_now()` }).where('id', '=', s.id).execute();
   if (s.capacity_reservation_id) await consumeReservation(ctx, s.capacity_reservation_id, amount as Money<'INR'>);
+  if (s.flow === 'TO_ROUTE') await settleFunding(ctx, { kind: 'ROUTE_PAYMENT', routeSettlementId: s.id }, 'CONSUMED', `route settlement ${s.ref} confirmed`);
   const allocated = await allocateToObligation(ctx, { obligation, side, routeSettlementId: s.id, amount });
   await appendAudit(ctx, {
     action: 'route_settlement.confirmed', entityType: 'route_settlement', entityId: s.id,
@@ -225,6 +256,7 @@ export function failRouteSettlement(actor: OperatorActor) {
       await ctx.tx.updateTable('fiat_transfer').set({ status: 'FAILED', failed_at: sql<Date>`inrp2p_now()`, failure_reason: reason }).where('id', '=', s.fiat_transfer_id).where('status', '=', 'RECORDED').execute();
     }
     if (s.capacity_reservation_id) await releaseReservation(ctx, s.capacity_reservation_id, 'ROUTE_SETTLEMENT_FAILED');
+    if (s.flow === 'TO_ROUTE') await settleFunding(ctx, { kind: 'ROUTE_PAYMENT', routeSettlementId: s.id }, 'RELEASED', `route settlement failed: ${reason}`);
     const allocation = await ctx.tx.selectFrom('transfer_allocation').select('id').where('route_settlement_id', '=', s.id).where('voided_at', 'is', null).executeTakeFirst();
     if (allocation) {
       await ctx.tx

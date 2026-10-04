@@ -8,7 +8,7 @@ import {
   cancelPayoutLeg, confirmPayout, confirmPayoutLeg, confirmRouteSettlement, createPayoutLeg, failPayoutLeg, getClientSettlementView,
   obligationRemaining, recordLegEvidence, recordRouteSettlement, sendPayoutLeg,
 } from '../src/index.ts';
-import { balanceOf, createWorld, newUtr, openTrade, settleFirstLeg, type World } from './world.ts';
+import { balanceOf, createWorld, newUtr, openTrade, settleFirstLeg, type World, clientDepositAddressOf, deliverCounterparty } from './world.ts';
 
 let w: World;
 beforeAll(async () => { w = await createWorld('settlement_direct'); });
@@ -147,13 +147,17 @@ describe('canonical direct route payout (FINANCIAL_INVARIANTS §3.5)', () => {
 
   it('exit 5: an exchange-paid movement never reduces the route obligation, and a route leg needs DIRECT_TO_CLIENT', async () => {
     const trade = await canonicalTrade();
+    // An exchange-paid top-up on a direct trade is paid with money the route delivered to the exchange (D-16).
+    await expect(preparePayout(trade.tradeId, '200000.00', { payer: 'EXCHANGE_ACCOUNT' })).rejects.toMatchObject({ code: 'FUNDING_NOT_CONFIRMED' });
+    await deliverCounterparty(w, trade.tradeId, { amount: '200000.00' });
     const leg = await preparePayout(trade.tradeId, '200000.00', { payer: 'EXCHANGE_ACCOUNT' });
     await confirm(leg.legId);
     const movement = await w.app.selectFrom('fiat_transfer').select('id').where('utr', '=', leg.utr).executeTakeFirstOrThrow();
     // No route settlement exists for it, and the database refuses to invent one.
     expect(await w.app.selectFrom('route_settlement').select('id').where('fiat_transfer_id', '=', movement.id).execute()).toEqual([]);
+    // Only the route's own delivery reduced its side; the exchange's payment to the client did not, a second time.
     const remaining = await obligationRemaining(w.app, trade.routeObligationId);
-    expect(remaining.routeDelivers.toDecimalString()).toBe('10420000.00');
+    expect(remaining.routeDelivers.toDecimalString()).toBe('10220000.00');
     await expect(sql`insert into route_settlement (route_id, route_obligation_id, obligation_side, flow, asset, amount_minor, transfer_kind, fiat_transfer_id, status, confirmed_at, created_by)
                      values (${w.routeId}, ${trade.routeObligationId}, 'ROUTE_DELIVERS', 'DIRECT_TO_CLIENT', 'INR', 20000000, 'FIAT', ${movement.id}, 'CONFIRMED', now(), 'test')`.execute(w.t.owner))
       .rejects.toSatisfy((e) => pgErrorCode(e) === 'IX065');
@@ -215,13 +219,16 @@ describe('canonical direct route payout (FINANCIAL_INVARIANTS §3.5)', () => {
     const trade = await canonicalTrade();
     const direct = await preparePayout(trade.tradeId, '10000000.00');
     await confirm(direct.legId);
+    // The exchange's top-up is the route's money too: delivered to the exchange first, then paid on (D-16).
+    await deliverCounterparty(w, trade.tradeId, { amount: '200000.00' });
     const top = await preparePayout(trade.tradeId, '200000.00', { payer: 'EXCHANGE_ACCOUNT' });
     const result = await confirm(top.legId);
     expect(result.completed).toBe(true);
     expect((await w.app.selectFrom('trade').select('lifecycle_state').where('id', '=', trade.tradeId).executeTakeFirstOrThrow()).lifecycle_state).toBe('COMPLETED');
-    expect((await obligationRemaining(w.app, trade.routeObligationId)).routeDelivers.toDecimalString()).toBe('420000.00');
+    // ₹10,000,000 paid straight to the client and ₹200,000 delivered to the exchange: the ₹220,000 margin remains.
+    expect((await obligationRemaining(w.app, trade.routeObligationId)).routeDelivers.toDecimalString()).toBe('220000.00');
     expect(await balanceOf(w.app, 'LIAB:CLIENT_PAYABLE', 'INR', { tradeId: trade.tradeId })).toBe(0n);
-    expect(await balanceOf(w.app, 'ASSET:ROUTE_RECEIVABLE', 'INR', { routeObligationId: trade.routeObligationId })).toBe(INR('420000.00').minor);
+    expect(await balanceOf(w.app, 'ASSET:ROUTE_RECEIVABLE', 'INR', { routeObligationId: trade.routeObligationId })).toBe(INR('220000.00').minor);
 
     const perCurrency = await sql<{ currency: string; net: string }>`
       select currency, sum(case direction when 'DR' then amount_minor else -amount_minor end)::text as net
@@ -253,10 +260,12 @@ describe('canonical direct route payout (FINANCIAL_INVARIANTS §3.5)', () => {
     await runAs(w.app, confirmRouteSettlement(w.financeOp.actor, w.settlementDeps), w.financeOp.ref, 'route_settlement.confirm', { routeSettlementId: residual.routeSettlementId });
     expect((await w.app.selectFrom('route_obligation').select('status').where('id', '=', trade.routeObligationId).executeTakeFirstOrThrow()).status).toBe('PARTIALLY_SETTLED');
 
-    // The exchange still owes the route 100,000 USDT; sending it closes the obligation.
-    const usdt = w.chain.add({ from: (await w.app.selectFrom('treasury_wallet').select('address').where('id', '=', w.treasuryWalletId).executeTakeFirstOrThrow()).address, to: (await w.app.selectFrom('liquidity_route').select('registered_route_address').where('id', '=', w.routeId).executeTakeFirstOrThrow()).registered_route_address!, amountMinor: Money.parse('100000', 'USDT').minor });
+    // The exchange still owes the route 100,000 USDT — the client's, sent on from its deposit address (D-16);
+    // sending it closes the obligation.
+    const deposit = await clientDepositAddressOf(w, trade.tradeId);
+    const usdt = w.chain.add({ from: deposit.address, to: (await w.app.selectFrom('liquidity_route').select('registered_route_address').where('id', '=', w.routeId).executeTakeFirstOrThrow()).registered_route_address!, amountMinor: Money.parse('100000', 'USDT').minor });
     const toRoute = await runAs(w.app, recordRouteSettlement(w.financeOp.actor, w.settlementDeps), w.financeOp.ref, 'route_settlement.record', {
-      routeObligationId: trade.routeObligationId, flow: 'TO_ROUTE' as const, amount: '100000', txHash: usdt.txHash, logIndex: usdt.logIndex, treasuryWalletId: w.treasuryWalletId,
+      routeObligationId: trade.routeObligationId, flow: 'TO_ROUTE' as const, amount: '100000', txHash: usdt.txHash, logIndex: usdt.logIndex, sourceDepositAddressId: deposit.id,
     });
     await runAs(w.app, confirmRouteSettlement(w.financeOp.actor, w.settlementDeps), w.financeOp.ref, 'route_settlement.confirm', { routeSettlementId: toRoute.routeSettlementId });
 
@@ -284,12 +293,16 @@ describe('canonical direct route payout (FINANCIAL_INVARIANTS §3.5)', () => {
 
   it('a payout cannot be created or sent while the trade is on hold, and a PENDING leg can be cancelled', async () => {
     const trade = await canonicalTrade();
+    await deliverCounterparty(w, trade.tradeId, { amount: '100000.00' });
     const leg = await preparePayout(trade.tradeId, '100000.00', { payer: 'EXCHANGE_ACCOUNT', send: false, evidence: false });
     await runAs(w.app, cancelPayoutLeg(w.settlementOp.actor), w.settlementOp.ref, 'payout_leg.cancel', { legId: leg.legId, reason: 'wrong account chosen' });
     const row = await w.app.selectFrom('settlement_leg').select(['status', 'capacity_reservation_id']).where('id', '=', leg.legId).executeTakeFirstOrThrow();
     expect(row.status).toBe('CANCELLED');
     const reservation = await w.app.selectFrom('capacity_reservation').select('status').where('id', '=', row.capacity_reservation_id!).executeTakeFirstOrThrow();
     expect(reservation.status).toBe('RELEASED');
+    // Its earmark went back to the trade's funding too.
+    const earmarks = await w.app.selectFrom('funding_allocation').select('status').where('use_leg_id', '=', leg.legId).execute();
+    expect(earmarks.map((e) => e.status)).toEqual(['RELEASED']);
   });
 
   it('confirming needs a payment reference, and the leg must be in flight', async () => {

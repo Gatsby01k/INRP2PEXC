@@ -14,7 +14,7 @@ import {
   pauseTrader, reconcileOrderNow, recordReserveWithdrawalSent, recordRewardPayout, rejectTrader, requestReserveWithdrawal, reserveFigures, resumeTrader,
   runTraderSweep, setAvailability, setTraderLimits, setTraderRequiredReserve, submitOrderPayment, traderHome, traderOrderDetail, traderReserveAddress, traderRoutingHandler, updateBlock,
 } from '@inrp2p/traders';
-import { settleFirstLeg } from '../../packages/settlement/test/world.ts';
+import { clientDepositAddressOf, settleFirstLeg } from '../../packages/settlement/test/world.ts';
 import {
   type TradersWorld, applyAs, clientRequest, configureProgram, confirmOnChain, createTradersWorld, liveTrader, sendUsdt, traderClient, traderIdOf, tradeThroughTrader, utr,
 } from './traders-world.ts';
@@ -203,10 +203,16 @@ describe('a Buy USDT order, end to end', () => {
     expect(await reconcileOrderNow(w.app, assigned.orderId)).toBe('DELIVERED');
     expect((await traderOrderDetail(w.app, t.admin.userId, assigned.ref, w.traderDeps.protector)).order.stage).toBe('INRP2P_SENDING');
 
-    // The exchange sends the trader its USDT, to its registered wallet, and the chain confirms it.
-    const sent = w.chain.add({ from: w.hotAddress, to: t.walletAddress, amountMinor: 1_000_000_000n });
+    // The exchange sends the trader the client's USDT — from the deposit address it arrived at, never from the
+    // treasury (D-16) — to the trader's registered wallet, and the chain confirms it.
+    const deposit = await clientDepositAddressOf(w, accepted.tradeId);
+    const fromTreasury = w.chain.add({ from: w.hotAddress, to: t.walletAddress, amountMinor: 1_000_000_000n });
+    await expect(runAs(w.app, recordRouteSettlement(w.finance.actor, w.settlementDeps), w.finance.ref, 'route_settlement.record', {
+      routeObligationId: obligation.id, flow: 'TO_ROUTE' as const, amount: '1000', txHash: fromTreasury.txHash, logIndex: 0, treasuryWalletId: w.treasuryWalletId,
+    })).rejects.toMatchObject({ code: 'FUNDING_LOCATION_MISMATCH' });
+    const sent = w.chain.add({ from: deposit.address, to: t.walletAddress, amountMinor: 1_000_000_000n });
     const toTrader = await runAs(w.app, recordRouteSettlement(w.finance.actor, w.settlementDeps), w.finance.ref, 'route_settlement.record', {
-      routeObligationId: obligation.id, flow: 'TO_ROUTE' as const, amount: '1000', txHash: sent.txHash, logIndex: 0, treasuryWalletId: w.treasuryWalletId,
+      routeObligationId: obligation.id, flow: 'TO_ROUTE' as const, amount: '1000', txHash: sent.txHash, logIndex: 0, sourceDepositAddressId: deposit.id,
     });
     await confirmOnChain(w);
     expect((await w.app.selectFrom('route_settlement').select('status').where('id', '=', toTrader.routeSettlementId).executeTakeFirstOrThrow()).status).toBe('RECORDED');

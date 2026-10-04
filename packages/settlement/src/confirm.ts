@@ -13,6 +13,7 @@ import { openExceptionInTx } from './exceptions.ts';
 import { assertNoRefundUnderway, lockLeg } from './legs.ts';
 import { lockMovement, postMovement, verifyCryptoTransfer } from './movements.ts';
 import { allocateToObligation, lockObligation, obligationOfTrade, obligationRemaining } from './obligations.ts';
+import { settleFunding } from './funding.ts';
 import type { SettlementDeps } from './policy.ts';
 import { completeTrade } from './progress.ts';
 
@@ -105,8 +106,11 @@ export function confirmPayoutLeg(actor: OperatorActor, deps: SettlementDeps) {
     });
 
     await ctx.tx.updateTable('settlement_leg').set({ status: 'COMPLETED', confirmed_at: sql<Date>`inrp2p_now()` }).where('id', '=', leg.id).execute();
-    if (leg.payer === 'EXCHANGE_ACCOUNT' && leg.asset === 'USDT') {
-      await consumeTreasuryReservation(ctx, { tradeId: trade.id, amount: amount as Money<'USDT'> });
+    if (leg.payer === 'EXCHANGE_ACCOUNT') {
+      // A counterparty-funded payout consumes the counterparty's money it was earmarked against (D-16). A legacy trade
+      // still consumes the treasury reservation it was accepted with (FI-33); a counterparty-funded one has none.
+      await settleFunding(ctx, { kind: 'CLIENT_PAYOUT', legId: leg.id }, 'CONSUMED', `payout ${leg.ref} confirmed`);
+      if (leg.asset === 'USDT') await consumeTreasuryReservation(ctx, { tradeId: trade.id, amount: amount as Money<'USDT'> });
     }
 
     let routeSettlementId: string | null = null;

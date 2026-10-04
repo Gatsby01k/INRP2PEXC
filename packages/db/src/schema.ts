@@ -691,6 +691,8 @@ export interface SettlementLegTable {
   treasury_wallet_id: string | null;
   destination_bank_account_id: string | null;
   destination_wallet_id: string | null;
+  /** A pass-through USDT outflow's sending deposit address (migration 0025, D-16). */
+  source_deposit_address_id: Generated<string | null>;
   notes: string | null;
   created_by: string;
   created_at: Generated<Date>;
@@ -699,6 +701,52 @@ export interface SettlementLegTable {
   failed_at: Date | null;
   cancelled_at: Date | null;
   failure_reason: string | null;
+}
+
+/** Whose money a trade runs on (migration 0025, DECISIONS.md D-16). */
+export type FundingModel = 'COUNTERPARTY_FUNDED' | 'LEGACY_EXCHANGE_FUNDED';
+
+export interface TradeFundingTable {
+  trade_id: string;
+  model: FundingModel;
+  created_at: Generated<Date>;
+}
+
+export type FundingSourceKind = 'CLIENT_FUNDS' | 'COUNTERPARTY_FUNDS';
+export type FundingUseKind = 'CLIENT_PAYOUT' | 'REFUND' | 'ROUTE_PAYMENT';
+export type FundingAllocationStatus = 'ACTIVE' | 'CONSUMED' | 'RELEASED';
+
+/** A confirmed incoming movement of a trade and where it is (view, migration 0025). */
+export interface FundingSourceView {
+  kind: FundingSourceKind;
+  source_id: string;
+  trade_id: string;
+  asset: AssetCode;
+  amount_minor: bigint;
+  /** `INR:{inr_account_id}` or `TRON:{address}`. */
+  location: string;
+  confirmed_at: Date | null;
+}
+
+/** Part of one funding source earmarked for one outgoing use of the same trade (migration 0025). */
+export interface FundingAllocationTable {
+  id: Generated<string>;
+  trade_id: string;
+  source_kind: FundingSourceKind;
+  source_leg_id: string | null;
+  source_route_settlement_id: string | null;
+  use_kind: FundingUseKind;
+  use_leg_id: string | null;
+  use_route_settlement_id: string | null;
+  asset: AssetCode;
+  amount_minor: bigint;
+  location: string;
+  status: Generated<FundingAllocationStatus>;
+  created_by: string;
+  created_at: Generated<Date>;
+  closed_by: string | null;
+  closed_at: Date | null;
+  close_reason: string | null;
 }
 
 export type FiatRail = 'IMPS' | 'NEFT' | 'RTGS' | 'UPI';
@@ -1188,6 +1236,9 @@ export interface Database {
   treasury_reservation: TreasuryReservationTable;
   exception_case: ExceptionCaseTable;
   settlement_leg: SettlementLegTable;
+  trade_funding: TradeFundingTable;
+  funding_source: FundingSourceView;
+  funding_allocation: FundingAllocationTable;
   fiat_transfer: FiatTransferTable;
   crypto_transfer: CryptoTransferTable;
   route_settlement: RouteSettlementTable;

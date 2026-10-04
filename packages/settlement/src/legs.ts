@@ -5,8 +5,9 @@ import { appendAudit } from '@inrp2p/audit';
 import { enqueueOutbox } from '@inrp2p/outbox';
 import { type OperatorActor, authorizeOperator, operatorCommand } from '@inrp2p/identity';
 import { consumeReservation, refundConsumedCapacity, releaseReservation, reserveCapacity } from '@inrp2p/inr-accounts';
-import { effectiveObligations, legTotals, lockTrade, tradeEconomics, transitionTrade } from '@inrp2p/trades';
+import { effectiveObligations, isCounterpartyFunded, legTotals, lockTrade, tradeEconomics, transitionTrade } from '@inrp2p/trades';
 import { openExceptionInTx } from './exceptions.ts';
+import { allocateFunding, inrLocation, settleFunding, tronLocation } from './funding.ts';
 import { maskedBankDestination, recordFiatTransfer } from './movements.ts';
 import { type SettlementDeps, policyOf } from './policy.ts';
 
@@ -45,9 +46,9 @@ export async function lockLeg(ctx: TxContext, legId: string) {
   const rows = await sql<{
     id: string; trade_id: string; seq: number; ref: string; side: string; asset: AssetCode; amount_minor: bigint; status: string;
     payer: LegPayer; route_id: string | null; inr_account_id: string | null; capacity_reservation_id: string | null; treasury_wallet_id: string | null;
-    destination_bank_account_id: string | null; destination_wallet_id: string | null;
+    source_deposit_address_id: string | null; destination_bank_account_id: string | null; destination_wallet_id: string | null;
   }>`select id, trade_id, seq, ref, side, asset, amount_minor, status, payer, route_id, inr_account_id, capacity_reservation_id, treasury_wallet_id,
-            destination_bank_account_id, destination_wallet_id
+            source_deposit_address_id, destination_bank_account_id, destination_wallet_id
        from settlement_leg where id = ${requireUuid(legId, 'legId')} for update`.execute(ctx.tx);
   const leg = rows.rows[0];
   if (!leg) throw new DomainError('NOT_FOUND', 'settlement leg not found');
@@ -61,15 +62,36 @@ export interface CreatePayoutLegPayload {
   readonly payer: 'EXCHANGE_ACCOUNT' | 'ROUTE';
   /** Required for an INR payout from an exchange account. */
   readonly inrAccountId?: string | null;
-  /** Required for a USDT payout from treasury. */
+  /** A USDT payout from a treasury wallet. */
   readonly treasuryWalletId?: string | null;
+  /**
+   * A pass-through USDT payout (D-16): sent from the deposit address where the counterparty's USDT arrived. The leg's
+   * ledger account is that address's treasury wallet.
+   */
+  readonly sourceDepositAddressId?: string | null;
   readonly notes?: string | null;
+}
+
+/** The deposit address a USDT outflow leaves from, with the treasury wallet it belongs to (its ledger account). */
+export async function requireSourceDepositAddress(ctx: TxContext, depositAddressId: string): Promise<{ id: string; address: string; treasuryWalletId: string }> {
+  const d = await ctx.tx
+    .selectFrom('deposit_address as d')
+    .innerJoin('treasury_wallet as w', 'w.id', 'd.treasury_wallet_id')
+    .select(['d.id', 'd.address', 'd.treasury_wallet_id', 'w.status as wallet_status'])
+    .where('d.id', '=', requireUuid(depositAddressId, 'sourceDepositAddressId'))
+    .executeTakeFirst();
+  if (!d) throw new DomainError('NOT_FOUND', 'source deposit address not found');
+  if (d.wallet_status !== 'ACTIVE') throw new DomainError('TREASURY_WALLET_NOT_ACTIVE', `the deposit address's treasury wallet is ${d.wallet_status}`);
+  return { id: d.id, address: d.address, treasuryWalletId: d.treasury_wallet_id };
 }
 
 /**
  * `payout_leg.create` (STATE_MACHINES §4 create → PENDING) — `settlement:create_payout`. Checks D-12 (the client
  * leg must be confirmed), FI-20 (committed legs ≤ effective obligation) and, for an exchange INR payout, reserves
  * capacity on the chosen account (FI-30). A route-paid leg is allowed only in `DIRECT_TO_CLIENT` mode (FI-65).
+ *
+ * On a counterparty-funded trade (D-16) an exchange-paid leg is earmarked in full against what the counterparty has
+ * delivered for this trade, at the account or address it is paid from (FI-72): no counterparty money, no payout.
  */
 export function createPayoutLeg(actor: OperatorActor, deps: Pick<SettlementDeps, 'policy'>) {
   const policy = policyOf(deps);
@@ -110,6 +132,8 @@ export function createPayoutLeg(actor: OperatorActor, deps: Pick<SettlementDeps,
     let routeId: string | null = null;
     let inrAccountId: string | null = null;
     let treasuryWalletId: string | null = null;
+    let sourceDepositAddressId: string | null = null;
+    let sourceAddress: string | null = null;
     let reservationId: string | null = null;
     if (payer === 'ROUTE') {
       if (econ.executionMode !== 'DIRECT_TO_CLIENT') throw new DomainError('ROUTE_PAYER_NOT_ALLOWED', 'this trade’s route settles to the exchange, not to the client');
@@ -120,10 +144,19 @@ export function createPayoutLeg(actor: OperatorActor, deps: Pick<SettlementDeps,
       inrAccountId = requireUuid(p.inrAccountId, 'inrAccountId');
       const reserved = await reserveCapacity(ctx, { accountId: inrAccountId, amount: amount as Money<'INR'>, subject: { purpose: 'CLIENT_PAYOUT', tradeId: trade.id } });
       reservationId = reserved.reservationId;
+    } else if (p.sourceDepositAddressId) {
+      const source = await requireSourceDepositAddress(ctx, p.sourceDepositAddressId);
+      if (p.treasuryWalletId && requireUuid(p.treasuryWalletId, 'treasuryWalletId') !== source.treasuryWalletId) {
+        throw new DomainError('INVALID_ARGUMENT', 'the deposit address belongs to another treasury wallet');
+      }
+      sourceDepositAddressId = source.id;
+      sourceAddress = source.address;
+      treasuryWalletId = source.treasuryWalletId;
     } else {
       treasuryWalletId = requireUuid(p.treasuryWalletId, 'treasuryWalletId');
-      const w = await ctx.tx.selectFrom('treasury_wallet').select(['status', 'role']).where('id', '=', treasuryWalletId).forShare().executeTakeFirstOrThrow();
+      const w = await ctx.tx.selectFrom('treasury_wallet').select(['status', 'role', 'address']).where('id', '=', treasuryWalletId).forShare().executeTakeFirstOrThrow();
       if (w.status !== 'ACTIVE') throw new DomainError('TREASURY_WALLET_NOT_ACTIVE', `treasury wallet is ${w.status}`);
+      sourceAddress = w.address;
     }
 
     const seq = await nextLegSeq(ctx, trade.id);
@@ -140,6 +173,7 @@ export function createPayoutLeg(actor: OperatorActor, deps: Pick<SettlementDeps,
         inr_account_id: inrAccountId,
         capacity_reservation_id: reservationId,
         treasury_wallet_id: treasuryWalletId,
+        source_deposit_address_id: sourceDepositAddressId,
         destination_bank_account_id: destinationBankAccountId,
         destination_wallet_id: destinationWalletId,
         notes: p.notes ? requireText(p.notes, 'notes', 2000) : null,
@@ -147,9 +181,18 @@ export function createPayoutLeg(actor: OperatorActor, deps: Pick<SettlementDeps,
       })
       .returning(['id', 'ref'])
       .executeTakeFirstOrThrow();
+    if (payer === 'EXCHANGE_ACCOUNT' && (await isCounterpartyFunded(ctx.tx, trade.id))) {
+      await allocateFunding(ctx, {
+        tradeId: trade.id,
+        use: { kind: 'CLIENT_PAYOUT', legId: row.id },
+        asset,
+        amount,
+        location: asset === 'INR' ? inrLocation(inrAccountId!) : tronLocation(sourceAddress!),
+      });
+    }
     await appendAudit(ctx, {
       action: 'leg.created', entityType: 'settlement_leg', entityId: row.id,
-      after: { ref: row.ref, trade_id: trade.id, amount, payer, asset, inr_account_id: inrAccountId, route_id: routeId, capacity_reservation_id: reservationId },
+      after: { ref: row.ref, trade_id: trade.id, amount, payer, asset, inr_account_id: inrAccountId, route_id: routeId, capacity_reservation_id: reservationId, source_deposit_address_id: sourceDepositAddressId },
     });
     return { legId: row.id, ref: row.ref, remainingAfter: Money.ofMinor(remaining - amount.minor, asset).toDecimalString() };
   });
@@ -278,9 +321,11 @@ export function recordLegEvidence(actor: OperatorActor, deps: SettlementDeps) {
       // An exchange-paid leg is paid by its own treasury wallet — that is the account the journal will credit — so
       // the sender is that wallet's address, not whatever the screen had selected. Verification then holds the
       // chain to it (FI-24). A route-paid leg names the route's sending address, which the chain also checks.
-      const fromAddress = leg.payer === 'EXCHANGE_ACCOUNT'
-        ? (await ctx.tx.selectFrom('treasury_wallet').select('address').where('id', '=', leg.treasury_wallet_id!).executeTakeFirstOrThrow()).address
-        : requireText(p.fromAddress, 'fromAddress', 64);
+      const fromAddress = leg.payer !== 'EXCHANGE_ACCOUNT'
+        ? requireText(p.fromAddress, 'fromAddress', 64)
+        : leg.source_deposit_address_id
+          ? (await ctx.tx.selectFrom('deposit_address').select('address').where('id', '=', leg.source_deposit_address_id).executeTakeFirstOrThrow()).address
+          : (await ctx.tx.selectFrom('treasury_wallet').select('address').where('id', '=', leg.treasury_wallet_id!).executeTakeFirstOrThrow()).address;
       const recorded = await recordCryptoTransfer(ctx, {
         txHash: p.txHash ?? '',
         logIndex: p.logIndex ?? 0,
@@ -324,6 +369,8 @@ export function cancelPayoutLeg(actor: OperatorActor) {
     if (leg.status !== 'PENDING') throw new DomainError('INVALID_TRANSITION', `only a PENDING leg can be cancelled (leg is ${leg.status})`);
     await ctx.tx.updateTable('settlement_leg').set({ status: 'CANCELLED', cancelled_at: sql<Date>`inrp2p_now()` }).where('id', '=', leg.id).execute();
     if (leg.capacity_reservation_id) await releaseReservation(ctx, leg.capacity_reservation_id, 'LEG_CANCELLED');
+    // Nothing left: the earmark goes back to the trade's funding.
+    await settleFunding(ctx, { kind: leg.side === 'REFUND_TO_CLIENT' ? 'REFUND' : 'CLIENT_PAYOUT', legId: leg.id }, 'RELEASED', `leg cancelled: ${reason}`);
     await appendAudit(ctx, { action: 'leg.cancelled', entityType: 'settlement_leg', entityId: leg.id, before: { status: 'PENDING' }, after: { status: 'CANCELLED', reason } });
     return { status: 'CANCELLED' as const };
   });
@@ -365,6 +412,8 @@ export function failPayoutLeg(actor: OperatorActor) {
     if (leg.capacity_reservation_id) {
       await refundConsumedCapacity(ctx, { reservationId: leg.capacity_reservation_id, amount: Money.ofMinor(leg.amount_minor, 'INR'), reason: 'LEG_FAILED' });
     }
+    // The bank (or the chain) says the money did not leave: its earmark is free for a replacement leg.
+    await settleFunding(ctx, { kind: leg.side === 'REFUND_TO_CLIENT' ? 'REFUND' : 'CLIENT_PAYOUT', legId: leg.id }, 'RELEASED', `leg failed: ${reason}`);
     await appendAudit(ctx, { action: 'leg.failed', entityType: 'settlement_leg', entityId: leg.id, before: { status: 'PROCESSING' }, after: { status: 'FAILED', reason } });
     await openExceptionInTx(ctx, {
       type: 'BANK_TRANSFER_FAILED', subjectType: 'SETTLEMENT_LEG', subjectId: leg.id, tradeId: leg.trade_id,

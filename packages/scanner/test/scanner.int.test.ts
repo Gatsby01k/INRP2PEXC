@@ -8,8 +8,7 @@ import { runAs } from '@inrp2p/identity/testing';
 import { cancelTrade, confirmPayout, createPayoutLeg, recordLegEvidence, sendPayoutLeg, submitTxForVerification, verifyCryptoTransfer } from '@inrp2p/settlement';
 import { readCursor, runOrphanSweep, runTronConfirm, runTronScan } from '../src/index.ts';
 import {
-  type ChainWorld, createChainWorld, depositAddressOf, entriesOf, journalsFor, legsOf, openCases, openTrade, settleFirstLeg, stateOf, transferByHash,
-} from './world.ts';
+  type ChainWorld, createChainWorld, depositAddressOf, entriesOf, journalsFor, legsOf, openCases, openTrade, settleFirstLeg, stateOf, transferByHash, ensureCounterpartyFunds } from './world.ts';
 
 let w: ChainWorld;
 beforeAll(async () => { w = await createChainWorld('scanner', { depositPoolSize: 60 }); });
@@ -296,6 +295,8 @@ describe('outbound USDT (BUY payouts)', () => {
   it('verifies the payout transaction by tx hash but leaves the release to an operator', async () => {
     const trade = await openTrade(w, { direction: 'BUY_USDT', executionMode: 'TO_EXCHANGE', baseUsdt: '500', clientRate: '106.000000', routeRate: '104.200000' });
     await settleFirstLeg(w, trade.tradeId);
+
+    await ensureCounterpartyFunds(w, trade.tradeId);
 
     const leg = await runAs(w.app, createPayoutLeg(w.settlementOp.actor, {}), w.settlementOp.ref, 'payout_leg.create', {
       tradeId: trade.tradeId, amount: '500', payer: 'EXCHANGE_ACCOUNT' as const, treasuryWalletId: w.treasuryWalletId,
