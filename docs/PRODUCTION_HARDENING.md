@@ -42,6 +42,7 @@ nothing on gates 2 or 3. CI on the final SHA replaces them in the final report.
 | B5 | P0 | confirmed defect | Desk screens and evidence paths still paid from the treasury and assumed log 0 | fixed — code ready |
 | C1 | P0 | confirmed defect | Second person for payouts above ₹2,500,000 | fixed — code ready |
 | C2 | P0 | confirmed defect | OWNER request/approve (TD-20), protected bootstrap/recovery, replay re-authorization | fixed — code ready |
+| C3 | P0 | confirmed defects + external | Auth: TD-01, TD-02, TD-11 (client TOTP), operator enrolment; TD-03 KMS-backed KEK | code ready; KMS key **BLOCKED** (owner) |
 
 (The table grows as stages are worked; each row has a section below.)
 
@@ -263,4 +264,32 @@ is wanted stays an open owner question (ADR 0016 §8).
 - **Rollout.** The request hash now includes the surface: an intent started before the deploy and retried after it is
   refused as `IDEMPOTENCY_KEY_REUSED` instead of replayed; the domain state guards stop a duplicate, and the desk asks
   the operator to reload. Run `bootstrap-owner` once per environment before the first sign-in.
+
+## C3 — Auth, MFA and keys (P0)
+
+- **TD-01 (confirmed, fixed).** Better Auth's planner warned about `auth_rate_limit.last_request` ("expected number but
+  got int8") although Better Auth itself declares it `bigint`: its comparator lists `bigint` but not the introspected
+  name `int8`. Patched there (`patches/better-auth@1.7.5.patch`: `int8`, `int2`, `float4`, `float8` added); the schema
+  and the applied migration are unchanged and nothing is silenced — the auth test asserts the planner hears nothing.
+- **TD-02 (confirmed, fixed).** An operator address on the client OTP sign-in returned **500** with no body, and the
+  client surface had emailed it a code. A client-surface before hook refuses non-client addresses with exactly the
+  unknown-address / wrong-code answers, sends nothing, creates no session or cookie, and audits once. Found with it: the
+  audit redactor masks the key `code`, so every `session.failed` had recorded `[REDACTED]` instead of the error — the
+  reason is now stored under `error`.
+- **TD-11 (fixed).** Client TOTP: enrolment (fresh sign-in only, confirmed by a code, recovery codes once), step-up
+  recorded on the rotated session, no self-removal / secret re-display / recovery codes without a step-up / trusted
+  devices on the client surface, desk reset `client_user.reset_mfa` (OWNER/SUPPORT ⧗, ends sessions), and the client
+  administrator's destination and quote-authority controls behind the step-up dialog.
+- **Operator enrolment (confirmed defect, fixed).** No screen let an operator without an authenticator set one up — a
+  bootstrapped OWNER could never get in. The desk sign-in now takes them through it after the password; the desk still
+  opens only after a verified code.
+- **TD-03 (code ready; production BLOCKED).** AWS KMS key-encryption key with SigV4 (checked against AWS's published
+  examples), encryption context, ARN-only keys, role credentials, retries for transient failures and fail-closed
+  otherwise, rotation through previous key ids, and a production configuration check refusing local or test keys.
+  Hosting is not chosen; the KMS key, its account and the roles are owner inputs (RUNBOOKS `field-encryption-keys`).
+  A different cloud needs its own adapter behind the same port.
+- **Tests.** `packages/identity/test/auth.int.test.ts` (planner silent; epoch-ms round trip; cross-surface refusals;
+  client enrolment, rotation, refusals, stale session), `packages/clients/test/clients.int.test.ts` (desk reset),
+  `packages/adapters/test/aws-kms.unit.test.ts` (signer vectors, wrap/unwrap, context and key binding, retry vs refusal
+  vs outage, credentials, production refusals, rotation).
 

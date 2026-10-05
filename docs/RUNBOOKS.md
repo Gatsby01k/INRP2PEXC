@@ -421,6 +421,70 @@ around a second OWNER's approval.
 
 ---
 
+## field-encryption-keys — the key that protects bank account numbers
+
+**Not an alert** — but a KMS outage shows up as refused client-destination changes and failed acceptance-code
+deliveries (`KMS_UNAVAILABLE`), and a misconfiguration as a process that will not start
+(`FIELD_PROTECTION_MISCONFIGURED`).
+
+**What it is.** Every sealed value (an account number, a contact phone, an acceptance code) has its own data key; the
+data key is wrapped by one AWS KMS symmetric key and recorded with the application's key id (`INRP2P_KEK_ID`). The
+application never holds the KMS key. The hosting account is **not chosen yet** (DECISIONS: hosting remains open): the
+implemented adapter is AWS KMS; another cloud needs its own adapter behind the same port before it is used.
+
+**Provisioning (once per environment, by whoever owns the cloud account).**
+
+1. Create a symmetric KMS key (`SYMMETRIC_DEFAULT`, `ENCRYPT_DECRYPT`) in the region the database lives in; turn on
+   automatic rotation. Record its **key ARN** (not an alias).
+2. Give the web and worker roles exactly this, and nothing else on the key:
+   ```json
+   {
+     "Effect": "Allow",
+     "Action": ["kms:Encrypt", "kms:Decrypt"],
+     "Resource": "<key ARN>",
+     "Condition": { "StringEquals": { "kms:EncryptionContext:app": "inrp2p", "kms:EncryptionContext:purpose": "field-data-key" } }
+   }
+   ```
+   No `kms:*`, no `CreateGrant`, no key administration for the application roles; key administration stays with the
+   account owner. Log KMS calls (CloudTrail).
+3. Set `INRP2P_ENV=production`, `INRP2P_KEK_PROVIDER=aws-kms`, `INRP2P_KEK_ID` (a short id, e.g. `kms-2026a`),
+   `INRP2P_KMS_KEY_ARN`, and `INRP2P_FIELD_HMAC_BASE64` (32 random bytes from the secret manager) for both the web app
+   and the worker; `INRP2P_KMS_ENDPOINT` only for a VPC endpoint. Credentials come from the workload's role — never
+   access keys in configuration.
+
+**Rotation.** KMS's automatic rotation needs nothing from us: old ciphertexts decrypt under the same ARN. To move to a
+**new** key: create it, add it with a new `INRP2P_KEK_ID`, and list the old one in
+`INRP2P_KEK_PREVIOUS='[{"id":"kms-2026a","provider":"aws-kms","arn":"…"}]'` — new values are sealed under the new key,
+old ones still open. Keep the old key enabled until nothing references it (`select count(*) … where
+account_number_enc like 'v1.kms-2026a.%'`, per sealed column), and only then schedule its deletion.
+
+**KMS unavailable.** Writes that seal and reads that open fail with `KMS_UNAVAILABLE` after bounded retries; nothing
+falls back to plaintext and nothing is stored half-sealed. Check the region's KMS status and the role's permissions
+(an `AccessDeniedException` is `KMS_REFUSED`, not retried). Nothing needs repairing afterwards.
+
+**What never to do.** Use a locally held key in production (the process refuses), put the HMAC key or AWS access keys
+in the repository or a ticket, schedule deletion of a key that still has values sealed under it, or widen the IAM
+policy to make an error go away.
+
+---
+
+## client-authenticator-lost — a client user lost their authenticator
+
+**Not an alert.** A client user cannot confirm a change to their destinations or quote authority because their
+authenticator is gone (phone lost, app wiped), and their recovery codes are gone too.
+
+**What to do.** Confirm it is the person, through a channel that does not depend on the account — a call to the number
+on file, or a video call against the identity documents on file. Then, on the client's page,
+`client_user.reset_mfa` (`client_user:reset_mfa`, OWNER or SUPPORT, step-up) with a reason that says how they were
+verified. It removes the authenticator and ends every session of that user; they sign in again with an email code and
+set up a new authenticator within ten minutes of signing in.
+
+**What never to do.** Reset on the strength of an email or a message from the account itself, or "temporarily" make the
+change for them without the same verification — that is exactly what someone who has taken over the mailbox would ask
+for.
+
+---
+
 ## backup-restore-drill — proving the backups are real
 
 **Not an alert.** This is the drill the launch checklist requires, run on a schedule and after any change to

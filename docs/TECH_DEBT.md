@@ -4,9 +4,9 @@ Non-blocking items accepted at phase review. Each entry names the phase that mus
 
 | ID | Area | Recorded | Must close before | Status |
 |---|---|---|---|---|
-| TD-01 | Auth schema: `auth_rate_limit.last_request` type warning | Phase 1 acceptance (2026-09-17) | Production deploy (launch checklist) | Open |
-| TD-02 | Auth: cross-surface operator → client OTP rejection surfaces as internal error | Phase 1 acceptance (2026-09-17) | Production client auth (client login enabled on `app.inrp2p.com`) | Open |
-| TD-03 | Encryption: production KMS-backed key-encryption key not implemented | Phase 2 implementation (2026-09-17) | First deployment holding real bank or contact data | Open |
+| TD-01 | Auth schema: `auth_rate_limit.last_request` type warning | Phase 1 acceptance (2026-09-17) | Production deploy (launch checklist) | Closed (2026-10-05) |
+| TD-02 | Auth: cross-surface operator → client OTP rejection surfaces as internal error | Phase 1 acceptance (2026-09-17) | Production client auth (client login enabled on `app.inrp2p.com`) | Closed (2026-10-05) |
+| TD-03 | Encryption: production KMS-backed key-encryption key not implemented | Phase 2 implementation (2026-09-17) | First deployment holding real bank or contact data | Code ready (2026-10-05); the KMS key and account are an owner input — **not provisioned** |
 | TD-04 | Notifications: no email provider bound — acceptance codes, client sign-in codes and notification emails | Phase 3 implementation (2026-09-17) | Any environment where a client signs in or accepts a quote through a shareable link | Open — widened at Phase 7 |
 | TD-05 | Chain verification: no TRON provider bound; scanning not implemented | Phase 4 implementation (2026-09-18) | Any environment that settles real USDT | Closed in Phase 5 (2026-09-18) |
 | TD-06 | Scanner: no tooling for a deliberate historical backfill behind the cursor | Phase 5 implementation (2026-09-18) | First production incident needing a historical rescan | Closed (2026-10-05, migration 0024) |
@@ -14,7 +14,7 @@ Non-blocking items accepted at phase review. Each entry names the phase that mus
 | TD-08 | Visual regression covers the Storybook validation stories, not the built operator pages | Phase 6 implementation (2026-09-19) | Production deploy (launch checklist) | Closed in Phase 6 review (2026-09-19) |
 | TD-09 | The page baselines have not been recorded in the canonical environment | Phase 6 review (2026-09-19) | The `visual-pages` CI job can pass | Closed in Phase 7 review (2026-09-19) — 20 baselines recorded, `visual` / `visual-pages` green on main |
 | TD-10 | Outbox: the desk's own signals and the receipt trigger are acknowledged, not consumed | Phase 7 implementation (2026-09-19) | A desk push channel (desk signals) and Phase 8 (receipts) | Open |
-| TD-11 | Client TOTP enrolment does not exist, so client-side destination management is desk-only | Phase 7 implementation (2026-09-19) | A client managing their own bank accounts or wallets, or granting quote-acceptance authority | Open |
+| TD-11 | Client TOTP enrolment does not exist, so client-side destination management is desk-only | Phase 7 implementation (2026-09-19) | A client managing their own bank accounts or wallets, or granting quote-acceptance authority | Closed (2026-10-05) |
 | TD-12 | Receipts are proved by hash, not stored: no object store, and PDF printing is opt-in | Phase 8 implementation (2026-09-20) | A deployment that must serve a receipt without re-rendering it, or print PDFs | Open |
 | TD-13 | New page baselines have not been recorded in the canonical environment | Phase 8 implementation (2026-09-20) | The `visual-pages` CI job can pass | Phase 8 recorded (run `35495412975`); reopened for Phase 9's two public captures |
 | TD-14 | Reconciliation is a manual statement import; there is no recurring job | Phase 8 implementation (2026-09-20) | A bank feed or statement drop that arrives without an operator | Open |
@@ -39,6 +39,17 @@ Non-blocking items accepted at phase review. Each entry names the phase that mus
 
 **Resolution (to do).** Keep `bigint` in the database (the value is epoch ms). Either register a Kysely/pg type parser for this column so the adapter returns a number, or map the field via Better Auth's schema `fieldName`/type options, then assert in the Better Auth schema integration test that the planner emits **no warnings** for `auth_rate_limit`. No change to rate-limit windows, limits or keys.
 
+**Closed (2026-10-05).** Reproduced on Better Auth 1.7.5 by listening to the planner's logger: "Field last_request in
+table auth_rate_limit has a different type in the database. Expected number but got int8". Better Auth itself
+declares the field `number` with `bigint: true` (it creates `bigint`, and its rate limiter converts a bigint read back
+to a number), so the column is exactly what it requires; the warning came from its planner comparing the introspected
+type name `int8` against a list that holds `bigint` but not `int8`. Fixed where it is wrong: a pnpm patch
+(`patches/better-auth@1.7.5.patch`, declared in `pnpm-workspace.yaml`) adds the PostgreSQL type names (`int8`, `int2`,
+`float4`, `float8`) to the planner's number list — nothing at runtime changes, and no warning is silenced. The auth
+pool parses int8 as a number. `packages/identity/test/auth.int.test.ts` asserts the planner hears **nothing** at warn
+level for either surface and that `last_request` round-trips as epoch milliseconds; re-check (and drop) the patch on
+every Better Auth upgrade.
+
 ## TD-02 — Cross-surface operator → client OTP rejection causes an internal Better Auth null-session error
 
 **Observed.** An operator identity attempting client email-OTP sign-in is correctly denied: no client session is created and the request fails. The denial is implemented in `packages/identity/src/auth/config.ts` `sessionCreateGuard` (`databaseHooks.session.create.before` returns `false` when `auth_user.kind` ≠ surface). Better Auth then proceeds with a null session and fails internally instead of returning an expected client error. The current test (`packages/identity/test/auth.int.test.ts` "an operator email cannot sign in through client OTP") only asserts status ≥ 400 and that no client session exists.
@@ -46,6 +57,16 @@ Non-blocking items accepted at phase review. Each entry names the phase that mus
 **Invariant that already holds and must be kept.** No session is ever created for a cross-surface attempt (application guard + database trigger `IX020` rejecting a session whose surface does not match the user kind); operator and client surfaces stay isolated (`SECURITY.md`, `ARCHITECTURE.md §7`).
 
 **Resolution (to do, before production client auth).** Keep the session guard and the `IX020` trigger as defence in depth, and add a surface check before session creation (a `before` hook on `/sign-in/email-otp` and `/email-otp/send-verification-otp` resolving the user kind) that returns a controlled 4xx (`403` with a generic, non-enumerating error body — same response shape as an invalid code) without creating a session. Tests to add: operator email → client OTP verify returns the controlled 4xx; no `auth_session` row is inserted; no `Set-Cookie`; a `session.failed` audit event recorded once; response body and timing do not reveal that the address belongs to an operator.
+
+**Closed (2026-10-05).** Reproduced: an operator address on the client `sign-in/email-otp` got HTTP 500 with no body,
+and the client surface had first emailed that operator an OTP. A client-surface before hook now resolves the address
+on `/email-otp/send-verification-otp`, `/sign-in/email-otp`, `/email-otp/verify-email` and
+`/email-otp/check-verification-otp`: an address that is not an active client's (operator, disabled) gets no code and no
+session, and exactly the response an unknown address (`{success:true}`) or a wrong code (the plugin's own
+`INVALID_OTP`, 400) gets; each refusal is audited once (`session.failed`, `NOT_A_CLIENT_ADDRESS` — under `error`, since
+the audit redactor masks any key named `code`, which had also erased the reason from every earlier `session.failed`).
+The session guard and IX020 remain. Test: `auth.int.test.ts` (same status and body as the baselines, no OTP sent, no
+cookie, no `auth_session`, two audit rows).
 
 ## TD-03 — Production key-encryption key (KMS) adapter
 
@@ -55,6 +76,17 @@ Non-blocking items accepted at phase review. Each entry names the phase that mus
 
 **Resolution (to do, before any deployment with real data).** Implement a KMS-backed `KeyEncryptionKey` for the chosen hosting provider (wrap/unwrap via KMS API, key id recorded in each sealed value), load the HMAC lookup key from the secret manager, and add a startup check that refuses `LocalKeyEncryptionKey` when `NODE_ENV=production`. Rotation keeps previous KEKs readable through `previous` (already supported and tested).
 
+**Code ready (2026-10-05); production gate still BLOCKED on the owner.** `AwsKmsKeyEncryptionKey`
+(`packages/adapters/src/aws-kms.ts`): `Encrypt`/`Decrypt` on one symmetric KMS key over the HTTPS API with SigV4 (the
+signer matches AWS's published examples), the encryption context `{app: inrp2p, purpose: field-data-key}` bound to
+every wrapped data key, the key ARN required (no aliases) and checked on every answer, credentials from the
+environment / task role / instance role, bounded retries for throttling and server errors, immediate refusal for
+access-denied or invalid-ciphertext, and no plaintext fallback. `fieldProtectionFromEnv` (web and worker): rotation
+through `INRP2P_KEK_PREVIOUS`; with `INRP2P_ENV=production` the process refuses a locally held key (current or
+previous), a missing configuration, or the repository's own test keys. Tests: `packages/adapters/test/aws-kms.unit.test.ts`.
+**Still needed (owner):** the cloud account, a KMS key in it, the application roles with the minimal policy in RUNBOOKS
+`field-encryption-keys`, and a run against it on staging. Hosting is not chosen (DECISIONS); if it is not AWS, the
+provider needs its own adapter behind the same port.
 
 ## TD-04 — No email provider for acceptance codes
 
@@ -272,6 +304,18 @@ and enrolment flow (an Account screen: enrol, verify, recovery), keep `skipVerif
 deliberately whether client users may use trusted devices (operators may not), then bring back the client
 destination actions and the `can_accept_quotes` grant behind the existing step-up dialog. The RBAC and command
 side needs no change — it has been waiting for this since Phase 2.
+
+**Closed (2026-10-05).** Client Better Auth carries `twoFactor` (`allowPasswordless`, `skipVerificationOnEnable:
+false`, account lockout, no trusted devices). A before hook allows setting one up only within ten minutes of signing
+in, refuses `two-factor/disable` and `get-totp-uri` on the client surface, and new recovery codes without a fresh
+step-up; an after hook records each verified code (or recovery code) as the session's step-up — on the rotated session
+when enrolment replaces it. The Destinations screen sets up the authenticator (key and recovery codes, then the first
+code) and gives a `CLIENT_ADMIN` adding/archiving bank accounts and wallets and the `can_accept_quotes` toggle, through
+the existing step-up dialog; the domain commands were already guarded. A lost authenticator: `client_user.reset_mfa`
+(OWNER/SUPPORT ⧗, reason; ends the user's sessions) — RUNBOOKS `client-authenticator-lost`. The desk sign-in now walks an
+operator without an authenticator (e.g. the bootstrapped first OWNER) through setting one up with the password just
+typed; there was no enrolment screen for operators either. Tests: `auth.int.test.ts` (enrol, rotation, refusals,
+stale session), `clients.int.test.ts` (reset).
 
 ## TD-12 — Receipts are proved by hash, not stored
 
