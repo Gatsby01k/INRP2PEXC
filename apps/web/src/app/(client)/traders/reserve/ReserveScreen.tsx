@@ -66,6 +66,13 @@ export function ReserveScreen({ home }: { home: TraderHome }) {
               <dd>{usdt(r.pendingRelease)}</dd>
               <span className={styles.figureNote}>on its way to your wallet</span>
             </div>
+            {/[1-9]/.test(r.applying) ? (
+              <div className={styles.figure}>
+                <dt>Being applied</dt>
+                <dd>{usdt(r.applying)}</dd>
+                <span className={styles.figureNote}>to an order of yours whose USDT did not arrive</span>
+              </div>
+            ) : null}
           </dl>
           <p className={styles.note}>A USDT reserve is locked while you provide liquidity. It protects open orders and unresolved obligations. Switching off keeps it locked until your last open order finishes.</p>
         </section>
@@ -169,7 +176,7 @@ export function ReserveScreen({ home }: { home: TraderHome }) {
                 <li key={`${h.at}:${i}`}>
                   <span className={styles.orderText}>
                     <span className={styles.orderMain}>
-                      {h.kind === 'DEPOSIT' ? 'Deposit' : 'Withdrawal'} · {usdt(h.amount)}
+                      {h.kind === 'DEPOSIT' ? 'Deposit' : h.kind === 'WITHDRAWAL' ? 'Withdrawal' : `Applied to ${h.orderRef ?? 'an order'}`} · {usdt(h.amount)}
                     </span>
                     <span className={styles.orderMeta}>
                       {formatIstDateTime(new Date(h.at))}
@@ -177,7 +184,7 @@ export function ReserveScreen({ home }: { home: TraderHome }) {
                     </span>
                   </span>
                   <span className={styles.next}>
-                    <span className={styles.pill} data-tone={h.status === 'CREDITED' || h.status === 'COMPLETED' ? 'done' : h.status === 'REJECTED' || h.status === 'CANCELLED' ? 'neutral' : 'waiting'}>
+                    <span className={styles.pill} data-tone={h.status === 'CREDITED' || h.status === 'COMPLETED' || h.status === 'APPLIED' ? 'done' : h.status === 'REJECTED' || h.status === 'CANCELLED' ? 'neutral' : 'waiting'}>
                       <span className={styles.pillDot} aria-hidden="true" />
                       {h.status.charAt(0) + h.status.slice(1).toLowerCase()}
                     </span>

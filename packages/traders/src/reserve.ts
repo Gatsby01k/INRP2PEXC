@@ -17,6 +17,8 @@ import { lockTrader, lockTraderOfClient, traderClientCommand, type TraderDeps } 
  * - `locked` — the required amount, while the trader provides liquidity or has an order open: it protects those
  *   orders and anything still unresolved on them. Switching off does not unlock it until the last order finishes.
  * - `pendingRelease` — a withdrawal on its way back to the trader's registered wallet.
+ * - `applying` — reserve the desk has approved applying to an order the trader did not deliver, not yet moved
+ *   (TD-21); it is no longer the trader's to withdraw.
  * - `available` — what may be withdrawn now: the balance less what is locked and what is already on its way.
  * - `shortfall` — how much is missing for the trader to receive new orders.
  *
@@ -27,6 +29,7 @@ export interface ReserveFigures {
   readonly required: Money<'USDT'> | null;
   readonly locked: Money<'USDT'>;
   readonly pendingRelease: Money<'USDT'>;
+  readonly applying: Money<'USDT'>;
   readonly available: Money<'USDT'>;
   readonly shortfall: Money<'USDT'>;
   /** True while the reserve is locked because the trader is online or has an order open. */
@@ -44,15 +47,17 @@ export async function reserveFigures(ex: Executor, traderId: string): Promise<Re
   const id = requireUuid(traderId, 'traderId');
   const profile = await ex.selectFrom('trader_profile').select(['available', 'required_reserve_minor']).where('id', '=', id).executeTakeFirstOrThrow();
   const balance = await reserveBalance(ex, id);
-  const counts = await sql<{ open: string; withdrawing: string }>`
+  const counts = await sql<{ open: string; withdrawing: string; applying: string }>`
     select
       (select count(*) from trader_order where trader_id = ${id} and status in ('ACCEPTED', 'IN_PROGRESS'))::text as open,
-      (select coalesce(sum(amount_minor), 0) from trader_reserve_withdrawal where trader_id = ${id} and status in ('REQUESTED', 'SENT'))::text as withdrawing`.execute(ex);
+      (select coalesce(sum(amount_minor), 0) from trader_reserve_withdrawal where trader_id = ${id} and status in ('REQUESTED', 'SENT'))::text as withdrawing,
+      (select coalesce(sum(amount_minor), 0) from trader_reserve_application where trader_id = ${id} and status in ('APPROVED', 'SENT'))::text as applying`.execute(ex);
   const openOrders = Number.parseInt(counts.rows[0]!.open, 10);
   const withdrawing = BigInt(counts.rows[0]!.withdrawing);
+  const applying = BigInt(counts.rows[0]!.applying);
   const required = profile.required_reserve_minor;
   const engaged = profile.available || openOrders > 0;
-  const free = balance.minor - withdrawing;
+  const free = balance.minor - withdrawing - applying;
   const locked = engaged && required !== null ? (free < required ? (free > 0n ? free : 0n) : required) : 0n;
   const available = free - locked;
   const shortfall = required !== null && free < required ? required - free : 0n;
@@ -61,6 +66,7 @@ export async function reserveFigures(ex: Executor, traderId: string): Promise<Re
     required: required === null ? null : Money.ofMinor(required, 'USDT'),
     locked: Money.ofMinor(locked, 'USDT'),
     pendingRelease: Money.ofMinor(withdrawing, 'USDT'),
+    applying: Money.ofMinor(applying, 'USDT'),
     available: Money.ofMinor(available > 0n ? available : 0n, 'USDT'),
     shortfall: Money.ofMinor(shortfall, 'USDT'),
     engaged,

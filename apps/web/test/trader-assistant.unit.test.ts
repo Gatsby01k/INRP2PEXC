@@ -27,7 +27,7 @@ const order = (over: Partial<OrderSummary> & Pick<OrderSummary, 'ref' | 'stage'>
 });
 
 const reserve = {
-  balance: '700.000000', required: '500.000000', locked: '500.000000', available: '200.000000', pendingRelease: '0.000000', shortfall: '0.000000',
+  balance: '700.000000', required: '500.000000', locked: '500.000000', available: '200.000000', pendingRelease: '0.000000', applying: '0.000000', shortfall: '0.000000',
   engaged: true, depositAddress: null, withdrawal: null, history: [],
 };
 

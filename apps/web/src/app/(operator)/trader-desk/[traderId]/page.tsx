@@ -40,6 +40,9 @@ export default async function TraderDeskPage({ params }: { params: Promise<{ tra
     routeRecord: can(ctx, 'route_settlement:record'),
     routeConfirm: can(ctx, 'route_settlement:confirm'),
     reveal: can(ctx, 'bank_account:reveal'),
+    applyReserve: can(ctx, 'trader_reserve:apply'),
+    approveReserve: can(ctx, 'trader_reserve:approve'),
+    meId: ctx.actor.userId,
   };
   const short = /[1-9]/.test(detail.reserve.shortfall);
   const underReview = t.status === 'UNDER_REVIEW';

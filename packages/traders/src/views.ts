@@ -184,11 +184,21 @@ export interface ReserveView {
   readonly locked: string;
   readonly available: string;
   readonly pendingRelease: string;
+  /** Reserve the desk is applying to an order of yours whose USDT did not arrive (TD-21), not yet moved. */
+  readonly applying: string;
   readonly shortfall: string;
   readonly engaged: boolean;
   readonly depositAddress: string | null;
   readonly withdrawal: { readonly ref: string; readonly amount: string; readonly status: 'REQUESTED' | 'SENT'; readonly askedAt: string } | null;
-  readonly history: readonly { readonly kind: 'DEPOSIT' | 'WITHDRAWAL'; readonly amount: string; readonly status: string; readonly at: string; readonly txHash: string | null }[];
+  readonly history: readonly {
+    readonly kind: 'DEPOSIT' | 'WITHDRAWAL' | 'APPLIED';
+    readonly amount: string;
+    readonly status: string;
+    readonly at: string;
+    readonly txHash: string | null;
+    /** For `APPLIED`: the order of yours the reserve was applied to. */
+    readonly orderRef?: string;
+  }[];
 }
 
 export interface EarningsView {
@@ -302,9 +312,25 @@ async function reserveView(ex: Executor, traderId: string): Promise<ReserveView>
     .orderBy('w.requested_at', 'desc')
     .limit(20)
     .execute();
+  // Applications the desk decided (never its deliberations before that): the trader's own order, the amount, the movement.
+  const applied = await ex
+    .selectFrom('trader_reserve_application as a')
+    .innerJoin('trader_order as o', 'o.id', 'a.trader_order_id')
+    .leftJoin('route_settlement as s', 's.reserve_application_id', 'a.id')
+    .leftJoin('crypto_transfer as c', 'c.id', 's.crypto_transfer_id')
+    .select(['a.amount_minor', 'a.status', 'a.decided_at', 'a.completed_at', 'o.ref as order_ref', 'c.tx_hash'])
+    .where('a.trader_id', '=', traderId)
+    .where('a.status', 'in', ['APPROVED', 'SENT', 'COMPLETED'])
+    .orderBy('a.requested_at', 'desc')
+    .limit(20)
+    .execute();
   const history = [
     ...deposits.map((d) => ({ kind: 'DEPOSIT' as const, amount: usdt(d.amount_minor), status: d.state === 'CONFIRMED' ? 'CREDITED' : d.state === 'DETECTED' ? 'CONFIRMING' : d.state, at: (d.confirmed_at ?? d.detected_at).toISOString(), txHash: d.tx_hash })),
     ...withdrawals.map((w) => ({ kind: 'WITHDRAWAL' as const, amount: usdt(w.amount_minor), status: w.status, at: (w.completed_at ?? w.requested_at).toISOString(), txHash: w.tx_hash })),
+    ...applied.map((a) => ({
+      kind: 'APPLIED' as const, amount: usdt(a.amount_minor), status: a.status === 'COMPLETED' ? 'APPLIED' : 'APPLYING',
+      at: (a.completed_at ?? a.decided_at ?? new Date(0)).toISOString(), txHash: a.tx_hash, orderRef: a.order_ref,
+    })),
   ].sort((a, b) => (a.at < b.at ? 1 : -1));
   return {
     balance: reserve.balance.toDecimalString(),
@@ -312,6 +338,7 @@ async function reserveView(ex: Executor, traderId: string): Promise<ReserveView>
     locked: reserve.locked.toDecimalString(),
     available: reserve.available.toDecimalString(),
     pendingRelease: reserve.pendingRelease.toDecimalString(),
+    applying: reserve.applying.toDecimalString(),
     shortfall: reserve.shortfall.toDecimalString(),
     engaged: reserve.engaged,
     depositAddress: address?.address ?? null,

@@ -1,6 +1,6 @@
 import { sql } from 'kysely';
 import { DomainError, Money, Rate, requireUuid } from '@inrp2p/kernel';
-import type { DestinationStatus, Executor, P2pExperience, TraderOrderStatus, TraderSide, TraderStatus } from '@inrp2p/db';
+import type { DestinationStatus, Executor, P2pExperience, TraderOrderStatus, TraderReserveApplicationStatus, TraderSide, TraderStatus } from '@inrp2p/db';
 import { fundingSources, obligationRemaining } from '@inrp2p/settlement';
 import { standingIssues, type StandingIssue } from './eligibility.ts';
 import { traderProgram, type TraderProgram } from '@inrp2p/trader-core';
@@ -282,6 +282,22 @@ export interface DeskWalletView {
   readonly alsoOnFile: readonly string[];
 }
 
+export interface DeskReserveApplication {
+  readonly applicationId: string;
+  readonly ref: string;
+  readonly orderRef: string;
+  readonly amount: string;
+  readonly status: TraderReserveApplicationStatus;
+  readonly reason: string;
+  readonly requestedBy: string;
+  readonly requestedByLabel: string;
+  readonly requestedAt: string;
+  readonly decidedByLabel: string | null;
+  readonly closeReason: string | null;
+  readonly deliveryAddress: string | null;
+  readonly txHash: string | null;
+}
+
 export interface DeskTraderDetail {
   readonly program: DeskProgram;
   /** Who applied, in their own words. */
@@ -314,8 +330,15 @@ export interface DeskTraderDetail {
   readonly wallet: DeskWalletView;
   readonly clientDestinations: { readonly banks: readonly { id: string; label: string }[]; readonly wallets: readonly { id: string; label: string }[] };
   readonly blocks: readonly { side: TraderSide; status: string; rate: string | null; capacity: string; held: string; minOrder: string | null; maxOrder: string | null }[];
-  readonly reserve: { readonly balance: string; readonly required: string | null; readonly locked: string; readonly available: string; readonly pendingRelease: string; readonly shortfall: string; readonly depositAddress: string | null };
+  readonly reserve: {
+    readonly balance: string; readonly required: string | null; readonly locked: string; readonly available: string; readonly pendingRelease: string;
+    readonly applying: string; readonly shortfall: string; readonly depositAddress: string | null;
+  };
   readonly withdrawals: readonly { withdrawalId: string; ref: string; amount: string; status: string; destination: string; requestedAt: string; txHash: string | null; closeReason: string | null }[];
+  /** The reserve applied to USDT the trader's own orders did not deliver (TD-21), newest first. */
+  readonly applications: readonly DeskReserveApplication[];
+  /** Started Sell USDT orders whose USDT is due and not delivered or on its way: where the reserve may be applied. */
+  readonly applicableOrders: readonly { orderId: string; ref: string; owed: string }[];
   readonly earnings: { readonly rewardBps: number | null; readonly available: string; readonly payingOut: string; readonly pending: string; readonly paidOut: string; readonly completedUsdt: string; readonly completedInr: string };
   readonly payouts: readonly { payoutId: string; ref: string; amount: string; status: string; utr: string; recordedAt: string }[];
   readonly orders: readonly DeskOrderRow[];
@@ -388,6 +411,29 @@ export async function deskTrader(ex: Executor, traderId: string): Promise<DeskTr
     .orderBy('w.requested_at', 'desc')
     .limit(50)
     .execute();
+  const applications = await sql<{
+    id: string; ref: string; order_ref: string; amount_minor: string; status: TraderReserveApplicationStatus; reason: string; requested_by: string;
+    requested_by_label: string | null; requested_at: Date; decided_by_label: string | null; close_reason: string | null; delivery_address: string | null; tx_hash: string | null;
+  }>`
+    select a.id, a.ref, o.ref as order_ref, a.amount_minor::text, a.status, a.reason, a.requested_by, coalesce(ru.name, ru.email) as requested_by_label,
+           a.requested_at, coalesce(du.name, du.email) as decided_by_label, a.close_reason,
+           (select d.address from deposit_assignment x join deposit_address d on d.id = x.deposit_address_id where x.route_obligation_id = a.route_obligation_id limit 1) as delivery_address,
+           (select c.tx_hash from route_settlement s join crypto_transfer c on c.id = s.crypto_transfer_id where s.reserve_application_id = a.id) as tx_hash
+      from trader_reserve_application a
+      join trader_order o on o.id = a.trader_order_id
+      left join auth_user ru on ru.id = a.requested_by
+      left join auth_user du on du.id = a.decided_by
+     where a.trader_id = ${id}
+     order by a.requested_at desc, a.id desc
+     limit 50`.execute(ex);
+  const applicable = await sql<{ id: string; ref: string; owed: string }>`
+    select o.id, o.ref, inrp2p_route_delivery_open(o.route_obligation_id)::text as owed
+      from trader_order o join trade t on t.id = o.trade_id
+     where o.trader_id = ${id} and o.status = 'IN_PROGRESS' and o.side = 'SELL_USDT'
+       and t.lifecycle_state in ('FIRST_LEG_CONFIRMED', 'SETTLING', 'PARTIALLY_SETTLED')
+       and inrp2p_route_delivery_open(o.route_obligation_id) > 0
+       and not exists (select 1 from trader_reserve_application a where a.trader_order_id = o.id and a.status in ('REQUESTED', 'APPROVED', 'SENT'))
+     order by o.started_at`.execute(ex);
   const e = await earnings(ex, id);
   const payouts = await ex
     .selectFrom('trader_reward_payout as r')
@@ -462,10 +508,17 @@ export async function deskTrader(ex: Executor, traderId: string): Promise<DeskTr
       locked: reserve.locked.toDecimalString(),
       available: reserve.available.toDecimalString(),
       pendingRelease: reserve.pendingRelease.toDecimalString(),
+      applying: reserve.applying.toDecimalString(),
       shortfall: reserve.shortfall.toDecimalString(),
       depositAddress: address?.address ?? null,
     },
     withdrawals: withdrawals.map((w) => ({ withdrawalId: w.id, ref: w.ref, amount: usdt(w.amount_minor), status: w.status, destination: w.destination_address, requestedAt: w.requested_at.toISOString(), txHash: w.tx_hash, closeReason: w.close_reason })),
+    applications: applications.rows.map((a) => ({
+      applicationId: a.id, ref: a.ref, orderRef: a.order_ref, amount: usdt(BigInt(a.amount_minor)), status: a.status, reason: a.reason, requestedBy: a.requested_by,
+      requestedByLabel: a.requested_by_label ?? 'an operator', requestedAt: a.requested_at.toISOString(), decidedByLabel: a.decided_by_label, closeReason: a.close_reason,
+      deliveryAddress: a.delivery_address, txHash: a.tx_hash,
+    })),
+    applicableOrders: applicable.rows.map((o) => ({ orderId: o.id, ref: o.ref, owed: usdt(BigInt(o.owed)) })),
     earnings: {
       rewardBps: e.rewardBps,
       available: e.available.toDecimalString(),

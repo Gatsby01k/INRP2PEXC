@@ -112,6 +112,8 @@ Legend: ✔ allowed · ⧗ allowed with step-up MFA · ✱ requires second appro
 | `traders:configure` (approve or reject; limits, Security Reserve, reward, settlement details, programme settings) | ⧗ | — | — | ⧗ | — | — |
 | `trader_payout:record` (record a reserve withdrawal or reward payout sent) | ✔ | — | — | ✔ | — | — |
 | `trader_payout:confirm` (confirm or reject it — posts the movement) | ⧗ | — | — | ⧗ | — | — |
+| `trader_reserve:apply` (ask to apply a trader's Security Reserve to USDT one of its orders did not deliver, TD-21; withdraw the request) | ⧗ | — | — | ⧗ | — | — |
+| `trader_reserve:approve` (approve or decline it — never the requester; end an approved one before its USDT moves) | ⧗✱ | — | — | ⧗✱ | — | — |
 | `receipt:view` | ✔ | ✔ | ✔ | ✔ | ✔ | ✔ |
 | `audit:view` | ✔ | — | — | ✔ | — | — |
 | `users:manage` / `roles:assign` | ⧗ | — | — | — | — | — |

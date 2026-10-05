@@ -85,6 +85,10 @@ export const PERMISSION_MATRIX = Object.freeze({
   'traders:configure': r(S, D, D, S, D, D),
   'trader_payout:record': r(A, D, D, A, D, D),
   'trader_payout:confirm': r(S, D, D, S, D, D),
+  // A trader's Security Reserve applied to USDT one of its orders did not deliver (TD-21): asked by one person,
+  // approved by another.
+  'trader_reserve:apply': r(S, D, D, S, D, D),
+  'trader_reserve:approve': r(S2, D, D, S2, D, D),
   'receipt:view': r(A, A, A, A, A, A),
   'audit:view': r(A, D, D, A, D, D),
   'users:manage': r(S, D, D, D, D, D),

@@ -7,10 +7,11 @@ import { Button, StepUpMark, UTRField, normalizeUtr } from '@inrp2p/ui';
 import { maskUtr, shortenHash } from '@inrp2p/ui/format';
 import { useCommand } from '../../../../components/useCommand.tsx';
 import {
-  confirmRewardPayoutAction, confirmWithdrawalAction, failRewardPayoutAction, recordRewardPayoutAction, recordWithdrawalSentAction, rejectWithdrawalAction,
+  approveReserveApplicationAction, cancelReserveApplicationAction, confirmRewardPayoutAction, confirmWithdrawalAction, endReserveApplicationAction, failRewardPayoutAction,
+  recordReserveApplicationSentAction, recordRewardPayoutAction, recordWithdrawalSentAction, rejectReserveApplicationAction, rejectWithdrawalAction, requestReserveApplicationAction,
 } from '../../../../server/actions/traders-desk.ts';
 import { GuardedAction } from '../../_desk/GuardedAction.tsx';
-import { AmountField, SelectField, TextField } from '../../_desk/fields.tsx';
+import { AmountField, SelectField, TextArea, TextField } from '../../_desk/fields.tsx';
 import { dateTime, inr, usdt } from '../../_desk/format.ts';
 import { Chip, KeyValues, Notice, Section } from '../../_desk/ui.tsx';
 import type { TraderPerms } from './TraderControls.tsx';
@@ -36,6 +37,7 @@ export function TraderMoney({ detail, accounts, perms }: { detail: DeskTraderDet
             { label: 'Locked by open orders', value: usdt(r.locked, { exact: true }) },
             { label: 'Available to withdraw', value: usdt(r.available, { exact: true }) },
             { label: 'Pending release', value: usdt(r.pendingRelease, { exact: true }) },
+            ...(/[1-9]/.test(r.applying) ? [{ label: 'Being applied to orders', value: usdt(r.applying, { exact: true }) }] : []),
             ...(/[1-9]/.test(r.shortfall) ? [{ label: 'Short by', value: <span className={d.negative}>{usdt(r.shortfall, { exact: true })}</span> }] : []),
             { label: 'Deposit address', value: <span className={d.mono}>{r.depositAddress ?? 'not issued yet'}</span> },
           ]}
@@ -50,8 +52,176 @@ export function TraderMoney({ detail, accounts, perms }: { detail: DeskTraderDet
           <p className={d.fieldHint}>No withdrawals.</p>
         )}
       </Section>
+      <ReserveApplications detail={detail} perms={perms} />
       <Rewards detail={detail} accounts={accounts} perms={perms} earnings={e} />
     </>
+  );
+}
+
+const APPLICATION_STATUS: Record<DeskTraderDetail['applications'][number]['status'], { label: string; tone: 'warning' | 'success' | 'danger' | 'muted' }> = {
+  REQUESTED: { label: 'waiting for approval', tone: 'warning' },
+  APPROVED: { label: 'approved — custody to send', tone: 'warning' },
+  SENT: { label: 'sent — waiting for the chain', tone: 'warning' },
+  COMPLETED: { label: 'applied', tone: 'success' },
+  REJECTED: { label: 'declined', tone: 'muted' },
+  CANCELLED: { label: 'withdrawn', tone: 'muted' },
+  FAILED: { label: 'failed', tone: 'danger' },
+};
+
+/**
+ * The trader's reserve applied to USDT one of its own orders did not deliver (TD-21). One person asks, with the
+ * reason; someone else approves, each with step-up. Approval holds the amount and names the order's delivery
+ * address; custody moves the USDT there (this product never sends) and the chain makes it the order's delivery.
+ * An INR order is not offered: the reserve is USDT, and a conversion rate is the owner's decision.
+ */
+function ReserveApplications({ detail, perms }: { detail: DeskTraderDetail; perms: TraderPerms }) {
+  const cmd = useCommand();
+  const orders = detail.applicableOrders;
+  const [orderId, setOrderId] = useState(orders[0]?.orderId ?? '');
+  const [amount, setAmount] = useState('');
+  const [reason, setReason] = useState('');
+  const step = <StepUpMark label="needs your authenticator code" />;
+  const order = orders.find((o) => o.orderId === orderId);
+  if (detail.applications.length === 0 && (orders.length === 0 || !perms.applyReserve)) return null;
+  return (
+    <Section title="Reserve applied to orders" count={detail.applications.length} hint="Only the trader’s own undelivered USDT; asked by one person, approved by another.">
+      {detail.applications.length > 0 ? (
+        <ul className={t.legs}>
+          {detail.applications.map((a) => (
+            <Application key={a.applicationId} a={a} perms={perms} reserveAddress={detail.reserve.depositAddress} />
+          ))}
+        </ul>
+      ) : null}
+      {perms.applyReserve && orders.length > 0 ? (
+        <div className={d.guard}>
+          <p className={d.guardTitle}>Apply the reserve to an order whose USDT did not arrive</p>
+          <div className={d.formGrid}>
+            <SelectField label="Order" value={orderId} onChange={setOrderId} options={orders.map((o) => ({ value: o.orderId, label: `${o.ref} · ${usdt(o.owed, { exact: true })} owed` }))} />
+            <AmountField label="Apply" currency="USDT" value={amount} onChange={setAmount} hint={order ? `Leave empty to apply all ${usdt(order.owed, { exact: true })} owed` : undefined} />
+          </div>
+          <TextArea label="Why" value={reason} onChange={setReason} placeholder="e.g. the trader stopped answering after the client paid; its USDT did not arrive" />
+          <div className={d.actions}>
+            <Button
+              size="sm"
+              shortcut={step}
+              disabled={cmd.busy || orderId === '' || reason.trim().length < 10}
+              onClick={() =>
+                cmd.run(`Ask to apply ${detail.trader.ref}'s reserve to ${order?.ref ?? 'the order'}`, (key) =>
+                  requestReserveApplicationAction({ orderId, ...(amount.trim() ? { amount: amount.trim() } : {}), reason: reason.trim() }, key),
+                )
+              }
+            >
+              Ask for approval
+            </Button>
+          </div>
+        </div>
+      ) : null}
+      {cmd.error ? (
+        <p className={d.errorLine} role="alert">
+          {cmd.error}
+        </p>
+      ) : null}
+      {cmd.dialog}
+    </Section>
+  );
+}
+
+function Application({ a, perms, reserveAddress }: { a: DeskTraderDetail['applications'][number]; perms: TraderPerms; reserveAddress: string | null }) {
+  const cmd = useCommand();
+  const [tx, setTx] = useState('');
+  const step = <StepUpMark label="needs your authenticator code" />;
+  const mine = a.requestedBy === perms.meId;
+  const s = APPLICATION_STATUS[a.status];
+  return (
+    <li className={t.leg} {...(a.status === 'REQUESTED' || a.status === 'APPROVED' || a.status === 'SENT' ? { 'data-attention': '' } : {})}>
+      <div className={t.legHead}>
+        <span className={t.legAmount}>{usdt(a.amount, { exact: true })} to {a.orderRef}</span>
+        <Chip tone={s.tone}>{s.label}</Chip>
+      </div>
+      <div className={t.legMeta}>
+        <span>{a.ref}</span>
+        <span>asked by {mine ? 'you' : a.requestedByLabel} · {dateTime(a.requestedAt)}</span>
+        {a.decidedByLabel ? <span>decided by {a.decidedByLabel}</span> : null}
+        {a.txHash ? <span className={d.mono}>tx {shortenHash(a.txHash)}</span> : null}
+      </div>
+      <Notice>{a.reason}</Notice>
+      {a.closeReason && a.status !== 'COMPLETED' ? <Notice>{a.closeReason}</Notice> : null}
+      {a.status === 'APPROVED' && a.deliveryAddress ? (
+        <KeyValues
+          items={[
+            { label: 'Custody sends', value: usdt(a.amount, { exact: true }), strong: true },
+            { label: 'From', value: <span className={d.mono}>{reserveAddress ?? 'the reserve address'} (or a treasury wallet)</span> },
+            { label: 'To the order’s address', value: <span className={d.mono}>{a.deliveryAddress}</span> },
+          ]}
+        />
+      ) : null}
+      {a.status === 'REQUESTED' ? (
+        mine ? (
+          <div className={d.actions}>
+            <Notice tone="warning" icon="shield">You asked for this, so someone else approves it.</Notice>
+            <GuardedAction
+              label="Withdraw"
+              trigger="ghost"
+              busy={cmd.busy}
+              consequence="The request is closed; nothing was held or moved."
+              reasonLabel="Why"
+              onConfirm={async (reason) => (await cmd.run(`Withdraw ${a.ref}`, (key) => cancelReserveApplicationAction({ applicationId: a.applicationId, reason }, key))).ok}
+            />
+          </div>
+        ) : perms.approveReserve ? (
+          <div className={d.actions}>
+            <Button intent="primary" size="sm" shortcut={step} disabled={cmd.busy} onClick={() => cmd.run(`Approve ${a.ref}`, (key) => approveReserveApplicationAction({ applicationId: a.applicationId }, key))}>
+              Approve
+            </Button>
+            <GuardedAction
+              label="Decline"
+              trigger="ghost"
+              stepUp
+              busy={cmd.busy}
+              consequence="Nothing is applied; the reserve stays the trader's."
+              reasonLabel="Why"
+              onConfirm={async (note) => (await cmd.run(`Decline ${a.ref}`, (key) => rejectReserveApplicationAction({ applicationId: a.applicationId, note }, key))).ok}
+            />
+          </div>
+        ) : (
+          <Notice>Approving it needs the owner or finance role.</Notice>
+        )
+      ) : null}
+      {a.status === 'APPROVED' ? (
+        <div className={d.stackTight}>
+          {perms.record ? (
+            <>
+              <TextField label="Transaction hash (custody sent it)" value={tx} onChange={setTx} mono />
+              <div className={d.actions}>
+                <Button size="sm" disabled={cmd.busy || tx.trim().length < 10} onClick={() => cmd.run(`Record ${a.ref} as sent`, (key) => recordReserveApplicationSentAction({ applicationId: a.applicationId, txHash: tx.trim() }, key))}>
+                  Record sent
+                </Button>
+              </div>
+            </>
+          ) : null}
+          {perms.approveReserve ? (
+            <div className={d.actions}>
+              <GuardedAction
+                label="End without applying"
+                trigger="ghost"
+                tone="danger"
+                stepUp
+                busy={cmd.busy}
+                consequence="Only before custody sent anything: the held amount is the trader's again."
+                reasonLabel="Why (e.g. the trader delivered after all)"
+                onConfirm={async (reason) => (await cmd.run(`End ${a.ref}`, (key) => endReserveApplicationAction({ applicationId: a.applicationId, reason }, key))).ok}
+              />
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+      {cmd.error ? (
+        <p className={d.errorLine} role="alert">
+          {cmd.error}
+        </p>
+      ) : null}
+      {cmd.dialog}
+    </li>
   );
 }
 

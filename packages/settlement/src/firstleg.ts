@@ -11,6 +11,7 @@ import { lockMovement, markFiatFailed, postMovement, recordCryptoTransfer, recor
 import { lockObligation, obligationRemaining } from './obligations.ts';
 import type { SettlementDeps } from './policy.ts';
 import { advanceTrade, clientLegsInFlight } from './progress.ts';
+import { attributeAppliedReserve } from './reserve-delivery.ts';
 
 /**
  * `fiat_in.record` (T2, BUY) — `settlement:record_incoming`. The client says it sent the INR; the desk records the
@@ -235,10 +236,14 @@ async function recordTraderDelivery(ctx: TxContext, input: DepositInput, target:
   const route = await ctx.tx.selectFrom('liquidity_route').select(['id', 'registered_route_address']).where('id', '=', obligation.route_id).executeTakeFirstOrThrow();
 
   if (!route.registered_route_address || route.registered_route_address !== input.fromAddress) {
+    // The trader's own Security Reserve, applied to this order by two people (TD-21) and moved here by custody: it is
+    // this order's delivery. Anything else from another wallet is not counted.
+    const applied = await attributeAppliedReserve(ctx, input, { obligationId: obligation.id, toWalletId: target.treasuryWalletId });
+    if (applied && 'transferId' in applied) return { transferId: applied.transferId, tradeId: null, legId: null };
     const recorded = await recordCryptoTransfer(ctx, { ...input, payerType: 'UNKNOWN', payeeType: 'EXCHANGE_TREASURY', payeeId: target.treasuryWalletId });
     const opened = await openExceptionInTx(ctx, {
       type: 'USDT_UNEXPECTED_SENDER', subjectType: 'CRYPTO_TRANSFER', subjectId: recorded.transferId, tradeId: null,
-      details: { reason: 'DELIVERY_FROM_UNREGISTERED_WALLET', route_obligation_id: obligation.id, from: input.fromAddress, amount: input.amount.toDecimalString() },
+      details: { reason: applied ? applied.mismatch : 'DELIVERY_FROM_UNREGISTERED_WALLET', route_obligation_id: obligation.id, from: input.fromAddress, amount: input.amount.toDecimalString() },
     });
     return { transferId: recorded.transferId, tradeId: null, legId: null, exceptionId: opened.exceptionId };
   }

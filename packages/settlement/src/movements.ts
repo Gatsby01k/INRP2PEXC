@@ -290,7 +290,9 @@ export interface PostMovementInput {
   readonly from: MovementParty;
   readonly to: MovementParty;
   readonly tradeId?: string | null;
-  readonly purpose: 'CLIENT_FIRST_LEG' | 'CLIENT_PAYOUT' | 'ROUTE_SETTLEMENT' | 'REFUND' | 'UNALLOCATED' | 'TRADER_RESERVE' | 'TRADER_REWARD_PAYOUT';
+  readonly purpose: 'CLIENT_FIRST_LEG' | 'CLIENT_PAYOUT' | 'ROUTE_SETTLEMENT' | 'REFUND' | 'UNALLOCATED' | 'TRADER_RESERVE' | 'TRADER_REWARD_PAYOUT' | 'TRADER_RESERVE_APPLIED';
+  /** `TRADER_RESERVE_APPLIED` only: the exchange wallets custody moved the reserve between. */
+  readonly custody?: { readonly fromWalletId: string; readonly toWalletId: string } | null;
 }
 
 /** The one journal a movement ever posts (FI-27, FI-42). A replay hits the unique posting key. */

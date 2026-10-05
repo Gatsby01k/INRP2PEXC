@@ -210,20 +210,53 @@ export async function confirmRouteSettlementInTx(ctx: TxContext, deps: Settlemen
   }
 
   const routeParty = { kind: 'ROUTE' as const, routeId: s.route_id, routeObligationId: obligation.id };
-  const exchangeParty =
-    s.asset === 'INR'
-      ? { kind: 'EXCHANGE_ACCOUNT' as const, inrAccountId: await counterpartyAccount(ctx, s.transfer_kind, movementId, s.flow) }
-      : { kind: 'EXCHANGE_TREASURY' as const, walletId: await counterpartyAccount(ctx, s.transfer_kind, movementId, s.flow) };
-  await postMovement(ctx, {
-    kind: s.transfer_kind,
-    movementId,
-    amount,
-    from: s.flow === 'TO_ROUTE' ? exchangeParty : routeParty,
-    to: s.flow === 'TO_ROUTE' ? routeParty : exchangeParty,
-    tradeId: obligation.trade_id,
-    purpose: 'ROUTE_SETTLEMENT',
-  });
+  // A trader's reserve applied to this delivery (TD-21): locked after the obligation and the movement.
+  const application = s.reserve_application_id
+    ? await ctx.tx.selectFrom('trader_reserve_application').select(['id', 'ref', 'trader_id', 'status']).where('id', '=', s.reserve_application_id).forUpdate().executeTakeFirstOrThrow()
+    : null;
+  if (application) {
+    // The USDT was already the exchange's to hold as the trader's reserve: it settles the route's debt by reducing
+    // the debt to the trader, and custody moved it between two exchange wallets — one movement, one journal.
+    if (application.status !== 'SENT') throw new DomainError('INVALID_TRANSITION', `reserve application ${application.ref} is ${application.status.toLowerCase()}`);
+    const c = await ctx.tx.selectFrom('crypto_transfer').select(['payer_id', 'payee_id']).where('id', '=', movementId).executeTakeFirstOrThrow();
+    if (!c.payer_id || !c.payee_id) throw new DomainError('INVALID_ARGUMENT', 'an applied reserve moves between two exchange wallets');
+    await postMovement(ctx, {
+      kind: 'CRYPTO',
+      movementId,
+      amount,
+      from: { kind: 'TRADER', traderId: application.trader_id },
+      to: routeParty,
+      tradeId: obligation.trade_id,
+      purpose: 'TRADER_RESERVE_APPLIED',
+      custody: { fromWalletId: c.payer_id, toWalletId: c.payee_id },
+    });
+  } else {
+    const exchangeParty =
+      s.asset === 'INR'
+        ? { kind: 'EXCHANGE_ACCOUNT' as const, inrAccountId: await counterpartyAccount(ctx, s.transfer_kind, movementId, s.flow) }
+        : { kind: 'EXCHANGE_TREASURY' as const, walletId: await counterpartyAccount(ctx, s.transfer_kind, movementId, s.flow) };
+    await postMovement(ctx, {
+      kind: s.transfer_kind,
+      movementId,
+      amount,
+      from: s.flow === 'TO_ROUTE' ? exchangeParty : routeParty,
+      to: s.flow === 'TO_ROUTE' ? routeParty : exchangeParty,
+      tradeId: obligation.trade_id,
+      purpose: 'ROUTE_SETTLEMENT',
+    });
+  }
   await ctx.tx.updateTable('route_settlement').set({ status: 'CONFIRMED', confirmed_at: sql<Date>`inrp2p_now()` }).where('id', '=', s.id).execute();
+  if (application) {
+    await ctx.tx
+      .updateTable('trader_reserve_application')
+      .set({ status: 'COMPLETED', completed_at: sql<Date>`inrp2p_now()`, closed_at: sql<Date>`inrp2p_now()`, closed_by: ctx.actor.id ?? `SYSTEM:${ctx.commandName}` })
+      .where('id', '=', application.id)
+      .execute();
+    await appendAudit(ctx, {
+      action: 'trader_reserve.applied', entityType: 'trader_profile', entityId: application.trader_id,
+      before: { status: 'SENT' }, after: { status: 'COMPLETED', ref: application.ref, amount, route_settlement: s.ref },
+    });
+  }
   if (s.capacity_reservation_id) await consumeReservation(ctx, s.capacity_reservation_id, amount as Money<'INR'>);
   if (s.flow === 'TO_ROUTE') await settleFunding(ctx, { kind: 'ROUTE_PAYMENT', routeSettlementId: s.id }, 'CONSUMED', `route settlement ${s.ref} confirmed`);
   const allocated = await allocateToObligation(ctx, { obligation, side, routeSettlementId: s.id, amount });
@@ -253,6 +286,14 @@ export function failRouteSettlement(actor: OperatorActor) {
     const s = await ctx.tx.selectFrom('route_settlement').selectAll().where('id', '=', requireUuid(p.routeSettlementId, 'routeSettlementId')).executeTakeFirstOrThrow();
     if (s.status !== 'RECORDED') throw new DomainError('INVALID_TRANSITION', `route settlement is ${s.status}`);
     await ctx.tx.updateTable('route_settlement').set({ status: 'FAILED', failed_at: sql<Date>`inrp2p_now()`, failure_reason: reason }).where('id', '=', s.id).execute();
+    if (s.reserve_application_id) {
+      // The applied reserve never arrived: the application ends with it, and the reserve is the trader's again.
+      await ctx.tx
+        .updateTable('trader_reserve_application')
+        .set({ status: 'FAILED', closed_at: sql<Date>`inrp2p_now()`, closed_by: ctx.actor.id ?? 'SYSTEM', close_reason: reason })
+        .where('id', '=', s.reserve_application_id)
+        .execute();
+    }
     if (s.fiat_transfer_id) {
       await ctx.tx.updateTable('fiat_transfer').set({ status: 'FAILED', failed_at: sql<Date>`inrp2p_now()`, failure_reason: reason }).where('id', '=', s.fiat_transfer_id).where('status', '=', 'RECORDED').execute();
     }

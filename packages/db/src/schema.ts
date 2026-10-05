@@ -895,6 +895,8 @@ export interface RouteSettlementTable {
   confirmed_at: Date | null;
   failed_at: Date | null;
   failure_reason: string | null;
+  /** Set when this delivery is a trader's Security Reserve applied to it (migration 0029, TD-21). */
+  reserve_application_id: Generated<string | null>;
 }
 
 export type TransferKind = 'FIAT' | 'CRYPTO';
@@ -1244,6 +1246,30 @@ export interface TraderReserveWithdrawalTable {
   close_reason: string | null;
 }
 
+export type TraderReserveApplicationStatus = 'REQUESTED' | 'APPROVED' | 'REJECTED' | 'CANCELLED' | 'SENT' | 'COMPLETED' | 'FAILED';
+
+/** A trader's Security Reserve applied to USDT one of its orders did not deliver (migration 0029, TD-21). */
+export interface TraderReserveApplicationTable {
+  id: Generated<string>;
+  ref: Generated<string>;
+  trader_id: string;
+  trader_order_id: string;
+  route_obligation_id: string;
+  amount_minor: bigint;
+  reason: string;
+  status: Generated<TraderReserveApplicationStatus>;
+  requested_by: string;
+  requested_at: Generated<Date>;
+  decided_by: string | null;
+  decided_at: Date | null;
+  decision_note: string | null;
+  sent_at: Date | null;
+  completed_at: Date | null;
+  closed_at: Date | null;
+  closed_by: string | null;
+  close_reason: string | null;
+}
+
 export interface TraderRewardPayoutTable {
   id: Generated<string>;
   ref: Generated<string>;
@@ -1333,5 +1359,6 @@ export interface Database {
   trader_block: TraderBlockTable;
   trader_order: TraderOrderTable;
   trader_reserve_withdrawal: TraderReserveWithdrawalTable;
+  trader_reserve_application: TraderReserveApplicationTable;
   trader_reward_payout: TraderRewardPayoutTable;
 }
