@@ -7,7 +7,7 @@ Non-blocking items accepted at phase review. Each entry names the phase that mus
 | TD-01 | Auth schema: `auth_rate_limit.last_request` type warning | Phase 1 acceptance (2026-09-17) | Production deploy (launch checklist) | Closed (2026-10-05) |
 | TD-02 | Auth: cross-surface operator → client OTP rejection surfaces as internal error | Phase 1 acceptance (2026-09-17) | Production client auth (client login enabled on `app.inrp2p.com`) | Closed (2026-10-05) |
 | TD-03 | Encryption: production KMS-backed key-encryption key not implemented | Phase 2 implementation (2026-09-17) | First deployment holding real bank or contact data | Code ready (2026-10-05); the KMS key and account are an owner input — **not provisioned** |
-| TD-04 | Notifications: no email provider bound — acceptance codes, client sign-in codes and notification emails | Phase 3 implementation (2026-09-17) | Any environment where a client signs in or accepts a quote through a shareable link | Open — widened at Phase 7 |
+| TD-04 | Notifications: no email provider bound — acceptance codes, client sign-in codes and notification emails | Phase 3 implementation (2026-09-17) | Any environment where a client signs in or accepts a quote through a shareable link | Code ready (2026-10-05, E1); staging inbox **NOT RUN**; production provider account, verified domain and key are owner inputs |
 | TD-05 | Chain verification: no TRON provider bound; scanning not implemented | Phase 4 implementation (2026-09-18) | Any environment that settles real USDT | Closed in Phase 5 (2026-09-18) |
 | TD-06 | Scanner: no tooling for a deliberate historical backfill behind the cursor | Phase 5 implementation (2026-09-18) | First production incident needing a historical rescan | Closed (2026-10-05, migration 0024) |
 | TD-07 | Scanner: the TRON provider smoke gate has never been executed against real providers | Phase 5 implementation (2026-09-18) | Any environment that settles real USDT | Open — gate extended 2026-10-05 (window read, report file), **NOT RUN** |
@@ -115,6 +115,26 @@ three fail the same way — loudly, never into a log:
 `sendAcceptanceCode`, `sendClientNotification`, and the client sign-in sender in
 `apps/web/src/server/client-otp.ts`. Until it exists, the in-app inbox is the client's only channel and the file
 sink is the only way to sign a client in outside production.
+
+**Code ready (2026-10-05, production task E1).** `ResendNotificationAdapter` / `ResendEmailClient`
+(`packages/adapters/src/resend.ts`), chosen from the environment (`notificationAdapterFromEnv`: `RESEND_API_KEY`,
+`RESEND_FROM`; production refuses a non-HTTPS endpoint) and used by the worker for acceptance codes and client
+notifications and by the web app for sign-in codes. Each send carries an `Idempotency-Key` from its delivery row
+(`otp-delivery/{id}`, `client-notification-email/{id}`), a per-attempt timeout and a few backed-off retries; success is a
+provider message id and nothing else (an answer without one is `PROVIDER_AMBIGUOUS`, retried); a refusal is permanent;
+errors carry a code, never the message, the code inside it, the address or the key. An acceptance code is sent under
+the lock of its delivery row, so closing its challenge either waits for a send under way or erases it first — a
+superseded, closed or expired code is never sent — and a failed send leaves it sealed. Client emails have one
+delivery row per recipient (migration 0031): SENT only with the provider id, FAILED on refusal or after eight
+attempts, otherwise PENDING and retried by the outbox; `email_sent_at` only when every recipient has it. Health:
+`acceptance_codes_undelivered`, `email_deliveries_failing` → RUNBOOKS `email-delivery`. Tests:
+`packages/adapters/test/resend.unit.test.ts` (against a local server behaving like the provider: headers, one email per
+key across a timeout, retries bounded, ambiguous answer, refusals not retried, no secret in errors),
+`packages/quotes/test/delivery.int.test.ts`, `packages/notifications/test/email.int.test.ts`.
+
+**Not done here.** An inbox check against the real provider in staging (gate 2, **NOT RUN** — no staging or provider
+account exists in this workspace); the production Resend account, its verified sending domain (SPF, DKIM, DMARC) and
+the API key in the secret manager (gate 3, owner inputs).
 
 ## TD-05 — No TRON provider behind the chain verifier
 

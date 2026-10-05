@@ -53,6 +53,7 @@ nothing on gates 2 or 3. CI on the final SHA replaces them in the final report.
 | D2 | P0 | confirmed defect | TD-19: an overpayment can be returned without unwinding the trade | fixed — code ready |
 | D3 | P0 | implementation + owner decision | TD-21: a trader's reserve applied to USDT its own order did not deliver; held against INR | USDT side and INR hold code ready; INR conversion / recovery terms **BLOCKED** (owner) |
 | D4 | P0 | confirmed defects + proof | Trader lifecycle end to end; sweep error isolation; rewards never paid from principal | fixed — code ready |
+| E1 | P0 | confirmed defects + integration | TD-04: email provider for codes and notifications; no fictitious delivery success | code ready; staging inbox **NOT RUN**; provider account **BLOCKED** (owner) |
 
 (The table grows as stages are worked; each row has a section below.)
 
@@ -412,4 +413,25 @@ is wanted stays an open owner question (ADR 0016 §8).
   Sweep: a fault planted on one order's row — the other expires, the failure is reported with its code, the health
   signal warns, the retry clears it. `test/integration/traders.int.test.ts` now pays the reward after the client is
   paid, and proves it refused before that and from an account the trade never touched.
+
+## E1 — Email: acceptance codes, sign-in codes, client notifications (TD-04) (P0)
+
+- **Found (on `d0cc778`).** The worker wired `UnconfiguredNotificationAdapter`: acceptance codes and client
+  notification emails could not be delivered anywhere. The email channel claimed `email_sent_at` *before* sending, so a
+  provider failure after the claim read as delivered — the fictitious success the task forbids. An acceptance code was
+  read without a lock and sent afterwards, so a code superseded in between could still go out, and an expired-but-not-
+  yet-closed code was sent. The web sign-in sender called Resend with no timeout, no retry and no idempotency.
+- **Changed.** `packages/adapters/src/resend.ts` (one client for the worker and the web app: idempotency key per
+  delivery, timeout per attempt, bounded backed-off retries, success only with a provider id, refusals permanent, errors
+  free of content and secrets), `notificationAdapterFromEnv`; the port's messages carry their delivery id and failures
+  are `NotificationDeliveryError` (code, retryable). Acceptance codes: sent under the delivery row's lock, never when the
+  challenge is closed or expired, sealed until really delivered. Client emails: migration `0031_email_delivery.sql`,
+  one row per recipient (PENDING → SENT with provider id / FAILED with a code), `email_sent_at` only when all went.
+  Health `acceptance_codes_undelivered`, `email_deliveries_failing`; runbook `email-delivery`; `.env.example`.
+- **Tests.** `packages/adapters/test/resend.unit.test.ts`, `packages/quotes/test/delivery.int.test.ts` (outage leaves
+  the code sealed and the retry sends once; a refusal is not a delivery; an expired code is erased, not sent; a new code
+  waits for a send under way; a code superseded first is never sent), `packages/notifications/test/email.int.test.ts`
+  (outage → pending, retried, each recipient once; refusal → FAILED, not retried, never "sent").
+- **Gates.** Gate 2: the real inbox check in staging is **NOT RUN**. Gate 3: the Resend account, its verified sending
+  domain (SPF/DKIM/DMARC) and the API key in the secret manager are owner inputs (**BLOCKED**).
 
