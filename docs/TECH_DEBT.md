@@ -15,7 +15,7 @@ Non-blocking items accepted at phase review. Each entry names the phase that mus
 | TD-09 | The page baselines have not been recorded in the canonical environment | Phase 6 review (2026-09-19) | The `visual-pages` CI job can pass | Closed in Phase 7 review (2026-09-19) — 20 baselines recorded, `visual` / `visual-pages` green on main |
 | TD-10 | Outbox: the desk's own signals and the receipt trigger are acknowledged, not consumed | Phase 7 implementation (2026-09-19) | A desk push channel (desk signals) and Phase 8 (receipts) | Open |
 | TD-11 | Client TOTP enrolment does not exist, so client-side destination management is desk-only | Phase 7 implementation (2026-09-19) | A client managing their own bank accounts or wallets, or granting quote-acceptance authority | Closed (2026-10-05) |
-| TD-12 | Receipts are proved by hash, not stored: no object store, and PDF printing is opt-in | Phase 8 implementation (2026-09-20) | A deployment that must serve a receipt without re-rendering it, or print PDFs | Open |
+| TD-12 | Receipts are proved by hash, not stored: no object store, and PDF printing is opt-in | Phase 8 implementation (2026-09-20) | A deployment that must serve a receipt without re-rendering it, or print PDFs | Code ready (2026-10-05, E2, migration 0032); production bucket and retention period are owner inputs |
 | TD-13 | New page baselines have not been recorded in the canonical environment | Phase 8 implementation (2026-09-20) | The `visual-pages` CI job can pass | Phase 8 recorded (run `35495412975`); reopened for Phase 9's two public captures |
 | TD-14 | Reconciliation is a manual statement import; there is no recurring job | Phase 8 implementation (2026-09-20) | A bank feed or statement drop that arrives without an operator | Open |
 | TD-15 | The public site cannot be edge-cached while its CSP nonce is per-request | Phase 9 implementation (2026-09-20) | The public site needs to be served from a CDN | Open |
@@ -358,6 +358,23 @@ column already reserved for it, serve from storage, and keep the regenerate-and-
 what was stored is still what was issued. Bind a PDF renderer in the deployments that need one (a browser in the
 worker image, or a rendering service behind the same port), and keep the unconfigured renderer as the default so
 an environment without one refuses loudly.
+
+**Code ready (2026-10-05, production task E2).** `S3ObjectStore` (`packages/adapters/src/object-store.ts`, the S3 API
+with Signature V4: AWS S3 or a compatible store, chosen by configuration) writes once (`If-None-Match: *`; an existing
+object must be the same bytes), sends `Content-MD5` and `x-amz-checksum-sha256`, and writes under Object Lock in
+COMPLIANCE mode when a retention is set. With `INRP2P_RECEIPTS_BUCKET` the receipt handler stores every artifact at issue
+(`receipts/{trade}/v{version}/{sha256}.{ext}`, content-addressed) and records it in `receipt_object` (migration 0032,
+IX097: JSON/CSV/HTML must be the issued bytes; a PDF records the hash of its own bytes and the HTML hash it was printed
+from, because a printer stamps metadata), and an hourly job stores receipts issued before. The download route — which
+already scoped a client to its own receipts and refused unverifiable documents — serves the recorded **version** of the
+stored object after re-hashing it; any difference is refused. The worker refuses to start with a receipts bucket that
+is not versioned. Tests against a local MinIO: `packages/adapters/test/object-store.int.test.ts`,
+`packages/reporting/test/receipt-storage.int.test.ts` (written once, redelivery writes nothing, a forged newer version is
+not served, a locked version cannot be deleted, a store returning other bytes is refused, backfill, IX097).
+
+**Owner inputs.** The production bucket (private, versioned, created with Object Lock), the workload role allowed to
+write it, and the retention period (`INRP2P_RECEIPT_RETENTION_DAYS`) — record-keeping obligations decide it, not code.
+Whether production serves stored PDFs at all is also a choice: printing needs a browser in the worker image.
 
 ## TD-13 — The Phase 8 page baselines have not been recorded
 

@@ -54,6 +54,7 @@ nothing on gates 2 or 3. CI on the final SHA replaces them in the final report.
 | D3 | P0 | implementation + owner decision | TD-21: a trader's reserve applied to USDT its own order did not deliver; held against INR | USDT side and INR hold code ready; INR conversion / recovery terms **BLOCKED** (owner) |
 | D4 | P0 | confirmed defects + proof | Trader lifecycle end to end; sweep error isolation; rewards never paid from principal | fixed — code ready |
 | E1 | P0 | confirmed defects + integration | TD-04: email provider for codes and notifications; no fictitious delivery success | code ready; staging inbox **NOT RUN**; provider account **BLOCKED** (owner) |
+| E2 | P1 | verification + implementation | Statement import verified; TD-12 receipts in private, versioned, write-once object storage | code ready; bucket and retention **BLOCKED** (owner) |
 
 (The table grows as stages are worked; each row has a section below.)
 
@@ -434,4 +435,24 @@ is wanted stays an open owner question (ADR 0016 §8).
   (outage → pending, retried, each recipient once; refusal → FAILED, not retried, never "sent").
 - **Gates.** Gate 2: the real inbox check in staging is **NOT RUN**. Gate 3: the Resend account, its verified sending
   domain (SPF/DKIM/DMARC) and the API key in the secret manager are owner inputs (**BLOCKED**).
+
+## E2 — Bank reconciliation and receipts (TD-12) (P1)
+
+- **Verified, unchanged.** Manual statement import (`statement.import`, OWNER/FINANCE ⧗): one transaction for the file,
+  its lines, outcomes and cases; the same file (sha256) refused twice per account; references matched the way FI-22
+  makes a UTR unique (trimmed, upper-cased) and only through that account; a confirmed payment the statement does not
+  show opens a blocking case (the fake-UTR control, S7). No bank feed exists and none was invented (TD-14 stays open: it
+  needs a provider and a contract). Client updates remain polling; TD-10 is not recorded as push.
+- **Receipts (found on `d0cc778`).** Tenant scoping (a client's session resolves only its own receipts), `no-store`,
+  `nosniff` and download dispositions were in place; receipts were proved by hash and regenerated, never stored, and a
+  PDF was re-printed per request.
+- **Changed.** `packages/adapters/src/object-store.ts` (S3 API, SigV4, write-once, checksums, Object Lock, bucket
+  description; MinIO-tested), migration `0032_receipt_objects.sql` (IX097), `packages/reporting/src/storage.ts`
+  (store at issue, serve the recorded version after re-hashing, backfill), worker wiring (bucket from the environment,
+  refuses an unversioned bucket, optional PDF printer and retention), the download route, runbook `receipt-integrity`,
+  `.env.example`. PDFs: integrity is the hash of the stored bytes; meaning is the HTML hash they were printed from.
+- **Tests.** `packages/adapters/test/object-store.int.test.ts`, `packages/reporting/test/receipt-storage.int.test.ts`
+  (both against a local MinIO container).
+- **Gate 3.** The production bucket (private, versioned, Object Lock), its write role and the retention period are owner
+  inputs (**BLOCKED**).
 
