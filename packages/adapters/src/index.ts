@@ -6,3 +6,5 @@ export * from './pdf.ts';
 export * from './chromium-pdf.ts';
 export * from './chain.ts';
 export * from './tron.ts';
+export * from './aws-kms.ts';
+export * from './field-config.ts';

@@ -137,7 +137,10 @@ export type DomainErrorCode =
   | 'FUNDING_LOCATION_MISMATCH'
   | 'COUNTERPARTY_NOT_DELIVERED'
   | 'CUSTODY_OBSERVATION_STALE'
-  | 'CUSTODY_BALANCE_INSUFFICIENT';
+  | 'CUSTODY_BALANCE_INSUFFICIENT'
+  | 'KMS_UNAVAILABLE'
+  | 'KMS_REFUSED'
+  | 'FIELD_PROTECTION_MISCONFIGURED';
 
 export class DomainError extends Error {
   readonly code: DomainErrorCode;
