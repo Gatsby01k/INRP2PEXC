@@ -1054,6 +1054,22 @@ export interface ClientNotificationTable {
   created_at: Generated<Date>;
 }
 
+/** A receipt artifact written once to private object storage (migration 0032, TD-12). */
+export interface ReceiptObjectTable {
+  receipt_id: string;
+  format: 'json' | 'csv' | 'html' | 'pdf';
+  bucket: string;
+  object_key: string;
+  version_id: string | null;
+  /** Of the stored bytes: what a reader verifies. */
+  sha256: string;
+  /** The issued artifact it is: the recorded json/csv/html hash; for a PDF, the HTML it was printed from. */
+  source_sha256: string;
+  byte_size: bigint;
+  retain_until: Date | null;
+  stored_at: Generated<Date>;
+}
+
 /** One client notification email to one recipient (migration 0031): its id is the provider idempotency key. */
 export interface ClientNotificationEmailTable {
   id: Generated<string>;
@@ -1369,6 +1385,7 @@ export interface Database {
   chain_backfill: ChainBackfillTable;
   client_notification: ClientNotificationTable;
   client_notification_email: ClientNotificationEmailTable;
+  receipt_object: ReceiptObjectTable;
   receipt: ReceiptTable;
   bank_statement_import: BankStatementImportTable;
   bank_statement_line: BankStatementLineTable;

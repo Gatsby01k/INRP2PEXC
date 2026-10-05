@@ -7,7 +7,7 @@ import { acceptanceCodeHandler } from '@inrp2p/quotes';
 import { receiptHandler } from '@inrp2p/reporting';
 import { destinationArchivedHandler } from '@inrp2p/settlement';
 import { CRONTAB, buildTaskList, quoteExpiryScheduler } from './tasks.ts';
-import { UNCONFIGURED_PROTECTOR, chainMonitoringFromEnv, chainMonitoringReady, describeChainMonitoring, fieldProtectorFromEnv } from './config.ts';
+import { UNCONFIGURED_PROTECTOR, chainMonitoringFromEnv, chainMonitoringReady, describeChainMonitoring, fieldProtectorFromEnv, receiptStorageFromEnv } from './config.ts';
 
 const url = process.env.WORKER_DATABASE_URL;
 if (!url) {
@@ -47,14 +47,28 @@ if (!chainMonitoringReady(monitoring)) {
 }
 if (monitoring.state === 'DEGRADED') console.warn('chain monitoring is DEGRADED: large USDT transfers cannot be confirmed until a second independent provider is configured (D-05)');
 
+// Receipts are written to the private bucket when one is configured (TD-12); production checks it is versioned.
+const receipts = receiptStorageFromEnv(process.env);
+if (receipts) {
+  const bucket = await receipts.store.describeBucket();
+  console.log(`receipts: stored in ${receipts.store.bucket} (versioning ${bucket.versioning}, object lock ${bucket.objectLock ? 'on' : 'off'}, retention ${receipts.retainDays ?? 'not set'} days, pdf ${receipts.pdf ? 'printed' : 'not printed'})`);
+  if (bucket.versioning !== 'Enabled') {
+    console.error('refusing to start: the receipts bucket must have versioning enabled');
+    process.exit(1);
+  }
+} else {
+  console.log('receipts: not stored — proved by hash and regenerated (TD-12)');
+}
+
 const runner = await run({
   pgPool: pool,
   concurrency: 5,
   noHandleSignals: false,
   pollInterval: 2000,
-  taskList: buildTaskList(db, [quoteExpiryScheduler(db), acceptanceCodeHandler(db, { protector }, notifications), clientNotificationHandler(db), traderNotificationHandler(db), traderRoutingHandler(db), receiptHandler(db), destinationArchivedHandler(db), acknowledgedSignalHandler(), ...emailChannel], {
+  taskList: buildTaskList(db, [quoteExpiryScheduler(db), acceptanceCodeHandler(db, { protector }, notifications), clientNotificationHandler(db), traderNotificationHandler(db), traderRoutingHandler(db), receiptHandler(db, receipts), destinationArchivedHandler(db), acknowledgedSignalHandler(), ...emailChannel], {
     monitoring,
     ...(monitoring.config ? { scanner: monitoring.config } : {}),
+    ...(receipts ? { receipts } : {}),
   }),
   crontab: CRONTAB,
 });

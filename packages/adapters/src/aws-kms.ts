@@ -23,7 +23,7 @@ export interface AwsCredentials {
 
 export type CredentialSource = () => Promise<AwsCredentials>;
 
-const sha256Hex = (data: string | Buffer): string => createHash('sha256').update(data).digest('hex');
+const sha256Hex = (data: string | Uint8Array): string => createHash('sha256').update(data).digest('hex');
 const hmac = (key: Buffer | string, data: string): Buffer => createHmac('sha256', key).update(data, 'utf8').digest();
 
 /** The SigV4 signing key for one day, region and service. */
@@ -41,7 +41,7 @@ export function signSigV4(req: {
   readonly method: string;
   readonly url: URL;
   readonly headers: Readonly<Record<string, string>>;
-  readonly body: string;
+  readonly body: string | Uint8Array;
   readonly region: string;
   readonly service: string;
   readonly credentials: AwsCredentials;
@@ -68,7 +68,8 @@ export function signSigV4(req: {
   return { ...headers, authorization: `AWS4-HMAC-SHA256 Credential=${req.credentials.accessKeyId}/${scope}, SignedHeaders=${signedHeaders}, Signature=${signature}` };
 }
 
-const amzDateOf = (d: Date): string => d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+/** `YYYYMMDDTHHMMSSZ`, the timestamp SigV4 signs. */
+export const amzDateOf = (d: Date): string => d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
 
 /**
  * Where the process's AWS credentials come from, in the order the AWS SDKs use: environment variables, the

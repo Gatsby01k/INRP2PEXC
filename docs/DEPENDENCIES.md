@@ -27,6 +27,7 @@ Status: Phase 2 (no new external dependencies; six new workspace packages: adapt
 | vitest | 5.0.1 | tests |
 | vite | 8.3.0 | vitest peer, Storybook builder |
 | @testcontainers/postgresql | 12.1.0 | integration test global setup |
+| testcontainers | 12.1.0 | integration tests that need a second real service (a local MinIO for object storage, E2/E4); already present as `@testcontainers/postgresql`'s dependency, now declared |
 | eslint | 10.10.0 | lint |
 | typescript-eslint | 8.70.0 | lint |
 | @eslint/js | 10.0.1 | lint |

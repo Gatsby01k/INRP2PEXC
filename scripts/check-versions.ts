@@ -20,6 +20,7 @@ export const MATRIX: Record<string, string> = {
   vitest: '5.0.1',
   vite: '8.3.0',
   '@testcontainers/postgresql': '12.1.0',
+  testcontainers: '12.1.0',
   eslint: '10.10.0',
   'typescript-eslint': '8.70.0',
   '@eslint/js': '10.0.1',

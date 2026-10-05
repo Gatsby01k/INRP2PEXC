@@ -25,7 +25,7 @@ describe('every alert knows where to send the person it wakes', () => {
     // Deliberate exceptions: the drill and the backfill are procedures someone starts rather than alarms, and the
     // others answer a report from a person or a case on the desk rather than a threshold.
     const unreachable = headings.filter((h) => !HEALTH_CHECKS.some((c) => c.runbook === h));
-    expect(unreachable.sort()).toEqual(['account-takeover', 'backup-restore-drill', 'chain-backfill', 'client-authenticator-lost', 'duplicate-utr', 'failed-bank-transfer', 'field-encryption-keys', 'operator-access']);
+    expect(unreachable.sort()).toEqual(['account-takeover', 'backup-restore-drill', 'chain-backfill', 'client-authenticator-lost', 'duplicate-utr', 'failed-bank-transfer', 'field-encryption-keys', 'operator-access', 'receipt-integrity']);
   });
 
   it('says why each signal matters, in words an operator would use', () => {

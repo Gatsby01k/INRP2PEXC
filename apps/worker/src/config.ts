@@ -1,13 +1,39 @@
 import { isTronAddress } from '@inrp2p/kernel';
 import {
   type ChainVerifier,
+  ChromiumPdfRenderer,
   QuorumChainVerifier,
   type FieldProtector,
+  type ObjectStore,
+  type PdfRenderer,
   type TronProvider,
   TronHttpProvider,
   UNCONFIGURED_FIELD_PROTECTOR,
+  defaultChromiumPath,
   fieldProtectionFromEnv,
+  isObjectStoreConfigured,
+  objectStoreFromEnv,
 } from '@inrp2p/adapters';
+
+/**
+ * Receipt storage for the worker (TD-12): the receipts bucket, a PDF printer if this worker has a browser
+ * (`INRP2P_PDF_RENDERER=chromium`), and the Object Lock retention in days (`INRP2P_RECEIPT_RETENTION_DAYS`) — a
+ * period only the owner can set; unset, objects are written once into a versioned bucket without a lock. Undefined when
+ * no bucket is configured: receipts are then proved by hash and regenerated, as before.
+ */
+export function receiptStorageFromEnv(env: NodeJS.ProcessEnv = process.env): { store: ObjectStore; pdf: PdfRenderer | null; retainDays: number | null } | undefined {
+  const store = objectStoreFromEnv('RECEIPTS', env);
+  if (!isObjectStoreConfigured(store)) return undefined;
+  let pdf: PdfRenderer | null = null;
+  if ((env.INRP2P_PDF_RENDERER ?? '').toLowerCase() === 'chromium') {
+    const executablePath = defaultChromiumPath(env.INRP2P_CHROMIUM_PATH);
+    if (!executablePath) throw new Error('INRP2P_PDF_RENDERER=chromium but no Chromium binary was found; set INRP2P_CHROMIUM_PATH');
+    pdf = new ChromiumPdfRenderer({ executablePath });
+  }
+  const days = (env.INRP2P_RECEIPT_RETENTION_DAYS ?? '').trim();
+  if (days && !/^[1-9][0-9]{0,4}$/.test(days)) throw new Error('INRP2P_RECEIPT_RETENTION_DAYS must be a whole number of days');
+  return { store, pdf, retainDays: days ? Number.parseInt(days, 10) : null };
+}
 
 /**
  * Field protection for the worker (opening sealed acceptance codes for delivery), from the same environment and

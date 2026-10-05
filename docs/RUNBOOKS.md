@@ -561,6 +561,27 @@ for.
 
 ---
 
+## receipt-integrity — a receipt could not be served as issued
+
+**What you were told.** A client or an operator got "This receipt could not be reproduced from its record" (HTTP 500,
+`RECEIPT_HASH_MISMATCH`) instead of a download.
+
+**What to check first.** Which receipt and format, and whether the deployment stores receipts
+(`INRP2P_RECEIPTS_BUCKET`). With storage: `select format, object_key, version_id, sha256 from receipt_object where
+receipt_id = …;` then, with the bucket's read credentials, fetch that exact version and hash it. Without storage: the
+generator changed under a document that was supposed to be fixed — a code change since the receipt was issued.
+
+**What to do.** A stored version whose bytes differ, or that is missing, is a security incident, not a bug: treat it as
+`account-takeover` territory for whoever holds the bucket's credentials, keep the evidence (the bucket's own versions
+and access logs), and do not replace anything. The receipt itself is not lost — its snapshot and hashes are in the
+database, immutable — so once the incident is understood a correct copy can be reissued as a new version through a
+code change and review. A regeneration mismatch without storage is a release defect: roll the generator back.
+
+**What never to do.** Never serve, email or print a receipt that failed the check, and never "fix" the recorded hash.
+A receipt is evidence because its hash does not move.
+
+---
+
 ## backup-restore-drill — proving the backups are real
 
 **Not an alert.** This is the drill the launch checklist requires, run on a schedule and after any change to

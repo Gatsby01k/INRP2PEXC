@@ -11,6 +11,7 @@ import { type QuotePolicy, expireQuote, runExpirySweep } from '@inrp2p/quotes';
 import { runReconciliation, runSettlementSla } from '@inrp2p/settlement';
 import { type ScannerDeps, observeBalances, runChainBackfill, runOrphanSweep, runTronConfirm, runTronScan } from '@inrp2p/scanner';
 import { runTraderSweep } from '@inrp2p/traders';
+import { type ReceiptObjectStore, type ReceiptPdfPrinter, receiptsNotStored, storeReceiptObjects } from '@inrp2p/reporting';
 import { DomainError } from '@inrp2p/kernel';
 import type { ChainMonitoring } from './config.ts';
 import { sql } from 'kysely';
@@ -28,7 +29,12 @@ function systemCommand<R>(db: Db, name: string, fn: (ctx: TxContext) => Promise<
 export function buildTaskList(
   db: Db,
   handlers: readonly OutboxHandler[],
-  opts: { policy?: Partial<QuotePolicy>; scanner?: ScannerDeps; monitoring?: ChainMonitoring } = {},
+  opts: {
+    policy?: Partial<QuotePolicy>;
+    scanner?: ScannerDeps;
+    monitoring?: ChainMonitoring;
+    receipts?: { readonly store: ReceiptObjectStore; readonly pdf?: ReceiptPdfPrinter | null; readonly retainDays?: number | null };
+  } = {},
 ): TaskList {
   const outboxDispatch: Task = async () => {
     const report = await dispatchOutbox(db, handlers);
@@ -100,6 +106,18 @@ export function buildTaskList(
     const report = await runTraderSweep(db);
     for (const f of report.failures) helpers.logger.error(`trader_orders_sweep: ${f.step} ${f.orderId} failed (${f.code}): ${f.message}`);
   };
+  // TD-12: receipts issued before a bucket was configured, or whose write failed, are stored here, a few at a time.
+  const receiptStoreBackfill: Task = async (_payload, helpers) => {
+    const storage = opts.receipts;
+    if (!storage) return;
+    for (const id of await receiptsNotStored(db, 50)) {
+      try {
+        await storeReceiptObjects(db, storage.store, id, { pdf: storage.pdf ?? null, retainDays: storage.retainDays ?? null });
+      } catch (e) {
+        helpers.logger.error(`receipt_store_backfill: receipt ${id} not stored (${(e as { code?: string }).code ?? 'ERROR'})`);
+      }
+    }
+  };
   return {
     outbox_dispatch: outboxDispatch,
     audit_seal: auditSeal,
@@ -115,6 +133,7 @@ export function buildTaskList(
     tron_backfill: tronBackfill,
     custody_observe: custodyObserve,
     trader_orders_sweep: traderOrdersSweep,
+    receipt_store_backfill: receiptStoreBackfill,
   };
 }
 
@@ -165,4 +184,5 @@ export const CRONTAB = [
   '* * * * * tron_backfill ?max=1&jobKey=tron_backfill',
   '* * * * * custody_observe ?max=1&jobKey=custody_observe',
   '* * * * * trader_orders_sweep ?max=1&jobKey=trader_orders_sweep',
+  '41 * * * * receipt_store_backfill ?max=2&jobKey=receipt_store_backfill',
 ].join('\n');
