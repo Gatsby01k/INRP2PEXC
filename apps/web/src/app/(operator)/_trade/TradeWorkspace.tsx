@@ -5,6 +5,7 @@ import { Icon } from '../_desk/icons.tsx';
 import { Notice } from '../_desk/ui.tsx';
 import { CaseCard } from './Cases.tsx';
 import { ClientFunds, type CollectionAccount } from './ClientFunds.tsx';
+import { Destination } from './Destination.tsx';
 import { Payouts } from './Payouts.tsx';
 import { Economics, Headline, Stages } from './Summary.tsx';
 import type { TradePerms } from './types.ts';
@@ -53,6 +54,7 @@ export function TradeWorkspace({
         </PanelSection>
       )}
       {focus === 'exception' || trade.hold ? cases : null}
+      {trade.lifecycle !== 'COMPLETED' && trade.lifecycle !== 'CANCELLED' ? <Destination trade={trade} perms={perms} /> : null}
       {waitingForClient ? (
         <>
           {funds}

@@ -29,8 +29,9 @@ export async function nextLegSeq(ctx: TxContext, tradeId: string): Promise<numbe
  * the client could be sent the payout and the refund of the funds it was paid for. Callers hold the trade lock.
  */
 export async function assertNoRefundUnderway(ex: Executor, tradeId: string): Promise<void> {
+  // An excess refund (D2) returns money beyond the receivable; the trade goes on, and so may its payout.
   const refund = await ex.selectFrom('settlement_leg').select('ref').where('trade_id', '=', tradeId).where('side', '=', 'REFUND_TO_CLIENT')
-    .where('status', 'in', ['PENDING', 'PROCESSING', 'COMPLETED']).executeTakeFirst();
+    .where('status', 'in', ['PENDING', 'PROCESSING', 'COMPLETED']).where((eb) => eb.or([eb('refund_kind', 'is', null), eb('refund_kind', '=', 'UNWIND')])).executeTakeFirst();
   if (refund) throw new DomainError('REFUND_IN_PROGRESS', `refund ${refund.ref} is planned or done for this trade; cancel it before paying out`);
 }
 
@@ -56,9 +57,9 @@ export async function lockLeg(ctx: TxContext, legId: string) {
     id: string; trade_id: string; seq: number; ref: string; side: string; asset: AssetCode; amount_minor: bigint; status: string;
     payer: LegPayer; route_id: string | null; inr_account_id: string | null; capacity_reservation_id: string | null; treasury_wallet_id: string | null;
     source_deposit_address_id: string | null; destination_bank_account_id: string | null; destination_wallet_id: string | null;
-    created_by: string; sent_by: string | null;
+    created_by: string; sent_by: string | null; refund_kind: 'UNWIND' | 'EXCESS' | null;
   }>`select id, trade_id, seq, ref, side, asset, amount_minor, status, payer, route_id, inr_account_id, capacity_reservation_id, treasury_wallet_id,
-            source_deposit_address_id, destination_bank_account_id, destination_wallet_id, created_by, sent_by
+            source_deposit_address_id, destination_bank_account_id, destination_wallet_id, created_by, sent_by, refund_kind
        from settlement_leg where id = ${requireUuid(legId, 'legId')} for update`.execute(ctx.tx);
   const leg = rows.rows[0];
   if (!leg) throw new DomainError('NOT_FOUND', 'settlement leg not found');
@@ -208,20 +209,29 @@ export function createPayoutLeg(actor: OperatorActor, deps: Pick<SettlementDeps,
   });
 }
 
+/**
+ * Where a trade pays now (D1): its latest approved destination change, else what it was accepted with
+ * (`trade_economics` stays as it was). The database applies the same rule to every payout leg (IX092).
+ */
+export async function tradePayoutDestination(ex: Executor, tradeId: string): Promise<{ bankAccountId: string | null; walletId: string | null }> {
+  const r = await sql<{ bank_account_id: string | null; wallet_id: string | null }>`select bank_account_id, wallet_id from inrp2p_trade_payout_destination(${tradeId}::uuid)`.execute(ex);
+  return { bankAccountId: r.rows[0]?.bank_account_id ?? null, walletId: r.rows[0]?.wallet_id ?? null };
+}
+
 async function requireActiveBank(ctx: TxContext, tradeId: string): Promise<string> {
-  const e = await ctx.tx.selectFrom('trade_economics').select('bank_account_id').where('trade_id', '=', tradeId).executeTakeFirstOrThrow();
-  if (!e.bank_account_id) throw new DomainError('DESTINATION_INVALID', 'the trade has no payout bank account');
-  const b = await ctx.tx.selectFrom('bank_account').select('status').where('id', '=', e.bank_account_id).forShare().executeTakeFirstOrThrow();
+  const { bankAccountId } = await tradePayoutDestination(ctx.tx, tradeId);
+  if (!bankAccountId) throw new DomainError('DESTINATION_INVALID', 'the trade has no payout bank account');
+  const b = await ctx.tx.selectFrom('bank_account').select('status').where('id', '=', bankAccountId).forShare().executeTakeFirstOrThrow();
   if (b.status !== 'ACTIVE') throw new DomainError('DESTINATION_CHANGED', 'the payout bank account was archived; confirm the new destination first');
-  return e.bank_account_id;
+  return bankAccountId;
 }
 
 async function requireActiveWallet(ctx: TxContext, tradeId: string): Promise<string> {
-  const e = await ctx.tx.selectFrom('trade_economics').select('crypto_wallet_id').where('trade_id', '=', tradeId).executeTakeFirstOrThrow();
-  if (!e.crypto_wallet_id) throw new DomainError('DESTINATION_INVALID', 'the trade has no destination wallet');
-  const w = await ctx.tx.selectFrom('crypto_wallet').select('status').where('id', '=', e.crypto_wallet_id).forShare().executeTakeFirstOrThrow();
+  const { walletId } = await tradePayoutDestination(ctx.tx, tradeId);
+  if (!walletId) throw new DomainError('DESTINATION_INVALID', 'the trade has no destination wallet');
+  const w = await ctx.tx.selectFrom('crypto_wallet').select('status').where('id', '=', walletId).forShare().executeTakeFirstOrThrow();
   if (w.status !== 'ACTIVE') throw new DomainError('DESTINATION_CHANGED', 'the destination wallet was archived; confirm the new destination first');
-  return e.crypto_wallet_id;
+  return walletId;
 }
 
 /**

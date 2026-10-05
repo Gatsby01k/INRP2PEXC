@@ -9,7 +9,7 @@ import type { MovementParty } from '@inrp2p/ledger';
 import { type OperatorActor, operatorCommand } from '@inrp2p/identity';
 import { consumeTreasuryReservation } from '@inrp2p/treasury';
 import { payoutNeedsSecondPerson } from './approvals.ts';
-import { effectiveObligations, legTotals, lockTrade, tradeEconomics, transitionTrade } from '@inrp2p/trades';
+import { effectiveObligations, legTotals, lockTrade, receivedNetOfReturnedExcess, tradeEconomics, transitionTrade } from '@inrp2p/trades';
 import { openExceptionInTx } from './exceptions.ts';
 import { assertNoRefundUnderway, lockLeg } from './legs.ts';
 import { lockMovement, postMovement, verifyCryptoTransfer } from './movements.ts';
@@ -170,7 +170,8 @@ export function confirmPayoutLeg(actor: OperatorActor, deps: SettlementDeps) {
     });
 
     const paid = totals.paid + amount.minor;
-    const completed = paid === payout.minor && totals.received === receivable.minor;
+    // An excess still owed back to the client keeps the trade open (D2, FI-21).
+    const completed = paid === payout.minor && receivedNetOfReturnedExcess(totals) === receivable.minor;
     if (completed) {
       await completeTrade(ctx, trade, econ);
     } else if (trade.lifecycle_state === 'SETTLING') {

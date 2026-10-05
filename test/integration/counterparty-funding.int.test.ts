@@ -109,8 +109,9 @@ describe('a client sells USDT; an INR trader buys it (trader Buy USDT side)', ()
                      values (${route.route_id}, ${trade.routeObligationId}, 'EXCHANGE_DELIVERS', 'TO_ROUTE', 'USDT', ${usdt('1000')}, 'CRYPTO', ${randomUUID()}, 'old-app')`.execute(w.t.owner))
       .rejects.toSatisfy((e) => pgErrorCode(e) === 'IX087');
     // Whatever code wrote it, an exchange-paid payout with no earmark does not commit (IX086).
-    await expect(sql`insert into settlement_leg (trade_id, seq, ref, side, asset, amount_minor, payer, inr_account_id, created_by)
-                     values (${trade.tradeId}, 90, 'x', 'EXCHANGE_TO_CLIENT', 'INR', ${inr('104200.00')}, 'EXCHANGE_ACCOUNT', ${w.collectionAccountId}, 'old-app')`.execute(w.t.owner))
+    const bank = await w.app.selectFrom('trade_economics').select('bank_account_id').where('trade_id', '=', trade.tradeId).executeTakeFirstOrThrow();
+    await expect(sql`insert into settlement_leg (trade_id, seq, ref, side, asset, amount_minor, payer, inr_account_id, destination_bank_account_id, created_by)
+                     values (${trade.tradeId}, 90, 'x', 'EXCHANGE_TO_CLIENT', 'INR', ${inr('104200.00')}, 'EXCHANGE_ACCOUNT', ${w.collectionAccountId}, ${bank.bank_account_id}, 'old-app')`.execute(w.t.owner))
       .rejects.toSatisfy((e) => pgErrorCode(e) === 'IX086');
 
     await traderPaysInr(trade.orderRef);

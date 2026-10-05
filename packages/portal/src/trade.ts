@@ -1,3 +1,4 @@
+import { sql } from 'kysely';
 import { DomainError, Money } from '@inrp2p/kernel';
 import type { Executor } from '@inrp2p/db';
 import { type ClientTradeView, getClientTradeView, isCounterpartyFunded } from '@inrp2p/trades';
@@ -53,8 +54,10 @@ export async function portalTrade(ex: Executor, clientId: string, tradeRef: stri
   if (!row || row.client_id !== clientId) throw new DomainError('NOT_FOUND', 'trade not found');
 
   const [trade, settlement] = await Promise.all([getClientTradeView(ex, row.id, clientId), getClientSettlementView(ex, row.id, clientId)]);
-  // The destination the trade was frozen with, not whatever is active now: a trade pays where it agreed to pay.
-  const frozen = await ex.selectFrom('trade_economics').select(['bank_account_id', 'crypto_wallet_id']).where('trade_id', '=', row.id).executeTakeFirstOrThrow();
+  // Where the trade pays: what it agreed to, or a change the client confirmed and the desk approved (D1, TD-18) — never
+  // simply whatever destination is active now.
+  const now = await sql<{ bank_account_id: string | null; wallet_id: string | null }>`select bank_account_id, wallet_id from inrp2p_trade_payout_destination(${row.id}::uuid)`.execute(ex);
+  const frozen = { bank_account_id: now.rows[0]?.bank_account_id ?? null, crypto_wallet_id: now.rows[0]?.wallet_id ?? null };
 
   const transfer = await ex
     .selectFrom('crypto_transfer as c')

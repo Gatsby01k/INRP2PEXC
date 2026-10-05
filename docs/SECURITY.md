@@ -13,7 +13,7 @@ Status: Phase 0, revision 3 (`DECISIONS.md` Revision 3).
 | S5 | Client-side data exposure of internals | Route rate / provider / margin leak | Separate client projection types, serializer allow-lists, tests asserting forbidden keys absent |
 | S6 | Fake blockchain evidence | Payout against unpaid trade | Only scanner/adapter facts confirm USDT; operator tx-hash submission triggers verification, never confirms by itself; dual provider above threshold |
 | S7 | Fake UTR | Trade marked paid when not | UTR uniqueness, proof attachment, step-up, reconciliation against bank statements (manual import V1): every confirmed movement on the account is checked; a line matches only when account, reference, direction and amount identify exactly one transfer — otherwise `AMBIGUOUS` or `MISMATCHED` with a review case, never a guess |
-| S8 | Destination swap | Payout to attacker account | Destinations immutable per quote/trade; changes = archive + new, step-up, `CLIENT_BANK_CHANGED` exception, notify all client admins |
+| S8 | Destination swap | Payout to attacker account | Destinations immutable per quote/trade; changes = archive + new, step-up, `CLIENT_BANK_CHANGED` exception, notify all client admins. An open trade pays a new destination only through a recorded change (reason + how the client confirmed it) approved by a second operator with step-up, to an ACTIVE destination of the same client; never while a payout to the old one is unresolved; the client is notified (IX092, D1) |
 | S9 | Sensitive data in logs/backups | Bank data leak | Envelope encryption, redaction, restricted reveal permission |
 | S10 | Misattributed USDT deposit | Payout against another client's funds | Unique per-trade deposit address from CustodyAdapter; no amount/sender heuristics; unassigned-address funds to suspense (D-02) |
 | S11 | Regulatory misrepresentation | Legal exposure | No regulatory claims in product or public copy until counsel confirms (D-07); Phase 9 copy review |
@@ -82,6 +82,8 @@ Legend: ✔ allowed · ⧗ allowed with step-up MFA · ✱ requires second appro
 | `settlement:fail_payout` / `cancel_payout` | ⧗ | — | ⧗ | — | — | — |
 | `crypto:submit_tx_for_verification` | ✔ | — | ✔ | ✔ | — | — |
 | `trade:cancel` | ⧗ | ⧗ | — | — | — | — |
+| `trade:request_destination_change` (an open trade pays to another verified destination of its client, TD-18; changes nothing until approved) | ⧗ | — | ⧗ | ⧗ | ⧗ | — |
+| `trade:approve_destination_change` (approve or decline it — never the requester) | ⧗✱ | — | — | ⧗✱ | — | — |
 | `exception:open` | ✔ | ✔ | ✔ | ✔ | ✔ | — |
 | `exception:resolve` (non-financial) | ✔ | ✔ | ✔ | ✔ | — | — |
 | `adjustment:request` | ✔ | ✔ | ✔ | ✔ | — | — |

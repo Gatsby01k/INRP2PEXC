@@ -696,6 +696,8 @@ export interface SettlementLegTable {
   /** Who marked a payout sent and who confirmed it (migration 0027, C1). NULL for legs sent before it. */
   sent_by: Generated<string | null>;
   confirmed_by: Generated<string | null>;
+  /** A refund leg's kind (migration 0028, D2): UNWIND before a cancellation, EXCESS for an overpayment. NULL = UNWIND (legacy). */
+  refund_kind: Generated<'UNWIND' | 'EXCESS' | null>;
   notes: string | null;
   created_by: string;
   created_at: Generated<Date>;
@@ -704,6 +706,26 @@ export interface SettlementLegTable {
   failed_at: Date | null;
   cancelled_at: Date | null;
   failure_reason: string | null;
+}
+
+/** A changed payout destination of an open trade (migration 0028, D1). Append-only; the latest APPROVED is in force. */
+export interface TradeDestinationChangeTable {
+  id: Generated<string>;
+  ref: Generated<string>;
+  trade_id: string;
+  exception_case_id: string | null;
+  from_bank_account_id: string | null;
+  from_wallet_id: string | null;
+  to_bank_account_id: string | null;
+  to_wallet_id: string | null;
+  reason: string;
+  evidence: string;
+  status: Generated<'REQUESTED' | 'APPROVED' | 'REJECTED' | 'CANCELLED'>;
+  requested_by: string;
+  requested_at: Generated<Date>;
+  decided_by: string | null;
+  decided_at: Date | null;
+  decision_note: string | null;
 }
 
 /** The payout second-person threshold (migration 0027, C1). Append-only; the latest row is in force. */
@@ -1000,6 +1022,7 @@ export type NotificationKind =
   | 'TRADE_CANCELLED'
   | 'DESTINATION_ADDED'
   | 'DESTINATION_ARCHIVED'
+  | 'TRADE_DESTINATION_CHANGED'
   | 'TRADER_APPROVED'
   | 'TRADER_REJECTED'
   | 'TRADER_PAUSED'
@@ -1290,6 +1313,7 @@ export interface Database {
   funding_allocation: FundingAllocationTable;
   custody_balance_observation: CustodyBalanceObservationTable;
   payout_approval_policy: PayoutApprovalPolicyTable;
+  trade_destination_change: TradeDestinationChangeTable;
   operator_role_request: OperatorRoleRequestTable;
   fiat_transfer: FiatTransferTable;
   crypto_transfer: CryptoTransferTable;

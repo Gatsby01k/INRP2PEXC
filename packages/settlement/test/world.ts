@@ -74,6 +74,8 @@ export async function createWorld(label: string, opts: { capacityInr?: string; c
 
 export interface OpenTradeOptions {
   readonly direction?: 'SELL_USDT' | 'BUY_USDT';
+  /** A SELL trade's payout account, when not the world's own. */
+  readonly bankAccountId?: string;
   readonly executionMode?: 'DIRECT_TO_CLIENT' | 'TO_EXCHANGE';
   readonly baseUsdt?: string;
   readonly clientRate?: string;
@@ -94,7 +96,7 @@ export async function openTrade(w: World, opts: OpenTradeOptions = {}): Promise<
   }
   const request = await runAs(w.app, createRequest(w.dealer.actor, {}), w.dealer.ref, 'request.create', {
     clientId: w.clientId, direction, fixedSide: 'BASE' as const, amount: opts.baseUsdt ?? '100000',
-    ...(direction === 'SELL_USDT' ? { bankAccountId: w.bankAccountId } : { walletId: w.walletId }),
+    ...(direction === 'SELL_USDT' ? { bankAccountId: opts.bankAccountId ?? w.bankAccountId } : { walletId: w.walletId }),
   });
   const quote = await runAs(w.app, createQuote(w.dealer.actor, {}), w.dealer.ref, 'quote.create', {
     requestId: request.requestId, routeId: w.routeId, clientRate: opts.clientRate ?? (direction === 'SELL_USDT' ? '102.000000' : '106.000000'), validitySeconds: 300,

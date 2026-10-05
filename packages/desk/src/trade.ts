@@ -41,6 +41,31 @@ export interface DeskLeg {
   readonly sentByLabel: string | null;
   /** A payout above the approval threshold: someone other than its sender confirms it (SECURITY §4). */
   readonly needsSecondPerson: boolean;
+  /** A refund leg's kind (D2): UNWIND returns everything before a cancellation, EXCESS returns an overpayment. */
+  readonly refundKind: 'UNWIND' | 'EXCESS' | null;
+}
+
+/** A destination of the client, as the desk picks one (verified only). */
+export interface DestinationOption {
+  readonly id: string;
+  readonly label: string;
+}
+
+/** A requested or decided change of where an open trade pays (D1, TD-18). */
+export interface DeskDestinationChange {
+  readonly id: string;
+  readonly ref: string;
+  readonly status: 'REQUESTED' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
+  readonly fromLabel: string;
+  readonly toLabel: string;
+  readonly reason: string;
+  readonly evidence: string;
+  readonly requestedBy: string;
+  readonly requestedByLabel: string;
+  readonly requestedAt: string;
+  readonly decidedByLabel: string | null;
+  readonly decidedAt: string | null;
+  readonly decisionNote: string | null;
 }
 
 export interface DeskCase {
@@ -149,6 +174,11 @@ export interface DeskTrade {
   readonly route?: RouteSide;
   /** Where this trade's money is and what may leave from where (D-16). */
   readonly funding: TradeFunding;
+  /** Where the trade pays now (its latest approved change, else as accepted), and every change asked for (D1). */
+  readonly destination: { readonly id: string; readonly label: string } | null;
+  readonly destinationChanges: readonly DeskDestinationChange[];
+  /** The client's verified destinations the desk may choose from: payout accounts or wallets, and sending wallets for a refund. */
+  readonly destinationOptions: { readonly payout: readonly DestinationOption[]; readonly refundWallets: readonly DestinationOption[]; readonly refundBanks: readonly DestinationOption[] };
   /** What a payout leg could be funded from right now. */
   readonly payoutOptions: {
     readonly asset: 'INR' | 'USDT';
@@ -210,6 +240,7 @@ export async function deskTrade(ex: Executor, tradeId: string, access: DeskAcces
     cases,
     receipt: receipt !== undefined,
     funding,
+    ...(await destinationOf(ex, id, row.client_id, payoutAsset)),
     payoutOptions: {
       asset: payoutAsset,
       accounts: payoutAsset === 'INR' ? await payoutAccounts(ex) : [],
@@ -246,12 +277,13 @@ async function deskLegs(ex: Executor, tradeId: string): Promise<DeskLeg[]> {
     payer: DeskLeg['payer']; account_label: string | null; route_name: string | null; wallet_address: string | null; utr: string | null; tx_hash: string | null;
     created_at: Date; sent_at: Date | null; confirmed_at: Date | null; failed_at: Date | null; cancelled_at: Date | null; failure_reason: string | null;
     created_by: string; created_by_label: string | null; sent_by: string | null; sent_by_label: string | null; needs_second: boolean | null;
+    refund_kind: 'UNWIND' | 'EXCESS' | null;
   }>`
     select l.id, l.ref, l.side, l.asset, l.amount_minor, l.status, l.payer,
            a.label as account_label, r.name as route_name, coalesce(da.address, tw.address) as wallet_address, f.utr, c.tx_hash,
            l.created_at, l.sent_at, l.confirmed_at, l.failed_at, l.cancelled_at, l.failure_reason,
            l.created_by, coalesce(u.name, u.email) as created_by_label,
-           l.sent_by, coalesce(su.name, su.email) as sent_by_label,
+           l.sent_by, coalesce(su.name, su.email) as sent_by_label, l.refund_kind,
            case when l.side = 'EXCHANGE_TO_CLIENT' then inrp2p_payout_needs_second_person(l.trade_id, l.asset, l.amount_minor) end as needs_second
     from settlement_leg l
     left join inr_settlement_account a on a.id = l.inr_account_id
@@ -289,6 +321,7 @@ async function deskLegs(ex: Executor, tradeId: string): Promise<DeskLeg[]> {
     sentBy: r.sent_by,
     sentByLabel: r.sent_by ? (r.sent_by.startsWith('SYSTEM') ? 'System' : (r.sent_by_label ?? 'an operator')) : null,
     needsSecondPerson: r.needs_second === true,
+    refundKind: r.side === 'REFUND_TO_CLIENT' ? (r.refund_kind ?? 'UNWIND') : null,
   }));
 }
 
@@ -384,6 +417,52 @@ async function placeOf(ex: Executor, location: string): Promise<Pick<FundingPlac
   if (wallet) return { label: wallet.label, inrAccountId: null, treasuryWalletId: wallet.id, depositAddressId: null, address };
   const deposit = await ex.selectFrom('deposit_address').select('id').where('network', '=', 'TRON').where('address', '=', address).executeTakeFirst();
   return { label: 'Deposit address', inrAccountId: null, treasuryWalletId: null, depositAddressId: deposit?.id ?? null, address };
+}
+
+const bankLabel = (b: { bank_name: string; account_last4: string }) => `${b.bank_name} ••••${b.account_last4}`;
+const walletLabel = (w: { label: string; address: string }) => `${w.label} · ${w.address.slice(0, 6)}…${w.address.slice(-4)}`;
+
+/** Where the trade pays now, every change asked for, and the client's verified destinations to choose from (D1, D2). */
+async function destinationOf(ex: Executor, tradeId: string, clientId: string, payoutAsset: 'INR' | 'USDT') {
+  const cur = await sql<{ bank_account_id: string | null; wallet_id: string | null }>`select bank_account_id, wallet_id from inrp2p_trade_payout_destination(${tradeId}::uuid)`.execute(ex);
+  const now = cur.rows[0];
+  const banks = await ex.selectFrom('bank_account').select(['id', 'bank_name', 'account_last4', 'status']).where('client_id', '=', clientId).execute();
+  const wallets = await ex.selectFrom('crypto_wallet').select(['id', 'label', 'address', 'purpose', 'status']).where('client_id', '=', clientId).execute();
+  const labelOf = (bankId: string | null, walletId: string | null): string => {
+    const b = bankId ? banks.find((x) => x.id === bankId) : undefined;
+    if (b) return bankLabel(b);
+    const w = walletId ? wallets.find((x) => x.id === walletId) : undefined;
+    return w ? walletLabel(w) : '—';
+  };
+  const destinationId = payoutAsset === 'INR' ? now?.bank_account_id ?? null : now?.wallet_id ?? null;
+  const changes = await sql<{
+    id: string; ref: string; status: DeskDestinationChange['status']; from_bank_account_id: string | null; from_wallet_id: string | null;
+    to_bank_account_id: string | null; to_wallet_id: string | null; reason: string; evidence: string; requested_by: string; requested_by_label: string | null;
+    requested_at: Date; decided_by_label: string | null; decided_at: Date | null; decision_note: string | null;
+  }>`
+    select c.id, c.ref, c.status, c.from_bank_account_id, c.from_wallet_id, c.to_bank_account_id, c.to_wallet_id, c.reason, c.evidence,
+           c.requested_by, coalesce(ru.name, ru.email) as requested_by_label, c.requested_at,
+           coalesce(du.name, du.email) as decided_by_label, c.decided_at, c.decision_note
+      from trade_destination_change c
+      left join auth_user ru on ru.id = c.requested_by
+      left join auth_user du on du.id = c.decided_by
+     where c.trade_id = ${tradeId}
+     order by c.requested_at desc, c.id desc`.execute(ex);
+  return {
+    destination: destinationId ? { id: destinationId, label: labelOf(payoutAsset === 'INR' ? destinationId : null, payoutAsset === 'USDT' ? destinationId : null) } : null,
+    destinationChanges: changes.rows.map((c) => ({
+      id: c.id, ref: c.ref, status: c.status, fromLabel: labelOf(c.from_bank_account_id, c.from_wallet_id), toLabel: labelOf(c.to_bank_account_id, c.to_wallet_id),
+      reason: c.reason, evidence: c.evidence, requestedBy: c.requested_by, requestedByLabel: c.requested_by_label ?? 'an operator', requestedAt: c.requested_at.toISOString(),
+      decidedByLabel: c.decided_by_label, decidedAt: c.decided_at ? c.decided_at.toISOString() : null, decisionNote: c.decision_note,
+    })),
+    destinationOptions: {
+      payout: payoutAsset === 'INR'
+        ? banks.filter((b) => b.status === 'ACTIVE' && b.id !== destinationId).map((b) => ({ id: b.id, label: bankLabel(b) }))
+        : wallets.filter((w) => w.status === 'ACTIVE' && w.id !== destinationId && (w.purpose === 'DESTINATION' || w.purpose === 'BOTH')).map((w) => ({ id: w.id, label: walletLabel(w) })),
+      refundWallets: wallets.filter((w) => w.status === 'ACTIVE' && (w.purpose === 'SOURCE' || w.purpose === 'BOTH')).map((w) => ({ id: w.id, label: walletLabel(w) })),
+      refundBanks: banks.filter((b) => b.status === 'ACTIVE').map((b) => ({ id: b.id, label: bankLabel(b) })),
+    },
+  };
 }
 
 async function routeNameOf(ex: Executor, routeId: string): Promise<string | null> {

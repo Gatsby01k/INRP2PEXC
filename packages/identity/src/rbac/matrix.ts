@@ -45,6 +45,8 @@ export const PERMISSION_MATRIX = Object.freeze({
   'settlement:cancel_payout': r(S, D, S, D, D, D),
   'crypto:submit_tx_for_verification': r(A, D, A, A, D, D),
   'trade:cancel': r(S, S, D, D, D, D),
+  'trade:request_destination_change': r(S, D, S, S, S, D),
+  'trade:approve_destination_change': r(S2, D, D, S2, D, D),
   'exception:open': r(A, A, A, A, A, D),
   'exception:resolve': r(A, A, A, A, D, D),
   'adjustment:request': r(A, A, A, A, D, D),

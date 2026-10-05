@@ -445,3 +445,31 @@ describe('where a trade’s money is (D-16)', () => {
   });
 });
 
+describe('where a trade pays (D1)', () => {
+  it('shows the destination in force, the verified choices, and every change asked for', async () => {
+    const { addBankAccount } = await import('@inrp2p/clients');
+    const { approveDestinationChange, requestDestinationChange } = await import('@inrp2p/settlement');
+    const trade = await openTrade(w, { executionMode: 'TO_EXCHANGE', baseUsdt: '10', clientRate: '102.000000', routeRate: '104.200000' });
+    const before = await deskTrade(w.app, trade.tradeId, FULL_ACCESS);
+    expect(before.destination?.id).toBe(w.bankAccountId);
+    const fresh = await runAs(w.app, addBankAccount(w.owner.actor, w.deps.protector), w.owner.ref, 'client_bank.add', {
+      clientId: w.clientId, holderName: 'Acme Pay Private Limited', bankName: 'Kotak Mahindra Bank', ifsc: 'KKBK0000123', accountNumber: '880011223344', railPreferences: ['IMPS'] as const,
+    });
+    const options = (await deskTrade(w.app, trade.tradeId, FULL_ACCESS)).destinationOptions.payout;
+    expect(options.map((o) => o.id)).toContain(fresh.bankAccountId);
+    expect(options.map((o) => o.id)).not.toContain(w.bankAccountId);
+
+    const asked = await runAs(w.app, requestDestinationChange(w.financeOp.actor), w.financeOp.ref, 'trade.request_destination_change', {
+      tradeId: trade.tradeId, toBankAccountId: fresh.bankAccountId, reason: 'client prefers the Kotak account', evidence: 'confirmed by the client administrator on a call',
+    });
+    const pending = await deskTrade(w.app, trade.tradeId, FULL_ACCESS);
+    expect(pending.destinationChanges[0]).toMatchObject({ ref: asked.ref, status: 'REQUESTED', toLabel: 'Kotak Mahindra Bank ••••3344' });
+    expect(pending.destination?.id).toBe(w.bankAccountId);
+
+    await runAs(w.app, approveDestinationChange(w.financeOp2.actor), w.financeOp2.ref, 'trade.approve_destination_change', { requestId: asked.requestId });
+    const after = await deskTrade(w.app, trade.tradeId, FULL_ACCESS);
+    expect(after.destination).toMatchObject({ id: fresh.bankAccountId, label: 'Kotak Mahindra Bank ••••3344' });
+    expect(after.destinationChanges[0]).toMatchObject({ status: 'APPROVED' });
+  });
+});
+

@@ -105,14 +105,17 @@ export function takeException(actor: OperatorActor) {
   });
 }
 
-/** Resolution commands an operator may record directly; money-moving resolutions run their own command first. */
+/**
+ * Resolution commands an operator may record directly; money-moving resolutions run their own command first. A new
+ * destination is not among them: `confirm_new_destination` is recorded only by an approved destination change (D1).
+ */
 export const NON_FINANCIAL_RESOLUTIONS = Object.freeze([
   'accept_sender', 'await_top_up', 'record_recovery_outcome', 'hold_in_suspense', 'attach_evidence_and_void',
-  'confirm_new_destination', 'keep_original', 'reallocate_reservations', 'create_remaining_leg', 'create_replacement_leg',
+  'keep_original', 'reallocate_reservations', 'create_remaining_leg', 'create_replacement_leg',
   'record_correct_route', 'record_route_settlement', 'correct_utr', 'escalate',
 ] as const);
 
-export type ResolutionCommand = (typeof NON_FINANCIAL_RESOLUTIONS)[number] | 'financial_adjustment' | 'refund_and_cancel' | 'cancel_trade' | 'reclassify_payer' | 'refund_excess' | 'adjust_trade_to_received' | 'requote_for_same_client' | 'refund' | 'reallocate' | 'mark_failed' | 'confirm' | 'replenish_pool';
+export type ResolutionCommand = (typeof NON_FINANCIAL_RESOLUTIONS)[number] | 'confirm_new_destination' | 'financial_adjustment' | 'refund_and_cancel' | 'cancel_trade' | 'reclassify_payer' | 'refund_excess' | 'adjust_trade_to_received' | 'requote_for_same_client' | 'refund' | 'reallocate' | 'mark_failed' | 'confirm' | 'replenish_pool';
 
 async function lockException(ctx: TxContext, exceptionId: string) {
   const id = requireUuid(exceptionId, 'exceptionId');

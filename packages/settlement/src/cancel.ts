@@ -7,12 +7,13 @@ import { type OperatorActor, authorizeOperator, operatorCommand } from '@inrp2p/
 import { reverseJournal, tradeCancelReversal } from '@inrp2p/ledger';
 import { releaseReservation, reserveCapacity } from '@inrp2p/inr-accounts';
 import { releaseDepositAssignment, releaseTreasuryReservation } from '@inrp2p/treasury';
-import { type TradeRow, isCounterpartyFunded, legTotals, lockTrade, transitionTrade } from '@inrp2p/trades';
+import { type TradeRow, effectiveObligations, isCounterpartyFunded, legTotals, lockTrade, transitionTrade } from '@inrp2p/trades';
 import { openExceptionInTx, resolveExceptionInTx } from './exceptions.ts';
 import { assertNoPayoutUnderway, lockLeg, nextLegSeq, requireSourceDepositAddress } from './legs.ts';
 import { allocateFunding, inrLocation, settleFunding, tronLocation } from './funding.ts';
 import { assertPhysicallyAvailable } from './availability.ts';
-import { lockMovement, postMovement, recordFiatTransfer, verifyCryptoTransfer } from './movements.ts';
+import { lockMovement, maskedBankDestination, postMovement, recordFiatTransfer, verifyCryptoTransfer } from './movements.ts';
+import { advanceTrade } from './progress.ts';
 import { lockObligation, obligationOfTrade } from './obligations.ts';
 import type { SettlementDeps } from './policy.ts';
 
@@ -158,42 +159,127 @@ export function createRefundLeg(actor: OperatorActor, deps: Pick<SettlementDeps,
 
     const asset = trade.direction === 'SELL_USDT' ? 'USDT' : 'INR';
     const amount = Money.ofMinor(outstanding, asset);
-    let inrAccountId: string | null = null;
-    let treasuryWalletId: string | null = null;
-    let sourceDepositAddressId: string | null = null;
-    let sourceAddress: string | null = null;
-    let reservationId: string | null = null;
-    if (asset === 'INR') {
-      inrAccountId = requireUuid(p.inrAccountId, 'inrAccountId');
-      const reserved = await reserveCapacity(ctx, { accountId: inrAccountId, amount: amount as Money<'INR'>, subject: { purpose: 'CLIENT_PAYOUT', tradeId: trade.id } });
-      reservationId = reserved.reservationId;
-    } else if (p.sourceDepositAddressId) {
-      // A refund of a counterparty-funded trade returns the client's own USDT from where it arrived (D-16).
-      const source = await requireSourceDepositAddress(ctx, p.sourceDepositAddressId);
-      sourceDepositAddressId = source.id;
-      sourceAddress = source.address;
-      treasuryWalletId = source.treasuryWalletId;
+    const leg = await insertRefundLeg(ctx, deps, trade, amount, p, { kind: 'UNWIND' });
+    await appendAudit(ctx, { action: 'leg.created', entityType: 'settlement_leg', entityId: leg.id, after: { ref: leg.ref, side: 'REFUND_TO_CLIENT', refund_kind: 'UNWIND', amount, trade_id: trade.id } });
+    return { legId: leg.id, ref: leg.ref, amount: amount.toDecimalString() };
+  });
+}
+
+interface RefundSource {
+  readonly inrAccountId?: string | null;
+  readonly treasuryWalletId?: string | null;
+  readonly sourceDepositAddressId?: string | null;
+  readonly notes?: string | null;
+}
+
+/**
+ * Inserts a refund leg paid from where the client's money is — an INR account (capacity reserved), the client's
+ * deposit address (D-16), or a treasury wallet (legacy) — earmarks the client's own funds for it (FI-74) and, for USDT,
+ * checks the chain shows it there (B2).
+ */
+async function insertRefundLeg(
+  ctx: TxContext,
+  deps: Pick<SettlementDeps, 'policy'>,
+  trade: TradeRow,
+  amount: Money,
+  p: RefundSource,
+  opts: { kind: 'UNWIND' | 'EXCESS'; destinationBankAccountId?: string | null; destinationWalletId?: string | null },
+): Promise<{ id: string; ref: string }> {
+  const asset = amount.currency as 'INR' | 'USDT';
+  let inrAccountId: string | null = null;
+  let treasuryWalletId: string | null = null;
+  let sourceDepositAddressId: string | null = null;
+  let sourceAddress: string | null = null;
+  let reservationId: string | null = null;
+  if (asset === 'INR') {
+    inrAccountId = requireUuid(p.inrAccountId, 'inrAccountId');
+    const reserved = await reserveCapacity(ctx, { accountId: inrAccountId, amount: amount as Money<'INR'>, subject: { purpose: 'CLIENT_PAYOUT', tradeId: trade.id } });
+    reservationId = reserved.reservationId;
+  } else if (p.sourceDepositAddressId) {
+    // A refund of a counterparty-funded trade returns the client's own USDT from where it arrived (D-16).
+    const source = await requireSourceDepositAddress(ctx, p.sourceDepositAddressId);
+    sourceDepositAddressId = source.id;
+    sourceAddress = source.address;
+    treasuryWalletId = source.treasuryWalletId;
+  } else {
+    treasuryWalletId = requireUuid(p.treasuryWalletId, 'treasuryWalletId');
+    sourceAddress = (await ctx.tx.selectFrom('treasury_wallet').select('address').where('id', '=', treasuryWalletId).executeTakeFirstOrThrow()).address;
+  }
+  const seq = await nextLegSeq(ctx, trade.id);
+  const leg = await ctx.tx
+    .insertInto('settlement_leg')
+    .values({
+      trade_id: trade.id, seq, side: 'REFUND_TO_CLIENT', asset, amount_minor: amount.minor, payer: 'EXCHANGE_ACCOUNT',
+      inr_account_id: inrAccountId, treasury_wallet_id: treasuryWalletId, source_deposit_address_id: sourceDepositAddressId, capacity_reservation_id: reservationId,
+      destination_bank_account_id: opts.destinationBankAccountId ?? null, destination_wallet_id: opts.destinationWalletId ?? null, refund_kind: opts.kind,
+      notes: p.notes ? requireText(p.notes, 'notes', 2000) : null, created_by: ctx.actor.id ?? 'SYSTEM',
+    })
+    .returning(['id', 'ref'])
+    .executeTakeFirstOrThrow();
+  if (await isCounterpartyFunded(ctx.tx, trade.id)) {
+    // FI-74: a refund gives back the client's own money of this trade — never the counterparty's, never the platform's.
+    await allocateFunding(ctx, { tradeId: trade.id, use: { kind: 'REFUND', legId: leg.id }, asset, amount, location: asset === 'INR' ? inrLocation(inrAccountId!) : tronLocation(sourceAddress!) });
+  }
+  // B2: a USDT refund is planned only against what the chain shows at the address it will leave from.
+  if (asset === 'USDT') await assertPhysicallyAvailable(ctx, deps, { address: sourceAddress!, amount, excludeLegId: leg.id });
+  return leg;
+}
+
+/**
+ * `trade.refund_excess` — `settlement:create_payout` (production task D2, TD-19; DOMAIN_MODEL §3 `refund_excess`).
+ * Returns an overpayment: at most what arrived beyond the receivable, less any excess already planned or returned, to
+ * a verified destination of the client chosen here — a registered sending wallet for USDT, a registered bank account
+ * for INR — never simply back to the address the money came from (that may be another exchange's hot wallet). The
+ * trade goes on: the payout may proceed while the excess is on its way back, and the trade completes only once the
+ * excess is confirmed back (FI-21). Confirmed by someone else, like every refund (`refund_leg.confirm`, ⧗✱). A full
+ * unwind (`refund_and_cancel`) is a different thing and is not mixed with this.
+ */
+export function refundExcess(actor: OperatorActor, deps: Pick<SettlementDeps, 'policy'> = {}) {
+  return operatorCommand(actor, 'settlement:create_payout', async (ctx, p: RefundSource & {
+    tradeId: string; amount?: string | null; destinationWalletId?: string | null; destinationBankAccountId?: string | null; exceptionId?: string | null;
+  }) => {
+    const trade = await lockTrade(ctx.tx, p.tradeId);
+    if (trade.lifecycle_state === 'COMPLETED' || trade.lifecycle_state === 'CANCELLED') throw new DomainError('INVALID_TRANSITION', `trade is ${trade.lifecycle_state}`);
+    const unwind = await ctx.tx.selectFrom('settlement_leg').select('ref').where('trade_id', '=', trade.id).where('side', '=', 'REFUND_TO_CLIENT')
+      .where('status', 'in', ['PENDING', 'PROCESSING', 'COMPLETED']).where((eb) => eb.or([eb('refund_kind', 'is', null), eb('refund_kind', '=', 'UNWIND')])).executeTakeFirst();
+    if (unwind) throw new DomainError('REFUND_IN_PROGRESS', `refund ${unwind.ref} already returns everything the client sent`);
+    const { receivable } = await effectiveObligations(ctx.tx, trade.id);
+    const totals = await legTotals(ctx.tx, trade.id);
+    const room = totals.received - receivable.minor - totals.excessPlanned;
+    if (room <= 0n) throw new DomainError('INVALID_TRANSITION', 'nothing arrived beyond what the trade receives, or it is already on its way back');
+    const asset = trade.direction === 'SELL_USDT' ? 'USDT' : 'INR';
+    const amount = p.amount ? Money.parse(p.amount, asset) : Money.ofMinor(room, asset);
+    if (!amount.isPositive() || amount.minor > room) {
+      throw new DomainError('INVALID_AMOUNT', `at most ${Money.ofMinor(room, asset).toDecimalString()} ${asset} can be returned as excess`);
+    }
+    let destinationWalletId: string | null = null;
+    let destinationBankAccountId: string | null = null;
+    if (asset === 'USDT') {
+      destinationWalletId = requireUuid(p.destinationWalletId, 'destinationWalletId');
+      const w = await ctx.tx.selectFrom('crypto_wallet').select(['client_id', 'status', 'purpose']).where('id', '=', destinationWalletId).executeTakeFirst();
+      if (!w || w.client_id !== trade.client_id || w.status !== 'ACTIVE' || (w.purpose !== 'SOURCE' && w.purpose !== 'BOTH')) {
+        throw new DomainError('DESTINATION_INVALID', 'the excess goes back to an active, verified wallet the client registered as sending from');
+      }
     } else {
-      treasuryWalletId = requireUuid(p.treasuryWalletId, 'treasuryWalletId');
-      sourceAddress = (await ctx.tx.selectFrom('treasury_wallet').select('address').where('id', '=', treasuryWalletId).executeTakeFirstOrThrow()).address;
+      destinationBankAccountId = requireUuid(p.destinationBankAccountId, 'destinationBankAccountId');
+      const b = await ctx.tx.selectFrom('bank_account').select(['client_id', 'status']).where('id', '=', destinationBankAccountId).executeTakeFirst();
+      if (!b || b.client_id !== trade.client_id || b.status !== 'ACTIVE') throw new DomainError('DESTINATION_INVALID', 'the excess goes back to an active, verified account of the client');
     }
-    const seq = await nextLegSeq(ctx, trade.id);
-    const leg = await ctx.tx
-      .insertInto('settlement_leg')
-      .values({
-        trade_id: trade.id, seq, side: 'REFUND_TO_CLIENT', asset, amount_minor: amount.minor, payer: 'EXCHANGE_ACCOUNT',
-        inr_account_id: inrAccountId, treasury_wallet_id: treasuryWalletId, source_deposit_address_id: sourceDepositAddressId, capacity_reservation_id: reservationId,
-        notes: p.notes ? requireText(p.notes, 'notes', 2000) : null, created_by: ctx.actor.id ?? 'SYSTEM',
-      })
-      .returning(['id', 'ref'])
-      .executeTakeFirstOrThrow();
-    if (await isCounterpartyFunded(ctx.tx, trade.id)) {
-      // FI-74: a refund gives back the client's own money of this trade — never the counterparty's, never the platform's.
-      await allocateFunding(ctx, { tradeId: trade.id, use: { kind: 'REFUND', legId: leg.id }, asset, amount, location: asset === 'INR' ? inrLocation(inrAccountId!) : tronLocation(sourceAddress!) });
+    const leg = await insertRefundLeg(ctx, deps, trade, amount, p, { kind: 'EXCESS', destinationWalletId, destinationBankAccountId });
+    await appendAudit(ctx, { action: 'leg.created', entityType: 'settlement_leg', entityId: leg.id, after: { ref: leg.ref, side: 'REFUND_TO_CLIENT', refund_kind: 'EXCESS', amount, trade_id: trade.id, destination_wallet_id: destinationWalletId, destination_bank_account_id: destinationBankAccountId } });
+    if (p.exceptionId) {
+      const c = await ctx.tx.selectFrom('exception_case').select(['trade_id', 'type']).where('id', '=', requireUuid(p.exceptionId, 'exceptionId')).executeTakeFirst();
+      if (!c || c.trade_id !== trade.id || c.type !== 'USDT_OVERPAYMENT') throw new DomainError('INVALID_ARGUMENT', 'that case is not an overpayment of this trade');
     }
-    // B2: a USDT refund is planned only against what the chain shows at the address it will leave from.
-    if (asset === 'USDT') await assertPhysicallyAvailable(ctx, deps, { address: sourceAddress!, amount, excludeLegId: leg.id });
-    await appendAudit(ctx, { action: 'leg.created', entityType: 'settlement_leg', entityId: leg.id, after: { ref: leg.ref, side: 'REFUND_TO_CLIENT', amount, trade_id: trade.id } });
+    // When this returns all of the excess, every open overpayment case of the trade is answered (the detection and the
+    // confirmation each raise one); a partial return leaves them open for the rest to be decided.
+    if (amount.minor === room) {
+      const open = await ctx.tx.selectFrom('exception_case').select('id').where('trade_id', '=', trade.id).where('type', '=', 'USDT_OVERPAYMENT')
+        .where('status', 'in', ['OPEN', 'IN_PROGRESS']).orderBy('id').execute();
+      for (const c of open) await resolveExceptionInTx(ctx, { exceptionId: c.id, resolution: 'refund_excess', notes: `excess ${amount.toDecimalString()} ${asset} returned through ${leg.ref}` });
+    }
+    // With the excess planned back, the client's side is settled: the trade moves on to its payout.
+    await advanceTrade(ctx, trade.id);
     return { legId: leg.id, ref: leg.ref, amount: amount.toDecimalString() };
   });
 }
@@ -221,13 +307,18 @@ export function confirmRefundLeg(actor: OperatorActor, deps: SettlementDeps) {
     const leg = await lockLeg(ctx, p.legId);
     if (leg.side !== 'REFUND_TO_CLIENT') throw new DomainError('INVALID_ARGUMENT', 'this is not a refund leg');
     if (leg.status !== 'PENDING' && leg.status !== 'PROCESSING') throw new DomainError('INVALID_TRANSITION', `leg is ${leg.status}`);
-    await assertNoPayoutUnderway(ctx.tx, trade.id);
+    const excess = leg.refund_kind === 'EXCESS';
+    // An unwind and a payout never both pay the client; an excess is money beyond the trade, and the trade goes on.
+    if (!excess) await assertNoPayoutUnderway(ctx.tx, trade.id);
     const amount = Money.ofMinor(leg.amount_minor, leg.asset);
 
     let kind: 'FIAT' | 'CRYPTO';
     let movementId: string;
     if (leg.asset === 'INR') {
       const bank = await ctx.tx.selectFrom('trade_economics').select('bank_account_id').where('trade_id', '=', trade.id).executeTakeFirstOrThrow();
+      const destinationMasked = leg.destination_bank_account_id
+        ? await maskedBankDestination(ctx.tx, leg.destination_bank_account_id)
+        : bank.bank_account_id ? 'client bank account' : 'client account';
       const recorded = await recordFiatTransfer(ctx, {
         rail: p.rail ?? 'IMPS',
         utr: p.utr ?? '',
@@ -236,7 +327,7 @@ export function confirmRefundLeg(actor: OperatorActor, deps: SettlementDeps) {
         payerId: leg.inr_account_id!,
         payeeType: 'CLIENT_BANK',
         payeeId: trade.client_id,
-        destinationMasked: bank.bank_account_id ? 'client bank account' : 'client account',
+        destinationMasked,
       });
       kind = 'FIAT';
       movementId = recorded.transferId;
@@ -244,7 +335,10 @@ export function confirmRefundLeg(actor: OperatorActor, deps: SettlementDeps) {
       const { locateTransferLog, recordCryptoTransfer } = await import('./movements.ts');
       // The refund goes back to a wallet the client registered as one it sends from; which one is what the chain
       // says the transaction paid — never "the first row".
-      const wallets = await ctx.tx.selectFrom('crypto_wallet').select('address').where('client_id', '=', trade.client_id).where('status', '=', 'ACTIVE').where('purpose', 'in', ['SOURCE', 'BOTH']).execute();
+      // An excess refund names its wallet when it is planned; it goes there and nowhere else.
+      const wallets = leg.destination_wallet_id
+        ? await ctx.tx.selectFrom('crypto_wallet').select('address').where('id', '=', leg.destination_wallet_id).where('status', '=', 'ACTIVE').execute()
+        : await ctx.tx.selectFrom('crypto_wallet').select('address').where('client_id', '=', trade.client_id).where('status', '=', 'ACTIVE').where('purpose', 'in', ['SOURCE', 'BOTH']).execute();
       if (wallets.length === 0) throw new DomainError('DESTINATION_INVALID', 'the client has no active source wallet to refund to');
       const fromAddress = leg.source_deposit_address_id
         ? (await ctx.tx.selectFrom('deposit_address').select('address').where('id', '=', leg.source_deposit_address_id).executeTakeFirstOrThrow()).address
@@ -301,7 +395,9 @@ export function confirmRefundLeg(actor: OperatorActor, deps: SettlementDeps) {
       const { consumeReservation } = await import('@inrp2p/inr-accounts');
       await consumeReservation(ctx, leg.capacity_reservation_id, amount as Money<'INR'>);
     }
-    await appendAudit(ctx, { action: 'leg.confirmed', entityType: 'settlement_leg', entityId: leg.id, after: { status: 'COMPLETED', side: 'REFUND_TO_CLIENT', amount, approved_by: ctx.actor.id } });
+    await appendAudit(ctx, { action: 'leg.confirmed', entityType: 'settlement_leg', entityId: leg.id, after: { status: 'COMPLETED', side: 'REFUND_TO_CLIENT', refund_kind: leg.refund_kind ?? 'UNWIND', amount, approved_by: ctx.actor.id } });
+    // The last thing a paid-out trade may wait for is its excess coming back (FI-21).
+    if (excess) await advanceTrade(ctx, trade.id);
     return { status: 'COMPLETED' as const, amount: amount.toDecimalString() };
   });
 }

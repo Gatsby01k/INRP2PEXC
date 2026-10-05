@@ -5,7 +5,7 @@ import { Money } from '@inrp2p/kernel';
 import type { DeskAdjustment, DeskTrade } from '@inrp2p/desk';
 import { Button, StepUpMark, UTRField, normalizeUtr } from '@inrp2p/ui';
 import {
-  approveAdjustmentAction, cancelTradeAction, confirmRefundLegAction, createRefundLegAction, openTradeExceptionAction, refundAndCancelAction, rejectAdjustmentAction,
+  approveAdjustmentAction, cancelTradeAction, confirmRefundLegAction, createRefundLegAction, openTradeExceptionAction, refundAndCancelAction, refundExcessAction, rejectAdjustmentAction,
 } from '../../../server/actions/desk.ts';
 import { useCommand } from '../../../components/useCommand.tsx';
 import { PanelSection } from '../_desk/ContextPanel.tsx';
@@ -52,6 +52,7 @@ export function Closeout({ trade, perms, refundAccounts }: { trade: DeskTrade; p
 
   return (
     <PanelSection title="Cancel or refund" testId="closeout">
+      <ExcessRefund trade={trade} perms={perms} refundAccounts={refundAccounts} />
       {!received.isPositive() ? (
         beforeFunds ? (
           perms.cancelTrade ? (
@@ -156,6 +157,79 @@ export function Closeout({ trade, perms, refundAccounts }: { trade: DeskTrade; p
       ) : null}
       {cmd.dialog}
     </PanelSection>
+  );
+}
+
+/**
+ * Returning an overpayment (D2, TD-19): at most what arrived beyond the receivable, less what is already on its way
+ * back, to a verified destination of the client chosen here — a wallet they registered as sending from, or one of
+ * their bank accounts — paid from where the client's money is. Someone else confirms it, like every refund; the trade
+ * carries on and completes once it is back.
+ */
+function ExcessRefund({ trade, perms, refundAccounts }: { trade: DeskTrade; perms: TradePerms; refundAccounts: readonly CollectionAccount[] }) {
+  const cmd = useCommand();
+  const asset = trade.receivable.currency;
+  const planned = trade.legs
+    .filter((l) => l.side === 'REFUND_TO_CLIENT' && l.refundKind === 'EXCESS' && l.status !== 'CANCELLED' && l.status !== 'FAILED')
+    .reduce((a, l) => a.add(Money.parse(l.amount, asset)), Money.zero(asset));
+  const over = Money.parse(trade.received, asset).sub(Money.parse(trade.receivable.amount, asset)).sub(planned);
+  const destinations = asset === 'USDT' ? trade.destinationOptions.refundWallets : trade.destinationOptions.refundBanks;
+  const funded = trade.funding.model === 'COUNTERPARTY_FUNDED';
+  const places = trade.funding.places.filter((p) => p.kind === 'CLIENT_FUNDS' && p.asset === asset && Money.parse(p.free, asset).isPositive());
+  const [destinationId, setDestinationId] = useState(destinations[0]?.id ?? '');
+  const [placeKey, setPlaceKey] = useState(places[0]?.location ?? '');
+  const [accountId, setAccountId] = useState(refundAccounts[0]?.accountId ?? '');
+  const [walletId, setWalletId] = useState(trade.payoutOptions.wallets[0]?.walletId ?? '');
+  const overCase = trade.cases.find((c) => c.type === 'USDT_OVERPAYMENT');
+  if (!over.isPositive() || !perms.createPayout) return null;
+  const place = places.find((p) => p.location === placeKey);
+  const source = funded
+    ? place ? (place.inrAccountId ? { inrAccountId: place.inrAccountId } : place.depositAddressId ? { sourceDepositAddressId: place.depositAddressId } : { treasuryWalletId: place.treasuryWalletId }) : null
+    : asset === 'INR' ? { inrAccountId: accountId } : { treasuryWalletId: walletId };
+  return (
+    <div className={d.stackTight} data-testid="excess-refund">
+      <Notice tone="warning" icon="exceptions">
+        <strong>{money(over.toDecimalString(), asset, { exact: asset === 'USDT' })} arrived beyond what the trade receives.</strong> Return it to the client, or
+        re-price the trade to what arrived (a financial adjustment).
+      </Notice>
+      {destinations.length === 0 ? (
+        <Notice>The client has no verified {asset === 'USDT' ? 'sending wallet' : 'bank account'} to return it to; one is added first.</Notice>
+      ) : (
+        <>
+          <SelectField label="Return it to" value={destinationId} onChange={setDestinationId} options={destinations.map((o) => ({ value: o.id, label: o.label }))} />
+          {funded ? (
+            <SelectField label="From — where the client’s money is" value={placeKey} onChange={setPlaceKey} options={places.map((p) => ({ value: p.location, label: `${p.label} · ${money(p.free, asset, { exact: asset === 'USDT' })} free` }))} />
+          ) : asset === 'INR' ? (
+            <SelectField label="From" value={accountId} onChange={setAccountId} options={refundAccounts.map((a) => ({ value: a.accountId, label: `${a.bankName} ••••${a.last4} · ${a.label}` }))} />
+          ) : (
+            <SelectField label="From" value={walletId} onChange={setWalletId} options={trade.payoutOptions.wallets.map((w) => ({ value: w.walletId, label: w.label }))} />
+          )}
+          <GuardedAction
+            label="Return the excess"
+            trigger="secondary"
+            busy={cmd.busy}
+            consequence={`Plans a refund of ${money(over.toDecimalString(), asset, { exact: asset === 'USDT' })} to the client. It pays nothing yet: a second person confirms it with the evidence.`}
+            onConfirm={async () =>
+              source !== null &&
+              (
+                await cmd.run(`Return the excess on ${trade.ref}`, (key) =>
+                  refundExcessAction(
+                    { tradeId: trade.tradeId, ...source, ...(asset === 'USDT' ? { destinationWalletId: destinationId } : { destinationBankAccountId: destinationId }), ...(overCase ? { exceptionId: overCase.id } : {}) },
+                    key,
+                  ),
+                )
+              ).ok
+            }
+          />
+        </>
+      )}
+      {cmd.error ? (
+        <p className={d.errorLine} role="alert">
+          {cmd.error}
+        </p>
+      ) : null}
+      {cmd.dialog}
+    </div>
   );
 }
 

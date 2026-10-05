@@ -76,17 +76,34 @@ export interface LegTotals {
   readonly paid: bigint;
   /** Payout legs that are PENDING, PROCESSING or COMPLETED — the FI-20 commitment. */
   readonly committed: bigint;
+  /** An overpayment planned, in flight or confirmed back to the client (EXCESS refunds, migration 0028). */
+  readonly excessPlanned: bigint;
+  /** The part of it confirmed back: completion counts what the client sent less this (FI-21). */
+  readonly excessReturned: bigint;
 }
 
+/**
+ * What the client's own side has settled to, for the trade's progress (D2): the confirmed client legs less the excess
+ * planned back (to move past the first leg — the payout may start while the excess is on its way back), or less the
+ * excess confirmed back (to complete — an excess still owed to the client keeps the trade open).
+ */
+export const receivedNetOfPlannedExcess = (t: LegTotals): bigint => t.received - t.excessPlanned;
+export const receivedNetOfReturnedExcess = (t: LegTotals): bigint => t.received - t.excessReturned;
+
 export async function legTotals(ex: Executor, tradeId: string): Promise<LegTotals> {
-  const r = await sql<{ received: bigint; paid: bigint; committed: bigint }>`
+  const r = await sql<{ received: bigint; paid: bigint; committed: bigint; excess_planned: bigint; excess_returned: bigint }>`
     select
       coalesce(sum(amount_minor) filter (where side = 'CLIENT_TO_EXCHANGE' and status = 'COMPLETED'), 0)::bigint as received,
       coalesce(sum(amount_minor) filter (where side = 'EXCHANGE_TO_CLIENT' and status = 'COMPLETED'), 0)::bigint as paid,
-      coalesce(sum(amount_minor) filter (where side = 'EXCHANGE_TO_CLIENT' and status in ('PENDING', 'PROCESSING', 'COMPLETED')), 0)::bigint as committed
+      coalesce(sum(amount_minor) filter (where side = 'EXCHANGE_TO_CLIENT' and status in ('PENDING', 'PROCESSING', 'COMPLETED')), 0)::bigint as committed,
+      coalesce(sum(amount_minor) filter (where side = 'REFUND_TO_CLIENT' and refund_kind = 'EXCESS' and status in ('PENDING', 'PROCESSING', 'COMPLETED')), 0)::bigint as excess_planned,
+      coalesce(sum(amount_minor) filter (where side = 'REFUND_TO_CLIENT' and refund_kind = 'EXCESS' and status = 'COMPLETED'), 0)::bigint as excess_returned
     from settlement_leg where trade_id = ${requireUuid(tradeId, 'tradeId')}`.execute(ex);
   const row = r.rows[0]!;
-  return { received: BigInt(row.received), paid: BigInt(row.paid), committed: BigInt(row.committed) };
+  return {
+    received: BigInt(row.received), paid: BigInt(row.paid), committed: BigInt(row.committed),
+    excessPlanned: BigInt(row.excess_planned), excessReturned: BigInt(row.excess_returned),
+  };
 }
 
 const ALLOWED: Readonly<Record<TradeLifecycleState, readonly TradeLifecycleState[]>> = Object.freeze({
