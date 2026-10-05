@@ -1255,6 +1255,8 @@ export interface TraderReserveApplicationTable {
   trader_id: string;
   trader_order_id: string;
   route_obligation_id: string;
+  /** APPLY: the reserve becomes the order's USDT delivery. HOLD: kept back against an INR shortfall, nothing moves. */
+  kind: Generated<'APPLY' | 'HOLD'>;
   amount_minor: bigint;
   reason: string;
   status: Generated<TraderReserveApplicationStatus>;

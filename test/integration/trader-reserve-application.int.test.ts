@@ -8,14 +8,15 @@ import { dispatchOutbox } from '@inrp2p/outbox';
 import { traderNotificationHandler } from '@inrp2p/notifications';
 import { globalImbalance, routeObligationBalances } from '@inrp2p/ledger';
 import {
-  confirmPayout, confirmRouteSettlement, createPayoutLeg, recordLegEvidence, recordRouteSettlement, sendPayoutLeg, submitTxForVerification,
+  confirmPayout, confirmRefundLeg, confirmRouteSettlement, createPayoutLeg, createRefundLeg, openException, recordLegEvidence, recordRouteSettlement, refundAndCancel,
+  sendPayoutLeg, submitTxForVerification,
 } from '@inrp2p/settlement';
 import {
   approveReserveApplication, cancelReserveApplication, deskTrader, endReserveApplication, reconcileOrderNow, recordReserveApplicationSent, rejectReserveApplication,
   requestReserveApplication, requestReserveWithdrawal, reserveFigures, traderHome,
 } from '@inrp2p/traders';
 import type { TestOperator } from '@inrp2p/identity/testing';
-import { balanceOf, journalsFor, observe, settleFirstLeg } from '../../packages/settlement/test/world.ts';
+import { balanceOf, clientDepositAddressOf, journalsFor, observe, settleFirstLeg } from '../../packages/settlement/test/world.ts';
 import {
   type TraderSetup, type TradersWorld, clientRequest, configureProgram, confirmOnChain, createTradersWorld, liveTrader, traderClient, tradeThroughTrader, utr,
 } from './traders-world.ts';
@@ -61,7 +62,7 @@ describe('applying a trader’s Security Reserve to USDT it did not deliver (D3)
 
     const trade = await undeliveredOrder('500');
     // The desk sees where the reserve may be applied: the started order whose USDT is due.
-    expect((await deskTrader(w.app, sellerId)).applicableOrders).toEqual(expect.arrayContaining([{ orderId: trade.orderId, ref: trade.orderRef, owed: '500.000000' }]));
+    expect((await deskTrader(w.app, sellerId)).applicableOrders).toEqual(expect.arrayContaining([{ orderId: trade.orderId, ref: trade.orderRef, kind: 'APPLY', owed: '500.000000', owedAsset: 'USDT' }]));
     await expect(request(w.dealer, trade.orderId)).rejects.toMatchObject({ code: 'FORBIDDEN' });
     await expect(request(w.financeOp, trade.orderId, { amount: '500.000001' })).rejects.toMatchObject({ code: 'INVALID_AMOUNT' });
     await expect(request(w.financeOp, trade.orderId, { reason: 'late' })).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' });
@@ -158,7 +159,7 @@ describe('applying a trader’s Security Reserve to USDT it did not deliver (D3)
     const approved = await approve(w.finance, asked.applicationId);
 
     // Custody sends the wrong amount first: recorded and held for the desk, never counted as the delivery.
-    const short = w.chain.add({ from: w.hotAddress, to: approved.deliveryAddress, amountMinor: usdt('399') });
+    const short = w.chain.add({ from: w.hotAddress, to: approved.deliveryAddress!, amountMinor: usdt('399') });
     const seen = await runAs(w.app, submitTxForVerification(w.settlementOp.actor, w.settlementDeps), w.settlementOp.ref, 'crypto.submit_tx_for_verification', { txHash: short.txHash, logIndex: short.logIndex });
     expect(seen.exceptionId).toBeTruthy();
     const kase = await w.app.selectFrom('exception_case').select(['type', 'details']).where('id', '=', seen.exceptionId!).executeTakeFirstOrThrow();
@@ -167,7 +168,7 @@ describe('applying a trader’s Security Reserve to USDT it did not deliver (D3)
     expect(await statusOf(asked.applicationId)).toBe('APPROVED');
 
     // The right amount from the hot wallet: the scanner records it as the application's delivery by itself.
-    const right = w.chain.add({ from: w.hotAddress, to: approved.deliveryAddress, amountMinor: usdt('400') });
+    const right = w.chain.add({ from: w.hotAddress, to: approved.deliveryAddress!, amountMinor: usdt('400') });
     const detected = await runAs(w.app, submitTxForVerification(w.settlementOp.actor, w.settlementDeps), w.settlementOp.ref, 'crypto.submit_tx_for_verification', { txHash: right.txHash, logIndex: right.logIndex });
     expect(detected.exceptionId).toBeUndefined();
     expect(await statusOf(asked.applicationId)).toBe('SENT');
@@ -186,13 +187,54 @@ describe('applying a trader’s Security Reserve to USDT it did not deliver (D3)
     expect(await globalImbalance(w.app)).toEqual([]);
   });
 
-  it('is refused for INR, beyond the free reserve, and is withdrawn, declined or ended on the record', async () => {
-    // An INR order: the reserve is USDT, and a conversion rate is the owner's decision.
+  it('only holds the reserve against INR, keeping the debt open; beyond the free reserve it is refused; it is withdrawn, declined or ended on the record', async () => {
+    // An INR order: the reserve is USDT and no conversion terms exist, so it can only be held — never converted, never
+    // posted — and the INR debt stays open.
     const inrTrader = await traderClient(w, 'Rupee Buyer');
-    await liveTrader(w, inrTrader, { buy: { capacity: '500000', rate: '104.70', min: '1000', max: '250000' } });
+    const inrLive = await liveTrader(w, inrTrader, { buy: { capacity: '500000', rate: '104.70', min: '1000', max: '250000' } });
     const inrTrade = await tradeThroughTrader(w, inrTrader, { requestId: await clientRequest(w, 'SELL_USDT', '100'), clientRate: '104.200000' });
     await settleFirstLeg(w, inrTrade.tradeId);
-    await expect(request(w.financeOp, inrTrade.orderId)).rejects.toMatchObject({ code: 'TRADER_RESERVE_NOT_APPLICABLE' });
+    await expect(request(w.financeOp, inrTrade.orderId)).rejects.toMatchObject({ code: 'INVALID_AMOUNT' });
+    await expect(request(w.financeOp, inrTrade.orderId, { amount: '500.000001' })).rejects.toMatchObject({ code: 'TRADER_RESERVE_SHORT' });
+    const hold = await request(w.financeOp, inrTrade.orderId, { amount: '200' });
+    expect(hold.kind).toBe('HOLD');
+    await expect(approve(w.financeOp, hold.applicationId)).rejects.toMatchObject({ code: 'SECOND_APPROVER_REQUIRED' });
+    expect(await approve(w.financeOp2, hold.applicationId)).toMatchObject({ kind: 'HOLD', status: 'APPROVED', deliveryAddress: null });
+    const owedBefore = await w.app.selectFrom('route_settlement_allocation').select(sql<string>`coalesce(sum(amount_minor), 0)::text`.as('n')).where('route_obligation_id', '=', inrTrade.routeObligationId).executeTakeFirstOrThrow();
+    // Held: not withdrawable, nothing moved, nothing posted, the INR debt as it was.
+    const heldFigures = await reserveFigures(w.app, inrLive.traderId);
+    expect({ applying: heldFigures.applying.toDecimalString(), balance: heldFigures.balance.toDecimalString() }).toEqual({ applying: '200.000000', balance: '500.000000' });
+    await expect(runAs(w.app, recordReserveApplicationSent(w.financeOp.actor, w.traderDeps), w.financeOp.ref, 'trader_reserve.record_application_sent', { applicationId: hold.applicationId, txHash: 'ab'.repeat(32) }))
+      .rejects.toMatchObject({ code: 'INVALID_TRANSITION' });
+    expect(await balanceOf(w.app, 'LIAB:TRADER_RESERVE', 'USDT', { tradeId: inrTrade.tradeId })).toBe(0n);
+    expect(owedBefore.n).toBe('0');
+    // A hold is never a delivery, whatever code writes one.
+    const inrRoute = await w.app.selectFrom('route_obligation').select('route_id').where('id', '=', inrTrade.routeObligationId).executeTakeFirstOrThrow();
+    const stub = (await sql<{ id: string }>`
+      insert into crypto_transfer (network, tx_hash, log_index, token_contract, from_address, to_address, amount_minor, payer_type, payee_type, source, created_by)
+      values ('TRON', ${randomBytes(32).toString('hex')}, 0, ${w.chain.tokenContract}, ${w.hotAddress}, ${w.hotAddress}, ${usdt('200')}, 'EXCHANGE_TREASURY', 'EXCHANGE_TREASURY', 'OPERATOR_SUBMITTED', 'old-app')
+      returning id`.execute(w.t.owner)).rows[0]!.id;
+    await expect(sql`insert into route_settlement (route_id, route_obligation_id, obligation_side, flow, asset, amount_minor, transfer_kind, crypto_transfer_id, reserve_application_id, created_by)
+                     values (${inrRoute.route_id}, ${inrTrade.routeObligationId}, 'ROUTE_DELIVERS', 'FROM_ROUTE_TO_EXCHANGE', 'USDT', ${usdt('200')}, 'CRYPTO', ${stub}, ${hold.applicationId}, 'old-app')`.execute(w.t.owner))
+      .rejects.toSatisfy((e) => pgErrorCode(e) === 'IX095');
+    // Released when the reason for it goes (here: the trader is paying after all), and the reserve is free again.
+    await runAs(w.app, endReserveApplication(w.finance.actor), w.finance.ref, 'trader_reserve.end_application', { applicationId: hold.applicationId, reason: 'the trader paid the INR after all' });
+    expect((await reserveFigures(w.app, inrLive.traderId)).applying.isZero()).toBe(true);
+    // A hold never outlives its order: unwinding the client trade cancels the order, and what was held with it.
+    const again = await request(w.financeOp, inrTrade.orderId, { amount: '100' });
+    await approve(w.financeOp2, again.applicationId);
+    const deposit = await clientDepositAddressOf(w, inrTrade.tradeId);
+    const opened = await runAs(w.app, openException(w.dealer.actor), w.dealer.ref, 'exception.open', {
+      type: 'TRADE_CANCELLATION' as const, subjectType: 'TRADE' as const, subjectId: inrTrade.tradeId, tradeId: inrTrade.tradeId, notes: 'the trader cannot pay; the client takes its USDT back',
+    });
+    await observe(w, deposit.address);
+    const refund = await runAs(w.app, createRefundLeg(w.owner.actor), w.owner.ref, 'refund_leg.create', { tradeId: inrTrade.tradeId, sourceDepositAddressId: deposit.id });
+    const back = w.chain.add({ from: deposit.address, to: w.clientSourceAddress, amountMinor: usdt('100') });
+    await runAs(w.app, confirmRefundLeg(w.financeOp.actor, w.settlementDeps), w.financeOp.ref, 'refund_leg.confirm', { legId: refund.legId, txHash: back.txHash });
+    await runAs(w.app, refundAndCancel(w.owner.actor), w.owner.ref, 'exception.refund_and_cancel', { tradeId: inrTrade.tradeId, exceptionId: opened.exceptionId, reason: 'unwound: the trader did not pay' });
+    expect(await reconcileOrderNow(w.app, inrTrade.orderId)).toBe('CANCELLED');
+    expect(await statusOf(again.applicationId)).toBe('CANCELLED');
+    expect((await reserveFigures(w.app, inrLive.traderId)).applying.isZero()).toBe(true);
 
     // More than the reserve holds free.
     const free = await reserveFigures(w.app, sellerId);
@@ -230,7 +272,7 @@ describe('applying a trader’s Security Reserve to USDT it did not deliver (D3)
     // More than the order owes; more than the reserve holds free.
     await expect(insert({ amount: usdt('100.000001') })).rejects.toSatisfy((e) => pgErrorCode(e) === 'IX094');
     // Another trader's order.
-    const other = await w.app.selectFrom('trader_order').select(['id', 'route_obligation_id']).where('trader_id', '<>', sellerId).where('status', '=', 'IN_PROGRESS').executeTakeFirstOrThrow();
+    const other = await w.app.selectFrom('trader_order').select(['id', 'route_obligation_id']).where('trader_id', '<>', sellerId).where('route_obligation_id', 'is not', null).executeTakeFirstOrThrow();
     await expect(insert({ orderId: other.id, obligationId: other.route_obligation_id!, amount: usdt('1') })).rejects.toSatisfy((e) => pgErrorCode(e) === 'IX094');
 
     // A delivery naming an application that is not approved.

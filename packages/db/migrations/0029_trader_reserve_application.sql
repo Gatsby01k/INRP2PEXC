@@ -8,8 +8,10 @@
 -- (Dr LIAB:TRADER_RESERVE / Cr ASSET:ROUTE_RECEIVABLE). The client is then paid from it like from any delivery.
 --
 -- Only USDT the trader owes, only from that trader's own reserve, never beyond what the reserve holds free or the
--- order still owes. An INR shortfall would need a conversion rate, and taking a reserve for anything else would be a
--- forfeiture: both are owner decisions this migration does not make.
+-- order still owes. An INR shortfall would need a conversion rate the owner has not agreed: for it there is only a
+-- HOLD — the same two people keep part of the reserve from being withdrawn while the INR debt stays open, nothing
+-- moves and nothing posts, until the owner's terms exist. Taking a reserve for anything else would be a forfeiture:
+-- also the owner's decision, not made here.
 --
 -- With it, a rule D-16 relied on is now stated in the database: a route's delivery is the route's own money — the
 -- exchange's USDT or INR is never booked as a counterparty's delivery, except a reserve applied here.
@@ -23,6 +25,9 @@ CREATE TABLE trader_reserve_application (
   trader_id           uuid NOT NULL REFERENCES trader_profile (id),
   trader_order_id     uuid NOT NULL REFERENCES trader_order (id),
   route_obligation_id uuid NOT NULL REFERENCES route_obligation (id),
+  -- APPLY: the reserve becomes the order's USDT delivery. HOLD: an INR shortfall; the reserve is only kept back.
+  kind                text NOT NULL DEFAULT 'APPLY' CHECK (kind IN ('APPLY', 'HOLD')),
+  -- USDT minor units, for both kinds: the reserve is USDT.
   amount_minor        bigint NOT NULL CHECK (amount_minor > 0),
   reason              text NOT NULL CHECK (length(btrim(reason)) BETWEEN 10 AND 500),
   status              text NOT NULL DEFAULT 'REQUESTED'
@@ -44,7 +49,9 @@ CREATE TABLE trader_reserve_application (
   CHECK ((status IN ('SENT', 'COMPLETED', 'FAILED')) = (sent_at IS NOT NULL)),
   CHECK ((status = 'COMPLETED') = (completed_at IS NOT NULL)),
   CHECK ((status IN ('REJECTED', 'CANCELLED', 'COMPLETED', 'FAILED')) = (closed_at IS NOT NULL)),
-  CHECK (status NOT IN ('REJECTED', 'CANCELLED', 'FAILED') OR close_reason IS NOT NULL)
+  CHECK (status NOT IN ('REJECTED', 'CANCELLED', 'FAILED') OR close_reason IS NOT NULL),
+  -- A hold never moves anything.
+  CHECK (kind = 'APPLY' OR status NOT IN ('SENT', 'COMPLETED', 'FAILED'))
 );
 -- One live application per order: a second one waits until the first is finished either way.
 CREATE UNIQUE INDEX trader_reserve_application_one_live ON trader_reserve_application (trader_order_id) WHERE status IN ('REQUESTED', 'APPROVED', 'SENT');
@@ -91,6 +98,7 @@ DECLARE
   ob record;
   free bigint;
   open_delivery bigint;
+  owed_asset text;
 BEGIN
   IF TG_OP = 'UPDATE' AND NOT (OLD.status = 'REQUESTED' AND NEW.status = 'APPROVED') THEN
     RETURN NEW;
@@ -101,17 +109,23 @@ BEGIN
   IF o.trader_id IS DISTINCT FROM NEW.trader_id OR o.route_obligation_id IS DISTINCT FROM NEW.route_obligation_id THEN
     RAISE EXCEPTION 'a reserve is applied only to an order of the same trader' USING ERRCODE = 'IX094';
   END IF;
-  -- The trader's SELL_USDT order is the one where the trader owes USDT; the reserve is USDT. Nothing is converted.
-  IF o.side <> 'SELL_USDT' OR o.status <> 'IN_PROGRESS' THEN
-    RAISE EXCEPTION 'a reserve is applied only to USDT a started order still owes' USING ERRCODE = 'IX094';
+  -- The trader's SELL_USDT order is the one where the trader owes USDT; the reserve is USDT. Nothing is converted:
+  -- what a Buy USDT order owes is INR, and against that the reserve is only held.
+  IF o.status <> 'IN_PROGRESS' OR (NEW.kind = 'APPLY') <> (o.side = 'SELL_USDT') THEN
+    RAISE EXCEPTION 'a reserve is applied only to USDT a started order still owes, and held only against INR one owes' USING ERRCODE = 'IX094';
   END IF;
   SELECT r.status, r.route_delivers_asset INTO ob FROM route_obligation r WHERE r.id = NEW.route_obligation_id;
-  IF ob.route_delivers_asset <> 'USDT' OR ob.status NOT IN ('OPEN', 'PARTIALLY_SETTLED') THEN
-    RAISE EXCEPTION 'the order''s obligation does not owe USDT now' USING ERRCODE = 'IX094';
+  IF NEW.kind = 'APPLY' THEN
+    owed_asset := 'USDT';
+  ELSE
+    owed_asset := 'INR';
+  END IF;
+  IF ob.route_delivers_asset <> owed_asset OR ob.status NOT IN ('OPEN', 'PARTIALLY_SETTLED') THEN
+    RAISE EXCEPTION 'the order''s obligation does not owe that now' USING ERRCODE = 'IX094';
   END IF;
   open_delivery := inrp2p_route_delivery_open(NEW.route_obligation_id);
-  IF NEW.amount_minor > open_delivery THEN
-    RAISE EXCEPTION 'the order still owes % USDT minor units; % cannot be applied', open_delivery, NEW.amount_minor USING ERRCODE = 'IX094';
+  IF open_delivery <= 0 OR (NEW.kind = 'APPLY' AND NEW.amount_minor > open_delivery) THEN
+    RAISE EXCEPTION 'the order still owes % minor units; % cannot be applied', open_delivery, NEW.amount_minor USING ERRCODE = 'IX094';
   END IF;
   free := inrp2p_trader_reserve_free(NEW.trader_id, NEW.id);
   IF NEW.amount_minor > free THEN
@@ -135,8 +149,8 @@ DECLARE
   payer text;
 BEGIN
   IF NEW.reserve_application_id IS NOT NULL THEN
-    SELECT a.trader_id, a.status, a.route_obligation_id, a.amount_minor INTO app FROM trader_reserve_application a WHERE a.id = NEW.reserve_application_id;
-    IF app.status IS DISTINCT FROM 'APPROVED' OR app.route_obligation_id <> NEW.route_obligation_id OR app.amount_minor <> NEW.amount_minor
+    SELECT a.trader_id, a.status, a.kind, a.route_obligation_id, a.amount_minor INTO app FROM trader_reserve_application a WHERE a.id = NEW.reserve_application_id;
+    IF app.status IS DISTINCT FROM 'APPROVED' OR app.kind <> 'APPLY' OR app.route_obligation_id <> NEW.route_obligation_id OR app.amount_minor <> NEW.amount_minor
        OR NEW.flow <> 'FROM_ROUTE_TO_EXCHANGE' OR NEW.asset <> 'USDT' OR NEW.transfer_kind <> 'CRYPTO' THEN
       RAISE EXCEPTION 'route settlement % does not carry the approved reserve application it names', NEW.ref USING ERRCODE = 'IX095';
     END IF;

@@ -317,7 +317,10 @@ liquidity**: chase it now, and note it on the obligation so the next person does
   treasury wallet) to it, then record the hash — or let the scanner see it. On finality it is the trader's delivery:
   pay the client from that address, then pay the trader its INR as for any order.
 * A trader's **INR** (its Buy USDT order): the reserve is USDT and no conversion terms exist (TD-21, owner), so it is
-  not applied. Wait, or unwind the client trade (refund the client's USDT and cancel) with the client's agreement.
+  only **held** — the same request and approval, with the USDT amount to keep back named; the trader cannot withdraw
+  it, nothing moves, the INR debt stays open. Then wait, or unwind the client trade (refund the client's USDT and
+  cancel) with the client's agreement; the hold ends with the order, or release it with the reason when the trader
+  pays.
 * A desk route late on an exchange-delivers side it already received: a commercial conversation.
 
 **What never to do.** Do not pay a client from anything but the trade's own counterparty funds — not the treasury,

@@ -28,7 +28,7 @@ import { reserveFigures } from './reserve.ts';
  * Both are owner decisions (TECH_DEBT TD-21). The database holds the same rules (IX094, IX095).
  */
 
-type ApplicationRow = ReserveApplicationRow & { requested_by: string };
+type ApplicationRow = ReserveApplicationRow & { requested_by: string; kind: 'APPLY' | 'HOLD' };
 
 async function lockApplicationChain(ctx: TxContext, applicationId: string): Promise<{ app: ApplicationRow; order: OrderRow }> {
   const id = requireUuid(applicationId, 'applicationId');
@@ -40,34 +40,35 @@ async function lockApplicationChain(ctx: TxContext, applicationId: string): Prom
   await lockObligation(ctx, peek.route_obligation_id);
   const app = await ctx.tx
     .selectFrom('trader_reserve_application')
-    .select(['id', 'ref', 'trader_id', 'trader_order_id', 'route_obligation_id', 'amount_minor', 'status', 'requested_by'])
+    .select(['id', 'ref', 'trader_id', 'trader_order_id', 'route_obligation_id', 'amount_minor', 'status', 'requested_by', 'kind'])
     .where('id', '=', id)
     .forUpdate()
     .executeTakeFirstOrThrow();
   return { app, order };
 }
 
-/** The checks an application must pass when it is asked for and again when it is approved. */
-async function assertApplicable(ctx: TxContext, order: OrderRow, amountMinor: bigint): Promise<void> {
+type Kind = 'APPLY' | 'HOLD';
+
+/**
+ * The checks an application must pass when it is asked for and again when it is approved. APPLY: the order owes
+ * USDT, and no more than it still owes is applied. HOLD: the order owes INR — nothing is converted, the amount is
+ * USDT kept back from the reserve while the INR debt stays open.
+ */
+async function assertApplicable(ctx: TxContext, order: OrderRow, kind: Kind, amountMinor: bigint): Promise<void> {
   if (order.status !== 'IN_PROGRESS' || !order.trade_id || !order.route_obligation_id) {
     throw new DomainError('TRADER_ORDER_NOT_LIVE', `order ${order.ref} is ${order.status.toLowerCase()}`);
   }
-  if (order.side !== 'SELL_USDT') {
-    throw new DomainError(
-      'TRADER_RESERVE_NOT_APPLICABLE',
-      `on order ${order.ref} the trader owes INR; the reserve is USDT, and applying it would need a conversion rate the owner has not set (TD-21)`,
-    );
-  }
   const trade = await ctx.tx.selectFrom('trade').select('lifecycle_state').where('id', '=', order.trade_id).executeTakeFirstOrThrow();
   if (!CLIENT_FUNDED_STATES.has(trade.lifecycle_state)) {
-    throw new DomainError('TRADER_ACTION_NOT_DUE', `the trader's USDT for ${order.ref} is not due until the other side is funded`);
+    throw new DomainError('TRADER_ACTION_NOT_DUE', `the trader's side of ${order.ref} is not due until the other side is funded`);
   }
   const open = await routeDeliveryOpen(ctx.tx, order.route_obligation_id);
-  if (open <= 0n) throw new DomainError('INVALID_TRANSITION', `order ${order.ref} owes no USDT that is not already delivered or on its way`);
-  if (amountMinor <= 0n || amountMinor > open) {
+  if (open <= 0n) throw new DomainError('INVALID_TRANSITION', `order ${order.ref} owes nothing that is not already delivered or on its way`);
+  if (amountMinor <= 0n) throw new DomainError('INVALID_AMOUNT', 'name how much USDT of the reserve to keep back');
+  if (kind === 'APPLY' && amountMinor > open) {
     throw new DomainError('INVALID_AMOUNT', `order ${order.ref} still owes ${Money.ofMinor(open, 'USDT').toDecimalString()} USDT`, { owed: Money.ofMinor(open, 'USDT').toDecimalString() });
   }
-  // Free: the balance less withdrawals on their way out and applications already approved or in flight.
+  // Free: the balance less withdrawals on their way out and applications or holds already approved or in flight.
   const figures = await reserveFigures(ctx.tx, order.trader_id);
   const free = figures.balance.minor - figures.pendingRelease.minor - figures.applying.minor;
   if (amountMinor > free) {
@@ -77,13 +78,16 @@ async function assertApplicable(ctx: TxContext, order: OrderRow, amountMinor: bi
 }
 
 /**
- * `trader_reserve.request_application` — `trader_reserve:apply` (⧗). Asks to apply the reserve to what the order
- * still owes (or a smaller amount), with the reason. Nothing is held or moved until someone else approves it.
+ * `trader_reserve.request_application` — `trader_reserve:apply` (⧗), with the reason. On an order that owes USDT it
+ * asks to apply the reserve to what the order still owes (or less). On an order that owes INR it can only ask to
+ * **hold** part of the reserve (an amount of USDT, named here): the INR debt stays open, nothing is converted or
+ * posted, and that part of the reserve cannot be withdrawn until the hold is released or the owner's terms exist
+ * (TD-21). Nothing is held or moved until someone else approves it.
  */
 export function requestReserveApplication(actor: OperatorActor) {
   return operatorCommand(actor, 'trader_reserve:apply', async (ctx, p: { orderId: string; amount?: string | null; reason: string }) => {
     const reason = requireText(p.reason, 'reason', 500);
-    if (reason.length < 10) throw new DomainError('INVALID_ARGUMENT', 'say why the trader’s USDT is not coming (at least 10 characters)');
+    if (reason.length < 10) throw new DomainError('INVALID_ARGUMENT', 'say why the trader’s side is not coming (at least 10 characters)');
     const orderId = requireUuid(p.orderId, 'orderId');
     const peek = await ctx.tx.selectFrom('trader_order').select('trader_id').where('id', '=', orderId).executeTakeFirst();
     if (!peek) throw new DomainError('NOT_FOUND', 'order not found');
@@ -93,37 +97,43 @@ export function requestReserveApplication(actor: OperatorActor) {
     await lockObligation(ctx, order.route_obligation_id);
     const live = await ctx.tx.selectFrom('trader_reserve_application').select('ref').where('trader_order_id', '=', order.id).where('status', 'in', ['REQUESTED', 'APPROVED', 'SENT']).executeTakeFirst();
     if (live) throw new DomainError('INVALID_TRANSITION', `reserve application ${live.ref} is already open for this order`);
-    // What the order still owes, unless a smaller amount is asked for; an INR side is refused below before any sum.
-    const owed = order.side === 'SELL_USDT' ? await routeDeliveryOpen(ctx.tx, order.route_obligation_id) : 0n;
-    const amount = p.amount ? Money.parse(p.amount, 'USDT') : Money.ofMinor(owed > 0n ? owed : 0n, 'USDT');
-    await assertApplicable(ctx, order, amount.minor);
+    const kind: Kind = order.side === 'SELL_USDT' ? 'APPLY' : 'HOLD';
+    // APPLY defaults to what the order still owes; a HOLD's amount is always named (the debt is INR, the reserve USDT).
+    let amount: Money<'USDT'>;
+    if (p.amount) amount = Money.parse(p.amount, 'USDT');
+    else if (kind === 'APPLY') amount = Money.ofMinor(await routeDeliveryOpen(ctx.tx, order.route_obligation_id), 'USDT');
+    else throw new DomainError('INVALID_AMOUNT', `order ${order.ref} owes INR: name how much USDT of the reserve to hold while the owner's terms for converting it do not exist`);
+    await assertApplicable(ctx, order, kind, amount.minor);
     const row = await ctx.tx
       .insertInto('trader_reserve_application')
-      .values({ trader_id: order.trader_id, trader_order_id: order.id, route_obligation_id: order.route_obligation_id!, amount_minor: amount.minor, reason, requested_by: actor.userId })
+      .values({ trader_id: order.trader_id, trader_order_id: order.id, route_obligation_id: order.route_obligation_id, kind, amount_minor: amount.minor, reason, requested_by: actor.userId })
       .returning(['id', 'ref'])
       .executeTakeFirstOrThrow();
     await appendAudit(ctx, {
       action: 'trader_reserve.application_requested', entityType: 'trader_profile', entityId: order.trader_id,
-      after: { ref: row.ref, order: order.ref, amount, reason },
+      after: { ref: row.ref, kind, order: order.ref, amount, reason },
     });
-    return { applicationId: row.id, ref: row.ref, amount: amount.toDecimalString() };
+    return { applicationId: row.id, ref: row.ref, kind, amount: amount.toDecimalString() };
   });
 }
 
 /**
  * `trader_reserve.approve_application` — `trader_reserve:approve` (⧗✱), by someone other than the requester. Holds
- * the amount out of the reserve, issues the order's delivery address if the trader never asked for it, and tells the
- * trader. Custody moves the USDT next; the desk records it (or the scanner sees it) and the chain confirms it.
+ * the amount out of the reserve and tells the trader. For an application it also issues the order's delivery address
+ * if the trader never asked for it: custody moves the USDT next; the desk records it (or the scanner sees it) and the
+ * chain confirms it. For a hold nothing more happens — it waits for the INR, an unwind, or the owner's terms.
  */
 export function approveReserveApplication(actor: OperatorActor, deps: Pick<TraderDeps, 'custody'>) {
   return operatorCommand(actor, 'trader_reserve:approve', async (ctx, p: { applicationId: string; note?: string | null }, decision) => {
     const { app, order } = await lockApplicationChain(ctx, p.applicationId);
     if (app.status !== 'REQUESTED') throw new DomainError('INVALID_TRANSITION', `reserve application ${app.ref} is ${app.status.toLowerCase()}`);
     assertSecondApprover(decision, app.requested_by, actor.userId);
-    await assertApplicable(ctx, order, app.amount_minor);
-    const delivery = await allocateObligationDeliveryAddress(ctx, deps.custody, {
-      network: 'TRON', routeObligationId: app.route_obligation_id, reference: order.ref, expectedAmount: Money.ofMinor(order.base_minor, 'USDT'),
-    });
+    await assertApplicable(ctx, order, app.kind, app.amount_minor);
+    const delivery = app.kind === 'APPLY'
+      ? await allocateObligationDeliveryAddress(ctx, deps.custody, {
+          network: 'TRON', routeObligationId: app.route_obligation_id, reference: order.ref, expectedAmount: Money.ofMinor(order.base_minor, 'USDT'),
+        })
+      : null;
     const note = p.note ? requireText(p.note, 'note', 500) : null;
     await ctx.tx
       .updateTable('trader_reserve_application')
@@ -133,13 +143,14 @@ export function approveReserveApplication(actor: OperatorActor, deps: Pick<Trade
     const amount = Money.ofMinor(app.amount_minor, 'USDT');
     await appendAudit(ctx, {
       action: 'trader_reserve.application_approved', entityType: 'trader_profile', entityId: app.trader_id,
-      before: { status: 'REQUESTED' }, after: { status: 'APPROVED', ref: app.ref, order: order.ref, amount, requested_by: app.requested_by, approved_by: actor.userId, delivery_address: delivery.address },
+      before: { status: 'REQUESTED' },
+      after: { status: 'APPROVED', kind: app.kind, ref: app.ref, order: order.ref, amount, requested_by: app.requested_by, approved_by: actor.userId, delivery_address: delivery?.address ?? null },
     });
     await enqueueOutbox(ctx, {
       type: 'trader.reserve_issue', aggregateType: 'trader_profile', aggregateId: app.trader_id,
-      payload: { traderId: app.trader_id, reason: 'RESERVE_APPLIED', amount: amount.toDecimalString(), orderRef: order.ref },
+      payload: { traderId: app.trader_id, reason: app.kind === 'APPLY' ? 'RESERVE_APPLIED' : 'RESERVE_HELD', amount: amount.toDecimalString(), orderRef: order.ref },
     });
-    return { ref: app.ref, status: 'APPROVED' as const, deliveryAddress: delivery.address, amount: amount.toDecimalString() };
+    return { ref: app.ref, status: 'APPROVED' as const, kind: app.kind, deliveryAddress: delivery?.address ?? null, amount: amount.toDecimalString() };
   });
 }
 
@@ -174,8 +185,9 @@ export function cancelReserveApplication(actor: OperatorActor) {
 
 /**
  * `trader_reserve.end_application` — `trader_reserve:approve` (⧗). An approved application whose USDT has not moved
- * is ended, with the reason — the trader delivered after all, or custody will not send — and the amount it held is
- * the trader's again. Once the USDT moved, the chain decides: it confirms, or the delivery is failed.
+ * is ended, with the reason — the trader delivered after all, or custody will not send — and a hold is released the
+ * same way; the amount either held is the trader's again. Once an application's USDT moved, the chain decides: it
+ * confirms, or the delivery is failed. An order that completes or is cancelled ends what is still open on it by itself.
  */
 export function endReserveApplication(actor: OperatorActor) {
   return operatorCommand(actor, 'trader_reserve:approve', async (ctx, p: { applicationId: string; reason: string }) => {
@@ -206,6 +218,7 @@ export function recordReserveApplicationSent(actor: OperatorActor, deps: Pick<Tr
   return operatorCommand(actor, 'trader_payout:record', async (ctx, p: { applicationId: string; txHash: string; logIndex?: number }) => {
     const { app } = await lockApplicationChain(ctx, p.applicationId);
     if (app.status !== 'APPROVED') throw new DomainError('INVALID_TRANSITION', `reserve application ${app.ref} is ${app.status.toLowerCase()}`);
+    if (app.kind !== 'APPLY') throw new DomainError('INVALID_TRANSITION', `${app.ref} only holds the reserve against an INR debt; nothing is sent for it`);
     const delivery = await obligationDeliveryAddress(ctx.tx, app.route_obligation_id);
     if (!delivery) throw new DomainError('INVALID_TRANSITION', 'the order has no delivery address');
     const txHash = requireText(p.txHash, 'txHash', 66).toLowerCase().replace(/^0x/, '');

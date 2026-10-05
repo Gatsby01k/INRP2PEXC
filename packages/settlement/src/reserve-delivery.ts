@@ -75,6 +75,7 @@ export async function lockApprovedReserveApplication(ctx: TxContext, obligationI
     .select(['id', 'ref', 'trader_id', 'trader_order_id', 'route_obligation_id', 'amount_minor', 'status'])
     .where('route_obligation_id', '=', obligationId)
     .where('status', '=', 'APPROVED')
+    .where('kind', '=', 'APPLY')
     .forUpdate()
     .executeTakeFirst();
   return row ?? null;

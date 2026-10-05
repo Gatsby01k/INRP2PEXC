@@ -24,7 +24,7 @@ Non-blocking items accepted at phase review. Each entry names the phase that mus
 | TD-18 | `CLIENT_BANK_CHANGED` is detected but cannot be resolved by moving the trade to a new destination | Audit (2026-09-25) | A client replacing a destination while one of its trades is open | Closed (2026-10-05, migration 0028) |
 | TD-19 | `refund_excess` (partial refund of an overpayment) does not exist; the completion predicate does not net refunds | Audit (2026-09-25) | The desk needing to return part of an overpayment and still complete the trade | Closed (2026-10-05, migration 0028) |
 | TD-20 | The OWNER-grant second approval is nominal: the requester names the approver | Audit (2026-09-25) | Any path that exposes `assignOperatorRole` (none does today) | Closed (2026-10-05, migration 0027) |
-| TD-21 | A trader's Security Reserve cannot be applied to an obligation the trader leaves unsettled | Traders (2026-09-27) | Traders providing real money | USDT side closed (2026-10-05, migration 0029); INR side and recovery terms open (owner) |
+| TD-21 | A trader's Security Reserve cannot be applied to an obligation the trader leaves unsettled | Traders (2026-09-27) | Traders providing real money | USDT side closed (2026-10-05, migration 0029); INR side held only — conversion and recovery terms open (owner) |
 | TD-22 | The trader programme's agreement, tax treatment and counterparty checks have not been reviewed | Traders (2026-09-27) | Traders providing real money | Open |
 | TD-23 | The Traders screens have no page baselines, and the client shell changed around them | Traders (2026-09-27) | The `visual-pages` CI job can pass | Open |
 | TD-24 | A trader cannot ask to change its registered bank account or wallet in the product | Traders (2026-09-27) | A trader replacing a destination without the desk's usual channel | Closed (2026-09-28) |
@@ -548,13 +548,21 @@ address, from the trader's reserve address or a treasury wallet; and — newly s
 may be paid from an exchange address). Tests: `test/integration/trader-reserve-application.int.test.ts`,
 `packages/ledger/test/movement.unit.test.ts`.
 
-**Still open — owner decisions, refused rather than guessed.** (1) An INR shortfall (a trader's Buy USDT order):
-applying a USDT reserve needs a conversion rate and its source; the command refuses with
-`TRADER_RESERVE_NOT_APPLICABLE`. Until terms exist the exits are waiting or unwinding the client trade. (2) Any use of a
-reserve beyond the trader's own undelivered USDT — penalties, costs, forfeiture. (3) Whether an order delivered from the
-reserve still earns the reward frozen when it started (today it does: completion accrues it as for any order).
-(4) TD-22 (the programme agreement) still blocks real money: whether a trader has agreed to this use of its reserve is
-for that agreement to say.
+**INR side: held, not converted (same migration).** Against an INR shortfall (a trader's Buy USDT order) the same two
+people can only **hold** part of the reserve — `kind = HOLD`, an amount of USDT named by the requester, never more than
+the reserve holds free. A hold moves nothing and posts nothing; the INR debt stays open on the obligation; the held
+amount is out of `available` until it is released (`trader_reserve.end_application`, with the reason) or the order
+completes or is cancelled (the sweep ends it). The database refuses a hold on a USDT order, an application on an INR
+order, and any delivery naming a hold (IX094, IX095). The trader is told (`TRADER_RESERVE_ISSUE`, `RESERVE_HELD`).
+
+**Still open — owner decisions, refused rather than guessed.** (1) Converting a held reserve into an INR recovery: it
+needs the owner's valuation terms (a fixed confirmed rate and its multi-currency entries) or a real conversion with its
+evidence — never a bare `Dr USDT / Cr INR`, and a rate alone never makes a bank payment happen. No command exists for
+it; until it does, the exits are waiting, or unwinding the client trade (the client's own funds go back through the
+refund path; the platform advances nothing). (2) Any use of a reserve beyond the trader's own undelivered side —
+penalties, costs, forfeiture. (3) Whether an order delivered from the reserve still earns the reward frozen when it
+started (today it does: completion accrues it as for any order). (4) TD-22 (the programme agreement) still blocks real
+money: whether a trader has agreed to this use of its reserve is for that agreement to say.
 
 ## TD-22 — The trader programme has not been reviewed for agreement, tax and counterparty checks
 

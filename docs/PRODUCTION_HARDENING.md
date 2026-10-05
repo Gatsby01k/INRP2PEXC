@@ -51,7 +51,7 @@ nothing on gates 2 or 3. CI on the final SHA replaces them in the final report.
 | C3 | P0 | confirmed defects + external | Auth: TD-01, TD-02, TD-11 (client TOTP), operator enrolment; TD-03 KMS-backed KEK | code ready; KMS key **BLOCKED** (owner) |
 | D1 | P0 | confirmed defect | TD-18: an open trade can follow a client's new destination (two people, step-up, append-only) | fixed — code ready |
 | D2 | P0 | confirmed defect | TD-19: an overpayment can be returned without unwinding the trade | fixed — code ready |
-| D3 | P0 | implementation + owner decision | TD-21: a trader's reserve applied to USDT its own order did not deliver | USDT side code ready; INR side / recovery terms **BLOCKED** (owner) |
+| D3 | P0 | implementation + owner decision | TD-21: a trader's reserve applied to USDT its own order did not deliver; held against INR | USDT side and INR hold code ready; INR conversion / recovery terms **BLOCKED** (owner) |
 | D4 | P0 | confirmed defects + proof | Trader lifecycle end to end; sweep error isolation; rewards never paid from principal | fixed — code ready |
 
 (The table grows as stages are worked; each row has a section below.)
@@ -352,9 +352,12 @@ is wanted stays an open owner question (ADR 0016 §8).
   it. Since D-16 an undelivered trader order leaves the client waiting for liquidity (the platform does not advance
   its own money), so the reserve was the trader's guarantee with no way to call on it.
 - **Decided here, and not.** Built: the mechanism that needs no owner terms — the trader's own reserve, applied by two
-  people to USDT one of its own orders still owes. Not built, refused instead: an INR shortfall (needs a conversion
-  rate — owner), any other use of a reserve (penalty, cost, forfeiture — owner), automatic application (none).
-  Whether an order delivered from the reserve keeps its frozen reward is listed as an owner question (today it does).
+  people to USDT one of its own orders still owes, and, against an INR shortfall, a two-person **hold** that keeps part
+  of the reserve from being withdrawn while the INR debt stays open (nothing moves or posts; it ends with its order or
+  is released with a reason). Not built: converting a held reserve into an INR recovery (needs the owner's valuation
+  terms or a real conversion with evidence — never a bare `Dr USDT / Cr INR`), any other use of a reserve (penalty,
+  cost, forfeiture — owner), anything automatic. Whether an order delivered from the reserve keeps its frozen reward is
+  listed as an owner question (today it does).
 - **Changed.** Migration `0029_trader_reserve_application.sql`: `trader_reserve_application` (append-only status;
   requester ≠ decider CHECK; one live application per order), `inrp2p_trader_reserve_balance` / `_free`,
   `inrp2p_route_delivery_open`, IX094 (own order, Sell USDT, IN_PROGRESS, obligation owes USDT, amount ≤ owed and ≤
@@ -372,9 +375,11 @@ is wanted stays an open owner question (ADR 0016 §8).
   Dr TRADER_RESERVE / Cr ROUTE_RECEIVABLE; reserve 800 → 300 with the shortfall shown; order delivered; client paid
   from the order's address after a B2 observation; trader paid its INR; order completed; obligation and ledger at
   zero; trader notified and its projection private; scanner path from a treasury wallet with the four-line journal;
-  a wrong amount opens a case and leaves the application approved; INR refused; reserve short refused with the free
-  figure; withdraw/decline/end; IX094 and IX095 on raw inserts, including the exchange's own USDT booked as a
-  delivery), `packages/ledger/test/movement.unit.test.ts`.
+  a wrong amount opens a case and leaves the application approved; on an INR order: an amount must be named, two
+  people, held and not withdrawable, nothing posted, no transfer can be recorded for it, a delivery naming it refused
+  (IX095), released with a reason, and a second hold ended by the sweep when the client trade is unwound; reserve
+  short refused with the free figure; withdraw/decline/end; IX094 and IX095 on raw inserts, including the exchange's
+  own USDT booked as a delivery), `packages/ledger/test/movement.unit.test.ts`.
 - **Gate 3.** BLOCKED on the owner: recovery terms for INR shortfalls and other uses (ADR-16 §8), and TD-22 (the
   programme agreement) before any trader provides real money.
 

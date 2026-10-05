@@ -221,9 +221,13 @@ Security Reserve never stand in (FI-76). A trader route is always `TO_EXCHANGE`:
   (`TRADER_RESERVE_ISSUE`). Custody moves the USDT from the reserve address (or a treasury wallet) to the order's
   address; the desk records the hash or the scanner recognises it; on finality it is the order's delivery —
   `crypto:{x}:confirm`, purpose `TRADER_RESERVE_APPLIED`, Dr `LIAB:TRADER_RESERVE` / Cr `ASSET:ROUTE_RECEIVABLE` — and
-  the order goes on (the client is paid from it, the trader is paid its INR). Never for INR (no conversion rate is
-  decided), never beyond the order's own USDT, never automatic. An approved application whose USDT has not moved can be
-  ended with a reason; a recorded transfer that fails ends it.
+  the order goes on (the client is paid from it, the trader is paid its INR). Never beyond the order's own USDT, never
+  automatic. An approved application whose USDT has not moved can be ended with a reason; a recorded transfer that
+  fails ends it.
+- **Holding it against INR the trader did not pay** (same commands, `kind = HOLD`): on a started Buy USDT order the
+  reserve is USDT and no conversion terms exist, so two people can only hold a named amount of it — out of `available`,
+  nothing moved, nothing posted, the INR debt open — until it is released with a reason or the order completes or is
+  cancelled (the sweep ends it). Converting it into an INR recovery is the owner's decision (TD-21).
 
 ## 9. Rewards
 
@@ -260,7 +264,7 @@ Security Reserve never stand in (FI-76). A trader route is always `TO_EXCHANGE`:
 | TR-09 | The locked reserve is never withdrawable; one open withdrawal per trader | Command under the trader lock; partial unique index |
 | TR-10 | Nothing about the client, the desk's pricing or internals reaches a trader projection | `assertTraderSafe` on every trader view; integration test |
 | TR-11 | Offer and hold expiry use the business clock | `inrp2p_now()` in commands and the sweep |
-| TR-12 | A reserve is applied only to its own trader's undelivered USDT, by two people, within what the order owes and the reserve holds free; it reaches the order as one delivery with one journal | Commands under trader → order → obligation locks; IX094, IX095; posting key unique |
+| TR-12 | A reserve is applied only to its own trader's undelivered USDT, by two people, within what the order owes and the reserve holds free; it reaches the order as one delivery with one journal. Against INR it is only held: nothing moves or posts, the debt stays open, and a hold never outlives its order | Commands under trader → order → obligation locks; IX094, IX095; posting key unique; sweep ends holds with their order |
 
 Lock order: `trader_profile → trader_order → trader_block` after `acceptance_challenge` (ARCHITECTURE §4).
 

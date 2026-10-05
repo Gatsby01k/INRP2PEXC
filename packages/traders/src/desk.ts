@@ -285,7 +285,10 @@ export interface DeskWalletView {
 export interface DeskReserveApplication {
   readonly applicationId: string;
   readonly ref: string;
+  /** APPLY: the reserve delivers the order's USDT. HOLD: kept back against INR the order owes; nothing moves. */
+  readonly kind: 'APPLY' | 'HOLD';
   readonly orderRef: string;
+  /** USDT, for both kinds. */
   readonly amount: string;
   readonly status: TraderReserveApplicationStatus;
   readonly reason: string;
@@ -337,8 +340,11 @@ export interface DeskTraderDetail {
   readonly withdrawals: readonly { withdrawalId: string; ref: string; amount: string; status: string; destination: string; requestedAt: string; txHash: string | null; closeReason: string | null }[];
   /** The reserve applied to USDT the trader's own orders did not deliver (TD-21), newest first. */
   readonly applications: readonly DeskReserveApplication[];
-  /** Started Sell USDT orders whose USDT is due and not delivered or on its way: where the reserve may be applied. */
-  readonly applicableOrders: readonly { orderId: string; ref: string; owed: string }[];
+  /**
+   * Started orders whose trader side is due and not delivered or on its way: a Sell USDT order's USDT, where the reserve
+   * may be applied, or a Buy USDT order's INR, against which it may only be held.
+   */
+  readonly applicableOrders: readonly { orderId: string; ref: string; kind: 'APPLY' | 'HOLD'; owed: string; owedAsset: 'USDT' | 'INR' }[];
   readonly earnings: { readonly rewardBps: number | null; readonly available: string; readonly payingOut: string; readonly pending: string; readonly paidOut: string; readonly completedUsdt: string; readonly completedInr: string };
   readonly payouts: readonly { payoutId: string; ref: string; amount: string; status: string; utr: string; recordedAt: string }[];
   /** Realized margin free at each active exchange account — the only money a reward may be paid with (D4). */
@@ -414,10 +420,10 @@ export async function deskTrader(ex: Executor, traderId: string): Promise<DeskTr
     .limit(50)
     .execute();
   const applications = await sql<{
-    id: string; ref: string; order_ref: string; amount_minor: string; status: TraderReserveApplicationStatus; reason: string; requested_by: string;
+    id: string; ref: string; kind: 'APPLY' | 'HOLD'; order_ref: string; amount_minor: string; status: TraderReserveApplicationStatus; reason: string; requested_by: string;
     requested_by_label: string | null; requested_at: Date; decided_by_label: string | null; close_reason: string | null; delivery_address: string | null; tx_hash: string | null;
   }>`
-    select a.id, a.ref, o.ref as order_ref, a.amount_minor::text, a.status, a.reason, a.requested_by, coalesce(ru.name, ru.email) as requested_by_label,
+    select a.id, a.ref, a.kind, o.ref as order_ref, a.amount_minor::text, a.status, a.reason, a.requested_by, coalesce(ru.name, ru.email) as requested_by_label,
            a.requested_at, coalesce(du.name, du.email) as decided_by_label, a.close_reason,
            (select d.address from deposit_assignment x join deposit_address d on d.id = x.deposit_address_id where x.route_obligation_id = a.route_obligation_id limit 1) as delivery_address,
            (select c.tx_hash from route_settlement s join crypto_transfer c on c.id = s.crypto_transfer_id where s.reserve_application_id = a.id) as tx_hash
@@ -428,10 +434,10 @@ export async function deskTrader(ex: Executor, traderId: string): Promise<DeskTr
      where a.trader_id = ${id}
      order by a.requested_at desc, a.id desc
      limit 50`.execute(ex);
-  const applicable = await sql<{ id: string; ref: string; owed: string }>`
-    select o.id, o.ref, inrp2p_route_delivery_open(o.route_obligation_id)::text as owed
+  const applicable = await sql<{ id: string; ref: string; side: TraderSide; owed: string }>`
+    select o.id, o.ref, o.side, inrp2p_route_delivery_open(o.route_obligation_id)::text as owed
       from trader_order o join trade t on t.id = o.trade_id
-     where o.trader_id = ${id} and o.status = 'IN_PROGRESS' and o.side = 'SELL_USDT'
+     where o.trader_id = ${id} and o.status = 'IN_PROGRESS'
        and t.lifecycle_state in ('FIRST_LEG_CONFIRMED', 'SETTLING', 'PARTIALLY_SETTLED')
        and inrp2p_route_delivery_open(o.route_obligation_id) > 0
        and not exists (select 1 from trader_reserve_application a where a.trader_order_id = o.id and a.status in ('REQUESTED', 'APPROVED', 'SENT'))
@@ -518,11 +524,14 @@ export async function deskTrader(ex: Executor, traderId: string): Promise<DeskTr
     },
     withdrawals: withdrawals.map((w) => ({ withdrawalId: w.id, ref: w.ref, amount: usdt(w.amount_minor), status: w.status, destination: w.destination_address, requestedAt: w.requested_at.toISOString(), txHash: w.tx_hash, closeReason: w.close_reason })),
     applications: applications.rows.map((a) => ({
-      applicationId: a.id, ref: a.ref, orderRef: a.order_ref, amount: usdt(BigInt(a.amount_minor)), status: a.status, reason: a.reason, requestedBy: a.requested_by,
+      applicationId: a.id, ref: a.ref, kind: a.kind, orderRef: a.order_ref, amount: usdt(BigInt(a.amount_minor)), status: a.status, reason: a.reason, requestedBy: a.requested_by,
       requestedByLabel: a.requested_by_label ?? 'an operator', requestedAt: a.requested_at.toISOString(), decidedByLabel: a.decided_by_label, closeReason: a.close_reason,
       deliveryAddress: a.delivery_address, txHash: a.tx_hash,
     })),
-    applicableOrders: applicable.rows.map((o) => ({ orderId: o.id, ref: o.ref, owed: usdt(BigInt(o.owed)) })),
+    applicableOrders: applicable.rows.map((o) => {
+      const usdtSide = o.side === 'SELL_USDT';
+      return { orderId: o.id, ref: o.ref, kind: usdtSide ? ('APPLY' as const) : ('HOLD' as const), owed: usdtSide ? usdt(BigInt(o.owed)) : inr(BigInt(o.owed)), owedAsset: usdtSide ? ('USDT' as const) : ('INR' as const) };
+    }),
     earnings: {
       rewardBps: e.rewardBps,
       available: e.available.toDecimalString(),
