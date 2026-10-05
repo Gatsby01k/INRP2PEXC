@@ -264,3 +264,49 @@
     border-left: 0;
   }
 }
+
+/* TD-11: the administrator's own controls. */
+.manageForm {
+  display: grid;
+  gap: 10px;
+  max-width: 520px;
+  margin-bottom: 20px;
+}
+
+.manageForm label {
+  display: grid;
+  gap: 4px;
+  font-size: 14px;
+}
+
+.manageTitle {
+  font-size: 15px;
+  margin: 8px 0 4px;
+}
+
+.manageList {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+}
+
+.manageList li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.formError {
+  color: var(--ix-danger, #b42318);
+}
+

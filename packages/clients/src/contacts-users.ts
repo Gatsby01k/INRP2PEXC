@@ -144,3 +144,31 @@ export function setClientUserStatus(actor: OperatorActor) {
     return { changed: true };
   });
 }
+
+/**
+ * `client_user.reset_mfa` — `client_user:reset_mfa` (OWNER, SUPPORT; ⧗), with a reason. The only way a client user's
+ * authenticator is removed (TD-11): the client surface offers no "disable" and no way to show the secret again, so a
+ * lost factor is recovered by the desk after confirming who is asking out of band — never by a public bypass. Every
+ * session of that user is ended with it; the user signs in again and sets up a new authenticator.
+ */
+export function resetClientMfa(actor: OperatorActor) {
+  return operatorCommand(actor, 'client_user:reset_mfa', async (ctx, p: { clientUserId: string; reason: string }) => {
+    const reason = requireText(p.reason, 'reason', 500);
+    if (reason.length < 10) throw new DomainError('INVALID_ARGUMENT', 'say how the person was verified (at least 10 characters)');
+    const member = await ctx.tx.selectFrom('client_user').select(['id', 'user_id', 'client_id']).where('id', '=', requireUuid(p.clientUserId, 'clientUserId')).forUpdate().executeTakeFirst();
+    if (!member) throw new DomainError('NOT_FOUND', 'client user not found');
+    const user = await ctx.tx.selectFrom('auth_user').select(['kind', 'two_factor_enabled']).where('id', '=', member.user_id).executeTakeFirstOrThrow();
+    if (user.kind !== 'CLIENT') throw new DomainError('INVALID_ARGUMENT', 'not a client user');
+    // Better Auth's own table, outside the domain schema type.
+    const factors = await sql`delete from auth_two_factor where user_id = ${member.user_id}`.execute(ctx.tx);
+    await ctx.tx.updateTable('auth_user').set({ two_factor_enabled: false, updated_at: sql`statement_timestamp()` }).where('id', '=', member.user_id).execute();
+    const sessions = await ctx.tx.deleteFrom('auth_session').where('user_id', '=', member.user_id).executeTakeFirst();
+    await appendAudit(ctx, {
+      action: 'client_user.mfa_reset', entityType: 'client_user', entityId: member.id,
+      before: { two_factor_enabled: user.two_factor_enabled },
+      after: { two_factor_enabled: false, factors_removed: (factors.numAffectedRows ?? 0n).toString(), sessions_ended: sessions.numDeletedRows.toString(), reason },
+    });
+    return { reset: true as const, sessionsEnded: sessions.numDeletedRows.toString() };
+  });
+}
+

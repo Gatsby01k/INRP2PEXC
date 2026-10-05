@@ -58,6 +58,7 @@ export const PERMISSION_MATRIX = Object.freeze({
   'client_bank:add': r(S, D, D, D, S, D),
   'client_wallet:manage': r(S, D, D, D, S, D),
   'client_user:grant_accept_quotes': r(S, D, D, D, S, D),
+  'client_user:reset_mfa': r(S, D, D, D, S, D),
   'routes:configure': r(S, D, D, D, D, D),
   'route_settlement:record': r(A, D, D, A, D, D),
   'route_settlement:confirm': r(S, D, D, S, D, D),

@@ -76,3 +76,41 @@ export async function clientDestinations(ex: Executor, clientId: string, opts: {
 /** How a destination is named on screen: recognisable, and never the full account number. */
 export const bankLabel = (b: Pick<ClientBankAccount, 'bankName' | 'last4'>): string => `${b.bankName} •••• ${b.last4}`;
 export const walletLabel = (w: Pick<ClientWallet, 'address'>): string => `TRC20 · ${w.address.slice(0, 3)}…${w.address.slice(-4)}`;
+
+/** One person of a client, as that client's administrator sees them (TD-11): no email beyond the masked one. */
+export interface ClientPerson {
+  readonly clientUserId: string;
+  readonly name: string;
+  readonly email: string;
+  readonly role: 'CLIENT_ADMIN' | 'CLIENT_TRADER' | 'CLIENT_VIEWER';
+  readonly status: 'ACTIVE' | 'DISABLED';
+  readonly canAcceptQuotes: boolean;
+  readonly authenticator: boolean;
+}
+
+const maskEmail = (email: string): string => {
+  const [local = '', domain = ''] = email.split('@');
+  return domain ? `${local.slice(0, 1)}•••@${domain}` : '•••';
+};
+
+/** The people of a client: who may decide on quotes, and who has an authenticator. */
+export async function clientPeople(ex: Executor, clientId: string): Promise<ClientPerson[]> {
+  const rows = await ex
+    .selectFrom('client_user as cu')
+    .innerJoin('auth_user as u', 'u.id', 'cu.user_id')
+    .select(['cu.id', 'u.name', 'u.email', 'cu.role', 'cu.status', 'cu.can_accept_quotes', 'u.two_factor_enabled'])
+    .where('cu.client_id', '=', clientId)
+    .orderBy('u.name')
+    .execute();
+  return rows.map((r) => ({
+    clientUserId: r.id, name: r.name, email: maskEmail(r.email), role: r.role as ClientPerson['role'], status: r.status as ClientPerson['status'],
+    canAcceptQuotes: r.can_accept_quotes, authenticator: r.two_factor_enabled === true,
+  }));
+}
+
+/** Whether this signed-in person has set up an authenticator (the step-up factor for sensitive changes). */
+export async function hasAuthenticator(ex: Executor, userId: string): Promise<boolean> {
+  const u = await ex.selectFrom('auth_user').select('two_factor_enabled').where('id', '=', userId).executeTakeFirst();
+  return u?.two_factor_enabled === true;
+}
+

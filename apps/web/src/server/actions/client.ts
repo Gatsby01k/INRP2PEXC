@@ -5,6 +5,7 @@ import type { DirectionValue } from '@inrp2p/db';
 import { markNotificationsRead } from '@inrp2p/notifications';
 import { quoteIdForRef, requestIdForRef } from '@inrp2p/portal';
 import { acceptQuote, createRequest, rejectQuote, withdrawRequest } from '@inrp2p/quotes';
+import { addBankAccount, addWallet, archiveBankAccount, archiveWallet, setCanAcceptQuotes } from '@inrp2p/clients';
 import { type CommandResult, failure } from '../command.ts';
 import { runClientCommand, withClient, withMember } from '../client.ts';
 
@@ -81,3 +82,48 @@ export async function markNotificationsReadAction(ids: readonly string[]): Promi
     return failure(e);
   }
 }
+
+/**
+ * Destinations and quote authority, changed by the client's own administrator (TD-11, D-08). Each is a sensitive
+ * client-admin action: the command itself refuses anyone but an active CLIENT_ADMIN of this client, without an
+ * authenticator (`MFA_ENROLLMENT_REQUIRED`), or without a step-up in the last ten minutes (`STEP_UP_REQUIRED`, which
+ * the page answers with the authenticator dialog and the same key). The client id comes from the membership.
+ */
+function refreshDestinations(): void {
+  revalidatePath('/destinations');
+}
+
+export async function addBankAccountAction(input: { holderName: string; bankName: string; ifsc: string; accountNumber: string }, key: string): Promise<CommandResult<unknown>> {
+  const id = await withClient(async (ctx) => ctx.access.clientId);
+  if (!id.ok) return id;
+  const out = await runClientCommand((ctx, deps) => addBankAccount(ctx.actor, deps.protector), { ...input, clientId: id.result }, { name: 'client_bank.add', idempotencyKey: key, financial: false });
+  if (out.ok) refreshDestinations();
+  return out;
+}
+
+export async function archiveBankAccountAction(input: { bankAccountId: string; reason: string }, key: string): Promise<CommandResult<unknown>> {
+  const out = await runClientCommand((ctx) => archiveBankAccount(ctx.actor), input, { name: 'client_bank.archive', idempotencyKey: key, financial: false });
+  if (out.ok) refreshDestinations();
+  return out;
+}
+
+export async function addWalletAction(input: { address: string; purpose: 'DESTINATION' | 'SOURCE' | 'BOTH'; label: string }, key: string): Promise<CommandResult<unknown>> {
+  const id = await withClient(async (ctx) => ctx.access.clientId);
+  if (!id.ok) return id;
+  const out = await runClientCommand((ctx) => addWallet(ctx.actor), { ...input, network: 'TRON' as const, clientId: id.result }, { name: 'client_wallet.add', idempotencyKey: key, financial: false });
+  if (out.ok) refreshDestinations();
+  return out;
+}
+
+export async function archiveWalletAction(input: { walletId: string; reason: string }, key: string): Promise<CommandResult<unknown>> {
+  const out = await runClientCommand((ctx) => archiveWallet(ctx.actor), input, { name: 'client_wallet.archive', idempotencyKey: key, financial: false });
+  if (out.ok) refreshDestinations();
+  return out;
+}
+
+export async function setCanAcceptQuotesAction(input: { clientUserId: string; canAcceptQuotes: boolean }, key: string): Promise<CommandResult<unknown>> {
+  const out = await runClientCommand((ctx) => setCanAcceptQuotes(ctx.actor), input, { name: 'client_user.set_accept_quotes', idempotencyKey: key, financial: false });
+  if (out.ok) refreshDestinations();
+  return out;
+}
+

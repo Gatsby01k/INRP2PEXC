@@ -3,15 +3,20 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button, OtpInput } from '@inrp2p/ui';
+import { type TotpSetup, TotpEnrolment } from '../../components/TotpEnrolment.tsx';
 import styles from './sign-in.module.css';
 
-type Stage = 'PASSWORD' | 'TOTP';
+type Stage = 'PASSWORD' | 'TOTP' | 'ENROL';
 
 /**
  * Two steps, both Better Auth's own endpoints: `sign-in/email` establishes the session and
  * `two-factor/verify-totp` makes it MFA-verified, which is what the proxy requires of every other page. The
  * failure message is deliberately the same whatever went wrong, so this form never tells an attacker which
  * half they got right.
+ *
+ * An operator without an authenticator yet — the first OWNER after bootstrap, anyone newly provisioned — is taken
+ * through setting one up right there (`two-factor/enable` with the password just typed, then the first code): the
+ * desk opens only once a code has been verified, so there is still no way in on a password alone.
  */
 export function SignInForm() {
   const router = useRouter();
@@ -21,22 +26,38 @@ export function SignInForm() {
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [setup, setSetup] = useState<TotpSetup | null>(null);
 
-  const post = async (path: string, body: unknown): Promise<boolean> => {
+  const send = async (path: string, body: unknown): Promise<{ ok: boolean; json: Record<string, unknown> | null }> => {
     const res = await fetch(`/api/auth${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
-    return res.ok;
+    const json = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+    return { ok: res.ok, json };
   };
+  const post = async (path: string, body: unknown): Promise<boolean> => (await send(path, body)).ok;
 
   const submitPassword = async () => {
     setBusy(true);
     setError(null);
     try {
-      const ok = await post('/sign-in/email', { email, password });
-      if (!ok) {
+      const signedIn = await send('/sign-in/email', { email, password });
+      if (!signedIn.ok) {
         setError('That email and password did not match.');
         return;
       }
-      setStage('TOTP');
+      if (signedIn.json?.twoFactorRedirect) {
+        setStage('TOTP');
+        return;
+      }
+      // No authenticator yet: set one up now, with the password just proven.
+      const enabled = await send('/two-factor/enable', { password });
+      const totpURI = enabled.json?.totpURI;
+      const backupCodes = enabled.json?.backupCodes;
+      if (!enabled.ok || typeof totpURI !== 'string' || !Array.isArray(backupCodes)) {
+        setError('An authenticator could not be set up. Ask the desk owner.');
+        return;
+      }
+      setSetup({ totpURI, backupCodes: backupCodes.map(String) });
+      setStage('ENROL');
     } finally {
       setBusy(false);
     }
@@ -57,6 +78,36 @@ export function SignInForm() {
       setBusy(false);
     }
   };
+
+  if (stage === 'ENROL' && setup) {
+    return (
+      <div className={styles.form}>
+        <TotpEnrolment
+          setup={setup}
+          busy={busy}
+          error={error}
+          submitLabel="Verify and open the desk"
+          onVerify={(c) => {
+            setCode(c);
+            void (async () => {
+              setBusy(true);
+              setError(null);
+              try {
+                if (!(await post('/two-factor/verify-totp', { code: c }))) {
+                  setError('That code was not accepted. Try the current one.');
+                  return;
+                }
+                router.push('/');
+                router.refresh();
+              } finally {
+                setBusy(false);
+              }
+            })();
+          }}
+        />
+      </div>
+    );
+  }
 
   return (
     <form

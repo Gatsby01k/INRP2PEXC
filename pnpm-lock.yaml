@@ -162,6 +162,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  better-auth@1.7.5: adb96b4cabb03238a007e6941db408a23bd697b62bc59ee68c57c414dc7d6e42
+
 importers:
 
   .:
@@ -330,7 +333,7 @@ importers:
         version: link:../../packages/ui
       better-auth:
         specifier: 1.7.5
-        version: 1.7.5(@opentelemetry/api@1.9.1)(next@16.3.5(@opentelemetry/api@1.9.1)(@playwright/test@1.56.1)(@types/node@24.13.5)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(pg@8.23.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(vitest@5.0.1(@opentelemetry/api@1.9.1)(@types/node@24.13.5)(vite@8.3.0(@types/node@24.13.5)(esbuild@0.28.2)(yaml@2.9.1)))
+        version: 1.7.5(patch_hash=adb96b4cabb03238a007e6941db408a23bd697b62bc59ee68c57c414dc7d6e42)(@opentelemetry/api@1.9.1)(next@16.3.5(@opentelemetry/api@1.9.1)(@playwright/test@1.56.1)(@types/node@24.13.5)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(pg@8.23.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(vitest@5.0.1(@opentelemetry/api@1.9.1)(@types/node@24.13.5)(vite@8.3.0(@types/node@24.13.5)(esbuild@0.28.2)(yaml@2.9.1)))
       framer-motion:
         specifier: 13.4.3
         version: 13.4.3(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -582,7 +585,7 @@ importers:
         version: link:../kernel
       better-auth:
         specifier: 1.7.5
-        version: 1.7.5(@opentelemetry/api@1.9.1)(next@16.3.5(@opentelemetry/api@1.9.1)(@playwright/test@1.56.1)(@types/node@24.13.5)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(pg@8.23.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(vitest@5.0.1(@opentelemetry/api@1.9.1)(@types/node@24.13.5)(vite@8.3.0(@types/node@24.13.5)(esbuild@0.28.2)(yaml@2.9.1)))
+        version: 1.7.5(patch_hash=adb96b4cabb03238a007e6941db408a23bd697b62bc59ee68c57c414dc7d6e42)(@opentelemetry/api@1.9.1)(next@16.3.5(@opentelemetry/api@1.9.1)(@playwright/test@1.56.1)(@types/node@24.13.5)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(pg@8.23.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(vitest@5.0.1(@opentelemetry/api@1.9.1)(@types/node@24.13.5)(vite@8.3.0(@types/node@24.13.5)(esbuild@0.28.2)(yaml@2.9.1)))
       kysely:
         specifier: 0.29.6
         version: 0.29.6
@@ -5871,7 +5874,7 @@ snapshots:
     dependencies:
       tweetnacl: 0.14.5
 
-  better-auth@1.7.5(@opentelemetry/api@1.9.1)(next@16.3.5(@opentelemetry/api@1.9.1)(@playwright/test@1.56.1)(@types/node@24.13.5)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(pg@8.23.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(vitest@5.0.1(@opentelemetry/api@1.9.1)(@types/node@24.13.5)(vite@8.3.0(@types/node@24.13.5)(esbuild@0.28.2)(yaml@2.9.1))):
+  better-auth@1.7.5(patch_hash=adb96b4cabb03238a007e6941db408a23bd697b62bc59ee68c57c414dc7d6e42)(@opentelemetry/api@1.9.1)(next@16.3.5(@opentelemetry/api@1.9.1)(@playwright/test@1.56.1)(@types/node@24.13.5)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(pg@8.23.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(vitest@5.0.1(@opentelemetry/api@1.9.1)(@types/node@24.13.5)(vite@8.3.0(@types/node@24.13.5)(esbuild@0.28.2)(yaml@2.9.1))):
     dependencies:
       '@better-auth/core': 1.7.5(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.2)(@opentelemetry/api@1.9.1)(better-call@1.4.0(zod@4.6.5))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.3)
       '@better-auth/drizzle-adapter': 1.7.5(@better-auth/core@1.7.5(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.2)(@opentelemetry/api@1.9.1)(better-call@1.4.0(zod@4.6.5))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.3))(@better-auth/utils@0.4.2)

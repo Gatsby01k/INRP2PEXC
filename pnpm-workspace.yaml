@@ -18,3 +18,12 @@ allowBuilds:
   # storybook / vite → esbuild. postinstall only swaps the JS launcher for the platform binary
   # from the optional @esbuild/<platform> package (already installed); esbuild works without it.
   esbuild: false
+
+# TD-01: Better Auth declares `rateLimit.lastRequest` as `number` with `bigint: true` and creates it as `bigint`, but its
+# migration planner compares column types by name and lists `bigint` without `int8` — the name the introspector
+# reports for that very column — so it warned about the schema Better Auth itself requires. The patch adds the
+# PostgreSQL type names (`int8`, `int2`, `float4`, `float8`) to the planner's number list; nothing at runtime changes.
+# Re-check (and drop) it on every Better Auth upgrade: `packages/identity/test/auth.int.test.ts` fails if the planner
+# warns about anything.
+patchedDependencies:
+  better-auth@1.7.5: patches/better-auth@1.7.5.patch

@@ -41,6 +41,8 @@ Status: Phase 0, revision 3 (`DECISIONS.md` Revision 3).
 - Only client users with `can_accept_quotes` may accept or reject quotes. The flag is granted or revoked by a `CLIENT_ADMIN` of that client or by an operator with `client_user:grant_accept_quotes` (⧗); every change is audited (`client_user.accept_permission_changed`).
 - Granting or revoking quote-acceptance authority is a **sensitive client-admin action**: the `CLIENT_ADMIN` must have TOTP enrolled and a fresh TOTP step-up (verified within the last 10 minutes) in the current session. A client admin without TOTP must enroll it before performing this action; there is no email-OTP-only path. The operator-side `client_user:grant_accept_quotes` step-up is unchanged.
 - Adding or archiving client destinations (bank accounts, wallets) by a `CLIENT_ADMIN` likewise requires fresh TOTP step-up (D-08). Operators act on behalf through `client_bank:add` (bank accounts) and `client_wallet:manage` (wallets), both ⧗.
+- **Client authenticator (TD-11).** A client user sets up TOTP on the Destinations screen (Better Auth `twoFactor`, `allowPasswordless`, `skipVerificationOnEnable: false`): only within ten minutes of signing in with an email code, never over an existing one, and it is enrolled only once a code from it is accepted. One-time recovery codes are shown once. The client surface offers no way to **remove** an authenticator or show its secret again, no new recovery codes without a fresh step-up with the current authenticator, and no trusted devices — so a stolen session cannot swap the authenticator for its own. A verified code (or recovery code) is that session's step-up. A lost authenticator is removed by the desk after confirming the person out of band (`client_user.reset_mfa`, OWNER/SUPPORT ⧗, with a reason; it ends every session of that user) — never by a public bypass. TOTP is a step-up factor for clients, not a second sign-in factor: client sign-in stays the email code.
+- **Cross-surface addresses (TD-02).** On the client surface an address that is not an active client's — an operator's, or a disabled one — gets no code and no session, and exactly the answer an unknown address or a wrong code gets; each such refusal is audited once (`session.failed`, `NOT_A_CLIENT_ADDRESS`). The session guard and the database trigger (IX020) stay behind it.
 
 ### 2.3 Quote link (`/q/{token}`) and acceptance challenge
 - Token: 128 bits CSPRNG, base62, only SHA-256 hash stored; constant-time lookup by hash; `Referrer-Policy: no-referrer`; `noindex`; no third-party scripts.
@@ -91,6 +93,7 @@ Legend: ✔ allowed · ⧗ allowed with step-up MFA · ✱ requires second appro
 | `client_bank:add` (operator on behalf) | ⧗ | — | — | — | ⧗ | — |
 | `client_wallet:manage` (add or archive client wallets, operator on behalf) | ⧗ | — | — | — | ⧗ | — |
 | `client_user:grant_accept_quotes` | ⧗ | — | — | — | ⧗ | — |
+| `client_user:reset_mfa` (remove a client user's authenticator after verifying the person out of band; ends their sessions, TD-11) | ⧗ | — | — | — | ⧗ | — |
 | `routes:configure` (incl. settlement model) | ⧗ | — | — | — | — | — |
 | `route_settlement:record` | ✔ | — | — | ✔ | — | — |
 | `route_settlement:confirm` (confirms the movement and allocates the obligation side it was recorded against) | ⧗ | — | — | ⧗ | — | — |
@@ -135,7 +138,8 @@ A single-person desk can run V1 by disabling thresholds explicitly in Settings (
 ## 5. Data protection
 
 - Encryption at rest: managed Postgres storage encryption + application envelope encryption for account numbers and client contact phone numbers; TOTP secrets are stored encrypted as Better Auth's two-factor plugin manages them (verified in Phase 1).
-- Keyed HMAC (separate key) for bank account dedup and UTR lookup.
+- **Key-encryption key (TD-03).** Each sealed value has its own AES-256-GCM data key, bound to its field and owner as AAD; the data key is wrapped by an **AWS KMS** symmetric key (`INRP2P_KEK_PROVIDER=aws-kms`, `INRP2P_KMS_KEY_ARN`) under the fixed encryption context `{app: inrp2p, purpose: field-data-key}`, so the application never holds the KEK and KMS will not unwrap a data key under any other context. Calls are signed (SigV4) with the workload's role credentials; a KMS that cannot be reached fails the operation — never a plaintext fallback. Every sealed value names its key id, so a new KMS key is introduced with the old one listed in `INRP2P_KEK_PREVIOUS` and old values stay readable. With `INRP2P_ENV=production` the process refuses to start on a locally held KEK (current or previous), a missing configuration, or one of the repository's own test keys. Provisioning, the minimal IAM policy and rotation: RUNBOOKS `field-encryption-keys`.
+- Keyed HMAC (separate key, from the secret manager) for bank account dedup and UTR lookup.
 - Masking helpers are the only way to render account numbers (`•••• 8219`) and UTRs (`••••7118`); raw values never enter logs, audit `before/after`, notifications or receipts beyond last 4 (receipts show full UTR — see D-09).
 - Attachments in private object storage, served via short-lived signed URLs after permission check; SHA-256 recorded.
 - Backups encrypted; restore drills in launch checklist.
