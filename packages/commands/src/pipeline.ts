@@ -41,8 +41,12 @@ function canonicalJson(value: unknown): string {
   });
 }
 
+/**
+ * What makes two requests "the same" for idempotency: the command, who asked, from which surface, and the payload.
+ * A key used by another person or from the other surface is a different request and is refused, never replayed.
+ */
 export function requestHash(name: string, actor: ActorRef, payload: unknown): string {
-  return createHash('sha256').update(canonicalJson({ name, actor: actor.id, payload })).digest('hex');
+  return createHash('sha256').update(canonicalJson({ name, actor: actor.id, surface: actor.surface, payload })).digest('hex');
 }
 
 const bigintReviver = (_k: string, v: unknown): unknown =>
@@ -52,6 +56,12 @@ const bigintReviver = (_k: string, v: unknown): unknown =>
  * The single mutation pipeline (ARCHITECTURE §4):
  * BEGIN → claim idempotency key → authorize → handler (locks, state, ledger, audit, outbox) →
  * store result → COMMIT. Any failure rolls back all of it, including the idempotency claim.
+ *
+ * A replay (the key already completed with the same request) returns the stored result without running the handler
+ * again (FI-50) — but only after `authorize` has passed again, now, for this caller (C2). The result of a mutation is
+ * itself information: a person whose role was withdrawn, or whose step-up has lapsed, learns nothing by retrying an
+ * old key. Authorization reads who the caller is and what they may do, never the state the command changed, so an
+ * honest retry of the same intent is authorized exactly as the first attempt was.
  */
 export async function executeCommand<P, R>(db: Db, def: CommandDefinition<P, R>, req: CommandRequest<P>): Promise<CommandOutcome<R>> {
   const correlationId = req.correlationId ?? randomUUID();
@@ -80,6 +90,8 @@ export async function executeCommand<P, R>(db: Db, def: CommandDefinition<P, R>,
             .executeTakeFirstOrThrow();
           if (existing.request_hash !== hash) throw new DomainError('IDEMPOTENCY_KEY_REUSED', `${req.name}:${key}`);
           if (existing.status !== 'COMPLETED') throw new DomainError('IDEMPOTENCY_IN_PROGRESS', `${req.name}:${key}`);
+          await sql`set local statement_timeout = '30s'`.execute(tx);
+          await def.authorize({ tx, actor: req.actor, correlationId, idempotencyKey: key, commandName: req.name }, req.payload);
           const stored = JSON.parse(JSON.stringify(existing.response), bigintReviver) as { result: R };
           return { result: stored.result, replayed: true, correlationId };
         }

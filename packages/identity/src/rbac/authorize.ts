@@ -41,10 +41,27 @@ export async function hasFreshStepUp(ex: Executor, sessionId: string, maxAgeSeco
 }
 
 /**
+ * The operator behind a command, checked again inside its transaction: an ACTIVE operator account, and the very
+ * session the command came from still open (not signed out, not expired, on the desk surface). A disabled account
+ * or a revoked session stops the next command — including the replay of an earlier one (C2) — not just the next page.
+ */
+export async function assertLiveOperator(ex: Executor, actor: Pick<OperatorActor, 'userId' | 'sessionId'>): Promise<void> {
+  const r = await sql<{ user_ok: boolean; session_ok: boolean }>`
+    select
+      exists (select 1 from auth_user where id = ${actor.userId} and kind = 'OPERATOR' and status = 'ACTIVE') as user_ok,
+      exists (select 1 from auth_session where id = ${actor.sessionId} and user_id = ${actor.userId} and surface = 'OPERATOR'
+                                           and expires_at > statement_timestamp()) as session_ok`.execute(ex);
+  const row = r.rows[0]!;
+  if (!row.user_ok) throw new DomainError('FORBIDDEN', 'this operator account is not active');
+  if (!row.session_ok) throw new DomainError('UNAUTHENTICATED', 'this session has ended; sign in again');
+}
+
+/**
  * Command-level authorization (SECURITY §3). Roles and grants are re-read from the database in
  * the command transaction, never trusted from the session or UI.
  */
 export async function authorizeOperator(ex: Executor, actor: OperatorActor, permission: Permission): Promise<AuthorizationDecision> {
+  await assertLiveOperator(ex, actor);
   const { roles, grants } = await loadOperatorGrants(ex, actor.userId);
   const req = effectiveRequirement(permission, roles, grants);
   if (req === 'DENY') throw new DomainError('FORBIDDEN', `missing permission ${permission}`, { permission });
