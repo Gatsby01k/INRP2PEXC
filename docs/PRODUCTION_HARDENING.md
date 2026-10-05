@@ -15,6 +15,18 @@ outside the repository. A result is recorded only with the command, SHA and envi
 
 Fake-provider tests never close gate 2; CI never closes gate 3.
 
+## Runs (gate 1 evidence)
+
+Local runs on a developer Mac (macOS 15 / Darwin 24.6, Node 24.21.0, pnpm 12.4.2, Docker 29.8, PostgreSQL
+`postgres:18.6` via Testcontainers). They are code-level evidence only — fake chain and custody adapters — and close
+nothing on gates 2 or 3. CI on the final SHA replaces them in the final report.
+
+| Date | SHA | Command | Result |
+|---|---|---|---|
+| 2026-10-05 | `c861005` | `pnpm typecheck` · `pnpm lint` · `pnpm secret-scan` | PASS · PASS · PASS (985 files) |
+| 2026-10-05 | `c861005` | `pnpm test:unit` | PASS — 30 files, 1537 tests |
+| 2026-10-05 | `c861005` | `pnpm test:integration` | PASS — 39 files, 760 tests; 1 skipped: `apps/web/test/proxy.int.test.ts` runs only against a `next build` or in CI |
+
 ## Items
 
 | ID | Pri | Kind | Title | Status |
