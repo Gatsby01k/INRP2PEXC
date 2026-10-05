@@ -49,6 +49,7 @@ nothing on gates 2 or 3. CI on the final SHA replaces them in the final report.
 | D1 | P0 | confirmed defect | TD-18: an open trade can follow a client's new destination (two people, step-up, append-only) | fixed — code ready |
 | D2 | P0 | confirmed defect | TD-19: an overpayment can be returned without unwinding the trade | fixed — code ready |
 | D3 | P0 | implementation + owner decision | TD-21: a trader's reserve applied to USDT its own order did not deliver | USDT side code ready; INR side / recovery terms **BLOCKED** (owner) |
+| D4 | P0 | confirmed defects + proof | Trader lifecycle end to end; sweep error isolation; rewards never paid from principal | fixed — code ready |
 
 (The table grows as stages are worked; each row has a section below.)
 
@@ -373,4 +374,29 @@ is wanted stays an open owner question (ADR 0016 §8).
   delivery), `packages/ledger/test/movement.unit.test.ts`.
 - **Gate 3.** BLOCKED on the owner: recovery terms for INR shortfalls and other uses (ADR-16 §8), and TD-22 (the
   programme agreement) before any trader provides real money.
+
+## D4 — Trader lifecycle, sweep isolation, rewards from margin (P0, confirmed defects)
+
+- **Found (on `d0cc778`).** `runTraderSweep` said each order was its own step "so one failure never holds up the
+  rest", but it awaited the steps in a loop: the first order that threw ended the run, and every later lapsed offer,
+  ended hold and settled order waited — with capacity held — until that order stopped failing; nothing reported it.
+  Reward payouts could be drawn from any exchange INR account up to the trader's payable, so a reward could be paid
+  with a client's INR waiting to pay a trader, or a trader's INR waiting to pay a client (ADR-16 §6 said "realized
+  margin only"; nothing enforced it). No single test followed a trader through its whole life.
+- **Changed.** The sweep guards each step: a failure rolls back that order's transaction alone, is reported
+  (`failures`: step, order, code, message) and logged by the worker, and is retried next run; health signal
+  `trader_orders_overdue` (offers, holds and settled orders left ten minutes) with runbook `trader-sweep-behind`.
+  Migration `0030_reward_from_margin.sql`: `inrp2p_inr_account_free_margin` (leftovers of trades finished on both
+  sides at that account, less rewards paid or pending there, capped by the account's balance beyond open trades'
+  money) and IX096 on every reward payout insert, serialized per account; `trader_reward.record_payout` refuses the
+  same first (`TRADER_REWARD_NOT_COVERED`); the desk shows each account's free margin and offers the best first. The
+  `overdue_route_obligations` explanation is corrected for D-16 (the client waits for the counterparty's money).
+- **Tests.** `test/integration/trader-lifecycle.int.test.ts` — one trader: apply, approve, reserve, both blocks; a Buy
+  USDT order (client USDT in, trader INR in, client paid from the trader's INR, trader paid from the client's USDT)
+  and a Sell USDT order (client INR in, trader USDT to the order's address, client paid from it, trader paid from the
+  client's INR); sweep completes both and accrues their rewards; free margin ₹500 / ₹400 per account; rewards paid
+  from each; IX096 one paisa over; switched off, reserve unlocked and withdrawn; every account at zero; notifications.
+  Sweep: a fault planted on one order's row — the other expires, the failure is reported with its code, the health
+  signal warns, the retry clears it. `test/integration/traders.int.test.ts` now pays the reward after the client is
+  paid, and proves it refused before that and from an account the trade never touched.
 

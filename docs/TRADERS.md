@@ -235,6 +235,13 @@ Security Reserve never stand in (FI-76). A trader route is always `TO_EXCHANGE`:
   (`trader_reward.record_payout`, capacity reserved; refused above the payable), then confirms it (⧗):
   `fiat:{f}:confirm`, purpose `TRADER_REWARD_PAYOUT`, Dr `LIAB:TRADER_REWARD_PAYABLE` / Cr `ASSET:INR_SETTLEMENT`.
   A failed payout releases the capacity (`TRADER_PAYOUT_FAILED`).
+- **Paid only out of realized margin** (D4, migration 0030): a reward is the platform's own expense, and since D-16
+  the platform's own money at an exchange account is only what its finished trades left there. A payout from an
+  account is refused (`TRADER_REWARD_NOT_COVERED`; IX096 for any writer) beyond that account's free margin: the
+  leftovers of trades completed on both sides (client paid, counterparty paid), less rewards already paid or being
+  paid from it, and never more than the account holds beyond the money of trades still open. A client's or a
+  trader's principal, another trade's money and a reserve never pay a reward; an uncovered reward stays payable.
+  The desk sees each account's free margin where it chooses the paying account.
 - Earnings shown to the trader: Today, Available (accrued, unpaid), Pending (frozen rewards on open orders),
   Being paid out, Total completed volume. No "profit" wording.
 
@@ -298,7 +305,9 @@ play only for a new order, an accepted order, a completed order and an action re
 
 ## 14. Jobs
 
-- `trader_orders_sweep` (worker cron, every minute): expires offers, ends holds, reconciles started orders.
+- `trader_orders_sweep` (worker cron, every minute): expires offers, ends holds, reconciles started orders. Each
+  order is its own step and transaction: one that fails rolls back alone, is logged with its code, and is retried
+  next minute while the sweep goes on (D4). An order left undone ten minutes is the `trader_orders_overdue` signal.
 - `traderRoutingHandler` (outbox): re-routes declined/expired/withdrawn offers, auto-assigns new requests when
   `auto_assign` is on, closes orders of cancelled trades.
 - `traderNotificationHandler` (outbox): writes the `TRADER_*` notifications.
