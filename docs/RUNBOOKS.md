@@ -327,6 +327,28 @@ never have custody send a reserve before the application is approved — the sca
 
 ---
 
+## trader-sweep-behind — trader orders are not moving
+
+**What you were told.** `trader_orders_overdue` above zero: offers past their expiry not routed on, holds past their
+end still holding a trader's capacity, or orders whose obligation settled still open.
+
+**What to check first.**
+
+1. Is the worker running? Every other worker signal (`outbox_oldest_pending_seconds`, `audit_seal_age_seconds`)
+   climbing at once means it is not.
+2. The worker log: each order the sweep could not move is logged as
+   `trader_orders_sweep: <step> <order id> failed (<code>): <message>`. The same order failing every minute is a
+   problem with that order, not with the sweep — the others are still being moved.
+
+**What to do.** A stopped worker: start it; the sweep catches up on its own (every step is state-guarded). One order
+failing: read its code. A lock or a transient database error clears itself; a rule refusal (a capacity check, an
+order the trade no longer matches) is a case for the trader desk — release or withdraw the order there, with a reason.
+
+**What never to do.** Do not edit the order or its block by hand to make the sweep pass: the capacity a block holds
+must equal its open orders (TR-02), and the database refuses anything else for a reason.
+
+---
+
 ## outbox-backlog — events are not being delivered
 
 **What you were told.** `outbox_failed` above zero, or `outbox_oldest_pending_seconds` climbing.

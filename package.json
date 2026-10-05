@@ -26,6 +26,7 @@
     "@inrp2p/audit": "workspace:*",
     "@inrp2p/clients": "workspace:*",
     "@inrp2p/commands": "workspace:*",
+    "@inrp2p/desk": "workspace:*",
     "@inrp2p/db": "workspace:*",
     "@inrp2p/identity": "workspace:*",
     "@inrp2p/inr-accounts": "workspace:*",

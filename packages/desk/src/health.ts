@@ -129,7 +129,16 @@ export const HEALTH_CHECKS: readonly HealthCheckDefinition[] = Object.freeze([
     alarm: 5,
     unit: 'count',
     runbook: 'route-settlement-overdue',
-    why: 'The client was paid; the route has not settled with us. This is the desk’s own money sitting with a counterparty.',
+    why: 'A route or trader has not delivered its side, or has not been paid its own. Since D-16 the client is paid with the counterparty’s money, so an undelivered side is a client waiting for liquidity.',
+  },
+  {
+    id: 'trader_orders_overdue',
+    title: 'Trader orders the sweep should have moved more than ten minutes ago',
+    warn: 0,
+    alarm: 4,
+    unit: 'count',
+    runbook: 'trader-sweep-behind',
+    why: 'Lapsed offers that were not routed on, ended holds still holding capacity, settled orders not closed. The sweep runs every minute and isolates each order, so one that stays here is failing every time — or the worker is not running.',
   },
   {
     id: 'inr_capacity_available',
@@ -196,6 +205,7 @@ export async function systemHealth(ex: Executor): Promise<SystemHealth> {
     audit_seal_age_seconds: string;
     blocking_exceptions: string;
     overdue_route_obligations: string;
+    trader_orders_overdue: string;
     inr_capacity_available: string;
     deposit_pool_free: string;
     checked_at: Date;
@@ -232,6 +242,14 @@ export async function systemHealth(ex: Executor): Promise<SystemHealth> {
       (select count(*) from route_obligation o
         where o.status not in ('SETTLED', 'CANCELLED')
           and o.opened_at < statement_timestamp() - make_interval(hours => 24))::text as overdue_route_obligations,
+      -- What runTraderSweep acts on (dueOrders), left undone for ten minutes: offers past expiry, holds past their end,
+      -- started orders whose obligation is settled or cancelled.
+      (select count(*) from trader_order t
+         left join route_obligation r on r.id = t.route_obligation_id
+        where (t.status = 'OFFERED' and t.offer_expires_at < inrp2p_now() - make_interval(mins => 10))
+           or (t.status = 'ACCEPTED' and t.hold_until < inrp2p_now() - make_interval(mins => 10))
+           or (t.status = 'IN_PROGRESS' and r.status in ('SETTLED', 'CANCELLED')
+               and coalesce(r.settled_at, r.cancelled_at) < inrp2p_now() - make_interval(mins => 10)))::text as trader_orders_overdue,
       -- Whole rupees, divided in SQL on the bigint: no money is ever converted to a JavaScript number, and
       -- integer division rounds *down*, so this check understates what is available rather than overstating it.
       coalesce((select sum(greatest(coalesce(d.capacity_minor, a.default_daily_capacity_minor) - coalesce(d.used_minor, 0) - coalesce(d.reserved_minor, 0), 0)) / 100
@@ -260,6 +278,7 @@ export async function systemHealth(ex: Executor): Promise<SystemHealth> {
     audit_seal_age_seconds: int(row.audit_seal_age_seconds),
     blocking_exceptions: int(row.blocking_exceptions),
     overdue_route_obligations: int(row.overdue_route_obligations),
+    trader_orders_overdue: int(row.trader_orders_overdue),
     inr_capacity_available: int(row.inr_capacity_available),
     deposit_pool_free: int(row.deposit_pool_free),
   };

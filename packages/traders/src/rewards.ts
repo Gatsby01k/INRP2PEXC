@@ -61,9 +61,22 @@ export async function earnings(ex: Executor, traderId: string): Promise<Earnings
 }
 
 /**
+ * The realized margin free at an exchange INR account: what trades finished on both sides left there, less rewards
+ * already paid or being paid from it, and never more than the account holds beyond the money of trades still open
+ * (migration 0030). The only money a reward may be paid with (ADR 0016 §6).
+ */
+export async function freeMarginAt(ex: Executor, inrAccountId: string): Promise<Money<'INR'>> {
+  const r = await sql<{ free: string }>`select inrp2p_inr_account_free_margin(${requireUuid(inrAccountId, 'inrAccountId')})::text as free`.execute(ex);
+  const free = BigInt(r.rows[0]!.free);
+  return Money.ofMinor(free > 0n ? free : 0n, 'INR');
+}
+
+/**
  * `trader_reward.record_payout` — `trader_payout:record`. INR paid from an exchange account to the trader's
- * registered bank account, with its UTR: at most what is accrued and not already being paid, and drawing on the
- * account's daily capacity like any other payment out (FI-30). Nothing posts until it is confirmed.
+ * registered bank account, with its UTR: at most what is accrued and not already being paid, only out of the realized
+ * margin free at that account — never a client's or a counterparty's principal, never another trade's money (D4,
+ * IX096) — and drawing on the account's daily capacity like any other payment out (FI-30). Nothing posts until it is
+ * confirmed.
  */
 export function recordRewardPayout(actor: OperatorActor) {
   return operatorCommand(actor, 'trader_payout:record', async (ctx, p: { traderId: string; amount: string; inrAccountId: string; rail: FiatRail; utr: string }) => {
@@ -77,6 +90,12 @@ export function recordRewardPayout(actor: OperatorActor) {
     const bank = await ctx.tx.selectFrom('bank_account').select(['id', 'status']).where('id', '=', trader.bank_account_id).executeTakeFirstOrThrow();
     if (bank.status !== 'ACTIVE') throw new DomainError('TRADER_DESTINATION_INVALID', "the trader's registered bank account is no longer active");
     const inrAccountId = requireUuid(p.inrAccountId, 'inrAccountId');
+    const margin = await freeMarginAt(ctx.tx, inrAccountId);
+    if (amount.minor > margin.minor) {
+      throw new DomainError('TRADER_REWARD_NOT_COVERED', `only ${margin.toDecimalString()} INR of realized margin is free at that account; a reward is never paid from a client's or a trader's money`, {
+        freeMargin: margin.toDecimalString(),
+      });
+    }
     const movement = await recordFiatTransfer(ctx, {
       rail: requireOneOf(p.rail, 'rail', ['IMPS', 'NEFT', 'RTGS', 'UPI'] as const),
       utr: p.utr,

@@ -94,8 +94,11 @@ export function buildTaskList(
   const custodyObserve = chainJob((deps) => observeBalances(db, { sources: deps.providers, contract: deps.chain.tokenContract }));
   // Traders (docs/TRADERS.md): offers that lapsed are routed on, ended holds give capacity back, started orders
   // catch up with their route obligation (completed, cancelled, the trader's side confirmed).
-  const traderOrdersSweep: Task = async () => {
-    await runTraderSweep(db);
+  // One order's failure never stops the rest (each is its own step); the failures are logged here, retried next
+  // minute, and an order that keeps failing surfaces as the `trader_orders_overdue` health signal.
+  const traderOrdersSweep: Task = async (_payload, helpers) => {
+    const report = await runTraderSweep(db);
+    for (const f of report.failures) helpers.logger.error(`trader_orders_sweep: ${f.step} ${f.orderId} failed (${f.code}): ${f.message}`);
   };
   return {
     outbox_dispatch: outboxDispatch,

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { Money } from '@inrp2p/kernel';
 import type { PayoutAccountOption } from '@inrp2p/desk';
 import type { DeskTraderDetail } from '@inrp2p/traders';
 import { Button, StepUpMark, UTRField, normalizeUtr } from '@inrp2p/ui';
@@ -284,7 +285,11 @@ function Withdrawal({ w, perms }: { w: DeskTraderDetail['withdrawals'][number]; 
 function Rewards({ detail, accounts, perms, earnings: e }: { detail: DeskTraderDetail; accounts: readonly PayoutAccountOption[]; perms: TraderPerms; earnings: DeskTraderDetail['earnings'] }) {
   const cmd = useCommand();
   const [payAmount, setPayAmount] = useState('');
-  const [payAccount, setPayAccount] = useState(accounts[0]?.accountId ?? '');
+  // A reward is paid only out of realized margin at the paying account (D4): the account with the most free goes first.
+  const marginOf = (accountId: string) => detail.rewardMargins.find((m) => m.accountId === accountId)?.freeMargin ?? '0.00';
+  const minorOf = (accountId: string) => Money.parse(marginOf(accountId), 'INR').minor;
+  const ranked = [...accounts].sort((x, y) => (minorOf(y.accountId) > minorOf(x.accountId) ? 1 : minorOf(y.accountId) < minorOf(x.accountId) ? -1 : 0));
+  const [payAccount, setPayAccount] = useState(ranked[0]?.accountId ?? '');
   const [payUtr, setPayUtr] = useState('');
   const step = <StepUpMark label="needs your authenticator code" />;
   return (
@@ -338,7 +343,13 @@ function Rewards({ detail, accounts, perms, earnings: e }: { detail: DeskTraderD
           <p className={d.guardTitle}>Record a reward payout to the registered account</p>
           <div className={d.formGrid}>
             <AmountField label="Pay" currency="INR" value={payAmount} onChange={setPayAmount} hint={`Leave empty to pay all ${inr(e.available)}`} />
-            <SelectField label="From" value={payAccount} onChange={setPayAccount} options={accounts.map((a) => ({ value: a.accountId, label: `${a.bankName} ••••${a.last4} · ${inr(a.availableToday)} today` }))} />
+            <SelectField
+              label="From"
+              value={payAccount}
+              onChange={setPayAccount}
+              options={ranked.map((a) => ({ value: a.accountId, label: `${a.bankName} ••••${a.last4} · ${inr(marginOf(a.accountId))} margin free · ${inr(a.availableToday)} today` }))}
+              hint="Rewards are paid only out of margin the account's finished trades left there — never a client's or a trader's money."
+            />
           </div>
           <UTRField value={payUtr} onChange={setPayUtr} />
           <div className={d.actions}>

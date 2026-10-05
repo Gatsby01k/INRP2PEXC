@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from 'kysely';
 import { Money } from '@inrp2p/kernel';
@@ -7,7 +8,7 @@ import { dispatchOutbox } from '@inrp2p/outbox';
 import { acknowledgedSignalHandler, clientNotificationHandler, traderNotificationHandler } from '@inrp2p/notifications';
 import { publishRouteRate } from '@inrp2p/pricing';
 import { acceptQuote, createQuote, declineRequest, sendQuote } from '@inrp2p/quotes';
-import { confirmRouteSettlement, recordRouteSettlement } from '@inrp2p/settlement';
+import { confirmPayout, confirmRouteSettlement, createPayoutLeg, recordLegEvidence, recordRouteSettlement, sendPayoutLeg } from '@inrp2p/settlement';
 import { globalImbalance, routeObligationBalances } from '@inrp2p/ledger';
 import {
   acceptOrder, approveTrader, assignRequest, confirmRewardPayout, confirmReserveWithdrawal, declineOrder, deskTrader, orderDeliveryAddress,
@@ -238,10 +239,19 @@ describe('a Buy USDT order, end to end', () => {
     await dispatch();
     expect(await inbox(t.clientId)).toEqual(expect.arrayContaining(['TRADER_ORDER_ACCEPTED', 'TRADER_PAYMENT_CONFIRMED', 'TRADER_ORDER_COMPLETED']));
 
-    // The reward is paid from an exchange account against the accrued payable, once, after a step-up confirm.
-    await expect(runAs(w.app, recordRewardPayout(w.finance.actor), w.finance.ref, 'trader_reward.record_payout', { traderId: live.traderId, amount: '104.71', inrAccountId: w.inrAccountId, rail: 'IMPS' as const, utr: utr('RWD') }))
-      .rejects.toMatchObject({ code: 'TRADER_REWARD_EXCEEDS_PAYABLE' });
-    const payout = await runAs(w.app, recordRewardPayout(w.finance.actor), w.finance.ref, 'trader_reward.record_payout', { traderId: live.traderId, amount: '104.70', inrAccountId: w.inrAccountId, rail: 'IMPS' as const, utr: utr('RWD') });
+    // The reward is paid from an exchange account against the accrued payable, once, after a step-up confirm — and only
+    // out of realized margin (D4): while the client is unpaid, the trader's INR at the collection account is principal.
+    const reward = (amount: string, inrAccountId: string) =>
+      runAs(w.app, recordRewardPayout(w.finance.actor), w.finance.ref, 'trader_reward.record_payout', { traderId: live.traderId, amount, inrAccountId, rail: 'IMPS' as const, utr: utr('RWD') });
+    await expect(reward('104.71', w.collectionAccountId)).rejects.toMatchObject({ code: 'TRADER_REWARD_EXCEEDS_PAYABLE' });
+    await expect(reward('104.70', w.collectionAccountId)).rejects.toMatchObject({ code: 'TRADER_REWARD_NOT_COVERED', details: { freeMargin: '0.00' } });
+    const clientLeg = await runAs(w.app, createPayoutLeg(w.settlementOp.actor, {}), w.settlementOp.ref, 'payout_leg.create', { tradeId: accepted.tradeId, amount: '104200.00', payer: 'EXCHANGE_ACCOUNT' as const, inrAccountId: w.collectionAccountId });
+    await runAs(w.app, sendPayoutLeg(w.settlementOp.actor), w.settlementOp.ref, 'payout_leg.send', { legId: clientLeg.legId });
+    await runAs(w.app, recordLegEvidence(w.settlementOp.actor, w.settlementDeps), w.settlementOp.ref, 'payout_leg.record_evidence', { legId: clientLeg.legId, rail: 'IMPS' as const, utr: utr('PO') });
+    expect((await confirmPayout(w.app, w.settlementOp.actor, w.settlementDeps, { legId: clientLeg.legId, idempotencyKey: randomUUID() })).completed).toBe(true);
+    // ₹500 of margin is now realized at the collection account — and none at an account the trade never touched.
+    await expect(reward('104.70', w.inrAccountId)).rejects.toMatchObject({ code: 'TRADER_REWARD_NOT_COVERED' });
+    const payout = await reward('104.70', w.collectionAccountId);
     await runAs(w.app, confirmRewardPayout(w.finance.actor), w.finance.ref, 'trader_reward.confirm_payout', { payoutId: payout.payoutId });
     expect((await traderHome(w.app, t.admin.userId)).earnings).toMatchObject({ available: '0.00', paidOut: '104.70' });
     expect(await globalImbalance(w.app)).toEqual([]);

@@ -341,6 +341,8 @@ export interface DeskTraderDetail {
   readonly applicableOrders: readonly { orderId: string; ref: string; owed: string }[];
   readonly earnings: { readonly rewardBps: number | null; readonly available: string; readonly payingOut: string; readonly pending: string; readonly paidOut: string; readonly completedUsdt: string; readonly completedInr: string };
   readonly payouts: readonly { payoutId: string; ref: string; amount: string; status: string; utr: string; recordedAt: string }[];
+  /** Realized margin free at each active exchange account — the only money a reward may be paid with (D4). */
+  readonly rewardMargins: readonly { accountId: string; freeMargin: string }[];
   readonly orders: readonly DeskOrderRow[];
   readonly decisions: readonly { at: string; action: string; actor: string | null; detail: string }[];
 }
@@ -435,6 +437,8 @@ export async function deskTrader(ex: Executor, traderId: string): Promise<DeskTr
        and not exists (select 1 from trader_reserve_application a where a.trader_order_id = o.id and a.status in ('REQUESTED', 'APPROVED', 'SENT'))
      order by o.started_at`.execute(ex);
   const e = await earnings(ex, id);
+  const margins = await sql<{ id: string; free: string }>`
+    select a.id, greatest(inrp2p_inr_account_free_margin(a.id), 0)::text as free from inr_settlement_account a where a.status = 'ACTIVE' order by a.id`.execute(ex);
   const payouts = await ex
     .selectFrom('trader_reward_payout as r')
     .innerJoin('fiat_transfer as f', 'f.id', 'r.fiat_transfer_id')
@@ -529,6 +533,7 @@ export async function deskTrader(ex: Executor, traderId: string): Promise<DeskTr
       completedInr: e.completedInr.toDecimalString(),
     },
     payouts: payouts.map((r) => ({ payoutId: r.id, ref: r.ref, amount: inr(r.amount_minor), status: r.status, utr: r.utr, recordedAt: r.recorded_at.toISOString() })),
+    rewardMargins: margins.rows.map((m) => ({ accountId: m.id, freeMargin: inr(BigInt(m.free)) })),
     orders: await deskOrderRows(ex, { traderId: id }, 100),
     decisions: decisions.map((d) => ({ at: d.at.toISOString(), action: d.action, actor: d.actor_id, detail: summarizeAudit(d.after) })),
   };
