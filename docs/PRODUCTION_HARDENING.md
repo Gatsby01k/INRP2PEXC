@@ -26,6 +26,9 @@ nothing on gates 2 or 3. CI on the final SHA replaces them in the final report.
 | 2026-10-05 | `c861005` | `pnpm typecheck` · `pnpm lint` · `pnpm secret-scan` | PASS · PASS · PASS (985 files) |
 | 2026-10-05 | `c861005` | `pnpm test:unit` | PASS — 30 files, 1537 tests |
 | 2026-10-05 | `c861005` | `pnpm test:integration` | PASS — 39 files, 760 tests; 1 skipped: `apps/web/test/proxy.int.test.ts` runs only against a `next build` or in CI |
+| 2026-10-05 | `0250273` | `pnpm typecheck` · `pnpm lint` · `pnpm secret-scan` | PASS · PASS · PASS (998 files) |
+| 2026-10-05 | `0250273` | `pnpm test:unit` | PASS — 31 files, 1549 tests |
+| 2026-10-05 | `0250273` | `pnpm test:integration` | PASS — 41 files, 792 tests; 1 skipped (the built-app proxy test, as above) |
 
 ## Items
 
