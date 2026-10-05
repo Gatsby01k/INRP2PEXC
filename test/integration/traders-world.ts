@@ -42,7 +42,8 @@ export async function createTradersWorld(label: string): Promise<TradersWorld> {
   const entity = await runAs(w.app, createSettlementEntity(w.finance.actor), w.finance.ref, 'settlement_entity.create', { legalName: 'INRP2P Collections Private Limited', shortName: `COLL-${randomUUID().slice(0, 6)}` });
   const collection = await runAs(w.app, createInrAccount(w.finance.actor, w.deps.protector), w.finance.ref, 'inr_account.create', {
     entityId: entity.entityId, label: 'Trader collections', bankName: 'Axis Bank', ifsc: 'UTIB0000456', accountNumber: '918020045510099',
-    rails: ['IMPS', 'NEFT', 'RTGS'] as const, direction: 'COLLECTION' as const, defaultDailyCapacity: '0.00',
+    // It collects the traders' INR and pays clients out of it (D-16: pass-through from where the money arrived).
+    rails: ['IMPS', 'NEFT', 'RTGS'] as const, direction: 'BOTH' as const, defaultDailyCapacity: '100000000.00',
   });
   return { ...w, traderDeps: { custody: w.deps.custody, protector: w.deps.protector, chain: w.chain }, hotAddress: hot.address, collectionAccountId: collection.accountId };
 }
