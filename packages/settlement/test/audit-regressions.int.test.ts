@@ -213,10 +213,47 @@ describe('payout evidence must be what the chain says it is (FI-24)', () => {
     const row = await w.app.selectFrom('settlement_leg').select('destination_wallet_id').where('id', '=', leg.legId).executeTakeFirstOrThrow();
     const dest = await w.app.selectFrom('crypto_wallet').select('address').where('id', '=', row.destination_wallet_id!).executeTakeFirstOrThrow();
     const treasury = await w.app.selectFrom('treasury_wallet').select('address').where('id', '=', w.treasuryWalletId).executeTakeFirstOrThrow();
-    // Someone else paid the client this amount; the operator records it as our treasury's payment.
+    // Someone else paid the client this amount; the operator records it as our treasury's payment. The transaction is
+    // read when it is recorded, so it is refused there — and it could never confirm either (FI-24).
     const stranger = w.chain.add({ from: encodeTronAddress(randomBytes(20)), to: dest.address, amountMinor: usdt('50') });
-    await runAs(w.app, recordLegEvidence(w.settlementOp.actor, w.settlementDeps), w.settlementOp.ref, 'payout_leg.record_evidence', { legId: leg.legId, txHash: stranger.txHash, logIndex: stranger.logIndex, fromAddress: treasury.address });
-    await expect(confirmPayout(w.app, w.settlementOp.actor, w.settlementDeps, { legId: leg.legId, idempotencyKey: randomUUID() })).rejects.toMatchObject({ code: 'TRANSFER_NOT_CONFIRMED' });
+    await expect(runAs(w.app, recordLegEvidence(w.settlementOp.actor, w.settlementDeps), w.settlementOp.ref, 'payout_leg.record_evidence', { legId: leg.legId, txHash: stranger.txHash, logIndex: stranger.logIndex, fromAddress: treasury.address }))
+      .rejects.toMatchObject({ code: 'INVALID_ARGUMENT' });
+    await expect(runAs(w.app, recordLegEvidence(w.settlementOp.actor, w.settlementDeps), w.settlementOp.ref, 'payout_leg.record_evidence', { legId: leg.legId, txHash: stranger.txHash }))
+      .rejects.toMatchObject({ code: 'INVALID_ARGUMENT' });
+    await expect(confirmPayout(w.app, w.settlementOp.actor, w.settlementDeps, { legId: leg.legId, idempotencyKey: randomUUID() })).rejects.toMatchObject({ code: 'UTR_REQUIRED' });
+  });
+
+  it('finds the payment by its facts, not at log 0, and refuses a transaction that pays it twice', async () => {
+    const trade = await openTrade(w, { direction: 'BUY_USDT', executionMode: 'TO_EXCHANGE', baseUsdt: '40', clientRate: '106.000000', routeRate: '104.200000' });
+    await settleFirstLeg(w, trade.tradeId);
+    await deliverCounterparty(w, trade.tradeId);
+    const leg = await runAs(w.app, createPayoutLeg(w.settlementOp.actor, {}), w.settlementOp.ref, 'payout_leg.create', { tradeId: trade.tradeId, amount: '40', payer: 'EXCHANGE_ACCOUNT' as const, treasuryWalletId: w.treasuryWalletId });
+    const treasury = await w.app.selectFrom('treasury_wallet').select('address').where('id', '=', w.treasuryWalletId).executeTakeFirstOrThrow();
+    await observe(w, treasury.address);
+    await runAs(w.app, sendPayoutLeg(w.settlementOp.actor), w.settlementOp.ref, 'payout_leg.send', { legId: leg.legId });
+    const row = await w.app.selectFrom('settlement_leg').select('destination_wallet_id').where('id', '=', leg.legId).executeTakeFirstOrThrow();
+    const dest = await w.app.selectFrom('crypto_wallet').select('address').where('id', '=', row.destination_wallet_id!).executeTakeFirstOrThrow();
+    // A batch: someone else's transfer at log 0, the client's payment at log 1.
+    const fee = w.chain.add({ txHash: 'ab'.repeat(32), logIndex: 0, from: encodeTronAddress(randomBytes(20)), to: encodeTronAddress(randomBytes(20)), amountMinor: usdt('1') });
+    w.chain.add({ txHash: fee.txHash, logIndex: 1, from: treasury.address, to: dest.address, amountMinor: usdt('40') });
+    const recorded = await runAs(w.app, recordLegEvidence(w.settlementOp.actor, w.settlementDeps), w.settlementOp.ref, 'payout_leg.record_evidence', { legId: leg.legId, txHash: fee.txHash });
+    const transfer = await w.app.selectFrom('crypto_transfer').select(['log_index']).where('id', '=', recorded.transferId).executeTakeFirstOrThrow();
+    expect(transfer.log_index).toBe(1);
+    const done = await confirmPayout(w.app, w.settlementOp.actor, w.settlementDeps, { legId: leg.legId, idempotencyKey: randomUUID() });
+    expect(done.completed).toBe(true);
+
+    // The same payment twice in one transaction: the operator has to say which one this leg is.
+    const twice = await openTrade(w, { direction: 'BUY_USDT', executionMode: 'TO_EXCHANGE', baseUsdt: '30', clientRate: '106.000000', routeRate: '104.200000' });
+    await settleFirstLeg(w, twice.tradeId);
+    await deliverCounterparty(w, twice.tradeId);
+    const leg2 = await runAs(w.app, createPayoutLeg(w.settlementOp.actor, {}), w.settlementOp.ref, 'payout_leg.create', { tradeId: twice.tradeId, amount: '30', payer: 'EXCHANGE_ACCOUNT' as const, treasuryWalletId: w.treasuryWalletId });
+    await observe(w, treasury.address);
+    await runAs(w.app, sendPayoutLeg(w.settlementOp.actor), w.settlementOp.ref, 'payout_leg.send', { legId: leg2.legId });
+    w.chain.add({ txHash: 'cd'.repeat(32), logIndex: 0, from: treasury.address, to: dest.address, amountMinor: usdt('30') });
+    w.chain.add({ txHash: 'cd'.repeat(32), logIndex: 1, from: treasury.address, to: dest.address, amountMinor: usdt('30') });
+    await expect(runAs(w.app, recordLegEvidence(w.settlementOp.actor, w.settlementDeps), w.settlementOp.ref, 'payout_leg.record_evidence', { legId: leg2.legId, txHash: 'cd'.repeat(32) }))
+      .rejects.toMatchObject({ code: 'INVALID_ARGUMENT', details: { logIndexes: [0, 1] } });
+    await runAs(w.app, recordLegEvidence(w.settlementOp.actor, w.settlementDeps), w.settlementOp.ref, 'payout_leg.record_evidence', { legId: leg2.legId, txHash: 'cd'.repeat(32), logIndex: 1 });
   });
 });
 

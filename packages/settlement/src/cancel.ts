@@ -241,18 +241,21 @@ export function confirmRefundLeg(actor: OperatorActor, deps: SettlementDeps) {
       kind = 'FIAT';
       movementId = recorded.transferId;
     } else {
-      const { recordCryptoTransfer } = await import('./movements.ts');
-      const wallet = await ctx.tx.selectFrom('crypto_wallet').select('address').where('client_id', '=', trade.client_id).where('status', '=', 'ACTIVE').where('purpose', 'in', ['SOURCE', 'BOTH']).executeTakeFirst();
-      if (!wallet) throw new DomainError('DESTINATION_INVALID', 'the client has no active source wallet to refund to');
+      const { locateTransferLog, recordCryptoTransfer } = await import('./movements.ts');
+      // The refund goes back to a wallet the client registered as one it sends from; which one is what the chain
+      // says the transaction paid — never "the first row".
+      const wallets = await ctx.tx.selectFrom('crypto_wallet').select('address').where('client_id', '=', trade.client_id).where('status', '=', 'ACTIVE').where('purpose', 'in', ['SOURCE', 'BOTH']).execute();
+      if (wallets.length === 0) throw new DomainError('DESTINATION_INVALID', 'the client has no active source wallet to refund to');
       const fromAddress = leg.source_deposit_address_id
         ? (await ctx.tx.selectFrom('deposit_address').select('address').where('id', '=', leg.source_deposit_address_id).executeTakeFirstOrThrow()).address
         : (await ctx.tx.selectFrom('treasury_wallet').select('address').where('id', '=', leg.treasury_wallet_id!).executeTakeFirstOrThrow()).address;
+      const located = await locateTransferLog(deps, { txHash: p.txHash ?? '', logIndex: p.logIndex ?? null, from: fromAddress, to: wallets.map((w) => w.address), amountMinor: leg.amount_minor });
       const recorded = await recordCryptoTransfer(ctx, {
         txHash: p.txHash ?? '',
-        logIndex: p.logIndex ?? 0,
+        logIndex: located.logIndex,
         tokenContract: deps.chain.tokenContract,
         fromAddress,
-        toAddress: wallet.address,
+        toAddress: located.toAddress,
         amount: amount as Money<'USDT'>,
         payerType: 'EXCHANGE_TREASURY',
         payerId: leg.treasury_wallet_id,

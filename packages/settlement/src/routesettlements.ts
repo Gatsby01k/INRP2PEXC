@@ -6,7 +6,7 @@ import { enqueueOutbox } from '@inrp2p/outbox';
 import { type OperatorActor, operatorCommand } from '@inrp2p/identity';
 import { consumeReservation, releaseReservation, reserveCapacity } from '@inrp2p/inr-accounts';
 import { openExceptionInTx } from './exceptions.ts';
-import { lockMovement, postMovement, recordCryptoTransfer, recordFiatTransfer, verifyCryptoTransfer } from './movements.ts';
+import { locateTransferLog, lockMovement, postMovement, recordCryptoTransfer, recordFiatTransfer, verifyCryptoTransfer } from './movements.ts';
 import { allocateToObligation, lockObligation, obligationRemaining } from './obligations.ts';
 import type { SettlementDeps } from './policy.ts';
 import { allocateFunding, assertCounterpartyDelivered, inrLocation, settleFunding, tronLocation } from './funding.ts';
@@ -106,9 +106,10 @@ export async function recordRouteSettlementInTx(ctx: TxContext, deps: Settlement
     }
     const toAddress = flow === 'TO_ROUTE' ? requireText(p.toAddress ?? route.registered_route_address ?? '', 'toAddress', 64) : sendingAddress;
     const fromAddress = flow === 'TO_ROUTE' ? sendingAddress : requireText(p.fromAddress, 'fromAddress', 64);
+    const located = await locateTransferLog(deps, { txHash: p.txHash ?? '', logIndex: p.logIndex ?? null, from: fromAddress, to: [toAddress], amountMinor: amount.minor });
     const movement = await recordCryptoTransfer(ctx, {
       txHash: p.txHash ?? '',
-      logIndex: p.logIndex ?? 0,
+      logIndex: located.logIndex,
       tokenContract: deps.chain.tokenContract,
       fromAddress,
       toAddress,

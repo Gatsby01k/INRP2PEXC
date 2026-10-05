@@ -99,6 +99,35 @@ export interface RecordCryptoInput {
 }
 
 /** Records one on-chain transfer event as DETECTED. Unique per (network, tx hash, log index) — FI-23. */
+/**
+ * The Transfer log of `txHash` that is this movement, found by its facts — the configured contract, the sender, one
+ * of the expected recipients, the amount — and never by its position: a transaction whose USDT transfer is not log 0
+ * (a batch, a fee event first) is read right, and one that holds no such transfer, or holds it twice, is refused with
+ * what the chain shows. An index the operator names is held to the same facts. Confirmation still re-reads the chain
+ * through every provider (FI-24); this only decides which log the movement is.
+ */
+export async function locateTransferLog(
+  deps: SettlementDeps,
+  input: { txHash: string; logIndex?: number | null; from: string; to: readonly string[]; amountMinor: bigint },
+): Promise<{ logIndex: number; toAddress: string }> {
+  const txHash = requireText(input.txHash, 'txHash', 66).toLowerCase().replace(/^0x/, '');
+  const tx = await deps.chain.transactionTransfers('TRON', txHash);
+  if (tx.status === 'NOT_FOUND') throw new DomainError('NOT_FOUND', 'the chain does not know this transaction yet: check the hash, or record it once it is in a block');
+  if (tx.status === 'TX_FAILED') throw new DomainError('INVALID_ARGUMENT', 'this transaction failed on chain; it moved no USDT');
+  const matches = tx.transfers.filter((t) =>
+    t.tokenContract === deps.chain.tokenContract && t.fromAddress === input.from && input.to.includes(t.toAddress) && t.amountMinor === input.amountMinor);
+  if (input.logIndex !== undefined && input.logIndex !== null) {
+    const named = matches.find((t) => t.logIndex === input.logIndex);
+    if (!named) throw new DomainError('INVALID_ARGUMENT', `log ${input.logIndex} of this transaction is not this payment`, { matchingLogIndexes: matches.map((t) => t.logIndex) });
+    return { logIndex: named.logIndex, toAddress: named.toAddress };
+  }
+  if (matches.length === 0) {
+    throw new DomainError('INVALID_ARGUMENT', `this transaction does not move ${Money.ofMinor(input.amountMinor, 'USDT').toDecimalString()} USDT from ${input.from} to the expected destination`, { transfers: tx.transfers.length });
+  }
+  if (matches.length > 1) throw new DomainError('INVALID_ARGUMENT', `this transaction makes this payment ${matches.length} times; name the log`, { logIndexes: matches.map((t) => t.logIndex) });
+  return { logIndex: matches[0]!.logIndex, toAddress: matches[0]!.toAddress };
+}
+
 export async function recordCryptoTransfer(ctx: TxContext, input: RecordCryptoInput): Promise<{ transferId: string; existing: boolean }> {
   const txHash = typeof input.txHash === 'string' ? input.txHash.trim().toLowerCase().replace(/^0x/, '') : '';
   if (!/^[0-9a-f]{64}$/.test(txHash)) throw new DomainError('INVALID_ARGUMENT', 'txHash must be 64 hex characters');

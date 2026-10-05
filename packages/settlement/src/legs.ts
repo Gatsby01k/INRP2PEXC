@@ -340,9 +340,11 @@ export function recordLegEvidence(actor: OperatorActor, deps: SettlementDeps) {
         : leg.source_deposit_address_id
           ? (await ctx.tx.selectFrom('deposit_address').select('address').where('id', '=', leg.source_deposit_address_id).executeTakeFirstOrThrow()).address
           : (await ctx.tx.selectFrom('treasury_wallet').select('address').where('id', '=', leg.treasury_wallet_id!).executeTakeFirstOrThrow()).address;
+      const { locateTransferLog } = await import('./movements.ts');
+      const located = await locateTransferLog(deps, { txHash: p.txHash ?? '', logIndex: p.logIndex ?? null, from: fromAddress, to: [wallet.address], amountMinor: leg.amount_minor });
       const recorded = await recordCryptoTransfer(ctx, {
         txHash: p.txHash ?? '',
-        logIndex: p.logIndex ?? 0,
+        logIndex: located.logIndex,
         tokenContract: deps.chain.tokenContract,
         fromAddress,
         toAddress: wallet.address,
