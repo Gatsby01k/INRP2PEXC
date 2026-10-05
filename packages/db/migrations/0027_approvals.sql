@@ -90,12 +90,12 @@ GRANT SELECT ON payout_approval_policy TO inrp2p_readonly;
 GRANT EXECUTE ON FUNCTION inrp2p_leg_inr_value(uuid, text, bigint), inrp2p_payout_needs_second_person(uuid, text, bigint) TO inrp2p_app, inrp2p_readonly;
 
 -- ── C2: OWNER grants ─────────────────────────────────────────────────────────────────────────────────────────────
--- True for a connection of the application or the worker; false for the infrastructure role that runs migrations and
--- the protected operator procedures (and for a superuser).
+-- False for the infrastructure role that owns the schema — the one that runs migrations and the protected operator
+-- procedures — and for a superuser; true for every other connection, the application's and the worker's included.
+-- Membership of inrp2p_app cannot tell them apart: the migrator is a member of inrp2p_worker, which inherits it.
 CREATE FUNCTION inrp2p_is_application_session() RETURNS boolean
 LANGUAGE sql STABLE AS $$
-  SELECT NOT coalesce((SELECT rolsuper FROM pg_roles WHERE rolname = session_user), false)
-         AND pg_has_role(session_user, 'inrp2p_app', 'MEMBER')
+  SELECT NOT pg_has_role(session_user, (SELECT c.relowner FROM pg_class c WHERE c.oid = 'operator_user_role'::regclass), 'MEMBER')
 $$;
 
 CREATE SEQUENCE operator_role_request_ref_seq;

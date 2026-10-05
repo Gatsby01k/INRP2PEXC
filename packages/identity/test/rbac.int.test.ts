@@ -157,6 +157,9 @@ describe('role assignment command', () => {
     // An OWNER is not removed by the application, so the count cannot be lowered to slip a grant through.
     await expect(t.app.deleteFrom('operator_user_role').where('user_id', '=', owner1.userId).where('role_code', '=', 'OWNER').execute())
       .rejects.toSatisfy((e) => code(e) === 'IX091');
+    // The worker's connection is the application too (it inherits inrp2p_app); only the schema owner is not.
+    await expect(t.worker.insertInto('operator_user_role').values({ user_id: target.userId, role_code: 'OWNER', granted_by: owner1.userId }).execute())
+      .rejects.toSatisfy((e) => code(e) === 'IX091');
   });
 });
 
