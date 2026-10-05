@@ -376,7 +376,8 @@ or an operator reporting that their authenticator was lost or stolen.
 
 **What to do, in this order.**
 
-1. **Revoke the sessions** for that account, then disable it. Both are audited.
+1. **Revoke the sessions** for that account, then disable it — one audited step:
+   `scripts/operator-admin.ts disable-operator` (`operator-access`).
 2. **Reset the authenticator** — a new enrolment, verified in person or through a channel that does not depend
    on the account itself.
 3. **Review every financial action** taken in the window. Corrections are made as audited adjustments with a
@@ -389,6 +390,34 @@ or an operator reporting that their authenticator was lost or stolen.
 and do not re-enable the account before the authenticator is re-enrolled. Every financial correction needs a
 second approver who is not the requester, and that rule matters most on the day someone is trying to get around
 it.
+
+---
+
+## operator-access — the first OWNER, a lost OWNER, ending someone's access
+
+**Not an alert.** The procedures the desk deliberately cannot perform, so that no session — however privileged — can
+perform them silently. They run from `scripts/operator-admin.ts` with the infrastructure database credential
+(`INRP2P_ADMIN_DATABASE_URL`, the role that runs migrations) and secrets from the secret manager — never the
+application's credential, never a password on the command line. Each writes an audit event with the machine, the OS
+user and the reason. Without `--yes` they only say what they would do.
+
+**The first OWNER.** `node scripts/operator-admin.ts bootstrap-owner --email … --name … --reason "…" --yes` with
+`OPERATOR_AUTH_SECRET`, `OPERATOR_BASE_URL` and `INRP2P_BOOTSTRAP_PASSWORD` (≥ 16 characters) in the environment.
+Refused while any OWNER is active. The new OWNER enrols TOTP at first sign-in; nothing works before that.
+
+**More OWNERs.** In the desk, not here. With one OWNER, that OWNER grants it (single-OWNER mode, audited). With two or
+more, one requests and another approves in their own session (SECURITY §3).
+
+**Ending someone's access** (a leaver, a compromised account — see `account-takeover`):
+`node scripts/operator-admin.ts disable-operator --email … --reason "…" --yes` revokes every session and disables the
+account in one audited step. It refuses the last active OWNER.
+
+**A lost sole OWNER** (authenticator and recovery gone, or the account compromised): disable it with
+`--allow-last-owner`, then bootstrap a new OWNER. Both steps are audited; two people should be present.
+
+**What never to do.** Insert or delete `operator_user_role` rows by hand (the database refuses the application role
+anyway, IX091), re-enable a disabled account without a new authenticator enrolment, or run these procedures to get
+around a second OWNER's approval.
 
 ---
 

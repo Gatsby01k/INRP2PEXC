@@ -693,6 +693,9 @@ export interface SettlementLegTable {
   destination_wallet_id: string | null;
   /** A pass-through USDT outflow's sending deposit address (migration 0025, D-16). */
   source_deposit_address_id: Generated<string | null>;
+  /** Who marked a payout sent and who confirmed it (migration 0027, C1). NULL for legs sent before it. */
+  sent_by: Generated<string | null>;
+  confirmed_by: Generated<string | null>;
   notes: string | null;
   created_by: string;
   created_at: Generated<Date>;
@@ -701,6 +704,35 @@ export interface SettlementLegTable {
   failed_at: Date | null;
   cancelled_at: Date | null;
   failure_reason: string | null;
+}
+
+/** The payout second-person threshold (migration 0027, C1). Append-only; the latest row is in force. */
+export interface PayoutApprovalPolicyTable {
+  id: Generated<string>;
+  enabled: boolean;
+  threshold_inr_minor: bigint;
+  reason: string;
+  set_by: string;
+  set_at: Generated<Date>;
+}
+
+/** A request to grant OWNER, approved by another OWNER in their own session (migration 0027, C2 / TD-20). */
+export interface OperatorRoleRequestTable {
+  id: Generated<string>;
+  ref: Generated<string>;
+  target_user_id: string;
+  role_code: 'OWNER';
+  reason: string;
+  status: Generated<'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED' | 'EXPIRED'>;
+  requested_by: string;
+  requested_session_id: string;
+  requested_at: Generated<Date>;
+  expires_at: Date;
+  decided_by: string | null;
+  decided_session_id: string | null;
+  decided_at: Date | null;
+  decision_note: string | null;
+  approved_xact: string | null;
 }
 
 /** What the chain says an exchange address holds, when and how sure (migration 0026). Append-only. */
@@ -1257,6 +1289,8 @@ export interface Database {
   funding_source: FundingSourceView;
   funding_allocation: FundingAllocationTable;
   custody_balance_observation: CustodyBalanceObservationTable;
+  payout_approval_policy: PayoutApprovalPolicyTable;
+  operator_role_request: OperatorRoleRequestTable;
   fiat_transfer: FiatTransferTable;
   crypto_transfer: CryptoTransferTable;
   route_settlement: RouteSettlementTable;

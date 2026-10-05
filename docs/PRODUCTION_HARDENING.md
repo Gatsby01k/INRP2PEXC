@@ -40,6 +40,8 @@ nothing on gates 2 or 3. CI on the final SHA replaces them in the final report.
 | B3 | P0 | proof | Counterparty funding proved at command, database and screen level | code ready |
 | B4 | P1 | owner decision | No direct trader → client path | enforced (not offered) |
 | B5 | P0 | confirmed defect | Desk screens and evidence paths still paid from the treasury and assumed log 0 | fixed — code ready |
+| C1 | P0 | confirmed defect | Second person for payouts above ₹2,500,000 | fixed — code ready |
+| C2 | P0 | confirmed defect | OWNER request/approve (TD-20), protected bootstrap/recovery, replay re-authorization | fixed — code ready |
 
 (The table grows as stages are worked; each row has a section below.)
 
@@ -211,4 +213,54 @@ is wanted stays an open owner question (ADR 0016 §8).
 - **Tests.** `audit-regressions.int` (a stranger's transaction refused at record time; a batch with the payment at
   log 1 found by its facts; the same payment twice requires the index), `desk.int` (funding projection and its access
   rule), `portal.int` (waiting for liquidity, then preparing the payment).
+
+## C1 — Second person for a large payout (P0, confirmed defect)
+
+- **Found (on `d0cc778`).** SECURITY §4 sets ₹2,500,000 per leg above which the person who sent a payout does not
+  confirm it; nothing recorded who sent a leg, nothing checked it — `direct-payout.int.test.ts` confirmed ₹10,200,000
+  with the operator who had sent it.
+- **Changed.** Migration `0027_approvals.sql`: `settlement_leg.sent_by` / `confirmed_by` (written from the command's
+  verified actor; set once; legs already in flight keep NULL — no sender is invented), `payout_approval_policy`
+  (append-only; default enabled at ₹2,500,000; the latest row is in force), `inrp2p_payout_needs_second_person` (an INR
+  leg's amount; a USDT leg at the trade's frozen client rate, exact) and the guard IX090: above the threshold the
+  confirmer is a person, not `SYSTEM`, and not the sender — or, for a leg with no recorded sender, not its creator.
+  `payout_leg.confirm` refuses the same with `SECOND_APPROVER_REQUIRED` before anything is written.
+  `settings.payout_approval` (`settings:payout_approval`, OWNER ⧗, reason, audited) moves or switches the threshold —
+  the explicit single-person-desk setting SECURITY §4 describes. The payout panel names the sender and does not offer
+  the sender a Confirm above the threshold; the e2e demo has the settlement operator confirm on their own desk.
+  Automatic chain confirmation does not change this: the scanner verifies a payout's transaction but never confirms the
+  leg — a person does.
+- **Tests.** `packages/settlement/test/approvals.int.test.ts` (₹2,499,999.99 / ₹2,500,000.00 / ₹2,500,000.01; the
+  sender refused; another operator with a stale step-up or without the permission refused; another settlement operator
+  confirms and the record names both; an idempotent retry returns the same result and posts nothing; two confirmers at
+  once → one; a USDT leg either side of the threshold at its client rate; IX090 for raw updates — same person, `SYSTEM`,
+  no confirmer, changing the sender, sending without a sender; a legacy leg without a sender; the policy switch),
+  `direct-payout.int.test.ts` (confirmed by a second operator).
+
+## C2 — OWNER grants (TD-20), protected bootstrap/recovery, replay (P0, confirmed defect)
+
+- **Found (on `d0cc778`).** `assignOperatorRole` accepted any other active OWNER's id as `approverUserId` — that OWNER
+  never acted. Nothing could create the first OWNER in production (only test fixtures did), and no procedure existed to
+  end an operator's access (the account-takeover runbook asked for it). `executeCommand` returned a stored result for a
+  replayed key before `authorize`, so a person whose role was withdrawn, whose step-up had lapsed, or whose account was
+  disabled got the result back; the request identity did not include the surface; and command authorization never
+  checked that the account was active or the session still open.
+- **Changed.** `identity.request_owner` / `approve_owner` / `reject_owner` / `cancel_owner_request` (OWNER ⧗; the
+  approver is the approving session's operator, a different active OWNER from the requester and the grantee; the grant
+  happens in the approving transaction). `assignOperatorRole`: no self-grant, `approverUserId` refused, OWNER only in
+  single-OWNER mode (audited as such). Migration 0027: `operator_role_request` and IX091 — the application role can
+  never create the first OWNER, never grant OWNER past one OWNER without an approval made in the same transaction, never
+  remove an OWNER. `scripts/operator-admin.ts` `bootstrap-owner` / `disable-operator` (infrastructure credential, secrets
+  from the environment, dry run without `--yes`, audited with host and OS user; the last OWNER only with
+  `--allow-last-owner`) — RUNBOOKS `operator-access`. The pipeline re-runs `authorize` before returning a stored result;
+  the request hash includes the surface; `authorizeOperator` checks the account is ACTIVE and the session open.
+- **Tests.** `packages/identity/test/rbac.int.test.ts` (request/approve in two sessions; requester, non-OWNER and stale
+  step-up cannot approve; used once; decline and withdrawal; IX091 for raw inserts/deletes; the first OWNER and
+  single-OWNER mode on a fresh database), `test/integration/operator-admin.int.test.ts` (bootstrap, second bootstrap
+  refused, recovery), `test/integration/pipeline.int.test.ts` (replay after step-up lapse → `STEP_UP_REQUIRED`, after the
+  role is withdrawn → `FORBIDDEN`, after sign-out → `UNAUTHENTICATED`, disabled account → `FORBIDDEN`, another operator
+  or the client surface with the key → `IDEMPOTENCY_KEY_REUSED`).
+- **Rollout.** The request hash now includes the surface: an intent started before the deploy and retried after it is
+  refused as `IDEMPOTENCY_KEY_REUSED` instead of replayed; the domain state guards stop a duplicate, and the desk asks
+  the operator to reload. Run `bootstrap-owner` once per environment before the first sign-in.
 

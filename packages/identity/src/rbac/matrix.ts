@@ -86,6 +86,7 @@ export const PERMISSION_MATRIX = Object.freeze({
   'audit:view': r(A, D, D, A, D, D),
   'users:manage': r(S, D, D, D, D, D),
   'roles:assign': r(S, D, D, D, D, D),
+  'settings:payout_approval': r(S, D, D, D, D, D),
 } as const satisfies Record<string, Row>);
 
 export type Permission = keyof typeof PERMISSION_MATRIX;

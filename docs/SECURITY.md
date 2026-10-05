@@ -110,11 +110,14 @@ Legend: ✔ allowed · ⧗ allowed with step-up MFA · ✱ requires second appro
 | `receipt:view` | ✔ | ✔ | ✔ | ✔ | ✔ | ✔ |
 | `audit:view` | ✔ | — | — | ✔ | — | — |
 | `users:manage` / `roles:assign` | ⧗ | — | — | — | — | — |
+| `settings:payout_approval` (the payout second-person threshold, §4; on, off or moved, with a reason) | ⧗ | — | — | — | — | — |
 
 Rules:
 - Authorization is checked inside the command (server), never inferred from the UI.
 - Query-level redaction: users without `economics:view` receive DTOs where route rate / margin fields do not exist (not nulled — absent).
-- OWNER role assignment requires another OWNER's approval (✱) once more than one OWNER exists.
+- OWNER role assignment requires another OWNER's approval (✱) once more than one OWNER exists: one OWNER requests it (`identity.request_owner`), another OWNER approves it in their own session (`identity.approve_owner`) and the grant is made in that transaction; a name in a payload approves nothing. With exactly one active OWNER, that OWNER grants it alone (single-OWNER mode, audited as such). Nobody grants themselves a role. The first OWNER — and the recovery of a lost sole OWNER — exist only through the protected procedure `scripts/operator-admin.ts`, run with the infrastructure database credential; the database refuses the application role any other way to an OWNER row, and any removal of one (IX091). See RUNBOOKS `operator-access`.
+- Every operator command re-checks, in its own transaction, that the account is ACTIVE and the session it came from is still open (`assertLiveOperator`): disabling an account or revoking a session stops the next command, not just the next page.
+- An idempotent replay (the same key, the same request) returns its stored result only after the command's authorization passes again for the caller now; the request identity includes the caller and the surface, so another person's — or another surface's — use of a key is refused (`IDEMPOTENCY_KEY_REUSED`).
 - `created_by ≠ approved_by` enforced by DB CHECK on `financial_adjustment`.
 - Route obligations and route settlements reveal route economics, so every `route_*` permission is limited to roles that already hold `economics:view` (OWNER, FINANCE; DEALER read-only positions). Exception: confirming a direct (`payer = ROUTE`) payout leg needs only `settlement:confirm_payout`; the route allocation is computed by the system and its amounts are not shown to users without `economics:view`.
 
@@ -124,7 +127,7 @@ Rules:
 |---|---|
 | Financial adjustment | requester ≠ approver |
 | Refund of confirmed client funds | requester ≠ approver |
-| Payout confirmation | configurable: above threshold (default ₹2,500,000 per leg) the user who marked a leg sent cannot confirm it |
+| Payout confirmation | above a threshold (default ₹2,500,000 per leg; a USDT leg valued at its trade's frozen client rate) the user who marked a leg sent cannot confirm it, and the system never does. The sender and confirmer are recorded from the verified actor (`settlement_leg.sent_by` / `confirmed_by`); a leg sent before they were recorded falls back to its creator. Enforced in the command and by the database (IX090). The threshold is `settings:payout_approval` (OWNER ⧗, with a reason, append-only history) |
 | Capacity increase | audited; above threshold requires approver |
 
 A single-person desk can run V1 by disabling thresholds explicitly in Settings (audited action, OWNER only).

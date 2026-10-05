@@ -36,6 +36,11 @@ export interface DeskLeg {
    */
   readonly createdBy: string;
   readonly createdByLabel: string;
+  /** Who marked it sent (C1), when the record says; null for a leg not sent yet or sent before 0027. */
+  readonly sentBy: string | null;
+  readonly sentByLabel: string | null;
+  /** A payout above the approval threshold: someone other than its sender confirms it (SECURITY §4). */
+  readonly needsSecondPerson: boolean;
 }
 
 export interface DeskCase {
@@ -240,12 +245,14 @@ async function deskLegs(ex: Executor, tradeId: string): Promise<DeskLeg[]> {
     id: string; ref: string; side: DeskLeg['side']; asset: 'INR' | 'USDT'; amount_minor: bigint; status: DeskLeg['status'];
     payer: DeskLeg['payer']; account_label: string | null; route_name: string | null; wallet_address: string | null; utr: string | null; tx_hash: string | null;
     created_at: Date; sent_at: Date | null; confirmed_at: Date | null; failed_at: Date | null; cancelled_at: Date | null; failure_reason: string | null;
-    created_by: string; created_by_label: string | null;
+    created_by: string; created_by_label: string | null; sent_by: string | null; sent_by_label: string | null; needs_second: boolean | null;
   }>`
     select l.id, l.ref, l.side, l.asset, l.amount_minor, l.status, l.payer,
            a.label as account_label, r.name as route_name, coalesce(da.address, tw.address) as wallet_address, f.utr, c.tx_hash,
            l.created_at, l.sent_at, l.confirmed_at, l.failed_at, l.cancelled_at, l.failure_reason,
-           l.created_by, coalesce(u.name, u.email) as created_by_label
+           l.created_by, coalesce(u.name, u.email) as created_by_label,
+           l.sent_by, coalesce(su.name, su.email) as sent_by_label,
+           case when l.side = 'EXCHANGE_TO_CLIENT' then inrp2p_payout_needs_second_person(l.trade_id, l.asset, l.amount_minor) end as needs_second
     from settlement_leg l
     left join inr_settlement_account a on a.id = l.inr_account_id
     left join liquidity_route r on r.id = l.route_id
@@ -255,6 +262,7 @@ async function deskLegs(ex: Executor, tradeId: string): Promise<DeskLeg[]> {
     left join fiat_transfer f on f.id = al.fiat_transfer_id
     left join crypto_transfer c on c.id = al.crypto_transfer_id
     left join auth_user u on u.id::text = l.created_by
+    left join auth_user su on su.id::text = l.sent_by
     where l.trade_id = ${tradeId}
     order by l.seq`.execute(ex);
   return rows.rows.map((r) => ({
@@ -278,6 +286,9 @@ async function deskLegs(ex: Executor, tradeId: string): Promise<DeskLeg[]> {
     failureReason: r.failure_reason,
     createdBy: r.created_by,
     createdByLabel: r.created_by.startsWith('SYSTEM') ? 'System' : (r.created_by_label ?? 'an operator'),
+    sentBy: r.sent_by,
+    sentByLabel: r.sent_by ? (r.sent_by.startsWith('SYSTEM') ? 'System' : (r.sent_by_label ?? 'an operator')) : null,
+    needsSecondPerson: r.needs_second === true,
   }));
 }
 

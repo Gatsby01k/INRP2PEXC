@@ -360,9 +360,14 @@ function LegItem({ trade, leg, perms, autoFocus }: { trade: DeskTrade; leg: Desk
 
           {awaitingConfirm ? (
             <>
-              <span className={t.legNextLabel}>Next · confirm it arrived</span>
+              <span className={t.legNextLabel}>Next · confirm it arrived{leg.needsSecondPerson ? ' — by someone other than its sender' : ''}</span>
+              {leg.needsSecondPerson && (leg.sentBy ?? leg.createdBy) === perms.meId ? (
+                <Notice tone="warning" icon="shield">
+                  You {leg.sentBy ? 'sent' : 'created'} this payout and it is above the approval threshold, so someone else confirms it (SECURITY §4).
+                </Notice>
+              ) : null}
               <div className={d.actions}>
-                {perms.confirmPayout ? (
+                {perms.confirmPayout && !(leg.needsSecondPerson && (leg.sentBy ?? leg.createdBy) === perms.meId) ? (
                   <Button
                     intent="primary"
                     size="sm"
@@ -372,9 +377,9 @@ function LegItem({ trade, leg, perms, autoFocus }: { trade: DeskTrade; leg: Desk
                   >
                     Confirm
                   </Button>
-                ) : (
+                ) : !perms.confirmPayout ? (
                   <span className={d.muted}>Confirming needs the settlement role.</span>
-                )}
+                ) : null}
                 {perms.changeUtr && leg.asset === 'INR' && !replacing ? (
                   <button type="button" className={d.linkButton} onClick={() => setReplacing(true)}>
                     Replace reference

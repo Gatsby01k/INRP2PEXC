@@ -52,7 +52,8 @@ describe('Better Auth schema is committed as explicit SQL', () => {
 describe('mandatory operator MFA', () => {
   it('a password-only session is refused until TOTP is enrolled and verified', async () => {
     const email = `op-${randomUUID()}@inrp2p.test`;
-    await provisionOperator(operator, t.app, { email, name: 'New Op', password: PASSWORD, roles: ['OWNER'] });
+    // The first OWNER is provisioned the way the bootstrap procedure does it: on the infrastructure connection (IX091).
+    await provisionOperator(operator, t.owner, { email, name: 'New Op', password: PASSWORD, roles: ['OWNER'] });
     const jar = new CookieJar();
     expect((await call(operator, DESK, jar, '/sign-in/email', { email, password: PASSWORD })).status).toBe(200);
     await expect(requireOperatorSession(operator, t.app, jar.headers(DESK))).rejects.toMatchObject({ code: 'MFA_ENROLLMENT_REQUIRED' });

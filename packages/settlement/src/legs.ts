@@ -56,8 +56,9 @@ export async function lockLeg(ctx: TxContext, legId: string) {
     id: string; trade_id: string; seq: number; ref: string; side: string; asset: AssetCode; amount_minor: bigint; status: string;
     payer: LegPayer; route_id: string | null; inr_account_id: string | null; capacity_reservation_id: string | null; treasury_wallet_id: string | null;
     source_deposit_address_id: string | null; destination_bank_account_id: string | null; destination_wallet_id: string | null;
+    created_by: string; sent_by: string | null;
   }>`select id, trade_id, seq, ref, side, asset, amount_minor, status, payer, route_id, inr_account_id, capacity_reservation_id, treasury_wallet_id,
-            source_deposit_address_id, destination_bank_account_id, destination_wallet_id
+            source_deposit_address_id, destination_bank_account_id, destination_wallet_id, created_by, sent_by
        from settlement_leg where id = ${requireUuid(legId, 'legId')} for update`.execute(ctx.tx);
   const leg = rows.rows[0];
   if (!leg) throw new DomainError('NOT_FOUND', 'settlement leg not found');
@@ -252,9 +253,12 @@ export function sendPayoutLeg(actor: OperatorActor, deps: Pick<SettlementDeps, '
         // address the reading does not show yet.
         await assertPhysicallyAvailable(ctx, deps, { address: await legSourceAddress(ctx, leg), amount: Money.ofMinor(leg.amount_minor, 'USDT'), excludeLegId: leg.id });
       }
-      await ctx.tx.updateTable('settlement_leg').set({ status: 'PROCESSING', sent_at: sql<Date>`inrp2p_now()` }).where('id', '=', leg.id).execute();
+      // C1: who marked it sent is recorded from the verified actor — the person who may not confirm it above the
+      // approval threshold.
+      const sentBy = ctx.actor.id ?? `SYSTEM:${ctx.commandName}`;
+      await ctx.tx.updateTable('settlement_leg').set({ status: 'PROCESSING', sent_at: sql<Date>`inrp2p_now()`, sent_by: sentBy }).where('id', '=', leg.id).execute();
       if (trade.lifecycle_state === 'FIRST_LEG_CONFIRMED') await transitionTrade(ctx, trade, 'SETTLING');
-      await appendAudit(ctx, { action: 'leg.sent', entityType: 'settlement_leg', entityId: leg.id, before: { status: 'PENDING' }, after: { status: 'PROCESSING', payer: leg.payer } });
+      await appendAudit(ctx, { action: 'leg.sent', entityType: 'settlement_leg', entityId: leg.id, before: { status: 'PENDING' }, after: { status: 'PROCESSING', payer: leg.payer, sent_by: sentBy } });
       return { status: 'PROCESSING' as const, ref: leg.ref };
     },
   };

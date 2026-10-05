@@ -23,7 +23,7 @@ Non-blocking items accepted at phase review. Each entry names the phase that mus
 | TD-17 | Audit seals are written but never exported off-site | Phase 9 implementation (2026-09-20) | Production launch (launch checklist) | Open |
 | TD-18 | `CLIENT_BANK_CHANGED` is detected but cannot be resolved by moving the trade to a new destination | Audit (2026-09-25) | A client replacing a destination while one of its trades is open | Open |
 | TD-19 | `refund_excess` (partial refund of an overpayment) does not exist; the completion predicate does not net refunds | Audit (2026-09-25) | The desk needing to return part of an overpayment and still complete the trade | Open |
-| TD-20 | The OWNER-grant second approval is nominal: the requester names the approver | Audit (2026-09-25) | Any path that exposes `assignOperatorRole` (none does today) | Open |
+| TD-20 | The OWNER-grant second approval is nominal: the requester names the approver | Audit (2026-09-25) | Any path that exposes `assignOperatorRole` (none does today) | Closed (2026-10-05, migration 0027) |
 | TD-21 | A trader's Security Reserve cannot be applied to an obligation the trader leaves unsettled | Traders (2026-09-27) | Traders providing real money | Open |
 | TD-22 | The trader programme's agreement, tax treatment and counterparty checks have not been reviewed | Traders (2026-09-27) | Traders providing real money | Open |
 | TD-23 | The Traders screens have no page baselines, and the client shell changed around them | Traders (2026-09-27) | The `visual-pages` CI job can pass | Open |
@@ -440,6 +440,14 @@ of it. Nothing in the web app, the worker or `scripts/` calls the command today,
 **Resolution (to do, before any operator-administration surface ships).** Split the grant into a request (OWNER A,
 ⧗) and an approval (OWNER B, ⧗, in B's own session), the same shape as `adjustment.request` / `adjustment.approve`,
 with the approver taken from the approving session and never from a payload.
+
+**Closed (2026-10-05, migration 0027).** `identity.request_owner` (OWNER A, ⧗) and `identity.approve_owner` (another
+active OWNER, ⧗, in their own session; the approver is the session's operator and the grant happens in the approving
+transaction), with decline and withdrawal; `approverUserId` is refused. Single-OWNER mode is explicit and audited; nobody
+grants themselves a role. The database refuses the application role an OWNER row outside these rules, the first OWNER,
+and any removal of an OWNER (IX091); the first OWNER and the recovery of a lost sole OWNER are the protected procedure
+`scripts/operator-admin.ts` (RUNBOOKS `operator-access`). Tests: `packages/identity/test/rbac.int.test.ts`,
+`test/integration/operator-admin.int.test.ts`.
 
 ## TD-21 — The Security Reserve cannot be applied to an unsettled obligation
 

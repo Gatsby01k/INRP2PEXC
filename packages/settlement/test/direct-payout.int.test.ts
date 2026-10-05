@@ -43,7 +43,8 @@ async function preparePayout(tradeId: string, amount: string, opts: PayoutOption
   return { ...leg, utr };
 }
 
-const confirm = (legId: string) => confirmPayout(w.app, w.settlementOp.actor, w.settlementDeps, { legId, idempotencyKey: randomUUID() });
+// C1: ₹10,200,000 is above the approval threshold, so someone other than the operator who sent it confirms it.
+const confirm = (legId: string) => confirmPayout(w.app, w.settlementOp2.actor, w.settlementDeps, { legId, idempotencyKey: randomUUID() });
 
 describe('canonical direct route payout (FINANCIAL_INVARIANTS §3.5)', () => {
   it('exit 1: one payout, one UTR, one journal — trade COMPLETED, margin realized, route residual ₹220,000', async () => {
@@ -102,11 +103,11 @@ describe('canonical direct route payout (FINANCIAL_INVARIANTS §3.5)', () => {
     const trade = await canonicalTrade();
     const leg = await preparePayout(trade.tradeId, '10200000.00');
     const key = randomUUID();
-    const first = await confirmPayout(w.app, w.settlementOp.actor, w.settlementDeps, { legId: leg.legId, idempotencyKey: key });
+    const first = await confirmPayout(w.app, w.settlementOp2.actor, w.settlementDeps, { legId: leg.legId, idempotencyKey: key });
     const journalsBefore = await w.app.selectFrom('ledger_journal').select(({ fn }) => fn.countAll<string>().as('n')).executeTakeFirstOrThrow();
-    const replay = await confirmPayout(w.app, w.settlementOp.actor, w.settlementDeps, { legId: leg.legId, idempotencyKey: key });
+    const replay = await confirmPayout(w.app, w.settlementOp2.actor, w.settlementDeps, { legId: leg.legId, idempotencyKey: key });
     expect(replay).toEqual(first);
-    await expect(confirmPayout(w.app, w.settlementOp.actor, w.settlementDeps, { legId: leg.legId, idempotencyKey: randomUUID() })).rejects.toMatchObject({ code: 'INVALID_TRANSITION' });
+    await expect(confirmPayout(w.app, w.settlementOp2.actor, w.settlementDeps, { legId: leg.legId, idempotencyKey: randomUUID() })).rejects.toMatchObject({ code: 'INVALID_TRANSITION' });
     const journalsAfter = await w.app.selectFrom('ledger_journal').select(({ fn }) => fn.countAll<string>().as('n')).executeTakeFirstOrThrow();
     expect(journalsAfter.n).toBe(journalsBefore.n);
     const allocations = await w.app.selectFrom('transfer_allocation').select('id').where('settlement_leg_id', '=', leg.legId).where('voided_at', 'is', null).execute();
@@ -308,7 +309,7 @@ describe('canonical direct route payout (FINANCIAL_INVARIANTS §3.5)', () => {
   it('confirming needs a payment reference, and the leg must be in flight', async () => {
     const trade = await canonicalTrade();
     const leg = await preparePayout(trade.tradeId, '10200000.00', { evidence: false });
-    await expect(runAs(w.app, confirmPayoutLeg(w.settlementOp.actor, w.settlementDeps), w.settlementOp.ref, 'payout_leg.confirm', { legId: leg.legId }))
+    await expect(runAs(w.app, confirmPayoutLeg(w.settlementOp2.actor, w.settlementDeps), w.settlementOp2.ref, 'payout_leg.confirm', { legId: leg.legId }))
       .rejects.toMatchObject({ code: 'UTR_REQUIRED' });
   });
 });
