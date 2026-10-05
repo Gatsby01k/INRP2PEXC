@@ -99,7 +99,7 @@ SELL, base 100,000.000000 USDT, client ₹102.00, route ₹104.20:
 | FI-30 | For each INR account and IST day, no reservation or unreserved payout may make `used + reserved > working_capacity` | Row `inr_account_day(account_id, day)` locked `FOR UPDATE` for every reserve/consume/release; the check runs under that lock. Capacity may be *lowered* below current commitments by an audited command — that never cancels anything silently; it sets remaining < 0, blocks new reservations and opens a `ROUTE_CAPACITY_CHANGED` exception | two operators reserving last capacity concurrently; capacity lowered mid-day |
 | FI-31 | Reservations are released exactly once on cancellation/expiry/leg failure | Reservation state machine (`ACTIVE→CONSUMED|RELEASED`); release is state-guarded | cancel releases capacity; double release |
 | FI-32 | PAUSED/UNAVAILABLE accounts accept no new reservations | Checked under lock | reserve on paused account |
-| FI-33 | Treasury: `reserved ≤ observed` per wallet at reservation time; over-commit is an exception, not silent | Lock wallet row; CHECK | BUY reservation race |
+| FI-33 | Treasury: `reserved ≤ observed` per wallet at reservation time; over-commit is an exception, not silent. **Legacy only since D-16**: no trade accepted after migration 0025 reserves treasury USDT (FI-71), and a wallet's `observed` is now only ever its latest recorded reading (FI-78) | Lock wallet row; CHECK; IX089 | BUY reservation race (legacy) |
 
 ### Ledger
 | ID | Invariant | Enforcement | Test |
@@ -119,6 +119,24 @@ SELL, base 100,000.000000 USDT, client ₹102.00, route ₹104.20:
 | FI-63 | V1 routes use `settlement_model = PER_TRADE` with `execution_mode ∈ {DIRECT_TO_CLIENT, TO_EXCHANGE}` | Validation on `liquidity_route`; quote creation rejects other models | configure PREFUNDED rejected |
 | FI-64 | For each route obligation and side: obligation remaining = ledger balance of the route account lines carrying that `route_obligation_id` | Reconciliation job + integration assertion after every route-affecting command in tests | walkthrough §3.5 at every step |
 | FI-65 | `TO_EXCHANGE` obligations accept only route→exchange and exchange→route movements; `DIRECT_TO_CLIENT` obligations additionally accept route→client movements; route→client payouts require a client payout leg with `payer = ROUTE` | Command validation + trigger on `transfer_allocation` | direct payout on TO_EXCHANGE route rejected |
+
+### Counterparty funding (`DECISIONS.md D-16`, ADR 0016)
+The platform never advances its own USDT or INR: a client is paid with the counterparty's money and the
+counterparty with the client's, each from the place it arrived (pass-through). Trades accepted before migration 0025
+keep `LEGACY_EXCHANGE_FUNDED` and the rules they were accepted under.
+
+| ID | Invariant | Enforcement | Test |
+|---|---|---|---|
+| FI-70 | Every trade has exactly one insert-once funding model; trades created after 0025 are `COUNTERPARTY_FUNDED` | `trade_funding` PK; AFTER INSERT trigger on `trade`; IX082 refuses anything else; append-only | properties, acceptance |
+| FI-71 | A counterparty-funded trade never holds a treasury reservation | IX083 on `treasury_reservation`; acceptance does not reserve | acceptance (IX083), counterparty-funding (zero treasury) |
+| FI-72 | An exchange-paid client payout of a counterparty-funded trade is covered by earmarks on the same trade's counterparty funds, same asset and location | `allocateFunding` in `payout_leg.create`; deferred IX086 | payout before delivery refused (command + raw insert) |
+| FI-73 | A `TO_ROUTE` payment of a counterparty-funded trade is covered by earmarks on the same trade's client funds, same asset and location | allocation in `route_settlement.record`; IX086 | counterparty-funding (both directions) |
+| FI-74 | A refund of a counterparty-funded trade is covered by earmarks on its client funds | `refund_leg.create`; IX086 | refunds never exceed client funds |
+| FI-75 | A source is never earmarked beyond its amount; an earmark stays ACTIVE while its movement could still land | deferred IX085 under the source lock; IX086 releases only cancelled/failed uses | racing payouts / refund vs trader payment |
+| FI-76 | Earmarks never cross trades and never draw on suspense, reserves or legacy reservations | `funding_source` is trade-scoped confirmed movements only; IX084 | another trade's money and a Security Reserve never fund a trade |
+| FI-77 | Delivery versus payment: nothing is paid to the counterparty before it delivered | `COUNTERPARTY_NOT_DELIVERED` under the trade lock; IX087 before insert | command and raw insert refused |
+| FI-78 | A USDT outflow (payout, refund) needs a usable reading of its source address under the age limit — one source only below the D-05 threshold — showing it free after every outflow that reading does not reflect | `assertPhysicallyAvailable` in `payout_leg.send` / `refund_leg.create`; readings append-only; IX089 | availability suite (stale, contradicted, single source, subtracted once, outside movement) |
+| FI-79 | Capacity holds, funding earmarks and the Security Reserve are separate quantities; none is read as another | separate tables and accounts | capacity is a commitment, not money |
 
 ### Traders (`TRADERS.md` §10)
 A trader's order settles through an ordinary `TO_EXCHANGE` route obligation, so FI-60…FI-65 apply to it unchanged. The programme's own invariants (TR-01…TR-11: registered destinations only, held capacity = open orders, one order per request, quote = accepted order, trader-set rates, one subject per delivery address, reserve and rewards in the ledger, locked reserve never withdrawable, trader projections private, business-clock expiry) and their enforcement are listed there.

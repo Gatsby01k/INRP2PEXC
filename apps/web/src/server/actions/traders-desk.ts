@@ -117,6 +117,7 @@ export async function recordOrderSettlementAction(
   input: {
     routeObligationId: string; flow: 'FROM_ROUTE_TO_EXCHANGE' | 'TO_ROUTE'; amount: string;
     rail?: FiatRail; utr?: string; inrAccountId?: string | null; txHash?: string; logIndex?: number; fromAddress?: string; treasuryWalletId?: string | null;
+    sourceDepositAddressId?: string | null;
   },
   key: string,
 ): Promise<CommandResult<unknown>> {

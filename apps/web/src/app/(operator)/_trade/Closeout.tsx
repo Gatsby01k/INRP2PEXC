@@ -37,6 +37,16 @@ export function Closeout({ trade, perms, refundAccounts }: { trade: DeskTrade; p
   const cancelCase = trade.cases.find((c) => c.type === 'TRADE_CANCELLATION');
   const [refundFrom, setRefundFrom] = useState(refundAccounts[0]?.accountId ?? '');
   const [walletId, setWalletId] = useState(trade.payoutOptions.wallets[0]?.walletId ?? '');
+  // D-16: a counterparty-funded trade refunds the client's own money from where it arrived — never from the treasury.
+  const funded = trade.funding.model === 'COUNTERPARTY_FUNDED';
+  const clientPlaces = trade.funding.places.filter((p) => p.kind === 'CLIENT_FUNDS' && p.asset === inAsset && Money.parse(p.free, inAsset).isPositive());
+  const [placeKey, setPlaceKey] = useState(clientPlaces[0]?.location ?? '');
+  const place = clientPlaces.find((p) => p.location === placeKey);
+  const refundSource = funded
+    ? place
+      ? place.inrAccountId ? { inrAccountId: place.inrAccountId } : place.depositAddressId ? { sourceDepositAddressId: place.depositAddressId } : { treasuryWalletId: place.treasuryWalletId }
+      : null
+    : inAsset === 'INR' ? { inrAccountId: refundFrom } : { treasuryWalletId: walletId };
 
   if (!open) return null;
 
@@ -78,7 +88,18 @@ export function Closeout({ trade, perms, refundAccounts }: { trade: DeskTrade; p
 
           {refundPlanned.minor < received.minor && perms.createPayout ? (
             <div className={d.stackTight}>
-              {inAsset === 'INR' ? (
+              {funded ? (
+                clientPlaces.length > 0 ? (
+                  <SelectField
+                    label="Refund from — where the client’s money is"
+                    value={placeKey}
+                    onChange={setPlaceKey}
+                    options={clientPlaces.map((p) => ({ value: p.location, label: `${p.label}${p.address ? ` ${p.address.slice(0, 6)}…${p.address.slice(-4)}` : ''} · ${money(p.free, inAsset, { exact: inAsset === 'USDT' })} free` }))}
+                  />
+                ) : (
+                  <Notice icon="lock">The client’s money on this trade is already planned out; nothing is left to refund from.</Notice>
+                )
+              ) : inAsset === 'INR' ? (
                 <SelectField label="Refund from" value={refundFrom} onChange={setRefundFrom} options={refundAccounts.map((a) => ({ value: a.accountId, label: `${a.bankName} ••••${a.last4} · ${a.label}` }))} />
               ) : (
                 <SelectField label="Refund from" value={walletId} onChange={setWalletId} options={trade.payoutOptions.wallets.map((w) => ({ value: w.walletId, label: `${w.label} · ${money(w.available, 'USDT')} free` }))} />
@@ -89,9 +110,10 @@ export function Closeout({ trade, perms, refundAccounts }: { trade: DeskTrade; p
                 busy={cmd.busy}
                 consequence={`Creates a refund of everything received not yet refunded — ${money(received.sub(refundPlanned).toDecimalString(), inAsset, { exact: inAsset === 'USDT' })} — back to the client’s own ${inAsset === 'INR' ? 'bank account' : 'source wallet'}. It pays nothing yet: a second person confirms it with the evidence.`}
                 onConfirm={async () =>
+                  refundSource !== null &&
                   (
                     await cmd.run(`Plan the refund on ${trade.ref}`, (key) =>
-                      createRefundLegAction({ tradeId: trade.tradeId, ...(inAsset === 'INR' ? { inrAccountId: refundFrom } : { treasuryWalletId: walletId }) }, key),
+                      createRefundLegAction({ tradeId: trade.tradeId, ...refundSource }, key),
                     )
                   ).ok
                 }
@@ -174,7 +196,8 @@ function RefundLeg({ leg, tradeRef, perms }: { leg: DeskTrade['legs'][number]; t
                   shortcut={<StepUpMark label="needs your authenticator code" />}
                   onClick={() =>
                     cmd.run(`Confirm refund ${money(leg.amount, leg.asset)} on ${tradeRef}`, (key) =>
-                      confirmRefundLegAction({ legId: leg.id, ...(leg.asset === 'INR' ? { rail: 'IMPS' as const, utr: normalizeUtr(utr) } : { txHash: hash.replace(/^0x/, ''), logIndex: 0 }) }, key),
+                      // A USDT refund's log is found by its facts on the server, never assumed to be log 0.
+                      confirmRefundLegAction({ legId: leg.id, ...(leg.asset === 'INR' ? { rail: 'IMPS' as const, utr: normalizeUtr(utr) } : { txHash: hash.replace(/^0x/, '') }) }, key),
                     )
                   }
                 >

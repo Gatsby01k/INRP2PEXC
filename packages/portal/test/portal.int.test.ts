@@ -5,7 +5,7 @@ import { runAs } from '@inrp2p/identity/testing';
 import { createQuote, createRequest, declineRequest, sendQuote } from '@inrp2p/quotes';
 import { confirmPayout, createPayoutLeg, recordLegEvidence, sendPayoutLeg } from '@inrp2p/settlement';
 import { clientDestinations, clientHistory, exchangeView, historyCounts, portalAccess, portalTrade } from '../src/index.ts';
-import { type World, createWorld, newUtr, openTrade, settleFirstLeg, ensureCounterpartyFunds } from '../../settlement/test/world.ts';
+import { type World, createWorld, deliverCounterparty, newUtr, openTrade, settleFirstLeg, ensureCounterpartyFunds } from '../../settlement/test/world.ts';
 
 let w: World;
 beforeAll(async () => {
@@ -142,8 +142,13 @@ describe('one trade, as its client sees it', () => {
     const funded = await portalTrade(w.app, w.clientId, trade.tradeRef);
     expect(funded.trade.status).toBe('FIRST_LEG_CONFIRMED');
     expect(funded.stages.map((s) => s.status)).toEqual(['done', 'done', 'current', 'pending']);
-    expect(funded.stages[2]!.detail).toBe('preparing your payment');
+    // D-16: the client's USDT comes from the counterparty, and it has not delivered yet. No amount is shown.
+    expect(funded.stages[2]!.detail).toBe('waiting for liquidity');
     expect(funded.incoming).toBeNull();
+
+    await deliverCounterparty(w, trade.tradeId);
+    const ready = await portalTrade(w.app, w.clientId, trade.tradeRef);
+    expect(ready.stages[2]!.detail).toBe('preparing your payment');
   });
 
   it('never tells one client about another client’s trade', async () => {

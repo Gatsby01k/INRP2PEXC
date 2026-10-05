@@ -235,6 +235,20 @@ Flows: `FROM_ROUTE_TO_EXCHANGE` (route → exchange account / treasury), `TO_ROU
 - Assignment happens only through `CustodyAdapter.allocateDepositAddress` inside the acceptance transaction (DERIVED mode inserts a new address row; POOL mode locks an AVAILABLE row with `FOR UPDATE SKIP LOCKED`).
 - Partial unique index: at most one open `deposit_assignment` per address; unique `deposit_assignment.trade_id`.
 - If `custody_provider_config.deposit_address_capability = UNSUPPORTED`, SELL acceptance is disabled system-wide and the desk sees the limitation; no fallback attribution exists.
+- D-16: an address holding a counterparty-funded trade's money that has not left yet (confirmed sources less CONSUMED earmarks) stays in COOLDOWN whatever its cooldown says — the release job passes over it and the database refuses `COOLDOWN → AVAILABLE` (IX088). It is released on the first run after that money's outflow is confirmed.
+
+## 11a. FundingAllocation (D-16, ADR 0016)
+
+`ACTIVE ──outflow confirmed (payout / refund / TO_ROUTE)──▶ CONSUMED`
+`ACTIVE ──outflow cancelled or failed──▶ RELEASED`
+
+- Created ACTIVE (IX084) by the command that plans the outflow, in its transaction, against the trade's own confirmed client or counterparty funds at the outflow's location; a source is never earmarked beyond its amount (IX085, deferred).
+- At commit every live outflow of a counterparty-funded trade is earmarked in full, a confirmed one consumed in full, a cancelled or failed one holds nothing (IX086, deferred).
+- Nothing is posted to the ledger by an earmark; the movement's own journal is the money.
+
+## 11b. Custody balance observation (B2)
+
+Append-only readings of an exchange address: `AGREED` (two independence groups, same balance), `SINGLE_SOURCE`, `DISAGREED`, `ERROR`. A wallet's `observed_balance_minor` / `observed_at` move only to its latest usable reading (IX089). A USDT payout (`payout_leg.send`) or refund (`refund_leg.create`) needs the latest reading of its source address to be usable, younger than `maxObservationAgeSeconds` (300 s) — single-source only below the D-05 threshold — and to show the amount free after every outflow it does not reflect.
 
 ## 12. AcceptanceChallenge (`DECISIONS.md D-01`)
 

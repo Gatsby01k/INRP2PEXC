@@ -25,6 +25,9 @@ Fake-provider tests never close gate 2; CI never closes gate 3.
 | A3 | P0 | confirmed defect + external | Provider degradation, D-05 quorum, backfill (TD-06), real smoke (TD-07) | code ready; real smoke **NOT RUN** |
 | B1 | P0 | owner decision → implementation | Counterparty-funded execution enforced in commands and the database | code ready |
 | B2 | P0 | confirmed defect + implementation | Observed custody balances and the physical-availability gate | code ready; real-provider reads **NOT RUN** (TD-07) |
+| B3 | P0 | proof | Counterparty funding proved at command, database and screen level | code ready |
+| B4 | P1 | owner decision | No direct trader → client path | enforced (not offered) |
+| B5 | P0 | confirmed defect | Desk screens and evidence paths still paid from the treasury and assumed log 0 | fixed — code ready |
 
 (The table grows as stages are worked; each row has a section below.)
 
@@ -155,4 +158,45 @@ Fake-provider tests never close gate 2; CI never closes gate 3.
   permission, foreign address, no provider), `packages/scanner/test/balances.unit.test.ts`, worker job wiring.
 - **Remaining.** INR has no physical reading (TD-25); funding cannot follow a custody sweep (TD-26 — a launch-checklist
   custody setting until built); balances from real providers are part of the TD-07 smoke (**NOT RUN**).
+
+## B3 — Proofs (P0)
+
+| Claim | Where it is proved |
+|---|---|
+| Both directions settle with zero platform USDT and INR | `counterparty-funding.int.test.ts` — client sells USDT (trader Buy USDT) and client buys USDT (trader Sell USDT), each from a world with no treasury balance and no reservation; the HOT wallet has no ledger entry afterwards |
+| No payout before the counterparty funded — command | `FUNDING_NOT_CONFIRMED` in the same suite and `settlement.int` (BUY) |
+| — database | raw `settlement_leg` insert of an unearmarked exchange payout refused at commit (IX086); raw `TO_ROUTE` insert before delivery refused (IX087); raw treasury reservation refused (IX083, acceptance suite) |
+| — screen / API | server actions only call the domain commands (`runCommand`); the payout panel offers only places holding the counterparty's money and says it is waiting otherwise; the client sees "waiting for liquidity" (`portal.int`) |
+| Other trades' money and Security Reserves never stand in | same suite — another trade's delivery at the same account cannot be used (FUNDING_LOCATION/INSUFFICIENT; raw earmark IX084) |
+| Capacity is not money | the trader's held capacity funds nothing; a payout account with capacity and other money still refuses (`FUNDING_NOT_CONFIRMED`) |
+| Trader default / partial | partial delivery funds a partial payout only; nothing delivered → the client's own funds are refunded from where they are and the trade unwinds |
+| Concurrency | two payouts racing for one delivery: one earmark; refund vs payment to the trader racing for the client's money: never both |
+| Physical cover (B2) | `availability.int.test.ts` |
+| Desk projection does not leak the route rate | `desk.int` — a SETTLEMENT_OPERATOR sees counterparty funds capped at what the client is owed, no arrival figures |
+
+## B4 — No direct trader → client path
+
+Not offered. A trader route is created `TO_EXCHANGE` only and the database holds that shape
+(`liquidity_route_trader_shape`, 0022); the routes command refuses to reconfigure a trader route
+(`TRADER_ROUTE_MANAGED`). Proved in `counterparty-funding.int.test.ts` (command and raw update). Whether a direct path
+is wanted stays an open owner question (ADR 0016 §8).
+
+## B5 — Desk screens and evidence paths (P0, confirmed defect)
+
+- **Found.** After the D-16 commands landed, three desk screens still offered only treasury sources — the payout panel
+  (USDT from a treasury wallet), the refund panel (USDT from a treasury wallet), the trader desk (USDT to a trader from
+  a treasury wallet) — every one of which the commands now refuse, so the desk could not settle a counterparty-funded
+  trade. The same screens, and the server behind them, recorded a USDT transaction as **log 0** whenever no index
+  was given (`payout_leg.record_evidence`, `refund_leg.confirm`, `route_settlement.record`); a batch whose payment is
+  not the first log could not be recorded. A USDT refund went to "the first active source wallet" in no defined order.
+- **Changed.** `locateTransferLog` (settlement) reads the transaction and picks the one log with the configured
+  contract, the sender, an expected recipient and the amount — refusing none or several with what the chain shows;
+  a named index is held to the same facts. The refund destination is whichever of the client's registered source
+  wallets the transaction paid. The desk trade read model gains `funding` (places, what is free, whether the
+  counterparty delivered — arrival figures only with `route_positions:view`); the payout, refund and trader screens
+  offer only the places holding the right party's money and pass the deposit address when the money is there; the
+  client portal shows "waiting for liquidity". The e2e and visual worlds deliver the counterparty's side first.
+- **Tests.** `audit-regressions.int` (a stranger's transaction refused at record time; a batch with the payment at
+  log 1 found by its facts; the same payment twice requires the index), `desk.int` (funding projection and its access
+  rule), `portal.int` (waiting for liquidity, then preparing the payment).
 

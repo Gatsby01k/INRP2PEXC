@@ -103,6 +103,11 @@ describe('a client sells USDT; an INR trader buys it (trader Buy USDT side)', ()
     // Nor can the payment to the trader leave first.
     const deposit = await clientDepositAddressOf(w, trade.tradeId);
     await expect(sendToTraderUsdt(trade.routeObligationId, '1000', deposit)).rejects.toMatchObject({ code: 'COUNTERPARTY_NOT_DELIVERED' });
+    // Whatever code wrote it, a payment to the counterparty before it delivered does not even insert (IX087).
+    const route = await w.app.selectFrom('route_obligation').select('route_id').where('id', '=', trade.routeObligationId).executeTakeFirstOrThrow();
+    await expect(sql`insert into route_settlement (route_id, route_obligation_id, obligation_side, flow, asset, amount_minor, transfer_kind, crypto_transfer_id, created_by)
+                     values (${route.route_id}, ${trade.routeObligationId}, 'EXCHANGE_DELIVERS', 'TO_ROUTE', 'USDT', ${usdt('1000')}, 'CRYPTO', ${randomUUID()}, 'old-app')`.execute(w.t.owner))
+      .rejects.toSatisfy((e) => pgErrorCode(e) === 'IX087');
     // Whatever code wrote it, an exchange-paid payout with no earmark does not commit (IX086).
     await expect(sql`insert into settlement_leg (trade_id, seq, ref, side, asset, amount_minor, payer, inr_account_id, created_by)
                      values (${trade.tradeId}, 90, 'x', 'EXCHANGE_TO_CLIENT', 'INR', ${inr('104200.00')}, 'EXCHANGE_ACCOUNT', ${w.collectionAccountId}, 'old-app')`.execute(w.t.owner))
@@ -265,3 +270,19 @@ describe('one source, many hands', () => {
     expect(BigInt(taken.rows[0]!.total) <= client.amount_minor).toBe(true);
   });
 });
+
+describe('no direct trader → client path (B4)', () => {
+  it('a trader’s route always delivers to the exchange: it cannot be switched to pay a client directly', async () => {
+    const { configureRoute } = await import('@inrp2p/routes');
+    const route = await w.app.selectFrom('liquidity_route').select(['id', 'version', 'execution_mode']).where('trader_id', '=', inrTraderId).executeTakeFirstOrThrow();
+    expect(route.execution_mode).toBe('TO_EXCHANGE');
+    // The command path refuses it — the database holds the shape whatever code tries (liquidity_route_trader_shape).
+    await expect(runAs(w.app, configureRoute(w.owner.actor), w.owner.ref, 'routes.configure', {
+      routeId: route.id, expectedVersion: route.version, executionMode: 'DIRECT_TO_CLIENT' as const, reason: 'let the trader pay the client',
+    })).rejects.toMatchObject({ code: 'TRADER_ROUTE_MANAGED' });
+    await expect(sql`update liquidity_route set execution_mode = 'DIRECT_TO_CLIENT' where id = ${route.id}`.execute(w.t.owner))
+      .rejects.toSatisfy((e) => pgErrorCode(e) === '23514');
+    expect((await w.app.selectFrom('liquidity_route').select('execution_mode').where('id', '=', route.id).executeTakeFirstOrThrow()).execution_mode).toBe('TO_EXCHANGE');
+  });
+});
+

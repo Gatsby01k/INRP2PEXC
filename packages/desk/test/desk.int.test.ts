@@ -11,7 +11,7 @@ import {
   FULL_ACCESS, NO_ECONOMICS, accessFor, clientBook, clientDetail, deskApprovals, deskExceptions, deskQueue, deskStrip, deskTrade, deskTradeRecord,
   deskQuote, findByRef, inrView, listOrders, orderCounts, rateHistory, routePositions, searchOrders, tradeIdByRef, usdtView,
 } from '../src/index.ts';
-import { type World, createWorld, newUtr, openTrade, settleFirstLeg, ensureCounterpartyFunds } from '../../settlement/test/world.ts';
+import { type World, createWorld, deliverCounterparty, newUtr, openTrade, settleFirstLeg, ensureCounterpartyFunds } from '../../settlement/test/world.ts';
 
 let w: World;
 beforeAll(async () => { w = await createWorld('desk_views', { capacityInr: '500000000.00' }); });
@@ -416,3 +416,32 @@ describe('a sent quote', () => {
     expect((await findByRef(w.app, view.ref)).map((h) => h.kind)).toEqual(['QUOTE']);
   });
 });
+
+describe('where a trade’s money is (D-16)', () => {
+  it('shows each place and what may leave it, and the route-revealing figures only to route-positions viewers', async () => {
+    const trade = await openTrade(w, { executionMode: 'TO_EXCHANGE', baseUsdt: '100', clientRate: '102.000000', routeRate: '104.200000' });
+    await settleFirstLeg(w, trade.tradeId);
+    const before = await deskTrade(w.app, trade.tradeId, accessFor(w.settlementOp.actor));
+    expect(before.funding.model).toBe('COUNTERPARTY_FUNDED');
+    expect(before.funding.counterparty).toBe('NONE');
+    expect(before.funding.places).toEqual([expect.objectContaining({ kind: 'CLIENT_FUNDS', asset: 'USDT', free: '100.000000' })]);
+    expect(before.funding.places[0]!.depositAddressId).not.toBeNull();
+
+    await deliverCounterparty(w, trade.tradeId); // ₹10,420 arrives at the payout account; the client is owed ₹10,200
+    const seenBySettlement = await deskTrade(w.app, trade.tradeId, accessFor(w.settlementOp.actor));
+    const counterparty = seenBySettlement.funding.places.find((p) => p.kind === 'COUNTERPARTY_FUNDS')!;
+    expect(seenBySettlement.funding.counterparty).toBe('FULL');
+    expect(counterparty).toMatchObject({ asset: 'INR', inrAccountId: w.inrAccountId, free: '10200.00' });
+    // Field absence, not blanking: ₹10,420 over 100 USDT would be the route rate (SECURITY §5).
+    expect('arrived' in counterparty).toBe(false);
+    expect(JSON.stringify(seenBySettlement.funding)).not.toContain('10420');
+
+    const seenByDealer = await deskTrade(w.app, trade.tradeId, accessFor(w.dealer.actor));
+    expect(seenByDealer.funding.places.find((p) => p.kind === 'COUNTERPARTY_FUNDS')).toMatchObject({ arrived: '10420.00', planned: '0.00', spent: '0.00', free: '10420.00' });
+
+    await payoutLeg(trade.tradeId, '10200.00');
+    const paid = await deskTrade(w.app, trade.tradeId, accessFor(w.dealer.actor));
+    expect(paid.funding.places.find((p) => p.kind === 'COUNTERPARTY_FUNDS')).toMatchObject({ spent: '10200.00', free: '220.00' });
+  });
+});
+

@@ -185,15 +185,18 @@ and no market feed in V1. The client's rate and the exchange's margin are never 
 
 ## 7. Settlement per side
 
-Both sides settle through the order's `route_obligation` (`TO_EXCHANGE`):
+Both sides settle through the order's `route_obligation` (`TO_EXCHANGE`), and since D-16 (ADR 0016) both are paid
+with the other party's money only — INRP2P advances nothing of its own:
 
-| | Buy USDT trader | Sell USDT trader |
+| | Buy USDT trader (client sells USDT) | Sell USDT trader (client buys USDT) |
 |---|---|---|
-| Trader delivers | INR from its registered bank account to the programme's collection account, with the order ref as narration. The trader submits the UTR (`trader_order.submit_payment`), recorded as a `FROM_ROUTE_TO_EXCHANGE` route settlement; the desk confirms it against the bank (⧗). | USDT from its registered wallet to the order's own deposit address (`trader_order.delivery_address`, issued only when due). The scanner records and confirms it on finality as a route settlement. A transfer from another wallet is not counted (`REVIEW`, exception); over-delivery opens `ROUTE_SETTLEMENT_MISMATCH`. |
-| INRP2P delivers | USDT from a treasury wallet to the trader's registered wallet: desk records the tx (`TO_ROUTE`) and confirms on finality (⧗). | INR from an exchange account to the trader's registered bank account, against daily capacity: desk records the UTR (`TO_ROUTE`) and confirms (⧗). |
+| Trader delivers | INR from its registered bank account to the programme's collection account (ACTIVE, and `BOTH`: the client is paid out of it), with the order ref as narration. The trader submits the UTR (`trader_order.submit_payment`), recorded as a `FROM_ROUTE_TO_EXCHANGE` route settlement; the desk confirms it against the bank (⧗). | USDT from its registered wallet to the order's own deposit address (`trader_order.delivery_address`, issued only when due). The scanner records and confirms it on finality as a route settlement. A transfer from another wallet is not counted (`REVIEW`, exception); over-delivery opens `ROUTE_SETTLEMENT_MISMATCH`. |
+| The client is paid | INR from the collection account the trader's INR arrived in, earmarked against that delivery. | USDT from the order's deposit address the trader's USDT arrived at, earmarked against that delivery, once a fresh reading of that address shows it there (B2). |
+| INRP2P delivers to the trader | The client's USDT, from the client's deposit address, only after the trader's INR is confirmed in full (delivery versus payment): desk records the tx (`TO_ROUTE`, the log found by its facts) and confirms on finality (⧗). | The client's INR, from the account the client paid into, only after the trader's USDT is confirmed: desk records the UTR (`TO_ROUTE`) and confirms (⧗). |
 
-The client's own legs (first leg, payout) are unchanged: on a trader route INRP2P still pays or delivers to the
-client from its own accounts, as for any `TO_EXCHANGE` route.
+A trader that delivers part funds a partial payout only; one that delivers nothing leaves the client's funds
+earmarked where they are — refundable to the client, never advanced against. Another trade's money and any trader's
+Security Reserve never stand in (FI-76). A trader route is always `TO_EXCHANGE`: there is no trader → client path (B4).
 
 ## 8. Security Reserve
 

@@ -112,7 +112,7 @@ export async function cancelQuoteAction(input: { quoteId: string; reason: string
 }
 
 export async function createPayoutLegAction(
-  input: { tradeId: string; amount: string; payer: 'EXCHANGE_ACCOUNT' | 'ROUTE'; inrAccountId?: string | null; treasuryWalletId?: string | null; notes?: string | null },
+  input: { tradeId: string; amount: string; payer: 'EXCHANGE_ACCOUNT' | 'ROUTE'; inrAccountId?: string | null; treasuryWalletId?: string | null; sourceDepositAddressId?: string | null; notes?: string | null },
   key: string,
 ): Promise<CommandResult<{ legId: string; ref: string; remainingAfter: string }>> {
   const out = await runCommand((ctx) => createPayoutLeg(ctx.actor, {}), input, { name: 'payout_leg.create', idempotencyKey: key });
@@ -260,7 +260,7 @@ export async function cancelTradeAction(input: { tradeId: string; reason: string
 
 /** T10 step 1: create the refund leg that sends the client's own funds back. */
 export async function createRefundLegAction(
-  input: { tradeId: string; inrAccountId?: string | null; treasuryWalletId?: string | null; notes?: string | null },
+  input: { tradeId: string; inrAccountId?: string | null; treasuryWalletId?: string | null; sourceDepositAddressId?: string | null; notes?: string | null },
   key: string,
 ): Promise<CommandResult<{ legId: string; ref: string }>> {
   const out = await runCommand((ctx) => createRefundLeg(ctx.actor), input, { name: 'refund_leg.create', idempotencyKey: key });

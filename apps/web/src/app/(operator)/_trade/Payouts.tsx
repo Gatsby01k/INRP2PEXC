@@ -70,12 +70,17 @@ function NewLeg({ trade, autoFocus }: { trade: DeskTrade; autoFocus: boolean }) 
   const asset = trade.payoutOptions.asset;
   const direct = trade.payoutOptions.routeDirectAvailable;
   const [payer, setPayer] = useState<Payer>('EXCHANGE_ACCOUNT');
-  const accounts = trade.payoutOptions.accounts;
+  // D-16: an exchange-paid leg pays the client with the counterparty's money, from the place it arrived — so a
+  // counterparty-funded trade offers only those places. A legacy trade keeps the treasury's accounts and wallets.
+  const funded = trade.funding.model === 'COUNTERPARTY_FUNDED';
+  const places = trade.funding.places.filter((p) => p.kind === 'COUNTERPARTY_FUNDS' && p.asset === asset && Money.parse(p.free, asset).isPositive());
+  const accounts = funded ? trade.payoutOptions.accounts.filter((a) => places.some((p) => p.inrAccountId === a.accountId)) : trade.payoutOptions.accounts;
   const wallets = trade.payoutOptions.wallets;
   // Default to the account with the most room today — the one least likely to refuse.
   const best = [...accounts].sort((a, b) => (Money.parse(b.availableToday, 'INR').minor > Money.parse(a.availableToday, 'INR').minor ? 1 : -1))[0];
   const [accountId, setAccountId] = useState(best?.accountId ?? '');
   const [walletId, setWalletId] = useState(wallets[0]?.walletId ?? '');
+  const [placeKey, setPlaceKey] = useState(places.find((p) => p.asset === 'USDT')?.location ?? '');
   const [amount, setAmount] = useState('');
   const input = useRef<HTMLInputElement>(null);
 
@@ -87,12 +92,26 @@ function NewLeg({ trade, autoFocus }: { trade: DeskTrade; autoFocus: boolean }) 
   const typed = parseAmount(amount, asset);
   const account = accounts.find((a) => a.accountId === accountId);
   const wallet = wallets.find((w) => w.walletId === walletId);
-  const room = asset === 'INR' ? (payer === 'ROUTE' ? null : account ? Money.parse(account.availableToday, 'INR') : null) : wallet ? Money.parse(wallet.available, 'USDT') : null;
+  const usdtPlace = places.find((p) => p.location === placeKey);
+  const inrPlace = places.find((p) => p.inrAccountId === accountId);
+  const lesser = (a: Money<'INR'>, b: Money<'INR'>) => (a.minor < b.minor ? a : b);
+  const room =
+    asset === 'INR'
+      ? payer === 'ROUTE' || !account
+        ? null
+        : funded && inrPlace
+          ? lesser(Money.parse(account.availableToday, 'INR'), Money.parse(inrPlace.free, 'INR'))
+          : Money.parse(account.availableToday, 'INR')
+      : funded
+        ? usdtPlace ? Money.parse(usdtPlace.free, 'USDT') : null
+        : wallet ? Money.parse(wallet.available, 'USDT') : null;
+  const waiting = funded && payer === 'EXCHANGE_ACCOUNT' && places.length === 0;
 
   const overTrade = typed !== null && typed.minor > unallocated.minor;
   const overRoom = typed !== null && room !== null && typed.minor > room.minor;
   const error = overTrade ? `More than the trade still owes (${money(trade.unallocated, asset)}).` : overRoom ? `More than ${asset === 'INR' ? 'this account has left today' : 'this wallet holds'} (${money(room!.toDecimalString(), asset)}).` : null;
-  const ready = typed !== null && typed.isPositive() && !overTrade && !overRoom && !cmd.busy && (asset === 'USDT' ? walletId !== '' : payer === 'ROUTE' || accountId !== '');
+  const ready = typed !== null && typed.isPositive() && !overTrade && !overRoom && !cmd.busy && !waiting
+    && (asset === 'USDT' ? (funded ? usdtPlace !== undefined : walletId !== '') : payer === 'ROUTE' || accountId !== '');
 
   const fillMax = () => {
     const cap = room !== null && room.minor < unallocated.minor ? room : unallocated;
@@ -110,7 +129,10 @@ function NewLeg({ trade, autoFocus }: { trade: DeskTrade; autoFocus: boolean }) 
             amount,
             payer,
             ...(payer === 'EXCHANGE_ACCOUNT' && asset === 'INR' ? { inrAccountId: accountId } : {}),
-            ...(asset === 'USDT' ? { treasuryWalletId: walletId } : {}),
+            ...(asset === 'USDT' && !funded ? { treasuryWalletId: walletId } : {}),
+            ...(asset === 'USDT' && funded && usdtPlace
+              ? usdtPlace.depositAddressId ? { sourceDepositAddressId: usdtPlace.depositAddressId } : { treasuryWalletId: usdtPlace.treasuryWalletId }
+              : {}),
           },
           key,
         ),
@@ -140,7 +162,14 @@ function NewLeg({ trade, autoFocus }: { trade: DeskTrade; autoFocus: boolean }) 
         />
       ) : null}
 
-      {asset === 'INR' && payer === 'EXCHANGE_ACCOUNT' ? (
+      {waiting ? (
+        <Notice icon="clock">
+          <strong>Waiting for the counterparty.</strong> The client is paid with the counterparty’s {asset} only (D-16)
+          {trade.funding.counterparty === 'NONE' ? ': nothing has been delivered yet.' : ': what it delivered is already planned out.'}
+        </Notice>
+      ) : null}
+
+      {asset === 'INR' && payer === 'EXCHANGE_ACCOUNT' && !waiting ? (
         accounts.length === 0 ? (
           <Notice tone="warning">No active payout account. Open one on INR accounts first.</Notice>
         ) : (
@@ -172,7 +201,21 @@ function NewLeg({ trade, autoFocus }: { trade: DeskTrade; autoFocus: boolean }) 
         )
       ) : null}
 
-      {asset === 'USDT' ? (
+      {asset === 'USDT' && funded && !waiting ? (
+        <Choices<string>
+          legend="Send from — where the counterparty’s USDT is"
+          value={placeKey}
+          onChange={setPlaceKey}
+          choices={places.map((p) => ({
+            value: p.location,
+            title: p.label,
+            aside: <span className={t.accountAvail}><strong>{money(p.free, 'USDT')}</strong> for this trade</span>,
+            description: p.address ?? '',
+          }))}
+        />
+      ) : null}
+
+      {asset === 'USDT' && !funded ? (
         <Choices<string>
           legend="Send from"
           value={walletId}
@@ -236,7 +279,8 @@ function LegItem({ trade, leg, perms, autoFocus }: { trade: DeskTrade; leg: Desk
     );
   const saveHash = () =>
     cmd.run(`Record the transaction for ${leg.ref}`, (key) =>
-      recordEvidenceAction({ legId: leg.id, txHash: hash.trim().replace(/^0x/, ''), logIndex: 0, fromAddress: leg.walletAddress ?? '' }, key),
+      // The server reads the transaction and finds this payment's log by its facts — never "log 0".
+      recordEvidenceAction({ legId: leg.id, txHash: hash.trim().replace(/^0x/, ''), fromAddress: leg.walletAddress ?? '' }, key),
     );
 
   return (
@@ -248,7 +292,7 @@ function LegItem({ trade, leg, perms, autoFocus }: { trade: DeskTrade; leg: Desk
       <div className={t.legMeta}>
         <span>{leg.ref}</span>
         <span>
-          <strong>{route ? `Route · ${leg.routeName ?? 'direct'}` : leg.asset === 'INR' ? (leg.accountLabel ?? 'Exchange account') : 'Treasury'}</strong>
+          <strong>{route ? `Route · ${leg.routeName ?? 'direct'}` : leg.asset === 'INR' ? (leg.accountLabel ?? 'Exchange account') : (leg.walletAddress ? `From ${leg.walletAddress.slice(0, 6)}…${leg.walletAddress.slice(-4)}` : 'Treasury')}</strong>
         </span>
         {leg.reference ? <span className={d.mono}>{leg.referenceKind === 'TX' ? `tx ${shortenHash(leg.reference)}` : `UTR ${maskUtr(leg.reference)}`}</span> : null}
         <span>
