@@ -7,7 +7,7 @@ import { runAs } from '@inrp2p/identity/testing';
 import { dispatchOutbox } from '@inrp2p/outbox';
 import { traderNotificationHandler } from '@inrp2p/notifications';
 import { Accounts, accountBalance, globalImbalance, routeObligationBalances } from '@inrp2p/ledger';
-import { systemHealth } from '@inrp2p/desk';
+import { istToday, pnlPage, systemHealth } from '@inrp2p/desk';
 import {
   confirmPayout, confirmRouteSettlement, createPayoutLeg, recordLegEvidence, recordRouteSettlement, sendPayoutLeg,
 } from '@inrp2p/settlement';
@@ -81,6 +81,14 @@ describe('a trader’s whole life (D4)', () => {
 
     // The trader sells USDT: the client buys 500 USDT for ₹53,000; the trader delivers to the order's own address.
     const b = await tradeThroughTrader(w, t, { requestId: await clientRequest(w, 'BUY_USDT', '500'), clientRate: '106.000000' });
+    // Started is started: switching off neither withdraws nor re-routes it, and keeps the reserve locked behind it;
+    // its rate and reward stay as they were frozen.
+    const frozen = await w.app.selectFrom('trader_order').select(['rate_micro', 'reward_inr_minor', 'inr_minor']).where('id', '=', b.orderId).executeTakeFirstOrThrow();
+    await runAs(w.app, setAvailability(t.admin.actor), t.admin.ref, 'trader.set_availability', { available: false });
+    expect((await w.app.selectFrom('trader_order').select('status').where('id', '=', b.orderId).executeTakeFirstOrThrow()).status).toBe('IN_PROGRESS');
+    expect((await reserveFigures(w.app, live.traderId)).locked.toDecimalString()).toBe('500.000000');
+    await runAs(w.app, setAvailability(t.admin.actor), t.admin.ref, 'trader.set_availability', { available: true });
+    expect(frozen).toEqual({ rate_micro: 105_200_000n, reward_inr_minor: 5_260n, inr_minor: 5_260_000n });
     await settleFirstLeg(w, b.tradeId);
     await dispatch();
     const { address } = await runAs(w.app, orderDeliveryAddress(t.admin.actor, w.traderDeps), t.admin.ref, 'trader_order.delivery_address', { ref: b.orderRef });
@@ -118,6 +126,16 @@ describe('a trader’s whole life (D4)', () => {
         values (${live.traderId}, ${Money.parse(amount, 'INR').minor}, ${w.collectionAccountId}, ${f.rows[0]!.id}, ${t.bankAccountId}, 'old-app')`.execute(w.t.owner);
     };
     await expect(rawPayout('395.31')).rejects.toSatisfy((e) => pgErrorCode(e) === 'IX096');
+    // The P&L shows the economics after rewards — gross ₹900, rewards ₹157.30, net ₹742.70 — per trade and in total,
+    // and what is still owed against the margin free to pay it.
+    const day = await istToday(w.app);
+    const pnl = await pnlPage(w.app, { from: day, to: day });
+    expect(pnl.summary).toMatchObject({ realizedGrossMargin: '900.00', traderRewards: '157.30', recordedFees: '0.00', netAfterRewardsAndFees: '742.70', rewardsPayable: '0.00', freeMargin: '742.70' });
+    const refOf = async (tradeId: string) => (await w.app.selectFrom('trade').select('ref').where('id', '=', tradeId).executeTakeFirstOrThrow()).ref;
+    expect(pnl.rows.filter((r) => r.kind === 'realized').map((r) => [r.tradeRef, r.margin, r.reward, r.net]).sort()).toEqual([
+      [await refOf(a.tradeId), '500.00', '104.70', '395.30'],
+      [await refOf(b.tradeId), '400.00', '52.60', '347.40'],
+    ].sort());
     // The desk sees the same figure where it chooses the paying account.
     expect((await deskTrader(w.app, live.traderId)).rewardMargins).toEqual(expect.arrayContaining([{ accountId: w.collectionAccountId, freeMargin: '395.30' }]));
 

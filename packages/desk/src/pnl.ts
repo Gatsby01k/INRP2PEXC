@@ -22,6 +22,10 @@ export interface PnlRow {
   readonly clientRate: string;
   readonly routeRate: string;
   readonly margin: string;
+  /** The reward frozen on the trader order behind the trade, if one is (TRADERS §9); `0.00` otherwise. */
+  readonly reward: string;
+  /** Gross margin less that reward: what the trade leaves before costs the ledger does not carry. May be negative. */
+  readonly net: string;
   readonly kind: 'realized' | 'expected';
   readonly at: string;
 }
@@ -39,6 +43,11 @@ export interface PnlPageSummary {
   readonly completedTrades: number;
   readonly openExpectedMargin: string;
   readonly openTrades: number;
+  readonly traderRewards: string;
+  readonly recordedFees: string;
+  readonly netAfterRewardsAndFees: string;
+  readonly rewardsPayable: string;
+  readonly freeMargin: string;
 }
 
 export interface PnlPage {
@@ -60,10 +69,11 @@ export async function pnlPage(ex: Executor, period: PnlPeriod): Promise<PnlPage>
   const rows = await sql<{
     ref: string; display_name: string; direction: 'SELL_USDT' | 'BUY_USDT'; lifecycle_state: string;
     base_minor: bigint; quote_inr_minor: bigint; client_rate_micro: bigint; route_rate_micro: bigint;
-    gross_margin_inr_minor: bigint; at: Date; kind: 'realized' | 'expected';
+    gross_margin_inr_minor: bigint; reward_minor: string; at: Date; kind: 'realized' | 'expected';
   }>`
     select t.ref, c.display_name, t.direction, t.lifecycle_state,
            e.base_minor, e.quote_inr_minor, e.client_rate_micro, e.route_rate_micro, e.gross_margin_inr_minor,
+           coalesce((select o.reward_inr_minor from trader_order o where o.trade_id = t.id and o.status in ('IN_PROGRESS', 'COMPLETED')), 0)::text as reward_minor,
            coalesce(t.completed_at, t.opened_at) as at,
            case when t.lifecycle_state = 'COMPLETED' then 'realized' else 'expected' end as kind
     from trade t
@@ -87,6 +97,11 @@ export async function pnlPage(ex: Executor, period: PnlPeriod): Promise<PnlPage>
       completedTrades: summary.completedTrades,
       openExpectedMargin: summary.openExpectedMargin.toDecimalString(),
       openTrades: summary.openTrades,
+      traderRewards: summary.traderRewards.toDecimalString(),
+      recordedFees: summary.recordedFees.toDecimalString(),
+      netAfterRewardsAndFees: summary.netAfterRewardsAndFees.toDecimalString(),
+      rewardsPayable: summary.rewardsPayable.toDecimalString(),
+      freeMargin: summary.freeMargin.toDecimalString(),
     },
     rows: rows.rows.map((r) => ({
       tradeRef: r.ref,
@@ -98,6 +113,8 @@ export async function pnlPage(ex: Executor, period: PnlPeriod): Promise<PnlPage>
       clientRate: Rate.ofMicro(r.client_rate_micro, 'CLIENT').toDecimalString(),
       routeRate: Rate.ofMicro(r.route_rate_micro, 'ROUTE').toDecimalString(),
       margin: Money.ofMinor(r.gross_margin_inr_minor, 'INR').toDecimalString(),
+      reward: Money.ofMinor(BigInt(r.reward_minor), 'INR').toDecimalString(),
+      net: Money.ofMinor(r.gross_margin_inr_minor - BigInt(r.reward_minor), 'INR').toDecimalString(),
       kind: r.kind,
       at: r.at.toISOString(),
     })),

@@ -229,6 +229,11 @@ Invariant check at every row: `ledger balance of ROUTE_RECEIVABLE/ROUTE_PAYABLE 
 | Completed volume (period) | `trade_economics.base_usdt` of trades completed in period (+ adjustments) | COMPLETED only |
 | Average margin / USDT | realized margin ÷ completed USDT volume (displayed to 4 dp; computed in `bigint`, rounded HALF_EVEN for display only) | COMPLETED only |
 | Open expected margin | Σ `gross_margin` snapshot of non-terminal trades | Never merged with realized |
+| Trader rewards (period) | Ledger debits to `EXPENSE:TRADER_REWARDS` with `posted_at` in period (accrued when a trader order completes) | Every completed trader order |
+| Recorded fees (period) | Ledger debits to `EXPENSE:FEES` (INR) in period | Bank charges once reconciliation records them; none in V1 so far |
+| Net after rewards and recorded fees | realized gross margin − trader rewards − recorded fees | May be negative and is then shown negative; never hidden by a positive gross |
+| Rewards owed / free margin (now) | `LIAB:TRADER_REWARD_PAYABLE` balance / Σ `inrp2p_inr_account_free_margin` over active accounts | An owed reward stays visible; a payout beyond free margin is refused (FI-82) |
+| Not in the ledger, listed as not deducted | TRX/energy for transfers and the custody provider's fees (platform operating budget); bank charges until recorded | Never paid with client or trader money (ADR 0016 §6) |
 
 ## 5. What is deliberately not an invariant in V1
 

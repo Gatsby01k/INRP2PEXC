@@ -398,12 +398,17 @@ is wanted stays an open owner question (ADR 0016 §8).
   sides at that account, less rewards paid or pending there, capped by the account's balance beyond open trades'
   money) and IX096 on every reward payout insert, serialized per account; `trader_reward.record_payout` refuses the
   same first (`TRADER_REWARD_NOT_COVERED`); the desk shows each account's free margin and offers the best first. The
+  P&L now shows the economics after rewards and recorded fees (net may be negative and is shown so), each trade's
+  margin after its frozen reward, rewards owed against the margin free to pay them, and lists the costs the ledger
+  does not carry (TRX, custody fees, unrecorded bank charges) as not deducted, with who covers them. The
   `overdue_route_obligations` explanation is corrected for D-16 (the client waits for the counterparty's money).
 - **Tests.** `test/integration/trader-lifecycle.int.test.ts` — one trader: apply, approve, reserve, both blocks; a Buy
   USDT order (client USDT in, trader INR in, client paid from the trader's INR, trader paid from the client's USDT)
   and a Sell USDT order (client INR in, trader USDT to the order's address, client paid from it, trader paid from the
   client's INR); sweep completes both and accrues their rewards; free margin ₹500 / ₹400 per account; rewards paid
-  from each; IX096 one paisa over; switched off, reserve unlocked and withdrawn; every account at zero; notifications.
+  from each; IX096 one paisa over; P&L gross ₹900, rewards ₹157.30, net ₹742.70 and per-trade nets; a started order
+  survives switching off with its frozen rate and reward and the reserve still locked; switched off with nothing open,
+  reserve unlocked and withdrawn; every account at zero; notifications.
   Sweep: a fault planted on one order's row — the other expires, the failure is reported with its code, the health
   signal warns, the retry clears it. `test/integration/traders.int.test.ts` now pays the reward after the client is
   paid, and proves it refused before that and from an account the trade never touched.
