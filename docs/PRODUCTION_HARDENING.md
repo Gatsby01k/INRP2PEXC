@@ -48,6 +48,7 @@ nothing on gates 2 or 3. CI on the final SHA replaces them in the final report.
 | C3 | P0 | confirmed defects + external | Auth: TD-01, TD-02, TD-11 (client TOTP), operator enrolment; TD-03 KMS-backed KEK | code ready; KMS key **BLOCKED** (owner) |
 | D1 | P0 | confirmed defect | TD-18: an open trade can follow a client's new destination (two people, step-up, append-only) | fixed — code ready |
 | D2 | P0 | confirmed defect | TD-19: an overpayment can be returned without unwinding the trade | fixed — code ready |
+| D3 | P0 | implementation + owner decision | TD-21: a trader's reserve applied to USDT its own order did not deliver | USDT side code ready; INR side / recovery terms **BLOCKED** (owner) |
 
 (The table grows as stages are worked; each row has a section below.)
 
@@ -340,4 +341,36 @@ is wanted stays an open owner question (ADR 0016 §8).
   completion refused (IX021), confirmer without `refund:approve` refused, wrong wallet refused, completes with the
   client receivable at zero; IX093 and the destination CHECK on raw inserts; nothing to return on an exact payment;
   excess then unwind of the rest then `refund_and_cancel`; INR from the account it arrived in, earmark consumed).
+
+## D3 — Applying a trader's Security Reserve (TD-21) (P0)
+
+- **Found (on `d0cc778`).** The reserve was credited, locked and withdrawn through the ledger, but nothing could use
+  it. Since D-16 an undelivered trader order leaves the client waiting for liquidity (the platform does not advance
+  its own money), so the reserve was the trader's guarantee with no way to call on it.
+- **Decided here, and not.** Built: the mechanism that needs no owner terms — the trader's own reserve, applied by two
+  people to USDT one of its own orders still owes. Not built, refused instead: an INR shortfall (needs a conversion
+  rate — owner), any other use of a reserve (penalty, cost, forfeiture — owner), automatic application (none).
+  Whether an order delivered from the reserve keeps its frozen reward is listed as an owner question (today it does).
+- **Changed.** Migration `0029_trader_reserve_application.sql`: `trader_reserve_application` (append-only status;
+  requester ≠ decider CHECK; one live application per order), `inrp2p_trader_reserve_balance` / `_free`,
+  `inrp2p_route_delivery_open`, IX094 (own order, Sell USDT, IN_PROGRESS, obligation owes USDT, amount ≤ owed and ≤
+  free reserve; under the trader lock at request and approval), `route_settlement.reserve_application_id` and IX095
+  (a delivery naming an application only while APPROVED, exact amount, USDT, to the order's own address, from the
+  trader's reserve address or a treasury wallet; every other route delivery paid by the route and never from an
+  exchange address; application and settlement statuses agree at commit). Ledger purpose `TRADER_RESERVE_APPLIED`.
+  Commands `@inrp2p/traders` `reserve-application.ts` (request, approve — issues the delivery address, holds the
+  amount, notifies — decline, withdraw, end, record sent from the chain), `@inrp2p/settlement` `reserve-delivery.ts`
+  (recording, scanner attribution, confirmation posting once, failure ending it). Reserve figures gain `applying`
+  (not withdrawable). Desk: trader page **Reserve applied to orders**; trader: reserve figure and history.
+- **Tests.** `test/integration/trader-reserve-application.int.test.ts` (not before the trader's turn; dealer refused;
+  over the owed amount; one live application; requester and settlement operator cannot approve; approval issues the
+  address and holds the amount, which cannot be withdrawn; wrong amount and a stranger's transfer refused; one journal
+  Dr TRADER_RESERVE / Cr ROUTE_RECEIVABLE; reserve 800 → 300 with the shortfall shown; order delivered; client paid
+  from the order's address after a B2 observation; trader paid its INR; order completed; obligation and ledger at
+  zero; trader notified and its projection private; scanner path from a treasury wallet with the four-line journal;
+  a wrong amount opens a case and leaves the application approved; INR refused; reserve short refused with the free
+  figure; withdraw/decline/end; IX094 and IX095 on raw inserts, including the exchange's own USDT booked as a
+  delivery), `packages/ledger/test/movement.unit.test.ts`.
+- **Gate 3.** BLOCKED on the owner: recovery terms for INR shortfalls and other uses (ADR-16 §8), and TD-22 (the
+  programme agreement) before any trader provides real money.
 

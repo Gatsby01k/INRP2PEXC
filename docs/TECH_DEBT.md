@@ -24,7 +24,7 @@ Non-blocking items accepted at phase review. Each entry names the phase that mus
 | TD-18 | `CLIENT_BANK_CHANGED` is detected but cannot be resolved by moving the trade to a new destination | Audit (2026-09-25) | A client replacing a destination while one of its trades is open | Closed (2026-10-05, migration 0028) |
 | TD-19 | `refund_excess` (partial refund of an overpayment) does not exist; the completion predicate does not net refunds | Audit (2026-09-25) | The desk needing to return part of an overpayment and still complete the trade | Closed (2026-10-05, migration 0028) |
 | TD-20 | The OWNER-grant second approval is nominal: the requester names the approver | Audit (2026-09-25) | Any path that exposes `assignOperatorRole` (none does today) | Closed (2026-10-05, migration 0027) |
-| TD-21 | A trader's Security Reserve cannot be applied to an obligation the trader leaves unsettled | Traders (2026-09-27) | Traders providing real money | Open |
+| TD-21 | A trader's Security Reserve cannot be applied to an obligation the trader leaves unsettled | Traders (2026-09-27) | Traders providing real money | USDT side closed (2026-10-05, migration 0029); INR side and recovery terms open (owner) |
 | TD-22 | The trader programme's agreement, tax treatment and counterparty checks have not been reviewed | Traders (2026-09-27) | Traders providing real money | Open |
 | TD-23 | The Traders screens have no page baselines, and the client shell changed around them | Traders (2026-09-27) | The `visual-pages` CI job can pass | Open |
 | TD-24 | A trader cannot ask to change its registered bank account or wallet in the product | Traders (2026-09-27) | A trader replacing a destination without the desk's usual channel | Closed (2026-09-28) |
@@ -527,6 +527,34 @@ no path today; the desk can only pause the trader and keep its reserve locked.
 allocates reserve USDT against the obligation's route side — a route settlement from the reserve, Dr
 `LIAB:TRADER_RESERVE` / Cr the route receivable, keyed once — with the trader notified and the reason audited.
 An INR shortfall on a Buy USDT order needs the rate the desk applies to be recorded on the same approval.
+
+**Since D-16 (2026-10-04).** The "Observed" paragraph above predates counterparty-funded execution: INRP2P no longer
+pays the client from its own accounts, so an undelivered order now leaves the client waiting for liquidity, not
+served, until the trader delivers, the trade is unwound, or the reserve is applied.
+
+**USDT side closed (2026-10-05, migration 0029; production task D3).** `trader_reserve.request_application`
+(`trader_reserve:apply`, OWNER/FINANCE ⧗; reason) and `approve_application` (`trader_reserve:approve`, ⧗✱, never the
+requester) apply a trader's reserve to the USDT one of **its own** started Sell USDT orders still owes, once the client
+side is funded; never more than the order owes or the reserve holds free. Approval holds the amount (no longer
+withdrawable) and issues the order's delivery address if the trader never asked for it. Custody — the existing external
+mechanism; nothing here sends — moves the USDT from the trader's reserve address or a treasury wallet to that address;
+the desk records the hash (`record_application_sent`, read back from the chain) or the scanner recognises it, and chain
+finality confirms it as the order's delivery: one route settlement, one journal (`TRADER_RESERVE_APPLIED`: Dr
+`LIAB:TRADER_RESERVE` / Cr `ASSET:ROUTE_RECEIVABLE`, plus the custody move between two treasury wallets when they
+differ). The client is then paid from it like from any delivery, and the trader is paid its INR as agreed. The trader is
+notified at approval and sees it in its reserve history. Database: IX094 (own order, USDT, owed, free reserve — at
+request and approval), IX095 (a delivery naming an application only when approved, exact amount, to the order's own
+address, from the trader's reserve address or a treasury wallet; and — newly stated for D-16 — no other route delivery
+may be paid from an exchange address). Tests: `test/integration/trader-reserve-application.int.test.ts`,
+`packages/ledger/test/movement.unit.test.ts`.
+
+**Still open — owner decisions, refused rather than guessed.** (1) An INR shortfall (a trader's Buy USDT order):
+applying a USDT reserve needs a conversion rate and its source; the command refuses with
+`TRADER_RESERVE_NOT_APPLICABLE`. Until terms exist the exits are waiting or unwinding the client trade. (2) Any use of a
+reserve beyond the trader's own undelivered USDT — penalties, costs, forfeiture. (3) Whether an order delivered from the
+reserve still earns the reward frozen when it started (today it does: completion accrues it as for any order).
+(4) TD-22 (the programme agreement) still blocks real money: whether a trader has agreed to this use of its reserve is
+for that agreement to say.
 
 ## TD-22 — The trader programme has not been reviewed for agreement, tax and counterparty checks
 

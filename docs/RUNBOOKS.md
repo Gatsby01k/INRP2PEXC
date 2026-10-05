@@ -307,14 +307,23 @@ only thing standing between an unexplained state and a payout.
 outstanding and since when. Then whether the route says it has paid — a settlement recorded but not confirmed
 sits in a different state from one that never happened.
 
-**What to do.** Record the settlement when it arrives, with its own reference, through the desk. If the route
-is late beyond its agreed window, this is a commercial conversation, not a technical one: the client has
-already been paid and the trade is complete, so nothing about the client's position changes. Note it on the
-obligation so the next person does not repeat the chase.
+**What to do.** Record the settlement when it arrives, with its own reference, through the desk. Since D-16 the
+client is paid with the counterparty's money, so an undelivered route side means the client is **waiting for
+liquidity**: chase it now, and note it on the obligation so the next person does not repeat the chase.
 
-**What never to do.** Do not hold a client's payout because a route is slow to settle. The client's trade and
-the route's obligation are deliberately separate (D-03), and coupling them would make a counterparty's
-lateness the client's problem.
+* A trader's **USDT** (its Sell USDT order) that is not coming: on the trader's desk page, **Reserve applied to
+  orders → Apply the reserve to an order** (finance or owner, with the reason); someone else approves. Approval
+  shows the order's delivery address. Have custody send exactly that amount from the trader's reserve address (or a
+  treasury wallet) to it, then record the hash — or let the scanner see it. On finality it is the trader's delivery:
+  pay the client from that address, then pay the trader its INR as for any order.
+* A trader's **INR** (its Buy USDT order): the reserve is USDT and no conversion terms exist (TD-21, owner), so it is
+  not applied. Wait, or unwind the client trade (refund the client's USDT and cancel) with the client's agreement.
+* A desk route late on an exchange-delivers side it already received: a commercial conversation.
+
+**What never to do.** Do not pay a client from anything but the trade's own counterparty funds — not the treasury,
+not another trade's money, not a reserve that was not applied through the two-person path. Do not apply a reserve
+to cover a different trader, a fee, a penalty or an INR shortfall: those are owner decisions, not desk ones. And
+never have custody send a reserve before the application is approved — the scanner will not recognise it.
 
 ---
 

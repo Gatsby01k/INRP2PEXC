@@ -214,6 +214,16 @@ Security Reserve never stand in (FI-76). A trader route is always `TO_EXCHANGE`:
   The desk may reject with a reason; the trader may cancel before it is sent.
 - **Changing the requirement** (⧗) is audited and notified (`TRADER_RESERVE_ISSUE`); it never edits the trader's
   own terms, and nothing is taken from the reserve automatically.
+- **Applying it to USDT the trader did not deliver** (TD-21, migration 0029): on a started Sell USDT order whose client
+  side is funded, the desk may apply the trader's reserve to the USDT the order still owes — one person asks with the
+  reason (`trader_reserve:apply` ⧗), another approves (`trader_reserve:approve` ⧗✱). Approval holds the amount (it
+  leaves `available`; figure `applying`), issues the order's delivery address if needed and tells the trader
+  (`TRADER_RESERVE_ISSUE`). Custody moves the USDT from the reserve address (or a treasury wallet) to the order's
+  address; the desk records the hash or the scanner recognises it; on finality it is the order's delivery —
+  `crypto:{x}:confirm`, purpose `TRADER_RESERVE_APPLIED`, Dr `LIAB:TRADER_RESERVE` / Cr `ASSET:ROUTE_RECEIVABLE` — and
+  the order goes on (the client is paid from it, the trader is paid its INR). Never for INR (no conversion rate is
+  decided), never beyond the order's own USDT, never automatic. An approved application whose USDT has not moved can be
+  ended with a reason; a recorded transfer that fails ends it.
 
 ## 9. Rewards
 
@@ -243,6 +253,7 @@ Security Reserve never stand in (FI-76). A trader route is always `TO_EXCHANGE`:
 | TR-09 | The locked reserve is never withdrawable; one open withdrawal per trader | Command under the trader lock; partial unique index |
 | TR-10 | Nothing about the client, the desk's pricing or internals reaches a trader projection | `assertTraderSafe` on every trader view; integration test |
 | TR-11 | Offer and hold expiry use the business clock | `inrp2p_now()` in commands and the sweep |
+| TR-12 | A reserve is applied only to its own trader's undelivered USDT, by two people, within what the order owes and the reserve holds free; it reaches the order as one delivery with one journal | Commands under trader → order → obligation locks; IX094, IX095; posting key unique |
 
 Lock order: `trader_profile → trader_order → trader_block` after `acceptance_challenge` (ARCHITECTURE §4).
 
@@ -264,6 +275,8 @@ traders were excluded.
 | `traders:configure` | ⧗ | | ⧗ | Programme, approve, reject, limits, reserve, reward, settlement details, verify/reject submitted details, approve/reject settlement changes, reveal an applicant's phone |
 | `trader_payout:record` | ✔ | | ✔ | Record reserve withdrawal sent, reward payout |
 | `trader_payout:confirm` | ⧗ | | ⧗ | Confirm/reject withdrawals, confirm/fail payouts |
+| `trader_reserve:apply` | ⧗ | | ⧗ | Ask to apply the reserve to an order's undelivered USDT; withdraw the request (TD-21) |
+| `trader_reserve:approve` | ⧗✱ | | ⧗✱ | Approve or decline it (never the requester); end an approved one before its USDT moves |
 
 Every control is an audited command; nothing is punished automatically.
 

@@ -279,6 +279,7 @@ Append-only readings of an exchange address: `AGREED` (two independence groups, 
 | `trader_order.status` | OFFERED → ACCEPTED → IN_PROGRESS → COMPLETED; OFFERED → DECLINED / EXPIRED / WITHDRAWN; ACCEPTED → RELEASED; IN_PROGRESS → CANCELLED | COMPLETED, DECLINED, EXPIRED, WITHDRAWN, RELEASED, CANCELLED |
 | `trader_reserve_withdrawal.status` | REQUESTED → SENT → COMPLETED; REQUESTED → CANCELLED; REQUESTED / SENT → REJECTED | COMPLETED, CANCELLED, REJECTED |
 | `trader_reward_payout.status` | RECORDED → CONFIRMED / FAILED | CONFIRMED, FAILED |
+| `trader_reserve_application.status` (TD-21) | REQUESTED → APPROVED → SENT → COMPLETED; REQUESTED → REJECTED / CANCELLED; APPROVED → CANCELLED; SENT → FAILED. SENT ⇔ its route settlement RECORDED, COMPLETED ⇔ CONFIRMED, FAILED ⇔ FAILED (IX095, at commit) | REJECTED, CANCELLED, COMPLETED, FAILED |
 
 Transitions are guarded by `inrp2p_guard_status_transition`; frozen order columns by `inrp2p_guard_immutable_columns`.
 

@@ -198,4 +198,6 @@ Net economics are shown after rewards and recorded fees; a positive gross margin
 ## 8. Open owner questions (do not block this ADR)
 - Fee collection mechanism beyond margin (explicit client fee lines) — V1 keeps fees at zero (FINANCIAL_INVARIANTS §5).
 - Default recovery terms for traders (TD-21/D3): what the reserve may cover and at what agreed valuation for INR.
+  *D3 built only the part that needs no such terms: a two-person application of a trader's reserve to USDT its own
+  order did not deliver (migration 0029). INR shortfalls, penalties and forfeiture remain this question.*
 - Whether a direct trader→client path (B4) is wanted; until chosen it is not offered.
