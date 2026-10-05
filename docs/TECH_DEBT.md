@@ -21,8 +21,8 @@ Non-blocking items accepted at phase review. Each entry names the phase that mus
 | TD-15 | The public site cannot be edge-cached while its CSP nonce is per-request | Phase 9 implementation (2026-09-20) | The public site needs to be served from a CDN | Open |
 | TD-16 | The backup/restore drill has never been run against real infrastructure | Phase 9 implementation (2026-09-20) | Production launch (launch checklist) | Open — scripted, never executed |
 | TD-17 | Audit seals are written but never exported off-site | Phase 9 implementation (2026-09-20) | Production launch (launch checklist) | Open |
-| TD-18 | `CLIENT_BANK_CHANGED` is detected but cannot be resolved by moving the trade to a new destination | Audit (2026-09-25) | A client replacing a destination while one of its trades is open | Open |
-| TD-19 | `refund_excess` (partial refund of an overpayment) does not exist; the completion predicate does not net refunds | Audit (2026-09-25) | The desk needing to return part of an overpayment and still complete the trade | Open |
+| TD-18 | `CLIENT_BANK_CHANGED` is detected but cannot be resolved by moving the trade to a new destination | Audit (2026-09-25) | A client replacing a destination while one of its trades is open | Closed (2026-10-05, migration 0028) |
+| TD-19 | `refund_excess` (partial refund of an overpayment) does not exist; the completion predicate does not net refunds | Audit (2026-09-25) | The desk needing to return part of an overpayment and still complete the trade | Closed (2026-10-05, migration 0028) |
 | TD-20 | The OWNER-grant second approval is nominal: the requester names the approver | Audit (2026-09-25) | Any path that exposes `assignOperatorRole` (none does today) | Closed (2026-10-05, migration 0027) |
 | TD-21 | A trader's Security Reserve cannot be applied to an obligation the trader leaves unsettled | Traders (2026-09-27) | Traders providing real money | Open |
 | TD-22 | The trader programme's agreement, tax treatment and counterparty checks have not been reviewed | Traders (2026-09-27) | Traders providing real money | Open |
@@ -462,6 +462,18 @@ client), notifies every client admin, resolves the case as `confirm_new_destinat
 reads instead of the frozen id. Legs already PENDING on the old destination are cancelled and re-created, never
 edited.
 
+**Closed (2026-10-05, migration 0028; production task D1).** `trade.request_destination_change` (OWNER, SETTLEMENT,
+FINANCE, SUPPORT ⧗; reason and how the client confirmed it) and `trade.approve_destination_change` /
+`reject_destination_change` (OWNER, FINANCE ⧗, never the requester; `cancel_destination_change` by the requester).
+`trade_destination_change` is append-only; `trade_economics` is untouched; `inrp2p_trade_payout_destination` is the
+destination in force and the only one a payout leg may be inserted to (IX092, which also re-checks same client,
+ACTIVE, receiving wallet, and nothing PENDING/PROCESSING at approval). Approval refuses while a payout is PROCESSING
+(`PAYOUT_IN_FLIGHT`), cancels PENDING payout legs on the record (capacity and earmarks released), resolves the case as
+`confirm_new_destination` — which the plain resolve command no longer accepts — and notifies the client
+(`TRADE_DESTINATION_CHANGED`, every user of the client including its administrators; email delivery is TD-04).
+Tests: `packages/settlement/test/destination-change.int.test.ts`, `packages/desk/test/desk.int.test.ts` ("where a
+trade pays").
+
 ## TD-19 — Overpayments can be adjusted to, not partly refunded
 
 **Observed.** DOMAIN_MODEL §3 lists `refund_excess` for `USDT_OVERPAYMENT`. No command implements it: a refund leg
@@ -473,6 +485,16 @@ full `refund_and_cancel`.
 **Resolution (to do).** A `refund_excess` command limited to `received − receivable`, a refund leg of that amount,
 and a completion predicate — in the command and in the trigger (new migration) — that compares received minus
 refunded excess with the receivable.
+
+**Closed (2026-10-05, migration 0028; production task D2).** `trade.refund_excess` (`settlement:create_payout`)
+plans a refund leg of kind `EXCESS` — at most received − receivable less excess already planned, in flight or
+returned; never on top of an unwind — to a destination named at planning (a client's ACTIVE SOURCE/BOTH wallet for
+USDT, an ACTIVE bank account for INR), from where the client's money is (earmarked, FI-74; B2 checked for USDT).
+`refund_leg.confirm` (⧗✱) pays only to that destination and posts the ordinary refund journal once; the first-leg
+journal is not rewritten. Completion — `advanceTrade`, `payout_leg.confirm` and the trigger restated in 0028 —
+compares received less excess *confirmed* back with the receivable; IX093 caps excess refunds at commit. Unwind legs
+(`UNWIND`, or no kind for legs before 0028) keep the pay-out-or-refund exclusivity; an excess does not block the
+payout. Tests: `packages/settlement/test/excess-refund.int.test.ts`.
 
 ## TD-20 — Granting OWNER names a second approver instead of obtaining one
 

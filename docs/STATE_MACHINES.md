@@ -104,11 +104,13 @@ Payouts never start before first leg is FIRST_LEG_CONFIRMED (no credit extension
 ### Advancing without a movement (`advanceTrade`)
 Movements advance a trade inside the command that confirms them. A trade can also become settled with no new movement, and then it advances in the command that made it so, under the same predicates (FI-21):
 - the last BLOCKING case is resolved or voided (H2) — e.g. `await_top_up` after the top-up already confirmed: FIRST_LEG_DETECTED → FIRST_LEG_CONFIRMED when no client leg is still PROCESSING and the confirmed total equals the effective receivable;
-- an adjustment is approved (§8) that brings the effective terms to what was already received or paid — `adjust_trade_to_received`, or a write-off of an unpaid remainder: → FIRST_LEG_CONFIRMED, or SETTLING/PARTIALLY_SETTLED → COMPLETED (T7, with its `trade:{t}:complete` journal and receipt).
+- an adjustment is approved (§8) that brings the effective terms to what was already received or paid — `adjust_trade_to_received`, or a write-off of an unpaid remainder: → FIRST_LEG_CONFIRMED, or SETTLING/PARTIALLY_SETTLED → COMPLETED (T7, with its `trade:{t}:complete` journal and receipt);
+- an excess is planned back (`trade.refund_excess`, D2): the client's side counts what arrived less the excess planned back, so an overpaid FIRST_LEG_DETECTED trade → FIRST_LEG_CONFIRMED; completion counts what arrived less the excess **confirmed** back (FI-21), so `refund_leg.confirm` of an `EXCESS` leg is what completes a trade already paid in full;
+- a destination change is approved (§11c): it answers the `CLIENT_BANK_CHANGED` case (H2).
 
 A client deposit is judged against what is still **outstanding** (effective receivable − client legs already detected or confirmed), so a top-up of exactly the shortfall is not itself a wrong amount, and a repeat of a completed deposit is an overpayment. A deposit that confirms after the first leg was decided posts its movement journal and opens the case; it never moves the trade.
 
-Refund legs that are planned, in flight or done together never exceed the confirmed client funds (FI-25; a second refund is refused while one is planned, and the database re-checks it at commit, IX025). A trade pays out **or** refunds, never both at once (FI-25): a planned or completed refund stops payout creation, sending and confirmation; a payout that is PROCESSING or COMPLETED stops refund creation, confirmation and `refund_and_cancel`.
+Refund legs that are planned, in flight or done together never exceed the confirmed client funds (FI-25; a second refund is refused while one is planned, and the database re-checks it at commit, IX025). A refund leg is an `UNWIND` (everything back before T10; legs from before migration 0028 have no kind and are unwinds) or an `EXCESS` (only what arrived beyond the receivable; the trade goes on). A trade pays out **or** unwinds, never both at once (FI-25): a planned or completed unwind stops payout creation, sending and confirmation; a payout that is PROCESSING or COMPLETED stops unwind creation, confirmation and `refund_and_cancel`. An excess may come back while the payout proceeds; excess planned, in flight or done never exceeds what arrived beyond the receivable (IX093), and none is planned on top of an unwind.
 
 ---
 
@@ -245,6 +247,14 @@ Flows: `FROM_ROUTE_TO_EXCHANGE` (route → exchange account / treasury), `TO_ROU
 - Created ACTIVE (IX084) by the command that plans the outflow, in its transaction, against the trade's own confirmed client or counterparty funds at the outflow's location; a source is never earmarked beyond its amount (IX085, deferred).
 - At commit every live outflow of a counterparty-funded trade is earmarked in full, a confirmed one consumed in full, a cancelled or failed one holds nothing (IX086, deferred).
 - Nothing is posted to the ledger by an earmark; the movement's own journal is the money.
+
+## 11c. TradeDestinationChange (D1, TD-18)
+
+`REQUESTED ──approve (another person, ⧗)──▶ APPROVED` · `REQUESTED ──decline (another person, ⧗, note)──▶ REJECTED` · `REQUESTED ──withdraw (the requester)──▶ CANCELLED`
+
+- One open request per trade; reason and the client's confirmation are required; the new destination is the same client's, ACTIVE, and of the kind the trade pays (a receiving wallet for USDT) — checked by the command and again by IX092.
+- The destination in force is the latest APPROVED change, else `trade_economics` (never edited): `inrp2p_trade_payout_destination`. A payout leg is inserted only to it (IX092).
+- Approve refuses while a payout leg is PROCESSING (sent to the old destination); PENDING payout legs are cancelled in the same transaction (capacity and earmarks released, `leg.cancelled` audited), open `CLIENT_BANK_CHANGED` cases are resolved `confirm_new_destination`, and the client is notified (`TRADE_DESTINATION_CHANGED`). `confirm_new_destination` is not a resolution an operator can record directly.
 
 ## 11b. Custody balance observation (B2)
 

@@ -46,6 +46,8 @@ nothing on gates 2 or 3. CI on the final SHA replaces them in the final report.
 | C1 | P0 | confirmed defect | Second person for payouts above ₹2,500,000 | fixed — code ready |
 | C2 | P0 | confirmed defect | OWNER request/approve (TD-20), protected bootstrap/recovery, replay re-authorization | fixed — code ready |
 | C3 | P0 | confirmed defects + external | Auth: TD-01, TD-02, TD-11 (client TOTP), operator enrolment; TD-03 KMS-backed KEK | code ready; KMS key **BLOCKED** (owner) |
+| D1 | P0 | confirmed defect | TD-18: an open trade can follow a client's new destination (two people, step-up, append-only) | fixed — code ready |
+| D2 | P0 | confirmed defect | TD-19: an overpayment can be returned without unwinding the trade | fixed — code ready |
 
 (The table grows as stages are worked; each row has a section below.)
 
@@ -295,4 +297,47 @@ is wanted stays an open owner question (ADR 0016 §8).
   client enrolment, rotation, refusals, stale session), `packages/clients/test/clients.int.test.ts` (desk reset),
   `packages/adapters/test/aws-kms.unit.test.ts` (signer vectors, wrap/unwrap, context and key binding, retry vs refusal
   vs outage, credentials, production refusals, rotation).
+
+## D1 — A changed destination for an open trade (TD-18) (P0, confirmed defect)
+
+- **Found (on `d0cc778`).** A trade's destination was frozen in `trade_economics`; when the client archived it, the
+  `CLIENT_BANK_CHANGED` case could not be resolved by paying a new one — the panel offered `confirm_new_destination`,
+  which recorded a resolution and changed nothing, and payouts stayed refused. The only exit was refund and cancel.
+- **Changed.** Migration `0028_destination_change_and_excess_refund.sql`: `trade_destination_change` (append-only;
+  reason and the client's confirmation required; one open request per trade; decided by someone other than the
+  requester — CHECK), `inrp2p_trade_payout_destination` (latest approved change, else as accepted) and IX092 — the new
+  destination is the same client's, ACTIVE and of the kind the trade pays; it replaces the destination in force;
+  nothing PENDING or PROCESSING at approval; and every payout leg insert goes to the destination in force.
+  Commands in `packages/settlement/src/destination-change.ts`: request (OWNER, SETTLEMENT, FINANCE, SUPPORT ⧗),
+  approve/decline (OWNER, FINANCE ⧗, not the requester), withdraw (the requester). Approval refuses a payout in
+  flight (`PAYOUT_IN_FLIGHT`), cancels payouts only planned to the old destination on the record (capacity and
+  earmarks released), resolves the case, notifies the client (`TRADE_DESTINATION_CHANGED`) and advances the trade.
+  `confirm_new_destination` is no longer a resolution an operator records directly. Desk: the trade's **Destination**
+  panel; client portal: the trade shows the destination in force.
+- **Tests.** `packages/settlement/test/destination-change.int.test.ts` (other client's / archived / same destination
+  refused; stale step-up; requester, settlement operator and dealer cannot approve; finance approves; economics
+  untouched; case resolved; client told; payout goes to the new account and a raw insert to the old one is IX092;
+  planned leg cancelled with capacity and earmark released; sent leg blocks until failed; decline and withdraw; raw
+  self-approval (CHECK) and same-destination (IX092); the plain resolve refused), `packages/desk/test/desk.int.test.ts`.
+
+## D2 — Returning an overpayment (TD-19) (P0, confirmed defect)
+
+- **Found (on `d0cc778`).** DOMAIN_MODEL listed `refund_excess`; no command implemented it, a refund always returned
+  everything, and completion (FI-21, command and trigger) did not net refunds, so a partly refunded trade could never
+  complete.
+- **Changed.** Migration 0028: `settlement_leg.refund_kind` (`UNWIND` | `EXCESS`; NULL on older legs = unwind), an
+  excess leg must name its destination (CHECK), IX093 (deferred: excess planned + in flight + returned ≤ received −
+  receivable), and the completion trigger restated: received less excess *confirmed* back = receivable.
+  `trade.refund_excess` (`settlement:create_payout`) plans at most the remaining excess to a destination of the
+  client named at planning (USDT: an ACTIVE SOURCE/BOTH wallet — never simply the address it came from; INR: an
+  ACTIVE bank account), from where the client's money is (earmarked, B2-checked), refused on top of an unwind;
+  resolves the overpayment cases when the whole excess is planned back. `refund_leg.confirm` (⧗✱) pays only the named
+  destination and posts the ordinary refund journal once; an excess does not trigger the pay-out-or-refund
+  exclusivity, and confirming it advances the trade. `advanceTrade` and `payout_leg.confirm` use the same
+  predicates. Desk: **Cancel or refund → Return the excess**.
+- **Tests.** `packages/settlement/test/excess-refund.int.test.ts` (USDT: amount above the excess refused, receiving-only
+  wallet refused, planned → payable, second excess refused, paid in full but open until the excess is back, the raw
+  completion refused (IX021), confirmer without `refund:approve` refused, wrong wallet refused, completes with the
+  client receivable at zero; IX093 and the destination CHECK on raw inserts; nothing to return on an exact payment;
+  excess then unwind of the rest then `refund_and_cancel`; INR from the account it arrived in, earmark consumed).
 

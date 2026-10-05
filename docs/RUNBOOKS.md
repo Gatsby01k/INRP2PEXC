@@ -101,13 +101,18 @@ recorded a reference.
 **What to do.** Mark the leg failed on the desk if the bank has confirmed it will not settle — that releases the
 capacity it reserved — and then create a replacement leg for the same amount. The trade stays open and its
 obligation is unchanged: a failed payout is not a smaller debt. If the destination itself is wrong, resolve the
-`CLIENT_BANK_CHANGED` case first (it opens by itself when the client archives the destination). Moving an open
-trade to a new destination is not built yet (TECH_DEBT TD-18): until it is, such a trade is unwound with a refund
-and cancellation and re-quoted to the new destination.
+`CLIENT_BANK_CHANGED` case first (it opens by itself when the client archives the destination). To pay the new
+account, the client's new destination is first added and verified as usual (their administrator with an
+authenticator code, or the desk with them); then, on the trade's **Destination** panel, one person asks — with why
+and how the client confirmed it — and someone else with the owner or finance role approves it, each with an
+authenticator code. Approval cancels any payout still only planned to the old account (its capacity is released),
+answers the case, and tells the client; the desk then plans the payout again. It is refused while a payout sent to
+the old account is unresolved: confirm it or mark it failed first.
 
 **What never to do.** Do not create the replacement leg before the original is marked failed. For a few
 minutes the trade would have two live legs for one obligation, and if the first one settles after all, the
-client is paid twice.
+client is paid twice. Do not change a trade's destination on a phone call alone: the request records how the
+client confirmed it, and a change nobody can show the client asked for is the destination-swap attack (SECURITY S8).
 
 ---
 
@@ -280,6 +285,14 @@ its way when it is not.
 for each type. Anything that moves money — an adjustment, a refund, a cancellation — is a separate command with
 its own approval, and the panel says so rather than pretending to do it. Case types that resolve themselves
 (`TX_NOT_FINAL` when the chain solidifies) need patience, not a resolution.
+
+* `USDT_OVERPAYMENT` — either re-price the trade to what arrived (a financial adjustment, two people) or return the
+  excess: **Cancel or refund → Return the excess** plans a refund of at most what arrived beyond the receivable to a
+  wallet the client registered as sending from (or, for INR, one of their verified bank accounts), from where the
+  money is. Someone else confirms it with the transaction or UTR. The trade carries on to its payout and completes
+  once the excess is confirmed back. A full unwind (refund and cancel) is a different path; the two are not mixed.
+* `CLIENT_BANK_CHANGED` — see `failed-bank-transfer`: a new destination is a request and an approval on the
+  **Destination** panel, never a resolution clicked on the case.
 
 **What never to do.** Do not clear a case to release a trade before you know why it opened. The hold is the
 only thing standing between an unexplained state and a payout.
