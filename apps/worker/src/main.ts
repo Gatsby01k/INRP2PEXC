@@ -1,6 +1,6 @@
 import { run } from 'graphile-worker';
 import { createDb, createPool } from '@inrp2p/db';
-import { UnconfiguredNotificationAdapter, isNotificationProviderConfigured } from '@inrp2p/adapters';
+import { isNotificationProviderConfigured, notificationAdapterFromEnv } from '@inrp2p/adapters';
 import { acknowledgedSignalHandler, clientNotificationEmailHandler, clientNotificationHandler, traderNotificationHandler } from '@inrp2p/notifications';
 import { traderRoutingHandler } from '@inrp2p/traders';
 import { acceptanceCodeHandler } from '@inrp2p/quotes';
@@ -18,10 +18,11 @@ if (!url) {
 const pool = createPool({ connectionString: url, applicationName: 'inrp2p-worker', max: 10 });
 const db = createDb(pool);
 
-// No email provider and no KMS-backed keys are configured in V1 (TD-03, launch checklist): acceptance-code
-// deliveries fail loudly and stay visible as failed outbox deliveries rather than silently disappearing.
+// Keys and email come from the environment (TD-03, TD-04). Where either is missing, acceptance-code deliveries fail
+// loudly and stay visible as failed outbox deliveries rather than silently disappearing.
 const protector = fieldProtectorFromEnv() ?? UNCONFIGURED_PROTECTOR;
-const notifications = new UnconfiguredNotificationAdapter();
+const notifications = notificationAdapterFromEnv(process.env);
+console.log(`email: ${notifications.provider}`);
 
 /**
  * The client's email channel is registered only when there is a provider to send with.

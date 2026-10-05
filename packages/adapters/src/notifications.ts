@@ -1,8 +1,14 @@
 /**
  * Notification port (ARCHITECTURE §6). V1 channel for quote-acceptance codes is email. Implementations must
  * never log the message body; they return the provider message id for delivery records.
+ *
+ * Every message names the delivery row it is (`deliveryId`). An implementation sends it under that identity — the
+ * provider's idempotency key — so a send retried after a crash, a timeout or an ambiguous answer is the same email,
+ * never a second one. A failure is thrown as a `NotificationDeliveryError` saying whether trying again can help; an
+ * implementation never reports success it did not get (no provider message id, no success).
  */
 export interface OtpEmail {
+  readonly deliveryId: string;
   readonly to: string;
   readonly code: string;
   readonly quoteRef: string;
@@ -14,11 +20,35 @@ export interface OtpEmail {
  * the client product — never a figure the inbox would not show, and never anything internal to the desk.
  */
 export interface NotificationEmail {
+  readonly deliveryId: string;
   readonly to: string;
   readonly subject: string;
   readonly body: string;
   /** Absolute URL into the client product, when the message has somewhere to take the reader. */
   readonly link: string | null;
+}
+
+/**
+ * Why an email did not go. `code` is a short machine word (`PROVIDER_TIMEOUT`, `PROVIDER_REJECTED_422`…) safe to
+ * store and log: it never carries the message, the code inside it, the address or a credential. `retryable` says
+ * whether the same delivery may be tried again (an outage, a rate limit, an ambiguous answer) or never will succeed
+ * as it is (the provider refused it).
+ */
+export class NotificationDeliveryError extends Error {
+  readonly code: string;
+  readonly retryable: boolean;
+  constructor(code: string, retryable: boolean, detail = '') {
+    super(`${code}${detail ? `: ${detail}` : ''}`);
+    this.name = 'NotificationDeliveryError';
+    this.code = code;
+    this.retryable = retryable;
+  }
+}
+
+/** The safe description of any failure from a send: a `NotificationDeliveryError` as is, anything else retryable. */
+export function deliveryFailureOf(err: unknown): { code: string; retryable: boolean } {
+  if (err instanceof NotificationDeliveryError) return { code: err.code, retryable: err.retryable };
+  return { code: 'PROVIDER_ERROR', retryable: true };
 }
 
 export interface NotificationAdapter {
@@ -36,11 +66,11 @@ export interface NotificationAdapter {
 export class UnconfiguredNotificationAdapter implements NotificationAdapter {
   readonly provider = 'unconfigured';
   async sendAcceptanceCode(): Promise<{ readonly providerMessageId: string }> {
-    throw new Error('NOTIFICATION_PROVIDER_NOT_CONFIGURED: no email provider is configured for acceptance codes');
+    throw new NotificationDeliveryError('NOTIFICATION_PROVIDER_NOT_CONFIGURED', true, 'no email provider is configured for acceptance codes');
   }
 
   async sendClientNotification(): Promise<{ readonly providerMessageId: string }> {
-    throw new Error('NOTIFICATION_PROVIDER_NOT_CONFIGURED: no email provider is configured for client notifications');
+    throw new NotificationDeliveryError('NOTIFICATION_PROVIDER_NOT_CONFIGURED', true, 'no email provider is configured for client notifications');
   }
 }
 

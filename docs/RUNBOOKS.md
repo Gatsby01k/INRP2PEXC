@@ -374,6 +374,35 @@ that has not been kept, and deleting it removes the only record that it was made
 
 ---
 
+## email-delivery — codes and client emails are not going out
+
+**What you were told.** `acceptance_codes_undelivered` (someone is waiting for a code to accept a quote) or
+`email_deliveries_failing` (client emails refused today, or not delivered within fifteen minutes).
+
+**What to check first.**
+
+1. The worker's start-up line `email: resend` — `email: unconfigured` means no provider is set (`RESEND_API_KEY`,
+   `RESEND_FROM`), and every code and email is waiting by design.
+2. The error codes, which are all that is ever recorded about a failure:
+   `select last_error, count(*) from client_notification_email where status <> 'SENT' group by 1;` and, for codes,
+   `select last_error from outbox_event where type = 'acceptance_otp.deliver' and dispatched_at is null;`
+   `PROVIDER_REJECTED_401` / `_403` — the API key or the sending domain (verify the domain in Resend, rotate the key in
+   the secret manager); `PROVIDER_REJECTED_422` — that address is refused; `PROVIDER_RATE_LIMITED`,
+   `PROVIDER_UNAVAILABLE`, `PROVIDER_TIMEOUT`, `PROVIDER_AMBIGUOUS` — the provider; it is retried on its own.
+3. The provider's status page and its dashboard (delivery, bounces), with the provider message ids recorded on the
+   rows that did go.
+
+**What to do.** Fix the configuration or wait out the provider: pending deliveries are retried each minute under the
+same idempotency key, so a retry is never a second email. A code is sent only while its challenge is open, so after a
+long outage the client simply asks for a new code on the quote page. For a refused address, ask the client to correct
+it (their administrator, or the desk with them); the in-app inbox already has every message.
+
+**What never to do.** Never read a code out of the database, or pass one by phone, chat or ticket: a code reaches a
+person only through the channel tied to their verified address (SECURITY §2.3). Never mark a delivery as sent by hand:
+a delivery is sent when the provider gave it an id, and only then.
+
+---
+
 ## audit-seal-stale — the audit trail has not been sealed
 
 **What you were told.** `audit_seal_age_seconds` above its threshold.

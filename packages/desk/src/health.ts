@@ -105,6 +105,24 @@ export const HEALTH_CHECKS: readonly HealthCheckDefinition[] = Object.freeze([
     why: 'Depth alone says little; age says the worker has stopped or is losing ground.',
   },
   {
+    id: 'acceptance_codes_undelivered',
+    title: 'Acceptance codes still undelivered after two minutes',
+    warn: 0,
+    alarm: 2,
+    unit: 'count',
+    runbook: 'email-delivery',
+    why: 'Someone is looking at a quote waiting for a code to accept it. While the code is sealed and unsent, the quote can expire under them.',
+  },
+  {
+    id: 'email_deliveries_failing',
+    title: 'Client emails refused today, or not delivered within fifteen minutes',
+    warn: 0,
+    alarm: 9,
+    unit: 'count',
+    runbook: 'email-delivery',
+    why: 'The inbox is the channel of record, but a client not looking at it learns of a quote, a settlement or a destination change only by email. A refused address or a provider outage means they are not hearing.',
+  },
+  {
     id: 'audit_seal_age_seconds',
     title: 'Seconds since the audit trail was last sealed',
     warn: 5400,
@@ -202,6 +220,8 @@ export async function systemHealth(ex: Executor): Promise<SystemHealth> {
     custody_outflows_unobserved: string;
     outbox_failed: string;
     outbox_oldest_pending_seconds: string;
+    acceptance_codes_undelivered: string;
+    email_deliveries_failing: string;
     audit_seal_age_seconds: string;
     blocking_exceptions: string;
     overdue_route_obligations: string;
@@ -236,6 +256,12 @@ export async function systemHealth(ex: Executor): Promise<SystemHealth> {
       (select count(*) from outbox_event where failed_at is not null and dispatched_at is null)::text as outbox_failed,
       coalesce((select extract(epoch from (statement_timestamp() - min(created_at)))::bigint
                 from outbox_event where dispatched_at is null and failed_at is null), 0)::text as outbox_oldest_pending_seconds,
+      (select count(*) from otp_delivery d join acceptance_challenge c on c.id = d.challenge_id
+        where d.code_sealed is not null and c.status = 'PENDING' and c.expires_at > inrp2p_now()
+          and d.created_at < inrp2p_now() - make_interval(mins => 2))::text as acceptance_codes_undelivered,
+      (select count(*) from client_notification_email
+        where (status = 'FAILED' and failed_at > inrp2p_now() - make_interval(hours => 24))
+           or (status = 'PENDING' and created_at < inrp2p_now() - make_interval(mins => 15)))::text as email_deliveries_failing,
       coalesce((select extract(epoch from (statement_timestamp() - max(sealed_at)))::bigint
                 from audit_seal), 0)::text as audit_seal_age_seconds,
       (select count(*) from exception_case where status in ('OPEN', 'IN_PROGRESS') and severity = 'BLOCKING')::text as blocking_exceptions,
@@ -275,6 +301,8 @@ export async function systemHealth(ex: Executor): Promise<SystemHealth> {
     custody_outflows_unobserved: int(row.custody_outflows_unobserved),
     outbox_failed: int(row.outbox_failed),
     outbox_oldest_pending_seconds: int(row.outbox_oldest_pending_seconds),
+    acceptance_codes_undelivered: int(row.acceptance_codes_undelivered),
+    email_deliveries_failing: int(row.email_deliveries_failing),
     audit_seal_age_seconds: int(row.audit_seal_age_seconds),
     blocking_exceptions: int(row.blocking_exceptions),
     overdue_route_obligations: int(row.overdue_route_obligations),

@@ -1049,9 +1049,24 @@ export interface ClientNotificationTable {
   href: string | null;
   outbox_event_id: string;
   read_at: Date | null;
-  /** Set when the same message also went out by email; null when it did not (TD-04). */
+  /** Set once every recipient's email has been accepted by the provider; null until then, or when none was sent (TD-04). */
   email_sent_at: Date | null;
   created_at: Generated<Date>;
+}
+
+/** One client notification email to one recipient (migration 0031): its id is the provider idempotency key. */
+export interface ClientNotificationEmailTable {
+  id: Generated<string>;
+  notification_id: string;
+  user_id: string;
+  address: string;
+  status: Generated<'PENDING' | 'SENT' | 'FAILED'>;
+  attempts: Generated<number>;
+  provider_message_id: string | null;
+  last_error: string | null;
+  created_at: Generated<Date>;
+  sent_at: Date | null;
+  failed_at: Date | null;
 }
 
 /**
@@ -1353,6 +1368,7 @@ export interface Database {
   chain_provider_status: ChainProviderStatusTable;
   chain_backfill: ChainBackfillTable;
   client_notification: ClientNotificationTable;
+  client_notification_email: ClientNotificationEmailTable;
   receipt: ReceiptTable;
   bank_statement_import: BankStatementImportTable;
   bank_statement_line: BankStatementLineTable;

@@ -1,6 +1,6 @@
 import { sql } from 'kysely';
 import type { Db } from '@inrp2p/db';
-import type { NotificationAdapter } from '@inrp2p/adapters';
+import { type NotificationAdapter, deliveryFailureOf } from '@inrp2p/adapters';
 import type { OutboxHandler } from '@inrp2p/outbox';
 
 /**
@@ -36,51 +36,96 @@ function absolute(base: string | undefined, href: string | null): string | null 
   }
 }
 
+/** Attempts per recipient before a delivery is given up as FAILED; the outbox's own retries run alongside. */
+export const MAX_EMAIL_ATTEMPTS = 8;
+
+export interface EmailReport {
+  readonly sent: number;
+  readonly failed: number;
+  readonly pending: number;
+}
+
 /**
- * Sends one notification row by email, once. Returns the number of recipients it reached, or `null` when the row
- * was not eligible (already sent, or a kind that is inbox-only).
+ * Sends one notification row by email to each recipient, once each. Returns what became of the recipients, or `null`
+ * when the row was not eligible (an inbox-only kind, or nobody verified to send it to).
  *
- * At-least-once delivery applies here as everywhere at the outbox boundary, so `email_sent_at` is claimed with a
- * conditional update before anything is sent: a redelivered event finds the claim taken and sends nothing. A
- * provider failure after the claim is a lost email, never a duplicated one — the inbox row is still there, and
- * that is the copy that matters.
+ * Each recipient is a `client_notification_email` row (migration 0031), created once; its id is the provider's
+ * idempotency key, so a redelivered event, a crash after the provider answered, or a retry after a timeout sends the
+ * same email, never another. A row is SENT only with the provider's message id; a refusal makes it FAILED; an outage
+ * leaves it PENDING with the attempt counted and an error code, and the handler then throws so the outbox tries again
+ * — after `MAX_EMAIL_ATTEMPTS` it is FAILED and visible (`email_deliveries_failing`). Nothing here is ever marked as
+ * sent because it was attempted. `email_sent_at` is written when every recipient has it.
  */
-export async function emailNotification(db: Db, adapter: NotificationAdapter, input: { outboxEventId: string } & EmailChannelOptions): Promise<number | null> {
+export async function emailNotification(db: Db, adapter: NotificationAdapter, input: { outboxEventId: string } & EmailChannelOptions): Promise<EmailReport | null> {
   const row = await db
     .selectFrom('client_notification')
     .select(['id', 'client_id', 'user_id', 'kind', 'title', 'body', 'href', 'email_sent_at'])
     .where('outbox_event_id', '=', input.outboxEventId)
     .executeTakeFirst();
-  if (!row || row.email_sent_at || !EMAILED.has(row.kind)) return null;
+  if (!row || !EMAILED.has(row.kind)) return null;
 
-  let recipients = db
-    .selectFrom('client_user as cu')
-    .innerJoin('auth_user as u', 'u.id', 'cu.user_id')
-    .select(['u.email'])
-    .where('cu.client_id', '=', row.client_id)
-    .where('cu.status', '=', 'ACTIVE')
-    .where('u.status', '=', 'ACTIVE')
-    .where('u.kind', '=', 'CLIENT')
-    // An unverified address is not this client's address yet; a notification is not the way to find that out.
-    .where('u.email_verified', '=', true);
-  if (row.user_id) recipients = recipients.where('cu.user_id', '=', row.user_id);
-  const to = (await recipients.execute()).map((r) => r.email);
-  if (to.length === 0) return null;
-
-  const claimed = await db
-    .updateTable('client_notification')
-    .set({ email_sent_at: sql<Date>`inrp2p_now()` })
-    .where('id', '=', row.id)
-    .where('email_sent_at', 'is', null)
-    .returning('id')
-    .executeTakeFirst();
-  if (!claimed) return null;
+  const existing = await db.selectFrom('client_notification_email').select('id').where('notification_id', '=', row.id).limit(1).executeTakeFirst();
+  if (!existing) {
+    let recipients = db
+      .selectFrom('client_user as cu')
+      .innerJoin('auth_user as u', 'u.id', 'cu.user_id')
+      .select(['u.id as user_id', 'u.email'])
+      .where('cu.client_id', '=', row.client_id)
+      .where('cu.status', '=', 'ACTIVE')
+      .where('u.status', '=', 'ACTIVE')
+      .where('u.kind', '=', 'CLIENT')
+      // An unverified address is not this client's address yet; a notification is not the way to find that out.
+      .where('u.email_verified', '=', true);
+    if (row.user_id) recipients = recipients.where('cu.user_id', '=', row.user_id);
+    const to = await recipients.execute();
+    if (to.length === 0) return null;
+    await db
+      .insertInto('client_notification_email')
+      .values(to.map((r) => ({ notification_id: row.id, user_id: r.user_id, address: r.email })))
+      .onConflict((oc) => oc.columns(['notification_id', 'user_id']).doNothing())
+      .execute();
+  }
 
   const link = absolute(input.linkBase, row.href);
-  for (const address of to) {
-    await adapter.sendClientNotification({ to: address, subject: row.title, body: row.body, link });
+  const open = await db.selectFrom('client_notification_email').select('id').where('notification_id', '=', row.id).where('status', '=', 'PENDING').orderBy('id').execute();
+  for (const d of open) await sendOne(db, adapter, d.id, { subject: row.title, body: row.body, link });
+
+  const states = await db.selectFrom('client_notification_email').select('status').where('notification_id', '=', row.id).execute();
+  const report = {
+    sent: states.filter((x) => x.status === 'SENT').length,
+    failed: states.filter((x) => x.status === 'FAILED').length,
+    pending: states.filter((x) => x.status === 'PENDING').length,
+  };
+  if (report.sent === states.length) {
+    await db.updateTable('client_notification').set({ email_sent_at: sql<Date>`inrp2p_now()` }).where('id', '=', row.id).where('email_sent_at', 'is', null).execute();
   }
-  return to.length;
+  if (report.pending > 0) throw new Error(`EMAIL_DELIVERY_PENDING: ${report.pending} of ${states.length} recipients not reached yet`);
+  return report;
+}
+
+/** One recipient, under its row's lock for the length of the send, so two runs never send it at once. */
+async function sendOne(db: Db, adapter: NotificationAdapter, deliveryId: string, message: { subject: string; body: string; link: string | null }): Promise<void> {
+  await db.transaction().execute(async (tx) => {
+    const d = await tx.selectFrom('client_notification_email').select(['id', 'address', 'status', 'attempts']).where('id', '=', deliveryId).forUpdate().executeTakeFirstOrThrow();
+    if (d.status !== 'PENDING') return;
+    try {
+      const { providerMessageId } = await adapter.sendClientNotification({ deliveryId: d.id, to: d.address, ...message });
+      await tx
+        .updateTable('client_notification_email')
+        .set({ status: 'SENT', attempts: d.attempts + 1, provider_message_id: providerMessageId.slice(0, 200), sent_at: sql<Date>`inrp2p_now()`, last_error: null })
+        .where('id', '=', d.id)
+        .execute();
+    } catch (e) {
+      const failure = deliveryFailureOf(e);
+      const attempts = d.attempts + 1;
+      const final = !failure.retryable || attempts >= MAX_EMAIL_ATTEMPTS;
+      await tx
+        .updateTable('client_notification_email')
+        .set({ attempts, last_error: failure.code.slice(0, 80), ...(final ? { status: 'FAILED' as const, failed_at: sql<Date>`inrp2p_now()` } : {}) })
+        .where('id', '=', d.id)
+        .execute();
+    }
+  });
 }
 
 /**
