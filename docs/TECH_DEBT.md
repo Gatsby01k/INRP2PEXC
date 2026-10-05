@@ -28,6 +28,8 @@ Non-blocking items accepted at phase review. Each entry names the phase that mus
 | TD-22 | The trader programme's agreement, tax treatment and counterparty checks have not been reviewed | Traders (2026-09-27) | Traders providing real money | Open |
 | TD-23 | The Traders screens have no page baselines, and the client shell changed around them | Traders (2026-09-27) | The `visual-pages` CI job can pass | Open |
 | TD-24 | A trader cannot ask to change its registered bank account or wallet in the product | Traders (2026-09-27) | A trader replacing a destination without the desk's usual channel | Closed (2026-09-28) |
+| TD-25 | INR has no physical balance reading: the desk's bank confirmation is the only evidence an INR payout is covered | Production hardening B2 (2026-10-05) | A bank balance or statement feed (TD-14) | Open |
+| TD-26 | Funding coverage cannot follow a custody sweep (`funding.relocate` specified, not built): money is paid only from the address it arrived at | Production hardening B2 (2026-10-05) | A custody provider that sweeps deposit addresses on its own, or a desk that consolidates before paying out | Open |
 
 ## TD-01 — Better Auth schema warning for `auth_rate_limit.last_request`
 
@@ -488,4 +490,33 @@ order. The desk approves or rejects it on the trader's page (`trader.review_sett
 ⧗): approval verifies it, registers it and moves the trader's routes, and is refused while an order is accepted or
 in progress (`TRADER_ORDERS_OPEN`) — as is the desk's own `trader.set_settlement_details`. A rejection keeps the
 registered details and shows the trader the note. The previous destination stays on the client's file unchanged.
+
+## TD-25 — INR has no physical balance reading
+
+**Observed.** B2 (ADR 0016 §2.6) makes every USDT outflow wait for a fresh reading of what its source address holds
+on chain. INR has no equivalent: there is no bank API, so whether the counterparty's INR is in the account is
+established when FINANCE confirms the credit against the bank (`route_settlement.confirm`, ⧗) — the economic gate
+(funding allocations, FI-72…76) then holds that money for this trade alone, but nothing re-reads the account
+before an INR payout leaves it.
+
+**Risk.** An INR credit reversed by the bank after confirmation, or money moved out of the account outside the
+platform, is not seen until the next statement import (TD-14) — the payout goes out against money that is no
+longer there, and the shortfall is the platform's.
+
+**Resolution (to do).** A bank balance or statement feed per settlement account, recorded like the custody readings,
+and the same physical gate on INR payouts.
+
+## TD-26 — Funding coverage cannot follow a custody sweep
+
+**Observed.** Under D-16 a trade's money is paid out from the address it arrived at (pass-through). If the custody
+provider sweeps a deposit address into the hot wallet, the money is physically at the hot wallet while its
+earmark still names the deposit address: the payout is refused (`CUSTODY_BALANCE_INSUFFICIENT`, B2) and cannot be
+redirected, because the hot wallet's balance is not that trade's coverage. ADR 0016 §5.4 specifies
+`funding.relocate` (⧗) citing a confirmed custody transfer; it is not built.
+
+**Risk.** Fails closed — no one is paid with another trade's money — but a provider that sweeps automatically stops
+every pass-through payout until the sweep is reversed.
+
+**Resolution (to do).** Either disable automatic sweeps for addresses holding earmarked funds (a custody
+configuration item on the launch checklist), or build `funding.relocate` as specified.
 

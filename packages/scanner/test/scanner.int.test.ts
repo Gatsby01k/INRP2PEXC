@@ -8,7 +8,7 @@ import { runAs } from '@inrp2p/identity/testing';
 import { cancelTrade, confirmPayout, createPayoutLeg, recordLegEvidence, sendPayoutLeg, submitTxForVerification, verifyCryptoTransfer } from '@inrp2p/settlement';
 import { readCursor, runOrphanSweep, runTronConfirm, runTronScan } from '../src/index.ts';
 import {
-  type ChainWorld, createChainWorld, depositAddressOf, entriesOf, journalsFor, legsOf, openCases, openTrade, settleFirstLeg, stateOf, transferByHash, ensureCounterpartyFunds } from './world.ts';
+  type ChainWorld, createChainWorld, depositAddressOf, entriesOf, journalsFor, legsOf, openCases, openTrade, settleFirstLeg, stateOf, transferByHash, ensureCounterpartyFunds, observe } from './world.ts';
 
 let w: ChainWorld;
 beforeAll(async () => { w = await createChainWorld('scanner', { depositPoolSize: 60 }); });
@@ -301,9 +301,10 @@ describe('outbound USDT (BUY payouts)', () => {
     const leg = await runAs(w.app, createPayoutLeg(w.settlementOp.actor, {}), w.settlementOp.ref, 'payout_leg.create', {
       tradeId: trade.tradeId, amount: '500', payer: 'EXCHANGE_ACCOUNT' as const, treasuryWalletId: w.treasuryWalletId,
     });
+    const treasury = await w.app.selectFrom('treasury_wallet').select('address').where('id', '=', w.treasuryWalletId).executeTakeFirstOrThrow();
+    await observe(w, treasury.address);
     await runAs(w.app, sendPayoutLeg(w.settlementOp.actor), w.settlementOp.ref, 'payout_leg.send', { legId: leg.legId });
 
-    const treasury = await w.app.selectFrom('treasury_wallet').select('address').where('id', '=', w.treasuryWalletId).executeTakeFirstOrThrow();
     const clientWallet = await w.app.selectFrom('crypto_wallet').select('address').where('id', '=', w.walletId).executeTakeFirstOrThrow();
     const sent = w.tron.add({ to: clientWallet.address, from: treasury.address, amountMinor: usdt('500') });
     await runAs(w.app, recordLegEvidence(w.settlementOp.actor, w.scanDeps), w.settlementOp.ref, 'payout_leg.record_evidence', {

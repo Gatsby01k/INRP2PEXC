@@ -97,6 +97,7 @@ Legend: ✔ allowed · ⧗ allowed with step-up MFA · ✱ requires second appro
 | `route_positions:view` | ✔ | ✔ | — | ✔ | — | — |
 | `custody:configure` (adapter, deposit pool) | ⧗ | — | — | ⧗ | — | — |
 | `chain:backfill` (read a historical block range again for named exchange addresses, TD-06) | ⧗ | — | — | ⧗ | — | — |
+| `custody:refresh_balance` (read what an exchange address holds now, from the configured providers, B2) | ✔ | — | ✔ | ✔ | — | — |
 | `bank_account:reveal` | ⧗ | — | ⧗ | ⧗ | — | — |
 | `ledger:view` / `pnl:view` / `export` | ✔ | pnl only | — | ✔ | — | — |
 | `statement:import` (manual bank statement, reconciled against recorded UTRs — S7) | ⧗ | — | — | ⧗ | — | — |

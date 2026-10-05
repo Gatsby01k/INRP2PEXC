@@ -23,6 +23,8 @@ Fake-provider tests never close gate 2; CI never closes gate 3.
 | A1 | P0 | confirmed defect | TRON receipt/history normalization | fixed — code ready |
 | A2 | P0 | confirmed defect | History pagination and cursor safety | fixed — code ready |
 | A3 | P0 | confirmed defect + external | Provider degradation, D-05 quorum, backfill (TD-06), real smoke (TD-07) | code ready; real smoke **NOT RUN** |
+| B1 | P0 | owner decision → implementation | Counterparty-funded execution enforced in commands and the database | code ready |
+| B2 | P0 | confirmed defect + implementation | Observed custody balances and the physical-availability gate | code ready; real-provider reads **NOT RUN** (TD-07) |
 
 (The table grows as stages are worked; each row has a section below.)
 
@@ -101,3 +103,56 @@ Fake-provider tests never close gate 2; CI never closes gate 3.
   destination, amount and log index. Command: `pnpm run smoke:tron` with `INRP2P_SMOKE_*` (see `scripts/tron-smoke.ts`)
   or the manual `tron-smoke` workflow; add `INRP2P_SMOKE_REPORT_FILE` to keep the report. Owner: whoever holds the
   provider accounts. TD-07 stays open until a PASS report is recorded here.
+
+## B1 — Counterparty-funded execution, enforced (P0)
+
+- **Found (on `d0cc778`).** Acceptance of a BUY trade on a `TO_EXCHANGE` route reserved the platform's own treasury
+  USDT (`reserveTreasuryUsdt`) and the client was paid from the HOT wallet before the counterparty delivered anything;
+  an INR payout on a SELL trade drew on the exchange account's capacity whether or not the route's INR had arrived.
+  In both directions the platform's money advanced execution — what D-16 forbids.
+- **Changed.** Migration `0025_counterparty_funding.sql`: `trade_funding` (insert-once; existing trades backfilled
+  `LEGACY_EXCHANGE_FUNDED`, every new trade `COUNTERPARTY_FUNDED` by trigger, IX082), `funding_source` (a view: confirmed
+  client legs = client funds, confirmed `FROM_ROUTE_TO_EXCHANGE` settlements = counterparty funds, each at its location
+  `INR:{account}` / `TRON:{address}`), `funding_allocation` earmarks (ACTIVE → CONSUMED | RELEASED) with deferred
+  source-total (IX085) and coverage (IX086) checks, IX083 (no treasury reservation for a funded trade), IX084 (source
+  shape/wallet), IX087 (DVP before `TO_ROUTE`), IX088 (an address holding earmarked money never returns to the pool).
+  Commands: `createPayoutLeg` allocates counterparty funds at the paying location, `recordRouteSettlementInTx`
+  (`TO_ROUTE`) allocates client funds after asserting delivery under the trade lock, `createRefundLeg` allocates client
+  funds; confirm consumes, cancel/fail release. Acceptance no longer reserves; trader collection accounts must be ACTIVE
+  and `BOTH` (pass-through needs payouts from where the trader's INR lands).
+- **Tests.** `test/integration/counterparty-funding.int.test.ts` (both directions at zero platform USDT/INR; nothing
+  stands in for the counterparty; partial and missing delivery; concurrency), the settlement, audit-regression, direct
+  payout, properties (FI-71/72/75), statements, desk, quotes and traders suites ported to real-command delivery.
+- **Rollout.** Mixed versions fail closed (ADR 0016 §7): an old instance's acceptance is refused by IX083, its
+  uncovered outflows by IX086.
+
+## B2 — Observed custody balances and the physical-availability gate (P0)
+
+- **Found (on `d0cc778`).** Nothing in production ever wrote what a treasury wallet holds: `observed_balance_minor`
+  stayed 0 and `observed_at` null outside fixtures, and a payout only lowered `reserved`, so USDT already sent could
+  look available again. No USDT payout or refund checked the chain balance of the address it left. The cooldown job
+  would have failed on every run once one deposit address held earmarked money (IX088 aborting its transaction).
+- **Changed.** Migration `0026_custody_observation.sql`: `custody_balance_observation` (append-only; `AGREED` = two
+  independence groups report the same balance, `SINGLE_SOURCE`, `DISAGREED`, `ERROR`; usable ⇔ balance and block), IX089
+  (a wallet's observed balance is only ever its latest recorded reading — nothing writes a number by hand), and
+  `inrp2p_address_earmarked` now counts a planned outflow as still there. `readBalance` asks every provider in parallel
+  and never averages or majority-votes; worker cron `custody_observe` reads every live treasury wallet and every address
+  holding a trade's money each minute; the desk's **Refresh** (`custody:refresh_balance`: OWNER, SETTLEMENT_OPERATOR,
+  FINANCE) checks the permission before any provider is called and again inside the recording command, with the
+  reading taken by the server (the request names only the address). `payout_leg.send` and `refund_leg.create` (USDT)
+  require a usable reading under 300 s (one source only below the D-05 threshold) showing the amount free after every
+  outflow that reading does not reflect (`CUSTODY_OBSERVATION_STALE` / `CUSTODY_BALANCE_INSUFFICIENT`). USDT screen:
+  custody positions (chain shows, leaving, free on chain, trades' money, planned out, not seen on chain) with refresh;
+  health check `custody_outflows_unobserved` → runbook `custody-observation-stale`. The cooldown job passes over
+  earmarked addresses. e2e and visual fixture worlds no longer write a treasury balance; their routes deliver first.
+- **Defects found by the new tests and fixed before commit.** A planned outflow with no transfer yet was not
+  subtracted (SQL `NULL` in the filter); the guard accepted any earlier reading, not only the latest; the earmark
+  function treated a planned outflow as gone.
+- **Tests.** `packages/settlement/test/availability.int.test.ts` (no / contradicted / failed / 301 s-old reading; single
+  source either side of 10,000 USDT; an outflow subtracted until a reading covers it and never twice; a reading before
+  the delivery; USDT moved out outside the platform; IX089 and append-only; the cooldown job with an earmarked address),
+  `packages/scanner/test/custody.int.test.ts` (worker reading, disagreement, single source, addresses chosen, refresh
+  permission, foreign address, no provider), `packages/scanner/test/balances.unit.test.ts`, worker job wiring.
+- **Remaining.** INR has no physical reading (TD-25); funding cannot follow a custody sweep (TD-26 — a launch-checklist
+  custody setting until built); balances from real providers are part of the TD-07 smoke (**NOT RUN**).
+

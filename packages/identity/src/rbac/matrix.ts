@@ -66,6 +66,7 @@ export const PERMISSION_MATRIX = Object.freeze({
   // TD-06: reading a historical block range again for named exchange addresses. Read-only towards the chain, but it
   // can record deposits that were never seen, so it is step-up and limited to the roles that configure custody.
   'chain:backfill': r(S, D, D, S, D, D),
+  'custody:refresh_balance': r(A, D, A, A, D, D),
   'bank_account:reveal': r(S, D, S, S, D, D),
   'ledger:view': r(A, D, D, A, D, D),
   'pnl:view': r(A, A, D, A, D, D),

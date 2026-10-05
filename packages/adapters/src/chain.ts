@@ -73,6 +73,23 @@ export interface TransactionTransfers {
   readonly provider: string;
 }
 
+/** A TRC20 balance and the solidified block it is as of (B2). */
+export interface BalanceReading {
+  readonly balanceMinor: bigint;
+  /** The solidified block the balance is as of. */
+  readonly solidifiedBlock: bigint;
+  /** TRX (sun) on the address, for the energy an outgoing transfer needs; null when the provider does not say. */
+  readonly trxSun: bigint | null;
+}
+
+/** Anything that can read a solidified TRC20 balance — every `TronProvider` is one (B2). */
+export interface BalanceSource {
+  readonly name: string;
+  /** See `TronProvider.independenceGroup`: two sources in one group are one source. */
+  readonly independenceGroup: string;
+  getSolidifiedBalance(address: string, contract: string): Promise<BalanceReading>;
+}
+
 export interface ChainVerifier {
   /** Names of the providers behind this verifier; recorded on the transfer. */
   readonly providers: readonly string[];
@@ -88,6 +105,11 @@ export interface ChainVerifier {
    * never by position, and confirmation still goes through `verifyTransfer`.
    */
   transactionTransfers(network: ChainNetwork, txHash: string): Promise<TransactionTransfers>;
+  /**
+   * The same providers, as balance readers — for the desk's on-demand refresh of what an exchange address holds
+   * (B2). Empty when nothing is configured: no reading is ever made up.
+   */
+  balanceSources(): readonly BalanceSource[];
 }
 
 /** Used when no chain provider is configured: verification fails loudly instead of silently confirming. */
@@ -100,5 +122,8 @@ export class UnconfiguredChainVerifier implements ChainVerifier {
   }
   async transactionTransfers(): Promise<TransactionTransfers> {
     throw new Error('CHAIN_VERIFIER_NOT_CONFIGURED: no TRON provider is configured for transfer verification');
+  }
+  balanceSources(): readonly BalanceSource[] {
+    return [];
   }
 }

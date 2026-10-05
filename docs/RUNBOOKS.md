@@ -212,6 +212,41 @@ transfer twice — a second pass over the same range finds what the first one re
 
 ---
 
+## custody-observation-stale — USDT is waiting to leave an address nobody has read
+
+**What you were told.** `custody_outflows_unobserved` above zero: a USDT payout or refund is planned from an
+address whose latest balance reading is missing, unusable (the providers disagreed, or none answered) or older
+than five minutes. The desk sees the same thing as a refusal — `CUSTODY_OBSERVATION_STALE` — when it presses
+**Send**, and as the address's row in **Custody positions** on the USDT screen.
+
+**What actually happens, so you know what not to fix.** A USDT outflow leaves an exchange address only when a
+reading of the chain under five minutes old shows the money there, net of everything already leaving it (B2,
+ADR 0016). The worker's `custody_observe` job reads every address that matters once a minute through every
+configured provider and records each reading (`custody_balance_observation`, append-only). Two independence groups
+reporting the same balance is a usable reading; one group is usable only below the D-05 threshold; a disagreement
+or no answer is recorded and never relied on. Nothing is paid while the reading is missing — that is the point.
+
+**What to check first.**
+
+1. The **Custody positions** table: the address, its reading (quality, block, age) and why it is unusable.
+2. **Chain providers**: an outage or a provider answering with another balance explains every address at once
+   (`provider-outage`).
+3. The worker: if no address has a reading newer than a few minutes, `custody_observe` is not running or the
+   worker's chain monitoring is `UNCONFIGURED`.
+
+**What to do.** Fix the cause, then press **Refresh** on the address (`custody:refresh_balance` — OWNER,
+SETTLEMENT_OPERATOR, FINANCE). The refresh asks the same providers and records the reading under your name; the
+payout can be sent as soon as a usable reading covers it. If the reading is usable and the payout is refused with
+`CUSTODY_BALANCE_INSUFFICIENT`, the chain shows less free USDT at the address than the payout needs: compare
+**Trades' money** with what the chain shows — a difference that persists across readings is money that left the
+address outside the platform, and is an incident, not a delay.
+
+**What never to do.** Do not write a balance into `treasury_wallet` (the database refuses anything but the latest
+recorded reading, IX089), insert an observation by hand, raise the age limit, or pay from another address that
+happens to have USDT — that is another trade's money (D-16).
+
+---
+
 ## capacity-emergency — the desk cannot pay today
 
 **What you were told.** `inr_capacity_available` has fallen to the alarm threshold, or payouts are being

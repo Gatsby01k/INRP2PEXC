@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { Db, TxContext } from '@inrp2p/db';
+import type { ActorRef, Db, TxContext } from '@inrp2p/db';
 import { executeCommand } from '@inrp2p/commands';
 
 const SYSTEM = { type: 'SYSTEM' as const, id: null, surface: 'SYSTEM' as const };
@@ -14,11 +14,11 @@ export function systemStep<P extends Record<string, unknown>, R>(
   name: string,
   payload: P,
   handle: (ctx: TxContext) => Promise<R>,
-  opts: { key?: string; financial?: boolean } = {},
+  opts: { key?: string; financial?: boolean; actor?: ActorRef } = {},
 ): Promise<{ result: R; replayed: boolean }> {
   return executeCommand(
     db,
     { authorize: async () => {}, handle },
-    { name, actor: SYSTEM, payload, idempotencyKey: opts.key ?? randomUUID(), financial: opts.financial ?? false },
+    { name, actor: opts.actor ?? SYSTEM, payload, idempotencyKey: opts.key ?? randomUUID(), financial: opts.financial ?? false },
   ).then((o) => ({ result: o.result, replayed: o.replayed }));
 }

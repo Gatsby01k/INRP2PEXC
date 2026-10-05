@@ -1,9 +1,11 @@
 'use client';
 
 import Link from 'next/link';
-import type { BackfillView, TransferView, TreasuryWalletView, UsdtView } from '@inrp2p/desk';
-import { CopyButton } from '@inrp2p/ui';
+import type { BackfillView, CustodyPositionView, TransferView, TreasuryWalletView, UsdtView } from '@inrp2p/desk';
+import { Button, CopyButton } from '@inrp2p/ui';
 import { shortenAddress, shortenHash } from '@inrp2p/ui/format';
+import { refreshCustodyBalanceAction } from '../../../server/actions/finance.ts';
+import { useCommand } from '../../../components/useCommand.tsx';
 import { Cell, type Column, DataTable } from '../_desk/DataTable.tsx';
 import { dateTime, usdt } from '../_desk/format.ts';
 import { Chip, Empty } from '../_desk/ui.tsx';
@@ -127,4 +129,75 @@ export function BackfillsTable({ backfills }: { backfills: readonly BackfillView
     { key: 'error', header: 'Last problem', render: (b) => <span className={d.secondary}>{b.lastError ?? 'none'}</span> },
   ];
   return <DataTable<BackfillView> caption="Backfills" columns={columns} rows={backfills} rowKey={(b) => b.ref} empty={<Empty title="No backfill requested" />} />;
+}
+
+const QUALITY: Record<NonNullable<CustodyPositionView['reading']>['quality'], { label: string; tone: 'success' | 'warning' | 'danger' }> = {
+  AGREED: { label: 'Providers agree', tone: 'success' },
+  SINGLE_SOURCE: { label: 'One source', tone: 'warning' },
+  DISAGREED: { label: 'Providers disagree', tone: 'danger' },
+  ERROR: { label: 'No answer', tone: 'danger' },
+};
+
+/**
+ * Custody positions (B2): for each exchange address, what the chain shows and what could leave now, beside how much
+ * of the trades' money is there and how much of it is already planned to go. A payout needs both columns to agree;
+ * the refresh asks the configured providers again and records the reading under the operator's name.
+ */
+export function CustodyTable({ positions, canRefresh }: { positions: readonly CustodyPositionView[]; canRefresh: boolean }) {
+  const cmd = useCommand();
+  const columns: Column<CustodyPositionView>[] = [
+    {
+      key: 'address',
+      header: 'Address · TRC20',
+      render: (p) => (
+        <span className={d.row} style={{ flexWrap: 'nowrap' }}>
+          <Cell main={<span className={d.mono} title={p.address}>{shortenAddress(p.address, 6, 6)}</span>} sub={`${p.kind === 'TREASURY' ? 'Treasury' : 'Deposit'} · ${p.label}`} />
+          <CopyButton value={p.address} label="address" />
+        </span>
+      ),
+    },
+    {
+      key: 'reading',
+      header: 'Last reading',
+      render: (p) =>
+        p.reading ? (
+          <Cell main={<Chip tone={p.unusable ? (QUALITY[p.reading.quality].tone === 'success' ? 'warning' : QUALITY[p.reading.quality].tone) : QUALITY[p.reading.quality].tone}>{QUALITY[p.reading.quality].label}</Chip>} sub={`${dateTime(p.reading.observedAt)}${p.reading.block ? ` · block ${p.reading.block}` : ''}`} />
+        ) : (
+          <Chip tone="danger">Never read</Chip>
+        ),
+    },
+    { key: 'chain', header: 'Chain shows', align: 'right', render: (p) => (p.reading?.balance ? usdt(p.reading.balance, { unit: false }) : '—') },
+    { key: 'leaving', header: 'Leaving', align: 'right', render: (p) => usdt(p.leaving, { unit: false }) },
+    { key: 'free', header: 'Free on chain', align: 'right', render: (p) => (p.unusable ? <span className={d.secondary} title={p.unusable}>not usable</span> : <strong>{usdt(p.freeOnChain, { unit: false })}</strong>) },
+    { key: 'held', header: 'Trades’ money', align: 'right', render: (p) => usdt(p.tradesMoney, { unit: false }) },
+    { key: 'planned', header: 'Planned out', align: 'right', render: (p) => usdt(p.plannedOut, { unit: false }) },
+    {
+      key: 'gap',
+      header: 'Not seen on chain',
+      align: 'right',
+      render: (p) => (p.notSeenOnChain ? <Chip tone="danger" title="Trades’ money not planned to leave that the latest reading does not show here">{usdt(p.notSeenOnChain, { unit: false })}</Chip> : <span className={d.secondary}>—</span>),
+    },
+    ...(canRefresh
+      ? [{
+          key: 'refresh',
+          header: '',
+          render: (p: CustodyPositionView) => (
+            <Button size="sm" disabled={cmd.busy} onClick={() => cmd.run(`Read ${shortenAddress(p.address, 6, 6)} again`, (k) => refreshCustodyBalanceAction({ address: p.address }, k))}>
+              Refresh
+            </Button>
+          ),
+        }]
+      : []),
+  ];
+  return (
+    <>
+      <DataTable<CustodyPositionView> caption="Custody positions" columns={columns} rows={positions} rowKey={(p) => p.address} empty={<Empty title="No exchange address holds anything yet" />} />
+      {cmd.error ? (
+        <p className={d.errorLine} role="alert">
+          {cmd.error}
+        </p>
+      ) : null}
+      {cmd.dialog}
+    </>
+  );
 }

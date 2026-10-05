@@ -7,6 +7,7 @@ import {
   clientSignInCodeCount,
   clientSendsUsdt,
   deskPaysOut,
+  routeDelivers,
   deliverNotifications,
   deskSendsQuoteWithLink,
   linkBaseUrl,
@@ -146,6 +147,7 @@ test('the client follows that trade to completion on their phone', async ({ page
   await clientSendsUsdt(tradeId, '1000');
   await page.reload();
   await expect(page.getByText('Confirmed')).toBeVisible();
+  await routeDelivers(tradeId);
 
   await deskPaysOut(tradeId, '60000.00');
   await page.reload();

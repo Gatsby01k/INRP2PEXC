@@ -540,6 +540,9 @@ importers:
       '@inrp2p/routes':
         specifier: workspace:*
         version: link:../routes
+      '@inrp2p/scanner':
+        specifier: workspace:*
+        version: link:../scanner
       '@inrp2p/settlement':
         specifier: workspace:*
         version: link:../settlement
@@ -565,9 +568,6 @@ importers:
       '@inrp2p/quotes':
         specifier: workspace:*
         version: link:../quotes
-      '@inrp2p/scanner':
-        specifier: workspace:*
-        version: link:../scanner
 
   packages/identity:
     dependencies:
@@ -902,6 +902,9 @@ importers:
       '@inrp2p/trades':
         specifier: workspace:*
         version: link:../trades
+      '@inrp2p/treasury':
+        specifier: workspace:*
+        version: link:../treasury
       kysely:
         specifier: 0.29.6
         version: 0.29.6
@@ -921,9 +924,6 @@ importers:
       '@inrp2p/routes':
         specifier: workspace:*
         version: link:../routes
-      '@inrp2p/treasury':
-        specifier: workspace:*
-        version: link:../treasury
 
   packages/settlement:
     dependencies:

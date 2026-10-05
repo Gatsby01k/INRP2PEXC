@@ -7,6 +7,7 @@ import { type ScannerDeps, scannerPolicyOf } from './policy.ts';
 import { ProviderTracker } from './providers.ts';
 import { detect, readAddress } from './scan.ts';
 import { systemStep } from './system.ts';
+import { isExchangeAddress } from './balances.ts';
 
 /** Longest range one backfill may cover (about 70 days of TRON blocks); the database checks the same bound. */
 export const MAX_BACKFILL_BLOCKS = 2_000_000n;
@@ -45,9 +46,7 @@ export function requestChainBackfill(actor: OperatorActor) {
     if (!Array.isArray(p.addresses) || p.addresses.length === 0 || p.addresses.length > 200) throw new DomainError('INVALID_ARGUMENT', 'name 1 to 200 addresses');
     const addresses = [...new Set(p.addresses.map((a) => normalizeTronAddress(a)))];
     for (const address of addresses) {
-      const ours = await ctx.tx.selectFrom('deposit_address').select('id').where('address', '=', address).executeTakeFirst()
-        ?? await ctx.tx.selectFrom('treasury_wallet').select('id').where('network', '=', 'TRON').where('address', '=', address).executeTakeFirst();
-      if (!ours) throw new DomainError('INVALID_ARGUMENT', `${address} is not an address of this exchange`);
+      if (!(await isExchangeAddress(ctx.tx, address))) throw new DomainError('INVALID_ARGUMENT', `${address} is not an address of this exchange`);
     }
     const cursor = await ctx.tx.selectFrom('chain_cursor').select(['last_solidified_block']).where('network', '=', 'TRON').orderBy('last_solidified_block', 'desc').executeTakeFirst();
     const solidified = cursor?.last_solidified_block ?? 0n;

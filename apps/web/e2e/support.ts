@@ -10,7 +10,7 @@ import { FAKE_USDT_CONTRACT, FakeCustodyAdapter, FakeNotificationAdapter, FakeTr
 import { executeCommand } from '@inrp2p/commands';
 import type { ClientActor, DomainCommand, OperatorActor } from '@inrp2p/identity';
 import { acceptQuote, acceptanceCodeHandler, createQuote, createQuoteLink, createRequest, deliverAcceptanceCode, sendQuote } from '@inrp2p/quotes';
-import { createPayoutLeg, confirmPayout, recordLegEvidence, sendPayoutLeg } from '@inrp2p/settlement';
+import { confirmRouteSettlement, createPayoutLeg, confirmPayout, obligationRemaining, recordLegEvidence, recordRouteSettlement, sendPayoutLeg } from '@inrp2p/settlement';
 import { acknowledgedSignalHandler, clientNotificationHandler } from '@inrp2p/notifications';
 import { receiptHandler } from '@inrp2p/reporting';
 import { dispatchOutbox } from '@inrp2p/outbox';
@@ -325,6 +325,22 @@ export async function signInAsClient(page: Page, email: string): Promise<void> {
   await page.getByLabel('Verification code').fill(await clientSignInCode(email, before));
   // Exact: "Exchange" is the workspace's own first heading; the gateway's words contain it elsewhere.
   await expect(page.getByRole('heading', { name: 'Exchange', exact: true })).toBeVisible();
+}
+
+/**
+ * The trade's counterparty delivers: the route pays its INR into the exchange's account, and the desk records the
+ * credit against the route obligation and confirms it against the bank (`route_settlement:record` / `:confirm`).
+ * Under D-16 the client is paid with that money and nothing else, so no payout can be created before it.
+ */
+export async function routeDelivers(tradeId: string): Promise<void> {
+  const s = state();
+  const obligation = await appDb().selectFrom('route_obligation').select('id').where('trade_id', '=', tradeId).executeTakeFirstOrThrow();
+  const owed = (await obligationRemaining(appDb(), obligation.id)).routeDelivers.toDecimalString();
+  const recorded = await asOperator(s.owner, (o) => recordRouteSettlement(o.actor, settlementDeps()), 'route_settlement.record', {
+    routeObligationId: obligation.id, flow: 'FROM_ROUTE_TO_EXCHANGE' as const, amount: owed, rail: 'IMPS' as const,
+    utr: `RTE${Date.now().toString(36).toUpperCase()}${randomUUID().slice(0, 4).toUpperCase()}`, inrAccountId: s.inrAccountId,
+  });
+  await asOperator(s.owner, (o) => confirmRouteSettlement(o.actor, settlementDeps()), 'route_settlement.confirm', { routeSettlementId: recorded.routeSettlementId });
 }
 
 /** The desk pays an INR leg and confirms it, which is what moves a client's trade towards settled. */

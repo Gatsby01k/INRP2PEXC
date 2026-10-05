@@ -19,7 +19,7 @@ import { createInrAccount, createSettlementEntity, setDayCapacity } from '@inrp2
 import { configureRoute, createRoute } from '@inrp2p/routes';
 import { publishRouteRate } from '@inrp2p/pricing';
 import { acceptQuote, createQuote, createQuoteLink, createRequest, sendQuote } from '@inrp2p/quotes';
-import { confirmPayout, createPayoutLeg, importBankStatement, recordLegEvidence, recordRouteSettlement, sendPayoutLeg } from '@inrp2p/settlement';
+import { confirmPayout, confirmRouteSettlement, createPayoutLeg, importBankStatement, recordLegEvidence, recordRouteSettlement, sendPayoutLeg } from '@inrp2p/settlement';
 import { acknowledgedSignalHandler, clientNotificationHandler } from '@inrp2p/notifications';
 import { receiptHandler } from '@inrp2p/reporting';
 import { runTronConfirm, runTronScan } from '@inrp2p/scanner';
@@ -257,10 +257,9 @@ export async function seedVisual(adminUrl: string): Promise<VisualState> {
   const poolWallet = await run(world, registerTreasuryWallet(owner.actor), owner.ref, 'treasury.register_wallet', {
     network: 'TRON' as const, address: address('deposit-pool'), label: 'Deposit pool', role: 'DEPOSIT_POOL' as const,
   });
-  const hot = await run(world, registerTreasuryWallet(owner.actor), owner.ref, 'treasury.register_wallet', {
+  await run(world, registerTreasuryWallet(owner.actor), owner.ref, 'treasury.register_wallet', {
     network: 'TRON' as const, address: address('hot-wallet'), label: 'Hot wallet', role: 'HOT' as const,
   });
-  await sql`update treasury_wallet set observed_balance_minor = ${Money.parse('2000000', 'USDT').minor} where id = ${hot.walletId}`.execute(world);
   await run(world, recordCustodyCapability(owner.actor), owner.ref, 'custody.record_capability', {
     provider: custody.provider, network: 'TRON' as const, capability: 'POOL' as const, consolidationNotes: 'Provider sweeps to the hot wallet.',
   });
@@ -273,11 +272,13 @@ export async function seedVisual(adminUrl: string): Promise<VisualState> {
   // ── Trades, one per state the desk has to show ──────────────────────────────────────────────────────────
   const chain = chainDeps('visual');
 
-  // 1. Completed: the launch scenario, so Orders has a finished trade and the strip a realized margin.
+  // 1. Completed: the launch scenario, so Orders has a finished trade and the strip a realized margin. The route
+  //    delivers its INR first; the client is paid with it and nothing else (D-16).
   const completed = await trade(world, owner, {
     clientId: acme.clientId, acceptor: acmeAcceptor, routeId: mumbai.routeId, bankAccountId: acmeBank.bankAccountId,
     amount: '100000', clientRate: '102.000000', chain,
   });
+  await routeDelivers(world, owner, chain, { tradeId: completed.tradeId, amount: '10420000.00', inrAccountId: account.accountId, utr: 'IXVISROUTE000' });
   for (const amount of ['6000000.00', '4200000.00']) {
     const leg = await run(world, createPayoutLeg(owner.actor, {}), owner.ref, 'payout_leg.create', {
       tradeId: completed.tradeId, amount, payer: 'EXCHANGE_ACCOUNT' as const, inrAccountId: account.accountId,
@@ -295,6 +296,7 @@ export async function seedVisual(adminUrl: string): Promise<VisualState> {
     clientId: acme.clientId, acceptor: acmeAcceptor, routeId: mumbai.routeId, bankAccountId: acmeBank.bankAccountId,
     amount: '25000', clientRate: '102.000000', chain,
   });
+  await routeDelivers(world, owner, chain, { tradeId: awaiting.tradeId, amount: '1000000.00', inrAccountId: account.accountId, utr: 'IXVISROUTE002' });
   const inFlight = await run(world, createPayoutLeg(owner.actor, {}), owner.ref, 'payout_leg.create', {
     tradeId: awaiting.tradeId, amount: '1000000.00', payer: 'EXCHANGE_ACCOUNT' as const, inrAccountId: account.accountId,
   });
@@ -331,11 +333,9 @@ export async function seedVisual(adminUrl: string): Promise<VisualState> {
     targetRate: '100.400000', walletId: coastalWallet.walletId,
   });
 
-  // A route settlement recorded but not yet confirmed, so Rates shows the confirm the obligation is waiting on.
-  await run(world, recordRouteSettlement(owner.actor, chain.deps), owner.ref, 'route_settlement.record', {
-    routeObligationId: await obligationOf(world, completed.tradeId), flow: 'FROM_ROUTE_TO_EXCHANGE' as const,
-    amount: '4000000.00', rail: 'IMPS' as const, utr: 'IXVISROUTE001', inrAccountId: account.accountId,
-  });
+  // A route settlement recorded but not yet confirmed, so Rates shows the confirm the obligation is waiting on: the
+  //    rest of what the route owes on the trade awaiting payout.
+  await routeDelivers(world, owner, chain, { tradeId: awaiting.tradeId, amount: '1605000.00', inrAccountId: account.accountId, utr: 'IXVISROUTE001', confirm: false });
 
   // ── The client product's own states ────────────────────────────────────────────────────────────────────
   // 6. A trade the client has accepted and not yet funded: the deposit instructions, which is the one screen a
@@ -475,6 +475,25 @@ async function trade(
   await runTronScan(db, input.chain.deps);
   await runTronConfirm(db, input.chain.deps);
   return { tradeId };
+}
+
+/**
+ * The trade's route delivers INR into the exchange's account, recorded against its obligation and — unless
+ * `confirm: false` — confirmed against the bank: the only money a TO_EXCHANGE trade's client is ever paid with.
+ */
+async function routeDelivers(
+  db: Db,
+  owner: Awaited<ReturnType<typeof operator>>,
+  chain: ReturnType<typeof chainDeps>,
+  input: { tradeId: string; amount: string; inrAccountId: string; utr: string; confirm?: boolean },
+): Promise<void> {
+  const recorded = await run(db, recordRouteSettlement(owner.actor, chain.deps), owner.ref, 'route_settlement.record', {
+    routeObligationId: await obligationOf(db, input.tradeId), flow: 'FROM_ROUTE_TO_EXCHANGE' as const,
+    amount: input.amount, rail: 'IMPS' as const, utr: input.utr, inrAccountId: input.inrAccountId,
+  });
+  if (input.confirm !== false) {
+    await run(db, confirmRouteSettlement(owner.actor, chain.deps), owner.ref, 'route_settlement.confirm', { routeSettlementId: recorded.routeSettlementId });
+  }
 }
 
 async function obligationOf(db: Db, tradeId: string): Promise<string> {

@@ -6,3 +6,4 @@ export * from './confirm.ts';
 export * from './orphan.ts';
 export * from './providers.ts';
 export * from './backfill.ts';
+export * from './balances.ts';

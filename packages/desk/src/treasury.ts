@@ -2,7 +2,7 @@ import { sql } from 'kysely';
 import { Money } from '@inrp2p/kernel';
 import type { Executor } from '@inrp2p/db';
 import { istToday } from '@inrp2p/inr-accounts';
-import { type StatementImportSummary, listStatementImports } from '@inrp2p/settlement';
+import { DEFAULT_SETTLEMENT_POLICY, type StatementImportSummary, listStatementImports, physicalAvailability } from '@inrp2p/settlement';
 import { getDepositPoolStatus } from '@inrp2p/treasury';
 import { providerStatus } from '@inrp2p/scanner';
 
@@ -127,8 +127,40 @@ export interface TransferView {
   readonly tradeRef: string | null;
 }
 
+/**
+ * One exchange address, two questions (B2, ADR 0016 §2.6). *Physically*: what the latest reading of the chain shows
+ * there, what is already leaving that the reading does not reflect, and so what could leave now. *Economically*:
+ * how much of the trades' money (client and counterparty funds confirmed there, not yet paid on) the address holds,
+ * and how much of that is already planned to go out. A payout needs both; neither stands in for the other.
+ */
+export interface CustodyPositionView {
+  readonly address: string;
+  readonly kind: 'TREASURY' | 'DEPOSIT';
+  /** The wallet's label, or the trades whose money is at a deposit address. */
+  readonly label: string;
+  readonly reading: {
+    readonly quality: 'AGREED' | 'SINGLE_SOURCE' | 'DISAGREED' | 'ERROR';
+    readonly balance: string | null;
+    readonly block: string | null;
+    readonly providers: string;
+    readonly observedAt: string;
+    readonly ageSeconds: number;
+  } | null;
+  /** Why a payout from here would be refused on the reading alone; null when the reading is usable. */
+  readonly unusable: string | null;
+  readonly leaving: string;
+  readonly freeOnChain: string;
+  readonly tradesMoney: string;
+  readonly plannedOut: string;
+  /** Trades' money not planned to leave that the reading does not show here; null when none, or no usable reading. */
+  readonly notSeenOnChain: string | null;
+}
+
 export interface UsdtView {
   readonly wallets: readonly TreasuryWalletView[];
+  readonly custody: readonly CustodyPositionView[];
+  /** A reading older than this stops USDT payouts from its address (B2). */
+  readonly maxObservationAgeSeconds: number;
   readonly pool: Awaited<ReturnType<typeof getDepositPoolStatus>>;
   readonly transfers: readonly TransferView[];
   /** Where the scanner has read to, so an operator can see it is alive and how far behind it is (Phase 5). */
@@ -210,7 +242,11 @@ export async function usdtView(ex: Executor, opts: { transferLimit?: number } = 
     .limit(10)
     .execute();
 
+  const custody = await custodyPositions(ex);
+
   return {
+    custody,
+    maxObservationAgeSeconds: DEFAULT_SETTLEMENT_POLICY.maxObservationAgeSeconds,
     wallets: wallets.map((w) => {
       const available = w.observed_balance_minor - w.reserved_minor;
       return {
@@ -274,4 +310,52 @@ export async function usdtView(ex: Executor, opts: { transferLimit?: number } = 
       requestedAt: b.requested_at.toISOString(),
     })),
   };
+}
+
+/** Every exchange address whose USDT decides something: live treasury wallets, and deposit addresses holding trades' money. */
+export async function custodyPositions(ex: Executor): Promise<CustodyPositionView[]> {
+  const rows = await sql<{ address: string; kind: 'TREASURY' | 'DEPOSIT'; label: string; held: string; planned: string }>`
+    with addresses as (
+      select address, 'TREASURY'::text as kind, label from treasury_wallet where network = 'TRON' and status <> 'RETIRED'
+      union all
+      select d.address, 'DEPOSIT', coalesce((select string_agg(distinct t.ref, ', ' order by t.ref) from funding_source s join trade t on t.id = s.trade_id
+                                               where s.location = 'TRON:' || d.address), 'deposit address')
+        from deposit_address d
+       where d.network = 'TRON' and inrp2p_address_earmarked(d.address) > 0
+    )
+    select a.address, a.kind, a.label,
+           inrp2p_address_earmarked(a.address)::text as held,
+           coalesce((select sum(f.amount_minor) from funding_allocation f where f.status = 'ACTIVE' and f.location = 'TRON:' || a.address), 0)::text as planned
+      from addresses a
+     order by a.kind desc, a.label, a.address`.execute(ex);
+  const out: CustodyPositionView[] = [];
+  for (const r of rows.rows) {
+    const p = await physicalAvailability(ex, {}, { address: r.address });
+    const held = BigInt(r.held);
+    const planned = BigInt(r.planned);
+    const usable = p.observation !== null && (p.observation.quality === 'AGREED' || p.observation.quality === 'SINGLE_SOURCE');
+    const missing = held - planned - p.availableMinor;
+    out.push({
+      address: r.address,
+      kind: r.kind,
+      label: r.label,
+      reading: p.observation
+        ? {
+            quality: p.observation.quality,
+            balance: p.observation.balanceMinor === null ? null : Money.ofMinor(p.observation.balanceMinor, 'USDT').toDecimalString(),
+            block: p.observation.solidifiedBlock === null ? null : p.observation.solidifiedBlock.toString(),
+            providers: p.observation.providers,
+            observedAt: p.observation.observedAt.toISOString(),
+            ageSeconds: p.observation.ageSeconds,
+          }
+        : null,
+      unusable: p.unusable,
+      leaving: Money.ofMinor(p.pendingOutMinor, 'USDT').toDecimalString(),
+      freeOnChain: Money.ofMinor(p.availableMinor > 0n ? p.availableMinor : 0n, 'USDT').toDecimalString(),
+      tradesMoney: Money.ofMinor(held, 'USDT').toDecimalString(),
+      plannedOut: Money.ofMinor(planned, 'USDT').toDecimalString(),
+      notSeenOnChain: usable && missing > 0n ? Money.ofMinor(missing, 'USDT').toDecimalString() : null,
+    });
+  }
+  return out;
 }

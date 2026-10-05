@@ -1,5 +1,5 @@
 import { type Page, expect, test } from '@playwright/test';
-import { acceptAsClient, clientSendsUsdt, expireStepUp, latestSentQuoteId, noStepUp, realizedMargin, signIn, state, stepUp, tradeState } from './support.ts';
+import { acceptAsClient, clientSendsUsdt, expireStepUp, latestSentQuoteId, noStepUp, realizedMargin, routeDelivers, signIn, state, stepUp, tradeState } from './support.ts';
 
 /**
  * The Phase 6 demo scenario, end to end: 100,000 USDT sold at ₹102.00 against a ₹104.20 route, settled to the
@@ -39,6 +39,8 @@ test('the demo scenario, driven through the operator UI', async ({ page }) => {
   // 3. The client sends the USDT; the scanner detects and confirms it.
   await clientSendsUsdt(trade.tradeId, '100000');
   expect(await tradeState(trade.tradeId)).toBe('FIRST_LEG_CONFIRMED');
+  // The route delivers its INR to the exchange's account: the client is paid with that money (D-16).
+  await routeDelivers(trade.tradeId);
 
   // 4. The desk sees the trade waiting for a payout and opens its panel on the payout step.
   await page.goto('/');

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { encodeTronAddress } from '@inrp2p/kernel';
-import type { ChainNetwork, ChainVerification, ChainVerifier, TransactionTransfers, TransferReceipt } from '../chain.ts';
+import type { BalanceSource, ChainNetwork, ChainVerification, ChainVerifier, TransactionTransfers, TransferReceipt } from '../chain.ts';
 
 export const FAKE_USDT_CONTRACT = encodeTronAddress(createHash('sha256').update('fake-usdt-contract').digest().subarray(0, 20));
 
@@ -14,6 +14,8 @@ export class FakeChainVerifier implements ChainVerifier {
   readonly tokenContract: string;
   readonly #events = new Map<string, TransferReceipt>();
   #head = 1_000n;
+  /** The highest block a balance reading has reported: a transfer added later never lands at or below it. */
+  #readThrough = 0n;
   /** Tx hashes the second provider disagrees about (D-05): only the primary vouches for them. */
   readonly disagreements = new Set<string>();
   /** Tx hashes the providers contradict each other about (facts differ, or one says failed). */
@@ -42,6 +44,9 @@ export class FakeChainVerifier implements ChainVerifier {
     const txHash = input.txHash ?? createHash('sha256').update(`${this.#events.size}:${input.to}:${input.amountMinor}`).digest('hex');
     const logIndex = input.logIndex ?? 0;
     const solidified = input.solidified ?? true;
+    // A transfer happens after every balance already read: placing it in a block a reading covered would make that
+    // reading claim to include money it never saw.
+    if (this.#head - 20n <= this.#readThrough) this.#head = this.#readThrough + 21n;
     const blockNumber = solidified ? this.#head - 20n : this.#head + 5n;
     const receipt: TransferReceipt = {
       network: 'TRON',
@@ -101,6 +106,31 @@ export class FakeChainVerifier implements ChainVerifier {
       status: 'FOUND', txHash: hash, provider: this.providers[0] ?? 'fake',
       transfers: logs.map(({ solidifiedBlock: _s, agreedBy: _a, agreedGroups: _g, unavailable: _u, degraded: _d, ...t }) => t),
     };
+  }
+
+  /** USDT of `address` the chain has made final: successful, solidified transfers in, less those out. */
+  balanceOf(address: string): bigint {
+    let sum = 0n;
+    for (const r of this.#events.values()) {
+      if (r.receiptStatus !== 'SUCCESS' || r.tokenContract !== this.tokenContract || r.blockNumber > this.#head) continue;
+      if (r.toAddress === address) sum += r.amountMinor;
+      if (r.fromAddress === address) sum -= r.amountMinor;
+    }
+    return sum;
+  }
+
+  /** A balance reader over this fake chain, one per configured provider (B2 observations in tests). */
+  balanceSources(): readonly BalanceSource[] {
+    return this.providers.map((name, i) => ({
+      name,
+      independenceGroup: this.independenceGroups[i] ?? this.independenceGroups[0] ?? `group-${name}`,
+      getSolidifiedBalance: async (address: string, contract: string) => {
+        if (this.outage) throw new Error('every provider is unreachable (test outage)');
+        const balance = contract === this.tokenContract ? this.balanceOf(address) : 0n;
+        if (this.#head > this.#readThrough) this.#readThrough = this.#head;
+        return { balanceMinor: balance < 0n ? 0n : balance, solidifiedBlock: this.#head, trxSun: 0n };
+      },
+    }));
   }
 
   /** Test hook: the second provider stops vouching for this transfer. */

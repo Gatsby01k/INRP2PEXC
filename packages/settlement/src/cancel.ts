@@ -11,6 +11,7 @@ import { type TradeRow, isCounterpartyFunded, legTotals, lockTrade, transitionTr
 import { openExceptionInTx, resolveExceptionInTx } from './exceptions.ts';
 import { assertNoPayoutUnderway, lockLeg, nextLegSeq, requireSourceDepositAddress } from './legs.ts';
 import { allocateFunding, inrLocation, settleFunding, tronLocation } from './funding.ts';
+import { assertPhysicallyAvailable } from './availability.ts';
 import { lockMovement, postMovement, recordFiatTransfer, verifyCryptoTransfer } from './movements.ts';
 import { lockObligation, obligationOfTrade } from './obligations.ts';
 import type { SettlementDeps } from './policy.ts';
@@ -141,7 +142,7 @@ export function cancelTrade(actor: OperatorActor) {
  * Creates the refund leg for client funds we already hold — `settlement:create_payout`. The refund is only the
  * plan; paying it out is a second, two-person step (`refund:approve`, SECURITY §4).
  */
-export function createRefundLeg(actor: OperatorActor) {
+export function createRefundLeg(actor: OperatorActor, deps: Pick<SettlementDeps, 'policy'> = {}) {
   return operatorCommand(actor, 'settlement:create_payout', async (ctx, p: { tradeId: string; inrAccountId?: string | null; treasuryWalletId?: string | null; sourceDepositAddressId?: string | null; notes?: string | null }) => {
     const trade = await lockTrade(ctx.tx, p.tradeId);
     if (trade.lifecycle_state === 'COMPLETED' || trade.lifecycle_state === 'CANCELLED') throw new DomainError('INVALID_TRANSITION', `trade is ${trade.lifecycle_state}`);
@@ -190,6 +191,8 @@ export function createRefundLeg(actor: OperatorActor) {
       // FI-74: a refund gives back the client's own money of this trade — never the counterparty's, never the platform's.
       await allocateFunding(ctx, { tradeId: trade.id, use: { kind: 'REFUND', legId: leg.id }, asset, amount, location: asset === 'INR' ? inrLocation(inrAccountId!) : tronLocation(sourceAddress!) });
     }
+    // B2: a USDT refund is planned only against what the chain shows at the address it will leave from.
+    if (asset === 'USDT') await assertPhysicallyAvailable(ctx, deps, { address: sourceAddress!, amount, excludeLegId: leg.id });
     await appendAudit(ctx, { action: 'leg.created', entityType: 'settlement_leg', entityId: leg.id, after: { ref: leg.ref, side: 'REFUND_TO_CLIENT', amount, trade_id: trade.id } });
     return { legId: leg.id, ref: leg.ref, amount: amount.toDecimalString() };
   });

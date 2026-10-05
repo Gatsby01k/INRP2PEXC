@@ -167,6 +167,24 @@ export async function deliverCounterparty(
   return { routeSettlementId: recorded.routeSettlementId, amount };
 }
 
+/**
+ * Records what the fake chain shows at `address` as a custody balance observation (B2), as the worker's
+ * `custody_observe` job or an operator's refresh would: two independent sources agreeing on the solidified balance.
+ */
+export async function observe(w: World, address: string, opts: { db?: Db } = {}): Promise<void> {
+  const { executeCommand } = await import('@inrp2p/commands');
+  const { recordBalanceObservation } = await import('@inrp2p/treasury');
+  const sources = w.chain.balanceSources();
+  const readings = await Promise.all(sources.map((s) => s.getSolidifiedBalance(address, w.chain.tokenContract)));
+  await executeCommand(opts.db ?? w.app, {
+    authorize: async () => {},
+    handle: (ctx) => recordBalanceObservation(ctx, {
+      address, tokenContract: w.chain.tokenContract, quality: 'AGREED', balanceMinor: readings[0]!.balanceMinor, solidifiedBlock: readings[0]!.solidifiedBlock,
+      trxSun: readings[0]!.trxSun, providers: sources.map((s) => s.name), independentSources: sources.length,
+    }),
+  }, { name: 'custody.observe_balance', actor: { type: 'SYSTEM', id: null, surface: 'SYSTEM' }, payload: { address }, financial: false });
+}
+
 /** Delivers the counterparty's side once: a no-op when the trade already holds counterparty funds. */
 export async function ensureCounterpartyFunds(w: World, tradeId: string, opts: { db?: Db } = {}): Promise<void> {
   const delivered = await w.app.selectFrom('funding_source').select('source_id').where('trade_id', '=', tradeId).where('kind', '=', 'COUNTERPARTY_FUNDS').executeTakeFirst();

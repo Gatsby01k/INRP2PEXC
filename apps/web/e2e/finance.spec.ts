@@ -6,6 +6,7 @@ import {
   clientSendsUsdt,
   deliverNotifications,
   deskPaysOut,
+  routeDelivers,
   deskSendsQuoteWithLink,
   expireStepUp,
   signIn,
@@ -39,6 +40,7 @@ test('the finance outputs of a settled trade', async ({ page }) => {
     const trade = await acceptAsClient(quote.quoteId);
     tradeRef = trade.tradeRef;
     await clientSendsUsdt(trade.tradeId, '10000');
+    await routeDelivers(trade.tradeId);
     await deskPaysOut(trade.tradeId, '1020000.00');
     expect(await tradeState(trade.tradeId)).toBe('COMPLETED');
     // The receipt is issued by the worker, from the event completion enqueued — not by the page that shows it.

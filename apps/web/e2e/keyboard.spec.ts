@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { acceptAsClient, clientSendsUsdt, expireStepUp, latestSentQuoteId, pressUntilFocused, signInWithKeyboard, state, stepUp, tradeState } from './support.ts';
+import { acceptAsClient, clientSendsUsdt, expireStepUp, latestSentQuoteId, pressUntilFocused, routeDelivers, signInWithKeyboard, state, stepUp, tradeState } from './support.ts';
 
 /**
  * Quote → payout without ever touching the pointer (IMPLEMENTATION_PLAN Phase 6 exit, UX_FLOWS §6). A dealer
@@ -37,6 +37,7 @@ test('quote to payout, keyboard only', async ({ page }) => {
   // The client accepts and the chain delivers — neither is the operator's to do.
   const trade = await acceptAsClient(await latestSentQuoteId(s.clientId));
   await clientSendsUsdt(trade.tradeId, '25000');
+  await routeDelivers(trade.tradeId);
 
   // ⌘K finds the trade by its reference; Enter opens it.
   await page.goto('/');

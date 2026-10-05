@@ -11,7 +11,7 @@ import {
   obligationRemaining, recordIncomingFiat, recordLegEvidence, recordRouteSettlement, requestAdjustment, resolveException, sendPayoutLeg,
   cancelPayoutLeg, confirmRefundLeg, destinationArchivedHandler, refundAndCancel, revertFirstLeg, submitTxForVerification, voidException,
 } from '../src/index.ts';
-import { balanceOf, clientDepositAddressOf, createWorld, deliverCounterparty, ensureCounterpartyFunds, newUtr, openTrade, settleFirstLeg, type World } from './world.ts';
+import { balanceOf, clientDepositAddressOf, createWorld, deliverCounterparty, ensureCounterpartyFunds, newUtr, observe, openTrade, settleFirstLeg, type World } from './world.ts';
 
 /**
  * Regressions found by the end-to-end audit (2026-09-25). Each test states the flow a desk actually runs and the
@@ -208,6 +208,7 @@ describe('payout evidence must be what the chain says it is (FI-24)', () => {
     await settleFirstLeg(w, trade.tradeId);
     await deliverCounterparty(w, trade.tradeId);
     const leg = await runAs(w.app, createPayoutLeg(w.settlementOp.actor, {}), w.settlementOp.ref, 'payout_leg.create', { tradeId: trade.tradeId, amount: '50', payer: 'EXCHANGE_ACCOUNT' as const, treasuryWalletId: w.treasuryWalletId });
+    await observe(w, (await w.app.selectFrom('treasury_wallet').select('address').where('id', '=', w.treasuryWalletId).executeTakeFirstOrThrow()).address);
     await runAs(w.app, sendPayoutLeg(w.settlementOp.actor), w.settlementOp.ref, 'payout_leg.send', { legId: leg.legId });
     const row = await w.app.selectFrom('settlement_leg').select('destination_wallet_id').where('id', '=', leg.legId).executeTakeFirstOrThrow();
     const dest = await w.app.selectFrom('crypto_wallet').select('address').where('id', '=', row.destination_wallet_id!).executeTakeFirstOrThrow();
@@ -297,6 +298,7 @@ describe('a trade never pays out and refunds at once (FI-25)', () => {
     await settleFirstLeg(w, trade.tradeId);
     await deliverCounterparty(w, trade.tradeId);
     const deposit = await clientDepositAddressOf(w, trade.tradeId);
+    await observe(w, deposit.address);
     await runAs(w.app, createRefundLeg(w.owner.actor), w.owner.ref, 'refund_leg.create', { tradeId: trade.tradeId, sourceDepositAddressId: deposit.id });
     await expect(runAs(w.app, createPayoutLeg(w.settlementOp.actor, {}), w.settlementOp.ref, 'payout_leg.create', { tradeId: trade.tradeId, amount: '10200.00', payer: 'EXCHANGE_ACCOUNT' as const, inrAccountId: w.inrAccountId }))
       .rejects.toMatchObject({ code: 'REFUND_IN_PROGRESS' });
@@ -346,8 +348,11 @@ describe('a destination archived under an open trade opens CLIENT_BANK_CHANGED (
 
 describe('refunds never exceed the client funds they return (FI-25, IX025)', () => {
   // A SELL client's USDT goes back from the deposit address it arrived at (D-16).
-  const refund = async (tradeId: string, op = w.owner, key?: string) =>
-    runAs(w.app, createRefundLeg(op.actor), op.ref, 'refund_leg.create', { tradeId, sourceDepositAddressId: (await clientDepositAddressOf(w, tradeId)).id }, key ?? randomUUID());
+  const refund = async (tradeId: string, op = w.owner, key?: string) => {
+    const deposit = await clientDepositAddressOf(w, tradeId);
+    await observe(w, deposit.address);
+    return runAs(w.app, createRefundLeg(op.actor), op.ref, 'refund_leg.create', { tradeId, sourceDepositAddressId: deposit.id }, key ?? randomUUID());
+  };
   const refundLegs = (tradeId: string) =>
     w.app.selectFrom('settlement_leg').select(['id', 'status', 'amount_minor']).where('trade_id', '=', tradeId).where('side', '=', 'REFUND_TO_CLIENT').execute();
 

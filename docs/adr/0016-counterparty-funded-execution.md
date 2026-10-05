@@ -27,7 +27,7 @@ FI-33's `reserved ≤ observed` compares against a number nobody observes, and a
 ## 2. Decision
 
 1. **Funding is a fact of the trade, not of the route.** Every trade carries an insert-once funding model in
-   `trade_funding`: `COUNTERPARTY_FUNDED` for every trade accepted from migration 0024 on; `LEGACY_EXCHANGE_FUNDED`
+   `trade_funding`: `COUNTERPARTY_FUNDED` for every trade accepted from migration 0025 on; `LEGACY_EXCHANGE_FUNDED`
    only for trades accepted before it (backfilled by the migration, never creatable afterwards). The model is
    orthogonal to the execution mode: `TO_EXCHANGE` says *where* money travels (through the exchange's accounts),
    `COUNTERPARTY_FUNDED` says *whose* money it is (the client's and the counterparty's of this trade).
@@ -36,7 +36,7 @@ FI-33's `reserved ≤ observed` compares against a number nobody observes, and a
 3. **Acceptance binds commitments, not money.** For a counterparty-funded trade acceptance atomically creates the
    trade, its frozen economics, the route obligation, the deposit/delivery attribution and (on a trader route) starts
    the trader order with its capacity hold — and never reserves treasury funds. The database refuses a
-   `treasury_reservation` for a counterparty-funded trade (IX081). Capacity is a commitment, not evidence of money.
+   `treasury_reservation` for a counterparty-funded trade (IX083). Capacity is a commitment, not evidence of money.
 4. **Money moves out only against money that came in, for this trade, at this place.** A *funding source* is a
    confirmed incoming movement of the trade: the client's completed first leg (*client funds*) or a confirmed
    `FROM_ROUTE_TO_EXCHANGE` route settlement (*counterparty funds*). A *funding allocation* earmarks part of one source
@@ -125,20 +125,20 @@ counterparty funds the route delivered to the exchange, like any other exchange-
 
 | ID | Invariant | Enforcement |
 |---|---|---|
-| FI-70 | Every trade has exactly one insert-once funding model; trades created after 0024 are `COUNTERPARTY_FUNDED`; `LEGACY_EXCHANGE_FUNDED` cannot be created | `trade_funding` PK; AFTER INSERT trigger on `trade`; BEFORE INSERT guard refusing `LEGACY_*`; immutable |
-| FI-71 | A counterparty-funded trade never holds a treasury reservation | IX081 on `treasury_reservation` insert; acceptance does not call `reserveTreasuryUsdt` |
-| FI-72 | An exchange-paid client payout leg of a counterparty-funded trade is fully covered by ACTIVE/CONSUMED allocations from counterparty funds of the same trade, asset and location | `allocateFunding` in `createPayoutLeg`; deferred constraint IX083 |
-| FI-73 | A `TO_ROUTE` route settlement of a counterparty-funded trade is fully covered by allocations from client funds of the same trade, asset and location | allocation in `recordRouteSettlementInTx`; IX083 |
-| FI-74 | A refund leg of a counterparty-funded trade is fully covered by client-funds allocations | `createRefundLeg`; IX083 |
-| FI-75 | A funding source is never allocated beyond its amount; ACTIVE allocations stay ACTIVE while their movement could still land | deferred IX082 under the source lock; release only from CANCELLED/FAILED uses |
+| FI-70 | Every trade has exactly one insert-once funding model; trades created after 0025 are `COUNTERPARTY_FUNDED`; `LEGACY_EXCHANGE_FUNDED` cannot be created | `trade_funding` PK; AFTER INSERT trigger on `trade`; BEFORE INSERT guard refusing anything else (IX082); append-only |
+| FI-71 | A counterparty-funded trade never holds a treasury reservation | IX083 on `treasury_reservation` insert; acceptance does not call `reserveTreasuryUsdt` (no production caller remains) |
+| FI-72 | An exchange-paid client payout leg of a counterparty-funded trade is fully covered by ACTIVE/CONSUMED allocations from counterparty funds of the same trade, asset and location | `allocateFunding` in `createPayoutLeg`; deferred coverage trigger IX086 |
+| FI-73 | A `TO_ROUTE` route settlement of a counterparty-funded trade is fully covered by allocations from client funds of the same trade, asset and location | allocation in `recordRouteSettlementInTx`; IX086 |
+| FI-74 | A refund leg of a counterparty-funded trade is fully covered by client-funds allocations | `createRefundLeg`; IX086 |
+| FI-75 | A funding source is never allocated beyond its amount; ACTIVE allocations stay ACTIVE while their movement could still land | deferred IX085 under the source lock; IX086 releases only for CANCELLED/FAILED uses |
 | FI-76 | Allocations never cross trades and never draw on suspense, reserves or legacy reservations | source view is trade-scoped confirmed client legs / route settlements only; IX084 on insert |
-| FI-77 | DVP: `TO_ROUTE` only after the counterparty delivered (TO_EXCHANGE: route side fully settled; DIRECT_TO_CLIENT: client payout covered) | command check in `recordRouteSettlementInTx` (`COUNTERPARTY_NOT_DELIVERED`) |
-| FI-78 | An outgoing USDT movement needs a fresh, consistent observation of its source address covering it after unreflected pending outflows | `assertPhysicallyAvailable` in send/record commands; observation table append-only |
+| FI-77 | DVP: `TO_ROUTE` only after the counterparty delivered (TO_EXCHANGE: route side fully settled; DIRECT_TO_CLIENT: client payout covered) | command check in `recordRouteSettlementInTx` (`COUNTERPARTY_NOT_DELIVERED`) under the trade lock; BEFORE INSERT trigger IX087 |
+| FI-78 | An outgoing USDT movement needs a fresh, consistent observation of its source address covering it after unreflected pending outflows | `assertPhysicallyAvailable` in `payout_leg.send` and `refund_leg.create` (USDT); readings append-only, a wallet's observed balance only ever its latest reading (IX089, 0026) |
 | FI-79 | Capacity holds, funding allocations and the Security Reserve are separate quantities; none is read as another in eligibility, availability, UI or journal | separate tables/accounts; projections tested |
 
 ## 5. Implementation notes
 
-### 5.1 Tables (migration `0024_counterparty_funding.sql`)
+### 5.1 Tables (migrations `0025_counterparty_funding.sql`, `0026_custody_observation.sql`)
 - `trade_funding(trade_id PK, model, created_at)` — insert-once; backfill `LEGACY_EXCHANGE_FUNDED` for every
   existing trade inside the migration; trigger creates `COUNTERPARTY_FUNDED` for every new trade.
 - `funding_allocation(id, trade_id, source_leg_id | source_route_settlement_id, use_leg_id | use_route_settlement_id,
@@ -149,7 +149,9 @@ counterparty funds the route delivered to the exchange, like any other exchange-
   confirmed, whichever app version confirmed it.
 - `settlement_leg.source_deposit_address_id` / route settlement USDT source address: a USDT outflow names the address
   it leaves from, so verification holds the chain to it (FI-24) and the allocation's location to it (FI-72/73).
-- `custody_balance_observation` (append-only) + `treasury_wallet.observed_*` kept current for wallets (B2).
+- `custody_balance_observation` (append-only, 0026) + `treasury_wallet.observed_*` kept current for wallets (B2). A
+  deposit address holding unspent funding stays out of the pool until the outflow is confirmed (IX088; 0026 counts a
+  planned outflow as still there).
 
 ### 5.2 Commands
 `createPayoutLeg`, `recordRouteSettlementInTx` (`TO_ROUTE`), `createRefundLeg` allocate; `cancelPayoutLeg`,
@@ -157,8 +159,9 @@ counterparty funds the route delivered to the exchange, like any other exchange-
 `confirmRefundLeg` consume. Every allocation and release is audited; nothing is posted to the ledger.
 
 ### 5.3 Legacy trades
-Trades accepted before 0024 keep `LEGACY_EXCHANGE_FUNDED`: their treasury reservations (FI-33) and the D-12-only
-payout gate stay exactly as they were, so nothing in flight changes underneath an operator. The migration moves no
+Trades accepted before 0025 keep `LEGACY_EXCHANGE_FUNDED`: their treasury reservations (FI-33) and the D-12-only
+payout gate stay as they were, so nothing in flight changes underneath an operator — except that a USDT payout of a
+legacy trade now also needs B2's fresh reading of the wallet it leaves (stricter, never looser). The migration moves no
 funds and rewrites no economics; if the owner wants a legacy trade re-funded by a trader that is a separate,
 audited decision, not a migration.
 
@@ -181,13 +184,13 @@ Net economics are shown after rewards and recorded fees; a positive gross margin
 
 ## 7. Migration and rollout
 
-1. `0024` is additive (new tables, a view, one nullable column per outgoing row, triggers). It edits no applied
+1. `0025` and `0026` are additive (new tables, a view, one nullable column per outgoing row, triggers). It edits no applied
    migration, rewrites no economics and backfills only `trade_funding` facts (`LEGACY_EXCHANGE_FUNDED`).
-2. **Mixed versions fail closed.** An old app instance after 0024: its acceptance creates a counterparty-funded trade
-   (trigger) and then calls `reserveTreasuryUsdt` for a BUY — refused (IX081), the acceptance rolls back and can be
-   retried on a new instance; its payout/route-payment commands do not allocate — refused at commit (IX083). No old
+2. **Mixed versions fail closed.** An old app instance after 0025: its acceptance creates a counterparty-funded trade
+   (trigger) and then calls `reserveTreasuryUsdt` for a BUY — refused (IX083), the acceptance rolls back and can be
+   retried on a new instance; its payout/route-payment commands do not allocate — refused at commit (IX086). No old
    path can move platform money for a new trade.
-3. Order: deploy migration → roll web + worker → verify `trade_funding` counts (all pre-0024 trades LEGACY, all new
+3. Order: deploy migration → roll web + worker → verify `trade_funding` counts (all pre-0025 trades LEGACY, all new
    COUNTERPARTY_FUNDED) → enable acceptance. Rollback of the app version is safe (fails closed as above); rolling
    back the schema is not supported once counterparty-funded trades exist (their earmarks would be lost) — roll
    forward.

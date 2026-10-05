@@ -1,5 +1,5 @@
 import { DomainError, normalizeTronAddress, tronAddressToHex } from '@inrp2p/kernel';
-import type { ChainNetwork, ChainVerification, ChainVerifier, TransactionTransfers, TransferReceipt } from './chain.ts';
+import type { BalanceReading, BalanceSource, ChainNetwork, ChainVerification, ChainVerifier, TransactionTransfers, TransferReceipt } from './chain.ts';
 
 /**
  * TRON provider port (ARCHITECTURE §6 `TronAdapter`). A provider returns **raw facts** — what the chain says —
@@ -94,7 +94,13 @@ export interface TronProvider {
   getTransaction(txHash: string): Promise<TxEvidence>;
   /** One Transfer log of one transaction. */
   getTransfer(txHash: string, logIndex: number): Promise<TransferLookup>;
+  /**
+   * The TRC20 balance of an address at the solidified head, and that head — read so that both belong to the same
+   * block (B2). A balance whose block cannot be pinned is an error, never a number.
+   */
+  getSolidifiedBalance(address: string, contract: string): Promise<BalanceReading>;
 }
+
 
 export interface TronHttpProviderOptions {
   readonly name: string;
@@ -412,6 +418,34 @@ export class TronHttpProvider implements TronProvider {
     return { status: 'FOUND', transfer: log.transfer };
   }
 
+  async getSolidifiedBalance(address: string, contract: string): Promise<BalanceReading> {
+    const owner = normalizeTronAddress(address);
+    const token = normalizeTronAddress(contract);
+    const counter = new CallCounter();
+    // balanceOf(address): the 32-byte ABI word of the 20-byte account id.
+    const parameter = `${'0'.repeat(24)}${tronAddressToHex(owner).slice(2)}`;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const before = await this.getSolidifiedBlockNumber();
+      const r = await this.#call<{ result?: { result?: unknown }; constant_result?: unknown }>(counter, '/walletsolidity/triggerconstantcontract', {
+        method: 'POST',
+        body: { owner_address: owner, contract_address: token, function_selector: 'balanceOf(address)', parameter, visible: true },
+      });
+      const after = await this.getSolidifiedBlockNumber();
+      if (before !== after) continue; // the head moved under the call: the balance belongs to neither — read again
+      if (r?.result?.result !== true || !Array.isArray(r.constant_result) || typeof r.constant_result[0] !== 'string' || !/^[0-9a-fA-F]{64}$/.test(r.constant_result[0])) {
+        throw evidence('provider returned an unreadable balanceOf result');
+      }
+      const balance = BigInt(`0x${r.constant_result[0]}`);
+      if (balance > MAX_STORABLE) throw evidence('balance exceeds what can be recorded');
+      const account = await this.#call<{ balance?: unknown }>(counter, '/walletsolidity/getaccount', { method: 'POST', body: { address: owner, visible: true } });
+      const trx = account && typeof account === 'object' && typeof account.balance === 'number' && Number.isSafeInteger(account.balance) && account.balance >= 0
+        ? BigInt(account.balance)
+        : account && typeof account === 'object' && Object.keys(account).length === 0 ? 0n : null;
+      return { balanceMinor: balance, solidifiedBlock: before, trxSun: trx };
+    }
+    throw evidence('the solidified head kept moving while the balance was read');
+  }
+
   /**
    * Reads every history page of the window, then the receipt of every transaction the history names, and returns
    * the Transfer logs into the address that the receipts prove — together with how far that proof reaches.
@@ -704,6 +738,10 @@ export class QuorumChainVerifier implements ChainVerifier {
     }
     if (notFoundBy) return { status: 'NOT_FOUND', txHash: hash, transfers: [], provider: notFoundBy };
     throw lastError instanceof DomainError ? lastError : new DomainError('CHAIN_PROVIDER_ERROR', 'no provider could read this transaction');
+  }
+
+  balanceSources(): readonly BalanceSource[] {
+    return this.#providers;
   }
 }
 

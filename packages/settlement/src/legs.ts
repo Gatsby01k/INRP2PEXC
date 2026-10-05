@@ -8,6 +8,7 @@ import { consumeReservation, refundConsumedCapacity, releaseReservation, reserve
 import { effectiveObligations, isCounterpartyFunded, legTotals, lockTrade, tradeEconomics, transitionTrade } from '@inrp2p/trades';
 import { openExceptionInTx } from './exceptions.ts';
 import { allocateFunding, inrLocation, settleFunding, tronLocation } from './funding.ts';
+import { assertPhysicallyAvailable } from './availability.ts';
 import { maskedBankDestination, recordFiatTransfer } from './movements.ts';
 import { type SettlementDeps, policyOf } from './policy.ts';
 
@@ -39,6 +40,14 @@ export async function assertNoPayoutUnderway(ex: Executor, tradeId: string): Pro
   if (!payout) return;
   if (payout.status === 'COMPLETED') throw new DomainError('PAYOUT_ALREADY_CONFIRMED', 'a payout was already confirmed; correct it with a financial adjustment');
   throw new DomainError('PAYOUT_IN_FLIGHT', `payout ${payout.ref} is already sent; confirm or fail it before refunding`);
+}
+
+/** The on-chain address an exchange-paid USDT leg sends from: its source deposit address, else its treasury wallet. */
+export async function legSourceAddress(ctx: TxContext, leg: { source_deposit_address_id: string | null; treasury_wallet_id: string | null }): Promise<string> {
+  if (leg.source_deposit_address_id) {
+    return (await ctx.tx.selectFrom('deposit_address').select('address').where('id', '=', leg.source_deposit_address_id).executeTakeFirstOrThrow()).address;
+  }
+  return (await ctx.tx.selectFrom('treasury_wallet').select('address').where('id', '=', leg.treasury_wallet_id!).executeTakeFirstOrThrow()).address;
 }
 
 export async function lockLeg(ctx: TxContext, legId: string) {
@@ -219,7 +228,7 @@ async function requireActiveWallet(ctx: TxContext, tradeId: string): Promise<str
  * `settlement:record_route_payout_sent` when the route reports it sent the client directly. Exchange INR
  * consumes the reservation (reserved → used); the trade enters SETTLING on its first payout (T5).
  */
-export function sendPayoutLeg(actor: OperatorActor) {
+export function sendPayoutLeg(actor: OperatorActor, deps: Pick<SettlementDeps, 'policy'> = {}) {
   return {
     authorize: async (ctx: TxContext, p: { legId: string }) => {
       const leg = await ctx.tx.selectFrom('settlement_leg').select('payer').where('id', '=', requireUuid(p.legId, 'legId')).executeTakeFirst();
@@ -237,6 +246,11 @@ export function sendPayoutLeg(actor: OperatorActor) {
         const account = await ctx.tx.selectFrom('inr_settlement_account').select('status').where('id', '=', leg.inr_account_id!).forShare().executeTakeFirstOrThrow();
         if (account.status !== 'ACTIVE') throw new DomainError('ACCOUNT_NOT_ACTIVE', `INR account is ${account.status}`);
         await consumeReservation(ctx, leg.capacity_reservation_id!, Money.ofMinor(leg.amount_minor, 'INR'));
+      }
+      if (leg.payer === 'EXCHANGE_ACCOUNT' && leg.asset === 'USDT') {
+        // B2: USDT leaves only an address a fresh reading of the chain shows holding it, after every outflow from that
+        // address the reading does not show yet.
+        await assertPhysicallyAvailable(ctx, deps, { address: await legSourceAddress(ctx, leg), amount: Money.ofMinor(leg.amount_minor, 'USDT'), excludeLegId: leg.id });
       }
       await ctx.tx.updateTable('settlement_leg').set({ status: 'PROCESSING', sent_at: sql<Date>`inrp2p_now()` }).where('id', '=', leg.id).execute();
       if (trade.lifecycle_state === 'FIRST_LEG_CONFIRMED') await transitionTrade(ctx, trade, 'SETTLING');

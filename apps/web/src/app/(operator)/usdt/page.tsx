@@ -1,9 +1,9 @@
 import { Money } from '@inrp2p/kernel';
-import { HEALTH_CHECKS, deskNow, stateOf, usdtView } from '@inrp2p/desk';
+import { HEALTH_CHECKS, allows, deskNow, stateOf, usdtView } from '@inrp2p/desk';
 import { operatorPage } from '../../../server/operator.ts';
 import { age, dateTime, usdt } from '../_desk/format.ts';
 import { Chip, KpiBand, Meter, Notice, Page, PageBody, PageHeader, Section, Segmented } from '../_desk/ui.tsx';
-import { BackfillsTable, ProvidersTable, TransfersTable, WalletsTable } from './UsdtTables.tsx';
+import { BackfillsTable, CustodyTable, ProvidersTable, TransfersTable, WalletsTable } from './UsdtTables.tsx';
 import d from '../_desk/desk.module.css';
 
 export const dynamic = 'force-dynamic';
@@ -14,9 +14,10 @@ const LOW_POOL_THRESHOLD = 20;
 type Filter = 'all' | 'detected' | 'unattributed';
 
 /**
- * USDT treasury (brief "USDT Treasury"): an operational position, not a wallet — what the treasury observes, what
- * open trades have reserved and what is free; the deposit-address pool every SELL trade depends on (D-02); the
- * scanner's own state, so "no new transfers" can be told apart from "broken"; and what the chain has produced.
+ * USDT treasury (brief "USDT Treasury"): an operational position, not a wallet — for every exchange address, what
+ * the chain shows and what could leave now beside how much of the trades' money is there (B2, D-16: the platform
+ * holds no USDT of its own to pay with); the deposit-address pool every SELL trade depends on (D-02); the scanner's
+ * own state, so "no new transfers" can be told apart from "broken"; and what the chain has produced.
  */
 export default async function UsdtPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const ctx = await operatorPage();
@@ -25,11 +26,12 @@ export default async function UsdtPage({ searchParams }: { searchParams: Promise
   const [view, now] = await Promise.all([usdtView(ctx.db, { transferLimit: 100 }), deskNow(ctx.db)]);
   const nowMs = new Date(now).getTime();
 
-  const live = view.wallets.filter((w) => w.status !== 'RETIRED');
-  const sum = (pick: (w: (typeof live)[number]) => string) => live.reduce((acc, w) => acc.add(Money.parse(pick(w), 'USDT')), Money.zero('USDT')).toDecimalString();
-  const observed = sum((w) => w.observed);
-  const reserved = sum((w) => w.reserved);
-  const available = sum((w) => w.available);
+  const total = (values: readonly string[]) => values.reduce((acc, v) => acc.add(Money.parse(v, 'USDT')), Money.zero('USDT')).toDecimalString();
+  const held = total(view.custody.map((p) => p.tradesMoney));
+  const freeOnChain = total(view.custody.filter((p) => p.unusable === null).map((p) => p.freeOnChain));
+  const unusable = view.custody.filter((p) => p.unusable !== null).length;
+  const notSeen = view.custody.filter((p) => p.notSeenOnChain !== null).length;
+  const canRefresh = allows(ctx.actor, 'custody:refresh_balance');
 
   const lagCheck = HEALTH_CHECKS.find((c) => c.id === 'scanner_lag_seconds')!;
   const lagSeconds = view.scanner?.lastRunAt ? Math.max(0, Math.floor((nowMs - new Date(view.scanner.lastRunAt).getTime()) / 1000)) : null;
@@ -65,11 +67,11 @@ export default async function UsdtPage({ searchParams }: { searchParams: Promise
         <KpiBand
           label="Treasury position"
           items={[
-            { key: 'a', label: 'Available', value: usdt(available), sub: 'observed less reserved', size: 'lg' },
-            { key: 'o', label: 'Observed on chain', value: usdt(observed), sub: `across ${live.length} ${live.length === 1 ? 'wallet' : 'wallets'}` },
-            { key: 'r', label: 'Reserved', value: usdt(reserved), sub: 'held for open trades' },
+            { key: 'h', label: 'Trades’ money held', value: usdt(held), sub: 'client and counterparty USDT not yet paid on', size: 'lg' },
+            { key: 'f', label: 'Free on chain', value: usdt(freeOnChain), sub: 'by the latest usable readings, less what is leaving' },
+            { key: 'u', label: 'Readings not usable', value: String(unusable), sub: `older than ${Math.round(view.maxObservationAgeSeconds / 60)} min, contradicted or missing`, ...(unusable > 0 ? { tone: 'warning' as const } : {}) },
             { key: 'p', label: 'Deposit addresses free', value: pool.capability === 'POOL' ? String(pool.available) : pool.capability === 'DERIVED' ? 'derived' : 'none', sub: `${pool.assigned} assigned · ${pool.cooldown} cooling down`, ...(lowPool || pool.capability === 'UNSUPPORTED' ? { tone: 'danger' as const } : {}) },
-            { key: 'f', label: 'Awaiting finality', value: String(awaitingFinality), sub: `${unattributed} unattributed`, ...(unattributed > 0 ? { tone: 'warning' as const } : {}) },
+            { key: 't', label: 'Awaiting finality', value: String(awaitingFinality), sub: `${unattributed} unattributed`, ...(unattributed > 0 ? { tone: 'warning' as const } : {}) },
           ]}
         />
 
@@ -90,7 +92,25 @@ export default async function UsdtPage({ searchParams }: { searchParams: Promise
           </Notice>
         ) : null}
 
-        <Section title="Treasury wallets" count={view.wallets.length} hint="Watch-only. Balances are what the chain shows; reserved is what open trades will send." flush>
+        {notSeen > 0 ? (
+          <Notice tone="danger" icon="exceptions" role="alert">
+            <strong>
+              {notSeen} {notSeen === 1 ? 'address shows' : 'addresses show'} less USDT on chain than the trades’ money recorded there.
+            </strong>{' '}
+            A reading taken just before a delivery catches up within a minute; a gap that survives a refresh is money that left outside the platform.
+          </Notice>
+        ) : null}
+
+        <Section
+          title="Custody positions"
+          count={view.custody.length}
+          hint={`A USDT payout or refund leaves an address only against a reading under ${Math.round(view.maxObservationAgeSeconds / 60)} minutes old that shows it free there — and only from the address holding that trade’s money (D-16).`}
+          flush
+        >
+          <CustodyTable positions={view.custody} canRefresh={canRefresh} />
+        </Section>
+
+        <Section title="Treasury wallets" count={view.wallets.length} hint="Watch-only. Reserved is only ever a trade accepted before D-16: no trade reserves treasury USDT any more." flush>
           <WalletsTable wallets={view.wallets} />
         </Section>
 

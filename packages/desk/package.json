@@ -18,12 +18,12 @@
     "@inrp2p/trades": "workspace:*",
     "@inrp2p/settlement": "workspace:*",
     "kysely": "0.29.6",
-    "@inrp2p/traders": "workspace:*"
+    "@inrp2p/traders": "workspace:*",
+    "@inrp2p/scanner": "workspace:*"
   },
   "devDependencies": {
     "@inrp2p/adapters": "workspace:*",
     "@inrp2p/commands": "workspace:*",
-    "@inrp2p/quotes": "workspace:*",
-    "@inrp2p/scanner": "workspace:*"
+    "@inrp2p/quotes": "workspace:*"
   }
 }

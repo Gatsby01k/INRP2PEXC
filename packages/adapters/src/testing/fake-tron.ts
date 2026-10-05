@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { DomainError, encodeTronAddress } from '@inrp2p/kernel';
+import type { BalanceReading } from '../chain.ts';
 import type { Trc20Transfer, TransferLookup, TransferWindow, TronProvider, TronTransferWindowQuery, TxEvidence } from '../tron.ts';
 import { FAKE_USDT_CONTRACT } from './fake-chain.ts';
 
@@ -30,6 +31,8 @@ export interface FakeTransferInput {
 export class FakeTronChain {
   #transfers = new Map<string, Trc20Transfer>();
   #head: bigint;
+  /** TRX (sun) per address, for observations of the energy an outflow needs. */
+  readonly trx = new Map<string, bigint>();
   solidificationLag: bigint;
   readonly tokenContract: string;
 
@@ -103,6 +106,17 @@ export class FakeTronChain {
     return [...this.#transfers.values()]
       .filter((t) => t.toAddress === address && t.tokenContract === contract && t.blockNumber >= sinceBlock)
       .sort((a, b) => (a.blockNumber === b.blockNumber ? a.logIndex - b.logIndex : a.blockNumber < b.blockNumber ? -1 : 1));
+  }
+
+  /** USDT of `address` as of `atBlock`: incoming minus outgoing successful transfers of the chain's contract. */
+  balanceOf(address: string, atBlock: bigint = this.#head): bigint {
+    let sum = 0n;
+    for (const t of this.#transfers.values()) {
+      if (t.receiptStatus !== 'SUCCESS' || t.tokenContract !== this.tokenContract || t.blockNumber > atBlock) continue;
+      if (t.toAddress === address) sum += t.amountMinor;
+      if (t.fromAddress === address) sum -= t.amountMinor;
+    }
+    return sum;
   }
 
   /** Every log of one transaction, by position. */
@@ -234,6 +248,16 @@ export class FakeTronProvider implements TronProvider {
       success,
       logs: success ? logs.map((t) => ({ index: t.logIndex, kind: 'TRANSFER' as const, transfer: this.#report(t) })) : [],
     };
+  }
+
+  /** Balance at this provider's solidified head; `balanceSkew` lets a test make two providers disagree. */
+  balanceSkew = 0n;
+  async getSolidifiedBalance(address: string, contract: string): Promise<BalanceReading> {
+    this.#check();
+    if (contract !== this.chain.tokenContract) return { balanceMinor: 0n, solidifiedBlock: await this.getSolidifiedBlockNumber(), trxSun: null };
+    const solidified = await this.getSolidifiedBlockNumber();
+    const balance = this.chain.balanceOf(address, solidified) + this.balanceSkew;
+    return { balanceMinor: balance < 0n ? 0n : balance, solidifiedBlock: solidified, trxSun: this.chain.trx.get(address) ?? 0n };
   }
 
   async getTransfer(txHash: string, logIndex: number): Promise<TransferLookup> {

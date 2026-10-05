@@ -703,6 +703,23 @@ export interface SettlementLegTable {
   failure_reason: string | null;
 }
 
+/** What the chain says an exchange address holds, when and how sure (migration 0026). Append-only. */
+export interface CustodyBalanceObservationTable {
+  id: Generated<string>;
+  network: 'TRON';
+  address: string;
+  token_contract: string;
+  quality: 'AGREED' | 'SINGLE_SOURCE' | 'DISAGREED' | 'ERROR';
+  balance_minor: bigint | null;
+  solidified_block: bigint | null;
+  trx_sun: bigint | null;
+  providers: string;
+  independent_sources: number;
+  detail: string | null;
+  observed_by: string;
+  observed_at: Generated<Date>;
+}
+
 /** Whose money a trade runs on (migration 0025, DECISIONS.md D-16). */
 export type FundingModel = 'COUNTERPARTY_FUNDED' | 'LEGACY_EXCHANGE_FUNDED';
 
@@ -1239,6 +1256,7 @@ export interface Database {
   trade_funding: TradeFundingTable;
   funding_source: FundingSourceView;
   funding_allocation: FundingAllocationTable;
+  custody_balance_observation: CustodyBalanceObservationTable;
   fiat_transfer: FiatTransferTable;
   crypto_transfer: CryptoTransferTable;
   route_settlement: RouteSettlementTable;

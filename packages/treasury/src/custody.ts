@@ -329,12 +329,18 @@ async function releaseAssignment(ctx: TxContext, assignmentId: string, reason: D
 /**
  * Job `deposit_address.cooldown_release`: POOL addresses whose cooldown elapsed return to AVAILABLE; DERIVED
  * addresses are RETIRED (never reused by default). Retry-safe; skips rows locked by concurrent work.
+ *
+ * An address still holding a counterparty-funded trade's money that is not yet paid on (D-16) stays in COOLDOWN —
+ * whatever its cooldown says — until that money has left: it is neither handed to another client (the database
+ * refuses that, IX088) nor retired from watching. It is passed over here rather than tried, so one such address
+ * never stops the others from being released.
  */
 export async function releaseCooledDownAddresses(ctx: TxContext, limit = 500): Promise<{ available: number; retired: number }> {
   assertLockOrder(ctx.tx, 'deposit_address');
   const due = await sql<{ id: string; source: 'DERIVED' | 'POOL' }>`
     select id, source from deposit_address
     where status = 'COOLDOWN' and cooldown_until <= statement_timestamp()
+      and inrp2p_address_earmarked(address) = 0
     order by cooldown_until, id
     limit ${limit}
     for update skip locked`.execute(ctx.tx);

@@ -1,5 +1,6 @@
 import { sql } from 'kysely';
 import type { Executor } from '@inrp2p/db';
+import { DEFAULT_SETTLEMENT_POLICY } from '@inrp2p/settlement';
 
 /**
  * What to watch, what is wrong when it moves, and where to look it up (launch checklist: monitoring + alerts).
@@ -75,6 +76,15 @@ export const HEALTH_CHECKS: readonly HealthCheckDefinition[] = Object.freeze([
     unit: 'count',
     runbook: 'chain-quorum-failure',
     why: 'A transfer that the providers cannot confirm together waits rather than confirming on one word (D-05). Clients are waiting on each of these.',
+  },
+  {
+    id: 'custody_outflows_unobserved',
+    title: 'Addresses with USDT waiting to leave and no fresh reading of what they hold',
+    warn: 0,
+    alarm: 2,
+    unit: 'count',
+    runbook: 'custody-observation-stale',
+    why: 'A USDT payout or refund leaves an address only against a reading under five minutes old that the providers agree on (B2). Each of these has money waiting to go out and nothing to check it against: the payout waits, and so does the client.',
   },
   {
     id: 'outbox_failed',
@@ -180,6 +190,7 @@ export async function systemHealth(ex: Executor): Promise<SystemHealth> {
     scanner_block_lag: string;
     chain_providers_degraded: string;
     chain_quorum_waiting: string;
+    custody_outflows_unobserved: string;
     outbox_failed: string;
     outbox_oldest_pending_seconds: string;
     audit_seal_age_seconds: string;
@@ -198,6 +209,20 @@ export async function systemHealth(ex: Executor): Promise<SystemHealth> {
       (select count(*) from exception_case
         where type = 'TX_NOT_FINAL' and status in ('OPEN', 'IN_PROGRESS')
           and details ->> 'code' in ('INSUFFICIENT_PROVIDER_QUORUM', 'PROVIDER_CONFLICT', 'PROVIDER_UNAVAILABLE'))::text as chain_quorum_waiting,
+      -- B2: planned USDT outflows (payouts and refunds not yet sent) from an address whose latest reading is missing,
+      -- unusable, or older than the settlement policy allows (DEFAULT_SETTLEMENT_POLICY.maxObservationAgeSeconds).
+      (select count(*) from (
+         select distinct coalesce(d.address, w.address) as address
+           from settlement_leg l
+           left join deposit_address d on d.id = l.source_deposit_address_id
+           left join treasury_wallet w on w.id = l.treasury_wallet_id
+          where l.payer = 'EXCHANGE_ACCOUNT' and l.asset = 'USDT' and l.side <> 'CLIENT_TO_EXCHANGE' and l.status = 'PENDING'
+       ) o
+       where o.address is not null and not exists (
+         select 1 from (select quality, observed_at from custody_balance_observation b
+                         where b.network = 'TRON' and b.address = o.address order by b.observed_at desc, b.id desc limit 1) latest
+          where latest.quality in ('AGREED', 'SINGLE_SOURCE')
+            and latest.observed_at >= inrp2p_now() - make_interval(secs => ${DEFAULT_SETTLEMENT_POLICY.maxObservationAgeSeconds})))::text as custody_outflows_unobserved,
       (select count(*) from outbox_event where failed_at is not null and dispatched_at is null)::text as outbox_failed,
       coalesce((select extract(epoch from (statement_timestamp() - min(created_at)))::bigint
                 from outbox_event where dispatched_at is null and failed_at is null), 0)::text as outbox_oldest_pending_seconds,
@@ -229,6 +254,7 @@ export async function systemHealth(ex: Executor): Promise<SystemHealth> {
     scanner_block_lag: int(row.scanner_block_lag),
     chain_providers_degraded: int(row.chain_providers_degraded),
     chain_quorum_waiting: int(row.chain_quorum_waiting),
+    custody_outflows_unobserved: int(row.custody_outflows_unobserved),
     outbox_failed: int(row.outbox_failed),
     outbox_oldest_pending_seconds: int(row.outbox_oldest_pending_seconds),
     audit_seal_age_seconds: int(row.audit_seal_age_seconds),
