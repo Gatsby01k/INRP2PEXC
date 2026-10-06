@@ -32,6 +32,9 @@ nothing on gates 2 or 3. CI on the final SHA replaces them in the final report.
 | 2026-10-05 | `ef24e4a` | `pnpm typecheck` · `pnpm lint` · `pnpm secret-scan` | PASS · PASS · PASS (1010 files) |
 | 2026-10-05 | `ef24e4a` | `pnpm test:unit` | PASS — 32 files, 1557 tests |
 | 2026-10-05 | `ef24e4a` | `pnpm test:integration` | PASS — 45 files, 830 tests; 1 skipped (the built-app proxy test, as above) |
+| 2026-10-06 | `3b39847` | `pnpm typecheck` · `pnpm lint` · `pnpm secret-scan` · `pnpm versions:check` | PASS · PASS · PASS (1039 files) · PASS (28 manifests) |
+| 2026-10-06 | `3b39847` | `pnpm test:unit` | PASS — 35 files, 1575 tests |
+| 2026-10-06 | `3b39847` | `pnpm test:integration` | PASS — 49 files, 852 tests; 1 skipped (the built-app proxy test, as above) |
 
 ## Items
 
@@ -55,6 +58,7 @@ nothing on gates 2 or 3. CI on the final SHA replaces them in the final report.
 | D4 | P0 | confirmed defects + proof | Trader lifecycle end to end; sweep error isolation; rewards never paid from principal | fixed — code ready |
 | E1 | P0 | confirmed defects + integration | TD-04: email provider for codes and notifications; no fictitious delivery success | code ready; staging inbox **NOT RUN**; provider account **BLOCKED** (owner) |
 | E2 | P1 | verification + implementation | Statement import verified; TD-12 receipts in private, versioned, write-once object storage | code ready; bucket and retention **BLOCKED** (owner) |
+| E3 | P0 | confirmed defect + implementation | Deployment artifacts, the production contract, readiness, pausing new business, heartbeat, grouped health and alerts | code ready; images built locally; staging deployment and paging **NOT RUN**; hosting (D-06) **BLOCKED** (owner) |
 
 (The table grows as stages are worked; each row has a section below.)
 
@@ -456,3 +460,46 @@ is wanted stays an open owner question (ADR 0016 §8).
 - **Gate 3.** The production bucket (private, versioned, Object Lock), its write role and the retention period are owner
   inputs (**BLOCKED**).
 
+## E3 — Deployment, configuration, health and alerts (P0)
+
+- **Found (on `d0cc778`).** No deployment artifact existed: no image, no process definition, no role layout, no alert
+  rules. Readiness was `select inrp2p_now()`: it could not tell a process started with an incomplete configuration, as
+  the schema owner, or against another schema version, from a healthy one, and nothing at start-up checked a
+  production configuration as a whole (the OTP sink and the insecure-cookie switch were each refused where used;
+  missing providers fell back to their unconfigured adapters — the email case is E1). Nothing could tell a stopped
+  worker from a quiet one. New business could only be stopped by stopping the system. Health had no liquidity view, so
+  "no trader online" and "the pipeline is down" looked alike. **Defect:** `/api/health/status` accepted a monitoring
+  token, but the operator surface's session gate stood in front of it, so the token could never reach it — monitoring
+  without a browser session could not read the status at all.
+- **Changed.** `deploy/Dockerfile` (web, worker, worker-pdf, migrate; unprivileged user; no secret in a layer),
+  `deploy/reference/` (a compose stack **labelled reference, not production**; the role layout; Prometheus alert rules),
+  `.dockerignore`, `docs/DEPLOYMENT.md` (what D-06 hosting must provide, the configuration contract, hosts and cookies,
+  database roles and pools, release order, jobs, health, procedures). `INRP2P_ENV=production`
+  (`packages/adapters/src/production.ts`) only takes things away: test switches, missing KMS, email, TRON, hosts and
+  secrets, short or shared secrets and non-https URLs make web (`instrumentation.ts`) and worker refuse to start, naming
+  settings, never values; there is no bypass flag. `databaseDeploymentProblems`: not a superuser, not the schema owner,
+  exactly the release's schema version (`inrp2p_schema_version()`, SECURITY DEFINER — the application never reads
+  `schema_migration`), no test clock. Readiness asks the same in production and says only yes or no; status and
+  Prometheus metrics (`/api/health/metrics`) are for the monitoring token or an operator with `economics:view`, behind a
+  new `MONITORING` gate. Migration `0033_operations.sql` (IX098): new business paused and resumed on the record
+  (`settings:new_business`, OWNER/FINANCE ⧗, with a reason) — no request, quote send, acceptance or trader offer while
+  paused, in the commands and in the database, while started trades, payouts, deliveries and refunds settle as usual;
+  the worker's heartbeat (names and states only). Health grouped money / infrastructure / liquidity; liquidity never
+  makes the deployment unready (D-16 — a platform balance of zero is not a signal). New signals: undelivered acceptance
+  codes, failing emails, worker heartbeat, reconciliation mismatches, database connections, traders ready per side.
+  System page: groups, pause control, workers. Runbooks `worker-stopped`, `reconciliation-mismatch`,
+  `database-pressure`, `liquidity-thin`, `pause-new-business`, `payout-ambiguous`, `incident-recovery`,
+  `secret-rotation`. The worker closes its pool after graphile-worker drains on SIGTERM.
+- **Tests.** `packages/adapters/test/production.unit.test.ts` (complete configuration passes; each class of gap is named;
+  outside production nothing is checked), `packages/db/test/schema-version.unit.test.ts` (the release's version is the
+  last migration), `test/integration/operations.int.test.ts` (the application login passes and the owner is refused;
+  pausing refuses requests, quote sends and acceptances in commands and database while a started trade completes;
+  heartbeat, liquidity group and Prometheus text), `apps/web/test/surface.unit.test.ts` (the monitoring gate),
+  `packages/desk/test/health.unit.test.ts`, `apps/web/e2e/public.spec.ts` (token and metrics; the e2e run is stage F).
+- **Local evidence.** The three images were built from this tree on the development Mac (`docker build --target web |
+  worker | migrate`, about 1.8 GB each: the production dependency prune does not take effect, a size follow-up, not a
+  correctness one). Starting them with an incomplete and with a complete production configuration is recorded under E4
+  once rebuilt.
+- **Gates.** Gate 2: a staging deployment of these images, alert delivery to a person, and the procedures rehearsed
+  are **NOT RUN**. Gate 3: hosting (D-06), domains and TLS, the secret manager and the pager are owner inputs
+  (**BLOCKED**).
