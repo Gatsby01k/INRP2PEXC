@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { sql } from 'kysely';
 import type { Db } from '@inrp2p/db';
 import { type NotificationAdapter, deliveryFailureOf } from '@inrp2p/adapters';
@@ -36,6 +37,20 @@ function absolute(base: string | undefined, href: string | null): string | null 
   }
 }
 
+/**
+ * One recipient's delivery id — and so the provider's idempotency key — derived from the event and the person, never
+ * drawn at random (E4). A database restored to before the email was recorded still holds the event, delivers it again,
+ * and asks the provider with the same key, which the provider recognises within its idempotency window instead of
+ * sending a second email. A name-based UUID (version 8, RFC 9562): the first 16 bytes of a SHA-256.
+ */
+export function emailDeliveryId(outboxEventId: string, userId: string): string {
+  const b = createHash('sha256').update(`inrp2p.client-notification-email:${outboxEventId}:${userId}`).digest().subarray(0, 16);
+  b[6] = (b[6]! & 0x0f) | 0x80;
+  b[8] = (b[8]! & 0x3f) | 0x80;
+  const h = b.toString('hex');
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
+
 /** Attempts per recipient before a delivery is given up as FAILED; the outbox's own retries run alongside. */
 export const MAX_EMAIL_ATTEMPTS = 8;
 
@@ -49,9 +64,10 @@ export interface EmailReport {
  * Sends one notification row by email to each recipient, once each. Returns what became of the recipients, or `null`
  * when the row was not eligible (an inbox-only kind, or nobody verified to send it to).
  *
- * Each recipient is a `client_notification_email` row (migration 0031), created once; its id is the provider's
- * idempotency key, so a redelivered event, a crash after the provider answered, or a retry after a timeout sends the
- * same email, never another. A row is SENT only with the provider's message id; a refusal makes it FAILED; an outage
+ * Each recipient is a `client_notification_email` row (migration 0031), created once; its id — derived from the event
+ * and the person (`emailDeliveryId`) — is the provider's idempotency key, so a redelivered event, a crash after the
+ * provider answered, a retry after a timeout, or the same event delivered again by a restored database sends the same
+ * email, never another. A row is SENT only with the provider's message id; a refusal makes it FAILED; an outage
  * leaves it PENDING with the attempt counted and an error code, and the handler then throws so the outbox tries again
  * — after `MAX_EMAIL_ATTEMPTS` it is FAILED and visible (`email_deliveries_failing`). Nothing here is ever marked as
  * sent because it was attempted. `email_sent_at` is written when every recipient has it.
@@ -81,8 +97,8 @@ export async function emailNotification(db: Db, adapter: NotificationAdapter, in
     if (to.length === 0) return null;
     await db
       .insertInto('client_notification_email')
-      .values(to.map((r) => ({ notification_id: row.id, user_id: r.user_id, address: r.email })))
-      .onConflict((oc) => oc.columns(['notification_id', 'user_id']).doNothing())
+      .values(to.map((r) => ({ id: emailDeliveryId(input.outboxEventId, r.user_id), notification_id: row.id, user_id: r.user_id, address: r.email })))
+      .onConflict((oc) => oc.doNothing())
       .execute();
   }
 

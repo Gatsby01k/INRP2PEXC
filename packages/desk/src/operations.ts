@@ -1,6 +1,6 @@
 import { sql } from 'kysely';
 import type { Executor } from '@inrp2p/db';
-import { type NewBusinessState, newBusinessState } from '@inrp2p/trades';
+import { type NewBusinessState, type RestoreFenceState, newBusinessState, restoreFenceState } from '@inrp2p/trades';
 import { type SystemHealth, systemHealth } from './health.ts';
 
 /** One worker, as its heartbeat says (migration 0033): names and states only. */
@@ -13,9 +13,13 @@ export interface WorkerReport {
   readonly config: Readonly<Record<string, string>>;
 }
 
-/** The operator's picture (production task E3): every signal, whether new business is open, and the workers. */
+/**
+ * The operator's picture (production tasks E3, E4): every signal, whether new business is open, whether outgoing payments
+ * are held after a database change, and the workers.
+ */
 export interface OperationsStatus extends SystemHealth {
   readonly newBusiness: NewBusinessState;
+  readonly restoreFence: RestoreFenceState;
   readonly workers: readonly WorkerReport[];
 }
 
@@ -27,6 +31,7 @@ export async function operationsStatus(ex: Executor): Promise<OperationsStatus> 
   return {
     ...health,
     newBusiness: await newBusinessState(ex),
+    restoreFence: await restoreFenceState(ex),
     workers: workers.rows.map((w) => ({
       workerId: w.worker_id, startedAt: w.started_at.toISOString(), beatAt: w.beat_at.toISOString(), ageSeconds: Number.parseInt(w.age, 10), release: w.release, config: w.config,
     })),
@@ -56,6 +61,9 @@ export function prometheusText(status: OperationsStatus): string {
     '# HELP inrp2p_new_business_paused 1 while new business is paused.',
     '# TYPE inrp2p_new_business_paused gauge',
     `inrp2p_new_business_paused ${status.newBusiness.paused ? 1 : 0}`,
+    '# HELP inrp2p_payouts_held 1 while outgoing payments are held after a database change (RUNBOOKS restore-fence).',
+    '# TYPE inrp2p_payouts_held gauge',
+    `inrp2p_payouts_held ${status.restoreFence.held ? 1 : 0}`,
   ];
   return `${lines.join('\n')}\n`;
 }

@@ -23,8 +23,11 @@ export interface ObjectStore {
   readonly bucket: string;
   /** Writes `body` at `key` unless an object is already there; then the existing bytes must be the same. */
   putOnce(key: string, body: Uint8Array, opts: { readonly contentType: string; readonly retainUntil?: Date | null }): Promise<{ readonly created: boolean; readonly versionId: string | null }>;
-  /** The object's bytes — of one recorded version, when given — or null when there is none. */
-  get(key: string, versionId?: string | null): Promise<{ readonly body: Buffer; readonly versionId: string | null } | null>;
+  /**
+   * The object's bytes — of one recorded version, when given — or null when there is none; with its Object Lock
+   * retention when the store reports it to this reader.
+   */
+  get(key: string, versionId?: string | null): Promise<{ readonly body: Buffer; readonly versionId: string | null; readonly retainUntil?: Date | null } | null>;
   /** Keys under a prefix, in key order (one page of at most `max`). */
   list(prefix: string, max?: number): Promise<readonly string[]>;
   /** Versioning and Object Lock as the bucket reports them. */
@@ -118,7 +121,9 @@ export class S3ObjectStore implements ObjectStore {
       return null;
     }
     if (!res.ok) throw new DomainError('OBJECT_STORE_REFUSED', `object store refused GET ${key}: ${res.status} ${codeOf(await res.text())}`);
-    return { body: Buffer.from(await res.arrayBuffer()), versionId: res.headers.get('x-amz-version-id') };
+    const retain = res.headers.get('x-amz-object-lock-retain-until-date');
+    const retainUntil = retain && !Number.isNaN(Date.parse(retain)) ? new Date(retain) : null;
+    return { body: Buffer.from(await res.arrayBuffer()), versionId: res.headers.get('x-amz-version-id'), retainUntil };
   }
 
   async list(prefix: string, max = 1000): Promise<readonly string[]> {

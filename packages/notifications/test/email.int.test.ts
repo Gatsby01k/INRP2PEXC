@@ -5,7 +5,7 @@ import { FakeNotificationAdapter } from '@inrp2p/adapters/testing';
 import { UnconfiguredNotificationAdapter, isNotificationProviderConfigured } from '@inrp2p/adapters';
 import { dispatchOutbox } from '@inrp2p/outbox';
 import { createQuote, createRequest, sendQuote } from '@inrp2p/quotes';
-import { acknowledgedSignalHandler, clientInbox, clientNotificationEmailHandler, clientNotificationHandler } from '../src/index.ts';
+import { acknowledgedSignalHandler, clientInbox, clientNotificationEmailHandler, clientNotificationHandler, emailDeliveryId } from '../src/index.ts';
 import { type World, createWorld } from '../../settlement/test/world.ts';
 
 /**
@@ -83,6 +83,36 @@ describe('the email channel', () => {
       await handler.run({ id: event.id, type: event.type, aggregateType: event.aggregate_type, aggregateId: event.aggregate_id, payload: event.payload, correlationId: event.correlation_id });
     }
     expect(mailbox.notifications.length).toBe(before);
+  });
+
+  it('asks the provider with the same key when a restored database delivers the event again (E4)', async () => {
+    const row = await w.t.owner
+      .selectFrom('client_notification')
+      .select(['id', 'outbox_event_id'])
+      .where('kind', '=', 'QUOTE_SENT')
+      .where('email_sent_at', 'is not', null)
+      .orderBy('created_at', 'desc')
+      .executeTakeFirstOrThrow();
+    const before = await w.t.owner.selectFrom('client_notification_email').select(['id', 'user_id']).where('notification_id', '=', row.id).orderBy('id').execute();
+    expect(before.length).toBeGreaterThan(0);
+    for (const d of before) expect(d.id).toBe(emailDeliveryId(row.outbox_event_id, d.user_id));
+    const sentSoFar = mailbox.notifications.length;
+
+    // A database restored to before the emails were recorded: the event and the inbox row survived, the email rows did not.
+    await w.t.owner.transaction().execute(async (tx) => {
+      await sql`set local session_replication_role = replica`.execute(tx);
+      await sql`delete from client_notification_email where notification_id = ${row.id}`.execute(tx);
+      await sql`update client_notification set email_sent_at = null where id = ${row.id}`.execute(tx);
+    });
+    const handler = clientNotificationEmailHandler(w.app, mailbox, { linkBase: 'https://app.inrp2p.test' });
+    const event = await w.t.owner.selectFrom('outbox_event').select(['id', 'type', 'aggregate_type', 'aggregate_id', 'payload', 'correlation_id']).where('id', '=', row.outbox_event_id).executeTakeFirstOrThrow();
+    await handler.run({ id: event.id, type: event.type, aggregateType: event.aggregate_type, aggregateId: event.aggregate_id, payload: event.payload, correlationId: event.correlation_id });
+
+    // The same delivery ids, so the same idempotency keys: the provider answers with the email it already sent.
+    const after = await w.t.owner.selectFrom('client_notification_email').select(['id', 'status']).where('notification_id', '=', row.id).orderBy('id').execute();
+    expect(after.map((d) => d.id)).toEqual(before.map((d) => d.id));
+    expect(after.every((d) => d.status === 'SENT')).toBe(true);
+    expect(mailbox.notifications.length).toBe(sentSoFar);
   });
 
   it('says nothing to an address nobody verified', async () => {

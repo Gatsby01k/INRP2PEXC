@@ -1,6 +1,6 @@
 import type { Task, TaskList } from 'graphile-worker';
 import type { Db } from '@inrp2p/db';
-import { sealAudit } from '@inrp2p/audit';
+import { type SealArchive, exportAuditSeals, sealAudit, verifyAuditArchive } from '@inrp2p/audit';
 import { dispatchOutbox, type OutboxHandler } from '@inrp2p/outbox';
 import { randomUUID } from 'node:crypto';
 import { executeCommand } from '@inrp2p/commands';
@@ -11,6 +11,7 @@ import { type QuotePolicy, expireQuote, runExpirySweep } from '@inrp2p/quotes';
 import { runReconciliation, runSettlementSla } from '@inrp2p/settlement';
 import { type ScannerDeps, observeBalances, runChainBackfill, runOrphanSweep, runTronConfirm, runTronScan } from '@inrp2p/scanner';
 import { runTraderSweep } from '@inrp2p/traders';
+import { type WorkerBeat, recordWorkerBeat } from '@inrp2p/trades';
 import { type ReceiptObjectStore, type ReceiptPdfPrinter, receiptsNotStored, storeReceiptObjects } from '@inrp2p/reporting';
 import { DomainError } from '@inrp2p/kernel';
 import type { ChainMonitoring } from './config.ts';
@@ -35,6 +36,7 @@ export function buildTaskList(
     monitoring?: ChainMonitoring;
     receipts?: { readonly store: ReceiptObjectStore; readonly pdf?: ReceiptPdfPrinter | null; readonly retainDays?: number | null };
     heartbeat?: WorkerIdentity;
+    auditArchive?: { readonly archive: SealArchive; readonly retainDays: number };
   } = {},
 ): TaskList {
   const outboxDispatch: Task = async () => {
@@ -119,9 +121,25 @@ export function buildTaskList(
       }
     }
   };
-  // E3: the worker says it is alive, and what it runs, once a minute (readiness and `worker_heartbeat_age_seconds`).
-  const workerHeartbeat: Task = async () => {
-    if (opts.heartbeat) await recordHeartbeat(db, opts.heartbeat);
+  // TD-17: the seals leave the database for write-once storage, and the archive is checked against the database and
+  // the audit events every day (`audit_seal_export_age_seconds`, `audit_archive_failures`).
+  const auditSealExport: Task = async (_payload, helpers) => {
+    const target = opts.auditArchive;
+    if (!target) return;
+    for (let i = 0; i < 20; i++) {
+      const out = await exportAuditSeals(db, target.archive, { retainDays: target.retainDays });
+      if (!out) break;
+      helpers.logger.info(`audit_seal_export: seals ${out.firstSeal}–${out.lastSeal} written to ${out.key}`);
+    }
+    const verified = await verifyAuditArchive(db, target.archive);
+    if (!verified.ok) helpers.logger.error(`audit_seal_export: the archive does not verify: ${verified.findings.map((f) => f.kind).join(', ')}`);
+  };
+  // E3: the worker says it is alive, and what it runs, once a minute (readiness and `worker_heartbeat_age_seconds`);
+  // E4: and notices when the database is not the one it last wrote to, which holds outgoing payments.
+  const workerHeartbeat: Task = async (_payload, helpers) => {
+    if (!opts.heartbeat) return;
+    const beat = await recordHeartbeat(db, opts.heartbeat);
+    if (beat.raised) helpers.logger.error(`worker_heartbeat: the database changed underneath; outgoing payments are held (${beat.raised}, RUNBOOKS restore-fence)`);
   };
   return {
     outbox_dispatch: outboxDispatch,
@@ -140,6 +158,7 @@ export function buildTaskList(
     trader_orders_sweep: traderOrdersSweep,
     receipt_store_backfill: receiptStoreBackfill,
     worker_heartbeat: workerHeartbeat,
+    audit_seal_export: auditSealExport,
   };
 }
 
@@ -192,20 +211,14 @@ export const CRONTAB = [
   '* * * * * trader_orders_sweep ?max=1&jobKey=trader_orders_sweep',
   '41 * * * * receipt_store_backfill ?max=2&jobKey=receipt_store_backfill',
   '* * * * * worker_heartbeat ?max=1&jobKey=worker_heartbeat',
+  '17 2 * * * audit_seal_export ?max=3&jobKey=audit_seal_export',
 ].join('\n');
 
 /** Who this worker is and what it runs — names and states only, never a secret, an address or a key. */
-export interface WorkerIdentity {
-  readonly workerId: string;
-  readonly startedAt: Date;
-  readonly release: string | null;
-  readonly config: Readonly<Record<string, string>>;
-}
+export type WorkerIdentity = WorkerBeat;
 
-export async function recordHeartbeat(db: Db, id: WorkerIdentity): Promise<void> {
-  await sql`
-    insert into worker_heartbeat (worker_id, started_at, beat_at, release, config)
-    values (${id.workerId}, ${id.startedAt}, inrp2p_now(), ${id.release}, ${JSON.stringify(id.config)}::jsonb)
-    on conflict (worker_id) do update set started_at = excluded.started_at, beat_at = excluded.beat_at, release = excluded.release, config = excluded.config`.execute(db);
+/** One heartbeat — and, when the database changed underneath, the restore fence it raised (`@inrp2p/trades`). */
+export function recordHeartbeat(db: Db, id: WorkerIdentity): Promise<{ raised: string | null }> {
+  return recordWorkerBeat(db, id);
 }
 

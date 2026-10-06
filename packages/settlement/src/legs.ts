@@ -5,7 +5,7 @@ import { appendAudit } from '@inrp2p/audit';
 import { enqueueOutbox } from '@inrp2p/outbox';
 import { type OperatorActor, authorizeOperator, operatorCommand } from '@inrp2p/identity';
 import { consumeReservation, refundConsumedCapacity, releaseReservation, reserveCapacity } from '@inrp2p/inr-accounts';
-import { effectiveObligations, isCounterpartyFunded, legTotals, lockTrade, tradeEconomics, transitionTrade } from '@inrp2p/trades';
+import { assertPayoutsOpen, effectiveObligations, isCounterpartyFunded, legTotals, lockTrade, tradeEconomics, transitionTrade } from '@inrp2p/trades';
 import { openExceptionInTx } from './exceptions.ts';
 import { allocateFunding, inrLocation, settleFunding, tronLocation } from './funding.ts';
 import { assertPhysicallyAvailable } from './availability.ts';
@@ -252,6 +252,9 @@ export function sendPayoutLeg(actor: OperatorActor, deps: Pick<SettlementDeps, '
       if (trade.hold) throw new DomainError('TRADE_ON_HOLD', 'the trade has an open blocking exception');
       const leg = await lockLeg(ctx, p.legId);
       if (leg.status !== 'PENDING') throw new DomainError('INVALID_TRANSITION', `leg is ${leg.status}`);
+      // E4: after a restore the exchange pays nothing until the records are reconciled (migration 0034, IX100). A route
+      // reporting its own payment is evidence, not an instruction, and is recorded as usual.
+      if (leg.payer === 'EXCHANGE_ACCOUNT') await assertPayoutsOpen(ctx.tx);
       if (leg.side === 'EXCHANGE_TO_CLIENT') await assertNoRefundUnderway(ctx.tx, trade.id);
       if (leg.payer === 'EXCHANGE_ACCOUNT' && leg.asset === 'INR') {
         const account = await ctx.tx.selectFrom('inr_settlement_account').select('status').where('id', '=', leg.inr_account_id!).forShare().executeTakeFirstOrThrow();

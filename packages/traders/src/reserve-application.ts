@@ -8,6 +8,7 @@ import { allocateObligationDeliveryAddress } from '@inrp2p/treasury';
 import {
   type ReserveApplicationRow, lockObligation, obligationDeliveryAddress, recordAppliedReserveDelivery, reserveSourceWallet, routeDeliveryOpen,
 } from '@inrp2p/settlement';
+import { assertPayoutsOpen } from '@inrp2p/trades';
 import { lockOrder, lockTrader, type OrderRow, type TraderDeps } from '@inrp2p/trader-core';
 import { CLIENT_FUNDED_STATES } from './delivery.ts';
 import { reserveFigures } from './reserve.ts';
@@ -128,6 +129,8 @@ export function approveReserveApplication(actor: OperatorActor, deps: Pick<Trade
     const { app, order } = await lockApplicationChain(ctx, p.applicationId);
     if (app.status !== 'REQUESTED') throw new DomainError('INVALID_TRANSITION', `reserve application ${app.ref} is ${app.status.toLowerCase()}`);
     assertSecondApprover(decision, app.requested_by, actor.userId);
+    // E4: approving an application sends the trader's reserve out — held after a restore until reconciled (IX100).
+    if (app.kind === 'APPLY') await assertPayoutsOpen(ctx.tx);
     await assertApplicable(ctx, order, app.kind, app.amount_minor);
     const delivery = app.kind === 'APPLY'
       ? await allocateObligationDeliveryAddress(ctx, deps.custody, {

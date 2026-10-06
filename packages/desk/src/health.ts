@@ -149,6 +149,46 @@ export const HEALTH_CHECKS: readonly HealthCheckDefinition[] = Object.freeze([
     group: 'infrastructure',
   },
   {
+    id: 'audit_seal_export_age_seconds',
+    title: 'Seconds the oldest seal has waited to be exported off the database',
+    warn: 93_600,
+    alarm: 180_000,
+    unit: 'seconds',
+    runbook: 'audit-seal-stale',
+    why: 'A seal kept only in the database proves nothing to someone who could rewrite the database. The daily export to write-once storage is what does (SECURITY §8, TD-17).',
+    group: 'infrastructure',
+  },
+  {
+    id: 'audit_archive_failures',
+    title: 'Findings of the last check of the seal archive against the database',
+    warn: 0,
+    alarm: 0,
+    unit: 'count',
+    runbook: 'audit-archive-mismatch',
+    why: 'A gap in the archive, a seal here that differs from the archived one, or audit events that no longer hash to it: the audit trail can no longer be proved, and that is never routine.',
+    group: 'money',
+  },
+  {
+    id: 'payouts_held',
+    title: 'Outgoing payments held after a database change',
+    warn: 0,
+    alarm: 0,
+    unit: 'count',
+    runbook: 'restore-fence',
+    why: 'The database was recovered, failed over or moved and may have forgotten payments already made. Nothing leaves the exchange until two people have checked every payment since against the bank and the chain.',
+    group: 'money',
+  },
+  {
+    id: 'restore_drill_age_days',
+    title: 'Days since a restore was last shown to work',
+    warn: 35,
+    alarm: 95,
+    unit: 'days',
+    runbook: 'backup-restore-drill',
+    why: 'A backup nobody has restored is a hope. A drill that passed recently is the only evidence the platform’s backups would bring this database back as it was.',
+    group: 'infrastructure',
+  },
+  {
     id: 'blocking_exceptions',
     title: 'Open blocking exception cases',
     warn: 3,
@@ -303,6 +343,10 @@ export async function systemHealth(ex: Executor): Promise<SystemHealth> {
     overdue_route_obligations: string;
     trader_orders_overdue: string;
     worker_heartbeat_age_seconds: string;
+    audit_seal_export_age_seconds: string;
+    audit_archive_failures: string;
+    restore_drill_age_days: string;
+    payouts_held: string;
     reconciliation_mismatches: string;
     db_connections_percent: string;
     traders_ready_sell_usdt: string;
@@ -357,6 +401,11 @@ export async function systemHealth(ex: Executor): Promise<SystemHealth> {
            or (t.status = 'ACCEPTED' and t.hold_until < inrp2p_now() - make_interval(mins => 10))
            or (t.status = 'IN_PROGRESS' and r.status in ('SETTLED', 'CANCELLED')
                and coalesce(r.settled_at, r.cancelled_at) < inrp2p_now() - make_interval(mins => 10)))::text as trader_orders_overdue,
+      coalesce((select extract(epoch from (inrp2p_now() - min(s.sealed_at)))::bigint from audit_seal s
+                 where s.id > coalesce((select max(last_seal_id) from audit_seal_export), 0)), 0)::text as audit_seal_export_age_seconds,
+      coalesce((select jsonb_array_length(v.findings) from audit_archive_verification v order by v.ran_at desc, v.id desc limit 1), 0)::text as audit_archive_failures,
+      coalesce((select floor(extract(epoch from (inrp2p_now() - max(b.ran_at))) / 86400)::bigint from backup_verification b where b.ok), 9999)::text as restore_drill_age_days,
+      (case when inrp2p_payouts_held() then 1 else 0 end)::text as payouts_held,
       -- No heartbeat at all reads as a very long silence, not as fine.
       coalesce((select extract(epoch from (inrp2p_now() - max(beat_at)))::bigint from worker_heartbeat), 999999)::text as worker_heartbeat_age_seconds,
       (select count(*) from exception_case
@@ -409,6 +458,10 @@ export async function systemHealth(ex: Executor): Promise<SystemHealth> {
     overdue_route_obligations: int(row.overdue_route_obligations),
     trader_orders_overdue: int(row.trader_orders_overdue),
     worker_heartbeat_age_seconds: int(row.worker_heartbeat_age_seconds),
+    audit_seal_export_age_seconds: int(row.audit_seal_export_age_seconds),
+    audit_archive_failures: int(row.audit_archive_failures),
+    restore_drill_age_days: int(row.restore_drill_age_days),
+    payouts_held: int(row.payouts_held),
     reconciliation_mismatches: int(row.reconciliation_mismatches),
     db_connections_percent: int(row.db_connections_percent),
     traders_ready_sell_usdt: int(row.traders_ready_sell_usdt),

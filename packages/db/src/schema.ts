@@ -47,6 +47,74 @@ export interface AuditSealTable {
   sealed_at: Generated<Date>;
 }
 
+/** One contiguous range of audit seals written to write-once storage (migration 0034, TD-17). */
+export interface AuditSealExportTable {
+  id: Generated<string>;
+  first_seal_id: bigint;
+  last_seal_id: bigint;
+  from_seq: bigint;
+  to_seq: bigint;
+  seal_count: number;
+  last_seal_hash: string;
+  bucket: string;
+  object_key: string;
+  version_id: string | null;
+  sha256: string;
+  retain_until: Date;
+  exported_at: Generated<Date>;
+}
+
+/** Each comparison of the seal archive with the database (migration 0034). */
+export interface AuditArchiveVerificationTable {
+  id: Generated<string>;
+  ran_at: Generated<Date>;
+  ok: boolean;
+  archived_seals: number;
+  findings: Generated<unknown>;
+}
+
+/** Each restore drill and what it proved (migration 0034, TD-16). */
+export interface BackupVerificationTable {
+  id: Generated<string>;
+  kind: 'DUMP_RESTORE' | 'POINT_IN_TIME';
+  ran_at: Generated<Date>;
+  ok: boolean;
+  recovered_to: Date | null;
+  restore_seconds: number | null;
+  environment: string;
+  findings: Generated<unknown>;
+  recorded_by: string;
+}
+
+/** Outgoing payments held after the database changed underneath (migration 0034). */
+export interface RestoreFenceTable {
+  id: Generated<string>;
+  ref: Generated<string>;
+  status: Generated<'RAISED' | 'LIFTED'>;
+  reason: string;
+  raised_by: string;
+  raised_at: Generated<Date>;
+  identity_before: unknown;
+  identity_after: unknown;
+  known_until: Date | null;
+  lift_id: string | null;
+  lifted_by: string | null;
+  lifted_at: Date | null;
+}
+
+/** A reconciliation recorded by one person and approved, or declined, by another (migration 0034). */
+export interface RestoreFenceLiftTable {
+  id: Generated<string>;
+  fence_id: string;
+  status: Generated<'REQUESTED' | 'APPROVED' | 'DECLINED'>;
+  reconciliation: string;
+  requested_by: string;
+  requested_at: Generated<Date>;
+  decided_by: string | null;
+  decided_at: Date | null;
+  decision_note: string | null;
+}
+
 export type LedgerAccountType = 'ASSET' | 'LIAB' | 'REVENUE' | 'EXPENSE' | 'SUSPENSE';
 
 export interface LedgerAccountTable {
@@ -1070,6 +1138,8 @@ export interface WorkerHeartbeatTable {
   beat_at: Date;
   release: string | null;
   config: Generated<unknown>;
+  /** The cluster and timeline the database was on at this beat (migration 0034, the restore fence). */
+  db_identity: Generated<unknown>;
 }
 
 /** A receipt artifact written once to private object storage (migration 0032, TD-12). */
@@ -1344,6 +1414,11 @@ export interface Database {
   idempotency_key: IdempotencyKeyTable;
   audit_event: AuditEventTable;
   audit_seal: AuditSealTable;
+  audit_seal_export: AuditSealExportTable;
+  audit_archive_verification: AuditArchiveVerificationTable;
+  backup_verification: BackupVerificationTable;
+  restore_fence: RestoreFenceTable;
+  restore_fence_lift: RestoreFenceLiftTable;
   ledger_account: LedgerAccountTable;
   ledger_journal: LedgerJournalTable;
   ledger_entry: LedgerEntryTable;

@@ -26,8 +26,8 @@ describe('every alert knows where to send the person it wakes', () => {
     // others answer a report from a person or a case on the desk rather than a threshold.
     const unreachable = headings.filter((h) => !HEALTH_CHECKS.some((c) => c.runbook === h));
     expect(unreachable.sort()).toEqual([
-      'account-takeover', 'backup-restore-drill', 'chain-backfill', 'client-authenticator-lost', 'duplicate-utr', 'failed-bank-transfer',
-      'field-encryption-keys', 'incident-recovery', 'operator-access', 'pause-new-business', 'payout-ambiguous', 'receipt-integrity', 'secret-rotation',
+      'account-takeover', 'chain-backfill', 'client-authenticator-lost', 'duplicate-utr', 'failed-bank-transfer', 'field-encryption-keys',
+      'incident-recovery', 'operator-access', 'pause-new-business', 'payout-ambiguous', 'receipt-integrity', 'secret-rotation',
     ]);
   });
 
@@ -43,8 +43,8 @@ describe('every alert knows where to send the person it wakes', () => {
 describe('the thresholds', () => {
   it('separate warning from alarm in the direction that signal moves', () => {
     for (const check of HEALTH_CHECKS) {
-      if (check.id === 'ledger_imbalance') {
-        // The one signal whose correct value is zero: any row at all is an alarm.
+      if (check.id === 'ledger_imbalance' || check.id === 'audit_archive_failures' || check.id === 'payouts_held') {
+        // Signals whose correct value is zero: any row at all is an alarm.
         expect({ id: check.id, warn: check.warn, alarm: check.alarm }).toEqual({ id: check.id, warn: 0, alarm: 0 });
         continue;
       }

@@ -462,14 +462,57 @@ desk cannot see it — absence of evidence is not evidence of absence. This is h
 ## incident-recovery — after a restore, an outage or a compromise
 
 **Order.** 1. Pause new business. 2. Bring the database back (backup-restore-drill / point-in-time recovery) and start
-web and worker with the same release; they refuse a schema that does not match. 3. Before anything moves money,
-reconcile against the outside world: bank statements for every exchange account since the recovery point, the chain for
-every exchange address (the scanner re-reads from its cursor; use chain-backfill for a gap), and the audit-seal archive
-(the seal export detects a range that is missing or rewritten). 4. Record what happened outside the restored database as
-new facts — confirmations, failures, statement imports — never by editing rows. 5. Resume new business.
+web and worker with the same release; they refuse a schema that does not match. Outgoing payments are held on the
+recovered database from its first moment (`restore-fence`); where the platform hides the database's identity, raise the
+fence by hand before anyone opens the desk. 3. Before anything moves money, reconcile against the outside world: bank
+statements for every exchange account since the recovery point, the chain for every exchange address (the scanner
+re-reads from its cursor; use chain-backfill for a gap), and the audit-seal archive (`audit-archive-mismatch`: seals up
+to the recovery point must match it). 4. Record what happened outside the restored database as new facts —
+evidence of payments, confirmations, failures, statement imports — never by editing rows. 5. Lift the fence (two
+people), then resume new business.
 
 **Never.** Never re-send a payout the restored database thinks is pending without checking the bank or the chain
 first: the database may simply not remember that it already went.
+
+---
+
+## restore-fence — outgoing payments are held after a database change
+
+**What you were told.** `payouts_held` is 1, the desk shows a red banner on every page, and marking a payout or refund
+sent, or approving a reserve application, is refused (`PAYOUTS_HELD`, IX100). The database is not the one the workers
+last wrote to: it was recovered to an earlier moment or failed over (a new timeline), or restored, upgraded or moved to
+another cluster. Whatever happened after the moment it was restored to — a payout marked sent, an approval, a UTR — is
+not in it, and the desk would show those payments as still to pay. The worker raised the fence (`RF-…`, by "the
+system") at its first heartbeat and paused new business with it; before that heartbeat payments were already held,
+because the database compares itself with the last heartbeat it holds. Clients and traders see a plain notice asking
+them not to send a payment twice.
+
+**What to check first.** System health → Outgoing payments: the fence, its reason, and **"records are known whole
+until"** — the last heartbeat before the change. That moment, not the restore target, is where reconciliation starts.
+Then, from that moment to now: every exchange account's bank statement (import it: statement lines match the payouts
+they belong to), the chain for every exchange address (the scanner re-reads from its restored cursor; `chain-backfill`
+for a gap), the custody provider's outgoing history, and every route's settlement messages. The panel counts what to
+check: payout legs waiting to be sent, legs sent and not confirmed, reserve applications approved, reserve withdrawals
+requested, route obligations open.
+
+**What to do.** Record every payment that left since that moment as what it is — the leg's UTR or transaction, the
+route's settlement, the withdrawal's transaction — through the usual commands; recording evidence is never held, and a
+UTR or transaction already recorded is refused a second time, so nothing is counted twice. A leg that the bank shows
+as paid but that is still *waiting to be sent* here is recorded right after the fence is lifted, before anything else
+is sent. Then one person (owner or finance, with step-up) writes the reconciliation — what was compared, over which
+period, what was found and recorded — and **a second person** reviews it and approves; that releases payments. A
+reconciliation can be declined, or withdrawn by its author, and payments stay held. New business stays paused until
+someone resumes it on its own control (`pause-new-business`).
+
+Where the platform does not let the application read the database's cluster and timeline (the identity shows nothing
+on System health), the worker cannot notice a restore: the person who restored raises the fence by hand — System
+health → Outgoing payments → *Hold outgoing payments*, with the recovery target as the reason — before the desk is
+opened. Raise it by hand too whenever records are known to be lost for any other reason.
+
+**What never to do.** Never lift the fence because "nothing looks wrong": absence of evidence in a restored database is
+exactly what a restore produces. Never let the person who reconciled approve their own reconciliation, and never edit
+`worker_heartbeat`, `restore_fence` or a leg to make the banner go away. Never pay a leg again because it shows as
+waiting — check the bank or the chain first (`payout-ambiguous`).
 
 ---
 
@@ -539,15 +582,41 @@ a delivery is sent when the provider gave it an id, and only then.
 
 ---
 
+## audit-archive-mismatch — the seal archive and the database disagree
+
+**What you were told.** `audit_archive_failures` above zero: the last daily check of the seal archive found a `GAP`
+(a range missing from the archive), `CHAIN_BROKEN`, `UNREADABLE`, `SEAL_DIFFERS` (a seal here is not the archived one),
+`SEAL_MISSING_HERE`, `EVENTS_DIFFER` (audit events no longer hash to the archived seal), or `NOT_ARCHIVED` (a sealed range
+waited more than 48 hours for its export). The findings are on the latest `audit_archive_verification` row.
+
+**What to check first.** `NOT_ARCHIVED` alone: the export job — the worker's log, the bucket's credentials and
+reachability (`audit-seal-stale`). Anything else is a security incident until proved otherwise: the archive is written
+once under Object Lock and nobody here can change it, so a difference means the database changed after it was sealed.
+
+**What to do.** Do not "fix" either side. Preserve the database (a snapshot) and the archive's access logs; identify the
+first seal that differs — the events in its range were changed, added or removed after it was sealed — and treat it as
+`account-takeover` territory for whoever had write access to the database. After a restore to an earlier point, the
+archive is how the restored trail is verified: seals and events up to the recovery point must match the archive
+exactly, and nothing after it exists to compare.
+
+**What never to do.** Never re-seal, delete or rewrite audit rows or seals to make the check pass. The archive is right
+by construction; the database is the thing being checked.
+
+---
+
 ## audit-seal-stale — the audit trail has not been sealed
 
-**What you were told.** `audit_seal_age_seconds` above its threshold.
+**What you were told.** `audit_seal_age_seconds` above its threshold (sealing has stopped), or
+`audit_seal_export_age_seconds` (seals are being made but not exported to the write-once archive, TD-17).
 
-**What to check first.** Whether the worker is running (the seal is one of its scheduled jobs), and whether the
-last seal verifies: `verifyAuditSeals` recomputes the whole chain.
+**What to check first.** Whether the worker is running (sealing and the daily export are its scheduled jobs), and
+whether the last seal verifies: `verifyAuditSeals` recomputes the whole chain. For the export: the worker's start-up
+line (`audit seals: exported daily to …`), its log for `audit_seal_export`, and the bucket — reachable, versioned, under
+Object Lock, writable by the worker's role.
 
 **What to do.** Restart the worker. Sealing is idempotent and catches up: the next run seals every unsealed
-event, and the chain is continuous regardless of how long the gap was. If the chain does **not** verify, that is
+event, and the chain is continuous regardless of how long the gap was. The export catches up the same way — the next
+run writes every seal not yet exported as one contiguous range; the database refuses a range that would leave a gap. If the chain does **not** verify, that is
 a different and much more serious problem — it means events in an already-sealed range were changed — and it
 goes straight to engineering with the offending seal id.
 
@@ -720,15 +789,43 @@ A receipt is evidence because its hash does not move.
 
 ## backup-restore-drill — proving the backups are real
 
-**Not an alert.** This is the drill the launch checklist requires, run on a schedule and after any change to
-the database's shape or hosting.
+**What you were told.** `restore_drill_age_days` above 35 (warning) or 95 (alarm): no drill has been recorded as
+passing for that long (`backup_verification`, written by both drills below). Otherwise this is the drill the launch
+checklist requires, run monthly and after any change to the database's shape or hosting.
+
+**Point-in-time recovery — what production relies on.** The database runs with continuous WAL archiving (a managed
+PostgreSQL's point-in-time recovery, or the reference stack's `archive_command`) and a retention window; a logical dump
+is not point-in-time recovery. The drill recovers a **separate** server to a chosen moment and checks it:
+
+```bash
+node scripts/pitr-drill.ts [--image inrp2p-web:<release>]
+```
+
+On the reference stack it does everything itself, in throwaway containers: PostgreSQL 18.6 with WAL archiving and the
+reference roles; migrations as the non-superuser migrator; a base backup; writes before and after a recovery target;
+recovery of a new server to that target; then the checks — nothing after the target and everything before it, the
+schema version, sign-in data, the queued job and the chain cursor, the ledger balanced and every journal balanced, the
+audit seal chain, grants (the application login can neither change the schema nor delete ledger entries), the checks a
+production process runs before it serves (through the application's and the worker's own logins), and that outgoing
+payments are held on the recovered copy before any worker runs and that the worker's first heartbeat raises the restore
+fence (`restore-fence`). It prints the timings (base backup, recovery, checks) and records the result.
+
+On a managed database, recover to a new instance from the provider's console (never in place), then run the same checks
+against it: `scripts/restore-checks.ts` (ledger, journals, audit chain, settled trades), `databaseDeploymentProblems`
+through the application and worker logins, `select inrp2p_payouts_held()`, then start one worker against it and see it
+raise the fence. Record the measured recovery time and the target in the drill's ticket and in `backup_verification`.
+Targets proposed for the owner (D-06): **RPO ≤ 5 minutes** (the managed platform's log-shipping interval; the reference
+stack's `archive_timeout` is 60 s), **RTO ≤ 2 hours** from the decision to restore to the desk reconciling, of which the
+database recovery itself is the smaller part.
+
+**Logical dump — a second, independent check.**
 
 ```bash
 DATABASE_MIGRATOR_URL=postgres://…/inrp2p PG_BIN=/usr/lib/postgresql/18/bin node scripts/backup-drill.ts
 ```
 
 It dumps, restores into a **new** database (never over an existing one), and then asks the restored copy the
-questions that matter: is it at the same migration, does its ledger still net to zero, does its audit seal chain
+same questions: is it at the same migration, does its ledger still net to zero, does its audit seal chain
 still verify, is every completed trade still fully settled, and do the counts match the source. It exits
 non-zero and names each problem if not.
 
@@ -738,5 +835,6 @@ tested against deliberately corrupted databases in `test/integration/restore-che
 passes on a bad restore would be worse than no check, because it is what stands between a bad backup and the
 decision to rely on it.
 
-**What never to do.** Do not restore over the production database to "test the backup", and do not record the
-drill as done on the basis that the dump file exists. A backup nobody has restored is a hope.
+**What never to do.** Do not restore or recover over the production database to "test the backup", and do not record
+the drill as done on the basis that a dump file or a snapshot exists. A backup nobody has restored is a hope. Never lift
+the restore fence on a drill's recovered copy and then point anything at it that can send money.

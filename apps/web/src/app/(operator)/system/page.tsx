@@ -5,6 +5,7 @@ import { dateTime } from '../_desk/format.ts';
 import { Chip, KpiBand, Notice, Page, PageBody, PageHeader, Section } from '../_desk/ui.tsx';
 import { HealthTable } from './HealthTable.tsx';
 import { NewBusinessControl } from './NewBusinessControl.tsx';
+import { RestoreFenceControl } from './RestoreFenceControl.tsx';
 import { duration, reading } from './reading.ts';
 import h from './system.module.css';
 
@@ -15,7 +16,9 @@ export const dynamic = 'force-dynamic';
  * `/api/health/status` serves, each against its own thresholds, grouped by what fails — money, the infrastructure that
  * moves it, and liquidity, which is reported apart and never makes the deployment unready (D-16) — with the runbook to
  * follow and the desk page to act on; whether new business is open, with the control to pause it; and each worker's
- * heartbeat. Gated like the API: capacity and blocked-trade counts are `economics:view` figures.
+ * heartbeat; and whether outgoing payments are held after a database change (first when they are, with the
+ * reconciliation and the two-person release; near the bottom when they flow). Gated like the API: capacity and
+ * blocked-trade counts are `economics:view` figures.
  */
 export default async function SystemPage() {
   const ctx = await operatorPage();
@@ -56,6 +59,9 @@ export default async function SystemPage() {
               : []),
           ]}
         />
+        {health.restoreFence.held ? (
+          <RestoreFenceControl state={health.restoreFence} canRaise={can(ctx, 'operations:restore_fence')} canApprove={can(ctx, 'operations:approve_restore_fence_lift')} viewerId={ctx.actor.userId} />
+        ) : null}
         <NewBusinessControl state={health.newBusiness} canChange={can(ctx, 'settings:new_business')} />
         {alarms.length > 0 ? (
           <Notice tone="danger" icon="exceptions" role="alert">
@@ -65,6 +71,9 @@ export default async function SystemPage() {
         <Section title="Signals" count={health.checks.length} hint="Thresholds live in code and are reviewed like code. Open a row to go where the desk acts on it." flush>
           <HealthTable checks={health.checks} />
         </Section>
+        {!health.restoreFence.held ? (
+          <RestoreFenceControl state={health.restoreFence} canRaise={can(ctx, 'operations:restore_fence')} canApprove={can(ctx, 'operations:approve_restore_fence_lift')} viewerId={ctx.actor.userId} />
+        ) : null}
         <Section title="Workers" count={health.workers.length} hint="Each worker reports in every minute, with what it runs — names and states only.">
           {health.workers.length === 0 ? (
             <Notice tone="danger" icon="exceptions">No worker has ever reported in: nothing scans the chain, sends notifications, issues receipts or seals the audit trail.</Notice>

@@ -16,6 +16,18 @@ import {
 } from '@inrp2p/adapters';
 
 /**
+ * The audit-seal archive (TD-17): `INRP2P_AUDIT_SEAL_BUCKET` with Object Lock retention `INRP2P_AUDIT_SEAL_RETENTION_DAYS`
+ * (required in production by the configuration contract). Undefined when no bucket is configured.
+ */
+export function auditArchiveFromEnv(env: NodeJS.ProcessEnv = process.env): { archive: ObjectStore; retainDays: number } | undefined {
+  const archive = objectStoreFromEnv('AUDIT_SEALS', env);
+  if (!isObjectStoreConfigured(archive)) return undefined;
+  const days = (env.INRP2P_AUDIT_SEAL_RETENTION_DAYS ?? '').trim();
+  if (!/^[1-9][0-9]{0,4}$/.test(days)) throw new Error('INRP2P_AUDIT_SEAL_RETENTION_DAYS must be a whole number of days when INRP2P_AUDIT_SEAL_BUCKET is set');
+  return { archive, retainDays: Number.parseInt(days, 10) };
+}
+
+/**
  * Receipt storage for the worker (TD-12): the receipts bucket, a PDF printer if this worker has a browser
  * (`INRP2P_PDF_RENDERER=chromium`), and the Object Lock retention in days (`INRP2P_RECEIPT_RETENTION_DAYS`) — a
  * period only the owner can set; unset, objects are written once into a versioned bucket without a lock. Undefined when

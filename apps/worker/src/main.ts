@@ -8,7 +8,7 @@ import { acceptanceCodeHandler } from '@inrp2p/quotes';
 import { receiptHandler } from '@inrp2p/reporting';
 import { destinationArchivedHandler } from '@inrp2p/settlement';
 import { CRONTAB, buildTaskList, quoteExpiryScheduler, recordHeartbeat } from './tasks.ts';
-import { UNCONFIGURED_PROTECTOR, chainMonitoringFromEnv, chainMonitoringReady, describeChainMonitoring, fieldProtectorFromEnv, receiptStorageFromEnv } from './config.ts';
+import { UNCONFIGURED_PROTECTOR, auditArchiveFromEnv, chainMonitoringFromEnv, chainMonitoringReady, describeChainMonitoring, fieldProtectorFromEnv, receiptStorageFromEnv } from './config.ts';
 
 // E3: in production the worker starts only on a complete production configuration — names of what is missing are
 // printed, never a value — and only against the database it was built for, through its own login.
@@ -78,6 +78,19 @@ if (receipts) {
   console.log('receipts: not stored — proved by hash and regenerated (TD-12)');
 }
 
+// TD-17: the audit seals go to a bucket that must be versioned and under Object Lock.
+const auditArchive = auditArchiveFromEnv(process.env);
+if (auditArchive) {
+  const bucket = await auditArchive.archive.describeBucket();
+  console.log(`audit seals: exported daily to ${auditArchive.archive.bucket} (object lock ${bucket.objectLock ? 'on' : 'off'}, retention ${auditArchive.retainDays} days)`);
+  if (bucket.versioning !== 'Enabled' || !bucket.objectLock) {
+    console.error('refusing to start: the audit seal bucket must have versioning and Object Lock enabled');
+    process.exit(1);
+  }
+} else {
+  console.warn('audit seals: not exported — every copy of the seal chain is in this database (TD-17)');
+}
+
 // The heartbeat names this worker and what it runs (states and provider names only), so readiness can tell a stopped
 // worker from a quiet one.
 const identity = {
@@ -89,9 +102,13 @@ const identity = {
     email: notifications.provider,
     fieldProtection: protector === UNCONFIGURED_PROTECTOR ? 'unconfigured' : 'configured',
     receipts: receipts ? `stored${receipts.pdf ? ' with pdf' : ''}` : 'regenerated',
+    auditSeals: auditArchive ? 'exported' : 'not exported',
   },
 };
-await recordHeartbeat(db, identity);
+// The first beat also checks that the database is the one the workers last wrote to: if it was recovered, failed over
+// or moved, outgoing payments are held until two people have reconciled them (RUNBOOKS `restore-fence`).
+const first = await recordHeartbeat(db, identity);
+if (first.raised) console.error(`the database changed underneath: outgoing payments are held (${first.raised}); follow RUNBOOKS restore-fence`);
 
 const runner = await run({
   pgPool: pool,
@@ -103,6 +120,7 @@ const runner = await run({
     ...(monitoring.config ? { scanner: monitoring.config } : {}),
     ...(receipts ? { receipts } : {}),
     heartbeat: identity,
+    ...(auditArchive ? { auditArchive } : {}),
   }),
   crontab: CRONTAB,
 });

@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react';
+import Link from 'next/link';
 import { deskBadges, deskNow, deskQueue } from '@inrp2p/desk';
+import { payoutsHeld } from '@inrp2p/trades';
 import { can, operatorPage } from '../../server/operator.ts';
 import { ClockProvider } from './_desk/clock.tsx';
 import { CommandPalette } from './_desk/CommandPalette.tsx';
@@ -26,11 +28,12 @@ const ROLE_WORD: Record<string, string> = {
  */
 export default async function OperatorLayout({ children }: { children: ReactNode }) {
   const ctx = await operatorPage();
-  const [groups, badges, now, me] = await Promise.all([
+  const [groups, badges, now, me, hold] = await Promise.all([
     deskQueue(ctx.db, ctx.access, { limitPerGroup: 50 }),
     deskBadges(ctx.db),
     deskNow(ctx.db),
     ctx.db.selectFrom('auth_user').select(['name', 'email']).where('id', '=', ctx.actor.userId).executeTakeFirst(),
+    payoutsHeld(ctx.db),
   ]);
   const actionable = groups.filter((g) => g.key === 'needs_action' || g.key === 'exception').reduce((n, g) => n + g.rows.length, 0);
   const onHold = groups.find((g) => g.key === 'exception')?.rows.length ?? 0;
@@ -73,7 +76,17 @@ export default async function OperatorLayout({ children }: { children: ReactNode
     <ClockProvider serverNow={now}>
       <div className={styles.shell}>
         <Sidebar groups={nav} operator={{ name: me?.name || me?.email || 'Operator', roles, economics: ctx.access.economics }} />
-        <main className={styles.workspace}>{children}</main>
+        <main className={styles.workspace}>
+          {hold.held ? (
+            // Every page, not only System: whoever is about to pay someone must see this first (RUNBOOKS `restore-fence`).
+            <p className={styles.holdBanner} role="alert" data-testid="payouts-held">
+              <strong>Outgoing payments are held{hold.ref ? ` (${hold.ref})` : ''}.</strong> The database was recovered, failed over or moved: check every payment since against the
+              bank and the chain before anything is sent again. Recording a payment already made is still open.{' '}
+              {can(ctx, 'economics:view') ? <Link href="/system">Reconcile and release on System health</Link> : null}
+            </p>
+          ) : null}
+          {children}
+        </main>
         <CommandPalette groups={nav} />
         <GlobalKeys groups={nav} />
         <Toaster />

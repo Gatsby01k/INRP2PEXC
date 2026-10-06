@@ -119,6 +119,8 @@ Legend: ✔ allowed · ⧗ allowed with step-up MFA · ✱ requires second appro
 | `users:manage` / `roles:assign` | ⧗ | — | — | — | — | — |
 | `settings:payout_approval` (the payout second-person threshold, §4; on, off or moved, with a reason) | ⧗ | — | — | — | — | — |
 | `settings:new_business` (pause or resume new requests, quotes, acceptances and trader offers; started trades continue) | ⧗ | — | — | ⧗ | — | — |
+| `operations:restore_fence` (hold outgoing payments by hand after records were lost, or record the reconciliation that asks to release them) | ⧗ | — | — | ⧗ | — | — |
+| `operations:approve_restore_fence_lift` (approve or decline releasing outgoing payments after a restore — never the person who reconciled) | ⧗✱ | — | — | ⧗✱ | — | — |
 
 Rules:
 - Authorization is checked inside the command (server), never inferred from the UI.

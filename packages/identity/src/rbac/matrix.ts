@@ -96,6 +96,9 @@ export const PERMISSION_MATRIX = Object.freeze({
   'settings:payout_approval': r(S, D, D, D, D, D),
   // Pausing new business (an incident, a market halt) is quick and two roles can do it; it never touches started trades.
   'settings:new_business': r(S, D, D, S, D, D),
+  // After a restore, outgoing payments are held until one person records the reconciliation and another approves it.
+  'operations:restore_fence': r(S, D, D, S, D, D),
+  'operations:approve_restore_fence_lift': r(S2, D, D, S2, D, D),
 } as const satisfies Record<string, Row>);
 
 export type Permission = keyof typeof PERMISSION_MATRIX;

@@ -93,8 +93,12 @@ export function productionConfigReport(role: ProcessRole, env: NodeJS.ProcessEnv
     if (set(env, 'CLIENT_BASE_URL') && !https(env.CLIENT_BASE_URL)) problems.push('CLIENT_BASE_URL must be https');
     const flag = (env.INRP2P_TRON_MONITORING ?? '').trim().toLowerCase();
     if (flag === 'disabled' || flag === 'off' || flag === 'false') problems.push('INRP2P_TRON_MONITORING must not be disabled in production: deposits would never be seen');
+    // TD-17: the audit seals leave the database for storage nobody can rewrite.
+    need('INRP2P_AUDIT_SEAL_BUCKET', 'independent export of audit seals (TD-17)');
+    need('INRP2P_AUDIT_SEAL_RETENTION_DAYS', 'Object Lock retention of exported seals');
+    if (set(env, 'INRP2P_AUDIT_SEAL_RETENTION_DAYS') && !/^[1-9][0-9]{0,4}$/.test(env.INRP2P_AUDIT_SEAL_RETENTION_DAYS!.trim())) problems.push('INRP2P_AUDIT_SEAL_RETENTION_DAYS must be a whole number of days');
   }
-  if (set(env, 'INRP2P_RECEIPTS_BUCKET') && set(env, 'INRP2P_OBJECT_STORE_ENDPOINT') && !https(env.INRP2P_OBJECT_STORE_ENDPOINT)) {
+  if ((set(env, 'INRP2P_RECEIPTS_BUCKET') || set(env, 'INRP2P_AUDIT_SEAL_BUCKET')) && set(env, 'INRP2P_OBJECT_STORE_ENDPOINT') && !https(env.INRP2P_OBJECT_STORE_ENDPOINT)) {
     problems.push('INRP2P_OBJECT_STORE_ENDPOINT must be https');
   }
   if (!set(env, 'INRP2P_RECEIPTS_BUCKET')) warnings.push('receipts are not stored: they are regenerated from their snapshot and checked by hash (TD-12)');

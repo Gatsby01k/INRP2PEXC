@@ -30,6 +30,8 @@ const COMPLETE: NodeJS.ProcessEnv = {
   INRP2P_CUSTODY_PROVIDER: 'custody-provider',
   WORKER_DATABASE_URL: 'postgres://inrp2p_worker_login@db/inrp2p',
   CLIENT_BASE_URL: 'https://app.inrp2p.com',
+  INRP2P_AUDIT_SEAL_BUCKET: 'inrp2p-audit-seals',
+  INRP2P_AUDIT_SEAL_RETENTION_DAYS: '3650',
   INRP2P_OBJECT_STORE_REGION: 'ap-south-1',
   INRP2P_RECEIPTS_BUCKET: 'inrp2p-receipts',
 };
@@ -67,8 +69,8 @@ describe('the production configuration contract (E3)', () => {
     expect(web).not.toContain(COMPLETE.OPERATOR_AUTH_SECRET!);
     expect(web).not.toContain(broken.INRP2P_KEK_BASE64!);
 
-    const worker = productionConfigReport('worker', { ...COMPLETE, INRP2P_TRON_MONITORING: 'disabled', CLIENT_BASE_URL: 'http://app.inrp2p.com', NODE_ENV: 'development' }).problems.join('\n');
-    for (const fragment of ['INRP2P_TRON_MONITORING must not be disabled', 'CLIENT_BASE_URL must be https', 'NODE_ENV must be production']) {
+    const worker = productionConfigReport('worker', { ...COMPLETE, INRP2P_TRON_MONITORING: 'disabled', INRP2P_AUDIT_SEAL_BUCKET: '', CLIENT_BASE_URL: 'http://app.inrp2p.com', NODE_ENV: 'development' }).problems.join('\n');
+    for (const fragment of ['INRP2P_TRON_MONITORING must not be disabled', 'INRP2P_AUDIT_SEAL_BUCKET is required', 'CLIENT_BASE_URL must be https', 'NODE_ENV must be production']) {
       expect(worker).toContain(fragment);
     }
   });

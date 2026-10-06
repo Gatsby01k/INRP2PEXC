@@ -25,6 +25,10 @@
  *
  * `--keep` leaves the restored database and the dump file in place for inspection; by default both are removed,
  * because a drill that fills the disk is a drill nobody runs twice.
+ *
+ * The result is recorded in the source's `backup_verification` (migration 0034), named by `INRP2P_DRILL_ENVIRONMENT`,
+ * which is what `restore_drill_age_days` reads. A dump is a second, independent check; point-in-time recovery is what
+ * production relies on (`scripts/pitr-drill.ts`, RUNBOOKS `backup-restore-drill`).
  */
 import { spawn } from 'node:child_process';
 import { mkdtemp, rm, stat } from 'node:fs/promises';
@@ -83,6 +87,8 @@ async function withDb<R>(connection: string, fn: (db: ReturnType<typeof createDb
 const dumpDir = outDir ?? (await mkdtemp(path.join(tmpdir(), 'inrp2p-drill-')));
 const dumpFile = path.join(dumpDir, `${sourceName}-${stamp}.dump`);
 let restored = false;
+let failures: string[] = ['the drill did not complete'];
+const started = Date.now();
 
 try {
   console.log(`source      ${sourceName}`);
@@ -101,7 +107,7 @@ try {
   await run(tool('pg_restore'), ['--no-owner', '--no-privileges', '--exit-on-error', '--dbname', restoredUrl(), dumpFile]);
 
   const after = await withDb(restoredUrl(), restoreCounts);
-  const failures = [...(await withDb(restoredUrl(), restoreProblems)), ...countDifferences(before, after)];
+  failures = [...(await withDb(restoredUrl(), restoreProblems)), ...countDifferences(before, after)];
 
   for (const key of ['migration', 'trades', 'journals', 'entries', 'auditEvents', 'auditSeals'] as const) {
     console.log(`${before[key] === after[key] ? 'ok  ' : 'FAIL'}        ${key}: source ${before[key]} · restore ${after[key]}`);
@@ -114,7 +120,18 @@ try {
   } else {
     console.log('\ndrill passed: the restore is at the same migration, its ledger balances, its audit chain verifies and its counts match.');
   }
+} catch (e) {
+  failures = [`the drill did not complete: ${(e as Error).message}`];
+  console.error(`FAIL        ${failures[0]}`);
+  process.exitCode = 1;
 } finally {
+  // Remembered where monitoring reads it (`restore_drill_age_days`): the source database's own record of drills.
+  await withDb(url, (db) =>
+    db.insertInto('backup_verification').values({
+      kind: 'DUMP_RESTORE', ok: failures.length === 0, recovered_to: null, restore_seconds: Math.round((Date.now() - started) / 1000),
+      environment: (process.env.INRP2P_DRILL_ENVIRONMENT ?? 'unnamed').slice(0, 100), findings: JSON.stringify(failures), recorded_by: 'scripts/backup-drill.ts',
+    }).execute(),
+  ).catch((e: unknown) => console.error(`the result could not be recorded: ${(e as Error).message}`));
   if (!keep) {
     if (restored) await run(tool('psql'), ['--quiet', '--no-psqlrc', '--command', `drop database if exists "${restoredName}"`, adminUrl()]).catch(() => {});
     if (!outDir) await rm(dumpDir, { recursive: true, force: true });

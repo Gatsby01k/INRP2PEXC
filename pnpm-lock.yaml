@@ -437,6 +437,9 @@ importers:
       '@inrp2p/traders':
         specifier: workspace:*
         version: link:../../packages/traders
+      '@inrp2p/trades':
+        specifier: workspace:*
+        version: link:../../packages/trades
       '@inrp2p/treasury':
         specifier: workspace:*
         version: link:../../packages/treasury
