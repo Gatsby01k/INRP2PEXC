@@ -1,3 +1,4 @@
+import { assertNewBusinessOpen } from '@inrp2p/trades';
 import { sql } from 'kysely';
 import { DomainError, Money, Rate, computeTradeEconomics, requireOneOf, requireText, requireUuid } from '@inrp2p/kernel';
 import type { TxContext } from '@inrp2p/db';
@@ -144,6 +145,7 @@ export function sendQuote(actor: OperatorActor, deps: Pick<QuoteDeps, 'policy'>,
     await lockRow(ctx.tx, 'quote', 'quote', quoteId);
     const quote = await ctx.tx.selectFrom('quote').selectAll().where('id', '=', quoteId).executeTakeFirstOrThrow();
     if (quote.status !== 'DRAFT') throw new DomainError('INVALID_TRANSITION', `quote is ${quote.status}`);
+    await assertNewBusinessOpen(ctx.tx);
     const request = await ctx.tx.selectFrom('trade_request').selectAll().where('id', '=', quote.trade_request_id).executeTakeFirstOrThrow();
     if (request.status !== 'OPEN' && request.status !== 'QUOTED') throw new DomainError('REQUEST_NOT_OPEN', `request is ${request.status}`);
 

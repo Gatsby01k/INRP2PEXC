@@ -3,6 +3,7 @@ import { DomainError, Money, requireText } from '@inrp2p/kernel';
 import type { Executor } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
 import { type OperatorActor, operatorCommand } from '@inrp2p/identity';
+import { newBusinessState } from '@inrp2p/trades';
 
 /**
  * The payout second-person rule (SECURITY §4, production task C1): above a threshold — ₹2,500,000 per leg by default,
@@ -52,3 +53,26 @@ export function setPayoutApprovalPolicy(actor: OperatorActor) {
     return payoutApprovalPolicy(ctx.tx);
   });
 }
+
+/**
+ * `settings.pause_new_business` / `settings.resume_new_business` — `settings:new_business` (OWNER or FINANCE, ⧗), with
+ * the reason (migration 0033, RUNBOOKS `pause-new-business`). Pausing stops new requests, quotes, acceptances and
+ * trader offers, in the commands and in the database; it never touches what is already started, so every confirmed
+ * movement keeps its obligation and settles as usual. Each change is a new row and an audit event.
+ */
+export function setNewBusiness(actor: OperatorActor) {
+  return operatorCommand(actor, 'settings:new_business', async (ctx, p: { paused: boolean; reason: string }) => {
+    if (typeof p.paused !== 'boolean') throw new DomainError('INVALID_ARGUMENT', 'say whether new business is paused');
+    const reason = requireText(p.reason, 'reason', 500);
+    if (reason.length < 10) throw new DomainError('INVALID_ARGUMENT', 'say why (at least 10 characters)');
+    const before = await newBusinessState(ctx.tx);
+    if (before.paused === p.paused) throw new DomainError('INVALID_TRANSITION', p.paused ? 'new business is already paused' : 'new business is already open');
+    await ctx.tx.insertInto('trading_control').values({ new_business: p.paused ? 'PAUSED' : 'OPEN', reason, set_by: actor.userId }).execute();
+    await appendAudit(ctx, {
+      action: p.paused ? 'settings.new_business_paused' : 'settings.new_business_resumed', entityType: 'trading_control', entityId: null,
+      before: { paused: before.paused }, after: { paused: p.paused, reason },
+    });
+    return newBusinessState(ctx.tx);
+  });
+}
+

@@ -1,3 +1,4 @@
+import { assertNewBusinessOpen, newBusinessState } from '@inrp2p/trades';
 import { sql } from 'kysely';
 import { DomainError, Money, Rate, computeTradeEconomics, requireUuid } from '@inrp2p/kernel';
 import { type DirectionValue, type FixedSideValue, type TraderSide, type TxContext, assertLockOrder } from '@inrp2p/db';
@@ -245,6 +246,7 @@ export async function assignRequestInTx(
  */
 export function assignRequest(actor: OperatorActor) {
   return operatorCommand(actor, 'traders:assign', async (ctx, p: { requestId: string; plannedClientRate?: string | null }) => {
+    await assertNewBusinessOpen(ctx.tx);
     const planned = p.plannedClientRate ? Rate.parse(p.plannedClientRate, 'CLIENT').micro : null;
     const out = await assignRequestInTx(ctx, { requestId: p.requestId, plannedClientRateMicro: planned, offeredBy: ctx.actor.id ?? 'SYSTEM' });
     if ('miss' in out) throw new DomainError('TRADER_NONE_ELIGIBLE', 'no trader can take this order right now', { considered: out.miss.considered, excluded: out.miss.excluded });
@@ -258,6 +260,8 @@ export function assignRequest(actor: OperatorActor) {
  * "nobody": the desk sees the request back in its queue instead.
  */
 export async function rerouteRequestInTx(ctx: TxContext, requestId: string): Promise<AssignResult | null> {
+  // While new business is paused nobody is offered anything; the request waits in the desk's queue.
+  if ((await newBusinessState(ctx.tx)).paused) return null;
   const request = await ctx.tx.selectFrom('trade_request').select(['status']).where('id', '=', requireUuid(requestId, 'requestId')).executeTakeFirst();
   if (!request || (request.status !== 'OPEN' && request.status !== 'QUOTED')) return null;
   const live = await ctx.tx.selectFrom('trader_order').select('id').where('trade_request_id', '=', requestId).where('status', 'in', ['OFFERED', 'ACCEPTED', 'IN_PROGRESS', 'COMPLETED']).executeTakeFirst();
@@ -274,6 +278,7 @@ export async function rerouteRequestInTx(ctx: TxContext, requestId: string): Pro
 export async function autoAssignInTx(ctx: TxContext, requestId: string): Promise<AssignResult | null> {
   const program = await traderProgram(ctx.tx);
   if (!program.autoAssign) return null;
+  if ((await newBusinessState(ctx.tx)).paused) return null;
   const request = await ctx.tx.selectFrom('trade_request').select(['status', 'fixed_side']).where('id', '=', requireUuid(requestId, 'requestId')).executeTakeFirst();
   if (!request || request.status !== 'OPEN' || request.fixed_side !== 'BASE') return null;
   const live = await ctx.tx.selectFrom('trader_order').select('id').where('trade_request_id', '=', requestId).executeTakeFirst();

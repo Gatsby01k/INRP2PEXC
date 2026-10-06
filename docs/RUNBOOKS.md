@@ -352,6 +352,142 @@ must equal its open orders (TR-02), and the database refuses anything else for a
 
 ---
 
+## worker-stopped — the worker has not reported in
+
+**What you were told.** `worker_heartbeat_age_seconds` above its threshold: the worker writes a heartbeat every minute
+and has not.
+
+**What to check first.** Is the worker process running, and what did it say at start-up? It refuses to start — and
+says why, naming settings only — when production configuration is missing, when its database login is the schema
+owner, when the schema is not the version it was built for, or when the receipts bucket is not versioned. A process
+that is up but not beating is stuck: its log shows the last job it began.
+
+**What to do.** Fix what the start-up line names and start it again; every job is state-guarded and catches up on its
+own (the scanner from its cursor, the outbox from what is pending, the sweep from what is due). Restart a stuck worker:
+graceful shutdown lets running jobs finish, and anything interrupted is retried.
+
+**What never to do.** Do not run two workers against different databases "to be safe", and do not turn chain
+monitoring off to make a worker start: a worker that cannot see deposits must not pretend it can.
+
+---
+
+## reconciliation-mismatch — the books and the outside world disagree
+
+**What you were told.** `reconciliation_mismatches` above zero: open `RECONCILIATION_MISMATCH`,
+`ROUTE_SETTLEMENT_MISMATCH`, `ROUTE_DIRECT_PAYOUT_MISMATCH`, `DUPLICATE_UTR` or `DUPLICATE_TX_HASH` cases.
+
+**What to check first.** The exceptions queue, filtered to those types. Each case says which movement and why: a
+statement line with another amount, a confirmed payment the statement does not show, money the chain moved for a leg
+given up on, a route movement that does not fit its obligation, the same reference twice.
+
+**What to do.** Establish the fact from outside the system — the bank statement, the chain explorer, the
+counterparty's own record — and resolve the case with the command it offers, which posts or corrects through the
+ledger. A payment the bank never made is a fake-UTR case: the trade stays on hold until it is explained.
+
+**What never to do.** Never close a mismatch by editing a record to agree with the other side. The disagreement is
+the evidence; the resolution is a new, audited fact.
+
+---
+
+## database-pressure — the database is running out of connections
+
+**What you were told.** `db_connections_percent` above its threshold.
+
+**What to check first.** Which application holds them (`select application_name, state, count(*) from pg_stat_activity
+group by 1, 2;` — `inrp2p-web`, `inrp2p-web-auth`, `inrp2p-worker`, `inrp2p-migrate`), and whether many sit
+`idle in transaction` (a request that never finished) or `active` on one statement (a slow query or a lock).
+
+**What to do.** A leak or a stuck request: restart that instance; its pool closes its connections. Real load: scale the
+database or lower each instance's pool size so instances × pool stays under the server limit (DEPLOYMENT.md). A lock
+queue: find the blocker (`pg_blocking_pids`) before killing anything, and never kill the migrator mid-migration.
+
+**What never to do.** Do not raise `max_connections` without memory to back it, and do not point the application at the
+migrator's login to get more connections: it would run with the schema owner's rights.
+
+---
+
+## liquidity-thin — no trader can take an order on one side
+
+**What you were told.** `traders_ready_sell_usdt` or `traders_ready_buy_usdt` at zero. This is a liquidity signal, not a
+fault: it never makes the deployment unready, and nothing is broken.
+
+**What to check first.** The trader desk: who is offline, paused, short of reserve, out of capacity or without an active
+rate, and whether a trader's settlement details are waiting for review.
+
+**What to do.** It is a business conversation — ask traders to come online or add capacity, review pending details. Until
+then requests on that side wait in the queue; quote only what a trader has accepted.
+
+**What never to do.** Never fill the gap with the platform's own money: under D-16 a client is served only with a
+counterparty's funds, and nothing in the product will pay out otherwise.
+
+---
+
+## pause-new-business — stopping new trades, finishing the started ones
+
+**When.** An incident that makes new commitments unsafe: a bank or chain outage, a key or account compromise, a
+pricing fault, a regulator's instruction, a market halt.
+
+**How.** System → **New business** → *Pause*, with the reason (OWNER or FINANCE, authenticator code). From that moment
+no request is opened, no quote sent or accepted and no trader offered an order — the commands refuse with the reason,
+and the database refuses whatever else tries (IX098). Clients see that new trades are paused.
+
+**What keeps going.** Everything already started: first legs are confirmed, deliveries recorded, payouts sent and
+confirmed, refunds made, receipts issued. Pausing never stops the worker and never leaves confirmed money without its
+obligation. Work the open trades to completion or to an unwind as usual.
+
+**Resuming.** *Resume*, with the reason, once the cause is understood. Quotes sent before the pause that expired during
+it are re-quoted, never revived.
+
+**Never.** Never stop the worker or the database to "pause": confirmations, deliveries and the scanner would stop with
+them, and money that has arrived would sit unrecorded.
+
+---
+
+## payout-ambiguous — a payout may or may not have left
+
+**What you were told.** A bank portal timed out after "submit", a custody transfer shows no hash, a client says
+nothing arrived after the desk recorded a reference, or a restore put the database behind what the bank or the chain did.
+
+**What to check first.** The outside record only: the bank statement or portal history for the account and amount; the
+chain explorer for the source address. Until one of them answers, the payout is neither sent nor failed.
+
+**What to do.** If it left: record its UTR or transaction hash and confirm it (a second person above ₹2,500,000). If it
+did not: mark the leg failed (or cancel it if it was never sent) and only then create the replacement.
+
+**What never to do.** Never create a second payout while the first is unresolved; never mark a leg failed because the
+desk cannot see it — absence of evidence is not evidence of absence. This is how clients get paid twice.
+
+---
+
+## incident-recovery — after a restore, an outage or a compromise
+
+**Order.** 1. Pause new business. 2. Bring the database back (backup-restore-drill / point-in-time recovery) and start
+web and worker with the same release; they refuse a schema that does not match. 3. Before anything moves money,
+reconcile against the outside world: bank statements for every exchange account since the recovery point, the chain for
+every exchange address (the scanner re-reads from its cursor; use chain-backfill for a gap), and the audit-seal archive
+(the seal export detects a range that is missing or rewritten). 4. Record what happened outside the restored database as
+new facts — confirmations, failures, statement imports — never by editing rows. 5. Resume new business.
+
+**Never.** Never re-send a payout the restored database thinks is pending without checking the bank or the chain
+first: the database may simply not remember that it already went.
+
+---
+
+## secret-rotation — rotating keys and secrets
+
+**What rotates how.** Field-encryption key: see `field-encryption-keys` (new KMS key, old one kept in
+`INRP2P_KEK_PREVIOUS` until re-sealed). Session secrets (`OPERATOR_AUTH_SECRET`, `CLIENT_AUTH_SECRET`): set the new value
+in the secret manager and roll web; every session on that surface ends and people sign in again — do it when that is
+acceptable, or at once after a suspected leak. `INRP2P_HEALTH_TOKEN`: set the new value, roll web, update the monitor.
+`RESEND_API_KEY`: create the new key at the provider, roll web and worker, then revoke the old one. Database logins:
+create the new password, update the secret, roll, then expire the old password. TRON provider keys and object-store
+access: through their own consoles and the workload roles; nothing is stored in the image.
+
+**Never.** Never put a secret in a commit, an image, a ticket or a chat; never reuse one secret for two purposes
+(the start-up check refuses the same value for both session secrets).
+
+---
+
 ## outbox-backlog — events are not being delivered
 
 **What you were told.** `outbox_failed` above zero, or `outbox_oldest_pending_seconds` climbing.

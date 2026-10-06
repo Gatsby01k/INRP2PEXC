@@ -118,6 +118,7 @@ Legend: ✔ allowed · ⧗ allowed with step-up MFA · ✱ requires second appro
 | `audit:view` | ✔ | — | — | ✔ | — | — |
 | `users:manage` / `roles:assign` | ⧗ | — | — | — | — | — |
 | `settings:payout_approval` (the payout second-person threshold, §4; on, off or moved, with a reason) | ⧗ | — | — | — | — | — |
+| `settings:new_business` (pause or resume new requests, quotes, acceptances and trader offers; started trades continue) | ⧗ | — | — | ⧗ | — | — |
 
 Rules:
 - Authorization is checked inside the command (server), never inferred from the UI.

@@ -1,0 +1,21 @@
+# Build context for deploy/Dockerfile: sources, manifests and the lockfile only.
+**/node_modules
+**/.next
+**/.turbo
+**/coverage
+**/test-results
+**/playwright-report
+**/*.tsbuildinfo
+.git
+.github
+.claude
+.DS_Store
+**/.DS_Store
+*.mp4
+*.mov
+held.mp4
+apps/web/visual/__screenshots__
+packages/ui/visual/__screenshots__
+.env
+.env.*
+!.env.example

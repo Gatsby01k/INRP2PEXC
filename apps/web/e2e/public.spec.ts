@@ -3,6 +3,7 @@ import { CLIP_MEASUREMENTS } from '../src/app/(public)/_landing/voice/clips/meas
 import { AUDIENCE, BUSINESS, CLOSING, DESK, FLOW, HERO, ONBOARDING, SITE_PAGES, SITE_PATHS, TRADER_ENTRY, TRUST } from '../src/content/site.ts';
 import { appBaseUrl, deskSendsQuoteWithLink, linkBaseUrl, operatorBaseUrl } from './support.ts';
 import { E2E_PUBLIC_CONTACTS } from './world.ts';
+import { E2E_HEALTH_TOKEN } from '../harness/desk-server.ts';
 
 /**
  * The public site and the headers that protect every surface (PRODUCT §7.4, SECURITY §7).
@@ -297,7 +298,20 @@ test('the probes answer on every host, and the one with figures in it does not',
     // The full picture carries capacity, holds and scanner lag, so it is refused without a token or a session.
     const status = await page.request.get(`${base}/api/health/status`, { maxRedirects: 0 });
     expect(status.status(), `${base} status`).toBe(401);
+    expect((await page.request.get(`${base}/api/health/metrics`, { maxRedirects: 0 })).status(), `${base} metrics`).toBe(401);
   }
+  // A monitoring system has a token, not a session: on the desk host it reads the picture and the metrics with it.
+  const headers = { 'x-inrp2p-health-token': E2E_HEALTH_TOKEN };
+  const status = await page.request.get(`${operatorBaseUrl()}/api/health/status`, { headers, maxRedirects: 0 });
+  expect([200, 503]).toContain(status.status());
+  const body = (await status.json()) as { checks: { id: string; group: string }[]; liquidity: string; newBusiness: { paused: boolean } };
+  expect(body.checks.map((c) => c.id)).toContain('worker_heartbeat_age_seconds');
+  expect(body.newBusiness.paused).toBe(false);
+  const metrics = await page.request.get(`${operatorBaseUrl()}/api/health/metrics`, { headers, maxRedirects: 0 });
+  expect(metrics.status()).toBe(200);
+  expect(await metrics.text()).toMatch(/^inrp2p_ready [0-2]$/m);
+  // A wrong token is no token.
+  expect((await page.request.get(`${operatorBaseUrl()}/api/health/status`, { headers: { 'x-inrp2p-health-token': `${E2E_HEALTH_TOKEN}x` }, maxRedirects: 0 })).status()).toBe(401);
 });
 
 test('a page under the policy loads without the browser refusing anything', async ({ page }) => {

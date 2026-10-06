@@ -1054,6 +1054,24 @@ export interface ClientNotificationTable {
   created_at: Generated<Date>;
 }
 
+/** Whether new business is open; append-only, the latest row in force (migration 0033). */
+export interface TradingControlTable {
+  id: Generated<string>;
+  new_business: 'OPEN' | 'PAUSED';
+  reason: string;
+  set_by: string;
+  set_at: Generated<Date>;
+}
+
+/** The worker's heartbeat and a non-secret summary of what it runs (migration 0033). */
+export interface WorkerHeartbeatTable {
+  worker_id: string;
+  started_at: Date;
+  beat_at: Date;
+  release: string | null;
+  config: Generated<unknown>;
+}
+
 /** A receipt artifact written once to private object storage (migration 0032, TD-12). */
 export interface ReceiptObjectTable {
   receipt_id: string;
@@ -1386,6 +1404,8 @@ export interface Database {
   client_notification: ClientNotificationTable;
   client_notification_email: ClientNotificationEmailTable;
   receipt_object: ReceiptObjectTable;
+  trading_control: TradingControlTable;
+  worker_heartbeat: WorkerHeartbeatTable;
   receipt: ReceiptTable;
   bank_statement_import: BankStatementImportTable;
   bank_statement_line: BankStatementLineTable;

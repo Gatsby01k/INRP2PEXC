@@ -5,7 +5,7 @@ import { SITE_PATHS } from '../content/site.ts';
  * path except Better Auth's own endpoints requires a fully MFA-verified operator session.
  */
 export type Surface = 'OPERATOR' | 'CLIENT' | 'PUBLIC';
-export type Gate = 'AUTH_ENDPOINT' | 'OPERATOR_SESSION' | 'CLIENT_SESSION' | 'PUBLIC' | 'OPERATOR_SIGN_IN' | 'CLIENT_SIGN_IN';
+export type Gate = 'AUTH_ENDPOINT' | 'OPERATOR_SESSION' | 'CLIENT_SESSION' | 'PUBLIC' | 'OPERATOR_SIGN_IN' | 'CLIENT_SIGN_IN' | 'MONITORING';
 
 export interface HostConfig {
   deskHost: string;
@@ -76,10 +76,19 @@ const CRAWLER_PATHS: ReadonlySet<string> = new Set(['/robots.txt', '/sitemap.xml
  */
 const PROBE_PATHS: ReadonlySet<string> = new Set(['/api/health/live', '/api/health/ready']);
 
+/**
+ * The full health picture and its metrics, on the desk host only. They carry figures, so they are never public; they
+ * authenticate inside the route — the monitoring token, or an operator session with `economics:view` — which is why the
+ * proxy must let them through to it. Gating them on an operator session here made the token impossible to use: a
+ * monitoring system has a token, not a session.
+ */
+const MONITORING_PATHS: ReadonlySet<string> = new Set(['/api/health/status', '/api/health/metrics']);
+
 export function gateFor(surface: Surface, pathname: string): Gate {
   const path = pathname.replace(/\/+$/, '') || '/';
   if (CRAWLER_PATHS.has(path) || PROBE_PATHS.has(path)) return 'PUBLIC';
   if (surface === 'OPERATOR') {
+    if (MONITORING_PATHS.has(path)) return 'MONITORING';
     if (path === '/api/auth' || path.startsWith('/api/auth/')) return 'AUTH_ENDPOINT';
     // The sign-in page itself must be reachable without a session, or an operator can never get one. It is the
     // only unauthenticated page on the desk host, and it renders nothing about the business.

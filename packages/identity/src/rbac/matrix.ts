@@ -94,6 +94,8 @@ export const PERMISSION_MATRIX = Object.freeze({
   'users:manage': r(S, D, D, D, D, D),
   'roles:assign': r(S, D, D, D, D, D),
   'settings:payout_approval': r(S, D, D, D, D, D),
+  // Pausing new business (an incident, a market halt) is quick and two roles can do it; it never touches started trades.
+  'settings:new_business': r(S, D, D, S, D, D),
 } as const satisfies Record<string, Row>);
 
 export type Permission = keyof typeof PERMISSION_MATRIX;

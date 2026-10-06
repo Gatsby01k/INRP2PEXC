@@ -71,3 +71,27 @@
 .marker[data-state='alarm'] {
   background: var(--status-danger);
 }
+
+/* Workers: one line each — how long since it reported, who it is, what it runs. */
+.workers {
+  display: grid;
+  gap: var(--space-2, 8px);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.workers li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2, 8px);
+}
+.workerName {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 13px;
+}
+.workerMeta {
+  color: var(--text-secondary, inherit);
+  font-size: 13px;
+}
+

@@ -12,17 +12,25 @@ import h from './system.module.css';
 const WHERE: Record<string, { href: string; label: string }> = {
   ledger_imbalance: { href: '/pnl', label: 'P&L · ledger check' },
   scanner_lag_seconds: { href: '/usdt', label: 'USDT treasury' },
+  custody_outflows_unobserved: { href: '/usdt', label: 'USDT treasury' },
   blocking_exceptions: { href: '/exceptions', label: 'Exceptions' },
+  reconciliation_mismatches: { href: '/exceptions', label: 'Exceptions' },
   overdue_route_obligations: { href: '/rates#positions', label: 'Rates · route positions' },
   inr_capacity_available: { href: '/inr', label: 'INR accounts' },
   deposit_pool_free: { href: '/usdt', label: 'USDT treasury' },
+  trader_orders_overdue: { href: '/trader-desk', label: 'Traders' },
+  traders_ready_sell_usdt: { href: '/trader-desk', label: 'Traders' },
+  traders_ready_buy_usdt: { href: '/trader-desk', label: 'Traders' },
 };
 
-/** The same signals, in the three places they fail: money itself, the pipes that move it, and the desk's capacity to take work. */
-const GROUPS: readonly { key: string; title: string; ids: readonly string[] }[] = [
-  { key: 'money', title: 'Money', ids: ['ledger_imbalance', 'overdue_route_obligations', 'inr_capacity_available'] },
-  { key: 'pipes', title: 'Pipelines', ids: ['scanner_lag_seconds', 'outbox_failed', 'outbox_oldest_pending_seconds', 'audit_seal_age_seconds'] },
-  { key: 'desk', title: 'Desk', ids: ['blocking_exceptions', 'deposit_pool_free'] },
+/**
+ * The signals in the three places they fail: money itself, the infrastructure that moves it, and liquidity — kept
+ * apart because no trader online is quiet, not broken, and never makes the deployment unready (D-16).
+ */
+const GROUPS: readonly { key: HealthCheck['group']; title: string }[] = [
+  { key: 'money', title: 'Money' },
+  { key: 'infrastructure', title: 'Infrastructure' },
+  { key: 'liquidity', title: 'Liquidity — reported apart, never "not ready"' },
 ];
 
 /** A low number is the problem when the alarm threshold sits below the warning one (capacity, the address pool). */
@@ -40,7 +48,7 @@ function thresholds(c: HealthCheck): string {
  */
 function position(c: HealthCheck): { marker: number; warnAt: number; alarmAt: number } {
   if (lowerIsWorse(c)) {
-    const top = c.warn * 1.5;
+    const top = Math.max(c.warn * 1.5, 1);
     const pct = (v: number) => Math.max(0, Math.min(100, 100 - (v / top) * 100));
     return { marker: pct(c.value), warnAt: pct(c.warn), alarmAt: pct(c.alarm) };
   }
@@ -70,14 +78,10 @@ const STATE: Record<HealthCheck['state'], { word: string; tone: 'success' | 'war
 
 export function HealthTable({ checks }: { checks: readonly HealthCheck[] }) {
   const router = useRouter();
-  const byId = new Map(checks.map((c) => [c.id, c]));
   const groups: RowGroup<HealthCheck>[] = GROUPS.map((g) => {
-    const rows = g.ids.map((id) => byId.get(id)).filter((c): c is HealthCheck => c !== undefined);
+    const rows = checks.filter((c) => c.group === g.key);
     return { key: g.key, title: g.title, rows, ...(rows.some((r) => r.state === 'alarm') ? { tone: 'danger' as const } : {}) };
-  });
-  const known = new Set(GROUPS.flatMap((g) => g.ids));
-  const other = checks.filter((c) => !known.has(c.id));
-  if (other.length > 0) groups.push({ key: 'other', title: 'Other', rows: other });
+  }).filter((g) => g.rows.length > 0);
 
   return (
     <DataTable

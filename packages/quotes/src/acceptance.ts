@@ -5,7 +5,7 @@ import { appendAudit } from '@inrp2p/audit';
 import { enqueueOutbox } from '@inrp2p/outbox';
 import { executeCommand } from '@inrp2p/commands';
 import type { ClientActor } from '@inrp2p/identity';
-import { openTradeFromAcceptedQuote, tradeFundingModel } from '@inrp2p/trades';
+import { assertNewBusinessOpen, openTradeFromAcceptedQuote, tradeFundingModel } from '@inrp2p/trades';
 import { getClientTradeView, type ClientTradeView } from '@inrp2p/trades';
 import { allocateDepositAddress, assertSellAcceptanceSupported } from '@inrp2p/treasury';
 import { startOrderForTrade } from '@inrp2p/trader-core';
@@ -49,6 +49,8 @@ async function loadDecidableQuote(ctx: TxContext, quoteId: string): Promise<Deci
 
 async function assertAcceptable(ctx: TxContext, deps: QuoteDeps, quote: DecisionContext['quote']): Promise<void> {
   const policy = policyOf(deps);
+  // While new business is paused a quote is not turned into a trade, whoever accepts it (migration 0033, IX098).
+  await assertNewBusinessOpen(ctx.tx);
   const client = await ctx.tx.selectFrom('client').select(['status', 'kyc_status']).where('id', '=', quote.client_id).forShare().executeTakeFirstOrThrow();
   if (client.status !== 'ACTIVE') throw new DomainError('CLIENT_NOT_ACTIVE', 'client is suspended');
   if (policy.requireKycVerified && client.kyc_status !== 'VERIFIED') throw new DomainError('KYC_NOT_VERIFIED', 'client KYC is not verified');

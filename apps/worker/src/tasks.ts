@@ -34,6 +34,7 @@ export function buildTaskList(
     scanner?: ScannerDeps;
     monitoring?: ChainMonitoring;
     receipts?: { readonly store: ReceiptObjectStore; readonly pdf?: ReceiptPdfPrinter | null; readonly retainDays?: number | null };
+    heartbeat?: WorkerIdentity;
   } = {},
 ): TaskList {
   const outboxDispatch: Task = async () => {
@@ -118,6 +119,10 @@ export function buildTaskList(
       }
     }
   };
+  // E3: the worker says it is alive, and what it runs, once a minute (readiness and `worker_heartbeat_age_seconds`).
+  const workerHeartbeat: Task = async () => {
+    if (opts.heartbeat) await recordHeartbeat(db, opts.heartbeat);
+  };
   return {
     outbox_dispatch: outboxDispatch,
     audit_seal: auditSeal,
@@ -134,6 +139,7 @@ export function buildTaskList(
     custody_observe: custodyObserve,
     trader_orders_sweep: traderOrdersSweep,
     receipt_store_backfill: receiptStoreBackfill,
+    worker_heartbeat: workerHeartbeat,
   };
 }
 
@@ -185,4 +191,21 @@ export const CRONTAB = [
   '* * * * * custody_observe ?max=1&jobKey=custody_observe',
   '* * * * * trader_orders_sweep ?max=1&jobKey=trader_orders_sweep',
   '41 * * * * receipt_store_backfill ?max=2&jobKey=receipt_store_backfill',
+  '* * * * * worker_heartbeat ?max=1&jobKey=worker_heartbeat',
 ].join('\n');
+
+/** Who this worker is and what it runs — names and states only, never a secret, an address or a key. */
+export interface WorkerIdentity {
+  readonly workerId: string;
+  readonly startedAt: Date;
+  readonly release: string | null;
+  readonly config: Readonly<Record<string, string>>;
+}
+
+export async function recordHeartbeat(db: Db, id: WorkerIdentity): Promise<void> {
+  await sql`
+    insert into worker_heartbeat (worker_id, started_at, beat_at, release, config)
+    values (${id.workerId}, ${id.startedAt}, inrp2p_now(), ${id.release}, ${JSON.stringify(id.config)}::jsonb)
+    on conflict (worker_id) do update set started_at = excluded.started_at, beat_at = excluded.beat_at, release = excluded.release, config = excluded.config`.execute(db);
+}
+
