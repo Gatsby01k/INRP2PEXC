@@ -322,6 +322,9 @@ importers:
       '@inrp2p/routes':
         specifier: workspace:*
         version: link:../../packages/routes
+      '@inrp2p/scanner':
+        specifier: workspace:*
+        version: link:../../packages/scanner
       '@inrp2p/settlement':
         specifier: workspace:*
         version: link:../../packages/settlement
@@ -343,6 +346,9 @@ importers:
       framer-motion:
         specifier: 13.4.3
         version: 13.4.3(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      kysely:
+        specifier: 0.29.6
+        version: 0.29.6
       next:
         specifier: 16.3.5
         version: 16.3.5(@babel/core@7.29.7(supports-color@7.2.0))(@opentelemetry/api@1.9.1)(@playwright/test@1.56.1)(@types/node@24.13.5)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -365,9 +371,6 @@ importers:
       '@better-auth/utils':
         specifier: 0.4.2
         version: 0.4.2
-      '@inrp2p/scanner':
-        specifier: workspace:*
-        version: link:../../packages/scanner
       '@inrp2p/visual':
         specifier: workspace:*
         version: link:../../packages/visual
@@ -386,9 +389,6 @@ importers:
       '@types/three':
         specifier: 0.186.0
         version: 0.186.0
-      kysely:
-        specifier: 0.29.6
-        version: 0.29.6
       lighthouse:
         specifier: 13.4.1
         version: 13.4.1(@opentelemetry/core@2.11.0(@opentelemetry/api@1.9.1))(supports-color@7.2.0)
@@ -779,6 +779,9 @@ importers:
       '@inrp2p/clients':
         specifier: workspace:*
         version: link:../clients
+      '@inrp2p/commands':
+        specifier: workspace:*
+        version: link:../commands
       '@inrp2p/db':
         specifier: workspace:*
         version: link:../db
@@ -813,9 +816,6 @@ importers:
         specifier: 0.29.6
         version: 0.29.6
     devDependencies:
-      '@inrp2p/commands':
-        specifier: workspace:*
-        version: link:../commands
       '@inrp2p/inr-accounts':
         specifier: workspace:*
         version: link:../inr-accounts

@@ -44,4 +44,29 @@ describe('workspace dependency graph check', () => {
     const spec = checkGraph([m('@x/a', 'packages/a', { '@x/b': '1.0.0' }), m('@x/b', 'packages/b')]);
     expect(spec.problems.some((p) => /workspace: protocol/.test(p))).toBe(true);
   });
+
+  it('every package lists what its production source imports where a production install looks (E4)', async () => {
+    const { undeclaredImports } = await import('../workspace-graph.ts');
+    expect(undeclaredImports(new URL('../..', import.meta.url).pathname)).toEqual([]);
+  });
+
+  it('reads the imports a production process loads, and nothing else', async () => {
+    const { importedPackages } = await import('../workspace-graph.ts');
+    const source = [
+      "import { sql } from 'kysely';",
+      "import type { Db } from '@inrp2p/db';",
+      "import pg from 'pg';",
+      "import * as path from 'node:path';",
+      "import './local.ts';",
+      'import {',
+      '  a,',
+      '  b,',
+      "} from '@inrp2p/commands/sub';",
+      "export * from '@inrp2p/audit';",
+      "const later = await import('@inrp2p/scanner');",
+      "export const KIND = 'NOT_A_PACKAGE';",
+      "const text = `import { x } from 'not-an-import'`;",
+    ].join('\n');
+    expect(importedPackages(source)).toEqual(['@inrp2p/audit', '@inrp2p/commands', '@inrp2p/db', '@inrp2p/scanner', 'kysely', 'pg']);
+  });
 });
