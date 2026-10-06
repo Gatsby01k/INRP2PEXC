@@ -46,7 +46,13 @@ BEGIN
 END
 $$;
 
+-- A migrator that is not a superuser — every managed PostgreSQL, and the reference stack — may hand a function to
+-- another role only if that role may create objects in the function's schema. The worker never may in public, so it
+-- holds that privilege for this one statement only: this script runs as one transaction, so it is never visible
+-- outside it (production task E4: found by the point-in-time recovery drill, which migrates as a non-superuser).
+GRANT CREATE ON SCHEMA public TO inrp2p_worker;
 ALTER FUNCTION inrp2p_enqueue_outbox_dispatch() OWNER TO inrp2p_worker;
+REVOKE CREATE ON SCHEMA public FROM inrp2p_worker;
 REVOKE ALL ON FUNCTION inrp2p_enqueue_outbox_dispatch() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION inrp2p_enqueue_outbox_dispatch() TO inrp2p_app;
 REVOKE ALL ON SCHEMA graphile_worker FROM PUBLIC;
