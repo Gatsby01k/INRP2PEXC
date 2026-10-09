@@ -9,7 +9,7 @@ outside the repository. A result is recorded only with the command, SHA and envi
 
 | Gate | Meaning | Status |
 |---|---|---|
-| 1. Code ready | fixes implemented, regressions covered, required checks green on the final SHA | in progress |
+| 1. Code ready | fixes implemented, regressions covered, required checks green on the final SHA | **local PASS** at `30c6e98` (every CI command run locally; see Runs); **CI NOT RUN** — the branch has not been pushed. Not run locally: the component visual compare and a final image rebuild (Docker's storage went read-only when the host disk filled) |
 | 2. Staging verified | production-like environment, real adapters, notifications, both directions, recovery, monitoring, operator procedures | **NOT RUN** — no staging environment or provider credentials exist in this workspace |
 | 3. Production prepared | domains, secrets, custody, bank accounts, liquidity, staff access, monitoring, backups; external conditions closed by their owners | **BLOCKED** — owner/infrastructure inputs (§ External prerequisites) |
 
@@ -41,6 +41,12 @@ nothing on gates 2 or 3. CI on the final SHA replaces them in the final report.
 | 2026-10-09 | `56961d5` | `pnpm test:unit` · `pnpm test:integration` | PASS — 35 files, 1583 tests · PASS — 52 files, 872 tests; 1 skipped (as above) |
 | 2026-10-09 | `56961d5` | images `web` / `worker` / `migrate` built from the release, started on the reference layout (Docker; see E4) | PASS — refusals, starts, probes and shutdown as recorded under E4 |
 | 2026-10-09 | `56961d5` | `node scripts/pitr-drill.ts --image inrp2p-web:56961d5 --web-env <production env>` (Docker `postgres:18.6`, local MinIO) | PASS — no findings; timings under E4 |
+| 2026-10-09 | `30c6e98` | `pnpm workspace:graph` · `pnpm versions:check` · `pnpm secret-scan` · `pnpm lint` · `pnpm typecheck` | PASS · PASS · PASS (1059 files) · PASS · PASS |
+| 2026-10-09 | `30c6e98` | `pnpm --filter @inrp2p/web build`, then `pnpm test:unit` · `pnpm test:integration` | PASS — 35 files, 1583 tests · PASS — 53 files, 873 tests, **none skipped** (the built-app proxy test ran) |
+| 2026-10-09 | `30c6e98` | `pnpm --filter @inrp2p/web test:e2e` (PostgreSQL 18.6 container) | PASS — 24 tests: 17 on the desk, 7 for the client on a Pixel 7 profile |
+| 2026-10-09 | `30c6e98` | `pnpm --filter @inrp2p/web test:lighthouse` | PASS — quote link 100 · 100 · 100 (SEO 54, reported only: the link is `noindex` by design); public home 96 · 100 · 100 · 100. One earlier run on the same day, with the host busy, measured the home page at 84 < 85; the next measured 96 |
+| 2026-10-09 | `dfc327c` | `bash apps/web/visual/docker.sh compare` (the canonical image, emulated on the Apple Silicon host) | PASS — 35 of 35 page baselines |
+| 2026-10-09 | `30c6e98` | `bash packages/ui/visual/docker.sh compare`; release images rebuilt at the final code | **NOT RUN** — Docker's storage went read-only when the host disk filled (98% used) and Docker Desktop did not come back after a restart. The component library is unchanged since `d0cc778`; the last image and drill evidence is `56961d5` (E4) |
 
 ## Items
 
@@ -66,6 +72,7 @@ nothing on gates 2 or 3. CI on the final SHA replaces them in the final report.
 | E2 | P1 | verification + implementation | Statement import verified; TD-12 receipts in private, versioned, write-once object storage | code ready; bucket and retention **BLOCKED** (owner) |
 | E3 | P0 | confirmed defect + implementation | Deployment artifacts, the production contract, readiness, pausing new business, heartbeat, grouped health and alerts | code ready; images built and started locally (E4); staging deployment and paging **NOT RUN**; hosting (D-06) **BLOCKED** (owner) |
 | E4 | P0 | confirmed defects + implementation | Point-in-time recovery drill, restore safety (no second payout), audit-seal archive (TD-16, TD-17) | code ready; reference drill **PASS**; drill on the chosen platform **NOT RUN**; platform, retention and buckets **BLOCKED** (owner) |
+| F | P0 | verification + confirmed defects | Every CI command locally, end to end, page baselines incl. TD-23, Lighthouse | local **PASS** at `30c6e98`; CI **NOT RUN** (branch not pushed); component compare and final images **NOT RUN** (host disk full) |
 
 (The table grows as stages are worked; each row has a section below.)
 
@@ -585,3 +592,55 @@ is wanted stays an open owner question (ADR 0016 §8).
 - **Gates.** Gate 2: the drill on the chosen platform at production size, alert delivery, the reconciliation procedure
   rehearsed with real statements — **NOT RUN**. Gate 3: the platform and its recovery window, the audit-seal bucket
   (Object Lock, compliance mode) and its retention (owner, with legal input), RPO/RTO accepted — **BLOCKED** (owner).
+
+## F — Verification: the CI commands, end to end, page baselines (TD-23), Lighthouse (P0)
+
+- **Found.** Running CI's own commands for the first time on this branch, outside unit and integration:
+  - The keyboard-only end-to-end scenario still had the owner confirm a ₹2,550,000 payout it had sent, which C1
+    refuses since stage C — CI on Linux would have failed there (`f0cf7f2`; its select-all also failed on macOS,
+    where Control+a moves the cursor, and is now ControlOrMeta+a).
+  - The page-baseline and Lighthouse fixture did the same with ₹6,000,000 and ₹4,200,000 legs: seeding stopped with
+    `SECOND_APPROVER_REQUIRED`, so CI's `visual-pages` and `lighthouse` jobs could not run at all (`dac1d06`).
+  - The committed page baselines were stale on `main` itself: the manifest named 27 and 24 existed, and every one of
+    those no longer matched its page (heights changed after later desk, workspace and landing work), so `visual-pages`
+    could not pass there either.
+  - Recording them found three more: the fixture's bank statement no longer reconciled since D-16 (two mismatch cases
+    in what is meant to be the quiet reconciliation); System health measured the scanner's last run, an obligation's
+    age and its own time on the wall clock although they are written on the business clock — identical in
+    production, a daily drift under the frozen fixture clock; and the one truly live reading on that page (database
+    connections) needed pinning after hydration (`80dcc00`, `4e0f50d`).
+  - Every web build warned that the Edge build of `instrumentation.ts` contained `process.exit` (`30c6e98`).
+- **Changed.** The specs and the fixture above; TD-23 — a liquidity-only trader in the fixture, eight captures (the
+  trader's home, orders, an order waiting on its INR, Security Reserve, settlement details; the application as a
+  client sees it; the desk's trader list and one trader) (`b23b226`); all 35 page baselines recorded in the canonical
+  image through the local Docker path (`dfc327c`); the start-up check imported only on the Node.js runtime.
+- **Results.** Under Runs: static checks, unit, integration with nothing skipped, end to end, Lighthouse and the
+  canonical page compare all pass locally. The page baselines were recorded on an Apple Silicon host, so the amd64
+  image ran emulated (VISUAL_BASELINES §5 B): CI's compare is what makes them authoritative.
+- **Not run.** CI on any commit of this branch (it has not been pushed). The component visual compare and the image
+  rebuild at the final code: Docker's storage went read-only when the host disk filled (98% used, Docker's disk image
+  about 60 GiB) and Docker Desktop did not answer after a restart. The component library is unchanged since `d0cc778`;
+  the images and the recovery drill were last verified at `56961d5`, and the code since then that reaches them is the
+  health query's clock, two `data-check` attributes, and the start-up check's module (production refusal re-checked
+  with `next start` on the build).
+- **Gates.** Gate 1: local PASS, CI NOT RUN. Gate 2: NOT RUN. Gate 3: BLOCKED (below).
+
+## External prerequisites (gate 3 inputs, by owner)
+
+Nothing below can be produced from this repository. Each is named with what the release expects of it
+(`docs/DEPLOYMENT.md` §1, §3).
+
+| # | Input | Exactly what is needed | Owner |
+|---|---|---|---|
+| 1 | Hosting (D-06) | A platform with managed PostgreSQL 18 (point-in-time recovery, its recovery window chosen), containers for `web` (2+) and `worker` (1–2), a one-shot `migrate` job, a TLS load balancer per host sending `X-Forwarded-Proto: https`, a secret manager, a monitoring system that scrapes Prometheus text and pages; acceptance of RPO ≤ 5 min / RTO ≤ 2 h or other targets | owner |
+| 2 | Domains | Three public names: `DESK_HOST`, `APP_HOST`, `PUBLIC_HOST`, with TLS | owner |
+| 3 | Field encryption (TD-03) | An AWS KMS key (`INRP2P_KMS_KEY_ARN`, `INRP2P_KEK_ID`) and a workload role allowed to use it; `INRP2P_FIELD_HMAC_BASE64` — 32 random bytes — in the secret manager | owner |
+| 4 | Email (TD-04) | A Resend account, a verified sending domain (SPF, DKIM, DMARC), `RESEND_API_KEY`, `RESEND_FROM` | owner |
+| 5 | Chain (D-05, TD-07) | Two independent TRON providers: `INRP2P_TRON_PRIMARY_URL`/`_GROUP`/`_KEY`, `INRP2P_TRON_SECONDARY_*` in different groups; `INRP2P_USDT_CONTRACT`; then the real smoke (`pnpm smoke:tron`) on them | owner |
+| 6 | Custody (D-02, B2) | The POOL custody provider (`INRP2P_CUSTODY_PROVIDER`), its imported pool addresses, and automatic sweeps disabled for addresses holding earmarked funds (TD-26) | owner |
+| 7 | Object storage (TD-12, TD-17) | The audit-seal bucket — versioning, Object Lock in compliance mode — with `INRP2P_AUDIT_SEAL_RETENTION_DAYS`; optionally the receipts bucket with its retention; a write role for the worker; retention periods with legal input | owner (+ counsel) |
+| 8 | INR accounts | The exchange's settlement and collection accounts (direction BOTH for the one traders pay into), daily capacities, and statement exports for reconciliation | owner |
+| 9 | People | The first OWNER through the protected bootstrap (RUNBOOKS `operator-access`); at least two OWNER/FINANCE people, because approvals, reserve applications, payouts above ₹2,500,000 and lifting the restore fence each need a second person; settlement operators; every one enrolled in TOTP | owner |
+| 10 | Monitoring | `INRP2P_HEALTH_TOKEN` in the scraper (header `x-inrp2p-health-token`, desk host only), the rules in `deploy/reference/prometheus/alerts.yml`, and paging that reaches a person — then tested (gate 2) | owner |
+| 11 | Owner decisions | TD-21's INR side (conversion and recovery terms); rewards on reserve-delivered orders; TD-22 (trader agreement, tax treatment, counterparty checks); D-07 compliance (FIU-IND registration, KYC/AML, TDS) — counsel before launch (SECURITY §9) | owner (+ counsel) |
+| 12 | Staging (gate 2) | An environment built from these images with real adapters, to run: the inbox check, the TRON smoke, real custody reads, the point-in-time drill at production size on the chosen platform, alert delivery, and the procedures (pause, restore fence, reconciliation) rehearsed | owner + engineering |
