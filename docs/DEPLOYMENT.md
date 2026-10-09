@@ -30,11 +30,55 @@ user, with no secret in any layer:
 | `worker` (`worker-pdf` with Chromium for PDF receipts) | graphile-worker: outbox, chain scan/confirm, sweeps, seals, exports | 1–2 (cron jobs are keyed, so two never run the same job) | SIGTERM: takes no new job, finishes running ones, closes its pool (`stop_grace_period` ≥ 60 s) |
 | `migrate` | `scripts/migrate.ts`: SQL migrations under an advisory lock, then the queue schema | one-shot per release | — |
 
-**Order of a release.** 1. `migrate` (as `inrp2p_migrator`). 2. Roll `web` and `worker` to the same release. A process
-refuses to start against a schema that is not exactly its own (`SCHEMA_VERSION`), so an old instance never serves a
-newer schema by accident and a new one never serves an old schema. Migrations are additive; mixed-version behaviour
-of each one is stated in its header (0025: fails closed; 0027: replays across the deploy are refused, not repeated).
-Roll forward; do not roll a schema back once new rows depend on it.
+**Order of a release.** The schema check is strict in both directions, and it is not asked the same way everywhere:
+a web instance asks at start — and **exits** if the schema is not exactly its own — and again on **every readiness
+probe**, so an instance already running against a newer schema turns "not ready" and the load balancer stops sending
+it traffic; a worker asks **only at start**, so a running worker never notices the schema change under it. Hence, for
+every release from this one on:
+
+1. Pull the new images; stop the old worker (SIGTERM: it takes no new job, finishes the running ones, closes its
+   pool).
+2. `migrate` (as `inrp2p_migrator`): the migrations under an advisory lock, then the queue schema. From this moment
+   the old web instances answer "not ready" and get no traffic — an old instance never serves a newer schema.
+3. Start the new web instances at once (they would have exited against the old schema, which is why they start
+   after the migration) and the new worker. The desk and the client app are unavailable from step 2 until the first
+   new web instance is ready — the start time of an instance, seconds — which is the price of never letting one
+   release serve another's schema.
+4. Remove the old web instances.
+
+Migrations are additive; mixed-version behaviour of each one is stated in its header (0025: fails closed; 0027:
+replays across the deploy are refused, not repeated). Roll forward; do not roll a schema back once new rows depend on
+it.
+
+**Upgrading from the release at schema 23 (`d0cc778`) — the first deploy of this release.** That release has **no**
+schema check: its web instances would keep answering "ready" against 34, and nothing has shown that its code is safe
+on 34 (0025 changes how a trade is funded; 0033 and 0034 add triggers its code never expected). And this release
+refuses 23. So there is no rolling path for this one transition — it is a short maintenance window:
+
+1. Note the recovery point (the time, for point-in-time recovery) and announce the window. The desk finishes or holds
+   what is in hand: no payout marked sent during the window.
+2. Stop the old worker (SIGTERM), so nothing scans, confirms, sweeps or delivers under the old rules once the schema
+   moves.
+3. Stop the old web — or put the load balancer in maintenance. The release at 23 cannot pause new business (that
+   control arrives in 0033), so stopping it is the only way to be sure no request, quote or acceptance is written
+   half under the old rules.
+4. `migrate`: 0024–0034 and the queue schema, as `inrp2p_migrator`. Check `select inrp2p_schema_version()` = 34.
+5. Start the new worker. It checks its configuration and the schema, records its first heartbeat — no restore fence:
+   no earlier database identity is on record — and starts its jobs. The scanner continues from its cursor; events the
+   old release left in the outbox are delivered to handlers that are idempotent.
+6. Start the new web instances. Readiness turns 200 when configuration, login and schema are right; only then does
+   traffic arrive.
+7. Check System health: the expected alarms on a database that has never recorded a drill (`restore_drill_age_days`)
+   aside, nothing in alarm; trades already open keep the funding model they were accepted under
+   (`LEGACY_EXCHANGE_FUNDED`).
+8. If the new release does not come up, do not start the old release against 34. Fix forward, or recover the database
+   to the point noted in step 1 — the restore fence then holds outgoing payments until two people have reconciled —
+   and redeploy the old release.
+
+CI's `upgrade` job proves the data side of this transition on every change: the release at 23 writes its own data —
+its fixture world, and its own end-to-end run through its own screens — and this release's migrations carry it to 34
+with nothing lost, the books balanced, every old trade legacy-funded, and this release able to read it
+(`scripts/upgrade-check.ts`).
 
 ## 3. Configuration contract
 
