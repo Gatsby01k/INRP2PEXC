@@ -9,7 +9,7 @@ import { acceptAsClient, clientSendsUsdt, expireStepUp, latestSentQuoteId, press
  * Nothing here is clicked. Focus moves with Tab and the arrow keys, rows and buttons are activated with Enter or
  * Space, the queue's row hotkeys open panels, and ⌘K finds a trade by reference.
  */
-test('quote to payout, keyboard only', async ({ page }) => {
+test('quote to payout, keyboard only', async ({ page, browser }) => {
   const s = state();
   test.slow();
   await signInWithKeyboard(page, s.owner);
@@ -27,7 +27,7 @@ test('quote to payout, keyboard only', async ({ page }) => {
   const quote = page.getByTestId('quote-panel');
   await expect(quote).toBeVisible();
   await pressUntilFocused(page, quote.getByLabel('Client rate (INR per USDT)'));
-  await page.keyboard.press('Control+a');
+  await page.keyboard.press('ControlOrMeta+a');
   await page.keyboard.type('102');
   await expect(quote.getByText('+₹55,000')).toBeVisible();
   await page.keyboard.press('Tab');
@@ -75,10 +75,21 @@ test('quote to payout, keyboard only', async ({ page }) => {
   await pressUntilFocused(page, legs.getByRole('button', { name: 'Save UTR' }).last());
   await page.keyboard.press('Enter');
 
+  // ₹2,550,000 is above the approval threshold, so the owner who marked it sent does not confirm it (SECURITY §4, C1):
+  // the desk says so, and the settlement operator — signed in on their own desk, also by keyboard — confirms it.
+  await expect(legs.getByText('so someone else confirms it')).toBeVisible();
+  const second = await browser.newContext({ baseURL: test.info().project.use.baseURL ?? '' });
+  const confirmer = await second.newPage();
+  await signInWithKeyboard(confirmer, s.settlementOperator);
   await expireStepUp();
-  await pressUntilFocused(page, legs.getByRole('button', { name: /^Confirm/ }).last());
-  await page.keyboard.press('Enter');
-  await stepUp(page, s.owner, { keyboard: true });
+  const theirRow = confirmer.locator(`tr[data-row][data-row-id="trade:${trade.tradeId}"]`);
+  await pressUntilFocused(confirmer, theirRow);
+  await confirmer.keyboard.press('p');
+  const theirLegs = confirmer.getByTestId('trade-panel').getByTestId('legs');
+  await pressUntilFocused(confirmer, theirLegs.getByRole('button', { name: /^Confirm/ }).last());
+  await confirmer.keyboard.press('Enter');
+  await stepUp(confirmer, s.settlementOperator, { keyboard: true });
 
   await expect.poll(async () => tradeState(trade.tradeId), { timeout: 20_000 }).toBe('COMPLETED');
+  await second.close();
 });
