@@ -8,14 +8,19 @@
  * the schema version, the grants, sign-in data, the money journal and the audit chain, the job queue and the chain
  * cursor; the application's own logins must pass the checks a production process runs before it serves; and a restore
  * must not cause a second payout — outgoing payments are held on the recovered copy from the moment it exists, and the
- * worker's first heartbeat raises the restore fence (migration 0034).
+ * worker's first heartbeat raises the restore fence (migration 0034). The audit seals go to a write-once archive (a local
+ * MinIO under Object Lock) before and after the target: on the recovered copy the archive must still prove the trail, the
+ * range only the lost timeline exported must be kept and named as superseded, and the export must go on.
  *
  * It measures what a drill can measure on one machine — the base backup, the recovery, the checks — and records the
  * result in the source database (`backup_verification`), which is what `restore_drill_age_days` reads. A managed
  * database recovers through its own console; `RUNBOOKS backup-restore-drill` says how to run the same checks against it.
  *
- * Usage: node scripts/pitr-drill.ts [--keep] [--image inrp2p-web:<tag>]
- *   --image: also start that web image against the recovered database and ask it whether it is ready.
+ * Usage: node scripts/pitr-drill.ts [--keep] [--image inrp2p-web:<tag> [--web-env <file>]]
+ *   --image:   also start that web image against the recovered database and ask it whether it is ready.
+ *   --web-env: an env file for that web process (docker --env-file): with `INRP2P_ENV=production` and the deployment's
+ *              configuration, readiness runs exactly the checks production runs — configuration, login, schema version.
+ *              Its DATABASE_URL is replaced with the recovered database's. Without it, readiness only asks the database.
  */
 import { spawnSync } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -25,16 +30,19 @@ import { createDb, createPool, databaseDeploymentProblems, type Db } from '@inrp
 import { migrate } from '@inrp2p/db/migrate';
 import { installQueue } from '@inrp2p/outbox';
 import { executeCommand } from '@inrp2p/commands';
-import { appendAudit, sealAudit } from '@inrp2p/audit';
+import { appendAudit, exportAuditSeals, sealAudit, verifyAuditArchive } from '@inrp2p/audit';
 import { Accounts, postJournal } from '@inrp2p/ledger';
 import { Money } from '@inrp2p/kernel';
 import { payoutsHeld, recordWorkerBeat } from '@inrp2p/trades';
 import { restoreProblems } from './restore-checks.ts';
+import { startLocalS3 } from '../test/minio.ts';
 
 const IMAGE = 'postgres:18.6';
 const keep = process.argv.includes('--keep');
 const webImageFlag = process.argv.indexOf('--image');
 const webImage = webImageFlag >= 0 ? process.argv[webImageFlag + 1] : undefined;
+const webEnvFlag = process.argv.indexOf('--web-env');
+const webEnv = webEnvFlag >= 0 ? process.argv[webEnvFlag + 1] : undefined;
 const run = `pitr-${Date.now().toString(36)}`;
 const NET = `${run}-net`;
 const SOURCE = `${run}-source`;
@@ -108,6 +116,9 @@ const timed = async <T>(name: string, fn: () => Promise<T>): Promise<T> => {
 
 let target = '';
 let migratorUrl = '';
+const s3 = await startLocalS3();
+const archive = await s3.bucket('pitr-audit-seals');
+const exportSeals = (db: Db) => exportAuditSeals(db, archive, { retainDays: 1 });
 try {
   docker(['network', 'create', NET]);
   for (const v of ['archive', 'backup', 'restored-data']) docker(['volume', 'create', `${run}-${v}`]);
@@ -139,6 +150,7 @@ try {
     await sql`select graphile_worker.add_job('drill_job', '{}'::json, job_key => 'drill-job')`.execute(db);
     await sql`insert into chain_cursor (network, scanner, last_scanned_block, last_solidified_block, last_run_at) values ('TRON', 'tron_deposits', 1000, 1019, now())`.execute(db);
     await sealAudit(db, { settleSeconds: 0 });
+    await exportSeals(db);
     await beat(db);
     report.sourceIdentity = await identityOf(db);
   });
@@ -157,6 +169,9 @@ try {
     target = (await sql<{ t: string }>`select to_char(clock_timestamp() at time zone 'UTC', 'YYYY-MM-DD HH24:MI:SS.US"+00"') as t`.execute(db)).rows[0]!.t;
     await sleep(1500);
     await write(db, 'lost');
+    // Sealed and exported after the target: a range only the lost timeline has.
+    await sealAudit(db, { settleSeconds: 0 });
+    report.lostExport = (await exportSeals(db))?.key ?? null;
   });
   // Close the segment that holds the target and wait until it is in the archive.
   await withDb(url(SOURCE, 'postgres', pw.postgres, 'postgres'), async (db) => {
@@ -226,6 +241,18 @@ try {
       const paused = (await sql<{ p: boolean }>`select inrp2p_new_business_paused() as p`.execute(db)).rows[0]!.p;
       if (!paused) findings.push('new business is not paused on the recovered copy');
       if ((await beat(db)).raised) findings.push('a second heartbeat raised a second fence');
+      // The archive proves the restored trail; the lost timeline's range is kept and named, not a finding.
+      const restored = await verifyAuditArchive(db, archive);
+      report.archiveAfterRecovery = { ok: restored.ok, archivedSeals: restored.archivedSeals, findings: restored.findings, superseded: restored.superseded };
+      if (!restored.ok) findings.push(`the seal archive does not verify the recovered copy: ${restored.findings.map((f) => f.kind).join(', ')}`);
+      if (!restored.superseded.some((r) => r.key === report.lostExport && r.fence === first.raised)) findings.push('the range only the lost timeline exported is not named as superseded by the fence');
+      // The recovered copy writes, seals and exports again: beside the lost range, under its own name.
+      await write(db, 'after-recovery');
+      await sealAudit(db, { settleSeconds: 0 });
+      const next = await exportSeals(db);
+      const again = await verifyAuditArchive(db, archive);
+      report.archiveAfterNextExport = { exported: next?.key ?? null, ok: again.ok, archivedSeals: again.archivedSeals, superseded: again.superseded.length };
+      if (!next || next.key === report.lostExport || !again.ok) findings.push('the export did not continue on the recovered copy');
     });
     await withDb(workerUrl, async (db) => {
       if ((await payoutsHeld(db)).held) findings.push('outgoing payments are held on the source, which never changed');
@@ -236,19 +263,27 @@ try {
   if (webImage) {
     await timed('app_reconnect', async () => {
       const web = `${run}-web`;
-      docker(['run', '-d', '--name', web, '--network', NET, '-p', '127.0.0.1::3000',
-        '-e', `DATABASE_URL=postgres://inrp2p_app_login:${encodeURIComponent(pw.app)}@${RESTORED}:5432/inrp2p`, '-e', 'DESK_HOST=desk.drill.test', '-e', 'APP_HOST=app.drill.test', '-e', 'PUBLIC_HOST=drill.test',
-        '-e', `OPERATOR_AUTH_SECRET=${secret()}${secret()}`, '-e', `CLIENT_AUTH_SECRET=${secret()}${secret()}`, webImage]);
+      const hosts = webEnv ? [] : ['-e', 'DESK_HOST=desk.drill.test', '-e', 'APP_HOST=app.drill.test', '-e', 'PUBLIC_HOST=drill.test',
+        '-e', `OPERATOR_AUTH_SECRET=${secret()}${secret()}`, '-e', `CLIENT_AUTH_SECRET=${secret()}${secret()}`];
+      docker(['run', '-d', '--name', web, '--network', NET, '-p', '127.0.0.1::3000', ...(webEnv ? ['--env-file', webEnv] : []), ...hosts,
+        '-e', `DATABASE_URL=postgres://inrp2p_app_login:${encodeURIComponent(pw.app)}@${RESTORED}:5432/inrp2p`, webImage]);
       const webPort = docker(['port', web, '3000/tcp']).split('\n')[0]!.split(':').pop();
+      const deskHost = docker(['exec', web, 'printenv', 'DESK_HOST'], { allowFail: true }) || 'desk.drill.test';
+      report.webMode = docker(['exec', web, 'printenv', 'INRP2P_ENV'], { allowFail: true }) === 'production' ? 'production checks' : 'database only';
       const until = Date.now() + 90_000;
       let answer = 0;
       while (Date.now() < until) {
-        answer = await fetch(`http://127.0.0.1:${webPort}/api/health/ready`, { headers: { host: 'desk.drill.test' } }).then((r) => r.status, () => 0);
+        answer = await fetch(`http://127.0.0.1:${webPort}/api/health/ready`, { headers: { host: deskHost, 'x-forwarded-proto': 'https' } }).then((r) => r.status, () => 0);
         if (answer === 200) break;
+        if (docker(['inspect', '-f', '{{.State.Running}}', web], { allowFail: true }) === 'false') break;
         await sleep(1000);
       }
       report.appReady = answer;
-      if (answer !== 200) findings.push(`the web image did not become ready against the recovered database (${answer})`);
+      if (answer !== 200) {
+        findings.push(`the web image did not become ready against the recovered database (${answer})`);
+        const logs = spawnSync('docker', ['logs', '--tail', '20', web], { encoding: 'utf8' });
+        report.webLog = `${logs.stdout ?? ''}${logs.stderr ?? ''}`.trim();
+      }
       if (!keep) docker(['rm', '-f', web], { allowFail: true });
     });
   }
@@ -269,6 +304,7 @@ try {
   }
   console.log(JSON.stringify(report, null, 2));
   if (findings.length > 0) process.exitCode = 1;
+  await s3.stop();
   if (!keep) {
     for (const c of [RESTORED, SOURCE]) docker(['rm', '-f', c], { allowFail: true });
     for (const v of ['archive', 'backup', 'restored-data']) docker(['volume', 'rm', `${run}-${v}`], { allowFail: true });

@@ -586,8 +586,17 @@ a delivery is sent when the provider gave it an id, and only then.
 
 **What you were told.** `audit_archive_failures` above zero: the last daily check of the seal archive found a `GAP`
 (a range missing from the archive), `CHAIN_BROKEN`, `UNREADABLE`, `SEAL_DIFFERS` (a seal here is not the archived one),
-`SEAL_MISSING_HERE`, `EVENTS_DIFFER` (audit events no longer hash to the archived seal), or `NOT_ARCHIVED` (a sealed range
-waited more than 48 hours for its export). The findings are on the latest `audit_archive_verification` row.
+`SEAL_MISSING_HERE`, `EVENTS_DIFFER` (audit events no longer hash to the archived seal), `DIVERGED` (an archived range
+that leaves this database's chain and no recorded database change explains), or `NOT_ARCHIVED` (a sealed range waited
+more than 48 hours for its export). The findings are on the latest `audit_archive_verification` row.
+
+**Not a finding: superseded ranges.** After a point-in-time restore the archive still holds what the lost timeline
+exported — seals made after the moment the database went back to, under numbers the restored database will use again for
+other events. Ranges are named by their last seal's hash, so the two timelines never collide; the check follows this
+database's chain and lists a range that leaves it *after the `known_until` of a restore fence* under `superseded` on the
+same row, with the fence it belongs to. They are evidence of what existed after the recovery point, kept under Object
+Lock; take them into the restore reconciliation (`restore-fence`). Continuity is checked along the event sequence and the
+hash chain, never the seal numbers, which come from a sequence that skips after a crash, a failover or a recovery.
 
 **What to check first.** `NOT_ARCHIVED` alone: the export job — the worker's log, the bucket's credentials and
 reachability (`audit-seal-stale`). Anything else is a security incident until proved otherwise: the archive is written

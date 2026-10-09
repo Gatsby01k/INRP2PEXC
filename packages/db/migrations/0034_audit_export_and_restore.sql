@@ -2,8 +2,10 @@
 --
 -- 1. `audit_seal_export`: each export writes a contiguous range of seals to write-once storage under Object Lock
 --    (outside this database and outside the reach of its credentials) and is recorded here — which seals, which
---    object, the hash of the bytes written. Ranges never overlap and never skip (IX099): a gap is a range nobody can
---    prove, so the database refuses to record one.
+--    object, the hash of the bytes written. Ranges never overlap and never skip (IX099): each continues the last one in
+--    the event sequence and in the hash chain — not in seal numbers, which come from a sequence and may skip after a
+--    crash or a failover — because a gap is a range nobody can prove. A range is named by its first and last seal and
+--    its last seal's hash, so the ranges of two timelines — before and after a restore — never take each other's name.
 -- 2. `audit_archive_verification`: each comparison of the archive with the database — the archive's own chain, the
 --    seals here, and the audit events re-hashed against the archived seals — and what it found.
 -- 3. `backup_verification`: each restore drill (a dump restored, or a point-in-time recovery) with what it proved and
@@ -26,28 +28,34 @@ CREATE TABLE audit_seal_export (
   seal_count     integer NOT NULL CHECK (seal_count > 0),
   last_seal_hash text NOT NULL CHECK (last_seal_hash ~ '^[0-9a-f]{64}$'),
   bucket         text NOT NULL,
-  object_key     text NOT NULL UNIQUE CHECK (object_key ~ '^audit-seals/v1/[0-9]{12}-[0-9]{12}\.json$'),
+  object_key     text NOT NULL UNIQUE CHECK (object_key ~ '^audit-seals/v1/[0-9]{12}-[0-9]{12}-[0-9a-f]{16}\.json$'),
   version_id     text,
   sha256         text NOT NULL CHECK (sha256 ~ '^[0-9a-f]{64}$'),
   retain_until   timestamptz NOT NULL,
   exported_at    timestamptz NOT NULL DEFAULT inrp2p_now(),
-  CHECK (last_seal_id >= first_seal_id AND seal_count = last_seal_id - first_seal_id + 1)
+  CHECK (last_seal_id >= first_seal_id)
 );
 
 CREATE FUNCTION inrp2p_guard_audit_seal_export() RETURNS trigger
 LANGUAGE plpgsql AS $$
 DECLARE
-  previous bigint;
+  previous audit_seal_export%ROWTYPE;
   first_seal audit_seal%ROWTYPE;
   last_seal audit_seal%ROWTYPE;
+  seals integer;
 BEGIN
-  SELECT max(last_seal_id) INTO previous FROM audit_seal_export;
-  IF NEW.first_seal_id <> coalesce(previous, 0) + 1 THEN
-    RAISE EXCEPTION 'audit seal export must continue at seal %, not %', coalesce(previous, 0) + 1, NEW.first_seal_id USING ERRCODE = 'IX099';
-  END IF;
+  SELECT * INTO previous FROM audit_seal_export ORDER BY last_seal_id DESC LIMIT 1;
   SELECT * INTO first_seal FROM audit_seal WHERE id = NEW.first_seal_id;
   SELECT * INTO last_seal FROM audit_seal WHERE id = NEW.last_seal_id;
-  IF first_seal.id IS NULL OR last_seal.id IS NULL OR NEW.from_seq <> first_seal.from_seq OR NEW.to_seq <> last_seal.to_seq OR NEW.last_seal_hash <> last_seal.seal_hash THEN
+  -- The next events and the next link of the chain, after the last recorded range.
+  IF NEW.from_seq <> coalesce(previous.to_seq, 0) + 1 OR NEW.first_seal_id <= coalesce(previous.last_seal_id, 0)
+     OR first_seal.id IS NULL OR first_seal.prev_seal_hash IS DISTINCT FROM previous.last_seal_hash THEN
+    RAISE EXCEPTION 'audit seal export % must continue the recorded exports at event %', NEW.object_key, coalesce(previous.to_seq, 0) + 1 USING ERRCODE = 'IX099';
+  END IF;
+  SELECT count(*) INTO seals FROM audit_seal WHERE id BETWEEN NEW.first_seal_id AND NEW.last_seal_id;
+  IF last_seal.id IS NULL OR NEW.from_seq <> first_seal.from_seq OR NEW.to_seq <> last_seal.to_seq OR NEW.last_seal_hash <> last_seal.seal_hash
+     OR NEW.seal_count <> seals
+     OR NEW.object_key <> format('audit-seals/v1/%s-%s-%s.json', lpad(NEW.first_seal_id::text, 12, '0'), lpad(NEW.last_seal_id::text, 12, '0'), left(NEW.last_seal_hash, 16)) THEN
     RAISE EXCEPTION 'audit seal export % does not describe seals % to %', NEW.object_key, NEW.first_seal_id, NEW.last_seal_id USING ERRCODE = 'IX099';
   END IF;
   RETURN NEW;
@@ -62,8 +70,11 @@ CREATE TABLE audit_archive_verification (
   ran_at          timestamptz NOT NULL DEFAULT inrp2p_now(),
   ok              boolean NOT NULL,
   archived_seals  integer NOT NULL CHECK (archived_seals >= 0),
-  -- Machine-readable findings (`GAP`, `CHAIN_BROKEN`, `SEAL_DIFFERS`, `EVENTS_DIFFER`, `NOT_ARCHIVED`…), never content.
+  -- Machine-readable findings (`GAP`, `CHAIN_BROKEN`, `SEAL_DIFFERS`, `EVENTS_DIFFER`, `NOT_ARCHIVED`, `DIVERGED`…), never content.
   findings        jsonb NOT NULL DEFAULT '[]'::jsonb,
+  -- Ranges from a timeline this database no longer has — exported before a restore, sealed after the moment a restore
+  -- fence says the records were whole — kept in the archive and named here, not counted as findings.
+  superseded      jsonb NOT NULL DEFAULT '[]'::jsonb,
   CHECK (ok = (findings = '[]'::jsonb))
 );
 CREATE INDEX audit_archive_verification_ran_idx ON audit_archive_verification (ran_at DESC);
@@ -181,6 +192,23 @@ END
 $$;
 CREATE TRIGGER restore_fence_lift_people BEFORE UPDATE ON restore_fence_lift FOR EACH ROW EXECUTE FUNCTION inrp2p_guard_restore_fence_lift();
 CREATE TRIGGER restore_fence_lifted_by_approval BEFORE UPDATE ON restore_fence FOR EACH ROW EXECUTE FUNCTION inrp2p_guard_restore_fence_lift();
+
+-- A fence starts raised and a lift starts requested: neither is written already decided (IX101).
+CREATE FUNCTION inrp2p_guard_restore_fence_insert() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+  IF TG_TABLE_NAME = 'restore_fence' THEN
+    IF NEW.status <> 'RAISED' OR NEW.lift_id IS NOT NULL OR NEW.lifted_by IS NOT NULL OR NEW.lifted_at IS NOT NULL THEN
+      RAISE EXCEPTION 'a restore fence is raised first and lifted only by an approved reconciliation' USING ERRCODE = 'IX101';
+    END IF;
+  ELSIF NEW.status <> 'REQUESTED' OR NEW.decided_by IS NOT NULL OR NEW.decided_at IS NOT NULL THEN
+    RAISE EXCEPTION 'a restore fence lift is requested first and decided by someone else' USING ERRCODE = 'IX101';
+  END IF;
+  RETURN NEW;
+END
+$$;
+CREATE TRIGGER restore_fence_insert BEFORE INSERT ON restore_fence FOR EACH ROW EXECUTE FUNCTION inrp2p_guard_restore_fence_insert();
+CREATE TRIGGER restore_fence_lift_insert BEFORE INSERT ON restore_fence_lift FOR EACH ROW EXECUTE FUNCTION inrp2p_guard_restore_fence_insert();
 
 -- Held while a fence is raised — and from the moment the database changed, before any worker has noticed: the latest
 -- heartbeat names one cluster and timeline, the database is on another, and no fence has named the new one yet (a fence

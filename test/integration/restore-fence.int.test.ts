@@ -148,6 +148,14 @@ describe('after the database changed underneath (E4)', () => {
     const declined = await decide(w.financeOp, second.lift!.id, false);
     expect(declined).toMatchObject({ held: true, lift: null, fence: { ref: raised.fence!.ref } });
 
+    // Nothing is written already decided: not a fence already lifted, not a lift already approved (IX101).
+    await expect(sql`insert into restore_fence (status, reason, raised_by, lift_id, lifted_by, lifted_at)
+                     values ('LIFTED', 'written already lifted', 'SYSTEM:test', gen_random_uuid(), ${w.financeOp2.ref.id}, now())`.execute(w.app))
+      .rejects.toSatisfy((e) => pgErrorCode(e) === 'IX101');
+    await expect(sql`insert into restore_fence_lift (fence_id, status, reconciliation, requested_by, decided_by, decided_at)
+                     values (${raised.fence!.id}, 'APPROVED', 'a reconciliation written already approved', ${w.financeOp.ref.id}, ${w.financeOp2.ref.id}, now())`.execute(w.app))
+      .rejects.toSatisfy((e) => pgErrorCode(e) === 'IX101');
+
     const third = await askToLift(w.financeOp, 'Compared the bank statements and the chain since 10:42 IST; nothing unrecorded on either.');
     expect(await decide(w.financeOp2, third.lift!.id, true)).toMatchObject({ held: false });
     const lifts = await w.app.selectFrom('restore_fence_lift').select('status').where('fence_id', '=', raised.fence!.id).orderBy('requested_at').execute();

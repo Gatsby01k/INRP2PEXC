@@ -71,6 +71,7 @@ export interface AuditArchiveVerificationTable {
   ok: boolean;
   archived_seals: number;
   findings: Generated<unknown>;
+  superseded: Generated<unknown>;
 }
 
 /** Each restore drill and what it proved (migration 0034, TD-16). */

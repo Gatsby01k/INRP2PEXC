@@ -133,6 +133,8 @@ export function buildTaskList(
     }
     const verified = await verifyAuditArchive(db, target.archive);
     if (!verified.ok) helpers.logger.error(`audit_seal_export: the archive does not verify: ${verified.findings.map((f) => f.kind).join(', ')}`);
+    // Ranges a lost timeline exported before a restore: kept in the archive, named here, never a finding.
+    for (const r of verified.superseded) helpers.logger.info(`audit_seal_export: ${r.key} is from before restore fence ${r.fence} (diverges at seal ${r.divergesAt}); kept`);
   };
   // E3: the worker says it is alive, and what it runs, once a minute (readiness and `worker_heartbeat_age_seconds`);
   // E4: and notices when the database is not the one it last wrote to, which holds outgoing payments.
