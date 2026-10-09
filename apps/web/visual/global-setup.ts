@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { rm } from 'node:fs/promises';
 import { deskBaseUrl, startDesk, surfacePorts } from '../harness/desk-server.ts';
-import { signInAndSave, signInClientAndSave } from './auth.ts';
+import { signInAndSave, signInClientAndSave, signInTraderAndSave } from './auth.ts';
 import { UPDATE_REQUESTED, guard } from './environment.ts';
 import { CLIENT_AUTH_SECRET, OPERATOR_AUTH_SECRET, VISUAL_CUSTODY_PROVIDER, VISUAL_FIELD_KEYS, seedVisual } from './world.ts';
 
@@ -39,5 +39,6 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   console.log(`visual: desk ${deskBaseUrl(ports.desk)} · app ${deskBaseUrl(ports.app)} · link ${deskBaseUrl(ports.public)}`);
   await signInAndSave(deskBaseUrl(ports.desk), state);
   await signInClientAndSave(deskBaseUrl(ports.app), state.client.email, OTP_SINK_FILE);
+  await signInTraderAndSave(deskBaseUrl(ports.app), state.trader.email, OTP_SINK_FILE);
   return stop;
 }

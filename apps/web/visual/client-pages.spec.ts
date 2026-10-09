@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { deskBaseUrl, surfacePorts } from '../harness/desk-server.ts';
-import { CLIENT_AUTH_FILE } from './auth.ts';
+import { CLIENT_AUTH_FILE, TRADER_AUTH_FILE } from './auth.ts';
 import { FIXED_TIME, capture, closeFixtureDb, state } from './support.ts';
 
 /**
@@ -66,6 +66,48 @@ test('notifications', async ({ page }) => {
   await page.goto('/notifications');
   await expect(page.getByRole('heading', { name: 'Notifications', exact: true })).toBeVisible();
   await capture(page, 'client-notifications');
+});
+
+test('traders: the application, as a client of the exchange sees it (TD-23)', async ({ page }) => {
+  await page.goto('/traders/apply');
+  await expect(page.getByRole('heading', { name: 'Become a trader', exact: true })).toBeVisible();
+  await capture(page, 'client-trader-apply');
+});
+
+/** The trader's own pages, under the trader's own session: a company that provides INR and has no Exchange (TD-23). */
+test.describe('traders', () => {
+  test.use({ storageState: TRADER_AUTH_FILE });
+
+  test('home: capacity, rate and the order in progress', async ({ page }) => {
+    await page.goto('/traders');
+    await expect(page.getByRole('heading', { name: 'Traders', exact: true })).toBeVisible();
+    await expect(page.getByText(state().trader.orderRef).first()).toBeVisible();
+    await capture(page, 'client-traders');
+  });
+
+  test('orders', async ({ page }) => {
+    await page.goto('/traders/orders');
+    await expect(page.getByRole('heading', { name: 'Orders', exact: true })).toBeVisible();
+    await capture(page, 'client-trader-orders');
+  });
+
+  test('an order waiting on the trader’s INR', async ({ page }) => {
+    await page.goto(`/traders/orders/${state().trader.orderRef}`);
+    await expect(page.getByRole('heading', { name: state().trader.orderRef, exact: true })).toBeVisible();
+    await capture(page, 'client-trader-order');
+  });
+
+  test('the Security Reserve', async ({ page }) => {
+    await page.goto('/traders/reserve');
+    await expect(page.getByRole('heading', { name: 'Security Reserve', exact: true })).toBeVisible();
+    await capture(page, 'client-trader-reserve');
+  });
+
+  test('settlement details', async ({ page }) => {
+    await page.goto('/traders/settlement');
+    await expect(page.getByRole('heading', { name: 'New settlement details', exact: true })).toBeVisible();
+    await capture(page, 'client-trader-settlement');
+  });
 });
 
 /*

@@ -56,6 +56,29 @@ export async function signInClientAndSave(baseURL: string, email: string, sinkFi
   }
 }
 
+export const TRADER_AUTH_FILE = path.join(import.meta.dirname, '.auth-trader.json');
+
+/**
+ * A trader's own session (TD-23): the same real sign-in form, for a person whose company provides liquidity only, so
+ * the workspace opens on Traders — never on the Exchange it does not have.
+ */
+export async function signInTraderAndSave(baseURL: string, email: string, sinkFile: string): Promise<void> {
+  const browser = await chromium.launch();
+  try {
+    const context = await browser.newContext({ baseURL });
+    const page = await context.newPage();
+    await page.goto('/sign-in');
+    await page.getByLabel('Work email').fill(email);
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.getByLabel('Verification code').fill(await codeFromSink(sinkFile, email));
+    await expect(page.getByRole('heading', { name: 'Traders', exact: true })).toBeVisible();
+    await context.storageState({ path: TRADER_AUTH_FILE });
+    await context.close();
+  } finally {
+    await browser.close();
+  }
+}
+
 async function codeFromSink(sinkFile: string, email: string): Promise<string> {
   for (let i = 0; i < 50; i++) {
     const lines = (await readFile(sinkFile, 'utf8').catch(() => '')).trim().split('\n').filter(Boolean);

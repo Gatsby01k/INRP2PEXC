@@ -29,6 +29,9 @@ export const CAPTURES = [
   'operator-command-bar',
   'operator-step-up',
   'operator-system',
+  // The desk's Traders pages (TD-23): the list, and one trader with its order and reserve.
+  'operator-trader-desk',
+  'operator-trader',
   // The client product (Phase 7). Same rules, same environment; different surface and, for the link, a phone.
   'client-exchange-quote',
   'client-trade-awaiting-usdt',
@@ -37,6 +40,13 @@ export const CAPTURES = [
   'client-history',
   'client-destinations',
   'client-notifications',
+  // Traders, from the trader's own session (TD-23) — and the application, from a client of the exchange.
+  'client-traders',
+  'client-trader-orders',
+  'client-trader-order',
+  'client-trader-reserve',
+  'client-trader-settlement',
+  'client-trader-apply',
   'link-quote-mobile',
   'link-verification-mobile',
   // Phase 9: the public site, on the same phone the link is read on.

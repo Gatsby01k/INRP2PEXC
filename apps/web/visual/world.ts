@@ -14,16 +14,19 @@ import { FAKE_USDT_CONTRACT, FakeCustodyAdapter, FakeTronChain, FakeTronProvider
 import { executeCommand } from '@inrp2p/commands';
 import type { ClientActor, DomainCommand, OperatorActor, OperatorRole } from '@inrp2p/identity';
 import { createClientAuth, createOperatorAuth, provisionClientUser, provisionOperator } from '@inrp2p/identity';
-import { addBankAccount, addWallet, createClient, linkClientUser, setCanAcceptQuotes } from '@inrp2p/clients';
+import { addBankAccount, addWallet, createClient, linkClientUser, setCanAcceptQuotes, setClientExchangeAccess } from '@inrp2p/clients';
 import { createInrAccount, createSettlementEntity, setDayCapacity } from '@inrp2p/inr-accounts';
 import { configureRoute, createRoute } from '@inrp2p/routes';
 import { publishRouteRate } from '@inrp2p/pricing';
 import { acceptQuote, createQuote, createQuoteLink, createRequest, sendQuote } from '@inrp2p/quotes';
 import { confirmPayout, confirmRouteSettlement, createPayoutLeg, importBankStatement, recordLegEvidence, recordRouteSettlement, sendPayoutLeg } from '@inrp2p/settlement';
-import { acknowledgedSignalHandler, clientNotificationHandler } from '@inrp2p/notifications';
+import { acknowledgedSignalHandler, clientNotificationHandler, traderNotificationHandler } from '@inrp2p/notifications';
 import { receiptHandler } from '@inrp2p/reporting';
 import { runTronConfirm, runTronScan } from '@inrp2p/scanner';
 import { importPoolAddresses, recordCustodyCapability, registerTreasuryWallet } from '@inrp2p/treasury';
+import {
+  acceptOrder, applyAsTrader, approveTrader, assignRequest, configureTraderProgram, setAvailability, traderReserveAddress, updateBlock,
+} from '@inrp2p/traders';
 
 /**
  * The world the page baselines are captured from.
@@ -88,6 +91,8 @@ export interface VisualState {
   readonly openRequestId: string;
   /** The client product's own fixture: one signed-in person, one live quote, one link to it. */
   readonly client: { readonly email: string; readonly quoteRef: string; readonly linkToken: string };
+  /** A trader that provides INR (D-16): signed in on its own, one order waiting on its payment (TD-23). */
+  readonly trader: { readonly email: string; readonly traderId: string; readonly orderRef: string };
 }
 
 /** The one protector the seed and the built app share. */
@@ -127,6 +132,12 @@ const WALL_CLOCK_COLUMNS: readonly { table: string; columns: readonly string[] }
   { table: 'treasury_wallet', columns: ['observed_at', 'created_at'] },
   { table: 'liquidity_route', columns: ['created_at'] },
   { table: 'inr_settlement_account', columns: ['created_at'] },
+  { table: 'trader_program', columns: ['updated_at'] },
+  // A trader's page shows its decisions (audit events, timed by the wall clock on purpose: an audit time is real) and
+  // when its bank account and wallet were submitted (TD-23).
+  { table: 'audit_event', columns: ['at'] },
+  { table: 'bank_account', columns: ['created_at'] },
+  { table: 'crypto_wallet', columns: ['created_at'] },
 ];
 
 async function pinWallClockColumns(db: Db): Promise<void> {
@@ -362,9 +373,63 @@ export async function seedVisual(adminUrl: string): Promise<VisualState> {
   await run(world, createQuoteLink(owner.actor, {}, (t) => { linkToken = t; }), owner.ref, 'quote_link.create', { quoteId: pendingQuote.quoteId });
   const pendingQuoteRef = (await world.selectFrom('quote').select('ref').where('id', '=', pendingQuote.quoteId).executeTakeFirstOrThrow()).ref;
 
+  // ── Traders (TD-23) ────────────────────────────────────────────────────────────────────────────────────
+  // 7b. Konkan Liquidity buys USDT with its own INR (D-16): applied, approved, its Security Reserve funded on chain
+  //     from its registered wallet, a buy block live. Bharat sells 10,000 USDT through the desk, which routes the
+  //     request to Konkan; Konkan accepts, the client accepts the quote and its USDT arrives — so the order waits
+  //     on Konkan's INR, which is the screen a trader is looking at while it pays.
+  const programme = await world.selectFrom('trader_program').select('version').where('id', '=', 1).executeTakeFirstOrThrow();
+  await run(world, configureTraderProgram(owner.actor), owner.ref, 'trader_program.configure', {
+    expectedVersion: programme.version, defaultRequiredReserve: '500', rewardBps: 10, collectionAccountId: account.accountId, reason: 'the visual fixture programme',
+  });
+  const konkan = await run(world, createClient(owner.actor), owner.ref, 'client.create', {
+    legalName: 'Konkan Liquidity LLP', displayName: 'Konkan Liquidity', type: 'COMPANY' as const, typicalDirection: 'BUY_USDT' as const,
+  });
+  // It provides liquidity only: no Exchange, so its workspace is Traders alone — the shell a trader actually sees.
+  await run(world, setClientExchangeAccess(owner.actor), owner.ref, 'client.set_exchange_access', {
+    clientId: konkan.clientId, exchangeAccess: false, reason: 'provides liquidity only, through the trader programme',
+  });
+  const konkanBank = await run(world, addBankAccount(owner.actor, protector), owner.ref, 'client_bank.add', {
+    clientId: konkan.clientId, holderName: 'Konkan Liquidity LLP', bankName: 'Kotak Mahindra Bank', ifsc: 'KKBK0000123',
+    accountNumber: '74130211980057', railPreferences: ['IMPS', 'NEFT'] as const,
+  });
+  const konkanWalletAddress = address('konkan-wallet');
+  const konkanWallet = await run(world, addWallet(owner.actor), owner.ref, 'client_wallet.add', {
+    clientId: konkan.clientId, network: 'TRON' as const, address: konkanWalletAddress, purpose: 'BOTH' as const, label: 'Konkan wallet',
+  });
+  const konkanDesk = await clientPerson(world, clientAuth, owner, konkan.clientId, 'desk@konkanliquidity.test', 'Konkan desk');
+  const traderDeps = { custody, protector, chain: chain.deps.chain };
+  await runClient(world, applyAsTrader(konkanDesk.actor, traderDeps), konkanDesk.ref, 'trader.apply', {
+    experience: 'BINANCE' as const, telegram: '@konkan_desk', confirmOwnership: true, offersBuy: true, offersSell: false,
+    typicalInr: '1020000.00', dailyInr: '2000000.00', bankAccountId: konkanBank.bankAccountId, walletId: konkanWallet.walletId,
+  });
+  const traderId = (await world.selectFrom('trader_profile').select('id').where('client_id', '=', konkan.clientId).executeTakeFirstOrThrow()).id;
+  await run(world, approveTrader(owner.actor), owner.ref, 'trader.approve', { traderId, requiredReserve: '500' });
+  const reserve = await runClient(world, traderReserveAddress(konkanDesk.actor, traderDeps), konkanDesk.ref, 'trader.reserve_address', {});
+  chain.chain.add({ from: konkanWalletAddress, to: reserve.address, amountMinor: Money.parse('800', 'USDT').minor });
+  chain.chain.solidifyAll();
+  await runTronScan(world, chain.deps);
+  await runTronConfirm(world, chain.deps);
+  const buyBlock = await world.selectFrom('trader_block').select('version').where('trader_id', '=', traderId).where('side', '=', 'BUY_USDT').executeTakeFirstOrThrow();
+  await runClient(world, updateBlock(konkanDesk.actor), konkanDesk.ref, 'trader.update_block', {
+    side: 'BUY_USDT' as const, expectedVersion: buyBlock.version, capacity: '2000000.00', rate: '104.80', minOrder: '50000.00', maxOrder: '1500000.00', status: 'ACTIVE' as const,
+  });
+  await runClient(world, setAvailability(konkanDesk.actor), konkanDesk.ref, 'trader.set_availability', { available: true });
+  const traderRequest = await run(world, createRequest(owner.actor, {}), owner.ref, 'request.create', {
+    clientId: bharat.clientId, direction: 'SELL_USDT' as const, fixedSide: 'BASE' as const, amount: '10000',
+    targetRate: '102.000000', bankAccountId: bharatBank.bankAccountId,
+  });
+  const assigned = await run(world, assignRequest(owner.actor), owner.ref, 'trader_order.assign', { requestId: traderRequest.requestId });
+  await runClient(world, acceptOrder(konkanDesk.actor), konkanDesk.ref, 'trader_order.accept', { ref: assigned.ref });
+  const traderRoute = (await world.selectFrom('trader_order').select('route_id').where('id', '=', assigned.orderId).executeTakeFirstOrThrow()).route_id;
+  await trade(world, owner, {
+    clientId: bharat.clientId, acceptor: bharatAcceptor, routeId: traderRoute, bankAccountId: bharatBank.bankAccountId,
+    amount: '10000', clientRate: '102.000000', chain, requestId: traderRequest.requestId,
+  });
+
   // 8. The inbox, filled the way production fills it: by running the outbox over the events these commands
   //    already enqueued. Nothing writes a notification directly.
-  await dispatchOutbox(world, [clientNotificationHandler(world), receiptHandler(world), acknowledgedSignalHandler()], { batchSize: 500 });
+  await dispatchOutbox(world, [clientNotificationHandler(world), traderNotificationHandler(world), receiptHandler(world), acknowledgedSignalHandler()], { batchSize: 500 });
 
   // 8b. A bank statement, reconciled. Its lines are the payments the desk actually confirmed on this account,
   //     so the import matches everything and opens no case — the quiet outcome, which is the one a baseline
@@ -412,6 +477,7 @@ export async function seedVisual(adminUrl: string): Promise<VisualState> {
     tradeRefs: { completed: refOf(completed.tradeId), awaitingPayout: refOf(awaiting.tradeId), awaitingDeposit: refOf(awaitingDeposit.tradeId) },
     openRequestId: openRequest.requestId,
     client: { email: 'treasury@acmepay.test', quoteRef: pendingQuoteRef, linkToken },
+    trader: { email: konkanDesk.email, traderId, orderRef: assigned.ref },
   };
   writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
   await world.destroy();
@@ -435,12 +501,16 @@ async function trade(
     deposit?: string;
     /** Leave the trade waiting for its USDT, which is the first thing a client's own trade screen shows. */
     skipDeposit?: boolean;
+    /** A request already made — one the desk routed to a trader, whose route the quote is then made on. */
+    requestId?: string;
   },
 ): Promise<{ tradeId: string }> {
-  const request = await run(db, createRequest(owner.actor, {}), owner.ref, 'request.create', {
-    clientId: input.clientId, direction: 'SELL_USDT' as const, fixedSide: 'BASE' as const, amount: input.amount,
-    targetRate: input.clientRate, bankAccountId: input.bankAccountId,
-  });
+  const request = input.requestId
+    ? { requestId: input.requestId }
+    : await run(db, createRequest(owner.actor, {}), owner.ref, 'request.create', {
+        clientId: input.clientId, direction: 'SELL_USDT' as const, fixedSide: 'BASE' as const, amount: input.amount,
+        targetRate: input.clientRate, bankAccountId: input.bankAccountId,
+      });
   const quote = await run(db, createQuote(owner.actor, {}), owner.ref, 'quote.create', {
     requestId: request.requestId, routeId: input.routeId, clientRate: input.clientRate, validitySeconds: 180,
   });
@@ -511,6 +581,31 @@ async function acceptor(db: Db, clientAuth: ReturnType<typeof createClientAuth>,
   const linked = await run(db, linkClientUser(owner.actor), owner.ref, 'client_user.link', { clientId, userId, role: 'CLIENT_ADMIN' as const });
   await run(db, setCanAcceptQuotes(owner.actor), owner.ref, 'client_user.set_accept_quotes', { clientUserId: linked.clientUserId, canAcceptQuotes: true });
   return { userId };
+}
+
+/**
+ * A client company's own person: provisioned like a real sign-up, email verified, linked as the company's admin with
+ * authority to commit, and given a client session (with a fresh verification) for the seeding commands they take
+ * themselves. The pages are later captured under a session the product issues through its own sign-in form.
+ */
+async function clientPerson(db: Db, clientAuth: ReturnType<typeof createClientAuth>, owner: Awaited<ReturnType<typeof operator>>, clientId: string, email: string, name: string) {
+  const userId = await provisionClientUser(clientAuth, { email, name });
+  await sql`update auth_user set email_verified = true where id = ${userId}`.execute(db);
+  const linked = await run(db, linkClientUser(owner.actor), owner.ref, 'client_user.link', { clientId, userId, role: 'CLIENT_ADMIN' as const });
+  await run(db, setCanAcceptQuotes(owner.actor), owner.ref, 'client_user.set_accept_quotes', { clientUserId: linked.clientUserId, canAcceptQuotes: true });
+  const session = await db
+    .insertInto('auth_session')
+    .values({ expires_at: new Date(Date.now() + 3_600_000), token: randomUUID(), created_at: new Date(), updated_at: new Date(), user_id: userId, surface: 'CLIENT' })
+    .returning('id')
+    .executeTakeFirstOrThrow();
+  await sql`insert into step_up_verification (user_id, session_id, method, verified_at) values (${userId}, ${session.id}, 'TOTP', statement_timestamp())`.execute(db);
+  const actor: ClientActor = { kind: 'CLIENT', userId, sessionId: session.id };
+  return { userId, email, actor, ref: { type: 'USER' as const, id: userId, surface: 'CLIENT' as const, sessionId: session.id } };
+}
+
+async function runClient<P, R>(db: Db, def: DomainCommand<P, R>, ref: { type: 'USER'; id: string; surface: 'CLIENT'; sessionId: string }, name: string, payload: P): Promise<R> {
+  const out = await executeCommand(db, def, { name, actor: ref, payload, idempotencyKey: randomUUID(), financial: true });
+  return out.result;
 }
 
 /** Creates an operator, completes real TOTP enrolment, and opens a server-side session for the seeding commands. */
