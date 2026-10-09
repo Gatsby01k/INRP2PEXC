@@ -27,6 +27,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { amzDateOf, signSigV4 } from '@inrp2p/adapters';
 import { MINIO_IMAGE } from '../test/minio.ts';
+import { probe } from './http-probe.ts';
 
 const arg = (name: string) => {
   const i = process.argv.indexOf(name);
@@ -93,8 +94,7 @@ function s3(method: string, port: string, pathName: string, headers: Record<stri
   });
 }
 
-const status = async (port: string, p: string, headers: Record<string, string>) =>
-  fetch(`http://127.0.0.1:${port}${p}`, { headers: { 'x-forwarded-proto': 'https', ...headers }, redirect: 'manual' }).then(async (r) => ({ code: r.status, body: await r.text() }), () => ({ code: 0, body: '' }));
+const status = async (port: string, p: string, { host, ...headers }: { host: string } & Record<string, string>) => probe(port, p, host, headers);
 
 try {
   docker(['network', 'create', NET]);
@@ -179,9 +179,9 @@ try {
   const webPort = hostPort(WEB, 3000);
   await until('the web app', async () => (await status(webPort, '/api/health/live', { host: 'desk.inrp2p.example' })).code === 200, 120_000);
   const hosts = ['desk.inrp2p.example', 'app.inrp2p.example', 'inrp2p.example'];
-  for (const probe of ['/api/health/live', '/api/health/ready']) {
-    const codes = await Promise.all(hosts.map(async (h) => (await status(webPort, probe, { host: h })).code));
-    expectThat(`${probe} answers 200 on all three hosts`, codes.every((c) => c === 200), codes.join(' '));
+  for (const endpoint of ['/api/health/live', '/api/health/ready']) {
+    const codes = await Promise.all(hosts.map(async (h) => (await status(webPort, endpoint, { host: h })).code));
+    expectThat(`${endpoint} answers 200 on all three hosts`, codes.every((c) => c === 200), codes.join(' '));
   }
   const noToken = await status(webPort, '/api/health/status', { host: 'desk.inrp2p.example' });
   const wrongToken = await status(webPort, '/api/health/status', { host: 'desk.inrp2p.example', 'x-inrp2p-health-token': `${token}x` });

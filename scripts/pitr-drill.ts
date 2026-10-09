@@ -36,6 +36,7 @@ import { Money } from '@inrp2p/kernel';
 import { payoutsHeld, recordWorkerBeat } from '@inrp2p/trades';
 import { restoreProblems } from './restore-checks.ts';
 import { startLocalS3 } from '../test/minio.ts';
+import { probe } from './http-probe.ts';
 
 const IMAGE = 'postgres:18.6';
 const keep = process.argv.includes('--keep');
@@ -273,7 +274,7 @@ try {
       const until = Date.now() + 90_000;
       let answer = 0;
       while (Date.now() < until) {
-        answer = await fetch(`http://127.0.0.1:${webPort}/api/health/ready`, { headers: { host: deskHost, 'x-forwarded-proto': 'https' } }).then((r) => r.status, () => 0);
+        answer = (await probe(webPort!, '/api/health/ready', deskHost)).code;
         if (answer === 200) break;
         if (docker(['inspect', '-f', '{{.State.Running}}', web], { allowFail: true }) === 'false') break;
         await sleep(1000);
