@@ -95,7 +95,8 @@ A page is harder to pin than a story, because it shows what a database says. The
    frozen instant after seeding. The single piece of text that still follows the wall clock — the INR page's
    `YYYY-MM-DD IST` day — is rewritten in the DOM immediately before the capture (`support.ts`
    `pinWallClockText`). One live measurement is pinned the same way: System health's share of database connections
-   in use, which reads this run's own servers rather than the world (`pages.spec.ts`). Nothing else is masked: every
+   in use, which reads this run's own servers rather than the world (`support.ts` `pinLiveMeasurements`, applied until
+   it holds, because a page still hydrating would put the live number back). Nothing else is masked: every
    other pixel is compared.
 
 The thirty-five capture names live in one static manifest, `apps/web/visual/captures.ts`, read by all three page spec

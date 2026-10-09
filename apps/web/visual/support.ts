@@ -44,6 +44,40 @@ async function pinWallClockText(page: Page): Promise<void> {
   }, FROZEN_IST_DAY);
 }
 
+/**
+ * The one live measurement a page shows: System health's share of database connections in use, which reads this
+ * run's own three servers rather than the fixture world. Pinned — reading and gauge — right before the capture, and
+ * again until it holds, because a page still hydrating would put the server's number back. Its state chip is left as
+ * read. Elsewhere this finds nothing and does nothing.
+ */
+const LIVE_READINGS: Readonly<Record<string, { readonly text: string; readonly marker: string }>> = {
+  db_connections_percent: { text: '30%', marker: '20%' },
+};
+
+async function pinLiveMeasurements(page: Page): Promise<void> {
+  // React marks every node it has hydrated with an internal `__reactFiber…` key: pin only after that, or hydration
+  // would put the live number back after the pin seemed to hold.
+  await page.waitForFunction((checks) => {
+    const nodes = checks.flatMap((c) => [...document.querySelectorAll(`[data-check="${c}"]`)]);
+    return nodes.every((n) => Object.keys(n).some((k) => k.startsWith('__reactFiber')));
+  }, Object.keys(LIVE_READINGS), { timeout: 30_000 });
+  const apply = () => page.evaluate((pins) => {
+    let held = true;
+    for (const [check, pin] of Object.entries(pins)) {
+      for (const el of document.querySelectorAll<HTMLElement>(`[data-check="${check}"]`)) {
+        if (el.style.left !== '') {
+          if (el.style.left !== pin.marker) { el.style.left = pin.marker; held = false; }
+        } else if (el.textContent !== pin.text) {
+          el.textContent = pin.text;
+          held = false;
+        }
+      }
+    }
+    return held;
+  }, LIVE_READINGS);
+  await expect.poll(apply, { timeout: 10_000 }).toBe(true);
+}
+
 /** Fonts requested and loaded, layout settled, wall-clock text pinned: everything a stable capture needs. */
 export async function settle(page: Page): Promise<void> {
   await page.evaluate(async (faces) => {
@@ -54,6 +88,7 @@ export async function settle(page: Page): Promise<void> {
     .poll(() => page.evaluate((faces) => document.fonts.status === 'loaded' && faces.every((f) => document.fonts.check(f)), FONT_FACES))
     .toBe(true);
   await pinWallClockText(page);
+  await pinLiveMeasurements(page);
   // Every image being drawn has arrived and decoded — the workspace robot's still is lazy, and a capture must not
   // race it. Images not drawn at all (the other moods' stills) are left alone: a lazy one of those never loads.
   await expect

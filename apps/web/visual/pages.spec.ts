@@ -114,14 +114,7 @@ test('clients', async ({ page }) => {
 test('system health', async ({ page }) => {
   await page.goto('/system');
   await expect(page.getByTestId('health-checks')).toBeVisible();
-  // The share of database connections in use is a live measurement of this run's three servers, not of the world:
-  // pinned to one reading — text and gauge — before the capture (VISUAL_BASELINES §4b). Its state stays as read.
-  await page.evaluate(() => {
-    for (const el of document.querySelectorAll<HTMLElement>('[data-check="db_connections_percent"]')) {
-      if (el.style.left) el.style.left = '20%';
-      else el.textContent = '30%';
-    }
-  });
+  // Its one live measurement — the share of database connections — is pinned by `settle` (VISUAL_BASELINES §4b).
   await capture(page, 'operator-system');
 });
 
