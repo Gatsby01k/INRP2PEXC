@@ -368,5 +368,20 @@ jobs:
           pnpm --filter @inrp2p/web build
           pnpm --filter @inrp2p/web test:e2e
 
+      # Its worker seals the audit log every few minutes; the job runs no worker, so the release's own sealAudit does
+      # it here — so a seal chain the release at 23 wrote crosses the upgrade too.
+      - name: The release at 23 seals its audit log, as its worker does
+        working-directory: ${{ runner.temp }}/release-23
+        run: |
+          node --input-type=module -e "
+            const { createDb, createPool } = await import('./packages/db/src/index.ts');
+            const { sealAudit } = await import('./packages/audit/src/index.ts');
+            for (const name of ['inrp2p_visual', 'inrp2p_e2e']) {
+              const db = createDb(createPool({ connectionString: 'postgres://postgres@127.0.0.1:5432/' + name, applicationName: 'release-23-seal' }));
+              const r = await sealAudit(db, { settleSeconds: 0 });
+              console.log(name, r.sealed ? 'sealed ' + r.fromSeq + '..' + r.toSeq : 'nothing to seal');
+              await db.destroy();
+            }"
+
       - name: This release migrates both databases to its schema and checks what came through
         run: node scripts/upgrade-check.ts postgres://postgres@127.0.0.1:5432/inrp2p_visual postgres://postgres@127.0.0.1:5432/inrp2p_e2e

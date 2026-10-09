@@ -76,8 +76,9 @@ refuses 23. So there is no rolling path for this one transition — it is a shor
    and redeploy the old release.
 
 CI's `upgrade` job proves the data side of this transition on every change: the release at 23 writes its own data —
-its fixture world, and its own end-to-end run through its own screens — and this release's migrations carry it to 34
-with nothing lost, the books balanced, every old trade legacy-funded, and this release able to read it
+its fixture world, and its own end-to-end run through its own screens — and seals its audit log as its worker does;
+this release's migrations carry it to 34 with nothing lost, the books balanced, every old trade legacy-funded, the
+old seal chain intact and continued by this release's first seal, and this release able to read it
 (`scripts/upgrade-check.ts`).
 
 ## 3. Configuration contract

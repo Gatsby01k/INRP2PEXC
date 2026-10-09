@@ -9,7 +9,7 @@ outside the repository. A result is recorded only with the command, SHA and envi
 
 | Gate | Meaning | Status |
 |---|---|---|
-| 1. Code ready | fixes implemented, regressions covered, required checks green on the final SHA | **PASS in CI** — all seven required jobs green at `15f8d5b` ([run 37984995668](https://github.com/Gatsby01k/INRP2PEXC/actions/runs/37984995668)), integration with nothing skipped, 35 of 35 page baselines and 162 component tests in the canonical image, the images built and checked at that commit, the PITR drill and the 23 → 34 upgrade. The commit that records it changes only this register and TECH_DEBT; its own seven-job run is the final candidate's and is linked from PR #1. Local: PASS at `30c6e98` |
+| 1. Code ready | fixes implemented, regressions covered, required checks green on the final SHA | **PASS in CI** — all seven required jobs green at `15f8d5b` ([run 37984995668](https://github.com/Gatsby01k/INRP2PEXC/actions/runs/37984995668)), integration with nothing skipped, 35 of 35 page baselines and 162 component tests in the canonical image, the images built and checked at that commit, the PITR drill and the 23 → 34 upgrade. After it, the upgrade job was strengthened (the release at 23 seals its log first; the seal chain must cross and be continued — CI and `scripts/upgrade-check.ts` only); that commit is the final candidate, and its own seven-job run is linked from PR #1. Local: PASS at `30c6e98` |
 | 2. Staging verified | production-like environment, real adapters, notifications, both directions, recovery, monitoring, operator procedures | **NOT RUN** — no staging environment or provider credentials exist in this workspace |
 | 3. Production prepared | domains, secrets, custody, bank accounts, liquidity, staff access, monitoring, backups; external conditions closed by their owners | **BLOCKED** — owner/infrastructure inputs (§ External prerequisites) |
 
@@ -651,13 +651,17 @@ is wanted stays an open owner question (ADR 0016 §8).
     unchanged. Also measured and not adopted: ~25 KiB of unused render-blocking CSS from chunks merged across
     surfaces — Turbopack's `graph` chunking removed it but did not move the first paint, and it would re-chunk every
     surface's CSS. An e2e test asserts the mono files are requested only after load and then used.
+  - **The upgrade job carried no seal chain.** Neither database the release at 23 wrote had an audit seal — it seals
+    from its worker, which the job does not run — so "seals still there" held trivially. The job now has the release at
+    23 seal its own log with its own `sealAudit` before the upgrade; `upgrade-check` requires seals to exist, the chain
+    to recompute at 34, and this release's first seal to sit on the last old one.
   - **The container checks never sent the hosts they named.** Node's `fetch` replaces a caller's Host header with the
     address it connects to, so the status and metrics checks were refused (401) and the "every host" probes had all
     gone to one; `scripts/http-probe.ts` uses `node:http`, in the image checks and the drill (`a634ab3`).
 - **Results.** Local runs as under Runs. CI: all seven required jobs PASS at `15f8d5b` (run 37984995668).
 - **Not run.** Nothing in gate 1 is left to local Docker: the component compare and the page compare run in the
   canonical image in CI, the images are built and checked at each commit in CI, the drill runs there against them.
-- **Gates.** Gate 1: PASS in CI (run 37984995668 at `15f8d5b`; the final candidate's own run is linked from PR #1). Gate 2: NOT RUN. Gate 3: BLOCKED.
+- **Gates.** Gate 1: PASS in CI (run 37984995668 at `15f8d5b`; the final candidate — that code plus the stronger upgrade check — has its own run linked from PR #1). Gate 2: NOT RUN. Gate 3: BLOCKED.
 
 ## External prerequisites (gate 3 inputs, by owner)
 
