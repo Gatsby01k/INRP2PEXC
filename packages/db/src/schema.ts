@@ -451,7 +451,7 @@ export interface TreasuryWalletTable {
   network: 'TRON';
   address: string;
   label: string;
-  role: 'HOT' | 'COLD' | 'DEPOSIT_POOL';
+  role: 'HOT' | 'COLD' | 'DEPOSIT_POOL' | 'TRADER_RESERVE';
   status: Generated<'ACTIVE' | 'PAUSED' | 'RETIRED'>;
   custody: Generated<'EXTERNAL'>;
   observed_balance_minor: Generated<bigint>;
@@ -936,7 +936,7 @@ export interface CryptoTransferTable {
   solidified_block: bigint | null;
   state: Generated<CryptoTransferState>;
   verified_by: string | null;
-  source: 'SCANNER' | 'OPERATOR_SUBMITTED';
+  source: 'SCANNER' | 'OPERATOR_SUBMITTED' | 'CLIENT_SUBMITTED';
   detected_at: Generated<Date>;
   confirmed_at: Date | null;
   failed_at: Date | null;

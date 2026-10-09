@@ -31,7 +31,7 @@ export interface ReserveTransferFacts {
   readonly fromAddress: string;
   readonly toAddress: string;
   readonly amount: Money<'USDT'>;
-  readonly source: 'SCANNER' | 'OPERATOR_SUBMITTED';
+  readonly source: 'SCANNER' | 'OPERATOR_SUBMITTED' | 'CLIENT_SUBMITTED';
 }
 
 /** What the route still owes on its delivering side, less deliveries recorded and not yet confirmed. */

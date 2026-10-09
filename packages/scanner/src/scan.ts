@@ -243,6 +243,9 @@ export async function detect(db: Db, transfer: Trc20Transfer): Promise<{ tradeId
         toAddress: payload.toAddress,
         amount: Money.ofMinor(BigInt(payload.amountMinor), 'USDT'),
         source: 'SCANNER',
+        // Not part of the step's payload, so steps recorded before it was passed replay unchanged: the block's time
+        // only decides whose reserve a transfer to the shared address is (migration 0035).
+        blockTime: transfer.blockTime,
       });
       return { tradeId: out.tradeId, transferId: out.transferId };
     },

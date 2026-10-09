@@ -104,7 +104,7 @@ export interface TreasuryWalletView {
   readonly walletId: string;
   readonly label: string;
   readonly address: string;
-  readonly role: 'HOT' | 'COLD' | 'DEPOSIT_POOL';
+  readonly role: 'HOT' | 'COLD' | 'DEPOSIT_POOL' | 'TRADER_RESERVE';
   readonly status: 'ACTIVE' | 'PAUSED' | 'RETIRED';
   readonly observed: string;
   readonly reserved: string;
@@ -120,7 +120,7 @@ export interface TransferView {
   readonly state: 'DETECTED' | 'CONFIRMED' | 'FAILED' | 'ORPHANED';
   readonly from: string;
   readonly to: string;
-  readonly source: 'SCANNER' | 'OPERATOR_SUBMITTED';
+  readonly source: 'SCANNER' | 'OPERATOR_SUBMITTED' | 'CLIENT_SUBMITTED';
   readonly detectedAt: string;
   readonly confirmedAt: string | null;
   readonly verifiedBy: string | null;

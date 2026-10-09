@@ -10,7 +10,7 @@ import { acceptQuote, createQuote, createRequest, sendQuote } from '@inrp2p/quot
 import { submitTxForVerification } from '@inrp2p/settlement';
 import { runTronConfirm } from '@inrp2p/scanner';
 import {
-  type ApplyPayload, type TraderDeps, acceptOrder, applyAsTrader, approveTrader, assignRequest, configureTraderProgram, setAvailability, traderReserveAddress, updateBlock,
+  type ApplyPayload, type TraderDeps, acceptOrder, applyAsTrader, approveTrader, assignRequest, configureTraderProgram, setAvailability, sharedReserveAddress, updateBlock,
 } from '@inrp2p/traders';
 import { createWorld, type World } from '../../packages/settlement/test/world.ts';
 
@@ -126,7 +126,7 @@ export async function liveTrader(
   });
   const traderId = await traderIdOf(w.app, setup.clientId);
   await runAs(w.app, approveTrader(w.finance.actor), w.finance.ref, 'trader.approve', { traderId, requiredReserve: '500' });
-  const { address } = await runAs(w.app, traderReserveAddress(setup.admin.actor, w.traderDeps), setup.admin.ref, 'trader.reserve_address', {});
+  const { address } = (await sharedReserveAddress(w.app))!;
   await sendUsdt(w, setup.walletAddress, address, opts.reserve ?? '500');
   await confirmOnChain(w);
   for (const [side, cfg] of [['BUY_USDT', opts.buy], ['SELL_USDT', opts.sell]] as const) {

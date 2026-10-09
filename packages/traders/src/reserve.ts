@@ -5,8 +5,7 @@ import { appendAudit } from '@inrp2p/audit';
 import { enqueueOutbox } from '@inrp2p/outbox';
 import { type ClientActor, type OperatorActor, actorLabel, operatorCommand } from '@inrp2p/identity';
 import { Accounts, accountBalance } from '@inrp2p/ledger';
-import { allocateTraderReserveAddress } from '@inrp2p/treasury';
-import { lockMovement, postMovement, recordCryptoTransfer, verifyCryptoTransfer } from '@inrp2p/settlement';
+import { lockMovement, postMovement, recordClientDeposit, recordCryptoTransfer, reserveSenderOf, verifyCryptoTransfer } from '@inrp2p/settlement';
 import { lockTrader, lockTraderOfClient, traderClientCommand, type TraderDeps } from '@inrp2p/trader-core';
 
 /**
@@ -80,30 +79,108 @@ export function reserveFunded(f: ReserveFigures): boolean {
 }
 
 /**
- * `trader.reserve_address` — a user who can commit for the trader. The trader's own reserve deposit address,
- * issued once through the custody provider and kept open: USDT that reaches it from the trader's registered wallet
- * is credited to the reserve when the chain makes it final. Attribution is the address alone (D-02).
+ * The one Security Reserve address every trader sends to (migration 0035, D-17): an exchange wallet watched like any
+ * other, never a key the application holds. `null` only while none is active — the page then says so rather than
+ * showing an address that would not be credited.
  */
-export function traderReserveAddress(actor: ClientActor, deps: Pick<TraderDeps, 'custody'>) {
-  return traderClientCommand(actor, 'COMMIT', async (ctx, _p: Record<string, never>, member) => {
+export async function sharedReserveAddress(ex: Executor): Promise<{ readonly walletId: string; readonly address: string } | null> {
+  const row = await ex
+    .selectFrom('treasury_wallet')
+    .select(['id', 'address'])
+    .where('network', '=', 'TRON')
+    .where('role', '=', 'TRADER_RESERVE')
+    .where('status', '=', 'ACTIVE')
+    .executeTakeFirst();
+  return row ? { walletId: row.id, address: row.address } : null;
+}
+
+/** One reserve deposit the trader handed in, as the chain and the records now stand. */
+export interface ClaimedDeposit {
+  readonly txHash: string;
+  readonly logIndex: number;
+  readonly amount: string;
+  /** CONFIRMING until the chain makes it final; CREDITED once the reserve holds it. */
+  readonly status: 'CONFIRMING' | 'CREDITED' | 'FAILED';
+}
+
+const TX_HASH = /^[0-9a-f]{64}$/;
+
+/**
+ * `trader_reserve.claim_deposit` — any member of the trader's account, whatever its review state: topping up the
+ * reserve is not admission to trading (D-17). The trader hands in the hash of a transfer it made to the shared reserve
+ * address; the scanner finds the same transfers on its own, so this only lets the trader see its own sooner.
+ *
+ * Nothing here takes the trader's word for anything. The transaction is read from the configured providers; only
+ * USDT on the configured contract into the shared address counts; and a transfer is this trader's only when the
+ * sender is its registered wallet, on file before the transfer happened — the rule the scanner and the database
+ * apply too (`reserveSenderOf`, IX102). A hash someone else's wallet paid, or one paid from a wallet nobody had on file
+ * at the time, is refused with the same answer whoever it belongs to, and nothing is written. A transfer already
+ * recorded is not recorded again (one row per transfer, FI-23); handing it in twice returns where it stands.
+ */
+export function claimReserveDeposit(actor: ClientActor, deps: Pick<TraderDeps, 'chain'>) {
+  return traderClientCommand(actor, 'VIEW', async (ctx, p: { txHash: string }, member): Promise<{ deposits: readonly ClaimedDeposit[] }> => {
+    const txHash = (typeof p.txHash === 'string' ? p.txHash.trim() : '').toLowerCase().replace(/^0x/, '');
+    if (!TX_HASH.test(txHash)) throw new DomainError('INVALID_ARGUMENT', 'a transaction hash is 64 hexadecimal characters', { field: 'txHash' });
     const trader = await lockTraderOfClient(ctx, member.clientId);
-    if (trader.status !== 'APPROVED' && trader.status !== 'PAUSED') throw new DomainError('TRADER_NOT_APPROVED', 'your application has not been approved yet');
-    if (trader.required_reserve_minor === null) throw new DomainError('TRADER_RESERVE_NOT_SET', 'the Security Reserve has not been set');
-    const allocation = await allocateTraderReserveAddress(ctx, deps.custody, {
-      network: 'TRON', traderId: trader.id, traderRef: trader.ref, expectedAmount: Money.ofMinor(trader.required_reserve_minor, 'USDT'),
+    const shared = await sharedReserveAddress(ctx.tx);
+    if (!shared) throw new DomainError('TRADER_RESERVE_ADDRESS_UNAVAILABLE', 'the reserve address is not available right now; ask the desk');
+    // A network that cannot be read is said plainly: the transfer is still found and credited without the hash.
+    const tx = await deps.chain.transactionTransfers('TRON', txHash).catch(() => {
+      throw new DomainError('CHAIN_PROVIDER_ERROR', 'the network cannot be read right now; your transfer will still be found and credited on its own');
     });
-    await appendAudit(ctx, { action: 'trader_reserve.address_issued', entityType: 'trader_profile', entityId: trader.id, after: { deposit_address_id: allocation.depositAddressId } });
-    return { address: allocation.address };
+    if (tx.status === 'NOT_FOUND') throw new DomainError('NOT_FOUND', 'the network does not show this transaction yet; try again in a minute');
+    if (tx.status === 'TX_FAILED') throw new DomainError('INVALID_ARGUMENT', 'this transaction failed on the network; it moved no USDT');
+    const intoReserve = tx.transfers.filter((t) => t.tokenContract === deps.chain.tokenContract && t.toAddress === shared.address && t.amountMinor > 0n);
+    if (intoReserve.length === 0) throw new DomainError('TRADER_DEPOSIT_NOT_FOUND', 'this transaction sends no USDT (TRC20) to the reserve address');
+
+    const deposits: ClaimedDeposit[] = [];
+    for (const t of intoReserve) {
+      const recorded = await ctx.tx
+        .selectFrom('crypto_transfer')
+        .select(['payer_type', 'payer_id', 'state'])
+        .where('network', '=', 'TRON')
+        .where('tx_hash', '=', txHash)
+        .where('log_index', '=', t.logIndex)
+        .executeTakeFirst();
+      if (recorded) {
+        if (recorded.payer_type === 'TRADER' && recorded.payer_id === trader.id) deposits.push({ txHash, logIndex: t.logIndex, amount: Money.ofMinor(t.amountMinor, 'USDT').toDecimalString(), status: depositStatus(recorded.state) });
+        continue;
+      }
+      const sender = await reserveSenderOf(ctx.tx, t.fromAddress, t.blockTime);
+      if (sender.traderId !== trader.id) continue;
+      await recordClientDeposit(ctx, {
+        txHash, logIndex: t.logIndex, tokenContract: t.tokenContract, fromAddress: t.fromAddress, toAddress: t.toAddress,
+        amount: Money.ofMinor(t.amountMinor, 'USDT'), source: 'CLIENT_SUBMITTED', blockTime: t.blockTime,
+      });
+      deposits.push({ txHash, logIndex: t.logIndex, amount: Money.ofMinor(t.amountMinor, 'USDT').toDecimalString(), status: 'CONFIRMING' });
+    }
+    await appendAudit(ctx, {
+      action: 'trader_reserve.deposit_claimed', entityType: 'trader_profile', entityId: trader.id,
+      after: { tx_hash: txHash, accepted: deposits.map((d) => d.logIndex), refused: intoReserve.length - deposits.length },
+    });
+    if (deposits.length === 0) {
+      throw new DomainError('TRADER_DEPOSIT_NOT_YOURS', 'this transfer was not sent from your registered wallet before it was made, so it cannot be credited to you; if you sent it, contact the desk');
+    }
+    return { deposits };
   });
 }
 
+function depositStatus(state: string): ClaimedDeposit['status'] {
+  if (state === 'CONFIRMED') return 'CREDITED';
+  if (state === 'DETECTED') return 'CONFIRMING';
+  return 'FAILED';
+}
+
 /**
- * `trader_reserve.request_withdrawal` — a user who can commit. At most what is available now (never the locked
+ * `trader_reserve.request_withdrawal` — the account's administrator or a user who can commit. At most what is available now (never the locked
  * part, never what is already on its way), to the trader's registered wallet as it is at this moment. One open
  * withdrawal at a time. The amount is held at once, so it cannot also be counted towards switching on.
  */
 export function requestReserveWithdrawal(actor: ClientActor) {
-  return traderClientCommand(actor, 'COMMIT', async (ctx, p: { amount: string }, member) => {
+  return traderClientCommand(actor, 'VIEW', async (ctx, p: { amount: string }, member) => {
+    // Its own money, back to its own verified wallet: the account's administrator may ask for it even before the trader
+    // is approved — a reserve topped up during review (D-17) must not be stranded by a rejection.
+    if (!member.canCommit && member.role !== 'CLIENT_ADMIN') throw new DomainError('TRADER_ACTION_NOT_PERMITTED', 'this needs your account administrator, or someone who can accept quotes for your account');
     const amount = Money.parse(p.amount, 'USDT');
     if (!amount.isPositive()) throw new DomainError('INVALID_AMOUNT', 'enter an amount to withdraw');
     const trader = await lockTraderOfClient(ctx, member.clientId);
@@ -126,9 +203,10 @@ export function requestReserveWithdrawal(actor: ClientActor) {
   });
 }
 
-/** `trader_reserve.cancel_withdrawal` — a user who can commit, while nothing has been sent yet. */
+/** `trader_reserve.cancel_withdrawal` — the account's administrator or a user who can commit, while nothing has been sent yet. */
 export function cancelReserveWithdrawal(actor: ClientActor) {
-  return traderClientCommand(actor, 'COMMIT', async (ctx, p: { ref: string }, member) => {
+  return traderClientCommand(actor, 'VIEW', async (ctx, p: { ref: string }, member) => {
+    if (!member.canCommit && member.role !== 'CLIENT_ADMIN') throw new DomainError('TRADER_ACTION_NOT_PERMITTED', 'this needs your account administrator, or someone who can accept quotes for your account');
     const trader = await lockTraderOfClient(ctx, member.clientId);
     const w = await ctx.tx.selectFrom('trader_reserve_withdrawal').select(['id', 'status']).where('trader_id', '=', trader.id).where('ref', '=', requireText(p.ref, 'ref', 20)).forUpdate().executeTakeFirst();
     if (!w) throw new DomainError('NOT_FOUND', 'withdrawal not found');

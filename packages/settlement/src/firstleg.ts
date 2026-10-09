@@ -1,6 +1,6 @@
 import { sql } from 'kysely';
 import { DomainError, Money, requireOneOf, requireText, requireUuid } from '@inrp2p/kernel';
-import type { FiatRail, TxContext } from '@inrp2p/db';
+import type { Executor, FiatRail, TxContext } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
 import { enqueueOutbox } from '@inrp2p/outbox';
 import { type OperatorActor, operatorCommand } from '@inrp2p/identity';
@@ -69,7 +69,12 @@ export function recordIncomingFiat(actor: OperatorActor) {
  */
 export async function recordClientDeposit(
   ctx: TxContext,
-  input: { txHash: string; logIndex: number; tokenContract: string; fromAddress: string; toAddress: string; amount: Money<'USDT'>; source: 'SCANNER' | 'OPERATOR_SUBMITTED' },
+  input: {
+    txHash: string; logIndex: number; tokenContract: string; fromAddress: string; toAddress: string; amount: Money<'USDT'>;
+    source: 'SCANNER' | 'OPERATOR_SUBMITTED' | 'CLIENT_SUBMITTED';
+    /** When the chain says the transfer happened; attribution at the shared reserve address needs it (migration 0035). */
+    blockTime?: Date;
+  },
 ): Promise<{ transferId: string; tradeId: string | null; legId: string | null; exceptionId?: string }> {
   const address = await ctx.tx
     .selectFrom('deposit_address')
@@ -91,7 +96,8 @@ export async function recordClientDeposit(
     // suspense on confirmation; anything else is money at an address we do not recognise at all.
     const wallet = address
       ? null
-      : await ctx.tx.selectFrom('treasury_wallet').select('id').where('network', '=', 'TRON').where('address', '=', input.toAddress).executeTakeFirst();
+      : await ctx.tx.selectFrom('treasury_wallet').select(['id', 'role']).where('network', '=', 'TRON').where('address', '=', input.toAddress).executeTakeFirst();
+    if (wallet?.role === 'TRADER_RESERVE') return recordSharedReserveDeposit(ctx, input, wallet.id);
     const treasuryWalletId = address?.treasury_wallet_id ?? wallet?.id ?? null;
     const recorded = await recordCryptoTransfer(ctx, {
       ...input,
@@ -218,6 +224,56 @@ async function recordTraderReserveDeposit(ctx: TxContext, input: DepositInput, t
   });
   await enqueueOutbox(ctx, { type: 'trader.reserve_issue', aggregateType: 'trader_profile', aggregateId: target.traderId, payload: { traderId: target.traderId, reason: 'UNREGISTERED_SENDER', amount: input.amount.toDecimalString() } });
   return { transferId: recorded.transferId, tradeId: null, legId: null, exceptionId: opened.exceptionId };
+}
+
+/**
+ * USDT at the shared Security Reserve address (migration 0035, D-17). Every trader sends to the same address, so the
+ * address cannot say whose money it is; the sender does. It is the reserve of the one trader whose registered wallet
+ * sent it and was on file before the transfer (`inrp2p_reserve_sender_trader`) — whether or not that trader has been
+ * approved yet: topping up is not admission to trading. Credited when the chain makes it final, like any reserve
+ * deposit (the scanner posts `TRADER_RESERVE`).
+ *
+ * From a wallet no trader registered, or one two traders have on file, it is nobody's reserve: recorded as money of
+ * unknown origin, parked in suspense on confirmation, and the desk gets a case. The database refuses any other
+ * attribution (IX102), and one row per on-chain transfer keeps it from being counted twice.
+ */
+async function recordSharedReserveDeposit(ctx: TxContext, input: DepositInput, treasuryWalletId: string): Promise<DepositOutcome> {
+  const known = await knownTransfer(ctx, input);
+  if (known) return { transferId: known, tradeId: null, legId: null };
+  const attribution = await reserveSenderOf(ctx.tx, input.fromAddress, input.blockTime ?? null);
+  if (attribution.traderId) {
+    const recorded = await recordCryptoTransfer(ctx, { ...input, payerType: 'TRADER', payerId: attribution.traderId, payeeType: 'EXCHANGE_TREASURY', payeeId: treasuryWalletId });
+    await appendAudit(ctx, {
+      action: 'trader_reserve.deposit_detected', entityType: 'trader_profile', entityId: attribution.traderId,
+      after: { transfer_id: recorded.transferId, amount: input.amount, address: 'SHARED', source: input.source },
+    });
+    return { transferId: recorded.transferId, tradeId: null, legId: null };
+  }
+  const recorded = await recordCryptoTransfer(ctx, { ...input, payerType: 'UNKNOWN', payeeType: 'EXCHANGE_TREASURY', payeeId: treasuryWalletId });
+  const opened = await openExceptionInTx(ctx, {
+    type: 'USDT_UNEXPECTED_SENDER', subjectType: 'CRYPTO_TRANSFER', subjectId: recorded.transferId, tradeId: null,
+    details: { reason: attribution.reason, address: 'SHARED_TRADER_RESERVE', from: input.fromAddress, amount: input.amount.toDecimalString() },
+  });
+  return { transferId: recorded.transferId, tradeId: null, legId: null, exceptionId: opened.exceptionId };
+}
+
+/**
+ * Whose reserve a transfer from `from` is, at the time the chain gives (the moment of reading when it gives none):
+ * the trader, or why nobody — no trader has that wallet on file from before the transfer, or more than one has.
+ */
+export async function reserveSenderOf(
+  ex: Executor,
+  from: string,
+  at: Date | null,
+): Promise<{ readonly traderId: string; readonly reason: null } | { readonly traderId: null; readonly reason: 'RESERVE_SENDER_NOT_REGISTERED' | 'RESERVE_SENDER_AMBIGUOUS' }> {
+  const r = await sql<{ trader: string | null; candidates: string }>`
+    select inrp2p_reserve_sender_trader(${from}, coalesce(${at}::timestamptz, statement_timestamp())) as trader,
+           (select count(*) from trader_profile t join crypto_wallet w on w.id = t.wallet_id
+             where w.network = 'TRON' and w.address = ${from} and w.status in ('ACTIVE', 'PENDING_REVIEW')
+               and w.created_at <= coalesce(${at}::timestamptz, statement_timestamp()))::text as candidates`.execute(ex);
+  const row = r.rows[0]!;
+  if (row.trader) return { traderId: row.trader, reason: null };
+  return { traderId: null, reason: BigInt(row.candidates) > 1n ? 'RESERVE_SENDER_AMBIGUOUS' : 'RESERVE_SENDER_NOT_REGISTERED' };
 }
 
 /**

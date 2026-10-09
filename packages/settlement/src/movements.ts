@@ -95,7 +95,7 @@ export interface RecordCryptoInput {
   readonly payerId?: string | null;
   readonly payeeType: 'CLIENT_WALLET' | 'EXCHANGE_TREASURY' | 'ROUTE' | 'TRADER' | 'UNKNOWN';
   readonly payeeId?: string | null;
-  readonly source: 'SCANNER' | 'OPERATOR_SUBMITTED';
+  readonly source: 'SCANNER' | 'OPERATOR_SUBMITTED' | 'CLIENT_SUBMITTED';
 }
 
 /** Records one on-chain transfer event as DETECTED. Unique per (network, tx hash, log index) — FI-23. */

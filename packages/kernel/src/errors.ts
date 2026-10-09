@@ -130,6 +130,12 @@ export type DomainErrorCode =
   | 'TRADER_ACTION_NOT_DUE'
   | 'TRADER_WITHDRAWAL_OPEN'
   | 'TRADER_WITHDRAWAL_EXCEEDS_AVAILABLE'
+  // One shared reserve address, credited by the sender's wallet (D-17, migration 0035).
+  | 'TRADER_RESERVE_ADDRESS_UNAVAILABLE'
+  | 'TRADER_DEPOSIT_NOT_FOUND'
+  | 'TRADER_DEPOSIT_NOT_YOURS'
+  // A client opening its own account (D-17).
+  | 'ACCOUNT_EXISTS'
   | 'TRADER_REWARD_EXCEEDS_PAYABLE'
   | 'TRADER_REWARD_NOT_COVERED'
   // Counterparty-funded execution (DECISIONS.md D-16).

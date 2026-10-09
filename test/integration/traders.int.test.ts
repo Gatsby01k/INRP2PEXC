@@ -13,7 +13,7 @@ import { globalImbalance, routeObligationBalances } from '@inrp2p/ledger';
 import {
   acceptOrder, approveTrader, assignRequest, confirmRewardPayout, confirmReserveWithdrawal, declineOrder, deskTrader, orderDeliveryAddress,
   pauseTrader, reconcileOrderNow, recordReserveWithdrawalSent, recordRewardPayout, rejectTrader, requestReserveWithdrawal, reserveFigures, resumeTrader,
-  runTraderSweep, setAvailability, setTraderLimits, setTraderRequiredReserve, submitOrderPayment, traderHome, traderOrderDetail, traderReserveAddress, traderRoutingHandler, updateBlock,
+  runTraderSweep, setAvailability, setTraderLimits, setTraderRequiredReserve, submitOrderPayment, traderHome, traderOrderDetail, sharedReserveAddress, traderRoutingHandler, updateBlock,
 } from '@inrp2p/traders';
 import { clientDepositAddressOf, settleFirstLeg } from '../../packages/settlement/test/world.ts';
 import {
@@ -92,9 +92,10 @@ describe('the Security Reserve', () => {
     await runAs(w.app, approveTrader(w.finance.actor), w.finance.ref, 'trader.approve', { traderId });
     await expect(runAs(w.app, setAvailability(t.admin.actor), t.admin.ref, 'trader.set_availability', { available: true })).rejects.toMatchObject({ code: 'TRADER_RESERVE_SHORT' });
 
-    const { address } = await runAs(w.app, traderReserveAddress(t.admin.actor, w.traderDeps), t.admin.ref, 'trader.reserve_address', {});
-    const again = await runAs(w.app, traderReserveAddress(t.admin.actor, w.traderDeps), t.admin.ref, 'trader.reserve_address', {});
-    expect(again.address).toBe(address);
+    // One address for every trader (D-17), the owner's, shown on the reserve screen as it is.
+    const { address } = (await sharedReserveAddress(w.app))!;
+    expect(address).toBe('TJNzB4sUGBo8fv7UdeeKQKQUffpfLSXbPP');
+    expect((await traderHome(w.app, t.admin.userId)).reserve?.depositAddress).toBe(address);
 
     // From a stranger's wallet: recorded, parked in suspense, a case for the desk — never the trader's reserve.
     const stranger = await sendUsdt(w, w.clientSourceAddress, address, '300');

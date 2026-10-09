@@ -11,7 +11,7 @@ import { dateTime, usdt } from '../_desk/format.ts';
 import { Chip, Empty } from '../_desk/ui.tsx';
 import d from '../_desk/desk.module.css';
 
-const ROLE: Record<TreasuryWalletView['role'], string> = { HOT: 'Hot', COLD: 'Cold', DEPOSIT_POOL: 'Deposit pool' };
+const ROLE: Record<TreasuryWalletView['role'], string> = { HOT: 'Hot', COLD: 'Cold', DEPOSIT_POOL: 'Deposit pool', TRADER_RESERVE: 'Trader reserve · shared' };
 
 export function WalletsTable({ wallets }: { wallets: readonly TreasuryWalletView[] }) {
   const columns: Column<TreasuryWalletView>[] = [

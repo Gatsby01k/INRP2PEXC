@@ -8,6 +8,7 @@ import { traderApplicant, traderMembership, traderProgram } from '@inrp2p/trader
 import { CLIENT_FUNDED_STATES } from './delivery.ts';
 import { type BlockIssue, type StandingIssue, blockIssues, freeCapacity, standingIssues } from './eligibility.ts';
 import { type OrderStage, type OrderStep, orderStage, orderSteps } from './progress.ts';
+import { sharedReserveAddress } from './reserve.ts';
 import { earnings } from './rewards.ts';
 import { readBlocks, readStanding } from './standing.ts';
 
@@ -286,13 +287,8 @@ async function nowOf(ex: Executor): Promise<Date> {
 
 async function reserveView(ex: Executor, traderId: string): Promise<ReserveView> {
   const { reserve } = await readStanding(ex, traderId);
-  const address = await ex
-    .selectFrom('deposit_assignment as a')
-    .innerJoin('deposit_address as d', 'd.id', 'a.deposit_address_id')
-    .select('d.address')
-    .where('a.trader_id', '=', traderId)
-    .where('a.released_at', 'is', null)
-    .executeTakeFirst();
+  // One address for every trader (D-17): what makes a deposit this trader's is the wallet it came from.
+  const address = await sharedReserveAddress(ex);
   const open = await ex
     .selectFrom('trader_reserve_withdrawal')
     .select(['ref', 'amount_minor', 'status', 'requested_at'])
@@ -423,9 +419,11 @@ export async function traderHome(ex: Executor, userId: string): Promise<TraderHo
   };
   const registered = { bank, wallet: maskWallet(profile.address), walletAddress: profile.address };
   if (profile.status === 'UNDER_REVIEW' || profile.status === 'REJECTED') {
+    // The reserve is shown from the first day: topping it up is not admission to trading (D-17), and money sent
+    // during the review stays visible whatever the review decides.
     return traderSafe({
       state: profile.status, ref: profile.ref, ...base, application, available: false, controlNote: null, assignmentsEnabled: profile.assignments_enabled, issues: [], blocks: [],
-      reserve: null, offers: [], active: [], recentlyCompleted: null, earnings: null, registered, proposal: NO_PROPOSAL, openOrders: 0, paymentDetailsPublished: false,
+      reserve: await reserveView(ex, profile.id), offers: [], active: [], recentlyCompleted: null, earnings: null, registered, proposal: NO_PROPOSAL, openOrders: 0, paymentDetailsPublished: false,
     });
   }
   const proposal = { bank: await bankView(ex, profile.proposed_bank_account_id), wallet: await walletView(ex, profile.proposed_wallet_id) };

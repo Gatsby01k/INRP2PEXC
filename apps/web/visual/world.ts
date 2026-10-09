@@ -25,7 +25,7 @@ import { receiptHandler } from '@inrp2p/reporting';
 import { runTronConfirm, runTronScan } from '@inrp2p/scanner';
 import { importPoolAddresses, recordCustodyCapability, registerTreasuryWallet } from '@inrp2p/treasury';
 import {
-  acceptOrder, applyAsTrader, approveTrader, assignRequest, configureTraderProgram, setAvailability, traderReserveAddress, updateBlock,
+  acceptOrder, applyAsTrader, approveTrader, assignRequest, configureTraderProgram, setAvailability, sharedReserveAddress, updateBlock,
 } from '@inrp2p/traders';
 
 /**
@@ -405,7 +405,8 @@ export async function seedVisual(adminUrl: string): Promise<VisualState> {
   });
   const traderId = (await world.selectFrom('trader_profile').select('id').where('client_id', '=', konkan.clientId).executeTakeFirstOrThrow()).id;
   await run(world, approveTrader(owner.actor), owner.ref, 'trader.approve', { traderId, requiredReserve: '500' });
-  const reserve = await runClient(world, traderReserveAddress(konkanDesk.actor, traderDeps), konkanDesk.ref, 'trader.reserve_address', {});
+  // The one reserve address every trader sends to (D-17); the trader's registered wallet is what makes it its own.
+  const reserve = (await sharedReserveAddress(world))!;
   chain.chain.add({ from: konkanWalletAddress, to: reserve.address, amountMinor: Money.parse('800', 'USDT').minor });
   chain.chain.solidifyAll();
   await runTronScan(world, chain.deps);

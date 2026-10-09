@@ -7,7 +7,7 @@ import type { TraderHome } from '@inrp2p/traders';
 import { CopyButton, DepositAddress, sanitizeAmountInput } from '@inrp2p/ui';
 import { formatIstDateTime, shortenHash } from '@inrp2p/ui/format';
 import { useCommand } from '../../../../components/useCommand.tsx';
-import { cancelWithdrawalAction, requestWithdrawalAction, reserveAddressAction } from '../../../../server/actions/traders.ts';
+import { cancelWithdrawalAction, claimDepositAction, requestWithdrawalAction } from '../../../../server/actions/traders.ts';
 import { AssistantPanel } from '../../_assistant/AssistantPanel.tsx';
 import type { AssistantState } from '../../_assistant/model.ts';
 import { InfoIcon } from '../../_workspace/icons.tsx';
@@ -25,15 +25,27 @@ function reserveAssistant(home: TraderHome): AssistantState {
 
 /**
  * The reserve, from the ledger: held, locked, available, on its way back. Adding to it is a transfer from the
- * trader's registered wallet to its own reserve address, credited when final on TRON. Taking back is a request the
- * desk fulfils to the same registered wallet — never more than is free, never the locked part.
+ * trader's registered wallet to the one reserve address every trader uses (D-17), credited when final on TRON —
+ * whether or not the trader has been approved yet: topping up is not admission to trading. The wallet the USDT came
+ * from is what makes it this trader's; a transaction hash handed in only shows it here sooner. Taking back is a
+ * request the desk fulfils to the same registered wallet — never more than is free, never the locked part.
  */
 export function ReserveScreen({ home }: { home: TraderHome }) {
   const r = home.reserve!;
-  const address = useCommand();
+  const claim = useCommand();
   const withdraw = useCommand();
   const [amount, setAmount] = useState('');
-  const issueAddress = () => address.run('Show your reserve address', (key) => reserveAddressAction(key));
+  const [txHash, setTxHash] = useState('');
+  const [found, setFound] = useState<string | null>(null);
+  const canWithdraw = home.canAct || home.canApply;
+  const check = async () => {
+    setFound(null);
+    const out = await claim.run('Check your transfer', (key) => claimDepositAction({ txHash }, key));
+    if (out.ok) {
+      setTxHash('');
+      setFound(out.result.deposits.map((d) => `${usdt(d.amount)} ${d.status === 'CREDITED' ? 'credited to your reserve' : d.status === 'CONFIRMING' ? 'found — confirming on TRON' : 'failed on TRON'}`).join(' · '));
+    }
+  };
   const request = async () => {
     const out = await withdraw.run(`Withdraw ${amount} USDT`, (key) => requestWithdrawalAction({ amount }, key));
     if (out.ok) setAmount('');
@@ -85,23 +97,42 @@ export function ReserveScreen({ home }: { home: TraderHome }) {
             {r.depositAddress ? (
               <>
                 <DepositAddress address={r.depositAddress} amount={/[1-9]/.test(r.shortfall) ? Money.parse(r.shortfall, 'USDT') : null} network="TRC20" tradeRef={home.ref ?? ''} purpose="reserve" showQr />
-                <p className={styles.note}>Your own reserve address. Your registered wallet: {home.registered?.wallet}.</p>
-              </>
-            ) : home.canAct ? (
-              <>
-                <p className={styles.note}>Your reserve has its own TRC20 address. Show it to send USDT from your registered wallet.</p>
-                <div className={styles.formActions}>
-                  <button type="button" className={shell.secondaryAction} disabled={address.busy} onClick={() => void issueAddress()}>
-                    Show my reserve address
-                  </button>
-                </div>
+                <p className={styles.note}>
+                  One address for every trader. Send only from your registered wallet{home.registered ? <> <span className="ix-num">{home.registered.walletAddress}</span></> : null}: the wallet it comes from is how your deposit is credited to you. It is credited when final on TRON, whether or not your application has been approved yet.
+                </p>
+                <form
+                  className={styles.editForm}
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void check();
+                  }}
+                >
+                  <label className={styles.field}>
+                    <span className={styles.fieldLabel}>Transaction hash (TxID)</span>
+                    <span className={styles.inputBox}>
+                      <input className={styles.input} autoComplete="off" spellCheck={false} maxLength={66} placeholder="64 characters" value={txHash} onChange={(e) => setTxHash(e.target.value.trim())} />
+                    </span>
+                    <span className={styles.fieldHint}>Optional. Your transfer is found on its own; the hash only shows it here sooner.</span>
+                  </label>
+                  <div className={styles.formActions}>
+                    <button type="submit" className={shell.secondaryAction} disabled={claim.busy || txHash.length < 64}>
+                      Check my transfer
+                    </button>
+                  </div>
+                </form>
+                {found ? (
+                  <p className={shell.info} role="status">
+                    <InfoIcon className={shell.infoIcon} />
+                    <span>{found}</span>
+                  </p>
+                ) : null}
               </>
             ) : (
-              <p className={styles.note}>Someone who can accept quotes for your account can show the reserve address.</p>
+              <p className={styles.note}>The reserve address is not available right now. The desk has been told; please try again later.</p>
             )}
-            {address.error ? (
+            {claim.error ? (
               <p className={shell.error} role="alert">
-                {sentence(address.error)}
+                {sentence(claim.error)}
               </p>
             ) : null}
           </section>
@@ -118,7 +149,7 @@ export function ReserveScreen({ home }: { home: TraderHome }) {
                     {r.withdrawal.ref}: {usdt(r.withdrawal.amount)} {r.withdrawal.status === 'SENT' ? 'sent, confirming on-chain' : 'requested'} · {formatIstDateTime(new Date(r.withdrawal.askedAt))}
                   </span>
                 </p>
-                {r.withdrawal.status === 'REQUESTED' && home.canAct ? (
+                {r.withdrawal.status === 'REQUESTED' && canWithdraw ? (
                   <div className={styles.formActions}>
                     <button type="button" className={shell.textAction} disabled={withdraw.busy} onClick={() => void withdraw.run(`Cancel ${r.withdrawal!.ref}`, (key) => cancelWithdrawalAction({ ref: r.withdrawal!.ref }, key))}>
                       Cancel the request
@@ -126,7 +157,7 @@ export function ReserveScreen({ home }: { home: TraderHome }) {
                   </div>
                 ) : null}
               </>
-            ) : home.canAct ? (
+            ) : canWithdraw ? (
               <form
                 className={styles.editForm}
                 onSubmit={(e) => {
@@ -154,7 +185,7 @@ export function ReserveScreen({ home }: { home: TraderHome }) {
                 </div>
               </form>
             ) : (
-              <p className={styles.note}>Someone who can accept quotes for your account can request a withdrawal.</p>
+              <p className={styles.note}>Your account administrator, or someone who can accept quotes for your account, can request a withdrawal.</p>
             )}
             {withdraw.error ? (
               <p className={shell.error} role="alert">
@@ -203,7 +234,7 @@ export function ReserveScreen({ home }: { home: TraderHome }) {
           </Link>
         </div>
       </AssistantPanel>
-      {address.dialog}
+      {claim.dialog}
       {withdraw.dialog}
     </>
   );
