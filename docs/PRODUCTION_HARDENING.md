@@ -35,6 +35,12 @@ nothing on gates 2 or 3. CI on the final SHA replaces them in the final report.
 | 2026-10-06 | `3b39847` | `pnpm typecheck` · `pnpm lint` · `pnpm secret-scan` · `pnpm versions:check` | PASS · PASS · PASS (1039 files) · PASS (28 manifests) |
 | 2026-10-06 | `3b39847` | `pnpm test:unit` | PASS — 35 files, 1575 tests |
 | 2026-10-06 | `3b39847` | `pnpm test:integration` | PASS — 49 files, 852 tests; 1 skipped (the built-app proxy test, as above) |
+| 2026-10-06 | `b3c3831` | `pnpm typecheck` · `pnpm lint` · `pnpm secret-scan` · `pnpm versions:check` | PASS · PASS · PASS (1046 files) · PASS |
+| 2026-10-06 | `b3c3831` | `pnpm test:unit` · `pnpm test:integration` | PASS — 35 files, 1581 tests · PASS — 51 files, 871 tests; 1 skipped (as above) |
+| 2026-10-09 | `56961d5` | `pnpm workspace:graph` · `pnpm versions:check` · `pnpm secret-scan` · `pnpm lint` · `pnpm typecheck` | PASS · PASS · PASS (1047 files) · PASS · PASS |
+| 2026-10-09 | `56961d5` | `pnpm test:unit` · `pnpm test:integration` | PASS — 35 files, 1583 tests · PASS — 52 files, 872 tests; 1 skipped (as above) |
+| 2026-10-09 | `56961d5` | images `web` / `worker` / `migrate` built from the release, started on the reference layout (Docker; see E4) | PASS — refusals, starts, probes and shutdown as recorded under E4 |
+| 2026-10-09 | `56961d5` | `node scripts/pitr-drill.ts --image inrp2p-web:56961d5 --web-env <production env>` (Docker `postgres:18.6`, local MinIO) | PASS — no findings; timings under E4 |
 
 ## Items
 
@@ -58,7 +64,8 @@ nothing on gates 2 or 3. CI on the final SHA replaces them in the final report.
 | D4 | P0 | confirmed defects + proof | Trader lifecycle end to end; sweep error isolation; rewards never paid from principal | fixed — code ready |
 | E1 | P0 | confirmed defects + integration | TD-04: email provider for codes and notifications; no fictitious delivery success | code ready; staging inbox **NOT RUN**; provider account **BLOCKED** (owner) |
 | E2 | P1 | verification + implementation | Statement import verified; TD-12 receipts in private, versioned, write-once object storage | code ready; bucket and retention **BLOCKED** (owner) |
-| E3 | P0 | confirmed defect + implementation | Deployment artifacts, the production contract, readiness, pausing new business, heartbeat, grouped health and alerts | code ready; images built locally; staging deployment and paging **NOT RUN**; hosting (D-06) **BLOCKED** (owner) |
+| E3 | P0 | confirmed defect + implementation | Deployment artifacts, the production contract, readiness, pausing new business, heartbeat, grouped health and alerts | code ready; images built and started locally (E4); staging deployment and paging **NOT RUN**; hosting (D-06) **BLOCKED** (owner) |
+| E4 | P0 | confirmed defects + implementation | Point-in-time recovery drill, restore safety (no second payout), audit-seal archive (TD-16, TD-17) | code ready; reference drill **PASS**; drill on the chosen platform **NOT RUN**; platform, retention and buckets **BLOCKED** (owner) |
 
 (The table grows as stages are worked; each row has a section below.)
 
@@ -499,7 +506,82 @@ is wanted stays an open owner question (ADR 0016 §8).
 - **Local evidence.** The three images were built from this tree on the development Mac (`docker build --target web |
   worker | migrate`, about 1.8 GB each: the production dependency prune does not take effect, a size follow-up, not a
   correctness one). Starting them with an incomplete and with a complete production configuration is recorded under E4
-  once rebuilt.
+  (it found that the worker image could not start at all — `f2bb7e1`).
 - **Gates.** Gate 2: a staging deployment of these images, alert delivery to a person, and the procedures rehearsed
   are **NOT RUN**. Gate 3: hosting (D-06), domains and TLS, the secret manager and the pager are owner inputs
   (**BLOCKED**).
+
+## E4 — Point-in-time recovery, restore safety and the audit-seal archive (TD-16, TD-17) (P0)
+
+- **Found (on `d0cc778`).** The only drill was a logical dump (`scripts/backup-drill.ts`), never run (TD-16); nothing
+  configured, drilled or measured point-in-time recovery. Every copy of the audit-seal chain lived in the database it
+  attests (TD-17). Nothing stopped a restored database from showing a payout already made as still to pay. **Defect:**
+  the queue install ends with `ALTER FUNCTION … OWNER TO inrp2p_worker`, which PostgreSQL refuses to a migrator that is
+  not a superuser — every managed platform — so the first migration of any real deployment would have failed; the
+  tests migrate as a superuser and passed (`88b988a`). **Defect:** `@inrp2p/quotes` imported `@inrp2p/commands`, and
+  `@inrp2p/web` `@inrp2p/scanner` and `kysely`, while listing them only as devDependencies; the images install
+  production dependencies only, and the worker image exited at start with `ERR_MODULE_NOT_FOUND` (`f2bb7e1`;
+  `workspace:graph` now fails on any such import).
+- **Found in this stage's own first version (`b3c3831`), before anything was deployed.** The archive required each
+  exported range to start at the previous seal number + 1, but seal numbers come from a sequence, and the drill's
+  recovered copy sealed number 35 after 3: after the first crash, failover or recovery every export would have been
+  refused (IX099), every day. And after a recovery the archive keeps what the lost timeline exported under numbers the
+  restored database seals again — the export failed on it and the check would have alarmed forever. Both fixed in
+  `56961d5`.
+- **Changed.** Point-in-time recovery: the reference PostgreSQL archives WAL continuously (`archive_command`,
+  `archive_timeout`); `scripts/pitr-drill.ts` drills it (below); RPO ≤ 5 min and RTO ≤ 2 h proposed for the owner
+  (DEPLOYMENT §6). Migration `0034` (IX099–IX101): `audit_seal_export` (each range continues the last in the event
+  sequence and the hash chain, named by first and last seal and the last seal's hash), `audit_archive_verification`
+  (findings, and superseded ranges kept apart), `backup_verification` (each drill, both kinds); the restore fence
+  (`restore_fence`, `restore_fence_lift`, `inrp2p_database_identity()`, `inrp2p_payouts_held()`, heartbeat identity,
+  insert guards). TD-17 (`packages/audit/src/export.ts`, daily worker job, production requires the bucket and a
+  retention, the worker refuses a bucket without versioning and Object Lock): the archive — not the seal table — is what
+  the trail is verified against, events re-hashed included; a range written and not recorded is adopted once; a range
+  from before a restore is named as superseded by its fence; any other divergence is a finding. Restore safety (FI-54):
+  from the moment the database's cluster or timeline differs from the last heartbeat, marking an exchange-paid payout
+  or refund leg sent and approving a reserve application are refused (`PAYOUTS_HELD`, IX100) until one person records
+  the reconciliation and a second approves it (`operations:restore_fence`, `operations:approve_restore_fence_lift`,
+  IX101); evidence of payments already made is never held; the worker raises the fence at its first heartbeat and
+  pauses new business; the desk shows a banner on every page and clients and traders a plain notice not to pay twice.
+  Client email delivery ids derive from the event and the person, so a restored database delivering an event again
+  reuses the provider's idempotency key. Health `audit_seal_export_age_seconds`, `audit_archive_failures`,
+  `restore_drill_age_days`, `payouts_held`; runbooks `restore-fence`, `audit-archive-mismatch`, `backup-restore-drill`,
+  `incident-recovery`; FI-53, FI-54.
+- **The three crash points.** *Between an external request and its answer:* the platform moves no money itself
+  (watch-only), so the external requests are email, object storage and chain reads. Email carries a stable idempotency
+  key and stays pending until the provider gives an id (`resend.unit`, `quotes/test/delivery.int`, `email.int`: a crash
+  after the provider answered, and a restored database delivering again, send nothing new); object writes are
+  write-once and a retried write compares bytes (`object-store.int`); an export written but not recorded is adopted
+  once (`audit-archive.int`); chain reads are idempotent. *Between commit and outbox delivery:* events commit with the
+  state change and are delivered at least once into idempotent handlers (`notifications.int`, `email.int`,
+  `receipts.int`: "however often the event is redelivered"). *Part-way through a scanner window:* the cursor moves only
+  to what was proved; a page that fails mid-window stops it below that page and the next run records nothing twice
+  (`scanner/test/hardening.int`, `scanner.int`). These are failures and redeliveries simulated in tests, not processes
+  killed.
+- **Tests.** `test/integration/restore-fence.int.test.ts` (held before any worker notices; command and database
+  refusals; evidence still recorded; raised once by the worker with new business paused; two people; withdraw and
+  decline; nothing inserted already decided), `test/integration/audit-archive.int.test.ts` (export, Object Lock, adopted
+  unrecorded range, forged range named, re-sealed tampering found, gap found, IX099),
+  `test/integration/audit-archive-restore.int.test.ts` (across a recovery: unexplained divergence is a finding; with the
+  fence the lost range is superseded and the export continues under a skipped number), `email.int` (same key after a
+  restore), `scripts/test/guards.unit.test.ts` (undeclared imports).
+- **Reference drill (2026-10-09, `56961d5`; Docker `postgres:18.6`, local MinIO; gate-1 evidence).** WAL archiving,
+  migrations as the non-superuser migrator, base backup, a write before and one after the target, recovery of a separate
+  server to the target: the write after the target absent, everything before it present; schema 34; sign-in data, the
+  queued job, the chain cursor and both seals present; ledger and journals balanced, audit chain verified; the
+  application login refused DDL and ledger deletes; the production database checks pass through the application and
+  worker logins; outgoing payments held before any worker (timeline 1 → 2) and `RF-0001` raised by the first heartbeat
+  with new business paused; the archive proves the recovered trail and names the lost range as superseded by `RF-0001`;
+  the next export continues (its first seal numbered 35); the web image in production mode ready against the recovered
+  database. Base backup 0.6 s, recovery 1.2 s, checks 0.2 s, web ready 2 s — a small database: the mechanism, not a
+  production time.
+- **Images (2026-10-09, `56961d5`, reference layout).** `migrate` as `inrp2p_migrator`: 34 migrations and the queue,
+  then a no-op. Production mode with only a database URL: web exits 1 naming 14 settings, worker 9, no values. With a
+  complete configuration (random placeholder secrets; providers on `.invalid` hosts — nothing at start contacts them;
+  MinIO over TLS with an Object Lock bucket): the worker starts, checks the bucket, records its heartbeat with release
+  and database identity, and drains on SIGTERM (exit 0); the web app answers live and ready 200 on all three hosts;
+  status refuses no token, a wrong token and the client host (401), and with the token answers 503 because this new
+  database has never recorded a restore drill (`restore_drill_age_days` in alarm) — as designed.
+- **Gates.** Gate 2: the drill on the chosen platform at production size, alert delivery, the reconciliation procedure
+  rehearsed with real statements — **NOT RUN**. Gate 3: the platform and its recovery window, the audit-seal bucket
+  (Object Lock, compliance mode) and its retention (owner, with legal input), RPO/RTO accepted — **BLOCKED** (owner).

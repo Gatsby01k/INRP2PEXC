@@ -27,7 +27,7 @@ user, with no secret in any layer:
 | Image (target) | Runs | Instances | Stops |
 |---|---|---|---|
 | `web` | `next start` on :3000 — the desk, the client app and the public site, told apart by host | 2+ behind the load balancer | SIGTERM: stops accepting, finishes requests in flight |
-| `worker` (`worker-pdf` with Chromium for PDF receipts) | graphile-worker: outbox, chain scan/confirm, sweeps, seals | 1–2 (cron jobs are keyed, so two never run the same job) | SIGTERM: takes no new job, finishes running ones, closes its pool (`stop_grace_period` ≥ 60 s) |
+| `worker` (`worker-pdf` with Chromium for PDF receipts) | graphile-worker: outbox, chain scan/confirm, sweeps, seals, exports | 1–2 (cron jobs are keyed, so two never run the same job) | SIGTERM: takes no new job, finishes running ones, closes its pool (`stop_grace_period` ≥ 60 s) |
 | `migrate` | `scripts/migrate.ts`: SQL migrations under an advisory lock, then the queue schema | one-shot per release | — |
 
 **Order of a release.** 1. `migrate` (as `inrp2p_migrator`). 2. Roll `web` and `worker` to the same release. A process
@@ -50,7 +50,7 @@ never activates a development default, a sink or a fake. Secrets come from the s
 | `DATABASE_MIGRATOR_URL` | | | ✔ | the `migrate` job only |
 | `DESK_HOST`, `APP_HOST`, `PUBLIC_HOST` | ✔ | | | three different public names |
 | `OPERATOR_AUTH_SECRET`, `CLIENT_AUTH_SECRET` | ✔ | | ✔ | ≥ 32 characters, different |
-| `INRP2P_HEALTH_TOKEN` | ✔ | | ✔ | ≥ 32 characters; the monitor's access to status and metrics |
+| `INRP2P_HEALTH_TOKEN` | ✔ | | ✔ | ≥ 32 characters; the monitor's access to status and metrics, sent as the `x-inrp2p-health-token` header |
 | `OPERATOR_BASE_URL`, `CLIENT_BASE_URL`, `CLIENT_LINK_BASE` | ✔ | `CLIENT_BASE_URL` | | https; default from the hosts |
 | `INRP2P_KEK_PROVIDER=aws-kms`, `INRP2P_KEK_ID`, `INRP2P_KMS_KEY_ARN`, `INRP2P_FIELD_HMAC_BASE64` | ✔ | ✔ | HMAC ✔ | RUNBOOKS `field-encryption-keys`; credentials from the workload role |
 | `INRP2P_KEK_PREVIOUS` | ✔ | ✔ | | during a key rotation |
@@ -60,6 +60,7 @@ never activates a development default, a sink or a fake. Secrets come from the s
 | `INRP2P_CUSTODY_PROVIDER` | ✔ | | | POOL (D-02) |
 | `INRP2P_OBJECT_STORE_REGION`, `INRP2P_OBJECT_STORE_ENDPOINT` | ✔ | ✔ | | https |
 | `INRP2P_RECEIPTS_BUCKET`, `INRP2P_RECEIPT_RETENTION_DAYS` | ✔ | ✔ | | optional (TD-12); retention is the owner's |
+| `INRP2P_AUDIT_SEAL_BUCKET`, `INRP2P_AUDIT_SEAL_RETENTION_DAYS` | | ✔ | | required (TD-17) |
 | `INRP2P_PDF_RENDERER`, `INRP2P_CHROMIUM_PATH` | opt. | opt. | | `worker-pdf` sets them |
 | `INRP2P_WORKER_ID`, `INRP2P_WORKER_POOL_SIZE` | | opt. | | heartbeat name; pool size |
 | `INRP2P_RELEASE` | ✔ | ✔ | | set by the image build (`--build-arg RELEASE`) |
@@ -86,32 +87,71 @@ Pools: the web app holds two pools per instance (application and auth, 10 each b
 (`INRP2P_WORKER_POOL_SIZE`, default 10). Keep instances × pools below `max_connections` with headroom for the migrator
 and an operator session; `db_connections_percent` warns at 70 %.
 
-## 6. Jobs
+## 6. Backups and recovery
 
-The worker's crontab (`apps/worker/src/tasks.ts`): `outbox_dispatch` (minute), `audit_seal` (hourly),
-`capacity_day_rollover`, `deposit_address_cooldown_release`, `quote_expiry_sweep`, `settlement_sla`,
+**Mechanism.** Continuous WAL archiving with point-in-time recovery: on a managed PostgreSQL, the platform's own PITR;
+on the reference stack, `archive_command` to a volume with `archive_timeout=60` (for drills, not production). A logical
+dump (`scripts/backup-drill.ts`) is a second, independent check — it is not the backup.
+
+**Targets — proposed for the owner (D-06).** RPO ≤ 5 minutes (a managed platform ships logs at about that interval;
+the reference stack's bound is its 60 s archive timeout). RTO ≤ 2 hours from the decision to restore to the desk
+reconciling; the database recovery is the small part of it. Retention of the recovery window, snapshots and the audit
+archive is an owner decision with legal input (SECURITY §9); the configuration only enforces that the audit archive has
+a retention.
+
+**Measured.** `scripts/pitr-drill.ts` on the reference stack (2026-10-09, release `56961d5`, Docker `postgres:18.6`, a
+small database): base backup 0.6 s, recovery to the target 1.2 s, checks 0.2 s, the web image ready against the
+recovered database in production mode 2 s. That proves the mechanism, not a production time; a drill of production size
+on the chosen platform is gate 2 (**NOT RUN**).
+
+**Recovering.** Never in place: recover a new instance to the target time, run `migrate` (a no-op when the schema
+matches), point web and worker at it. Outgoing payments are held on the recovered database from its first moment — it
+is on a new timeline, and its last heartbeat names the old one — and the worker's first heartbeat raises the restore
+fence and pauses new business. On a platform that hides the database's cluster and timeline from the application, raise
+the fence by hand before anyone opens the desk. Reconcile against the bank and the chain, two people lift the fence,
+then new business is resumed (RUNBOOKS `incident-recovery`, `restore-fence`, `backup-restore-drill`).
+
+**What a restore replays, and why it is safe.** The restored jobs run again, and every one is state-guarded: outbox
+events are delivered at least once into idempotent handlers; a client email keeps its provider idempotency key, derived
+from the event and the person; sealing and the seal export continue from what is recorded, adopting a range written but
+not recorded; the scanner re-reads from its restored cursor and records each transfer once (unique by transaction and
+log index). The platform sends no money itself (watch-only), so nothing in a restored database can pay anyone; the fence
+keeps people from paying twice what it no longer remembers.
+
+**The migrator is not a superuser.** Migrations and the queue schema install as `inrp2p_migrator`, the database's owner
+and nothing more — as on a managed platform, whose administrative user is not a PostgreSQL superuser either. The
+reference drill migrates that way, twice in a row.
+
+## 7. Jobs
+
+The worker's crontab (`apps/worker/src/tasks.ts`): `outbox_dispatch` (minute), `audit_seal` (hourly), `audit_seal_export`
+(daily), `capacity_day_rollover`, `deposit_address_cooldown_release`, `quote_expiry_sweep`, `settlement_sla`,
 `settlement_reconcile` (daily), `tron_scan`, `tron_confirm`, `tron_orphan_sweep`, `tron_backfill`, `custody_observe`,
 `trader_orders_sweep`, `receipt_store_backfill`, `worker_heartbeat`. Every job is state-guarded and safe to run twice.
 
-## 7. Health, readiness and alerts
+## 8. Health, readiness and alerts
 
 | Endpoint | Who | Says |
 |---|---|---|
 | `/api/health/live` (every host) | anyone | the process answers |
 | `/api/health/ready` (every host) | anyone | yes/no only: the database answers; in production also the schema version, the login and the configuration |
-| `/api/health/status` (desk host) | monitoring token or an operator with `economics:view` | every signal with its group, thresholds and runbook; new business open or paused; each worker's heartbeat |
+| `/api/health/status` (desk host) | monitoring token or an operator with `economics:view` | every signal with its group, thresholds and runbook; new business open or paused; outgoing payments flowing or held; each worker's heartbeat |
 | `/api/health/metrics` (desk host) | same | the same in Prometheus text |
 
 Signals are grouped by what fails: **money** (ledger, custody observations, blocking cases, reconciliation, route
-obligations, capacity, address pool), **infrastructure** (scanner, providers, quorum, outbox, codes and emails, audit
-seal, trader sweep, worker heartbeat, database connections), and **liquidity** (traders ready per side).
+obligations, capacity, address pool, the audit-seal archive, outgoing payments held after a database change), **infrastructure** (scanner, providers, quorum, outbox, codes and emails, audit
+seal and its export, trader sweep, worker heartbeat, database connections), and **liquidity** (traders ready per side).
 Liquidity is reported apart and never makes the deployment "not ready": a trader-funded exchange with nobody online is
 quiet, not broken (D-16); a platform balance of zero is normal and is not a signal at all.
-`deploy/reference/prometheus/alerts.yml` turns states into pages and tickets. Whether a page reaches a person is
+The monitor sends the token in the `x-inrp2p-health-token` request header, to the desk host only (behind the load
+balancer, which also sets `X-Forwarded-Proto: https`); `/api/health/status` answers 503 while any money or infrastructure
+signal is in alarm, so a plain HTTP check can page on it. `deploy/reference/prometheus/alerts.yml` turns states into
+pages and tickets. Whether a page reaches a person is
 tested only against the real paging setup (gate 2, **NOT RUN**).
 
-## 8. Procedures
+## 9. Procedures
 
 RUNBOOKS: `pause-new-business` (System → New business: no new requests, quotes, acceptances or trader offers, while
 everything started settles), `incident-recovery`, `payout-ambiguous`, `secret-rotation`, `field-encryption-keys`,
-`email-delivery`, `provider-outage`, `worker-stopped`, `database-pressure`, `backup-restore-drill`.
+`email-delivery`, `provider-outage`, `worker-stopped`, `database-pressure`, `backup-restore-drill`, `restore-fence`,
+`audit-archive-mismatch`.

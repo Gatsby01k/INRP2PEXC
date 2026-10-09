@@ -19,8 +19,8 @@ Non-blocking items accepted at phase review. Each entry names the phase that mus
 | TD-13 | New page baselines have not been recorded in the canonical environment | Phase 8 implementation (2026-09-20) | The `visual-pages` CI job can pass | Phase 8 recorded (run `35495412975`); reopened for Phase 9's two public captures |
 | TD-14 | Reconciliation is a manual statement import; there is no recurring job | Phase 8 implementation (2026-09-20) | A bank feed or statement drop that arrives without an operator | Open |
 | TD-15 | The public site cannot be edge-cached while its CSP nonce is per-request | Phase 9 implementation (2026-09-20) | The public site needs to be served from a CDN | Open |
-| TD-16 | The backup/restore drill has never been run against real infrastructure | Phase 9 implementation (2026-09-20) | Production launch (launch checklist) | Open — scripted, never executed |
-| TD-17 | Audit seals are written but never exported off-site | Phase 9 implementation (2026-09-20) | Production launch (launch checklist) | Open |
+| TD-16 | The backup/restore drill has never been run against real infrastructure | Phase 9 implementation (2026-09-20) | Production launch (launch checklist) | Open — point-in-time recovery drill built and **passed on the local reference stack** (2026-10-06, E4); never run on the chosen platform (D-06 open) |
+| TD-17 | Audit seals are written but never exported off-site | Phase 9 implementation (2026-09-20) | Production launch (launch checklist) | Code ready (2026-10-06, E4, migration 0034; tested against MinIO under Object Lock); the production bucket and its retention are owner inputs |
 | TD-18 | `CLIENT_BANK_CHANGED` is detected but cannot be resolved by moving the trade to a new destination | Audit (2026-09-25) | A client replacing a destination while one of its trades is open | Closed (2026-10-05, migration 0028) |
 | TD-19 | `refund_excess` (partial refund of an overpayment) does not exist; the completion predicate does not net refunds | Audit (2026-09-25) | The desk needing to return part of an overpayment and still complete the trade | Closed (2026-10-05, migration 0028) |
 | TD-20 | The OWNER-grant second approval is nominal: the requester names the approver | Audit (2026-09-25) | Any path that exposes `assignOperatorRole` (none does today) | Closed (2026-10-05, migration 0027) |
@@ -464,6 +464,27 @@ record the wall-clock time and the dump size, and repeat it on a schedule and af
 shape or hosting (`docs/RUNBOOKS.md § backup-restore-drill`). Point-in-time recovery needs its own drill beyond
 this one: this proves a dump restores, not that the WAL archive can roll forward to a chosen moment.
 
+**Update (2026-10-06, production task E4).** The point-in-time drill exists and has run — on the local reference stack
+only. `scripts/pitr-drill.ts` runs PostgreSQL 18.6 with continuous WAL archiving and the reference roles, migrates as
+the non-superuser migrator, takes a base backup, writes before and after a target, recovers a separate server to that
+target and checks it: nothing after the target and everything before it, the schema version, sign-in data, the queued
+job, the chain cursor, the ledger and every journal balanced, the audit chain, grants, the production database checks
+through the application and worker logins, that outgoing payments are held before any worker runs and the worker's
+first heartbeat raises the restore fence, and — with the audit seals exported to a local Object Lock bucket before and
+after the target — that the archive still proves the recovered trail, names the range only the lost timeline exported,
+and keeps exporting. With `--image` and a production env file it starts the web image against the recovered database
+and waits for production readiness. Its last run passed on 2026-10-09 at `56961d5` (base backup 0.6 s, recovery 1.2 s,
+checks 0.2 s, web ready 2 s, on a small database) and each run is recorded in `backup_verification`, which
+`restore_drill_age_days` watches; the dump drill now records its runs there too. Running it found three real defects:
+the queue install failed under a non-superuser migrator, i.e. on every managed platform (`88b988a`); the archive's first
+design required seal numbers to be contiguous, but the recovered copy's next seal was number 35 after 3 — a sequence
+resumes ahead after a recovery or a crash — so every export after the first crash would have been refused; and the
+archive could not continue past a restore at all (both fixed in `56961d5`). Starting the release images found a fourth:
+the worker image could not start, because production imports were declared only as devDependencies (`f2bb7e1`). What
+remains open is the reason this entry exists: no drill has run on the platform production will use, at production size,
+with its retention configured; hosting (D-06) is still the owner's choice, and RPO ≤ 5 min / RTO ≤ 2 h are proposals
+awaiting that decision.
+
 ## TD-17 — Audit seals are written but never exported
 
 **Observed.** The audit trail is sealed hourly into a hash chain and `verifyAuditSeals` recomputes the whole
@@ -479,6 +500,17 @@ difference between "we would notice" and "we can prove".
 storage (object lock, or an append-only log service), plus a verification step that compares the exported chain
 against the database's own and alarms on divergence. The data is tiny — a few hashes a day — so the work is
 entirely in the destination and its credentials, not in the producing.
+
+**Update (2026-10-06, production task E4) — code ready.** Migration 0034 records each export (`audit_seal_export`:
+contiguous ranges only, matching the seals, IX099). The worker's daily `audit_seal_export` job writes every seal not yet
+exported as one range to an S3 bucket under Object Lock in compliance mode, with the retention the configuration
+requires in production, and refuses a bucket without versioning and Object Lock. `verifyAuditArchive` then checks the
+archive's own chain, the seals here against it, and the audit events re-hashed against the archived seals — so events
+rewritten and re-sealed until the database agrees with itself are still found — and reports ranges not archived in
+time; each check is recorded and `audit_archive_failures` alarms on any finding. A range written but not recorded (a
+crash in between) is adopted once, only if it describes the seals here. Tested against MinIO under Object Lock
+(`test/integration/audit-archive.int.test.ts`). Open: the production bucket, its write role and the retention period
+(owner, with legal input).
 
 ## TD-18 — A changed destination is detected but cannot be followed
 

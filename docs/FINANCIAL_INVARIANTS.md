@@ -144,12 +144,14 @@ keep `LEGACY_EXCHANGE_FUNDED` and the rules they were accepted under.
 ### Traders (`TRADERS.md` §10)
 A trader's order settles through an ordinary `TO_EXCHANGE` route obligation, so FI-60…FI-65 apply to it unchanged. The programme's own invariants (TR-01…TR-11: registered destinations only, held capacity = open orders, one order per request, quote = accepted order, trader-set rates, one subject per delivery address, reserve and rewards in the ledger, locked reserve never withdrawable, trader projections private, business-clock expiry) and their enforcement are listed there.
 
-### Idempotency & audit
+### Idempotency, audit & recovery
 | ID | Invariant | Enforcement | Test |
 |---|---|---|---|
 | FI-50 | Every financial mutation requires an idempotency key; replay returns original result; same key with different payload is rejected | `idempotency_key(scope, key)` unique with `request_hash` | double submit |
 | FI-51 | Audit events are append-only and tamper-evident | INSERT-only grant, reject triggers, periodic hash-chain sealing (`audit_seal`) | attempted update; seal verification detects edit |
 | FI-52 | Every state change commits with its audit event (and journal, when financial) or not at all | Single-transaction command pipeline; integration test asserts audit row exists for every transition | fault injection mid-command |
+| FI-53 | The audit trail is provable against an archive the database cannot rewrite: every seal is exported, in contiguous ranges, to write-once storage, and the trail is verified against the archived seals — including re-hashing the events | `audit_seal_export` (IX099: contiguous, matching the seals), daily `audit_seal_export` job under Object Lock, `verifyAuditArchive` (`audit_archive_failures`) | audit-archive suite (gap, changed seal, events rewritten and re-sealed, a range written but not recorded) |
+| FI-54 | A database that is not the one the workers last wrote to (recovered, failed over, moved) authorises no money out — no exchange-paid payout or refund marked sent, no reserve application approved — until one person has recorded the reconciliation with the bank and the chain and a second has approved it. Evidence of a payment already made is always recorded | `inrp2p_payouts_held()` (cluster and timeline vs the last heartbeat; a raised `restore_fence`); `PAYOUTS_HELD` in the commands, IX100 in the database; lift IX101 | restore-fence suite (held before any worker, raised once, two people, evidence recorded); `scripts/pitr-drill.ts` |
 
 ## 3. Ledger (V1)
 
