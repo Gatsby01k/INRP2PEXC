@@ -2,9 +2,8 @@ import type { Metadata } from 'next';
 import { headers } from 'next/headers';
 import { notFound, redirect } from 'next/navigation';
 import { requireClientSession } from '@inrp2p/identity';
-import { ONBOARDING } from '../../content/site.ts';
 import { getRuntime } from '../../server/runtime.ts';
-import { onboardingHref, publicOrigin } from '../../server/site.ts';
+import { publicOrigin } from '../../server/site.ts';
 import { surfaceForHost } from '../../server/surface.ts';
 import { WorkspaceGateway } from '../sign-in/WorkspaceGateway.tsx';
 
@@ -30,5 +29,5 @@ export default async function BecomeATraderPage() {
     () => false,
   );
   if (signedIn) redirect('/traders');
-  return <WorkspaceGateway home={await publicOrigin()} onboarding={onboardingHref()} unlinked={ONBOARDING.unlinked} mode="TRADER" />;
+  return <WorkspaceGateway home={await publicOrigin()} mode="TRADER" />;
 }

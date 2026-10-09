@@ -25,13 +25,13 @@ function BackGlyph() {
  *
  * A server component. Two islands hydrate inside it: the surface (the form) and the robot.
  */
-/** The room's words: returning to a workspace, or starting as a trader (the same code, the same room). */
+/** The room's words: a workspace — returning to one or opening one (D-17) — or starting as a trader (the same code, the same room). */
 const COPY = {
-  SIGN_IN: { eyebrow: 'Workspace access', title: 'Enter the desk.', lede: 'Access is limited to clients onboarded by the INRP2P desk.' },
+  SIGN_IN: { eyebrow: 'Workspace access', title: 'Enter the desk.', lede: 'Sign in with your email, or open your account with it. Every trade is priced by the INRP2P desk.' },
   TRADER: { eyebrow: 'Become a trader', title: 'Provide liquidity.', lede: 'Apply with your email. The desk reviews every trader before any order is sent.' },
 } as const;
 
-export function WorkspaceGateway({ home, onboarding, unlinked, mode = 'SIGN_IN' }: { home: string; onboarding: string | null; unlinked: string; mode?: 'SIGN_IN' | 'TRADER' }) {
+export function WorkspaceGateway({ home, mode = 'SIGN_IN' }: { home: string; mode?: 'SIGN_IN' | 'TRADER' }) {
   const copy = COPY[mode];
   const { props: markProps } = getImageProps({ src: mark, alt: '', width: 32, height: 32 });
   return (
@@ -64,7 +64,7 @@ export function WorkspaceGateway({ home, onboarding, unlinked, mode = 'SIGN_IN' 
           </div>
 
           <div className={styles.access}>
-            <AccessSurface onboarding={onboarding} unlinked={unlinked} mode={mode} />
+            <AccessSurface mode={mode} />
           </div>
         </div>
       </main>

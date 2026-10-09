@@ -1,4 +1,9 @@
+import { randomBytes, randomUUID } from 'node:crypto';
 import { type Page, expect, test } from '@playwright/test';
+import { encodeTronAddress } from '@inrp2p/kernel';
+import { executeCommand } from '@inrp2p/commands';
+import { applyAsTrader } from '@inrp2p/traders';
+import { e2eFieldProtector } from './world.ts';
 import { maskEmail } from '../src/app/sign-in/access.ts';
 import {
   acceptanceCodeFor,
@@ -27,6 +32,9 @@ import {
  * takes a short cut through a command the browser would not have run.
  */
 test.describe.configure({ mode: 'serial' });
+
+/** The one Security Reserve address every trader sends to (migration 0035, D-17). */
+const RESERVE_ADDRESS = 'TJNzB4sUGBo8fv7UdeeKQKQUffpfLSXbPP';
 
 let tradeRef = '';
 
@@ -212,14 +220,83 @@ test('a stranger becomes a trader applicant with an email and a code, and gets T
 
   await expect(page.getByRole('heading', { name: 'Traders', exact: true })).toBeVisible();
   const sections = page.getByRole('navigation', { name: 'Sections' }).getByRole('link');
-  await expect(sections).toHaveText(['Traders']);
+  await expect(sections).toHaveText(['Open account', 'Traders']);
   await expect(page.getByRole('link', { name: /Become a trader/ })).toHaveAttribute('href', '/traders/apply');
 
-  // The Exchange's pages send this account to Traders; verifying an email opened none of them.
+  // Verifying an email opened no Exchange: its pages send this person to open an account first (D-17).
   for (const path of ['/exchange', '/history', '/destinations']) {
     await page.goto(`${appBaseUrl()}${path}`);
-    await expect(page).toHaveURL(`${appBaseUrl()}/traders`);
+    await expect(page).toHaveURL(`${appBaseUrl()}/open-account`);
   }
+});
+
+test('a stranger opens their own account with an email and a code, and is in the Exchange — no operator admits them', async ({ page }) => {
+  const email = `self-client-${Date.now()}@client.test`;
+  await resetAuthThrottle();
+  await page.goto(`${appBaseUrl()}/sign-in`);
+  await expect(page.getByRole('heading', { name: 'Sign in or open an account.' })).toBeVisible();
+  await page.getByLabel('Work email').fill(email);
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await page.getByLabel('Verification code').fill(await clientSignInCode(email));
+
+  // Someone new lands on opening their account, not in an Exchange they do not have yet.
+  await expect(page).toHaveURL(`${appBaseUrl()}/open-account`);
+  await expect(page.getByRole('heading', { name: 'Open your account' })).toBeVisible();
+  await page.getByLabel('Full name').fill('Self Made Client');
+  await page.getByRole('button', { name: 'Open account' }).click();
+
+  await expect(page.getByRole('heading', { name: 'Exchange', exact: true })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'Sections' }).getByRole('link')).toHaveText(['Exchange', 'History', 'Destinations', 'Traders']);
+  const { appDb } = await import('./support.ts');
+  const opened = await appDb()
+    .selectFrom('auth_user as u')
+    .innerJoin('client_user as cu', 'cu.user_id', 'u.id')
+    .innerJoin('client as c', 'c.id', 'cu.client_id')
+    .select(['c.display_name', 'c.exchange_access', 'cu.role', 'cu.can_accept_quotes'])
+    .where('u.email', '=', email)
+    .executeTakeFirstOrThrow();
+  expect(opened).toEqual({ display_name: 'Self Made Client', exchange_access: true, role: 'CLIENT_ADMIN', can_accept_quotes: true });
+  // The page that opened it now sends them where their account lives.
+  await page.goto(`${appBaseUrl()}/open-account`);
+  await expect(page).toHaveURL(`${appBaseUrl()}/exchange`);
+});
+
+test('a trader still under review sees the one reserve address, its QR and where to hand in a transaction hash', async ({ page }) => {
+  const email = `reserve-applicant-${Date.now()}@trader.test`;
+  await resetAuthThrottle();
+  await page.goto(`${appBaseUrl()}/become-a-trader`);
+  await page.getByLabel('Email', { exact: true }).fill(email);
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await page.getByLabel('Verification code').fill(await clientSignInCode(email));
+  await expect(page.getByRole('heading', { name: 'Traders', exact: true })).toBeVisible();
+
+  // The application itself, as this person, through the command the six-step form submits.
+  const { appDb } = await import('./support.ts');
+  const user = await appDb().selectFrom('auth_user').select('id').where('email', '=', email).executeTakeFirstOrThrow();
+  const session = await appDb().selectFrom('auth_session').select('id').where('user_id', '=', user.id).orderBy('created_at', 'desc').executeTakeFirstOrThrow();
+  const wallet = encodeTronAddress(randomBytes(20));
+  await executeCommand(appDb(), applyAsTrader({ kind: 'CLIENT', userId: user.id, sessionId: session.id }, { protector: e2eFieldProtector() }), {
+    name: 'trader.apply', actor: { type: 'USER', id: user.id, surface: 'CLIENT', sessionId: session.id }, idempotencyKey: randomUUID(), financial: true,
+    payload: {
+      fullName: 'Reserve Applicant', entityType: 'INDIVIDUAL' as const, telegram: '@reserve_applicant', experience: 'BINANCE' as const, confirmOwnership: true,
+      offersBuy: true, offersSell: false, typicalInr: '200000', dailyInr: '1000000',
+      bank: { holderName: 'Reserve Applicant', bankName: 'HDFC Bank', accountNumber: String(630000000000 + (Date.now() % 1e9)), ifsc: 'HDFC0001234', rails: ['IMPS'] as const },
+      wallet: { address: wallet, label: 'My wallet' },
+    },
+  });
+
+  await page.goto(`${appBaseUrl()}/traders/reserve`);
+  await expect(page.getByRole('heading', { name: 'Security Reserve' }).first()).toBeVisible();
+  await expect(page.getByText(RESERVE_ADDRESS, { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole('img', { name: `QR code for deposit address ${RESERVE_ADDRESS}` })).toBeVisible();
+  // Send from the registered wallet: the page names it in full, because it is what makes the deposit theirs.
+  await expect(page.getByText(wallet).first()).toBeVisible();
+  await expect(page.getByLabel('Transaction hash (TxID)')).toBeVisible();
+  await page.getByLabel('Transaction hash (TxID)').fill(randomBytes(32).toString('hex'));
+  await page.getByRole('button', { name: 'Check my transfer' }).click();
+  // Nothing is credited on the strength of a hash: it is read from the network (none is configured for this run, which
+  // the page says in words) and never taken as given.
+  await expect(page.getByRole('alert').filter({ hasText: /network cannot be read right now|does not show this transaction/ })).toBeVisible();
 });
 
 async function quoteStatus(quoteId: string): Promise<string> {

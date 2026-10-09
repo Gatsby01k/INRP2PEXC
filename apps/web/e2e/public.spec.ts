@@ -186,7 +186,7 @@ test('the way into the workspace keeps the room: the gateway stands where the he
   await expect(page).toHaveURL(`${appBaseUrl()}/sign-in`);
   await expect(page).toHaveTitle('Workspace access — INRP2P Exchange');
   await expect(page.getByRole('heading', { level: 1, name: 'Enter the desk.' })).toBeVisible();
-  await expect(page.getByText('Access is limited to clients onboarded by the INRP2P desk.')).toBeVisible();
+  await expect(page.getByText('Sign in with your email, or open your account with it. Every trade is priced by the INRP2P desk.')).toBeVisible();
   near(await box('[data-robot-target="panel"]'), module, 'access surface against the quote module');
   near(await box('img[srcset*="robot-"]'), robot, 'robot against the hero robot');
 
@@ -201,10 +201,11 @@ test('the way into the workspace keeps the room: the gateway stands where the he
   await expect(page.getByRole('alert').filter({ hasText: 'Enter your full work email, like name@company.com.' })).toBeVisible();
   await expect(email).toHaveAttribute('aria-invalid', 'true');
   await expect(page.locator('form').first()).toHaveAttribute('novalidate', '');
-  await expect(page.getByRole('heading', { name: 'Welcome back.' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Sign in or open an account.' })).toBeVisible();
 
-  // The way in for a new client is the configured one; the way back is the home page.
-  await expect(page.getByRole('link', { name: 'Request onboarding' })).toHaveAttribute('href', `mailto:${E2E_PUBLIC_CONTACTS.desk}?subject=${encodeURIComponent(ONBOARDING.subject)}`);
+  // A new client opens their account right here (D-17); someone who wants to provide capacity is shown the way to
+  // apply; the way back is the home page.
+  await expect(page.getByRole('link', { name: /Become a trader/ })).toHaveAttribute('href', '/become-a-trader');
   await page.getByRole('banner').getByRole('link', { name: 'Back to exchange' }).click();
   await expect(page.getByRole('heading', { level: 1, name: 'Buy & sell USDT in India' })).toBeVisible();
 });
