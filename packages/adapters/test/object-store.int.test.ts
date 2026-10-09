@@ -2,13 +2,13 @@ import { createHash, randomBytes } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { GenericContainer, type StartedTestContainer, Wait } from 'testcontainers';
 import { S3ObjectStore, UnconfiguredObjectStore, amzDateOf, isObjectStoreConfigured, objectStoreFromEnv, signSigV4 } from '../src/index.ts';
+import { MINIO_IMAGE } from '../../../test/minio.ts';
 
 /**
  * The object store against MinIO — a real S3 implementation, run locally — for what TD-12 and TD-17 rely on: a
  * write that never overwrites, bytes checked on the way in, Object Lock that nobody can lift, and a bucket that says
  * whether it is versioned and locked. Gate-1 evidence only: the production bucket and its account are owner inputs.
  */
-const IMAGE = 'minio/minio:RELEASE.2025-07-23T15-54-02Z';
 const USER = 'inrp2ptest';
 const PASSWORD = 'inrp2ptest-password-not-a-secret'; // secret-scan:allow — a throwaway container's root password
 const credentials = async () => ({ accessKeyId: USER, secretAccessKey: PASSWORD });
@@ -25,7 +25,7 @@ async function raw(method: string, path: string, headers: Record<string, string>
 }
 
 beforeAll(async () => {
-  minio = await new GenericContainer(IMAGE)
+  minio = await new GenericContainer(MINIO_IMAGE)
     .withEnvironment({ MINIO_ROOT_USER: USER, MINIO_ROOT_PASSWORD: PASSWORD })
     .withCommand(['server', '/data'])
     .withExposedPorts(9000)

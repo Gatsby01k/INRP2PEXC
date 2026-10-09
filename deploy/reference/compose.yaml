@@ -42,7 +42,9 @@ services:
       retries: 20
 
   minio:
-    image: minio/minio:RELEASE.2025-07-23T15-54-02Z
+    # MinIO RELEASE.2026-09-22T19-25-18Z (Chainguard's build; MinIO's own images are no longer pullable
+    # anonymously). The same digest as test/minio.ts — `pnpm versions:check` holds them together.
+    image: cgr.dev/chainguard/minio@sha256:6476f81b9739912fa9f50ceae2bb049a30336527cccd24beccfbeb4145f8f696 # secret-scan:allow — an image digest
     # PRODUCTION: S3 buckets created with versioning and Object Lock; never public (E2, E4).
     command: ["server", "/data"]
     environment:

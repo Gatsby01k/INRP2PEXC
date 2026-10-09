@@ -75,8 +75,19 @@ for (const m of manifests) {
   }
 }
 
+// The S3 server the object-storage tests, the image checks and the PITR drill run (test/minio.ts) is pinned by
+// digest, and the reference stack runs the same one. MinIO's own repository is no longer pullable: naming it again
+// would fail every run that needs object storage.
+const minio = readFileSync(path.join(root, 'test/minio.ts'), 'utf8').match(/export const MINIO_IMAGE = '([^']+)'/)?.[1];
+if (!minio || !/@sha256:[0-9a-f]{64}$/.test(minio)) problems.push(`test/minio.ts MINIO_IMAGE ${minio ?? '(missing)'} is not pinned by digest`);
+const composeMinio = readFileSync(path.join(root, 'deploy/reference/compose.yaml'), 'utf8').match(/^ {2}minio:\n(?: +#.*\n)* +image: (\S+)/m)?.[1];
+if (composeMinio !== minio) problems.push(`deploy/reference/compose.yaml minio image ${composeMinio ?? '(missing)'} != test/minio.ts ${minio}`);
+for (const file of ['scripts/image-checks.ts', 'packages/adapters/test/object-store.int.test.ts', 'deploy/reference/compose.yaml']) {
+  if (readFileSync(path.join(root, file), 'utf8').includes('minio/minio:')) problems.push(`${file} names minio/minio, which can no longer be pulled; use MINIO_IMAGE`);
+}
+
 if (problems.length) {
   console.error(problems.join('\n'));
   process.exit(1);
 }
-console.log(`version matrix OK (${manifests.length} manifests); PostgreSQL ${POSTGRES} enforced by CI via REQUIRE_PG_VERSION`);
+console.log(`version matrix OK (${manifests.length} manifests); PostgreSQL ${POSTGRES} enforced by CI via REQUIRE_PG_VERSION; S3 server ${minio}`);

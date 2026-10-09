@@ -26,6 +26,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { amzDateOf, signSigV4 } from '@inrp2p/adapters';
+import { MINIO_IMAGE } from '../test/minio.ts';
 
 const arg = (name: string) => {
   const i = process.argv.indexOf(name);
@@ -120,7 +121,7 @@ try {
   spawnSync('chmod', ['644', path.join(certs, 'private.key'), path.join(certs, 'public.crt')]);
   const ca = readFileSync(path.join(certs, 'public.crt'), 'utf8');
   docker(['run', '-d', '--name', MINIO, '--network', NET, '-p', '127.0.0.1::9000', '-e', `MINIO_ROOT_USER=${MINIO_USER}`, '-e', `MINIO_ROOT_PASSWORD=${pw.minio}`,
-    '-v', `${certs}:/root/.minio/certs:ro`, 'minio/minio:RELEASE.2025-07-23T15-54-02Z', 'server', '/data']);
+    '-v', `${certs}:/certs:ro`, MINIO_IMAGE, 'server', '--certs-dir', '/certs', '/data']);
   const minioPort = hostPort(MINIO, 9000);
   await until('the object store', async () => (await s3('GET', minioPort, '/minio/health/live', {}, ca).catch(() => 0)) === 200, 60_000);
   expectThat('the audit-seal bucket is created with Object Lock', (await s3('PUT', minioPort, '/inrp2p-audit-seals', { 'x-amz-bucket-object-lock-enabled': 'true' }, ca)) === 200);

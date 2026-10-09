@@ -63,6 +63,14 @@ jobs:
       - name: Install Chromium
         run: pnpm --filter @inrp2p/web exec playwright install --with-deps chromium
 
+      # The S3 server the object-storage tests run (test/minio.ts), pulled by its digest before they start, so a
+      # registry that stops serving it fails here, by name, rather than as four failed suites.
+      - name: Object store image (MinIO, pinned by digest)
+        run: |
+          IMAGE=$(node --input-type=module -e "const { MINIO_IMAGE } = await import('./test/minio.ts'); console.log(MINIO_IMAGE)")
+          docker pull "$IMAGE"
+          docker run --rm "$IMAGE" --version | tee -a "$GITHUB_STEP_SUMMARY"
+
       - name: Integration tests (PostgreSQL 18.6 via Testcontainers)
         run: pnpm run test:integration
 

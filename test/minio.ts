@@ -6,7 +6,19 @@ import { S3ObjectStore, amzDateOf, signSigV4 } from '@inrp2p/adapters';
  * A local MinIO — a real S3 implementation — for the tests of what object storage must guarantee (TD-12, TD-17).
  * Gate-1 evidence only: the production bucket, its account and its retention are owner inputs.
  */
-export const MINIO_IMAGE = 'minio/minio:RELEASE.2025-07-23T15-54-02Z';
+
+/**
+ * The MinIO server, pinned by digest, and named only here (the tests, `scripts/image-checks.ts`, the PITR drill;
+ * `deploy/reference/compose.yaml` is held to it by `versions:check`).
+ *
+ * MinIO's own images can no longer be pulled anonymously: Docker Hub's `minio/minio` no longer exists and quay.io
+ * grants no pull without an account (checked 2026-10-09, when CI's pull of `minio/minio:RELEASE.2025-07-23T15-54-02Z`
+ * failed). This is Chainguard's image of the same server, built from MinIO's source — package
+ * `minio 0.20260922.192518-r2`, MinIO `RELEASE.2026-09-22T19-25-18Z`, for linux/amd64 and linux/arm64. The digest
+ * means a run never moves to another build unseen; CI pulls it and prints the server's version before the tests.
+ * It runs as an unprivileged user and its `/data` is writable by it.
+ */
+export const MINIO_IMAGE = 'cgr.dev/chainguard/minio@sha256:6476f81b9739912fa9f50ceae2bb049a30336527cccd24beccfbeb4145f8f696'; // secret-scan:allow — an image digest, not a key
 const USER = 'inrp2ptest';
 const PASSWORD = 'inrp2ptest-password-not-a-secret'; // secret-scan:allow — a throwaway container's root password
 const credentials = async () => ({ accessKeyId: USER, secretAccessKey: PASSWORD });
