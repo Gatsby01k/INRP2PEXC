@@ -182,6 +182,8 @@ export async function seedVisual(adminUrl: string): Promise<VisualState> {
 
   const auth = createOperatorAuth({ authDb, appDb: world, secret: OPERATOR_AUTH_SECRET, baseURL: SEED_ORIGIN, rateLimit: { enabled: false }, useSecureCookies: false });
   const owner = await operator(auth, world, 'owner@inrp2p.test', ['OWNER']);
+  // Above ₹2,500,000 a payout is confirmed by someone other than its sender (SECURITY §4, C1).
+  const settler = await operator(auth, world, 'settlement@inrp2p.test', ['SETTLEMENT_OPERATOR']);
   const protector = visualFieldProtector();
 
   // ── Clients ────────────────────────────────────────────────────────────────────────────────────────────
@@ -273,7 +275,8 @@ export async function seedVisual(adminUrl: string): Promise<VisualState> {
   const chain = chainDeps('visual');
 
   // 1. Completed: the launch scenario, so Orders has a finished trade and the strip a realized margin. The route
-  //    delivers its INR first; the client is paid with it and nothing else (D-16).
+  //    delivers its INR first; the client is paid with it and nothing else (D-16). Both legs are above the approval
+  //    threshold, so the owner sends them and the settlement operator confirms them (C1).
   const completed = await trade(world, owner, {
     clientId: acme.clientId, acceptor: acmeAcceptor, routeId: mumbai.routeId, bankAccountId: acmeBank.bankAccountId,
     amount: '100000', clientRate: '102.000000', chain,
@@ -287,7 +290,7 @@ export async function seedVisual(adminUrl: string): Promise<VisualState> {
     await run(world, recordLegEvidence(owner.actor, chain.deps), owner.ref, 'payout_leg.record_evidence', {
       legId: leg.legId, rail: 'IMPS' as const, utr: `IXVIS${amount.slice(0, 7).replace('.', '')}`,
     });
-    await confirmPayout(world, owner.actor, chain.deps, { legId: leg.legId, idempotencyKey: randomUUID() });
+    await confirmPayout(world, settler.actor, chain.deps, { legId: leg.legId, idempotencyKey: randomUUID() });
   }
 
   // 2. Awaiting payout, with a leg already sent and referenced — the payout panel with work in flight, and the
