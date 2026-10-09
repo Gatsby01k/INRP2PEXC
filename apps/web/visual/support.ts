@@ -80,6 +80,9 @@ async function pinLiveMeasurements(page: Page): Promise<void> {
 
 /** Fonts requested and loaded, layout settled, wall-clock text pinned: everything a stable capture needs. */
 export async function settle(page: Page): Promise<void> {
+  // A page may hold a face back until it has loaded (the public home page's Geist Mono, DeferredMono.tsx): the
+  // capture is of the page once it has.
+  await expect.poll(() => page.evaluate(() => document.querySelector("[data-deferred-fonts='pending']") === null)).toBe(true);
   await page.evaluate(async (faces) => {
     await Promise.all(faces.map((f) => document.fonts.load(f)));
     await document.fonts.ready;

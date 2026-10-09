@@ -18,6 +18,13 @@
   color: var(--text-primary);
 }
 
+/* The home page holds Geist Mono back until it has loaded (_landing/DeferredMono.tsx). Only text below its first
+   screen is set in it — the story's figures and this footer — so until then the system monospace stands in, and
+   the two Geist Mono files are not fetched beside the first screen's styles and image. */
+.site:has([data-deferred-fonts='pending']) {
+  --font-mono: ui-monospace, 'SFMono-Regular', Menlo, monospace;
+}
+
 .masthead {
   position: relative;
   z-index: 10;

@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import type { Direction } from '@inrp2p/kernel';
+import { DeferredMono } from './DeferredMono.tsx';
 import { DIRECTION_ATTRIBUTE, STORY_DIRECTION } from './story.ts';
 import styles from './story.module.css';
 
@@ -9,10 +10,13 @@ import styles from './story.module.css';
  * Both directions' words are rendered on the server, and this wrapper's `data-direction` shows one of them — so
  * the page reads completely before any script runs, a search engine reads both, and changing direction swaps
  * words without rendering anything. The execution flow's switch sets the attribute (flow/FlowStage.tsx).
+ *
+ * It also holds Geist Mono back until the page has loaded (`data-deferred-fonts`, DeferredMono.tsx).
  */
 export function Story({ children }: { children: ReactNode }) {
   return (
-    <div className={styles.story} data-story="" {...{ [DIRECTION_ATTRIBUTE]: STORY_DIRECTION }}>
+    <div className={styles.story} data-story="" data-deferred-fonts="pending" {...{ [DIRECTION_ATTRIBUTE]: STORY_DIRECTION }}>
+      <DeferredMono />
       {children}
     </div>
   );

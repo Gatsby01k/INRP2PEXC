@@ -41,6 +41,21 @@ test('the home page is served at / and has no second address', async ({ page }) 
   expect(new URL(direct.headers()['location']!, linkBaseUrl()).pathname).toBe('/');
 });
 
+test('the home page asks for Geist Mono only once it has loaded, then sets its figures in it', async ({ page }) => {
+  // Geist Mono is used only below the home page's first screen. Fetched with the first screen, at the highest
+  // priority, it cost the mobile budget seven points (DeferredMono.tsx); held back, it must still arrive.
+  await page.goto(linkBaseUrl());
+  await expect(page.locator('[data-story]')).toHaveAttribute('data-deferred-fonts', 'ready');
+  await expect.poll(() => page.evaluate(() => performance.getEntriesByType('resource').filter((e) => e.name.includes('GeistMono')).length)).toBe(2);
+  const timing = await page.evaluate(() => ({
+    load: (performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming).loadEventStart,
+    mono: performance.getEntriesByType('resource').filter((e) => e.name.includes('GeistMono')).map((e) => e.startTime),
+  }));
+  for (const start of timing.mono) expect(start).toBeGreaterThanOrEqual(timing.load);
+  const footerHeading = page.locator('footer h2').first();
+  await expect.poll(() => footerHeading.evaluate((el) => getComputedStyle(el).fontFamily)).toMatch(/^"?Geist Mono"?,/);
+});
+
 test('the home page ends with one call to action, and its footer links only to what exists', async ({ page }) => {
   await page.goto(linkBaseUrl());
   for (const heading of [AUDIENCE.heading, DESK.heading, BUSINESS.heading, CLOSING.heading]) {
