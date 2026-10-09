@@ -9,6 +9,7 @@ Status: Phase 2 (no new external dependencies; six new workspace packages: adapt
 | Node.js (24 LTS line) | 24.21.0 | `.nvmrc`, root `engines.node`, CI `setup-node` |
 | pnpm | 12.4.2 | root `packageManager`, `engines.pnpm`, CI |
 | PostgreSQL | 18.6 | CI Testcontainers image `postgres:18.6` + `REQUIRE_PG_VERSION=18.6` assertion |
+| MinIO (test and reference S3 server, never production) | `RELEASE.2026-09-22T19-25-18Z` — `cgr.dev/chainguard/minio@sha256:6476f81b…f696` (Chainguard package `minio 0.20260922.192518-r2`) | `test/minio.ts` `MINIO_IMAGE`, the only place it is named; `versions:check` holds `deploy/reference/compose.yaml` to it and refuses `minio/minio`; CI pulls it by digest and prints `minio --version` before the integration tests. MinIO's own images are no longer pullable anonymously (Docker Hub `minio/minio` removed, quay.io requires an account — 2026-10-09) |
 
 ## Packages
 
