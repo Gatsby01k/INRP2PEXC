@@ -431,21 +431,21 @@ export async function seedVisual(adminUrl: string): Promise<VisualState> {
   //    already enqueued. Nothing writes a notification directly.
   await dispatchOutbox(world, [clientNotificationHandler(world), traderNotificationHandler(world), receiptHandler(world), acknowledgedSignalHandler()], { batchSize: 500 });
 
-  // 8b. A bank statement, reconciled. Its lines are the payments the desk actually confirmed on this account,
-  //     so the import matches everything and opens no case — the quiet outcome, which is the one a baseline
-  //     should show. The extra line is a bank charge this system never made: `UNRECORDED`, and deliberately not
-  //     a case, because a real statement is full of them.
-  const confirmedLines = await sql<{ utr: string; amount_minor: bigint }>`
-    select distinct f.utr, f.amount_minor
+  // 8b. A bank statement, reconciled. Its lines are the payments the desk actually confirmed on this account —
+  //     the payouts that left it and, since D-16, the routes' INR that arrived in it to pay them — so the import
+  //     matches everything and opens no case: the quiet outcome, which is the one a baseline should show. The extra
+  //     line is a bank charge this system never made: `UNRECORDED`, and deliberately not a case, because a real
+  //     statement is full of them.
+  const confirmedLines = await sql<{ utr: string; amount_minor: bigint; outgoing: boolean }>`
+    select f.utr, f.amount_minor, (f.payer_type = 'EXCHANGE_ACCOUNT' and f.payer_id = ${account.accountId}) as outgoing
     from fiat_transfer f
-    join transfer_allocation a on a.fiat_transfer_id = f.id and a.voided_at is null
-    join settlement_leg l on l.id = a.settlement_leg_id
-    where f.status = 'CONFIRMED' and l.inr_account_id = ${account.accountId}
+    where f.status = 'CONFIRMED'
+      and ((f.payer_type = 'EXCHANGE_ACCOUNT' and f.payer_id = ${account.accountId}) or (f.payee_type = 'EXCHANGE_ACCOUNT' and f.payee_id = ${account.accountId}))
     order by f.utr`.execute(world);
   const statementLines = [
     ...confirmedLines.rows.map((r) => ({
-      valueDate: FROZEN_IST_DAY, direction: 'DEBIT' as const,
-      amount: Money.ofMinor(r.amount_minor, 'INR').toDecimalString(), reference: r.utr, description: 'NEFT OUTWARD',
+      valueDate: FROZEN_IST_DAY, direction: r.outgoing ? ('DEBIT' as const) : ('CREDIT' as const),
+      amount: Money.ofMinor(r.amount_minor, 'INR').toDecimalString(), reference: r.utr, description: r.outgoing ? 'NEFT OUTWARD' : 'NEFT INWARD',
     })),
     { valueDate: FROZEN_IST_DAY, direction: 'DEBIT' as const, amount: '236.00', reference: 'BANKCHG0919', description: 'MONTHLY CHARGES' },
   ];

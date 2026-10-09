@@ -357,7 +357,7 @@ export async function systemHealth(ex: Executor): Promise<SystemHealth> {
   }>`
     select
       (select count(*) from ledger_global_imbalance)::text as ledger_imbalance,
-      coalesce((select extract(epoch from (statement_timestamp() - max(last_run_at)))::bigint
+      coalesce((select extract(epoch from (inrp2p_now() - max(last_run_at)))::bigint
                 from chain_cursor), 0)::text as scanner_lag_seconds,
       coalesce((select max(greatest(last_solidified_block - last_scanned_block, 0)) from chain_cursor), 0)::text as scanner_block_lag,
       (select count(*) from chain_provider_status where consecutive_failures > 0)::text as chain_providers_degraded,
@@ -392,7 +392,7 @@ export async function systemHealth(ex: Executor): Promise<SystemHealth> {
       (select count(*) from exception_case where status in ('OPEN', 'IN_PROGRESS') and severity = 'BLOCKING')::text as blocking_exceptions,
       (select count(*) from route_obligation o
         where o.status not in ('SETTLED', 'CANCELLED')
-          and o.opened_at < statement_timestamp() - make_interval(hours => 24))::text as overdue_route_obligations,
+          and o.opened_at < inrp2p_now() - make_interval(hours => 24))::text as overdue_route_obligations,
       -- What runTraderSweep acts on (dueOrders), left undone for ten minutes: offers past expiry, holds past their end,
       -- started orders whose obligation is settled or cancelled.
       (select count(*) from trader_order t
@@ -435,7 +435,7 @@ export async function systemHealth(ex: Executor): Promise<SystemHealth> {
                 where a.status = 'ACTIVE'), 0)::text as inr_capacity_available,
       (select count(*) from deposit_address
         where status = 'AVAILABLE')::text as deposit_pool_free,
-      statement_timestamp() as checked_at`.execute(ex);
+      inrp2p_now() as checked_at`.execute(ex);
 
   const row = r.rows[0]!;
   // Every figure arrives as an integer string and stays an integer: counts, seconds, and whole rupees that

@@ -65,7 +65,7 @@ function Gauge({ c }: { c: HealthCheck }) {
     <span className={h.gauge} aria-hidden>
       <span className={h.zoneWarn} style={{ left: `${p.warnAt}%`, width: `${Math.max(p.alarmAt - p.warnAt, 0)}%` }} />
       <span className={h.zoneAlarm} style={{ left: `${p.alarmAt}%`, right: 0 }} />
-      <span className={h.marker} data-state={c.state} style={{ left: `${p.marker}%` }} />
+      <span className={h.marker} data-state={c.state} data-check={c.id} style={{ left: `${p.marker}%` }} />
     </span>
   );
 }
@@ -112,7 +112,7 @@ export function HealthTable({ checks }: { checks: readonly HealthCheck[] }) {
           align: 'right',
           width: 140,
           render: (c) => (
-            <span className={h.reading} data-state={c.state}>
+            <span className={h.reading} data-state={c.state} data-check={c.id}>
               {reading(c, c.value)}
             </span>
           ),
