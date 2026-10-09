@@ -9,7 +9,7 @@ outside the repository. A result is recorded only with the command, SHA and envi
 
 | Gate | Meaning | Status |
 |---|---|---|
-| 1. Code ready | fixes implemented, regressions covered, required checks green on the final SHA | **local PASS** at `30c6e98` (every CI command run locally; see Runs); **CI NOT RUN** — the branch has not been pushed. Not run locally: the component visual compare and a final image rebuild (Docker's storage went read-only when the host disk filled) |
+| 1. Code ready | fixes implemented, regressions covered, required checks green on the final SHA | **PASS in CI** — all seven required jobs green at `15f8d5b` ([run 37984995668](https://github.com/Gatsby01k/INRP2PEXC/actions/runs/37984995668)), integration with nothing skipped, 35 of 35 page baselines and 162 component tests in the canonical image, the images built and checked at that commit, the PITR drill and the 23 → 34 upgrade. The commit that records it changes only this register and TECH_DEBT; its own seven-job run is the final candidate's and is linked from PR #1. Local: PASS at `30c6e98` |
 | 2. Staging verified | production-like environment, real adapters, notifications, both directions, recovery, monitoring, operator procedures | **NOT RUN** — no staging environment or provider credentials exist in this workspace |
 | 3. Production prepared | domains, secrets, custody, bank accounts, liquidity, staff access, monitoring, backups; external conditions closed by their owners | **BLOCKED** — owner/infrastructure inputs (§ External prerequisites) |
 
@@ -46,7 +46,19 @@ nothing on gates 2 or 3. CI on the final SHA replaces them in the final report.
 | 2026-10-09 | `30c6e98` | `pnpm --filter @inrp2p/web test:e2e` (PostgreSQL 18.6 container) | PASS — 24 tests: 17 on the desk, 7 for the client on a Pixel 7 profile |
 | 2026-10-09 | `30c6e98` | `pnpm --filter @inrp2p/web test:lighthouse` | PASS — quote link 100 · 100 · 100 (SEO 54, reported only: the link is `noindex` by design); public home 96 · 100 · 100 · 100. One earlier run on the same day, with the host busy, measured the home page at 84 < 85; the next measured 96 |
 | 2026-10-09 | `dfc327c` | `bash apps/web/visual/docker.sh compare` (the canonical image, emulated on the Apple Silicon host) | PASS — 35 of 35 page baselines |
-| 2026-10-09 | `30c6e98` | `bash packages/ui/visual/docker.sh compare`; release images rebuilt at the final code | **NOT RUN** — Docker's storage went read-only when the host disk filled (98% used) and Docker Desktop did not come back after a restart. The component library is unchanged since `d0cc778`; the last image and drill evidence is `56961d5` (E4) |
+| 2026-10-09 | `30c6e98` | `bash packages/ui/visual/docker.sh compare`; release images rebuilt at the final code | **NOT RUN** locally — Docker's storage went read-only when the host disk filled (98% used) and Docker Desktop did not come back after a restart. Moved to CI (`visual`, `images`), below |
+
+**CI (GitHub Actions, `ubuntu-24.04`; PR [#1](https://github.com/Gatsby01k/INRP2PEXC/pull/1)).** Seven jobs, all required:
+`verify` (graph, versions, secret scan, lint, typecheck, unit, build, integration), `e2e`, `lighthouse`, `visual`
+(components), `visual-pages`, `images` (the three images built at the commit, `scripts/image-checks.ts`, the PITR
+drill) and `upgrade` (23 → 34). `main` has no branch protection, so "required" is this list.
+
+| Date | SHA | Run | Result |
+|---|---|---|---|
+| 2026-10-09 | `82fd556` | [37979059258](https://github.com/Gatsby01k/INRP2PEXC/actions/runs/37979059258) | `upgrade` PASS (the release at 23 wrote its data — fixture world and its own e2e, 24 passed — and both databases went 23 → 34 whole); `e2e` PASS; `visual` PASS. **FAIL:** `verify` and `images` — `minio/minio` could no longer be pulled (four integration suites); `visual-pages` — the emulated page baselines (three named, see F); `lighthouse` — public home 82 (FCP 2.7 s, LCP 4.2 s), the same 82 as `main` at `d0cc778` |
+| 2026-10-09 | `f0b4d82` | [37984058597](https://github.com/Gatsby01k/INRP2PEXC/actions/runs/37984058597) | `verify` PASS — MinIO `RELEASE.2026-09-22T19-25-18Z` pulled by digest, unit 35 files / 1583 tests, integration 53 files / 873 tests, none skipped; `e2e` PASS, 25 tests; `lighthouse` PASS — quote link 96 · 100 · 100, home 87 · 100 · 100 · 100; `visual` PASS, 162 tests; `upgrade` PASS. **FAIL:** `visual-pages` (baselines, replaced in `ede3374`); `images` — every container check passed except status and metrics with the token (401): the probe's Host header never reached the app (fixed in `a634ab3`) |
+| 2026-10-09 | `f0b4d82` | [37984062022](https://github.com/Gatsby01k/INRP2PEXC/actions/runs/37984062022) (canonical recording) | components re-recorded bit-identical (no image changed); all 35 page baselines recorded natively and verified compare-clean → `ede3374` |
+| 2026-10-09 | `15f8d5b` | [37984995668](https://github.com/Gatsby01k/INRP2PEXC/actions/runs/37984995668) | **all seven PASS.** `verify` — MinIO `RELEASE.2026-09-22T19-25-18Z` pulled by digest, secret scan 1063 files, unit 35 files / 1583 tests, integration 53 files / 873 tests, none skipped; `e2e` 25 tests, among them the new check that Geist Mono is fetched after load; `lighthouse` — quote link 92 · 100 · 100, home 91 · 100 · 100 · 100; `visual` 162 tests; `visual-pages` 35 of 35; `images` — web, worker, migrate built at the commit (1.2 GB each), every container check (migrate twice as the non-superuser migrator; both refuse an incomplete production configuration by name; the worker starts, checks the Object Lock bucket over TLS and records its heartbeat; live and ready on all three hosts; status refused without the token, with a wrong one and on the app host, served with it on the desk host (503 — a fresh database has no drill on record); metrics 200; no secret in any log; the worker drains on SIGTERM, exit 0), then the PITR drill — no findings, the fence raised on the recovered timeline before the worker, the lost timeline's export superseded, the web image ready (200) in production mode against the recovered database; `upgrade` — the release at 23 wrote its fixture world and ran its own e2e (24 passed); both databases went 23 → 34: migrations 24…34 applied once, a second run changed nothing, no row lost (visual: 5 trades, 8 legs, 13 journals, 41 entries, 124 audit events; e2e: 4, 10, 18, 48, 161), the books balance, every trade `LEGACY_EXCHANGE_FUNDED`, health computes, no hold, no pause. Neither database had an audit seal — the release at 23 seals from its worker, which the job does not run — so seals crossing the upgrade are covered by the restore checks and the drill, not here |
 
 ## Items
 
@@ -72,7 +84,7 @@ nothing on gates 2 or 3. CI on the final SHA replaces them in the final report.
 | E2 | P1 | verification + implementation | Statement import verified; TD-12 receipts in private, versioned, write-once object storage | code ready; bucket and retention **BLOCKED** (owner) |
 | E3 | P0 | confirmed defect + implementation | Deployment artifacts, the production contract, readiness, pausing new business, heartbeat, grouped health and alerts | code ready; images built and started locally (E4); staging deployment and paging **NOT RUN**; hosting (D-06) **BLOCKED** (owner) |
 | E4 | P0 | confirmed defects + implementation | Point-in-time recovery drill, restore safety (no second payout), audit-seal archive (TD-16, TD-17) | code ready; reference drill **PASS**; drill on the chosen platform **NOT RUN**; platform, retention and buckets **BLOCKED** (owner) |
-| F | P0 | verification + confirmed defects | Every CI command locally, end to end, page baselines incl. TD-23, Lighthouse | local **PASS** at `30c6e98`; CI **NOT RUN** (branch not pushed); component compare and final images **NOT RUN** (host disk full) |
+| F | P0 | verification + confirmed defects | Every CI command locally and in CI, end to end, page baselines incl. TD-23, Lighthouse, images, 23 → 34 | local **PASS** at `30c6e98`; CI on PR #1 — see Runs; gate 1 closes on the final candidate |
 
 (The table grows as stages are worked; each row has a section below.)
 
@@ -613,17 +625,39 @@ is wanted stays an open owner question (ADR 0016 §8).
 - **Changed.** The specs and the fixture above; TD-23 — a liquidity-only trader in the fixture, eight captures (the
   trader's home, orders, an order waiting on its INR, Security Reserve, settlement details; the application as a
   client sees it; the desk's trader list and one trader) (`b23b226`); all 35 page baselines recorded in the canonical
-  image through the local Docker path (`dfc327c`); the start-up check imported only on the Node.js runtime.
-- **Results.** Under Runs: static checks, unit, integration with nothing skipped, end to end, Lighthouse and the
-  canonical page compare all pass locally. The page baselines were recorded on an Apple Silicon host, so the amd64
-  image ran emulated (VISUAL_BASELINES §5 B): CI's compare is what makes them authoritative.
-- **Not run.** CI on any commit of this branch (it has not been pushed). The component visual compare and the image
-  rebuild at the final code: Docker's storage went read-only when the host disk filled (98% used, Docker's disk image
-  about 60 GiB) and Docker Desktop did not answer after a restart. The component library is unchanged since `d0cc778`;
-  the images and the recovery drill were last verified at `56961d5`, and the code since then that reaches them is the
-  health query's clock, two `data-check` attributes, and the start-up check's module (production refusal re-checked
-  with `next start` on the build).
-- **Gates.** Gate 1: local PASS, CI NOT RUN. Gate 2: NOT RUN. Gate 3: BLOCKED (below).
+  image through the local Docker path (`dfc327c`) — wrong under emulation, replaced by the native recording in
+  `ede3374` (below); the start-up check imported only on the Node.js runtime.
+- **Found in CI (PR #1), and changed.**
+  - **The S3 test server could not be pulled.** Docker Hub's `minio/minio` no longer exists and quay.io grants no
+    anonymous pull, so four integration suites, the container checks and the drill had no object store. Now
+    Chainguard's build of MinIO from MinIO's source (`RELEASE.2026-09-22T19-25-18Z`), pinned by digest and named only
+    in `test/minio.ts`; `versions:check` holds the reference compose stack to it, and CI pulls it and prints the
+    server's version before the tests (`7c920d7`). The tests are unchanged: real S3, versioning, write-once, Object Lock.
+  - **The page baselines recorded under emulation were wrong — all 35, not three.** CI's compare stops each spec file
+    at its first failure and so named three; the canonical recording (run 37984062022) showed every page differing
+    from the native render (25 in height, the rest in 4–25% of their pixels: tighter line spacing throughout, the
+    desk's key hints missing), and where a page had not changed since `main`'s canonical baseline the native
+    recording matched that baseline and the emulated one did not. The 35 were replaced with the native recording,
+    reviewed (`ede3374`); the components re-recorded bit-identical. VISUAL_BASELINES §5 B no longer allows recording
+    pages under emulation.
+  - **The public home page's mobile performance was 82, below its budget of 85** — on `main` at `d0cc778` as well
+    (93 at `1ed8935`), and 82–91 from run to run on the same build. Profiled on the built page with the gate's own
+    settings: Lighthouse's simulation counts every highest-priority request that finishes before the first paint, and
+    a font a stylesheet uses is fetched at the highest priority. With all five Geist faces (241 KB) finished first,
+    FCP was 2.56–2.71 s; with one or two still loading, 1.8–2.0 s. Two of the five — Geist Mono 400 and 500, 102 KB —
+    set no text on the home page's first screen at phone or desktop width. They are now fetched after `load`
+    (`f0b4d82`, `DeferredMono`, scoped to the home page: on the shorter pages the footer's mono headings are on the
+    first screen at desktop width). Five local runs: 88–96 (FCP 2.0 s, LCP 3.2–3.6 s); CI: 87. The budget is
+    unchanged. Also measured and not adopted: ~25 KiB of unused render-blocking CSS from chunks merged across
+    surfaces — Turbopack's `graph` chunking removed it but did not move the first paint, and it would re-chunk every
+    surface's CSS. An e2e test asserts the mono files are requested only after load and then used.
+  - **The container checks never sent the hosts they named.** Node's `fetch` replaces a caller's Host header with the
+    address it connects to, so the status and metrics checks were refused (401) and the "every host" probes had all
+    gone to one; `scripts/http-probe.ts` uses `node:http`, in the image checks and the drill (`a634ab3`).
+- **Results.** Local runs as under Runs. CI: all seven required jobs PASS at `15f8d5b` (run 37984995668).
+- **Not run.** Nothing in gate 1 is left to local Docker: the component compare and the page compare run in the
+  canonical image in CI, the images are built and checked at each commit in CI, the drill runs there against them.
+- **Gates.** Gate 1: PASS in CI (run 37984995668 at `15f8d5b`; the final candidate's own run is linked from PR #1). Gate 2: NOT RUN. Gate 3: BLOCKED.
 
 ## External prerequisites (gate 3 inputs, by owner)
 

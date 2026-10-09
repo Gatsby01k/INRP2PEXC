@@ -16,7 +16,7 @@ Non-blocking items accepted at phase review. Each entry names the phase that mus
 | TD-10 | Outbox: the desk's own signals and the receipt trigger are acknowledged, not consumed | Phase 7 implementation (2026-09-19) | A desk push channel (desk signals) and Phase 8 (receipts) | Open |
 | TD-11 | Client TOTP enrolment does not exist, so client-side destination management is desk-only | Phase 7 implementation (2026-09-19) | A client managing their own bank accounts or wallets, or granting quote-acceptance authority | Closed (2026-10-05) |
 | TD-12 | Receipts are proved by hash, not stored: no object store, and PDF printing is opt-in | Phase 8 implementation (2026-09-20) | A deployment that must serve a receipt without re-rendering it, or print PDFs | Code ready (2026-10-05, E2, migration 0032); production bucket and retention period are owner inputs |
-| TD-13 | New page baselines have not been recorded in the canonical environment | Phase 8 implementation (2026-09-20) | The `visual-pages` CI job can pass | All 35 re-recorded (2026-10-09) in the canonical image through the local Docker path, compare-only clean there at `dfc327c`; CI's compare (and, if wanted, its authoritative update workflow) **NOT RUN** — the branch is not pushed |
+| TD-13 | New page baselines have not been recorded in the canonical environment | Phase 8 implementation (2026-09-20) | The `visual-pages` CI job can pass | **Closed on the PR branch (2026-10-09):** all 35 recorded natively by the canonical workflow (run 37984062022, `ede3374`); CI's compare-only `visual-pages` passes 35 of 35 at `15f8d5b` (run 37984995668). The emulated local recording (`dfc327c`) was wrong on every page and is gone |
 | TD-14 | Reconciliation is a manual statement import; there is no recurring job | Phase 8 implementation (2026-09-20) | A bank feed or statement drop that arrives without an operator | Open |
 | TD-15 | The public site cannot be edge-cached while its CSP nonce is per-request | Phase 9 implementation (2026-09-20) | The public site needs to be served from a CDN | Open |
 | TD-16 | The backup/restore drill has never been run against real infrastructure | Phase 9 implementation (2026-09-20) | Production launch (launch checklist) | Open — point-in-time recovery drill built and **passed on the local reference stack** (2026-10-06, E4); never run on the chosen platform (D-06 open) |
@@ -26,7 +26,7 @@ Non-blocking items accepted at phase review. Each entry names the phase that mus
 | TD-20 | The OWNER-grant second approval is nominal: the requester names the approver | Audit (2026-09-25) | Any path that exposes `assignOperatorRole` (none does today) | Closed (2026-10-05, migration 0027) |
 | TD-21 | A trader's Security Reserve cannot be applied to an obligation the trader leaves unsettled | Traders (2026-09-27) | Traders providing real money | USDT side closed (2026-10-05, migration 0029); INR side held only — conversion and recovery terms open (owner) |
 | TD-22 | The trader programme's agreement, tax treatment and counterparty checks have not been reviewed | Traders (2026-09-27) | Traders providing real money | Open |
-| TD-23 | The Traders screens have no page baselines, and the client shell changed around them | Traders (2026-09-27) | The `visual-pages` CI job can pass | Captures and fixture added (`b23b226`), baselines recorded with all the others (`dfc327c`); closes when CI's compare passes on them |
+| TD-23 | The Traders screens have no page baselines, and the client shell changed around them | Traders (2026-09-27) | The `visual-pages` CI job can pass | **Closed on the PR branch (2026-10-09):** captures and fixture (`b23b226`), baselines recorded natively (`ede3374`), CI's compare passes on them (run 37984995668) |
 | TD-24 | A trader cannot ask to change its registered bank account or wallet in the product | Traders (2026-09-27) | A trader replacing a destination without the desk's usual channel | Closed (2026-09-28) |
 | TD-25 | INR has no physical balance reading: the desk's bank confirmation is the only evidence an INR payout is covered | Production hardening B2 (2026-10-05) | A bank balance or statement feed (TD-14) | Open |
 | TD-26 | Funding coverage cannot follow a custody sweep (`funding.relocate` specified, not built): money is paid only from the address it arrived at | Production hardening B2 (2026-10-05) | A custody provider that sweeps deposit addresses on its own, or a desk that consolidates before paying out | Open |
@@ -406,6 +406,12 @@ Both now read the business clock.
 **Resolution (to do, at Phase 8 review).** Dispatch the canonical update workflow, review the recorded images,
 merge them, and confirm ordinary CI is green on the resulting `main` — the same one-run path that closed TD-09.
 
+**Closed (2026-10-09, PR #1).** The canonical update workflow
+([37984062022](https://github.com/Gatsby01k/INRP2PEXC/actions/runs/37984062022)) recorded all 35 pages at `f0b4d82`;
+reviewed and taken in `ede3374`. CI's compare-only `visual-pages` passes 35 of 35 at `15f8d5b`
+([37984995668](https://github.com/Gatsby01k/INRP2PEXC/actions/runs/37984995668)). It closes on `main` when the PR
+merges and `main`'s own CI is green.
+
 ## TD-14 — Reconciliation has no recurring job
 
 **Observed.** The plan line for Phase 8 reads "reconciliation job + manual bank statement import". The manual
@@ -667,6 +673,12 @@ confirming payouts C1 refuses, a statement that no longer reconciled since D-16,
 clock for business-clock times. It closes when CI's compare-only `visual-pages` job passes on the pushed branch
 (**NOT RUN**).
 
+**Closed (2026-10-09, PR #1).** CI refused the emulated recording — and the canonical workflow
+([37984062022](https://github.com/Gatsby01k/INRP2PEXC/actions/runs/37984062022)) showed it wrong on all 35 pages,
+not only the three CI's compare named before stopping each spec file. The 35 recorded natively there were reviewed and
+taken (`ede3374`); `visual-pages` passes 35 of 35 at `15f8d5b`
+([37984995668](https://github.com/Gatsby01k/INRP2PEXC/actions/runs/37984995668)), the eight Traders captures among them.
+
 ## TD-24 — A trader cannot ask to change its registered settlement details in the product
 
 **Observed.** A trader's registered bank account and wallet are set at application and changed only by the desk
@@ -719,7 +731,8 @@ images are about 1.8 GB each, about the size of the full development install, so
 development dependencies in place (pnpm keeps the hard-linked store and the `node_modules/.pnpm` tree the build stage
 created). Starting, readiness and shutdown are unaffected — the images were started and probed in production mode
 (E4) — and the dependency check added in `f2bb7e1` guarantees that what production imports is declared, so a correct
-prune would not remove anything needed.
+prune would not remove anything needed. Built in CI on linux/amd64 (PR #1, `images` job), `docker images` reports
+1.2 GB for each of the three — smaller than on the arm64 development host, the same order.
 
 **Risk.** Pull time on every deploy and scale-out, registry storage, and a larger attack surface than the processes
 need (development tools present in the image, though never on the path of a request).
