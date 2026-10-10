@@ -1,4 +1,5 @@
 import { sql } from 'kysely';
+import { assertNewBusinessOpen } from '@inrp2p/trades';
 import { DomainError, Money, Rate, requireOneOf, requireText, requireUuid } from '@inrp2p/kernel';
 import type { DirectionValue, FixedSideValue, Tx, TxContext } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
@@ -32,6 +33,7 @@ export interface CreateRequestPayload {
 export function createRequest(actor: QuoteActor, deps: Pick<QuoteDeps, 'policy'>) {
   const policy = policyOf(deps);
   return operatorOrMemberCommand(actor, 'request:create', async (_ctx, p: CreateRequestPayload) => requireUuid(p.clientId, 'clientId'), async (ctx, p, clientId) => {
+    await assertNewBusinessOpen(ctx.tx);
     const client = await requireActiveClient(ctx.tx, clientId);
     // A client that exists only as a trader has no Exchange until the desk opens it (migration 0023; IX080 backs this).
     const access = await ctx.tx.selectFrom('client').select('exchange_access').where('id', '=', clientId).executeTakeFirstOrThrow();

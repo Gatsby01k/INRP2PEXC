@@ -45,6 +45,8 @@ export const PERMISSION_MATRIX = Object.freeze({
   'settlement:cancel_payout': r(S, D, S, D, D, D),
   'crypto:submit_tx_for_verification': r(A, D, A, A, D, D),
   'trade:cancel': r(S, S, D, D, D, D),
+  'trade:request_destination_change': r(S, D, S, S, S, D),
+  'trade:approve_destination_change': r(S2, D, D, S2, D, D),
   'exception:open': r(A, A, A, A, A, D),
   'exception:resolve': r(A, A, A, A, D, D),
   'adjustment:request': r(A, A, A, A, D, D),
@@ -58,11 +60,16 @@ export const PERMISSION_MATRIX = Object.freeze({
   'client_bank:add': r(S, D, D, D, S, D),
   'client_wallet:manage': r(S, D, D, D, S, D),
   'client_user:grant_accept_quotes': r(S, D, D, D, S, D),
+  'client_user:reset_mfa': r(S, D, D, D, S, D),
   'routes:configure': r(S, D, D, D, D, D),
   'route_settlement:record': r(A, D, D, A, D, D),
   'route_settlement:confirm': r(S, D, D, S, D, D),
   'route_positions:view': r(A, A, D, A, D, D),
   'custody:configure': r(S, D, D, S, D, D),
+  // TD-06: reading a historical block range again for named exchange addresses. Read-only towards the chain, but it
+  // can record deposits that were never seen, so it is step-up and limited to the roles that configure custody.
+  'chain:backfill': r(S, D, D, S, D, D),
+  'custody:refresh_balance': r(A, D, A, A, D, D),
   'bank_account:reveal': r(S, D, S, S, D, D),
   'ledger:view': r(A, D, D, A, D, D),
   'pnl:view': r(A, A, D, A, D, D),
@@ -78,10 +85,20 @@ export const PERMISSION_MATRIX = Object.freeze({
   'traders:configure': r(S, D, D, S, D, D),
   'trader_payout:record': r(A, D, D, A, D, D),
   'trader_payout:confirm': r(S, D, D, S, D, D),
+  // A trader's Security Reserve applied to USDT one of its orders did not deliver (TD-21): asked by one person,
+  // approved by another.
+  'trader_reserve:apply': r(S, D, D, S, D, D),
+  'trader_reserve:approve': r(S2, D, D, S2, D, D),
   'receipt:view': r(A, A, A, A, A, A),
   'audit:view': r(A, D, D, A, D, D),
   'users:manage': r(S, D, D, D, D, D),
   'roles:assign': r(S, D, D, D, D, D),
+  'settings:payout_approval': r(S, D, D, D, D, D),
+  // Pausing new business (an incident, a market halt) is quick and two roles can do it; it never touches started trades.
+  'settings:new_business': r(S, D, D, S, D, D),
+  // After a restore, outgoing payments are held until one person records the reconciliation and another approves it.
+  'operations:restore_fence': r(S, D, D, S, D, D),
+  'operations:approve_restore_fence_lift': r(S2, D, D, S2, D, D),
 } as const satisfies Record<string, Row>);
 
 export type Permission = keyof typeof PERMISSION_MATRIX;

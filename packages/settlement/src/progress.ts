@@ -5,7 +5,9 @@ import { enqueueOutbox } from '@inrp2p/outbox';
 import { postJournal, tradeCompleteJournal } from '@inrp2p/ledger';
 import { releaseReservation } from '@inrp2p/inr-accounts';
 import { releaseDepositAssignment, releaseTreasuryReservation } from '@inrp2p/treasury';
-import { type TradeRow, effectiveObligations, legTotals, reloadTrade, tradeEconomics, transitionTrade } from '@inrp2p/trades';
+import {
+  type TradeRow, effectiveObligations, legTotals, receivedNetOfPlannedExcess, receivedNetOfReturnedExcess, reloadTrade, tradeEconomics, transitionTrade,
+} from '@inrp2p/trades';
 
 /** Client legs detected but not yet confirmed: while any exist, the client's side is still arriving. */
 export async function clientLegsInFlight(ex: Executor, tradeId: string): Promise<number> {
@@ -63,7 +65,7 @@ export async function advanceTrade(ctx: TxContext, tradeId: string): Promise<Tra
   const totals = await legTotals(ctx.tx, trade.id);
 
   if (trade.lifecycle_state === 'FIRST_LEG_DETECTED') {
-    if (totals.received === 0n || totals.received !== receivable.minor) return trade.lifecycle_state;
+    if (totals.received === 0n || receivedNetOfPlannedExcess(totals) !== receivable.minor) return trade.lifecycle_state;
     if ((await clientLegsInFlight(ctx.tx, trade.id)) > 0) return trade.lifecycle_state;
     await transitionTrade(ctx, trade, 'FIRST_LEG_CONFIRMED', { extra: { received: Money.ofMinor(totals.received, receivable.currency) } });
     await enqueueOutbox(ctx, { type: 'desk.payout_actionable', aggregateType: 'trade', aggregateId: trade.id, payload: { tradeId: trade.id } });
@@ -71,7 +73,7 @@ export async function advanceTrade(ctx: TxContext, tradeId: string): Promise<Tra
   }
 
   if (trade.lifecycle_state === 'SETTLING' || trade.lifecycle_state === 'PARTIALLY_SETTLED') {
-    const settled = totals.paid === payout.minor && totals.committed === totals.paid && totals.received === receivable.minor;
+    const settled = totals.paid === payout.minor && totals.committed === totals.paid && receivedNetOfReturnedExcess(totals) === receivable.minor;
     if (!settled) return trade.lifecycle_state;
     await completeTrade(ctx, trade, await tradeEconomics(ctx.tx, trade.id));
     return 'COMPLETED';

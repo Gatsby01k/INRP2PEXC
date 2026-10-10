@@ -24,6 +24,10 @@ export interface TraderPerms {
   readonly routeRecord: boolean;
   readonly routeConfirm: boolean;
   readonly reveal: boolean;
+  /** TD-21: ask to apply the trader's reserve to an order's undelivered USDT, and approve it (someone else). */
+  readonly applyReserve: boolean;
+  readonly approveReserve: boolean;
+  readonly meId: string;
 }
 
 const blank = (v: string) => (v.trim() === '' ? null : v.trim());

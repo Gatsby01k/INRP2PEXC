@@ -311,6 +311,23 @@
   min-width: 0;
 }
 
+/* Outgoing payments held after a database change (migration 0034): on every page, above the work. */
+.holdBanner {
+  margin: 0;
+  padding: var(--space-3) var(--space-6);
+  border-bottom: 1px solid var(--status-danger);
+  background: var(--status-danger-soft);
+  color: var(--status-danger);
+  font-size: var(--font-size-body-sm);
+  line-height: 1.5;
+}
+
+.holdBanner a {
+  color: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+}
+
 /* 1024–1279: the sidebar becomes an icon rail; the tooltip (title) names each item. */
 @media (max-width: 1279px) {
   .shell {

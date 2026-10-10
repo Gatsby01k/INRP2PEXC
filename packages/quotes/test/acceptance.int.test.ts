@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from 'kysely';
-import { Money } from '@inrp2p/kernel';
+import { pgErrorCode } from '@inrp2p/db';
 import { FakeNotificationAdapter } from '@inrp2p/adapters/testing';
 import { dispatchOutbox, type OutboxHandler } from '@inrp2p/outbox';
 import { archiveBankAccount } from '@inrp2p/clients';
@@ -321,19 +321,24 @@ describe('trade opening (T1, FI-03, FI-33, D-02)', () => {
     await runAs(s.app, publishRouteRate(s.dealer.actor), s.dealer.ref, 'rates.publish_route', { routeId: s.routeId, direction: 'SELL_USDT' as const, rate: '92.500000' });
   });
 
-  it('a BUY trade on a TO_EXCHANGE route reserves treasury USDT at acceptance (FI-33)', async () => {
+  it('a BUY trade on a TO_EXCHANGE route is accepted with no platform USDT and reserves none (D-16, FI-71)', async () => {
     const buy = await createScenario('quotes_buy_exchange');
     try {
       await useExchangeExecution(buy);
+      // The exchange's own wallets hold nothing at all.
+      expect(await buy.app.selectFrom('treasury_wallet').select('observed_balance_minor').where('observed_balance_minor', '>', 0n).execute()).toEqual([]);
       const r = await runAs(buy.app, createRequest(buy.dealer.actor, {}), buy.dealer.ref, 'request.create', { clientId: buy.clientId, direction: 'BUY_USDT' as const, fixedSide: 'BASE' as const, amount: '1000', walletId: buy.walletId });
       const q = await runAs(buy.app, createQuote(buy.dealer.actor, {}), buy.dealer.ref, 'quote.create', { requestId: r.requestId, routeId: buy.routeId, clientRate: '94.000000', validitySeconds: 300 });
       await runAs(buy.app, sendQuote(buy.dealer.actor, {}), buy.dealer.ref, 'quote.send', { quoteId: q.quoteId });
       const accepted = await runAs(buy.app, acceptQuote(buy.acceptor.actor, buy.deps), buy.acceptor.ref, 'quote.accept', { quoteId: q.quoteId });
-      const reservation = await buy.app.selectFrom('treasury_reservation').selectAll().where('trade_id', '=', accepted.tradeId).executeTakeFirstOrThrow();
-      expect(reservation).toMatchObject({ status: 'ACTIVE', amount_minor: Money.parse('1000', 'USDT').minor });
-      const wallet = await buy.app.selectFrom('treasury_wallet').select(['reserved_minor', 'observed_balance_minor']).where('id', '=', reservation.treasury_wallet_id).executeTakeFirstOrThrow();
-      expect(wallet.reserved_minor).toBe(reservation.amount_minor);
-      expect(wallet.reserved_minor).toBeLessThanOrEqual(wallet.observed_balance_minor);
+      expect(await buy.app.selectFrom('treasury_reservation').select('id').where('trade_id', '=', accepted.tradeId).execute()).toEqual([]);
+      expect((await buy.app.selectFrom('trade_funding').select('model').where('trade_id', '=', accepted.tradeId).executeTakeFirstOrThrow()).model).toBe('COUNTERPARTY_FUNDED');
+      // Whatever code tried, the database would not let the exchange reserve its own USDT for this trade (IX083).
+      const hot = await buy.app.selectFrom('treasury_wallet').select('id').where('role', '=', 'HOT').executeTakeFirstOrThrow();
+      await expect(sql`insert into treasury_reservation (treasury_wallet_id, trade_id, amount_minor, created_by) values (${hot.id}, ${accepted.tradeId}, 1, 'test')`.execute(buy.t.owner))
+        .rejects.toSatisfy((e) => pgErrorCode(e) === 'IX083');
+      // …and it never makes a legacy trade again (IX082), not even through a privileged connection.
+      await expect(sql`insert into trade_funding (trade_id, model) values (${accepted.tradeId}, 'LEGACY_EXCHANGE_FUNDED')`.execute(buy.t.owner)).rejects.toSatisfy((e) => pgErrorCode(e) === 'IX082' || pgErrorCode(e) === '23505');
       // BUY has no deposit address: the client receives USDT, it does not send any.
       expect(await buy.app.selectFrom('deposit_assignment').select('id').where('trade_id', '=', accepted.tradeId).execute()).toEqual([]);
       expect(accepted.trade.depositInstructions).toBeNull();

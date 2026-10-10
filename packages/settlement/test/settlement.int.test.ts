@@ -11,15 +11,20 @@ import {
   failPayoutLeg, obligationRemaining, openException, pnlSummary, recordIncomingFiat, recordLegEvidence, refundAndCancel,
   rejectAdjustment, requestAdjustment, resolveException, routeObligationMismatches, runReconciliation, runSettlementSla, sendPayoutLeg,
 } from '../src/index.ts';
-import { balanceOf, createStaleSettlementOperator, createWorld, newUtr, openTrade, settleFirstLeg, type World } from './world.ts';
+import { balanceOf, clientDepositAddressOf, createStaleSettlementOperator, createWorld, deliverCounterparty, newUtr, observe, openTrade, settleFirstLeg, type World } from './world.ts';
 
 let w: World;
 beforeAll(async () => { w = await createWorld('settlement_core', { capacityInr: '500000000.00' }); });
 afterAll(async () => w.close());
 
-async function exchangeTrade(opts: { baseUsdt?: string; clientRate?: string; routeRate?: string } = {}) {
+/**
+ * A SELL trade on a TO_EXCHANGE route whose client has funded it and — unless `deliver: false` — whose counterparty
+ * has delivered its INR to the payout account (D-16: the exchange pays the client only with that money).
+ */
+async function exchangeTrade(opts: { baseUsdt?: string; clientRate?: string; routeRate?: string; deliver?: boolean } = {}) {
   const trade = await openTrade(w, { executionMode: 'TO_EXCHANGE', baseUsdt: opts.baseUsdt ?? '1000', clientRate: opts.clientRate ?? '102.000000', routeRate: opts.routeRate ?? '104.200000' });
   await settleFirstLeg(w, trade.tradeId);
+  if (opts.deliver !== false) await deliverCounterparty(w, trade.tradeId);
   return trade;
 }
 
@@ -49,14 +54,16 @@ describe('client settlement in several legs (T5–T8)', () => {
     expect(transitions.map((t) => t.to_state)).toEqual(['AWAITING_FIRST_LEG', 'FIRST_LEG_DETECTED', 'FIRST_LEG_CONFIRMED', 'SETTLING', 'PARTIALLY_SETTLED', 'COMPLETED']);
   });
 
-  it('exit: FI-62 — a trade completes while its route obligation is still OPEN', async () => {
+  it('exit: FI-62 — a trade completes on its client obligations while its route obligation is still open', async () => {
     const trade = await exchangeTrade({ baseUsdt: '1000' });
     await payoutLeg(trade.tradeId, '102000.00');
     expect((await w.app.selectFrom('trade').select('lifecycle_state').where('id', '=', trade.tradeId).executeTakeFirstOrThrow()).lifecycle_state).toBe('COMPLETED');
+    // The counterparty delivered first (D-16); what the exchange owes it — the client's USDT — is still to be sent.
     const obligation = await w.app.selectFrom('route_obligation').select('status').where('id', '=', trade.routeObligationId).executeTakeFirstOrThrow();
-    expect(obligation.status).toBe('OPEN');
+    expect(obligation.status).toBe('PARTIALLY_SETTLED');
     const remaining = await obligationRemaining(w.app, trade.routeObligationId);
-    expect(remaining.routeDelivers.toDecimalString()).toBe('104200.00');
+    expect(remaining.routeDelivers.toDecimalString()).toBe('0.00');
+    expect(remaining.exchangeDelivers.toDecimalString()).toBe('1000.000000');
   });
 
   it('exit: over-allocation is blocked, including when two operators create legs concurrently', async () => {
@@ -96,28 +103,38 @@ describe('client settlement in several legs (T5–T8)', () => {
     expect((await w.app.selectFrom('trade').select('lifecycle_state').where('id', '=', trade.tradeId).executeTakeFirstOrThrow()).lifecycle_state).toBe('COMPLETED');
   });
 
-  it('a BUY trade pays the client USDT from treasury and consumes its reservation', async () => {
+  it('a BUY trade pays the client the USDT its counterparty delivered, and reserves none of the treasury (D-16)', async () => {
     const trade = await openTrade(w, { direction: 'BUY_USDT', executionMode: 'TO_EXCHANGE', baseUsdt: '500', clientRate: '106.000000', routeRate: '104.200000' });
+    expect(await w.app.selectFrom('treasury_reservation').select('id').where('trade_id', '=', trade.tradeId).execute()).toEqual([]);
     await settleFirstLeg(w, trade.tradeId);
+    // The client paid; the counterparty has not: no USDT can be paid out yet.
+    await expect(runAs(w.app, createPayoutLeg(w.settlementOp.actor, {}), w.settlementOp.ref, 'payout_leg.create', { tradeId: trade.tradeId, amount: '500', payer: 'EXCHANGE_ACCOUNT' as const, treasuryWalletId: w.treasuryWalletId }))
+      .rejects.toMatchObject({ code: 'FUNDING_NOT_CONFIRMED' });
+    await deliverCounterparty(w, trade.tradeId);
     const leg = await runAs(w.app, createPayoutLeg(w.settlementOp.actor, {}), w.settlementOp.ref, 'payout_leg.create', { tradeId: trade.tradeId, amount: '500', payer: 'EXCHANGE_ACCOUNT' as const, treasuryWalletId: w.treasuryWalletId });
-    await runAs(w.app, sendPayoutLeg(w.settlementOp.actor), w.settlementOp.ref, 'payout_leg.send', { legId: leg.legId });
     const wallet = await w.app.selectFrom('treasury_wallet').select('address').where('id', '=', w.treasuryWalletId).executeTakeFirstOrThrow();
+    // B2: the USDT leaves only after a fresh reading shows it at the wallet.
+    await expect(runAs(w.app, sendPayoutLeg(w.settlementOp.actor), w.settlementOp.ref, 'payout_leg.send', { legId: leg.legId })).rejects.toMatchObject({ code: 'CUSTODY_OBSERVATION_STALE' });
+    await observe(w, wallet.address);
+    await runAs(w.app, sendPayoutLeg(w.settlementOp.actor), w.settlementOp.ref, 'payout_leg.send', { legId: leg.legId });
     const clientWallet = await w.app.selectFrom('crypto_wallet').select('address').where('id', '=', w.walletId).executeTakeFirstOrThrow();
     const receipt = w.chain.add({ from: wallet.address, to: clientWallet.address, amountMinor: Money.parse('500', 'USDT').minor });
     await runAs(w.app, recordLegEvidence(w.settlementOp.actor, w.settlementDeps), w.settlementOp.ref, 'payout_leg.record_evidence', { legId: leg.legId, txHash: receipt.txHash, logIndex: receipt.logIndex, fromAddress: wallet.address });
     const result = await confirmPayout(w.app, w.settlementOp.actor, w.settlementDeps, { legId: leg.legId, idempotencyKey: randomUUID() });
     expect(result.completed).toBe(true);
-    const reservation = await w.app.selectFrom('treasury_reservation').select(['status', 'consumed_minor']).where('trade_id', '=', trade.tradeId).executeTakeFirstOrThrow();
-    expect(reservation).toMatchObject({ status: 'CONSUMED', consumed_minor: Money.parse('500', 'USDT').minor });
+    const earmarks = await w.app.selectFrom('funding_allocation').select(['use_kind', 'source_kind', 'status', 'amount_minor']).where('use_leg_id', '=', leg.legId).execute();
+    expect(earmarks).toEqual([{ use_kind: 'CLIENT_PAYOUT', source_kind: 'COUNTERPARTY_FUNDS', status: 'CONSUMED', amount_minor: Money.parse('500', 'USDT').minor }]);
     expect(await balanceOf(w.app, 'LIAB:CLIENT_PAYABLE', 'USDT', { tradeId: trade.tradeId })).toBe(0n);
   });
 
   it('an unsolidified or failed transfer never confirms a payout (FI-24)', async () => {
     const trade = await openTrade(w, { direction: 'BUY_USDT', executionMode: 'TO_EXCHANGE', baseUsdt: '10', clientRate: '106.000000' });
     await settleFirstLeg(w, trade.tradeId);
+    await deliverCounterparty(w, trade.tradeId);
     const leg = await runAs(w.app, createPayoutLeg(w.settlementOp.actor, {}), w.settlementOp.ref, 'payout_leg.create', { tradeId: trade.tradeId, amount: '10', payer: 'EXCHANGE_ACCOUNT' as const, treasuryWalletId: w.treasuryWalletId });
-    await runAs(w.app, sendPayoutLeg(w.settlementOp.actor), w.settlementOp.ref, 'payout_leg.send', { legId: leg.legId });
     const wallet = await w.app.selectFrom('treasury_wallet').select('address').where('id', '=', w.treasuryWalletId).executeTakeFirstOrThrow();
+    await observe(w, wallet.address);
+    await runAs(w.app, sendPayoutLeg(w.settlementOp.actor), w.settlementOp.ref, 'payout_leg.send', { legId: leg.legId });
     const clientWallet = await w.app.selectFrom('crypto_wallet').select('address').where('id', '=', w.walletId).executeTakeFirstOrThrow();
     const pending = w.chain.add({ from: wallet.address, to: clientWallet.address, amountMinor: Money.parse('10', 'USDT').minor, solidified: false });
     await runAs(w.app, recordLegEvidence(w.settlementOp.actor, w.settlementDeps), w.settlementOp.ref, 'payout_leg.record_evidence', { legId: leg.legId, txHash: pending.txHash, logIndex: pending.logIndex, fromAddress: wallet.address });
@@ -169,19 +186,23 @@ describe('cancellation and refunds (T9, T10)', () => {
   });
 
   it('a trade with confirmed client funds cannot be cancelled — it needs a refund first (T10)', async () => {
-    const trade = await exchangeTrade({ baseUsdt: '100' });
+    // The counterparty never delivered: the client's own USDT, still at its deposit address, goes back from there.
+    const trade = await exchangeTrade({ baseUsdt: '100', deliver: false });
+    const deposit = await clientDepositAddressOf(w, trade.tradeId);
     await expect(runAs(w.app, cancelTrade(w.dealer.actor), w.dealer.ref, 'trade.cancel', { tradeId: trade.tradeId, reason: 'client changed their mind' }))
       .rejects.toMatchObject({ code: 'FUNDS_ALREADY_RECEIVED' });
 
     const opened = await runAs(w.app, openException(w.dealer.actor), w.dealer.ref, 'exception.open', {
       type: 'TRADE_CANCELLATION' as const, subjectType: 'TRADE' as const, subjectId: trade.tradeId, tradeId: trade.tradeId, notes: 'client asked to unwind after paying',
     });
-    // A SELL client sent USDT, so the refund goes back in USDT from treasury.
+    // A SELL client sent USDT, so the refund goes back in USDT — from where it is (D-16), never from the treasury.
     // Creating a refund needs `settlement:create_payout`; approving it needs `refund:approve` from someone else.
-    const refund = await runAs(w.app, createRefundLeg(w.owner.actor), w.owner.ref, 'refund_leg.create', { tradeId: trade.tradeId, treasuryWalletId: w.treasuryWalletId });
+    await expect(runAs(w.app, createRefundLeg(w.owner.actor), w.owner.ref, 'refund_leg.create', { tradeId: trade.tradeId, treasuryWalletId: w.treasuryWalletId }))
+      .rejects.toMatchObject({ code: 'FUNDING_LOCATION_MISMATCH' });
+    await observe(w, deposit.address);
+    const refund = await runAs(w.app, createRefundLeg(w.owner.actor), w.owner.ref, 'refund_leg.create', { tradeId: trade.tradeId, sourceDepositAddressId: deposit.id });
     expect(refund.amount).toBe('100.000000');
-    const treasury = await w.app.selectFrom('treasury_wallet').select('address').where('id', '=', w.treasuryWalletId).executeTakeFirstOrThrow();
-    const back = w.chain.add({ from: treasury.address, to: w.clientSourceAddress, amountMinor: Money.parse('100', 'USDT').minor });
+    const back = w.chain.add({ from: deposit.address, to: w.clientSourceAddress, amountMinor: Money.parse('100', 'USDT').minor });
     await expect(runAs(w.app, confirmRefundLeg(w.owner.actor, w.settlementDeps), w.owner.ref, 'refund_leg.confirm', { legId: refund.legId, txHash: back.txHash, logIndex: back.logIndex }))
       .rejects.toMatchObject({ code: 'SECOND_APPROVER_REQUIRED' });
     await expect(runAs(w.app, confirmRefundLeg(w.settlementOp.actor, w.settlementDeps), w.settlementOp.ref, 'refund_leg.confirm', { legId: refund.legId, txHash: back.txHash, logIndex: back.logIndex }))
@@ -260,6 +281,7 @@ describe('P&L, reconciliation and SLA (FI-43, FI-44, FI-64)', () => {
     try {
       const completed = await openTrade(pnlWorld, { executionMode: 'TO_EXCHANGE', baseUsdt: '1000', clientRate: '102.000000', routeRate: '104.200000' });
       await settleFirstLeg(pnlWorld, completed.tradeId);
+      await deliverCounterparty(pnlWorld, completed.tradeId);
       const leg = await runAs(pnlWorld.app, createPayoutLeg(pnlWorld.settlementOp.actor, {}), pnlWorld.settlementOp.ref, 'payout_leg.create', { tradeId: completed.tradeId, amount: '102000.00', payer: 'EXCHANGE_ACCOUNT' as const, inrAccountId: pnlWorld.inrAccountId });
       await runAs(pnlWorld.app, sendPayoutLeg(pnlWorld.settlementOp.actor), pnlWorld.settlementOp.ref, 'payout_leg.send', { legId: leg.legId });
       await runAs(pnlWorld.app, recordLegEvidence(pnlWorld.settlementOp.actor, pnlWorld.settlementDeps), pnlWorld.settlementOp.ref, 'payout_leg.record_evidence', { legId: leg.legId, rail: 'IMPS' as const, utr: newUtr() });

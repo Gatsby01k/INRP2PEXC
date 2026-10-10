@@ -11,12 +11,15 @@ export interface SettlementPolicy {
   readonly minPayoutInr: string;
   /** Rails an operator may record a client payout on. */
   readonly payoutRails: readonly ('IMPS' | 'NEFT' | 'RTGS' | 'UPI')[];
+  /** B2: a USDT outflow needs a reading of its source address no older than this. */
+  readonly maxObservationAgeSeconds: number;
 }
 
 export const DEFAULT_SETTLEMENT_POLICY: SettlementPolicy = Object.freeze({
   dualProviderThresholdUsdt: '10000',
   minPayoutInr: '1.00',
   payoutRails: Object.freeze(['IMPS', 'NEFT', 'RTGS', 'UPI'] as const),
+  maxObservationAgeSeconds: 300,
 });
 
 export interface SettlementDeps {

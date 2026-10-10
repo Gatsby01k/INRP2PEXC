@@ -63,6 +63,14 @@ jobs:
       - name: Install Chromium
         run: pnpm --filter @inrp2p/web exec playwright install --with-deps chromium
 
+      # The S3 server the object-storage tests run (test/minio.ts), pulled by its digest before they start, so a
+      # registry that stops serving it fails here, by name, rather than as four failed suites.
+      - name: Object store image (MinIO, pinned by digest)
+        run: |
+          IMAGE=$(node --input-type=module -e "const { MINIO_IMAGE } = await import('./test/minio.ts'); console.log(MINIO_IMAGE)")
+          docker pull "$IMAGE"
+          docker run --rm "$IMAGE" --version | tee -a "$GITHUB_STEP_SUMMARY"
+
       - name: Integration tests (PostgreSQL 18.6 via Testcontainers)
         run: pnpm run test:integration
 
@@ -259,3 +267,121 @@ jobs:
             packages/ui/playwright-report
             packages/ui/test-results
           retention-days: 7
+
+  # The release images, built from this commit and started the way production starts them, on Linux (production
+  # tasks E3, E4): refused on an incomplete production configuration, started on a complete one (placeholder secrets
+  # generated in the job, an S3 store over TLS with Object Lock), probed, and stopped with SIGTERM. Then the
+  # point-in-time recovery drill recovers a separate PostgreSQL to a moment and starts the web image against it in
+  # production mode.
+  images:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+      RELEASE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.4.2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+
+      - name: Build the web, worker and migrate images
+        run: |
+          TAG="${RELEASE_SHA::7}"
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          for target in web worker migrate; do
+            docker build -f deploy/Dockerfile --target "$target" -t "inrp2p-$target:$TAG" --build-arg RELEASE="$TAG" .
+          done
+          docker images --format '{{.Repository}}:{{.Tag}} {{.Size}}' | grep "$TAG" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Production-mode start checks (refusal, start, probes, heartbeat, SIGTERM)
+        run: node scripts/image-checks.ts --tag "$TAG" --env-out "$RUNNER_TEMP/web-production.env"
+
+      - name: Point-in-time recovery drill, with the web image against the recovered database
+        run: node scripts/pitr-drill.ts --image "inrp2p-web:$TAG" --web-env "$RUNNER_TEMP/web-production.env"
+
+  # The upgrade from the release at schema 23 (d0cc778) to this one. That release writes its own data — its fixture
+  # world, and its own end-to-end run through its own screens — and this release's migrations must carry it to
+  # SCHEMA_VERSION whole: nothing lost, the books still balanced, every old trade legacy-funded, and this release able
+  # to read it (scripts/upgrade-check.ts; DEPLOYMENT §2 for the order of a real upgrade).
+  upgrade:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:18.6
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+      TEST_DATABASE_URL: postgres://postgres@127.0.0.1:5432/postgres
+      RELEASE_23: d0cc7785caf57a0ca078d595fb3dc7039623b96c
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.4.2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install this release (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+
+      - name: The release at schema 23, beside it
+        run: |
+          git worktree add "$RUNNER_TEMP/release-23" "$RELEASE_23"
+          cd "$RUNNER_TEMP/release-23" && pnpm install --frozen-lockfile
+
+      - name: The release at 23 seeds its fixture world
+        working-directory: ${{ runner.temp }}/release-23
+        run: node --input-type=module -e "const { seedVisual } = await import('./apps/web/visual/world.ts'); const s = await seedVisual(process.env.TEST_DATABASE_URL); console.log('seeded', new URL(s.databaseUrl).pathname);"
+
+      - name: The release at 23 runs its own end-to-end suite (trades through its own screens)
+        working-directory: ${{ runner.temp }}/release-23
+        run: |
+          pnpm --filter @inrp2p/web exec playwright install --with-deps chromium
+          pnpm --filter @inrp2p/web build
+          pnpm --filter @inrp2p/web test:e2e
+
+      # Its worker seals the audit log every few minutes; the job runs no worker, so the release's own sealAudit does
+      # it here — so a seal chain the release at 23 wrote crosses the upgrade too.
+      - name: The release at 23 seals its audit log, as its worker does
+        working-directory: ${{ runner.temp }}/release-23
+        run: |
+          node --input-type=module -e "
+            const { createDb, createPool } = await import('./packages/db/src/index.ts');
+            const { sealAudit } = await import('./packages/audit/src/index.ts');
+            for (const name of ['inrp2p_visual', 'inrp2p_e2e']) {
+              const db = createDb(createPool({ connectionString: 'postgres://postgres@127.0.0.1:5432/' + name, applicationName: 'release-23-seal' }));
+              const r = await sealAudit(db, { settleSeconds: 0 });
+              console.log(name, r.sealed ? 'sealed ' + r.fromSeq + '..' + r.toSeq : 'nothing to seal');
+              await db.destroy();
+            }"
+
+      - name: This release migrates both databases to its schema and checks what came through
+        run: node scripts/upgrade-check.ts postgres://postgres@127.0.0.1:5432/inrp2p_visual postgres://postgres@127.0.0.1:5432/inrp2p_e2e

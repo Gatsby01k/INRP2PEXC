@@ -2,14 +2,13 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Money, encodeTronAddress } from '@inrp2p/kernel';
 import { pgErrorCode } from '@inrp2p/db';
-import { DualProviderChainVerifier } from '@inrp2p/adapters';
+import { QuorumChainVerifier } from '@inrp2p/adapters';
 import { FAKE_USDT_CONTRACT, FakeTronProvider } from '@inrp2p/adapters/testing';
 import { runAs } from '@inrp2p/identity/testing';
 import { cancelTrade, confirmPayout, createPayoutLeg, recordLegEvidence, sendPayoutLeg, submitTxForVerification, verifyCryptoTransfer } from '@inrp2p/settlement';
 import { readCursor, runOrphanSweep, runTronConfirm, runTronScan } from '../src/index.ts';
 import {
-  type ChainWorld, createChainWorld, depositAddressOf, entriesOf, journalsFor, legsOf, openCases, openTrade, settleFirstLeg, stateOf, transferByHash,
-} from './world.ts';
+  type ChainWorld, createChainWorld, depositAddressOf, entriesOf, journalsFor, legsOf, openCases, openTrade, settleFirstLeg, stateOf, transferByHash, ensureCounterpartyFunds, observe } from './world.ts';
 
 let w: ChainWorld;
 beforeAll(async () => { w = await createChainWorld('scanner', { depositPoolSize: 60 }); });
@@ -121,7 +120,7 @@ describe('detection (tron_scan)', () => {
 
     const other = strangerAddress();
     const lying = new FakeTronProvider('liar', w.tron, { distort: (t) => (t.txHash === good.txHash ? { ...t, tokenContract: other } : t) });
-    const ignored = await runTronScan(w.app, { ...w.scanDeps, provider: lying });
+    const ignored = await runTronScan(w.app, { ...w.scanDeps, providers: [lying] });
     expect(ignored.wrongContract).toBe(1);
     expect(await transferByHash(w, good.txHash)).toBeUndefined();
     expect(await legsOf(w, trade.tradeId)).toHaveLength(0);
@@ -205,11 +204,11 @@ describe('confirmation (tron_confirm)', () => {
     // Two differently named adapters declaring the same independence group: one source of truth, mirrored.
     const mirroredA = new FakeTronProvider('vendor-eu', w.tron, { independenceGroup: 'acme-cloud' });
     const mirroredB = new FakeTronProvider('vendor-us', w.tron, { independenceGroup: 'acme-cloud' });
-    const mirrored = new DualProviderChainVerifier({ primary: mirroredA, secondary: mirroredB, tokenContract: FAKE_USDT_CONTRACT });
+    const mirrored = new QuorumChainVerifier({ providers: [mirroredA, mirroredB], tokenContract: FAKE_USDT_CONTRACT });
     expect(mirrored.providers).toHaveLength(2);
     expect(mirrored.independenceGroups).toEqual(['acme-cloud']);
 
-    const deps = { chain: mirrored, provider: mirroredA, scanner: { notFinalAfterMinutes: 0 } };
+    const deps = { chain: mirrored, providers: [mirroredA], scanner: { notFinalAfterMinutes: 0 } };
     await runTronConfirm(w.app, deps);
     const row = await transferByHash(w, big.txHash);
     expect(row?.state).toBe('DETECTED');
@@ -241,9 +240,12 @@ describe('confirmation (tron_confirm)', () => {
   it('a failed receipt fails the transfer and puts the trade back to awaiting the client (T3)', async () => {
     const trade = await sellTrade('10');
     const address = await depositAddressOf(w, trade.tradeId);
-    const bad = w.tron.add({ to: address.address, from: w.clientSourceAddress, amountMinor: usdt('10'), receiptStatus: 'FAILED' });
-    w.tron.solidifyAll();
+    // Detected while its block was young; the canonical chain then re-executed it and it reverted. (An index never
+    // lists a failed transfer, so a failure is only ever met at confirmation.)
+    const bad = w.tron.add({ to: address.address, from: w.clientSourceAddress, amountMinor: usdt('10') });
     await runTronScan(w.app, w.scanDeps);
+    w.tron.fail(bad.txHash, bad.logIndex);
+    w.tron.solidifyAll();
     const report = await runTronConfirm(w.app, w.scanDeps);
     expect(report.failed).toBeGreaterThanOrEqual(1);
 
@@ -294,12 +296,15 @@ describe('outbound USDT (BUY payouts)', () => {
     const trade = await openTrade(w, { direction: 'BUY_USDT', executionMode: 'TO_EXCHANGE', baseUsdt: '500', clientRate: '106.000000', routeRate: '104.200000' });
     await settleFirstLeg(w, trade.tradeId);
 
+    await ensureCounterpartyFunds(w, trade.tradeId);
+
     const leg = await runAs(w.app, createPayoutLeg(w.settlementOp.actor, {}), w.settlementOp.ref, 'payout_leg.create', {
       tradeId: trade.tradeId, amount: '500', payer: 'EXCHANGE_ACCOUNT' as const, treasuryWalletId: w.treasuryWalletId,
     });
+    const treasury = await w.app.selectFrom('treasury_wallet').select('address').where('id', '=', w.treasuryWalletId).executeTakeFirstOrThrow();
+    await observe(w, treasury.address);
     await runAs(w.app, sendPayoutLeg(w.settlementOp.actor), w.settlementOp.ref, 'payout_leg.send', { legId: leg.legId });
 
-    const treasury = await w.app.selectFrom('treasury_wallet').select('address').where('id', '=', w.treasuryWalletId).executeTakeFirstOrThrow();
     const clientWallet = await w.app.selectFrom('crypto_wallet').select('address').where('id', '=', w.walletId).executeTakeFirstOrThrow();
     const sent = w.tron.add({ to: clientWallet.address, from: treasury.address, amountMinor: usdt('500') });
     await runAs(w.app, recordLegEvidence(w.settlementOp.actor, w.scanDeps), w.settlementOp.ref, 'payout_leg.record_evidence', {
@@ -388,7 +393,7 @@ describe('the scanner cursor', () => {
     w.tron.advance(30n);
     const broken = new FakeTronProvider('broken', w.tron, { failWith: new Error('node fell over mid-pass') });
     // The head is read first, so the failure happens while listing: the run aborts before the advance.
-    await expect(runTronScan(w.app, { ...deps, provider: broken })).rejects.toThrow('node fell over mid-pass');
+    await expect(runTronScan(w.app, { ...deps, providers: [broken] })).rejects.toThrow('node fell over mid-pass');
     expect((await readCursor(w.app, 'tron_failure'))!.lastScannedBlock).toBe(before!.lastScannedBlock);
   });
 });

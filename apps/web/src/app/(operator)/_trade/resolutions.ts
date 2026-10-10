@@ -43,7 +43,7 @@ export const RESOLUTIONS: Record<ExceptionType, ResolutionChoices> = {
       { value: 'escalate', label: 'Escalate' },
     ],
     voidable: false,
-    financial: 'Refunding the excess, or re-pricing the trade to what arrived, is a financial resolution and needs a second approver.',
+    financial: 'Returning the excess (Cancel or refund → Return the excess, confirmed by someone else), or re-pricing the trade to what arrived, is a financial resolution.',
   },
   USDT_UNEXPECTED_SENDER: {
     resolutions: [
@@ -157,11 +157,11 @@ export const RESOLUTIONS: Record<ExceptionType, ResolutionChoices> = {
   },
   CLIENT_BANK_CHANGED: {
     resolutions: [
-      { value: 'confirm_new_destination', label: 'Confirm the new destination' },
       { value: 'keep_original', label: 'Keep the original destination' },
+      { value: 'escalate', label: 'Escalate' },
     ],
     voidable: false,
-    financial: null,
+    financial: 'Paying the new destination is a change one person requests and another approves, under Destination; approving it closes this case.',
   },
   ROUTE_CAPACITY_CHANGED: {
     resolutions: [

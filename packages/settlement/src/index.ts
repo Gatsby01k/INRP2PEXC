@@ -14,3 +14,8 @@ export * from './jobs.ts';
 export * from './statements.ts';
 export * from './destinations.ts';
 export * from './progress.ts';
+export * from './funding.ts';
+export * from './availability.ts';
+export * from './approvals.ts';
+export * from './destination-change.ts';
+export * from './reserve-delivery.ts';

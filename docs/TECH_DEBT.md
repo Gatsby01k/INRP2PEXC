@@ -4,30 +4,35 @@ Non-blocking items accepted at phase review. Each entry names the phase that mus
 
 | ID | Area | Recorded | Must close before | Status |
 |---|---|---|---|---|
-| TD-01 | Auth schema: `auth_rate_limit.last_request` type warning | Phase 1 acceptance (2026-09-17) | Production deploy (launch checklist) | Open |
-| TD-02 | Auth: cross-surface operator → client OTP rejection surfaces as internal error | Phase 1 acceptance (2026-09-17) | Production client auth (client login enabled on `app.inrp2p.com`) | Open |
-| TD-03 | Encryption: production KMS-backed key-encryption key not implemented | Phase 2 implementation (2026-09-17) | First deployment holding real bank or contact data | Open |
-| TD-04 | Notifications: no email provider bound — acceptance codes, client sign-in codes and notification emails | Phase 3 implementation (2026-09-17) | Any environment where a client signs in or accepts a quote through a shareable link | Open — widened at Phase 7 |
+| TD-01 | Auth schema: `auth_rate_limit.last_request` type warning | Phase 1 acceptance (2026-09-17) | Production deploy (launch checklist) | Closed (2026-10-05) |
+| TD-02 | Auth: cross-surface operator → client OTP rejection surfaces as internal error | Phase 1 acceptance (2026-09-17) | Production client auth (client login enabled on `app.inrp2p.com`) | Closed (2026-10-05) |
+| TD-03 | Encryption: production KMS-backed key-encryption key not implemented | Phase 2 implementation (2026-09-17) | First deployment holding real bank or contact data | Code ready (2026-10-05); the KMS key and account are an owner input — **not provisioned** |
+| TD-04 | Notifications: no email provider bound — acceptance codes, client sign-in codes and notification emails | Phase 3 implementation (2026-09-17) | Any environment where a client signs in or accepts a quote through a shareable link | Code ready (2026-10-05, E1); staging inbox **NOT RUN**; production provider account, verified domain and key are owner inputs |
 | TD-05 | Chain verification: no TRON provider bound; scanning not implemented | Phase 4 implementation (2026-09-18) | Any environment that settles real USDT | Closed in Phase 5 (2026-09-18) |
-| TD-06 | Scanner: no tooling for a deliberate historical backfill behind the cursor | Phase 5 implementation (2026-09-18) | First production incident needing a historical rescan | Open (narrowed at Phase 5 review) |
-| TD-07 | Scanner: the TRON provider smoke gate has never been executed against real providers | Phase 5 implementation (2026-09-18) | Any environment that settles real USDT | Open — gate exists, **NOT RUN** |
+| TD-06 | Scanner: no tooling for a deliberate historical backfill behind the cursor | Phase 5 implementation (2026-09-18) | First production incident needing a historical rescan | Closed (2026-10-05, migration 0024) |
+| TD-07 | Scanner: the TRON provider smoke gate has never been executed against real providers | Phase 5 implementation (2026-09-18) | Any environment that settles real USDT | Open — gate extended 2026-10-05 (window read, report file), **NOT RUN** |
 | TD-08 | Visual regression covers the Storybook validation stories, not the built operator pages | Phase 6 implementation (2026-09-19) | Production deploy (launch checklist) | Closed in Phase 6 review (2026-09-19) |
 | TD-09 | The page baselines have not been recorded in the canonical environment | Phase 6 review (2026-09-19) | The `visual-pages` CI job can pass | Closed in Phase 7 review (2026-09-19) — 20 baselines recorded, `visual` / `visual-pages` green on main |
 | TD-10 | Outbox: the desk's own signals and the receipt trigger are acknowledged, not consumed | Phase 7 implementation (2026-09-19) | A desk push channel (desk signals) and Phase 8 (receipts) | Open |
-| TD-11 | Client TOTP enrolment does not exist, so client-side destination management is desk-only | Phase 7 implementation (2026-09-19) | A client managing their own bank accounts or wallets, or granting quote-acceptance authority | Open |
-| TD-12 | Receipts are proved by hash, not stored: no object store, and PDF printing is opt-in | Phase 8 implementation (2026-09-20) | A deployment that must serve a receipt without re-rendering it, or print PDFs | Open |
-| TD-13 | New page baselines have not been recorded in the canonical environment | Phase 8 implementation (2026-09-20) | The `visual-pages` CI job can pass | Phase 8 recorded (run `35495412975`); reopened for Phase 9's two public captures |
+| TD-11 | Client TOTP enrolment does not exist, so client-side destination management is desk-only | Phase 7 implementation (2026-09-19) | A client managing their own bank accounts or wallets, or granting quote-acceptance authority | Closed (2026-10-05) |
+| TD-12 | Receipts are proved by hash, not stored: no object store, and PDF printing is opt-in | Phase 8 implementation (2026-09-20) | A deployment that must serve a receipt without re-rendering it, or print PDFs | Code ready (2026-10-05, E2, migration 0032); production bucket and retention period are owner inputs |
+| TD-13 | New page baselines have not been recorded in the canonical environment | Phase 8 implementation (2026-09-20) | The `visual-pages` CI job can pass | **Closed on the PR branch (2026-10-09):** all 35 recorded natively by the canonical workflow (run 37984062022, `ede3374`); CI's compare-only `visual-pages` passes 35 of 35 at `15f8d5b` (run 37984995668). The emulated local recording (`dfc327c`) was wrong on every page and is gone |
 | TD-14 | Reconciliation is a manual statement import; there is no recurring job | Phase 8 implementation (2026-09-20) | A bank feed or statement drop that arrives without an operator | Open |
 | TD-15 | The public site cannot be edge-cached while its CSP nonce is per-request | Phase 9 implementation (2026-09-20) | The public site needs to be served from a CDN | Open |
-| TD-16 | The backup/restore drill has never been run against real infrastructure | Phase 9 implementation (2026-09-20) | Production launch (launch checklist) | Open — scripted, never executed |
-| TD-17 | Audit seals are written but never exported off-site | Phase 9 implementation (2026-09-20) | Production launch (launch checklist) | Open |
-| TD-18 | `CLIENT_BANK_CHANGED` is detected but cannot be resolved by moving the trade to a new destination | Audit (2026-09-25) | A client replacing a destination while one of its trades is open | Open |
-| TD-19 | `refund_excess` (partial refund of an overpayment) does not exist; the completion predicate does not net refunds | Audit (2026-09-25) | The desk needing to return part of an overpayment and still complete the trade | Open |
-| TD-20 | The OWNER-grant second approval is nominal: the requester names the approver | Audit (2026-09-25) | Any path that exposes `assignOperatorRole` (none does today) | Open |
-| TD-21 | A trader's Security Reserve cannot be applied to an obligation the trader leaves unsettled | Traders (2026-09-27) | Traders providing real money | Open |
+| TD-16 | The backup/restore drill has never been run against real infrastructure | Phase 9 implementation (2026-09-20) | Production launch (launch checklist) | Open — point-in-time recovery drill built and **passed on the local reference stack** (2026-10-06, E4); never run on the chosen platform (D-06 open) |
+| TD-17 | Audit seals are written but never exported off-site | Phase 9 implementation (2026-09-20) | Production launch (launch checklist) | Code ready (2026-10-06, E4, migration 0034; tested against MinIO under Object Lock); the production bucket and its retention are owner inputs |
+| TD-18 | `CLIENT_BANK_CHANGED` is detected but cannot be resolved by moving the trade to a new destination | Audit (2026-09-25) | A client replacing a destination while one of its trades is open | Closed (2026-10-05, migration 0028) |
+| TD-19 | `refund_excess` (partial refund of an overpayment) does not exist; the completion predicate does not net refunds | Audit (2026-09-25) | The desk needing to return part of an overpayment and still complete the trade | Closed (2026-10-05, migration 0028) |
+| TD-20 | The OWNER-grant second approval is nominal: the requester names the approver | Audit (2026-09-25) | Any path that exposes `assignOperatorRole` (none does today) | Closed (2026-10-05, migration 0027) |
+| TD-21 | A trader's Security Reserve cannot be applied to an obligation the trader leaves unsettled | Traders (2026-09-27) | Traders providing real money | USDT side closed (2026-10-05, migration 0029); INR side held only — conversion and recovery terms open (owner) |
 | TD-22 | The trader programme's agreement, tax treatment and counterparty checks have not been reviewed | Traders (2026-09-27) | Traders providing real money | Open |
-| TD-23 | The Traders screens have no page baselines, and the client shell changed around them | Traders (2026-09-27) | The `visual-pages` CI job can pass | Open |
+| TD-23 | The Traders screens have no page baselines, and the client shell changed around them | Traders (2026-09-27) | The `visual-pages` CI job can pass | **Closed on the PR branch (2026-10-09):** captures and fixture (`b23b226`), baselines recorded natively (`ede3374`), CI's compare passes on them (run 37984995668) |
 | TD-24 | A trader cannot ask to change its registered bank account or wallet in the product | Traders (2026-09-27) | A trader replacing a destination without the desk's usual channel | Closed (2026-09-28) |
+| TD-25 | INR has no physical balance reading: the desk's bank confirmation is the only evidence an INR payout is covered | Production hardening B2 (2026-10-05) | A bank balance or statement feed (TD-14) | Open |
+| TD-26 | Funding coverage cannot follow a custody sweep (`funding.relocate` specified, not built): money is paid only from the address it arrived at | Production hardening B2 (2026-10-05) | A custody provider that sweeps deposit addresses on its own, or a desk that consolidates before paying out | Open |
+| TD-27 | The release images are about 1.8 GB each: the production-dependency prune does not take effect | Production hardening E3 (2026-10-06) | Image pull time or registry cost matters (a first deployment does not need it) | Open |
+| TD-28 | A deposit at the shared reserve address that no trader can be credited with automatically has no desk resolution in the product | D-17 (2026-10-10) | The first such deposit (a trader sending from an unregistered wallet, or two traders with one wallet on file) | Open — the money is safe in suspense with a case |
+| TD-29 | The public site still says the desk onboards clients, although clients now open their own accounts | D-17 (2026-10-10) | Before the self sign-up is announced | Open — the home page is frozen by the owner; the wording is the owner's to change |
 
 ## TD-01 — Better Auth schema warning for `auth_rate_limit.last_request`
 
@@ -37,6 +42,17 @@ Non-blocking items accepted at phase review. Each entry names the phase that mus
 
 **Resolution (to do).** Keep `bigint` in the database (the value is epoch ms). Either register a Kysely/pg type parser for this column so the adapter returns a number, or map the field via Better Auth's schema `fieldName`/type options, then assert in the Better Auth schema integration test that the planner emits **no warnings** for `auth_rate_limit`. No change to rate-limit windows, limits or keys.
 
+**Closed (2026-10-05).** Reproduced on Better Auth 1.7.5 by listening to the planner's logger: "Field last_request in
+table auth_rate_limit has a different type in the database. Expected number but got int8". Better Auth itself
+declares the field `number` with `bigint: true` (it creates `bigint`, and its rate limiter converts a bigint read back
+to a number), so the column is exactly what it requires; the warning came from its planner comparing the introspected
+type name `int8` against a list that holds `bigint` but not `int8`. Fixed where it is wrong: a pnpm patch
+(`patches/better-auth@1.7.5.patch`, declared in `pnpm-workspace.yaml`) adds the PostgreSQL type names (`int8`, `int2`,
+`float4`, `float8`) to the planner's number list — nothing at runtime changes, and no warning is silenced. The auth
+pool parses int8 as a number. `packages/identity/test/auth.int.test.ts` asserts the planner hears **nothing** at warn
+level for either surface and that `last_request` round-trips as epoch milliseconds; re-check (and drop) the patch on
+every Better Auth upgrade.
+
 ## TD-02 — Cross-surface operator → client OTP rejection causes an internal Better Auth null-session error
 
 **Observed.** An operator identity attempting client email-OTP sign-in is correctly denied: no client session is created and the request fails. The denial is implemented in `packages/identity/src/auth/config.ts` `sessionCreateGuard` (`databaseHooks.session.create.before` returns `false` when `auth_user.kind` ≠ surface). Better Auth then proceeds with a null session and fails internally instead of returning an expected client error. The current test (`packages/identity/test/auth.int.test.ts` "an operator email cannot sign in through client OTP") only asserts status ≥ 400 and that no client session exists.
@@ -44,6 +60,16 @@ Non-blocking items accepted at phase review. Each entry names the phase that mus
 **Invariant that already holds and must be kept.** No session is ever created for a cross-surface attempt (application guard + database trigger `IX020` rejecting a session whose surface does not match the user kind); operator and client surfaces stay isolated (`SECURITY.md`, `ARCHITECTURE.md §7`).
 
 **Resolution (to do, before production client auth).** Keep the session guard and the `IX020` trigger as defence in depth, and add a surface check before session creation (a `before` hook on `/sign-in/email-otp` and `/email-otp/send-verification-otp` resolving the user kind) that returns a controlled 4xx (`403` with a generic, non-enumerating error body — same response shape as an invalid code) without creating a session. Tests to add: operator email → client OTP verify returns the controlled 4xx; no `auth_session` row is inserted; no `Set-Cookie`; a `session.failed` audit event recorded once; response body and timing do not reveal that the address belongs to an operator.
+
+**Closed (2026-10-05).** Reproduced: an operator address on the client `sign-in/email-otp` got HTTP 500 with no body,
+and the client surface had first emailed that operator an OTP. A client-surface before hook now resolves the address
+on `/email-otp/send-verification-otp`, `/sign-in/email-otp`, `/email-otp/verify-email` and
+`/email-otp/check-verification-otp`: an address that is not an active client's (operator, disabled) gets no code and no
+session, and exactly the response an unknown address (`{success:true}`) or a wrong code (the plugin's own
+`INVALID_OTP`, 400) gets; each refusal is audited once (`session.failed`, `NOT_A_CLIENT_ADDRESS` — under `error`, since
+the audit redactor masks any key named `code`, which had also erased the reason from every earlier `session.failed`).
+The session guard and IX020 remain. Test: `auth.int.test.ts` (same status and body as the baselines, no OTP sent, no
+cookie, no `auth_session`, two audit rows).
 
 ## TD-03 — Production key-encryption key (KMS) adapter
 
@@ -53,6 +79,17 @@ Non-blocking items accepted at phase review. Each entry names the phase that mus
 
 **Resolution (to do, before any deployment with real data).** Implement a KMS-backed `KeyEncryptionKey` for the chosen hosting provider (wrap/unwrap via KMS API, key id recorded in each sealed value), load the HMAC lookup key from the secret manager, and add a startup check that refuses `LocalKeyEncryptionKey` when `NODE_ENV=production`. Rotation keeps previous KEKs readable through `previous` (already supported and tested).
 
+**Code ready (2026-10-05); production gate still BLOCKED on the owner.** `AwsKmsKeyEncryptionKey`
+(`packages/adapters/src/aws-kms.ts`): `Encrypt`/`Decrypt` on one symmetric KMS key over the HTTPS API with SigV4 (the
+signer matches AWS's published examples), the encryption context `{app: inrp2p, purpose: field-data-key}` bound to
+every wrapped data key, the key ARN required (no aliases) and checked on every answer, credentials from the
+environment / task role / instance role, bounded retries for throttling and server errors, immediate refusal for
+access-denied or invalid-ciphertext, and no plaintext fallback. `fieldProtectionFromEnv` (web and worker): rotation
+through `INRP2P_KEK_PREVIOUS`; with `INRP2P_ENV=production` the process refuses a locally held key (current or
+previous), a missing configuration, or the repository's own test keys. Tests: `packages/adapters/test/aws-kms.unit.test.ts`.
+**Still needed (owner):** the cloud account, a KMS key in it, the application roles with the minimal policy in RUNBOOKS
+`field-encryption-keys`, and a run against it on staging. Hosting is not chosen (DECISIONS); if it is not AWS, the
+provider needs its own adapter behind the same port.
 
 ## TD-04 — No email provider for acceptance codes
 
@@ -82,6 +119,26 @@ three fail the same way — loudly, never into a log:
 `apps/web/src/server/client-otp.ts`. Until it exists, the in-app inbox is the client's only channel and the file
 sink is the only way to sign a client in outside production.
 
+**Code ready (2026-10-05, production task E1).** `ResendNotificationAdapter` / `ResendEmailClient`
+(`packages/adapters/src/resend.ts`), chosen from the environment (`notificationAdapterFromEnv`: `RESEND_API_KEY`,
+`RESEND_FROM`; production refuses a non-HTTPS endpoint) and used by the worker for acceptance codes and client
+notifications and by the web app for sign-in codes. Each send carries an `Idempotency-Key` from its delivery row
+(`otp-delivery/{id}`, `client-notification-email/{id}`), a per-attempt timeout and a few backed-off retries; success is a
+provider message id and nothing else (an answer without one is `PROVIDER_AMBIGUOUS`, retried); a refusal is permanent;
+errors carry a code, never the message, the code inside it, the address or the key. An acceptance code is sent under
+the lock of its delivery row, so closing its challenge either waits for a send under way or erases it first — a
+superseded, closed or expired code is never sent — and a failed send leaves it sealed. Client emails have one
+delivery row per recipient (migration 0031): SENT only with the provider id, FAILED on refusal or after eight
+attempts, otherwise PENDING and retried by the outbox; `email_sent_at` only when every recipient has it. Health:
+`acceptance_codes_undelivered`, `email_deliveries_failing` → RUNBOOKS `email-delivery`. Tests:
+`packages/adapters/test/resend.unit.test.ts` (against a local server behaving like the provider: headers, one email per
+key across a timeout, retries bounded, ambiguous answer, refusals not retried, no secret in errors),
+`packages/quotes/test/delivery.int.test.ts`, `packages/notifications/test/email.int.test.ts`.
+
+**Not done here.** An inbox check against the real provider in staging (gate 2, **NOT RUN** — no staging or provider
+account exists in this workspace); the production Resend account, its verified sending domain (SPF, DKIM, DMARC) and
+the API key in the secret manager (gate 3, owner inputs).
+
 ## TD-05 — No TRON provider behind the chain verifier
 
 **Observed.** Phase 4 confirms a USDT movement only through the `ChainVerifier` port (FI-24: solidified block, `SUCCESS` receipt, configured contract, expected destination, recorded amount, and — at or above the D-05 threshold — at least two providers). The only implementations are `UnconfiguredChainVerifier`, which throws on every lookup, and the in-memory `FakeChainVerifier` used by tests. Block scanning, cursors, reorg handling and automatic detection are Phase 5.
@@ -100,6 +157,17 @@ sink is the only way to sign a client in outside production.
 
 **Resolution (to do).** A `chain.backfill` system command taking an explicit block range and address set, running the same detection step, audited, and refusing ranges above the solidified head. The cursor stays monotonic; a backfill never rewinds it.
 
+**Closed (2026-10-05, production hardening A3, migration 0024).** `chain.backfill_request` (`chain:backfill`, ⧗,
+OWNER/FINANCE) records a backfill: an explicit block range (at or below the solidified head the scanner last
+recorded, at most 2,000,000 blocks) and up to 200 addresses, each of which must be one of the exchange's own deposit
+addresses or treasury wallets, with a reason. The `tron_backfill` job reads one bounded slice a minute through the
+scanner's own `readAddress` + `detect` path (attribution by address, one idempotent step per chain event) and moves
+the backfill's own `next_block` only as far as every address was proved read; the database refuses a backwards move
+(IX081) and a second running backfill. The main cursor is never touched. Requests, progress and completion are
+audited; the USDT screen lists backfills. Tests: `packages/scanner/test/hardening.int.test.ts` (a deposit far below
+the cursor is found and attributed, the cursor does not move, a second pass records nothing twice; RBAC, step-up,
+live-edge, stranger-address, range and one-at-a-time refusals; cancel). Runbook: `chain-backfill`.
+
 ## TD-07 — The provider smoke gate has never been executed
 
 **Observed.** `TronHttpProvider` is tested against recorded TronGrid-shaped JSON (`packages/adapters/test/tron.unit.test.ts`), and the scanner is tested end to end against `FakeTronProvider` over a fake chain. The Phase 5 review added the real gate — `scripts/tron-smoke.ts`, run by `pnpm smoke:tron` or the manual `tron-smoke` GitHub workflow — which checks connectivity, canonical parsing, identical facts across two providers, the finality line and the real `DualProviderChainVerifier` decision for one known transaction with expected sender, destination and amount.
@@ -109,6 +177,16 @@ sink is the only way to sign a client in outside production.
 **Risk.** A provider whose payloads differ from the fixtures fails loudly (every field is parsed and validated — an unreadable answer raises rather than becoming a missing fact), so the failure mode is "the scanner stops", not "money is misread". Still, that failure would first appear in a deployed environment.
 
 **Resolution (to do, before real USDT).** Configure the `tron-smoke` workflow's environment with two genuinely independent endpoints (the gate refuses two providers declaring the same independence group), a reference transaction and its expected facts, run it, and record the result here. **Phase 5 is not fully closed until this gate has passed against real configured providers.**
+
+**Updated 2026-10-05 (production hardening A1–A3).** The fixtures the gate was designed against were not the
+documented wire formats: a receipt log's `address` is 20-byte hex without the `41` prefix, and the account TRC20
+history carries no block number and no log index. The adapter now parses the documented shapes (and the gate itself
+was the first place they would have failed in a deployed environment). The gate also exercises the scanner's real
+path — the destination's history around the transaction's block, every page and receipt, the right log index — and
+writes a secret-free JSON report (`INRP2P_SMOKE_REPORT_FILE`: environment, time, expected facts, finality, agreement
+groups, every check). A dry run against two in-memory TronGrid-compatible nodes passes and a facts mismatch fails it
+(`scripts/test/tron-smoke.unit.test.ts`); that proves the gate, not the providers. **Status stays NOT RUN** until a
+person with two real independent endpoints runs it (docs/PRODUCTION_HARDENING.md A3).
 
 ## TD-08 — Visual regression compares stories, not the pages an operator sees
 
@@ -250,6 +328,18 @@ deliberately whether client users may use trusted devices (operators may not), t
 destination actions and the `can_accept_quotes` grant behind the existing step-up dialog. The RBAC and command
 side needs no change — it has been waiting for this since Phase 2.
 
+**Closed (2026-10-05).** Client Better Auth carries `twoFactor` (`allowPasswordless`, `skipVerificationOnEnable:
+false`, account lockout, no trusted devices). A before hook allows setting one up only within ten minutes of signing
+in, refuses `two-factor/disable` and `get-totp-uri` on the client surface, and new recovery codes without a fresh
+step-up; an after hook records each verified code (or recovery code) as the session's step-up — on the rotated session
+when enrolment replaces it. The Destinations screen sets up the authenticator (key and recovery codes, then the first
+code) and gives a `CLIENT_ADMIN` adding/archiving bank accounts and wallets and the `can_accept_quotes` toggle, through
+the existing step-up dialog; the domain commands were already guarded. A lost authenticator: `client_user.reset_mfa`
+(OWNER/SUPPORT ⧗, reason; ends the user's sessions) — RUNBOOKS `client-authenticator-lost`. The desk sign-in now walks an
+operator without an authenticator (e.g. the bootstrapped first OWNER) through setting one up with the password just
+typed; there was no enrolment screen for operators either. Tests: `auth.int.test.ts` (enrol, rotation, refusals,
+stale session), `clients.int.test.ts` (reset).
+
 ## TD-12 — Receipts are proved by hash, not stored
 
 **Observed.** The `receipt` table holds the canonical snapshot and the sha256 of every artifact rendered from
@@ -271,6 +361,23 @@ column already reserved for it, serve from storage, and keep the regenerate-and-
 what was stored is still what was issued. Bind a PDF renderer in the deployments that need one (a browser in the
 worker image, or a rendering service behind the same port), and keep the unconfigured renderer as the default so
 an environment without one refuses loudly.
+
+**Code ready (2026-10-05, production task E2).** `S3ObjectStore` (`packages/adapters/src/object-store.ts`, the S3 API
+with Signature V4: AWS S3 or a compatible store, chosen by configuration) writes once (`If-None-Match: *`; an existing
+object must be the same bytes), sends `Content-MD5` and `x-amz-checksum-sha256`, and writes under Object Lock in
+COMPLIANCE mode when a retention is set. With `INRP2P_RECEIPTS_BUCKET` the receipt handler stores every artifact at issue
+(`receipts/{trade}/v{version}/{sha256}.{ext}`, content-addressed) and records it in `receipt_object` (migration 0032,
+IX097: JSON/CSV/HTML must be the issued bytes; a PDF records the hash of its own bytes and the HTML hash it was printed
+from, because a printer stamps metadata), and an hourly job stores receipts issued before. The download route — which
+already scoped a client to its own receipts and refused unverifiable documents — serves the recorded **version** of the
+stored object after re-hashing it; any difference is refused. The worker refuses to start with a receipts bucket that
+is not versioned. Tests against a local MinIO: `packages/adapters/test/object-store.int.test.ts`,
+`packages/reporting/test/receipt-storage.int.test.ts` (written once, redelivery writes nothing, a forged newer version is
+not served, a locked version cannot be deleted, a store returning other bytes is refused, backfill, IX097).
+
+**Owner inputs.** The production bucket (private, versioned, created with Object Lock), the workload role allowed to
+write it, and the retention period (`INRP2P_RECEIPT_RETENTION_DAYS`) — record-keeping obligations decide it, not code.
+Whether production serves stored PDFs at all is also a choice: printing needs a browser in the worker image.
 
 ## TD-13 — The Phase 8 page baselines have not been recorded
 
@@ -300,6 +407,12 @@ Both now read the business clock.
 
 **Resolution (to do, at Phase 8 review).** Dispatch the canonical update workflow, review the recorded images,
 merge them, and confirm ordinary CI is green on the resulting `main` — the same one-run path that closed TD-09.
+
+**Closed (2026-10-09, PR #1).** The canonical update workflow
+([37984062022](https://github.com/Gatsby01k/INRP2PEXC/actions/runs/37984062022)) recorded all 35 pages at `f0b4d82`;
+reviewed and taken in `ede3374`. CI's compare-only `visual-pages` passes 35 of 35 at `15f8d5b`
+([37984995668](https://github.com/Gatsby01k/INRP2PEXC/actions/runs/37984995668)). It closes on `main` when the PR
+merges and `main`'s own CI is green.
 
 ## TD-14 — Reconciliation has no recurring job
 
@@ -360,6 +473,27 @@ record the wall-clock time and the dump size, and repeat it on a schedule and af
 shape or hosting (`docs/RUNBOOKS.md § backup-restore-drill`). Point-in-time recovery needs its own drill beyond
 this one: this proves a dump restores, not that the WAL archive can roll forward to a chosen moment.
 
+**Update (2026-10-06, production task E4).** The point-in-time drill exists and has run — on the local reference stack
+only. `scripts/pitr-drill.ts` runs PostgreSQL 18.6 with continuous WAL archiving and the reference roles, migrates as
+the non-superuser migrator, takes a base backup, writes before and after a target, recovers a separate server to that
+target and checks it: nothing after the target and everything before it, the schema version, sign-in data, the queued
+job, the chain cursor, the ledger and every journal balanced, the audit chain, grants, the production database checks
+through the application and worker logins, that outgoing payments are held before any worker runs and the worker's
+first heartbeat raises the restore fence, and — with the audit seals exported to a local Object Lock bucket before and
+after the target — that the archive still proves the recovered trail, names the range only the lost timeline exported,
+and keeps exporting. With `--image` and a production env file it starts the web image against the recovered database
+and waits for production readiness. Its last run passed on 2026-10-09 at `56961d5` (base backup 0.6 s, recovery 1.2 s,
+checks 0.2 s, web ready 2 s, on a small database) and each run is recorded in `backup_verification`, which
+`restore_drill_age_days` watches; the dump drill now records its runs there too. Running it found three real defects:
+the queue install failed under a non-superuser migrator, i.e. on every managed platform (`88b988a`); the archive's first
+design required seal numbers to be contiguous, but the recovered copy's next seal was number 35 after 3 — a sequence
+resumes ahead after a recovery or a crash — so every export after the first crash would have been refused; and the
+archive could not continue past a restore at all (both fixed in `56961d5`). Starting the release images found a fourth:
+the worker image could not start, because production imports were declared only as devDependencies (`f2bb7e1`). What
+remains open is the reason this entry exists: no drill has run on the platform production will use, at production size,
+with its retention configured; hosting (D-06) is still the owner's choice, and RPO ≤ 5 min / RTO ≤ 2 h are proposals
+awaiting that decision.
+
 ## TD-17 — Audit seals are written but never exported
 
 **Observed.** The audit trail is sealed hourly into a hash chain and `verifyAuditSeals` recomputes the whole
@@ -375,6 +509,17 @@ difference between "we would notice" and "we can prove".
 storage (object lock, or an append-only log service), plus a verification step that compares the exported chain
 against the database's own and alarms on divergence. The data is tiny — a few hashes a day — so the work is
 entirely in the destination and its credentials, not in the producing.
+
+**Update (2026-10-06, production task E4) — code ready.** Migration 0034 records each export (`audit_seal_export`:
+contiguous ranges only, matching the seals, IX099). The worker's daily `audit_seal_export` job writes every seal not yet
+exported as one range to an S3 bucket under Object Lock in compliance mode, with the retention the configuration
+requires in production, and refuses a bucket without versioning and Object Lock. `verifyAuditArchive` then checks the
+archive's own chain, the seals here against it, and the audit events re-hashed against the archived seals — so events
+rewritten and re-sealed until the database agrees with itself are still found — and reports ranges not archived in
+time; each check is recorded and `audit_archive_failures` alarms on any finding. A range written but not recorded (a
+crash in between) is adopted once, only if it describes the seals here. Tested against MinIO under Object Lock
+(`test/integration/audit-archive.int.test.ts`). Open: the production bucket, its write role and the retention period
+(owner, with legal input).
 
 ## TD-18 — A changed destination is detected but cannot be followed
 
@@ -395,6 +540,18 @@ client), notifies every client admin, resolves the case as `confirm_new_destinat
 reads instead of the frozen id. Legs already PENDING on the old destination are cancelled and re-created, never
 edited.
 
+**Closed (2026-10-05, migration 0028; production task D1).** `trade.request_destination_change` (OWNER, SETTLEMENT,
+FINANCE, SUPPORT ⧗; reason and how the client confirmed it) and `trade.approve_destination_change` /
+`reject_destination_change` (OWNER, FINANCE ⧗, never the requester; `cancel_destination_change` by the requester).
+`trade_destination_change` is append-only; `trade_economics` is untouched; `inrp2p_trade_payout_destination` is the
+destination in force and the only one a payout leg may be inserted to (IX092, which also re-checks same client,
+ACTIVE, receiving wallet, and nothing PENDING/PROCESSING at approval). Approval refuses while a payout is PROCESSING
+(`PAYOUT_IN_FLIGHT`), cancels PENDING payout legs on the record (capacity and earmarks released), resolves the case as
+`confirm_new_destination` — which the plain resolve command no longer accepts — and notifies the client
+(`TRADE_DESTINATION_CHANGED`, every user of the client including its administrators; email delivery is TD-04).
+Tests: `packages/settlement/test/destination-change.int.test.ts`, `packages/desk/test/desk.int.test.ts` ("where a
+trade pays").
+
 ## TD-19 — Overpayments can be adjusted to, not partly refunded
 
 **Observed.** DOMAIN_MODEL §3 lists `refund_excess` for `USDT_OVERPAYMENT`. No command implements it: a refund leg
@@ -407,6 +564,16 @@ full `refund_and_cancel`.
 and a completion predicate — in the command and in the trigger (new migration) — that compares received minus
 refunded excess with the receivable.
 
+**Closed (2026-10-05, migration 0028; production task D2).** `trade.refund_excess` (`settlement:create_payout`)
+plans a refund leg of kind `EXCESS` — at most received − receivable less excess already planned, in flight or
+returned; never on top of an unwind — to a destination named at planning (a client's ACTIVE SOURCE/BOTH wallet for
+USDT, an ACTIVE bank account for INR), from where the client's money is (earmarked, FI-74; B2 checked for USDT).
+`refund_leg.confirm` (⧗✱) pays only to that destination and posts the ordinary refund journal once; the first-leg
+journal is not rewritten. Completion — `advanceTrade`, `payout_leg.confirm` and the trigger restated in 0028 —
+compares received less excess *confirmed* back with the receivable; IX093 caps excess refunds at commit. Unwind legs
+(`UNWIND`, or no kind for legs before 0028) keep the pay-out-or-refund exclusivity; an excess does not block the
+payout. Tests: `packages/settlement/test/excess-refund.int.test.ts`.
+
 ## TD-20 — Granting OWNER names a second approver instead of obtaining one
 
 **Observed.** SECURITY §3 requires another OWNER's approval (✱) to grant OWNER once more than one OWNER exists.
@@ -417,6 +584,14 @@ of it. Nothing in the web app, the worker or `scripts/` calls the command today,
 **Resolution (to do, before any operator-administration surface ships).** Split the grant into a request (OWNER A,
 ⧗) and an approval (OWNER B, ⧗, in B's own session), the same shape as `adjustment.request` / `adjustment.approve`,
 with the approver taken from the approving session and never from a payload.
+
+**Closed (2026-10-05, migration 0027).** `identity.request_owner` (OWNER A, ⧗) and `identity.approve_owner` (another
+active OWNER, ⧗, in their own session; the approver is the session's operator and the grant happens in the approving
+transaction), with decline and withdrawal; `approverUserId` is refused. Single-OWNER mode is explicit and audited; nobody
+grants themselves a role. The database refuses the application role an OWNER row outside these rules, the first OWNER,
+and any removal of an OWNER (IX091); the first OWNER and the recovery of a lost sole OWNER are the protected procedure
+`scripts/operator-admin.ts` (RUNBOOKS `operator-access`). Tests: `packages/identity/test/rbac.int.test.ts`,
+`test/integration/operator-admin.int.test.ts`.
 
 ## TD-21 — The Security Reserve cannot be applied to an unsettled obligation
 
@@ -430,6 +605,42 @@ no path today; the desk can only pause the trader and keep its reserve locked.
 allocates reserve USDT against the obligation's route side — a route settlement from the reserve, Dr
 `LIAB:TRADER_RESERVE` / Cr the route receivable, keyed once — with the trader notified and the reason audited.
 An INR shortfall on a Buy USDT order needs the rate the desk applies to be recorded on the same approval.
+
+**Since D-16 (2026-10-04).** The "Observed" paragraph above predates counterparty-funded execution: INRP2P no longer
+pays the client from its own accounts, so an undelivered order now leaves the client waiting for liquidity, not
+served, until the trader delivers, the trade is unwound, or the reserve is applied.
+
+**USDT side closed (2026-10-05, migration 0029; production task D3).** `trader_reserve.request_application`
+(`trader_reserve:apply`, OWNER/FINANCE ⧗; reason) and `approve_application` (`trader_reserve:approve`, ⧗✱, never the
+requester) apply a trader's reserve to the USDT one of **its own** started Sell USDT orders still owes, once the client
+side is funded; never more than the order owes or the reserve holds free. Approval holds the amount (no longer
+withdrawable) and issues the order's delivery address if the trader never asked for it. Custody — the existing external
+mechanism; nothing here sends — moves the USDT from the trader's reserve address or a treasury wallet to that address;
+the desk records the hash (`record_application_sent`, read back from the chain) or the scanner recognises it, and chain
+finality confirms it as the order's delivery: one route settlement, one journal (`TRADER_RESERVE_APPLIED`: Dr
+`LIAB:TRADER_RESERVE` / Cr `ASSET:ROUTE_RECEIVABLE`, plus the custody move between two treasury wallets when they
+differ). The client is then paid from it like from any delivery, and the trader is paid its INR as agreed. The trader is
+notified at approval and sees it in its reserve history. Database: IX094 (own order, USDT, owed, free reserve — at
+request and approval), IX095 (a delivery naming an application only when approved, exact amount, to the order's own
+address, from the trader's reserve address or a treasury wallet; and — newly stated for D-16 — no other route delivery
+may be paid from an exchange address). Tests: `test/integration/trader-reserve-application.int.test.ts`,
+`packages/ledger/test/movement.unit.test.ts`.
+
+**INR side: held, not converted (same migration).** Against an INR shortfall (a trader's Buy USDT order) the same two
+people can only **hold** part of the reserve — `kind = HOLD`, an amount of USDT named by the requester, never more than
+the reserve holds free. A hold moves nothing and posts nothing; the INR debt stays open on the obligation; the held
+amount is out of `available` until it is released (`trader_reserve.end_application`, with the reason) or the order
+completes or is cancelled (the sweep ends it). The database refuses a hold on a USDT order, an application on an INR
+order, and any delivery naming a hold (IX094, IX095). The trader is told (`TRADER_RESERVE_ISSUE`, `RESERVE_HELD`).
+
+**Still open — owner decisions, refused rather than guessed.** (1) Converting a held reserve into an INR recovery: it
+needs the owner's valuation terms (a fixed confirmed rate and its multi-currency entries) or a real conversion with its
+evidence — never a bare `Dr USDT / Cr INR`, and a rate alone never makes a bank payment happen. No command exists for
+it; until it does, the exits are waiting, or unwinding the client trade (the client's own funds go back through the
+refund path; the platform advances nothing). (2) Any use of a reserve beyond the trader's own undelivered side —
+penalties, costs, forfeiture. (3) Whether an order delivered from the reserve still earns the reward frozen when it
+started (today it does: completion accrues it as for any order). (4) TD-22 (the programme agreement) still blocks real
+money: whether a trader has agreed to this use of its reserve is for that agreement to say.
 
 ## TD-22 — The trader programme has not been reviewed for agreement, tax and counterparty checks
 
@@ -453,6 +664,23 @@ and tighter section tabs on phones — so the existing client baselines need re-
 **Resolution (to do).** Add the trader states to the visual fixture world (`apps/web/visual/world.ts`) and record
 the baselines in the canonical environment.
 
+**Update (2026-10-09, production task F).** The fixture world has a liquidity-only trader (applied, approved, its
+reserve funded on chain from its registered wallet, a buy block live) and an order the desk routed to it, waiting on
+the trader's INR; the suite signs the trader in through the product's own form. Eight captures join the manifest:
+the trader's home, orders, the order, Security Reserve and settlement details; the application as a client of the
+exchange sees it; the desk's trader list and one trader (`b23b226`). All 35 page baselines — every existing one had
+gone stale on `main` — were recorded in the canonical image through the local Docker path (emulated on the Apple
+Silicon host) and compare clean there (`dfc327c`). Recording them found and fixed three fixture problems: the owner
+confirming payouts C1 refuses, a statement that no longer reconciled since D-16, and System health reading the wall
+clock for business-clock times. It closes when CI's compare-only `visual-pages` job passes on the pushed branch
+(**NOT RUN**).
+
+**Closed (2026-10-09, PR #1).** CI refused the emulated recording — and the canonical workflow
+([37984062022](https://github.com/Gatsby01k/INRP2PEXC/actions/runs/37984062022)) showed it wrong on all 35 pages,
+not only the three CI's compare named before stopping each spec file. The 35 recorded natively there were reviewed and
+taken (`ede3374`); `visual-pages` passes 35 of 35 at `15f8d5b`
+([37984995668](https://github.com/Gatsby01k/INRP2PEXC/actions/runs/37984995668)), the eight Traders captures among them.
+
 ## TD-24 — A trader cannot ask to change its registered settlement details in the product
 
 **Observed.** A trader's registered bank account and wallet are set at application and changed only by the desk
@@ -468,3 +696,76 @@ order. The desk approves or rejects it on the trader's page (`trader.review_sett
 in progress (`TRADER_ORDERS_OPEN`) — as is the desk's own `trader.set_settlement_details`. A rejection keeps the
 registered details and shows the trader the note. The previous destination stays on the client's file unchanged.
 
+## TD-25 — INR has no physical balance reading
+
+**Observed.** B2 (ADR 0016 §2.6) makes every USDT outflow wait for a fresh reading of what its source address holds
+on chain. INR has no equivalent: there is no bank API, so whether the counterparty's INR is in the account is
+established when FINANCE confirms the credit against the bank (`route_settlement.confirm`, ⧗) — the economic gate
+(funding allocations, FI-72…76) then holds that money for this trade alone, but nothing re-reads the account
+before an INR payout leaves it.
+
+**Risk.** An INR credit reversed by the bank after confirmation, or money moved out of the account outside the
+platform, is not seen until the next statement import (TD-14) — the payout goes out against money that is no
+longer there, and the shortfall is the platform's.
+
+**Resolution (to do).** A bank balance or statement feed per settlement account, recorded like the custody readings,
+and the same physical gate on INR payouts.
+
+## TD-26 — Funding coverage cannot follow a custody sweep
+
+**Observed.** Under D-16 a trade's money is paid out from the address it arrived at (pass-through). If the custody
+provider sweeps a deposit address into the hot wallet, the money is physically at the hot wallet while its
+earmark still names the deposit address: the payout is refused (`CUSTODY_BALANCE_INSUFFICIENT`, B2) and cannot be
+redirected, because the hot wallet's balance is not that trade's coverage. ADR 0016 §5.4 specifies
+`funding.relocate` (⧗) citing a confirmed custody transfer; it is not built.
+
+**Risk.** Fails closed — no one is paid with another trade's money — but a provider that sweeps automatically stops
+every pass-through payout until the sweep is reversed.
+
+**Resolution (to do).** Either disable automatic sweeps for addresses holding earmarked funds (a custody
+configuration item on the launch checklist), or build `funding.relocate` as specified.
+
+## TD-27 — The release images are about 1.8 GB each
+
+**Observed (production hardening E3, 2026-10-06).** `deploy/Dockerfile` builds web, worker and migrate from one
+`runtime-base` that copies the whole build stage and then runs `pnpm install --frozen-lockfile --prod`; the resulting
+images are about 1.8 GB each, about the size of the full development install, so the prune evidently leaves the
+development dependencies in place (pnpm keeps the hard-linked store and the `node_modules/.pnpm` tree the build stage
+created). Starting, readiness and shutdown are unaffected — the images were started and probed in production mode
+(E4) — and the dependency check added in `f2bb7e1` guarantees that what production imports is declared, so a correct
+prune would not remove anything needed. Built in CI on linux/amd64 (PR #1, `images` job), `docker images` reports
+1.2 GB for each of the three — smaller than on the arm64 development host, the same order.
+
+**Risk.** Pull time on every deploy and scale-out, registry storage, and a larger attack surface than the processes
+need (development tools present in the image, though never on the path of a request).
+
+**Resolution (to do).** Build `runtime-base` from a clean `pnpm deploy --prod` (or `pnpm --filter … deploy`) of the web
+and worker packages instead of pruning a copy of the build stage; then repeat the E4 image checks (production
+refusal, start, probes, SIGTERM) on the smaller images.
+
+## TD-28 — An unattributable reserve deposit has no desk resolution in the product
+
+**Observed (D-17, 2026-10-10).** A transfer into the shared Security Reserve address that is not from the registered
+wallet of exactly one trader — sent from another wallet, from a wallet registered only after the transfer, or from one
+two traders have on file — is recorded as money of unknown origin, parked in suspense on confirmation, and opens a
+`USDT_UNEXPECTED_SENDER` case (`RESERVE_SENDER_NOT_REGISTERED` / `_AMBIGUOUS`). That is deliberate: nothing on chain
+says whose it is, and crediting it on someone's word is exactly what the attribution rule exists to prevent (FI-83).
+What is missing is the next step: there is no command that credits such a deposit to a trader, or returns it.
+
+**Risk.** Money waits in suspense, visible to the desk, until handled outside the product; the trader sees nothing on
+its reserve. No double credit and no wrong credit is possible meanwhile (IX102).
+
+**Resolution (to do).** A two-person desk command that, with recorded evidence of ownership (a signed message from the
+sending wallet, or a return of a stated amount from it), moves the suspense credit to the trader's reserve — or a
+return to the sending wallet — posted once, audited, and refused for an address registered by another trader.
+
+## TD-29 — The public site's onboarding wording contradicts self sign-up
+
+**Observed (D-17, 2026-10-10).** Clients now open their own accounts with the workspace email code. The public site
+still says otherwise: `ONBOARDING.unlinked` ("New clients are onboarded by the desk first"), `ONBOARDING.requirement`
+on the guide pages ("The desk sets that up; there is no form here that can"), the home page's closing section ("Before
+a first trade, the desk sets up your client record…") and its "Request onboarding" link. The workspace gateway itself
+was changed; the home page is frozen by the owner (2026-09-26), so its words were left as they are.
+
+**Resolution (to do, owner).** New wording for those strings in `apps/web/src/content/site.ts` and the closing section,
+then the public page baselines re-recorded through the canonical workflow.

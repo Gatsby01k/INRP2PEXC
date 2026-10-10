@@ -1,6 +1,6 @@
 import type { Task, TaskList } from 'graphile-worker';
 import type { Db } from '@inrp2p/db';
-import { sealAudit } from '@inrp2p/audit';
+import { type SealArchive, exportAuditSeals, sealAudit, verifyAuditArchive } from '@inrp2p/audit';
 import { dispatchOutbox, type OutboxHandler } from '@inrp2p/outbox';
 import { randomUUID } from 'node:crypto';
 import { executeCommand } from '@inrp2p/commands';
@@ -9,8 +9,10 @@ import { releasePastDayReservations } from '@inrp2p/inr-accounts';
 import { releaseCooledDownAddresses } from '@inrp2p/treasury';
 import { type QuotePolicy, expireQuote, runExpirySweep } from '@inrp2p/quotes';
 import { runReconciliation, runSettlementSla } from '@inrp2p/settlement';
-import { type ScannerDeps, runOrphanSweep, runTronConfirm, runTronScan } from '@inrp2p/scanner';
+import { type ScannerDeps, observeBalances, runChainBackfill, runOrphanSweep, runTronConfirm, runTronScan } from '@inrp2p/scanner';
 import { runTraderSweep } from '@inrp2p/traders';
+import { type WorkerBeat, recordWorkerBeat } from '@inrp2p/trades';
+import { type ReceiptObjectStore, type ReceiptPdfPrinter, receiptsNotStored, storeReceiptObjects } from '@inrp2p/reporting';
 import { DomainError } from '@inrp2p/kernel';
 import type { ChainMonitoring } from './config.ts';
 import { sql } from 'kysely';
@@ -28,7 +30,14 @@ function systemCommand<R>(db: Db, name: string, fn: (ctx: TxContext) => Promise<
 export function buildTaskList(
   db: Db,
   handlers: readonly OutboxHandler[],
-  opts: { policy?: Partial<QuotePolicy>; scanner?: ScannerDeps; monitoring?: ChainMonitoring } = {},
+  opts: {
+    policy?: Partial<QuotePolicy>;
+    scanner?: ScannerDeps;
+    monitoring?: ChainMonitoring;
+    receipts?: { readonly store: ReceiptObjectStore; readonly pdf?: ReceiptPdfPrinter | null; readonly retainDays?: number | null };
+    heartbeat?: WorkerIdentity;
+    auditArchive?: { readonly archive: SealArchive; readonly retainDays: number };
+  } = {},
 ): TaskList {
   const outboxDispatch: Task = async () => {
     const report = await dispatchOutbox(db, handlers);
@@ -87,10 +96,52 @@ export function buildTaskList(
   const tronScan = chainJob((deps) => runTronScan(db, deps));
   const tronConfirm = chainJob((deps) => runTronConfirm(db, deps));
   const tronOrphanSweep = chainJob((deps) => runOrphanSweep(db, deps));
+  // TD-06: one bounded slice of a requested historical backfill per run; nothing to do is the common case.
+  const tronBackfill = chainJob((deps) => runChainBackfill(db, deps));
+  // B2: what each exchange address actually holds, as of a solidified block, from every configured provider. A USDT
+  // payout or refund leaves an address only against a fresh, usable reading; this keeps one there.
+  const custodyObserve = chainJob((deps) => observeBalances(db, { sources: deps.providers, contract: deps.chain.tokenContract }));
   // Traders (docs/TRADERS.md): offers that lapsed are routed on, ended holds give capacity back, started orders
   // catch up with their route obligation (completed, cancelled, the trader's side confirmed).
-  const traderOrdersSweep: Task = async () => {
-    await runTraderSweep(db);
+  // One order's failure never stops the rest (each is its own step); the failures are logged here, retried next
+  // minute, and an order that keeps failing surfaces as the `trader_orders_overdue` health signal.
+  const traderOrdersSweep: Task = async (_payload, helpers) => {
+    const report = await runTraderSweep(db);
+    for (const f of report.failures) helpers.logger.error(`trader_orders_sweep: ${f.step} ${f.orderId} failed (${f.code}): ${f.message}`);
+  };
+  // TD-12: receipts issued before a bucket was configured, or whose write failed, are stored here, a few at a time.
+  const receiptStoreBackfill: Task = async (_payload, helpers) => {
+    const storage = opts.receipts;
+    if (!storage) return;
+    for (const id of await receiptsNotStored(db, 50)) {
+      try {
+        await storeReceiptObjects(db, storage.store, id, { pdf: storage.pdf ?? null, retainDays: storage.retainDays ?? null });
+      } catch (e) {
+        helpers.logger.error(`receipt_store_backfill: receipt ${id} not stored (${(e as { code?: string }).code ?? 'ERROR'})`);
+      }
+    }
+  };
+  // TD-17: the seals leave the database for write-once storage, and the archive is checked against the database and
+  // the audit events every day (`audit_seal_export_age_seconds`, `audit_archive_failures`).
+  const auditSealExport: Task = async (_payload, helpers) => {
+    const target = opts.auditArchive;
+    if (!target) return;
+    for (let i = 0; i < 20; i++) {
+      const out = await exportAuditSeals(db, target.archive, { retainDays: target.retainDays });
+      if (!out) break;
+      helpers.logger.info(`audit_seal_export: seals ${out.firstSeal}–${out.lastSeal} written to ${out.key}`);
+    }
+    const verified = await verifyAuditArchive(db, target.archive);
+    if (!verified.ok) helpers.logger.error(`audit_seal_export: the archive does not verify: ${verified.findings.map((f) => f.kind).join(', ')}`);
+    // Ranges a lost timeline exported before a restore: kept in the archive, named here, never a finding.
+    for (const r of verified.superseded) helpers.logger.info(`audit_seal_export: ${r.key} is from before restore fence ${r.fence} (diverges at seal ${r.divergesAt}); kept`);
+  };
+  // E3: the worker says it is alive, and what it runs, once a minute (readiness and `worker_heartbeat_age_seconds`);
+  // E4: and notices when the database is not the one it last wrote to, which holds outgoing payments.
+  const workerHeartbeat: Task = async (_payload, helpers) => {
+    if (!opts.heartbeat) return;
+    const beat = await recordHeartbeat(db, opts.heartbeat);
+    if (beat.raised) helpers.logger.error(`worker_heartbeat: the database changed underneath; outgoing payments are held (${beat.raised}, RUNBOOKS restore-fence)`);
   };
   return {
     outbox_dispatch: outboxDispatch,
@@ -104,7 +155,12 @@ export function buildTaskList(
     tron_scan: tronScan,
     tron_confirm: tronConfirm,
     tron_orphan_sweep: tronOrphanSweep,
+    tron_backfill: tronBackfill,
+    custody_observe: custodyObserve,
     trader_orders_sweep: traderOrdersSweep,
+    receipt_store_backfill: receiptStoreBackfill,
+    worker_heartbeat: workerHeartbeat,
+    audit_seal_export: auditSealExport,
   };
 }
 
@@ -136,7 +192,10 @@ export function quoteExpiryScheduler(db: Db): OutboxHandler {
  * deposit addresses every 10 minutes, sweep quote/request expiry every minute, sweep settlement SLAs every
  * 15 minutes and reconcile the ledger nightly. The TRON scanner reads new transfers every minute, offers
  * detected transfers to the verifier every minute (a transfer solidifies in about a minute) and sweeps for
- * orphans every 10 minutes. The trader sweep runs every minute (an offer's own expiry is minutes, not hours).
+ * orphans every 10 minutes; a requested historical backfill reads one bounded slice a minute (TD-06). The balance
+ * of every exchange address that decides something is read every minute (B2: a reading older than five minutes
+ * stops USDT payouts from that address). The trader sweep runs every minute (an offer's own expiry is minutes,
+ * not hours).
  */
 export const CRONTAB = [
   '* * * * * outbox_dispatch ?max=1&jobKey=outbox_dispatch',
@@ -149,5 +208,19 @@ export const CRONTAB = [
   '* * * * * tron_scan ?max=1&jobKey=tron_scan',
   '* * * * * tron_confirm ?max=1&jobKey=tron_confirm',
   '*/10 * * * * tron_orphan_sweep ?max=2&jobKey=tron_orphan_sweep',
+  '* * * * * tron_backfill ?max=1&jobKey=tron_backfill',
+  '* * * * * custody_observe ?max=1&jobKey=custody_observe',
   '* * * * * trader_orders_sweep ?max=1&jobKey=trader_orders_sweep',
+  '41 * * * * receipt_store_backfill ?max=2&jobKey=receipt_store_backfill',
+  '* * * * * worker_heartbeat ?max=1&jobKey=worker_heartbeat',
+  '17 2 * * * audit_seal_export ?max=3&jobKey=audit_seal_export',
 ].join('\n');
+
+/** Who this worker is and what it runs — names and states only, never a secret, an address or a key. */
+export type WorkerIdentity = WorkerBeat;
+
+/** One heartbeat — and, when the database changed underneath, the restore fence it raised (`@inrp2p/trades`). */
+export function recordHeartbeat(db: Db, id: WorkerIdentity): Promise<{ raised: string | null }> {
+  return recordWorkerBeat(db, id);
+}
+

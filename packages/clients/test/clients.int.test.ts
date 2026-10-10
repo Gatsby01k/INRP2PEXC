@@ -9,7 +9,7 @@ import type { ClientActor } from '@inrp2p/identity';
 import { createTestClientLogin, createTestOperator, runAs, type TestOperator } from '@inrp2p/identity/testing';
 import {
   addBankAccount, addContact, addWallet, archiveBankAccount, archiveContact, archiveWallet, createClient, isActiveBankAccountOfClient,
-  linkClientUser, listAuthorizedAcceptors, listBankAccounts, revealBankAccount, setCanAcceptQuotes, setClientStatus, setClientUserStatus, updateClient,
+  linkClientUser, listAuthorizedAcceptors, listBankAccounts, resetClientMfa, revealBankAccount, setCanAcceptQuotes, setClientStatus, setClientUserStatus, updateClient,
 } from '../src/index.ts';
 
 let t: TestDatabase;
@@ -284,3 +284,35 @@ describe('contacts', () => {
     expect(randomUUID()).toBeTruthy();
   });
 });
+
+describe('a lost client authenticator (TD-11)', () => {
+  it('is removed only by the desk, with step-up and a reason, ending every session; the person then enrols again', async () => {
+    const c = await newClient('LostPhone');
+    const admin = await createTestClientLogin(t.owner, { stepUp: 'fresh' });
+    const linked = await runAs(t.app, linkClientUser(dealer.actor), dealer.ref, 'client_user.link', { clientId: c.clientId, userId: admin.userId, role: 'CLIENT_ADMIN' as const });
+    await sql`insert into auth_two_factor (id, secret, backup_codes, user_id, verified) values (${randomUUID()}, 'enc-secret', 'enc-codes', ${admin.userId}, true)`.execute(t.owner);
+    const reset = (op: TestOperator, reason = 'verified by video call against the passport on file') =>
+      runAs(t.app, resetClientMfa(op.actor), op.ref, 'client_user.reset_mfa', { clientUserId: linked.clientUserId, reason });
+
+    await expect(reset(settlement)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(reset(dealer)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(reset(staleOwner)).rejects.toMatchObject({ code: 'STEP_UP_REQUIRED' });
+    await expect(reset(support, 'asked')).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' });
+
+    const out = await reset(support);
+    expect(out).toMatchObject({ reset: true, sessionsEnded: '1' });
+    const user = await t.app.selectFrom('auth_user').select('two_factor_enabled').where('id', '=', admin.userId).executeTakeFirstOrThrow();
+    expect(user.two_factor_enabled).toBe(false);
+    expect((await sql`select id from auth_two_factor where user_id = ${admin.userId}`.execute(t.app)).rows).toEqual([]);
+    expect(await t.app.selectFrom('auth_session').select('id').where('user_id', '=', admin.userId).execute()).toEqual([]);
+    expect((await audits(linked.clientUserId)).at(-1)).toMatchObject({ action: 'client_user.mfa_reset', actor_id: support.ref.id });
+
+    // Signed in again, without an authenticator: sensitive changes wait for a new one, whatever the session holds.
+    const session = await t.owner.insertInto('auth_session').values({ expires_at: new Date(Date.now() + 3_600_000), token: randomUUID(), created_at: new Date(), updated_at: new Date(), user_id: admin.userId, surface: 'CLIENT' }).returning('id').executeTakeFirstOrThrow();
+    await sql`insert into step_up_verification (user_id, session_id, method, verified_at) values (${admin.userId}, ${session.id}, 'TOTP', statement_timestamp())`.execute(t.owner);
+    const ref = { type: 'USER' as const, id: admin.userId, surface: 'CLIENT' as const, sessionId: session.id };
+    await expect(runAs(t.app, addBankAccount({ kind: 'CLIENT', userId: admin.userId, sessionId: session.id }, protector), ref, 'client_bank.add', bank(c.clientId, '998877665544')))
+      .rejects.toMatchObject({ code: 'MFA_ENROLLMENT_REQUIRED' });
+  });
+});
+

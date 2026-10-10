@@ -5,7 +5,7 @@ import { Money } from '@inrp2p/kernel';
 import { runAs } from '@inrp2p/identity/testing';
 import { confirmPayout, createPayoutLeg, recordLegEvidence, sendPayoutLeg } from '@inrp2p/settlement';
 import { istToday, pnlPage } from '../src/index.ts';
-import { type World, createWorld, newUtr, openTrade, settleFirstLeg } from '../../settlement/test/world.ts';
+import { type World, createWorld, newUtr, openTrade, settleFirstLeg, ensureCounterpartyFunds } from '../../settlement/test/world.ts';
 
 /**
  * Phase 8 exit: **P&L equals ledger revenue.**
@@ -29,6 +29,7 @@ beforeAll(async () => {
   const done = await openTrade(w, { baseUsdt: '1000', clientRate: '90.000000', routeRate: '92.500000', executionMode: 'TO_EXCHANGE' });
   completedRef = done.tradeRef;
   await settleFirstLeg(w, done.tradeId);
+  await ensureCounterpartyFunds(w, done.tradeId);
   const leg = await runAs(w.app, createPayoutLeg(w.settlementOp.actor, {}), w.settlementOp.ref, 'payout_leg.create', {
     tradeId: done.tradeId, amount: '90000.00', payer: 'EXCHANGE_ACCOUNT' as const, inrAccountId: w.inrAccountId,
   });

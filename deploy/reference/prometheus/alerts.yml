@@ -1,0 +1,38 @@
+# REFERENCE alerting rules over /api/health/metrics (scraped from the desk host with the monitoring token,
+# `x-inrp2p-health-token`). Thresholds live in code (packages/desk/src/health.ts) and arrive as states; these rules
+# only decide how long a state must last and who is paged. Routing to the on-call person is an owner input.
+groups:
+  - name: inrp2p
+    rules:
+      - alert: Inrp2pSignalAlarm
+        expr: inrp2p_health_state{group!="liquidity"} == 2
+        for: 5m
+        labels: { severity: page }
+        annotations:
+          summary: "{{ $labels.check }} in alarm"
+          runbook: "docs/RUNBOOKS.md#{{ $labels.runbook }}"
+      - alert: Inrp2pLedgerImbalance
+        expr: inrp2p_health_state{check="ledger_imbalance"} == 2
+        for: 0m
+        labels: { severity: page }
+        annotations: { summary: "The ledger does not net to zero", runbook: "docs/RUNBOOKS.md#ledger-imbalance" }
+      - alert: Inrp2pSignalWarn
+        expr: inrp2p_health_state{group!="liquidity"} == 1
+        for: 30m
+        labels: { severity: ticket }
+        annotations: { summary: "{{ $labels.check }} worth a look", runbook: "docs/RUNBOOKS.md#{{ $labels.runbook }}" }
+      - alert: Inrp2pNoLiquidity
+        expr: inrp2p_health_state{group="liquidity"} == 1
+        for: 30m
+        labels: { severity: business }
+        annotations: { summary: "No trader ready: {{ $labels.check }}", runbook: "docs/RUNBOOKS.md#liquidity-thin" }
+      - alert: Inrp2pNewBusinessPaused
+        expr: inrp2p_new_business_paused == 1
+        for: 2h
+        labels: { severity: ticket }
+        annotations: { summary: "New business has been paused for over two hours", runbook: "docs/RUNBOOKS.md#pause-new-business" }
+      - alert: Inrp2pStatusUnreachable
+        expr: up{job="inrp2p"} == 0
+        for: 5m
+        labels: { severity: page }
+        annotations: { summary: "The health status cannot be read: the desk host, the token or the web app is down" }

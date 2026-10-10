@@ -5,9 +5,10 @@ import type { FieldProtector } from '@inrp2p/adapters';
 import { inrAccountSealContext } from '@inrp2p/inr-accounts';
 import { obligationRemaining } from '@inrp2p/settlement';
 import { traderApplicant, traderMembership, traderProgram } from '@inrp2p/trader-core';
-import { COUNTERPARTY_FUNDED } from './delivery.ts';
+import { CLIENT_FUNDED_STATES } from './delivery.ts';
 import { type BlockIssue, type StandingIssue, blockIssues, freeCapacity, standingIssues } from './eligibility.ts';
 import { type OrderStage, type OrderStep, orderStage, orderSteps } from './progress.ts';
+import { sharedReserveAddress } from './reserve.ts';
 import { earnings } from './rewards.ts';
 import { readBlocks, readStanding } from './standing.ts';
 
@@ -126,7 +127,7 @@ async function progressFacts(ex: Executor, o: OrderRowFull): Promise<OrderProgre
   return {
     stage: orderStage({
       status: o.status,
-      counterpartyFunded: COUNTERPARTY_FUNDED.has(trade.lifecycle_state),
+      counterpartyFunded: CLIENT_FUNDED_STATES.has(trade.lifecycle_state),
       traderOwedMinor: traderOwed,
       traderPaymentPending: pending.some((p) => p.obligation_side === 'ROUTE_DELIVERS'),
       inrp2pOwedMinor: inrp2pOwed,
@@ -184,11 +185,24 @@ export interface ReserveView {
   readonly locked: string;
   readonly available: string;
   readonly pendingRelease: string;
+  /**
+   * Reserve the desk is applying to an order of yours whose USDT did not arrive, or holding against one whose INR did
+   * not (TD-21): not withdrawable until it is applied, released or the order ends.
+   */
+  readonly applying: string;
   readonly shortfall: string;
   readonly engaged: boolean;
   readonly depositAddress: string | null;
   readonly withdrawal: { readonly ref: string; readonly amount: string; readonly status: 'REQUESTED' | 'SENT'; readonly askedAt: string } | null;
-  readonly history: readonly { readonly kind: 'DEPOSIT' | 'WITHDRAWAL'; readonly amount: string; readonly status: string; readonly at: string; readonly txHash: string | null }[];
+  readonly history: readonly {
+    readonly kind: 'DEPOSIT' | 'WITHDRAWAL' | 'APPLIED' | 'HELD';
+    readonly amount: string;
+    readonly status: string;
+    readonly at: string;
+    readonly txHash: string | null;
+    /** For `APPLIED` and `HELD`: the order of yours the reserve was applied to or held against. */
+    readonly orderRef?: string;
+  }[];
 }
 
 export interface EarningsView {
@@ -273,13 +287,8 @@ async function nowOf(ex: Executor): Promise<Date> {
 
 async function reserveView(ex: Executor, traderId: string): Promise<ReserveView> {
   const { reserve } = await readStanding(ex, traderId);
-  const address = await ex
-    .selectFrom('deposit_assignment as a')
-    .innerJoin('deposit_address as d', 'd.id', 'a.deposit_address_id')
-    .select('d.address')
-    .where('a.trader_id', '=', traderId)
-    .where('a.released_at', 'is', null)
-    .executeTakeFirst();
+  // One address for every trader (D-17): what makes a deposit this trader's is the wallet it came from.
+  const address = await sharedReserveAddress(ex);
   const open = await ex
     .selectFrom('trader_reserve_withdrawal')
     .select(['ref', 'amount_minor', 'status', 'requested_at'])
@@ -302,9 +311,31 @@ async function reserveView(ex: Executor, traderId: string): Promise<ReserveView>
     .orderBy('w.requested_at', 'desc')
     .limit(20)
     .execute();
+  // What the desk decided about the reserve (never its deliberations before that): the trader's own order, the amount,
+  // the movement — or, for a hold, that nothing moved.
+  const applied = await ex
+    .selectFrom('trader_reserve_application as a')
+    .innerJoin('trader_order as o', 'o.id', 'a.trader_order_id')
+    .leftJoin('route_settlement as s', 's.reserve_application_id', 'a.id')
+    .leftJoin('crypto_transfer as c', 'c.id', 's.crypto_transfer_id')
+    .select(['a.kind', 'a.amount_minor', 'a.status', 'a.decided_at', 'a.completed_at', 'a.closed_at', 'o.ref as order_ref', 'c.tx_hash'])
+    .where('a.trader_id', '=', traderId)
+    .where('a.decided_at', 'is not', null)
+    .where('a.status', 'in', ['APPROVED', 'SENT', 'COMPLETED', 'CANCELLED', 'FAILED'])
+    .orderBy('a.requested_at', 'desc')
+    .limit(20)
+    .execute();
   const history = [
     ...deposits.map((d) => ({ kind: 'DEPOSIT' as const, amount: usdt(d.amount_minor), status: d.state === 'CONFIRMED' ? 'CREDITED' : d.state === 'DETECTED' ? 'CONFIRMING' : d.state, at: (d.confirmed_at ?? d.detected_at).toISOString(), txHash: d.tx_hash })),
     ...withdrawals.map((w) => ({ kind: 'WITHDRAWAL' as const, amount: usdt(w.amount_minor), status: w.status, at: (w.completed_at ?? w.requested_at).toISOString(), txHash: w.tx_hash })),
+    ...applied.map((a) => ({
+      kind: a.kind === 'HOLD' ? ('HELD' as const) : ('APPLIED' as const),
+      amount: usdt(a.amount_minor),
+      status: a.kind === 'HOLD'
+        ? (a.status === 'APPROVED' ? 'HELD' : 'RELEASED')
+        : a.status === 'COMPLETED' ? 'APPLIED' : a.status === 'APPROVED' || a.status === 'SENT' ? 'APPLYING' : 'NOT_APPLIED',
+      at: (a.completed_at ?? a.closed_at ?? a.decided_at ?? new Date(0)).toISOString(), txHash: a.tx_hash, orderRef: a.order_ref,
+    })),
   ].sort((a, b) => (a.at < b.at ? 1 : -1));
   return {
     balance: reserve.balance.toDecimalString(),
@@ -312,6 +343,7 @@ async function reserveView(ex: Executor, traderId: string): Promise<ReserveView>
     locked: reserve.locked.toDecimalString(),
     available: reserve.available.toDecimalString(),
     pendingRelease: reserve.pendingRelease.toDecimalString(),
+    applying: reserve.applying.toDecimalString(),
     shortfall: reserve.shortfall.toDecimalString(),
     engaged: reserve.engaged,
     depositAddress: address?.address ?? null,
@@ -387,9 +419,11 @@ export async function traderHome(ex: Executor, userId: string): Promise<TraderHo
   };
   const registered = { bank, wallet: maskWallet(profile.address), walletAddress: profile.address };
   if (profile.status === 'UNDER_REVIEW' || profile.status === 'REJECTED') {
+    // The reserve is shown from the first day: topping it up is not admission to trading (D-17), and money sent
+    // during the review stays visible whatever the review decides.
     return traderSafe({
       state: profile.status, ref: profile.ref, ...base, application, available: false, controlNote: null, assignmentsEnabled: profile.assignments_enabled, issues: [], blocks: [],
-      reserve: null, offers: [], active: [], recentlyCompleted: null, earnings: null, registered, proposal: NO_PROPOSAL, openOrders: 0, paymentDetailsPublished: false,
+      reserve: await reserveView(ex, profile.id), offers: [], active: [], recentlyCompleted: null, earnings: null, registered, proposal: NO_PROPOSAL, openOrders: 0, paymentDetailsPublished: false,
     });
   }
   const proposal = { bank: await bankView(ex, profile.proposed_bank_account_id), wallet: await walletView(ex, profile.proposed_wallet_id) };

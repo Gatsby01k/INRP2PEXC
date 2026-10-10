@@ -3,6 +3,7 @@ import { CLIP_MEASUREMENTS } from '../src/app/(public)/_landing/voice/clips/meas
 import { AUDIENCE, BUSINESS, CLOSING, DESK, FLOW, HERO, ONBOARDING, SITE_PAGES, SITE_PATHS, TRADER_ENTRY, TRUST } from '../src/content/site.ts';
 import { appBaseUrl, deskSendsQuoteWithLink, linkBaseUrl, operatorBaseUrl } from './support.ts';
 import { E2E_PUBLIC_CONTACTS } from './world.ts';
+import { E2E_HEALTH_TOKEN } from '../harness/desk-server.ts';
 
 /**
  * The public site and the headers that protect every surface (PRODUCT §7.4, SECURITY §7).
@@ -38,6 +39,21 @@ test('the home page is served at / and has no second address', async ({ page }) 
   const direct = await page.request.get(`${linkBaseUrl()}/home`, { maxRedirects: 0 });
   expect(direct.status()).toBe(308);
   expect(new URL(direct.headers()['location']!, linkBaseUrl()).pathname).toBe('/');
+});
+
+test('the home page asks for Geist Mono only once it has loaded, then sets its figures in it', async ({ page }) => {
+  // Geist Mono is used only below the home page's first screen. Fetched with the first screen, at the highest
+  // priority, it cost the mobile budget seven points (DeferredMono.tsx); held back, it must still arrive.
+  await page.goto(linkBaseUrl());
+  await expect(page.locator('[data-story]')).toHaveAttribute('data-deferred-fonts', 'ready');
+  await expect.poll(() => page.evaluate(() => performance.getEntriesByType('resource').filter((e) => e.name.includes('GeistMono')).length)).toBe(2);
+  const timing = await page.evaluate(() => ({
+    load: (performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming).loadEventStart,
+    mono: performance.getEntriesByType('resource').filter((e) => e.name.includes('GeistMono')).map((e) => e.startTime),
+  }));
+  for (const start of timing.mono) expect(start).toBeGreaterThanOrEqual(timing.load);
+  const footerHeading = page.locator('footer h2').first();
+  await expect.poll(() => footerHeading.evaluate((el) => getComputedStyle(el).fontFamily)).toMatch(/^"?Geist Mono"?,/);
 });
 
 test('the home page ends with one call to action, and its footer links only to what exists', async ({ page }) => {
@@ -170,7 +186,7 @@ test('the way into the workspace keeps the room: the gateway stands where the he
   await expect(page).toHaveURL(`${appBaseUrl()}/sign-in`);
   await expect(page).toHaveTitle('Workspace access — INRP2P Exchange');
   await expect(page.getByRole('heading', { level: 1, name: 'Enter the desk.' })).toBeVisible();
-  await expect(page.getByText('Access is limited to clients onboarded by the INRP2P desk.')).toBeVisible();
+  await expect(page.getByText('Sign in with your email, or open your account with it. Every trade is priced by the INRP2P desk.')).toBeVisible();
   near(await box('[data-robot-target="panel"]'), module, 'access surface against the quote module');
   near(await box('img[srcset*="robot-"]'), robot, 'robot against the hero robot');
 
@@ -185,10 +201,11 @@ test('the way into the workspace keeps the room: the gateway stands where the he
   await expect(page.getByRole('alert').filter({ hasText: 'Enter your full work email, like name@company.com.' })).toBeVisible();
   await expect(email).toHaveAttribute('aria-invalid', 'true');
   await expect(page.locator('form').first()).toHaveAttribute('novalidate', '');
-  await expect(page.getByRole('heading', { name: 'Welcome back.' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Sign in or open an account.' })).toBeVisible();
 
-  // The way in for a new client is the configured one; the way back is the home page.
-  await expect(page.getByRole('link', { name: 'Request onboarding' })).toHaveAttribute('href', `mailto:${E2E_PUBLIC_CONTACTS.desk}?subject=${encodeURIComponent(ONBOARDING.subject)}`);
+  // A new client opens their account right here (D-17); someone who wants to provide capacity is shown the way to
+  // apply; the way back is the home page.
+  await expect(page.getByRole('link', { name: /Become a trader/ })).toHaveAttribute('href', '/become-a-trader');
   await page.getByRole('banner').getByRole('link', { name: 'Back to exchange' }).click();
   await expect(page.getByRole('heading', { level: 1, name: 'Buy & sell USDT in India' })).toBeVisible();
 });
@@ -297,7 +314,20 @@ test('the probes answer on every host, and the one with figures in it does not',
     // The full picture carries capacity, holds and scanner lag, so it is refused without a token or a session.
     const status = await page.request.get(`${base}/api/health/status`, { maxRedirects: 0 });
     expect(status.status(), `${base} status`).toBe(401);
+    expect((await page.request.get(`${base}/api/health/metrics`, { maxRedirects: 0 })).status(), `${base} metrics`).toBe(401);
   }
+  // A monitoring system has a token, not a session: on the desk host it reads the picture and the metrics with it.
+  const headers = { 'x-inrp2p-health-token': E2E_HEALTH_TOKEN };
+  const status = await page.request.get(`${operatorBaseUrl()}/api/health/status`, { headers, maxRedirects: 0 });
+  expect([200, 503]).toContain(status.status());
+  const body = (await status.json()) as { checks: { id: string; group: string }[]; liquidity: string; newBusiness: { paused: boolean } };
+  expect(body.checks.map((c) => c.id)).toContain('worker_heartbeat_age_seconds');
+  expect(body.newBusiness.paused).toBe(false);
+  const metrics = await page.request.get(`${operatorBaseUrl()}/api/health/metrics`, { headers, maxRedirects: 0 });
+  expect(metrics.status()).toBe(200);
+  expect(await metrics.text()).toMatch(/^inrp2p_ready [0-2]$/m);
+  // A wrong token is no token.
+  expect((await page.request.get(`${operatorBaseUrl()}/api/health/status`, { headers: { 'x-inrp2p-health-token': `${E2E_HEALTH_TOKEN}x` }, maxRedirects: 0 })).status()).toBe(401);
 });
 
 test('a page under the policy loads without the browser refusing anything', async ({ page }) => {

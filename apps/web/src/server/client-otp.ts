@@ -1,5 +1,7 @@
 import 'server-only';
+import { randomUUID } from 'node:crypto';
 import { appendFile } from 'node:fs/promises';
+import { ResendEmailClient } from '@inrp2p/adapters';
 import type { EmailOtpSender } from '@inrp2p/identity';
 import { optionalEnv } from './env.ts';
 
@@ -58,19 +60,15 @@ export function clientOtpSender(): EmailOtpSender {
     };
   }
 
+  // The shared Resend client (E1): a timeout per attempt, a few backed-off retries under one idempotency key — so a
+  // retried request is the same email — and errors that never carry the code, the address or the key.
+  const resend = new ResendEmailClient({ apiKey, from, ...(optionalEnv('RESEND_BASE_URL') ? { baseUrl: optionalEnv('RESEND_BASE_URL')! } : {}) });
   return {
     send: async ({ email, otp }) => {
-      const response = await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          from,
-          to: [email],
+      await resend.send(
+        {
+          to: email,
           subject: 'Your INRP2P Exchange sign-in code',
-
           text: [
             'INRP2P Exchange',
             '',
@@ -80,8 +78,16 @@ export function clientOtpSender(): EmailOtpSender {
             '',
             'If you did not request this code, you can ignore this email.',
           ].join('\n'),
+          html: signInHtml(otp),
+        },
+        `client-sign-in/${randomUUID()}`,
+      );
+    },
+  };
+}
 
-          html: `
+function signInHtml(otp: string): string {
+  return `
             <!doctype html>
             <html>
               <body style="
@@ -149,13 +155,5 @@ export function clientOtpSender(): EmailOtpSender {
                 </div>
               </body>
             </html>
-          `,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error('EMAIL_DELIVERY_FAILED');
-      }
-    },
-  };
+          `;
 }

@@ -8,11 +8,13 @@ import { executeCommand } from '@inrp2p/commands';
 import type { MovementParty } from '@inrp2p/ledger';
 import { type OperatorActor, operatorCommand } from '@inrp2p/identity';
 import { consumeTreasuryReservation } from '@inrp2p/treasury';
-import { effectiveObligations, legTotals, lockTrade, tradeEconomics, transitionTrade } from '@inrp2p/trades';
+import { payoutNeedsSecondPerson } from './approvals.ts';
+import { effectiveObligations, legTotals, lockTrade, receivedNetOfReturnedExcess, tradeEconomics, transitionTrade } from '@inrp2p/trades';
 import { openExceptionInTx } from './exceptions.ts';
 import { assertNoRefundUnderway, lockLeg } from './legs.ts';
 import { lockMovement, postMovement, verifyCryptoTransfer } from './movements.ts';
 import { allocateToObligation, lockObligation, obligationOfTrade, obligationRemaining } from './obligations.ts';
+import { settleFunding } from './funding.ts';
 import type { SettlementDeps } from './policy.ts';
 import { completeTrade } from './progress.ts';
 
@@ -46,6 +48,15 @@ export function confirmPayoutLeg(actor: OperatorActor, deps: SettlementDeps) {
     if (leg.status !== 'PROCESSING') throw new DomainError('INVALID_TRANSITION', `leg ${leg.ref} is ${leg.status}`);
     if (leg.side !== 'EXCHANGE_TO_CLIENT') throw new DomainError('INVALID_ARGUMENT', `leg ${leg.ref} is not a payout leg`);
     await assertNoRefundUnderway(ctx.tx, trade.id);
+    // C1 (SECURITY §4): above the approval threshold the person who sent the payout does not confirm it. A leg sent
+    // before its sender was recorded falls back to its creator — the only person the record names; never the system.
+    const confirmedBy = ctx.actor.id ?? `SYSTEM:${ctx.commandName}`;
+    if (await payoutNeedsSecondPerson(ctx.tx, leg)) {
+      const sender = leg.sent_by ?? leg.created_by;
+      if (confirmedBy.startsWith('SYSTEM') || confirmedBy === sender) {
+        throw new DomainError('SECOND_APPROVER_REQUIRED', `${leg.ref} is above the approval threshold: someone other than the person who ${leg.sent_by ? 'sent' : 'created'} it confirms it`, { legRef: leg.ref });
+      }
+    }
 
     const allocation = await ctx.tx
       .selectFrom('transfer_allocation')
@@ -104,9 +115,12 @@ export function confirmPayoutLeg(actor: OperatorActor, deps: SettlementDeps) {
       purpose: 'CLIENT_PAYOUT',
     });
 
-    await ctx.tx.updateTable('settlement_leg').set({ status: 'COMPLETED', confirmed_at: sql<Date>`inrp2p_now()` }).where('id', '=', leg.id).execute();
-    if (leg.payer === 'EXCHANGE_ACCOUNT' && leg.asset === 'USDT') {
-      await consumeTreasuryReservation(ctx, { tradeId: trade.id, amount: amount as Money<'USDT'> });
+    await ctx.tx.updateTable('settlement_leg').set({ status: 'COMPLETED', confirmed_at: sql<Date>`inrp2p_now()`, confirmed_by: confirmedBy }).where('id', '=', leg.id).execute();
+    if (leg.payer === 'EXCHANGE_ACCOUNT') {
+      // A counterparty-funded payout consumes the counterparty's money it was earmarked against (D-16). A legacy trade
+      // still consumes the treasury reservation it was accepted with (FI-33); a counterparty-funded one has none.
+      await settleFunding(ctx, { kind: 'CLIENT_PAYOUT', legId: leg.id }, 'CONSUMED', `payout ${leg.ref} confirmed`);
+      if (leg.asset === 'USDT') await consumeTreasuryReservation(ctx, { tradeId: trade.id, amount: amount as Money<'USDT'> });
     }
 
     let routeSettlementId: string | null = null;
@@ -152,11 +166,12 @@ export function confirmPayoutLeg(actor: OperatorActor, deps: SettlementDeps) {
     await appendAudit(ctx, {
       action: 'leg.confirmed', entityType: 'settlement_leg', entityId: leg.id,
       before: { status: 'PROCESSING' },
-      after: { status: 'COMPLETED', amount, payer: leg.payer, movement: { kind: allocation.transfer_kind, id: movementId }, route_settlement_id: routeSettlementId },
+      after: { status: 'COMPLETED', amount, payer: leg.payer, movement: { kind: allocation.transfer_kind, id: movementId }, route_settlement_id: routeSettlementId, sent_by: leg.sent_by, confirmed_by: confirmedBy },
     });
 
     const paid = totals.paid + amount.minor;
-    const completed = paid === payout.minor && totals.received === receivable.minor;
+    // An excess still owed back to the client keeps the trade open (D2, FI-21).
+    const completed = paid === payout.minor && receivedNetOfReturnedExcess(totals) === receivable.minor;
     if (completed) {
       await completeTrade(ctx, trade, econ);
     } else if (trade.lifecycle_state === 'SETTLING') {

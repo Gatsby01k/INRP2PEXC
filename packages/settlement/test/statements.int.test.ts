@@ -5,7 +5,7 @@ import { runAs } from '@inrp2p/identity/testing';
 import {
   confirmPayout, createPayoutLeg, importBankStatement, listStatementImports, recordLegEvidence, runReconciliation, sendPayoutLeg, voidException,
 } from '../src/index.ts';
-import { type World, createWorld, newUtr, openTrade, settleFirstLeg } from './world.ts';
+import { type World, createWorld, deliverCounterparty, newUtr, openTrade, settleFirstLeg } from './world.ts';
 
 /**
  * Phase 8 exit: reconciliation opens exceptions idempotently.
@@ -23,6 +23,12 @@ beforeAll(async () => {
   const trade = await openTrade(w, { baseUsdt: '1000', clientRate: '90.000000', routeRate: '92.500000', executionMode: 'TO_EXCHANGE' });
   tradeId = trade.tradeId;
   await settleFirstLeg(w, tradeId);
+  // The counterparty's INR (D-16) arrived the day before: it funds the payouts below, and lies outside the period
+  // of the statements this suite imports, which are about the payouts alone.
+  const clock = await w.t.pinnedClock();
+  await clock.set(new Date(Date.now() - 36 * 3_600_000));
+  await deliverCounterparty(w, tradeId, { db: clock.db });
+  await clock.set(null);
   paid.push(await payLeg('50000.00'), await payLeg('40000.00'));
 });
 afterAll(async () => w.close());

@@ -47,6 +47,75 @@ export interface AuditSealTable {
   sealed_at: Generated<Date>;
 }
 
+/** One contiguous range of audit seals written to write-once storage (migration 0034, TD-17). */
+export interface AuditSealExportTable {
+  id: Generated<string>;
+  first_seal_id: bigint;
+  last_seal_id: bigint;
+  from_seq: bigint;
+  to_seq: bigint;
+  seal_count: number;
+  last_seal_hash: string;
+  bucket: string;
+  object_key: string;
+  version_id: string | null;
+  sha256: string;
+  retain_until: Date;
+  exported_at: Generated<Date>;
+}
+
+/** Each comparison of the seal archive with the database (migration 0034). */
+export interface AuditArchiveVerificationTable {
+  id: Generated<string>;
+  ran_at: Generated<Date>;
+  ok: boolean;
+  archived_seals: number;
+  findings: Generated<unknown>;
+  superseded: Generated<unknown>;
+}
+
+/** Each restore drill and what it proved (migration 0034, TD-16). */
+export interface BackupVerificationTable {
+  id: Generated<string>;
+  kind: 'DUMP_RESTORE' | 'POINT_IN_TIME';
+  ran_at: Generated<Date>;
+  ok: boolean;
+  recovered_to: Date | null;
+  restore_seconds: number | null;
+  environment: string;
+  findings: Generated<unknown>;
+  recorded_by: string;
+}
+
+/** Outgoing payments held after the database changed underneath (migration 0034). */
+export interface RestoreFenceTable {
+  id: Generated<string>;
+  ref: Generated<string>;
+  status: Generated<'RAISED' | 'LIFTED'>;
+  reason: string;
+  raised_by: string;
+  raised_at: Generated<Date>;
+  identity_before: unknown;
+  identity_after: unknown;
+  known_until: Date | null;
+  lift_id: string | null;
+  lifted_by: string | null;
+  lifted_at: Date | null;
+}
+
+/** A reconciliation recorded by one person and approved, or declined, by another (migration 0034). */
+export interface RestoreFenceLiftTable {
+  id: Generated<string>;
+  fence_id: string;
+  status: Generated<'REQUESTED' | 'APPROVED' | 'DECLINED'>;
+  reconciliation: string;
+  requested_by: string;
+  requested_at: Generated<Date>;
+  decided_by: string | null;
+  decided_at: Date | null;
+  decision_note: string | null;
+}
+
 export type LedgerAccountType = 'ASSET' | 'LIAB' | 'REVENUE' | 'EXPENSE' | 'SUSPENSE';
 
 export interface LedgerAccountTable {
@@ -382,7 +451,7 @@ export interface TreasuryWalletTable {
   network: 'TRON';
   address: string;
   label: string;
-  role: 'HOT' | 'COLD' | 'DEPOSIT_POOL';
+  role: 'HOT' | 'COLD' | 'DEPOSIT_POOL' | 'TRADER_RESERVE';
   status: Generated<'ACTIVE' | 'PAUSED' | 'RETIRED'>;
   custody: Generated<'EXTERNAL'>;
   observed_balance_minor: Generated<bigint>;
@@ -691,6 +760,13 @@ export interface SettlementLegTable {
   treasury_wallet_id: string | null;
   destination_bank_account_id: string | null;
   destination_wallet_id: string | null;
+  /** A pass-through USDT outflow's sending deposit address (migration 0025, D-16). */
+  source_deposit_address_id: Generated<string | null>;
+  /** Who marked a payout sent and who confirmed it (migration 0027, C1). NULL for legs sent before it. */
+  sent_by: Generated<string | null>;
+  confirmed_by: Generated<string | null>;
+  /** A refund leg's kind (migration 0028, D2): UNWIND before a cancellation, EXCESS for an overpayment. NULL = UNWIND (legacy). */
+  refund_kind: Generated<'UNWIND' | 'EXCESS' | null>;
   notes: string | null;
   created_by: string;
   created_at: Generated<Date>;
@@ -699,6 +775,118 @@ export interface SettlementLegTable {
   failed_at: Date | null;
   cancelled_at: Date | null;
   failure_reason: string | null;
+}
+
+/** A changed payout destination of an open trade (migration 0028, D1). Append-only; the latest APPROVED is in force. */
+export interface TradeDestinationChangeTable {
+  id: Generated<string>;
+  ref: Generated<string>;
+  trade_id: string;
+  exception_case_id: string | null;
+  from_bank_account_id: string | null;
+  from_wallet_id: string | null;
+  to_bank_account_id: string | null;
+  to_wallet_id: string | null;
+  reason: string;
+  evidence: string;
+  status: Generated<'REQUESTED' | 'APPROVED' | 'REJECTED' | 'CANCELLED'>;
+  requested_by: string;
+  requested_at: Generated<Date>;
+  decided_by: string | null;
+  decided_at: Date | null;
+  decision_note: string | null;
+}
+
+/** The payout second-person threshold (migration 0027, C1). Append-only; the latest row is in force. */
+export interface PayoutApprovalPolicyTable {
+  id: Generated<string>;
+  enabled: boolean;
+  threshold_inr_minor: bigint;
+  reason: string;
+  set_by: string;
+  set_at: Generated<Date>;
+}
+
+/** A request to grant OWNER, approved by another OWNER in their own session (migration 0027, C2 / TD-20). */
+export interface OperatorRoleRequestTable {
+  id: Generated<string>;
+  ref: Generated<string>;
+  target_user_id: string;
+  role_code: 'OWNER';
+  reason: string;
+  status: Generated<'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED' | 'EXPIRED'>;
+  requested_by: string;
+  requested_session_id: string;
+  requested_at: Generated<Date>;
+  expires_at: Date;
+  decided_by: string | null;
+  decided_session_id: string | null;
+  decided_at: Date | null;
+  decision_note: string | null;
+  approved_xact: string | null;
+}
+
+/** What the chain says an exchange address holds, when and how sure (migration 0026). Append-only. */
+export interface CustodyBalanceObservationTable {
+  id: Generated<string>;
+  network: 'TRON';
+  address: string;
+  token_contract: string;
+  quality: 'AGREED' | 'SINGLE_SOURCE' | 'DISAGREED' | 'ERROR';
+  balance_minor: bigint | null;
+  solidified_block: bigint | null;
+  trx_sun: bigint | null;
+  providers: string;
+  independent_sources: number;
+  detail: string | null;
+  observed_by: string;
+  observed_at: Generated<Date>;
+}
+
+/** Whose money a trade runs on (migration 0025, DECISIONS.md D-16). */
+export type FundingModel = 'COUNTERPARTY_FUNDED' | 'LEGACY_EXCHANGE_FUNDED';
+
+export interface TradeFundingTable {
+  trade_id: string;
+  model: FundingModel;
+  created_at: Generated<Date>;
+}
+
+export type FundingSourceKind = 'CLIENT_FUNDS' | 'COUNTERPARTY_FUNDS';
+export type FundingUseKind = 'CLIENT_PAYOUT' | 'REFUND' | 'ROUTE_PAYMENT';
+export type FundingAllocationStatus = 'ACTIVE' | 'CONSUMED' | 'RELEASED';
+
+/** A confirmed incoming movement of a trade and where it is (view, migration 0025). */
+export interface FundingSourceView {
+  kind: FundingSourceKind;
+  source_id: string;
+  trade_id: string;
+  asset: AssetCode;
+  amount_minor: bigint;
+  /** `INR:{inr_account_id}` or `TRON:{address}`. */
+  location: string;
+  confirmed_at: Date | null;
+}
+
+/** Part of one funding source earmarked for one outgoing use of the same trade (migration 0025). */
+export interface FundingAllocationTable {
+  id: Generated<string>;
+  trade_id: string;
+  source_kind: FundingSourceKind;
+  source_leg_id: string | null;
+  source_route_settlement_id: string | null;
+  use_kind: FundingUseKind;
+  use_leg_id: string | null;
+  use_route_settlement_id: string | null;
+  asset: AssetCode;
+  amount_minor: bigint;
+  location: string;
+  status: Generated<FundingAllocationStatus>;
+  created_by: string;
+  created_at: Generated<Date>;
+  closed_by: string | null;
+  closed_at: Date | null;
+  close_reason: string | null;
 }
 
 export type FiatRail = 'IMPS' | 'NEFT' | 'RTGS' | 'UPI';
@@ -748,7 +936,7 @@ export interface CryptoTransferTable {
   solidified_block: bigint | null;
   state: Generated<CryptoTransferState>;
   verified_by: string | null;
-  source: 'SCANNER' | 'OPERATOR_SUBMITTED';
+  source: 'SCANNER' | 'OPERATOR_SUBMITTED' | 'CLIENT_SUBMITTED';
   detected_at: Generated<Date>;
   confirmed_at: Date | null;
   failed_at: Date | null;
@@ -776,6 +964,8 @@ export interface RouteSettlementTable {
   confirmed_at: Date | null;
   failed_at: Date | null;
   failure_reason: string | null;
+  /** Set when this delivery is a trader's Security Reserve applied to it (migration 0029, TD-21). */
+  reserve_application_id: Generated<string | null>;
 }
 
 export type TransferKind = 'FIAT' | 'CRYPTO';
@@ -845,6 +1035,51 @@ export interface ChainCursorTable {
   last_run_at: Date | null;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
+  /** What the last run read and could prove (migration 0024). */
+  last_window_from: Generated<bigint | null>;
+  last_window_to: Generated<bigint | null>;
+  last_complete: Generated<boolean | null>;
+  last_incomplete_reason: Generated<string | null>;
+  last_served_by: Generated<string | null>;
+}
+
+/** Each configured chain provider's last answer (migration 0024). Not financial. */
+export interface ChainProviderStatusTable {
+  network: 'TRON';
+  provider: string;
+  independence_group: string;
+  last_ok_at: Date | null;
+  last_error_at: Date | null;
+  last_error: string | null;
+  consecutive_failures: Generated<number>;
+  last_head: bigint | null;
+  last_solidified: bigint | null;
+  updated_at: Generated<Date>;
+}
+
+export type ChainBackfillStatus = 'RUNNING' | 'COMPLETED' | 'CANCELLED' | 'FAILED';
+
+/** An audited historical read behind the cursor (TD-06, migration 0024). */
+export interface ChainBackfillTable {
+  id: Generated<string>;
+  ref: Generated<string>;
+  network: 'TRON';
+  from_block: bigint;
+  to_block: bigint;
+  addresses: string[];
+  reason: string;
+  status: Generated<ChainBackfillStatus>;
+  next_block: bigint;
+  runs: Generated<number>;
+  detected: Generated<number>;
+  already_known: Generated<number>;
+  last_error: string | null;
+  last_run_at: Date | null;
+  requested_by: string;
+  requested_at: Generated<Date>;
+  closed_by: string | null;
+  closed_at: Date | null;
+  close_reason: string | null;
 }
 
 /** Client-facing in-app notifications (migration 0017). Written by the outbox handler, read by the client product. */
@@ -858,6 +1093,7 @@ export type NotificationKind =
   | 'TRADE_CANCELLED'
   | 'DESTINATION_ADDED'
   | 'DESTINATION_ARCHIVED'
+  | 'TRADE_DESTINATION_CHANGED'
   | 'TRADER_APPROVED'
   | 'TRADER_REJECTED'
   | 'TRADER_PAUSED'
@@ -882,9 +1118,60 @@ export interface ClientNotificationTable {
   href: string | null;
   outbox_event_id: string;
   read_at: Date | null;
-  /** Set when the same message also went out by email; null when it did not (TD-04). */
+  /** Set once every recipient's email has been accepted by the provider; null until then, or when none was sent (TD-04). */
   email_sent_at: Date | null;
   created_at: Generated<Date>;
+}
+
+/** Whether new business is open; append-only, the latest row in force (migration 0033). */
+export interface TradingControlTable {
+  id: Generated<string>;
+  new_business: 'OPEN' | 'PAUSED';
+  reason: string;
+  set_by: string;
+  set_at: Generated<Date>;
+}
+
+/** The worker's heartbeat and a non-secret summary of what it runs (migration 0033). */
+export interface WorkerHeartbeatTable {
+  worker_id: string;
+  started_at: Date;
+  beat_at: Date;
+  release: string | null;
+  config: Generated<unknown>;
+  /** The cluster and timeline the database was on at this beat (migration 0034, the restore fence). */
+  db_identity: Generated<unknown>;
+}
+
+/** A receipt artifact written once to private object storage (migration 0032, TD-12). */
+export interface ReceiptObjectTable {
+  receipt_id: string;
+  format: 'json' | 'csv' | 'html' | 'pdf';
+  bucket: string;
+  object_key: string;
+  version_id: string | null;
+  /** Of the stored bytes: what a reader verifies. */
+  sha256: string;
+  /** The issued artifact it is: the recorded json/csv/html hash; for a PDF, the HTML it was printed from. */
+  source_sha256: string;
+  byte_size: bigint;
+  retain_until: Date | null;
+  stored_at: Generated<Date>;
+}
+
+/** One client notification email to one recipient (migration 0031): its id is the provider idempotency key. */
+export interface ClientNotificationEmailTable {
+  id: Generated<string>;
+  notification_id: string;
+  user_id: string;
+  address: string;
+  status: Generated<'PENDING' | 'SENT' | 'FAILED'>;
+  attempts: Generated<number>;
+  provider_message_id: string | null;
+  last_error: string | null;
+  created_at: Generated<Date>;
+  sent_at: Date | null;
+  failed_at: Date | null;
 }
 
 /**
@@ -1079,6 +1366,32 @@ export interface TraderReserveWithdrawalTable {
   close_reason: string | null;
 }
 
+export type TraderReserveApplicationStatus = 'REQUESTED' | 'APPROVED' | 'REJECTED' | 'CANCELLED' | 'SENT' | 'COMPLETED' | 'FAILED';
+
+/** A trader's Security Reserve applied to USDT one of its orders did not deliver (migration 0029, TD-21). */
+export interface TraderReserveApplicationTable {
+  id: Generated<string>;
+  ref: Generated<string>;
+  trader_id: string;
+  trader_order_id: string;
+  route_obligation_id: string;
+  /** APPLY: the reserve becomes the order's USDT delivery. HOLD: kept back against an INR shortfall, nothing moves. */
+  kind: Generated<'APPLY' | 'HOLD'>;
+  amount_minor: bigint;
+  reason: string;
+  status: Generated<TraderReserveApplicationStatus>;
+  requested_by: string;
+  requested_at: Generated<Date>;
+  decided_by: string | null;
+  decided_at: Date | null;
+  decision_note: string | null;
+  sent_at: Date | null;
+  completed_at: Date | null;
+  closed_at: Date | null;
+  closed_by: string | null;
+  close_reason: string | null;
+}
+
 export interface TraderRewardPayoutTable {
   id: Generated<string>;
   ref: Generated<string>;
@@ -1102,6 +1415,11 @@ export interface Database {
   idempotency_key: IdempotencyKeyTable;
   audit_event: AuditEventTable;
   audit_seal: AuditSealTable;
+  audit_seal_export: AuditSealExportTable;
+  audit_archive_verification: AuditArchiveVerificationTable;
+  backup_verification: BackupVerificationTable;
+  restore_fence: RestoreFenceTable;
+  restore_fence_lift: RestoreFenceLiftTable;
   ledger_account: LedgerAccountTable;
   ledger_journal: LedgerJournalTable;
   ledger_entry: LedgerEntryTable;
@@ -1143,6 +1461,13 @@ export interface Database {
   treasury_reservation: TreasuryReservationTable;
   exception_case: ExceptionCaseTable;
   settlement_leg: SettlementLegTable;
+  trade_funding: TradeFundingTable;
+  funding_source: FundingSourceView;
+  funding_allocation: FundingAllocationTable;
+  custody_balance_observation: CustodyBalanceObservationTable;
+  payout_approval_policy: PayoutApprovalPolicyTable;
+  trade_destination_change: TradeDestinationChangeTable;
+  operator_role_request: OperatorRoleRequestTable;
   fiat_transfer: FiatTransferTable;
   crypto_transfer: CryptoTransferTable;
   route_settlement: RouteSettlementTable;
@@ -1150,7 +1475,13 @@ export interface Database {
   route_settlement_allocation: RouteSettlementAllocationTable;
   financial_adjustment: FinancialAdjustmentTable;
   chain_cursor: ChainCursorTable;
+  chain_provider_status: ChainProviderStatusTable;
+  chain_backfill: ChainBackfillTable;
   client_notification: ClientNotificationTable;
+  client_notification_email: ClientNotificationEmailTable;
+  receipt_object: ReceiptObjectTable;
+  trading_control: TradingControlTable;
+  worker_heartbeat: WorkerHeartbeatTable;
   receipt: ReceiptTable;
   bank_statement_import: BankStatementImportTable;
   bank_statement_line: BankStatementLineTable;
@@ -1159,5 +1490,6 @@ export interface Database {
   trader_block: TraderBlockTable;
   trader_order: TraderOrderTable;
   trader_reserve_withdrawal: TraderReserveWithdrawalTable;
+  trader_reserve_application: TraderReserveApplicationTable;
   trader_reward_payout: TraderRewardPayoutTable;
 }

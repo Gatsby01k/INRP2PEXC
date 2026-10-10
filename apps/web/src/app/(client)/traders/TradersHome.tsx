@@ -51,6 +51,8 @@ export function TradersHome({ home }: { home: TraderHome }) {
       <main className={shell.main}>
         {home.state === 'NONE' ? <Onboarding canApply={home.canApply} /> : null}
         {home.state === 'UNDER_REVIEW' || home.state === 'REJECTED' ? <ApplicationStatus home={home} /> : null}
+        {/* Topping up is not admission (D-17): the reserve is there from the day of the application. */}
+        {!working && home.reserve ? <ReserveCard reserve={home.reserve} /> : null}
         {working ? (
           <>
             <AvailabilityCard home={home} />
@@ -89,6 +91,12 @@ export function TradersHome({ home }: { home: TraderHome }) {
             <Link className={shell.textAction} href="/traders/orders">
               Orders
             </Link>
+            <Link className={shell.textAction} href="/traders/reserve">
+              Security Reserve
+            </Link>
+          </div>
+        ) : home.reserve ? (
+          <div className={styles.navRow}>
             <Link className={shell.textAction} href="/traders/reserve">
               Security Reserve
             </Link>

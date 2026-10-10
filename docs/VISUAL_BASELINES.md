@@ -41,7 +41,7 @@ Before any test runs, the suite refuses to compare or record when:
 - the current image, platform, architecture, Playwright version or Chromium version differs from `CANONICAL` (the image is trusted only if `VISUAL_ENV_IMAGE` is set **and** `/ms-playwright` exists);
 - `ENVIRONMENT.json` is missing, or was recorded in a different environment;
 - the number of committed PNGs differs from `ENVIRONMENT.json` (baselines changed outside the update path);
-- a baseline the suite expects is not there (the page suite names its twenty-seven in `apps/web/visual/captures.ts`);
+- a baseline the suite expects is not there (the page suite names its thirty-five in `apps/web/visual/captures.ts`);
 - `UPDATE_VISUALS=1` is set in GitHub Actions for any event other than `workflow_dispatch`;
 - `--update-snapshots` / `-u` is passed on the command line (config throws; only `UPDATE_VISUALS=1` records).
 
@@ -94,9 +94,12 @@ A page is harder to pin than a story, because it shows what a database says. The
    the settlement day is a wall-clock concept; those columns (`world.ts` `WALL_CLOCK_COLUMNS`) are moved to the
    frozen instant after seeding. The single piece of text that still follows the wall clock — the INR page's
    `YYYY-MM-DD IST` day — is rewritten in the DOM immediately before the capture (`support.ts`
-   `pinWallClockText`). Nothing else is masked: every other pixel is compared.
+   `pinWallClockText`). One live measurement is pinned the same way: System health's share of database connections
+   in use, which reads this run's own servers rather than the world (`support.ts` `pinLiveMeasurements`, applied until
+   it holds, because a page still hydrating would put the live number back). Nothing else is masked: every
+   other pixel is compared.
 
-The twenty-seven capture names live in one static manifest, `apps/web/visual/captures.ts`, read by all three page spec
+The thirty-five capture names live in one static manifest, `apps/web/visual/captures.ts`, read by all three page spec
 files, by the
 compare guard and by the update reporter. It is static because the reporter has to know the whole expected set
 *before* any test runs, in order to drop baselines nothing expects any more without touching the ones that are
@@ -131,7 +134,7 @@ TEST_DATABASE_URL=postgres://postgres@127.0.0.1:5432/postgres \
 TEST_DATABASE_URL=postgres://postgres@127.0.0.1:5432/postgres \
   bash apps/web/visual/docker.sh update
 ```
-Runs `git archive HEAD` inside `mcr.microsoft.com/playwright:v1.56.1-noble` with `--platform linux/amd64`, so host `node_modules` and uncommitted edits are never used. On Apple Silicon the image runs under emulation; CPU-emulated rendering is expected but not guaranteed to be bit-identical, so a locally recorded update must still pass CI's compare job before merge. Path A is authoritative.
+Runs `git archive HEAD` inside `mcr.microsoft.com/playwright:v1.56.1-noble` with `--platform linux/amd64`, so host `node_modules` and uncommitted edits are never used. On Apple Silicon the image runs under emulation; CPU-emulated rendering is expected but not guaranteed to be bit-identical, so a locally recorded update must still pass CI's compare job before merge. Path A is authoritative. **On Apple Silicon, do not record page baselines through path B.** On 2026-10-09 all 35 page baselines recorded this way (`dfc327c`) compared clean against the same emulated environment and differed from every native render in CI: 25 by their height, the rest in 4–25% of their pixels (tighter line spacing throughout, the desk's key hints missing). CI's page compare stops a spec file at its first failure, so it named three; recording the set through path A (`ede3374`, run 37984062022) showed the rest, and where a page had not changed since `main`'s canonical baseline the native recording matched that baseline's size and the emulated one did not. A path-B compare is still useful to reproduce CI; a path-B recording is a draft until path A replaces it.
 
 ### Review rules
 - Every changed PNG is looked at. Differences that come from environment (anti-aliasing, font fallback) are fixed at the source, not accepted.

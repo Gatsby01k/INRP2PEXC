@@ -4,3 +4,4 @@ export * from './snapshot.ts';
 export * from './artifacts.ts';
 export * from './issue.ts';
 export * from './exports.ts';
+export * from './storage.ts';

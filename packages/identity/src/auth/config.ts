@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { betterAuth } from 'better-auth';
-import { APIError, createAuthMiddleware, isAPIError } from 'better-auth/api';
+import { APIError, createAuthMiddleware, getSessionFromCtx, isAPIError } from 'better-auth/api';
 import { emailOTP, twoFactor } from 'better-auth/plugins';
-import type { Kysely } from 'kysely';
+import { type Kysely, sql } from 'kysely';
 import { uuidv7 } from '@inrp2p/kernel';
 import type { Db } from '@inrp2p/db';
 import { appendAuditDirect } from '@inrp2p/audit';
@@ -110,10 +110,11 @@ const AUDITED_FAILURES = new Set(['/sign-in/email', '/two-factor/verify-totp', '
 
 async function auditFailure(appDb: Db, surface: Surface, path: string, returned: unknown): Promise<void> {
   if (!AUDITED_FAILURES.has(path)) return;
-  const code = (returned as { body?: { code?: string } } | undefined)?.body?.code ?? 'UNKNOWN';
+  // `error`, not `code`: the audit redactor masks any key named `code` (it could be an OTP), which would erase the reason.
+  const error = (returned as { body?: { code?: string } } | undefined)?.body?.code ?? 'UNKNOWN';
   await appendAuditDirect(appDb, {
     actorType: 'SYSTEM', actorId: null, surface, correlationId: randomUUID(),
-    action: 'session.failed', entityType: 'auth_endpoint', entityId: path, after: { code },
+    action: 'session.failed', entityType: 'auth_endpoint', entityId: path, after: { error },
   });
 }
 
@@ -152,6 +153,11 @@ function operatorAfterHook(appDb: Db) {
 
 function clientAfterHook(appDb: Db) {
   return createAuthMiddleware(async (ctx) => {
+    if (ctx.path === '/email-otp/send-verification-otp' && (ctx.context as unknown as Record<symbol, boolean>)[OTP_NOT_SENT]) {
+      const refused = new APIError('SERVICE_UNAVAILABLE', { message: 'the sign-in code could not be sent', code: 'OTP_NOT_SENT' });
+      await auditFailure(appDb, 'CLIENT', ctx.path, refused);
+      throw refused;
+    }
     if (isAPIError(ctx.context.returned)) {
       await auditFailure(appDb, 'CLIENT', ctx.path, ctx.context.returned);
       return;
@@ -159,6 +165,26 @@ function clientAfterHook(appDb: Db) {
     const s = ctx.context.newSession;
     if (ctx.path === '/sign-in/email-otp' && s) {
       await appendAuditDirect(appDb, { actorType: 'USER', actorId: s.user.id, surface: 'CLIENT', correlationId: randomUUID(), sessionId: s.session.id, action: 'session.login_email_otp', entityType: 'auth_session', entityId: s.session.id });
+      return;
+    }
+    // Confirming a new authenticator replaces the session (Better Auth rotates it): the step-up belongs to the new one.
+    const current = s ?? ctx.context.session;
+    if (!current) return;
+    // A verified authenticator code (or a one-time recovery code) is this session's step-up (SECURITY §2.2).
+    if (ctx.path === '/two-factor/verify-totp' || ctx.path === '/two-factor/verify-backup-code') {
+      await appDb.insertInto('step_up_verification').values({ user_id: current.user.id, session_id: current.session.id, method: 'TOTP', ip_hash: null }).execute();
+      await appendAuditDirect(appDb, {
+        actorType: 'USER', actorId: current.user.id, surface: 'CLIENT', correlationId: randomUUID(), sessionId: current.session.id,
+        action: ctx.path === '/two-factor/verify-totp' ? 'session.step_up' : 'session.step_up_recovery_code', entityType: 'auth_session', entityId: current.session.id,
+      });
+      return;
+    }
+    if (ctx.path === '/two-factor/enable') {
+      await appendAuditDirect(appDb, { actorType: 'USER', actorId: current.user.id, surface: 'CLIENT', correlationId: randomUUID(), sessionId: current.session.id, action: 'user.mfa_enrollment_started', entityType: 'auth_user', entityId: current.user.id });
+      return;
+    }
+    if (ctx.path === '/two-factor/generate-backup-codes') {
+      await appendAuditDirect(appDb, { actorType: 'USER', actorId: current.user.id, surface: 'CLIENT', correlationId: randomUUID(), sessionId: current.session.id, action: 'user.mfa_recovery_codes_replaced', entityType: 'auth_user', entityId: current.user.id });
     }
   });
 }
@@ -196,22 +222,114 @@ export function createOperatorAuth(deps: AuthDeps) {
   return betterAuth(operatorAuthOptions(deps));
 }
 
+/** The client-surface endpoints that act on an email address before anyone is signed in. */
+const CLIENT_EMAIL_PATHS = new Set(['/email-otp/send-verification-otp', '/sign-in/email-otp', '/email-otp/verify-email', '/email-otp/check-verification-otp']);
+
+/**
+ * TD-02: an address that is not an active client's goes nowhere on the client surface — an operator's address, or a
+ * disabled one. No code is sent to it and no session is attempted (which used to end in Better Auth's internal error
+ * after the session guard refused); the answer is exactly the one an unknown address gets — `{ success: true }` for a
+ * code request, the plugin's own "invalid code" for a sign-in — so the response says nothing about whose it is. The
+ * session guard and the database trigger (IX020) stay behind it as defence in depth.
+ */
+/** A client may set up an authenticator only within this long of signing in (a fresh email code). */
+export const CLIENT_MFA_ENROLMENT_MAX_SESSION_AGE_SECONDS = 600;
+
+function clientBeforeHook(appDb: Db, invalidOtp: Parameters<typeof APIError.from>[1]) {
+  return createAuthMiddleware(async (ctx) => {
+    if (ctx.path.startsWith('/two-factor/')) {
+      await guardClientTwoFactor(appDb, ctx);
+      return;
+    }
+    if (!CLIENT_EMAIL_PATHS.has(ctx.path)) return;
+    const raw = (ctx.body as { email?: unknown } | undefined)?.email;
+    if (typeof raw !== 'string') return;
+    const user = await appDb.selectFrom('auth_user').select(['kind', 'status']).where('email', '=', raw.trim().toLowerCase()).executeTakeFirst();
+    // Unknown addresses go through Better Auth's own handling, which already answers them without enumerating.
+    if (!user || (user.kind === 'CLIENT' && user.status === 'ACTIVE')) return;
+    await appendAuditDirect(appDb, {
+      actorType: 'SYSTEM', actorId: null, surface: 'CLIENT', correlationId: randomUUID(),
+      action: 'session.failed', entityType: 'auth_endpoint', entityId: ctx.path, after: { error: 'NOT_A_CLIENT_ADDRESS' },
+    });
+    if (ctx.path === '/email-otp/send-verification-otp') return ctx.json({ success: true });
+    throw APIError.from('BAD_REQUEST', invalidOtp);
+  });
+}
+
+/**
+ * TD-11: the client authenticator is the step-up factor for a client admin's sensitive actions (SECURITY §2.2), so
+ * nothing that would hand it to someone holding only a session is offered on the client surface:
+ *
+ * - setting one up needs a fresh sign-in (an email code within the last ten minutes), and is refused once one exists;
+ * - removing one, or showing its secret again, is not a client action — the desk resets it after verifying who is
+ *   asking (`client_user.reset_mfa`), so a stolen session cannot swap the authenticator for its own;
+ * - new recovery codes need a fresh step-up with the current authenticator;
+ * - trusted devices are not offered: every step-up asks for a code.
+ */
+async function guardClientTwoFactor(appDb: Db, ctx: Parameters<Parameters<typeof createAuthMiddleware>[0]>[0]): Promise<void> {
+  const body = ctx.body as { trustDevice?: unknown } | undefined;
+  if (body?.trustDevice) throw new APIError('FORBIDDEN', { message: 'trusted devices are not offered on the client workspace' });
+  if (ctx.path === '/two-factor/disable' || ctx.path === '/two-factor/get-totp-uri') {
+    throw new APIError('FORBIDDEN', { message: 'an authenticator is removed or replaced by the desk, after confirming who is asking' });
+  }
+  if (ctx.path === '/two-factor/enable' || ctx.path === '/two-factor/generate-backup-codes') {
+    const session = await getSessionFromCtx(ctx);
+    if (!session) throw new APIError('UNAUTHORIZED', { message: 'sign in first' });
+    if (ctx.path === '/two-factor/enable') {
+      const age = (Date.now() - new Date(session.session.createdAt).getTime()) / 1000;
+      if (age > CLIENT_MFA_ENROLMENT_MAX_SESSION_AGE_SECONDS) throw new APIError('FORBIDDEN', { message: 'sign in again to set up an authenticator' });
+      return;
+    }
+    const fresh = await sql<{ fresh: boolean }>`
+      select exists (select 1 from step_up_verification where session_id = ${session.session.id}
+                      and verified_at > statement_timestamp() - make_interval(secs => 600)) as fresh`.execute(appDb);
+    if (!fresh.rows[0]!.fresh) throw new APIError('FORBIDDEN', { message: 'verify with your authenticator first' });
+  }
+}
+
+/**
+ * Set on a request's own auth context when its sign-in code could not be handed to the email provider. Better Auth
+ * runs the sender inside `runInBackgroundOrAwait`, which logs a failure and answers `{ success: true }` regardless —
+ * so a client was told "check your email" while no email had left. The after hook turns the mark into a refusal the
+ * sign-in surface shows ("we couldn't send a code").
+ */
+const OTP_NOT_SENT = Symbol('inrp2p.otp_not_sent');
+
 /** Client authentication: passwordless email OTP (hashed at rest), no self sign-up. */
 export function clientAuthOptions(deps: AuthDeps & { otpSender: EmailOtpSender }) {
   const base = common(deps, 'CLIENT');
+  const otp = emailOTP({
+    otpLength: 6,
+    expiresIn: 600,
+    allowedAttempts: 5,
+    storeOTP: 'hashed',
+    disableSignUp: true,
+    sendVerificationOTP: async ({ email, otp: code, type }: { email: string; otp: string; type: string }, ctx?: { context?: object }) => {
+      try {
+        await deps.otpSender.send({ email, otp: code, type });
+      } catch (e) {
+        if (ctx?.context) (ctx.context as Record<symbol, boolean>)[OTP_NOT_SENT] = true;
+        // The reason, never the code or the address (SECURITY §5).
+        console.error(JSON.stringify({ level: 'error', event: 'client_otp.not_sent', reason: (e instanceof Error ? e.message : String(e)).split(':')[0]!.slice(0, 80) }));
+        throw e;
+      }
+    },
+  });
   return {
     ...base,
     appName: 'INRP2P Exchange',
     emailAndPassword: { enabled: false },
-    hooks: { after: clientAfterHook(deps.appDb) },
+    hooks: { before: clientBeforeHook(deps.appDb, otp.$ERROR_CODES.INVALID_OTP), after: clientAfterHook(deps.appDb) },
     plugins: [
-      emailOTP({
-        otpLength: 6,
-        expiresIn: 600,
-        allowedAttempts: 5,
-        storeOTP: 'hashed',
-        disableSignUp: true,
-        sendVerificationOTP: async ({ email, otp, type }: { email: string; otp: string; type: string }) => deps.otpSender.send({ email, otp, type }),
+      otp,
+      twoFactor({
+        issuer: 'INRP2P Exchange',
+        schema: twoFactorSchema,
+        // Clients sign in with an email code and have no password to re-enter; the guard above asks for a fresh sign-in.
+        allowPasswordless: true,
+        skipVerificationOnEnable: false,
+        trustDeviceMaxAge: 1,
+        accountLockout: { enabled: true, maxFailedAttempts: 5, durationSeconds: 900 },
       }),
     ],
   };

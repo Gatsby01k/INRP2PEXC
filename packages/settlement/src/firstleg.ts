@@ -1,6 +1,6 @@
 import { sql } from 'kysely';
 import { DomainError, Money, requireOneOf, requireText, requireUuid } from '@inrp2p/kernel';
-import type { FiatRail, TxContext } from '@inrp2p/db';
+import type { Executor, FiatRail, TxContext } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
 import { enqueueOutbox } from '@inrp2p/outbox';
 import { type OperatorActor, operatorCommand } from '@inrp2p/identity';
@@ -11,6 +11,7 @@ import { lockMovement, markFiatFailed, postMovement, recordCryptoTransfer, recor
 import { lockObligation, obligationRemaining } from './obligations.ts';
 import type { SettlementDeps } from './policy.ts';
 import { advanceTrade, clientLegsInFlight } from './progress.ts';
+import { attributeAppliedReserve } from './reserve-delivery.ts';
 
 /**
  * `fiat_in.record` (T2, BUY) — `settlement:record_incoming`. The client says it sent the INR; the desk records the
@@ -68,7 +69,12 @@ export function recordIncomingFiat(actor: OperatorActor) {
  */
 export async function recordClientDeposit(
   ctx: TxContext,
-  input: { txHash: string; logIndex: number; tokenContract: string; fromAddress: string; toAddress: string; amount: Money<'USDT'>; source: 'SCANNER' | 'OPERATOR_SUBMITTED' },
+  input: {
+    txHash: string; logIndex: number; tokenContract: string; fromAddress: string; toAddress: string; amount: Money<'USDT'>;
+    source: 'SCANNER' | 'OPERATOR_SUBMITTED' | 'CLIENT_SUBMITTED';
+    /** When the chain says the transfer happened; attribution at the shared reserve address needs it (migration 0035). */
+    blockTime?: Date;
+  },
 ): Promise<{ transferId: string; tradeId: string | null; legId: string | null; exceptionId?: string }> {
   const address = await ctx.tx
     .selectFrom('deposit_address')
@@ -90,7 +96,8 @@ export async function recordClientDeposit(
     // suspense on confirmation; anything else is money at an address we do not recognise at all.
     const wallet = address
       ? null
-      : await ctx.tx.selectFrom('treasury_wallet').select('id').where('network', '=', 'TRON').where('address', '=', input.toAddress).executeTakeFirst();
+      : await ctx.tx.selectFrom('treasury_wallet').select(['id', 'role']).where('network', '=', 'TRON').where('address', '=', input.toAddress).executeTakeFirst();
+    if (wallet?.role === 'TRADER_RESERVE') return recordSharedReserveDeposit(ctx, input, wallet.id);
     const treasuryWalletId = address?.treasury_wallet_id ?? wallet?.id ?? null;
     const recorded = await recordCryptoTransfer(ctx, {
       ...input,
@@ -220,6 +227,56 @@ async function recordTraderReserveDeposit(ctx: TxContext, input: DepositInput, t
 }
 
 /**
+ * USDT at the shared Security Reserve address (migration 0035, D-17). Every trader sends to the same address, so the
+ * address cannot say whose money it is; the sender does. It is the reserve of the one trader whose registered wallet
+ * sent it and was on file before the transfer (`inrp2p_reserve_sender_trader`) — whether or not that trader has been
+ * approved yet: topping up is not admission to trading. Credited when the chain makes it final, like any reserve
+ * deposit (the scanner posts `TRADER_RESERVE`).
+ *
+ * From a wallet no trader registered, or one two traders have on file, it is nobody's reserve: recorded as money of
+ * unknown origin, parked in suspense on confirmation, and the desk gets a case. The database refuses any other
+ * attribution (IX102), and one row per on-chain transfer keeps it from being counted twice.
+ */
+async function recordSharedReserveDeposit(ctx: TxContext, input: DepositInput, treasuryWalletId: string): Promise<DepositOutcome> {
+  const known = await knownTransfer(ctx, input);
+  if (known) return { transferId: known, tradeId: null, legId: null };
+  const attribution = await reserveSenderOf(ctx.tx, input.fromAddress, input.blockTime ?? null);
+  if (attribution.traderId) {
+    const recorded = await recordCryptoTransfer(ctx, { ...input, payerType: 'TRADER', payerId: attribution.traderId, payeeType: 'EXCHANGE_TREASURY', payeeId: treasuryWalletId });
+    await appendAudit(ctx, {
+      action: 'trader_reserve.deposit_detected', entityType: 'trader_profile', entityId: attribution.traderId,
+      after: { transfer_id: recorded.transferId, amount: input.amount, address: 'SHARED', source: input.source },
+    });
+    return { transferId: recorded.transferId, tradeId: null, legId: null };
+  }
+  const recorded = await recordCryptoTransfer(ctx, { ...input, payerType: 'UNKNOWN', payeeType: 'EXCHANGE_TREASURY', payeeId: treasuryWalletId });
+  const opened = await openExceptionInTx(ctx, {
+    type: 'USDT_UNEXPECTED_SENDER', subjectType: 'CRYPTO_TRANSFER', subjectId: recorded.transferId, tradeId: null,
+    details: { reason: attribution.reason, address: 'SHARED_TRADER_RESERVE', from: input.fromAddress, amount: input.amount.toDecimalString() },
+  });
+  return { transferId: recorded.transferId, tradeId: null, legId: null, exceptionId: opened.exceptionId };
+}
+
+/**
+ * Whose reserve a transfer from `from` is, at the time the chain gives (the moment of reading when it gives none):
+ * the trader, or why nobody — no trader has that wallet on file from before the transfer, or more than one has.
+ */
+export async function reserveSenderOf(
+  ex: Executor,
+  from: string,
+  at: Date | null,
+): Promise<{ readonly traderId: string; readonly reason: null } | { readonly traderId: null; readonly reason: 'RESERVE_SENDER_NOT_REGISTERED' | 'RESERVE_SENDER_AMBIGUOUS' }> {
+  const r = await sql<{ trader: string | null; candidates: string }>`
+    select inrp2p_reserve_sender_trader(${from}, coalesce(${at}::timestamptz, statement_timestamp())) as trader,
+           (select count(*) from trader_profile t join crypto_wallet w on w.id = t.wallet_id
+             where w.network = 'TRON' and w.address = ${from} and w.status in ('ACTIVE', 'PENDING_REVIEW')
+               and w.created_at <= coalesce(${at}::timestamptz, statement_timestamp()))::text as candidates`.execute(ex);
+  const row = r.rows[0]!;
+  if (row.trader) return { traderId: row.trader, reason: null };
+  return { traderId: null, reason: BigInt(row.candidates) > 1n ? 'RESERVE_SENDER_AMBIGUOUS' : 'RESERVE_SENDER_NOT_REGISTERED' };
+}
+
+/**
  * USDT at a trader order's delivery address: the route delivering its side of one obligation (TO_EXCHANGE). From
  * the route's registered wallet and within what the side still owes, it becomes a RECORDED route settlement with
  * its ROUTE allocation, which the scanner confirms — posting the one movement journal and allocating the side —
@@ -235,10 +292,14 @@ async function recordTraderDelivery(ctx: TxContext, input: DepositInput, target:
   const route = await ctx.tx.selectFrom('liquidity_route').select(['id', 'registered_route_address']).where('id', '=', obligation.route_id).executeTakeFirstOrThrow();
 
   if (!route.registered_route_address || route.registered_route_address !== input.fromAddress) {
+    // The trader's own Security Reserve, applied to this order by two people (TD-21) and moved here by custody: it is
+    // this order's delivery. Anything else from another wallet is not counted.
+    const applied = await attributeAppliedReserve(ctx, input, { obligationId: obligation.id, toWalletId: target.treasuryWalletId });
+    if (applied && 'transferId' in applied) return { transferId: applied.transferId, tradeId: null, legId: null };
     const recorded = await recordCryptoTransfer(ctx, { ...input, payerType: 'UNKNOWN', payeeType: 'EXCHANGE_TREASURY', payeeId: target.treasuryWalletId });
     const opened = await openExceptionInTx(ctx, {
       type: 'USDT_UNEXPECTED_SENDER', subjectType: 'CRYPTO_TRANSFER', subjectId: recorded.transferId, tradeId: null,
-      details: { reason: 'DELIVERY_FROM_UNREGISTERED_WALLET', route_obligation_id: obligation.id, from: input.fromAddress, amount: input.amount.toDecimalString() },
+      details: { reason: applied ? applied.mismatch : 'DELIVERY_FROM_UNREGISTERED_WALLET', route_obligation_id: obligation.id, from: input.fromAddress, amount: input.amount.toDecimalString() },
     });
     return { transferId: recorded.transferId, tradeId: null, legId: null, exceptionId: opened.exceptionId };
   }
@@ -286,22 +347,47 @@ async function recordTraderDelivery(ctx: TxContext, input: DepositInput, target:
 /**
  * `crypto.submit_tx_for_verification` — `crypto:submit_tx_for_verification`. An operator (or the client through
  * the desk) hands over a tx hash; the chain, not the operator, decides what it was (FI-24, FI-26).
+ *
+ * A transaction can move USDT several times (a batch payout, a contract call), so the log is never assumed to be
+ * the first one: with no `logIndex` the transaction must contain exactly one USDT transfer into an address this
+ * exchange watches, and otherwise the operator names the log.
  */
 export function submitTxForVerification(actor: OperatorActor, deps: SettlementDeps) {
   return operatorCommand(actor, 'crypto:submit_tx_for_verification', async (ctx, p: { txHash: string; logIndex?: number }) => {
     const txHash = requireText(p.txHash, 'txHash', 66).toLowerCase().replace(/^0x/, '');
-    const logIndex = p.logIndex ?? 0;
-    const receipt = await deps.chain.lookupTransfer('TRON', txHash, logIndex);
-    if (!receipt) throw new DomainError('NOT_FOUND', 'the chain does not know this transfer');
-    if (receipt.tokenContract !== deps.chain.tokenContract) throw new DomainError('INVALID_ARGUMENT', 'this transfer is not a USDT transfer on the configured contract');
+    const tx = await deps.chain.transactionTransfers('TRON', txHash);
+    if (tx.status === 'NOT_FOUND') throw new DomainError('NOT_FOUND', 'the chain does not know this transaction');
+    if (tx.status === 'TX_FAILED') throw new DomainError('INVALID_ARGUMENT', 'this transaction failed on chain; it moved no USDT');
+    const usdt = tx.transfers.filter((t) => t.tokenContract === deps.chain.tokenContract && t.amountMinor > 0n);
+    let chosen;
+    if (p.logIndex !== undefined && p.logIndex !== null) {
+      chosen = tx.transfers.find((t) => t.logIndex === p.logIndex);
+      if (!chosen) throw new DomainError('NOT_FOUND', `log ${p.logIndex} of this transaction is not a TRC20 transfer`);
+      if (chosen.tokenContract !== deps.chain.tokenContract) throw new DomainError('INVALID_ARGUMENT', 'this transfer is not a USDT transfer on the configured contract');
+    } else {
+      const ours = [];
+      for (const t of usdt) {
+        const watched = await ctx.tx.selectFrom('deposit_address').select('id').where('address', '=', t.toAddress).executeTakeFirst()
+          ?? await ctx.tx.selectFrom('treasury_wallet').select('id').where('network', '=', 'TRON').where('address', '=', t.toAddress).executeTakeFirst();
+        if (watched) ours.push(t);
+      }
+      if (ours.length === 0) throw new DomainError('NOT_FOUND', 'this transaction moves no USDT into an address of this exchange');
+      if (ours.length > 1) {
+        throw new DomainError('INVALID_ARGUMENT', `this transaction moves USDT into our addresses ${ours.length} times; name the log`, { logIndexes: ours.map((t) => t.logIndex) });
+      }
+      chosen = ours[0]!;
+    }
     return recordClientDeposit(ctx, {
       txHash,
-      logIndex,
-      tokenContract: receipt.tokenContract,
-      fromAddress: receipt.fromAddress,
-      toAddress: receipt.toAddress,
-      amount: Money.ofMinor(receipt.amountMinor, 'USDT'),
+      logIndex: chosen.logIndex,
+      tokenContract: chosen.tokenContract,
+      fromAddress: chosen.fromAddress,
+      toAddress: chosen.toAddress,
+      amount: Money.ofMinor(chosen.amountMinor, 'USDT'),
       source: 'OPERATOR_SUBMITTED',
+      // The chain's time, not the moment the desk handed the hash in: a wallet registered in between never makes a
+      // deposit to the shared reserve address its registrant's (D-17).
+      blockTime: chosen.blockTime,
     });
   });
 }

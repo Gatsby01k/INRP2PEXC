@@ -79,10 +79,15 @@ describe('proxy gating', () => {
     for (const surface of ['OPERATOR', 'CLIENT', 'PUBLIC'] as const) {
       expect(gateFor(surface, '/api/health/live'), surface).toBe('PUBLIC');
       expect(gateFor(surface, '/api/health/ready'), surface).toBe('PUBLIC');
-      // `status` carries capacity, holds and scanner lag. It authenticates inside the route, and the proxy
-      // does not wave it through on any host.
+      // `status` carries capacity, holds and scanner lag. It is never public; on the desk host the route
+      // authenticates itself (token or operator session), and on the others it is behind a client session.
       expect(gateFor(surface, '/api/health/status'), surface).not.toBe('PUBLIC');
+      expect(gateFor(surface, '/api/health/metrics'), surface).not.toBe('PUBLIC');
     }
+    expect(gateFor('OPERATOR', '/api/health/status')).toBe('MONITORING');
+    expect(gateFor('OPERATOR', '/api/health/metrics')).toBe('MONITORING');
+    expect(gateFor('CLIENT', '/api/health/status')).toBe('CLIENT_SESSION');
+    expect(gateFor('PUBLIC', '/api/health/metrics')).toBe('CLIENT_SESSION');
   });
 
   it('answers the crawler files on every host without a session', () => {

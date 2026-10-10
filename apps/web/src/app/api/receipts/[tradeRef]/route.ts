@@ -1,7 +1,7 @@
 import { headers } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { isDomainError } from '@inrp2p/kernel';
-import { type ReceiptFormat, getReceipt, regenerateReceipt } from '@inrp2p/reporting';
+import { type ReceiptFormat, type StoredFormat, getReceipt, readStoredReceipt, regenerateReceipt } from '@inrp2p/reporting';
 import { isPdfRendererConfigured } from '@inrp2p/adapters';
 import { clientContext } from '../../../../server/client.ts';
 import { can, operatorContext } from '../../../../server/operator.ts';
@@ -9,6 +9,7 @@ import { getRuntime } from '../../../../server/runtime.ts';
 import { surfaceForHost } from '../../../../server/surface.ts';
 import { pdfForWeb } from '../../../../server/pdf.ts';
 import { authErrorResponse } from '../../../../server/http.ts';
+import { receiptStoreForWeb } from '../../../../server/receipts.ts';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,9 +22,11 @@ const FORMATS = new Set(['json', 'csv', 'html', 'pdf']);
  * operator with `receipt:view` may fetch any trade's receipt; a client's session resolves to their own client
  * and the lookup is scoped to it, so another client's reference is simply not found.
  *
- * Every form is regenerated from the stored snapshot and checked against the hash recorded when the receipt was
- * issued. A mismatch is a 500, not a download: handing someone a document that differs from the one we issued,
- * without saying so, is the one failure a receipt cannot survive.
+ * Where a receipts bucket is configured (TD-12), the artifact written at issue is served, after its bytes are checked
+ * against the hash recorded when it was written. Otherwise — or for a receipt issued before storage — every form is
+ * regenerated from the stored snapshot and checked against the hash recorded when the receipt was issued. A mismatch
+ * either way is a 500, not a download: handing someone a document that differs from the one we issued, without saying
+ * so, is the one failure a receipt cannot survive.
  */
 export async function GET(request: Request, { params }: { params: Promise<{ tradeRef: string }> }) {
   const { tradeRef } = await params;
@@ -54,6 +57,19 @@ export async function GET(request: Request, { params }: { params: Promise<{ trad
   if (!receipt) return NextResponse.json({ error: 'NOT_FOUND' }, { status: 404, headers: { 'cache-control': 'no-store' } });
 
   try {
+    const store = receiptStoreForWeb();
+    const stored = store ? await readStoredReceipt(rt.appDb, store, receipt.receiptId, format as StoredFormat) : null;
+    if (stored) {
+      return new NextResponse(new Uint8Array(stored.body), {
+        headers: {
+          'content-type': stored.contentType,
+          ...(format === 'html' ? {} : { 'content-disposition': `attachment; filename="receipt-${receipt.tradeRef}.${format}"` }),
+          'x-inrp2p-sha256': stored.sha256,
+          ...(format === 'pdf' ? { 'x-inrp2p-source-sha256': stored.sourceSha256 } : {}),
+          'cache-control': 'no-store',
+        },
+      });
+    }
     if (format === 'pdf') {
       const renderer = pdfForWeb();
       if (!isPdfRendererConfigured(renderer)) {

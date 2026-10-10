@@ -35,8 +35,11 @@ export async function runOrphanSweep(db: Db, deps: ScannerDeps): Promise<OrphanR
   const report = { examined: 0, orphaned: 0, legsReverted: 0 };
   for (const row of aged.rows) {
     report.examined += 1;
-    const onChain = await deps.chain.lookupTransfer('TRON', row.tx_hash, row.log_index);
-    if (onChain) continue;
+    // Gone means gone everywhere: every configured provider answered, and every one of them no longer knows the
+    // transaction. An unreachable provider, a provider that still has it, or one that says it failed is not an
+    // orphan — and a single provider's word is never enough to strip a client's deposit from its trade.
+    const answer = await deps.chain.verifyTransfer('TRON', row.tx_hash, row.log_index);
+    if (answer.status !== 'NOT_FOUND' || answer.unavailable.length > 0 || answer.absentBy.length < deps.chain.providers.length) continue;
     const step = await systemStep(
       db,
       'chain.transfer_orphaned',

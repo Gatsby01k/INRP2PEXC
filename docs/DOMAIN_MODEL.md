@@ -184,7 +184,7 @@ Balances are computed from entries; a `ledger_balance` cache may exist but is re
 | Type | Detected by | Blocking | Typical resolution commands |
 |---|---|---|---|
 | `USDT_WRONG_AMOUNT` (short) | Scanner vs expected | yes | `await_top_up` · `adjust_trade_to_received` (approval) · `refund_and_cancel` |
-| `USDT_OVERPAYMENT` | Scanner | yes | `refund_excess` · `adjust_trade_to_received` (DEALER re-price approval) |
+| `USDT_OVERPAYMENT` | Scanner | yes | `refund_excess` (`trade.refund_excess`: at most received − receivable, to a verified destination; confirmed by a second person; resolves the case when the whole excess is planned back) · `adjust_trade_to_received` (DEALER re-price approval) |
 | `USDT_UNEXPECTED_SENDER` | Transfer already attributed by its deposit assignment, but `from` is not a registered client source wallet (sender is checked, never used for attribution) | yes | `accept_sender` (records verification) · `refund` |
 | `WRONG_NETWORK` | Client/operator report (not detectable on TRON) | yes | `record_recovery_outcome` · `cancel` |
 | `TX_NOT_FINAL` | Aging job (detected > N min without solidification) | warning | automatic on confirmation · `mark_failed` |
@@ -199,7 +199,7 @@ Balances are computed from entries; a `ledger_balance` cache may exist but is re
 | `PARTIAL_INR_PAYOUT` | Leg confirmed amount < planned | warning | `create_remaining_leg` |
 | `INR_PAYOUT_DELAYED` | SLA timer on SENT legs | warning | `confirm` · `mark_failed` |
 | `BANK_TRANSFER_FAILED` | Operator/rail | yes | `mark_failed` → `create_replacement_leg` (capacity re-reserved) |
-| `CLIENT_BANK_CHANGED` | Client archives destination after quote/accept | yes | `confirm_new_destination` (step-up + audit; legs not yet sent move) · `keep_original` |
+| `CLIENT_BANK_CHANGED` | Client archives destination after quote/accept | yes | `confirm_new_destination` (recorded only by an approved `trade.approve_destination_change`: two people with step-up; legs not yet sent are cancelled and planned again) · `keep_original` |
 | `ROUTE_CAPACITY_CHANGED` | Capacity/route availability lowered below commitments | warning | `reallocate_reservations` |
 | `TRADE_CANCELLATION` | Operator/client request after acceptance | yes | `cancel_trade` (only if no confirmed funds) · `refund_and_cancel` |
 | `OPERATOR_MISTAKE` | Operator | yes | `financial_adjustment` (two-person) |

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from 'kysely';
 import { Money } from '@inrp2p/kernel';
@@ -7,14 +8,14 @@ import { dispatchOutbox } from '@inrp2p/outbox';
 import { acknowledgedSignalHandler, clientNotificationHandler, traderNotificationHandler } from '@inrp2p/notifications';
 import { publishRouteRate } from '@inrp2p/pricing';
 import { acceptQuote, createQuote, declineRequest, sendQuote } from '@inrp2p/quotes';
-import { confirmRouteSettlement, recordRouteSettlement } from '@inrp2p/settlement';
+import { confirmPayout, confirmRouteSettlement, createPayoutLeg, recordLegEvidence, recordRouteSettlement, sendPayoutLeg } from '@inrp2p/settlement';
 import { globalImbalance, routeObligationBalances } from '@inrp2p/ledger';
 import {
   acceptOrder, approveTrader, assignRequest, confirmRewardPayout, confirmReserveWithdrawal, declineOrder, deskTrader, orderDeliveryAddress,
   pauseTrader, reconcileOrderNow, recordReserveWithdrawalSent, recordRewardPayout, rejectTrader, requestReserveWithdrawal, reserveFigures, resumeTrader,
-  runTraderSweep, setAvailability, setTraderLimits, setTraderRequiredReserve, submitOrderPayment, traderHome, traderOrderDetail, traderReserveAddress, traderRoutingHandler, updateBlock,
+  runTraderSweep, setAvailability, setTraderLimits, setTraderRequiredReserve, submitOrderPayment, traderHome, traderOrderDetail, sharedReserveAddress, traderRoutingHandler, updateBlock,
 } from '@inrp2p/traders';
-import { settleFirstLeg } from '../../packages/settlement/test/world.ts';
+import { clientDepositAddressOf, settleFirstLeg } from '../../packages/settlement/test/world.ts';
 import {
   type TradersWorld, applyAs, clientRequest, configureProgram, confirmOnChain, createTradersWorld, liveTrader, sendUsdt, traderClient, traderIdOf, tradeThroughTrader, utr,
 } from './traders-world.ts';
@@ -91,9 +92,10 @@ describe('the Security Reserve', () => {
     await runAs(w.app, approveTrader(w.finance.actor), w.finance.ref, 'trader.approve', { traderId });
     await expect(runAs(w.app, setAvailability(t.admin.actor), t.admin.ref, 'trader.set_availability', { available: true })).rejects.toMatchObject({ code: 'TRADER_RESERVE_SHORT' });
 
-    const { address } = await runAs(w.app, traderReserveAddress(t.admin.actor, w.traderDeps), t.admin.ref, 'trader.reserve_address', {});
-    const again = await runAs(w.app, traderReserveAddress(t.admin.actor, w.traderDeps), t.admin.ref, 'trader.reserve_address', {});
-    expect(again.address).toBe(address);
+    // One address for every trader (D-17), the owner's, shown on the reserve screen as it is.
+    const { address } = (await sharedReserveAddress(w.app))!;
+    expect(address).toBe('TJNzB4sUGBo8fv7UdeeKQKQUffpfLSXbPP');
+    expect((await traderHome(w.app, t.admin.userId)).reserve?.depositAddress).toBe(address);
 
     // From a stranger's wallet: recorded, parked in suspense, a case for the desk — never the trader's reserve.
     const stranger = await sendUsdt(w, w.clientSourceAddress, address, '300');
@@ -112,8 +114,11 @@ describe('the Security Reserve', () => {
     const on = await reserveFigures(w.app, traderId);
     expect({ balance: on.balance.toDecimalString(), locked: on.locked.toDecimalString(), available: on.available.toDecimalString() }).toEqual({ balance: '700.000000', locked: '500.000000', available: '200.000000' });
     expect(await globalImbalance(w.app)).toEqual([]);
+    // The stranger's money is nobody's reserve: one address for every trader cannot say whose it was meant to be, so no
+    // trader is told it is theirs — the desk has the case (TECH_DEBT TD-28).
     await dispatch();
-    expect(await inbox(t.clientId)).toContain('TRADER_RESERVE_ISSUE');
+    expect(await inbox(t.clientId)).not.toContain('TRADER_RESERVE_ISSUE');
+    expect(stranger.detected.exceptionId).toBeTruthy();
   });
 
   it('never releases the locked part; a withdrawal is read from the chain, confirmed on finality and posted once', async () => {
@@ -203,10 +208,16 @@ describe('a Buy USDT order, end to end', () => {
     expect(await reconcileOrderNow(w.app, assigned.orderId)).toBe('DELIVERED');
     expect((await traderOrderDetail(w.app, t.admin.userId, assigned.ref, w.traderDeps.protector)).order.stage).toBe('INRP2P_SENDING');
 
-    // The exchange sends the trader its USDT, to its registered wallet, and the chain confirms it.
-    const sent = w.chain.add({ from: w.hotAddress, to: t.walletAddress, amountMinor: 1_000_000_000n });
+    // The exchange sends the trader the client's USDT — from the deposit address it arrived at, never from the
+    // treasury (D-16) — to the trader's registered wallet, and the chain confirms it.
+    const deposit = await clientDepositAddressOf(w, accepted.tradeId);
+    const fromTreasury = w.chain.add({ from: w.hotAddress, to: t.walletAddress, amountMinor: 1_000_000_000n });
+    await expect(runAs(w.app, recordRouteSettlement(w.finance.actor, w.settlementDeps), w.finance.ref, 'route_settlement.record', {
+      routeObligationId: obligation.id, flow: 'TO_ROUTE' as const, amount: '1000', txHash: fromTreasury.txHash, logIndex: 0, treasuryWalletId: w.treasuryWalletId,
+    })).rejects.toMatchObject({ code: 'FUNDING_LOCATION_MISMATCH' });
+    const sent = w.chain.add({ from: deposit.address, to: t.walletAddress, amountMinor: 1_000_000_000n });
     const toTrader = await runAs(w.app, recordRouteSettlement(w.finance.actor, w.settlementDeps), w.finance.ref, 'route_settlement.record', {
-      routeObligationId: obligation.id, flow: 'TO_ROUTE' as const, amount: '1000', txHash: sent.txHash, logIndex: 0, treasuryWalletId: w.treasuryWalletId,
+      routeObligationId: obligation.id, flow: 'TO_ROUTE' as const, amount: '1000', txHash: sent.txHash, logIndex: 0, sourceDepositAddressId: deposit.id,
     });
     await confirmOnChain(w);
     expect((await w.app.selectFrom('route_settlement').select('status').where('id', '=', toTrader.routeSettlementId).executeTakeFirstOrThrow()).status).toBe('RECORDED');
@@ -232,10 +243,19 @@ describe('a Buy USDT order, end to end', () => {
     await dispatch();
     expect(await inbox(t.clientId)).toEqual(expect.arrayContaining(['TRADER_ORDER_ACCEPTED', 'TRADER_PAYMENT_CONFIRMED', 'TRADER_ORDER_COMPLETED']));
 
-    // The reward is paid from an exchange account against the accrued payable, once, after a step-up confirm.
-    await expect(runAs(w.app, recordRewardPayout(w.finance.actor), w.finance.ref, 'trader_reward.record_payout', { traderId: live.traderId, amount: '104.71', inrAccountId: w.inrAccountId, rail: 'IMPS' as const, utr: utr('RWD') }))
-      .rejects.toMatchObject({ code: 'TRADER_REWARD_EXCEEDS_PAYABLE' });
-    const payout = await runAs(w.app, recordRewardPayout(w.finance.actor), w.finance.ref, 'trader_reward.record_payout', { traderId: live.traderId, amount: '104.70', inrAccountId: w.inrAccountId, rail: 'IMPS' as const, utr: utr('RWD') });
+    // The reward is paid from an exchange account against the accrued payable, once, after a step-up confirm — and only
+    // out of realized margin (D4): while the client is unpaid, the trader's INR at the collection account is principal.
+    const reward = (amount: string, inrAccountId: string) =>
+      runAs(w.app, recordRewardPayout(w.finance.actor), w.finance.ref, 'trader_reward.record_payout', { traderId: live.traderId, amount, inrAccountId, rail: 'IMPS' as const, utr: utr('RWD') });
+    await expect(reward('104.71', w.collectionAccountId)).rejects.toMatchObject({ code: 'TRADER_REWARD_EXCEEDS_PAYABLE' });
+    await expect(reward('104.70', w.collectionAccountId)).rejects.toMatchObject({ code: 'TRADER_REWARD_NOT_COVERED', details: { freeMargin: '0.00' } });
+    const clientLeg = await runAs(w.app, createPayoutLeg(w.settlementOp.actor, {}), w.settlementOp.ref, 'payout_leg.create', { tradeId: accepted.tradeId, amount: '104200.00', payer: 'EXCHANGE_ACCOUNT' as const, inrAccountId: w.collectionAccountId });
+    await runAs(w.app, sendPayoutLeg(w.settlementOp.actor), w.settlementOp.ref, 'payout_leg.send', { legId: clientLeg.legId });
+    await runAs(w.app, recordLegEvidence(w.settlementOp.actor, w.settlementDeps), w.settlementOp.ref, 'payout_leg.record_evidence', { legId: clientLeg.legId, rail: 'IMPS' as const, utr: utr('PO') });
+    expect((await confirmPayout(w.app, w.settlementOp.actor, w.settlementDeps, { legId: clientLeg.legId, idempotencyKey: randomUUID() })).completed).toBe(true);
+    // ₹500 of margin is now realized at the collection account — and none at an account the trade never touched.
+    await expect(reward('104.70', w.inrAccountId)).rejects.toMatchObject({ code: 'TRADER_REWARD_NOT_COVERED' });
+    const payout = await reward('104.70', w.collectionAccountId);
     await runAs(w.app, confirmRewardPayout(w.finance.actor), w.finance.ref, 'trader_reward.confirm_payout', { payoutId: payout.payoutId });
     expect((await traderHome(w.app, t.admin.userId)).earnings).toMatchObject({ available: '0.00', paidOut: '104.70' });
     expect(await globalImbalance(w.app)).toEqual([]);

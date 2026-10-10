@@ -68,3 +68,34 @@ export function encodeTronAddress(accountId20: Uint8Array): TronAddress {
   const payload = Buffer.concat([Buffer.from([TRON_VERSION]), Buffer.from(accountId20)]);
   return base58Encode(Buffer.concat([payload, sha256d(payload).subarray(0, 4)])) as TronAddress;
 }
+
+/** The 21-byte hex form (`41` + 20-byte account id, lowercase, no `0x`) of a valid base58check address. */
+export function tronAddressToHex(value: string): string {
+  if (!isTronAddress(value)) throw new DomainError('INVALID_ADDRESS', 'not a valid TRON address');
+  return Buffer.from(base58Decode(value)!.subarray(0, 21)).toString('hex');
+}
+
+/**
+ * Normalizes the address forms TRON's own APIs document into the canonical base58check address — and nothing else:
+ *
+ * - base58check `T…` (34 characters), accepted only when its checksum verifies;
+ * - the 21-byte hex form with the `41` version byte (42 hex characters, optionally `0x`-prefixed), as in a
+ *   receipt's `contract_address` or a hex-mode API answer;
+ * - the 20-byte hex form without the version byte (40 hex characters, optionally `0x`-prefixed), as in a receipt
+ *   log's `address`, where TRON drops the `41` (developers.tron.network/docs/event).
+ *
+ * Any other length, alphabet or version byte is refused rather than trimmed or guessed: an address that has to be
+ * repaired to fit is not evidence of where money went.
+ */
+export function normalizeTronAddress(value: unknown): TronAddress {
+  if (typeof value !== 'string') throw new DomainError('INVALID_ADDRESS', 'a TRON address must be a string');
+  if (value.startsWith('T')) return parseTronAddress(value);
+  const hex = value.startsWith('0x') ? value.slice(2) : value;
+  if (!/^[0-9a-fA-F]+$/.test(hex)) throw new DomainError('INVALID_ADDRESS', 'not a TRON address: neither base58check nor hex');
+  if (hex.length === 42) {
+    if (hex.slice(0, 2) !== '41') throw new DomainError('INVALID_ADDRESS', 'a 21-byte TRON address starts with the 41 version byte');
+    return encodeTronAddress(Buffer.from(hex.slice(2), 'hex'));
+  }
+  if (hex.length === 40) return encodeTronAddress(Buffer.from(hex, 'hex'));
+  throw new DomainError('INVALID_ADDRESS', `a hex TRON address has 40 or 42 hex characters, not ${hex.length}`);
+}

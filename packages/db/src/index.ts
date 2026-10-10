@@ -4,3 +4,4 @@ export * from './kysely.ts';
 export * from './transaction.ts';
 export * from './pg-errors.ts';
 export * from './context.ts';
+export * from './deployment.ts';

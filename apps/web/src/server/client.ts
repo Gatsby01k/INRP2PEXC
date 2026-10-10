@@ -42,15 +42,20 @@ const SIGN_IN_CODES = ['UNAUTHENTICATED', 'SESSION_IDLE_TIMEOUT', 'SESSION_SURFA
 
 /**
  * Page-level variant, for the Exchange's own pages. An expired or missing session goes to sign in; someone signed in
- * without the Exchange — a trader applicant, or a client that provides capacity only — goes to Traders, which is
- * the whole of their workspace. The server decides from what the account is, never from where it came in.
+ * with no account yet goes to open one (D-17); a client without the Exchange — one that provides capacity only — goes
+ * to Traders, which is the whole of their workspace. The server decides from what the account is, never from where
+ * it came in.
  */
 export async function clientPage(): Promise<ClientContext> {
   try {
     return await clientContext();
   } catch (e) {
     if (isDomainError(e) && SIGN_IN_CODES.includes(e.code)) redirect('/sign-in');
-    if (isDomainError(e, 'EXCHANGE_NOT_ENABLED')) redirect('/traders');
+    if (isDomainError(e, 'EXCHANGE_NOT_ENABLED')) {
+      const rt = getRuntime();
+      const actor = await requireClientSession(rt.clientAuth, rt.appDb, await headers());
+      redirect((await workspaceAccess(rt.appDb, actor.userId)).kind === 'NEW' ? '/open-account' : '/traders');
+    }
     throw e;
   }
 }

@@ -23,4 +23,6 @@ export interface TradePerms {
   readonly approveRefund: boolean;
   readonly cancelTrade: boolean;
   readonly receipt: boolean;
+  readonly requestDestinationChange: boolean;
+  readonly approveDestinationChange: boolean;
 }

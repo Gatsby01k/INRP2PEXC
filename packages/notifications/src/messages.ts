@@ -121,6 +121,14 @@ export function draftFor(kind: NotificationKind, facts: NotificationFacts): Noti
         subjectRef: null,
         href: '/destinations',
       };
+    case 'TRADE_DESTINATION_CHANGED':
+      return {
+        kind,
+        title: 'A trade now pays to another destination',
+        body: short(`${facts.tradeRef ?? 'A trade'} will be paid to ${facts.label ?? 'a different destination'}. If you did not ask for this, tell us straight away.`, 400),
+        subjectRef: facts.tradeRef ?? null,
+        href: facts.tradeRef ? `/trades/${facts.tradeRef}` : '/destinations',
+      };
     default:
       return traderDraft(kind, facts);
   }

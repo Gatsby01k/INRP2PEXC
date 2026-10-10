@@ -36,6 +36,8 @@ const expectedFailures = new Set([
   'OVER_ALLOCATION', 'ROUTE_OVER_ALLOCATION', 'ROUTE_DIRECT_PAYOUT_MISMATCH', 'TRADE_ON_HOLD', 'INVALID_TRANSITION', 'INVALID_AMOUNT',
   'CAPACITY_INSUFFICIENT', 'NOT_FOUND', 'DUPLICATE_UTR', 'UTR_REQUIRED', 'SECOND_APPROVER_REQUIRED', 'ROUTE_PAYER_NOT_ALLOWED',
   'PAYOUT_ALREADY_CONFIRMED', 'FUNDS_ALREADY_RECEIVED', 'TRANSFER_NOT_CONFIRMED', 'DESTINATION_CHANGED',
+  // D-16: an exchange-paid payout before (or beyond) what the counterparty delivered is refused, not advanced.
+  'FUNDING_NOT_CONFIRMED', 'FUNDING_INSUFFICIENT', 'FUNDING_LOCATION_MISMATCH',
 ]);
 
 /** Runs a step, swallowing only the refusals the invariants are supposed to produce. */
@@ -49,7 +51,7 @@ async function attempt(step: () => Promise<unknown>): Promise<void> {
 }
 
 describe('property: random command sequences never break the invariants', () => {
-  it('exit 12: FI-20, FI-21, FI-27, FI-28, FI-30, FI-40 and FI-64 hold after a random mix of movements', async () => {
+  it('exit 12: FI-20, FI-21, FI-27, FI-28, FI-30, FI-40, FI-64 and FI-71…75 hold after a random mix of movements', async () => {
     const random = rng(20260918);
     const trades: TradeCtx[] = [];
     for (let i = 0; i < 4; i++) {
@@ -227,5 +229,34 @@ describe('property: random command sequences never break the invariants', () => 
 
     // ---- FI-64: every obligation side still matches its ledger lines.
     expect(await routeObligationMismatches(w.app)).toEqual([]);
+
+    // ---- FI-71: no counterparty-funded trade holds any of the treasury.
+    const ids = sql.join(trades.map((t) => sql`${t.tradeId}`));
+    expect((await sql`select id from treasury_reservation where trade_id in (${ids})`.execute(w.app)).rows).toEqual([]);
+
+    // ---- FI-72: every exchange-paid payout that is live or done is earmarked, in full, against the counterparty's
+    // money of its own trade at the place it is paid from; a dead one holds nothing.
+    const legs = await sql<{ id: string; status: string; amount: string; active: string; consumed: string; foreign: string }>`
+      select l.id, l.status, l.amount_minor::text as amount,
+             coalesce(sum(f.amount_minor) filter (where f.status = 'ACTIVE'), 0)::text as active,
+             coalesce(sum(f.amount_minor) filter (where f.status = 'CONSUMED'), 0)::text as consumed,
+             count(f.id) filter (where f.trade_id <> l.trade_id or f.source_kind <> 'COUNTERPARTY_FUNDS' or f.location <> inrp2p_funding_use_location(l.id, null))::text as foreign
+        from settlement_leg l
+        left join funding_allocation f on f.use_leg_id = l.id
+       where l.trade_id in (${ids}) and l.side = 'EXCHANGE_TO_CLIENT' and l.payer = 'EXCHANGE_ACCOUNT'
+       group by l.id`.execute(w.app);
+    for (const l of legs.rows) {
+      const live = l.status === 'PENDING' || l.status === 'PROCESSING';
+      const expected = live ? { active: l.amount, consumed: '0' } : l.status === 'COMPLETED' ? { active: '0', consumed: l.amount } : { active: '0', consumed: '0' };
+      expect({ leg: l.id, active: l.active, consumed: l.consumed, foreign: l.foreign }).toEqual({ leg: l.id, ...expected, foreign: '0' });
+    }
+
+    // ---- FI-75: no source is earmarked beyond what arrived.
+    const sources = await sql<{ source_id: string; amount: string; taken: string }>`
+      select s.source_id, s.amount_minor::text as amount,
+             coalesce((select sum(f.amount_minor) from funding_allocation f
+                        where (f.source_leg_id = s.source_id or f.source_route_settlement_id = s.source_id) and f.status in ('ACTIVE', 'CONSUMED')), 0)::text as taken
+        from funding_source s where s.trade_id in (${ids})`.execute(w.app);
+    for (const src of sources.rows) expect({ source: src.source_id, over: BigInt(src.taken) > BigInt(src.amount) }).toEqual({ source: src.source_id, over: false });
   });
 });

@@ -5,9 +5,9 @@ import { appendAudit } from '@inrp2p/audit';
 import { enqueueOutbox } from '@inrp2p/outbox';
 import { executeCommand } from '@inrp2p/commands';
 import type { ClientActor } from '@inrp2p/identity';
-import { openTradeFromAcceptedQuote } from '@inrp2p/trades';
+import { assertNewBusinessOpen, openTradeFromAcceptedQuote, tradeFundingModel } from '@inrp2p/trades';
 import { getClientTradeView, type ClientTradeView } from '@inrp2p/trades';
-import { allocateDepositAddress, assertSellAcceptanceSupported, reserveTreasuryUsdt } from '@inrp2p/treasury';
+import { allocateDepositAddress, assertSellAcceptanceSupported } from '@inrp2p/treasury';
 import { startOrderForTrade } from '@inrp2p/trader-core';
 import { lockRow, requireQuoteDecider } from './actors.ts';
 import { consumeChallengeInCommand, hitDecisionRateLimit, resolveLink, verifyChallengeCode } from './challenges.ts';
@@ -49,6 +49,8 @@ async function loadDecidableQuote(ctx: TxContext, quoteId: string): Promise<Deci
 
 async function assertAcceptable(ctx: TxContext, deps: QuoteDeps, quote: DecisionContext['quote']): Promise<void> {
   const policy = policyOf(deps);
+  // While new business is paused a quote is not turned into a trade, whoever accepts it (migration 0033, IX098).
+  await assertNewBusinessOpen(ctx.tx);
   const client = await ctx.tx.selectFrom('client').select(['status', 'kyc_status']).where('id', '=', quote.client_id).forShare().executeTakeFirstOrThrow();
   if (client.status !== 'ACTIVE') throw new DomainError('CLIENT_NOT_ACTIVE', 'client is suspended');
   if (policy.requireKycVerified && client.kyc_status !== 'VERIFIED') throw new DomainError('KYC_NOT_VERIFIED', 'client KYC is not verified');
@@ -68,8 +70,12 @@ async function assertAcceptable(ctx: TxContext, deps: QuoteDeps, quote: Decision
 
 /**
  * The single acceptance body shared by the in-app and OTP-verified link paths (STATE_MACHINES §2, T1):
- * quote → ACCEPTED, request → ACCEPTED, trade + frozen economics + route obligation + accept journal,
- * SELL deposit address assignment (D-02) or BUY treasury reservation in TO_EXCHANGE mode (FI-33).
+ * quote → ACCEPTED, request → ACCEPTED, trade + frozen economics + route obligation + accept journal, the trader's
+ * order started with its capacity hold (on a trader route), and the SELL deposit address assignment (D-02).
+ *
+ * Acceptance binds commitments, never money (D-16): the trade is counterparty-funded, so nothing of the exchange's
+ * own treasury is reserved for a BUY — the client's USDT will come from what the counterparty delivers, and until it
+ * has, no payout can be created (FI-71, FI-72). Acceptance therefore works with zero platform USDT and INR.
  */
 async function acceptCore(ctx: TxContext, deps: QuoteDeps, input: { quote: DecisionContext['quote']; decider: { clientUserId: string; userId: string }; via: 'APP' | 'LINK'; challengeId: string | null }): Promise<AcceptResult> {
   const { quote, decider } = input;
@@ -87,6 +93,9 @@ async function acceptCore(ctx: TxContext, deps: QuoteDeps, input: { quote: Decis
     .execute();
 
   const route = await ctx.tx.selectFrom('liquidity_route').select(['execution_mode', 'trader_id']).where('id', '=', quote.route_id).forShare().executeTakeFirstOrThrow();
+  // A trader filling a client's BUY delivers its USDT to an address of the order's own (D-02): without a confirmed
+  // deposit-address capability that delivery could not be attributed, so the trade is not opened at all.
+  if (route.trader_id && quote.direction === 'BUY_USDT') await assertSellAcceptanceSupported(ctx.tx, 'TRON');
   const trade = await openTradeFromAcceptedQuote(ctx, {
     quoteId: quote.id,
     tradeRequestId: quote.trade_request_id,
@@ -110,17 +119,18 @@ async function acceptCore(ctx: TxContext, deps: QuoteDeps, input: { quote: Decis
     await startOrderForTrade(ctx, { requestId: quote.trade_request_id, routeId: quote.route_id, quoteId: quote.id, tradeId: trade.tradeId, routeObligationId: trade.routeObligationId });
   }
 
+  // The database made this trade counterparty-funded when it was inserted (migration 0025); acceptance relies on it.
+  const funding = await tradeFundingModel(ctx.tx, trade.tradeId);
+  if (funding !== 'COUNTERPARTY_FUNDED') throw new DomainError('INVALID_TRANSITION', `a new trade must be counterparty-funded (it is ${funding})`);
   if (quote.direction === 'SELL_USDT') {
     await allocateDepositAddress(ctx, deps.custody, { network: 'TRON', tradeId: trade.tradeId, tradeRef: trade.ref, expectedAmount: Money.ofMinor(quote.base_minor, 'USDT') });
-  } else if (route.execution_mode === 'TO_EXCHANGE') {
-    await reserveTreasuryUsdt(ctx, { tradeId: trade.tradeId, amount: Money.ofMinor(quote.base_minor, 'USDT') });
   }
 
   await closePendingChallenges(ctx, quote.id, 'SUPERSEDED');
   await appendAudit(ctx, {
     action: 'quote.accepted', entityType: 'quote', entityId: quote.id,
     before: { status: 'SENT' },
-    after: { status: 'ACCEPTED', via: input.via, accepted_by: decider.userId, trade_id: trade.tradeId, trade_ref: trade.ref, challenge_id: input.challengeId },
+    after: { status: 'ACCEPTED', via: input.via, accepted_by: decider.userId, trade_id: trade.tradeId, trade_ref: trade.ref, challenge_id: input.challengeId, funding: funding },
   });
   await enqueueOutbox(ctx, { type: 'trade.opened', aggregateType: 'trade', aggregateId: trade.tradeId, payload: { tradeId: trade.tradeId, quoteId: quote.id, clientId: quote.client_id, direction: quote.direction } });
   return { tradeId: trade.tradeId, tradeRef: trade.ref, quoteRef: quote.ref, trade: await getClientTradeView(ctx.tx, trade.tradeId, quote.client_id) };

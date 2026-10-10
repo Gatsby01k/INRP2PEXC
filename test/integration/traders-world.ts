@@ -10,7 +10,7 @@ import { acceptQuote, createQuote, createRequest, sendQuote } from '@inrp2p/quot
 import { submitTxForVerification } from '@inrp2p/settlement';
 import { runTronConfirm } from '@inrp2p/scanner';
 import {
-  type ApplyPayload, type TraderDeps, acceptOrder, applyAsTrader, approveTrader, assignRequest, configureTraderProgram, setAvailability, traderReserveAddress, updateBlock,
+  type ApplyPayload, type TraderDeps, acceptOrder, applyAsTrader, approveTrader, assignRequest, configureTraderProgram, setAvailability, sharedReserveAddress, updateBlock,
 } from '@inrp2p/traders';
 import { createWorld, type World } from '../../packages/settlement/test/world.ts';
 
@@ -42,7 +42,8 @@ export async function createTradersWorld(label: string): Promise<TradersWorld> {
   const entity = await runAs(w.app, createSettlementEntity(w.finance.actor), w.finance.ref, 'settlement_entity.create', { legalName: 'INRP2P Collections Private Limited', shortName: `COLL-${randomUUID().slice(0, 6)}` });
   const collection = await runAs(w.app, createInrAccount(w.finance.actor, w.deps.protector), w.finance.ref, 'inr_account.create', {
     entityId: entity.entityId, label: 'Trader collections', bankName: 'Axis Bank', ifsc: 'UTIB0000456', accountNumber: '918020045510099',
-    rails: ['IMPS', 'NEFT', 'RTGS'] as const, direction: 'COLLECTION' as const, defaultDailyCapacity: '0.00',
+    // It collects the traders' INR and pays clients out of it (D-16: pass-through from where the money arrived).
+    rails: ['IMPS', 'NEFT', 'RTGS'] as const, direction: 'BOTH' as const, defaultDailyCapacity: '100000000.00',
   });
   return { ...w, traderDeps: { custody: w.deps.custody, protector: w.deps.protector, chain: w.chain }, hotAddress: hot.address, collectionAccountId: collection.accountId };
 }
@@ -89,7 +90,7 @@ export async function traderIdOf(db: Db, clientId: string): Promise<string> {
 
 /** Scanner confirmation over whatever the fake chain now says (only the verifier is used by this job). */
 export function confirmOnChain(w: TradersWorld) {
-  return runTronConfirm(w.app, { chain: w.chain, provider: undefined as never });
+  return runTronConfirm(w.app, { chain: w.chain, providers: [] });
 }
 
 /** USDT from `from` to `to`, detected through the operator's tx-hash submission (same path as the scanner). */
@@ -125,7 +126,7 @@ export async function liveTrader(
   });
   const traderId = await traderIdOf(w.app, setup.clientId);
   await runAs(w.app, approveTrader(w.finance.actor), w.finance.ref, 'trader.approve', { traderId, requiredReserve: '500' });
-  const { address } = await runAs(w.app, traderReserveAddress(setup.admin.actor, w.traderDeps), setup.admin.ref, 'trader.reserve_address', {});
+  const { address } = (await sharedReserveAddress(w.app))!;
   await sendUsdt(w, setup.walletAddress, address, opts.reserve ?? '500');
   await confirmOnChain(w);
   for (const [side, cfg] of [['BUY_USDT', opts.buy], ['SELL_USDT', opts.sell]] as const) {

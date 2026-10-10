@@ -20,6 +20,9 @@ import p from './pnl.module.css';
  * as a forecast. The reconciliation line is the part worth keeping: the ledger's realized total beside the same
  * total summed from the completed trades, so a page that has drifted from the books says so on its own face.
  */
+/** A cost shown as what it takes away: an expense of ₹157.30 reads −₹157.30, and nothing reads ₹0.00. */
+const cost = (v: string): string => Money.parse(v, 'INR').negate().toDecimalString();
+
 export function PnlScreen({ view, canExport }: { view: PnlPage; canExport: boolean }) {
   const router = useRouter();
   const [from, setFrom] = useState(view.period.from);
@@ -57,6 +60,16 @@ export function PnlScreen({ view, canExport }: { view: PnlPage; canExport: boole
         <span className={isNegative(r.margin, 'INR') ? d.negative : r.kind === 'realized' ? d.positive : d.secondary}>
           {inr(r.margin, { sign: true })}
           {r.kind === 'expected' ? <span className={p.kind}> expected</span> : null}
+        </span>
+      ),
+    },
+    {
+      key: 'net',
+      header: 'After reward',
+      align: 'right',
+      render: (r) => (
+        <span className={isNegative(r.net, 'INR') ? d.negative : d.secondary} title={/[1-9]/.test(r.reward) ? `trader reward ${inr(r.reward)}` : 'no trader reward'}>
+          {inr(r.net, { sign: true })}
         </span>
       ),
     },
@@ -108,6 +121,35 @@ export function PnlScreen({ view, canExport }: { view: PnlPage; canExport: boole
           </dd>
         </dl>
       </div>
+
+      <div className={p.summary} data-testid="net-economics">
+        <KpiBand
+          label="After rewards and recorded fees"
+          items={[
+            { key: 'g', label: 'Realized gross margin', value: inr(s.realizedGrossMargin, { sign: true }) },
+            { key: 'r', label: 'Trader rewards', value: inr(cost(s.traderRewards), { sign: true }), sub: 'recognised in the period' },
+            { key: 'f', label: 'Recorded fees', value: inr(cost(s.recordedFees), { sign: true }), sub: /[1-9]/.test(s.recordedFees) ? 'bank charges recorded' : 'none recorded yet' },
+            {
+              key: 'n', label: 'Net', value: inr(s.netAfterRewardsAndFees, { sign: true }), sub: 'gross less rewards and recorded fees', size: 'lg',
+              ...(isNegative(s.netAfterRewardsAndFees, 'INR') ? { tone: 'danger' as const } : {}),
+            },
+          ]}
+        />
+        <dl className={p.expected} aria-label="Rewards owed">
+          <dt>Rewards owed to traders, now</dt>
+          <dd className={p.expectedValue}>{inr(s.rewardsPayable)}</dd>
+          <dd className={p.expectedSub}>
+            {Money.parse(s.rewardsPayable, 'INR').minor > Money.parse(s.freeMargin, 'INR').minor
+              ? `more than the ${inr(s.freeMargin)} of realized margin free to pay them: the rest stays owed, and a payout beyond the margin is refused`
+              : `covered by ${inr(s.freeMargin)} of realized margin free at the accounts — the only money a reward is paid with`}
+          </dd>
+        </dl>
+      </div>
+      <Notice>
+        Not deducted above, because the ledger does not carry them: TRX for transfers and the custody provider’s fees (the platform’s operating budget), and
+        bank charges until statement reconciliation records them as fee lines (then out of realized margin). None of them is ever paid with a client’s or a
+        trader’s money.
+      </Notice>
 
       <div data-testid="ledger-check" role="status">
         {view.ledgerCheck.agrees ? (

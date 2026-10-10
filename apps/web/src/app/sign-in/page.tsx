@@ -1,8 +1,7 @@
 import type { Metadata } from 'next';
 import { headers } from 'next/headers';
-import { ONBOARDING } from '../../content/site.ts';
 import { getRuntime } from '../../server/runtime.ts';
-import { onboardingHref, publicOrigin } from '../../server/site.ts';
+import { publicOrigin } from '../../server/site.ts';
 import { surfaceForHost } from '../../server/surface.ts';
 import { SignInForm } from './SignInForm.tsx';
 import { WorkspaceGateway } from './WorkspaceGateway.tsx';
@@ -29,9 +28,8 @@ export async function generateMetadata(): Promise<Metadata> {
  */
 export default async function SignInPage() {
   if (await isClientHost()) {
-    // The way back and the way in for someone who is not a client yet are the public site's; an onboarding address
-    // that is not configured is not offered (server/site.ts).
-    return <WorkspaceGateway home={await publicOrigin()} onboarding={onboardingHref()} unlinked={ONBOARDING.unlinked} />;
+    // The way back is the public site's; the way in for someone new is this page itself (D-17).
+    return <WorkspaceGateway home={await publicOrigin()} />;
   }
 
   return (

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { smokeConfigFromEnv } from '../tron-smoke.ts';
+import { FAKE_USDT_CONTRACT, FakeTronGrid, fakeTronAddress } from '@inrp2p/adapters/testing';
+import { runSmoke, smokeConfigFromEnv } from '../tron-smoke.ts';
 
 /**
  * The smoke gate itself needs credentials and a live network, so it never runs in CI (TD-07). What CI can check
@@ -56,5 +57,50 @@ describe('the TRON smoke gate configuration', () => {
     expect(problemsOf({ ...complete, INRP2P_SMOKE_EXPECT_AMOUNT: '12.5000001' })).toContain('decimal USDT amount');
     expect(problemsOf({ ...complete, INRP2P_SMOKE_LOG_INDEX: '-1' })).toContain('non-negative integer');
     expect(problemsOf({ ...complete, INRP2P_SMOKE_NETWORK: 'ETHEREUM' })).toContain('not supported');
+  });
+});
+
+describe('the TRON smoke gate, dry run against two fake nodes serving the documented shapes', () => {
+  const txHash = 'cd'.repeat(32);
+  const setup = (opts: { secondaryValue?: bigint } = {}) => {
+    const from = fakeTronAddress('smoke-from');
+    const to = fakeTronAddress('smoke-to');
+    const a = new FakeTronGrid({ baseUrl: 'https://primary.example.test' });
+    const b = new FakeTronGrid({ baseUrl: 'https://secondary.example.test' });
+    a.addTransfer({ from, to, value: 12_500_000n, txHash, blockNumber: 2_000n });
+    b.addTransfer({ from, to, value: opts.secondaryValue ?? 12_500_000n, txHash, blockNumber: 2_000n });
+    a.solidifyAll();
+    b.solidifyAll();
+    const parsed = smokeConfigFromEnv({
+      ...complete,
+      INRP2P_SMOKE_ENVIRONMENT: 'dry-run',
+      INRP2P_SMOKE_TRON_PRIMARY_URL: a.baseUrl,
+      INRP2P_SMOKE_TRON_SECONDARY_URL: b.baseUrl,
+      INRP2P_SMOKE_TRON_PRIMARY_KEY: 'smoke-only-key-value',
+      INRP2P_SMOKE_USDT_CONTRACT: FAKE_USDT_CONTRACT,
+      INRP2P_SMOKE_TX_HASH: txHash,
+      INRP2P_SMOKE_EXPECT_FROM: from,
+      INRP2P_SMOKE_EXPECT_TO: to,
+      INRP2P_SMOKE_EXPECT_AMOUNT: '12.500000',
+    });
+    if (!('config' in parsed)) throw new Error(parsed.problems.join('; '));
+    return { config: parsed.config, fetchImpl: { primary: a.fetch, secondary: b.fetch } };
+  };
+
+  it('passes, reports finality and agreement, and never writes a key into the report', async () => {
+    const { config, fetchImpl } = setup();
+    const report = await runSmoke(config, { fetchImpl });
+    expect(report.checks.filter((c) => !c.ok)).toEqual([]);
+    expect(report).toMatchObject({ ok: true, environment: 'dry-run', agreement: { agreedGroups: ['trongrid', 'self-hosted'] }, finality: { blockNumber: '2000' } });
+    expect(report.checks.map((c) => c.name)).toContain('smoke-primary: window read');
+    expect(JSON.stringify(report)).not.toContain('smoke-only-key-value');
+  });
+
+  it('fails when the second provider reports different facts', async () => {
+    const { config, fetchImpl } = setup({ secondaryValue: 12_500_001n });
+    const report = await runSmoke(config, { fetchImpl });
+    expect(report.ok).toBe(false);
+    expect(report.checks.find((c) => c.name === 'providers report identical facts')?.ok).toBe(false);
+    expect(report.checks.find((c) => c.name === 'verifier decision')?.detail).toMatch(/CONFLICT/);
   });
 });

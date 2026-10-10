@@ -107,3 +107,56 @@ describe('command pipeline and idempotent replay (FI-50, FI-52)', () => {
     expect(await countJournals(payload.tag)).toBe(0);
   });
 });
+
+describe('a replay is authorized again (C2)', () => {
+  it('returns the stored result only to a caller who may run the command now', async () => {
+    const { createTestOperator, runAs } = await import('@inrp2p/identity/testing');
+    const { operatorCommand } = await import('@inrp2p/identity');
+    const op = await createTestOperator(t.owner, ['FINANCE']);
+    let runs = 0;
+    const command = operatorCommand(op.actor, 'statement:import', async () => {
+      runs++;
+      return { secret: 'the stored result' };
+    });
+    const key = randomUUID();
+    expect(await runAs(t.app, command, op.ref, 'test.replay', { n: 1 }, key)).toEqual({ secret: 'the stored result' });
+    // An honest retry of the same intent replays without running the handler again.
+    expect(await runAs(t.app, command, op.ref, 'test.replay', { n: 1 }, key)).toEqual({ secret: 'the stored result' });
+    expect(runs).toBe(1);
+
+    // The step-up that authorized it has lapsed: the retry asks for it again instead of handing the result back.
+    await t.owner.updateTable('step_up_verification').set({ verified_at: new Date(Date.now() - 3_600_000) }).where('session_id', '=', op.actor.sessionId).execute();
+    await expect(runAs(t.app, command, op.ref, 'test.replay', { n: 1 }, key)).rejects.toMatchObject({ code: 'STEP_UP_REQUIRED' });
+
+    // The role is withdrawn: the old key no longer returns anything.
+    await t.owner.insertInto('step_up_verification').values({ user_id: op.actor.userId, session_id: op.actor.sessionId, method: 'TOTP' }).execute();
+    await t.owner.deleteFrom('operator_user_role').where('user_id', '=', op.actor.userId).execute();
+    await expect(runAs(t.app, command, op.ref, 'test.replay', { n: 1 }, key)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    expect(runs).toBe(1);
+  });
+
+  it('refuses a disabled account, an ended session, and anyone else — or any other surface — using the key', async () => {
+    const { createTestOperator, runAs } = await import('@inrp2p/identity/testing');
+    const { operatorCommand } = await import('@inrp2p/identity');
+    const op = await createTestOperator(t.owner, ['FINANCE']);
+    const other = await createTestOperator(t.owner, ['FINANCE']);
+    const command = (who: typeof op) => operatorCommand(who.actor, 'statement:import', async () => ({ secret: 'the stored result' }));
+    const key = randomUUID();
+    await runAs(t.app, command(op), op.ref, 'test.replay_two', { n: 2 }, key);
+
+    // Someone else holding the key gets nothing back: it is a different request.
+    await expect(runAs(t.app, command(other), other.ref, 'test.replay_two', { n: 2 }, key)).rejects.toMatchObject({ code: 'IDEMPOTENCY_KEY_REUSED' });
+    // So is the same person's id arriving from the client surface.
+    await expect(runAs(t.app, command(op), { ...op.ref, surface: 'CLIENT' as const }, 'test.replay_two', { n: 2 }, key)).rejects.toMatchObject({ code: 'IDEMPOTENCY_KEY_REUSED' });
+
+    // The session that made it is signed out: the replay asks for a new one.
+    await t.owner.deleteFrom('auth_session').where('id', '=', op.actor.sessionId).execute();
+    await expect(runAs(t.app, command(op), op.ref, 'test.replay_two', { n: 2 }, key)).rejects.toMatchObject({ code: 'UNAUTHENTICATED' });
+    // A disabled account gets nothing, whichever session it presents.
+    const again = await createTestOperator(t.owner, ['FINANCE']);
+    await runAs(t.app, command(again), again.ref, 'test.replay_three', { n: 3 }, key);
+    await t.owner.updateTable('auth_user').set({ status: 'DISABLED' }).where('id', '=', again.actor.userId).execute();
+    await expect(runAs(t.app, command(again), again.ref, 'test.replay_three', { n: 3 }, key)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+  });
+});
+

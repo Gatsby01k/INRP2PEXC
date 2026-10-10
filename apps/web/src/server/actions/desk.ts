@@ -9,7 +9,7 @@ import {
   type NON_FINANCIAL_RESOLUTIONS, approveAdjustment, cancelPayoutLeg, cancelTrade, confirmFirstLeg, confirmPayout,
   confirmRefundLeg, confirmRouteSettlement, createPayoutLeg, createRefundLeg, failPayoutLeg, openException, recordIncomingFiat,
   recordLegEvidence, recordRouteSettlement, refundAndCancel, rejectAdjustment, requestAdjustment, resolveException, revertFirstLeg, sendPayoutLeg,
-  takeException, voidException,
+  takeException, voidException, approveDestinationChange, cancelDestinationChange, refundExcess, rejectDestinationChange, requestDestinationChange,
 } from '@inrp2p/settlement';
 import { type CommandResult, failure, runCommand, withOperator } from '../command.ts';
 
@@ -112,7 +112,7 @@ export async function cancelQuoteAction(input: { quoteId: string; reason: string
 }
 
 export async function createPayoutLegAction(
-  input: { tradeId: string; amount: string; payer: 'EXCHANGE_ACCOUNT' | 'ROUTE'; inrAccountId?: string | null; treasuryWalletId?: string | null; notes?: string | null },
+  input: { tradeId: string; amount: string; payer: 'EXCHANGE_ACCOUNT' | 'ROUTE'; inrAccountId?: string | null; treasuryWalletId?: string | null; sourceDepositAddressId?: string | null; notes?: string | null },
   key: string,
 ): Promise<CommandResult<{ legId: string; ref: string; remainingAfter: string }>> {
   const out = await runCommand((ctx) => createPayoutLeg(ctx.actor, {}), input, { name: 'payout_leg.create', idempotencyKey: key });
@@ -260,7 +260,7 @@ export async function cancelTradeAction(input: { tradeId: string; reason: string
 
 /** T10 step 1: create the refund leg that sends the client's own funds back. */
 export async function createRefundLegAction(
-  input: { tradeId: string; inrAccountId?: string | null; treasuryWalletId?: string | null; notes?: string | null },
+  input: { tradeId: string; inrAccountId?: string | null; treasuryWalletId?: string | null; sourceDepositAddressId?: string | null; notes?: string | null },
   key: string,
 ): Promise<CommandResult<{ legId: string; ref: string }>> {
   const out = await runCommand((ctx) => createRefundLeg(ctx.actor), input, { name: 'refund_leg.create', idempotencyKey: key });
@@ -314,3 +314,45 @@ export async function setDayCapacityAction(input: { accountId: string; capacity:
   if (out.ok) refresh();
   return out;
 }
+
+/** D1 (TD-18): an open trade pays to another verified destination of its client — one person asks, another approves. */
+export async function requestDestinationChangeAction(
+  input: { tradeId: string; toBankAccountId?: string | null; toWalletId?: string | null; reason: string; evidence: string; exceptionId?: string | null },
+  key: string,
+): Promise<CommandResult<{ requestId: string; ref: string }>> {
+  const out = await runCommand((ctx) => requestDestinationChange(ctx.actor), input, { name: 'trade.request_destination_change', idempotencyKey: key, financial: false });
+  if (out.ok) refresh();
+  return out as CommandResult<{ requestId: string; ref: string }>;
+}
+
+export async function approveDestinationChangeAction(input: { requestId: string; note?: string | null }, key: string): Promise<CommandResult<unknown>> {
+  const out = await runCommand((ctx) => approveDestinationChange(ctx.actor), input, { name: 'trade.approve_destination_change', idempotencyKey: key });
+  if (out.ok) refresh();
+  return out;
+}
+
+export async function rejectDestinationChangeAction(input: { requestId: string; note: string }, key: string): Promise<CommandResult<unknown>> {
+  const out = await runCommand((ctx) => rejectDestinationChange(ctx.actor), input, { name: 'trade.reject_destination_change', idempotencyKey: key, financial: false });
+  if (out.ok) refresh();
+  return out;
+}
+
+export async function cancelDestinationChangeAction(input: { requestId: string }, key: string): Promise<CommandResult<unknown>> {
+  const out = await runCommand((ctx) => cancelDestinationChange(ctx.actor), input, { name: 'trade.cancel_destination_change', idempotencyKey: key, financial: false });
+  if (out.ok) refresh();
+  return out;
+}
+
+/** D2 (TD-19): return an overpayment to a verified destination of the client; someone else confirms it. */
+export async function refundExcessAction(
+  input: {
+    tradeId: string; amount?: string | null; destinationWalletId?: string | null; destinationBankAccountId?: string | null;
+    inrAccountId?: string | null; sourceDepositAddressId?: string | null; treasuryWalletId?: string | null; exceptionId?: string | null;
+  },
+  key: string,
+): Promise<CommandResult<{ legId: string; ref: string; amount: string }>> {
+  const out = await runCommand((ctx) => refundExcess(ctx.actor), input, { name: 'trade.refund_excess', idempotencyKey: key });
+  if (out.ok) refresh();
+  return out as CommandResult<{ legId: string; ref: string; amount: string }>;
+}
+

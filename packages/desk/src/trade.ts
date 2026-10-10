@@ -2,8 +2,8 @@ import { sql } from 'kysely';
 import { DomainError, Money, requireUuid } from '@inrp2p/kernel';
 import type { DirectionValue, ExecutionMode, Executor } from '@inrp2p/db';
 import { istToday } from '@inrp2p/inr-accounts';
-import { effectiveObligations, legTotals } from '@inrp2p/trades';
-import { obligationRemaining } from '@inrp2p/settlement';
+import { effectiveObligations, legTotals, tradeFundingModel } from '@inrp2p/trades';
+import { fundingPosition, obligationRemaining } from '@inrp2p/settlement';
 import type { DeskAccess } from './access.ts';
 import { microToDecimal } from './strip.ts';
 
@@ -19,7 +19,7 @@ export interface DeskLeg {
   /** Where an exchange-paid INR leg draws from, for the panel's account line. */
   readonly accountLabel: string | null;
   readonly routeName: string | null;
-  /** A USDT leg's treasury wallet address — the `from` its transaction must show. */
+  /** A USDT leg's sending address — its deposit address when it passes money through, else its treasury wallet. */
   readonly walletAddress: string | null;
   /** Bank reference or transaction hash, whichever this leg's evidence is. */
   readonly reference: string | null;
@@ -36,6 +36,36 @@ export interface DeskLeg {
    */
   readonly createdBy: string;
   readonly createdByLabel: string;
+  /** Who marked it sent (C1), when the record says; null for a leg not sent yet or sent before 0027. */
+  readonly sentBy: string | null;
+  readonly sentByLabel: string | null;
+  /** A payout above the approval threshold: someone other than its sender confirms it (SECURITY §4). */
+  readonly needsSecondPerson: boolean;
+  /** A refund leg's kind (D2): UNWIND returns everything before a cancellation, EXCESS returns an overpayment. */
+  readonly refundKind: 'UNWIND' | 'EXCESS' | null;
+}
+
+/** A destination of the client, as the desk picks one (verified only). */
+export interface DestinationOption {
+  readonly id: string;
+  readonly label: string;
+}
+
+/** A requested or decided change of where an open trade pays (D1, TD-18). */
+export interface DeskDestinationChange {
+  readonly id: string;
+  readonly ref: string;
+  readonly status: 'REQUESTED' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
+  readonly fromLabel: string;
+  readonly toLabel: string;
+  readonly reason: string;
+  readonly evidence: string;
+  readonly requestedBy: string;
+  readonly requestedByLabel: string;
+  readonly requestedAt: string;
+  readonly decidedByLabel: string | null;
+  readonly decidedAt: string | null;
+  readonly decisionNote: string | null;
 }
 
 export interface DeskCase {
@@ -67,6 +97,35 @@ export interface TreasuryWalletOption {
   readonly label: string;
   readonly address: string;
   readonly available: string;
+}
+
+/** One place a trade's money is (D-16): a bank account or a TRON address, and what may still leave from it. */
+export interface FundingPlace {
+  readonly kind: 'CLIENT_FUNDS' | 'COUNTERPARTY_FUNDS';
+  readonly asset: 'INR' | 'USDT';
+  /** `INR:{accountId}` or `TRON:{address}`. */
+  readonly location: string;
+  readonly label: string;
+  readonly inrAccountId: string | null;
+  readonly treasuryWalletId: string | null;
+  readonly depositAddressId: string | null;
+  readonly address: string | null;
+  /**
+   * What a new outflow may still take from here. Counterparty funds are capped at what the client is still owed
+   * unless the viewer may see route positions: the uncapped figure divided by the trade's size is the route rate.
+   */
+  readonly free: string;
+  /** Route-positions viewers only: what arrived here for this trade, what is planned out of it, what has left. */
+  readonly arrived?: string;
+  readonly planned?: string;
+  readonly spent?: string;
+}
+
+export interface TradeFunding {
+  readonly model: 'COUNTERPARTY_FUNDED' | 'LEGACY_EXCHANGE_FUNDED';
+  readonly places: readonly FundingPlace[];
+  /** Whether the counterparty has delivered its side (confirmed): nothing yet, part of it, or all of it. */
+  readonly counterparty: 'NONE' | 'PARTIAL' | 'FULL';
 }
 
 export interface RouteSide {
@@ -113,6 +172,13 @@ export interface DeskTrade {
   readonly deposit?: { readonly address: string; readonly expected: string | null; readonly status: string };
   /** Route side, only with `route_positions:view`. */
   readonly route?: RouteSide;
+  /** Where this trade's money is and what may leave from where (D-16). */
+  readonly funding: TradeFunding;
+  /** Where the trade pays now (its latest approved change, else as accepted), and every change asked for (D1). */
+  readonly destination: { readonly id: string; readonly label: string } | null;
+  readonly destinationChanges: readonly DeskDestinationChange[];
+  /** The client's verified destinations the desk may choose from: payout accounts or wallets, and sending wallets for a refund. */
+  readonly destinationOptions: { readonly payout: readonly DestinationOption[]; readonly refundWallets: readonly DestinationOption[]; readonly refundBanks: readonly DestinationOption[] };
   /** What a payout leg could be funded from right now. */
   readonly payoutOptions: {
     readonly asset: 'INR' | 'USDT';
@@ -150,6 +216,8 @@ export async function deskTrade(ex: Executor, tradeId: string, access: DeskAcces
   const cases = await deskCases(ex, id);
   const receipt = await ex.selectFrom('receipt').select('id').where('trade_id', '=', id).executeTakeFirst();
   const payoutAsset = payout.currency;
+  const unallocatedMinor = payout.minor - totals.committed > 0n ? payout.minor - totals.committed : 0n;
+  const funding = await tradeFunding(ex, id, { unallocatedMinor, routePositions: access.routePositions });
 
   const base: DeskTrade = {
     tradeId: row.id,
@@ -165,12 +233,14 @@ export async function deskTrade(ex: Executor, tradeId: string, access: DeskAcces
     payout: payout.toJSON(),
     paid: Money.ofMinor(totals.paid, payoutAsset).toDecimalString(),
     committed: Money.ofMinor(totals.committed, payoutAsset).toDecimalString(),
-    unallocated: Money.ofMinor(payout.minor - totals.committed > 0n ? payout.minor - totals.committed : 0n, payoutAsset).toDecimalString(),
+    unallocated: Money.ofMinor(unallocatedMinor, payoutAsset).toDecimalString(),
     receivable: receivable.toJSON(),
     received: Money.ofMinor(totals.received, receivable.currency).toDecimalString(),
     legs,
     cases,
     receipt: receipt !== undefined,
+    funding,
+    ...(await destinationOf(ex, id, row.client_id, payoutAsset)),
     payoutOptions: {
       asset: payoutAsset,
       accounts: payoutAsset === 'INR' ? await payoutAccounts(ex) : [],
@@ -206,20 +276,25 @@ async function deskLegs(ex: Executor, tradeId: string): Promise<DeskLeg[]> {
     id: string; ref: string; side: DeskLeg['side']; asset: 'INR' | 'USDT'; amount_minor: bigint; status: DeskLeg['status'];
     payer: DeskLeg['payer']; account_label: string | null; route_name: string | null; wallet_address: string | null; utr: string | null; tx_hash: string | null;
     created_at: Date; sent_at: Date | null; confirmed_at: Date | null; failed_at: Date | null; cancelled_at: Date | null; failure_reason: string | null;
-    created_by: string; created_by_label: string | null;
+    created_by: string; created_by_label: string | null; sent_by: string | null; sent_by_label: string | null; needs_second: boolean | null;
+    refund_kind: 'UNWIND' | 'EXCESS' | null;
   }>`
     select l.id, l.ref, l.side, l.asset, l.amount_minor, l.status, l.payer,
-           a.label as account_label, r.name as route_name, tw.address as wallet_address, f.utr, c.tx_hash,
+           a.label as account_label, r.name as route_name, coalesce(da.address, tw.address) as wallet_address, f.utr, c.tx_hash,
            l.created_at, l.sent_at, l.confirmed_at, l.failed_at, l.cancelled_at, l.failure_reason,
-           l.created_by, coalesce(u.name, u.email) as created_by_label
+           l.created_by, coalesce(u.name, u.email) as created_by_label,
+           l.sent_by, coalesce(su.name, su.email) as sent_by_label, l.refund_kind,
+           case when l.side = 'EXCHANGE_TO_CLIENT' then inrp2p_payout_needs_second_person(l.trade_id, l.asset, l.amount_minor) end as needs_second
     from settlement_leg l
     left join inr_settlement_account a on a.id = l.inr_account_id
     left join liquidity_route r on r.id = l.route_id
     left join treasury_wallet tw on tw.id = l.treasury_wallet_id
+    left join deposit_address da on da.id = l.source_deposit_address_id
     left join transfer_allocation al on al.settlement_leg_id = l.id and al.voided_at is null
     left join fiat_transfer f on f.id = al.fiat_transfer_id
     left join crypto_transfer c on c.id = al.crypto_transfer_id
     left join auth_user u on u.id::text = l.created_by
+    left join auth_user su on su.id::text = l.sent_by
     where l.trade_id = ${tradeId}
     order by l.seq`.execute(ex);
   return rows.rows.map((r) => ({
@@ -243,6 +318,10 @@ async function deskLegs(ex: Executor, tradeId: string): Promise<DeskLeg[]> {
     failureReason: r.failure_reason,
     createdBy: r.created_by,
     createdByLabel: r.created_by.startsWith('SYSTEM') ? 'System' : (r.created_by_label ?? 'an operator'),
+    sentBy: r.sent_by,
+    sentByLabel: r.sent_by ? (r.sent_by.startsWith('SYSTEM') ? 'System' : (r.sent_by_label ?? 'an operator')) : null,
+    needsSecondPerson: r.needs_second === true,
+    refundKind: r.side === 'REFUND_TO_CLIENT' ? (r.refund_kind ?? 'UNWIND') : null,
   }));
 }
 
@@ -282,6 +361,107 @@ async function depositFor(ex: Executor, tradeId: string): Promise<DeskTrade['dep
     address: row.address,
     expected: row.expected_amount_minor === null ? null : Money.ofMinor(row.expected_amount_minor, 'USDT').toDecimalString(),
     status: row.status,
+  };
+}
+
+/**
+ * The trade's funding, place by place: confirmed client and counterparty money (the `funding_source` view) less what
+ * is planned out of it (ACTIVE earmarks) and what has left (CONSUMED). Legacy trades have no places — the treasury
+ * paid them, as it always did.
+ */
+export async function tradeFunding(ex: Executor, tradeId: string, opts: { unallocatedMinor: bigint; routePositions: boolean }): Promise<TradeFunding> {
+  const model = await tradeFundingModel(ex, tradeId);
+  const { sources, allocations } = await fundingPosition(ex, tradeId);
+  const byPlace = new Map<string, { kind: FundingPlace['kind']; asset: 'INR' | 'USDT'; location: string; arrived: bigint; planned: bigint; spent: bigint }>();
+  for (const src of sources) {
+    const key = `${src.kind}|${src.location}`;
+    const place = byPlace.get(key) ?? { kind: src.kind, asset: src.asset, location: src.location, arrived: 0n, planned: 0n, spent: 0n };
+    place.arrived += src.amountMinor;
+    for (const a of allocations) {
+      if (a.source_leg_id !== src.sourceId && a.source_route_settlement_id !== src.sourceId) continue;
+      if (a.status === 'ACTIVE') place.planned += a.amount_minor;
+      else if (a.status === 'CONSUMED') place.spent += a.amount_minor;
+    }
+    byPlace.set(key, place);
+  }
+  const places: FundingPlace[] = [];
+  for (const p of byPlace.values()) {
+    const free = p.arrived - p.planned - p.spent;
+    const shown = p.kind === 'COUNTERPARTY_FUNDS' && !opts.routePositions && free > opts.unallocatedMinor ? opts.unallocatedMinor : free;
+    const where = await placeOf(ex, p.location);
+    places.push({
+      kind: p.kind,
+      asset: p.asset,
+      location: p.location,
+      ...where,
+      free: Money.ofMinor(shown > 0n ? shown : 0n, p.asset).toDecimalString(),
+      ...(opts.routePositions
+        ? { arrived: Money.ofMinor(p.arrived, p.asset).toDecimalString(), planned: Money.ofMinor(p.planned, p.asset).toDecimalString(), spent: Money.ofMinor(p.spent, p.asset).toDecimalString() }
+        : {}),
+    });
+  }
+  const obligation = await ex.selectFrom('route_obligation').select(['route_delivers_minor']).where('trade_id', '=', tradeId).executeTakeFirst();
+  const delivered = sources.filter((x) => x.kind === 'COUNTERPARTY_FUNDS').reduce((sum, x) => sum + x.amountMinor, 0n);
+  const counterparty: TradeFunding['counterparty'] = delivered === 0n ? 'NONE' : obligation && delivered < obligation.route_delivers_minor ? 'PARTIAL' : 'FULL';
+  return { model, places, counterparty };
+}
+
+async function placeOf(ex: Executor, location: string): Promise<Pick<FundingPlace, 'label' | 'inrAccountId' | 'treasuryWalletId' | 'depositAddressId' | 'address'>> {
+  if (location.startsWith('INR:')) {
+    const id = location.slice(4);
+    const a = await ex.selectFrom('inr_settlement_account').select(['label', 'bank_name', 'account_last4']).where('id', '=', id).executeTakeFirst();
+    return { label: a ? `${a.label} · ${a.bank_name} ••${a.account_last4}` : 'INR account', inrAccountId: id, treasuryWalletId: null, depositAddressId: null, address: null };
+  }
+  const address = location.slice(5);
+  const wallet = await ex.selectFrom('treasury_wallet').select(['id', 'label']).where('network', '=', 'TRON').where('address', '=', address).executeTakeFirst();
+  if (wallet) return { label: wallet.label, inrAccountId: null, treasuryWalletId: wallet.id, depositAddressId: null, address };
+  const deposit = await ex.selectFrom('deposit_address').select('id').where('network', '=', 'TRON').where('address', '=', address).executeTakeFirst();
+  return { label: 'Deposit address', inrAccountId: null, treasuryWalletId: null, depositAddressId: deposit?.id ?? null, address };
+}
+
+const bankLabel = (b: { bank_name: string; account_last4: string }) => `${b.bank_name} ••••${b.account_last4}`;
+const walletLabel = (w: { label: string; address: string }) => `${w.label} · ${w.address.slice(0, 6)}…${w.address.slice(-4)}`;
+
+/** Where the trade pays now, every change asked for, and the client's verified destinations to choose from (D1, D2). */
+async function destinationOf(ex: Executor, tradeId: string, clientId: string, payoutAsset: 'INR' | 'USDT') {
+  const cur = await sql<{ bank_account_id: string | null; wallet_id: string | null }>`select bank_account_id, wallet_id from inrp2p_trade_payout_destination(${tradeId}::uuid)`.execute(ex);
+  const now = cur.rows[0];
+  const banks = await ex.selectFrom('bank_account').select(['id', 'bank_name', 'account_last4', 'status']).where('client_id', '=', clientId).execute();
+  const wallets = await ex.selectFrom('crypto_wallet').select(['id', 'label', 'address', 'purpose', 'status']).where('client_id', '=', clientId).execute();
+  const labelOf = (bankId: string | null, walletId: string | null): string => {
+    const b = bankId ? banks.find((x) => x.id === bankId) : undefined;
+    if (b) return bankLabel(b);
+    const w = walletId ? wallets.find((x) => x.id === walletId) : undefined;
+    return w ? walletLabel(w) : '—';
+  };
+  const destinationId = payoutAsset === 'INR' ? now?.bank_account_id ?? null : now?.wallet_id ?? null;
+  const changes = await sql<{
+    id: string; ref: string; status: DeskDestinationChange['status']; from_bank_account_id: string | null; from_wallet_id: string | null;
+    to_bank_account_id: string | null; to_wallet_id: string | null; reason: string; evidence: string; requested_by: string; requested_by_label: string | null;
+    requested_at: Date; decided_by_label: string | null; decided_at: Date | null; decision_note: string | null;
+  }>`
+    select c.id, c.ref, c.status, c.from_bank_account_id, c.from_wallet_id, c.to_bank_account_id, c.to_wallet_id, c.reason, c.evidence,
+           c.requested_by, coalesce(ru.name, ru.email) as requested_by_label, c.requested_at,
+           coalesce(du.name, du.email) as decided_by_label, c.decided_at, c.decision_note
+      from trade_destination_change c
+      left join auth_user ru on ru.id = c.requested_by
+      left join auth_user du on du.id = c.decided_by
+     where c.trade_id = ${tradeId}
+     order by c.requested_at desc, c.id desc`.execute(ex);
+  return {
+    destination: destinationId ? { id: destinationId, label: labelOf(payoutAsset === 'INR' ? destinationId : null, payoutAsset === 'USDT' ? destinationId : null) } : null,
+    destinationChanges: changes.rows.map((c) => ({
+      id: c.id, ref: c.ref, status: c.status, fromLabel: labelOf(c.from_bank_account_id, c.from_wallet_id), toLabel: labelOf(c.to_bank_account_id, c.to_wallet_id),
+      reason: c.reason, evidence: c.evidence, requestedBy: c.requested_by, requestedByLabel: c.requested_by_label ?? 'an operator', requestedAt: c.requested_at.toISOString(),
+      decidedByLabel: c.decided_by_label, decidedAt: c.decided_at ? c.decided_at.toISOString() : null, decisionNote: c.decision_note,
+    })),
+    destinationOptions: {
+      payout: payoutAsset === 'INR'
+        ? banks.filter((b) => b.status === 'ACTIVE' && b.id !== destinationId).map((b) => ({ id: b.id, label: bankLabel(b) }))
+        : wallets.filter((w) => w.status === 'ACTIVE' && w.id !== destinationId && (w.purpose === 'DESTINATION' || w.purpose === 'BOTH')).map((w) => ({ id: w.id, label: walletLabel(w) })),
+      refundWallets: wallets.filter((w) => w.status === 'ACTIVE' && (w.purpose === 'SOURCE' || w.purpose === 'BOTH')).map((w) => ({ id: w.id, label: walletLabel(w) })),
+      refundBanks: banks.filter((b) => b.status === 'ACTIVE').map((b) => ({ id: b.id, label: bankLabel(b) })),
+    },
   };
 }
 

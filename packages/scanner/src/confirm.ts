@@ -133,9 +133,10 @@ async function verifyOne(ctx: TxContext, deps: ScannerDeps, candidate: Candidate
     }
     // Everything else — not solidified yet, an unreachable or disagreeing provider, no independent quorum for
     // this amount (D-05) — leaves the transfer exactly as it was. The desk hears about it once it has been
-    // waiting too long, with the machine-readable reason attached.
+    // waiting too long, with the machine-readable reason attached — at once when providers contradict each other,
+    // which is never a matter of waiting.
     let caseOpened = false;
-    if (candidate.aged) {
+    if (candidate.aged || verified.code === 'PROVIDER_CONFLICT') {
       const opened = await openExceptionInTx(ctx, {
         type: 'TX_NOT_FINAL',
         subjectType: 'CRYPTO_TRANSFER',

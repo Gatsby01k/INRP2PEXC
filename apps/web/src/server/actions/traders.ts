@@ -4,10 +4,11 @@ import { revalidatePath } from 'next/cache';
 import type { FiatRail, TraderSide } from '@inrp2p/db';
 import {
   type ApplyPayload, type ProposeSettlementPayload, acceptOrder, applyAsTrader, cancelReserveWithdrawal, declineOrder, orderDeliveryAddress, proposeSettlementChange,
-  requestReserveWithdrawal, setAvailability, submitOrderPayment, traderReserveAddress, updateBlock,
+  type ClaimedDeposit, claimReserveDeposit, requestReserveWithdrawal, setAvailability, submitOrderPayment, updateBlock,
 } from '@inrp2p/traders';
-import type { CommandResult } from '../command.ts';
-import { runWorkspaceCommand } from '../client.ts';
+import { hitRateLimit } from '@inrp2p/commands';
+import { type CommandResult, failure } from '../command.ts';
+import { runWorkspaceCommand, workspaceContext } from '../client.ts';
 import { chainForWeb } from '../chain.ts';
 
 /**
@@ -68,8 +69,18 @@ export async function orderDeliveryAddressAction(input: { ref: string }, key: st
   return run('trader_order.delivery_address', (ctx, deps) => orderDeliveryAddress(ctx.actor, { custody: deps.custody }), input, key);
 }
 
-export async function reserveAddressAction(key: string): Promise<CommandResult<{ address: string }>> {
-  return run('trader.reserve_address', (ctx, deps) => traderReserveAddress(ctx.actor, { custody: deps.custody }), {} as Record<string, never>, key);
+/**
+ * The hash of a transfer the trader made to the shared reserve address (D-17). Counted per person before anything
+ * is read from the chain: a hash costs provider calls, and nobody needs more than a few a minute.
+ */
+export async function claimDepositAction(input: { txHash: string }, key: string): Promise<CommandResult<{ deposits: readonly ClaimedDeposit[] }>> {
+  try {
+    const ctx = await workspaceContext();
+    await hitRateLimit(ctx.db, { bucket: 'trader_reserve_claim', subject: ctx.actor.userId, limit: 10, windowSeconds: 600 });
+  } catch (e) {
+    return failure(e);
+  }
+  return run('trader_reserve.claim_deposit', (ctx) => claimReserveDeposit(ctx.actor, { chain: chainForWeb() }), input, key);
 }
 
 export async function requestWithdrawalAction(input: { amount: string }, key: string): Promise<CommandResult<{ ref: string }>> {

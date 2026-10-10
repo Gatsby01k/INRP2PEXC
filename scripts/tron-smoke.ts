@@ -1,7 +1,9 @@
 /**
  * Phase 5 manual smoke gate (TECH_DEBT TD-07). Verifies the real TRON adapters against real providers:
- * connectivity, canonical parsing, identical facts across two independent providers, finality handling, and the
- * decision the real `DualProviderChainVerifier` returns for one known transaction.
+ * connectivity, canonical parsing of the receipt (log address, topics, data), the account-history window read the
+ * scanner relies on (history without block numbers → receipts → the right log, read to completion), identical
+ * facts across two independent providers, finality handling, and the decision the real `QuorumChainVerifier`
+ * returns for one known transaction.
  *
  * It is **not** part of CI. It needs credentials and a live network, so it runs from `pnpm smoke:tron` or the
  * manual `tron-smoke` GitHub workflow. Nothing here writes to a database or to the repository, and no credential
@@ -17,13 +19,18 @@
  *   INRP2P_SMOKE_EXPECT_FROM / _TO     expected sender and destination (TRON base58)
  *   INRP2P_SMOKE_EXPECT_AMOUNT         expected amount in decimal USDT, e.g. `12.500000`
  * Optional: INRP2P_SMOKE_NETWORK (TRON), INRP2P_SMOKE_LOG_INDEX (0),
- *   INRP2P_SMOKE_TRON_PRIMARY_NAME / _SECONDARY_NAME, INRP2P_SMOKE_TRON_PRIMARY_KEY / _SECONDARY_KEY (API keys).
+ *   INRP2P_SMOKE_TRON_PRIMARY_NAME / _SECONDARY_NAME, INRP2P_SMOKE_TRON_PRIMARY_KEY / _SECONDARY_KEY (API keys),
+ *   INRP2P_SMOKE_ENVIRONMENT (label for the report, e.g. `nile-testnet`), INRP2P_SMOKE_REPORT_FILE (writes the
+ *   report as JSON: environment, time, expected facts, finality, agreement groups, every check — never a secret).
  */
+import { writeFileSync } from 'node:fs';
 import { Money, isTronAddress } from '@inrp2p/kernel';
-import { DualProviderChainVerifier, type TronProvider, TronHttpProvider, sameTransfer } from '@inrp2p/adapters';
+import { QuorumChainVerifier, type Trc20Transfer, type TronProvider, TronHttpProvider, sameTransfer } from '@inrp2p/adapters';
 
 export interface SmokeConfig {
   readonly network: 'TRON';
+  /** A label for the report; never an endpoint or a key. */
+  readonly environment: string;
   readonly tokenContract: string;
   readonly txHash: string;
   readonly logIndex: number;
@@ -96,6 +103,7 @@ export function smokeConfigFromEnv(env: NodeJS.ProcessEnv): { config: SmokeConfi
   return {
     config: {
       network: 'TRON',
+      environment: (env.INRP2P_SMOKE_ENVIRONMENT ?? 'unlabelled').trim().slice(0, 60) || 'unlabelled',
       tokenContract,
       txHash,
       logIndex: Number.parseInt(rawLogIndex, 10),
@@ -116,19 +124,37 @@ export function smokeConfigFromEnv(env: NodeJS.ProcessEnv): { config: SmokeConfi
   };
 }
 
-const providerOf = (p: SmokeConfig['primary']): TronProvider =>
-  new TronHttpProvider({ name: p.name, independenceGroup: p.group, baseUrl: p.baseUrl, ...(p.apiKey ? { apiKey: p.apiKey } : {}) });
+const providerOf = (p: SmokeConfig['primary'], fetchImpl?: typeof fetch): TronProvider =>
+  new TronHttpProvider({ name: p.name, independenceGroup: p.group, baseUrl: p.baseUrl, ...(p.apiKey ? { apiKey: p.apiKey } : {}), ...(fetchImpl ? { fetchImpl } : {}) });
 
-/** Runs the gate. Every step is reported, including the ones that passed, so a failure has context. */
-export async function runSmoke(config: SmokeConfig): Promise<{ ok: boolean; checks: SmokeCheck[] }> {
+export interface SmokeReport {
+  readonly ok: boolean;
+  readonly environment: string;
+  readonly network: 'TRON';
+  readonly ranAt: string;
+  readonly transaction: { readonly txHash: string; readonly logIndex: number };
+  readonly expected: { readonly contract: string; readonly from: string; readonly to: string; readonly amount: string };
+  readonly providers: readonly { readonly name: string; readonly group: string }[];
+  readonly finality: { readonly blockNumber: string | null; readonly solidifiedBlock: string | null };
+  readonly agreement: { readonly agreedBy: readonly string[]; readonly agreedGroups: readonly string[] };
+  readonly checks: readonly SmokeCheck[];
+}
+
+/**
+ * Runs the gate. Every step is reported, including the ones that passed, so a failure has context. `fetchImpl` is
+ * for the dry run against a fake node only; the real gate always uses the network.
+ */
+export async function runSmoke(config: SmokeConfig, opts: { fetchImpl?: { primary?: typeof fetch; secondary?: typeof fetch } } = {}): Promise<SmokeReport> {
   const checks: SmokeCheck[] = [];
   const record = (name: string, ok: boolean, detail: string) => {
     checks.push({ name, ok, detail });
     return ok;
   };
-  const primary = providerOf(config.primary);
-  const secondary = providerOf(config.secondary);
-  const verifier = new DualProviderChainVerifier({ primary, secondary, tokenContract: config.tokenContract });
+  const primary = providerOf(config.primary, opts.fetchImpl?.primary);
+  const secondary = providerOf(config.secondary, opts.fetchImpl?.secondary);
+  const verifier = new QuorumChainVerifier({ providers: [primary, secondary], tokenContract: config.tokenContract });
+  let finality = { blockNumber: null as string | null, solidifiedBlock: null as string | null };
+  let agreement = { agreedBy: [] as readonly string[], agreedGroups: [] as readonly string[] };
 
   record('independence groups', verifier.independenceGroups.length === 2, `groups=[${verifier.independenceGroups.join(', ')}] providers=[${verifier.providers.join(', ')}]`);
 
@@ -144,20 +170,23 @@ export async function runSmoke(config: SmokeConfig): Promise<{ ok: boolean; chec
     }
   }
 
-  // 2. Canonical parsing: both providers return the transfer, parsed into the same shape the domain reads.
-  const seen: Record<string, Awaited<ReturnType<TronProvider['getTransfer']>>> = {};
+  // 2. Canonical receipt parsing: both providers return the transfer, parsed into the shape the domain reads.
+  const seen: Record<string, Trc20Transfer | null> = {};
   for (const p of [primary, secondary]) {
     try {
       const t = await p.getTransfer(config.txHash, config.logIndex);
-      seen[p.name] = t;
-      record(`${p.name}: transfer parsed`, t !== null, t ? `${t.amountMinor} minor, block ${t.blockNumber}, receipt ${t.receiptStatus}` : 'the provider does not know this transaction');
+      seen[p.name] = t.status === 'FOUND' ? t.transfer : null;
+      record(`${p.name}: receipt parsed`, t.status === 'FOUND', t.status === 'FOUND'
+        ? `${t.transfer.amountMinor} minor, block ${t.transfer.blockNumber}, receipt ${t.transfer.receiptStatus}, contract ${t.transfer.tokenContract}`
+        : t.status === 'TX_FAILED' ? `the transaction failed on chain (${t.result})` : 'the provider does not know this transaction');
     } catch (e) {
-      record(`${p.name}: transfer parsed`, false, (e as Error).message);
+      seen[p.name] = null;
+      record(`${p.name}: receipt parsed`, false, (e as Error).message);
     }
   }
 
-  const a = seen[config.primary.name];
-  const b = seen[config.secondary.name];
+  const a = seen[config.primary.name] ?? null;
+  const b = seen[config.secondary.name] ?? null;
   record('providers report identical facts', Boolean(a && b && sameTransfer(a, b)), a && b ? (sameTransfer(a, b) ? 'every field the domain reads matches' : 'the two providers disagree') : 'one of the providers did not return the transfer');
 
   // 3. The expected facts. A smoke test that does not know what it is looking at proves nothing.
@@ -167,24 +196,50 @@ export async function runSmoke(config: SmokeConfig): Promise<{ ok: boolean; chec
     record('destination', a.toAddress === config.expect.to, `${a.toAddress}`);
     record('amount', a.amountMinor === config.expect.amountMinor, `${Money.ofMinor(a.amountMinor, 'USDT').toDecimalString()} USDT`);
     record('receipt', a.receiptStatus === 'SUCCESS', `${a.receiptStatus}`);
+
+    // 4. The scanner's own path: the destination's account history around the transaction's block, every page,
+    // every receipt — the transfer must come back with its real log index and the window must be complete.
+    for (const p of [primary, secondary]) {
+      try {
+        const w = await p.readIncomingTransfers({ address: config.expect.to, contract: config.tokenContract, sinceBlock: a.blockNumber, untilBlock: a.blockNumber });
+        const hit = w.transfers.find((t) => t.txHash === a.txHash && t.logIndex === a.logIndex);
+        record(`${p.name}: window read`, w.complete && Boolean(hit), `${w.complete ? 'complete' : `incomplete: ${w.incompleteReason}`}; ${w.transfers.length} transfer(s) in block ${a.blockNumber}, ${w.pages} page(s), ${w.requests} request(s)${hit ? '' : '; the transfer under test is missing'}`);
+      } catch (e) {
+        record(`${p.name}: window read`, false, (e as Error).message);
+      }
+    }
   }
 
-  // 4. The real verifier's decision, exactly as the domain would see it.
+  // 5. The real verifier's decision, exactly as the domain would see it.
   try {
-    const receipt = await verifier.lookupTransfer('TRON', config.txHash, config.logIndex);
-    if (!receipt) {
-      record('verifier decision', false, 'the verifier does not know this transfer');
+    const v = await verifier.verifyTransfer('TRON', config.txHash, config.logIndex);
+    if (v.status !== 'FOUND') {
+      record('verifier decision', false, `${v.status}${'reason' in v ? `: ${v.reason}` : ''}`);
     } else {
+      const receipt = v.receipt;
+      finality = { blockNumber: receipt.blockNumber.toString(), solidifiedBlock: receipt.solidifiedBlock.toString() };
+      agreement = { agreedBy: receipt.agreedBy, agreedGroups: receipt.agreedGroups };
       const final = receipt.blockNumber <= receipt.solidifiedBlock;
       record('verifier: solidified', final, `block ${receipt.blockNumber} ≤ solidified ${receipt.solidifiedBlock}`);
-      record('verifier: quorum', receipt.agreedGroups.length >= 2, `agreedBy=[${receipt.agreedBy.join(', ')}] groups=[${receipt.agreedGroups.join(', ')}]`);
+      record('verifier: quorum', receipt.agreedGroups.length >= 2 && !receipt.degraded, `agreedBy=[${receipt.agreedBy.join(', ')}] groups=[${receipt.agreedGroups.join(', ')}]${receipt.degraded ? ` unavailable=[${receipt.unavailable.join(', ')}]` : ''}`);
       record('verifier: facts', receipt.amountMinor === config.expect.amountMinor && receipt.toAddress === config.expect.to, `${Money.ofMinor(receipt.amountMinor, 'USDT').toDecimalString()} USDT to ${receipt.toAddress}`);
     }
   } catch (e) {
     record('verifier decision', false, (e as Error).message);
   }
 
-  return { ok: checks.every((c) => c.ok), checks };
+  return {
+    ok: checks.every((c) => c.ok),
+    environment: config.environment,
+    network: config.network,
+    ranAt: new Date().toISOString(),
+    transaction: { txHash: config.txHash, logIndex: config.logIndex },
+    expected: { contract: config.tokenContract, from: config.expect.from, to: config.expect.to, amount: Money.ofMinor(config.expect.amountMinor, 'USDT').toDecimalString() },
+    providers: [{ name: config.primary.name, group: config.primary.group }, { name: config.secondary.name, group: config.secondary.group }],
+    finality,
+    agreement,
+    checks,
+  };
 }
 
 if (import.meta.main) {
@@ -197,8 +252,13 @@ if (import.meta.main) {
   const { config } = parsed;
   console.log(`TRON smoke gate: ${config.primary.name} (${config.primary.group}) vs ${config.secondary.name} (${config.secondary.group}) on ${config.network}`);
   console.log(`transaction ${config.txHash}:${config.logIndex}\n`);
-  const { ok, checks } = await runSmoke(config);
-  for (const c of checks) console.log(`${c.ok ? 'PASS' : 'FAIL'}  ${c.name}: ${c.detail}`);
-  console.log(`\n${ok ? 'TRON smoke gate PASSED' : 'TRON smoke gate FAILED'} (${checks.filter((c) => c.ok).length}/${checks.length} checks)`);
-  process.exit(ok ? 0 : 1);
+  const report = await runSmoke(config);
+  for (const c of report.checks) console.log(`${c.ok ? 'PASS' : 'FAIL'}  ${c.name}: ${c.detail}`);
+  console.log(`\n${report.ok ? 'TRON smoke gate PASSED' : 'TRON smoke gate FAILED'} (${report.checks.filter((c) => c.ok).length}/${report.checks.length} checks) — environment ${report.environment}, ${report.ranAt}`);
+  const file = (process.env.INRP2P_SMOKE_REPORT_FILE ?? '').trim();
+  if (file) {
+    writeFileSync(file, `${JSON.stringify(report, null, 2)}\n`);
+    console.log(`report written to ${file}`);
+  }
+  process.exit(report.ok ? 0 : 1);
 }

@@ -1,7 +1,8 @@
+import { sql } from 'kysely';
 import { DomainError, Money } from '@inrp2p/kernel';
 import type { Executor } from '@inrp2p/db';
-import { type ClientTradeView, getClientTradeView } from '@inrp2p/trades';
-import { type ClientSettlementView, getClientSettlementView } from '@inrp2p/settlement';
+import { type ClientTradeView, getClientTradeView, isCounterpartyFunded } from '@inrp2p/trades';
+import { type ClientSettlementView, fundingSources, getClientSettlementView } from '@inrp2p/settlement';
 import { maskedDestination } from '@inrp2p/quotes';
 import { clientSafe } from './access.ts';
 
@@ -53,8 +54,10 @@ export async function portalTrade(ex: Executor, clientId: string, tradeRef: stri
   if (!row || row.client_id !== clientId) throw new DomainError('NOT_FOUND', 'trade not found');
 
   const [trade, settlement] = await Promise.all([getClientTradeView(ex, row.id, clientId), getClientSettlementView(ex, row.id, clientId)]);
-  // The destination the trade was frozen with, not whatever is active now: a trade pays where it agreed to pay.
-  const frozen = await ex.selectFrom('trade_economics').select(['bank_account_id', 'crypto_wallet_id']).where('trade_id', '=', row.id).executeTakeFirstOrThrow();
+  // Where the trade pays: what it agreed to, or a change the client confirmed and the desk approved (D1, TD-18) — never
+  // simply whatever destination is active now.
+  const now = await sql<{ bank_account_id: string | null; wallet_id: string | null }>`select bank_account_id, wallet_id from inrp2p_trade_payout_destination(${row.id}::uuid)`.execute(ex);
+  const frozen = { bank_account_id: now.rows[0]?.bank_account_id ?? null, crypto_wallet_id: now.rows[0]?.wallet_id ?? null };
 
   const transfer = await ex
     .selectFrom('crypto_transfer as c')
@@ -77,6 +80,7 @@ export async function portalTrade(ex: Executor, clientId: string, tradeRef: stri
   const receipt = completed ? await ex.selectFrom('receipt').select('id').where('trade_id', '=', row.id).executeTakeFirst() : undefined;
   const ended = row.completed_at ?? row.cancelled_at;
   const closedAt = ended ? ended.toISOString() : null;
+  const liquidity = funded && !completed ? await liquidityOf(ex, row.id) : null;
 
   return clientSafe({
     trade,
@@ -87,6 +91,7 @@ export async function portalTrade(ex: Executor, clientId: string, tradeRef: stri
       funded,
       detected: transfer !== undefined,
       paidSomething: paid.isPositive(),
+      liquidity,
       completed,
       closedAt: closedAt,
       detectedAt: transfer ? transfer.detected_at.toISOString() : null,
@@ -107,6 +112,20 @@ export async function portalTrade(ex: Executor, clientId: string, tradeRef: stri
   });
 }
 
+/**
+ * D-16: on a route that delivers to the exchange, the client is paid with the counterparty's money only, so after
+ * the client's own leg the trade waits for that liquidity to arrive. Null where that does not apply (a trade the
+ * treasury funded before D-16, or a route that pays the client directly). Only the state is shown — never an amount,
+ * which divided by the trade's size would be the route's rate.
+ */
+async function liquidityOf(ex: Executor, tradeId: string): Promise<'WAITING' | 'PARTIAL' | 'ARRIVED' | null> {
+  if (!(await isCounterpartyFunded(ex, tradeId))) return null;
+  const route = await ex.selectFrom('route_obligation').select(['execution_mode', 'route_delivers_minor']).where('trade_id', '=', tradeId).executeTakeFirst();
+  if (!route || route.execution_mode !== 'TO_EXCHANGE') return null;
+  const delivered = (await fundingSources(ex, tradeId, { kind: 'COUNTERPARTY_FUNDS' })).reduce((sum, x) => sum + x.amountMinor, 0n);
+  return delivered === 0n ? 'WAITING' : delivered < route.route_delivers_minor ? 'PARTIAL' : 'ARRIVED';
+}
+
 /** Lifecycle states past the client's own leg. */
 const FUNDED: ReadonlySet<string> = new Set(['FIRST_LEG_CONFIRMED', 'SETTLING', 'PARTIALLY_SETTLED', 'COMPLETED']);
 
@@ -120,6 +139,7 @@ function stagesFor(f: {
   detected: boolean;
   funded: boolean;
   paidSomething: boolean;
+  liquidity: 'WAITING' | 'PARTIAL' | 'ARRIVED' | null;
   completed: boolean;
   closedAt: string | null;
   detectedAt: string | null;
@@ -136,7 +156,14 @@ function stagesFor(f: {
   const settling: TradeStage = f.completed
     ? { key: 'settling', status: 'done', at: f.closedAt, detail: null }
     : f.funded
-      ? { key: 'settling', status: 'current', at: null, detail: f.paidSomething ? 'paying out' : 'preparing your payment' }
+      ? {
+          key: 'settling',
+          status: 'current',
+          at: null,
+          detail: f.paidSomething
+            ? f.liquidity === 'PARTIAL' ? 'paying out as liquidity arrives' : 'paying out'
+            : f.liquidity === 'WAITING' ? 'waiting for liquidity' : 'preparing your payment',
+        }
       : { key: 'settling', status: 'pending', at: null, detail: null };
   const completed: TradeStage = f.completed
     ? { key: 'completed', status: 'done', at: f.closedAt, detail: null }

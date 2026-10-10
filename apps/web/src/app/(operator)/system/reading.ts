@@ -16,5 +16,7 @@ export function duration(seconds: number): string {
 export function reading(c: HealthCheck, value: number): string {
   if (c.unit === 'seconds') return duration(value);
   if (c.unit === 'inr') return inr(String(value));
+  if (c.unit === 'percent') return `${value}%`;
+  if (c.unit === 'days') return value >= 9999 ? 'never' : `${value} d`;
   return String(value);
 }

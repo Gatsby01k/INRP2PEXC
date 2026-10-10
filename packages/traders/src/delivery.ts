@@ -8,7 +8,7 @@ import { allocateObligationDeliveryAddress } from '@inrp2p/treasury';
 import { lockTraderOfClient, traderClientCommand, lockOrder, type TraderDeps, traderProgram } from '@inrp2p/trader-core';
 
 /** Trade states in which the client's own funds are confirmed — the only time a trader is asked to move money. */
-export const COUNTERPARTY_FUNDED: ReadonlySet<string> = new Set(['FIRST_LEG_CONFIRMED', 'SETTLING', 'PARTIALLY_SETTLED', 'COMPLETED']);
+export const CLIENT_FUNDED_STATES: ReadonlySet<string> = new Set(['FIRST_LEG_CONFIRMED', 'SETTLING', 'PARTIALLY_SETTLED', 'COMPLETED']);
 
 async function startedOrderOfClient(ctx: TxContext, clientId: string, ref: string) {
   const row = await ctx.tx
@@ -25,7 +25,7 @@ async function startedOrderOfClient(ctx: TxContext, clientId: string, ref: strin
   const trade = await ctx.tx.selectFrom('trade').select(['lifecycle_state']).where('id', '=', order.trade_id).executeTakeFirstOrThrow();
   // A trader moves its money only once the other side's funds are confirmed: until then the trade can still be
   // cancelled with nothing to return, and nothing of the trader's is at risk.
-  if (!COUNTERPARTY_FUNDED.has(trade.lifecycle_state)) throw new DomainError('TRADER_ACTION_NOT_DUE', 'wait until the other side is funded — you will be told when it is your turn');
+  if (!CLIENT_FUNDED_STATES.has(trade.lifecycle_state)) throw new DomainError('TRADER_ACTION_NOT_DUE', 'wait until the other side is funded — you will be told when it is your turn');
   return { ...order, route_obligation_id: order.route_obligation_id };
 }
 

@@ -3,10 +3,10 @@ import { DomainError } from '@inrp2p/kernel';
 import {
   type CustodyAdapter,
   type FieldProtector,
-  LocalKeyEncryptionKey,
   PoolCustodyAdapter,
+  UNCONFIGURED_FIELD_PROTECTOR,
   UnconfiguredCustodyAdapter,
-  createFieldProtector,
+  fieldProtectionFromEnv,
 } from '@inrp2p/adapters';
 import type { QuoteDeps } from '@inrp2p/quotes';
 import { optionalEnv } from './env.ts';
@@ -21,37 +21,14 @@ import { optionalEnv } from './env.ts';
  */
 
 /**
- * The only key implementation available today is a locally held KEK — TD-03: a KMS-backed KeyEncryptionKey is
- * required before real client data reaches staging or production.
+ * Field protection from the environment, with the worker's rules (`fieldProtectionFromEnv`, TD-03): an AWS KMS key in
+ * production — a locally held one, or one of the repository's test keys, refuses to start — and a refusing protector
+ * when nothing is configured outside production.
  */
-function protectorFromEnv(): FieldProtector | null {
-  const keyId = optionalEnv('INRP2P_KEK_ID');
-  const kek = optionalEnv('INRP2P_KEK_BASE64');
-  const hmac = optionalEnv('INRP2P_FIELD_HMAC_BASE64');
-  if (!keyId || !kek || !hmac) return null;
-  const hmacKey = Buffer.from(hmac, 'base64');
-  if (hmacKey.length !== 32) throw new DomainError('INVALID_ARGUMENT', 'INRP2P_FIELD_HMAC_BASE64 must decode to 32 bytes');
-  return createFieldProtector({ kek: LocalKeyEncryptionKey.fromBase64(keyId, kek), hmacKey });
-}
-
-/** Refuses every operation, so an unconfigured deployment fails at the boundary instead of storing plaintext. */
-const NOT_CONFIGURED = 'FIELD_PROTECTION_NOT_CONFIGURED: INRP2P_KEK_ID, INRP2P_KEK_BASE64 and INRP2P_FIELD_HMAC_BASE64 are required';
-const UNCONFIGURED_PROTECTOR: FieldProtector = {
-  async seal(): Promise<never> {
-    throw new Error(NOT_CONFIGURED);
-  },
-  async open(): Promise<never> {
-    throw new Error(NOT_CONFIGURED);
-  },
-  lookupHash(): never {
-    throw new Error(NOT_CONFIGURED);
-  },
-};
-
 let protector: FieldProtector | undefined;
 
 export function protectorForWeb(): FieldProtector {
-  if (!protector) protector = protectorFromEnv() ?? UNCONFIGURED_PROTECTOR;
+  if (!protector) protector = fieldProtectionFromEnv(process.env)?.protector ?? UNCONFIGURED_FIELD_PROTECTOR;
   return protector;
 }
 

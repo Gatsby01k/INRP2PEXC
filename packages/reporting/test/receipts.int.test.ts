@@ -9,7 +9,7 @@ import {
   type ReceiptSnapshot, buildReceiptSnapshot, canonicalJson, getReceipt, issueReceipt, receiptArtifacts,
   receiptCsv, receiptHandler, receiptHtml, regenerateReceipt, sha256,
 } from '../src/index.ts';
-import { type World, createWorld, newUtr, openTrade, settleFirstLeg } from '../../settlement/test/world.ts';
+import { type World, createWorld, newUtr, openTrade, settleFirstLeg, ensureCounterpartyFunds } from '../../settlement/test/world.ts';
 
 /**
  * Phase 8 exit: a receipt regenerated from its snapshot is the same document, byte for byte.
@@ -36,6 +36,7 @@ beforeAll(async () => {
 afterAll(async () => w.close());
 
 async function payLeg(amount: string) {
+  await ensureCounterpartyFunds(w, tradeId);
   const leg = await runAs(w.app, createPayoutLeg(w.settlementOp.actor, {}), w.settlementOp.ref, 'payout_leg.create', {
     tradeId, amount, payer: 'EXCHANGE_ACCOUNT' as const, inrAccountId: w.inrAccountId,
   });
@@ -94,6 +95,7 @@ describe('issuing', () => {
   it('is what the outbox handler does with `receipt.generate`', async () => {
     const other = await openTrade(w, { baseUsdt: '20', clientRate: CLIENT_RATE, routeRate: ROUTE_RATE, executionMode: 'TO_EXCHANGE' });
     await settleFirstLeg(w, other.tradeId);
+    await ensureCounterpartyFunds(w, other.tradeId);
     const leg = await runAs(w.app, createPayoutLeg(w.settlementOp.actor, {}), w.settlementOp.ref, 'payout_leg.create', {
       tradeId: other.tradeId, amount: '1800.00', payer: 'EXCHANGE_ACCOUNT' as const, inrAccountId: w.inrAccountId,
     });
@@ -256,6 +258,7 @@ describe('an adjusted trade is receipted at what actually changed hands (FI-12)'
     const w = a;
     const trade = await openTrade(w, { baseUsdt: '100', clientRate: CLIENT_RATE, routeRate: ROUTE_RATE, executionMode: 'TO_EXCHANGE' });
     await settleFirstLeg(w, trade.tradeId);
+    await ensureCounterpartyFunds(w, trade.tradeId);
     const leg = await runAs(w.app, createPayoutLeg(w.settlementOp.actor, {}), w.settlementOp.ref, 'payout_leg.create', {
       tradeId: trade.tradeId, amount: '8900.00', payer: 'EXCHANGE_ACCOUNT' as const, inrAccountId: w.inrAccountId,
     });

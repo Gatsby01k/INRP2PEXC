@@ -1,4 +1,4 @@
-import { DualProviderChainVerifier } from '@inrp2p/adapters';
+import { QuorumChainVerifier } from '@inrp2p/adapters';
 import { FAKE_USDT_CONTRACT, FakeTronChain, FakeTronProvider } from '@inrp2p/adapters/testing';
 import type { ScannerPolicy } from '../src/index.ts';
 import type { ScannerDeps } from '../src/index.ts';
@@ -16,20 +16,20 @@ export interface ChainWorld extends World {
 
 /**
  * A Phase 4 world whose chain is two fake TRON nodes reading one fake chain, wired through the real
- * `DualProviderChainVerifier`. Tests move the chain (mine, lag, orphan, disagree) and run the real jobs.
+ * `QuorumChainVerifier`. Tests move the chain (mine, lag, orphan, disagree) and run the real jobs.
  */
 export async function createChainWorld(label: string, opts: { scanner?: Partial<ScannerPolicy>; depositPoolSize?: number } = {}): Promise<ChainWorld> {
   const w = await createWorld(label, opts.depositPoolSize ? { depositPoolSize: opts.depositPoolSize } : {});
   const tron = new FakeTronChain({ tokenContract: FAKE_USDT_CONTRACT });
   const primary = new FakeTronProvider('fake-node-a', tron);
   const secondary = new FakeTronProvider('fake-node-b', tron);
-  const chain = new DualProviderChainVerifier({ primary, secondary, tokenContract: FAKE_USDT_CONTRACT });
+  const chain = new QuorumChainVerifier({ providers: [primary, secondary], tokenContract: FAKE_USDT_CONTRACT });
   return {
     ...w,
     tron,
     primary,
     secondary,
-    scanDeps: { chain, provider: primary, ...(opts.scanner ? { scanner: opts.scanner } : {}) },
+    scanDeps: { chain, providers: [primary, secondary], ...(opts.scanner ? { scanner: opts.scanner } : {}) },
   };
 }
 

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import type { Db, TxContext } from '@inrp2p/db';
+import { isDomainError } from '@inrp2p/kernel';
+import { type Db, type TxContext, pgErrorCode } from '@inrp2p/db';
 import { executeCommand } from '@inrp2p/commands';
 import type { OutboxHandler } from '@inrp2p/outbox';
 import { dueOrders, endHoldInTx, expireOfferInTx, orderOfTrade, reconcileOrderInTx } from './orders.ts';
@@ -13,6 +14,14 @@ async function step<R>(db: Db, name: string, payload: Record<string, unknown>, f
   return out.result;
 }
 
+/** One order the sweep could not move this run; its step rolled back alone and is tried again on the next run. */
+export interface SweepFailure {
+  readonly step: string;
+  readonly orderId: string;
+  readonly code: string;
+  readonly message: string;
+}
+
 export interface SweepReport {
   readonly offersExpired: number;
   readonly holdsEnded: number;
@@ -20,27 +29,39 @@ export interface SweepReport {
   readonly delivered: number;
   readonly completed: number;
   readonly cancelled: number;
+  readonly failures: readonly SweepFailure[];
 }
 
 /**
  * `trader_orders_sweep` (cron, every minute): offers that lapsed expire and are routed on, holds that ended give
  * their capacity back, and started orders catch up with their obligation (the trader's side confirmed, the order
- * completed or cancelled). Each order is its own step, so one failure never holds up the rest, and every step is
- * state-guarded — running the sweep twice changes nothing the first run did not.
+ * completed or cancelled). Each order is its own step in its own transaction: a step that fails rolls back alone, is
+ * reported with its code, and the sweep goes on to the next order — one bad order never holds capacity, offers or
+ * completions of the others hostage. Every step is state-guarded, so the failed one is simply tried again next run;
+ * an order the sweep keeps failing on surfaces as `trader_orders_overdue` (RUNBOOKS `trader-sweep-behind`).
  */
 export async function runTraderSweep(db: Db): Promise<SweepReport> {
   const due = await dueOrders(db);
-  const report = { offersExpired: 0, holdsEnded: 0, holdsWaitingOnQuote: 0, delivered: 0, completed: 0, cancelled: 0 };
+  const failures: SweepFailure[] = [];
+  const report = { offersExpired: 0, holdsEnded: 0, holdsWaitingOnQuote: 0, delivered: 0, completed: 0, cancelled: 0, failures };
+  const guarded = async <R>(name: string, orderId: string, fn: (ctx: TxContext) => Promise<R>): Promise<R | null> => {
+    try {
+      return await step(db, name, { orderId }, fn);
+    } catch (e) {
+      failures.push({ step: name, orderId, code: isDomainError(e) ? e.code : (pgErrorCode(e) ?? 'UNEXPECTED'), message: e instanceof Error ? e.message : String(e) });
+      return null;
+    }
+  };
   for (const id of due.expiredOffers) {
-    if (await step(db, 'trader_order.expire_offer', { orderId: id }, (ctx) => expireOfferInTx(ctx, id))) report.offersExpired += 1;
+    if (await guarded('trader_order.expire_offer', id, (ctx) => expireOfferInTx(ctx, id))) report.offersExpired += 1;
   }
   for (const id of due.endedHolds) {
-    const out = await step(db, 'trader_order.end_hold', { orderId: id }, (ctx) => endHoldInTx(ctx, id));
+    const out = await guarded('trader_order.end_hold', id, (ctx) => endHoldInTx(ctx, id));
     if (out === 'RELEASED') report.holdsEnded += 1;
     else if (out === 'QUOTE_LIVE') report.holdsWaitingOnQuote += 1;
   }
   for (const id of due.toReconcile) {
-    const out = await step(db, 'trader_order.reconcile', { orderId: id }, (ctx) => reconcileOrderInTx(ctx, id));
+    const out = await guarded('trader_order.reconcile', id, (ctx) => reconcileOrderInTx(ctx, id));
     if (out === 'COMPLETED') report.completed += 1;
     else if (out === 'CANCELLED') report.cancelled += 1;
     else if (out === 'DELIVERED') report.delivered += 1;

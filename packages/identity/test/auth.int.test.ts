@@ -5,7 +5,7 @@ import { getMigrations } from 'better-auth/db/migration';
 import { createTestDatabase, type TestDatabase } from '@inrp2p/db/testing';
 import { pgErrorCode } from '@inrp2p/db';
 import {
-  authorizeOperator, clientAuthOptions, ensureClientIdentity, operatorAuthOptions, provisionClientUser, provisionOperator,
+  authorizeOperator, clientAuthOptions, createClientAuth, ensureClientIdentity, hasFreshStepUp, operatorAuthOptions, provisionClientUser, provisionOperator,
   requireClientSession, requireOperatorSession, type ClientAuth, type OperatorAuth,
 } from '../src/index.ts';
 import { APP, CookieJar, DESK, buildAuths, call, currentTotp, totpFromUri } from './support.ts';
@@ -38,21 +38,38 @@ async function enrolledOperator(roles: Parameters<typeof provisionOperator>[2]['
 }
 
 describe('Better Auth schema is committed as explicit SQL', () => {
-  it('Better Auth finds no tables or columns to create for the operator configuration', async () => {
-    const { toBeCreated, toBeAdded } = await getMigrations(operatorAuthOptions({ authDb: t.auth, appDb: t.app, secret: 'x'.repeat(32), baseURL: DESK }) as never);
-    expect({ toBeCreated: toBeCreated.map((c) => c.table), toBeAdded: toBeAdded.map((c) => [c.table, Object.keys(c.fields)]) }).toEqual({ toBeCreated: [], toBeAdded: [] });
+  // TD-01: the planner compares every column with what Better Auth expects and says so through its logger; a type or
+  // nullability drift (`auth_rate_limit.last_request` among them) is a warning there, so the plan is clean only when
+  // the logger heard nothing at warn level or above.
+  const plan = async (options: object) => {
+    const heard: string[] = [];
+    const out = await getMigrations({ ...options, logger: { level: 'warn', log: (level: string, message: string) => heard.push(`${level}: ${message}`) } } as never);
+    return { toBeCreated: out.toBeCreated.map((c) => c.table), toBeAdded: out.toBeAdded.map((c) => [c.table, Object.keys(c.fields)]), heard };
+  };
+
+  it('Better Auth finds nothing to create, add or warn about for the operator configuration', async () => {
+    expect(await plan(operatorAuthOptions({ authDb: t.auth, appDb: t.app, secret: 'x'.repeat(32), baseURL: DESK }))).toEqual({ toBeCreated: [], toBeAdded: [], heard: [] });
   });
 
-  it('Better Auth finds no tables or columns to create for the client configuration', async () => {
-    const { toBeCreated, toBeAdded } = await getMigrations(clientAuthOptions({ authDb: t.auth, appDb: t.app, secret: 'x'.repeat(32), baseURL: APP, otpSender: { send: async () => {} } }) as never);
-    expect({ toBeCreated: toBeCreated.map((c) => c.table), toBeAdded: toBeAdded.map((c) => [c.table, Object.keys(c.fields)]) }).toEqual({ toBeCreated: [], toBeAdded: [] });
+  it('Better Auth finds nothing to create, add or warn about for the client configuration', async () => {
+    expect(await plan(clientAuthOptions({ authDb: t.auth, appDb: t.app, secret: 'x'.repeat(32), baseURL: APP, otpSender: { send: async () => {} } }))).toEqual({ toBeCreated: [], toBeAdded: [], heard: [] });
+  });
+
+  it('the rate-limit clock round-trips as epoch milliseconds through the auth connection (TD-01)', async () => {
+    const now = Date.now();
+    await sql`insert into auth_rate_limit (id, key, count, last_request) values (${randomUUID()}, ${`td01:${randomUUID()}`}, 1, ${now})`.execute(t.auth);
+    const row = await sql<{ last_request: unknown }>`select last_request from auth_rate_limit where last_request = ${now}`.execute(t.auth);
+    // A number, not a string: Better Auth compares it with Date.now() arithmetically.
+    expect(row.rows[0]!.last_request).toBe(now);
+    expect(now).toBeGreaterThan(2 ** 31);
   });
 });
 
 describe('mandatory operator MFA', () => {
   it('a password-only session is refused until TOTP is enrolled and verified', async () => {
     const email = `op-${randomUUID()}@inrp2p.test`;
-    await provisionOperator(operator, t.app, { email, name: 'New Op', password: PASSWORD, roles: ['OWNER'] });
+    // The first OWNER is provisioned the way the bootstrap procedure does it: on the infrastructure connection (IX091).
+    await provisionOperator(operator, t.owner, { email, name: 'New Op', password: PASSWORD, roles: ['OWNER'] });
     const jar = new CookieJar();
     expect((await call(operator, DESK, jar, '/sign-in/email', { email, password: PASSWORD })).status).toBe(200);
     await expect(requireOperatorSession(operator, t.app, jar.headers(DESK))).rejects.toMatchObject({ code: 'MFA_ENROLLMENT_REQUIRED' });
@@ -136,6 +153,27 @@ describe('mandatory operator MFA', () => {
 });
 
 describe('client email OTP login', () => {
+  it('a code the email provider did not take is a refusal the client sees — never "check your email"', async () => {
+    // Better Auth swallows a sender's failure and answers success; the client was then told a code was on its way
+    // when none had left. The provider down, the request is refused (503) and audited, and nothing is pretended.
+    const failing = createClientAuth({
+      authDb: t.auth, appDb: t.app, secret: 'f'.repeat(64), baseURL: APP, rateLimit: { enabled: false },
+      otpSender: { send: async () => { throw new Error('EMAIL_DELIVERY_FAILED: provider refused'); } },
+    });
+    const email = `client-${randomUUID()}@acmepay.in`;
+    await provisionClientUser(failing, { email, name: 'Unlucky Client' });
+    const before = (await sql<{ n: string }>`select count(*)::text as n from audit_event where action = 'session.failed' and after ->> 'error' = 'OTP_NOT_SENT'`.execute(t.app)).rows[0]!.n;
+    const res = await call(failing, APP, new CookieJar(), '/email-otp/send-verification-otp', { email, type: 'sign-in' });
+    expect(res.status).toBe(503);
+    expect(JSON.stringify(res.json)).not.toMatch(/\d{6}/);
+    const after = (await sql<{ n: string }>`select count(*)::text as n from audit_event where action = 'session.failed' and after ->> 'error' = 'OTP_NOT_SENT'`.execute(t.app)).rows[0]!.n;
+    expect(Number(after) - Number(before)).toBe(1);
+    // A working provider is unaffected: the same address on the ordinary client auth gets its code.
+    const ok = await call(client, APP, new CookieJar(), '/email-otp/send-verification-otp', { email, type: 'sign-in' });
+    expect(ok.status).toBe(200);
+    expect(sentOtps.some((m) => m.email === email)).toBe(true);
+  });
+
   it('signs in a provisioned client with a hashed one-time code and verifies the email', async () => {
     const email = `client-${randomUUID()}@acmepay.in`;
     const userId = await provisionClientUser(client, { email, name: 'Acme Trader' });
@@ -218,22 +256,113 @@ describe('operator and client session isolation', () => {
     await expect(requireClientSession(client, t.app, toClient.headers(APP))).rejects.toMatchObject({ code: 'UNAUTHENTICATED' });
   });
 
-  it('an operator email cannot sign in through client OTP', async () => {
+  it('an operator email cannot sign in through client OTP: no code, no session, no cookie, the same answer as a wrong code (TD-02)', async () => {
     const { email } = await enrolledOperator();
     const jar = new CookieJar();
-    await call(client, APP, jar, '/email-otp/send-verification-otp', { email, type: 'sign-in' });
-    const otp = sentOtps.filter((m) => m.email === email).at(-1)?.otp;
-    if (otp) {
-      const res = await call(client, APP, jar, '/sign-in/email-otp', { email, otp });
-      expect(res.status).toBeGreaterThanOrEqual(400);
-    }
+    const sentBefore = sentOtps.length;
+    const failures = async () => (await sql<{ n: string }>`select count(*)::text as n from audit_event where action = 'session.failed' and after ->> 'error' = 'NOT_A_CLIENT_ADDRESS'`.execute(t.app)).rows[0]!.n;
+    const audited = await failures();
+
+    // Asking for a code answers exactly what an unknown address gets, and sends nothing.
+    const unknown = await call(client, APP, new CookieJar(), '/email-otp/send-verification-otp', { email: `nobody-${randomUUID()}@inrp2p.test`, type: 'sign-in' });
+    const asked = await call(client, APP, jar, '/email-otp/send-verification-otp', { email, type: 'sign-in' });
+    expect({ status: asked.status, json: asked.json }).toEqual({ status: unknown.status, json: unknown.json });
+    expect(sentOtps.slice(sentBefore).filter((m) => m.email === email)).toEqual([]);
+
+    // Signing in with any code answers exactly what a wrong code gets from a real client address: a controlled 400.
+    const clientUser = `client-${randomUUID()}@inrp2p.test`;
+    await provisionClientUser(client, { email: clientUser, name: 'A client' });
+    const wrong = await call(client, APP, new CookieJar(), '/sign-in/email-otp', { email: clientUser, otp: '000000' });
+    const res = await call(client, APP, jar, '/sign-in/email-otp', { email, otp: '123456' });
+    expect(res.status).toBe(400);
+    expect({ status: res.status, json: res.json }).toEqual({ status: wrong.status, json: wrong.json });
+    expect(jar.headers(APP).get('cookie') ?? '').not.toMatch(/session/i);
     await expect(requireClientSession(client, t.app, jar.headers(APP))).rejects.toMatchObject({ code: 'UNAUTHENTICATED' });
+    const operatorUser = await t.app.selectFrom('auth_user').select('id').where('email', '=', email).executeTakeFirstOrThrow();
+    expect(await t.app.selectFrom('auth_session').select('id').where('user_id', '=', operatorUser.id).where('surface', '=', 'CLIENT').execute()).toEqual([]);
+    // Each refusal is on the record once.
+    expect(Number(await failures()) - Number(audited)).toBe(2);
   });
 
   it('the database refuses a session whose surface does not match the user kind', async () => {
     const { userId } = await enrolledOperator();
     await expect(sql`insert into auth_session (expires_at, token, user_id, surface) values (statement_timestamp() + interval '1 hour', ${randomUUID()}, ${userId}, 'CLIENT')`.execute(t.owner))
       .rejects.toSatisfy((e) => pgErrorCode(e) === 'IX020');
+  });
+});
+
+describe('client authenticator (TD-11)', () => {
+  /** A code the authenticator has not given yet: Better Auth refuses a code twice, as it should. */
+  const nextTotp = async (secret: string) => {
+    const first = await currentTotp(secret);
+    let code = first;
+    while (code === first) {
+      await new Promise((r) => setTimeout(r, 1000));
+      code = await currentTotp(secret);
+    }
+    return code;
+  };
+
+  /** A client user signed in on the client surface with an email code, as a fresh session. */
+  async function signedInClient() {
+    const email = `client-${randomUUID()}@inrp2p.test`;
+    const userId = await provisionClientUser(client, { email, name: 'Client admin' });
+    await t.owner.updateTable('auth_user').set({ email_verified: true }).where('id', '=', userId).execute();
+    const jar = new CookieJar();
+    await call(client, APP, jar, '/email-otp/send-verification-otp', { email, type: 'sign-in' });
+    const otp = sentOtps.filter((m) => m.email === email).at(-1)!.otp;
+    expect((await call(client, APP, jar, '/sign-in/email-otp', { email, otp })).status).toBe(200);
+    const session = await t.app.selectFrom('auth_session').select('id').where('user_id', '=', userId).executeTakeFirstOrThrow();
+    return { email, userId, jar, sessionId: session.id };
+  }
+
+  it('enrols in a fresh session, confirms with a code, and the code is this session’s step-up', async () => {
+    const c = await signedInClient();
+    const enable = await call(client, APP, c.jar, '/two-factor/enable', {});
+    expect(enable.status).toBe(200);
+    const { totpURI, backupCodes } = enable.json as { totpURI: string; backupCodes: string[] };
+    expect(backupCodes.length).toBeGreaterThanOrEqual(8);
+    // Not enrolled until a code from the new authenticator is accepted.
+    expect((await t.app.selectFrom('auth_user').select('two_factor_enabled').where('id', '=', c.userId).executeTakeFirstOrThrow()).two_factor_enabled).toBe(false);
+    const secret = totpFromUri(totpURI);
+    expect((await call(client, APP, c.jar, '/two-factor/verify-totp', { code: await currentTotp(secret) })).status).toBe(200);
+    expect((await t.app.selectFrom('auth_user').select('two_factor_enabled').where('id', '=', c.userId).executeTakeFirstOrThrow()).two_factor_enabled).toBe(true);
+    // Confirming rotated the session; the new one carries the step-up, and the old one is gone.
+    const sessions = await t.app.selectFrom('auth_session').select('id').where('user_id', '=', c.userId).execute();
+    expect(sessions.map((x) => x.id)).not.toContain(c.sessionId);
+    expect(await hasFreshStepUp(t.app, sessions[0]!.id)).toBe(true);
+    await expect(requireClientSession(client, t.app, c.jar.headers(APP))).resolves.toMatchObject({ userId: c.userId });
+    const actions = await t.app.selectFrom('audit_event').select('action').where('actor_id', '=', c.userId).orderBy('seq').execute();
+    expect(actions.map((a) => a.action)).toEqual(expect.arrayContaining(['session.login_email_otp', 'user.mfa_enrollment_started', 'session.step_up']));
+    // Already enrolled: a second authenticator cannot be set up over it.
+    expect((await call(client, APP, c.jar, '/two-factor/enable', {})).status).toBeGreaterThanOrEqual(400);
+  });
+
+  it('offers nothing that hands the authenticator to someone holding only a session', async () => {
+    const c = await signedInClient();
+    const enable = await call(client, APP, c.jar, '/two-factor/enable', {});
+    const secret = totpFromUri(String((enable.json as { totpURI: string }).totpURI));
+    await call(client, APP, c.jar, '/two-factor/verify-totp', { code: await currentTotp(secret) });
+
+    expect((await call(client, APP, c.jar, '/two-factor/disable', {})).status).toBe(403);
+    expect((await call(client, APP, c.jar, '/two-factor/get-totp-uri', {})).status).toBe(403);
+    expect((await call(client, APP, c.jar, '/two-factor/verify-totp', { code: await currentTotp(secret), trustDevice: true })).status).toBe(403);
+    // New recovery codes need a fresh step-up with the current authenticator.
+    await t.owner.updateTable('step_up_verification').set({ verified_at: new Date(Date.now() - 3_600_000) }).where('user_id', '=', c.userId).execute();
+    expect((await call(client, APP, c.jar, '/two-factor/generate-backup-codes', {})).status).toBe(403);
+    expect((await call(client, APP, c.jar, '/two-factor/verify-totp', { code: await nextTotp(secret) })).status).toBe(200);
+    const fresh = await call(client, APP, c.jar, '/two-factor/generate-backup-codes', {});
+    expect(fresh.status).toBe(200);
+    expect((fresh.json as { backupCodes: string[] }).backupCodes.length).toBeGreaterThanOrEqual(8);
+    expect((await t.app.selectFrom('auth_user').select('two_factor_enabled').where('id', '=', c.userId).executeTakeFirstOrThrow()).two_factor_enabled).toBe(true);
+  });
+
+  it('setting one up needs a fresh sign-in', async () => {
+    const c = await signedInClient();
+    await sql`update auth_session set created_at = statement_timestamp() - interval '20 minutes' where id = ${c.sessionId}`.execute(t.owner);
+    const stale = await call(client, APP, c.jar, '/two-factor/enable', {});
+    expect(stale.status).toBe(403);
+    expect((await sql`select id from auth_two_factor where user_id = ${c.userId}`.execute(t.app)).rows).toEqual([]);
   });
 });
 

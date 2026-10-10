@@ -1,5 +1,4 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { sql } from 'kysely';
 import { encodeTronAddress } from '@inrp2p/kernel';
 import type { Db } from '@inrp2p/db';
 import { createTestDatabase, type TestDatabase } from '@inrp2p/db/testing';
@@ -61,9 +60,10 @@ async function person(t: TestDatabase, owner: TestOperator, clientId: string, op
 /**
  * A complete Phase 3 world: operators, an ACTIVE client with a bank account and a destination wallet, three client
  * users, an ACTIVE route with a fresh rate in both directions, recorded POOL custody with imported addresses and a
- * funded HOT treasury wallet (so BUY `TO_EXCHANGE` acceptance can reserve).
+ * HOT treasury wallet that holds nothing: trades are counterparty-funded (D-16), so nothing in this world needs the
+ * platform's own USDT, and nothing writes a balance into a wallet behind the commands' back.
  */
-export async function createScenario(label: string, opts: { custody?: 'POOL' | 'UNSUPPORTED'; hotBalanceUsdt?: string; depositPoolSize?: number } = {}): Promise<Scenario> {
+export async function createScenario(label: string, opts: { custody?: 'POOL' | 'UNSUPPORTED'; depositPoolSize?: number } = {}): Promise<Scenario> {
   const t = await createTestDatabase(label);
   const owner = await createTestOperator(t.owner, ['OWNER']);
   const dealer = await createTestOperator(t.owner, ['DEALER']);
@@ -86,8 +86,7 @@ export async function createScenario(label: string, opts: { custody?: 'POOL' | '
 
   const pool = await runAs(t.app, registerTreasuryWallet(finance.actor), finance.ref, 'treasury.register_wallet', { network: 'TRON' as const, address: encodeTronAddress(randomBytes(20)), label: 'Deposit pool', role: 'DEPOSIT_POOL' as const });
   const hot = await runAs(t.app, registerTreasuryWallet(finance.actor), finance.ref, 'treasury.register_wallet', { network: 'TRON' as const, address: encodeTronAddress(randomBytes(20)), label: 'Hot wallet', role: 'HOT' as const });
-  // Balance observation is Phase 4's job; the fixture writes it directly so acceptance can reserve against it.
-  await sql`update treasury_wallet set observed_balance_minor = ${BigInt(opts.hotBalanceUsdt ?? '1000000') * 1_000_000n}, observed_at = statement_timestamp(), updated_at = statement_timestamp() where id = ${hot.walletId}`.execute(t.owner);
+  void hot;
   if ((opts.custody ?? 'POOL') === 'POOL') {
     await runAs(t.app, recordCustodyCapability(finance.actor), finance.ref, 'custody.record_capability', { provider: custody.provider, network: 'TRON' as const, capability: 'POOL' as const, consolidationNotes: 'Provider sweeps to the hot wallet; energy delegated.' });
     await runAs(t.app, importPoolAddresses(finance.actor, custody), finance.ref, 'custody.import_pool_addresses', { network: 'TRON' as const, treasuryWalletId: pool.walletId });
@@ -109,7 +108,7 @@ export async function createScenario(label: string, opts: { custody?: 'POOL' | '
   };
 }
 
-/** Switches the scenario route to `TO_EXCHANGE` so BUY acceptance reserves treasury USDT (FI-33). */
+/** Switches the scenario route to `TO_EXCHANGE`: the route delivers to the exchange, which pays the client on (D-14, D-16). */
 export async function useExchangeExecution(s: Scenario, expectedVersion = 1): Promise<void> {
   await runAs(s.app, configureRoute(s.owner.actor), s.owner.ref, 'routes.configure', { routeId: s.routeId, expectedVersion, executionMode: 'TO_EXCHANGE' as const, reason: 'provider settles to our exchange account' });
 }

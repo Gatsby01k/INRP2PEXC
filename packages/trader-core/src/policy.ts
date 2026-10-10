@@ -100,7 +100,12 @@ export function configureTraderProgram(actor: OperatorActor) {
         const accountId = requireUuid(p.collectionAccountId, 'collectionAccountId');
         const account = await ctx.tx.selectFrom('inr_settlement_account').select(['status', 'direction']).where('id', '=', accountId).executeTakeFirst();
         if (!account) throw new DomainError('NOT_FOUND', 'INR account not found');
-        if (account.status !== 'ACTIVE' || account.direction === 'PAYOUT') throw new DomainError('ACCOUNT_NOT_ACTIVE', 'traders pay into an ACTIVE account that accepts collections');
+        if (account.status !== 'ACTIVE') throw new DomainError('ACCOUNT_NOT_ACTIVE', 'traders pay into an ACTIVE account');
+        // D-16: a client selling USDT is paid with the trader's INR from the account it arrived in, so the account
+        // traders pay into must also pay out. A collection-only account would leave every such trade unpayable.
+        if (account.direction !== 'BOTH') {
+          throw new DomainError('INVALID_ARGUMENT', 'traders pay into an account that both collects and pays out: the client is paid from where the trader\'s INR arrived (D-16)');
+        }
         changes.collection_account_id = accountId;
       }
     }

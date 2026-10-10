@@ -220,6 +220,20 @@
   font-size: var(--font-size-body-sm);
 }
 
+/* ——— Payments being reconciled after a database recovery (migration 0034): above the workspace, on its edges ——— */
+
+.holdNotice {
+  width: 100%;
+  max-width: 1280px;
+  margin: var(--space-4) auto 0;
+  padding: var(--space-3) var(--gutter);
+  border-left: 3px solid var(--status-warning);
+  background: var(--status-warning-soft);
+  color: var(--status-warning);
+  font-size: var(--font-size-body-sm);
+  line-height: 1.5;
+}
+
 /* ——— The workspace: heading, then the page and the robot's column ——— */
 
 .workspace {

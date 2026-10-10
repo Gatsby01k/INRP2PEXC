@@ -60,7 +60,8 @@ public site "Become a trader" ─▶ app host /become-a-trader ─▶ email ─�
    address has a CLIENT sign-in identity (`ensureClientIdentity`): an address that already has one keeps it (an
    existing client applies as itself — never a duplicate); a new one gets a bare identity with **no client, no role
    and no permission**. Rate-limited per caller and per address; the answer never says which addresses exist. The
-   code is Better Auth's own email OTP, exactly as for the workspace sign-in, whose sign-up stays closed.
+   code is Better Auth's own email OTP, exactly as for the workspace sign-in — which since D-17 makes the same bare
+   identity for a new address, whose holder then opens a client account themselves (`/open-account`) or applies here.
 2. **Application** (`trader.apply`): full name, Individual/Company, Telegram and/or phone (sealed), P2P experience
    (Binance/Bybit/Other/No) and an optional profile link, what the trader provides (INR/USDT/both), typical order
    and daily capacity per side, and settlement details — account holder, bank, account number (sealed, fingerprinted),
@@ -86,12 +87,13 @@ Destination states (`bank_account.status`, `crypto_wallet.status`): `PENDING_REV
 
 | Account | Exchange / History / Destinations | Traders | Notifications |
 |---|---|---|---|
-| Client onboarded by the desk (`exchange_access`) | ✔ | ✔ (apply, or trader screens) | ✔ |
+| Client with the Exchange (`exchange_access`) — opened by the desk, or by the client itself (D-17, `client.open_account`) | ✔ | ✔ (apply, or trader screens) | ✔ |
 | Client that applied as a trader only | — (redirected to Traders) | ✔ | ✔ |
-| Verified email, no application yet | — (redirected to Traders) | apply only | — |
+| Verified email, no account yet | — (redirected to `/open-account`) | apply | — |
 
 `portalAccess` (the Exchange's gate) refuses anything but a member of a client with Exchange access
-(`EXCHANGE_NOT_ENABLED`, which the pages turn into a redirect to `/traders`), and the database refuses a trade
+(`EXCHANGE_NOT_ENABLED`, which the pages turn into a redirect to `/open-account` for someone with no account and to
+`/traders` for a trader-only client), and the database refuses a trade
 request for a client without it (IX080), so no quote, trade or payout can exist for one. The desk opens the
 Exchange for a trader-only client with `client.set_exchange_access` (`client:manage`); the workspace sign-in has no
 client/trader choice.
@@ -185,32 +187,58 @@ and no market feed in V1. The client's rate and the exchange's margin are never 
 
 ## 7. Settlement per side
 
-Both sides settle through the order's `route_obligation` (`TO_EXCHANGE`):
+Both sides settle through the order's `route_obligation` (`TO_EXCHANGE`), and since D-16 (ADR 0016) both are paid
+with the other party's money only — INRP2P advances nothing of its own:
 
-| | Buy USDT trader | Sell USDT trader |
+| | Buy USDT trader (client sells USDT) | Sell USDT trader (client buys USDT) |
 |---|---|---|
-| Trader delivers | INR from its registered bank account to the programme's collection account, with the order ref as narration. The trader submits the UTR (`trader_order.submit_payment`), recorded as a `FROM_ROUTE_TO_EXCHANGE` route settlement; the desk confirms it against the bank (⧗). | USDT from its registered wallet to the order's own deposit address (`trader_order.delivery_address`, issued only when due). The scanner records and confirms it on finality as a route settlement. A transfer from another wallet is not counted (`REVIEW`, exception); over-delivery opens `ROUTE_SETTLEMENT_MISMATCH`. |
-| INRP2P delivers | USDT from a treasury wallet to the trader's registered wallet: desk records the tx (`TO_ROUTE`) and confirms on finality (⧗). | INR from an exchange account to the trader's registered bank account, against daily capacity: desk records the UTR (`TO_ROUTE`) and confirms (⧗). |
+| Trader delivers | INR from its registered bank account to the programme's collection account (ACTIVE, and `BOTH`: the client is paid out of it), with the order ref as narration. The trader submits the UTR (`trader_order.submit_payment`), recorded as a `FROM_ROUTE_TO_EXCHANGE` route settlement; the desk confirms it against the bank (⧗). | USDT from its registered wallet to the order's own deposit address (`trader_order.delivery_address`, issued only when due). The scanner records and confirms it on finality as a route settlement. A transfer from another wallet is not counted (`REVIEW`, exception); over-delivery opens `ROUTE_SETTLEMENT_MISMATCH`. |
+| The client is paid | INR from the collection account the trader's INR arrived in, earmarked against that delivery. | USDT from the order's deposit address the trader's USDT arrived at, earmarked against that delivery, once a fresh reading of that address shows it there (B2). |
+| INRP2P delivers to the trader | The client's USDT, from the client's deposit address, only after the trader's INR is confirmed in full (delivery versus payment): desk records the tx (`TO_ROUTE`, the log found by its facts) and confirms on finality (⧗). | The client's INR, from the account the client paid into, only after the trader's USDT is confirmed: desk records the UTR (`TO_ROUTE`) and confirms (⧗). |
 
-The client's own legs (first leg, payout) are unchanged: on a trader route INRP2P still pays or delivers to the
-client from its own accounts, as for any `TO_EXCHANGE` route.
+A trader that delivers part funds a partial payout only; one that delivers nothing leaves the client's funds
+earmarked where they are — refundable to the client, never advanced against. Another trade's money and any trader's
+Security Reserve never stand in (FI-76). A trader route is always `TO_EXCHANGE`: there is no trader → client path (B4).
 
 ## 8. Security Reserve
 
-- **Deposit**: the trader's own reserve address, issued once through custody and kept open (D-02). USDT from the
-  trader's registered wallet is credited on finality: `crypto:{x}:confirm`, purpose `TRADER_RESERVE`,
-  Dr `ASSET:TREASURY_USDT` / Cr `LIAB:TRADER_RESERVE:{trader}`. USDT from any other sender is not credited: it is
-  recorded with payer `UNKNOWN`, an `USDT_UNEXPECTED_SENDER` exception opens and the trader is notified.
+- **Deposit** (D-17, migration 0035): one TRC20 address for every trader — `TJNzB4sUGBo8fv7UdeeKQKQUffpfLSXbPP`, a
+  watched exchange wallet (`treasury_wallet.role = 'TRADER_RESERVE'`, at most one active; no key in the application)
+  — shown with its QR from the day a trader applies. The sender attributes it: USDT from the registered wallet of
+  exactly one trader, on file before the transfer (verified or under review), is that trader's reserve, credited on
+  finality: `crypto:{x}:confirm`, purpose `TRADER_RESERVE`, Dr `ASSET:TREASURY_USDT` / Cr `LIAB:TRADER_RESERVE:{trader}`.
+  From any other wallet — or one two traders have on file — it is recorded with payer `UNKNOWN`, parked in suspense
+  on confirmation and a `USDT_UNEXPECTED_SENDER` case opens (`RESERVE_SENDER_NOT_REGISTERED` / `_AMBIGUOUS`); the
+  database refuses crediting a trader whose registered wallet did not send it (IX102, FI-83). A trader may hand in its transaction hash
+  (`trader_reserve.claim_deposit`, any member, rate-limited): it is read from the providers and attributed by the same
+  rule, so another trader's hash is refused and nothing is written; a transfer already recorded is never recorded
+  again. Topping up is not admission: approval stays the desk's decision. Reserve addresses issued per trader before
+  D-17 stay watched and credit as before.
 - **Figures** (`reserveFigures`, all read from the ledger and open withdrawals — no frontend balances):
   `free = balance − pending withdrawals`; while the trader is *engaged* (available, or with accepted/started orders)
   `locked = min(free, required)`; `available for withdrawal = free − locked`; `pending release = open withdrawals`;
   `shortfall = required − free` when positive. A shortfall stops new orders (`RESERVE_SHORT`).
-- **Withdrawal**: the trader requests up to the available amount (never the locked part); switching off keeps the
+- **Withdrawal**: the account's administrator, or someone who can commit, requests up to the available amount (never
+  the locked part), to the registered wallet once the desk has verified it; switching off keeps the
   reserve locked until the last open order finishes. The desk sends from custody, records the tx hash (read back
   from the chain), and confirms on finality (⧗), posting Dr `LIAB:TRADER_RESERVE` / Cr `ASSET:TREASURY_USDT` once.
   The desk may reject with a reason; the trader may cancel before it is sent.
 - **Changing the requirement** (⧗) is audited and notified (`TRADER_RESERVE_ISSUE`); it never edits the trader's
   own terms, and nothing is taken from the reserve automatically.
+- **Applying it to USDT the trader did not deliver** (TD-21, migration 0029): on a started Sell USDT order whose client
+  side is funded, the desk may apply the trader's reserve to the USDT the order still owes — one person asks with the
+  reason (`trader_reserve:apply` ⧗), another approves (`trader_reserve:approve` ⧗✱). Approval holds the amount (it
+  leaves `available`; figure `applying`), issues the order's delivery address if needed and tells the trader
+  (`TRADER_RESERVE_ISSUE`). Custody moves the USDT from the reserve address (or a treasury wallet) to the order's
+  address; the desk records the hash or the scanner recognises it; on finality it is the order's delivery —
+  `crypto:{x}:confirm`, purpose `TRADER_RESERVE_APPLIED`, Dr `LIAB:TRADER_RESERVE` / Cr `ASSET:ROUTE_RECEIVABLE` — and
+  the order goes on (the client is paid from it, the trader is paid its INR). Never beyond the order's own USDT, never
+  automatic. An approved application whose USDT has not moved can be ended with a reason; a recorded transfer that
+  fails ends it.
+- **Holding it against INR the trader did not pay** (same commands, `kind = HOLD`): on a started Buy USDT order the
+  reserve is USDT and no conversion terms exist, so two people can only hold a named amount of it — out of `available`,
+  nothing moved, nothing posted, the INR debt open — until it is released with a reason or the order completes or is
+  cancelled (the sweep ends it). Converting it into an INR recovery is the owner's decision (TD-21).
 
 ## 9. Rewards
 
@@ -222,6 +250,13 @@ client from its own accounts, as for any `TO_EXCHANGE` route.
   (`trader_reward.record_payout`, capacity reserved; refused above the payable), then confirms it (⧗):
   `fiat:{f}:confirm`, purpose `TRADER_REWARD_PAYOUT`, Dr `LIAB:TRADER_REWARD_PAYABLE` / Cr `ASSET:INR_SETTLEMENT`.
   A failed payout releases the capacity (`TRADER_PAYOUT_FAILED`).
+- **Paid only out of realized margin** (D4, migration 0030): a reward is the platform's own expense, and since D-16
+  the platform's own money at an exchange account is only what its finished trades left there. A payout from an
+  account is refused (`TRADER_REWARD_NOT_COVERED`; IX096 for any writer) beyond that account's free margin: the
+  leftovers of trades completed on both sides (client paid, counterparty paid), less rewards already paid or being
+  paid from it, and never more than the account holds beyond the money of trades still open. A client's or a
+  trader's principal, another trade's money and a reserve never pay a reward; an uncovered reward stays payable.
+  The desk sees each account's free margin where it chooses the paying account.
 - Earnings shown to the trader: Today, Available (accrued, unpaid), Pending (frozen rewards on open orders),
   Being paid out, Total completed volume. No "profit" wording.
 
@@ -240,6 +275,7 @@ client from its own accounts, as for any `TO_EXCHANGE` route.
 | TR-09 | The locked reserve is never withdrawable; one open withdrawal per trader | Command under the trader lock; partial unique index |
 | TR-10 | Nothing about the client, the desk's pricing or internals reaches a trader projection | `assertTraderSafe` on every trader view; integration test |
 | TR-11 | Offer and hold expiry use the business clock | `inrp2p_now()` in commands and the sweep |
+| TR-12 | A reserve is applied only to its own trader's undelivered USDT, by two people, within what the order owes and the reserve holds free; it reaches the order as one delivery with one journal. Against INR it is only held: nothing moves or posts, the debt stays open, and a hold never outlives its order | Commands under trader → order → obligation locks; IX094, IX095; posting key unique; sweep ends holds with their order |
 
 Lock order: `trader_profile → trader_order → trader_block` after `acceptance_challenge` (ARCHITECTURE §4).
 
@@ -261,6 +297,8 @@ traders were excluded.
 | `traders:configure` | ⧗ | | ⧗ | Programme, approve, reject, limits, reserve, reward, settlement details, verify/reject submitted details, approve/reject settlement changes, reveal an applicant's phone |
 | `trader_payout:record` | ✔ | | ✔ | Record reserve withdrawal sent, reward payout |
 | `trader_payout:confirm` | ⧗ | | ⧗ | Confirm/reject withdrawals, confirm/fail payouts |
+| `trader_reserve:apply` | ⧗ | | ⧗ | Ask to apply the reserve to an order's undelivered USDT; withdraw the request (TD-21) |
+| `trader_reserve:approve` | ⧗✱ | | ⧗✱ | Approve or decline it (never the requester); end an approved one before its USDT moves |
 
 Every control is an audited command; nothing is punished automatically.
 
@@ -276,13 +314,17 @@ Through the existing outbox and client inbox (and email, where a provider is bou
 `/become-a-trader` (public entry on the app host), `/traders` (onboarding, application status with each detail's
 review state, or the working screen), `/traders/apply` (six steps), `/traders/settlement` (new bank account or wallet),
 `/traders/orders` (Active / Completed), `/traders/orders/[ref]` (progress, what to do now, payment details or the
-delivery address, evidence), `/traders/reserve`. The workspace robot reports the trader's own projection in one
+delivery address, evidence), `/traders/reserve` (the shared address with its QR, the transaction-hash hand-in, the
+figures and history — for every trader from the day it applies). `/open-account` is where someone with no account
+opens a client account (D-17). The workspace robot reports the trader's own projection in one
 sentence (ready, focused for a new order, waiting, verifying, success, alert); no chat, no LLM, no voice. Sounds
 play only for a new order, an accepted order, a completed order and an action required, and respect mute.
 
 ## 14. Jobs
 
-- `trader_orders_sweep` (worker cron, every minute): expires offers, ends holds, reconciles started orders.
+- `trader_orders_sweep` (worker cron, every minute): expires offers, ends holds, reconciles started orders. Each
+  order is its own step and transaction: one that fails rolls back alone, is logged with its code, and is retried
+  next minute while the sweep goes on (D4). An order left undone ten minutes is the `trader_orders_overdue` signal.
 - `traderRoutingHandler` (outbox): re-routes declined/expired/withdrawn offers, auto-assigns new requests when
   `auto_assign` is on, closes orders of cancelled trades.
 - `traderNotificationHandler` (outbox): writes the `TRADER_*` notifications.

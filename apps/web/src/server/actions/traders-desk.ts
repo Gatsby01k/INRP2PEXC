@@ -6,13 +6,14 @@ import { revealBankAccount, setClientExchangeAccess } from '@inrp2p/clients';
 import { executeCommand } from '@inrp2p/commands';
 import { confirmRouteSettlement, recordRouteSettlement } from '@inrp2p/settlement';
 import {
-  approveTrader, assignRequest, configureTraderProgram, confirmReserveWithdrawal, confirmRewardPayout, failRewardPayout, pauseTrader, reconcileOrderNow,
-  recordReserveWithdrawalSent, recordRewardPayout, rejectReserveWithdrawal, rejectTrader, releaseOrder, resumeTrader, revealTraderPhone, reviewSettlementChange,
+  approveReserveApplication, approveTrader, assignRequest, cancelReserveApplication, configureTraderProgram, confirmReserveWithdrawal, confirmRewardPayout,
+  endReserveApplication, failRewardPayout, pauseTrader, reconcileOrderNow, recordReserveApplicationSent, recordReserveWithdrawalSent, recordRewardPayout,
+  rejectReserveApplication, rejectReserveWithdrawal, rejectTrader, releaseOrder, requestReserveApplication, resumeTrader, revealTraderPhone, reviewSettlementChange,
   reviewTraderDestination, setTraderAssignments, setTraderLimits, setTraderRequiredReserve, setTraderReward, setTraderSettlementDetails,
 } from '@inrp2p/traders';
 import { type CommandResult, failure, runCommand } from '../command.ts';
 import { operatorContext } from '../operator.ts';
-import { protectorForWeb } from '../quotes.ts';
+import { custodyForWeb, protectorForWeb } from '../quotes.ts';
 
 /**
  * The desk's trader controls, as server actions. Each runs one command that authorizes itself (traders:view to
@@ -117,6 +118,7 @@ export async function recordOrderSettlementAction(
   input: {
     routeObligationId: string; flow: 'FROM_ROUTE_TO_EXCHANGE' | 'TO_ROUTE'; amount: string;
     rail?: FiatRail; utr?: string; inrAccountId?: string | null; txHash?: string; logIndex?: number; fromAddress?: string; treasuryWalletId?: string | null;
+    sourceDepositAddressId?: string | null;
   },
   key: string,
 ): Promise<CommandResult<unknown>> {
@@ -148,6 +150,33 @@ export async function confirmWithdrawalAction(input: { withdrawalId: string }, k
 
 export async function rejectWithdrawalAction(input: { withdrawalId: string; reason: string }, key: string): Promise<CommandResult<unknown>> {
   return run('trader_reserve.reject_withdrawal', (ctx) => rejectReserveWithdrawal(ctx.actor), input, key);
+}
+
+/** TD-21: the trader's own reserve applied to USDT one of its orders did not deliver — asked by one person. */
+export async function requestReserveApplicationAction(input: { orderId: string; amount?: string | null; reason: string }, key: string): Promise<CommandResult<unknown>> {
+  return run('trader_reserve.request_application', (ctx) => requestReserveApplication(ctx.actor), input, key);
+}
+
+/** … approved by another, which holds the amount and issues the order's delivery address if needed. */
+export async function approveReserveApplicationAction(input: { applicationId: string; note?: string | null }, key: string): Promise<CommandResult<unknown>> {
+  return run('trader_reserve.approve_application', (ctx) => approveReserveApplication(ctx.actor, { custody: custodyForWeb() }), input, key);
+}
+
+export async function rejectReserveApplicationAction(input: { applicationId: string; note: string }, key: string): Promise<CommandResult<unknown>> {
+  return run('trader_reserve.reject_application', (ctx) => rejectReserveApplication(ctx.actor), input, key);
+}
+
+export async function cancelReserveApplicationAction(input: { applicationId: string; reason: string }, key: string): Promise<CommandResult<unknown>> {
+  return run('trader_reserve.cancel_application', (ctx) => cancelReserveApplication(ctx.actor), input, key);
+}
+
+export async function endReserveApplicationAction(input: { applicationId: string; reason: string }, key: string): Promise<CommandResult<unknown>> {
+  return run('trader_reserve.end_application', (ctx) => endReserveApplication(ctx.actor), input, key);
+}
+
+/** Custody moved it; the transaction is read back from the chain and becomes the order's delivery. */
+export async function recordReserveApplicationSentAction(input: { applicationId: string; txHash: string; logIndex?: number }, key: string): Promise<CommandResult<unknown>> {
+  return run('trader_reserve.record_application_sent', (ctx, deps) => recordReserveApplicationSent(ctx.actor, { chain: deps.chain }), input, key);
 }
 
 export async function recordRewardPayoutAction(input: { traderId: string; amount: string; inrAccountId: string; rail: FiatRail; utr: string }, key: string): Promise<CommandResult<unknown>> {

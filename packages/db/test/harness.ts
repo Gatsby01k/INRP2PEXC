@@ -96,7 +96,7 @@ export async function createTestDatabase(label = 'test'): Promise<TestDatabase> 
  * trade id to reference, without building requests and quotes. Uses replication-role mode on the owner connection,
  * which skips foreign keys and triggers for this insert only. Never available to application roles.
  */
-export async function insertTradeStubs(owner: Db, count = 1): Promise<string[]> {
+export async function insertTradeStubs(owner: Db, count = 1, opts: { funding?: 'LEGACY_EXCHANGE_FUNDED' | 'COUNTERPARTY_FUNDED' } = {}): Promise<string[]> {
   const { sql } = await import('kysely');
   return owner.transaction().execute(async (tx) => {
     await sql`set local session_replication_role = replica`.execute(tx);
@@ -105,6 +105,9 @@ export async function insertTradeStubs(owner: Db, count = 1): Promise<string[]> 
       const r = await sql<{ id: string }>`
         insert into trade (quote_id, trade_request_id, client_id, direction, lifecycle_state, created_by)
         values (uuidv7(), uuidv7(), uuidv7(), 'SELL_USDT', 'AWAITING_FIRST_LEG', 'test-stub') returning id`.execute(tx);
+      // Replica mode skips the trigger that makes every new trade counterparty-funded (0025). Stubs exercise the
+      // lower-level machinery a legacy trade still uses (treasury reservations, capacity), so they say so explicitly.
+      await sql`insert into trade_funding (trade_id, model) values (${r.rows[0]!.id}, ${opts.funding ?? 'LEGACY_EXCHANGE_FUNDED'})`.execute(tx);
       ids.push(r.rows[0]!.id);
     }
     return ids;

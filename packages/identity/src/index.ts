@@ -1,6 +1,7 @@
 export * from './rbac/matrix.ts';
 export * from './rbac/authorize.ts';
 export * from './rbac/assign-role.ts';
+export * from './rbac/owner-grant.ts';
 export * from './rbac/command.ts';
 export * from './auth/config.ts';
 export * from './auth/guard.ts';

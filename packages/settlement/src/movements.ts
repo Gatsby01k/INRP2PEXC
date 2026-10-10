@@ -95,10 +95,39 @@ export interface RecordCryptoInput {
   readonly payerId?: string | null;
   readonly payeeType: 'CLIENT_WALLET' | 'EXCHANGE_TREASURY' | 'ROUTE' | 'TRADER' | 'UNKNOWN';
   readonly payeeId?: string | null;
-  readonly source: 'SCANNER' | 'OPERATOR_SUBMITTED';
+  readonly source: 'SCANNER' | 'OPERATOR_SUBMITTED' | 'CLIENT_SUBMITTED';
 }
 
 /** Records one on-chain transfer event as DETECTED. Unique per (network, tx hash, log index) — FI-23. */
+/**
+ * The Transfer log of `txHash` that is this movement, found by its facts — the configured contract, the sender, one
+ * of the expected recipients, the amount — and never by its position: a transaction whose USDT transfer is not log 0
+ * (a batch, a fee event first) is read right, and one that holds no such transfer, or holds it twice, is refused with
+ * what the chain shows. An index the operator names is held to the same facts. Confirmation still re-reads the chain
+ * through every provider (FI-24); this only decides which log the movement is.
+ */
+export async function locateTransferLog(
+  deps: SettlementDeps,
+  input: { txHash: string; logIndex?: number | null; from: string; to: readonly string[]; amountMinor: bigint },
+): Promise<{ logIndex: number; toAddress: string }> {
+  const txHash = requireText(input.txHash, 'txHash', 66).toLowerCase().replace(/^0x/, '');
+  const tx = await deps.chain.transactionTransfers('TRON', txHash);
+  if (tx.status === 'NOT_FOUND') throw new DomainError('NOT_FOUND', 'the chain does not know this transaction yet: check the hash, or record it once it is in a block');
+  if (tx.status === 'TX_FAILED') throw new DomainError('INVALID_ARGUMENT', 'this transaction failed on chain; it moved no USDT');
+  const matches = tx.transfers.filter((t) =>
+    t.tokenContract === deps.chain.tokenContract && t.fromAddress === input.from && input.to.includes(t.toAddress) && t.amountMinor === input.amountMinor);
+  if (input.logIndex !== undefined && input.logIndex !== null) {
+    const named = matches.find((t) => t.logIndex === input.logIndex);
+    if (!named) throw new DomainError('INVALID_ARGUMENT', `log ${input.logIndex} of this transaction is not this payment`, { matchingLogIndexes: matches.map((t) => t.logIndex) });
+    return { logIndex: named.logIndex, toAddress: named.toAddress };
+  }
+  if (matches.length === 0) {
+    throw new DomainError('INVALID_ARGUMENT', `this transaction does not move ${Money.ofMinor(input.amountMinor, 'USDT').toDecimalString()} USDT from ${input.from} to the expected destination`, { transfers: tx.transfers.length });
+  }
+  if (matches.length > 1) throw new DomainError('INVALID_ARGUMENT', `this transaction makes this payment ${matches.length} times; name the log`, { logIndexes: matches.map((t) => t.logIndex) });
+  return { logIndex: matches[0]!.logIndex, toAddress: matches[0]!.toAddress };
+}
+
 export async function recordCryptoTransfer(ctx: TxContext, input: RecordCryptoInput): Promise<{ transferId: string; existing: boolean }> {
   const txHash = typeof input.txHash === 'string' ? input.txHash.trim().toLowerCase().replace(/^0x/, '') : '';
   if (!/^[0-9a-f]{64}$/.test(txHash)) throw new DomainError('INVALID_ARGUMENT', 'txHash must be 64 hex characters');
@@ -145,7 +174,11 @@ export type VerificationFailure =
   | 'AMOUNT_MISMATCH'
   | 'RECEIPT_FAILED'
   | 'NOT_SOLIDIFIED'
-  | 'INSUFFICIENT_PROVIDER_QUORUM';
+  | 'INSUFFICIENT_PROVIDER_QUORUM'
+  /** No configured provider gave a usable answer. Never read as "no such transfer". */
+  | 'PROVIDER_UNAVAILABLE'
+  /** Providers contradict each other. Never resolved by majority, at any amount (D-05). */
+  | 'PROVIDER_CONFLICT';
 
 export type VerificationResult =
   | { readonly confirmed: true }
@@ -156,17 +189,39 @@ const notConfirmed = (code: VerificationFailure, reason: string): VerificationRe
 /**
  * FI-24: a transfer becomes CONFIRMED only when the chain says so — solidified block, `SUCCESS` receipt, the
  * configured USDT contract, the expected destination and the recorded amount. Above the D-05 threshold the
- * verifier must speak for at least two **independent** providers. Nothing here trusts the operator who submitted
- * the hash.
+ * verifier must speak for at least two **independent** providers. Below it one independent source is the
+ * documented minimum, and an answer given while another configured provider was unavailable is recorded as
+ * degraded in the audit trail, so the desk can see on how much evidence it stood. A provider outage, a lagging
+ * provider or two contradicting providers leave the transfer exactly as it is. Nothing here trusts the operator who
+ * submitted the hash.
  */
 export async function verifyCryptoTransfer(ctx: TxContext, deps: SettlementDeps, transferId: string): Promise<VerificationResult> {
   const policy = policyOf(deps);
   const t = await ctx.tx.selectFrom('crypto_transfer').selectAll().where('id', '=', requireUuid(transferId, 'transferId')).executeTakeFirstOrThrow();
   if (t.state === 'CONFIRMED') return { confirmed: true };
   if (t.state !== 'DETECTED') return notConfirmed('WRONG_STATE', `transfer is ${t.state}`);
+  const quorumNeeded = t.amount_minor >= Money.parse(policy.dualProviderThresholdUsdt, 'USDT').minor;
 
-  const receipt = await deps.chain.lookupTransfer('TRON', t.tx_hash, t.log_index);
-  if (!receipt) return notConfirmed('NOT_ON_CHAIN', 'the chain does not know this transfer yet');
+  const answer = await deps.chain.verifyTransfer('TRON', t.tx_hash, t.log_index);
+  if (answer.status === 'UNAVAILABLE') return notConfirmed('PROVIDER_UNAVAILABLE', `no chain provider answered: ${answer.reason}`);
+  if (answer.status === 'CONFLICT') return notConfirmed('PROVIDER_CONFLICT', answer.reason);
+  if (answer.status === 'NOT_FOUND') return notConfirmed('NOT_ON_CHAIN', 'the chain does not know this transfer yet');
+  if (answer.status === 'TX_FAILED') {
+    // Failing a transfer is as final as confirming one — it reverts a client's leg — so it needs the same evidence:
+    // a block the providers call final, and at or above the threshold two independent sources (D-05).
+    if (answer.agreedGroups.length === 0) return notConfirmed('NOT_SOLIDIFIED', 'the failed transaction is not final yet');
+    if (quorumNeeded && answer.agreedGroups.length < 2) {
+      return notConfirmed('INSUFFICIENT_PROVIDER_QUORUM', `a failure of this amount needs two independent providers to agree (D-05); ${answer.agreedGroups.length} did`);
+    }
+    await ctx.tx.updateTable('crypto_transfer').set({ state: 'FAILED', failed_at: sql<Date>`inrp2p_now()`, receipt_status: 'FAILED', block_number: answer.blockNumber, block_time: answer.blockTime }).where('id', '=', t.id).execute();
+    await appendAudit(ctx, {
+      action: 'usdt.failed', entityType: 'crypto_transfer', entityId: t.id, before: { state: 'DETECTED' },
+      after: { state: 'FAILED', receipt_status: 'FAILED', result: answer.result, verified_by: answer.agreedBy, independence_groups: answer.agreedGroups },
+    });
+    return notConfirmed('RECEIPT_FAILED', 'the transaction failed on chain');
+  }
+
+  const receipt = answer.receipt;
   if (receipt.tokenContract !== deps.chain.tokenContract || receipt.tokenContract !== t.token_contract) {
     return notConfirmed('WRONG_CONTRACT', 'the transfer is not a USDT transfer on the configured contract');
   }
@@ -175,16 +230,12 @@ export async function verifyCryptoTransfer(ctx: TxContext, deps: SettlementDeps,
   // payment and a stranger's transfer post differently, so the recorded sender must be the chain's.
   if (receipt.fromAddress !== t.from_address) return notConfirmed('SENDER_MISMATCH', 'the sender on chain does not match the recorded sender');
   if (receipt.amountMinor !== t.amount_minor) return notConfirmed('AMOUNT_MISMATCH', 'the on-chain amount does not match the recorded amount');
-  if (receipt.receiptStatus !== 'SUCCESS') {
-    await ctx.tx.updateTable('crypto_transfer').set({ state: 'FAILED', failed_at: sql<Date>`inrp2p_now()`, receipt_status: 'FAILED', block_number: receipt.blockNumber, block_time: receipt.blockTime }).where('id', '=', t.id).execute();
-    await appendAudit(ctx, { action: 'usdt.failed', entityType: 'crypto_transfer', entityId: t.id, before: { state: 'DETECTED' }, after: { state: 'FAILED', receipt_status: 'FAILED' } });
-    return notConfirmed('RECEIPT_FAILED', 'the transaction failed on chain');
-  }
-  if (receipt.blockNumber > receipt.solidifiedBlock) return notConfirmed('NOT_SOLIDIFIED', 'the block is not solidified yet');
+  if (receipt.receiptStatus !== 'SUCCESS') return notConfirmed('PROVIDER_CONFLICT', 'a provider reported a transfer log for a transaction that did not succeed');
+  if (receipt.blockNumber > receipt.solidifiedBlock || receipt.agreedGroups.length === 0) return notConfirmed('NOT_SOLIDIFIED', 'the block is not solidified yet');
   // D-05: at or above the threshold the facts must come from two **independent** sources. The quorum counts
   // independence groups, never provider names: two adapters onto the same vendor or node are one source, so
   // naming them differently can never manufacture a quorum.
-  if (t.amount_minor >= Money.parse(policy.dualProviderThresholdUsdt, 'USDT').minor && receipt.agreedGroups.length < 2) {
+  if (quorumNeeded && receipt.agreedGroups.length < 2) {
     return notConfirmed(
       'INSUFFICIENT_PROVIDER_QUORUM',
       `this amount needs two independent providers to agree (D-05); ${receipt.agreedGroups.length} independent source(s) agreed`,
@@ -210,6 +261,7 @@ export async function verifyCryptoTransfer(ctx: TxContext, deps: SettlementDeps,
     after: {
       state: 'CONFIRMED', block_number: receipt.blockNumber.toString(), solidified_block: receipt.solidifiedBlock.toString(),
       verified_by: receipt.agreedBy, independence_groups: receipt.agreedGroups,
+      ...(receipt.degraded ? { degraded: true, unavailable: receipt.unavailable } : {}),
     },
   });
   return { confirmed: true };
@@ -238,7 +290,9 @@ export interface PostMovementInput {
   readonly from: MovementParty;
   readonly to: MovementParty;
   readonly tradeId?: string | null;
-  readonly purpose: 'CLIENT_FIRST_LEG' | 'CLIENT_PAYOUT' | 'ROUTE_SETTLEMENT' | 'REFUND' | 'UNALLOCATED' | 'TRADER_RESERVE' | 'TRADER_REWARD_PAYOUT';
+  readonly purpose: 'CLIENT_FIRST_LEG' | 'CLIENT_PAYOUT' | 'ROUTE_SETTLEMENT' | 'REFUND' | 'UNALLOCATED' | 'TRADER_RESERVE' | 'TRADER_REWARD_PAYOUT' | 'TRADER_RESERVE_APPLIED';
+  /** `TRADER_RESERVE_APPLIED` only: the exchange wallets custody moved the reserve between. */
+  readonly custody?: { readonly fromWalletId: string; readonly toWalletId: string } | null;
 }
 
 /** The one journal a movement ever posts (FI-27, FI-42). A replay hits the unique posting key. */

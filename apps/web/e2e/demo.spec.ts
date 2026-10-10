@@ -1,5 +1,5 @@
 import { type Page, expect, test } from '@playwright/test';
-import { acceptAsClient, clientSendsUsdt, expireStepUp, latestSentQuoteId, noStepUp, realizedMargin, signIn, state, stepUp, tradeState } from './support.ts';
+import { acceptAsClient, clientSendsUsdt, expireStepUp, latestSentQuoteId, noStepUp, realizedMargin, routeDelivers, signIn, state, stepUp, tradeState } from './support.ts';
 
 /**
  * The Phase 6 demo scenario, end to end: 100,000 USDT sold at ₹102.00 against a ₹104.20 route, settled to the
@@ -9,7 +9,7 @@ import { acceptAsClient, clientSendsUsdt, expireStepUp, latestSentQuoteId, noSte
  * are done the way the real world does them: the **client** accepts their own quote (D-01), and the **chain**
  * delivers the USDT, discovered by the Phase 5 scanner.
  */
-test('the demo scenario, driven through the operator UI', async ({ page }) => {
+test('the demo scenario, driven through the operator UI', async ({ page, browser }) => {
   const s = state();
   test.slow();
   await signIn(page, s.owner);
@@ -39,6 +39,8 @@ test('the demo scenario, driven through the operator UI', async ({ page }) => {
   // 3. The client sends the USDT; the scanner detects and confirms it.
   await clientSendsUsdt(trade.tradeId, '100000');
   expect(await tradeState(trade.tradeId)).toBe('FIRST_LEG_CONFIRMED');
+  // The route delivers its INR to the exchange's account: the client is paid with that money (D-16).
+  await routeDelivers(trade.tradeId);
 
   // 4. The desk sees the trade waiting for a payout and opens its panel on the payout step.
   await page.goto('/');
@@ -50,28 +52,32 @@ test('the demo scenario, driven through the operator UI', async ({ page }) => {
   await expect(panel).toBeVisible();
   await expect(panel.getByText('₹10,200,000').first()).toBeVisible();
 
-  // 5. First leg: ₹6,000,000 against the exchange account's capacity. The sign-in verification is aged out
-  // first, so confirming money out has to be re-verified (SECURITY §2.1).
+  // 5. Both legs are above ₹2,500,000, so the owner who sends each one does not confirm it (SECURITY §4, C1): the
+  // settlement operator does, signed in on their own desk, re-verifying because their sign-in verification is aged
+  // out first (SECURITY §2.1).
+  const second = await browser.newContext({ baseURL: test.info().project.use.baseURL ?? '' });
+  const confirmer = await second.newPage();
+  await signIn(confirmer, s.settlementOperator);
   await expireStepUp();
-  await payLeg(page, '6000000', s.owner);
-  await expect(page.getByTestId('trade-panel').getByText('₹6,000,000').first()).toBeVisible();
+  await sendLeg(page, '6000000');
+  await confirmLeg(confirmer, trade.tradeRef, s.settlementOperator);
+  await expect.poll(async () => tradeState(trade.tradeId), { timeout: 20_000 }).toBe('PARTIALLY_SETTLED');
 
-  // 6. Second leg clears the rest — no second prompt, because that verification is still inside its window —
-  // and the trade completes with its margin realized.
-  await payLeg(page, '4200000', null);
+  // 6. Second leg clears the rest — no second prompt for the confirmer, whose verification is still inside its
+  // window — and the trade completes with its margin realized.
+  await sendLeg(page, '4200000');
+  await confirmLeg(confirmer, trade.tradeRef, null);
   await expect.poll(async () => tradeState(trade.tradeId), { timeout: 20_000 }).toBe('COMPLETED');
   expect(await realizedMargin()).toBe('220000.00');
+  await second.close();
 
   // 7. The completed trade has left the queue and is visible in Orders.
   await page.goto('/orders?state=COMPLETED');
   await expect(page.getByText(trade.tradeRef)).toBeVisible();
 });
 
-/**
- * Create → send → record the bank reference → confirm, all through the panel. `who` is the operator expected to
- * be asked to re-verify; `null` asserts the desk did not ask.
- */
-async function payLeg(page: Page, amount: string, who: ReturnType<typeof state>['owner'] | null): Promise<void> {
+/** Create → send → record the bank reference, through the panel, as the operator signed in on `page`. */
+async function sendLeg(page: Page, amount: string): Promise<void> {
   const panel = page.getByTestId('trade-panel');
   await panel.getByTestId('new-leg').getByLabel('Amount').fill(amount);
   await panel.getByRole('button', { name: 'Reserve & create leg' }).click();
@@ -83,7 +89,18 @@ async function payLeg(page: Page, amount: string, who: ReturnType<typeof state>[
   const utr = `IX${Date.now().toString(36).toUpperCase()}${amount.slice(0, 4)}`;
   await legs.getByLabel('UTR / reference').last().fill(utr);
   await legs.getByRole('button', { name: 'Save UTR' }).last().click();
+  // The sender is told that someone else confirms it, and is not offered the button.
+  await expect(legs.getByText(/someone else confirms it/).last()).toBeVisible();
+}
 
+/**
+ * Confirms the trade's leg waiting for confirmation, on another operator's desk. `who` is the operator expected to be
+ * asked to re-verify; `null` asserts the desk did not ask.
+ */
+async function confirmLeg(page: Page, tradeRef: string, who: ReturnType<typeof state>['owner'] | null): Promise<void> {
+  await page.goto(`/orders/${tradeRef}`);
+  const legs = page.getByTestId('legs');
+  await expect(legs).toBeVisible();
   // The button carries its keyboard hint in the accessible name ("Confirm ⧗"), so anchor on the verb.
   await legs.getByRole('button', { name: /^Confirm/ }).last().click();
   if (who) await stepUp(page, who);

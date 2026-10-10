@@ -38,7 +38,10 @@ test('desk: payout panel on a direct route, with the payer selector', async ({ p
   await openPanel(page, `trade:${s.trades.directRoute}`, 'payout');
   const panel = page.getByTestId('trade-panel');
   await expect(panel).toBeVisible();
-  await expect(panel.getByRole('radiogroup', { name: 'Pay from' })).toBeVisible();
+  // The payer selector: the exchange's account or the route paying the client directly. Which account the exchange
+  // would pay from is offered only once the counterparty has delivered (D-16), and on this trade it has not.
+  await expect(panel.getByRole('radiogroup', { name: 'Paid by' })).toBeVisible();
+  await expect(panel.getByRole('radio', { name: /Route pays directly/ })).toBeVisible();
   await capture(page, 'operator-payout-direct-route');
 });
 
@@ -111,7 +114,22 @@ test('clients', async ({ page }) => {
 test('system health', async ({ page }) => {
   await page.goto('/system');
   await expect(page.getByTestId('health-checks')).toBeVisible();
+  // Its one live measurement — the share of database connections — is pinned by `settle` (VISUAL_BASELINES §4b).
   await capture(page, 'operator-system');
+});
+
+test('traders: the desk’s list (TD-23)', async ({ page }) => {
+  await page.goto('/trader-desk');
+  await expect(page.getByRole('heading', { name: 'Traders', exact: true }).first()).toBeVisible();
+  await expect(page.getByText('Konkan Liquidity').first()).toBeVisible();
+  await capture(page, 'operator-trader-desk');
+});
+
+test('traders: one trader, its order and its reserve (TD-23)', async ({ page }) => {
+  await page.goto(`/trader-desk/${state().trader.traderId}`);
+  await expect(page.getByText('Konkan Liquidity').first()).toBeVisible();
+  await expect(page.getByText(state().trader.orderRef).first()).toBeVisible();
+  await capture(page, 'operator-trader');
 });
 
 test('command bar', async ({ page }) => {

@@ -20,6 +20,9 @@ export const LOOPBACK_HOST = '127.0.0.1';
 
 export const deskBaseUrl = (port: number): string => `http://${LOOPBACK_HOST}:${port}`;
 
+/** The monitoring token of an end-to-end run. Test-only, like everything in this harness. */
+export const E2E_HEALTH_TOKEN = 'e2e-monitoring-token-not-a-secret-0000000000';
+
 /**
  * The three surfaces the product serves, and how the harness serves them.
  *
@@ -84,6 +87,8 @@ export function deskServerEnv(opts: Omit<DeskServerOptions, 'label' | 'surfaces'
     // Cookies over plain http, through the explicitly named switch the runtime refuses in production.
     INRP2P_ALLOW_INSECURE_COOKIES: 'true',
     INRP2P_ENV: 'e2e',
+    // The monitoring token the e2e run presents to read the full health picture, as a monitoring system would.
+    INRP2P_HEALTH_TOKEN: E2E_HEALTH_TOKEN,
     ...(opts.custodyProvider ? { INRP2P_CUSTODY_PROVIDER: opts.custodyProvider, INRP2P_CUSTODY_CAPABILITY: 'POOL' } : {}),
     ...(opts.fieldKeys
       ? { INRP2P_KEK_ID: opts.fieldKeys.keyId, INRP2P_KEK_BASE64: opts.fieldKeys.kekBase64, INRP2P_FIELD_HMAC_BASE64: opts.fieldKeys.hmacBase64 }

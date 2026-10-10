@@ -5,7 +5,7 @@ import { Money } from '@inrp2p/kernel';
 import type { DeskAdjustment, DeskTrade } from '@inrp2p/desk';
 import { Button, StepUpMark, UTRField, normalizeUtr } from '@inrp2p/ui';
 import {
-  approveAdjustmentAction, cancelTradeAction, confirmRefundLegAction, createRefundLegAction, openTradeExceptionAction, refundAndCancelAction, rejectAdjustmentAction,
+  approveAdjustmentAction, cancelTradeAction, confirmRefundLegAction, createRefundLegAction, openTradeExceptionAction, refundAndCancelAction, refundExcessAction, rejectAdjustmentAction,
 } from '../../../server/actions/desk.ts';
 import { useCommand } from '../../../components/useCommand.tsx';
 import { PanelSection } from '../_desk/ContextPanel.tsx';
@@ -37,11 +37,22 @@ export function Closeout({ trade, perms, refundAccounts }: { trade: DeskTrade; p
   const cancelCase = trade.cases.find((c) => c.type === 'TRADE_CANCELLATION');
   const [refundFrom, setRefundFrom] = useState(refundAccounts[0]?.accountId ?? '');
   const [walletId, setWalletId] = useState(trade.payoutOptions.wallets[0]?.walletId ?? '');
+  // D-16: a counterparty-funded trade refunds the client's own money from where it arrived — never from the treasury.
+  const funded = trade.funding.model === 'COUNTERPARTY_FUNDED';
+  const clientPlaces = trade.funding.places.filter((p) => p.kind === 'CLIENT_FUNDS' && p.asset === inAsset && Money.parse(p.free, inAsset).isPositive());
+  const [placeKey, setPlaceKey] = useState(clientPlaces[0]?.location ?? '');
+  const place = clientPlaces.find((p) => p.location === placeKey);
+  const refundSource = funded
+    ? place
+      ? place.inrAccountId ? { inrAccountId: place.inrAccountId } : place.depositAddressId ? { sourceDepositAddressId: place.depositAddressId } : { treasuryWalletId: place.treasuryWalletId }
+      : null
+    : inAsset === 'INR' ? { inrAccountId: refundFrom } : { treasuryWalletId: walletId };
 
   if (!open) return null;
 
   return (
     <PanelSection title="Cancel or refund" testId="closeout">
+      <ExcessRefund trade={trade} perms={perms} refundAccounts={refundAccounts} />
       {!received.isPositive() ? (
         beforeFunds ? (
           perms.cancelTrade ? (
@@ -78,7 +89,18 @@ export function Closeout({ trade, perms, refundAccounts }: { trade: DeskTrade; p
 
           {refundPlanned.minor < received.minor && perms.createPayout ? (
             <div className={d.stackTight}>
-              {inAsset === 'INR' ? (
+              {funded ? (
+                clientPlaces.length > 0 ? (
+                  <SelectField
+                    label="Refund from — where the client’s money is"
+                    value={placeKey}
+                    onChange={setPlaceKey}
+                    options={clientPlaces.map((p) => ({ value: p.location, label: `${p.label}${p.address ? ` ${p.address.slice(0, 6)}…${p.address.slice(-4)}` : ''} · ${money(p.free, inAsset, { exact: inAsset === 'USDT' })} free` }))}
+                  />
+                ) : (
+                  <Notice icon="lock">The client’s money on this trade is already planned out; nothing is left to refund from.</Notice>
+                )
+              ) : inAsset === 'INR' ? (
                 <SelectField label="Refund from" value={refundFrom} onChange={setRefundFrom} options={refundAccounts.map((a) => ({ value: a.accountId, label: `${a.bankName} ••••${a.last4} · ${a.label}` }))} />
               ) : (
                 <SelectField label="Refund from" value={walletId} onChange={setWalletId} options={trade.payoutOptions.wallets.map((w) => ({ value: w.walletId, label: `${w.label} · ${money(w.available, 'USDT')} free` }))} />
@@ -89,9 +111,10 @@ export function Closeout({ trade, perms, refundAccounts }: { trade: DeskTrade; p
                 busy={cmd.busy}
                 consequence={`Creates a refund of everything received not yet refunded — ${money(received.sub(refundPlanned).toDecimalString(), inAsset, { exact: inAsset === 'USDT' })} — back to the client’s own ${inAsset === 'INR' ? 'bank account' : 'source wallet'}. It pays nothing yet: a second person confirms it with the evidence.`}
                 onConfirm={async () =>
+                  refundSource !== null &&
                   (
                     await cmd.run(`Plan the refund on ${trade.ref}`, (key) =>
-                      createRefundLegAction({ tradeId: trade.tradeId, ...(inAsset === 'INR' ? { inrAccountId: refundFrom } : { treasuryWalletId: walletId }) }, key),
+                      createRefundLegAction({ tradeId: trade.tradeId, ...refundSource }, key),
                     )
                   ).ok
                 }
@@ -137,6 +160,79 @@ export function Closeout({ trade, perms, refundAccounts }: { trade: DeskTrade; p
   );
 }
 
+/**
+ * Returning an overpayment (D2, TD-19): at most what arrived beyond the receivable, less what is already on its way
+ * back, to a verified destination of the client chosen here — a wallet they registered as sending from, or one of
+ * their bank accounts — paid from where the client's money is. Someone else confirms it, like every refund; the trade
+ * carries on and completes once it is back.
+ */
+function ExcessRefund({ trade, perms, refundAccounts }: { trade: DeskTrade; perms: TradePerms; refundAccounts: readonly CollectionAccount[] }) {
+  const cmd = useCommand();
+  const asset = trade.receivable.currency;
+  const planned = trade.legs
+    .filter((l) => l.side === 'REFUND_TO_CLIENT' && l.refundKind === 'EXCESS' && l.status !== 'CANCELLED' && l.status !== 'FAILED')
+    .reduce((a, l) => a.add(Money.parse(l.amount, asset)), Money.zero(asset));
+  const over = Money.parse(trade.received, asset).sub(Money.parse(trade.receivable.amount, asset)).sub(planned);
+  const destinations = asset === 'USDT' ? trade.destinationOptions.refundWallets : trade.destinationOptions.refundBanks;
+  const funded = trade.funding.model === 'COUNTERPARTY_FUNDED';
+  const places = trade.funding.places.filter((p) => p.kind === 'CLIENT_FUNDS' && p.asset === asset && Money.parse(p.free, asset).isPositive());
+  const [destinationId, setDestinationId] = useState(destinations[0]?.id ?? '');
+  const [placeKey, setPlaceKey] = useState(places[0]?.location ?? '');
+  const [accountId, setAccountId] = useState(refundAccounts[0]?.accountId ?? '');
+  const [walletId, setWalletId] = useState(trade.payoutOptions.wallets[0]?.walletId ?? '');
+  const overCase = trade.cases.find((c) => c.type === 'USDT_OVERPAYMENT');
+  if (!over.isPositive() || !perms.createPayout) return null;
+  const place = places.find((p) => p.location === placeKey);
+  const source = funded
+    ? place ? (place.inrAccountId ? { inrAccountId: place.inrAccountId } : place.depositAddressId ? { sourceDepositAddressId: place.depositAddressId } : { treasuryWalletId: place.treasuryWalletId }) : null
+    : asset === 'INR' ? { inrAccountId: accountId } : { treasuryWalletId: walletId };
+  return (
+    <div className={d.stackTight} data-testid="excess-refund">
+      <Notice tone="warning" icon="exceptions">
+        <strong>{money(over.toDecimalString(), asset, { exact: asset === 'USDT' })} arrived beyond what the trade receives.</strong> Return it to the client, or
+        re-price the trade to what arrived (a financial adjustment).
+      </Notice>
+      {destinations.length === 0 ? (
+        <Notice>The client has no verified {asset === 'USDT' ? 'sending wallet' : 'bank account'} to return it to; one is added first.</Notice>
+      ) : (
+        <>
+          <SelectField label="Return it to" value={destinationId} onChange={setDestinationId} options={destinations.map((o) => ({ value: o.id, label: o.label }))} />
+          {funded ? (
+            <SelectField label="From — where the client’s money is" value={placeKey} onChange={setPlaceKey} options={places.map((p) => ({ value: p.location, label: `${p.label} · ${money(p.free, asset, { exact: asset === 'USDT' })} free` }))} />
+          ) : asset === 'INR' ? (
+            <SelectField label="From" value={accountId} onChange={setAccountId} options={refundAccounts.map((a) => ({ value: a.accountId, label: `${a.bankName} ••••${a.last4} · ${a.label}` }))} />
+          ) : (
+            <SelectField label="From" value={walletId} onChange={setWalletId} options={trade.payoutOptions.wallets.map((w) => ({ value: w.walletId, label: w.label }))} />
+          )}
+          <GuardedAction
+            label="Return the excess"
+            trigger="secondary"
+            busy={cmd.busy}
+            consequence={`Plans a refund of ${money(over.toDecimalString(), asset, { exact: asset === 'USDT' })} to the client. It pays nothing yet: a second person confirms it with the evidence.`}
+            onConfirm={async () =>
+              source !== null &&
+              (
+                await cmd.run(`Return the excess on ${trade.ref}`, (key) =>
+                  refundExcessAction(
+                    { tradeId: trade.tradeId, ...source, ...(asset === 'USDT' ? { destinationWalletId: destinationId } : { destinationBankAccountId: destinationId }), ...(overCase ? { exceptionId: overCase.id } : {}) },
+                    key,
+                  ),
+                )
+              ).ok
+            }
+          />
+        </>
+      )}
+      {cmd.error ? (
+        <p className={d.errorLine} role="alert">
+          {cmd.error}
+        </p>
+      ) : null}
+      {cmd.dialog}
+    </div>
+  );
+}
+
 function RefundLeg({ leg, tradeRef, perms }: { leg: DeskTrade['legs'][number]; tradeRef: string; perms: TradePerms }) {
   const cmd = useCommand();
   const [utr, setUtr] = useState('');
@@ -174,7 +270,8 @@ function RefundLeg({ leg, tradeRef, perms }: { leg: DeskTrade['legs'][number]; t
                   shortcut={<StepUpMark label="needs your authenticator code" />}
                   onClick={() =>
                     cmd.run(`Confirm refund ${money(leg.amount, leg.asset)} on ${tradeRef}`, (key) =>
-                      confirmRefundLegAction({ legId: leg.id, ...(leg.asset === 'INR' ? { rail: 'IMPS' as const, utr: normalizeUtr(utr) } : { txHash: hash.replace(/^0x/, ''), logIndex: 0 }) }, key),
+                      // A USDT refund's log is found by its facts on the server, never assumed to be log 0.
+                      confirmRefundLegAction({ legId: leg.id, ...(leg.asset === 'INR' ? { rail: 'IMPS' as const, utr: normalizeUtr(utr) } : { txHash: hash.replace(/^0x/, '') }) }, key),
                     )
                   }
                 >

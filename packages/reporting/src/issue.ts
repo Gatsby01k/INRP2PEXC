@@ -6,6 +6,7 @@ import type { OutboxHandler } from '@inrp2p/outbox';
 import { sha256 } from './canonical.ts';
 import { receiptArtifacts, receiptJson } from './artifacts.ts';
 import { type ReceiptSnapshot, RECEIPT_SNAPSHOT_VERSION, buildReceiptSnapshot } from './snapshot.ts';
+import { type ReceiptObjectStore, type ReceiptPdfPrinter, storeReceiptObjects } from './storage.ts';
 
 export interface IssuedReceipt {
   readonly receiptId: string;
@@ -72,15 +73,20 @@ export async function issueReceipt(db: Db, input: { tradeId: string; version?: n
   return out.result;
 }
 
-/** Outbox handler for `receipt.generate`, enqueued by trade completion (STATE_MACHINES T7). */
-export function receiptHandler(db: Db): OutboxHandler {
+/**
+ * Outbox handler for `receipt.generate`, enqueued by trade completion (STATE_MACHINES T7). With a receipts bucket
+ * configured, the issued artifacts are then written to it (TD-12); a failed write fails the event, which is retried —
+ * the receipt itself is already issued and is never issued twice.
+ */
+export function receiptHandler(db: Db, storage?: { readonly store: ReceiptObjectStore; readonly pdf?: ReceiptPdfPrinter | null; readonly retainDays?: number | null }): OutboxHandler {
   return {
     name: 'receipt_generate',
     handles: (type) => type === 'receipt.generate',
     run: async (event) => {
       const payload = (event.payload ?? {}) as { tradeId?: unknown };
       if (typeof payload.tradeId !== 'string') throw new Error('receipt.generate payload is missing tradeId');
-      await issueReceipt(db, { tradeId: payload.tradeId });
+      const issued = await issueReceipt(db, { tradeId: payload.tradeId });
+      if (storage) await storeReceiptObjects(db, storage.store, issued.receiptId, { pdf: storage.pdf ?? null, retainDays: storage.retainDays ?? null });
     },
   };
 }

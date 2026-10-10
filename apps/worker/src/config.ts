@@ -1,32 +1,65 @@
-import { DomainError, isTronAddress } from '@inrp2p/kernel';
+import { isTronAddress } from '@inrp2p/kernel';
 import {
   type ChainVerifier,
-  DualProviderChainVerifier,
+  ChromiumPdfRenderer,
+  QuorumChainVerifier,
   type FieldProtector,
-  LocalKeyEncryptionKey,
+  type ObjectStore,
+  type PdfRenderer,
   type TronProvider,
   TronHttpProvider,
-  createFieldProtector,
+  UNCONFIGURED_FIELD_PROTECTOR,
+  defaultChromiumPath,
+  fieldProtectionFromEnv,
+  isObjectStoreConfigured,
+  objectStoreFromEnv,
 } from '@inrp2p/adapters';
 
 /**
- * Field protection for the worker (opening sealed acceptance codes for delivery). The only key implementation
- * available today is the locally held KEK — TD-03: a KMS-backed KeyEncryptionKey is required before any real
- * client data reaches staging or production. Returns `null` when no keys are configured, so the worker starts and
+ * The audit-seal archive (TD-17): `INRP2P_AUDIT_SEAL_BUCKET` with Object Lock retention `INRP2P_AUDIT_SEAL_RETENTION_DAYS`
+ * (required in production by the configuration contract). Undefined when no bucket is configured.
+ */
+export function auditArchiveFromEnv(env: NodeJS.ProcessEnv = process.env): { archive: ObjectStore; retainDays: number } | undefined {
+  const archive = objectStoreFromEnv('AUDIT_SEALS', env);
+  if (!isObjectStoreConfigured(archive)) return undefined;
+  const days = (env.INRP2P_AUDIT_SEAL_RETENTION_DAYS ?? '').trim();
+  if (!/^[1-9][0-9]{0,4}$/.test(days)) throw new Error('INRP2P_AUDIT_SEAL_RETENTION_DAYS must be a whole number of days when INRP2P_AUDIT_SEAL_BUCKET is set');
+  return { archive, retainDays: Number.parseInt(days, 10) };
+}
+
+/**
+ * Receipt storage for the worker (TD-12): the receipts bucket, a PDF printer if this worker has a browser
+ * (`INRP2P_PDF_RENDERER=chromium`), and the Object Lock retention in days (`INRP2P_RECEIPT_RETENTION_DAYS`) — a
+ * period only the owner can set; unset, objects are written once into a versioned bucket without a lock. Undefined when
+ * no bucket is configured: receipts are then proved by hash and regenerated, as before.
+ */
+export function receiptStorageFromEnv(env: NodeJS.ProcessEnv = process.env): { store: ObjectStore; pdf: PdfRenderer | null; retainDays: number | null } | undefined {
+  const store = objectStoreFromEnv('RECEIPTS', env);
+  if (!isObjectStoreConfigured(store)) return undefined;
+  let pdf: PdfRenderer | null = null;
+  if ((env.INRP2P_PDF_RENDERER ?? '').toLowerCase() === 'chromium') {
+    const executablePath = defaultChromiumPath(env.INRP2P_CHROMIUM_PATH);
+    if (!executablePath) throw new Error('INRP2P_PDF_RENDERER=chromium but no Chromium binary was found; set INRP2P_CHROMIUM_PATH');
+    pdf = new ChromiumPdfRenderer({ executablePath });
+  }
+  const days = (env.INRP2P_RECEIPT_RETENTION_DAYS ?? '').trim();
+  if (days && !/^[1-9][0-9]{0,4}$/.test(days)) throw new Error('INRP2P_RECEIPT_RETENTION_DAYS must be a whole number of days');
+  return { store, pdf, retainDays: days ? Number.parseInt(days, 10) : null };
+}
+
+/**
+ * Field protection for the worker (opening sealed acceptance codes for delivery), from the same environment and
+ * with the same production rules as the web app (`fieldProtectionFromEnv`, TD-03): an AWS KMS key in production,
+ * never a locally held one. Returns `null` when no keys are configured outside production, so the worker starts and
  * code deliveries fail loudly instead of silently disappearing.
  */
 export function fieldProtectorFromEnv(env: NodeJS.ProcessEnv = process.env): FieldProtector | null {
-  const keyId = env.INRP2P_KEK_ID;
-  const kek = env.INRP2P_KEK_BASE64;
-  const hmac = env.INRP2P_FIELD_HMAC_BASE64;
-  if (!keyId || !kek || !hmac) return null;
-  const hmacKey = Buffer.from(hmac, 'base64');
-  if (hmacKey.length !== 32) throw new DomainError('INVALID_ARGUMENT', 'INRP2P_FIELD_HMAC_BASE64 must decode to 32 bytes');
-  return createFieldProtector({ kek: LocalKeyEncryptionKey.fromBase64(keyId, kek), hmacKey });
+  return fieldProtectionFromEnv(env)?.protector ?? null;
 }
 
 export interface ChainConfig {
-  readonly provider: TronProvider;
+  /** In priority order: the scanner reads through the first that answers and fails over to the next (A3). */
+  readonly providers: readonly TronProvider[];
   readonly chain: ChainVerifier;
 }
 
@@ -123,7 +156,8 @@ export function chainMonitoringFromEnv(env: NodeJS.ProcessEnv = process.env): Ch
           ...(env.INRP2P_TRON_SECONDARY_KEY ? { apiKey: env.INRP2P_TRON_SECONDARY_KEY } : {}),
         })
       : undefined;
-    config = { provider: primary, chain: new DualProviderChainVerifier({ primary, ...(secondary ? { secondary } : {}), tokenContract: contract }) };
+    const providers = secondary ? [primary, secondary] : [primary];
+    config = { providers, chain: new QuorumChainVerifier({ providers, tokenContract: contract }) };
   } catch (e) {
     return { state: 'UNCONFIGURED', reasons: [(e as Error).message] };
   }
@@ -156,14 +190,4 @@ export function chainMonitoringReady(monitoring: ChainMonitoring): boolean {
 }
 
 /** A protector that refuses every operation, so an unconfigured deployment cannot open or seal anything. */
-export const UNCONFIGURED_PROTECTOR: FieldProtector = {
-  async seal(): Promise<never> {
-    throw new Error('FIELD_PROTECTION_NOT_CONFIGURED: INRP2P_KEK_ID, INRP2P_KEK_BASE64 and INRP2P_FIELD_HMAC_BASE64 are required');
-  },
-  async open(): Promise<never> {
-    throw new Error('FIELD_PROTECTION_NOT_CONFIGURED: INRP2P_KEK_ID, INRP2P_KEK_BASE64 and INRP2P_FIELD_HMAC_BASE64 are required');
-  },
-  lookupHash(): never {
-    throw new Error('FIELD_PROTECTION_NOT_CONFIGURED: INRP2P_KEK_ID, INRP2P_KEK_BASE64 and INRP2P_FIELD_HMAC_BASE64 are required');
-  },
-};
+export const UNCONFIGURED_PROTECTOR: FieldProtector = UNCONFIGURED_FIELD_PROTECTOR;

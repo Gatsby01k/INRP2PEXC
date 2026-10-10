@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation';
 import { isDomainError } from '@inrp2p/kernel';
-import { payoutAccounts, treasuryWallets } from '@inrp2p/desk';
+import { payoutAccounts } from '@inrp2p/desk';
 import { type DeskTraderDetail, deskTrader } from '@inrp2p/traders';
 import { can, operatorPage } from '../../../../server/operator.ts';
 import { dateTime, inr, titleCase, usdt } from '../../_desk/format.ts';
@@ -29,7 +29,7 @@ export default async function TraderDeskPage({ params }: { params: Promise<{ tra
     if (isDomainError(e) && (e.code === 'NOT_FOUND' || e.code === 'INVALID_ARGUMENT')) notFound();
     throw e;
   }
-  const [accounts, wallets] = await Promise.all([payoutAccounts(ctx.db), treasuryWallets(ctx.db)]);
+  const accounts = await payoutAccounts(ctx.db);
   const t = detail.trader;
   const perms = {
     configure: can(ctx, 'traders:configure'),
@@ -40,6 +40,9 @@ export default async function TraderDeskPage({ params }: { params: Promise<{ tra
     routeRecord: can(ctx, 'route_settlement:record'),
     routeConfirm: can(ctx, 'route_settlement:confirm'),
     reveal: can(ctx, 'bank_account:reveal'),
+    applyReserve: can(ctx, 'trader_reserve:apply'),
+    approveReserve: can(ctx, 'trader_reserve:approve'),
+    meId: ctx.actor.userId,
   };
   const short = /[1-9]/.test(detail.reserve.shortfall);
   const underReview = t.status === 'UNDER_REVIEW';
@@ -100,7 +103,7 @@ export default async function TraderDeskPage({ params }: { params: Promise<{ tra
           <Columns>
             <Stack>
               <Section title="Orders" count={detail.orders.length}>
-                <TraderOrders detail={detail} accounts={accounts} wallets={wallets} perms={perms} />
+                <TraderOrders detail={detail} accounts={accounts} perms={perms} />
               </Section>
               <TraderMoney detail={detail} accounts={accounts} perms={perms} />
               {decisions}

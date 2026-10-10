@@ -4,7 +4,7 @@ import { type FormEvent, type ReactNode, useEffect, useId, useRef, useState } fr
 import { useRouter } from 'next/navigation';
 import { ArcLoader } from '@inrp2p/ui';
 import { robotCues } from '../(public)/_landing/robot/cues.ts';
-import { startTraderAccessAction } from '../../server/actions/trader-access.ts';
+import { startClientAccessAction, startTraderAccessAction } from '../../server/actions/trader-access.ts';
 import { CodeField } from './CodeField.tsx';
 import { CODE_LENGTH, CODE_MINUTES, RESEND_AFTER_SECONDS, clock, looksLikeEmail, maskEmail } from './access.ts';
 import styles from './gateway.module.css';
@@ -61,13 +61,15 @@ async function post(path: string, body: unknown): Promise<Response | null> {
 }
 
 /**
- * The workspace's access surface: client sign-in (SECURITY §2.2), a code to an address the desk already knows.
+ * The workspace's access surface: client sign-in (SECURITY §2.2), and since D-17 (2026-10-10) the way a new client
+ * opens their own account — the same email and the same code.
  *
- * Both steps are Better Auth's own endpoints, exactly as before — `email-otp/send-verification-otp`, then
- * `sign-in/email-otp` — and nothing here decides anything about access. There is no sign-up: a client user exists
- * because the desk linked them to a client. The code step is shown after any accepted request, whether or not the
- * address is a client's, and a refused code says the same thing whatever was wrong with it, so the surface never
- * tells a stranger which addresses are real. Expiry, attempts and rate limits are the server's; the surface only
+ * Before the first code it asks the server to make sure the address has a sign-in identity (never more than that —
+ * see `startClientAccessAction`); both code steps are Better Auth's own endpoints — `email-otp/send-verification-otp`,
+ * then `sign-in/email-otp` — and nothing here decides anything about access. Someone new lands on `/open-account`,
+ * where the account is opened; a client lands in the Exchange. The code step is shown after any accepted request,
+ * whether or not the address is known, and a refused code says the same thing whatever was wrong with it, so the
+ * surface never tells a stranger which addresses are real. Expiry, attempts and rate limits are the server's; the surface only
  * reports a refusal, and paces its own "resend" inside the server's allowance.
  *
  * Validation is the surface's own, next to the field it concerns, never the browser's bubble.
@@ -77,7 +79,7 @@ async function post(path: string, body: unknown): Promise<Response | null> {
  * the address has a sign-in identity (never more than that — see `startTraderAccessAction`), and once the code is
  * taken it opens Traders, where the application starts. The code, its limits and its refusals are the same.
  */
-export function AccessSurface({ onboarding, unlinked, mode = 'SIGN_IN' }: { onboarding: string | null; unlinked: string; mode?: 'SIGN_IN' | 'TRADER' }) {
+export function AccessSurface({ mode = 'SIGN_IN' }: { mode?: 'SIGN_IN' | 'TRADER' }) {
   const trader = mode === 'TRADER';
   const router = useRouter();
   const id = useId();
@@ -156,8 +158,8 @@ export function AccessSurface({ onboarding, unlinked, mode = 'SIGN_IN' }: { onbo
     if (mode === 'send') setEmailProblem(null);
     else setCodeProblem(null);
     robotCues.emit({ kind: 'wait', on: true });
-    if (trader && mode === 'send') {
-      const started = await startTraderAccessAction({ email: address }).catch(() => null);
+    if (mode === 'send') {
+      const started = await (trader ? startTraderAccessAction : startClientAccessAction)({ email: address }).catch(() => null);
       if (!started?.ok) {
         inFlight.current = false;
         setBusy(null);
@@ -205,7 +207,7 @@ export function AccessSurface({ onboarding, unlinked, mode = 'SIGN_IN' }: { onbo
     if (res?.ok) {
       robotCues.emit({ kind: 'submitted' });
       // Still busy: the surface stays as it is until the workspace replaces it. The server routes by what the
-      // account is: a client with the Exchange lands there, anyone else in Traders.
+      // account is: a client with the Exchange lands there, someone new on opening their account, a trader in Traders.
       router.push(trader ? '/traders' : '/exchange');
       router.refresh();
       return;
@@ -264,7 +266,7 @@ export function AccessSurface({ onboarding, unlinked, mode = 'SIGN_IN' }: { onbo
       <div className={styles.faces} data-robot-target="cta">
         <Face face="EMAIL" stage={stage}>
           <form className={styles.form} noValidate onSubmit={submitEmail}>
-            <h2 className={styles.heading}>{trader ? 'Become a trader.' : 'Welcome back.'}</h2>
+            <h2 className={styles.heading}>{trader ? 'Become a trader.' : 'Sign in or open an account.'}</h2>
             <div className={styles.field} data-invalid={emailProblem?.field || undefined}>
               <label htmlFor={ids.email} className={styles.label}>
                 {trader ? 'Email' : 'Work email'}
@@ -308,7 +310,7 @@ export function AccessSurface({ onboarding, unlinked, mode = 'SIGN_IN' }: { onbo
               <p id={ids.emailNote} className={styles.note}>
                 {trader
                   ? 'We’ll send a 6-digit code to confirm it. Your application comes next; nothing is traded until the desk approves you.'
-                  : 'We’ll send a 6-digit verification code to the work email registered with your desk account.'}
+                  : 'We’ll send a 6-digit verification code. New here? The same code opens your account — no waiting for the desk.'}
               </p>
               <p className={styles.onboarding}>
                 {trader ? (
@@ -319,16 +321,14 @@ export function AccessSurface({ onboarding, unlinked, mode = 'SIGN_IN' }: { onbo
                       <Arrow className={styles.onboardingIcon} />
                     </a>
                   </>
-                ) : onboarding ? (
+                ) : (
                   <>
-                    New to INRP2P?{' '}
-                    <a className={styles.onboardingLink} href={onboarding}>
-                      Request onboarding
+                    Provide INR or USDT capacity?{' '}
+                    <a className={styles.onboardingLink} href="/become-a-trader">
+                      Become a trader
                       <Arrow className={styles.onboardingIcon} />
                     </a>
                   </>
-                ) : (
-                  unlinked
                 )}
               </p>
             </div>

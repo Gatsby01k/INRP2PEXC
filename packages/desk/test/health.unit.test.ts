@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { HEALTH_CHECKS, stateOf } from '../src/health.ts';
+import { HEALTH_CHECKS, stateOf, isLowerWorse } from '../src/health.ts';
 
 /**
  * The alert definitions, held to the two rules that make an alert worth having.
@@ -22,10 +22,13 @@ describe('every alert knows where to send the person it wakes', () => {
   });
 
   it('has no runbook nobody can reach from an alert', () => {
-    // Two exceptions, both deliberate: the drill is scheduled rather than triggered, and the takeover runbook
-    // answers a report from a person rather than a threshold.
+    // Deliberate exceptions: the drill and the backfill are procedures someone starts rather than alarms, and the
+    // others answer a report from a person or a case on the desk rather than a threshold.
     const unreachable = headings.filter((h) => !HEALTH_CHECKS.some((c) => c.runbook === h));
-    expect(unreachable.sort()).toEqual(['account-takeover', 'backup-restore-drill', 'duplicate-utr', 'failed-bank-transfer', 'provider-outage']);
+    expect(unreachable.sort()).toEqual([
+      'account-takeover', 'chain-backfill', 'client-authenticator-lost', 'duplicate-utr', 'failed-bank-transfer', 'field-encryption-keys',
+      'incident-recovery', 'operator-access', 'pause-new-business', 'payout-ambiguous', 'receipt-integrity', 'secret-rotation',
+    ]);
   });
 
   it('says why each signal matters, in words an operator would use', () => {
@@ -40,13 +43,12 @@ describe('every alert knows where to send the person it wakes', () => {
 describe('the thresholds', () => {
   it('separate warning from alarm in the direction that signal moves', () => {
     for (const check of HEALTH_CHECKS) {
-      if (check.id === 'ledger_imbalance') {
-        // The one signal whose correct value is zero: any row at all is an alarm.
+      if (check.id === 'ledger_imbalance' || check.id === 'audit_archive_failures' || check.id === 'payouts_held') {
+        // Signals whose correct value is zero: any row at all is an alarm.
         expect({ id: check.id, warn: check.warn, alarm: check.alarm }).toEqual({ id: check.id, warn: 0, alarm: 0 });
         continue;
       }
-      const lowerIsWorse = check.id === 'inr_capacity_available' || check.id === 'deposit_pool_free';
-      if (lowerIsWorse) expect(check.alarm, check.id).toBeLessThan(check.warn);
+      if (isLowerWorse(check.id)) expect(check.alarm, check.id).toBeLessThan(check.warn);
       else expect(check.alarm, check.id).toBeGreaterThan(check.warn);
     }
   });

@@ -27,9 +27,12 @@ export interface MovementJournalInput {
    * `CLIENT_FIRST_LEG` and `REFUND` move the client receivable; `CLIENT_PAYOUT` moves the client payable.
    * `ROUTE_SETTLEMENT` moves the route side. `UNALLOCATED` parks funds in suspense until an operator decides.
    * `TRADER_RESERVE` moves a trader's Security Reserve in (deposit) or out (withdrawal); `TRADER_REWARD_PAYOUT`
-   * pays accrued rewards to the trader.
+   * pays accrued rewards to the trader. `TRADER_RESERVE_APPLIED` is a trader's reserve delivering the USDT its route
+   * owes (TD-21): from the trader, to the route obligation, moved by custody between two exchange wallets.
    */
-  readonly purpose: 'CLIENT_FIRST_LEG' | 'CLIENT_PAYOUT' | 'ROUTE_SETTLEMENT' | 'REFUND' | 'UNALLOCATED' | 'TRADER_RESERVE' | 'TRADER_REWARD_PAYOUT';
+  readonly purpose: 'CLIENT_FIRST_LEG' | 'CLIENT_PAYOUT' | 'ROUTE_SETTLEMENT' | 'REFUND' | 'UNALLOCATED' | 'TRADER_RESERVE' | 'TRADER_REWARD_PAYOUT' | 'TRADER_RESERVE_APPLIED';
+  /** `TRADER_RESERVE_APPLIED` only: the treasury wallets the USDT left and reached (the same wallet moves nothing). */
+  readonly custody?: { readonly fromWalletId: string; readonly toWalletId: string } | null;
 }
 
 const exchangeAsset = (p: MovementParty, amount: Money) => {
@@ -119,6 +122,25 @@ export function movementJournal(input: MovementJournalInput): JournalInput {
       } else {
         throw new DomainError('INVALID_ARGUMENT', `a reserve movement must involve the trader (${key})`);
       }
+      break;
+    }
+    case 'TRADER_RESERVE_APPLIED': {
+      // The USDT was already the exchange's to hold — the trader's reserve — so the treasury does not grow: the debt to
+      // the trader and the route's debt to the exchange shrink together. Custody moved it between exchange wallets.
+      if (from.kind !== 'TRADER' || to.kind !== 'ROUTE' || amount.currency !== 'USDT' || !input.custody) {
+        throw new DomainError('INVALID_ARGUMENT', `an applied reserve is USDT from the trader to its route obligation, moved between exchange wallets (${key})`);
+      }
+      const custody = input.custody;
+      entries = [
+        { account: Accounts.traderReserve(from.traderId), direction: 'DR', amount },
+        { account: Accounts.routeReceivable(to.routeId, 'USDT'), direction: 'CR', amount, routeObligationId: to.routeObligationId ?? null },
+        ...(custody.fromWalletId === custody.toWalletId
+          ? []
+          : ([
+              { account: Accounts.treasuryUsdt(custody.toWalletId), direction: 'DR', amount },
+              { account: Accounts.treasuryUsdt(custody.fromWalletId), direction: 'CR', amount },
+            ] as const)),
+      ];
       break;
     }
     case 'TRADER_REWARD_PAYOUT': {

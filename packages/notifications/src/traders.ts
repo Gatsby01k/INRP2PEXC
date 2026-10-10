@@ -42,6 +42,10 @@ function reserveIssueText(p: Payload): string {
       return `The Security Reserve for your account is now ${str(p.amount) ?? 'changed'} USDT. If your reserve is below that, new orders pause until you top it up.`;
     case 'WITHDRAWAL_REJECTED':
       return `Your reserve withdrawal was not sent${str(p.note) ? `: ${str(p.note)}` : ''}. The amount is available again.`;
+    case 'RESERVE_HELD':
+      return `The INR for order ${str(p.orderRef) ?? 'of yours'} did not arrive, so the desk is holding ${str(p.amount) ?? 'part'} USDT of your Security Reserve against it. Nothing is taken or converted: the amount cannot be withdrawn until the hold is released.`;
+    case 'RESERVE_APPLIED':
+      return `The USDT for order ${str(p.orderRef) ?? 'of yours'} did not arrive, so the desk is applying ${str(p.amount) ?? 'part'} USDT of your Security Reserve to it as your delivery. If your reserve falls below the requirement, new orders pause until you top it up.`;
     default:
       return 'Open Traders to see what is needed.';
   }

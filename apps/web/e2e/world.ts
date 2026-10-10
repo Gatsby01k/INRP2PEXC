@@ -5,7 +5,7 @@ import pg from 'pg';
 import { sql } from 'kysely';
 import { base32 } from '@better-auth/utils/base32';
 import { createOTP } from '@better-auth/utils/otp';
-import { Money, encodeTronAddress } from '@inrp2p/kernel';
+import { encodeTronAddress } from '@inrp2p/kernel';
 import { type Db, createDb, createPool } from '@inrp2p/db';
 import { migrate } from '@inrp2p/db/migrate';
 import { installQueue } from '@inrp2p/outbox';
@@ -163,7 +163,8 @@ export async function seedE2E(adminUrl: string): Promise<E2EState> {
   const linked = await run(db, linkClientUser(owner.actor), owner.ref, 'client_user.link', { clientId: client.clientId, userId: acceptorUserId, role: 'CLIENT_ADMIN' as const });
   await run(db, setCanAcceptQuotes(owner.actor), owner.ref, 'client_user.set_accept_quotes', { clientUserId: linked.clientUserId, canAcceptQuotes: true });
 
-  // The demo scenario's route settles to the exchange, so the desk pays the client from its own accounts.
+  // The demo scenario's route settles to the exchange: it delivers its INR to the exchange's account, and the desk
+  // pays the client from there — with that money and nothing else (D-16).
   const route = await run(db, createRoute(owner.actor), owner.ref, 'routes.create', {
     name: 'Mumbai OTC', direction: 'BOTH' as const, executionMode: 'DIRECT_TO_CLIENT' as const,
     registeredRouteAddress: encodeTronAddress(randomBytes(20)), availableBaseUsdt: '5000000',
@@ -190,7 +191,6 @@ export async function seedE2E(adminUrl: string): Promise<E2EState> {
   const hot = await run(db, registerTreasuryWallet(owner.actor), owner.ref, 'treasury.register_wallet', {
     network: 'TRON' as const, address: encodeTronAddress(randomBytes(20)), label: 'Hot wallet', role: 'HOT' as const,
   });
-  await sql`update treasury_wallet set observed_balance_minor = ${Money.parse('2000000', 'USDT').minor}, observed_at = statement_timestamp(), updated_at = statement_timestamp() where id = ${hot.walletId}`.execute(db);
   await run(db, recordCustodyCapability(owner.actor), owner.ref, 'custody.record_capability', {
     provider: custody.provider, network: 'TRON' as const, capability: 'POOL' as const, consolidationNotes: 'Provider sweeps to the hot wallet.',
   });

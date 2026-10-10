@@ -46,13 +46,14 @@ describe('graphile worker end to end', () => {
     expect(monitoring.state).toBe('DISABLED');
     const taskList = buildTaskList(t.worker, [], { monitoring });
     const helpers = {} as Parameters<NonNullable<typeof taskList.tron_scan>>[1];
-    for (const name of ['tron_scan', 'tron_confirm', 'tron_orphan_sweep'] as const) {
+    for (const name of ['tron_scan', 'tron_confirm', 'tron_orphan_sweep', 'tron_backfill', 'custody_observe'] as const) {
       expect(CRONTAB).toContain(name);
       await taskList[name]!({}, helpers);
     }
     // No cursor, no commands, nothing touched: a deployment with monitoring off simply does not scan.
     expect(await t.app.selectFrom('chain_cursor').select('id').execute()).toEqual([]);
     expect(await t.app.selectFrom('idempotency_key').select('scope').where('scope', 'like', 'chain.%').execute()).toEqual([]);
+    expect(await t.app.selectFrom('custody_balance_observation').select('id').execute()).toEqual([]);
   });
 
   it('an enabled but unconfigured worker fails its chain jobs instead of quietly doing nothing', async () => {
@@ -61,7 +62,7 @@ describe('graphile worker end to end', () => {
     expect(chainMonitoringReady(monitoring)).toBe(false);
     const taskList = buildTaskList(t.worker, [], { monitoring });
     const helpers = {} as Parameters<NonNullable<typeof taskList.tron_scan>>[1];
-    for (const name of ['tron_scan', 'tron_confirm', 'tron_orphan_sweep'] as const) {
+    for (const name of ['tron_scan', 'tron_confirm', 'tron_orphan_sweep', 'tron_backfill', 'custody_observe'] as const) {
       await expect(taskList[name]!({}, helpers)).rejects.toMatchObject({ code: 'CHAIN_MONITORING_UNCONFIGURED' });
     }
     expect(await t.app.selectFrom('chain_cursor').select('id').execute()).toEqual([]);
