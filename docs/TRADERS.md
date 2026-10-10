@@ -60,7 +60,8 @@ public site "Become a trader" ─▶ app host /become-a-trader ─▶ email ─�
    address has a CLIENT sign-in identity (`ensureClientIdentity`): an address that already has one keeps it (an
    existing client applies as itself — never a duplicate); a new one gets a bare identity with **no client, no role
    and no permission**. Rate-limited per caller and per address; the answer never says which addresses exist. The
-   code is Better Auth's own email OTP, exactly as for the workspace sign-in, whose sign-up stays closed.
+   code is Better Auth's own email OTP, exactly as for the workspace sign-in — which since D-17 makes the same bare
+   identity for a new address, whose holder then opens a client account themselves (`/open-account`) or applies here.
 2. **Application** (`trader.apply`): full name, Individual/Company, Telegram and/or phone (sealed), P2P experience
    (Binance/Bybit/Other/No) and an optional profile link, what the trader provides (INR/USDT/both), typical order
    and daily capacity per side, and settlement details — account holder, bank, account number (sealed, fingerprinted),
@@ -86,12 +87,13 @@ Destination states (`bank_account.status`, `crypto_wallet.status`): `PENDING_REV
 
 | Account | Exchange / History / Destinations | Traders | Notifications |
 |---|---|---|---|
-| Client onboarded by the desk (`exchange_access`) | ✔ | ✔ (apply, or trader screens) | ✔ |
+| Client with the Exchange (`exchange_access`) — opened by the desk, or by the client itself (D-17, `client.open_account`) | ✔ | ✔ (apply, or trader screens) | ✔ |
 | Client that applied as a trader only | — (redirected to Traders) | ✔ | ✔ |
-| Verified email, no application yet | — (redirected to Traders) | apply only | — |
+| Verified email, no account yet | — (redirected to `/open-account`) | apply | — |
 
 `portalAccess` (the Exchange's gate) refuses anything but a member of a client with Exchange access
-(`EXCHANGE_NOT_ENABLED`, which the pages turn into a redirect to `/traders`), and the database refuses a trade
+(`EXCHANGE_NOT_ENABLED`, which the pages turn into a redirect to `/open-account` for someone with no account and to
+`/traders` for a trader-only client), and the database refuses a trade
 request for a client without it (IX080), so no quote, trade or payout can exist for one. The desk opens the
 Exchange for a trader-only client with `client.set_exchange_access` (`client:manage`); the workspace sign-in has no
 client/trader choice.
@@ -200,15 +202,24 @@ Security Reserve never stand in (FI-76). A trader route is always `TO_EXCHANGE`:
 
 ## 8. Security Reserve
 
-- **Deposit**: the trader's own reserve address, issued once through custody and kept open (D-02). USDT from the
-  trader's registered wallet is credited on finality: `crypto:{x}:confirm`, purpose `TRADER_RESERVE`,
-  Dr `ASSET:TREASURY_USDT` / Cr `LIAB:TRADER_RESERVE:{trader}`. USDT from any other sender is not credited: it is
-  recorded with payer `UNKNOWN`, an `USDT_UNEXPECTED_SENDER` exception opens and the trader is notified.
+- **Deposit** (D-17, migration 0035): one TRC20 address for every trader — `TJNzB4sUGBo8fv7UdeeKQKQUffpfLSXbPP`, a
+  watched exchange wallet (`treasury_wallet.role = 'TRADER_RESERVE'`, at most one active; no key in the application)
+  — shown with its QR from the day a trader applies. The sender attributes it: USDT from the registered wallet of
+  exactly one trader, on file before the transfer (verified or under review), is that trader's reserve, credited on
+  finality: `crypto:{x}:confirm`, purpose `TRADER_RESERVE`, Dr `ASSET:TREASURY_USDT` / Cr `LIAB:TRADER_RESERVE:{trader}`.
+  From any other wallet — or one two traders have on file — it is recorded with payer `UNKNOWN`, parked in suspense
+  on confirmation and a `USDT_UNEXPECTED_SENDER` case opens (`RESERVE_SENDER_NOT_REGISTERED` / `_AMBIGUOUS`); the
+  database refuses crediting a trader whose registered wallet did not send it (IX102, FI-83). A trader may hand in its transaction hash
+  (`trader_reserve.claim_deposit`, any member, rate-limited): it is read from the providers and attributed by the same
+  rule, so another trader's hash is refused and nothing is written; a transfer already recorded is never recorded
+  again. Topping up is not admission: approval stays the desk's decision. Reserve addresses issued per trader before
+  D-17 stay watched and credit as before.
 - **Figures** (`reserveFigures`, all read from the ledger and open withdrawals — no frontend balances):
   `free = balance − pending withdrawals`; while the trader is *engaged* (available, or with accepted/started orders)
   `locked = min(free, required)`; `available for withdrawal = free − locked`; `pending release = open withdrawals`;
   `shortfall = required − free` when positive. A shortfall stops new orders (`RESERVE_SHORT`).
-- **Withdrawal**: the trader requests up to the available amount (never the locked part); switching off keeps the
+- **Withdrawal**: the account's administrator, or someone who can commit, requests up to the available amount (never
+  the locked part), to the registered wallet once the desk has verified it; switching off keeps the
   reserve locked until the last open order finishes. The desk sends from custody, records the tx hash (read back
   from the chain), and confirms on finality (⧗), posting Dr `LIAB:TRADER_RESERVE` / Cr `ASSET:TREASURY_USDT` once.
   The desk may reject with a reason; the trader may cancel before it is sent.
@@ -303,7 +314,9 @@ Through the existing outbox and client inbox (and email, where a provider is bou
 `/become-a-trader` (public entry on the app host), `/traders` (onboarding, application status with each detail's
 review state, or the working screen), `/traders/apply` (six steps), `/traders/settlement` (new bank account or wallet),
 `/traders/orders` (Active / Completed), `/traders/orders/[ref]` (progress, what to do now, payment details or the
-delivery address, evidence), `/traders/reserve`. The workspace robot reports the trader's own projection in one
+delivery address, evidence), `/traders/reserve` (the shared address with its QR, the transaction-hash hand-in, the
+figures and history — for every trader from the day it applies). `/open-account` is where someone with no account
+opens a client account (D-17). The workspace robot reports the trader's own projection in one
 sentence (ready, focused for a new order, waiting, verifying, success, alert); no chat, no LLM, no voice. Sounds
 play only for a new order, an accepted order, a completed order and an action required, and respect mute.
 

@@ -85,6 +85,7 @@ drill) and `upgrade` (23 → 34). `main` has no branch protection, so "required"
 | E3 | P0 | confirmed defect + implementation | Deployment artifacts, the production contract, readiness, pausing new business, heartbeat, grouped health and alerts | code ready; images built and started locally (E4); staging deployment and paging **NOT RUN**; hosting (D-06) **BLOCKED** (owner) |
 | E4 | P0 | confirmed defects + implementation | Point-in-time recovery drill, restore safety (no second payout), audit-seal archive (TD-16, TD-17) | code ready; reference drill **PASS**; drill on the chosen platform **NOT RUN**; platform, retention and buckets **BLOCKED** (owner) |
 | F | P0 | verification + confirmed defects | Every CI command locally and in CI, end to end, page baselines incl. TD-23, Lighthouse, images, 23 → 34 | local **PASS** at `30c6e98`; CI on PR #1 — see Runs; gate 1 closes on the final candidate |
+| G | P0 | owner decision → implementation | D-17: clients open their own accounts; one Security Reserve address for every trader, attributed by the sending wallet | code ready; CI — see Runs; on Vercel: see G |
 
 (The table grows as stages are worked; each row has a section below.)
 
@@ -662,6 +663,44 @@ is wanted stays an open owner question (ADR 0016 §8).
 - **Not run.** Nothing in gate 1 is left to local Docker: the component compare and the page compare run in the
   canonical image in CI, the images are built and checked at each commit in CI, the drill runs there against them.
 - **Gates.** Gate 1: PASS in CI (run 37984995668 at `15f8d5b`; the final candidate — that code plus the stronger upgrade check — has its own run linked from PR #1). Gate 2: NOT RUN. Gate 3: BLOCKED.
+
+## G — Self-service: clients open their own accounts; one reserve address (D-17) (P0)
+
+- **Requirement.** Owner decision 2026-10-10: (1) a client gets the email code, registers and enters its workspace and
+  the Exchange without an operator admitting it; (2) every trader is shown one USDT TRC20 address and its QR for the
+  Security Reserve, `TJNzB4sUGBo8fv7UdeeKQKQUffpfLSXbPP`, with no per-trader address and no custody pool; real,
+  confirmed transfers credited to the right trader, protected against claiming another's TxID and against crediting
+  twice; topping up separate from admission to trading. Recorded as `docs/DECISIONS.md D-17`.
+- **Checked before building.** The QR the owner sent encodes that address: sampled into its 33×33 grid (version 4,
+  error correction H, mask 3), every module outside the logo matches the QR of the address; the address's base58check
+  checksum is valid.
+- **Changed — accounts.** The workspace sign-in makes sure the address has a bare sign-in identity before the code
+  (`startClientAccessAction`, the same door "Become a trader" used); someone with no account lands on `/open-account`,
+  and `client.open_account` creates their client with the Exchange open and them as its `CLIENT_ADMIN` able to accept
+  quotes — once per person (advisory lock; `client_user.user_id` unique). The gateway's words changed; the public site's
+  did not (TD-29). Unchanged: TOTP step-up for destinations, a person prices every request, `kyc_status` `NOT_STARTED`.
+- **Changed — reserve.** Migration `0035_shared_trader_reserve.sql`: the address as a watched exchange wallet
+  (`treasury_wallet.role = 'TRADER_RESERVE'`, one active, only a migration changes it); `inrp2p_reserve_sender_trader`
+  — the single trader whose registered wallet (verified or under review) sent the transfer and was on file before it;
+  IX102 on every `crypto_transfer` insert into the address (the credited trader's registered wallet is the sender —
+  deliberately not the time-dependent part, so a wallet registered later never makes the scanner's own record fail); `source = 'CLIENT_SUBMITTED'`. Detection
+  (`recordClientDeposit`) attributes by that rule with the block's time from the scanner; anything else is unknown, in
+  suspense on confirmation, with a case. `trader_reserve.claim_deposit` reads a handed-in hash from the providers and
+  applies the same rule; a refused hand-in writes nothing. The reserve screen shows the address, the QR and the hash
+  form to every trader from its application on; withdrawal stays to the verified registered wallet, and the account's
+  administrator may ask for it. Desk-side resolution of an unattributable deposit is not built (TD-28).
+- **Tests.** `test/integration/self-service.int.test.ts` (the address and its uniqueness; an applicant funds and stays
+  under review; a hash handed in twice and found by the scanner — one row, one journal; another trader's hash before
+  and after recording; a wallet registered after the transfer; two traders with one wallet; IX102 on raw inserts;
+  wrong, failed and malformed hashes; withdrawal before verification; opening an account, trading request without an
+  operator, one account per person, two openings at once); the traders suites on the shared address; e2e
+  (`client.spec.ts`): sign-up through the real gateway into the Exchange, and the reserve screen of an applicant.
+- **Rollout.** Migration 0035 is additive; schema version 35 (DEPLOYMENT §2: the first deploy from 23 now migrates
+  0024–0035). Transfers to the address from before the scanner first reads it are found when the trader hands in its
+  hash. Reserve addresses issued per trader before D-17 stay watched and credit as before.
+- **Not run / blocked.** On Vercel: the branch's previews are behind Vercel's own sign-in (SSO) and could not be opened
+  from here; the second Vercel project fails its build on `main` as well as here. Real TRON transfers to the address,
+  real email delivery of the sign-up code, and the desk resolution of an unattributable deposit (TD-28) are not run.
 
 ## External prerequisites (gate 3 inputs, by owner)
 

@@ -51,8 +51,8 @@ replays across the deploy are refused, not repeated). Roll forward; do not roll 
 it.
 
 **Upgrading from the release at schema 23 (`d0cc778`) — the first deploy of this release.** That release has **no**
-schema check: its web instances would keep answering "ready" against 34, and nothing has shown that its code is safe
-on 34 (0025 changes how a trade is funded; 0033 and 0034 add triggers its code never expected). And this release
+schema check: its web instances would keep answering "ready" against 35, and nothing has shown that its code is safe
+on 35 (0025 changes how a trade is funded; 0033–0035 add triggers its code never expected). And this release
 refuses 23. So there is no rolling path for this one transition — it is a short maintenance window:
 
 1. Note the recovery point (the time, for point-in-time recovery) and announce the window. The desk finishes or holds
@@ -62,7 +62,9 @@ refuses 23. So there is no rolling path for this one transition — it is a shor
 3. Stop the old web — or put the load balancer in maintenance. The release at 23 cannot pause new business (that
    control arrives in 0033), so stopping it is the only way to be sure no request, quote or acceptance is written
    half under the old rules.
-4. `migrate`: 0024–0034 and the queue schema, as `inrp2p_migrator`. Check `select inrp2p_schema_version()` = 34.
+4. `migrate`: 0024–0035 and the queue schema, as `inrp2p_migrator`. Check `select inrp2p_schema_version()` = 35.
+   0035 adds the shared trader reserve wallet (D-17); the scanner starts watching it from its cursor — a transfer to it
+   from before that point is found when the trader hands in its hash, or through a backfill (RUNBOOKS).
 5. Start the new worker. It checks its configuration and the schema, records its first heartbeat — no restore fence:
    no earlier database identity is on record — and starts its jobs. The scanner continues from its cursor; events the
    old release left in the outbox are delivered to handlers that are idempotent.
@@ -71,13 +73,13 @@ refuses 23. So there is no rolling path for this one transition — it is a shor
 7. Check System health: the expected alarms on a database that has never recorded a drill (`restore_drill_age_days`)
    aside, nothing in alarm; trades already open keep the funding model they were accepted under
    (`LEGACY_EXCHANGE_FUNDED`).
-8. If the new release does not come up, do not start the old release against 34. Fix forward, or recover the database
+8. If the new release does not come up, do not start the old release against 35. Fix forward, or recover the database
    to the point noted in step 1 — the restore fence then holds outgoing payments until two people have reconciled —
    and redeploy the old release.
 
 CI's `upgrade` job proves the data side of this transition on every change: the release at 23 writes its own data —
 its fixture world, and its own end-to-end run through its own screens — and seals its audit log as its worker does;
-this release's migrations carry it to 34 with nothing lost, the books balanced, every old trade legacy-funded, the
+this release's migrations carry it to 35 with nothing lost, the books balanced, every old trade legacy-funded, the
 old seal chain intact and continued by this release's first seal, and this release able to read it
 (`scripts/upgrade-check.ts`).
 

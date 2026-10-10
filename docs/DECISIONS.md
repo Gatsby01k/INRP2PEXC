@@ -133,3 +133,23 @@ Full record: `docs/adr/0016-counterparty-funded-execution.md`.
 - Not part of this decision: `PREFUNDED` / `NET_SETTLED` (still refused, FI-63), credit, automatic signing, reserve
   confiscation or currency conversion, and a direct trader→client path (not offered until separately chosen).
 
+
+## D-17 — Self-service: clients open their own accounts; one Security Reserve address — Resolved (owner, 2026-10-10)
+- **Clients open their own accounts.** The workspace sign-in sends its email code to any address; someone new names
+  the account on `/open-account` (`client.open_account`) and is its administrator, able to accept quotes, with the
+  Exchange open at once. No operator admits a client. Unchanged: destinations need the administrator's authenticator,
+  every request is priced by a person on the desk, `kyc_status` stays `NOT_STARTED` for every client until the
+  compliance workflow exists (D-07 — counsel before launch), and one person holds one client membership.
+- **One reserve address for every trader.** Traders top up their Security Reserve at one TRC20 address,
+  `TJNzB4sUGBo8fv7UdeeKQKQUffpfLSXbPP` (owner-controlled; the application only watches it), shown with its QR. It
+  replaces the per-trader reserve address from the custody pool; reserve addresses already issued stay watched and
+  credit as before. The address is recorded by migration 0035, so changing it is a reviewed migration.
+- **The sender's wallet attributes the money.** A transfer into the shared address is the reserve of the single trader
+  whose registered wallet sent it and was on file before the transfer; otherwise it is nobody's until the desk
+  resolves it. A trader may hand in its transaction hash; the facts are read from the chain and the same rule applies,
+  so a hash cannot be claimed by another trader and a deposit is credited once (FI-83).
+- **Topping up is not admission.** The address is shown from the day a trader applies, and money arriving during the
+  review is credited; approval to receive orders remains the desk's separate decision (`trader.approve`). Withdrawals
+  go to the registered, verified wallet only; the account's administrator may ask for one.
+- Not part of this decision: automatic return of unattributed deposits, any change to how trades are funded (D-16), and
+  the public site's wording about onboarding (the home page is frozen; TECH_DEBT TD-29).

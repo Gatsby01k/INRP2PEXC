@@ -31,6 +31,8 @@ Non-blocking items accepted at phase review. Each entry names the phase that mus
 | TD-25 | INR has no physical balance reading: the desk's bank confirmation is the only evidence an INR payout is covered | Production hardening B2 (2026-10-05) | A bank balance or statement feed (TD-14) | Open |
 | TD-26 | Funding coverage cannot follow a custody sweep (`funding.relocate` specified, not built): money is paid only from the address it arrived at | Production hardening B2 (2026-10-05) | A custody provider that sweeps deposit addresses on its own, or a desk that consolidates before paying out | Open |
 | TD-27 | The release images are about 1.8 GB each: the production-dependency prune does not take effect | Production hardening E3 (2026-10-06) | Image pull time or registry cost matters (a first deployment does not need it) | Open |
+| TD-28 | A deposit at the shared reserve address that no trader can be credited with automatically has no desk resolution in the product | D-17 (2026-10-10) | The first such deposit (a trader sending from an unregistered wallet, or two traders with one wallet on file) | Open — the money is safe in suspense with a case |
+| TD-29 | The public site still says the desk onboards clients, although clients now open their own accounts | D-17 (2026-10-10) | Before the self sign-up is announced | Open — the home page is frozen by the owner; the wording is the owner's to change |
 
 ## TD-01 — Better Auth schema warning for `auth_rate_limit.last_request`
 
@@ -740,3 +742,30 @@ need (development tools present in the image, though never on the path of a requ
 **Resolution (to do).** Build `runtime-base` from a clean `pnpm deploy --prod` (or `pnpm --filter … deploy`) of the web
 and worker packages instead of pruning a copy of the build stage; then repeat the E4 image checks (production
 refusal, start, probes, SIGTERM) on the smaller images.
+
+## TD-28 — An unattributable reserve deposit has no desk resolution in the product
+
+**Observed (D-17, 2026-10-10).** A transfer into the shared Security Reserve address that is not from the registered
+wallet of exactly one trader — sent from another wallet, from a wallet registered only after the transfer, or from one
+two traders have on file — is recorded as money of unknown origin, parked in suspense on confirmation, and opens a
+`USDT_UNEXPECTED_SENDER` case (`RESERVE_SENDER_NOT_REGISTERED` / `_AMBIGUOUS`). That is deliberate: nothing on chain
+says whose it is, and crediting it on someone's word is exactly what the attribution rule exists to prevent (FI-83).
+What is missing is the next step: there is no command that credits such a deposit to a trader, or returns it.
+
+**Risk.** Money waits in suspense, visible to the desk, until handled outside the product; the trader sees nothing on
+its reserve. No double credit and no wrong credit is possible meanwhile (IX102).
+
+**Resolution (to do).** A two-person desk command that, with recorded evidence of ownership (a signed message from the
+sending wallet, or a return of a stated amount from it), moves the suspense credit to the trader's reserve — or a
+return to the sending wallet — posted once, audited, and refused for an address registered by another trader.
+
+## TD-29 — The public site's onboarding wording contradicts self sign-up
+
+**Observed (D-17, 2026-10-10).** Clients now open their own accounts with the workspace email code. The public site
+still says otherwise: `ONBOARDING.unlinked` ("New clients are onboarded by the desk first"), `ONBOARDING.requirement`
+on the guide pages ("The desk sets that up; there is no form here that can"), the home page's closing section ("Before
+a first trade, the desk sets up your client record…") and its "Request onboarding" link. The workspace gateway itself
+was changed; the home page is frozen by the owner (2026-09-26), so its words were left as they are.
+
+**Resolution (to do, owner).** New wording for those strings in `apps/web/src/content/site.ts` and the closing section,
+then the public page baselines re-recorded through the canonical workflow.
