@@ -9,7 +9,7 @@ outside the repository. A result is recorded only with the command, SHA and envi
 
 | Gate | Meaning | Status |
 |---|---|---|
-| 1. Code ready | fixes implemented, regressions covered, required checks green on the final SHA | **PASS in CI** — all seven required jobs green at `15f8d5b` ([run 37984995668](https://github.com/Gatsby01k/INRP2PEXC/actions/runs/37984995668)), integration with nothing skipped, 35 of 35 page baselines and 162 component tests in the canonical image, the images built and checked at that commit, the PITR drill and the 23 → 34 upgrade. After it, the upgrade job was strengthened (the release at 23 seals its log first; the seal chain must cross and be continued — CI and `scripts/upgrade-check.ts` only); that commit is the final candidate, and its own seven-job run is linked from PR #1. Local: PASS at `30c6e98` |
+| 1. Code ready | fixes implemented, regressions covered, required checks green on the final SHA | **PASS in CI** before D-17: all seven required jobs green at `15f8d5b` ([run 37984995668](https://github.com/Gatsby01k/INRP2PEXC/actions/runs/37984995668)) and at `198db81` ([run 37985980601](https://github.com/Gatsby01k/INRP2PEXC/actions/runs/37985980601)). **D-17 (2026-10-10) reopened it:** the final candidate with self sign-up and the shared reserve address, and its seven-job run, are named in PR #1; the D-17 runs so far are under Runs. Local: PASS at `30c6e98`, and lint, typecheck, unit and the web build on every D-17 commit |
 | 2. Staging verified | production-like environment, real adapters, notifications, both directions, recovery, monitoring, operator procedures | **NOT RUN** — no staging environment or provider credentials exist in this workspace |
 | 3. Production prepared | domains, secrets, custody, bank accounts, liquidity, staff access, monitoring, backups; external conditions closed by their owners | **BLOCKED** — owner/infrastructure inputs (§ External prerequisites) |
 
@@ -62,6 +62,8 @@ drill) and `upgrade` (23 → 34). `main` has no branch protection, so "required"
 | 2026-10-10 | `ce36277` | [37993723467](https://github.com/Gatsby01k/INRP2PEXC/actions/runs/37993723467) | **not a code result:** Docker Hub refused the runners (`toomanyrequests` — the unauthenticated pull limit — and 500/504 from `auth.docker.io`) before most jobs started; `visual` PASS |
 | 2026-10-10 | `f9137b2` | [38013806823](https://github.com/Gatsby01k/INRP2PEXC/actions/runs/38013806823) | `images` PASS (35 migrations, every container check, the drill); `upgrade` PASS (23 → 35); `visual` PASS; integration 51 of 54 files — the new self-service suite all PASS, three older suites still looked for a per-trader reserve address; `e2e` 1 failure (a duplicated heading in the test's locator); `lighthouse` and the page recording could not seed the visual world: the fake chain dated every block in 2023, so no wallet was on file before any transfer — all fixed in `09e5e9c` |
 | 2026-10-10 | `09e5e9c` | [38014224825](https://github.com/Gatsby01k/INRP2PEXC/actions/runs/38014224825) | `e2e` PASS — 27 tests, the self sign-up through the real gateway and an applicant's reserve screen among them; `lighthouse` PASS — quote link 99, home 93; `images` PASS; `upgrade` PASS; `visual` PASS; `visual-pages` — the two pages D-17 changed (the trader's reserve, the desk's USDT treasury), as expected before the canonical recording |
+| 2026-10-10 | `9d5b95d` | [38014774345](https://github.com/Gatsby01k/INRP2PEXC/actions/runs/38014774345) | `verify` PASS — unit 35 / 1583, integration 54 files / 885 tests, none skipped (the self-service suite and the traders suites on the shared address among them); `e2e` PASS — 27; `lighthouse` PASS — quote link 92, home 88; `images` PASS — 35 migrations, every container check, the drill; `visual` PASS; `visual-pages` — the D-17 pages, before their recording |
+| 2026-10-10 | `9d5b95d` | [38014770307](https://github.com/Gatsby01k/INRP2PEXC/actions/runs/38014770307) (canonical recording) | five page baselines re-recorded and reviewed (`b7570a7`): the trader's reserve (the shared address — its QR checked module by module against the address — the hash form, the full registered wallet), the desk's USDT treasury (the shared reserve wallet; the reserve deposit "Reserve · TR-0001", 0 unattributed), the desk's trader page (the shared address), System health (one more free pool address: the reserve takes none), and one with a 2-pixel rendering difference; components bit-identical |
 
 ## Items
 
@@ -691,7 +693,10 @@ is wanted stays an open owner question (ADR 0016 §8).
   suspense on confirmation, with a case. `trader_reserve.claim_deposit` reads a handed-in hash from the providers and
   applies the same rule; a refused hand-in writes nothing. The reserve screen shows the address, the QR and the hash
   form to every trader from its application on; withdrawal stays to the verified registered wallet, and the account's
-  administrator may ask for it. Desk-side resolution of an unattributable deposit is not built (TD-28).
+  administrator may ask for it. The desk's USDT treasury names the trader of every reserve deposit or withdrawal
+  ("Reserve · TR-…", never "unattributed" — it was mislabelled so before D-17 as well), and the desk's trader page shows
+  the shared address. A hash the desk hands in is attributed at the chain's time too. Desk-side resolution of an
+  unattributable deposit is not built (TD-28).
 - **Tests.** `test/integration/self-service.int.test.ts` (the address and its uniqueness; an applicant funds and stays
   under review; a hash handed in twice and found by the scanner — one row, one journal; another trader's hash before
   and after recording; a wallet registered after the transfer; two traders with one wallet; IX102 on raw inserts;
