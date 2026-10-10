@@ -5,7 +5,7 @@ import { getMigrations } from 'better-auth/db/migration';
 import { createTestDatabase, type TestDatabase } from '@inrp2p/db/testing';
 import { pgErrorCode } from '@inrp2p/db';
 import {
-  authorizeOperator, clientAuthOptions, ensureClientIdentity, hasFreshStepUp, operatorAuthOptions, provisionClientUser, provisionOperator,
+  authorizeOperator, clientAuthOptions, createClientAuth, ensureClientIdentity, hasFreshStepUp, operatorAuthOptions, provisionClientUser, provisionOperator,
   requireClientSession, requireOperatorSession, type ClientAuth, type OperatorAuth,
 } from '../src/index.ts';
 import { APP, CookieJar, DESK, buildAuths, call, currentTotp, totpFromUri } from './support.ts';
@@ -153,6 +153,27 @@ describe('mandatory operator MFA', () => {
 });
 
 describe('client email OTP login', () => {
+  it('a code the email provider did not take is a refusal the client sees — never "check your email"', async () => {
+    // Better Auth swallows a sender's failure and answers success; the client was then told a code was on its way
+    // when none had left. The provider down, the request is refused (503) and audited, and nothing is pretended.
+    const failing = createClientAuth({
+      authDb: t.auth, appDb: t.app, secret: 'f'.repeat(64), baseURL: APP, rateLimit: { enabled: false },
+      otpSender: { send: async () => { throw new Error('EMAIL_DELIVERY_FAILED: provider refused'); } },
+    });
+    const email = `client-${randomUUID()}@acmepay.in`;
+    await provisionClientUser(failing, { email, name: 'Unlucky Client' });
+    const before = (await sql<{ n: string }>`select count(*)::text as n from audit_event where action = 'session.failed' and after ->> 'error' = 'OTP_NOT_SENT'`.execute(t.app)).rows[0]!.n;
+    const res = await call(failing, APP, new CookieJar(), '/email-otp/send-verification-otp', { email, type: 'sign-in' });
+    expect(res.status).toBe(503);
+    expect(JSON.stringify(res.json)).not.toMatch(/\d{6}/);
+    const after = (await sql<{ n: string }>`select count(*)::text as n from audit_event where action = 'session.failed' and after ->> 'error' = 'OTP_NOT_SENT'`.execute(t.app)).rows[0]!.n;
+    expect(Number(after) - Number(before)).toBe(1);
+    // A working provider is unaffected: the same address on the ordinary client auth gets its code.
+    const ok = await call(client, APP, new CookieJar(), '/email-otp/send-verification-otp', { email, type: 'sign-in' });
+    expect(ok.status).toBe(200);
+    expect(sentOtps.some((m) => m.email === email)).toBe(true);
+  });
+
   it('signs in a provisioned client with a hashed one-time code and verifies the email', async () => {
     const email = `client-${randomUUID()}@acmepay.in`;
     const userId = await provisionClientUser(client, { email, name: 'Acme Trader' });

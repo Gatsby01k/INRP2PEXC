@@ -697,6 +697,19 @@ is wanted stays an open owner question (ADR 0016 §8).
   ("Reserve · TR-…", never "unattributed" — it was mislabelled so before D-17 as well), and the desk's trader page shows
   the shared address. A hash the desk hands in is attributed at the chain's time too. Desk-side resolution of an
   unattributable deposit is not built (TD-28).
+- **Found (2026-10-10), "the client gets no code after Open workspace".** Two causes, both read from the code that
+  production runs (`main`, `d0cc778`) and confirmed against Better Auth 1.7.5 itself:
+  1. Sign-up is closed there (`disableSignUp`): for an address the desk has not provisioned, Better Auth sends nothing
+     and answers `{ success: true }`, so the gateway says "check your email" — deliberately, so it never tells which
+     addresses exist. Every new client hits this; D-17 above is the change that removes it (not deployed).
+  2. When the email provider fails — `RESEND_API_KEY`/`RESEND_FROM` missing in the deployment, or Resend refusing the
+     message — Better Auth runs the sender inside `runInBackgroundOrAwait`, logs the error and still answers
+     `{ success: true }` (reproduced in memory: 200 and "success" with a sender that throws). The client is told a code
+     is on its way when none left. Fixed here: the sender marks its own request, and the client after-hook answers 503
+     `OTP_NOT_SENT` (audited as `session.failed`), which the gateway shows as "We couldn't send a code just now"
+     (`packages/identity/test/auth.int.test.ts`). Public DNS for `inrp2p.com` carries Resend's DKIM, SPF (on `send.`)
+     and DMARC records; whether the production deployment has the key and a sender on that domain is visible only in
+     Vercel's settings and logs, which need the owner's login.
 - **Tests.** `test/integration/self-service.int.test.ts` (the address and its uniqueness; an applicant funds and stays
   under review; a hash handed in twice and found by the scanner — one row, one journal; another trader's hash before
   and after recording; a wallet registered after the transfer; two traders with one wallet; IX102 on raw inserts;

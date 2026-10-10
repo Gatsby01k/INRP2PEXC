@@ -153,6 +153,11 @@ function operatorAfterHook(appDb: Db) {
 
 function clientAfterHook(appDb: Db) {
   return createAuthMiddleware(async (ctx) => {
+    if (ctx.path === '/email-otp/send-verification-otp' && (ctx.context as unknown as Record<symbol, boolean>)[OTP_NOT_SENT]) {
+      const refused = new APIError('SERVICE_UNAVAILABLE', { message: 'the sign-in code could not be sent', code: 'OTP_NOT_SENT' });
+      await auditFailure(appDb, 'CLIENT', ctx.path, refused);
+      throw refused;
+    }
     if (isAPIError(ctx.context.returned)) {
       await auditFailure(appDb, 'CLIENT', ctx.path, ctx.context.returned);
       return;
@@ -282,6 +287,14 @@ async function guardClientTwoFactor(appDb: Db, ctx: Parameters<Parameters<typeof
   }
 }
 
+/**
+ * Set on a request's own auth context when its sign-in code could not be handed to the email provider. Better Auth
+ * runs the sender inside `runInBackgroundOrAwait`, which logs a failure and answers `{ success: true }` regardless —
+ * so a client was told "check your email" while no email had left. The after hook turns the mark into a refusal the
+ * sign-in surface shows ("we couldn't send a code").
+ */
+const OTP_NOT_SENT = Symbol('inrp2p.otp_not_sent');
+
 /** Client authentication: passwordless email OTP (hashed at rest), no self sign-up. */
 export function clientAuthOptions(deps: AuthDeps & { otpSender: EmailOtpSender }) {
   const base = common(deps, 'CLIENT');
@@ -291,7 +304,16 @@ export function clientAuthOptions(deps: AuthDeps & { otpSender: EmailOtpSender }
     allowedAttempts: 5,
     storeOTP: 'hashed',
     disableSignUp: true,
-    sendVerificationOTP: async ({ email, otp: code, type }: { email: string; otp: string; type: string }) => deps.otpSender.send({ email, otp: code, type }),
+    sendVerificationOTP: async ({ email, otp: code, type }: { email: string; otp: string; type: string }, ctx?: { context?: object }) => {
+      try {
+        await deps.otpSender.send({ email, otp: code, type });
+      } catch (e) {
+        if (ctx?.context) (ctx.context as Record<symbol, boolean>)[OTP_NOT_SENT] = true;
+        // The reason, never the code or the address (SECURITY §5).
+        console.error(JSON.stringify({ level: 'error', event: 'client_otp.not_sent', reason: (e instanceof Error ? e.message : String(e)).split(':')[0]!.slice(0, 80) }));
+        throw e;
+      }
+    },
   });
   return {
     ...base,
