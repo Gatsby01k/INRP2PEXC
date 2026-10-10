@@ -85,7 +85,7 @@ export function OpenAccount({ email }: { email: string }) {
           </p>
         </section>
       </main>
-      <AssistantPanel state={{ mood: 'ready', label: 'Welcome', title: 'Open your account', body: 'One step: a name for the account you will trade under.' }} size="compact">
+      <AssistantPanel state={{ mood: 'ready', label: 'Welcome', title: 'One step to the Exchange', body: 'A name for the account you will trade under.' }} size="compact">
         <div className={styles.navRow}>
           <Link className={shell.textAction} href="/traders">
             Provide capacity instead

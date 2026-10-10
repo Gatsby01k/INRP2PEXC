@@ -30,6 +30,12 @@ export interface FakeTransferInput {
  */
 export class FakeTronChain {
   #transfers = new Map<string, Trc20Transfer>();
+  /**
+   * When each block was mined, in real time: a transfer happens when it is added, as on the real chain. Whose reserve a
+   * deposit to the shared address is depends on a wallet being on file before the transfer (D-17), so a fixed epoch in
+   * the past would make every wallet look registered after every transfer.
+   */
+  #minedAt = new Map<bigint, Date>();
   #head: bigint;
   /** TRX (sun) per address, for observations of the energy an outflow needs. */
   readonly trx = new Map<string, bigint>();
@@ -66,11 +72,20 @@ export class FakeTronChain {
       toAddress: input.to,
       amountMinor: input.amountMinor,
       blockNumber,
-      blockTime: new Date(Number(1_700_000_000_000n + blockNumber * 3_000n)),
+      blockTime: this.#timeOf(blockNumber),
       receiptStatus: input.receiptStatus ?? 'SUCCESS',
     };
     this.#transfers.set(key(transfer.txHash, transfer.logIndex), transfer);
     return transfer;
+  }
+
+  #timeOf(block: bigint): Date {
+    let at = this.#minedAt.get(block);
+    if (!at) {
+      at = new Date();
+      this.#minedAt.set(block, at);
+    }
+    return at;
   }
 
   /** Advances the head (and with it the solidified line) by `blocks`. */

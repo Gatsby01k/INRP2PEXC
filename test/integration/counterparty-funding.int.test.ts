@@ -9,7 +9,7 @@ import {
   confirmPayout, confirmRefundLeg, confirmRouteSettlement, createPayoutLeg, createRefundLeg, recordLegEvidence, recordRouteSettlement, refundAndCancel,
   sendPayoutLeg,
 } from '@inrp2p/settlement';
-import { orderDeliveryAddress, reconcileOrderNow, runTraderSweep, submitOrderPayment } from '@inrp2p/traders';
+import { orderDeliveryAddress, reconcileOrderNow, reserveFigures, runTraderSweep, sharedReserveAddress, submitOrderPayment } from '@inrp2p/traders';
 import { balanceOf, clientDepositAddressOf, newUtr, observe, settleFirstLeg } from '../../packages/settlement/test/world.ts';
 import {
   type TradersWorld, type TraderSetup, clientRequest, configureProgram, confirmOnChain, createTradersWorld, liveTrader, sendUsdt, traderClient, tradeThroughTrader, utr,
@@ -199,12 +199,12 @@ describe('nothing stands in for the trade’s own counterparty', () => {
                      values (${unfunded.tradeId}, 'COUNTERPARTY_FUNDS', ${source.source_id}, 'CLIENT_PAYOUT', ${leg}, 'INR', ${inr('104200.00')}, ${`INR:${w.collectionAccountId}`}, 'test')`.execute(w.t.owner))
       .rejects.toSatisfy((e) => pgErrorCode(e) === 'IX084');
 
-    // The USDT trader's Security Reserve sits at its reserve address; it pays nothing out.
-    const reserveAddress = await w.app.selectFrom('deposit_assignment as a').innerJoin('deposit_address as d', 'd.id', 'a.deposit_address_id')
-      .select(['d.id']).where('a.trader_id', '=', usdtTraderId).executeTakeFirstOrThrow();
+    // The USDT trader's Security Reserve sits at the shared reserve address (D-17); it pays nothing out.
+    const reserveWallet = (await sharedReserveAddress(w.app))!;
+    expect((await reserveFigures(w.app, usdtTraderId)).balance.isPositive()).toBe(true);
     const buy = await tradeThroughTrader(w, usdtTrader, { requestId: await clientRequest(w, 'BUY_USDT', '100'), clientRate: '106.000000' });
     await settleFirstLeg(w, buy.tradeId);
-    await expect(createPayout(buy.tradeId, '100', { sourceDepositAddressId: reserveAddress.id })).rejects.toMatchObject({ code: 'FUNDING_NOT_CONFIRMED' });
+    await expect(createPayout(buy.tradeId, '100', { treasuryWalletId: reserveWallet.walletId })).rejects.toMatchObject({ code: 'FUNDING_NOT_CONFIRMED' });
   });
 });
 

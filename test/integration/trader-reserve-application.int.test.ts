@@ -13,7 +13,7 @@ import {
 } from '@inrp2p/settlement';
 import {
   approveReserveApplication, cancelReserveApplication, deskTrader, endReserveApplication, reconcileOrderNow, recordReserveApplicationSent, rejectReserveApplication,
-  requestReserveApplication, requestReserveWithdrawal, reserveFigures, traderHome,
+  requestReserveApplication, requestReserveWithdrawal, reserveFigures, sharedReserveAddress, traderHome,
 } from '@inrp2p/traders';
 import type { TestOperator } from '@inrp2p/identity/testing';
 import { balanceOf, clientDepositAddressOf, journalsFor, observe, settleFirstLeg } from '../../packages/settlement/test/world.ts';
@@ -35,8 +35,8 @@ beforeAll(async () => {
   await configureProgram(w, { reserve: '500', rewardBps: 10, collection: true });
   seller = await traderClient(w, 'Reserve Seller');
   sellerId = (await liveTrader(w, seller, { sell: { capacity: '5000', rate: '105.20', min: '100', max: '2500' }, reserve: '800' })).traderId;
-  reserveAddress = (await w.app.selectFrom('deposit_assignment as a').innerJoin('deposit_address as d', 'd.id', 'a.deposit_address_id')
-    .select('d.address').where('a.trader_id', '=', sellerId).where('a.released_at', 'is', null).executeTakeFirstOrThrow()).address;
+  // The one reserve address every trader funds (D-17): an exchange wallet, which is where custody moves it from.
+  reserveAddress = (await sharedReserveAddress(w.app))!.address;
 });
 afterAll(async () => w.close());
 

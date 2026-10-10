@@ -114,8 +114,11 @@ describe('the Security Reserve', () => {
     const on = await reserveFigures(w.app, traderId);
     expect({ balance: on.balance.toDecimalString(), locked: on.locked.toDecimalString(), available: on.available.toDecimalString() }).toEqual({ balance: '700.000000', locked: '500.000000', available: '200.000000' });
     expect(await globalImbalance(w.app)).toEqual([]);
+    // The stranger's money is nobody's reserve: one address for every trader cannot say whose it was meant to be, so no
+    // trader is told it is theirs — the desk has the case (TECH_DEBT TD-28).
     await dispatch();
-    expect(await inbox(t.clientId)).toContain('TRADER_RESERVE_ISSUE');
+    expect(await inbox(t.clientId)).not.toContain('TRADER_RESERVE_ISSUE');
+    expect(stranger.detected.exceptionId).toBeTruthy();
   });
 
   it('never releases the locked part; a withdrawal is read from the chain, confirmed on finality and posted once', async () => {
