@@ -40,7 +40,7 @@ export function TraderMoney({ detail, accounts, perms }: { detail: DeskTraderDet
             { label: 'Pending release', value: usdt(r.pendingRelease, { exact: true }) },
             ...(/[1-9]/.test(r.applying) ? [{ label: 'Being applied to orders', value: usdt(r.applying, { exact: true }) }] : []),
             ...(/[1-9]/.test(r.shortfall) ? [{ label: 'Short by', value: <span className={d.negative}>{usdt(r.shortfall, { exact: true })}</span> }] : []),
-            { label: 'Deposit address', value: <span className={d.mono}>{r.depositAddress ?? 'not issued yet'}</span> },
+            { label: 'Deposit address · shared', value: <span className={d.mono}>{r.depositAddress ?? 'none active'}</span> },
           ]}
         />
         {detail.withdrawals.length > 0 ? (

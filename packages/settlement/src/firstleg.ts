@@ -385,6 +385,9 @@ export function submitTxForVerification(actor: OperatorActor, deps: SettlementDe
       toAddress: chosen.toAddress,
       amount: Money.ofMinor(chosen.amountMinor, 'USDT'),
       source: 'OPERATOR_SUBMITTED',
+      // The chain's time, not the moment the desk handed the hash in: a wallet registered in between never makes a
+      // deposit to the shared reserve address its registrant's (D-17).
+      blockTime: chosen.blockTime,
     });
   });
 }

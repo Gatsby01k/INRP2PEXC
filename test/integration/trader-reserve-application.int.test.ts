@@ -109,10 +109,18 @@ describe('applying a trader’s Security Reserve to USDT it did not deliver (D3)
     const lines = await sql<{ code: string; direction: string; amount_minor: string }>`
       select a.code, e.direction, e.amount_minor::text from ledger_entry e join ledger_account a on a.id = e.account_id
       join ledger_journal j on j.id = e.journal_id where j.posting_key = ${`crypto:${transfer.transfer_id}:confirm`} order by e.direction desc, a.code`.execute(w.app);
+    // Since D-17 the reserve leaves the shared reserve wallet for the order's address in the deposit pool: a move between
+    // two exchange wallets, recorded as one, so each wallet's book follows where the USDT is — and the treasury as a whole
+    // does not grow (the two TREASURY_USDT lines are the two wallets, and they cancel).
     expect(lines.rows.map((r) => [r.code.split(':').slice(0, 2).join(':'), r.direction, r.amount_minor])).toEqual([
+      ['ASSET:TREASURY_USDT', 'DR', '500000000'],
       ['LIAB:TRADER_RESERVE', 'DR', '500000000'],
       ['ASSET:ROUTE_RECEIVABLE', 'CR', '500000000'],
+      ['ASSET:TREASURY_USDT', 'CR', '500000000'],
     ]);
+    const treasuryLines = lines.rows.filter((r) => r.code.startsWith('ASSET:TREASURY_USDT'));
+    expect(new Set(treasuryLines.map((r) => r.code)).size).toBe(2);
+    expect(treasuryLines.find((r) => r.direction === 'CR')!.code).toContain((await sharedReserveAddress(w.app))!.walletId);
     const after = await reserveFigures(w.app, sellerId);
     expect({ balance: after.balance.toDecimalString(), applying: after.applying.toDecimalString() }).toEqual({ balance: '300.000000', applying: '0.000000' });
     expect(after.shortfall.toDecimalString()).toBe('200.000000');

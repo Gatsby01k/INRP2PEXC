@@ -79,6 +79,10 @@ export function TransfersTable({ transfers }: { transfers: readonly TransferView
           <Link href={`/orders/${encodeURIComponent(t.tradeRef)}`} className={d.link}>
             {t.tradeRef}
           </Link>
+        ) : t.reserve ? (
+          <Link href={`/trader-desk/${encodeURIComponent(t.reserve.traderId)}`} className={d.link}>
+            {t.reserve.direction === 'IN' ? 'Reserve' : 'Reserve out'} · {t.reserve.traderRef}
+          </Link>
         ) : t.source === 'SCANNER' ? (
           <Chip tone="warning">Unattributed</Chip>
         ) : (
@@ -92,7 +96,7 @@ export function TransfersTable({ transfers }: { transfers: readonly TransferView
       columns={columns}
       rows={transfers}
       rowKey={(t) => t.id}
-      rail={(t) => (t.tradeRef === null && t.source === 'SCANNER' ? 'danger' : t.state === 'DETECTED' ? 'action' : null)}
+      rail={(t) => (t.tradeRef === null && t.reserve === null && t.source === 'SCANNER' ? 'danger' : t.state === 'DETECTED' ? 'action' : null)}
       empty={<Empty title="Nothing on chain here" body="The scanner reports transfers to the desk's addresses as it sees them." />}
     />
   );

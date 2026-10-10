@@ -8,6 +8,7 @@ import { createTestClientLogin, runAs } from '@inrp2p/identity/testing';
 import { addBankAccount, openExchangeAccount } from '@inrp2p/clients';
 import { globalImbalance } from '@inrp2p/ledger';
 import { createRequest } from '@inrp2p/quotes';
+import { usdtView } from '@inrp2p/desk';
 import { detect } from '@inrp2p/scanner';
 import { applyAsTrader, claimReserveDeposit, readStanding, requestReserveWithdrawal, reserveFigures, sharedReserveAddress, standingIssues, traderHome } from '@inrp2p/traders';
 import { portalAccess, workspaceAccess } from '../../packages/portal/src/index.ts';
@@ -83,6 +84,11 @@ describe('one Security Reserve address for every trader', () => {
     expect(await balanceOf(a.traderId)).toBe('0.000000');
     await confirmOnChain(w);
     expect(await balanceOf(a.traderId)).toBe('600.000000');
+
+    // The desk sees whose reserve it is — the only place a deposit to one shared address says so — not "unattributed".
+    const seen = (await usdtView(w.app, { transferLimit: 500 })).transfers.find((t) => t.txHash === r.txHash);
+    const ref = (await w.app.selectFrom('trader_profile').select('ref').where('id', '=', a.traderId).executeTakeFirstOrThrow()).ref;
+    expect(seen).toMatchObject({ tradeRef: null, reserve: { traderId: a.traderId, traderRef: ref, direction: 'IN' } });
 
     // Topping up is not admission: still under review, still not approved to receive anything.
     const after = await traderHome(w.app, a.who.userId);

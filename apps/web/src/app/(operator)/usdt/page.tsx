@@ -40,8 +40,9 @@ export default async function UsdtPage({ searchParams }: { searchParams: Promise
   const poolTotal = pool.available + pool.assigned + pool.cooldown;
   const lowPool = pool.capability === 'POOL' && pool.available < LOW_POOL_THRESHOLD;
   const awaitingFinality = view.transfers.filter((t) => t.state === 'DETECTED').length;
-  const unattributed = view.transfers.filter((t) => t.tradeRef === null && t.source === 'SCANNER').length;
-  const transfers = filter === 'detected' ? view.transfers.filter((t) => t.state === 'DETECTED') : filter === 'unattributed' ? view.transfers.filter((t) => t.tradeRef === null) : view.transfers;
+  // A Security Reserve deposit or withdrawal belongs to a trader, not to a trade: attributed, never "unattributed".
+  const unattributed = view.transfers.filter((t) => t.tradeRef === null && t.reserve === null && t.source === 'SCANNER').length;
+  const transfers = filter === 'detected' ? view.transfers.filter((t) => t.state === 'DETECTED') : filter === 'unattributed' ? view.transfers.filter((t) => t.tradeRef === null && t.reserve === null) : view.transfers;
 
   return (
     <Page>

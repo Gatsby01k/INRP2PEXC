@@ -125,6 +125,11 @@ export interface TransferView {
   readonly confirmedAt: string | null;
   readonly verifiedBy: string | null;
   readonly tradeRef: string | null;
+  /**
+   * A trader's Security Reserve the transfer pays in (deposit) or out (withdrawal) — attributed, though to no trade.
+   * At the shared reserve address (D-17) this is the only place the desk sees whose deposit it was.
+   */
+  readonly reserve: { readonly traderId: string; readonly traderRef: string; readonly direction: 'IN' | 'OUT' } | null;
 }
 
 /**
@@ -218,14 +223,18 @@ export async function usdtView(ex: Executor, opts: { transferLimit?: number } = 
     id: string; tx_hash: string; log_index: number; amount_minor: bigint; state: TransferView['state'];
     from_address: string; to_address: string; source: TransferView['source'];
     detected_at: Date; confirmed_at: Date | null; verified_by: string | null; trade_ref: string | null;
+    reserve_trader_id: string | null; reserve_trader_ref: string | null; reserve_direction: 'IN' | 'OUT' | null;
   }>`
     select c.id, c.tx_hash, c.log_index, c.amount_minor, c.state, c.from_address, c.to_address, c.source,
            c.detected_at, c.confirmed_at, c.verified_by,
+           tp.id as reserve_trader_id, tp.ref as reserve_trader_ref,
+           case when c.payer_type = 'TRADER' then 'IN' when c.payee_type = 'TRADER' then 'OUT' end as reserve_direction,
            (select t.ref from transfer_allocation a
               join settlement_leg l on l.id = a.settlement_leg_id
               join trade t on t.id = l.trade_id
              where a.crypto_transfer_id = c.id and a.voided_at is null limit 1) as trade_ref
     from crypto_transfer c
+    left join trader_profile tp on tp.id = case when c.payer_type = 'TRADER' then c.payer_id when c.payee_type = 'TRADER' then c.payee_id end
     order by c.detected_at desc
     limit ${opts.transferLimit ?? 50}`.execute(ex);
   const cursor = await ex
@@ -275,6 +284,7 @@ export async function usdtView(ex: Executor, opts: { transferLimit?: number } = 
       confirmedAt: t.confirmed_at ? t.confirmed_at.toISOString() : null,
       verifiedBy: t.verified_by,
       tradeRef: t.trade_ref,
+      reserve: t.reserve_trader_id && t.reserve_trader_ref && t.reserve_direction ? { traderId: t.reserve_trader_id, traderRef: t.reserve_trader_ref, direction: t.reserve_direction } : null,
     })),
     scanner: cursor
       ? {

@@ -5,6 +5,7 @@ import { fundingSources, obligationRemaining } from '@inrp2p/settlement';
 import { standingIssues, type StandingIssue } from './eligibility.ts';
 import { traderProgram, type TraderProgram } from '@inrp2p/trader-core';
 import { earnings } from './rewards.ts';
+import { sharedReserveAddress } from './reserve.ts';
 import { readBlocks, readStanding } from './standing.ts';
 
 /**
@@ -404,13 +405,8 @@ export async function deskTrader(ex: Executor, traderId: string): Promise<DeskTr
   const wallets = await ex.selectFrom('crypto_wallet').select(['id', 'label', 'address', 'purpose']).where('client_id', '=', p.client_id).where('status', '=', 'ACTIVE').where('purpose', '=', 'BOTH').execute();
   const blocks = await readBlocks(ex, id);
   const { reserve } = await readStanding(ex, id);
-  const address = await ex
-    .selectFrom('deposit_assignment as a')
-    .innerJoin('deposit_address as d', 'd.id', 'a.deposit_address_id')
-    .select('d.address')
-    .where('a.trader_id', '=', id)
-    .where('a.released_at', 'is', null)
-    .executeTakeFirst();
+  // One address for every trader (D-17): the desk sees the address the trader is told to send to.
+  const address = await sharedReserveAddress(ex);
   const withdrawals = await ex
     .selectFrom('trader_reserve_withdrawal as w')
     .leftJoin('crypto_transfer as c', 'c.id', 'w.crypto_transfer_id')
