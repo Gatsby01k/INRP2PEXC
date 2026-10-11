@@ -153,3 +153,23 @@ Full record: `docs/adr/0016-counterparty-funded-execution.md`.
   go to the registered, verified wallet only; the account's administrator may ask for one.
 - Not part of this decision: automatic return of unattributed deposits, any change to how trades are funded (D-16), and
   the public site's wording about onboarding (the home page is frozen; TECH_DEBT TD-29).
+
+## D-18 — Production on Vercel, Neon and AWS; the clients' bank accounts move to KMS — Resolved (owner, 2026-10-11)
+- **Where it runs.** The web app stays on Vercel (project `inr463rergr`, the production domains); the database is the
+  existing Neon PostgreSQL 18 project (`us-east-1`); the worker runs on AWS ECS Fargate with its own task role
+  (`deploy/aws/inrp2p-aws.json`). The field-encryption key is an AWS KMS key in the same account. Proposed, not decided
+  by the owner: everything in `us-east-1`, where the database is. This closes D-06's open hosting question for this
+  deployment; PITR is Neon's own (its restore window is the plan's).
+- **No long-term AWS key anywhere.** The worker gets credentials from its task role; the Vercel web app assumes a role
+  through Vercel's OIDC federation (`AWS_ROLE_ARN`, only for the project's production deployments); the worker image is
+  pushed to ECR by a GitHub workflow through GitHub's OIDC federation. A production process refuses a long-term access
+  key (`AKIA…`).
+- **The two clients' bank accounts are kept, not re-entered.** Production sealed them under the locally held key
+  `prod-v1`. They are moved to the KMS key by re-wrapping each value's data key (`scripts/reseal-fields.ts`, migration
+  0036): the encrypted account number and its lookup HMAC do not change, the HMAC key stays the same, and the move is
+  checked value by value before it is written. The release never runs with `prod-v1`; once `verify` shows nothing left
+  under it, it is retired.
+- **The web app and the worker connect as their own logins** (`inrp2p_app_login`, `inrp2p_worker_login`;
+  `scripts/database-logins.ts`), never as the Neon owner role.
+- Not part of this decision: whether the notifications the release at 23 left undelivered are sent late (DEPLOYMENT
+  §10), the audit-archive retention period (the template's default is a proposal), and a second TRON provider (D-05).
