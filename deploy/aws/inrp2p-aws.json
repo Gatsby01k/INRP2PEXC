@@ -1,0 +1,824 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "INRP2P Exchange on AWS (owner direction 2026-10-11, D-18, DEPLOYMENT §10): the field-encryption KMS key, the audit-seal archive under Object Lock, the worker on ECS Fargate with its task role, and the role the Vercel web app reaches KMS through by OIDC. The worker starts at DesiredCount 0: nothing runs until the transition says so.",
+  "Parameters": {
+    "WorkerImage": {
+      "Type": "String",
+      "Description": "The worker image by digest: <account>.dkr.ecr.<region>.amazonaws.com/inrp2p-worker@sha256:… (pushed by the worker-image workflow). Leave the placeholder until the image exists.",
+      "Default": "public.ecr.aws/docker/library/busybox:latest"
+    },
+    "DesiredCount": {
+      "Type": "Number",
+      "Description": "Workers running. 0 until the transition starts the worker (DEPLOYMENT §2); never more than 1 during it.",
+      "Default": 0,
+      "AllowedValues": [
+        0,
+        1
+      ]
+    },
+    "VpcId": {
+      "Type": "AWS::EC2::VPC::Id",
+      "Description": "The VPC the worker runs in (the default VPC is enough)."
+    },
+    "SubnetIds": {
+      "Type": "List<AWS::EC2::Subnet::Id>",
+      "Description": "Public subnets of that VPC: the worker reaches Neon, KMS, S3, TRON providers and Resend over the internet, with no NAT gateway."
+    },
+    "KekId": {
+      "Type": "String",
+      "Default": "kms-2026a",
+      "AllowedPattern": "^[A-Za-z0-9_-]{1,64}$",
+      "Description": "INRP2P_KEK_ID: the name every sealed value records for this KMS key."
+    },
+    "AuditSealRetentionDays": {
+      "Type": "Number",
+      "Default": 3650,
+      "MinValue": 1,
+      "Description": "INRP2P_AUDIT_SEAL_RETENTION_DAYS: COMPLIANCE-mode retention of each exported seal (nobody, root included, can shorten it). The owner's choice."
+    },
+    "ClientBaseUrl": {
+      "Type": "String",
+      "Default": "https://app.inrp2p.com",
+      "AllowedPattern": "^https://.+",
+      "Description": "CLIENT_BASE_URL: links in client emails."
+    },
+    "ResendFrom": {
+      "Type": "String",
+      "Default": "INRP2P Exchange <no-reply@inrp2p.com>",
+      "Description": "RESEND_FROM: a sender on the domain verified in Resend."
+    },
+    "TronPrimaryUrl": {
+      "Type": "String",
+      "Default": "https://api.trongrid.io",
+      "AllowedPattern": "^https://.+"
+    },
+    "TronPrimaryGroup": {
+      "Type": "String",
+      "Default": "trongrid"
+    },
+    "TronSecondaryUrl": {
+      "Type": "String",
+      "Default": "",
+      "Description": "A second, independent TRON provider (D-05). Empty: amounts at or above the D-05 threshold cannot confirm."
+    },
+    "TronSecondaryGroup": {
+      "Type": "String",
+      "Default": ""
+    },
+    "UsdtContract": {
+      "Type": "String",
+      "Default": "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t",
+      "Description": "USDT TRC-20 on TRON mainnet."
+    },
+    "WorkerCpu": {
+      "Type": "String",
+      "Default": "256",
+      "AllowedValues": [
+        "256",
+        "512",
+        "1024"
+      ]
+    },
+    "WorkerMemory": {
+      "Type": "String",
+      "Default": "1024",
+      "AllowedValues": [
+        "512",
+        "1024",
+        "2048"
+      ]
+    },
+    "VercelTeamSlug": {
+      "Type": "String",
+      "AllowedPattern": "^[a-z0-9-]+$",
+      "Description": "The Vercel team that owns the web project (Vercel → Settings → General → Team URL)."
+    },
+    "VercelProjectName": {
+      "Type": "String",
+      "Default": "inr463rergr",
+      "AllowedPattern": "^[a-z0-9._-]+$"
+    },
+    "CreateVercelOidcProvider": {
+      "Type": "String",
+      "Default": "true",
+      "AllowedValues": [
+        "true",
+        "false"
+      ],
+      "Description": "false when this account already has the oidc.vercel.com/<team> identity provider."
+    },
+    "GitHubRepository": {
+      "Type": "String",
+      "Default": "Gatsby01k/INRP2PEXC",
+      "Description": "The repository whose worker-image workflow may push to ECR."
+    },
+    "CreateGitHubOidcProvider": {
+      "Type": "String",
+      "Default": "true",
+      "AllowedValues": [
+        "true",
+        "false"
+      ],
+      "Description": "false when this account already has token.actions.githubusercontent.com."
+    }
+  },
+  "Conditions": {
+    "MakeVercelProvider": {
+      "Fn::Equals": [
+        {
+          "Ref": "CreateVercelOidcProvider"
+        },
+        "true"
+      ]
+    },
+    "MakeGitHubProvider": {
+      "Fn::Equals": [
+        {
+          "Ref": "CreateGitHubOidcProvider"
+        },
+        "true"
+      ]
+    }
+  },
+  "Resources": {
+    "FieldKey": {
+      "Type": "AWS::KMS::Key",
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
+      "Properties": {
+        "Description": "INRP2P field encryption: wraps the data key of every bank account number, phone and code (TD-03). Never delete while a value names it.",
+        "KeySpec": "SYMMETRIC_DEFAULT",
+        "KeyUsage": "ENCRYPT_DECRYPT",
+        "EnableKeyRotation": true,
+        "KeyPolicy": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "KeyAdministrationByTheAccountOnly",
+              "Effect": "Allow",
+              "Principal": {
+                "AWS": {
+                  "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:root"
+                }
+              },
+              "Action": "kms:*",
+              "Resource": "*"
+            }
+          ]
+        }
+      }
+    },
+    "FieldKeyAlias": {
+      "Type": "AWS::KMS::Alias",
+      "Properties": {
+        "AliasName": "alias/inrp2p-field",
+        "TargetKeyId": {
+          "Ref": "FieldKey"
+        }
+      }
+    },
+    "AuditSealBucket": {
+      "Type": "AWS::S3::Bucket",
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
+      "Properties": {
+        "ObjectLockEnabled": true,
+        "VersioningConfiguration": {
+          "Status": "Enabled"
+        },
+        "PublicAccessBlockConfiguration": {
+          "BlockPublicAcls": true,
+          "BlockPublicPolicy": true,
+          "IgnorePublicAcls": true,
+          "RestrictPublicBuckets": true
+        },
+        "OwnershipControls": {
+          "Rules": [
+            {
+              "ObjectOwnership": "BucketOwnerEnforced"
+            }
+          ]
+        },
+        "BucketEncryption": {
+          "ServerSideEncryptionConfiguration": [
+            {
+              "ServerSideEncryptionByDefault": {
+                "SSEAlgorithm": "AES256"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "AuditSealBucketPolicy": {
+      "Type": "AWS::S3::BucketPolicy",
+      "Properties": {
+        "Bucket": {
+          "Ref": "AuditSealBucket"
+        },
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "TlsOnly",
+              "Effect": "Deny",
+              "Principal": "*",
+              "Action": "s3:*",
+              "Resource": [
+                {
+                  "Fn::GetAtt": [
+                    "AuditSealBucket",
+                    "Arn"
+                  ]
+                },
+                {
+                  "Fn::Sub": "${AuditSealBucket.Arn}/*"
+                }
+              ],
+              "Condition": {
+                "Bool": {
+                  "aws:SecureTransport": "false"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "WorkerRepository": {
+      "Type": "AWS::ECR::Repository",
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "RepositoryName": "inrp2p-worker",
+        "ImageTagMutability": "IMMUTABLE",
+        "ImageScanningConfiguration": {
+          "ScanOnPush": true
+        },
+        "LifecyclePolicy": {
+          "LifecyclePolicyText": "{\"rules\":[{\"rulePriority\":1,\"description\":\"keep the last 5 images\",\"selection\":{\"tagStatus\":\"any\",\"countType\":\"imageCountMoreThan\",\"countNumber\":5},\"action\":{\"type\":\"expire\"}}]}"
+        }
+      }
+    },
+    "WorkerSecret": {
+      "Type": "AWS::SecretsManager::Secret",
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
+      "Properties": {
+        "Name": "inrp2p/worker",
+        "Description": "The worker's secrets, one JSON object. Fill every SET-ME in the console (Secrets Manager → inrp2p/worker → Retrieve → Edit) before the worker starts; values never go in the template or in chat.",
+        "SecretString": "{\"WORKER_DATABASE_URL\":\"SET-ME\",\"RESEND_API_KEY\":\"SET-ME\",\"INRP2P_FIELD_HMAC_BASE64\":\"SET-ME\",\"INRP2P_TRON_PRIMARY_KEY\":\"\"}"
+      }
+    },
+    "WorkerLogs": {
+      "Type": "AWS::Logs::LogGroup",
+      "Properties": {
+        "LogGroupName": "/inrp2p/worker",
+        "RetentionInDays": 90
+      }
+    },
+    "Cluster": {
+      "Type": "AWS::ECS::Cluster",
+      "Properties": {
+        "ClusterName": "inrp2p",
+        "CapacityProviders": [
+          "FARGATE"
+        ]
+      }
+    },
+    "WorkerExecutionRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "Description": "ECS pulls the worker image, writes its logs and hands it its secrets.",
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "ecs-tasks.amazonaws.com"
+              },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "ManagedPolicyArns": [
+          {
+            "Fn::Sub": "arn:${AWS::Partition}:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+          }
+        ],
+        "Policies": [
+          {
+            "PolicyName": "worker-secret",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": "secretsmanager:GetSecretValue",
+                  "Resource": {
+                    "Ref": "WorkerSecret"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "WorkerTaskRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "Description": "What the worker itself may do: wrap and unwrap field data keys under the application's context, and write and read audit seals.",
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "ecs-tasks.amazonaws.com"
+              },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "field-key",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "kms:Encrypt",
+                    "kms:Decrypt"
+                  ],
+                  "Resource": {
+                    "Fn::GetAtt": [
+                      "FieldKey",
+                      "Arn"
+                    ]
+                  },
+                  "Condition": {
+                    "StringEquals": {
+                      "kms:EncryptionContext:app": "inrp2p",
+                      "kms:EncryptionContext:purpose": "field-data-key"
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "PolicyName": "audit-seals",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "s3:PutObject",
+                    "s3:PutObjectRetention",
+                    "s3:GetObject",
+                    "s3:GetObjectVersion",
+                    "s3:GetObjectRetention"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "${AuditSealBucket.Arn}/*"
+                  }
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": "s3:ListBucket",
+                  "Resource": {
+                    "Fn::GetAtt": [
+                      "AuditSealBucket",
+                      "Arn"
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "WorkerSecurityGroup": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": "INRP2P worker: nothing comes in; it calls out (Neon 5432, AWS and providers 443).",
+        "VpcId": {
+          "Ref": "VpcId"
+        },
+        "SecurityGroupEgress": [
+          {
+            "IpProtocol": "tcp",
+            "FromPort": 443,
+            "ToPort": 443,
+            "CidrIp": "0.0.0.0/0",
+            "Description": "KMS, S3, STS, ECR, TRON providers, Resend"
+          },
+          {
+            "IpProtocol": "tcp",
+            "FromPort": 5432,
+            "ToPort": 5432,
+            "CidrIp": "0.0.0.0/0",
+            "Description": "Neon (direct connection)"
+          },
+          {
+            "IpProtocol": "udp",
+            "FromPort": 53,
+            "ToPort": 53,
+            "CidrIp": "0.0.0.0/0",
+            "Description": "DNS"
+          }
+        ]
+      }
+    },
+    "WorkerTask": {
+      "Type": "AWS::ECS::TaskDefinition",
+      "Properties": {
+        "Family": "inrp2p-worker",
+        "RequiresCompatibilities": [
+          "FARGATE"
+        ],
+        "NetworkMode": "awsvpc",
+        "Cpu": {
+          "Ref": "WorkerCpu"
+        },
+        "Memory": {
+          "Ref": "WorkerMemory"
+        },
+        "RuntimePlatform": {
+          "OperatingSystemFamily": "LINUX",
+          "CpuArchitecture": "X86_64"
+        },
+        "ExecutionRoleArn": {
+          "Fn::GetAtt": [
+            "WorkerExecutionRole",
+            "Arn"
+          ]
+        },
+        "TaskRoleArn": {
+          "Fn::GetAtt": [
+            "WorkerTaskRole",
+            "Arn"
+          ]
+        },
+        "ContainerDefinitions": [
+          {
+            "Name": "worker",
+            "Image": {
+              "Ref": "WorkerImage"
+            },
+            "Essential": true,
+            "StopTimeout": 120,
+            "Environment": [
+              {
+                "Name": "INRP2P_ENV",
+                "Value": "production"
+              },
+              {
+                "Name": "NODE_ENV",
+                "Value": "production"
+              },
+              {
+                "Name": "INRP2P_KEK_PROVIDER",
+                "Value": "aws-kms"
+              },
+              {
+                "Name": "INRP2P_KEK_ID",
+                "Value": {
+                  "Ref": "KekId"
+                }
+              },
+              {
+                "Name": "INRP2P_KMS_KEY_ARN",
+                "Value": {
+                  "Fn::GetAtt": [
+                    "FieldKey",
+                    "Arn"
+                  ]
+                }
+              },
+              {
+                "Name": "INRP2P_OBJECT_STORE_REGION",
+                "Value": {
+                  "Ref": "AWS::Region"
+                }
+              },
+              {
+                "Name": "INRP2P_AUDIT_SEAL_BUCKET",
+                "Value": {
+                  "Ref": "AuditSealBucket"
+                }
+              },
+              {
+                "Name": "INRP2P_AUDIT_SEAL_RETENTION_DAYS",
+                "Value": {
+                  "Ref": "AuditSealRetentionDays"
+                }
+              },
+              {
+                "Name": "CLIENT_BASE_URL",
+                "Value": {
+                  "Ref": "ClientBaseUrl"
+                }
+              },
+              {
+                "Name": "RESEND_FROM",
+                "Value": {
+                  "Ref": "ResendFrom"
+                }
+              },
+              {
+                "Name": "INRP2P_TRON_PRIMARY_URL",
+                "Value": {
+                  "Ref": "TronPrimaryUrl"
+                }
+              },
+              {
+                "Name": "INRP2P_TRON_PRIMARY_GROUP",
+                "Value": {
+                  "Ref": "TronPrimaryGroup"
+                }
+              },
+              {
+                "Name": "INRP2P_TRON_SECONDARY_URL",
+                "Value": {
+                  "Ref": "TronSecondaryUrl"
+                }
+              },
+              {
+                "Name": "INRP2P_TRON_SECONDARY_GROUP",
+                "Value": {
+                  "Ref": "TronSecondaryGroup"
+                }
+              },
+              {
+                "Name": "INRP2P_USDT_CONTRACT",
+                "Value": {
+                  "Ref": "UsdtContract"
+                }
+              },
+              {
+                "Name": "INRP2P_WORKER_ID",
+                "Value": "aws-fargate"
+              }
+            ],
+            "Secrets": [
+              {
+                "Name": "WORKER_DATABASE_URL",
+                "ValueFrom": {
+                  "Fn::Sub": "${WorkerSecret}:WORKER_DATABASE_URL::"
+                }
+              },
+              {
+                "Name": "RESEND_API_KEY",
+                "ValueFrom": {
+                  "Fn::Sub": "${WorkerSecret}:RESEND_API_KEY::"
+                }
+              },
+              {
+                "Name": "INRP2P_FIELD_HMAC_BASE64",
+                "ValueFrom": {
+                  "Fn::Sub": "${WorkerSecret}:INRP2P_FIELD_HMAC_BASE64::"
+                }
+              },
+              {
+                "Name": "INRP2P_TRON_PRIMARY_KEY",
+                "ValueFrom": {
+                  "Fn::Sub": "${WorkerSecret}:INRP2P_TRON_PRIMARY_KEY::"
+                }
+              }
+            ],
+            "LogConfiguration": {
+              "LogDriver": "awslogs",
+              "Options": {
+                "awslogs-group": {
+                  "Ref": "WorkerLogs"
+                },
+                "awslogs-region": {
+                  "Ref": "AWS::Region"
+                },
+                "awslogs-stream-prefix": "worker"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "WorkerService": {
+      "Type": "AWS::ECS::Service",
+      "Properties": {
+        "ServiceName": "inrp2p-worker",
+        "Cluster": {
+          "Ref": "Cluster"
+        },
+        "LaunchType": "FARGATE",
+        "TaskDefinition": {
+          "Ref": "WorkerTask"
+        },
+        "DesiredCount": {
+          "Ref": "DesiredCount"
+        },
+        "DeploymentConfiguration": {
+          "MinimumHealthyPercent": 0,
+          "MaximumPercent": 100,
+          "DeploymentCircuitBreaker": {
+            "Enable": true,
+            "Rollback": false
+          }
+        },
+        "NetworkConfiguration": {
+          "AwsvpcConfiguration": {
+            "AssignPublicIp": "ENABLED",
+            "Subnets": {
+              "Ref": "SubnetIds"
+            },
+            "SecurityGroups": [
+              {
+                "Ref": "WorkerSecurityGroup"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "VercelOidcProvider": {
+      "Type": "AWS::IAM::OIDCProvider",
+      "Condition": "MakeVercelProvider",
+      "Properties": {
+        "Url": {
+          "Fn::Sub": "https://oidc.vercel.com/${VercelTeamSlug}"
+        },
+        "ClientIdList": [
+          {
+            "Fn::Sub": "https://vercel.com/${VercelTeamSlug}"
+          }
+        ]
+      }
+    },
+    "VercelWebRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": "inrp2p-vercel-web",
+        "Description": "Assumed by the Vercel web app's production deployments only, through Vercel's OIDC federation; wraps and unwraps field data keys.",
+        "MaxSessionDuration": 3600,
+        "AssumeRolePolicyDocument": {
+          "Fn::Sub": "{\"Version\": \"2012-10-17\", \"Statement\": [{\"Effect\": \"Allow\", \"Principal\": {\"Federated\": \"arn:${AWS::Partition}:iam::${AWS::AccountId}:oidc-provider/oidc.vercel.com/${VercelTeamSlug}\"}, \"Action\": \"sts:AssumeRoleWithWebIdentity\", \"Condition\": {\"StringEquals\": {\"oidc.vercel.com/${VercelTeamSlug}:aud\": \"https://vercel.com/${VercelTeamSlug}\", \"oidc.vercel.com/${VercelTeamSlug}:sub\": \"owner:${VercelTeamSlug}:project:${VercelProjectName}:environment:production\"}}}]}"
+        },
+        "Policies": [
+          {
+            "PolicyName": "field-key",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "kms:Encrypt",
+                    "kms:Decrypt"
+                  ],
+                  "Resource": {
+                    "Fn::GetAtt": [
+                      "FieldKey",
+                      "Arn"
+                    ]
+                  },
+                  "Condition": {
+                    "StringEquals": {
+                      "kms:EncryptionContext:app": "inrp2p",
+                      "kms:EncryptionContext:purpose": "field-data-key"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "GitHubOidcProvider": {
+      "Type": "AWS::IAM::OIDCProvider",
+      "Condition": "MakeGitHubProvider",
+      "Properties": {
+        "Url": "https://token.actions.githubusercontent.com",
+        "ClientIdList": [
+          "sts.amazonaws.com"
+        ]
+      }
+    },
+    "ImagePushRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": "inrp2p-worker-image-push",
+        "Description": "The worker-image workflow on main pushes the worker image to ECR; nothing else.",
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Federated": {
+                  "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com"
+                }
+              },
+              "Action": "sts:AssumeRoleWithWebIdentity",
+              "Condition": {
+                "StringEquals": {
+                  "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
+                },
+                "StringLike": {
+                  "token.actions.githubusercontent.com:sub": {
+                    "Fn::Sub": "repo:${GitHubRepository}:ref:refs/heads/main"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "push-worker-image",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": "ecr:GetAuthorizationToken",
+                  "Resource": "*"
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "ecr:BatchCheckLayerAvailability",
+                    "ecr:InitiateLayerUpload",
+                    "ecr:UploadLayerPart",
+                    "ecr:CompleteLayerUpload",
+                    "ecr:PutImage",
+                    "ecr:BatchGetImage",
+                    "ecr:DescribeImages"
+                  ],
+                  "Resource": {
+                    "Fn::GetAtt": [
+                      "WorkerRepository",
+                      "Arn"
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  },
+  "Outputs": {
+    "FieldKeyArn": {
+      "Description": "INRP2P_KMS_KEY_ARN for Vercel and the re-seal",
+      "Value": {
+        "Fn::GetAtt": [
+          "FieldKey",
+          "Arn"
+        ]
+      }
+    },
+    "VercelWebRoleArn": {
+      "Description": "AWS_ROLE_ARN for Vercel (production)",
+      "Value": {
+        "Fn::GetAtt": [
+          "VercelWebRole",
+          "Arn"
+        ]
+      }
+    },
+    "AuditSealBucketName": {
+      "Value": {
+        "Ref": "AuditSealBucket"
+      }
+    },
+    "WorkerRepositoryUri": {
+      "Value": {
+        "Fn::GetAtt": [
+          "WorkerRepository",
+          "RepositoryUri"
+        ]
+      }
+    },
+    "ImagePushRoleArn": {
+      "Description": "AWS_IMAGE_PUSH_ROLE_ARN for the worker-image workflow",
+      "Value": {
+        "Fn::GetAtt": [
+          "ImagePushRole",
+          "Arn"
+        ]
+      }
+    },
+    "WorkerSecretArn": {
+      "Value": {
+        "Ref": "WorkerSecret"
+      }
+    }
+  }
+}
