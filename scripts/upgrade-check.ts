@@ -15,13 +15,18 @@
  *   - every trade has exactly one funding model, and every trade that existed before is `LEGACY_EXCHANGE_FUNDED` —
  *     a trade accepted under the old rules is never reinterpreted as counterparty-funded (migration 0025);
  *   - this release reads the upgraded database: the full operations status computes, no restore fence holds and new
- *     business is open.
+ *     business is open;
+ *   - with the keys the release at 23 sealed with (`UPGRADE_FIELD_KEYS`, JSON by database name: `{keyId, kekBase64,
+ *     hmacBase64}`), every sealed value it wrote moves to a KMS key (`scripts/reseal-fields.ts`, migration 0036 — here an
+ *     in-memory KMS) and opens under that key alone with its lookup HMAC unchanged: production's move off `prod-v1`.
  *
  * Run as a superuser against databases at 23 (it migrates them). Usage:
  *   node scripts/upgrade-check.ts <database url> [<database url> …]
  */
 import { randomUUID } from 'node:crypto';
 import { sql } from 'kysely';
+import { AwsKmsKeyEncryptionKey, LocalKeyEncryptionKey } from '@inrp2p/adapters';
+import { fakeKms } from '@inrp2p/adapters/testing';
 import { appendAuditDirect, sealAudit, verifyAuditSeals } from '@inrp2p/audit';
 import { SCHEMA_VERSION, createDb, createPool } from '@inrp2p/db';
 import { migrate } from '@inrp2p/db/migrate';
@@ -29,8 +34,10 @@ import { installQueue } from '@inrp2p/outbox';
 import { operationsStatus } from '@inrp2p/desk';
 import { newBusinessState, payoutsHeld } from '@inrp2p/trades';
 import { type RestoreCounts, countDifferences, restoreCounts, restoreProblems } from './restore-checks.ts';
+import { reseal } from './reseal-fields.ts';
 
 const FROM = 23;
+const fieldKeys = JSON.parse(process.env.UPGRADE_FIELD_KEYS ?? '{}') as Record<string, { keyId: string; kekBase64: string; hmacBase64: string } | undefined>;
 const urls = process.argv.slice(2);
 if (urls.length === 0) {
   console.error('usage: node scripts/upgrade-check.ts <database url> [<database url> …]');
@@ -69,6 +76,34 @@ for (const url of urls) {
     note(legsAfter === legsBefore, `settlement legs ${legsBefore} before, ${legsAfter} after`);
     problems.push(...(await restoreProblems(db)).map((p) => `after the upgrade: ${p}`));
 
+    // Production's move off its locally held key, on the values the release at 23 sealed itself.
+    let resealed: { values: number; target: string } | null = null;
+    const old = fieldKeys[name];
+    if (old) {
+      const kms = fakeKms();
+      const keys = {
+        target: new AwsKmsKeyEncryptionKey({
+          keyId: 'kms-upgrade', keyArn: 'arn:aws:kms:us-east-1:111122223333:key/0f0e0d0c-0b0a-4908-8706-050403020100',
+          credentials: async () => ({ accessKeyId: 'ASIAUPGRADECHECK', secretAccessKey: 'not-a-secret', sessionToken: 'upgrade-check' }),
+          fetchImpl: kms.fetchImpl, endpoint: 'https://kms.upgrade-check.invalid/',
+        }),
+        sources: [LocalKeyEncryptionKey.fromBase64(old.keyId, old.kekBase64)],
+        hmacKey: Buffer.from(old.hmacBase64, 'base64'),
+      };
+      const accountsBefore = (await sql<{ n: string }>`select count(*)::text as n from bank_account`.execute(db)).rows[0]!.n;
+      const plan = await reseal(db, keys, 'plan');
+      note(plan.ok, `re-seal plan: ${plan.fields.flatMap((f) => f.failed.map((x) => `${f.field} ${x.id}: ${x.reason}`)).join('; ')}`);
+      note(plan.remaining > 0, `the release at 23 sealed nothing under ${old.keyId} here; there is nothing to move`);
+      const moved = await reseal(db, keys, 'apply');
+      note(moved.ok && moved.remaining === 0, `re-seal apply: ${moved.remaining} values still under another key`);
+      note(moved.fields.reduce((n, f) => n + f.moved, 0) === plan.remaining, 'the re-seal did not move every value the plan counted');
+      const verified = await reseal(db, keys, 'verify');
+      note(verified.ok, `re-seal verify: ${verified.fields.flatMap((f) => f.failed.map((x) => `${f.field} ${x.id}: ${x.reason}`)).join('; ')}`);
+      const accountsAfter = (await sql<{ n: string }>`select count(*)::text as n from bank_account`.execute(db)).rows[0]!.n;
+      note(accountsAfter === accountsBefore, `bank accounts ${accountsBefore} before the re-seal, ${accountsAfter} after`);
+      resealed = { values: plan.remaining, target: keys.target.keyId };
+    }
+
     const funding = (await sql<{ trades: string; funded: string; legacy: string; doubled: string }>`
       select (select count(*) from trade)::text as trades,
              (select count(distinct trade_id) from trade_funding)::text as funded,
@@ -91,7 +126,7 @@ for (const url of urls) {
     note(!(await payoutsHeld(db)).held, 'outgoing payments are held on the upgraded database');
     note(!(await newBusinessState(db)).paused, 'new business is paused on the upgraded database');
 
-    console.log(JSON.stringify({ database: name, from: before.migration, to: after.migration, applied, counts: after, legs: legsAfter, funding, seals: { before: before.auditSeals, afterContinuing: chain.checkedSeals }, health: status.state, problems }, null, 2));
+    console.log(JSON.stringify({ database: name, from: before.migration, to: after.migration, applied, counts: after, legs: legsAfter, funding, resealed, seals: { before: before.auditSeals, afterContinuing: chain.checkedSeals }, health: status.state, problems }, null, 2));
   } catch (e) {
     problems.push(`the upgrade did not complete: ${(e as Error).message}`);
     console.log(JSON.stringify({ database: name, problems }, null, 2));

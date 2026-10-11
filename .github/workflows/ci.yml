@@ -383,5 +383,13 @@ jobs:
               await db.destroy();
             }"
 
-      - name: This release migrates both databases to its schema and checks what came through
-        run: node scripts/upgrade-check.ts postgres://postgres@127.0.0.1:5432/inrp2p_visual postgres://postgres@127.0.0.1:5432/inrp2p_e2e
+      # The keys the release at 23 sealed its bank accounts, contacts and codes with, read from that release itself: this
+      # release moves every value off them to a KMS key, as production moves off prod-v1 (scripts/reseal-fields.ts).
+      - name: This release migrates both databases to its schema, moves their sealed values to KMS, and checks what came through
+        run: |
+          UPGRADE_FIELD_KEYS="$(cd "$RUNNER_TEMP/release-23" && node --input-type=module -e "
+            const { E2E_FIELD_KEYS } = await import('./apps/web/e2e/world.ts');
+            const { VISUAL_FIELD_KEYS } = await import('./apps/web/visual/world.ts');
+            console.log(JSON.stringify({ inrp2p_e2e: E2E_FIELD_KEYS, inrp2p_visual: VISUAL_FIELD_KEYS }));")"
+          export UPGRADE_FIELD_KEYS
+          node scripts/upgrade-check.ts postgres://postgres@127.0.0.1:5432/inrp2p_visual postgres://postgres@127.0.0.1:5432/inrp2p_e2e

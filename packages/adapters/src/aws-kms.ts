@@ -1,4 +1,5 @@
 import { createHash, createHmac } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { DomainError } from '@inrp2p/kernel';
 import type { KeyEncryptionKey } from './keys.ts';
 
@@ -71,10 +72,64 @@ export function signSigV4(req: {
 /** `YYYYMMDDTHHMMSSZ`, the timestamp SigV4 signs. */
 export const amzDateOf = (d: Date): string => d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
 
+/** Where the Vercel runtime keeps the current request, as `@vercel/functions` reads it (`getContext()`). */
+const VERCEL_REQUEST_CONTEXT = Symbol.for('@vercel/request-context');
+
 /**
- * Where the process's AWS credentials come from, in the order the AWS SDKs use: environment variables, the
- * container's task role (ECS/EKS), the instance role (IMDSv2). Temporary credentials are cached and refreshed five
- * minutes before they expire. Nothing is read from a file in the repository.
+ * The web identity token to exchange for a role's credentials, when there is one: the file the platform names
+ * (`AWS_WEB_IDENTITY_TOKEN_FILE`, as on EKS), or — on Vercel with OIDC federation turned on — the token Vercel hands
+ * every request in `x-vercel-oidc-token` (read from the request context exactly as `@vercel/functions`'
+ * `getVercelOidcToken()` does), else `VERCEL_OIDC_TOKEN` (builds and local development).
+ */
+export function webIdentityToken(env: NodeJS.ProcessEnv = process.env, readFile: (path: string) => string = (p) => readFileSync(p, 'utf8')): string | null {
+  const file = (env.AWS_WEB_IDENTITY_TOKEN_FILE ?? '').trim();
+  if (file) return readFile(file).trim() || null;
+  const context = (globalThis as { [VERCEL_REQUEST_CONTEXT]?: { get?: () => { headers?: Record<string, string | undefined> } | undefined } })[VERCEL_REQUEST_CONTEXT]?.get?.();
+  const fromRequest = context?.headers?.['x-vercel-oidc-token'];
+  if (fromRequest) return fromRequest;
+  return (env.VERCEL_OIDC_TOKEN ?? '').trim() || null;
+}
+
+const xmlValue = (xml: string, tag: string): string | undefined => new RegExp(`<${tag}>([^<]*)</${tag}>`).exec(xml)?.[1];
+
+/**
+ * STS `AssumeRoleWithWebIdentity`: the role named by `AWS_ROLE_ARN`, for the identity the token proves. The call is not
+ * signed — the token is the proof — and the answer is temporary credentials, never a long-term key.
+ */
+async function assumeRoleWithWebIdentity(env: NodeJS.ProcessEnv, token: string, fetchImpl: typeof fetch): Promise<AwsCredentials> {
+  const region = (env.AWS_REGION ?? env.AWS_DEFAULT_REGION ?? '').trim() || 'us-east-1';
+  const session = (env.AWS_ROLE_SESSION_NAME ?? '').trim().replace(/[^\w+=,.@-]/g, '').slice(0, 64) || `inrp2p-${Date.now()}`;
+  const body = new URLSearchParams({
+    Action: 'AssumeRoleWithWebIdentity', Version: '2011-06-15', RoleArn: env.AWS_ROLE_ARN!.trim(), RoleSessionName: session,
+    WebIdentityToken: token, DurationSeconds: '3600',
+  });
+  let res: Response;
+  try {
+    res = await fetchImpl(`https://sts.${region}.amazonaws.com/`, {
+      method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded; charset=utf-8' }, body: body.toString(), signal: AbortSignal.timeout(5_000),
+    });
+  } catch (e) {
+    throw new DomainError('KMS_UNAVAILABLE', `STS did not answer AssumeRoleWithWebIdentity: ${(e as Error).message}`);
+  }
+  const xml = await res.text();
+  if (!res.ok) {
+    const code = xmlValue(xml, 'Code') ?? String(res.status);
+    // A refused identity or role is configuration, not an outage: asking again will not help.
+    if (res.status >= 400 && res.status < 500 && code !== 'Throttling' && code !== 'IDPCommunicationError') throw new DomainError('KMS_REFUSED', `STS refused the web identity: ${code}`);
+    throw new DomainError('KMS_UNAVAILABLE', `STS answered ${res.status} ${code}`);
+  }
+  const accessKeyId = xmlValue(xml, 'AccessKeyId');
+  const secretAccessKey = xmlValue(xml, 'SecretAccessKey');
+  const expiration = xmlValue(xml, 'Expiration');
+  if (!accessKeyId || !secretAccessKey) throw new DomainError('KMS_UNAVAILABLE', 'STS returned no credentials');
+  return { accessKeyId, secretAccessKey, sessionToken: xmlValue(xml, 'SessionToken'), expiration: expiration ? new Date(expiration) : undefined };
+}
+
+/**
+ * Where the process's AWS credentials come from, in the order the AWS SDKs use: environment variables, a web identity
+ * (`AWS_ROLE_ARN` with a token — Vercel's OIDC federation, or a token file), the container's task role (ECS/EKS), the
+ * instance role (IMDSv2). Temporary credentials are cached and refreshed five minutes before they expire. Nothing is
+ * read from a file in the repository.
  */
 export function awsCredentialsFromEnvironment(env: NodeJS.ProcessEnv = process.env, fetchImpl: typeof fetch = fetch): CredentialSource {
   let cached: AwsCredentials | null = null;
@@ -87,6 +142,13 @@ export function awsCredentialsFromEnvironment(env: NodeJS.ProcessEnv = process.e
     if (fresh(cached)) return cached;
     if (env.AWS_ACCESS_KEY_ID && env.AWS_SECRET_ACCESS_KEY) {
       cached = { accessKeyId: env.AWS_ACCESS_KEY_ID, secretAccessKey: env.AWS_SECRET_ACCESS_KEY, sessionToken: env.AWS_SESSION_TOKEN || undefined };
+      return cached;
+    }
+    if ((env.AWS_ROLE_ARN ?? '').trim()) {
+      const token = webIdentityToken(env);
+      // A role was named: falling through to the instance role would only hide that the identity is missing.
+      if (!token) throw new DomainError('KMS_UNAVAILABLE', 'AWS_ROLE_ARN is set but there is no web identity token (on Vercel: turn on OIDC federation)');
+      cached = await assumeRoleWithWebIdentity(env, token, fetchImpl);
       return cached;
     }
     const relative = env.AWS_CONTAINER_CREDENTIALS_RELATIVE_URI;
