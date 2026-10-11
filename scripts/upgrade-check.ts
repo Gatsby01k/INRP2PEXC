@@ -79,6 +79,7 @@ for (const url of urls) {
     // Production's move off its locally held key, on the values the release at 23 sealed itself.
     let resealed: { values: number; target: string } | null = null;
     const old = fieldKeys[name];
+    note(!process.env.UPGRADE_FIELD_KEYS || old !== undefined, `UPGRADE_FIELD_KEYS has no keys for ${name}: its sealed values would not be moved`);
     if (old) {
       const kms = fakeKms();
       const keys = {
