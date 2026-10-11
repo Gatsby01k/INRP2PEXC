@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import type { DirectionValue, FiatRail } from '@inrp2p/db';
+import { archiveBankAccount } from '@inrp2p/clients';
 import { setDayCapacity } from '@inrp2p/inr-accounts';
 import { publishRouteRate } from '@inrp2p/pricing';
 import { cancelQuote, createQuote, createQuoteLink, createRequest, declineRequest, sendQuote, withdrawRequest } from '@inrp2p/quotes';
@@ -25,6 +26,17 @@ export async function createRequestAction(
   const out = await runCommand((ctx) => createRequest(ctx.actor, {}), input, { name: 'request.create', idempotencyKey: key });
   if (out.ok) refresh();
   return out as CommandResult<{ requestId: string; ref: string }>;
+}
+
+/**
+ * Archives one of a client's bank accounts from the desk (`client_bank:add`: OWNER or SUPPORT, with step-up), with a
+ * reason; audited, and the client is told. A client whose Exchange is closed — a trader only — cannot reach its own
+ * Destinations page, so this is how the desk retires such an account (D-18: production's test accounts).
+ */
+export async function archiveClientBankAccountAction(input: { bankAccountId: string; reason: string }, key: string): Promise<CommandResult<unknown>> {
+  const out = await runCommand((ctx) => archiveBankAccount(ctx.actor), input, { name: 'client_bank.archive', idempotencyKey: key, financial: false });
+  if (out.ok) refresh();
+  return out;
 }
 
 export async function declineRequestAction(input: { requestId: string; reason: string }, key: string): Promise<CommandResult<unknown>> {
