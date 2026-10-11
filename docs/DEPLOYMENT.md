@@ -65,8 +65,8 @@ refuses 23. So there is no rolling path for this one transition — it is a shor
 4. `migrate`: 0024–0036 and the queue schema, as `inrp2p_migrator`. Check `select inrp2p_schema_version()` = 36.
    0035 adds the shared trader reserve wallet (D-17); the scanner starts watching it from its cursor — a transfer to it
    from before that point is found when the trader hands in its hash, or through a backfill (RUNBOOKS). 0036 lets the
-   schema owner move sealed values to another key; where they were sealed under a locally held key, the re-seal runs
-   here, before any process starts (§10 step 11; RUNBOOKS `field-encryption-keys`).
+   schema owner move sealed values to another key, should a key ever be retired with values that must stay readable
+   (RUNBOOKS `field-encryption-keys`); this deployment's first transition needs no re-seal (§10).
 5. Start the new worker. It checks its configuration and the schema, records its first heartbeat — no restore fence:
    no earlier database identity is on record — and starts its jobs. The scanner continues from its cursor; events the
    old release left in the outbox are delivered to handlers that are idempotent.
@@ -212,7 +212,7 @@ everything started settles), `incident-recovery`, `payout-ambiguous`, `secret-ro
 | Part | Where | How it authenticates |
 |---|---|---|
 | web (desk, client app, public site) | Vercel project `inr463rergr`, production domains | database: `inrp2p_app_login` through Neon's pooler; KMS: the role `inrp2p-vercel-web`, assumed through Vercel's OIDC federation (`AWS_ROLE_ARN`) |
-| database | Neon project, PostgreSQL 18, `us-east-1`; PITR is Neon's own | owner role `neondb_owner` for migrations and the re-seal only |
+| database | Neon project, PostgreSQL 18, `us-east-1`; PITR is Neon's own | owner role `neondb_owner` for migrations and creating the logins only |
 | worker | AWS ECS Fargate, `us-east-1` (`deploy/aws/inrp2p-aws.json`) | database: `inrp2p_worker_login`, direct (it listens for jobs); AWS: its task role; secrets: Secrets Manager `inrp2p/worker` |
 | field-encryption key | AWS KMS, same account and region, automatic rotation | `kms:Encrypt`/`kms:Decrypt` only, only under the application's encryption context, only for those two roles |
 | audit-seal archive | S3 under Object Lock (COMPLIANCE), versioned, private, TLS only | the worker's task role |
@@ -257,7 +257,11 @@ deployment check as each.
 ### The first transition (23 → 36)
 
 Release `d0cc778` (schema 23) → this release (36). The rules of §2 hold: no rolling path, a short window, roll forward.
-The site is down from step 8 until step 15.
+The site is down from step 8 until step 13.
+
+Nothing sealed in production is moved to KMS. The only sealed values are the bank accounts of CL-0003 and CL-0004,
+random test details the owner added (owner, 2026-10-11): the desk archives them in step 15, the ordinary way, and
+`prod-v1` is retired with them. The re-seal (`scripts/reseal-fields.ts`) is not a step of this transition.
 
 **Before the window — nothing changes in production:**
 
@@ -268,10 +272,11 @@ The site is down from step 8 until step 15.
    on `main`; update the stack's `WorkerImage` to the digest it prints (still `DesiredCount` 0).
 4. Locally: `DATABASE_MIGRATOR_URL=… node scripts/database-logins.ts prepare --env-file ~/.config/inrp2p/neon-production.env --prefix PROD_`.
 5. Secrets Manager `inrp2p/worker`: `WORKER_DATABASE_URL` = `PROD_WORKER_DATABASE_URL` from the file; `RESEND_API_KEY`;
-   `INRP2P_FIELD_HMAC_BASE64` = the value Vercel has today (the lookup key never changes); `INRP2P_TRON_PRIMARY_KEY` or
+   `INRP2P_FIELD_HMAC_BASE64` = the value Vercel has today (the lookup key does not change); `INRP2P_TRON_PRIMARY_KEY` or
    empty.
 6. Vercel: OIDC federation on (above); production environment variables as listed in "What production still needs"
-   below — `DATABASE_URL` = `PROD_DATABASE_URL` from the file. Setting them does not deploy anything.
+   below — `DATABASE_URL` = `PROD_DATABASE_URL` from the file, `INRP2P_KEK_ID` = the new KMS key's id. Setting them
+   does not deploy anything.
 7. Decide the undelivered notifications (below).
 
 **The window:**
@@ -280,21 +285,29 @@ The site is down from step 8 until step 15.
    else is connected (`preflight`: no sessions; no worker has ever run in this production).
 9. `pnpm db:migrate` as `neondb_owner`, direct connection. `select inrp2p_schema_version()` = 36.
 10. `scripts/database-logins.ts apply --env-file … --prefix PROD_`: both logins pass the deployment check.
-11. The re-seal, from a machine with the owner's **temporary** AWS credentials (IAM Identity Center), `INRP2P_ENV=production`,
-    the target key (`INRP2P_KEK_PROVIDER=aws-kms`, `INRP2P_KEK_ID`, `INRP2P_KMS_KEY_ARN`), the unchanged
-    `INRP2P_FIELD_HMAC_BASE64`, and `INRP2P_RESEAL_FROM='[{"id":"prod-v1","provider":"local","base64":"…"}]'`:
-    `scripts/reseal-fields.ts plan` → OK; `apply` → OK; `verify` → OK (RUNBOOKS `field-encryption-keys`).
-12. The undelivered notifications, as decided in step 7.
-13. The worker: stack `DesiredCount` 1. Its log shows the configuration accepted and its first heartbeat; System →
+11. The undelivered notifications, as decided in step 7.
+12. The worker: stack `DesiredCount` 1. Its log shows the configuration accepted and its first heartbeat; System →
     worker heartbeat present; the outbox drains.
-14. Vercel: redeploy production. `https://app.inrp2p.com/api/health/ready` (and desk, www) answer 200.
-15. Checks: System health (expected alarms aside: `restore_drill_age_days`); a sign-in code arrives; a trader's reserve
-    page shows the shared address; on the desk, one of the two bank accounts is revealed (step-up, audited) and its
-    last four digits match.
-16. Afterwards: remove `INRP2P_KEK_BASE64` from Vercel. Keep `prod-v1` itself in the secret manager, not on a laptop,
-    for as long as any backup or Neon branch older than step 11 exists — those still hold values sealed under it.
+13. Vercel: redeploy production. `https://app.inrp2p.com/api/health/ready` (and desk, www) answer 200.
+14. Desk → System → New business → **Pause** ("transition checks"): no new request, quote or acceptance while the two
+    test accounts are still active. (Until they are archived, nothing could pay them anyway: the release holds no key
+    that opens them, and a payout needs the number revealed — it fails closed.)
+15. The two test accounts, from the desk: Clients → CL-0003 → Bank accounts → **Archive**, reason "Random test details
+    added by the owner; never a real account (D-18)", confirmed with the authenticator (OWNER or SUPPORT); then CL-0004.
+    It is the desk, not the clients: both are traders only (Exchange closed), so their own Destinations page is not
+    open to them, and their administrators have no authenticator. The command needs no key and is audited
+    (`client_bank.archived`, the operator who did it); the client is told (`DESTINATION_ARCHIVED`). Afterwards no
+    request, quote, payout, refund, destination change or trader reward can use them, and the desk will not reveal them
+    — nothing tries to decrypt them. The traders keep their status; a reward to them would need a new bank account,
+    which is then sealed under KMS.
+16. Checks: System health (expected alarms aside: `restore_drill_age_days`); a sign-in code arrives; a trader's reserve
+    page shows the shared address; `preflight` shows the two sealed values under `prod-v1` both `ARCHIVED`, and no
+    other sealed value.
+17. Desk → System → New business → **Resume**.
+18. Afterwards: remove `INRP2P_KEK_BASE64` from Vercel. `prod-v1` protects nothing anyone will read — two archived test
+    accounts, in the database and in older Neon branches alike — so it need not be kept.
 
-**If step 9–14 fails:** do not start `d0cc778` against 36 (§2). Fix forward, or restore Neon to the step-8 branch —
+**If step 9–13 fails:** do not start `d0cc778` against 36 (§2). Fix forward, or restore Neon to the step-8 branch —
 the restore fence then holds outgoing payments until two people reconcile — and redeploy `d0cc778`.
 
 ### The notifications the release at 23 left undelivered
@@ -334,7 +347,7 @@ Vercel, project `inr463rergr`, environment *Production* (names only; values come
 | `INRP2P_TRON_PRIMARY_URL`, `INRP2P_TRON_PRIMARY_GROUP`, `INRP2P_TRON_PRIMARY_KEY`, `INRP2P_USDT_CONTRACT` | the TRON provider; `TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t` | new |
 | `INRP2P_TRON_SECONDARY_*` | a second, independent provider (D-05) | optional; without it large amounts do not confirm |
 | `INRP2P_CUSTODY_PROVIDER` | the name of the custody provider whose pool addresses SELL deposits go to (D-02) | new |
-| `INRP2P_KEK_BASE64` | removed after step 16 | exists |
+| `INRP2P_KEK_BASE64` | removed (step 18): `prod-v1` is retired, not moved | exists |
 
 AWS: the stack's parameters (`VercelTeamSlug`, `VpcId`, `SubnetIds`, `WorkerImage`, retention) and the secret
 `inrp2p/worker` (`WORKER_DATABASE_URL`, `RESEND_API_KEY`, `INRP2P_FIELD_HMAC_BASE64`, `INRP2P_TRON_PRIMARY_KEY`). The

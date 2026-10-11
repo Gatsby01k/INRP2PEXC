@@ -776,6 +776,10 @@ Center: `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`/`AWS_SESSION_TOKEN`), with n
 Afterwards the old key leaves the configuration, but is kept in the secret manager while any backup or database branch
 from before the re-seal exists: those still hold values sealed under it.
 
+Not every value has to move. A value nobody will read again — an archived destination: never paid, never revealed —
+can stay under a retired key; production's first transition did exactly that with its two test bank accounts (D-18)
+and re-sealed nothing.
+
 **KMS unavailable.** Writes that seal and reads that open fail with `KMS_UNAVAILABLE` after bounded retries; nothing
 falls back to plaintext and nothing is stored half-sealed. Check the region's KMS status and the role's permissions
 (an `AccessDeniedException` is `KMS_REFUSED`, not retried). Nothing needs repairing afterwards.

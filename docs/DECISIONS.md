@@ -154,7 +154,7 @@ Full record: `docs/adr/0016-counterparty-funded-execution.md`.
 - Not part of this decision: automatic return of unattributed deposits, any change to how trades are funded (D-16), and
   the public site's wording about onboarding (the home page is frozen; TECH_DEBT TD-29).
 
-## D-18 — Production on Vercel, Neon and AWS; the clients' bank accounts move to KMS — Resolved (owner, 2026-10-11)
+## D-18 — Production on Vercel, Neon and AWS; the test bank accounts archived, `prod-v1` retired — Resolved (owner, 2026-10-11)
 - **Where it runs.** The web app stays on Vercel (project `inr463rergr`, the production domains); the database is the
   existing Neon PostgreSQL 18 project (`us-east-1`); the worker runs on AWS ECS Fargate with its own task role
   (`deploy/aws/inrp2p-aws.json`). The field-encryption key is an AWS KMS key in the same account. Proposed, not decided
@@ -164,11 +164,14 @@ Full record: `docs/adr/0016-counterparty-funded-execution.md`.
   through Vercel's OIDC federation (`AWS_ROLE_ARN`, only for the project's production deployments); the worker image is
   pushed to ECR by a GitHub workflow through GitHub's OIDC federation. A production process refuses a long-term access
   key (`AKIA…`).
-- **The two clients' bank accounts are kept, not re-entered.** Production sealed them under the locally held key
-  `prod-v1`. They are moved to the KMS key by re-wrapping each value's data key (`scripts/reseal-fields.ts`, migration
-  0036): the encrypted account number and its lookup HMAC do not change, the HMAC key stays the same, and the move is
-  checked value by value before it is written. The release never runs with `prod-v1`; once `verify` shows nothing left
-  under it, it is retired.
+- **The two bank accounts in production are test data, archived — not moved.** CL-0003 and CL-0004 hold random
+  details the owner added for testing, sealed under the locally held key `prod-v1` (owner, 2026-10-11, revising the
+  first instruction to keep them). They are archived from the desk the ordinary way (`client_bank.archived`, with a
+  reason and the authenticator, audited) once the release runs; nothing pays an archived account and the desk does not
+  reveal one, so nothing ever tries to decrypt them, and `prod-v1` is retired, not carried over. The release never
+  runs with a locally held key. No other sealed value exists in production, so nothing is re-sealed; the re-seal
+  (`scripts/reseal-fields.ts`, migration 0036) stays available for a key that must be retired while its values must
+  stay readable.
 - **The web app and the worker connect as their own logins** (`inrp2p_app_login`, `inrp2p_worker_login`;
   `scripts/database-logins.ts`), never as the Neon owner role.
 - Not part of this decision: whether the notifications the release at 23 left undelivered are sent late (DEPLOYMENT

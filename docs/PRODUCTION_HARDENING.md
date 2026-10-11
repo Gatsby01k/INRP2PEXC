@@ -91,7 +91,7 @@ drill) and `upgrade` (23 → 34). `main` has no branch protection, so "required"
 | E4 | P0 | confirmed defects + implementation | Point-in-time recovery drill, restore safety (no second payout), audit-seal archive (TD-16, TD-17) | code ready; reference drill **PASS**; drill on the chosen platform **NOT RUN**; platform, retention and buckets **BLOCKED** (owner) |
 | F | P0 | verification + confirmed defects | Every CI command locally and in CI, end to end, page baselines incl. TD-23, Lighthouse, images, 23 → 34 | local **PASS** at `30c6e98`; CI on PR #1 — see Runs; gate 1 closes on the final candidate |
 | G | P0 | owner decision → implementation | D-17: clients open their own accounts; one Security Reserve address for every trader, attributed by the sending wallet | code ready; CI — see Runs; on Vercel: see G |
-| H | P0 | owner direction → implementation | D-18: the transition to Vercel + Neon + AWS — `prod-v1` → KMS keeping both bank accounts, Vercel → KMS by OIDC, own logins, the worker on Fargate, the 14 undelivered events | code ready; CI — see H; rehearsal on a Neon copy — see H; production **not migrated** |
+| H | P0 | owner direction → implementation | D-18: the transition to Vercel + Neon + AWS — the two test bank accounts archived and `prod-v1` retired, Vercel → KMS by OIDC, own logins, the worker on Fargate, the 14 undelivered events | code ready; CI — see H; rehearsal on a Neon copy — see H; production **not migrated** |
 
 (The table grows as stages are worked; each row has a section below.)
 
@@ -740,6 +740,9 @@ is wanted stays an open owner question (ADR 0016 §8).
   connection strings in a local file; the worker on AWS with an IAM role, costs shown before anything paid is created;
   the whole transition rehearsed on a separate Neon copy without notifying real clients; the 14 waiting events
   examined. Production not migrated; protections stay on. Recorded as `docs/DECISIONS.md D-18`.
+- **Revised the same day (owner).** The two bank accounts hold random test details; their numbers need not be kept.
+  They are archived the ordinary way, with the audit kept, and must be out of every payout with nothing trying to
+  decrypt them under the old key; their re-seal is no longer a launch step. Everything else is kept.
 - **Read from production first (read-only, 2026-10-11).** Neon endpoint `ep-proud-leaf-avub33vw`, `us-east-1`, the same
   database Vercel's `DATABASE_URL` names; PostgreSQL 18.6; migrations 1–23 applied, checksums equal to the repository's;
   `neondb_owner` owns all 84 objects (not a superuser; may create roles) and is also what Vercel connects as — which this
@@ -755,6 +758,16 @@ is wanted stays an open owner question (ADR 0016 §8).
   `plan` / `apply` / `verify`: every sealed column of the schema (an unknown one stops it), every value opened with its
   own seal context, every account number checked against its stored HMAC before anything moves, one row per
   transaction, compared under the target alone before it is written, audited, resumable. Schema version 36.
+- **Changed — retiring the test accounts.** Nothing pays an archived bank account already: a request, an acceptance,
+  a payout leg, a refund, a destination change and a trader reward each require `ACTIVE` (read in the code). What was
+  missing: `bank_account.reveal` opened any account, archived ones too — it now refuses an archived account before
+  opening anything. And the clients cannot archive these two themselves (traders only, Exchange closed, no
+  authenticator — read from production), so the desk's client page gets the archive the command always allowed it
+  (`client_bank:add`: OWNER or SUPPORT, step-up, a reason). `test/integration/retired-key-destinations.int.test.ts`:
+  an account sealed under a key the release does not hold fails closed while active (no KMS call), is archived without
+  a key, is then refused by request and reveal with nothing opened, and a new account is sealed under KMS; e2e
+  `destinations.spec.ts`: the desk archives one with a reason and the authenticator, on the record under that operator.
+  The re-seal tool and 0036 stay, unused by this transition.
 - **Changed — credentials.** `awsCredentialsFromEnvironment` takes a web identity: `AWS_ROLE_ARN` with Vercel's
   per-request OIDC token (read as `@vercel/functions` reads it), `VERCEL_OIDC_TOKEN`, or `AWS_WEB_IDENTITY_TOKEN_FILE`,
   exchanged at STS `AssumeRoleWithWebIdentity`; a named role with no token is an error, not a fall-through. The
