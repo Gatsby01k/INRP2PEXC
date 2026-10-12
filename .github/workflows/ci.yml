@@ -52,6 +52,11 @@ jobs:
       - name: Typecheck
         run: pnpm run typecheck
 
+      # The AWS stack the worker runs in (DEPLOYMENT §10) is deployed by hand, so CI checks it the way AWS would before
+      # anyone does: AWS's own linter, pinned, for the region the stack is created in.
+      - name: AWS template (cfn-lint, us-east-1)
+        run: pipx run --spec cfn-lint==1.20.0 cfn-lint --regions us-east-1 -- deploy/aws/inrp2p-aws.json
+
       - name: Unit tests
         run: pnpm run test:unit
 

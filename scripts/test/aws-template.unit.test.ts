@@ -6,10 +6,12 @@ import { AwsKmsKeyEncryptionKey, productionConfigReport } from '@inrp2p/adapters
 
 /**
  * deploy/aws/inrp2p-aws.json (DEPLOYMENT §10) cannot be deployed from CI, so what can be checked without AWS is checked
- * here: every reference resolves, IAM grants only what the processes use, the KMS grants require the encryption context
- * the adapter sends, the audit archive is under Object Lock, the worker starts stopped, and the worker's container
- * configuration satisfies the same production contract the worker checks at start.
+ * here: every reference resolves, it makes nothing the owner already made (the KMS key, the Vercel role and its OIDC
+ * provider), IAM grants only what the worker uses, the KMS grant is for the owner's key and requires the encryption
+ * context the adapter sends, the audit archive is under Object Lock, the worker starts stopped, and the worker's
+ * container configuration satisfies the same production contract the worker checks at start.
  */
+const OWNER_KEY = 'arn:aws:kms:eu-north-1:075774506744:key/f15dbe8b-22b2-4c22-9775-6ea4b06c2f34';
 type Json = Record<string, unknown>;
 const template = JSON.parse(readFileSync(path.join(import.meta.dirname, '../../deploy/aws/inrp2p-aws.json'), 'utf8')) as {
   Parameters: Record<string, { Default?: unknown }>; Conditions: Json; Resources: Record<string, { Type: string; Condition?: string; Properties: Json }>; Outputs: Json;
@@ -23,7 +25,6 @@ function walk(node: unknown, visit: (key: string, value: unknown) => void): void
 }
 const props = (name: string) => template.Resources[name]!.Properties;
 const statements = (doc: unknown): Json[] => ((doc as { Statement: Json[] }).Statement);
-const subbed = (s: string) => s.replace(/\$\{([^}]+)\}/g, (_, n: string) => `<${n}>`);
 
 describe('the AWS template (worker on Fargate, KMS, audit archive, Vercel OIDC role)', () => {
   it('refers only to what it defines', () => {
@@ -37,7 +38,17 @@ describe('the AWS template (worker on Fargate, KMS, audit archive, Vercel OIDC r
     expect(missing).toEqual([]);
   });
 
-  it('grants the processes only what they use, and KMS only under the adapter’s encryption context', () => {
+  it('makes no KMS key, no Vercel role and no Vercel OIDC provider: the owner made those', () => {
+    const types = Object.values(template.Resources).map((r) => r.Type);
+    expect(types).not.toContain('AWS::KMS::Key');
+    expect(types).not.toContain('AWS::KMS::Alias');
+    const oidc = Object.values(template.Resources).filter((r) => r.Type === 'AWS::IAM::OIDCProvider').map((r) => r.Properties.Url);
+    expect(oidc).toEqual(['https://token.actions.githubusercontent.com']);
+    expect(JSON.stringify(template)).not.toMatch(/oidc\.vercel\.com|inrp2p-vercel-web/);
+    expect(template.Parameters.FieldKeyArn!.Default).toBe(OWNER_KEY);
+  });
+
+  it('grants the worker only what it uses, and KMS only on the owner’s key, under the adapter’s encryption context', () => {
     const roles = Object.entries(template.Resources).filter(([, r]) => r.Type === 'AWS::IAM::Role');
     const grants = roles.flatMap(([name, r]) => ((r.Properties.Policies ?? []) as { PolicyDocument: unknown }[]).flatMap((p) => statements(p.PolicyDocument).map((s) => ({ name, s }))));
     for (const { name, s } of grants) {
@@ -46,24 +57,17 @@ describe('the AWS template (worker on Fargate, KMS, audit archive, Vercel OIDC r
       if (s.Resource === '*') expect(actions, name).toEqual(['ecr:GetAuthorizationToken']);
       if (actions.some((a) => a.startsWith('kms:'))) {
         expect(actions.sort()).toEqual(['kms:Decrypt', 'kms:Encrypt']);
+        expect(s.Resource).toEqual({ Ref: 'FieldKeyArn' });
         expect((s.Condition as Json).StringEquals).toEqual({
           'kms:EncryptionContext:app': AwsKmsKeyEncryptionKey.ENCRYPTION_CONTEXT.app,
           'kms:EncryptionContext:purpose': AwsKmsKeyEncryptionKey.ENCRYPTION_CONTEXT.purpose,
         });
       }
     }
-    expect(grants.filter((g) => ([] as string[]).concat(g.s.Action as string[]).includes('kms:Decrypt')).map((g) => g.name).sort()).toEqual(['VercelWebRole', 'WorkerTaskRole']);
-    expect(props('FieldKey').EnableKeyRotation).toBe(true);
+    expect(grants.filter((g) => ([] as string[]).concat(g.s.Action as string[]).includes('kms:Decrypt')).map((g) => g.name)).toEqual(['WorkerTaskRole']);
   });
 
-  it('lets only the Vercel project’s production deployments assume the web role, and only main push the image', () => {
-    const doc = JSON.parse(subbed((props('VercelWebRole').AssumeRolePolicyDocument as { 'Fn::Sub': string })['Fn::Sub'])) as Json;
-    const [s] = statements(doc);
-    expect(s!.Action).toBe('sts:AssumeRoleWithWebIdentity');
-    expect((s!.Condition as Json).StringEquals).toEqual({
-      'oidc.vercel.com/<VercelTeamSlug>:aud': 'https://vercel.com/<VercelTeamSlug>',
-      'oidc.vercel.com/<VercelTeamSlug>:sub': 'owner:<VercelTeamSlug>:project:<VercelProjectName>:environment:production',
-    });
+  it('lets only main push the image', () => {
     const [push] = statements(props('ImagePushRole').AssumeRolePolicyDocument);
     expect((push!.Condition as Json).StringLike).toEqual({ 'token.actions.githubusercontent.com:sub': { 'Fn::Sub': 'repo:${GitHubRepository}:ref:refs/heads/main' } });
   });
@@ -73,7 +77,6 @@ describe('the AWS template (worker on Fargate, KMS, audit archive, Vercel OIDC r
     expect([b.ObjectLockEnabled, (b.VersioningConfiguration as Json).Status]).toEqual([true, 'Enabled']);
     expect(Object.values(b.PublicAccessBlockConfiguration as Json).every(Boolean)).toBe(true);
     expect((template.Resources.AuditSealBucket as unknown as Json).DeletionPolicy).toBe('Retain');
-    expect((template.Resources.FieldKey as unknown as Json).DeletionPolicy).toBe('Retain');
     expect(JSON.stringify(props('AuditSealBucketPolicy'))).toContain('aws:SecureTransport');
   });
 
@@ -88,7 +91,6 @@ describe('the AWS template (worker on Fargate, KMS, audit archive, Vercel OIDC r
       if (typeof v === 'string') return v;
       const o = v as Json;
       if ('Ref' in o) return o.Ref === 'AWS::Region' ? 'us-east-1' : String(template.Parameters[String(o.Ref)]?.Default ?? `<${String(o.Ref)}>`);
-      if ('Fn::GetAtt' in o) return 'arn:aws:kms:us-east-1:123456789012:key/1234abcd-12ab-34cd-56ef-1234567890ab';
       throw new Error(`unresolved ${JSON.stringify(v)}`);
     };
     const env: NodeJS.ProcessEnv = Object.fromEntries(container!.Environment.map((e) => [e.Name, resolve(e.Value)]));
