@@ -58,7 +58,7 @@ test('history', async ({ page }) => {
 
 test('destinations: where the money is allowed to go', async ({ page }) => {
   await page.goto('/destinations');
-  await expect(page.getByRole('heading', { name: 'Destinations', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Bank & wallets', exact: true })).toBeVisible();
   await capture(page, 'client-destinations');
 });
 
