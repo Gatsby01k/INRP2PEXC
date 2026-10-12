@@ -11,14 +11,14 @@ import { withdrawRequestAction } from '../../../server/actions/client.ts';
 import { at } from '../_assistant/model.ts';
 import { InfoIcon } from '../_workspace/icons.tsx';
 import { legAmount } from './amounts.ts';
-import { LEGS } from './Legs.tsx';
+import { LEGS, LegStatic } from './Legs.tsx';
 import shell from '../shell.module.css';
 import styles from './exchange.module.css';
 
 /**
- * A request the desk has, as a ticket: what was asked — the side the client fixed, and the side the desk is
- * pricing — where it goes, and, if the desk's last quote for it ran out, that it did. Withdrawing closes it for
- * good, so it asks once before it is sent.
+ * A request the desk has, as the same ticket the client filled in — now still, with the side the desk is pricing
+ * saying so — and above it the one thing that is happening: the desk is pricing it, and the quote will appear right
+ * here. If the desk's last quote for it ran out, that is said first. Withdrawing closes it for good, so it asks once.
  */
 export function PricingCard({ view }: { view: ExchangeView }) {
   const { run, busy, error, dialog } = useCommand();
@@ -35,17 +35,16 @@ export function PricingCard({ view }: { view: ExchangeView }) {
 
   return (
     <>
-      <section className={shell.surface} aria-label="Request with the desk" data-robot-target="panel">
-        <header className={styles.ticketHead}>
-          <div className={styles.ticketId}>
+      <section className={`${shell.surface} ${styles.ticket}`} aria-label="Request with the desk" data-robot-target="panel">
+        <header className={styles.quoteHead}>
+          <div className={styles.quoteId}>
             <span className={shell.label}>Request</span>
-            <span className={styles.ticketRef}>{request.ref}</span>
-            <span className={styles.side}>{sell ? 'Sell USDT' : 'Buy USDT'}</span>
+            <span className={styles.quoteRef}>
+              {request.ref}
+              <span className={styles.side}>{sell ? 'Sell USDT' : 'Buy USDT'}</span>
+            </span>
           </div>
-          <span className={styles.pricing}>
-            <ArcLoader size="sm" label="The desk is pricing this request" />
-            With the desk
-          </span>
+          <span className={shell.muted}>Sent {at(request.createdAt)}</span>
         </header>
 
         {expired ? (
@@ -59,48 +58,45 @@ export function PricingCard({ view }: { view: ExchangeView }) {
           </p>
         ) : null}
 
-        <dl className={styles.ledger} data-robot-target="amount">
-          {LEGS[request.direction].map((leg) => (
-            <div key={leg.currency} className={styles.ledgerRow}>
-              <dt>{leg.label}</dt>
-              <dd>
-                {leg.currency === request.currency ? (
-                  <span className={styles.figure}>{legAmount(request.amount, leg.currency)}</span>
-                ) : (
-                  <span className={styles.figurePending}>Priced by the desk</span>
-                )}
-                <span className={styles.unit}>{leg.currency}</span>
-              </dd>
-            </div>
-          ))}
-        </dl>
+        <div className={styles.pricing} role="status">
+          <ArcLoader size="md" label="The desk is pricing this request" />
+          <span className={styles.pricingText}>
+            <span className={styles.pricingTitle}>The desk is pricing your request</span>
+            <span className={styles.pricingBody}>Your firm quote appears right here the moment it is sent — no need to reload.</span>
+          </span>
+        </div>
 
-        <dl className={`${shell.facts} ${styles.terms}`}>
+        <div className={styles.legs} data-robot-target="amount">
+          {LEGS[request.direction].map((leg) => (
+            <LegStatic key={leg.currency} label={leg.label} currency={leg.currency} amount={leg.currency === request.currency ? legAmount(request.amount, leg.currency) : null} />
+          ))}
+        </div>
+
+        <dl className={styles.terms}>
           <div>
-            <dt>{sell ? 'Receive INR to' : 'Deliver USDT to'}</dt>
+            <dt>{sell ? 'INR paid to' : 'USDT delivered to'}</dt>
             <dd>{request.destination}</dd>
           </div>
-          <div>
-            <dt>Sent</dt>
-            <dd>{at(request.createdAt)}</dd>
-          </div>
+          {request.targetRate ? (
+            <div>
+              <dt>Your target rate</dt>
+              <dd>{formatRate(Rate.parse(request.targetRate, 'CLIENT'))} per USDT</dd>
+            </div>
+          ) : null}
         </dl>
-
-        <p className={shell.info}>
-          <InfoIcon className={shell.infoIcon} />
-          <span>The desk’s quote appears here as soon as it is sent — no need to reload. It also arrives in Notifications.</span>
-        </p>
 
         {withdrawing ? (
           <div className={styles.confirmRow} role="group" aria-label="Withdraw this request">
             <p>Withdrawing closes {request.ref}, and the desk stops pricing it.</p>
-            <button type="button" className={shell.secondaryAction} onClick={() => void withdraw()} disabled={busy}>
-              {busy ? <ArcLoader size="sm" label="Withdrawing" tone="inherit" /> : null}
-              Withdraw request
-            </button>
-            <button type="button" className={shell.textAction} onClick={() => setWithdrawing(false)} disabled={busy}>
-              Keep it
-            </button>
+            <div className={styles.confirmActions}>
+              <button type="button" className={shell.secondaryAction} onClick={() => void withdraw()} disabled={busy}>
+                {busy ? <ArcLoader size="sm" label="Withdrawing" tone="inherit" /> : null}
+                Withdraw request
+              </button>
+              <button type="button" className={shell.textAction} onClick={() => setWithdrawing(false)} disabled={busy}>
+                Keep it
+              </button>
+            </div>
           </div>
         ) : (
           <div>

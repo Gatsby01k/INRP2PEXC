@@ -101,18 +101,16 @@ export interface HeroVoiceCopy {
 }
 
 /**
- * The way in for someone who is not a client yet. Trading needs a client record the desk sets up, so the path is
- * a message to the desk — drawn only when an address to write to is configured (server/site.ts `siteContacts`),
- * and replaced by `unlinked`, which says how onboarding works without offering a way in that does not exist.
+ * The way in for someone who is not a client yet (D-17): they open their own account in the workspace, with the same
+ * email code a client signs in with — so the way in is the workspace gateway, offered wherever the question comes up.
  */
 export const ONBOARDING = {
   prompt: 'New to the desk?',
-  label: 'Request onboarding',
-  /** The subject the message opens with, so the desk can tell it from other mail. */
-  subject: 'Onboarding request',
-  unlinked: 'New clients are onboarded by the desk first.',
+  label: 'Open an account',
+  /** The workspace gateway: sign in, or open an account with the same email code. */
+  appPath: '/sign-in',
   /** What an SEO page says under its actions, before the link. */
-  requirement: 'Trading needs a client record with its settlement destinations registered in advance. The desk sets that up; there is no form here that can.',
+  requirement: 'Trading needs a client account with the bank account or wallet you are paid to registered in advance. You open it yourself, from the workspace.',
 } as const;
 
 /** Words that change with the direction are keyed by it, so the module can never pair a label with the wrong side. */
@@ -635,7 +633,7 @@ export const CLOSING = {
   cta: { label: 'Request a quote', appPath: '/exchange' },
   newClient: {
     title: ONBOARDING.prompt,
-    body: 'Before a first trade, the desk sets up your client record, the people who may accept quotes, and the bank accounts and wallets you settle to.',
+    body: 'Open your account in the workspace with your work email, turn on an authenticator, and add the bank accounts and wallets you settle to. Every trade after that is priced by the desk.',
   },
 } as const;
 

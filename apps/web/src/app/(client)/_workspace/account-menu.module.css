@@ -1,0 +1,186 @@
+.root {
+  position: relative;
+}
+
+.trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: 240px;
+  min-height: 40px;
+  padding: 0 var(--space-2) 0 4px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease);
+}
+
+.trigger:hover,
+.trigger[aria-expanded='true'] {
+  background: var(--bg-subtle);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border-default) 80%, transparent);
+}
+
+.avatar,
+.avatarLarge {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  border-radius: 50%;
+  background: linear-gradient(160deg, var(--brand-primary), var(--brand-action));
+  color: var(--text-on-action);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.02em;
+}
+
+.avatar {
+  width: 32px;
+  height: 32px;
+  font-size: var(--font-size-body-sm);
+}
+
+.avatarLarge {
+  width: 40px;
+  height: 40px;
+  font-size: var(--font-size-body-lg);
+}
+
+.triggerName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chevron {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: var(--text-muted);
+  transition: transform var(--dur-base) var(--ease);
+}
+
+.trigger[aria-expanded='true'] .chevron {
+  transform: rotate(180deg);
+}
+
+.menu {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  right: 0;
+  z-index: 30;
+  width: 300px;
+  padding: var(--space-2);
+  border-radius: var(--radius-surface);
+  background: var(--bg-surface);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--border-default) 90%, transparent),
+    0 24px 48px -20px color-mix(in srgb, var(--text-primary) 30%, transparent);
+  transform-origin: top right;
+  animation: menuIn var(--dur-base) var(--ease) both;
+}
+
+.menu[hidden] {
+  display: none;
+}
+
+.who {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-3) var(--space-4);
+  border-bottom: 1px solid color-mix(in srgb, var(--border-default) 70%, transparent);
+}
+
+.whoText {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.whoName {
+  overflow: hidden;
+  font-weight: var(--font-weight-semibold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.whoMeta {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.items {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: var(--space-2) 0 0;
+  list-style: none;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: 44px;
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: var(--radius-input);
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--font-size-body-sm);
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.item:hover,
+.item:focus-visible {
+  background: var(--bg-subtle);
+}
+
+.itemIcon {
+  width: 18px;
+  height: 18px;
+  color: var(--text-muted);
+}
+
+@media (max-width: 899px) {
+  .triggerName {
+    display: none;
+  }
+
+  .trigger {
+    padding-right: 4px;
+  }
+
+  .chevron {
+    display: none;
+  }
+}
+
+@media (max-width: 479px) {
+  .menu {
+    position: fixed;
+    top: 64px;
+    right: var(--space-3);
+    left: var(--space-3);
+    width: auto;
+  }
+}
+
+@keyframes menuIn {
+  from {
+    transform: translateY(-4px) scale(0.98);
+    opacity: 0;
+  }
+}

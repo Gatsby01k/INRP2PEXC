@@ -5,11 +5,11 @@ import { unreadCount } from '@inrp2p/notifications';
 import { payoutsHeld } from '@inrp2p/trades';
 import mark from '../../../../../brand/inrp2p-mark.png';
 import { workspacePage } from '../../server/client.ts';
-import { AssistantRobot } from './_assistant/AssistantRobot.tsx';
+import { mailto, siteContacts } from '../../server/site.ts';
 import { SoundToggle } from './_assistant/SoundToggle.tsx';
+import { AccountMenu } from './_workspace/AccountMenu.tsx';
 import { BellIcon } from './_workspace/icons.tsx';
 import { ClientNav, type ClientNavEntry } from './Nav.tsx';
-import { ClientSignOut } from './SignOut.tsx';
 import styles from './shell.module.css';
 
 export const dynamic = 'force-dynamic';
@@ -17,7 +17,7 @@ export const dynamic = 'force-dynamic';
 const ENTRIES: ClientNavEntry[] = [
   { href: '/exchange', label: 'Exchange' },
   { href: '/history', label: 'History' },
-  { href: '/destinations', label: 'Destinations' },
+  { href: '/destinations', label: 'Bank & wallets' },
   { href: '/traders', label: 'Traders' },
 ];
 
@@ -30,17 +30,18 @@ const NEW_ENTRIES: ClientNavEntry[] = [
   { href: '/traders', label: 'Traders' },
 ];
 
+const ROLE: Record<string, string> = { CLIENT_ADMIN: 'Administrator', CLIENT_TRADER: 'Trader', CLIENT_VIEWER: 'Viewer' };
+
 /**
  * The client workspace. Everything inside it has already been through `workspacePage()`, so a page never asks whether
  * someone is signed in — only what their client has. One sign-in reaches it, and what it offers follows from the
  * account: a client with the Exchange sees all four sections; a trader applicant, or a client that provides capacity
- * only, sees Traders. The masthead is one row — who the client is, the sections,
- * and the things a client wants without navigating: whether anything has happened since they last looked, and
- * whether the workspace may make a sound when it does.
+ * only, sees Traders.
  *
- * The robot lives here rather than in a page, so it stays through navigation; each page reports its own state to
- * it (`_assistant/AssistantPanel.tsx`) and lays itself out around it — its heading across the top, its work on the
- * left, its status under the robot on the right (`shell.module.css`).
+ * The masthead is one quiet row: the mark, the sections, and the three things a client wants without navigating —
+ * whether sound is on, whether anything has happened since they last looked, and who they are signed in as (with
+ * their account, security and sign-out behind it). Below it each page lays out its own work: a heading, the work,
+ * and — where the page has one — a column of context beside it (`shell.module.css`).
  */
 export default async function ClientLayout({ children }: { children: ReactNode }) {
   const ctx = await workspacePage();
@@ -50,35 +51,37 @@ export default async function ClientLayout({ children }: { children: ReactNode }
   // and without the internals, until the desk has reconciled (migration 0034, RUNBOOKS `restore-fence`).
   const { held } = await payoutsHeld(ctx.db);
   const { props: markProps } = getImageProps({ src: mark, alt: '', width: 28, height: 28 });
+  const { desk } = siteContacts();
+  const home = member?.exchangeAccess ? '/exchange' : member ? '/traders' : '/open-account';
 
   return (
     <div className={styles.shell}>
       <header className={styles.header}>
         <div className={styles.mastheadInner}>
-          <div className={styles.identity}>
-            <Link href={member?.exchangeAccess ? '/exchange' : member ? '/traders' : '/open-account'} className={styles.brand} aria-label="INRP2P workspace">
-              <img {...markProps} className={styles.brandMark} />
-              <span className={styles.brandName}>INRP2P</span>
-            </Link>
-            <span className={styles.rule} aria-hidden="true" />
-            <span className={styles.clientName}>{member?.clientName ?? ctx.access.email}</span>
-          </div>
+          <Link href={home} className={styles.brand} aria-label="INRP2P workspace">
+            <img {...markProps} className={styles.brandMark} />
+            <span className={styles.brandName}>INRP2P</span>
+          </Link>
           <ClientNav entries={member?.exchangeAccess ? ENTRIES : member ? TRADER_ENTRIES : NEW_ENTRIES} />
           <div className={styles.headerActions}>
-            <SoundToggle className={styles.sound} iconClassName={styles.bellIcon} labelClassName={styles.soundText} />
+            <SoundToggle className={styles.iconButton} iconClassName={styles.toolIcon} labelClassName="ix-visually-hidden" />
             {member ? (
-              <Link href="/notifications" className={styles.bell}>
-                <BellIcon className={styles.bellIcon} />
-                <span className={styles.bellText}>Notifications</span>
+              <Link href="/notifications" className={styles.iconButton} title="Notifications">
+                <BellIcon className={styles.toolIcon} />
+                <span className="ix-visually-hidden">Notifications</span>
                 {unread > 0 ? (
                   <span className={styles.unread} aria-label={`${unread} unread`}>
-                    {unread}
+                    {unread > 99 ? '99+' : unread}
                   </span>
                 ) : null}
               </Link>
             ) : null}
-            <span className={styles.rule} aria-hidden="true" />
-            <ClientSignOut className={styles.signOut} />
+            <AccountMenu
+              name={member?.clientName ?? ctx.access.email}
+              email={ctx.access.email}
+              role={member ? (ROLE[member.role] ?? 'Viewer') : null}
+              hasAccount={member !== null}
+            />
           </div>
         </div>
       </header>
@@ -91,15 +94,18 @@ export default async function ClientLayout({ children }: { children: ReactNode }
 
       <div className={styles.workspace} data-robot-scope="">
         {children}
-        <div className={styles.robot} aria-hidden="true">
-          <AssistantRobot />
-        </div>
       </div>
 
       <footer className={styles.footer}>
         <div className={styles.footerInner}>
-          <span>Questions about a trade? Reply to the desk on your usual channel and quote the trade reference.</span>
           <span>INRP2P Exchange · USDT ↔ INR</span>
+          {desk ? (
+            <a className={styles.footerLink} href={mailto(desk, 'Question from the workspace')}>
+              Contact the desk — quote your trade reference
+            </a>
+          ) : (
+            <span>Questions about a trade? Quote its reference when you contact the desk.</span>
+          )}
         </div>
       </footer>
     </div>

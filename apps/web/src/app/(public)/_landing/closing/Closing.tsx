@@ -29,12 +29,10 @@ export function Closing() {
         <div className={styles.newClient}>
           <h3 className={styles.newTitle}>{newClient.title}</h3>
           <p className={styles.newBody}>{newClient.body}</p>
-          {onboarding && desk ? (
-            <a className={styles.contact} href={onboarding}>
-              <span className={styles.contactLabel}>{ONBOARDING.label}</span>
-              <span className={styles.contactAddress}>{desk}</span>
-            </a>
-          ) : null}
+          <a className={styles.contact} href={onboarding}>
+            <span className={styles.contactLabel}>{ONBOARDING.label}</span>
+            <span className={styles.contactAddress}>{desk ? `Questions first? ${desk}` : 'With your work email'}</span>
+          </a>
           <h3 className={`${styles.newTitle} ${styles.traderTitle}`}>{TRADER_ENTRY.title}</h3>
           <p className={styles.newBody}>{TRADER_ENTRY.body}</p>
           <a className={styles.contact} href={`${appOrigin()}${TRADER_ENTRY.appPath}`}>

@@ -25,6 +25,7 @@ export * from './components/OperationalStatus/OperationalStatus.tsx';
 export * from './components/OtpInput/OtpInput.tsx';
 export * from './components/PayerSelector/PayerSelector.tsx';
 export * from './components/PnlSummary/PnlSummary.tsx';
+export * from './components/DepositAddress/QrCode.tsx';
 export * from './components/QuoteCountdown/QuoteCountdown.tsx';
 export * from './components/QuoteStatus/QuoteStatus.tsx';
 export * from './components/RateComparison/RateComparison.tsx';

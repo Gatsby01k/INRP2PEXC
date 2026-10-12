@@ -77,15 +77,10 @@ export async function SitePageView({ page, hero, story }: { page: SitePage; hero
                 ))}
               </div>
               <p className={styles.actionNote}>
-                {ONBOARDING.requirement}
-                {onboarding ? (
-                  <>
-                    {' '}
-                    <a className={styles.actionLink} href={onboarding}>
-                      {ONBOARDING.label}
-                    </a>
-                  </>
-                ) : null}
+                {ONBOARDING.requirement}{' '}
+                <a className={styles.actionLink} href={onboarding}>
+                  {ONBOARDING.label}
+                </a>
               </p>
             </section>
           )}

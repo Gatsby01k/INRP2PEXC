@@ -70,7 +70,7 @@ test('the home page ends with one call to action, and its footer links only to w
   const request = closing.getByRole('link', { name: CLOSING.cta.label });
   await expect(request).toHaveAttribute('href', `${appBaseUrl()}${CLOSING.cta.appPath}`);
   await expect(closing.getByRole('link')).toHaveCount(3);
-  await expect(closing.getByRole('link', { name: new RegExp(`^${ONBOARDING.label}`) })).toHaveAttribute('href', onboardingHref);
+  await expect(closing.getByRole('link', { name: new RegExp(`^${ONBOARDING.label}`) })).toHaveAttribute('href', onboardingHref());
   await expect(closing.getByRole('link', { name: TRADER_ENTRY.label })).toHaveAttribute('href', `${appBaseUrl()}${TRADER_ENTRY.appPath}`);
 
   // Every footer link is a published page, a section of the home page that is there, the client app, or one of the
@@ -85,11 +85,11 @@ test('the home page ends with one call to action, and its footer links only to w
     else if (href.startsWith('mailto:')) expect(configured, href).toContain(href.slice('mailto:'.length).split('?')[0]);
     else expect(href.startsWith(appBaseUrl()), href).toBe(true);
   }
-  expect(hrefs).toContain(onboardingHref);
+  expect(hrefs).toContain(onboardingHref());
 });
 
-/** Where a visitor without a client account asks to become one: a message to the configured desk address. */
-const onboardingHref = `mailto:${E2E_PUBLIC_CONTACTS.desk}?subject=${encodeURIComponent(ONBOARDING.subject)}`;
+/** Where a visitor without a client account opens one: the workspace gateway on the app host (D-17). */
+const onboardingHref = (): string => `${appBaseUrl()}${ONBOARDING.appPath}`;
 
 test('a visitor without a client account is offered one way in, wherever the question comes up', async ({ page }) => {
   await page.goto(linkBaseUrl());
@@ -97,7 +97,7 @@ test('a visitor without a client account is offered one way in, wherever the que
   const hero = page.getByRole('region', { name: 'Request a quote' });
   const onboarding = hero.getByRole('link', { name: ONBOARDING.label });
   await expect(onboarding).toBeVisible();
-  await expect(onboarding).toHaveAttribute('href', onboardingHref);
+  await expect(onboarding).toHaveAttribute('href', onboardingHref());
   await expect(hero.getByRole('link', { name: 'Request quote' })).toHaveAttribute('href', new RegExp(`^${appBaseUrl()}/exchange`));
   // Existing clients go into the workspace from the masthead; the client app asks for a code if it needs one.
   await expect(page.getByRole('banner').getByRole('link', { name: 'Open workspace' })).toHaveAttribute('href', `${appBaseUrl()}/exchange`);
@@ -106,7 +106,7 @@ test('a visitor without a client account is offered one way in, wherever the que
 
   // And on a page a search engine sends someone to, under its actions.
   await page.goto(`${linkBaseUrl()}/usdt-to-inr`);
-  await expect(page.getByRole('main').getByRole('link', { name: ONBOARDING.label })).toHaveAttribute('href', onboardingHref);
+  await expect(page.getByRole('main').getByRole('link', { name: ONBOARDING.label })).toHaveAttribute('href', onboardingHref());
 });
 
 test('the operational controls are read one at a time, beside the record they leave', async ({ page }) => {

@@ -8,7 +8,9 @@ import { shortenAddress } from '@inrp2p/ui/format';
 import { robotCues } from '../../(public)/_landing/robot/cues.ts';
 import { useCommand } from '../../../components/useCommand.tsx';
 import { requestQuoteAction } from '../../../server/actions/client.ts';
-import { ArrowIcon, BankIcon, InfoIcon, WalletIcon } from '../_workspace/icons.tsx';
+import { ArrowIcon, BankIcon, ChevronDownIcon, InfoIcon, LockIcon, PlusIcon, SwapIcon, WalletIcon } from '../_workspace/icons.tsx';
+import { AddDestination } from '../destinations/AddDestination.tsx';
+import { monogram } from '../destinations/checks.ts';
 import type { Direction, RequestDraft } from './ExchangeScreen.tsx';
 import { LEGS, LegInput, sideOf } from './Legs.tsx';
 import shell from '../shell.module.css';
@@ -16,24 +18,57 @@ import styles from './exchange.module.css';
 
 const hasAmount = (value: string) => /[1-9]/.test(value);
 
+/** Sizes a USDT desk is usually asked for. */
+const QUICK = [
+  { label: '25k', amount: '25000' },
+  { label: '100k', amount: '100000' },
+  { label: '250k', amount: '250000' },
+  { label: '1M', amount: '1000000' },
+] as const;
+
+/** A target rate as the client types it: digits and one point, four places at most. */
+const sanitizeRate = (raw: string): string | null => {
+  const v = raw.replace(/[^\d.]/g, '');
+  return /^\d{0,4}(\.\d{0,4})?$/.test(v) ? v : null;
+};
+
+export interface Who {
+  readonly isAdmin: boolean;
+  readonly hasAuthenticator: boolean;
+  readonly email: string;
+  readonly clientName: string;
+}
+
 /**
- * Asking the desk for a price: a direction, an amount on either side, and where the money goes.
+ * Asking the desk for a price, as a calculator: the direction, an amount on either side (with the sizes a desk is
+ * usually asked for one tap away), where the money lands, and — for a client with a number in mind — the rate they
+ * are after. Nothing here computes a price: the desk does, and answers with a firm quote.
+ *
+ * A client with nowhere to be paid yet is not stopped with a warning: the place the destination goes offers to add
+ * one, in a sheet over the ticket, and the request is waiting with its amount when they come back.
  *
  * The robot hears about the real changes and nothing else — the first move in the form, a value, a direction, the
  * client on the call to action, a request that cannot go as it is, one on its way, one the desk now has.
  */
-export function RequestForm({ view, draft }: { view: ExchangeView; draft?: RequestDraft }) {
+export function RequestForm({ view, draft, who }: { view: ExchangeView; draft?: RequestDraft; who: Who }) {
   const { run, busy, error, dialog } = useCommand();
   const [direction, setDirection] = useState<Direction>(draft?.direction ?? 'SELL_USDT');
   const [fixedSide, setFixedSide] = useState<'BASE' | 'QUOTE'>('BASE');
   const [amount, setAmount] = useState(draft?.amount ?? '');
   const [missing, setMissing] = useState(false);
+  const [targetOpen, setTargetOpen] = useState(false);
+  const [targetRate, setTargetRate] = useState('');
+  const [picking, setPicking] = useState(false);
+  const [adding, setAdding] = useState(false);
   const banks = view.destinations.banks;
   const wallets = view.destinations.wallets.filter((w) => w.purpose !== 'SOURCE');
   const [bankId, setBankId] = useState(banks[0]?.id ?? '');
   const [walletId, setWalletId] = useState(wallets[0]?.id ?? '');
   const sell = direction === 'SELL_USDT';
-  const destinationId = sell ? bankId : walletId;
+  const bank = banks.find((b) => b.id === bankId) ?? banks[0];
+  const wallet = wallets.find((w) => w.id === walletId) ?? wallets[0];
+  const destinationId = (sell ? bank?.id : wallet?.id) ?? '';
+  const options = sell ? banks.length : wallets.length;
   const inputs = useRef<Record<'BASE' | 'QUOTE', HTMLInputElement | null>>({ BASE: null, QUOTE: null });
   const hintId = useId();
 
@@ -54,6 +89,7 @@ export function RequestForm({ view, draft }: { view: ExchangeView; draft?: Reque
   const changeDirection = (next: Direction) => {
     if (next === direction) return;
     setDirection(next);
+    setPicking(false);
     robotCues.emit({ kind: 'direction', direction: next });
   };
   const changeAmount = (side: 'BASE' | 'QUOTE', raw: string) => {
@@ -67,6 +103,10 @@ export function RequestForm({ view, draft }: { view: ExchangeView; draft?: Reque
   };
 
   const submit = async () => {
+    if (destinationId === '') {
+      if (who.isAdmin) setAdding(true);
+      return;
+    }
     if (!hasAmount(amount)) {
       setMissing(true);
       robotCues.emit({ kind: 'problem' });
@@ -74,8 +114,9 @@ export function RequestForm({ view, draft }: { view: ExchangeView; draft?: Reque
       return;
     }
     robotCues.emit({ kind: 'wait', on: true });
+    const target = targetOpen && /[1-9]/.test(targetRate) ? targetRate : null;
     const out = await run('Request a quote', (key) =>
-      requestQuoteAction({ direction, fixedSide, amount, ...(sell ? { bankAccountId: bankId } : { walletId }) }, key),
+      requestQuoteAction({ direction, fixedSide, amount, targetRate: target, ...(sell ? { bankAccountId: destinationId } : { walletId: destinationId }) }, key),
     );
     robotCues.emit({ kind: 'wait', on: false });
     robotCues.emit(out.ok ? { kind: 'submitted' } : { kind: 'problem' });
@@ -83,12 +124,12 @@ export function RequestForm({ view, draft }: { view: ExchangeView; draft?: Reque
 
   const request = view.request;
   const legs = LEGS[direction];
-  const destinations = sell ? banks : wallets;
+  const noDestination = destinationId === '';
 
   return (
     <>
       <form
-        className={shell.surface}
+        className={`${shell.surface} ${styles.ticket}`}
         aria-label="Request a quote"
         data-robot-target="panel"
         onPointerDownCapture={engage}
@@ -112,7 +153,7 @@ export function RequestForm({ view, draft }: { view: ExchangeView; draft?: Reque
             <span>
               Your last quote became trade {view.openTradeRef}.{' '}
               <Link className={shell.textAction} href={`/trades/${view.openTradeRef}`}>
-                View the trade
+                Open the trade
               </Link>
             </span>
           </p>
@@ -138,93 +179,220 @@ export function RequestForm({ view, draft }: { view: ExchangeView; draft?: Reque
                 invalid={missing && fixedSide === side}
                 describedBy={hintId}
                 onChange={(raw) => changeAmount(side, raw)}
+                extra={
+                  leg.currency === 'USDT' ? (
+                    <span className={styles.chips} role="group" aria-label="Quick amounts in USDT">
+                      {QUICK.map((q) => (
+                        <button
+                          key={q.amount}
+                          type="button"
+                          className={styles.chip}
+                          aria-pressed={fixedSide === 'BASE' && amount === q.amount}
+                          onClick={() => changeAmount('BASE', q.amount)}
+                        >
+                          {q.label}
+                        </button>
+                      ))}
+                    </span>
+                  ) : null
+                }
               />
             );
           })}
-          <p id={hintId} className={styles.hint} {...(missing ? { role: 'alert' } : {})}>
-            {missing ? 'Enter an amount in either box.' : 'Type in either box — the desk prices the other side.'}
-          </p>
+          <span className={styles.join} aria-hidden="true">
+            <ArrowIcon />
+          </span>
         </div>
+        <p id={hintId} className={styles.hint} {...(missing ? { role: 'alert' } : {})}>
+          {missing ? 'Enter an amount in either box.' : 'Type in either box — the desk prices the other side.'}
+        </p>
 
-        <fieldset className={styles.destinations}>
-          <legend className={shell.label}>{sell ? 'Receive INR to' : 'Deliver USDT to'}</legend>
-          {destinations.length === 0 ? (
-            <p className={shell.info} data-tone="warning">
-              <InfoIcon className={shell.infoIcon} />
-              <span>
-                {sell ? 'INR payouts need a bank account on file.' : 'USDT deliveries need a TRC20 wallet on file.'} The desk adds destinations to your account —{' '}
-                <Link className={shell.textAction} href="/destinations">
-                  see Destinations
-                </Link>
-                .
+        <fieldset className={styles.payTo}>
+          <legend className={styles.payToLabel}>{sell ? 'INR paid to' : 'USDT delivered to'}</legend>
+          {noDestination ? (
+            <button type="button" className={styles.addDestination} onClick={() => setAdding(true)} disabled={!who.isAdmin}>
+              <span className={styles.addIcon} aria-hidden="true">
+                {who.isAdmin ? <PlusIcon /> : sell ? <BankIcon /> : <WalletIcon />}
               </span>
-            </p>
-          ) : sell ? (
-            banks.map((b) => (
-              <label key={b.id} className={styles.option}>
-                <input className={styles.radio} type="radio" name="destination" value={b.id} checked={b.id === bankId} onChange={() => setBankId(b.id)} />
-                <span className={styles.optionIcon}>
-                  <BankIcon />
+              <span className={styles.destinationText}>
+                <span className={styles.destinationName}>{sell ? 'Add the bank account you are paid to' : 'Add the wallet USDT is delivered to'}</span>
+                <span className={styles.destinationMeta}>
+                  {who.isAdmin ? 'It takes a minute, and you stay on this page.' : `An administrator of ${who.clientName} adds it.`}
                 </span>
-                <span className={styles.optionText}>
-                  <span className={styles.optionName}>
-                    {b.bankName} •••• {b.last4}
-                    {b.verified ? <span className={styles.tag}>Verified</span> : null}
-                  </span>
-                  <span className={styles.optionMeta}>
-                    {b.holderName}
-                    {b.rails.length > 0 ? ` · ${b.rails.join(' / ')}` : ''}
-                  </span>
-                </span>
-                <span className={styles.optionCheck} aria-hidden="true" />
-              </label>
-            ))
+              </span>
+              {who.isAdmin ? <ArrowIcon className={styles.addArrow} /> : null}
+            </button>
+          ) : options === 1 ? (
+            <div className={`${styles.destination} ${styles.destinationStatic}`}>
+              <Chosen sell={sell} bank={bank} wallet={wallet} />
+              <Link className={styles.change} href="/destinations">
+                Manage
+              </Link>
+            </div>
           ) : (
-            wallets.map((w) => (
-              <label key={w.id} className={styles.option}>
-                <input className={styles.radio} type="radio" name="destination" value={w.id} checked={w.id === walletId} onChange={() => setWalletId(w.id)} />
-                <span className={styles.optionIcon}>
-                  <WalletIcon />
+            <>
+              <button type="button" className={styles.destination} aria-expanded={picking} onClick={() => setPicking((v) => !v)}>
+                <Chosen sell={sell} bank={bank} wallet={wallet} />
+                <span className={styles.change}>
+                  Change
+                  <ChevronDownIcon />
                 </span>
-                <span className={styles.optionText}>
-                  <span className={styles.optionName} title={w.address}>
-                    TRC20 · {shortenAddress(w.address)}
-                  </span>
-                  <span className={styles.optionMeta}>{w.label}</span>
-                </span>
-                <span className={styles.optionCheck} aria-hidden="true" />
-              </label>
-            ))
+              </button>
+              {picking ? (
+                <div className={styles.destinationList} role="radiogroup" aria-label={sell ? 'Bank account' : 'Wallet'}>
+                  {sell
+                    ? banks.map((b) => (
+                        <label key={b.id} className={styles.destination}>
+                          <input type="radio" name="destination" checked={b.id === bank?.id} onChange={() => (setBankId(b.id), setPicking(false))} />
+                          <span className={styles.monogram} aria-hidden="true">
+                            {monogram(b.bankName)}
+                          </span>
+                          <span className={styles.destinationText}>
+                            <span className={styles.destinationName}>
+                              {b.bankName} •••• {b.last4}
+                            </span>
+                            <span className={styles.destinationMeta}>{b.holderName}</span>
+                          </span>
+                          <span className={styles.radioMark} aria-hidden="true" />
+                        </label>
+                      ))
+                    : wallets.map((w) => (
+                        <label key={w.id} className={styles.destination}>
+                          <input type="radio" name="destination" checked={w.id === wallet?.id} onChange={() => (setWalletId(w.id), setPicking(false))} />
+                          <span className={styles.monogram} data-kind="wallet" aria-hidden="true">
+                            T
+                          </span>
+                          <span className={styles.destinationText}>
+                            <span className={styles.destinationName}>{w.label}</span>
+                            <span className={styles.destinationMeta}>TRC20 · {shortenAddress(w.address, 6, 6)}</span>
+                          </span>
+                          <span className={styles.radioMark} aria-hidden="true" />
+                        </label>
+                      ))}
+                </div>
+              ) : null}
+            </>
           )}
         </fieldset>
 
-        <p className={shell.info}>
-          <InfoIcon className={shell.infoIcon} />
-          <span>The desk prices this and sends you a firm quote with the time it is held for. Nothing is committed until you accept it.</span>
-        </p>
+        <div className={styles.target}>
+          {targetOpen ? (
+            <div className={styles.targetRow}>
+              <div className={`${styles.leg} ${styles.targetField}`} data-fixed="true">
+                <label className={styles.legLabel} htmlFor={`${hintId}-target`}>
+                  Target rate · optional
+                </label>
+                <div className={styles.legBox}>
+                  <span className={styles.targetUnit}>₹</span>
+                  <input
+                    id={`${hintId}-target`}
+                    className={`${styles.legInput} ${styles.targetInput}`}
+                    inputMode="decimal"
+                    autoComplete="off"
+                    placeholder="102.00"
+                    value={targetRate}
+                    onChange={(e) => {
+                      const v = sanitizeRate(e.target.value);
+                      if (v !== null) setTargetRate(v);
+                    }}
+                    autoFocus
+                  />
+                  <span className={styles.targetUnit}>per USDT</span>
+                </div>
+              </div>
+              <button
+                type="button"
+                className={styles.targetToggle}
+                onClick={() => {
+                  setTargetOpen(false);
+                  setTargetRate('');
+                }}
+              >
+                Remove
+              </button>
+            </div>
+          ) : (
+            <button type="button" className={styles.targetToggle} onClick={() => setTargetOpen(true)}>
+              <PlusIcon />
+              Add a target rate
+            </button>
+          )}
+        </div>
 
-        <button
-          type="submit"
-          className={`${shell.action} ${shell.wide}`}
-          data-robot-target="cta"
-          disabled={busy || destinationId === ''}
-          aria-busy={busy || undefined}
-          onPointerEnter={() => markCta('hover', true)}
-          onPointerLeave={() => markCta('hover', false)}
-          onFocus={() => markCta('focus', true)}
-          onBlur={() => markCta('focus', false)}
-        >
-          {busy ? <ArcLoader size="sm" label="Sending your request" tone="inherit" /> : null}
-          <span>Request quote</span>
-          {busy ? null : <ArrowIcon className={shell.actionIcon} />}
-        </button>
-        {error ? (
-          <p className={shell.error} role="alert">
-            {error}
+        <div className={styles.cta}>
+          <button
+            type="submit"
+            className={`${shell.action} ${shell.wide}`}
+            data-robot-target="cta"
+            disabled={busy || (noDestination && !who.isAdmin)}
+            aria-busy={busy || undefined}
+            onPointerEnter={() => markCta('hover', true)}
+            onPointerLeave={() => markCta('hover', false)}
+            onFocus={() => markCta('focus', true)}
+            onBlur={() => markCta('focus', false)}
+          >
+            {busy ? <ArcLoader size="sm" label="Sending your request" tone="inherit" /> : null}
+            <span>{noDestination ? (sell ? 'Add a bank account to continue' : 'Add a wallet to continue') : 'Request firm quote'}</span>
+            {busy ? null : <ArrowIcon className={shell.actionIcon} />}
+          </button>
+          {error ? (
+            <p className={shell.error} role="alert">
+              {error}
+            </p>
+          ) : null}
+          <p className={styles.fine}>
+            <LockIcon />
+            <span>The desk replies with a firm rate, held for a short time. Nothing is committed until you accept it.</span>
           </p>
-        ) : null}
+        </div>
       </form>
       {dialog}
+      <AddDestination
+        open={adding}
+        kind={sell ? 'bank' : 'wallet'}
+        onClose={() => setAdding(false)}
+        hasAuthenticator={who.hasAuthenticator}
+        email={who.email}
+        holderName={who.clientName}
+        next="exchange"
+      />
     </>
   );
+}
+
+function Chosen({ sell, bank, wallet }: { sell: boolean; bank: ExchangeView['destinations']['banks'][number] | undefined; wallet: ExchangeView['destinations']['wallets'][number] | undefined }) {
+  if (sell && bank) {
+    return (
+      <>
+        <span className={styles.monogram} aria-hidden="true">
+          {monogram(bank.bankName)}
+        </span>
+        <span className={styles.destinationText}>
+          <span className={styles.destinationName}>
+            {bank.bankName} •••• {bank.last4}
+          </span>
+          <span className={styles.destinationMeta}>
+            {bank.holderName}
+            {bank.rails.length > 0 ? ` · ${bank.rails.join(' / ')}` : ''}
+          </span>
+        </span>
+      </>
+    );
+  }
+  if (!sell && wallet) {
+    return (
+      <>
+        <span className={styles.monogram} data-kind="wallet" aria-hidden="true">
+          T
+        </span>
+        <span className={styles.destinationText}>
+          <span className={styles.destinationName}>{wallet.label}</span>
+          <span className={styles.destinationMeta} title={wallet.address}>
+            TRC20 · {shortenAddress(wallet.address, 6, 6)}
+          </span>
+        </span>
+      </>
+    );
+  }
+  return <SwapIcon />;
 }

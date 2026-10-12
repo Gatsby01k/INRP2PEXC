@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Rate } from '@inrp2p/kernel';
 import type { ClientQuoteView } from '@inrp2p/quotes';
@@ -10,31 +10,44 @@ import { robotCues } from '../../(public)/_landing/robot/cues.ts';
 import { useCommand } from '../../../components/useCommand.tsx';
 import { acceptQuoteAction, rejectQuoteAction } from '../../../server/actions/client.ts';
 import { playSound } from '../_assistant/sound.ts';
-import { ArrowIcon, ClockIcon, InfoIcon } from '../_workspace/icons.tsx';
+import { ArrowIcon, InfoIcon, LockIcon } from '../_workspace/icons.tsx';
 import { legAmount } from './amounts.ts';
-import { LEGS } from './Legs.tsx';
 import shell from '../shell.module.css';
 import styles from './exchange.module.css';
 
-/** The time a quote is still held, as the ticket and the robot's panel both show it. */
-export function HeldFor({ expiresAt, now }: { expiresAt: Date; now: number }) {
+const R = 34;
+const C = 2 * Math.PI * R;
+
+/**
+ * How long the quote is still held: one thin arc in the brand's orange that runs down to nothing, the time left
+ * inside it, turning amber in the last seconds — never flashing. Drawn against the whole time the desk held it for
+ * (sent → expiry), on the database's clock.
+ */
+export function Countdown({ sentAt, expiresAt, now }: { sentAt: Date | null; expiresAt: Date; now: number }) {
+  const first = useRef(Math.max(1, expiresAt.getTime() - now));
+  const total = sentAt ? Math.max(1, expiresAt.getTime() - sentAt.getTime()) : first.current;
   const remaining = Math.max(0, expiresAt.getTime() - now);
+  const fraction = Math.min(1, remaining / total);
   return (
-    <span className={styles.countdown} data-state={remaining <= EXPIRING_THRESHOLD_MS ? 'expiring' : 'held'} role="timer" aria-live="off">
-      <ClockIcon />
-      <span>
-        Held <span className={styles.countdownTime}>{formatCountdown(remaining)}</span>
+    <span className={styles.timer} data-state={remaining <= EXPIRING_THRESHOLD_MS ? 'expiring' : 'held'} role="timer" aria-live="off">
+      <svg className={styles.timerRing} viewBox="0 0 76 76" aria-hidden="true" focusable="false">
+        <circle className={styles.timerTrack} cx="38" cy="38" r={R} />
+        <circle className={styles.timerArc} cx="38" cy="38" r={R} strokeDasharray={C} strokeDashoffset={C * (1 - fraction)} />
+      </svg>
+      <span className={styles.timerText}>
+        <span className={styles.timerTime}>{formatCountdown(remaining)}</span>
+        <span className={styles.timerLabel}>held</span>
       </span>
-      <span className="ix-visually-hidden">, until {formatIstTime(expiresAt)}</span>
+      <span className="ix-visually-hidden">, held until {formatIstTime(expiresAt)}</span>
     </span>
   );
 }
 
 /**
- * A firm quote the desk has sent, as an execution ticket: which quote and which side, how long it is held, what
- * leaves and what arrives, at what rate, on what terms — and the decision. The countdown runs on the database's
- * clock. Accepting opens the trade and takes the client straight to it; declining is a formal answer to the desk,
- * so it asks once before it is sent.
+ * A firm quote the desk has sent, as an execution ticket: what the client gets — as large as the page allows —
+ * for what they give, the rate locked inside it, how long it is held, where the money lands, and the decision.
+ * Accepting opens the trade and takes the client straight to it; declining is a formal answer to the desk, so it
+ * asks once before it is sent.
  */
 export function QuoteCard({ quote, canAccept, now }: { quote: ClientQuoteView; canAccept: boolean; now: number }) {
   const router = useRouter();
@@ -43,6 +56,8 @@ export function QuoteCard({ quote, canAccept, now }: { quote: ClientQuoteView; c
   const expiresAt = new Date(quote.expiresAt!);
   const sell = quote.direction === 'SELL_USDT';
   const rate = formatRate(Rate.parse(quote.clientRate, 'CLIENT'));
+  const usdt = legAmount(quote.base.amount, 'USDT');
+  const inr = legAmount(quote.inr.amount, 'INR');
 
   const accept = async () => {
     robotCues.emit({ kind: 'wait', on: true });
@@ -64,51 +79,52 @@ export function QuoteCard({ quote, canAccept, now }: { quote: ClientQuoteView; c
 
   return (
     <>
-      <section className={shell.surface} aria-label="Firm quote" data-robot-target="panel">
-        <header className={styles.ticketHead}>
-          <div className={styles.ticketId}>
+      <section className={`${shell.surface} ${styles.ticket}`} aria-label="Firm quote" data-robot-target="panel">
+        <header className={styles.quoteHead}>
+          <div className={styles.quoteId}>
             <span className={shell.label}>Firm quote</span>
-            <span className={styles.ticketRef}>{quote.ref}</span>
-            <span className={styles.side}>{sell ? 'Sell USDT' : 'Buy USDT'}</span>
-          </div>
-          <HeldFor expiresAt={expiresAt} now={now} />
-        </header>
-
-        <dl className={styles.ledger}>
-          {LEGS[quote.direction].map((leg) => (
-            <div key={leg.currency} className={styles.ledgerRow}>
-              <dt>{leg.label}</dt>
-              <dd>
-                <span className={styles.figure}>{legAmount(leg.currency === 'USDT' ? quote.base.amount : quote.inr.amount, leg.currency)}</span>
-                <span className={styles.unit}>{leg.currency}</span>
-              </dd>
-            </div>
-          ))}
-        </dl>
-
-        <div className={styles.rate} data-robot-target="rate">
-          <div className={styles.headText}>
-            <span className={shell.label}>Your rate</span>
-            <span className={styles.rateFigure}>
-              <span className={styles.rateValue}>{rate}</span>
-              <span className={styles.rateUnit}>/ USDT</span>
+            <span className={styles.quoteRef}>
+              {quote.ref}
+              <span className={styles.side}>{sell ? 'Sell USDT' : 'Buy USDT'}</span>
             </span>
           </div>
+          <Countdown sentAt={quote.sentAt ? new Date(quote.sentAt) : null} expiresAt={expiresAt} now={now} />
+        </header>
+
+        <div className={styles.hero}>
+          <span className={styles.heroLabel}>You receive</span>
+          <span className={styles.heroFigure}>
+            {sell ? `₹${inr}` : usdt}
+            <span className={styles.heroUnit}>{sell ? 'INR' : 'USDT'}</span>
+          </span>
+          <span className={styles.heroSub}>{sell ? `for ${usdt} USDT` : `for ₹${inr}`}</span>
+        </div>
+
+        <div className={styles.rate} data-robot-target="rate">
+          <span className={styles.rateMain}>
+            <span className={styles.rateLock} aria-hidden="true">
+              <LockIcon />
+            </span>
+            <span>
+              <span className={styles.rateValue}>{rate}</span>
+              <span className={styles.rateUnit}>per USDT</span>
+            </span>
+          </span>
           <span className={styles.rateNote}>Locked until {formatIstTime(expiresAt)}</span>
         </div>
 
-        <dl className={`${shell.facts} ${styles.terms}`}>
+        <dl className={styles.terms}>
           <div>
-            <dt>{sell ? 'Receive INR to' : 'Deliver USDT to'}</dt>
+            <dt>{sell ? 'INR paid to' : 'USDT delivered to'}</dt>
             <dd>{quote.destination}</dd>
           </div>
           <div>
             <dt>Network</dt>
-            <dd>USDT on TRC20</dd>
+            <dd>USDT on TRON (TRC20)</dd>
           </div>
           <div>
             <dt>Settlement</dt>
-            <dd>{sell ? 'INR in one or more transfers, each with its bank reference' : 'USDT to your wallet once your INR is confirmed'}</dd>
+            <dd>{sell ? 'Send your USDT to the trade’s own address; INR follows in one or more transfers, each with its bank reference.' : 'Pay the INR; the USDT is sent to your wallet once it is confirmed.'}</dd>
           </div>
         </dl>
 
@@ -116,22 +132,24 @@ export function QuoteCard({ quote, canAccept, now }: { quote: ClientQuoteView; c
           declining ? (
             <div className={styles.confirmRow} role="group" aria-label="Decline this quote">
               <p>Declining tells the desk you will not take this price, and it can no longer be accepted. Your request stays open for a new quote.</p>
-              <button type="button" className={shell.secondaryAction} onClick={() => void decline()} disabled={busy}>
-                {busy ? <ArcLoader size="sm" label="Declining" tone="inherit" /> : null}
-                Decline quote
-              </button>
-              <button type="button" className={shell.textAction} onClick={() => setDeclining(false)} disabled={busy}>
-                Keep it
-              </button>
+              <div className={styles.confirmActions}>
+                <button type="button" className={shell.secondaryAction} onClick={() => void decline()} disabled={busy}>
+                  {busy ? <ArcLoader size="sm" label="Declining" tone="inherit" /> : null}
+                  Decline quote
+                </button>
+                <button type="button" className={shell.textAction} onClick={() => setDeclining(false)} disabled={busy}>
+                  Keep it
+                </button>
+              </div>
             </div>
           ) : (
-            <div className={styles.actions}>
-              <button type="button" className={shell.action} data-robot-target="cta" onClick={() => void accept()} disabled={busy} aria-busy={busy || undefined}>
+            <div className={styles.decide}>
+              <button type="button" className={`${shell.action} ${shell.wide}`} data-robot-target="cta" onClick={() => void accept()} disabled={busy} aria-busy={busy || undefined}>
                 {busy ? <ArcLoader size="sm" label="Accepting" tone="inherit" /> : null}
                 <span>Accept quote at {rate}</span>
                 {busy ? null : <ArrowIcon className={shell.actionIcon} />}
               </button>
-              <button type="button" className={shell.secondaryAction} onClick={() => setDeclining(true)} disabled={busy}>
+              <button type="button" className={`${shell.textAction} ${styles.decline}`} onClick={() => setDeclining(true)} disabled={busy}>
                 Decline
               </button>
             </div>

@@ -1,16 +1,13 @@
 /*
- * The client workspace. A different product from the desk, and it should feel like one: the home page's room —
- * its lit off-white field, its surfaces, its type — with the work in the middle and the robot beside it as the
- * execution assistant.
+ * The client workspace: the home page's room — its warm off-white field, near-black type, a controlled orange
+ * signal — with the client's work in the middle of it.
  *
  * One system for every page:
- * - one masthead row: the client on the left, the sections in the middle, sound, notifications and sign-out on
- *   the right, all on the workspace's own column edges;
- * - a heading across the top, then the page's work on the left and the robot's column on the right, always the
- *   same width, so nothing jumps between sections;
- * - surfaces drawn with hairlines and shadow rather than borders, on an 8px rhythm (8 · 16 · 24 · 32 · 40).
- * Below 1200px it is one column and the page's status leads, with a small still of the robot; below 900px the
- * sections take a row of their own under the masthead.
+ * - one quiet masthead row: the mark, the sections, and sound, notifications and the account on the right;
+ *   on a phone the sections become a tab bar at the bottom, where a thumb reaches them;
+ * - a heading across the top (`PageHead`), then the page's work (`.main`) and, where the page has context to
+ *   give, a column beside it (`.aside`) that stays in view while the work scrolls;
+ * - surfaces drawn with hairlines and a soft lift rather than borders, on an 8px rhythm.
  */
 .shell {
   --line: color-mix(in srgb, var(--border-default) 78%, transparent);
@@ -18,54 +15,47 @@
   --lift: 0 1px 2px color-mix(in srgb, var(--text-primary) 4%, transparent), 0 14px 36px -28px color-mix(in srgb, var(--text-primary) 22%, transparent);
   --lift-strong: 0 1px 2px color-mix(in srgb, var(--text-primary) 5%, transparent), 0 28px 60px -36px color-mix(in srgb, var(--text-primary) 28%, transparent);
   --gutter: var(--space-10);
+  --masthead: 64px;
+  --measure: 1200px;
   display: flex;
   flex-direction: column;
   min-height: 100vh;
   min-height: 100svh;
   color: var(--text-primary);
-  /* The home page's light, from the same place. */
   background:
-    radial-gradient(ellipse 42% 46% at 72% 18%, color-mix(in srgb, var(--bg-surface) 88%, transparent) 0%, transparent 100%),
-    radial-gradient(ellipse 60% 40% at 100% 0%, color-mix(in srgb, var(--brand-soft) 55%, transparent) 0%, transparent 100%),
+    radial-gradient(ellipse 50% 36% at 80% 0%, color-mix(in srgb, var(--brand-soft) 45%, transparent) 0%, transparent 100%),
     var(--bg-app);
   background-attachment: fixed;
 }
 
-/* ——— Masthead: one row, on the workspace's column edges ——— */
+/* ——— Masthead ——— */
 
 .header {
   position: sticky;
   top: 0;
   z-index: 20;
-  background: color-mix(in srgb, var(--bg-surface) 90%, transparent);
-  backdrop-filter: saturate(1.4) blur(12px);
+  background: color-mix(in srgb, var(--bg-surface) 86%, transparent);
+  backdrop-filter: saturate(1.4) blur(14px);
   box-shadow: 0 1px 0 var(--line);
 }
 
 .mastheadInner {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-  grid-template-areas: 'identity nav actions';
+  grid-template-areas: 'brand nav actions';
   align-items: center;
   column-gap: var(--space-6);
-  max-width: 1280px;
-  min-height: 72px;
+  max-width: var(--measure);
+  height: var(--masthead);
   margin: 0 auto;
   padding: 0 var(--gutter);
 }
 
-.identity {
-  grid-area: identity;
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
-  min-width: 0;
-}
-
 .brand {
+  grid-area: brand;
   display: inline-flex;
-  flex: none;
   align-items: center;
+  justify-self: start;
   gap: var(--space-3);
   color: inherit;
   text-decoration: none;
@@ -82,22 +72,7 @@
   letter-spacing: -0.02em;
 }
 
-.rule {
-  flex: none;
-  width: 1px;
-  height: 20px;
-  background: var(--border-default);
-}
-
-.clientName {
-  overflow: hidden;
-  color: var(--text-secondary);
-  font-size: var(--font-size-body-sm);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* The sections: a quiet row of tabs; the one you are on stands out as a lifted chip on an orange rule. */
+/* The sections: a quiet row; the one you are on is a lifted chip on an orange rule. */
 .nav {
   grid-area: nav;
   display: flex;
@@ -108,11 +83,12 @@
   position: relative;
   display: inline-flex;
   align-items: center;
-  min-height: 40px;
+  gap: var(--space-2);
+  min-height: 38px;
   padding: 0 var(--space-4);
-  border-radius: var(--radius-input);
+  border-radius: var(--radius-pill);
   color: var(--text-secondary);
-  font-size: var(--font-size-body);
+  font-size: var(--font-size-body-sm);
   font-weight: var(--font-weight-medium);
   text-decoration: none;
   white-space: nowrap;
@@ -121,36 +97,22 @@
     background-color var(--dur-fast) var(--ease);
 }
 
-.navItem::after {
-  content: '';
-  position: absolute;
-  right: var(--space-4);
-  bottom: 5px;
-  left: var(--space-4);
-  height: 2px;
-  border-radius: 2px;
-  background: transparent;
-  transition: background-color var(--dur-base) var(--ease);
+.navIcon {
+  display: none;
+  width: 22px;
+  height: 22px;
 }
 
 @media (hover: hover) {
   .navItem:hover {
-    background: var(--bg-subtle);
+    background: color-mix(in srgb, var(--text-primary) 4%, transparent);
     color: var(--text-primary);
   }
 }
 
 .navItem[aria-current='page'] {
-  background: var(--bg-surface);
-  color: var(--text-primary);
-  font-weight: var(--font-weight-semibold);
-  box-shadow:
-    0 0 0 1px var(--line),
-    0 2px 6px -2px color-mix(in srgb, var(--text-primary) 12%, transparent);
-}
-
-.navItem[aria-current='page']::after {
-  background: var(--brand-primary);
+  background: var(--text-primary);
+  color: var(--bg-surface);
 }
 
 .headerActions {
@@ -158,23 +120,20 @@
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: var(--space-2);
+  gap: var(--space-1);
 }
 
-.bell,
-.sound {
+.iconButton {
   position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-height: 40px;
-  padding: 0 var(--space-3);
+  display: inline-grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
   border: 0;
-  border-radius: var(--radius-input);
+  border-radius: 50%;
   background: transparent;
   color: var(--text-secondary);
-  font: inherit;
-  font-size: var(--font-size-body-sm);
   text-decoration: none;
   cursor: pointer;
   transition:
@@ -182,49 +141,47 @@
     background-color var(--dur-fast) var(--ease);
 }
 
-.bellIcon {
-  flex: none;
-  width: 20px;
-  height: 20px;
-}
-
-.sound[aria-pressed='false'] {
+.iconButton[aria-pressed='false'] {
   color: var(--text-muted);
 }
 
 @media (hover: hover) {
-  .bell:hover,
-  .sound:hover {
-    background: var(--bg-subtle);
+  .iconButton:hover {
+    background: color-mix(in srgb, var(--text-primary) 5%, transparent);
     color: var(--text-primary);
   }
 }
 
+.toolIcon {
+  width: 20px;
+  height: 20px;
+}
+
 .unread {
+  position: absolute;
+  top: 3px;
+  right: 1px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 20px;
-  height: 20px;
-  padding: 0 6px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
   border-radius: var(--radius-pill);
   background: var(--brand-primary);
+  box-shadow: 0 0 0 2px var(--bg-surface);
   color: var(--text-on-action);
-  font-size: var(--font-size-micro);
+  font-size: 10px;
   font-weight: var(--font-weight-semibold);
   font-variant-numeric: tabular-nums;
+  line-height: 1;
 }
 
-.signOut {
-  margin-left: var(--space-2);
-  font-size: var(--font-size-body-sm);
-}
-
-/* ——— Payments being reconciled after a database recovery (migration 0034): above the workspace, on its edges ——— */
+/* ——— Payments being reconciled after a database recovery (migration 0034) ——— */
 
 .holdNotice {
   width: 100%;
-  max-width: 1280px;
+  max-width: var(--measure);
   margin: var(--space-4) auto 0;
   padding: var(--space-3) var(--gutter);
   border-left: 3px solid var(--status-warning);
@@ -234,43 +191,30 @@
   line-height: 1.5;
 }
 
-/* ——— The workspace: heading, then the page and the robot's column ——— */
+/* ——— The workspace: heading, then the page's work and its context ——— */
 
 .workspace {
-  --rail: 336px;
-  --robot-size: 316px;
+  --aside: 348px;
   flex: 1 1 auto;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) var(--rail);
-  grid-template-rows: auto auto auto 1fr;
+  grid-template-columns: minmax(0, 1fr) var(--aside);
   grid-template-areas:
     'head head'
-    'main robot'
-    'main note'
-    'main .';
-  column-gap: var(--space-8);
+    'main aside';
+  align-items: start;
+  column-gap: var(--space-10);
   width: 100%;
-  max-width: 1280px;
+  max-width: var(--measure);
   margin: 0 auto;
   padding: var(--space-10) var(--gutter) var(--space-16);
 }
 
-.workspace:has([data-assistant-size='compact']) {
-  --robot-size: 220px;
-}
-
-/* The robot's half of the column's card: the room's warm light, the bust standing on the page's status below. */
-.robot {
-  grid-area: robot;
-  position: relative;
-  height: var(--robot-size);
-  overflow: hidden;
-  border-radius: var(--radius-surface) var(--radius-surface) 0 0;
-  background:
-    radial-gradient(ellipse 70% 80% at 50% 30%, var(--bg-surface) 0%, color-mix(in srgb, var(--ivory) 90%, transparent) 55%, transparent 100%),
-    linear-gradient(180deg, var(--ivory) 0%, color-mix(in srgb, var(--brand-soft) 70%, var(--ivory)) 100%);
-  box-shadow: inset 0 0 0 1px var(--line-soft);
-  transition: height var(--dur-complete) var(--ease);
+/* A page with nothing to say beside its work uses the whole width. */
+.workspace:not(:has(> .aside)) {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas:
+    'head'
+    'main';
 }
 
 .main {
@@ -281,10 +225,20 @@
   gap: var(--space-5);
 }
 
-/* The Exchange ticket keeps a measure its figures read well at. */
+/* The column beside the work: context the client may want while they work, kept in view. */
+.aside {
+  grid-area: aside;
+  position: sticky;
+  top: calc(var(--masthead) + var(--space-6));
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+/* Kept for pages that still mark their ticket: the ticket now always sits in the main column. */
 .centred {
   width: 100%;
-  max-width: 760px;
 }
 
 .pageHead {
@@ -300,7 +254,14 @@
 .pageHeadText {
   display: grid;
   gap: var(--space-2);
-  max-width: 46rem;
+  max-width: 44rem;
+}
+
+.pageHeadAside {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
 }
 
 .eyebrow {
@@ -321,15 +282,15 @@
 
 .pageTitle {
   margin: 0;
-  font-size: clamp(28px, 3vw, 40px);
+  font-size: clamp(26px, 2.4vw, 34px);
   font-weight: var(--font-weight-semibold);
-  line-height: 1.05;
+  line-height: 1.08;
   letter-spacing: -0.035em;
 }
 
 .lede {
   margin: 0;
-  font-size: var(--font-size-body-lg);
+  font-size: var(--font-size-body);
   line-height: var(--line-height-normal);
   color: var(--text-secondary);
   text-wrap: pretty;
@@ -344,11 +305,18 @@
   flex-wrap: wrap;
   justify-content: space-between;
   gap: var(--space-2) var(--space-6);
-  max-width: 1280px;
+  max-width: var(--measure);
   margin: 0 auto;
   padding: var(--space-5) var(--gutter);
   color: var(--text-muted);
   font-size: var(--font-size-meta);
+}
+
+.footerLink {
+  color: var(--text-secondary);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--brand-action) 45%, transparent);
+  text-underline-offset: 3px;
 }
 
 /* ——— Surfaces the pages share ——— */
@@ -360,7 +328,7 @@
   flex-direction: column;
   gap: var(--space-5);
   padding: var(--space-6);
-  border-radius: var(--radius-surface);
+  border-radius: 18px;
   background: var(--bg-surface);
   box-shadow: 0 0 0 1px var(--line), var(--lift-strong);
 }
@@ -378,7 +346,7 @@
 .cardHead {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: var(--space-2) var(--space-4);
 }
@@ -469,7 +437,7 @@
   font-weight: var(--font-weight-medium);
 }
 
-/* ——— Actions: the quote module's call to action, and the quieter ones beside it ——— */
+/* ——— Actions ——— */
 
 .action {
   display: inline-flex;
@@ -521,7 +489,6 @@
   }
 }
 
-/* Waiting for what it needs: the same shape in the surface's quiet materials, so it reads as the next step. */
 .action:disabled {
   border-color: var(--border-strong);
   background: var(--bg-subtle);
@@ -535,6 +502,33 @@
   background: var(--brand-action);
   color: var(--text-on-action);
   cursor: progress;
+}
+
+/* The dark variant: for the one action that sets something up rather than trades. */
+.action[data-tone='ink'] {
+  border-color: var(--text-primary);
+  background: var(--text-primary);
+  box-shadow: 0 10px 24px -16px color-mix(in srgb, var(--text-primary) 80%, transparent);
+}
+
+@media (hover: hover) {
+  .action[data-tone='ink']:not(:disabled):hover {
+    border-color: color-mix(in srgb, var(--text-primary) 86%, var(--bg-surface));
+    background: color-mix(in srgb, var(--text-primary) 86%, var(--bg-surface));
+  }
+}
+
+.action[data-tone='ink']:disabled {
+  border-color: var(--border-strong);
+  background: var(--bg-subtle);
+  color: var(--text-muted);
+  box-shadow: none;
+}
+
+.action[data-size='sm'] {
+  min-height: 40px;
+  padding: 0 var(--space-4);
+  font-size: var(--font-size-body-sm);
 }
 
 .wide {
@@ -561,6 +555,17 @@
   transition:
     box-shadow var(--dur-fast) var(--ease),
     background-color var(--dur-fast) var(--ease);
+}
+
+.secondaryAction[data-size='sm'] {
+  min-height: 36px;
+  padding: 0 var(--space-3);
+  font-size: var(--font-size-body-sm);
+}
+
+.secondaryAction svg {
+  width: 18px;
+  height: 18px;
 }
 
 @media (hover: hover) {
@@ -615,85 +620,88 @@
   font-weight: var(--font-weight-medium);
 }
 
-/* ——— Below the desktop layout: one column, the status first ——— */
+/* ——— Narrower: one column; the context follows the work, a page's status leads it ——— */
 
-@media (max-width: 1199px) {
+@media (max-width: 1099px) {
   .workspace {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto;
     grid-template-areas:
       'head'
-      'note'
-      'main';
-    row-gap: var(--space-5);
-    max-width: 800px;
+      'main'
+      'aside';
+    row-gap: var(--space-6);
+    max-width: 760px;
     padding-top: var(--space-8);
   }
 
-  .robot {
-    display: none;
+  .workspace:has(> .aside[data-lead]) {
+    grid-template-areas:
+      'head'
+      'aside'
+      'main';
+  }
+
+  .aside {
+    position: static;
   }
 
   .pageHead {
-    margin-bottom: var(--space-1);
-  }
-
-  .centred {
-    max-width: none;
-  }
-
-  /* The masthead row keeps its sections centred; the tools give up their words first (still read aloud). */
-  .bellText,
-  .soundText {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip: rect(0 0 0 0);
-    white-space: nowrap;
-  }
-
-  .bell,
-  .sound {
-    padding: 0 var(--space-2);
+    margin-bottom: 0;
   }
 }
 
-/* The sections take their own row under the masthead once the row cannot hold all three groups. */
 @media (max-width: 899px) {
   .shell {
     --gutter: var(--space-6);
   }
 
+  .mastheadInner,
+  .footerInner {
+    max-width: 760px;
+  }
+
   .mastheadInner {
     grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-areas:
-      'identity actions'
-      'nav nav';
-    min-height: 0;
+    grid-template-areas: 'brand actions';
   }
 
-  .identity {
-    min-height: 60px;
-  }
-
+  /* The sections become a tab bar at the bottom of the screen, under the thumb. */
   .nav {
-    margin: 0 calc(var(--gutter) * -1);
-    padding: var(--space-2) var(--gutter);
-    box-shadow: 0 -1px 0 var(--line-soft);
-    overflow-x: auto;
-    scrollbar-width: none;
+    position: fixed;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 25;
+    justify-content: space-around;
+    gap: 0;
+    padding: var(--space-1) var(--space-2) calc(var(--space-1) + env(safe-area-inset-bottom));
+    background: color-mix(in srgb, var(--bg-surface) 92%, transparent);
+    backdrop-filter: saturate(1.4) blur(14px);
+    box-shadow: 0 -1px 0 var(--line);
   }
 
   .navItem {
     flex: 1 1 0;
+    flex-direction: column;
     justify-content: center;
+    gap: 2px;
+    min-height: 56px;
+    padding: 0 var(--space-1);
+    border-radius: var(--radius-input);
+    font-size: var(--font-size-micro);
   }
 
-  .workspace,
-  .mastheadInner,
-  .footerInner {
-    max-width: 800px;
+  .navIcon {
+    display: block;
+  }
+
+  .navItem[aria-current='page'] {
+    background: transparent;
+    color: var(--brand-action);
+  }
+
+  .shell {
+    padding-bottom: calc(64px + env(safe-area-inset-bottom));
   }
 }
 
@@ -707,50 +715,12 @@
     padding-bottom: var(--space-10);
   }
 
-  .identity {
-    gap: var(--space-3);
-  }
-
   .brandName {
     font-size: var(--font-size-body);
-  }
-
-  /* Four sections share a phone's width without scrolling; the row still scrolls on the narrowest screens. */
-  .navItem {
-    padding: 0 var(--space-2);
-    font-size: var(--font-size-body-sm);
-  }
-
-  .navItem::after {
-    right: var(--space-2);
-    left: var(--space-2);
-  }
-
-  .bellText,
-  .soundText {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip: rect(0 0 0 0);
-    white-space: nowrap;
-  }
-
-  .bell,
-  .sound {
-    padding: 0 var(--space-2);
-  }
-
-  .signOut {
-    margin-left: 0;
   }
 
   .surface,
   .card {
     padding: var(--space-5) var(--space-4);
-  }
-
-  .lede {
-    font-size: var(--font-size-body);
   }
 }

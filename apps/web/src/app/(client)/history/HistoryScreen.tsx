@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { Money, Rate } from '@inrp2p/kernel';
 import type { HistoryCounts, HistoryRow } from '@inrp2p/portal';
 import { formatInr, formatIstDateTime, formatRate, formatUsdtHeadline } from '@inrp2p/ui/format';
-import { AssistantPanel } from '../_assistant/AssistantPanel.tsx';
+import { StatusBanner, useAssistantState } from '../_assistant/AssistantPanel.tsx';
 import { historyAssistant, isOpenTrade, lifecycleSteps } from '../_assistant/model.ts';
 import { EmptyState } from '../_workspace/EmptyState.tsx';
 import { ArrowIcon, ChevronIcon, ClockIcon, ReceiptIcon } from '../_workspace/icons.tsx';
@@ -66,10 +66,13 @@ export function HistoryScreen({ rows, open, counts, filter }: { rows: readonly H
       return next;
     });
   const count: Record<string, number> = { all: counts.all, open: counts.open, completed: counts.completed };
+  const status = historyAssistant(open, counts);
+  useAssistantState(status);
 
   return (
     <>
       <main className={shell.main}>
+        {status.mood !== 'ready' ? <StatusBanner state={status} /> : null}
         <section className={`${shell.card} ${styles.list}`} aria-label="Trades" data-robot-target="panel">
           <nav className={styles.filters} aria-label="Filter">
             {FILTERS.map((f) => (
@@ -254,34 +257,6 @@ export function HistoryScreen({ rows, open, counts, filter }: { rows: readonly H
           )}
         </section>
       </main>
-      <AssistantPanel state={historyAssistant(open, counts)} size="compact">
-        <dl className={styles.legend}>
-          <div>
-            <dt>
-              <StatusPill status="AWAITING_FIRST_LEG" />
-            </dt>
-            <dd>The trade needs your USDT or INR.</dd>
-          </div>
-          <div>
-            <dt>
-              <StatusPill status="FIRST_LEG_DETECTED" />
-            </dt>
-            <dd>Your transfer is on-chain, becoming final.</dd>
-          </div>
-          <div>
-            <dt>
-              <StatusPill status="SETTLING" />
-            </dt>
-            <dd>The desk is paying you out.</dd>
-          </div>
-          <div>
-            <dt>
-              <StatusPill status="COMPLETED" />
-            </dt>
-            <dd>Settled in full, with a receipt.</dd>
-          </div>
-        </dl>
-      </AssistantPanel>
     </>
   );
 }

@@ -47,6 +47,7 @@ const quote = {
   clientRate: '102.000000',
   network: 'TRON' as const,
   destination: 'HDFC Bank •••• 8219',
+  sentAt: null,
   expiresAt: LATER,
   status: 'SENT' as const,
 };

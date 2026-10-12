@@ -57,10 +57,9 @@ export function mailto(address: string, subject?: string): string {
   return subject ? `mailto:${address}?subject=${encodeURIComponent(subject)}` : `mailto:${address}`;
 }
 
-/** Where a visitor without a client account asks to become one: the desk's address, or nowhere when none is set. */
-export function onboardingHref(): string | null {
-  const { desk } = siteContacts();
-  return desk ? mailto(desk, ONBOARDING.subject) : null;
+/** Where a visitor without a client account opens one: the workspace gateway on the app host (D-17). */
+export function onboardingHref(): string {
+  return `${appOrigin()}${ONBOARDING.appPath}`;
 }
 
 /** The per-request CSP nonce the proxy generated, for the one inline script the site serves (its JSON-LD). */

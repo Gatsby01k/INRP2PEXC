@@ -3,7 +3,7 @@ import styles from './workspace.module.css';
 
 /** A trade's lifecycle state in the client's words: what they are waiting for, not what the desk is doing. */
 export const TRADE_STATUS: Record<string, { label: string; tone: 'waiting' | 'progress' | 'done' | 'neutral' }> = {
-  AWAITING_FIRST_LEG: { label: 'Waiting', tone: 'waiting' },
+  AWAITING_FIRST_LEG: { label: 'Awaiting funds', tone: 'waiting' },
   FIRST_LEG_DETECTED: { label: 'Verifying', tone: 'waiting' },
   FIRST_LEG_CONFIRMED: { label: 'In progress', tone: 'progress' },
   SETTLING: { label: 'In progress', tone: 'progress' },

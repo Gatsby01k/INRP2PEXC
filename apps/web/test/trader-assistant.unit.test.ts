@@ -154,12 +154,12 @@ describe('trader notifications', () => {
   it('a new order names its side, amount and rate, and links to the order', () => {
     const d = draftFor('TRADER_ORDER_NEW', { orderRef: 'TO-260927-0003', side: 'BUY_USDT', base: '1000', rate: '104.70' });
     expect(d).toMatchObject({ title: 'New order TO-260927-0003', subjectRef: 'TO-260927-0003' });
-    expect(d.body).toBe('Buy 1000.000000 USDT at ₹104.70 per USDT. Accept or decline it on Traders.');
+    expect(d.body).toBe('Buy 1,000 USDT at ₹104.70 per USDT. Accept or decline it on Traders.');
     expect(d.href).toContain('TO-260927-0003');
   });
 
   it('the trader’s turn asks for the right asset on each side', () => {
-    expect(draftFor('TRADER_ACTION_REQUIRED', { orderRef: 'TO-1', side: 'BUY_USDT', inr: '209400', base: '2000' }).body).toContain('₹209400.00');
+    expect(draftFor('TRADER_ACTION_REQUIRED', { orderRef: 'TO-1', side: 'BUY_USDT', inr: '209400', base: '2000' }).body).toContain('₹209,400');
     expect(draftFor('TRADER_ACTION_REQUIRED', { orderRef: 'TO-1', side: 'SELL_USDT', inr: '52600', base: '500' }).title).toBe('Send your USDT for TO-1');
   });
 

@@ -1,4 +1,4 @@
-import { exchangeView } from '@inrp2p/portal';
+import { clientHistory, exchangeView, hasAuthenticator, workspaceAccess } from '@inrp2p/portal';
 import { businessNow } from '@inrp2p/quotes';
 import { clientPage } from '../../../server/client.ts';
 import { PageHead } from '../_workspace/PageHead.tsx';
@@ -24,17 +24,31 @@ function draftFrom(params: { direction?: string | string[]; amount?: string | st
  * A client has at most one live conversation with the desk: a request being priced, or a quote counting down.
  * The server decides which of those it is; the screen only draws it. Everything shown comes from the domain's
  * own client projections, so there is no figure here the desk did not already commit to — and the clock the
- * countdown runs on is the database's, the one acceptance is judged by.
+ * countdown runs on is the database's, the one acceptance is judged by. Beside it, the client's latest trades.
  */
 export default async function ExchangePage({ searchParams }: { searchParams: Promise<{ direction?: string | string[]; amount?: string | string[] }> }) {
   const ctx = await clientPage();
-  const [view, now, params] = await Promise.all([exchangeView(ctx.db, ctx.access.clientId), businessNow(ctx.db), searchParams]);
+  const [view, now, params, recent, authenticator, who] = await Promise.all([
+    exchangeView(ctx.db, ctx.access.clientId),
+    businessNow(ctx.db),
+    searchParams,
+    clientHistory(ctx.db, ctx.access.clientId, { limit: 6 }),
+    hasAuthenticator(ctx.db, ctx.actor.userId),
+    workspaceAccess(ctx.db, ctx.actor.userId),
+  ]);
   const draft = draftFrom(params);
 
   return (
     <>
-      <PageHead title="Exchange" lede="Request a firm quote to sell or buy USDT against INR. The desk prices every trade, and nothing is committed until you accept." />
-      <ExchangeScreen view={view} canAccept={ctx.access.canAcceptQuotes} serverTime={now.toISOString()} {...(draft ? { draft } : {})} />
+      <PageHead title="Exchange" lede="Firm prices from the desk for USDT against INR. Nothing is committed until you accept." />
+      <ExchangeScreen
+        view={view}
+        canAccept={ctx.access.canAcceptQuotes}
+        serverTime={now.toISOString()}
+        recent={recent}
+        who={{ isAdmin: ctx.access.role === 'CLIENT_ADMIN', hasAuthenticator: authenticator, email: who.email, clientName: ctx.access.clientName }}
+        {...(draft ? { draft } : {})}
+      />
     </>
   );
 }

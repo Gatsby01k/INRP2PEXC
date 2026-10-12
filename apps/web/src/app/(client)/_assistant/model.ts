@@ -90,8 +90,8 @@ export function exchangeAssistant(view: ExchangeView, opts: { canAccept: boolean
     return {
       mood: 'alert',
       label: 'Setup needed',
-      title: 'No destination on file',
-      body: 'A request needs somewhere to pay you. The desk adds bank accounts and wallets to your account — see Destinations.',
+      title: 'Nowhere to pay you yet',
+      body: 'A request needs somewhere to pay you: a bank account for INR, or a wallet for USDT. Add one from the Exchange or Bank & wallets.',
     };
   }
   if (request?.status === 'DECLINED') {
@@ -317,16 +317,16 @@ export function destinationsAssistant(destinations: ClientDestinations): Assista
     };
   }
   if (ready.sell) {
-    return { mood: 'ready', label: 'Ready to sell', title: 'Buying USDT needs a wallet', body: 'Ask the desk to add a TRC20 wallet for deliveries. Selling is ready now.' };
+    return { mood: 'ready', label: 'Ready to sell', title: 'Buying USDT needs a wallet', body: 'Add a TRC20 wallet for deliveries. Selling is ready now.' };
   }
   if (ready.buy) {
-    return { mood: 'ready', label: 'Ready to buy', title: 'Selling USDT needs a bank account', body: 'Ask the desk to add an account for INR payouts. Buying is ready now.' };
+    return { mood: 'ready', label: 'Ready to buy', title: 'Selling USDT needs a bank account', body: 'Add a bank account for INR payouts. Buying is ready now.' };
   }
   return {
     mood: 'alert',
     label: 'Setup needed',
-    title: 'No destinations yet',
-    body: 'The desk adds bank accounts and wallets to your account after checking them. Ask on your usual channel.',
+    title: 'Nowhere to pay you yet',
+    body: 'Add a bank account to sell USDT for INR, or a wallet to buy USDT.',
   };
 }
 

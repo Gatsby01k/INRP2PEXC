@@ -2,12 +2,14 @@
 
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import type { ExchangeView } from '@inrp2p/portal';
-import { AssistantPanel } from '../_assistant/AssistantPanel.tsx';
+import type { ExchangeView, HistoryRow } from '@inrp2p/portal';
+import { useAssistantState } from '../_assistant/AssistantPanel.tsx';
 import { exchangeAssistant, quoteLive, requestSteps } from '../_assistant/model.ts';
+import { ExchangeAside } from './ExchangeAside.tsx';
 import { PricingCard } from './PricingCard.tsx';
-import { HeldFor, QuoteCard } from './QuoteCard.tsx';
-import { RequestForm } from './RequestForm.tsx';
+import { QuoteCard } from './QuoteCard.tsx';
+import { RequestForm, type Who } from './RequestForm.tsx';
+import { SetupGuide } from './SetupGuide.tsx';
 import { useServerClock } from './useServerClock.ts';
 import shell from '../shell.module.css';
 
@@ -31,16 +33,33 @@ const EXPIRY_LAG_POLL_MS = 5_000;
  *
  * - a live firm quote: accept it, or decline it;
  * - a request with the desk (or a quote that just ran out): wait, or withdraw it;
- * - otherwise: ask for a price.
+ * - otherwise: ask for a price — after, for a new client, the two steps that make that possible.
  *
- * The robot beside it reports the same state (`exchangeAssistant`), from the same data and the same clock.
+ * The state is also what any robot on screen rests in and what may make a sound (`useAssistantState`), from the
+ * same data and the same clock.
  */
-export function ExchangeScreen({ view, canAccept, serverTime, draft }: { view: ExchangeView; canAccept: boolean; serverTime: string; draft?: RequestDraft }) {
+export function ExchangeScreen({
+  view,
+  canAccept,
+  serverTime,
+  draft,
+  who,
+  recent,
+}: {
+  view: ExchangeView;
+  canAccept: boolean;
+  serverTime: string;
+  draft?: RequestDraft;
+  who: Who;
+  recent: readonly HistoryRow[];
+}) {
   const router = useRouter();
   const { quote, request } = view;
   const now = useServerClock(serverTime, quote?.status === 'SENT');
   const live = quote !== null && quoteLive(quote, now);
   const withDesk = request !== null && (request.status === 'OPEN' || request.status === 'QUOTED');
+  const firstRun = !withDesk && view.destinations.banks.length === 0 && view.destinations.wallets.filter((w) => w.purpose !== 'SOURCE').length === 0;
+  useAssistantState(exchangeAssistant(view, { canAccept, now }));
 
   // The page has to notice what changes on the desk's side. A live quote runs out on its own: look again the
   // moment it does, so the accept button stops at the instant the server stops honouring it. A quote whose time is
@@ -61,19 +80,19 @@ export function ExchangeScreen({ view, canAccept, serverTime, draft }: { view: E
 
   return (
     <>
-      <main className={`${shell.main} ${shell.centred}`}>
+      <main className={shell.main}>
+        {firstRun ? <SetupGuide who={who} /> : null}
         {quote && live ? (
           <QuoteCard quote={quote} canAccept={canAccept} now={now} />
         ) : withDesk ? (
           <PricingCard view={view} />
         ) : (
-          <RequestForm view={view} {...(draft ? { draft } : {})} />
+          <RequestForm view={view} who={who} {...(draft ? { draft } : {})} />
         )}
       </main>
-      <AssistantPanel
-        state={exchangeAssistant(view, { canAccept, now })}
-        steps={withDesk ? requestSteps(view, now) : null}
-        meta={quote && live && quote.expiresAt ? <HeldFor expiresAt={new Date(quote.expiresAt)} now={now} /> : null}
+      <ExchangeAside
+        mode={quote && live ? { kind: 'quote', sell: quote.direction === 'SELL_USDT' } : withDesk ? { kind: 'pricing', steps: requestSteps(view, now) } : { kind: 'ready' }}
+        recent={recent}
       />
     </>
   );

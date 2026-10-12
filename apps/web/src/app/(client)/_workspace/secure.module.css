@@ -1,0 +1,262 @@
+.intro,
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.badge {
+  display: inline-grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 18px;
+  background: var(--brand-soft);
+  color: var(--brand-action);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand-primary) 18%, transparent);
+}
+
+.badge svg {
+  width: 26px;
+  height: 26px;
+}
+
+.title {
+  margin: 0;
+  font-size: var(--font-size-heading);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-snug);
+  letter-spacing: -0.02em;
+}
+
+.text {
+  margin: var(--space-2) 0 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-normal);
+  text-wrap: pretty;
+}
+
+.intro .text {
+  margin-top: calc(var(--space-3) * -1);
+}
+
+.points {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-sm);
+}
+
+.points li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.points svg {
+  width: 18px;
+  height: 18px;
+  color: var(--status-success);
+}
+
+/* ——— The three steps ——— */
+
+.steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.steps li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding-top: var(--space-3);
+  border-top: 2px solid var(--border-default);
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-medium);
+  transition:
+    border-color var(--dur-base) var(--ease),
+    color var(--dur-base) var(--ease);
+}
+
+.steps li[data-state='current'] {
+  border-color: var(--text-primary);
+  color: var(--text-primary);
+}
+
+.steps li[data-state='done'] {
+  border-color: var(--status-success);
+  color: var(--text-secondary);
+}
+
+.stepMark {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--bg-subtle);
+  box-shadow: inset 0 0 0 1px var(--border-default);
+  font-size: var(--font-size-micro);
+  font-variant-numeric: tabular-nums;
+}
+
+.steps li[data-state='current'] .stepMark {
+  background: var(--text-primary);
+  box-shadow: none;
+  color: var(--bg-surface);
+}
+
+.steps li[data-state='done'] .stepMark {
+  background: var(--status-success);
+  box-shadow: none;
+  color: var(--bg-surface);
+}
+
+.stepMark svg {
+  width: 12px;
+  height: 12px;
+  stroke-width: 2.5;
+}
+
+/* Inside a larger task the task's own progress leads; the set-up's steps become a quiet line of words. */
+.steps[data-embedded] {
+  display: flex;
+  gap: var(--space-4);
+}
+
+.steps[data-embedded] li {
+  padding-top: 0;
+  border-top: 0;
+}
+
+/* ——— Scan ——— */
+
+.scan {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-5);
+}
+
+.qrFrame {
+  padding: var(--space-3);
+  border-radius: var(--radius-surface);
+  background: var(--bg-surface);
+  box-shadow:
+    0 0 0 1px var(--border-default),
+    0 12px 28px -18px color-mix(in srgb, var(--text-primary) 30%, transparent);
+}
+
+.qr {
+  width: 156px;
+  height: 156px;
+}
+
+.scanText {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-1);
+}
+
+.scanText .text {
+  margin-top: 0;
+  font-size: var(--font-size-body-sm);
+}
+
+.scanText .title {
+  font-size: var(--font-size-body-lg);
+}
+
+.keyBox {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border-radius: var(--radius-input);
+  background: var(--bg-subtle);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border-default) 80%, transparent);
+}
+
+.keyLabel {
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+}
+
+.keyRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.key {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-body);
+  letter-spacing: 0.04em;
+  word-break: break-all;
+}
+
+/* ——— Recovery codes ——— */
+
+.codes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-4);
+  border-radius: var(--radius-input);
+  background: var(--bg-subtle);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border-default) 80%, transparent);
+  list-style: none;
+}
+
+.codes code {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-body-sm);
+  letter-spacing: 0.04em;
+}
+
+.codeActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 44px;
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+}
+
+.check input {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--text-primary);
+}
+
+@media (max-width: 479px) {
+  .scan {
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: center;
+    text-align: center;
+  }
+
+  .scanText {
+    justify-items: center;
+  }
+}

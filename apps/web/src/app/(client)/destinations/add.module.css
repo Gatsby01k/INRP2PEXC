@@ -1,0 +1,296 @@
+.flow {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+/* Where the task has got: a few words on a rule that fills as it goes. */
+.progress {
+  display: grid;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.progress li {
+  padding-top: var(--space-2);
+  border-top: 3px solid var(--border-default);
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-medium);
+  transition:
+    border-color var(--dur-base) var(--ease),
+    color var(--dur-base) var(--ease);
+}
+
+.progress li[data-state='done'] {
+  border-color: var(--status-success);
+  color: var(--text-secondary);
+}
+
+.progress li[data-state='current'] {
+  border-color: var(--brand-primary);
+  color: var(--text-primary);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: var(--space-4);
+}
+
+.privacy {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+  line-height: var(--line-height-normal);
+}
+
+.privacyIcon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+}
+
+.paste {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: var(--bg-subtle);
+  box-shadow: inset 0 0 0 1px var(--border-default);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+}
+
+.paste:hover {
+  box-shadow: inset 0 0 0 1px var(--text-muted);
+}
+
+.paste svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* The address in groups of four, so it can be read against the wallet's own screen. */
+.addressCheck {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: calc(var(--space-2) * -1);
+  padding: var(--space-3);
+  border-radius: var(--radius-input);
+  background: var(--bg-subtle);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-body-sm);
+  animation: reveal var(--dur-base) var(--ease) both;
+}
+
+.addressCheck span {
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: var(--bg-surface);
+  box-shadow: inset 0 0 0 1px var(--border-default);
+}
+
+/* ——— Review ——— */
+
+.preview {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+  padding: var(--space-5);
+  border-radius: var(--radius-surface);
+  background: linear-gradient(180deg, var(--bg-surface), var(--bg-subtle));
+  box-shadow:
+    0 0 0 1px var(--border-default),
+    0 16px 32px -24px color-mix(in srgb, var(--text-primary) 35%, transparent);
+  animation: reveal var(--dur-complete) var(--ease) both;
+}
+
+.monogram {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  background: var(--text-primary);
+  color: var(--bg-surface);
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.02em;
+}
+
+.monogram[data-kind='wallet'] {
+  background: var(--status-success);
+  font-size: var(--font-size-heading);
+}
+
+.previewText {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.previewName {
+  font-size: var(--font-size-body-lg);
+  font-weight: var(--font-weight-semibold);
+}
+
+.previewMeta {
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-sm);
+}
+
+.previewAddress {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-meta);
+  word-break: break-all;
+}
+
+.facts {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0 0 0 var(--space-5);
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-normal);
+}
+
+.back {
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+  gap: var(--space-2);
+  min-height: 40px;
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--font-size-body-sm);
+  cursor: pointer;
+}
+
+.back:hover:not(:disabled) {
+  background: var(--bg-subtle);
+  color: var(--text-primary);
+}
+
+.back svg {
+  width: 16px;
+  height: 16px;
+}
+
+.confirmHead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.confirmBadge {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  background: var(--brand-soft);
+  color: var(--brand-action);
+}
+
+.confirmBadge svg {
+  width: 22px;
+  height: 22px;
+}
+
+.confirmTitle {
+  margin: 0;
+  font-size: var(--font-size-body-lg);
+  font-weight: var(--font-weight-semibold);
+}
+
+.confirmText {
+  margin: 2px 0 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-sm);
+}
+
+/* ——— Done ——— */
+
+.done {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-8) 0 var(--space-4);
+  text-align: center;
+}
+
+.doneTitle {
+  margin: var(--space-3) 0 0;
+  font-size: var(--font-size-heading);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+
+.doneText {
+  max-width: 34ch;
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-normal);
+}
+
+.doneActions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  margin-top: var(--space-5);
+}
+
+@keyframes reveal {
+  from {
+    transform: translateY(6px);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .addressCheck,
+  .preview {
+    animation: none;
+  }
+}
+
+@media (max-width: 479px) {
+  .pair {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

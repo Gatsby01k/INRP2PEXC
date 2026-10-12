@@ -1,0 +1,14 @@
+.qr {
+  display: block;
+  flex: none;
+  width: 132px;
+  height: 132px;
+}
+
+.bg {
+  fill: var(--bg-surface);
+}
+
+.fg {
+  fill: var(--text-primary);
+}

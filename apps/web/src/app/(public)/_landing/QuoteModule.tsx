@@ -45,11 +45,8 @@ function Swap({ text, delay = 0 }: { text: string; delay?: number }) {
 }
 
 
-/**
- * `onboarding` is where a visitor without a client account asks for one (server/site.ts `onboardingHref`), or null
- * when no address is configured — then the note says how onboarding works and offers no link.
- */
-export function QuoteModule({ appOrigin, onboarding, copy }: { appOrigin: string; onboarding: string | null; copy: QuoteModuleCopy }) {
+/** `onboarding` is where a visitor without a client account opens one (server/site.ts `onboardingHref`). */
+export function QuoteModule({ appOrigin, onboarding, copy }: { appOrigin: string; onboarding: string; copy: QuoteModuleCopy }) {
   const titleId = useId();
   const [direction, setDirection] = useState<Direction>(INITIAL_DIRECTION);
   const [amount, setAmount] = useState<string>(INITIAL_AMOUNT);
@@ -184,17 +181,10 @@ export function QuoteModule({ appOrigin, onboarding, copy }: { appOrigin: string
               <ArrowIcon className={styles.ctaIcon} />
             </a>
             <p className={styles.note}>
-              {copy.note}{' '}
-              {onboarding ? (
-                <>
-                  {ONBOARDING.prompt}{' '}
-                  <a className={styles.onboarding} href={onboarding} data-onboarding="">
-                    {ONBOARDING.label}
-                  </a>
-                </>
-              ) : (
-                ONBOARDING.unlinked
-              )}
+              {copy.note} {ONBOARDING.prompt}{' '}
+              <a className={styles.onboarding} href={onboarding} data-onboarding="">
+                {ONBOARDING.label}
+              </a>
             </p>
           </div>
         </section>

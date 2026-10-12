@@ -1,12 +1,12 @@
 'use client';
 
-import { forwardRef, useId } from 'react';
+import { type ReactNode, forwardRef, useId } from 'react';
 import { groupDigits } from '@inrp2p/ui/format';
 import styles from './exchange.module.css';
 
 export type Currency = 'USDT' | 'INR';
 
-function CurrencyTag({ currency }: { currency: Currency }) {
+export function CurrencyTag({ currency }: { currency: Currency }) {
   return (
     <span className={styles.currency}>
       <span className={styles.coin} data-coin={currency} aria-hidden="true">
@@ -28,19 +28,22 @@ const grouped = (value: string) => {
 
 /**
  * One side of a request the client can type into. Both sides are offered and whichever the client types into is
- * the amount they fix (`fixedSide`); the other shows that the desk prices it. Nothing is ever computed across:
- * there is no rate here to compute with.
+ * the amount they fix (`fixedSide`); the other says the desk prices it. Nothing is ever computed across: there is
+ * no rate here to compute with. `extra` sits on the label's line — the quick amounts, on the USDT side.
  */
 export const LegInput = forwardRef<
   HTMLInputElement,
-  { label: string; currency: Currency; value: string; fixed: boolean; invalid?: boolean; describedBy?: string; onChange: (raw: string) => void }
->(function LegInput({ label, currency, value, fixed, invalid = false, describedBy, onChange }, ref) {
+  { label: string; currency: Currency; value: string; fixed: boolean; invalid?: boolean; describedBy?: string; extra?: ReactNode; onChange: (raw: string) => void }
+>(function LegInput({ label, currency, value, fixed, invalid = false, describedBy, extra, onChange }, ref) {
   const id = useId();
   return (
     <div className={styles.leg} data-fixed={fixed} {...(invalid ? { 'data-invalid': '' } : {})}>
-      <label className={styles.legLabel} htmlFor={id}>
-        {label}
-      </label>
+      <div className={styles.legHead}>
+        <label className={styles.legLabel} htmlFor={id}>
+          {label}
+        </label>
+        {extra}
+      </div>
       <div className={styles.legBox}>
         <input
           ref={ref}
@@ -61,11 +64,13 @@ export const LegInput = forwardRef<
   );
 });
 
-/** One side of a request or quote that is already decided: its amount, or that the desk is pricing it. */
+/** One side of a request that is already decided: its amount, or that the desk is pricing it. */
 export function LegStatic({ label, currency, amount }: { label: string; currency: Currency; amount: string | null }) {
   return (
     <div className={styles.leg} data-fixed={amount !== null}>
-      <span className={styles.legLabel}>{label}</span>
+      <div className={styles.legHead}>
+        <span className={styles.legLabel}>{label}</span>
+      </div>
       <div className={styles.legBox}>
         {amount !== null ? <span className={styles.legValue}>{amount}</span> : <span className={styles.legPending}>Priced by the desk</span>}
         <CurrencyTag currency={currency} />

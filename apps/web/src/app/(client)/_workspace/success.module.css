@@ -1,0 +1,68 @@
+.mark {
+  display: block;
+  overflow: visible;
+}
+
+.halo {
+  fill: var(--status-success-soft);
+  transform-origin: 40px 40px;
+  animation: halo var(--dur-complete) var(--ease) both;
+}
+
+.arc {
+  fill: none;
+  stroke: var(--status-success);
+  stroke-width: 4;
+  stroke-linecap: round;
+  opacity: 0;
+  transform-origin: 40px 40px;
+  animation: arc 420ms var(--ease) both;
+}
+
+.tick {
+  fill: none;
+  stroke: var(--status-success);
+  stroke-width: 4.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 34;
+  stroke-dashoffset: 34;
+  animation: tick 360ms var(--ease) 560ms both;
+}
+
+@keyframes halo {
+  from {
+    transform: scale(0.7);
+    opacity: 0;
+  }
+}
+
+@keyframes arc {
+  from {
+    transform: rotate(-24deg);
+    opacity: 0;
+  }
+  to {
+    transform: rotate(0);
+    opacity: 1;
+  }
+}
+
+@keyframes tick {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .halo,
+  .arc {
+    animation: none;
+    opacity: 1;
+  }
+
+  .tick {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+}

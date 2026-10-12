@@ -14,6 +14,8 @@ export interface ClientQuoteView {
   readonly clientRate: string;
   readonly network: 'TRON';
   readonly destination: string;
+  /** When the desk sent it: with `expiresAt`, how long it is held in all — what a countdown is drawn against. */
+  readonly sentAt: string | null;
   readonly expiresAt: string | null;
   readonly status: 'SENT' | 'ACCEPTED' | 'EXPIRED' | 'REJECTED' | 'CANCELLED';
 }
@@ -48,7 +50,7 @@ export async function maskedDestination(ex: Executor, q: { bank_account_id: stri
 export async function toClientQuoteView(ex: Executor, quoteId: string): Promise<ClientQuoteView> {
   const q = await ex
     .selectFrom('quote')
-    .select(['ref', 'direction', 'base_minor', 'quote_inr_minor', 'client_rate_micro', 'network', 'bank_account_id', 'crypto_wallet_id', 'expires_at', 'status'])
+    .select(['ref', 'direction', 'base_minor', 'quote_inr_minor', 'client_rate_micro', 'network', 'bank_account_id', 'crypto_wallet_id', 'sent_at', 'expires_at', 'status'])
     .where('id', '=', quoteId)
     .executeTakeFirst();
   if (!q || q.status === 'DRAFT') throw new DomainError('NOT_FOUND', 'quote not found');
@@ -60,6 +62,7 @@ export async function toClientQuoteView(ex: Executor, quoteId: string): Promise<
     clientRate: Rate.ofMicro(q.client_rate_micro, 'CLIENT').toDecimalString(),
     network: q.network,
     destination: await maskedDestination(ex, q),
+    sentAt: q.sent_at ? q.sent_at.toISOString() : null,
     expiresAt: q.expires_at ? q.expires_at.toISOString() : null,
     status: q.status as Exclude<QuoteStatus, 'DRAFT'>,
   };

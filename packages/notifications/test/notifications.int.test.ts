@@ -41,7 +41,7 @@ describe('what a client is told', () => {
 
     const sent = (await inbox()).find((n) => n.kind === 'QUOTE_SENT');
     expect(sent).toBeDefined();
-    expect(sent!.body).toContain('₹45000.00');
+    expect(sent!.body).toContain('₹45,000');
     expect(sent!.subjectRef).toMatch(/^QT-\d{6}-\d{4}$/);
     expect(sent!.href).toBe('/exchange');
     expect(sent!.read).toBe(false);
@@ -60,7 +60,7 @@ describe('what a client is told', () => {
     const trade = await openTrade(w, { baseUsdt: '100', clientRate: '90.000000', routeRate: '92.500000', executionMode: 'TO_EXCHANGE' });
     await deliver();
     const opened = (await inbox()).find((n) => n.subjectRef === trade.tradeRef && n.kind === 'TRADE_OPENED');
-    expect(opened?.body).toContain('100.000000 USDT');
+    expect(opened?.body).toContain('100 USDT');
     expect(opened?.href).toBe(`/trades/${trade.tradeRef}`);
 
     await settleFirstLeg(w, trade.tradeId);

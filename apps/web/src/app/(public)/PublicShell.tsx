@@ -88,12 +88,10 @@ export function PublicShell({ children, nonce }: { children: ReactNode; nonce?: 
     ...(contacts.security ? [{ label: links.securityReport, href: mailto(contacts.security), detail: contacts.security }] : []),
   ];
   const onboarding = onboardingHref();
-  const contact: FooterLink[] = contacts.desk
-    ? [
-        ...(onboarding ? [{ label: links.onboarding, href: onboarding }] : []),
-        { label: links.deskContact, href: mailto(contacts.desk), detail: contacts.desk },
-      ]
-    : [];
+  const contact: FooterLink[] = [
+    { label: links.onboarding, href: onboarding },
+    ...(contacts.desk ? [{ label: links.deskContact, href: mailto(contacts.desk), detail: contacts.desk }] : []),
+  ];
   return (
     <div className={styles.site} data-nonce-present={nonce ? 'yes' : 'no'}>
       {/* The first thing a keyboard reaches: past the masthead, straight to the page. Seen only when focused. */}

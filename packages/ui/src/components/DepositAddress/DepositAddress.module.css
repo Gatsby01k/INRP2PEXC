@@ -8,6 +8,13 @@
   background: var(--bg-surface);
   max-width: var(--client-exchange-max);
 }
+.bare {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  max-width: none;
+}
 .row {
   display: flex;
   flex-direction: column;
@@ -45,12 +52,6 @@
   width: 132px;
   height: 132px;
   flex: none;
-}
-.qrBg {
-  fill: var(--bg-surface);
-}
-.qrFg {
-  fill: var(--text-primary);
 }
 .warning {
   margin: 0;

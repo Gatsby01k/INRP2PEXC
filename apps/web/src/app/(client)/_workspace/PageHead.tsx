@@ -2,8 +2,9 @@ import type { ReactNode } from 'react';
 import styles from '../shell.module.css';
 
 /**
- * A page's heading, across the top of the workspace: what this page is, in a line, and anything that belongs beside
- * it. `status` sits on the title's own line, where the eye lands first — a trade's state is part of its name.
+ * A page's heading, across the top of the workspace: what this page is, in a line, and the page's own actions on
+ * the right of it. `status` sits on the title's own line, where the eye lands first — a trade's state is part of
+ * its name.
  */
 export function PageHead({ eyebrow, title, status, lede, aside }: { eyebrow?: ReactNode; title: ReactNode; status?: ReactNode; lede?: ReactNode; aside?: ReactNode }) {
   return (
@@ -16,7 +17,7 @@ export function PageHead({ eyebrow, title, status, lede, aside }: { eyebrow?: Re
         </div>
         {lede ? <p className={styles.lede}>{lede}</p> : null}
       </div>
-      {aside}
+      {aside ? <div className={styles.pageHeadAside}>{aside}</div> : null}
     </header>
   );
 }

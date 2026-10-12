@@ -36,8 +36,21 @@ export interface NotificationFacts {
   readonly reward?: string;
 }
 
-const inr = (amount: string): string => `₹${Money.parse(amount, 'INR').toDecimalString()}`;
-const usdt = (amount: string): string => `${Money.parse(amount, 'USDT').toDecimalString()} USDT`;
+/** Thousands grouped the international way (D-11) — `10,200,000` — whatever the reader's locale. */
+const group = (digits: string): string => digits.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+
+/** `₹10,200,000`, or `₹2,550,000.50` when there are paise: the figure as the client checks it against their bank. */
+const inr = (amount: string): string => {
+  const [whole = '0', paise = ''] = Money.parse(amount, 'INR').toDecimalString().split('.');
+  return `₹${group(whole)}${/[1-9]/.test(paise) ? `.${paise}` : ''}`;
+};
+
+/** `5,000 USDT`, or every decimal that is not a trailing zero: an amount to send is never rounded. */
+const usdt = (amount: string): string => {
+  const [whole = '0', fraction = ''] = Money.parse(amount, 'USDT').toDecimalString().split('.');
+  const kept = fraction.replace(/0+$/, '');
+  return `${group(whole)}${kept ? `.${kept}` : ''} USDT`;
+};
 
 /** A reason an operator typed is shown to the client as written, trimmed and bounded by the column's own limit. */
 const short = (text: string, max: number): string => (text.length <= max ? text : `${text.slice(0, max - 1).trimEnd()}…`);
@@ -108,23 +121,23 @@ export function draftFor(kind: NotificationKind, facts: NotificationFacts): Noti
     case 'DESTINATION_ADDED':
       return {
         kind,
-        title: 'A destination was added',
-        body: `${facts.label ?? 'A new destination'} was added to your account. If you did not expect this, tell us straight away.`,
+        title: 'A bank account or wallet was added',
+        body: `${facts.label ?? 'A new bank account or wallet'} was added to where you are paid. If you did not expect this, tell the desk straight away.`,
         subjectRef: null,
         href: '/destinations',
       };
     case 'DESTINATION_ARCHIVED':
       return {
         kind,
-        title: 'A destination was archived',
-        body: `${facts.label ?? 'A destination'} can no longer be used for payouts.`,
+        title: 'A bank account or wallet was archived',
+        body: `${facts.label ?? 'It'} can no longer be paid to.`,
         subjectRef: null,
         href: '/destinations',
       };
     case 'TRADE_DESTINATION_CHANGED':
       return {
         kind,
-        title: 'A trade now pays to another destination',
+        title: 'A trade now pays somewhere else',
         body: short(`${facts.tradeRef ?? 'A trade'} will be paid to ${facts.label ?? 'a different destination'}. If you did not ask for this, tell us straight away.`, 400),
         subjectRef: facts.tradeRef ?? null,
         href: facts.tradeRef ? `/trades/${facts.tradeRef}` : '/destinations',

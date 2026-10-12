@@ -5,11 +5,13 @@ import { robotCues } from '../../(public)/_landing/robot/cues.ts';
 import { type AssistantState, type Step, soundForTransition } from './model.ts';
 import { playSound } from './sound.ts';
 import { STILLS } from './stills.ts';
+import shell from '../shell.module.css';
 import styles from './assistant.module.css';
 
-function Chip({ state, className, hidden = false }: { state: AssistantState; className: string | undefined; hidden?: boolean }) {
+/** The state a page is in, as a word or two beside a dot in its tone. */
+export function StateChip({ state, className }: { state: Pick<AssistantState, 'mood' | 'label'>; className?: string | undefined }) {
   return (
-    <span className={className} data-mood={state.mood} {...(hidden ? { 'aria-hidden': true } : {})}>
+    <span className={`${styles.chip}${className ? ` ${className}` : ''}`} data-mood={state.mood}>
       <span className={styles.dot} aria-hidden="true" />
       {state.label}
     </span>
@@ -17,7 +19,7 @@ function Chip({ state, className, hidden = false }: { state: AssistantState; cla
 }
 
 /** Where the page's sequence has got: the step being waited on, or the last one done. */
-function ProgressTrack({ steps }: { steps: readonly Step[] }) {
+export function ProgressTrack({ steps }: { steps: readonly Step[] }) {
   const index = Math.max(
     steps.findIndex((s) => s.status === 'current' || s.status === 'exception'),
     steps.every((s) => s.status === 'done') ? steps.length - 1 : 0,
@@ -41,37 +43,12 @@ function ProgressTrack({ steps }: { steps: readonly Step[] }) {
 }
 
 /**
- * A page's status, reported by the workspace robot: the state of record the page's server data is in (`model.ts`),
- * as a chip, a line and a sentence — and the mood the robot rests in while it lasts. `steps`, where the page has a
- * sequence, puts how far it has got under the robot too; `meta` carries a figure that belongs with the state (the
- * time a quote is still held).
- *
- * Rendered by the page, so it arrives with the page's own data and says the right thing on first paint. On a
- * desktop it sits under the robot in the workspace's right-hand column, with the chip beside its head; on a
- * narrower screen it leads the page, with a small still of the robot in the same mood. `size` is how much room
- * the robot takes above it: the Exchange and a trade give it the most, a list the least.
- *
- * A change of state while the page is open is also the only thing that can make a sound (`soundForTransition`):
- * the first state a page shows never does.
+ * What a page's state means beyond the page: the mood any robot on screen rests in while it lasts, and — when the
+ * state changes while the page is open — the one sound that change deserves (`soundForTransition`). The first
+ * state a page shows never sounds. Pages that draw their own status (the Exchange) use this alone.
  */
-export function AssistantPanel({
-  state,
-  size = 'large',
-  steps,
-  meta,
-  children,
-}: {
-  state: AssistantState;
-  size?: 'large' | 'compact';
-  steps?: readonly Step[] | null | undefined;
-  meta?: ReactNode;
-  children?: ReactNode;
-}) {
-  const titleId = useId();
-  const still = STILLS[state.mood];
+export function useAssistantState(state: AssistantState): void {
   const previous = useRef<AssistantState | null>(null);
-
-  // The robot rests in the page's mood while it lasts; leaving the page lets it go.
   useEffect(() => {
     robotCues.emit({ kind: 'mood', mood: state.mood });
   }, [state.mood]);
@@ -81,16 +58,45 @@ export function AssistantPanel({
     previous.current = state;
     if (cue) playSound(cue);
   }, [state]);
+}
+
+/**
+ * A page's status, in the column beside its work: the state of record the page's server data is in (`model.ts`) as a
+ * chip, a line and a sentence, with the robot's face in the same mood beside it — small, because the work is the
+ * page and the status is about it. `steps`, where the page has a sequence, shows how far it has got; `meta` carries
+ * a figure that belongs with the state; `children` sit on the card under it, and `after` follows it as cards of
+ * their own.
+ *
+ * On a narrower screen the status leads the page (`data-lead`), so what is happening is read first.
+ */
+export function AssistantPanel({
+  state,
+  steps,
+  meta,
+  children,
+  after,
+}: {
+  state: AssistantState;
+  size?: 'large' | 'compact';
+  steps?: readonly Step[] | null | undefined;
+  meta?: ReactNode;
+  children?: ReactNode;
+  after?: ReactNode;
+}) {
+  const titleId = useId();
+  const still = STILLS[state.mood];
+  useAssistantState(state);
 
   return (
-    <>
-      <Chip state={state} className={styles.bubble} hidden />
-      <aside className={styles.note} aria-labelledby={titleId} data-assistant-mood={state.mood} data-assistant-size={size}>
+    <aside className={shell.aside} data-lead="" aria-labelledby={titleId}>
+      <section className={styles.note} data-assistant-mood={state.mood}>
         <div className={styles.noteHead}>
-          <img className={styles.avatar} src={still.src} width={still.width} height={still.height} alt="" loading="lazy" decoding="async" />
-          <Chip state={state} className={styles.chip} />
+          <span className={styles.avatarFrame} aria-hidden="true">
+            <img className={styles.avatar} src={still.src} width={still.width} height={still.height} alt="" loading="lazy" decoding="async" />
+          </span>
+          <StateChip state={state} />
         </div>
-        <div aria-live="polite">
+        <div aria-live="polite" className={styles.noteText}>
           <h2 id={titleId} className={styles.noteTitle}>
             {state.title}
           </h2>
@@ -99,7 +105,28 @@ export function AssistantPanel({
         {meta ? <div className={styles.meta}>{meta}</div> : null}
         {steps && steps.length > 0 ? <ProgressTrack steps={steps} /> : null}
         {children}
-      </aside>
-    </>
+      </section>
+      {after}
+    </aside>
+  );
+}
+
+/**
+ * A page's status as one line across the top of its work, for a page that needs its whole width: the robot's face,
+ * the state in a word, and what it means. Drawn only when something is under way or needs the client.
+ */
+export function StatusBanner({ state }: { state: AssistantState }) {
+  const still = STILLS[state.mood];
+  return (
+    <section className={styles.banner} data-assistant-mood={state.mood} aria-live="polite">
+      <span className={styles.avatarFrame} aria-hidden="true">
+        <img className={styles.avatar} src={still.src} width={still.width} height={still.height} alt="" loading="lazy" decoding="async" />
+      </span>
+      <div className={styles.bannerText}>
+        <StateChip state={state} />
+        <p className={styles.bannerTitle}>{state.title}</p>
+        <p className={styles.noteBody}>{state.body}</p>
+      </div>
+    </section>
   );
 }

@@ -29,7 +29,13 @@ function Issue({ home }: { home: TraderHome }) {
     return (
       <p className={shell.info} data-tone="warning" role="status">
         <InfoIcon className={shell.infoIcon} />
-        <span>Your registered bank account or wallet is no longer active. The desk reviews settlement details — ask on your usual channel.</span>
+        <span>
+          Your registered bank account or wallet is no longer active.{' '}
+          <Link className={shell.textAction} href="/traders/settlement">
+            Submit new settlement details
+          </Link>{' '}
+          — the desk reviews them before orders resume.
+        </span>
       </p>
     );
   }
