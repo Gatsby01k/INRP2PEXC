@@ -214,17 +214,20 @@ everything started settles), `incident-recovery`, `payout-ambiguous`, `secret-ro
 | web (desk, client app, public site) | Vercel project `inr463rergr`, production domains | database: `inrp2p_app_login` through Neon's pooler; KMS: the role `inrp2p-vercel-web`, assumed through Vercel's OIDC federation (`AWS_ROLE_ARN`) |
 | database | Neon project, PostgreSQL 18, `us-east-1`; PITR is Neon's own | owner role `neondb_owner` for migrations and creating the logins only |
 | worker | AWS ECS Fargate, `us-east-1` (`deploy/aws/inrp2p-aws.json`) | database: `inrp2p_worker_login`, direct (it listens for jobs); AWS: its task role; secrets: Secrets Manager `inrp2p/worker` |
-| field-encryption key | AWS KMS, same account and region, automatic rotation | `kms:Encrypt`/`kms:Decrypt` only, only under the application's encryption context, only for those two roles |
+| field-encryption key | AWS KMS, `eu-north-1`, made by the owner (`kms-2026a`, `arn:aws:kms:eu-north-1:075774506744:key/f15dbe8b-22b2-4c22-9775-6ea4b06c2f34`) | `kms:Encrypt`/`kms:Decrypt` only, only under the application's encryption context: the owner's role `inrp2p-vercel-web` for the web app, the stack's task role for the worker |
 | audit-seal archive | S3 under Object Lock (COMPLIANCE), versioned, private, TLS only | the worker's task role |
 | worker image | ECR `inrp2p-worker`, pushed by the `Worker image (ECR)` workflow from `main` | GitHub's OIDC federation and the role `inrp2p-worker-image-push` |
 
 No long-term AWS key exists anywhere: a production process refuses one (`AKIA…`).
 
-**The AWS stack** (`deploy/aws/inrp2p-aws.json`, CloudFormation): the KMS key, the archive bucket, the ECR repository,
-the worker's secret (created with `SET-ME` placeholders, filled in the console), log group, cluster, task definition and
-service, the two OIDC providers and the three roles. The service is created with `DesiredCount` 0: nothing runs, and
-nothing is spent on compute, until the transition starts the worker. The KMS key, the bucket and the secret are kept if
-the stack is deleted.
+**The AWS stack** (`deploy/aws/inrp2p-aws.json`, CloudFormation, created in `us-east-1`): the archive bucket, the ECR
+repository, the worker's secret (created with `SET-ME` placeholders, filled in the console), log group, cluster, task
+definition and service, GitHub's OIDC provider and the worker's three roles (execution, task, image push). It does
+**not** create the field-encryption key, the web app's role or Vercel's OIDC provider — the owner made those
+(2026-10-12); the task role is given the key by ARN (`FieldKeyArn`), across regions, which KMS allows. The key's policy
+must let IAM grant its use (AWS's default key policy does); a key policy naming only the web role would refuse the
+worker. The service is created with `DesiredCount` 0: nothing runs, and nothing is spent on compute, until the worker
+is started. The bucket and the secret are kept if the stack is deleted.
 
 **What it costs** — AWS list prices for `us-east-1` as known on 2026-10-11; confirm in the AWS Pricing Calculator
 before creating anything.
@@ -233,21 +236,22 @@ before creating anything.
 |---|---|---|
 | Fargate (x86) | 0.25 vCPU, 1 GB, all month | ≈ $10.63 |
 | Public IPv4 address of the task | 730 h × $0.005 | ≈ $3.65 |
-| KMS key | $1 per key (+$1 for each of its first two yearly rotations); requests $0.03 per 10 000 | ≈ $1.00 |
+| KMS key | the owner's key, outside the stack: $1 a month; the worker's requests $0.03 per 10 000 | (≈ $1.00, already running) |
 | Secrets Manager | one secret | $0.40 |
 | CloudWatch Logs | ≈ 1 GB written, 90 days kept | ≈ $0.55 |
 | ECR | up to 5 images | ≈ $0.20–0.60 |
 | S3 audit seals, STS, data out (first 100 GB free) | kilobytes a day | < $0.10 |
-| **Total with the worker running** | | **≈ $16–17** |
-| **Total while `DesiredCount` is 0** | key, secret, images | **≈ $1.60–2** |
+| **Total for the stack, worker running** | | **≈ $15–16** |
+| **Total for the stack while `DesiredCount` is 0** | secret, images | **≈ $0.60–1** |
 
 Not AWS, but caused by it: a running worker holds a connection, so the Neon compute no longer suspends — about 183
 compute-unit hours a month at 0.25 CU. Whether that is inside the Neon plan or billed is on the Neon billing page.
 
-**Vercel's access to KMS.** Vercel → project → Settings → Security → *Secure backend access with OIDC federation*: on,
-issuer mode *Team*. The stack's `VercelWebRole` trusts `oidc.vercel.com/<team>` for `owner:<team>:project:inr463rergr:
-environment:production` only — previews and development cannot assume it. The web app reads the token Vercel puts on
-each request and exchanges it at STS (`packages/adapters/src/aws-kms.ts`); set `AWS_ROLE_ARN` and `AWS_REGION`.
+**Vercel's access to KMS** (made by the owner, 2026-10-12). Vercel → project → Settings → Security → *Secure backend
+access with OIDC federation*: on, issuer mode *Team*; the role `arn:aws:iam::075774506744:role/inrp2p-vercel-web`,
+`AWS_REGION=eu-north-1`. The role should trust `oidc.vercel.com/<team>` for `owner:<team>:project:inr463rergr:
+environment:production` only, so previews and development cannot assume it. The web app reads the token Vercel puts
+on each request and exchanges it at STS (`packages/adapters/src/aws-kms.ts`).
 
 **Logins.** `scripts/database-logins.ts prepare` writes each login's connection string, with a fresh password, to a
 local env file (mode 0600); `apply`, run by the owner role, creates the login if missing, makes it a member of its group
@@ -268,8 +272,8 @@ random test details the owner added (owner, 2026-10-11): the desk archives them 
 **Before the window — nothing changes in production:**
 
 1. This release is reviewed and merged to `main`; its CI is green on the merge.
-2. AWS (after the costs above are accepted): create the stack from `deploy/aws/inrp2p-aws.json` with `DesiredCount` 0,
-   `VpcId`/`SubnetIds` of the default VPC, `VercelTeamSlug`. Note the outputs.
+2. AWS (after the costs above are accepted): in `us-east-1`, create the stack from `deploy/aws/inrp2p-aws.json` with
+   `DesiredCount` 0, `VpcId`/`SubnetIds` of the default VPC, `FieldKeyArn` (default: the owner's key). Note the outputs.
 3. GitHub → Settings → Variables: `AWS_REGION=us-east-1`, `AWS_IMAGE_PUSH_ROLE_ARN` (output). Run *Worker image (ECR)*
    on `main`; update the stack's `WorkerImage` to the digest it prints (still `DesiredCount` 0).
 4. Locally: `DATABASE_MIGRATOR_URL=… node scripts/database-logins.ts prepare --env-file ~/.config/inrp2p/neon-production.env --prefix PROD_`.
@@ -279,7 +283,14 @@ random test details the owner added (owner, 2026-10-11): the desk archives them 
 6. Vercel: OIDC federation on (above); production environment variables as listed in "What production still needs"
    below — `DATABASE_URL` = `PROD_DATABASE_URL` from the file, `INRP2P_KEK_ID` = the new KMS key's id. Setting them
    does not deploy anything.
-7. Decide the undelivered notifications (below).
+7. Decide the undelivered notifications (below). Decided 2026-10-12: inbox entries kept, stale emails not sent.
+
+**Where production stands (2026-10-12).** Steps 8–10 and 13–15 are done: the recovery branch `before-36-20261012`
+(owner), the migration (11:31:41–11:31:50 UTC, `main` `849c8adc`; schema 36, the release's restore checks equal before
+and after), both logins (passing the deployment check), the Vercel redeploy (`ready` 200 on www, app and desk), new
+business paused (12:15 UTC), and both test accounts archived from the desk (12:18 and 12:19 UTC, audited under the
+operator). Waiting: the stack and the worker image (steps 2–3, 5), then step 11 is nothing to do — the release with
+the stale-email rule is the worker that starts — and steps 12, 16–18.
 
 **The window:**
 
@@ -287,8 +298,9 @@ random test details the owner added (owner, 2026-10-11): the desk archives them 
    else is connected (`preflight`: no sessions; no worker has ever run in this production).
 9. `pnpm db:migrate` as `neondb_owner`, direct connection. `select inrp2p_schema_version()` = 36.
 10. `scripts/database-logins.ts apply --env-file … --prefix PROD_`: both logins pass the deployment check.
-11. The undelivered notifications, as decided in step 7.
-12. The worker: stack `DesiredCount` 1. Its log shows the configuration accepted and its first heartbeat; System →
+11. The undelivered notifications, as decided in step 7: nothing to run by hand — the worker's email channel withholds
+    stale emails itself (below).
+12. The worker: the image built from the `main` that carries that rule; stack `DesiredCount` 1. Its log shows the configuration accepted and its first heartbeat; System →
     worker heartbeat present; the outbox drains.
 13. Vercel: redeploy production. `https://app.inrp2p.com/api/health/ready` (and desk, www) answer 200.
 14. Desk → System → New business → **Pause** ("transition checks"): no new request, quote or acceptance while the two
@@ -314,22 +326,39 @@ the restore fence then holds outgoing payments until two people reconcile — an
 
 ### The notifications the release at 23 left undelivered
 
-No worker ever ran in this production, so 14 outbox events wait. When the worker starts it delivers them to their
-handlers, which are idempotent and act on the rows as they are *now*:
+No worker ever ran in this production, so its outbox waits: the 14 events the release at 23 left, and since
+2026-10-12 the two of the test accounts' archiving. When the worker starts it delivers them to their handlers, which
+are idempotent and act on the rows as they are *now*. **Decided (owner, 2026-10-12): the inbox entries are kept;
+stale emails are not sent.** The email channel withholds the email of any event more than `EMAIL_STALE_AFTER_HOURS`
+(24) old when it is first dispatched (`packages/notifications/src/email.ts`) — this backlog, and any after a worker
+outage — and the worker logs `client_email.withheld_stale`; the inbox entry is written as always. Nothing is changed in
+the database by hand.
 
-| Events | What the worker does |
-|---|---|
-| `desk.new_request` × 2 (2026-09-20, 09-27) | offers the request to a trader only if it is still `OPEN`; both are closed (accepted, withdrawn): nothing |
-| `quote.sent` × 2 (2026-09-20) | schedules the quote's expiry (a no-op: neither is `SENT`) **and emails "your quote is ready" to CL-0001** for a quote since cancelled and one since accepted |
-| `trade.opened` (2026-09-20) | an inbox entry for CL-0001; no email |
-| `client.trade_cancelled` (2026-09-28) | inbox entry and **email to CL-0001** about IX-260920-0002, cancelled 13 days earlier |
-| `client.destination_added` × 4 (2026-09-28, 10-10) | inbox entries and **emails to CL-0003 and CL-0004** that a destination was added |
-| `trader.applied` × 2 | nothing |
-| `trader.approved` × 2 (2026-09-28, 10-10) | inbox entries and **emails to CL-0003 and CL-0004** that they were approved |
+Production's pending events, read on 2026-10-12 at 12:27 UTC (read-only), and what the worker does with each:
 
-So nine emails would go out, three of them misleading (a quote "ready" that is closed). The choice is the owner's
-(step 7): let them go; or close the events without delivering them, through a reviewed one-off (the outbox refuses
-deletion; nothing is changed by hand); or send the inbox entries and not the emails for events older than a day.
+| # | Written (UTC) | Event | Client | About | Inbox | Email today's code | Email with the rule |
+|---|---|---|---|---|---|---|---|
+| 1 | 09-20 16:23 | `desk.new_request` | — | RQ-260920-0001, accepted | — | — | — |
+| 2 | 09-20 16:58 | `quote.sent` | CL-0001 | QT-260920-0001, cancelled | `QUOTE_SENT` | sent | withheld |
+| 3 | 09-20 17:02 | `quote.sent` | CL-0001 | QT-260920-0002, accepted | `QUOTE_SENT` | sent | withheld |
+| 4 | 09-20 17:05 | `trade.opened` | CL-0001 | IX-260920-0002, cancelled | `TRADE_OPENED` | — | — |
+| 5 | 09-27 15:59 | `desk.new_request` | — | RQ-260927-0002, withdrawn | — | — | — |
+| 6 | 09-28 19:10 | `trader.applied` | CL-0003 | | — | — | — |
+| 7 | 09-28 22:12 | `client.trade_cancelled` | CL-0001 | IX-260920-0002 | `TRADE_CANCELLED` | sent | withheld |
+| 8 | 09-28 22:16 | `client.destination_added` | CL-0003 | bank account ••••8634 | `DESTINATION_ADDED` | sent | withheld |
+| 9 | 09-28 22:16 | `client.destination_added` | CL-0003 | wallet | `DESTINATION_ADDED` | sent | withheld |
+| 10 | 09-28 22:18 | `trader.approved` | CL-0003 | | `TRADER_APPROVED` | sent | withheld |
+| 11 | 10-10 02:16 | `trader.applied` | CL-0004 | | — | — | — |
+| 12 | 10-10 02:18 | `client.destination_added` | CL-0004 | bank account ••••2187 | `DESTINATION_ADDED` | sent | withheld |
+| 13 | 10-10 02:19 | `client.destination_added` | CL-0004 | wallet | `DESTINATION_ADDED` | sent | withheld |
+| 14 | 10-10 02:20 | `trader.approved` | CL-0004 | | `TRADER_APPROVED` | sent | withheld |
+| 15 | 10-12 12:18 | `client.destination_archived` | CL-0003 | bank account ••••8634 | `DESTINATION_ARCHIVED` | sent | sent until 10-13 12:18, withheld after |
+| 16 | 10-12 12:19 | `client.destination_archived` | CL-0004 | bank account ••••2187 | `DESTINATION_ARCHIVED` | sent | sent until 10-13 12:19, withheld after |
+
+Twelve inbox entries either way. Today's code would send 11 emails; with the rule none of 2–14 goes, and 15–16 go only
+if the worker starts within a day of the archiving (to the owner's own test clients). Each client has one verified
+recipient. The two `desk.new_request` find their requests closed and offer nothing to a trader; the two `quote.sent`
+schedule an expiry that finds the quotes closed — no-ops, as the rehearsal showed.
 
 ### What production still needs
 
@@ -338,13 +367,13 @@ Vercel, project `inr463rergr`, environment *Production* (names only; values come
 | Setting | Value / source | Today |
 |---|---|---|
 | `INRP2P_ENV` | `production` | check |
-| `DATABASE_URL` | `PROD_DATABASE_URL` from the local file (`inrp2p_app_login`, pooled) | `neondb_owner` — **refused** by this release |
+| `DATABASE_URL` | `PROD_DATABASE_URL` from the local file (`inrp2p_app_login`, pooled) | set (2026-10-12) |
 | `DESK_HOST`, `APP_HOST`, `PUBLIC_HOST` | `desk.inrp2p.com`, `app.inrp2p.com`, `www.inrp2p.com` | check |
 | `OPERATOR_AUTH_SECRET`, `CLIENT_AUTH_SECRET` | ≥ 32 characters, different; keep today's values so sessions survive | check |
 | `INRP2P_HEALTH_TOKEN` | ≥ 32 random characters; the monitor's | new |
-| `INRP2P_KEK_PROVIDER`, `INRP2P_KEK_ID`, `INRP2P_KMS_KEY_ARN` | `aws-kms`, `kms-2026a`, the stack's `FieldKeyArn` | new |
+| `INRP2P_KEK_PROVIDER`, `INRP2P_KEK_ID`, `INRP2P_KMS_KEY_ARN` | `aws-kms`, `kms-2026a`, the owner's key in `eu-north-1` | set (owner) |
 | `INRP2P_FIELD_HMAC_BASE64` | **unchanged** | exists |
-| `AWS_ROLE_ARN`, `AWS_REGION` | the stack's `VercelWebRoleArn`, `us-east-1` | new |
+| `AWS_ROLE_ARN`, `AWS_REGION` | `arn:aws:iam::075774506744:role/inrp2p-vercel-web`, `eu-north-1` | set (owner) |
 | `RESEND_API_KEY`, `RESEND_FROM` | Resend, a sender on the verified domain | not seen (no Vercel access) |
 | `INRP2P_TRON_PRIMARY_URL`, `INRP2P_TRON_PRIMARY_GROUP`, `INRP2P_TRON_PRIMARY_KEY`, `INRP2P_USDT_CONTRACT` | the TRON provider; `TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t` | new |
 | `INRP2P_TRON_SECONDARY_*` | a second, independent provider (D-05) | optional; without it large amounts do not confirm |
@@ -356,6 +385,6 @@ the exchange's INR settlement and collection accounts with their daily capacity 
 custody provider's pool of TRC20 deposit addresses SELL deposits go to (`deposit_pool_free`, D-02). Until they exist,
 no SELL trade can be accepted and no INR payout planned — nothing wrong happens, nothing happens.
 
-AWS: the stack's parameters (`VercelTeamSlug`, `VpcId`, `SubnetIds`, `WorkerImage`, retention) and the secret
+AWS: the stack's parameters (`VpcId`, `SubnetIds`, `WorkerImage`, `FieldKeyArn`, retention), created in `us-east-1`, and the secret
 `inrp2p/worker` (`WORKER_DATABASE_URL`, `RESEND_API_KEY`, `INRP2P_FIELD_HMAC_BASE64`, `INRP2P_TRON_PRIMARY_KEY`). The
 worker's other settings are in the task definition.
