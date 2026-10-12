@@ -91,7 +91,7 @@ drill) and `upgrade` (23 → 34). `main` has no branch protection, so "required"
 | E4 | P0 | confirmed defects + implementation | Point-in-time recovery drill, restore safety (no second payout), audit-seal archive (TD-16, TD-17) | code ready; reference drill **PASS**; drill on the chosen platform **NOT RUN**; platform, retention and buckets **BLOCKED** (owner) |
 | F | P0 | verification + confirmed defects | Every CI command locally and in CI, end to end, page baselines incl. TD-23, Lighthouse, images, 23 → 34 | local **PASS** at `30c6e98`; CI on PR #1 — see Runs; gate 1 closes on the final candidate |
 | G | P0 | owner decision → implementation | D-17: clients open their own accounts; one Security Reserve address for every trader, attributed by the sending wallet | code ready; CI — see Runs; on Vercel: see G |
-| H | P0 | owner direction → implementation | D-18: the transition to Vercel + Neon + AWS — the two test bank accounts archived and `prod-v1` retired, Vercel → KMS by OIDC, own logins, the worker on Fargate, the 14 undelivered events | code ready; CI — see H; rehearsal on a Neon copy — see H; production **not migrated** |
+| H | P0 | owner direction → implementation | D-18: the transition to Vercel + Neon + AWS — the two test bank accounts archived and `prod-v1` retired, Vercel → KMS by OIDC, own logins, the worker on Fargate, the 14 undelivered events | code ready; CI — see H; rehearsal on a Neon copy **PASS** after one fix (2026-10-12) — see H; production **not migrated** |
 
 (The table grows as stages are worked; each row has a section below.)
 
@@ -787,6 +787,36 @@ is wanted stays an open owner question (ADR 0016 §8).
   lost or moved twice; the accounts revealed through the application under KMS alone; the database's refusals;
   keys from the environment); `database-logins.int.test.ts` (PostgreSQL accepts the computed verifiers). CI `upgrade`:
   the values the release at 23 sealed itself move to a KMS key and open under it alone.
+- **Rehearsal on a Neon copy (2026-10-12, branch `rehearsal-36`, endpoint `ep-withered-resonance-avylp3xy`).** The
+  owner branched production; every tool ran against the copy through a file that held no production string and
+  refused production's endpoint. Production read before and after: schema 23, 14 events pending, no worker login,
+  both accounts active under `prod-v1` — unchanged.
+  - The copy matched production exactly (PostgreSQL 18.6, 23 migrations, checksums equal, owner `neondb_owner`, 84
+    objects, two sealed values under `prod-v1`, no session, no worker ever).
+  - `pnpm db:migrate` (owner, direct): 24–36 and the queue schema in 9 s; a second run "schema up to date". The
+    release's restore checks before and after: 1 trade, 2 journals, 10 entries, 85 audit events, no problem — equal;
+    the one trade `LEGACY_EXCHANGE_FUNDED`; the shared reserve address recorded; no restore fence.
+  - Logins: **found** — Neon refuses a SCRAM verifier ("Neon only supports being given plaintext passwords", at
+    commit; the transaction rolled back whole). Fixed (`passwordFormFor`: the password itself on Neon hosts), re-run:
+    `inrp2p_worker_login` created in `inrp2p_worker` only; both logins connect — the web's through the pooler — and
+    pass the release's deployment check. Production still has no worker login: Neon roles belong to a branch.
+  - The release's view of the two accounts: active, under `prod-v1`, and opening either is refused at once (unknown
+    key, no KMS call).
+  - The real worker (`apps/worker/src/main.ts`, non-production mode; TRON monitoring off, email to a local capture
+    standing where Resend's API is, KMS through the local emulator) for 150 s: every job succeeded; the 14 events
+    dispatched, none failed; inbox `DESTINATION_ADDED` 4, `QUOTE_SENT` 2, `TRADER_APPROVED` 2, `TRADE_CANCELLED` 1,
+    `TRADE_OPENED` 1; nine emails, each with its own idempotency key — exactly DEPLOYMENT §10's table; no trader order;
+    a heartbeat with the database identity; no fence; SIGTERM shut it down cleanly. Started again for 75 s: no email
+    sent twice, no fence.
+  - The web app, built and started in **production mode** against the copy (configuration of the shape Vercel will
+    have; providers at `.invalid` hosts): the start check passed (two warnings: one TRON provider, receipts not
+    stored); `/api/health/ready` 200 on www, app and desk; app `/sign-in` 200 "Sign in or open an account."; desk
+    `/sign-in` 200; `/api/health/status` 401 without the token, 503 with it (alarms: `restore_drill_age_days`,
+    `inr_capacity_available`, `deposit_pool_free`; warnings: traders ready). The public `/` answered 500 there only
+    because the loopback server speaks HTTP behind a claimed `https` (the home rewrite went out as an https proxy);
+    the proxy is unchanged since `d0cc778`, which serves `/` on Vercel.
+  - Not rehearsed: archiving the two accounts (it needs an operator's session and authenticator; CI covers it), real
+    KMS, Resend, TRON and AWS.
 - **The 14 undelivered events** (DEPLOYMENT §10): nine emails would go out when the worker first starts, three of them
   misleading. The choice is the owner's.
 - **Not run / blocked.** The real KMS key, the AWS stack and the Vercel OIDC role (owner, after the costs); a real TRON

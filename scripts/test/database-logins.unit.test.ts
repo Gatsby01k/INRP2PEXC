@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { LOGINS, loginProblems, loginUrl, neonPooledHost, prepareStrings, readEnvFile, scramVerifier, writeEnvFile } from '../database-logins.ts';
+import { LOGINS, loginProblems, loginUrl, neonPooledHost, passwordFormFor, prepareStrings, readEnvFile, scramVerifier, writeEnvFile } from '../database-logins.ts';
 
 const MIGRATOR = 'postgresql://neondb_owner:owner-secret@ep-proud-leaf-avub33vw.c-11.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require';
 const [web, worker] = LOGINS as [typeof LOGINS[0], typeof LOGINS[0]];
@@ -19,6 +19,12 @@ describe('database logins for the web app and the worker', () => {
     const k = new URL(loginUrl(MIGRATOR.replace('avub33vw.', 'avub33vw-pooler.'), worker, 'x'));
     expect([k.username, k.hostname]).toEqual(['inrp2p_worker_login', 'ep-proud-leaf-avub33vw.c-11.us-east-1.aws.neon.tech']);
     expect(new URL(loginUrl('postgres://o:p@db.internal:5432/inrp2p', web, 'x', 'pgbouncer.internal')).hostname).toBe('pgbouncer.internal');
+  });
+
+  it('send Neon the password itself (it refuses a verifier), and any other PostgreSQL a verifier', () => {
+    expect(passwordFormFor(MIGRATOR)).toBe('plaintext');
+    expect(passwordFormFor('postgres://o:p@db.internal:5432/inrp2p')).toBe('scram');
+    expect(passwordFormFor('postgres://o:p@neon.tech.attacker.example/inrp2p')).toBe('scram');
   });
 
   it('send PostgreSQL a SCRAM-SHA-256 verifier, never the password', () => {
