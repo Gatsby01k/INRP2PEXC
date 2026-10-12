@@ -5,7 +5,7 @@ import { FakeNotificationAdapter } from '@inrp2p/adapters/testing';
 import { UnconfiguredNotificationAdapter, isNotificationProviderConfigured } from '@inrp2p/adapters';
 import { dispatchOutbox } from '@inrp2p/outbox';
 import { createQuote, createRequest, sendQuote } from '@inrp2p/quotes';
-import { acknowledgedSignalHandler, clientInbox, clientNotificationEmailHandler, clientNotificationHandler, emailDeliveryId } from '../src/index.ts';
+import { EMAIL_STALE_AFTER_HOURS, acknowledgedSignalHandler, clientInbox, clientNotificationEmailHandler, clientNotificationHandler, emailDeliveryId } from '../src/index.ts';
 import { type World, createWorld } from '../../settlement/test/world.ts';
 
 /**
@@ -174,5 +174,68 @@ describe('the email channel', () => {
   it('is not registered at all when there is no provider, so one channel cannot take the other down', () => {
     expect(isNotificationProviderConfigured(new UnconfiguredNotificationAdapter())).toBe(false);
     expect(isNotificationProviderConfigured(mailbox)).toBe(true);
+  });
+});
+
+describe('an email that would arrive as old news is withheld; the inbox keeps it (D-18)', () => {
+  /** The worker's order, with the email channel reading the business clock as it is `hoursLater` from now. */
+  async function deliverLater(hoursLater: number) {
+    const clock = await w.t.pinnedClock();
+    await clock.set(new Date(Date.now() + hoursLater * 3_600_000));
+    try {
+      await dispatchOutbox(w.t.worker, [
+        clientNotificationHandler(w.app),
+        acknowledgedSignalHandler(),
+        clientNotificationEmailHandler(clock.db, mailbox, { linkBase: 'https://app.inrp2p.test' }),
+      ]);
+    } finally {
+      await clock.set(null);
+    }
+    return clock.db;
+  }
+  const notificationOf = async (quoteId: string) => {
+    const event = await w.t.owner.selectFrom('outbox_event').select('id').where('type', '=', 'quote.sent').where(sql<boolean>`payload->>'quoteId' = ${quoteId}`).executeTakeFirstOrThrow();
+    return w.t.owner.selectFrom('client_notification').select(['id', 'kind', 'email_sent_at', 'outbox_event_id']).where('outbox_event_id', '=', event.id).executeTakeFirstOrThrow();
+  };
+
+  it(`more than ${EMAIL_STALE_AFTER_HOURS} h old when first dispatched: the inbox entry is written, and no email`, async () => {
+    await setVerified(true);
+    const sentBefore = mailbox.notifications.length;
+    const quoteId = await sendAQuote('610');
+    const later = await deliverLater(EMAIL_STALE_AFTER_HOURS + 1);
+
+    const n = await notificationOf(quoteId);
+    expect(n.kind).toBe('QUOTE_SENT');
+    expect(n.email_sent_at).toBeNull();
+    expect(await w.t.owner.selectFrom('client_notification_email').select('id').where('notification_id', '=', n.id).execute()).toEqual([]);
+    expect(mailbox.notifications.length).toBe(sentBefore);
+    // The inbox entry is the client's own: it is there to read.
+    expect((await clientInbox(w.app, w.clientId, { limit: 100 })).some((x) => x.id === n.id)).toBe(true);
+
+    // Delivered again (a crash, a restored database): still no email.
+    const handler = clientNotificationEmailHandler(later, mailbox, { linkBase: 'https://app.inrp2p.test' });
+    const clock = await w.t.pinnedClock();
+    await clock.set(new Date(Date.now() + (EMAIL_STALE_AFTER_HOURS + 2) * 3_600_000));
+    try {
+      await clientNotificationEmailHandler(clock.db, mailbox, {}).run({ id: n.outbox_event_id, type: 'quote.sent', aggregateType: 'quote', aggregateId: quoteId, payload: { quoteId }, correlationId: 'redelivery' });
+    } finally {
+      await clock.set(null);
+    }
+    expect(handler.name).toBe('client_notification_email');
+    expect(mailbox.notifications.length).toBe(sentBefore);
+    expect(await w.t.owner.selectFrom('client_notification_email').select('id').where('notification_id', '=', n.id).execute()).toEqual([]);
+  });
+
+  it(`less than ${EMAIL_STALE_AFTER_HOURS} h old: sent as always`, async () => {
+    await setVerified(true);
+    const sentBefore = mailbox.notifications.length;
+    const quoteId = await sendAQuote('620');
+    await deliverLater(EMAIL_STALE_AFTER_HOURS - 1);
+    const n = await notificationOf(quoteId);
+    expect(n.email_sent_at).not.toBeNull();
+    const deliveries = await w.t.owner.selectFrom('client_notification_email').select('status').where('notification_id', '=', n.id).execute();
+    expect(deliveries.length).toBeGreaterThan(0);
+    expect(deliveries.every((d) => d.status === 'SENT')).toBe(true);
+    expect(mailbox.notifications.length).toBe(sentBefore + deliveries.length);
   });
 });

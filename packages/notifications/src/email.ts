@@ -61,8 +61,19 @@ export interface EmailReport {
 }
 
 /**
+ * An email is news. One about something that happened more than this long before the worker could send it — a
+ * worker that was down, or a backlog an earlier release left with no worker at all (D-18: production's first worker
+ * found events weeks old) — would arrive as if it were news, and mislead: "your quote is ready" for a quote long
+ * closed. The inbox entry is written as always; the email is withheld. What happened stays readable from the rows —
+ * an emailed kind with no delivery and an event dispatched more than this long after it was written — and the worker
+ * says so in its log. Codes that confirm a quote are not notifications and are not affected.
+ */
+export const EMAIL_STALE_AFTER_HOURS = 24;
+
+/**
  * Sends one notification row by email to each recipient, once each. Returns what became of the recipients, or `null`
- * when the row was not eligible (an inbox-only kind, or nobody verified to send it to).
+ * when the row was not eligible (an inbox-only kind, nobody verified to send it to, or an event too old to be news —
+ * `EMAIL_STALE_AFTER_HOURS`, judged once, before any delivery exists, so a send already under way is never dropped).
  *
  * Each recipient is a `client_notification_email` row (migration 0031), created once; its id — derived from the event
  * and the person (`emailDeliveryId`) — is the provider's idempotency key, so a redelivered event, a crash after the
@@ -82,6 +93,14 @@ export async function emailNotification(db: Db, adapter: NotificationAdapter, in
 
   const existing = await db.selectFrom('client_notification_email').select('id').where('notification_id', '=', row.id).limit(1).executeTakeFirst();
   if (!existing) {
+    const age = (await sql<{ stale: boolean; hours: number }>`
+      select inrp2p_now() - created_at > make_interval(hours => ${EMAIL_STALE_AFTER_HOURS}) as stale,
+             floor(extract(epoch from (inrp2p_now() - created_at)) / 3600)::int as hours
+        from outbox_event where id = ${input.outboxEventId}`.execute(db)).rows[0];
+    if (age?.stale) {
+      console.warn(JSON.stringify({ level: 'warn', event: 'client_email.withheld_stale', notification: row.id, kind: row.kind, event_age_hours: age.hours }));
+      return null;
+    }
     let recipients = db
       .selectFrom('client_user as cu')
       .innerJoin('auth_user as u', 'u.id', 'cu.user_id')
