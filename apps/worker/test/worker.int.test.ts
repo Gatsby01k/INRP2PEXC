@@ -14,6 +14,46 @@ beforeAll(async () => {
 afterAll(async () => t.close());
 
 describe('graphile worker end to end', () => {
+
+  it.each([null, 'regression-queue'])('records a failed job and continues with queue %s, without changing financial bigint parsing', async (queueName) => {
+    const key = randomUUID();
+    const connectionString = t.workerPool.options.connectionString;
+    expect(connectionString).toBeTruthy();
+    await t.ownerPool.query(
+      "select graphile_worker.add_job('test_failure', '{}'::json, queue_name := $1::text, max_attempts := 1, job_key := $2::text)",
+      [queueName, key],
+    );
+    let jobIdType = '';
+    await runOnce({
+      connectionString,
+      taskList: {
+        test_failure: async (_payload, helpers) => {
+          jobIdType = typeof helpers.job.id;
+          throw new Error('regression: invalid TRON address');
+        },
+      },
+    });
+    expect(jobIdType).toBe('string');
+    const failed = await t.ownerPool.query(
+      'select attempts, last_error, locked_at from graphile_worker._private_jobs where key = $1',
+      [key],
+    );
+    expect(failed.rows).toHaveLength(1);
+    expect(failed.rows[0]).toMatchObject({
+      attempts: 1, last_error: 'regression: invalid TRON address', locked_at: null,
+    });
+
+    await t.ownerPool.query("select graphile_worker.add_job('test_after_failure', '{}'::json)");
+    let completed = false;
+    await runOnce({
+      connectionString,
+      taskList: { test_after_failure: async () => { completed = true; } },
+    });
+    expect(completed).toBe(true);
+    const money = await t.workerPool.query('select 9007199254740993::bigint as amount');
+    expect(money.rows[0].amount).toBe(9007199254740993n);
+  });
+
   it('a committed command causes the worker (as inrp2p_worker) to deliver the outbox event exactly once', async () => {
     const delivered: string[] = [];
     const id = randomUUID();
@@ -25,7 +65,7 @@ describe('graphile worker end to end', () => {
     }, { name: 'test.worker', actor: { type: 'SYSTEM', id: null, surface: 'SYSTEM' }, payload: { id }, financial: false });
 
     const taskList = buildTaskList(t.worker, [{ name: 'rec', handles: (x) => x === 'test.worker', run: async (e) => { delivered.push(e.aggregateId!); } }]);
-    await runOnce({ pgPool: t.workerPool, taskList });
+    await runOnce({ connectionString: t.workerPool.options.connectionString, taskList });
     await runOnce({ pgPool: t.workerPool, taskList });
     expect(delivered).toEqual([id]);
   });

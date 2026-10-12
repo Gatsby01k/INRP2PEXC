@@ -67,6 +67,18 @@ describe('the AWS template (worker on Fargate, KMS, audit archive, Vercel OIDC r
     expect(grants.filter((g) => ([] as string[]).concat(g.s.Action as string[]).includes('kms:Decrypt')).map((g) => g.name)).toEqual(['WorkerTaskRole']);
   });
 
+  it('permits both startup archive checks on the audit bucket only', () => {
+    const policies = props('WorkerTaskRole').Policies as { PolicyName: string; PolicyDocument: unknown }[];
+    const grants = statements(policies.find((p) => p.PolicyName === 'audit-seals')!.PolicyDocument);
+    for (const action of ['s3:GetBucketVersioning', 's3:GetBucketObjectLockConfiguration']) {
+      const matching = grants.filter((s) => ([] as string[]).concat(s.Action as string | string[]).includes(action));
+      expect(matching).toHaveLength(1);
+      expect(matching[0]).toMatchObject({
+        Effect: 'Allow', Resource: { 'Fn::GetAtt': ['AuditSealBucket', 'Arn'] },
+      });
+    }
+  });
+
   it('lets only main push the image', () => {
     const [push] = statements(props('ImagePushRole').AssumeRolePolicyDocument);
     expect((push!.Condition as Json).StringLike).toEqual({ 'token.actions.githubusercontent.com:sub': { 'Fn::Sub': 'repo:${GitHubRepository}:ref:refs/heads/main' } });

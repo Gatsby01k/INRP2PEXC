@@ -111,7 +111,9 @@ const first = await recordHeartbeat(db, identity);
 if (first.raised) console.error(`the database changed underneath: outgoing payments are held (${first.raised}); follow RUNBOOKS restore-fence`);
 
 const runner = await run({
-  pgPool: pool,
+  // Graphile owns its pool and keeps int8 job IDs as strings. The domain pool above
+  // deliberately parses financial BIGINT columns as bigint, which is not JSON-serializable.
+  connectionString: url,
   concurrency: 5,
   noHandleSignals: false,
   pollInterval: 2000,
@@ -126,5 +128,8 @@ const runner = await run({
 });
 // SIGTERM/SIGINT: graphile-worker stops taking jobs and lets the running ones finish; then the pool is closed, so a
 // deploy never cuts a job in half and never leaves connections behind.
-await runner.promise;
-await pool.end();
+try {
+  await runner.promise;
+} finally {
+  await pool.end();
+}
