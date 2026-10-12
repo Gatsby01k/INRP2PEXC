@@ -72,6 +72,31 @@ describe('the AWS template (worker on Fargate, KMS, audit archive, Vercel OIDC r
     expect((push!.Condition as Json).StringLike).toEqual({ 'token.actions.githubusercontent.com:sub': { 'Fn::Sub': 'repo:${GitHubRepository}:ref:refs/heads/main' } });
   });
 
+
+  it('matches the immutable OIDC subject GitHub issues for this repository, with main and audience scoped exactly', () => {
+    const [push] = statements(props('ImagePushRole').AssumeRolePolicyDocument);
+    const condition = push!.Condition as { StringEquals: Record<string, string>; StringLike: Record<string, { 'Fn::Sub': string }> };
+    const allowedSubject = condition.StringLike['token.actions.githubusercontent.com:sub']!['Fn::Sub']
+      .replace('${GitHubRepository}', String(template.Parameters.GitHubRepository!.Default));
+    // GitHub's July 2026 immutable-subject contract; owner/repository IDs come from the repository API.
+    // https://docs.github.com/en/actions/reference/security/oidc#immutable-subject-claims
+    const mainSubject = 'repo:Gatsby01k@225718825/INRP2PEXC@1373536755:ref:refs/heads/main';
+    expect(allowedSubject).toBe(mainSubject);
+    expect(allowedSubject).not.toMatch(/[*?]/);
+    const accepts = (sub: string, aud = 'sts.amazonaws.com') =>
+      sub === allowedSubject && aud === condition.StringEquals['token.actions.githubusercontent.com:aud'];
+    expect(accepts(mainSubject)).toBe(true);
+    expect(accepts(mainSubject, 'https://github.com/Gatsby01k')).toBe(false);
+    for (const rejected of [
+      'repo:Gatsby01k/INRP2PEXC:ref:refs/heads/main',
+      mainSubject.replace('@225718825/', '@999999999/'),
+      mainSubject.replace('@1373536755:', '@999999999:'),
+      mainSubject.replace('refs/heads/main', 'refs/heads/feature'),
+      mainSubject.replace('ref:refs/heads/main', 'pull_request'),
+      mainSubject.replace('ref:refs/heads/main', 'environment:production'),
+    ]) expect(accepts(rejected), rejected).toBe(false);
+  });
+
   it('keeps audit seals under Object Lock, versioned, private, TLS only — and retained when the stack goes', () => {
     const b = props('AuditSealBucket');
     expect([b.ObjectLockEnabled, (b.VersioningConfiguration as Json).Status]).toEqual([true, 'Enabled']);

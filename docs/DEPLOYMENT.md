@@ -218,6 +218,15 @@ everything started settles), `incident-recovery`, `payout-ambiguous`, `secret-ro
 | audit-seal archive | S3 under Object Lock (COMPLIANCE), versioned, private, TLS only | the worker's task role |
 | worker image | ECR `inrp2p-worker`, pushed by the `Worker image (ECR)` workflow from `main` | GitHub's OIDC federation and the role `inrp2p-worker-image-push` |
 
+**GitHub OIDC identity.** GitHub repositories created after 2026-07-15 use an immutable subject that includes
+the owner ID and repository ID ([GitHub's format](https://docs.github.com/en/actions/reference/security/oidc#immutable-subject-claims)).
+INRP2PEXC was created on 2026-09-16. The stack parameter `GitHubRepository` is the identity segment of that subject:
+`Gatsby01k@225718825/INRP2PEXC@1373536755`. The role still requires the exact `main` branch and
+`sts.amazonaws.com` audience. A stack already created with the previous plain `Gatsby01k/INRP2PEXC` value must
+update the **parameter value**: changing a template's default does not replace an existing stack's parameter.
+Use the current template and previous values for the other parameters; keep `DesiredCount=0` until the image and
+worker secrets are ready. For a different repository, use the identity segment in its actual OIDC subject.
+
 No long-term AWS key exists anywhere: a production process refuses one (`AKIA…`).
 
 **The AWS stack** (`deploy/aws/inrp2p-aws.json`, CloudFormation, created in `us-east-1`): the archive bucket, the ECR
