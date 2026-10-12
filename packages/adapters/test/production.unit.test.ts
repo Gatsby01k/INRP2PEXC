@@ -75,6 +75,18 @@ describe('the production configuration contract (E3)', () => {
     }
   });
 
+  it('takes AWS credentials from a role, never from a long-term key, and on Vercel through OIDC', () => {
+    const LONG_TERM = 'AKIAIOSFODNN7EXAMPLE'; // secret-scan:allow — AWS's documented example key id
+    const longTerm = productionConfigReport('worker', { ...COMPLETE, AWS_ACCESS_KEY_ID: LONG_TERM, AWS_SECRET_ACCESS_KEY: 's' });
+    expect(longTerm.problems.join('\n')).toContain('AWS_ACCESS_KEY_ID is a long-term access key');
+    expect(longTerm.problems.join('\n')).not.toContain(LONG_TERM);
+    // Temporary credentials from a role or a sign-in session are a role's.
+    expect(productionConfigReport('worker', { ...COMPLETE, AWS_ACCESS_KEY_ID: 'ASIAEXAMPLE', AWS_SECRET_ACCESS_KEY: 's', AWS_SESSION_TOKEN: 't' }).problems).toEqual([]);
+
+    expect(productionConfigReport('web', { ...COMPLETE, VERCEL: '1' }).problems.join('\n')).toContain('AWS_ROLE_ARN is required on Vercel');
+    expect(productionConfigReport('web', { ...COMPLETE, VERCEL: '1', AWS_ROLE_ARN: 'arn:aws:iam::123456789012:role/inrp2p-vercel-web' }).problems).toEqual([]);
+  });
+
   it('says out loud what runs at reduced service', () => {
     const one = productionConfigReport('worker', { ...COMPLETE, INRP2P_TRON_SECONDARY_URL: '', INRP2P_TRON_SECONDARY_GROUP: '', INRP2P_RECEIPTS_BUCKET: '' });
     expect(one.problems).toEqual([]);

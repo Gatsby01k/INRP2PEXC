@@ -1,8 +1,10 @@
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import {
-  AwsKmsKeyEncryptionKey, awsCredentialsFromEnvironment, fieldProtectionFromEnv, signSigV4, sigV4SigningKey,
+  AwsKmsKeyEncryptionKey, LocalKeyEncryptionKey, awsCredentialsFromEnvironment, createFieldProtector, fieldProtectionFromEnv, rewrapSealed, sealedParts,
+  signSigV4, sigV4SigningKey, webIdentityToken,
 } from '../src/index.ts';
+import { type FakeKmsOptions, fakeKms as fakeKmsOf } from '../src/testing/index.ts';
 
 /**
  * TD-03: the KMS-backed key-encryption key. The signer is checked against AWS's published Signature Version 4
@@ -42,47 +44,8 @@ describe('Signature Version 4', () => {
 const ARN_A = 'arn:aws:kms:ap-south-1:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab';
 const ARN_B = 'arn:aws:kms:ap-south-1:111122223333:key/5678abcd-12ab-34cd-56ef-1234567890ab';
 
-/** An in-memory KMS: one master key per ARN; a ciphertext names its key and is bound to its encryption context. */
-function fakeKms(opts: { failFirst?: number; failWith?: { status: number; type: string }; deny?: boolean } = {}) {
-  const masters = new Map([ARN_A, ARN_B].map((arn) => [arn, randomBytes(32)]));
-  const calls: { target: string; signed: boolean; body: Record<string, unknown> }[] = [];
-  let failures = opts.failFirst ?? 0;
-  const ctxHash = (ctx: unknown) => createHash('sha256').update(JSON.stringify(ctx)).digest();
-  const fetchImpl = (async (_url: string | URL | Request, init?: RequestInit) => {
-    const headers = new Headers(init?.headers);
-    const target = headers.get('x-amz-target') ?? '';
-    const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
-    calls.push({ target, signed: (headers.get('authorization') ?? '').startsWith('AWS4-HMAC-SHA256 Credential='), body });
-    const reply = (status: number, json: unknown) => new Response(JSON.stringify(json), { status });
-    if (failures > 0) {
-      failures--;
-      return reply(opts.failWith?.status ?? 500, { __type: opts.failWith?.type ?? 'KMSInternalException' });
-    }
-    if (opts.deny) return reply(400, { __type: 'com.amazonaws.kms#AccessDeniedException' });
-    const master = masters.get(String(body.KeyId));
-    if (!master) return reply(400, { __type: 'NotFoundException' });
-    if (target === 'TrentService.Encrypt') {
-      const iv = randomBytes(12);
-      const c = createCipheriv('aes-256-gcm', master, iv);
-      c.setAAD(ctxHash(body.EncryptionContext));
-      const ct = Buffer.concat([c.update(Buffer.from(String(body.Plaintext), 'base64')), c.final()]);
-      const blob = Buffer.concat([Buffer.from(String(body.KeyId).padEnd(100)), iv, c.getAuthTag(), ct]);
-      return reply(200, { CiphertextBlob: blob.toString('base64'), KeyId: body.KeyId });
-    }
-    const blob = Buffer.from(String(body.CiphertextBlob), 'base64');
-    if (blob.subarray(0, 100).toString().trim() !== body.KeyId) return reply(400, { __type: 'IncorrectKeyException' });
-    try {
-      const d = createDecipheriv('aes-256-gcm', master, blob.subarray(100, 112));
-      d.setAAD(ctxHash(body.EncryptionContext));
-      d.setAuthTag(blob.subarray(112, 128));
-      const pt = Buffer.concat([d.update(blob.subarray(128)), d.final()]);
-      return reply(200, { Plaintext: pt.toString('base64'), KeyId: body.KeyId });
-    } catch {
-      return reply(400, { __type: 'InvalidCiphertextException' });
-    }
-  }) as typeof fetch;
-  return { fetchImpl, calls };
-}
+/** The in-memory KMS of `@inrp2p/adapters/testing`, holding these two keys. */
+const fakeKms = (opts: Omit<FakeKmsOptions, 'arns'> = {}) => fakeKmsOf({ ...opts, arns: [ARN_A, ARN_B] });
 
 const credentials = async () => ({ accessKeyId: 'AKIA', secretAccessKey: 'secret', sessionToken: 'session' });
 const kms = (fetchImpl: typeof fetch, arn = ARN_A, keyId = 'kms-a') =>
@@ -182,5 +145,100 @@ describe('field protection configuration (TD-03)', () => {
     expect(fresh.split('.')[1]).toBe('kms-2026b');
     // The field context is authenticated at the data-key layer: the right key and the wrong field still fail.
     await expect(after.protector.open(fresh, 'bank_account.account_number:c2')).rejects.toThrow();
+  });
+});
+
+describe('AWS credentials from a web identity (Vercel OIDC federation, token files)', () => {
+  const ROLE = 'arn:aws:iam::111122223333:role/inrp2p-vercel-web';
+  const STS_OK = `<AssumeRoleWithWebIdentityResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/"><AssumeRoleWithWebIdentityResult>
+    <Credentials><SessionToken>session-from-sts</SessionToken><SecretAccessKey>secret-from-sts</SecretAccessKey>
+    <Expiration>${new Date(Date.now() + 3_600_000).toISOString()}</Expiration><AccessKeyId>ASIASTS</AccessKeyId></Credentials>
+  </AssumeRoleWithWebIdentityResult></AssumeRoleWithWebIdentityResponse>`;
+  const sts = (reply: { status: number; body: string }) => {
+    const seen: { url: string; body: URLSearchParams }[] = [];
+    const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
+      seen.push({ url: String(url), body: new URLSearchParams(String(init?.body)) });
+      return new Response(reply.body, { status: reply.status });
+    }) as typeof fetch;
+    return { fetchImpl, seen };
+  };
+  const CONTEXT = Symbol.for('@vercel/request-context');
+  const withVercelRequest = async <T>(headers: Record<string, string>, fn: () => Promise<T>): Promise<T> => {
+    const g = globalThis as Record<symbol, unknown>;
+    g[CONTEXT] = { get: () => ({ headers }) };
+    try {
+      return await fn();
+    } finally {
+      delete g[CONTEXT];
+    }
+  };
+
+  it('reads the token Vercel gives the request, else VERCEL_OIDC_TOKEN, else a token file', async () => {
+    expect(webIdentityToken({})).toBeNull();
+    expect(webIdentityToken({ VERCEL_OIDC_TOKEN: 'from-env' })).toBe('from-env');
+    expect(await withVercelRequest({ 'x-vercel-oidc-token': 'from-request' }, async () => webIdentityToken({ VERCEL_OIDC_TOKEN: 'from-env' }))).toBe('from-request');
+    expect(webIdentityToken({ AWS_WEB_IDENTITY_TOKEN_FILE: '/var/run/token' }, (p) => (p === '/var/run/token' ? 'from-file\n' : ''))).toBe('from-file');
+  });
+
+  it('exchanges it with STS for the named role and caches the temporary credentials until close to expiry', async () => {
+    const s = sts({ status: 200, body: STS_OK });
+    const source = awsCredentialsFromEnvironment({ AWS_ROLE_ARN: ROLE, AWS_REGION: 'us-east-1', AWS_ROLE_SESSION_NAME: 'inrp2p-web' }, s.fetchImpl);
+    const creds = await withVercelRequest({ 'x-vercel-oidc-token': 'jwt-from-vercel' }, source);
+    expect(creds).toMatchObject({ accessKeyId: 'ASIASTS', secretAccessKey: 'secret-from-sts', sessionToken: 'session-from-sts' });
+    expect(s.seen[0]!.url).toBe('https://sts.us-east-1.amazonaws.com/');
+    expect(Object.fromEntries(s.seen[0]!.body)).toMatchObject({ Action: 'AssumeRoleWithWebIdentity', RoleArn: ROLE, RoleSessionName: 'inrp2p-web', WebIdentityToken: 'jwt-from-vercel' });
+    await source(); // no request context now: the cached credentials still serve
+    expect(s.seen).toHaveLength(1);
+  });
+
+  it('says so when a role is named but there is no token, and refuses at once what STS refuses', async () => {
+    await expect(awsCredentialsFromEnvironment({ AWS_ROLE_ARN: ROLE }, sts({ status: 200, body: STS_OK }).fetchImpl)()).rejects.toThrow(/OIDC federation/);
+    const denied = sts({ status: 403, body: '<ErrorResponse><Error><Type>Sender</Type><Code>AccessDenied</Code><Message>Not authorized</Message></Error></ErrorResponse>' });
+    await expect(awsCredentialsFromEnvironment({ AWS_ROLE_ARN: ROLE, VERCEL_OIDC_TOKEN: 'jwt' }, denied.fetchImpl)()).rejects.toMatchObject({ code: 'KMS_REFUSED' });
+    const down = sts({ status: 503, body: '<ErrorResponse><Error><Code>ServiceUnavailable</Code></Error></ErrorResponse>' });
+    await expect(awsCredentialsFromEnvironment({ AWS_ROLE_ARN: ROLE, VERCEL_OIDC_TOKEN: 'jwt' }, down.fetchImpl)()).rejects.toMatchObject({ code: 'KMS_UNAVAILABLE' });
+  });
+
+  it('lets KMS run on those credentials', async () => {
+    const k = fakeKms();
+    const s = sts({ status: 200, body: STS_OK });
+    const both = (async (url: string | URL | Request, init?: RequestInit) => (String(url).includes('sts.') ? s.fetchImpl(url, init) : k.fetchImpl(url, init))) as typeof fetch;
+    const kek = new AwsKmsKeyEncryptionKey({
+      keyId: 'kms-a', keyArn: ARN_A, credentials: awsCredentialsFromEnvironment({ AWS_ROLE_ARN: ROLE, VERCEL_OIDC_TOKEN: 'jwt' }, both), fetchImpl: both, endpoint: 'https://kms.test/',
+    });
+    const dek = randomBytes(32);
+    expect((await kek.unwrap(await kek.wrap(dek))).equals(dek)).toBe(true);
+    expect(k.calls.every((c) => c.signed)).toBe(true);
+  });
+});
+
+describe('moving sealed values to KMS (migration 0036)', () => {
+  const hmacKey = randomBytes(32);
+  const local = new LocalKeyEncryptionKey('prod-v1', randomBytes(32));
+
+  it('re-wraps only the data key: the iv, the ciphertext and the tag stay, and the value opens under KMS alone', async () => {
+    const k = fakeKms();
+    const target = kms(k.fetchImpl);
+    const before = await createFieldProtector({ kek: local, hmacKey }).seal('50100123458219', 'bank_account.account_number:c1');
+    const after = await rewrapSealed(before, [local], target);
+    const [b, a] = [sealedParts(before), sealedParts(after)];
+    expect(a.keyId).toBe('kms-a');
+    expect([a.iv, a.ciphertext, a.tag]).toEqual([b.iv, b.ciphertext, b.tag]);
+    expect(a.wrapped).not.toBe(b.wrapped);
+    const kmsOnly = createFieldProtector({ kek: target, hmacKey });
+    expect(await kmsOnly.open(after, 'bank_account.account_number:c1')).toBe('50100123458219');
+    // Still bound to its field: the context is checked at the data layer, which the move never touched.
+    await expect(kmsOnly.open(after, 'bank_account.account_number:c2')).rejects.toThrow();
+    // Already moved: returned as is, KMS not asked again.
+    const calls = k.calls.length;
+    expect(await rewrapSealed(after, [local], target)).toBe(after);
+    expect(k.calls.length).toBe(calls);
+  });
+
+  it('refuses a value whose key it was not given, and a value that is not sealed', async () => {
+    const other = new LocalKeyEncryptionKey('other', randomBytes(32));
+    const sealed = await createFieldProtector({ kek: other, hmacKey }).seal('x', 'f');
+    await expect(rewrapSealed(sealed, [local], kms(fakeKms().fetchImpl))).rejects.toThrow(/no key to unwrap values sealed under other/);
+    await expect(rewrapSealed('plain', [local], kms(fakeKms().fetchImpl))).rejects.toThrow(/unsupported sealed value/);
   });
 });

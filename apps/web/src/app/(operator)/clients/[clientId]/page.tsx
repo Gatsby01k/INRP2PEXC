@@ -5,6 +5,7 @@ import { type ClientDetail, clientDetail } from '@inrp2p/desk';
 import { can, operatorPage } from '../../../../server/operator.ts';
 import { inr, titleCase, usdt, usdtCompact } from '../../_desk/format.ts';
 import { Chip, Columns, KeyValues, KpiBand, Notice, Page, PageBody, PageHeader, Section, Stack } from '../../_desk/ui.tsx';
+import { BankAccounts } from './BankAccounts.tsx';
 import { NewRequest } from './NewRequest.tsx';
 import { RecentTrades } from './RecentTrades.tsx';
 import d from '../../_desk/desk.module.css';
@@ -113,11 +114,7 @@ export default async function ClientPage({ params, searchParams }: { params: Pro
               </Section>
             ) : null}
             <Section title="Bank accounts" count={client.bankAccounts.length} hint="Where INR is paid. Added and archived by the desk, with step-up.">
-              {client.bankAccounts.length === 0 ? (
-                <Notice tone="warning">None on file — a SELL request cannot be opened.</Notice>
-              ) : (
-                <KeyValues items={client.bankAccounts.map((b) => ({ key: b.id, label: b.label, value: <span className={d.secondary}>{b.detail.replace(/ ••••/, ' · ••••')}</span> }))} />
-              )}
+              <BankAccounts accounts={client.bankAccounts} canArchive={can(ctx, 'client_bank:add')} />
             </Section>
             <Section title="Wallets · TRC20" count={client.wallets.length} hint="Where USDT is sent.">
               {client.wallets.length === 0 ? (

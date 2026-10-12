@@ -11,3 +11,4 @@ export * from './aws-kms.ts';
 export * from './object-store.ts';
 export * from './production.ts';
 export * from './field-config.ts';
+export * from './rewrap.ts';

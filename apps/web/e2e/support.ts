@@ -7,6 +7,7 @@ import { Money } from '@inrp2p/kernel';
 import { type Db, createDb, createPool } from '@inrp2p/db';
 import { QuorumChainVerifier, UnconfiguredChainVerifier } from '@inrp2p/adapters';
 import { FAKE_USDT_CONTRACT, FakeCustodyAdapter, FakeNotificationAdapter, FakeTronChain, FakeTronProvider } from '@inrp2p/adapters/testing';
+import { addBankAccount } from '@inrp2p/clients';
 import { executeCommand } from '@inrp2p/commands';
 import type { ClientActor, DomainCommand, OperatorActor } from '@inrp2p/identity';
 import { acceptQuote, acceptanceCodeHandler, createQuote, createQuoteLink, createRequest, deliverAcceptanceCode, sendQuote } from '@inrp2p/quotes';
@@ -245,6 +246,15 @@ async function asOperator<P, R>(who: E2EOperator, def: (o: Awaited<ReturnType<ty
   const o = await operatorSession(who);
   const out = await executeCommand(appDb(), def(o), { name, actor: o.ref, payload, idempotencyKey: randomUUID(), financial: true });
   return out.result;
+}
+
+/** Another bank account for the world's client, added by the desk's owner through the real command. Returns its id. */
+export async function deskAddsBankAccount(accountNumber: string): Promise<string> {
+  const s = state();
+  const out = await asOperator(s.owner, (o) => addBankAccount(o.actor, e2eFieldProtector()), 'client_bank.add', {
+    clientId: s.clientId, holderName: 'Acme Pay Private Limited', bankName: 'ICICI Bank', ifsc: 'ICIC0001234', accountNumber, railPreferences: ['IMPS'] as const,
+  });
+  return out.bankAccountId;
 }
 
 /**

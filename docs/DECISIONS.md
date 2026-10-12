@@ -153,3 +153,26 @@ Full record: `docs/adr/0016-counterparty-funded-execution.md`.
   go to the registered, verified wallet only; the account's administrator may ask for one.
 - Not part of this decision: automatic return of unattributed deposits, any change to how trades are funded (D-16), and
   the public site's wording about onboarding (the home page is frozen; TECH_DEBT TD-29).
+
+## D-18 — Production on Vercel, Neon and AWS; the test bank accounts archived, `prod-v1` retired — Resolved (owner, 2026-10-11)
+- **Where it runs.** The web app stays on Vercel (project `inr463rergr`, the production domains); the database is the
+  existing Neon PostgreSQL 18 project (`us-east-1`); the worker runs on AWS ECS Fargate with its own task role
+  (`deploy/aws/inrp2p-aws.json`). The field-encryption key is an AWS KMS key in the same account. Proposed, not decided
+  by the owner: everything in `us-east-1`, where the database is. This closes D-06's open hosting question for this
+  deployment; PITR is Neon's own (its restore window is the plan's).
+- **No long-term AWS key anywhere.** The worker gets credentials from its task role; the Vercel web app assumes a role
+  through Vercel's OIDC federation (`AWS_ROLE_ARN`, only for the project's production deployments); the worker image is
+  pushed to ECR by a GitHub workflow through GitHub's OIDC federation. A production process refuses a long-term access
+  key (`AKIA…`).
+- **The two bank accounts in production are test data, archived — not moved.** CL-0003 and CL-0004 hold random
+  details the owner added for testing, sealed under the locally held key `prod-v1` (owner, 2026-10-11, revising the
+  first instruction to keep them). They are archived from the desk the ordinary way (`client_bank.archived`, with a
+  reason and the authenticator, audited) once the release runs; nothing pays an archived account and the desk does not
+  reveal one, so nothing ever tries to decrypt them, and `prod-v1` is retired, not carried over. The release never
+  runs with a locally held key. No other sealed value exists in production, so nothing is re-sealed; the re-seal
+  (`scripts/reseal-fields.ts`, migration 0036) stays available for a key that must be retired while its values must
+  stay readable.
+- **The web app and the worker connect as their own logins** (`inrp2p_app_login`, `inrp2p_worker_login`;
+  `scripts/database-logins.ts`), never as the Neon owner role.
+- Not part of this decision: whether the notifications the release at 23 left undelivered are sent late (DEPLOYMENT
+  §10), the audit-archive retention period (the template's default is a proposal), and a second TRON provider (D-05).

@@ -1,0 +1,48 @@
+# The worker image for AWS (D-18, DEPLOYMENT §10): built from main at the commit the transition deploys, pushed to the ECR
+# repository the AWS template creates, through GitHub's OIDC federation and the template's push role — no AWS key is
+# stored in GitHub. Needs two repository variables: AWS_REGION and AWS_IMAGE_PUSH_ROLE_ARN (the template's output).
+# The summary prints the image by digest: that is the template's WorkerImage.
+name: Worker image (ECR)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  push:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: The repository variables are set
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          ROLE: ${{ vars.AWS_IMAGE_PUSH_ROLE_ARN }}
+        run: |
+          if [ -z "$AWS_REGION" ] || [ -z "$ROLE" ]; then
+            echo "Set the repository variables AWS_REGION and AWS_IMAGE_PUSH_ROLE_ARN (Settings → Secrets and variables → Actions → Variables)."
+            exit 1
+          fi
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_IMAGE_PUSH_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push the worker image
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          TAG="${GITHUB_SHA::7}"
+          IMAGE="$REGISTRY/inrp2p-worker:$TAG"
+          docker build -f deploy/Dockerfile --target worker -t "$IMAGE" --build-arg RELEASE="$TAG" .
+          docker push "$IMAGE"
+          echo "WorkerImage: $(docker inspect --format '{{index .RepoDigests 0}}' "$IMAGE")" | tee -a "$GITHUB_STEP_SUMMARY"

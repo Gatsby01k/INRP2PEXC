@@ -104,10 +104,13 @@ export function revealBankAccount(actor: OperatorActor, protector: FieldProtecto
     const purpose = requireText(p.purpose, 'purpose', 300);
     const row = await ctx.tx
       .selectFrom('bank_account')
-      .select(['id', 'client_id', 'account_number_enc', 'account_last4'])
+      .select(['id', 'client_id', 'account_number_enc', 'account_last4', 'status'])
       .where('id', '=', requireUuid(p.bankAccountId, 'bankAccountId'))
       .executeTakeFirst();
     if (!row) throw new DomainError('NOT_FOUND', 'bank account not found');
+    // Nothing is ever paid to an archived account, so its number is never needed: it is not opened at all — which also
+    // leaves alone values sealed under a key the release no longer holds (D-18: production's test accounts).
+    if (row.status === 'ARCHIVED') throw new DomainError('DESTINATION_INVALID', 'an archived bank account is not revealed: nothing is paid to it');
     const accountNumber = await protector.open(row.account_number_enc, bankAccountSealContext(row.client_id));
     await appendAudit(ctx, { action: 'bank_account.revealed', entityType: 'bank_account', entityId: row.id, after: { account_last4: row.account_last4, purpose } });
     return { accountNumber };

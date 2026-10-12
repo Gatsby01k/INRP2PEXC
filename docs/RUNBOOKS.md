@@ -748,6 +748,38 @@ implemented adapter is AWS KMS; another cloud needs its own adapter behind the s
 old ones still open. Keep the old key enabled until nothing references it (`select count(*) … where
 account_number_enc like 'v1.kms-2026a.%'`, per sealed column), and only then schedule its deletion.
 
+**Credentials.** On ECS the worker uses its task role. On Vercel the web app assumes `AWS_ROLE_ARN` with the OIDC token
+Vercel puts on every request (project → Settings → Security → OIDC federation on, issuer *Team*); the role trusts only
+the project's production deployments (DEPLOYMENT §10). `KMS_REFUSED: STS refused the web identity` means the role's
+trust does not match the token — the team slug, the project name or the environment; `AWS_ROLE_ARN is set but there is
+no web identity token` means OIDC federation is off for the project.
+
+**Moving values off a key — the re-seal** (`scripts/reseal-fields.ts`, migration 0036; production's move off the locally
+held `prod-v1`, D-18). Each value's data key is unwrapped with the old key and wrapped by the new one; the encrypted
+field itself, its iv and tag are kept, and the database refuses a re-seal that changes anything else, is not declared,
+or is not the schema owner's. Run it with the schema owner's connection (`DATABASE_MIGRATOR_URL`), the target exactly
+as the release will have it (`INRP2P_ENV=production`, `INRP2P_KEK_PROVIDER=aws-kms`, `INRP2P_KEK_ID`,
+`INRP2P_KMS_KEY_ARN`), the **unchanged** `INRP2P_FIELD_HMAC_BASE64`, the old key in
+`INRP2P_RESEAL_FROM='[{"id":"prod-v1","provider":"local","base64":"…"}]'`, and temporary AWS credentials (IAM Identity
+Center: `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`/`AWS_SESSION_TOKEN`), with no process running:
+
+1. `node scripts/reseal-fields.ts plan` — writes nothing. Every value must open with the keys given, every account
+   number must match its stored lookup HMAC (a different HMAC key is found here, before anything moves), and the target
+   must wrap and unwrap. `NOT OK` → stop; the reason is printed per row id, never a value.
+2. `node scripts/reseal-fields.ts apply` — checks everything again, then moves one row per transaction, each opened with
+   the target alone and compared before it is written, and audited (`field.resealed`, key ids only). `--limit N` moves
+   at most N. If it stops — a crash, KMS unavailable, a lost connection — every row is either moved or untouched: run
+   `apply` again; moved rows are skipped.
+3. `node scripts/reseal-fields.ts verify` — the target alone, as the release: everything opens, every HMAC matches,
+   nothing is left under another key. Only now does the release start.
+
+Afterwards the old key leaves the configuration, but is kept in the secret manager while any backup or database branch
+from before the re-seal exists: those still hold values sealed under it.
+
+Not every value has to move. A value nobody will read again — an archived destination: never paid, never revealed —
+can stay under a retired key; production's first transition did exactly that with its two test bank accounts (D-18)
+and re-sealed nothing.
+
 **KMS unavailable.** Writes that seal and reads that open fail with `KMS_UNAVAILABLE` after bounded retries; nothing
 falls back to plaintext and nothing is stored half-sealed. Check the region's KMS status and the role's permissions
 (an `AccessDeniedException` is `KMS_REFUSED`, not retried). Nothing needs repairing afterwards.

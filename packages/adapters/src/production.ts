@@ -51,6 +51,15 @@ export function productionConfigReport(role: ProcessRole, env: NodeJS.ProcessEnv
   } catch (e) {
     problems.push(`field protection: ${(e as Error).message}`);
   }
+  // AWS credentials come from a role — the task role, or a web identity — never from a long-term access key in the
+  // configuration (RUNBOOKS `field-encryption-keys`). Temporary keys (`ASIA…` with a session token) are a role's.
+  if (/^AKIA/.test((env.AWS_ACCESS_KEY_ID ?? '').trim())) {
+    problems.push('AWS_ACCESS_KEY_ID is a long-term access key: give the process a role (the task role, or AWS_ROLE_ARN with OIDC)');
+  }
+  // On Vercel there is no task or instance role: KMS is reached through Vercel's OIDC federation and a role to assume.
+  if (set(env, 'VERCEL') && (env.INRP2P_KEK_PROVIDER ?? '').trim().toLowerCase() === 'aws-kms' && !set(env, 'AWS_ROLE_ARN') && !set(env, 'AWS_ACCESS_KEY_ID')) {
+    problems.push('AWS_ROLE_ARN is required on Vercel (the role KMS is reached through, with OIDC federation turned on)');
+  }
 
   // Email: sign-in codes (web), acceptance codes and notifications (worker) — TD-04.
   need('RESEND_API_KEY', 'email provider');
