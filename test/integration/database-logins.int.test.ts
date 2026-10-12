@@ -57,5 +57,12 @@ describe('database logins (scripts/database-logins.ts)', () => {
     await expect(wrong.connect()).rejects.toThrow(/password authentication failed/);
     const again = await applyLogins(admin, passwords, logins);
     expect(again.filter((x) => x.startsWith('created'))).toEqual([]);
+
+    // The form Neon needs — the password itself — works the same way on PostgreSQL.
+    const plain = new Map(logins.map((l) => [l.role, randomBytes(32).toString('base64url')]));
+    await applyLogins(admin, plain, logins, 'plaintext');
+    const viaPlain = new pg.Client({ connectionString: loginUrl(base.toString(), logins[1]!, plain.get(logins[1]!.role)!) });
+    await viaPlain.connect();
+    await viaPlain.end();
   });
 });

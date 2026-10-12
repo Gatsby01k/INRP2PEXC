@@ -15,8 +15,10 @@
  * - `apply` creates a missing login, makes each a member of its group, and sets the password the env file holds (it
  *   prepares first when the file has none), then connects as each and runs the release's own deployment check.
  *
- * The password reaches the database only as a SCRAM-SHA-256 verifier computed here, so it is never in a statement the
- * server could log; it is never printed. The env file is written with mode 0600.
+ * On PostgreSQL the password reaches the database only as a SCRAM-SHA-256 verifier computed here, so it is never in a
+ * statement the server could log. Neon refuses a verifier — its control plane takes role changes, wants the password
+ * itself (over TLS) and stores it hashed — so on a Neon host the password is sent as is (found in the rehearsal on a
+ * Neon copy, 2026-10-12). It is never printed. The env file is written with mode 0600.
  */
 import { createHash, createHmac, pbkdf2Sync, randomBytes } from 'node:crypto';
 import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
@@ -127,7 +129,11 @@ export function loginProblems(state: LoginState, login: Login): string[] {
   return problems;
 }
 
-export async function applyLogins(client: pg.Client, passwords: ReadonlyMap<string, string>, logins: readonly Login[] = LOGINS): Promise<string[]> {
+/** How a password reaches the server: a SCRAM verifier, or — on Neon, which accepts nothing else — the password. */
+export type PasswordForm = 'scram' | 'plaintext';
+export const passwordFormFor = (url: string): PasswordForm => (/\.neon\.tech$/.test(new URL(url).hostname) ? 'plaintext' : 'scram');
+
+export async function applyLogins(client: pg.Client, passwords: ReadonlyMap<string, string>, logins: readonly Login[] = LOGINS, form: PasswordForm = 'scram'): Promise<string[]> {
   const done: string[] = [];
   for (const l of logins) {
     const password = passwords.get(l.role);
@@ -138,7 +144,7 @@ export async function applyLogins(client: pg.Client, passwords: ReadonlyMap<stri
       await client.query(`create role ${role} login`);
       done.push(`created ${l.role}`);
     }
-    await client.query(`alter role ${role} login password ${client.escapeLiteral(scramVerifier(password))}`);
+    await client.query(`alter role ${role} login password ${client.escapeLiteral(form === 'scram' ? scramVerifier(password) : password)}`);
     done.push(`password set for ${l.role}`);
     const member = (await client.query('select pg_has_role($1, $2, \'MEMBER\') as m', [l.role, l.group])).rows[0]?.m === true;
     if (!member) {
@@ -230,7 +236,9 @@ if (import.meta.main) {
       writeEnvFile(file!, new Map(LOGINS.map((l) => [`${prefix}${l.key}`, env.get(`${prefix}${l.key}`)!])));
       await client.query('begin');
       try {
-        for (const line of await applyLogins(client, passwords)) console.log(line);
+        const form = passwordFormFor(migratorUrl);
+        console.log(form === 'scram' ? 'passwords sent as SCRAM verifiers' : 'passwords sent as is, over TLS: Neon accepts no verifier and stores them hashed');
+        for (const line of await applyLogins(client, passwords, LOGINS, form)) console.log(line);
         await client.query('commit');
       } catch (e) {
         await client.query('rollback');
