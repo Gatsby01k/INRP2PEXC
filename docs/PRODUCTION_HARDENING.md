@@ -91,7 +91,7 @@ drill) and `upgrade` (23 → 34). `main` has no branch protection, so "required"
 | E4 | P0 | confirmed defects + implementation | Point-in-time recovery drill, restore safety (no second payout), audit-seal archive (TD-16, TD-17) | code ready; reference drill **PASS**; drill on the chosen platform **NOT RUN**; platform, retention and buckets **BLOCKED** (owner) |
 | F | P0 | verification + confirmed defects | Every CI command locally and in CI, end to end, page baselines incl. TD-23, Lighthouse, images, 23 → 34 | local **PASS** at `30c6e98`; CI on PR #1 — see Runs; gate 1 closes on the final candidate |
 | G | P0 | owner decision → implementation | D-17: clients open their own accounts; one Security Reserve address for every trader, attributed by the sending wallet | code ready; CI — see Runs; on Vercel: see G |
-| H | P0 | owner direction → implementation | D-18: the transition to Vercel + Neon + AWS — the two test bank accounts archived and `prod-v1` retired, Vercel → KMS by OIDC, own logins, the worker on Fargate, the 14 undelivered events | code ready; CI — see H; rehearsal on a Neon copy **PASS** after one fix (2026-10-12) — see H; production **not migrated** |
+| H | P0 | owner direction → implementation | D-18: the transition to Vercel + Neon + AWS — the two test bank accounts archived and `prod-v1` retired, Vercel → KMS by OIDC, own logins, the worker on Fargate, the 14 undelivered events | code ready; rehearsal **PASS** after one fix; production **migrated to 36** (2026-10-12), web ready; worker not started — see H |
 
 (The table grows as stages are worked; each row has a section below.)
 
@@ -817,6 +817,17 @@ is wanted stays an open owner question (ADR 0016 §8).
     the proxy is unchanged since `d0cc778`, which serves `/` on Vercel.
   - Not rehearsed: archiving the two accounts (it needs an operator's session and authenticator; CI covers it), real
     KMS, Resend, TRON and AWS.
+- **Production (2026-10-12).** The owner confirmed the recovery branch `before-36-20261012`. Migrated from `main`
+  `849c8adc` as `neondb_owner`, direct, 11:31:41–11:31:50 UTC: 24–36 and the queue schema; a second run "schema up to
+  date"; `inrp2p_schema_version()` 36; the release's restore checks before and after equal (1 trade, 2 journals, 10
+  entries, 85 audit events, no problem); the trade `LEGACY_EXCHANGE_FUNDED`; the reserve address recorded. Logins applied:
+  both pass the deployment check, both are application sessions, neither may write an account number. The owner set
+  Vercel's configuration (the KMS key in `eu-north-1`, the role `inrp2p-vercel-web` and OIDC made by hand) and
+  redeployed: `ready` 200 on www, app and desk. New business paused at 12:15 UTC; CL-0003's and CL-0004's bank
+  accounts archived from the desk at 12:18 and 12:19 UTC (audited under the operator). No worker has run.
+- **Changed — before the worker starts.** The email channel withholds an email whose event is more than 24 h old when
+  first dispatched (owner's choice: inbox kept, stale emails not sent); the AWS template makes only the worker's side,
+  in `us-east-1`, with the owner's key by ARN, and no longer a key, a web role or Vercel's OIDC provider.
 - **The 14 undelivered events** (DEPLOYMENT §10): nine emails would go out when the worker first starts, three of them
   misleading. The choice is the owner's.
 - **Not run / blocked.** The real KMS key, the AWS stack and the Vercel OIDC role (owner, after the costs); a real TRON

@@ -174,5 +174,11 @@ Full record: `docs/adr/0016-counterparty-funded-execution.md`.
   stay readable.
 - **The web app and the worker connect as their own logins** (`inrp2p_app_login`, `inrp2p_worker_login`;
   `scripts/database-logins.ts`), never as the Neon owner role.
-- Not part of this decision: whether the notifications the release at 23 left undelivered are sent late (DEPLOYMENT
-  §10), the audit-archive retention period (the template's default is a proposal), and a second TRON provider (D-05).
+- **Old notifications (owner, 2026-10-12).** The events the release at 23 left undelivered reach the clients' inboxes;
+  their emails are not sent late. The rule is general: an email for an event more than 24 hours old when the worker
+  first dispatches it is withheld, the inbox entry kept (DEPLOYMENT §10).
+- **The AWS key and the web role are the owner's** (2026-10-12): the KMS key in `eu-north-1`, the role
+  `inrp2p-vercel-web` and Vercel's OIDC provider were made by hand; the stack makes only the worker's side, in
+  `us-east-1`, and is given the key by ARN.
+- Not part of this decision: the audit-archive retention period (the template's default is a proposal) and a second
+  TRON provider (D-05).
