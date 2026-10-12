@@ -89,14 +89,14 @@ export function ReserveScreen({ home }: { home: TraderHome }) {
           <p className={styles.note}>A USDT reserve is locked while you provide liquidity. It protects open orders and unresolved obligations. Switching off keeps it locked until your last open order finishes.</p>
         </section>
 
-        <div className={styles.split}>
+        <div className={styles.stack}>
           <section className={shell.card} aria-labelledby="add-title">
             <h2 id="add-title" className={shell.cardTitle}>
               Add to your reserve
             </h2>
             {r.depositAddress ? (
               <>
-                <DepositAddress address={r.depositAddress} amount={/[1-9]/.test(r.shortfall) ? Money.parse(r.shortfall, 'USDT') : null} network="TRC20" tradeRef={home.ref ?? ''} purpose="reserve" showQr />
+                <DepositAddress address={r.depositAddress} amount={/[1-9]/.test(r.shortfall) ? Money.parse(r.shortfall, 'USDT') : null} network="TRC20" tradeRef={home.ref ?? ''} purpose="reserve" showQr framed={false} />
                 <p className={styles.note}>
                   One address for every trader. Send only from your registered wallet{home.registered ? <> <span className="ix-num">{home.registered.walletAddress}</span></> : null}: the wallet it comes from is how your deposit is credited to you. It is credited when final on TRON, whether or not your application has been approved yet.
                 </p>

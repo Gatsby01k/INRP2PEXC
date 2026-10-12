@@ -531,6 +531,11 @@
 
 /* ——— Earnings and the reserve ——— */
 
+.stack {
+  display: grid;
+  gap: var(--space-5);
+}
+
 .split {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
