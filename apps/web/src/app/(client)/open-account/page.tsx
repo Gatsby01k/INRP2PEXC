@@ -14,7 +14,7 @@ export default async function OpenAccountPage() {
   if (ctx.access.kind === 'MEMBER') redirect(ctx.access.member.exchangeAccess ? '/exchange' : '/traders');
   return (
     <>
-      <PageHead eyebrow="Workspace" title="Open your account" lede="Name the account you will trade under. The Exchange opens as soon as it exists." />
+      <PageHead title="Open your account" lede="Name the account you will trade under. The Exchange opens the moment it exists." />
       <OpenAccount email={ctx.access.email} />
     </>
   );

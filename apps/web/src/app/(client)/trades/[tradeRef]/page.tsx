@@ -15,8 +15,8 @@ export const dynamic = 'force-dynamic';
  * The trade is found by the reference the client already has, and only within their own client — another
  * client's reference is "not found", never "forbidden", so this page tells nobody what else exists.
  */
-export default async function TradePage({ params }: { params: Promise<{ tradeRef: string }> }) {
-  const { tradeRef } = await params;
+export default async function TradePage({ params, searchParams }: { params: Promise<{ tradeRef: string }>; searchParams: Promise<{ opened?: string | string[] }> }) {
+  const [{ tradeRef }, { opened }] = await Promise.all([params, searchParams]);
   const ctx = await clientPage();
   let view: PortalTrade;
   try {
@@ -34,7 +34,7 @@ export default async function TradePage({ params }: { params: Promise<{ tradeRef
         status={<StatusPill status={view.trade.status} onHold={view.onHold} size="lg" />}
         lede={`Started ${at(view.trade.openedAt)}${view.completedAt ? ` · settled ${at(view.completedAt)}` : ''}`}
       />
-      <TradeScreen view={view} />
+      <TradeScreen view={view} justOpened={opened === '1' && view.trade.status !== 'CANCELLED'} />
     </>
   );
 }

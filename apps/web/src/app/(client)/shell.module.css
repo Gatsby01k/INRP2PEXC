@@ -141,6 +141,11 @@
     background-color var(--dur-fast) var(--ease);
 }
 
+.iconButton[aria-current='page'] {
+  background: var(--text-primary);
+  color: var(--bg-surface);
+}
+
 .iconButton[aria-pressed='false'] {
   color: var(--text-muted);
 }
@@ -202,6 +207,7 @@
     'head head'
     'main aside';
   align-items: start;
+  align-content: start;
   column-gap: var(--space-10);
   width: 100%;
   max-width: var(--measure);
@@ -663,6 +669,12 @@
   .mastheadInner {
     grid-template-columns: minmax(0, 1fr) auto;
     grid-template-areas: 'brand actions';
+  }
+
+  /* A backdrop filter would make the masthead the frame of anything fixed inside it — the tab bar below. */
+  .header {
+    background: var(--bg-surface);
+    backdrop-filter: none;
   }
 
   /* The sections become a tab bar at the bottom of the screen, under the thumb. */

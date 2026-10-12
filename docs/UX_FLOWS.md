@@ -57,8 +57,12 @@ Status is never color-only: every status carries a text label and, where used, t
 | **Exchange** (home) | `/` | Direction toggle, amount, destination, request quote → firm quote → accept |
 | Trades | `/trades` | Active (non-terminal) trades, most recent first |
 | History | `/history` | Completed/cancelled, receipts, CSV export |
-| Destinations | `/destinations` | INR bank accounts, USDT wallets — read-only, added and archived by the desk until client TOTP exists (TD-11); `/accounts` redirects here |
-| Account | `/account` | Profile, users (client admin), security, notifications |
+| Bank & wallets | `/destinations` | What the client can trade (sell needs a bank account, buy a wallet), their INR bank accounts and USDT wallets, archived ones folded away. A client administrator adds and archives them in a sheet — authenticator set-up inline when they have none, IFSC → bank name, account number typed twice, TRC20 checksum checked before sending, the step-up code asked in place (TD-11, D-08). `/accounts` redirects here |
+| Account & security | `/account` | Reached from the account menu: who is signed in, email-code sign-in, the authenticator (set up here; removed only by the desk), and — for an administrator — who may accept quotes, each change confirmed with the authenticator |
+
+First visit (D-17): a new client lands on the Exchange with a guide above the ticket — turn on the authenticator, add where
+they are paid, request a first quote — each step in a sheet over the page; the ticket keeps its amount meanwhile. The
+masthead is one row (sections, sound, notifications, account menu); on a phone the sections are a tab bar at the bottom.
 
 Desktop: top bar with logo left, nav center, account right; content column max 560px (Exchange) / 960px (Trades, History).
 Mobile: bottom tab bar (5 items), primary CTA sticky above it.

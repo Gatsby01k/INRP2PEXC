@@ -1,0 +1,49 @@
+.title,
+.line,
+.block {
+  display: block;
+  border-radius: var(--radius-input);
+  background: linear-gradient(100deg, color-mix(in srgb, var(--border-default) 55%, transparent) 30%, color-mix(in srgb, var(--bg-surface) 80%, transparent) 50%, color-mix(in srgb, var(--border-default) 55%, transparent) 70%);
+  background-size: 300% 100%;
+  animation: shimmer 1.4s var(--ease) infinite;
+}
+
+.title {
+  width: 240px;
+  height: 34px;
+}
+
+.line {
+  width: min(520px, 80vw);
+  height: 16px;
+}
+
+.block {
+  height: 240px;
+  border-radius: var(--radius-surface);
+}
+
+.block[data-size='lg'] {
+  height: 420px;
+}
+
+.block[data-size='sm'] {
+  height: 200px;
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: 0 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .title,
+  .line,
+  .block {
+    animation: none;
+  }
+}

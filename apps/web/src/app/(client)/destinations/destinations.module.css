@@ -544,12 +544,21 @@
   }
 
   .row {
-    grid-template-columns: auto minmax(0, 1fr);
+    gap: var(--space-3);
     padding: var(--space-4);
   }
 
-  .tags {
-    grid-column: 2;
+  .monogram {
+    width: 40px;
+    height: 40px;
+  }
+
+  .ready {
+    padding: var(--space-4);
+  }
+
+  .readiness {
+    gap: var(--space-3);
   }
 
   .rowActionText {

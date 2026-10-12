@@ -242,11 +242,11 @@ test('a stranger opens their own account with an email and a code, and is in the
   // Someone new lands on opening their account, not in an Exchange they do not have yet.
   await expect(page).toHaveURL(`${appBaseUrl()}/open-account`);
   await expect(page.getByRole('heading', { level: 1, name: 'Open your account' })).toBeVisible();
-  await page.getByLabel('Full name').fill('Self Made Client');
+  await page.getByLabel('Company name').fill('Self Made Client');
   await page.getByRole('button', { name: 'Open account' }).click();
 
   await expect(page.getByRole('heading', { name: 'Exchange', exact: true })).toBeVisible();
-  await expect(page.getByRole('navigation', { name: 'Sections' }).getByRole('link')).toHaveText(['Exchange', 'History', 'Destinations', 'Traders']);
+  await expect(page.getByRole('navigation', { name: 'Sections' }).getByRole('link')).toHaveText(['Exchange', 'History', 'Bank & wallets', 'Traders']);
   const { appDb } = await import('./support.ts');
   const opened = await appDb()
     .selectFrom('auth_user as u')

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Money, Rate } from '@inrp2p/kernel';
@@ -10,6 +10,7 @@ import { formatInr, formatIstDateTime, formatIstTime, formatRate, formatUsdtHead
 import { useAssistantState } from '../../_assistant/AssistantPanel.tsx';
 import { type Step, at, tradeAssistant } from '../../_assistant/model.ts';
 import { ArrowIcon, CheckIcon, ClockIcon, DownloadIcon, InfoIcon, PauseIcon, ReceiptIcon } from '../../_workspace/icons.tsx';
+import { SuccessMark } from '../../_workspace/SuccessMark.tsx';
 import shell from '../../shell.module.css';
 import styles from './trade.module.css';
 
@@ -95,8 +96,16 @@ const LIVE_POLL_MS = 10_000;
  * Everything here came from the domain's client projections. There is no figure on this page the desk has not
  * already committed to, and nothing about how the desk sourced the other side of the trade (SECURITY §5).
  */
-export function TradeScreen({ view }: { view: PortalTrade }) {
+export function TradeScreen({ view, justOpened = false }: { view: PortalTrade; justOpened?: boolean }) {
   const router = useRouter();
+  // Arriving straight from accepting the quote: said once, with the mark closing — and not again on a reload.
+  const [welcome, setWelcome] = useState(justOpened);
+  useEffect(() => {
+    if (!justOpened) return;
+    window.history.replaceState(null, '', window.location.pathname);
+    const t = window.setTimeout(() => setWelcome(false), 9000);
+    return () => window.clearTimeout(t);
+  }, [justOpened]);
   const { trade, settlement } = view;
   const moving = trade.status !== 'COMPLETED' && trade.status !== 'CANCELLED';
   const receiptDue = trade.status === 'COMPLETED' && !view.receipt;
@@ -134,6 +143,20 @@ export function TradeScreen({ view }: { view: PortalTrade }) {
   return (
     <>
       <main className={shell.main}>
+        {welcome ? (
+          <section className={styles.opened} role="status">
+            <SuccessMark size={56} />
+            <span className={styles.openedText}>
+              <strong>Quote accepted — {trade.ref} is open.</strong>
+              <span>
+                {rate} per USDT is fixed for the whole {sell ? usdt : inr}. {sell ? 'Send your USDT below to get paid.' : 'Pay the INR to receive your USDT.'}
+              </span>
+            </span>
+            <button type="button" className={styles.openedClose} onClick={() => setWelcome(false)} aria-label="Dismiss">
+              ×
+            </button>
+          </section>
+        ) : null}
         <section className={`${shell.surface} ${styles.hero}`} data-mood={status.mood} aria-labelledby="state-title">
           {view.onHold ? (
             <p className={styles.hold} role="status">

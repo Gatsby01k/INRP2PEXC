@@ -404,6 +404,11 @@ label.destination:has(input:checked) .radioMark {
   height: 20px;
 }
 
+.addDestination .destinationName,
+.addDestination .destinationMeta {
+  white-space: normal;
+}
+
 .addArrow {
   width: 18px;
   height: 18px;

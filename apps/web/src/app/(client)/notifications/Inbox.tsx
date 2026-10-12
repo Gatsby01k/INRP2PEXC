@@ -8,14 +8,14 @@ import { ArcLoader } from '@inrp2p/ui';
 import { formatIstDate, formatIstTime } from '@inrp2p/ui/format';
 import { markNotificationsReadAction } from '../../../server/actions/client.ts';
 import { RobotFigure } from '../_assistant/RobotFigure.tsx';
-import { ArrowIcon, BankIcon, BellIcon, CheckIcon, ClockIcon, InfoIcon, ReceiptIcon, SwapIcon, UsersIcon } from '../_workspace/icons.tsx';
+import { ArrowIcon, BankIcon, CheckIcon, ClockIcon, InfoIcon, ReceiptIcon, SwapIcon, UsersIcon } from '../_workspace/icons.tsx';
 import shell from '../shell.module.css';
 import styles from './inbox.module.css';
 
 type Tone = 'brand' | 'success' | 'warning' | 'neutral';
 
 /** What kind of news a message is, as a glyph and a tone — always beside its title, never instead of it. */
-function look(kind: ClientNotification['kind']): { Icon: typeof BellIcon; tone: Tone } {
+function look(kind: ClientNotification['kind']): { Icon: typeof SwapIcon; tone: Tone } {
   switch (kind) {
     case 'QUOTE_SENT':
       return { Icon: SwapIcon, tone: 'brand' };
@@ -54,6 +54,15 @@ export function readable(body: string): string {
       return `${group3(whole)}${kept ? `.${kept}` : ''} USDT`;
     });
 }
+
+/** Titles written before Bank & wallets had its name, said the way the workspace says them now. */
+const TITLES: Record<string, string> = {
+  'A destination was added': 'A bank account or wallet was added',
+  'A destination was archived': 'A bank account or wallet was archived',
+  'A trade now pays to another destination': 'A trade now pays somewhere else',
+};
+
+const readableTitle = (title: string): string => TITLES[title] ?? title;
 
 /** The day a message belongs to, as a person says it. */
 function dayOf(iso: string, today: string, yesterday: string): string {
@@ -122,15 +131,15 @@ export function Inbox({ rows, now }: { rows: readonly ClientNotification[]; now:
                       <span className={styles.body}>
                         <span className={styles.head}>
                           <strong className={styles.title}>
-                            {n.title}
+                            {readableTitle(n.title)}
                             {!n.read ? <span className="ix-visually-hidden"> (new)</span> : null}
                           </strong>
                           <time className={styles.time} dateTime={n.createdAt}>
                             {formatIstTime(new Date(n.createdAt))}
                           </time>
                         </span>
-                        <span className={styles.text}>{readable(n.body)}</span>
-                        {n.subjectRef ? <span className={styles.ref}>{n.subjectRef}</span> : null}
+                        <span className={styles.text}>{readable(n.body).replace('A new destination was added to your account.', 'A new bank account or wallet was added.')}</span>
+                        {n.subjectRef && !n.body.includes(n.subjectRef) ? <span className={styles.ref}>{n.subjectRef}</span> : null}
                       </span>
                       {!n.read ? <span className={styles.dot} aria-hidden="true" /> : <span aria-hidden="true" />}
                     </>

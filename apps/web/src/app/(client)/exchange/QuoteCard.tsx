@@ -66,7 +66,7 @@ export function QuoteCard({ quote, canAccept, now }: { quote: ClientQuoteView; c
     if (out.ok) {
       robotCues.emit({ kind: 'lock' });
       playSound('success');
-      router.push(`/trades/${out.result.tradeRef}`);
+      router.push(`/trades/${out.result.tradeRef}?opened=1`);
     } else {
       robotCues.emit({ kind: 'problem' });
     }

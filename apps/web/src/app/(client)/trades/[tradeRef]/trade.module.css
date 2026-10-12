@@ -5,6 +5,58 @@
   overflow: hidden;
 }
 
+/* The moment a quote becomes a trade: once, on arrival. */
+.opened {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-surface);
+  background: linear-gradient(110deg, var(--status-success-soft), var(--bg-surface) 70%);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--status-success) 25%, transparent),
+    0 18px 40px -28px color-mix(in srgb, var(--status-success) 50%, transparent);
+  animation: arrive var(--dur-complete) var(--ease) both;
+}
+
+.openedText {
+  display: grid;
+  gap: 2px;
+  font-size: var(--font-size-body-sm);
+  color: var(--text-secondary);
+}
+
+.openedText strong {
+  color: var(--text-primary);
+  font-size: var(--font-size-body);
+}
+
+.openedClose {
+  align-self: start;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.openedClose:hover {
+  background: var(--bg-subtle);
+  color: var(--text-primary);
+}
+
+@keyframes arrive {
+  from {
+    transform: translateY(-8px);
+    opacity: 0;
+  }
+}
+
 /* A thin band of the state's tone along the top edge: amber while waiting, the brand while a payout is under way,
    green once settled, red when something needs the client. */
 .hero::before {
@@ -103,7 +155,7 @@
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.03em;
   line-height: 1.1;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
 }
 
 .amountArrow {
@@ -570,6 +622,10 @@ a.eventDetail:hover {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .opened {
+    animation: none;
+  }
+
   .stop[data-status='current'] .node {
     animation: none;
   }
@@ -593,6 +649,22 @@ a.eventDetail:hover {
 }
 
 @media (max-width: 559px) {
+  .amounts {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-3);
+  }
+
+  .amountArrow {
+    width: 28px;
+    height: 28px;
+    margin: 0;
+    transform: rotate(90deg);
+  }
+
+  .amountRate {
+    grid-column: auto;
+  }
+
   .track {
     grid-template-columns: minmax(0, 1fr);
     gap: var(--space-4);

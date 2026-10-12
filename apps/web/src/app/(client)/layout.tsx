@@ -8,7 +8,7 @@ import { workspacePage } from '../../server/client.ts';
 import { mailto, siteContacts } from '../../server/site.ts';
 import { SoundToggle } from './_assistant/SoundToggle.tsx';
 import { AccountMenu } from './_workspace/AccountMenu.tsx';
-import { BellIcon } from './_workspace/icons.tsx';
+import { NotificationsLink } from './_workspace/NotificationsLink.tsx';
 import { ClientNav, type ClientNavEntry } from './Nav.tsx';
 import styles from './shell.module.css';
 
@@ -66,15 +66,7 @@ export default async function ClientLayout({ children }: { children: ReactNode }
           <div className={styles.headerActions}>
             <SoundToggle className={styles.iconButton} iconClassName={styles.toolIcon} labelClassName="ix-visually-hidden" />
             {member ? (
-              <Link href="/notifications" className={styles.iconButton} title="Notifications">
-                <BellIcon className={styles.toolIcon} />
-                <span className="ix-visually-hidden">Notifications</span>
-                {unread > 0 ? (
-                  <span className={styles.unread} aria-label={`${unread} unread`}>
-                    {unread > 99 ? '99+' : unread}
-                  </span>
-                ) : null}
-              </Link>
+              <NotificationsLink unread={unread} className={styles.iconButton} iconClassName={styles.toolIcon} badgeClassName={styles.unread} />
             ) : null}
             <AccountMenu
               name={member?.clientName ?? ctx.access.email}
