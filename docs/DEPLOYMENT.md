@@ -251,8 +251,10 @@ each request and exchanges it at STS (`packages/adapters/src/aws-kms.ts`); set `
 
 **Logins.** `scripts/database-logins.ts prepare` writes each login's connection string, with a fresh password, to a
 local env file (mode 0600); `apply`, run by the owner role, creates the login if missing, makes it a member of its group
-only and sets that password as a SCRAM verifier (the password never reaches the server), then runs the release's
-deployment check as each.
+only and sets that password — as a SCRAM verifier on PostgreSQL (the password never reaches the server), as the
+password itself on Neon, whose control plane takes role changes, accepts no verifier and stores it hashed (found in
+the rehearsal) — then runs the release's deployment check as each. On Neon, roles belong to a branch: logins made on a
+copy do not exist in production.
 
 ### The first transition (23 → 36)
 
@@ -348,6 +350,11 @@ Vercel, project `inr463rergr`, environment *Production* (names only; values come
 | `INRP2P_TRON_SECONDARY_*` | a second, independent provider (D-05) | optional; without it large amounts do not confirm |
 | `INRP2P_CUSTODY_PROVIDER` | the name of the custody provider whose pool addresses SELL deposits go to (D-02) | new |
 | `INRP2P_KEK_BASE64` | removed (step 18): `prod-v1` is retired, not moved | exists |
+
+The desk's own records, entered in the desk once the release runs (System health shows both in alarm until then):
+the exchange's INR settlement and collection accounts with their daily capacity (`inr_capacity_available`), and the
+custody provider's pool of TRC20 deposit addresses SELL deposits go to (`deposit_pool_free`, D-02). Until they exist,
+no SELL trade can be accepted and no INR payout planned — nothing wrong happens, nothing happens.
 
 AWS: the stack's parameters (`VercelTeamSlug`, `VpcId`, `SubnetIds`, `WorkerImage`, retention) and the secret
 `inrp2p/worker` (`WORKER_DATABASE_URL`, `RESEND_API_KEY`, `INRP2P_FIELD_HMAC_BASE64`, `INRP2P_TRON_PRIMARY_KEY`). The
