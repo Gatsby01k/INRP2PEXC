@@ -96,8 +96,8 @@
     },
     "GitHubRepository": {
       "Type": "String",
-      "Default": "Gatsby01k/INRP2PEXC",
-      "Description": "The repository whose worker-image workflow may push to ECR."
+      "Default": "Gatsby01k@225718825/INRP2PEXC@1373536755",
+      "Description": "The owner/repo identity in GitHub's OIDC subject. Repositories created after 2026-07-15 use owner@owner-id/repo@repo-id. Only main may push."
     },
     "CreateGitHubOidcProvider": {
       "Type": "String",
