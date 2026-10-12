@@ -13,12 +13,17 @@ beforeAll(async () => {
 });
 afterAll(async () => t.close());
 
+function workerConnectionString(): string {
+  const connectionString = t.workerPool.options.connectionString;
+  if (!connectionString) throw new Error('test worker connection string is missing');
+  return connectionString;
+}
+
 describe('graphile worker end to end', () => {
 
   it.each([null, 'regression-queue'])('records a failed job and continues with queue %s, without changing financial bigint parsing', async (queueName) => {
     const key = randomUUID();
-    const connectionString = t.workerPool.options.connectionString;
-    expect(connectionString).toBeTruthy();
+    const connectionString = workerConnectionString();
     await t.ownerPool.query(
       "select graphile_worker.add_job('test_failure', '{}'::json, queue_name := $1::text, max_attempts := 1, job_key := $2::text)",
       [queueName, key],
@@ -65,7 +70,7 @@ describe('graphile worker end to end', () => {
     }, { name: 'test.worker', actor: { type: 'SYSTEM', id: null, surface: 'SYSTEM' }, payload: { id }, financial: false });
 
     const taskList = buildTaskList(t.worker, [{ name: 'rec', handles: (x) => x === 'test.worker', run: async (e) => { delivered.push(e.aggregateId!); } }]);
-    await runOnce({ connectionString: t.workerPool.options.connectionString, taskList });
+    await runOnce({ connectionString: workerConnectionString(), taskList });
     await runOnce({ pgPool: t.workerPool, taskList });
     expect(delivered).toEqual([id]);
   });
