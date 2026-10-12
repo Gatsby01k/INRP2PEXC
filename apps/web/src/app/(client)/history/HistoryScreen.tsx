@@ -6,6 +6,7 @@ import { Money, Rate } from '@inrp2p/kernel';
 import type { HistoryCounts, HistoryRow } from '@inrp2p/portal';
 import { formatInr, formatIstDateTime, formatRate, formatUsdtHeadline } from '@inrp2p/ui/format';
 import { StatusBanner, useAssistantState } from '../_assistant/AssistantPanel.tsx';
+import { RobotFigure } from '../_assistant/RobotFigure.tsx';
 import { historyAssistant, isOpenTrade, lifecycleSteps } from '../_assistant/model.ts';
 import { EmptyState } from '../_workspace/EmptyState.tsx';
 import { ArrowIcon, ChevronIcon, ClockIcon, ReceiptIcon } from '../_workspace/icons.tsx';
@@ -74,28 +75,28 @@ export function HistoryScreen({ rows, open, counts, filter }: { rows: readonly H
       <main className={shell.main}>
         {status.mood !== 'ready' ? <StatusBanner state={status} /> : null}
         <section className={`${shell.card} ${styles.list}`} aria-label="Trades" data-robot-target="panel">
-          <nav className={styles.filters} aria-label="Filter">
-            {FILTERS.map((f) => (
-              <Link key={f.key} href={f.href} className={styles.filter} {...(filter === f.key ? { 'aria-current': 'page' as const } : {})}>
-                {f.label}
-                <span className={styles.count}>{count[f.key]}</span>
-              </Link>
-            ))}
-          </nav>
+          {counts.all === 0 ? null : (
+            <nav className={styles.filters} aria-label="Filter">
+              {FILTERS.map((f) => (
+                <Link key={f.key} href={f.href} className={styles.filter} {...(filter === f.key ? { 'aria-current': 'page' as const } : {})}>
+                  {f.label}
+                  <span className={styles.count}>{count[f.key]}</span>
+                </Link>
+              ))}
+            </nav>
+          )}
 
           {rows.length === 0 ? (
             filter === 'all' ? (
-              <EmptyState
-                icon={<ReceiptIcon />}
-                title="No trades yet"
-                body="A trade appears here the moment you accept a quote, with its payments as they land and its receipt once it settles."
-                action={
-                  <Link className={shell.secondaryAction} href="/exchange">
-                    Request a quote
-                    <ArrowIcon className={shell.actionIcon} />
-                  </Link>
-                }
-              />
+              <div className={styles.firstEmpty}>
+                <RobotFigure mood="ready" live={false} className={styles.firstFigure} />
+                <h2 className={styles.firstTitle}>No trades yet</h2>
+                <p className={styles.firstBody}>A trade appears here the moment you accept a quote — with its payments as they land, and its receipt once it settles.</p>
+                <Link className={shell.action} data-size="sm" href="/exchange">
+                  Request your first quote
+                  <ArrowIcon className={shell.actionIcon} />
+                </Link>
+              </div>
             ) : (
               <EmptyState
                 icon={<ClockIcon />}

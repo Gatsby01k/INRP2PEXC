@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { Money } from '@inrp2p/kernel';
 import type { HistoryRow } from '@inrp2p/portal';
-import { formatInr, formatUsdtHeadline } from '@inrp2p/ui/format';
+import { formatInrCompact, formatUsdtHeadline } from '@inrp2p/ui/format';
 import { type Step, isOpenTrade } from '../_assistant/model.ts';
 import { TRADE_STATUS } from '../_workspace/StatusPill.tsx';
 import { ArrowIcon, CheckIcon, ClockIcon, PauseIcon } from '../_workspace/icons.tsx';
@@ -124,7 +124,7 @@ function Activity({ recent }: { recent: readonly HistoryRow[] }) {
           const done = t.status === 'COMPLETED';
           const tone = yours ? 'action' : done ? 'done' : undefined;
           const usdt = formatUsdtHeadline(Money.parse(t.base, 'USDT'));
-          const inr = formatInr(Money.parse(t.inr, 'INR'));
+          const inr = formatInrCompact(Money.parse(t.inr, 'INR'));
           const state = t.onHold && isOpenTrade(t.status) ? 'On hold' : yours ? (sell ? 'Send USDT' : 'Pay INR') : (TRADE_STATUS[t.status]?.label ?? t.status);
           return (
             <li key={t.ref}>

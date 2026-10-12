@@ -82,11 +82,38 @@ export function Sheet({
     };
   }, [open]);
 
-  if (!mounted || typeof document === 'undefined') return null;
-
-  const close = () => {
+  // Escape closes from anywhere while the sheet is open — also after a step replaced the element that had focus.
+  const closeRef = useRef(() => {});
+  closeRef.current = () => {
     if (!locked) onClose();
   };
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') closeRef.current();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [open]);
+
+  // A step that replaces the focused element leaves focus on the page behind; bring it back into the sheet.
+  useEffect(() => {
+    if (!open) return;
+    const panelEl = panel.current;
+    if (!panelEl) return;
+    const observer = new MutationObserver(() => {
+      if (!panelEl.contains(document.activeElement)) {
+        const next = panelEl.querySelector<HTMLElement>('[data-autofocus]') ?? panelEl;
+        next.focus({ preventScroll: true });
+      }
+    });
+    observer.observe(panelEl, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, [open, mounted]);
+
+  if (!mounted || typeof document === 'undefined') return null;
+
+  const close = () => closeRef.current();
 
   return createPortal(
     <div className={styles.root} data-variant={variant} data-state={leaving ? 'leaving' : 'open'}>
@@ -100,11 +127,6 @@ export function Sheet({
         {...(description ? { 'aria-describedby': descId } : {})}
         tabIndex={-1}
         onKeyDown={(e) => {
-          if (e.key === 'Escape') {
-            e.stopPropagation();
-            close();
-            return;
-          }
           if (e.key !== 'Tab') return;
           const items = [...(panel.current?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? [])].filter((n) => n.offsetParent !== null);
           if (items.length === 0) return;

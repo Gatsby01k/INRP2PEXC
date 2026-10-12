@@ -279,12 +279,12 @@ function Flow({
               <ArrowIcon className={shell.actionIcon} />
             </button>
           ) : purpose === 'SOURCE' && !bank ? (
-            <button type="button" className={`${shell.action} ${shell.wide}`} data-tone="ink" onClick={onClose}>
+            <button type="button" className={`${shell.action} ${shell.wide}`} data-tone="ink" onClick={onClose} data-autofocus="">
               Done
             </button>
           ) : (
             <>
-              <Link className={`${shell.action} ${shell.wide}`} href="/exchange" onClick={onClose}>
+              <Link className={`${shell.action} ${shell.wide}`} href="/exchange" onClick={onClose} data-autofocus="">
                 {bank ? 'Sell USDT now' : 'Buy USDT now'}
                 <ArrowIcon className={shell.actionIcon} />
               </Link>

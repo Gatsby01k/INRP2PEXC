@@ -60,6 +60,11 @@
   list-style: none;
 }
 
+.items:last-child,
+.people:last-child {
+  margin-bottom: calc(var(--space-6) * -1);
+}
+
 .item,
 .person {
   display: grid;

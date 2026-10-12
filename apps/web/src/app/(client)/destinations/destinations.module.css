@@ -133,6 +133,11 @@
   list-style: none;
 }
 
+/* The last list of a card runs to its bottom edge, so its last row does not sit on a band of empty card. */
+.rows:last-child {
+  margin-bottom: calc(var(--space-6) * -1);
+}
+
 .row {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
