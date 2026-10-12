@@ -605,7 +605,15 @@
               "Effect": "Allow",
               "Principal": {
                 "Federated": {
-                  "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com"
+                  "Fn::If": [
+                    "MakeGitHubProvider",
+                    {
+                      "Ref": "GitHubOidcProvider"
+                    },
+                    {
+                      "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com"
+                    }
+                  ]
                 }
               },
               "Action": "sts:AssumeRoleWithWebIdentity",
