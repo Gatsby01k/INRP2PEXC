@@ -67,7 +67,7 @@ export function TradeWorkspace({
           {funds}
         </>
       )}
-      <TradeNetwork trade={trade} />
+      <TradeNetwork trade={trade} perms={perms} />
       {focus === 'exception' || trade.hold ? null : cases}
       {record ? null : (
         <Notice icon="arrowUpRight">

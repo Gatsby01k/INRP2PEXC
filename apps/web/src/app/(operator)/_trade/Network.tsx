@@ -6,6 +6,8 @@ import { PanelSection } from '../_desk/ContextPanel.tsx';
 import { inr } from '../_desk/format.ts';
 import { ATTEMPT, PURPOSE, STATUS, trx } from '../_desk/network.ts';
 import { Chip, KeyValues, Notice } from '../_desk/ui.tsx';
+import { RaiseHold } from './RaiseHold.tsx';
+import type { TradePerms } from './types.ts';
 import d from '../_desk/desk.module.css';
 import t from './trade.module.css';
 
@@ -14,7 +16,7 @@ import t from './trade.module.css';
  * network fee its client's price carried against what the network actually cost (economics viewers only), and each
  * transfer the signer makes for it with its transactions. Approving and unblocking happen on the Network page.
  */
-export function TradeNetwork({ trade }: { trade: DeskTrade }) {
+export function TradeNetwork({ trade, perms }: { trade: DeskTrade; perms: TradePerms }) {
   const n = trade.network;
   if (!n) return null;
   const open = n.sends.filter((s) => s.status !== 'CONFIRMED' && s.status !== 'CANCELLED');
@@ -27,7 +29,7 @@ export function TradeNetwork({ trade }: { trade: DeskTrade }) {
           label="Network budget"
           items={[
             { label: 'TRX from', value: n.funder === 'Platform' ? 'Platform budget' : `${n.funder}’s network deposit` },
-            { label: 'Held for its transfers', value: trx(n.heldTrx) },
+            { label: 'Held for its transfers', value: `${trx(n.heldTrx)} · ${trx(n.committedTrx)} committed` },
             { label: 'Spent so far', value: /[1-9]/.test(n.traderBorneTrx) ? `${trx(n.spentTrx)} · ${trx(n.traderBorneTrx)} the trader’s` : trx(n.spentTrx) },
             ...(n.reimbursed !== null ? [{ label: 'Paid back to the trader', value: inr(n.reimbursed) }] : []),
             ...(n.economics
@@ -72,6 +74,10 @@ export function TradeNetwork({ trade }: { trade: DeskTrade }) {
               );
             })}
           </ul>
+        ) : null}
+        {/* Only where a transfer is waiting for room: a hold is raised by a person's decision, never as routine. */}
+        {perms.manageNetwork && n.holdStatus === 'ACTIVE' && (trade.cases.some((c) => c.type === 'NETWORK_BUDGET_SHORT') || open.some((s) => s.status === 'BLOCKED')) ? (
+          <RaiseHold tradeId={trade.tradeId} tradeRef={trade.ref} held={n.heldTrx} />
         ) : null}
         {attention ? (
           <Notice icon="arrowUpRight">

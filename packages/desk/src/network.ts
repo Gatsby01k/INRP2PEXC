@@ -220,6 +220,8 @@ export interface DeskTradeNetwork {
   readonly funder: string;
   readonly holdStatus: 'ACTIVE' | 'CLOSED' | 'NONE';
   readonly heldTrx: string;
+  /** What the trade's transfers have committed of the hold: open ones their caps, finished ones what they drew. */
+  readonly committedTrx: string;
   readonly spentTrx: string;
   readonly traderBorneTrx: string;
   readonly reimbursed: string | null;
@@ -243,7 +245,8 @@ export async function deskTradeNetwork(ex: Executor, tradeId: string, opts: { ec
        and (exists (select 1 from custody_hd_account h where h.provider = da.provider and da.source = 'DERIVED')
             or exists (select 1 from custody_hd_account h where h.fee_wallet_address = tw.address))`.execute(ex);
   return {
-    funder: row.funder, holdStatus: row.holdStatus, heldTrx: row.heldTrx, spentTrx: row.spentTrx, traderBorneTrx: row.traderBorneTrx, reimbursed: row.reimbursed,
+    funder: row.funder, holdStatus: row.holdStatus, heldTrx: row.heldTrx, spentTrx: row.spentTrx,
+    committedTrx: trx(BigInt((await sql<{ c: string }>`select inrp2p_trade_network_committed(${tradeId}::uuid, null)::text as c`.execute(ex)).rows[0]!.c)), traderBorneTrx: row.traderBorneTrx, reimbursed: row.reimbursed,
     economics: opts.economics ? { grossMargin: row.grossMargin, reward: row.reward, feeCharged: row.feeCharged, feeChargedTrx: row.feeChargedTrx, spentInr: row.spentInr, netProfit: row.netProfit, netFinal: row.netFinal } : null,
     sends: await sendRowsOf(ex, { tradeId, limit: 20 }),
     signerRefunds: legs.rows.map((l) => ({ legId: l.id, destinationSet: l.destination_set })),

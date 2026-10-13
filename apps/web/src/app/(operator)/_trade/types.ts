@@ -25,4 +25,6 @@ export interface TradePerms {
   readonly receipt: boolean;
   readonly requestDestinationChange: boolean;
   readonly approveDestinationChange: boolean;
+  /** `network:manage`: raise what a trade holds of its funder's TRX (ADR 0017, FI-95). */
+  readonly manageNetwork: boolean;
 }

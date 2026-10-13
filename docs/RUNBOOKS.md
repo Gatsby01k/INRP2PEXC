@@ -285,6 +285,10 @@ is what makes a second payment impossible.
   extra cost comes out of the platform's margin (a trader that fronts it is paid back). If it is, **Raise TRX cap**
   (OWNER or FINANCE, authenticator, reason) to what the chain charges now; the trade's hold rises from the same
   funder's free TRX if it must, and the send goes on. If not, cancel it and settle the trade another way.
+* A trade with a `NETWORK_BUDGET_SHORT` case and no blocked send: a transfer its quote never priced (a second partial
+  payout, a refund on top of a payment) does not fit in what the trade holds, so it was not planned. On the trade's
+  **Network** block, **Raise the hold** (OWNER or FINANCE, authenticator, reason) by about one transfer; autopay plans
+  it at its next cycle. The extra cost is the platform's.
 * Failed on chain three times (out of energy, reverted): read `result`; raising `reserve_energy` in the fee policy
   covers a contract whose energy factor rose. Then **Unblock**.
 * Unresolved: wait for the providers. When the chain answers the send settles or is signed again by itself. If one

@@ -295,3 +295,35 @@ export function raiseChainSendCap(actor: OperatorActor) {
     return { cap: formatTrx(cap), holdRaised: formatTrx(raised), status: unblock ? ('PLANNED' as const) : send.status };
   });
 }
+
+/**
+ * `network_budget_hold.raise` — `network:manage` (⧗), with the reason. What a trade holds of its funder's TRX is fixed at
+ * acceptance; a transfer the quote never priced (a second partial payout, a refund on top of a payment) does not fit in
+ * it and is not planned. Only a person makes room — from the same funder's free TRX, never past it (IX108) — and the
+ * extra cost is the platform's, out of the trade's margin.
+ */
+export function raiseTradeNetworkHold(actor: OperatorActor) {
+  return operatorCommand(actor, 'network:manage', async (ctx, p: { tradeId: string; amount: string; reason: string }) => {
+    const reason = requireText(p.reason, 'reason', 500);
+    await assertPayoutsOpen(ctx.tx);
+    const trade = await lockTrade(ctx.tx, requireUuid(p.tradeId, 'tradeId'));
+    const hold = await ctx.tx.selectFrom('network_budget_hold').selectAll().where('trade_id', '=', trade.id).forUpdate().executeTakeFirst();
+    if (!hold || hold.status !== 'ACTIVE') throw new DomainError('INVALID_TRANSITION', 'this trade holds no network budget any more');
+    const amount = parseTrx(p.amount);
+    if (amount <= hold.amount_sun) throw new DomainError('INVALID_ARGUMENT', `the trade holds ${formatTrx(hold.amount_sun)} TRX: a hold only rises`);
+    const raise = amount - hold.amount_sun;
+    await lockFunder(ctx, hold.trader_id);
+    const free = await networkAvailable(ctx.tx, hold.trader_id);
+    if (free < raise) {
+      throw new DomainError('NETWORK_BUDGET_INSUFFICIENT', `${hold.trader_id ? "the trader's network deposit" : 'the platform budget'} has ${formatTrx(free > 0n ? free : 0n)} TRX free; ${formatTrx(raise)} TRX more is asked`, {
+        available: formatTrx(free > 0n ? free : 0n), needed: formatTrx(raise),
+      });
+    }
+    await ctx.tx.updateTable('network_budget_hold').set({ amount_sun: amount }).where('id', '=', hold.id).execute();
+    await appendAudit(ctx, {
+      action: 'network.hold_raised', entityType: 'trade', entityId: trade.id,
+      before: { hold_trx: formatTrx(hold.amount_sun) }, after: { hold_trx: formatTrx(amount), funder: hold.trader_id ?? 'PLATFORM', reason },
+    });
+    return { held: formatTrx(amount), raised: formatTrx(raise) };
+  });
+}

@@ -52,7 +52,9 @@ TRX is not a trade currency, so it is not in the ledger: `network_budget_entry` 
   pays for; one held transfer's cost, for a refund. The caps of a trade's sends fit in its hold, so a SELL's possible
   return keeps its share. Top-ups — retries and failed ones included — never draw past the cap: gas that rose or
   attempts that burned it block the send with a case. The funder's other TRX is never drawn automatically; a person
-  with `network:manage` may raise one send's cap, with the reason, and the trade's hold rises with it if it must.
+  with `network:manage` may raise one send's cap, with the reason, and the trade's hold rises with it if it must. A
+  transfer the quote never priced (a second partial payout) is not planned until a person raises the trade's hold;
+  the desk sees a `NETWORK_BUDGET_SHORT` case meanwhile.
 - When the trade is over, the hold closes: the unspent rest is free again; what the funder spent for transfers it
   does not bear (the client's payout, priced in; a platform mistake) is **paid back in INR** at the trade's quoted TRX
   price and rate, rounded down, accrued with the trader's rewards (`network_fee:{trade}:reimburse`, Dr

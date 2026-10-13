@@ -27,5 +27,6 @@ export function tradePerms(ctx: OperatorContext): TradePerms {
     receipt: can(ctx, 'receipt:view'),
     requestDestinationChange: can(ctx, 'trade:request_destination_change'),
     approveDestinationChange: can(ctx, 'trade:approve_destination_change'),
+    manageNetwork: can(ctx, 'network:manage'),
   };
 }

@@ -8,7 +8,7 @@ import { budgetFigures, currentNetworkCosts, networkAvailable, reservePerSendSun
 import { acceptQuote, createQuote, createRequest, sendQuote } from '@inrp2p/quotes';
 import { acceptOrder, assignRequest } from '@inrp2p/traders';
 import {
-  approveRefundSend, confirmPayout, createPayoutLeg, createRefundLeg, decideRestoreFenceLift, raiseChainSendCap, raiseRestoreFence, recordLegEvidence, refundAndCancel,
+  approveRefundSend, confirmPayout, createPayoutLeg, createRefundLeg, decideRestoreFenceLift, raiseChainSendCap, raiseRestoreFence, raiseTradeNetworkHold, recordLegEvidence, refundAndCancel,
   requestRestoreFenceLift, sendPayoutLeg, setNewBusiness, recordRouteSettlement,
 } from '@inrp2p/settlement';
 import { orderDeliveryAddress, releaseOrder, runTraderSweep } from '@inrp2p/traders';
@@ -582,6 +582,36 @@ describe('a transfer never draws more TRX than was fixed for it', () => {
     await railsSettle(w, trade.tradeId, 8);
     expect(await stateOf(trade.tradeId)).toBe('COMPLETED');
     expect((await attemptsOf(payout.id)).filter((a) => a.status === 'CONFIRMED')).toHaveLength(1);
+  });
+
+  it('a second payout the quote never priced waits for room — a case on the desk — until a person raises the trade’s hold', async () => {
+    const trade = await railsTrade(w, usdtTrader, { direction: 'BUY_USDT', amount: '1000', clientRate: '106.500000' });
+    await settleFirstLeg(w, trade.tradeId);
+    const { address } = await runAs(w.app, orderDeliveryAddress(usdtTrader.admin.actor, w.traderDeps), usdtTrader.admin.ref, 'trader_order.delivery_address', { ref: trade.orderRef });
+    // The trader delivers in two parts: the first is paid on as it arrives.
+    await sendUsdt(w, usdtTrader.walletAddress, address, '400');
+    await confirmOnChain(w);
+    await railsSettle(w, trade.tradeId);
+    expect((await sends(trade.tradeId)).filter((s) => s.purpose === 'CLIENT_PAYOUT').map((s) => s.status)).toEqual(['CONFIRMED']);
+    const freeBefore = await networkAvailable(w.app, usdtTrader.traderId);
+    await sendUsdt(w, usdtTrader.walletAddress, address, '600');
+    await confirmOnChain(w);
+    // The second transfer does not fit in what the trade holds: it is not planned, and the desk is told.
+    const turn = await railsTurn(w);
+    expect(turn.autopay.skipped).toEqual([expect.objectContaining({ tradeId: trade.tradeId, code: 'NETWORK_BUDGET_INSUFFICIENT' })]);
+    expect((await sends(trade.tradeId)).filter((s) => s.purpose === 'CLIENT_PAYOUT')).toHaveLength(1);
+    const caseRow = await w.app.selectFrom('exception_case').select(['type', 'severity', 'status']).where('subject_id', '=', trade.tradeId).where('type', '=', 'NETWORK_BUDGET_SHORT').executeTakeFirstOrThrow();
+    expect(caseRow).toEqual({ type: 'NETWORK_BUDGET_SHORT', severity: 'WARNING', status: 'OPEN' });
+    expect(await networkAvailable(w.app, usdtTrader.traderId)).toBe(freeBefore);
+
+    // A person makes room, from the same trader's free TRX — upward only.
+    const raise = (amount: string) => runAs(w.app, raiseTradeNetworkHold(w.finance.actor), w.finance.ref, 'network_budget_hold.raise', { tradeId: trade.tradeId, amount, reason: 'the trader delivered in two parts; the platform carries the second transfer' });
+    await expect(raise('1')).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' });
+    await raise('45');
+    expect(await holdOf(trade.tradeId)).toBe(parseTrx('45'));
+    await railsSettle(w, trade.tradeId);
+    expect((await sends(trade.tradeId)).filter((s) => s.purpose === 'CLIENT_PAYOUT').map((s) => s.status)).toEqual(['CONFIRMED', 'CONFIRMED']);
+    expect(await stateOf(trade.tradeId)).toBe('COMPLETED');
   });
 
   it('fits a trade’s caps in its hold — the client’s transfer at its priced fee, the return at one held transfer — and the database holds every line (IX114, IX115)', async () => {

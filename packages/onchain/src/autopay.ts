@@ -2,7 +2,7 @@ import { sql } from 'kysely';
 import { Money, isDomainError } from '@inrp2p/kernel';
 import { type Db, pgErrorCode } from '@inrp2p/db';
 import { effectiveObligations, legTotals } from '@inrp2p/trades';
-import { createPayoutLegInTx, fundingSources, planRoutePaymentInTx, sendPayoutLegInTx } from '@inrp2p/settlement';
+import { createPayoutLegInTx, fundingSources, openExceptionInTx, planRoutePaymentInTx, sendPayoutLegInTx } from '@inrp2p/settlement';
 import { closeNetworkHold, recordFeeSnapshot, signablePathOf } from '@inrp2p/network';
 import { observeBalances } from '@inrp2p/scanner';
 import { type OnchainDeps, settlementDepsOf, step } from './deps.ts';
@@ -28,7 +28,16 @@ export interface AutopayReport {
 export async function runAutopay(db: Db, deps: OnchainDeps): Promise<AutopayReport> {
   const report = { payoutsPlanned: 0, routePaymentsPlanned: 0, skipped: [] as { tradeId: string; code: string; message: string }[] };
   const sdeps = settlementDepsOf(deps);
-  const fail = (tradeId: string, e: unknown) => report.skipped.push({ tradeId, code: isDomainError(e) ? e.code : (pgErrorCode(e) ?? 'UNEXPECTED'), message: (e instanceof Error ? e.message : String(e)).slice(0, 300) });
+  const skipped = async (tradeId: string, e: unknown) => {
+    const code = isDomainError(e) ? e.code : (pgErrorCode(e) ?? 'UNEXPECTED');
+    const message = (e instanceof Error ? e.message : String(e)).slice(0, 300);
+    report.skipped.push({ tradeId, code, message });
+    // A transfer the trade's hold has no room for waits for a person (FI-95): say so on the desk, once.
+    if (code === 'NETWORK_BUDGET_INSUFFICIENT' || code === 'IX115') {
+      await step(db, 'autopay.network_budget_short', { tradeId }, (ctx) =>
+        openExceptionInTx(ctx, { type: 'NETWORK_BUDGET_SHORT', subjectType: 'TRADE', subjectId: tradeId, tradeId, details: { reason: message } })).catch(() => undefined);
+    }
+  };
 
   const buys = await sql<{ id: string }>`
     select t.id from trade t
@@ -57,7 +66,7 @@ export async function runAutopay(db: Db, deps: OnchainDeps): Promise<AutopayRepo
       });
       report.payoutsPlanned += 1;
     } catch (e) {
-      fail(t.id, e);
+      await skipped(t.id, e);
     }
   }
 
@@ -78,7 +87,7 @@ export async function runAutopay(db: Db, deps: OnchainDeps): Promise<AutopayRepo
       const planned = await step(db, 'autopay.route_payment', { tradeId: t.id }, (ctx) => planRoutePaymentInTx(ctx, sdeps, t.id, `SYSTEM:${ctx.commandName}`));
       if (planned) report.routePaymentsPlanned += 1;
     } catch (e) {
-      fail(t.id, e);
+      await skipped(t.id, e);
     }
   }
   return report;
