@@ -39,14 +39,16 @@ describe('graphile worker end to end', () => {
       },
     });
     expect(jobIdType).toBe('string');
-    const failed = await t.ownerPool.query(
-      'select attempts, last_error, locked_at from graphile_worker._private_jobs where key = $1',
-      [key],
-    );
-    expect(failed.rows).toHaveLength(1);
-    expect(failed.rows[0]).toMatchObject({
+    // Wait until another connection can see the saved failure and the released lock.
+    await expect.poll(async () => {
+      const failed = await t.ownerPool.query(
+        'select attempts, last_error, locked_at from graphile_worker._private_jobs where key = $1',
+        [key],
+      );
+      return failed.rows;
+    }, { timeout: 5000 }).toEqual([expect.objectContaining({
       attempts: 1, last_error: 'regression: invalid TRON address', locked_at: null,
-    });
+    })]);
 
     await t.ownerPool.query("select graphile_worker.add_job('test_after_failure', '{}'::json)");
     let completed = false;

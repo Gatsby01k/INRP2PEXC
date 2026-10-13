@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { Money } from '@inrp2p/kernel';
+import { Money, isTronAddress } from '@inrp2p/kernel';
 import { runAs } from '@inrp2p/identity/testing';
 import { createQuote, createQuoteLink, createRequest, sendQuote } from '@inrp2p/quotes';
 import { publishRouteRate } from '@inrp2p/pricing';
@@ -288,6 +288,29 @@ describe('the INR and USDT screens', () => {
     expect(view.transfers.length).toBeGreaterThan(0);
     expect(view.transfers.some((t) => t.state === 'CONFIRMED' && t.tradeRef !== null)).toBe(true);
   });
+  it('keeps a legacy checksum-invalid wallet visible without crashing the USDT screen', async () => {
+    const address = `T${'A'.repeat(33)}`;
+    expect(isTronAddress(address)).toBe(false);
+    // Represents a row inserted before checksum validation; its SQL address shape is still valid.
+    const wallet = await w.t.owner.insertInto('treasury_wallet').values({
+      network: 'TRON', address, label: 'Legacy checksum-invalid wallet', role: 'COLD',
+      status: 'PAUSED', created_by: 'SYSTEM:legacy-fixture',
+    }).returning('id').executeTakeFirstOrThrow();
+    try {
+      const view = await usdtView(w.app);
+      expect(view.wallets.find((x) => x.walletId === wallet.id)).toMatchObject({ address, status: 'PAUSED' });
+      expect(view.custody.find((x) => x.address === address)).toMatchObject({
+        label: 'Legacy checksum-invalid wallet', reading: null, unusable: 'invalid TRON address',
+        leaving: null, freeOnChain: '0.000000', tradesMoney: '0.000000', plannedOut: '0.000000',
+        notSeenOnChain: null,
+      });
+      expect(view.custody.some((x) => isTronAddress(x.address))).toBe(true);
+      expect(view.transfers.length).toBeGreaterThan(0);
+    } finally {
+      await w.t.owner.updateTable('treasury_wallet').set({ status: 'RETIRED' }).where('id', '=', wallet.id).execute();
+    }
+  });
+
 });
 
 describe('the client book', () => {

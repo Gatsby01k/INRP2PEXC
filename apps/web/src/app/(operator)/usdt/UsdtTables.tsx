@@ -167,11 +167,11 @@ export function CustodyTable({ positions, canRefresh }: { positions: readonly Cu
         p.reading ? (
           <Cell main={<Chip tone={p.unusable ? (QUALITY[p.reading.quality].tone === 'success' ? 'warning' : QUALITY[p.reading.quality].tone) : QUALITY[p.reading.quality].tone}>{QUALITY[p.reading.quality].label}</Chip>} sub={`${dateTime(p.reading.observedAt)}${p.reading.block ? ` · block ${p.reading.block}` : ''}`} />
         ) : (
-          <Chip tone="danger">Never read</Chip>
+          <Chip tone="danger">{p.unusable === 'invalid TRON address' ? 'Invalid TRON address' : 'Never read'}</Chip>
         ),
     },
     { key: 'chain', header: 'Chain shows', align: 'right', render: (p) => (p.reading?.balance ? usdt(p.reading.balance, { unit: false }) : '—') },
-    { key: 'leaving', header: 'Leaving', align: 'right', render: (p) => usdt(p.leaving, { unit: false }) },
+    { key: 'leaving', header: 'Leaving', align: 'right', render: (p) => (p.leaving === null ? '—' : usdt(p.leaving, { unit: false })) },
     { key: 'free', header: 'Free on chain', align: 'right', render: (p) => (p.unusable ? <span className={d.secondary} title={p.unusable}>not usable</span> : <strong>{usdt(p.freeOnChain, { unit: false })}</strong>) },
     { key: 'held', header: 'Trades’ money', align: 'right', render: (p) => usdt(p.tradesMoney, { unit: false }) },
     { key: 'planned', header: 'Planned out', align: 'right', render: (p) => usdt(p.plannedOut, { unit: false }) },
@@ -186,7 +186,7 @@ export function CustodyTable({ positions, canRefresh }: { positions: readonly Cu
           key: 'refresh',
           header: '',
           render: (p: CustodyPositionView) => (
-            <Button size="sm" disabled={cmd.busy} onClick={() => cmd.run(`Read ${shortenAddress(p.address, 6, 6)} again`, (k) => refreshCustodyBalanceAction({ address: p.address }, k))}>
+            <Button size="sm" disabled={cmd.busy || p.unusable === 'invalid TRON address'} onClick={() => cmd.run(`Read ${shortenAddress(p.address, 6, 6)} again`, (k) => refreshCustodyBalanceAction({ address: p.address }, k))}>
               Refresh
             </Button>
           ),
