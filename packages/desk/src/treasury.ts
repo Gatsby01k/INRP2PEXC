@@ -1,5 +1,5 @@
 import { sql } from 'kysely';
-import { Money } from '@inrp2p/kernel';
+import { Money, isTronAddress } from '@inrp2p/kernel';
 import type { Executor } from '@inrp2p/db';
 import { istToday } from '@inrp2p/inr-accounts';
 import { DEFAULT_SETTLEMENT_POLICY, type StatementImportSummary, listStatementImports, physicalAvailability } from '@inrp2p/settlement';
@@ -153,7 +153,8 @@ export interface CustodyPositionView {
   } | null;
   /** Why a payout from here would be refused on the reading alone; null when the reading is usable. */
   readonly unusable: string | null;
-  readonly leaving: string;
+  /** Unknown when the stored address is invalid; never represented as a zero outflow. */
+  readonly leaving: string | null;
   readonly freeOnChain: string;
   readonly tradesMoney: string;
   readonly plannedOut: string;
@@ -340,9 +341,26 @@ export async function custodyPositions(ex: Executor): Promise<CustodyPositionVie
      order by a.kind desc, a.label, a.address`.execute(ex);
   const out: CustodyPositionView[] = [];
   for (const r of rows.rows) {
-    const p = await physicalAvailability(ex, {}, { address: r.address });
     const held = BigInt(r.held);
     const planned = BigInt(r.planned);
+    // Old/imported rows may satisfy the SQL address shape but fail the checksum. Keep them visible for repair,
+    // without passing them to chain-reading code or inventing a balance; payment validation remains unchanged.
+    if (!isTronAddress(r.address)) {
+      out.push({
+        address: r.address,
+        kind: r.kind,
+        label: r.label,
+        reading: null,
+        unusable: 'invalid TRON address',
+        leaving: null,
+        freeOnChain: Money.zero('USDT').toDecimalString(),
+        tradesMoney: Money.ofMinor(held, 'USDT').toDecimalString(),
+        plannedOut: Money.ofMinor(planned, 'USDT').toDecimalString(),
+        notSeenOnChain: null,
+      });
+      continue;
+    }
+    const p = await physicalAvailability(ex, {}, { address: r.address });
     const usable = p.observation !== null && (p.observation.quality === 'AGREED' || p.observation.quality === 'SINGLE_SOURCE');
     const missing = held - planned - p.availableMinor;
     out.push({
