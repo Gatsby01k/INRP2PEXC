@@ -32,6 +32,19 @@ export function rewardFor(inrMinor: bigint, bps: number): bigint {
 }
 
 /**
+ * The reward an accepted order will carry when it starts — the same rule `startOrderForTrade` freezes (the trader's
+ * override, else the programme's rate, of the order's INR value). A quote on the order counts it as a cost before it
+ * is sent (ADR 0017 §1): what the client pays must cover the trader's reward too.
+ */
+export async function expectedOrderReward(ex: Executor, orderId: string): Promise<bigint> {
+  const order = await ex.selectFrom('trader_order').select(['trader_id', 'inr_minor']).where('id', '=', requireUuid(orderId, 'orderId')).executeTakeFirstOrThrow();
+  const program = await traderProgram(ex);
+  const profile = await ex.selectFrom('trader_profile').select('reward_bps').where('id', '=', order.trader_id).executeTakeFirstOrThrow();
+  const bps = profile.reward_bps ?? program.rewardBps;
+  return bps === null ? 0n : rewardFor(order.inr_minor, bps);
+}
+
+/**
  * Called by the request commands when a request closes (declined, withdrawn, expired): a live offer is withdrawn
  * and an accepted order gives its capacity back. The caller holds the request lock.
  */

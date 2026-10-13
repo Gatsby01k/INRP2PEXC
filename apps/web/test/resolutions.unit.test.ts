@@ -30,9 +30,10 @@ describe('exception resolutions', () => {
   });
 
   it('offers more than escalation wherever the domain has a real way out', () => {
-    // Escalation alone is honest only where the case closes by itself or by another screen's command.
+    // Escalation alone is honest only where the case closes by itself or by another screen's command — a signer send
+    // left unresolved or short of TRX is worked on the Network page (unblock, cancel, a top-up) and closes with it.
     const escalationOnly = EXCEPTION_TYPES.filter((t) => RESOLUTIONS[t].resolutions.every((o) => o.value === 'escalate'));
-    expect(escalationOnly).toEqual(['TX_NOT_FINAL', 'INR_PAYOUT_DELAYED', 'TRADE_CANCELLATION']);
+    expect(escalationOnly).toEqual(['TX_NOT_FINAL', 'INR_PAYOUT_DELAYED', 'TRADE_CANCELLATION', 'CHAIN_SEND_UNRESOLVED', 'NETWORK_BUDGET_SHORT']);
     for (const type of escalationOnly) {
       expect(RESOLUTIONS[type].voidable || RESOLUTIONS[type].financial !== null).toBe(true);
     }

@@ -6,6 +6,7 @@ import { effectiveObligations, legTotals, tradeFundingModel } from '@inrp2p/trad
 import { fundingPosition, obligationRemaining } from '@inrp2p/settlement';
 import type { DeskAccess } from './access.ts';
 import { microToDecimal } from './strip.ts';
+import { type DeskTradeNetwork, deskTradeNetwork } from './network.ts';
 
 export interface DeskLeg {
   readonly id: string;
@@ -188,6 +189,8 @@ export interface DeskTrade {
     readonly routeDirectAvailable: boolean;
     readonly routeName: string | null;
   };
+  /** The exchange's own rails for this trade (ADR 0017): its TRX budget, network cost and signer sends; null for a trade priced before them. */
+  readonly network: DeskTradeNetwork | null;
 }
 
 /**
@@ -248,6 +251,7 @@ export async function deskTrade(ex: Executor, tradeId: string, access: DeskAcces
       routeDirectAvailable: row.route_execution_mode === 'DIRECT_TO_CLIENT',
       routeName: null,
     },
+    network: await deskTradeNetwork(ex, id, { economics: access.economics }),
   };
 
   const deposit = await depositFor(ex, id);

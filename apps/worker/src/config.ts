@@ -7,6 +7,7 @@ import {
   type ObjectStore,
   type PdfRenderer,
   type TronProvider,
+  type TronSendGateway,
   TronHttpProvider,
   UNCONFIGURED_FIELD_PROTECTOR,
   defaultChromiumPath,
@@ -61,6 +62,8 @@ export interface ChainConfig {
   /** In priority order: the scanner reads through the first that answers and fails over to the next (A3). */
   readonly providers: readonly TronProvider[];
   readonly chain: ChainVerifier;
+  /** The same providers as the signer's gateways (ADR 0017): broadcast to all, an outcome only from all. */
+  readonly gateways: readonly TronSendGateway[];
 }
 
 /**
@@ -157,7 +160,7 @@ export function chainMonitoringFromEnv(env: NodeJS.ProcessEnv = process.env): Ch
         })
       : undefined;
     const providers = secondary ? [primary, secondary] : [primary];
-    config = { providers, chain: new QuorumChainVerifier({ providers, tokenContract: contract }) };
+    config = { providers, chain: new QuorumChainVerifier({ providers, tokenContract: contract }), gateways: providers };
   } catch (e) {
     return { state: 'UNCONFIGURED', reasons: [(e as Error).message] };
   }

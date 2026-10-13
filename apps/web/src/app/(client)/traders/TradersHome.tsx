@@ -3,7 +3,7 @@
 import { useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import type { TraderHome } from '@inrp2p/traders';
+import type { TraderHome, TraderNetworkView } from '@inrp2p/traders';
 import { formatCountdown } from '@inrp2p/ui/format';
 import { AssistantPanel } from '../_assistant/AssistantPanel.tsx';
 import { traderHomeAssistant } from '../_assistant/traders.ts';
@@ -13,6 +13,7 @@ import { ApplicationStatus } from './_ui/ApplicationStatus.tsx';
 import { AvailabilityCard } from './_ui/AvailabilityCard.tsx';
 import { BlockCard } from './_ui/BlockCard.tsx';
 import { EarningsCard } from './_ui/EarningsCard.tsx';
+import { NetworkCard } from './_ui/NetworkCard.tsx';
 import { OfferCard } from './_ui/OfferCard.tsx';
 import { Onboarding } from './_ui/Onboarding.tsx';
 import { ReserveCard } from './_ui/ReserveCard.tsx';
@@ -29,7 +30,7 @@ const LIVE_POLL_MS = 8_000;
  * online and what can I provide; an order offered or in progress, with the next step; then the two sides, the
  * earnings and the reserve.
  */
-export function TradersHome({ home }: { home: TraderHome }) {
+export function TradersHome({ home, network }: { home: TraderHome; network: TraderNetworkView | null }) {
   const router = useRouter();
   const working = home.state === 'APPROVED' || home.state === 'PAUSED';
   const now = useServerClock(home.now, home.offers.length > 0);
@@ -53,9 +54,12 @@ export function TradersHome({ home }: { home: TraderHome }) {
         {home.state === 'UNDER_REVIEW' || home.state === 'REJECTED' ? <ApplicationStatus home={home} /> : null}
         {/* Topping up is not admission (D-17): the reserve is there from the day of the application. */}
         {!working && home.reserve ? <ReserveCard reserve={home.reserve} /> : null}
+        {!working && network ? <NetworkCard network={network} /> : null}
         {working ? (
           <>
             <AvailabilityCard home={home} />
+            {/* Short of TRX, no order can be assigned: that is the next thing to do, so it comes first. */}
+            {network?.short ? <NetworkCard network={network} /> : null}
             {home.offers.map((o) => (
               <OfferCard
                 key={o.ref}
@@ -77,6 +81,7 @@ export function TradersHome({ home }: { home: TraderHome }) {
               {home.earnings ? <EarningsCard earnings={home.earnings} /> : null}
               {home.reserve ? <ReserveCard reserve={home.reserve} /> : null}
             </div>
+            {network && !network.short ? <NetworkCard network={network} /> : null}
             {home.registered ? <SettlementCard home={home} /> : null}
           </>
         ) : null}
@@ -93,6 +98,9 @@ export function TradersHome({ home }: { home: TraderHome }) {
             </Link>
             <Link className={shell.textAction} href="/traders/reserve">
               Security Reserve
+            </Link>
+            <Link className={shell.textAction} href="/traders/network">
+              Network deposit
             </Link>
           </div>
         ) : home.reserve ? (

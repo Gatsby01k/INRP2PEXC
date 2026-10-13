@@ -26,7 +26,7 @@ describe('every alert knows where to send the person it wakes', () => {
     // others answer a report from a person or a case on the desk rather than a threshold.
     const unreachable = headings.filter((h) => !HEALTH_CHECKS.some((c) => c.runbook === h));
     expect(unreachable.sort()).toEqual([
-      'account-takeover', 'chain-backfill', 'client-authenticator-lost', 'duplicate-utr', 'failed-bank-transfer', 'field-encryption-keys',
+      'account-takeover', 'chain-backfill', 'client-authenticator-lost', 'custody-seed', 'duplicate-utr', 'failed-bank-transfer', 'field-encryption-keys',
       'incident-recovery', 'operator-access', 'pause-new-business', 'payout-ambiguous', 'receipt-integrity', 'secret-rotation',
     ]);
   });

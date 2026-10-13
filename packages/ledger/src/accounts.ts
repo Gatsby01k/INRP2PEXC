@@ -32,6 +32,12 @@ export const Accounts = {
   traderRewardPayable: (traderId: string) => sub('LIAB', 'TRADER_REWARD_PAYABLE', traderId, 'INR'),
   /** What rewards cost the exchange, recognized when the order they are paid on completes. */
   traderRewards: () => sub('EXPENSE', 'TRADER_REWARDS', null, 'INR'),
+  /**
+   * The TRC20 network fees of the exchange's own transfers that a trader's TRX deposit paid and the exchange owes back
+   * (ADR 0017): the client paid them inside its price. Never a trade's principal; the TRX budget itself is not in this
+   * ledger (it is kept apart, in `network_budget_entry`).
+   */
+  networkFees: () => sub('EXPENSE', 'NETWORK_FEES', null, 'INR'),
 } as const;
 
 /** Resolves (creating if needed) ledger account ids. Accounts themselves are append-only. */

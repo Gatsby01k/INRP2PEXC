@@ -7,7 +7,8 @@ import { enqueueOutbox } from '@inrp2p/outbox';
 import { type OperatorActor, authorizeOperator, operatorCommand } from '@inrp2p/identity';
 import { requireUsableRoute } from '@inrp2p/routes';
 import { requireCurrentRouteRate, routeRateSnapshot } from '@inrp2p/pricing';
-import { requireOrderForQuote } from '@inrp2p/trader-core';
+import { expectedOrderReward, requireOrderForQuote } from '@inrp2p/trader-core';
+import { assertProfitable, priceNetwork, quoteNetworkFee, recordQuoteNetworkFee } from '@inrp2p/network';
 import { type QuoteDeps, policyOf } from './policy.ts';
 import { lockRow } from './actors.ts';
 import { closePendingChallenges } from './challenges.ts';
@@ -70,6 +71,15 @@ export function createQuote(actor: OperatorActor, deps: Pick<QuoteDeps, 'policy'
         base: Money.ofMinor(traderOrder.baseMinor, 'USDT').toDecimalString(),
       });
     }
+    // ADR 0017 §1: the client's rate must also pay the trader's reward and the network fee of the trade's transfer, and
+    // leave the minimum net margin. A quote that would not is never created; the dealer is told the rate that would do.
+    const reward = traderOrder ? await expectedOrderReward(ctx.tx, traderOrder.orderId) : 0n;
+    const network = await priceNetwork(ctx.tx, {
+      direction: request.direction, clientRateMicro: clientRate.micro, grossMarginInrMinor: econ.grossMargin.minor, rewardInrMinor: reward, funderTraderId: route.traderId,
+    });
+    assertProfitable(network, { breakEvenClientRate: breakEvenClientRate(request.direction, econ.base.minor, econ.routeInr.minor, network.rewardInrMinor + network.feeInrMinor + network.minNetMarginInrMinor) });
+    // A quote that loses money never gets this far (the minimum net margin is never negative); the reason a negative
+    // gross margin once needed is kept for the record of any quote that had one.
     const negativeReason = econ.grossMargin.isNegative() ? requireText(p.negativeMarginReason, 'negativeMarginReason', 500) : null;
     const isCounter = request.target_rate_micro !== null && request.target_rate_micro !== clientRate.micro;
 
@@ -98,12 +108,17 @@ export function createQuote(actor: OperatorActor, deps: Pick<QuoteDeps, 'policy'
       })
       .returning(['id', 'ref'])
       .executeTakeFirstOrThrow();
+    await recordQuoteNetworkFee(ctx, row.id, network);
     if (!request.assigned_dealer_id && ctx.actor.id) {
       await ctx.tx.updateTable('trade_request').set({ assigned_dealer_id: ctx.actor.id, last_activity_at: sql<Date>`inrp2p_now()`, version: request.version + 1 }).where('id', '=', request.id).execute();
     }
     await appendAudit(ctx, {
       action: 'quote.created', entityType: 'quote', entityId: row.id,
-      after: { ref: row.ref, request_id: request.id, direction: request.direction, base: econ.base, client_inr: econ.clientInr, client_rate: clientRate, route_id: route.id, route_rate_snapshot_id: snapshot.id, gross_margin: econ.grossMargin, is_counter: isCounter, valid_for_seconds: validity },
+      after: {
+        ref: row.ref, request_id: request.id, direction: request.direction, base: econ.base, client_inr: econ.clientInr, client_rate: clientRate, route_id: route.id, route_rate_snapshot_id: snapshot.id,
+        gross_margin: econ.grossMargin, is_counter: isCounter, valid_for_seconds: validity,
+        reward: Money.ofMinor(network.rewardInrMinor, 'INR'), network_fee: Money.ofMinor(network.feeInrMinor, 'INR'), net_margin: Money.ofMinor(network.netMarginInrMinor, 'INR'),
+      },
     });
     return {
       quoteId: row.id,
@@ -111,6 +126,9 @@ export function createQuote(actor: OperatorActor, deps: Pick<QuoteDeps, 'policy'
       base: econ.base.toDecimalString(),
       clientInr: econ.clientInr.toDecimalString(),
       grossMarginInr: econ.grossMargin.toDecimalString(),
+      rewardInr: Money.ofMinor(network.rewardInrMinor, 'INR').toDecimalString(),
+      networkFeeInr: Money.ofMinor(network.feeInrMinor, 'INR').toDecimalString(),
+      netMarginInr: Money.ofMinor(network.netMarginInrMinor, 'INR').toDecimalString(),
       isCounter,
     };
   });
@@ -149,6 +167,8 @@ export function sendQuote(actor: OperatorActor, deps: Pick<QuoteDeps, 'policy'>,
     const request = await ctx.tx.selectFrom('trade_request').selectAll().where('id', '=', quote.trade_request_id).executeTakeFirstOrThrow();
     if (request.status !== 'OPEN' && request.status !== 'QUOTED') throw new DomainError('REQUEST_NOT_OPEN', `request is ${request.status}`);
 
+    // Quotes created before migration 0037 carry no network fee and are never sent (ADR 0017 §1): quote again.
+    if (!(await quoteNetworkFee(ctx.tx, quote.id))) throw new DomainError('QUOTE_NETWORK_FEE_MISSING', 'this quote has no network fee: create it again');
     if (quote.gross_margin_inr_minor < 0n) {
       await authorizeOperator(ctx.tx, actor, 'quote:send_negative_margin');
       if (!quote.negative_margin_reason) throw new DomainError('NEGATIVE_MARGIN_NOT_PERMITTED', 'a negative-margin quote needs a reason');
@@ -263,4 +283,21 @@ export async function reopenRequest(ctx: TxContext, requestId: string): Promise<
   if (otherSent) return;
   await ctx.tx.updateTable('trade_request').set({ status: 'OPEN', last_activity_at: sql<Date>`inrp2p_now()`, version: r.version + 1 }).where('id', '=', requestId).execute();
   await enqueueOutbox(ctx, { type: 'desk.request_needs_action', aggregateType: 'trade_request', aggregateId: requestId, payload: { requestId } });
+}
+
+/**
+ * The client rate at which a quote would leave exactly `needInrMinor` beyond the route's value — the rate a dealer can
+ * quote at most (a client selling USDT) or at least (a client buying it). Rounded so that quoting it is never a loss.
+ */
+export function breakEvenClientRate(direction: 'SELL_USDT' | 'BUY_USDT', baseMinor: bigint, routeInrMinor: bigint, needInrMinor: bigint): string | null {
+  if (baseMinor <= 0n) return null;
+  // inr_minor = base_minor × rate_micro / 10¹⁰ (FINANCIAL_INVARIANTS §1.2) ⇒ rate_micro = inr_minor × 10¹⁰ / base_minor.
+  const scale = 10_000_000_000n;
+  if (direction === 'SELL_USDT') {
+    const room = routeInrMinor - needInrMinor;
+    if (room <= 0n) return null;
+    return Rate.ofMicro((room * scale) / baseMinor || 1n, 'CLIENT').toDecimalString();
+  }
+  const total = routeInrMinor + needInrMinor;
+  return Rate.ofMicro((total * scale + baseMinor - 1n) / baseMinor, 'CLIENT').toDecimalString();
 }

@@ -194,6 +194,12 @@ export interface AwsKmsOptions {
   readonly timeoutMs?: number;
   readonly retries?: number;
   readonly retryBaseDelayMs?: number;
+  /**
+   * Bound to every wrapped key — KMS unwraps it under this context only, and the key policy can require it. Defaults to
+   * the field-data-key context; the custody seed uses its own (`purpose: custody-seed`), so a role allowed to open
+   * client fields cannot open the seed with the same key.
+   */
+  readonly encryptionContext?: Readonly<Record<string, string>>;
 }
 
 const ARN = /^arn:aws[a-z-]*:kms:([a-z0-9-]+):(\d{12}):key\/([0-9a-f-]{36}|mrk-[0-9a-f]{32})$/;
@@ -220,7 +226,7 @@ export class AwsKmsKeyEncryptionKey implements KeyEncryptionKey {
 
   async wrap(dataKey: Buffer): Promise<Buffer> {
     const out = await this.#call<{ CiphertextBlob?: string; KeyId?: string }>('TrentService.Encrypt', {
-      KeyId: this.keyArn, Plaintext: dataKey.toString('base64'), EncryptionContext: AwsKmsKeyEncryptionKey.ENCRYPTION_CONTEXT,
+      KeyId: this.keyArn, Plaintext: dataKey.toString('base64'), EncryptionContext: this.#opts.encryptionContext ?? AwsKmsKeyEncryptionKey.ENCRYPTION_CONTEXT,
     });
     if (out.KeyId !== this.keyArn || !out.CiphertextBlob) throw new DomainError('KMS_REFUSED', 'KMS answered for another key, or with nothing');
     return Buffer.from(out.CiphertextBlob, 'base64');
@@ -228,7 +234,7 @@ export class AwsKmsKeyEncryptionKey implements KeyEncryptionKey {
 
   async unwrap(wrapped: Buffer): Promise<Buffer> {
     const out = await this.#call<{ Plaintext?: string; KeyId?: string }>('TrentService.Decrypt', {
-      KeyId: this.keyArn, CiphertextBlob: wrapped.toString('base64'), EncryptionContext: AwsKmsKeyEncryptionKey.ENCRYPTION_CONTEXT,
+      KeyId: this.keyArn, CiphertextBlob: wrapped.toString('base64'), EncryptionContext: this.#opts.encryptionContext ?? AwsKmsKeyEncryptionKey.ENCRYPTION_CONTEXT,
     });
     if (out.KeyId !== this.keyArn || !out.Plaintext) throw new DomainError('KMS_REFUSED', 'KMS answered for another key, or with nothing');
     const key = Buffer.from(out.Plaintext, 'base64');

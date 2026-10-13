@@ -11,6 +11,8 @@ import { allocateFunding, inrLocation, settleFunding, tronLocation } from './fun
 import { assertPhysicallyAvailable } from './availability.ts';
 import { maskedBankDestination, recordFiatTransfer } from './movements.ts';
 import { type SettlementDeps, policyOf } from './policy.ts';
+import { payoutNeedsSecondPerson } from './approvals.ts';
+import { planChainSend, sendOfLeg, signablePathOf, tradeHold } from '@inrp2p/network';
 
 export const payoutAssetOf = (direction: 'SELL_USDT' | 'BUY_USDT'): AssetCode => (direction === 'SELL_USDT' ? 'INR' : 'USDT');
 
@@ -105,8 +107,12 @@ export async function requireSourceDepositAddress(ctx: TxContext, depositAddress
  * delivered for this trade, at the account or address it is paid from (FI-72): no counterparty money, no payout.
  */
 export function createPayoutLeg(actor: OperatorActor, deps: Pick<SettlementDeps, 'policy'>) {
-  const policy = policyOf(deps);
-  return operatorCommand(actor, 'settlement:create_payout', async (ctx, p: CreatePayoutLegPayload) => {
+  return operatorCommand(actor, 'settlement:create_payout', (ctx, p: CreatePayoutLegPayload) => createPayoutLegInTx(ctx, deps, p));
+}
+
+/** The creation itself, with no actor policy of its own: the desk reaches it through `settlement:create_payout`, the signer's driver as the system (ADR 0017). */
+export async function createPayoutLegInTx(ctx: TxContext, deps: Pick<SettlementDeps, 'policy'>, p: CreatePayoutLegPayload): Promise<{ legId: string; ref: string; remainingAfter: string }> {
+    const policy = policyOf(deps);
     const trade = await lockTrade(ctx.tx, p.tradeId);
     if (trade.hold) throw new DomainError('TRADE_ON_HOLD', 'the trade has an open blocking exception');
     if (!['FIRST_LEG_CONFIRMED', 'SETTLING', 'PARTIALLY_SETTLED'].includes(trade.lifecycle_state)) {
@@ -206,7 +212,6 @@ export function createPayoutLeg(actor: OperatorActor, deps: Pick<SettlementDeps,
       after: { ref: row.ref, trade_id: trade.id, amount, payer, asset, inr_account_id: inrAccountId, route_id: routeId, capacity_reservation_id: reservationId, source_deposit_address_id: sourceDepositAddressId },
     });
     return { legId: row.id, ref: row.ref, remainingAfter: Money.ofMinor(remaining - amount.minor, asset).toDecimalString() };
-  });
 }
 
 /**
@@ -246,11 +251,20 @@ export function sendPayoutLeg(actor: OperatorActor, deps: Pick<SettlementDeps, '
       if (!leg) throw new DomainError('NOT_FOUND', 'settlement leg not found');
       await authorizeOperator(ctx.tx, actor, leg.payer === 'ROUTE' ? 'settlement:record_route_payout_sent' : 'settlement:send_payout');
     },
-    handle: async (ctx: TxContext, p: { legId: string }) => {
-      const legPeek = await ctx.tx.selectFrom('settlement_leg').select('trade_id').where('id', '=', p.legId).executeTakeFirstOrThrow();
+    handle: (ctx: TxContext, p: { legId: string }) => sendPayoutLegInTx(ctx, deps, p.legId),
+  };
+}
+
+/**
+ * The sending itself (PENDING → PROCESSING), with no actor policy of its own. A USDT payout from an address the
+ * exchange's signer holds is not sent by hand: marking it sent plans the signer's send (ADR 0017 §4) — waiting for a
+ * second person first when the payout is above the approval threshold (C1) — and the chain's answer confirms it.
+ */
+export async function sendPayoutLegInTx(ctx: TxContext, deps: Pick<SettlementDeps, 'policy'>, legId: string): Promise<{ status: 'PROCESSING'; ref: string; sendRef: string | null }> {
+      const legPeek = await ctx.tx.selectFrom('settlement_leg').select('trade_id').where('id', '=', requireUuid(legId, 'legId')).executeTakeFirstOrThrow();
       const trade = await lockTrade(ctx.tx, legPeek.trade_id);
       if (trade.hold) throw new DomainError('TRADE_ON_HOLD', 'the trade has an open blocking exception');
-      const leg = await lockLeg(ctx, p.legId);
+      const leg = await lockLeg(ctx, legId);
       if (leg.status !== 'PENDING') throw new DomainError('INVALID_TRANSITION', `leg is ${leg.status}`);
       // E4: after a restore the exchange pays nothing until the records are reconciled (migration 0034, IX100). A route
       // reporting its own payment is evidence, not an instruction, and is recorded as usual.
@@ -261,20 +275,30 @@ export function sendPayoutLeg(actor: OperatorActor, deps: Pick<SettlementDeps, '
         if (account.status !== 'ACTIVE') throw new DomainError('ACCOUNT_NOT_ACTIVE', `INR account is ${account.status}`);
         await consumeReservation(ctx, leg.capacity_reservation_id!, Money.ofMinor(leg.amount_minor, 'INR'));
       }
+      let sourceAddress: string | null = null;
       if (leg.payer === 'EXCHANGE_ACCOUNT' && leg.asset === 'USDT') {
         // B2: USDT leaves only an address a fresh reading of the chain shows holding it, after every outflow from that
         // address the reading does not show yet.
-        await assertPhysicallyAvailable(ctx, deps, { address: await legSourceAddress(ctx, leg), amount: Money.ofMinor(leg.amount_minor, 'USDT'), excludeLegId: leg.id });
+        sourceAddress = await legSourceAddress(ctx, leg);
+        await assertPhysicallyAvailable(ctx, deps, { address: sourceAddress, amount: Money.ofMinor(leg.amount_minor, 'USDT'), excludeLegId: leg.id });
       }
       // C1: who marked it sent is recorded from the verified actor — the person who may not confirm it above the
       // approval threshold.
       const sentBy = ctx.actor.id ?? `SYSTEM:${ctx.commandName}`;
       await ctx.tx.updateTable('settlement_leg').set({ status: 'PROCESSING', sent_at: sql<Date>`inrp2p_now()`, sent_by: sentBy }).where('id', '=', leg.id).execute();
       if (trade.lifecycle_state === 'FIRST_LEG_CONFIRMED') await transitionTrade(ctx, trade, 'SETTLING');
-      await appendAudit(ctx, { action: 'leg.sent', entityType: 'settlement_leg', entityId: leg.id, before: { status: 'PENDING' }, after: { status: 'PROCESSING', payer: leg.payer, sent_by: sentBy } });
-      return { status: 'PROCESSING' as const, ref: leg.ref };
-    },
-  };
+      let sendRef: string | null = null;
+      if (sourceAddress && leg.side === 'EXCHANGE_TO_CLIENT' && (await signablePathOf(ctx.tx, sourceAddress)) && (await tradeHold(ctx.tx, trade.id))) {
+        const hold = (await tradeHold(ctx.tx, trade.id))!;
+        const wallet = await ctx.tx.selectFrom('crypto_wallet').select('address').where('id', '=', leg.destination_wallet_id!).executeTakeFirstOrThrow();
+        const planned = await planChainSend(ctx, {
+          purpose: 'CLIENT_PAYOUT', asset: 'USDT', tradeId: trade.id, legId: leg.id, fromAddress: sourceAddress, toAddress: wallet.address, amountMinor: leg.amount_minor,
+          funder: hold.trader_id, bearer: 'CLIENT', needsApproval: await payoutNeedsSecondPerson(ctx.tx, leg), requestedBy: sentBy,
+        });
+        sendRef = planned.ref;
+      }
+      await appendAudit(ctx, { action: 'leg.sent', entityType: 'settlement_leg', entityId: leg.id, before: { status: 'PENDING' }, after: { status: 'PROCESSING', payer: leg.payer, sent_by: sentBy, chain_send: sendRef } });
+      return { status: 'PROCESSING' as const, ref: leg.ref, sendRef };
 }
 
 export interface RecordLegEvidencePayload {
@@ -302,6 +326,8 @@ export function recordLegEvidence(actor: OperatorActor, deps: SettlementDeps) {
     const trade = await lockTrade(ctx.tx, legPeek.trade_id);
     const leg = await lockLeg(ctx, p.legId);
     if (leg.status !== 'PENDING' && leg.status !== 'PROCESSING') throw new DomainError('INVALID_TRANSITION', `leg is ${leg.status}`);
+    const signed = await sendOfLeg(ctx.tx, leg.id);
+    if (signed) throw new DomainError('CHAIN_SEND_IN_FLIGHT', `${leg.ref} is paid by the exchange's signer (${signed.ref}); its evidence is the signer's own transaction`);
 
     const existing = await ctx.tx
       .selectFrom('transfer_allocation')
@@ -416,10 +442,18 @@ export function cancelPayoutLeg(actor: OperatorActor) {
  */
 export function failPayoutLeg(actor: OperatorActor) {
   return operatorCommand(actor, 'settlement:fail_payout', async (ctx, p: { legId: string; reason: string }) => {
-    const reason = requireText(p.reason, 'reason', 500);
-    const legPeek = await ctx.tx.selectFrom('settlement_leg').select('trade_id').where('id', '=', requireUuid(p.legId, 'legId')).executeTakeFirstOrThrow();
+    const signed = await sendOfLeg(ctx.tx, requireUuid(p.legId, 'legId'));
+    // A leg the signer pays fails only through its send — cancelled once no transaction of it can land (ADR 0017).
+    if (signed) throw new DomainError('CHAIN_SEND_IN_FLIGHT', `${signed.ref} pays this leg: cancel the send once it cannot land; the leg fails with it`);
+    return failPayoutLegInTx(ctx, p.legId, requireText(p.reason, 'reason', 500));
+  });
+}
+
+/** The failing itself (PROCESSING → FAILED): the money provably never left. */
+export async function failPayoutLegInTx(ctx: TxContext, legId: string, reason: string): Promise<{ status: 'FAILED' }> {
+    const legPeek = await ctx.tx.selectFrom('settlement_leg').select('trade_id').where('id', '=', requireUuid(legId, 'legId')).executeTakeFirstOrThrow();
     await lockTrade(ctx.tx, legPeek.trade_id);
-    const leg = await lockLeg(ctx, p.legId);
+    const leg = await lockLeg(ctx, legId);
     if (leg.status !== 'PROCESSING') throw new DomainError('INVALID_TRANSITION', `leg is ${leg.status}`);
     const allocation = await ctx.tx
       .selectFrom('transfer_allocation')
@@ -454,5 +488,4 @@ export function failPayoutLeg(actor: OperatorActor) {
     });
     await enqueueOutbox(ctx, { type: 'desk.leg_failed', aggregateType: 'settlement_leg', aggregateId: leg.id, payload: { legId: leg.id, tradeId: leg.trade_id } });
     return { status: 'FAILED' as const };
-  });
 }

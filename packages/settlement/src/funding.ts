@@ -51,6 +51,8 @@ export interface FundingUse {
   readonly kind: FundingUseKind;
   readonly legId?: string;
   readonly routeSettlementId?: string;
+  /** A route payment the exchange's signer will make, earmarked when it is planned (ADR 0017). */
+  readonly chainSendId?: string;
 }
 
 const SOURCE_FOR: Record<FundingUseKind, FundingSourceKind> = { CLIENT_PAYOUT: 'COUNTERPARTY_FUNDS', REFUND: 'CLIENT_FUNDS', ROUTE_PAYMENT: 'CLIENT_FUNDS' };
@@ -103,6 +105,7 @@ export async function allocateFunding(
         use_kind: use.kind,
         use_leg_id: use.legId ?? null,
         use_route_settlement_id: use.routeSettlementId ?? null,
+        use_chain_send_id: use.chainSendId ?? null,
         asset,
         amount_minor: take,
         location,
@@ -128,14 +131,14 @@ export async function settleFunding(ctx: TxContext, use: FundingUse, outcome: 'C
   const rows = await ctx.tx
     .updateTable('funding_allocation')
     .set({ status: outcome, closed_by: ctx.actor.id ?? `SYSTEM:${ctx.commandName}`, closed_at: sql<Date>`inrp2p_now()`, close_reason: reason.slice(0, 500) })
-    .where((eb) => (use.legId ? eb('use_leg_id', '=', use.legId) : eb('use_route_settlement_id', '=', use.routeSettlementId!)))
+    .where((eb) => (use.legId ? eb('use_leg_id', '=', use.legId) : use.chainSendId ? eb('use_chain_send_id', '=', use.chainSendId) : eb('use_route_settlement_id', '=', use.routeSettlementId!)))
     .where('status', '=', 'ACTIVE')
     .returning(['id', 'trade_id', 'amount_minor', 'asset'])
     .execute();
   if (rows.length > 0) {
     await appendAudit(ctx, {
       action: outcome === 'CONSUMED' ? 'funding.consumed' : 'funding.released', entityType: 'trade', entityId: rows[0]!.trade_id,
-      after: { use: use.kind, use_id: use.legId ?? use.routeSettlementId, allocations: rows.map((r) => r.id), amount: Money.ofMinor(rows.reduce((t, r) => t + r.amount_minor, 0n), rows[0]!.asset), reason },
+      after: { use: use.kind, use_id: use.legId ?? use.routeSettlementId ?? use.chainSendId, allocations: rows.map((r) => r.id), amount: Money.ofMinor(rows.reduce((t, r) => t + r.amount_minor, 0n), rows[0]!.asset), reason },
     });
   }
   return rows.length;
@@ -158,7 +161,7 @@ export async function fundingPosition(ex: Executor, tradeId: string) {
   const sources = await fundingSources(ex, tradeId);
   const allocations = await ex
     .selectFrom('funding_allocation')
-    .select(['id', 'source_kind', 'source_leg_id', 'source_route_settlement_id', 'use_kind', 'use_leg_id', 'use_route_settlement_id', 'asset', 'amount_minor', 'location', 'status', 'created_at', 'closed_at', 'close_reason'])
+    .select(['id', 'source_kind', 'source_leg_id', 'source_route_settlement_id', 'use_kind', 'use_leg_id', 'use_route_settlement_id', 'use_chain_send_id', 'asset', 'amount_minor', 'location', 'status', 'created_at', 'closed_at', 'close_reason'])
     .where('trade_id', '=', requireUuid(tradeId, 'tradeId'))
     .orderBy('created_at')
     .execute();

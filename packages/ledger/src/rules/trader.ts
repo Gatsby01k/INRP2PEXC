@@ -22,3 +22,23 @@ export function traderRewardAccrualJournal(input: { orderId: string; traderId: s
     ],
   };
 }
+
+/**
+ * `network_fee:{trade}:reimburse` — the INR value of the TRX a trader's network deposit spent on a trade's transfers that
+ * the trader does not bear (ADR 0017 §2), at the TRX price and rate the trade was quoted with: an expense for the
+ * exchange and a payable to the trader, paid with its rewards and, like them, only out of realized margin (FI-82). Like a
+ * reward it carries no trade dimension — the trade's own accounts settle to zero on their own — and the posting key
+ * names the trade it is for.
+ */
+export function traderNetworkReimbursementJournal(input: { tradeId: string; traderId: string; amount: Money<'INR'> }): JournalInput {
+  if (!input.amount.isPositive()) throw new DomainError('INVALID_AMOUNT', 'a reimbursement must be positive');
+  return {
+    postingKey: `network_fee:${input.tradeId}:reimburse`,
+    eventType: 'network_fee.reimbursed',
+    tradeId: null,
+    entries: [
+      { account: Accounts.networkFees(), direction: 'DR', amount: input.amount },
+      { account: Accounts.traderRewardPayable(input.traderId), direction: 'CR', amount: input.amount },
+    ],
+  };
+}

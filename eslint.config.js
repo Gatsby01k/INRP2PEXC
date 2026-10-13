@@ -22,14 +22,20 @@ const BOUNDARIES = {
   // Phase 3 trade lifecycle modules (ARCHITECTURE §3).
   trades: ['kernel', 'db', 'audit', 'ledger', 'routes'],
   // Phase 4 settlement: drives trades, movements, route obligations, capacity and treasury through their APIs.
-  settlement: ['kernel', 'db', 'audit', 'identity', 'outbox', 'adapters', 'commands', 'ledger', 'clients', 'inr-accounts', 'routes', 'treasury', 'trades'],
+  settlement: ['kernel', 'db', 'audit', 'identity', 'outbox', 'adapters', 'commands', 'ledger', 'clients', 'inr-accounts', 'routes', 'treasury', 'trades', 'network'],
   // Traders (docs/TRADERS.md): trader profiles, capacity blocks, private order assignment, Security Reserve and
   // rewards, built on routes, route obligations and route settlements through settlement's public API.
   // The part of the trader programme quote commands depend on: order holds for quotes, starting an order when its
   // quote is accepted, closing orders when a request closes, and the programme settings.
   'trader-core': ['kernel', 'db', 'audit', 'outbox', 'identity', 'adapters'],
-  traders: ['kernel', 'db', 'audit', 'identity', 'outbox', 'adapters', 'commands', 'ledger', 'clients', 'inr-accounts', 'routes', 'pricing', 'treasury', 'trades', 'settlement', 'trader-core'],
-  quotes: ['kernel', 'db', 'audit', 'identity', 'outbox', 'adapters', 'commands', 'ledger', 'clients', 'routes', 'pricing', 'treasury', 'trades', 'trader-core'],
+  traders: ['kernel', 'db', 'audit', 'identity', 'outbox', 'adapters', 'commands', 'ledger', 'clients', 'inr-accounts', 'routes', 'pricing', 'treasury', 'trades', 'settlement', 'trader-core', 'network'],
+  // USDT TRC20 rails (ADR 0017): the TRX network budget, network fees in quotes, and sends the signer will make. Below
+  // settlement and quotes, which decide what is sent; the signer that sends it is `onchain`.
+  network: ['kernel', 'db', 'audit', 'identity', 'outbox', 'adapters', 'ledger', 'trader-core', 'commands'],
+  quotes: ['kernel', 'db', 'audit', 'identity', 'outbox', 'adapters', 'commands', 'ledger', 'clients', 'routes', 'pricing', 'treasury', 'trades', 'trader-core', 'network'],
+  // The exchange's own signer (ADR 0017): plans what is due, tops deal addresses up with TRX, signs, broadcasts and follows
+  // every transaction to its end, settling through settlement's public API. Runs in the worker only.
+  onchain: ['kernel', 'db', 'audit', 'identity', 'outbox', 'adapters', 'commands', 'trades', 'treasury', 'settlement', 'network', 'scanner'],
   // Phase 5 chain monitoring: reads the chain through adapters and drives settlement through its public API.
   scanner: ['kernel', 'db', 'audit', 'identity', 'adapters', 'commands', 'ledger', 'clients', 'inr-accounts', 'routes', 'treasury', 'trades', 'settlement', 'pricing', 'quotes', 'outbox'],
   // Phase 7 client read models: composes the domain's own client projections; never a command, never a write.
@@ -42,7 +48,7 @@ const BOUNDARIES = {
   // that stays true.
   reporting: ['kernel', 'db', 'audit', 'commands', 'outbox', 'quotes', 'ui'],
   // Phase 6 operator read models: composes the domain modules' public APIs; never a command, never a write.
-  desk: ['kernel', 'db', 'identity', 'clients', 'inr-accounts', 'routes', 'pricing', 'treasury', 'trades', 'settlement', 'adapters', 'commands', 'quotes', 'scanner', 'ledger', 'audit', 'outbox', 'traders'],
+  desk: ['kernel', 'db', 'identity', 'clients', 'inr-accounts', 'routes', 'pricing', 'treasury', 'trades', 'settlement', 'adapters', 'commands', 'quotes', 'scanner', 'ledger', 'audit', 'outbox', 'traders', 'network'],
   // Design system: formats kernel Money/Rate values; never touches persistence or domain modules.
   ui: ['kernel'],
   // The canonical visual-baseline environment and its guard; test tooling, depends on nothing of the domain.
@@ -85,8 +91,19 @@ export default tseslint.config(
     },
   })),
   {
-    files: ['packages/kernel/src/**/*.ts', 'packages/ledger/src/**/*.ts', 'packages/commands/src/**/*.ts', 'packages/ui/src/format/money.ts', 'packages/ui/src/format/number.ts', 'packages/inr-accounts/src/**/*.ts', 'packages/pricing/src/**/*.ts', 'packages/routes/src/**/*.ts', 'packages/treasury/src/**/*.ts', 'packages/clients/src/**/*.ts', 'packages/trades/src/**/*.ts', 'packages/quotes/src/**/*.ts', 'packages/settlement/src/**/*.ts', 'packages/scanner/src/**/*.ts', 'packages/desk/src/**/*.ts', 'packages/portal/src/**/*.ts', 'packages/notifications/src/**/*.ts', 'packages/reporting/src/**/*.ts', 'packages/traders/src/**/*.ts', 'packages/trader-core/src/**/*.ts'],
+    files: ['packages/kernel/src/**/*.ts', 'packages/ledger/src/**/*.ts', 'packages/commands/src/**/*.ts', 'packages/ui/src/format/money.ts', 'packages/ui/src/format/number.ts', 'packages/inr-accounts/src/**/*.ts', 'packages/pricing/src/**/*.ts', 'packages/routes/src/**/*.ts', 'packages/treasury/src/**/*.ts', 'packages/clients/src/**/*.ts', 'packages/trades/src/**/*.ts', 'packages/quotes/src/**/*.ts', 'packages/settlement/src/**/*.ts', 'packages/scanner/src/**/*.ts', 'packages/desk/src/**/*.ts', 'packages/portal/src/**/*.ts', 'packages/notifications/src/**/*.ts', 'packages/reporting/src/**/*.ts', 'packages/traders/src/**/*.ts', 'packages/trader-core/src/**/*.ts', 'packages/network/src/**/*.ts', 'packages/onchain/src/**/*.ts'],
     rules: { 'no-restricted-syntax': ['error', ...NO_FLOAT_MONEY] },
+  },
+  {
+    // ADR 0017: the custody seed and the signer exist only in the worker. The web app derives addresses from the public
+    // key alone and must never be able to sign.
+    files: ['apps/web/**/*.ts', 'apps/web/**/*.tsx'],
+    rules: {
+      'no-restricted-imports': ['error', { patterns: [
+        { group: ['@inrp2p/*/src/*', '@inrp2p/*/test/*'], message: 'Import packages through their public entry points.' },
+        { group: ['@inrp2p/adapters/signer', '@inrp2p/onchain'], message: 'The web app never signs: the custody signer runs only in the worker (ADR 0017).' },
+      ] }],
+    },
   },
   {
     files: ['**/test/**/*.ts', 'test/**/*.ts'],

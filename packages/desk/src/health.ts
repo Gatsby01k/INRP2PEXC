@@ -235,7 +235,27 @@ export const HEALTH_CHECKS: readonly HealthCheckDefinition[] = Object.freeze([
     alarm: 3,
     unit: 'count',
     runbook: 'deposit-pool-low',
-    why: 'A SELL trade cannot be accepted without an address of its own (D-02). An empty pool stops the desk taking work.',
+    why: 'A SELL trade cannot be accepted without an address of its own (D-02). An empty pool stops the desk taking work. With the exchange’s own HD wallet (ADR 0017) every trade derives a new address and the pool cannot run out.',
+    group: 'money',
+  },
+  {
+    id: 'chain_sends_stuck',
+    title: 'Signer transfers blocked, short of TRX or unresolved for over 30 minutes',
+    warn: 0,
+    alarm: 2,
+    unit: 'count',
+    runbook: 'chain-send-stuck',
+    why: 'The exchange’s signer pays USDT out of deal addresses on its own (ADR 0017). A send it cannot finish — blocked, waiting for TRX, or on chain with an outcome nobody can prove — is a client or a counterparty waiting for money that will not move without a person.',
+    group: 'money',
+  },
+  {
+    id: 'trx_price_age_seconds',
+    title: 'Seconds since the TRX price quotes are priced with was published',
+    warn: 172_800,
+    alarm: 237_600,
+    unit: 'seconds',
+    runbook: 'network-fees-stale',
+    why: 'Every quote carries the network fee of its transfer, valued at the TRX price the desk publishes (ADR 0017). After 72 hours without a new price no quote is sent at all; this wakes someone six hours before.',
     group: 'money',
   },
   {
@@ -353,6 +373,8 @@ export async function systemHealth(ex: Executor): Promise<SystemHealth> {
     traders_ready_buy_usdt: string;
     inr_capacity_available: string;
     deposit_pool_free: string;
+    chain_sends_stuck: string;
+    trx_price_age_seconds: string;
     checked_at: Date;
   }>`
     select
@@ -433,8 +455,16 @@ export async function systemHealth(ex: Executor): Promise<SystemHealth> {
                 left join inr_account_day d on d.account_id = a.id
                      and d.day = (inrp2p_now() at time zone 'Asia/Kolkata')::date
                 where a.status = 'ACTIVE'), 0)::text as inr_capacity_available,
-      (select count(*) from deposit_address
-        where status = 'AVAILABLE')::text as deposit_pool_free,
+      -- With the HD wallet recorded (ADR 0017) addresses are derived per trade: the pool is not a limit.
+      (case when exists (select 1 from custody_hd_account) then 999999
+            else (select count(*) from deposit_address where status = 'AVAILABLE') end)::text as deposit_pool_free,
+      (select count(*) from chain_send
+        where status = 'BLOCKED'
+           or (status in ('SENDING', 'AWAITING_RESOURCES') and updated_at < inrp2p_now() - make_interval(mins => 30)))::text as chain_sends_stuck,
+      -- Only once the exchange's own rails exist: before that no quote depends on a TRX price.
+      (case when exists (select 1 from custody_hd_account)
+            then coalesce((select extract(epoch from (inrp2p_now() - max(effective_at)))::bigint from network_trx_rate), 999999)
+            else 0 end)::text as trx_price_age_seconds,
       inrp2p_now() as checked_at`.execute(ex);
 
   const row = r.rows[0]!;
@@ -468,6 +498,8 @@ export async function systemHealth(ex: Executor): Promise<SystemHealth> {
     traders_ready_buy_usdt: int(row.traders_ready_buy_usdt),
     inr_capacity_available: int(row.inr_capacity_available),
     deposit_pool_free: int(row.deposit_pool_free),
+    chain_sends_stuck: int(row.chain_sends_stuck),
+    trx_price_age_seconds: int(row.trx_price_age_seconds),
   };
 
   const checks = HEALTH_CHECKS.map((definition) => {

@@ -6,6 +6,7 @@ import { Notice } from '../_desk/ui.tsx';
 import { CaseCard } from './Cases.tsx';
 import { ClientFunds, type CollectionAccount } from './ClientFunds.tsx';
 import { Destination } from './Destination.tsx';
+import { TradeNetwork } from './Network.tsx';
 import { Payouts } from './Payouts.tsx';
 import { Economics, Headline, Stages } from './Summary.tsx';
 import type { TradePerms } from './types.ts';
@@ -66,6 +67,7 @@ export function TradeWorkspace({
           {funds}
         </>
       )}
+      <TradeNetwork trade={trade} />
       {focus === 'exception' || trade.hold ? null : cases}
       {record ? null : (
         <Notice icon="arrowUpRight">

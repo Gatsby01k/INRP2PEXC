@@ -96,6 +96,10 @@ export function productionConfigReport(role: ProcessRole, env: NodeJS.ProcessEnv
       if (set(env, name) && !https(env[name])) problems.push(`${name} must be https`);
     }
     need('INRP2P_CUSTODY_PROVIDER', 'the custody provider SELL acceptance attributes deposits through (D-02)');
+    if ((env.INRP2P_CUSTODY_CAPABILITY ?? '').trim().toUpperCase() === 'DERIVED') {
+      need('INRP2P_CUSTODY_XPUB', 'the HD account deposit addresses are derived from (ADR 0017)');
+      if (set(env, 'INRP2P_CUSTODY_SEED_SEALED')) problems.push('INRP2P_CUSTODY_SEED_SEALED must not be set on the web app: only the worker signs (ADR 0017)');
+    }
   } else {
     need('WORKER_DATABASE_URL', 'the worker login');
     need('CLIENT_BASE_URL', 'links in client emails');
@@ -105,6 +109,15 @@ export function productionConfigReport(role: ProcessRole, env: NodeJS.ProcessEnv
     // TD-17: the audit seals leave the database for storage nobody can rewrite.
     need('INRP2P_AUDIT_SEAL_BUCKET', 'independent export of audit seals (TD-17)');
     need('INRP2P_AUDIT_SEAL_RETENTION_DAYS', 'Object Lock retention of exported seals');
+    // ADR 0017: the signer's seed, sealed under a KMS key only the worker's role may use. Without it nothing is signed
+    // (the worker also says so at start once the HD account is recorded).
+    if (!set(env, 'INRP2P_CUSTODY_SEED_SEALED')) {
+      if ((env.INRP2P_CUSTODY_CAPABILITY ?? '').trim().toUpperCase() === 'DERIVED') warnings.push('no custody seed (INRP2P_CUSTODY_SEED_SEALED): USDT payouts from deal addresses are planned but never signed');
+    } else {
+      need('INRP2P_CUSTODY_KEK_ID', 'the id of the key the custody seed is sealed under');
+      need('INRP2P_CUSTODY_KMS_KEY_ARN', 'the KMS key that unwraps the custody seed');
+      if ((env.INRP2P_CUSTODY_KEK_PROVIDER ?? 'aws-kms').trim().toLowerCase() !== 'aws-kms') problems.push('INRP2P_CUSTODY_KEK_PROVIDER must be aws-kms in production');
+    }
     if (set(env, 'INRP2P_AUDIT_SEAL_RETENTION_DAYS') && !/^[1-9][0-9]{0,4}$/.test(env.INRP2P_AUDIT_SEAL_RETENTION_DAYS!.trim())) problems.push('INRP2P_AUDIT_SEAL_RETENTION_DAYS must be a whole number of days');
   }
   if ((set(env, 'INRP2P_RECEIPTS_BUCKET') || set(env, 'INRP2P_AUDIT_SEAL_BUCKET')) && set(env, 'INRP2P_OBJECT_STORE_ENDPOINT') && !https(env.INRP2P_OBJECT_STORE_ENDPOINT)) {

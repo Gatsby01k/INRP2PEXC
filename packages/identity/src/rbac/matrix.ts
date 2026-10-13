@@ -89,12 +89,19 @@ export const PERMISSION_MATRIX = Object.freeze({
   // approved by another.
   'trader_reserve:apply': r(S, D, D, S, D, D),
   'trader_reserve:approve': r(S2, D, D, S2, D, D),
+  // USDT TRC20 rails (ADR 0017): the TRX network budget and the exchange's own signer.
+  'network:view': r(A, A, A, A, D, D),
+  'network:manage': r(S, D, D, S, D, D),
+  'chain_send:approve': r(S2, D, S2, S2, D, D),
+  'chain_send:cancel': r(S, D, S, S, D, D),
+  'network_withdrawal:decide': r(S, D, D, S, D, D),
   'receipt:view': r(A, A, A, A, A, A),
   'audit:view': r(A, D, D, A, D, D),
   'users:manage': r(S, D, D, D, D, D),
   'roles:assign': r(S, D, D, D, D, D),
   'settings:payout_approval': r(S, D, D, D, D, D),
   // Pausing new business (an incident, a market halt) is quick and two roles can do it; it never touches started trades.
+  'settings:network_fees': r(S, D, D, D, D, D),
   'settings:new_business': r(S, D, D, S, D, D),
   // After a restore, outgoing payments are held until one person records the reconciliation and another approves it.
   'operations:restore_fence': r(S, D, D, S, D, D),

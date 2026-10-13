@@ -1,7 +1,8 @@
 import { DomainError, Money, requireUuid } from '@inrp2p/kernel';
 import type { DirectionValue, Executor, FixedSideValue } from '@inrp2p/db';
 import { currentRouteRate } from '@inrp2p/pricing';
-import { type DeskOrderRow, requestTraderOrders } from '@inrp2p/traders';
+import { currentNetworkCosts, quoteFeeSun } from '@inrp2p/network';
+import { type DeskOrderRow, expectedOrderReward, requestTraderOrders } from '@inrp2p/traders';
 import type { DeskAccess } from './access.ts';
 import { microToDecimal } from './strip.ts';
 
@@ -42,6 +43,13 @@ export interface DeskRequest {
     readonly liveRouteId: string | null;
     readonly history: readonly (DeskOrderRow & { readonly traderRef: string })[];
   };
+  /**
+   * What a quote's price must also carry (ADR 0017 §1): the network fee of its transfer in TRX and the TRX price it is
+   * valued at, the minimum net margin, and the live trader order's reward. The builder values the fee at the rate being
+   * typed with the kernel's own function, as the command does. Null while the exchange has no current fee figures:
+   * no quote can be sent then.
+   */
+  readonly network?: { readonly feeSun: string; readonly usdtPerTrxMicro: string; readonly minNetMarginMinor: string; readonly liveRewardMinor: string | null } | null;
 }
 
 /**
@@ -105,8 +113,17 @@ export async function deskRequest(ex: Executor, requestId: string, access: DeskA
   }
   const trader = await requestTraderOrders(ex, row.id);
   const liveRoute = trader.live ? await ex.selectFrom('trader_order').select('route_id').where('id', '=', trader.live.orderId).executeTakeFirst() : undefined;
+  let network: DeskRequest['network'] = null;
+  try {
+    const { policy, snapshot, rate } = await currentNetworkCosts(ex);
+    const reward = trader.live && trader.live.status === 'ACCEPTED' ? await expectedOrderReward(ex, trader.live.orderId) : null;
+    network = { feeSun: quoteFeeSun(snapshot, policy).toString(), usdtPerTrxMicro: rate.usdtPerTrxMicro.toString(), minNetMarginMinor: policy.minNetMarginInrMinor.toString(), liveRewardMinor: reward === null ? null : reward.toString() };
+  } catch (e) {
+    if (!(e instanceof DomainError) || e.code !== 'NETWORK_FEES_UNKNOWN') throw e;
+  }
   return {
     ...base,
+    network,
     routes: options,
     trader: {
       live: trader.live,

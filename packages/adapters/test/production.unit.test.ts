@@ -87,6 +87,25 @@ describe('the production configuration contract (E3)', () => {
     expect(productionConfigReport('web', { ...COMPLETE, VERCEL: '1', AWS_ROLE_ARN: 'arn:aws:iam::123456789012:role/inrp2p-vercel-web' }).problems).toEqual([]);
   });
 
+  it('keeps the custody seed on the worker and only the account key on the web app (ADR 0017)', () => {
+    const XPUB = 'xpub6D1AabNHCupeiLM65ZR9UStMhJ1vCpyV4XbZdyhMZBiJXALQtmn9p42VTQckoHVn8WNqS7dqnJokZHAHcHGoaQgmv8D45oNUKx6DZMNZBCd';
+    const derived = { ...COMPLETE, INRP2P_CUSTODY_CAPABILITY: 'DERIVED' };
+    expect(productionConfigReport('web', derived).problems.join('\n')).toContain('INRP2P_CUSTODY_XPUB is required');
+    expect(productionConfigReport('web', { ...derived, INRP2P_CUSTODY_XPUB: XPUB }).problems).toEqual([]);
+    expect(productionConfigReport('web', { ...derived, INRP2P_CUSTODY_XPUB: XPUB, INRP2P_CUSTODY_SEED_SEALED: 'v1.x' }).problems.join('\n')).toContain('must not be set on the web app');
+
+    // A DERIVED worker without a seed runs, and says it signs nothing.
+    expect(productionConfigReport('worker', derived).warnings.join('\n')).toContain('never signed');
+    // With a seed it needs its own KMS key, and never a local one.
+    const sealed = { ...derived, INRP2P_CUSTODY_SEED_SEALED: 'v1.custody-v1.x' };
+    const missing = productionConfigReport('worker', sealed).problems.join('\n');
+    expect(missing).toContain('INRP2P_CUSTODY_KEK_ID is required');
+    expect(missing).toContain('INRP2P_CUSTODY_KMS_KEY_ARN is required');
+    const complete = { ...sealed, INRP2P_CUSTODY_KEK_ID: 'custody-v1', INRP2P_CUSTODY_KMS_KEY_ARN: 'arn:aws:kms:ap-south-1:123456789012:key/abc' };
+    expect(productionConfigReport('worker', complete).problems).toEqual([]);
+    expect(productionConfigReport('worker', { ...complete, INRP2P_CUSTODY_KEK_PROVIDER: 'local' }).problems.join('\n')).toContain('must be aws-kms');
+  });
+
   it('says out loud what runs at reduced service', () => {
     const one = productionConfigReport('worker', { ...COMPLETE, INRP2P_TRON_SECONDARY_URL: '', INRP2P_TRON_SECONDARY_GROUP: '', INRP2P_RECEIPTS_BUCKET: '' });
     expect(one.problems).toEqual([]);

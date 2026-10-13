@@ -50,6 +50,7 @@ const quote = {
   sentAt: null,
   expiresAt: LATER,
   status: 'SENT' as const,
+  networkFeeIncluded: null,
 };
 const view = (over: Partial<ExchangeView>): ExchangeView => ({ destinations: both, request: null, quote: null, openTradeRef: null, ...over });
 

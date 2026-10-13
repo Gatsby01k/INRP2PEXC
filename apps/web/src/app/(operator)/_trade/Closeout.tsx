@@ -7,6 +7,7 @@ import { Button, StepUpMark, UTRField, normalizeUtr } from '@inrp2p/ui';
 import {
   approveAdjustmentAction, cancelTradeAction, confirmRefundLegAction, createRefundLegAction, openTradeExceptionAction, refundAndCancelAction, refundExcessAction, rejectAdjustmentAction,
 } from '../../../server/actions/desk.ts';
+import { approveRefundSendAction } from '../../../server/actions/network.ts';
 import { useCommand } from '../../../components/useCommand.tsx';
 import { PanelSection } from '../_desk/ContextPanel.tsx';
 import { GuardedAction } from '../_desk/GuardedAction.tsx';
@@ -125,7 +126,7 @@ export function Closeout({ trade, perms, refundAccounts }: { trade: DeskTrade; p
           {refundLegs.length > 0 ? (
             <ul className={t.legs}>
               {refundLegs.map((leg) => (
-                <RefundLeg key={leg.id} leg={leg} tradeRef={trade.ref} perms={perms} />
+                <RefundLeg key={leg.id} leg={leg} trade={trade} perms={perms} />
               ))}
             </ul>
           ) : null}
@@ -233,13 +234,20 @@ function ExcessRefund({ trade, perms, refundAccounts }: { trade: DeskTrade; perm
   );
 }
 
-function RefundLeg({ leg, tradeRef, perms }: { leg: DeskTrade['legs'][number]; tradeRef: string; perms: TradePerms }) {
+function RefundLeg({ leg, trade, perms }: { leg: DeskTrade['legs'][number]; trade: DeskTrade; perms: TradePerms }) {
+  const tradeRef = trade.ref;
   const cmd = useCommand();
   const [utr, setUtr] = useState('');
   const [hash, setHash] = useState('');
   const mine = leg.createdBy === perms.meId;
   const pending = leg.status === 'PENDING' || leg.status === 'PROCESSING';
   const evidence = leg.asset === 'INR' ? normalizeUtr(utr).length >= 6 : hash.replace(/^0x/, '').length >= 64;
+  // A refund whose USDT sits at an address the exchange's signer holds is not confirmed by hash: approving it sends it.
+  const signer = leg.status === 'PENDING' ? trade.network?.signerRefunds.find((r) => r.legId === leg.id) : undefined;
+  const traderFunded = trade.network !== null && trade.network.funder !== 'Platform';
+  const [bearer, setBearer] = useState<'TRADER' | 'PLATFORM'>(traderFunded ? 'TRADER' : 'PLATFORM');
+  const [toWalletId, setToWalletId] = useState(trade.destinationOptions.refundWallets[0]?.id ?? '');
+  const sending = trade.network?.sends.find((x) => x.purpose === 'REFUND' && x.status !== 'CANCELLED' && x.status !== 'CONFIRMED');
   return (
     <li className={t.leg} {...(pending ? { 'data-attention': '' } : {})}>
       <div className={t.legHead}>
@@ -252,13 +260,47 @@ function RefundLeg({ leg, tradeRef, perms }: { leg: DeskTrade['legs'][number]; t
           planned by <strong>{mine ? 'you' : leg.createdByLabel}</strong> · {dateTime(leg.createdAt)}
         </span>
       </div>
-      {pending ? (
+      {leg.status === 'PROCESSING' && sending ? (
+        <Notice icon="clock">
+          The signer is sending it ({sending.ref}): it completes when TRON makes the transfer final. It cannot be sent twice.
+        </Notice>
+      ) : pending ? (
         <div className={t.legNext}>
-          <span className={t.legNextLabel}>Next · a second person confirms it</span>
+          <span className={t.legNextLabel}>Next · a second person {signer ? 'approves and the signer sends it' : 'confirms it'}</span>
           {mine ? (
             <Notice tone="warning" icon="shield">
-              You planned this refund, so someone else must confirm it (SECURITY §4).
+              You planned this refund, so someone else must {signer ? 'approve' : 'confirm'} it (SECURITY §4).
             </Notice>
+          ) : perms.approveRefund && signer ? (
+            <>
+              <Choices
+                legend="Who bears its network fee"
+                value={bearer}
+                onChange={setBearer}
+                choices={[
+                  { value: 'TRADER', title: 'The trader', description: 'Its side was not completed: the TRX comes from its deposit and is not paid back.', disabled: !traderFunded },
+                  { value: 'PLATFORM', title: 'The platform', description: 'A desk route, or the exchange’s own mistake: the platform carries it.' },
+                ]}
+              />
+              {!signer.destinationSet ? (
+                <SelectField label="Back to — the client’s sending wallet" value={toWalletId} onChange={setToWalletId} options={trade.destinationOptions.refundWallets.map((w) => ({ value: w.id, label: w.label }))} />
+              ) : null}
+              <GuardedAction
+                label="Approve and send"
+                trigger="primary"
+                stepUp
+                reasonLabel="Reason"
+                disabled={cmd.busy || (!signer.destinationSet && !toWalletId)}
+                disabledReason={!signer.destinationSet && !toWalletId ? 'The client has no active sending wallet registered.' : null}
+                consequence={<>The signer sends {money(leg.amount, 'USDT', { exact: true })} back to the client from the trade’s deposit address, once. The client never pays its network fee.</>}
+                busy={cmd.busy}
+                onConfirm={async (reason) =>
+                  (await cmd.run(`Approve and send refund ${money(leg.amount, leg.asset)} on ${tradeRef}`, (key) =>
+                    approveRefundSendAction({ legId: leg.id, bearer, reason, ...(signer.destinationSet ? {} : { toWalletId }) }, key),
+                  )).ok
+                }
+              />
+            </>
           ) : perms.approveRefund ? (
             <>
               {leg.asset === 'INR' ? <UTRField value={utr} onChange={setUtr} label="Refund UTR / reference" /> : <TextField label="Refund transaction hash" value={hash} onChange={(v) => setHash(v.trim())} mono />}
@@ -280,7 +322,7 @@ function RefundLeg({ leg, tradeRef, perms }: { leg: DeskTrade['legs'][number]; t
               </div>
             </>
           ) : (
-            <Notice>Confirming a refund needs the owner or finance role.</Notice>
+            <Notice>{signer ? 'Approving a refund needs the owner or finance role.' : 'Confirming a refund needs the owner or finance role.'}</Notice>
           )}
         </div>
       ) : null}

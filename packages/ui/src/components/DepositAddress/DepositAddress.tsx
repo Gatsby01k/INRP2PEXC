@@ -13,8 +13,13 @@ export interface DepositAddressProps {
   amount?: Money<'USDT'> | null;
   network: 'TRC20';
   tradeRef: string;
-  /** What the address belongs to: a client's trade (the default), a trader's order, or a trader's Security Reserve. */
-  purpose?: 'trade' | 'order' | 'reserve';
+  /**
+   * What the address belongs to: a client's trade (the default), a trader's order, a trader's Security Reserve, or a
+   * trader's TRX network deposit (ADR 0017) — the one purpose that is not USDT.
+   */
+  purpose?: 'trade' | 'order' | 'reserve' | 'network';
+  /** For the network deposit, which is TRX: what is still needed, already formatted. */
+  amountText?: string | null;
   showQr?: boolean;
   /** Drawn as a surface of its own (the default), or without one, inside a surface the page already draws. */
   framed?: boolean;
@@ -36,17 +41,23 @@ const WORDING = {
     address: (network: string) => `To this ${network} address, for your Security Reserve only`,
     warning: 'Only USDT sent from your registered wallet is credited to your reserve. Another asset or another network is not.',
   },
+  network: {
+    amount: 'At least',
+    address: () => 'To this TRON address, for your network deposit only',
+    warning: 'Only TRX sent from your registered wallet is credited to your network deposit. USDT or any token sent here is not.',
+  },
 } as const;
 
-export function DepositAddress({ address, amount, network, tradeRef, purpose = 'trade', showQr = true, framed = true }: DepositAddressProps) {
+export function DepositAddress({ address, amount, amountText, network, tradeRef, purpose = 'trade', showQr = true, framed = true }: DepositAddressProps) {
   const words = WORDING[purpose];
+  const shown = purpose === 'network' ? (amountText ?? null) : amount ? formatUsdt(amount, { precision: 'exact' }) : null;
   return (
     <section className={framed ? styles.root : `${styles.root} ${styles.bare}`} aria-label="Deposit instructions">
-      {amount ? (
+      {shown ? (
         <div className={styles.row}>
           <span className={styles.caption}>{words.amount}</span>
           <span className={styles.amount}>
-            <span className="ix-num">{formatUsdt(amount, { precision: 'exact' })}</span>
+            <span className="ix-num">{shown}</span>
           </span>
         </div>
       ) : null}
@@ -59,7 +70,7 @@ export function DepositAddress({ address, amount, network, tradeRef, purpose = '
         </div>
       </div>
       <p className={styles.warning}>
-        <strong>USDT on TRON (TRC20) only.</strong> {words.warning}
+        <strong>{purpose === 'network' ? 'TRX on TRON only.' : 'USDT on TRON (TRC20) only.'}</strong> {words.warning}
       </p>
     </section>
   );

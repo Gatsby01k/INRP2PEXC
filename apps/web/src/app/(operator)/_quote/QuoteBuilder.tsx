@@ -1,9 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Money, Rate, computeTradeEconomics } from '@inrp2p/kernel';
+import { Money, Rate, computeTradeEconomics, formatTrx, trxToInrMinor } from '@inrp2p/kernel';
 import type { DeskRequest, QuoteRouteOption } from '@inrp2p/desk';
-import { Button, CopyButton, StepUpMark } from '@inrp2p/ui';
+import { Button, CopyButton } from '@inrp2p/ui';
 import { createAndSendQuoteAction, declineRequestAction, withdrawRequestAction } from '../../../server/actions/desk.ts';
 import { assignRequestAction } from '../../../server/actions/traders-desk.ts';
 import { useCommand } from '../../../components/useCommand.tsx';
@@ -11,7 +11,7 @@ import { useHotkey } from '../../../components/useHotkey.ts';
 import { Age, Ago } from '../_desk/clock.tsx';
 import { PanelSection } from '../_desk/ContextPanel.tsx';
 import { GuardedAction } from '../_desk/GuardedAction.tsx';
-import { Checkbox, Choices, RateField, TextArea } from '../_desk/fields.tsx';
+import { Checkbox, Choices, RateField } from '../_desk/fields.tsx';
 import { inr, money, rate, rateDelta, time, usdt } from '../_desk/format.ts';
 import { Icon } from '../_desk/icons.tsx';
 import { Chip, KeyValues, Kbd, Notice } from '../_desk/ui.tsx';
@@ -34,6 +34,7 @@ const EXCLUSION_TEXT: Record<string, string> = {
   DESTINATIONS_INACTIVE: 'settlement details inactive', ASSIGNMENTS_DISABLED: 'assignments off', NO_SIDE: 'side not offered', NO_RATE: 'no rate',
   NO_LIMITS: 'no order size', BLOCK_PAUSED: 'side paused', NO_CAPACITY: 'no capacity', BELOW_MINIMUM: 'below their minimum', ABOVE_MAXIMUM: 'above their maximum',
   NOT_ENOUGH_CAPACITY: 'not enough capacity', ALREADY_OFFERED: 'already declined or let lapse', OWN_REQUEST: 'own request',
+  NETWORK_DEPOSIT_SHORT: 'network deposit short of TRX', NETWORK_FEES_UNKNOWN: 'network fees not current',
 };
 
 /**
@@ -56,7 +57,6 @@ export function QuoteBuilder({ request, perms, linkBase, autoFocus = false }: { 
   const [routeId, setRouteId] = useState(usable[0]?.routeId ?? '');
   const [clientRate, setClientRate] = useState(request.targetRate ? trimRate(request.targetRate) : '');
   const [withLink, setWithLink] = useState(true);
-  const [reason, setReason] = useState('');
   const [link, setLink] = useState<string | null>(null);
   const open = request.status === 'OPEN';
 
@@ -78,22 +78,33 @@ export function QuoteBuilder({ request, perms, linkBase, autoFocus = false }: { 
     }
   }, [clientRate, route?.rate, request.amount, request.direction, request.fixedSide]);
 
+  // ADR 0017 §1: the client's rate also pays the trader's reward and the network fee of the trade's transfer, valued at
+  // this rate with the kernel's own function — the command refuses a quote that leaves less than the minimum.
+  const net = useMemo(() => {
+    if (!preview || !request.network) return null;
+    const fee = trxToInrMinor(BigInt(request.network.feeSun), BigInt(request.network.usdtPerTrxMicro), Rate.parse(clientRate, 'CLIENT').micro, 'UP');
+    const reward = traderOption !== null && routeId === traderOption.routeId && request.network.liveRewardMinor !== null ? BigInt(request.network.liveRewardMinor) : 0n;
+    const netMinor = preview.grossMargin.minor - reward - fee;
+    const min = BigInt(request.network.minNetMarginMinor);
+    return { fee, reward, netMinor, min, short: min - netMinor };
+  }, [preview, request.network, clientRate, traderOption, routeId]);
   const negative = preview?.grossMargin.isNegative() ?? false;
+  const unprofitable = net !== null && net.netMinor < net.min;
   const counter = request.targetRate !== null && preview !== null && Rate.parse(clientRate, 'CLIENT').micro !== Rate.parse(request.targetRate, 'CLIENT').micro;
-  const ready = open && Boolean(preview) && !cmd.busy && !(negative && reason.trim().length < 10);
+  const ready = open && Boolean(preview) && net !== null && !unprofitable && !cmd.busy;
 
   const sendQuote = useCallback(() => {
     void cmd
       .run(`Send ${counter ? 'counter ' : ''}quote to ${request.clientName}`, (key) =>
         createAndSendQuoteAction(
-          { requestId: request.requestId, routeId, clientRate, validitySeconds: withLink ? LINK_VALIDITY : IN_APP_VALIDITY, withLink, ...(negative ? { negativeMarginReason: reason.trim() } : {}) },
+          { requestId: request.requestId, routeId, clientRate, validitySeconds: withLink ? LINK_VALIDITY : IN_APP_VALIDITY, withLink },
           key,
         ),
       )
       .then((r) => {
         if (r.ok) setLink(r.result.link);
       });
-  }, [cmd, counter, request.clientName, request.requestId, routeId, clientRate, withLink, negative, reason]);
+  }, [cmd, counter, request.clientName, request.requestId, routeId, clientRate, withLink]);
   const send = ready ? sendQuote : null;
   useHotkey(scope, 'q', send);
 
@@ -183,30 +194,48 @@ export function QuoteBuilder({ request, perms, linkBase, autoFocus = false }: { 
                 <span className={t.econValue}>{rateDelta(route.rate, clientRate).text.replace(/^[+−±]/, '')}</span>
                 <span className={t.econSub}>per USDT</span>
               </div>
-              <div className={t.econItem} data-kind="margin" {...(negative ? { 'data-negative': '' } : {})}>
-                <span className={t.econLabel}>Expected margin</span>
+              <div className={t.econItem} {...(negative ? { 'data-negative': '' } : {})}>
+                <span className={t.econLabel}>Gross margin</span>
                 <span className={t.econValue}>{inr(preview.grossMargin.toDecimalString(), { sign: true })}</span>
                 <span className={t.econSub}>computed, not typed</span>
               </div>
+              {net && request.network ? (
+                <>
+                  <div className={t.econItem}>
+                    <span className={t.econLabel}>Reward + network</span>
+                    <span className={t.econValue}>{inr(Money.ofMinor(-(net.reward + net.fee), 'INR').toDecimalString(), { sign: true })}</span>
+                    <span className={t.econSub}>
+                      {net.reward > 0n ? `reward ${inr(Money.ofMinor(net.reward, 'INR').toDecimalString())} · ` : ''}network {inr(Money.ofMinor(net.fee, 'INR').toDecimalString())} ({formatTrx(BigInt(request.network.feeSun)).replace(/\.?0+$/, '')} TRX)
+                    </span>
+                  </div>
+                  <div className={t.econItem} data-kind="margin" {...(unprofitable ? { 'data-negative': '' } : {})}>
+                    <span className={t.econLabel}>Net margin</span>
+                    <span className={t.econValue}>{inr(Money.ofMinor(net.netMinor, 'INR').toDecimalString(), { sign: true })}</span>
+                    <span className={t.econSub}>minimum {inr(Money.ofMinor(net.min, 'INR').toDecimalString())}</span>
+                  </div>
+                </>
+              ) : null}
             </div>
           ) : (
             <Notice>Enter a client rate to see what the client gets and what the desk makes.</Notice>
           )}
 
-          {negative ? (
+          {preview && !request.network ? (
+            <Notice tone="danger" role="alert">
+              The exchange has no current TRON fee figures or TRX price, so no quote can carry its network fee. Publish the TRX price on Network; the worker refreshes fees every 10 minutes.
+            </Notice>
+          ) : unprofitable && net ? (
             <div className={d.guard} data-tone="danger">
-              <p className={d.guardTitle}>This quote loses money</p>
+              <p className={d.guardTitle}>This rate does not pay for the trade</p>
               <p className={d.guardBody}>
-                The client rate is on the wrong side of the route rate. Sending it needs the negative-margin permission, your authenticator, and a reason the
-                audit trail keeps.
+                After the {net.reward > 0n ? 'trader’s reward and the ' : ''}network fee it leaves {inr(Money.ofMinor(net.netMinor, 'INR').toDecimalString())}, {inr(Money.ofMinor(net.short, 'INR').toDecimalString())} short of the minimum. Move the rate {sell ? 'down' : 'up'}: the network fee and the reward are inside the client’s price, never added on top.
               </p>
-              <TextArea label="Why send a negative margin?" value={reason} onChange={setReason} placeholder="At least 10 characters" />
             </div>
           ) : null}
 
           <Checkbox label={`Create a shareable link (valid ${withLink ? '3:00' : '1:30 in app'})`} checked={withLink} onChange={setWithLink} />
 
-          <Button intent="primary" fullWidth shortcut={negative ? <StepUpMark label="needs your authenticator code" /> : 'Q'} disabled={!send} loading={cmd.busy} onClick={() => send?.()}>
+          <Button intent="primary" fullWidth shortcut="Q" disabled={!send} loading={cmd.busy} onClick={() => send?.()}>
             {counter ? 'Send counter' : 'Send quote'}
           </Button>
         </PanelSection>

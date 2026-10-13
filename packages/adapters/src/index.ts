@@ -12,3 +12,6 @@ export * from './object-store.ts';
 export * from './production.ts';
 export * from './field-config.ts';
 export * from './rewrap.ts';
+export * from './tron-tx.ts';
+export * from './hd-wallet.ts';
+export * from './tron-send.ts';

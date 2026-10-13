@@ -36,6 +36,18 @@
       "AllowedPattern": "^[A-Za-z0-9_-]{1,64}$",
       "Description": "INRP2P_KEK_ID: the name every sealed value records for this KMS key."
     },
+    "CustodyKeyArn": {
+      "Type": "String",
+      "Default": "",
+      "AllowedPattern": "^$|^arn:aws[a-z-]*:kms:[a-z0-9-]+:[0-9]{12}:key/[0-9a-f-]{36}$",
+      "Description": "INRP2P_CUSTODY_KMS_KEY_ARN (ADR 0017): a KMS key of its own, made by the owner, that wraps only the custody seed. Empty until it exists: the worker then signs nothing. The task role may only Decrypt with it, under the custody-seed context; sealing the seed (scripts/custody-seed.ts) is done once by the owner's own credentials."
+    },
+    "CustodyKekId": {
+      "Type": "String",
+      "Default": "custody-v1",
+      "AllowedPattern": "^[A-Za-z0-9_-]{1,64}$",
+      "Description": "INRP2P_CUSTODY_KEK_ID: the name the sealed custody seed records for that key."
+    },
     "AuditSealRetentionDays": {
       "Type": "Number",
       "Default": 3650,
@@ -116,6 +128,18 @@
           "Ref": "CreateGitHubOidcProvider"
         },
         "true"
+      ]
+    },
+    "HasCustodyKey": {
+      "Fn::Not": [
+        {
+          "Fn::Equals": [
+            {
+              "Ref": "CustodyKeyArn"
+            },
+            ""
+          ]
+        }
       ]
     }
   },
@@ -210,7 +234,7 @@
       "Properties": {
         "Name": "inrp2p/worker",
         "Description": "The worker's secrets, one JSON object. Fill every SET-ME in the console (Secrets Manager → inrp2p/worker → Retrieve → Edit) before the worker starts; values never go in the template or in chat.",
-        "SecretString": "{\"WORKER_DATABASE_URL\":\"SET-ME\",\"RESEND_API_KEY\":\"SET-ME\",\"INRP2P_FIELD_HMAC_BASE64\":\"SET-ME\",\"INRP2P_TRON_PRIMARY_KEY\":\"\"}"
+        "SecretString": "{\"WORKER_DATABASE_URL\":\"SET-ME\",\"RESEND_API_KEY\":\"SET-ME\",\"INRP2P_FIELD_HMAC_BASE64\":\"SET-ME\",\"INRP2P_TRON_PRIMARY_KEY\":\"\",\"INRP2P_CUSTODY_SEED_SEALED\":\"\"}"
       }
     },
     "WorkerLogs": {
@@ -272,7 +296,7 @@
     "WorkerTaskRole": {
       "Type": "AWS::IAM::Role",
       "Properties": {
-        "Description": "What the worker itself may do: wrap and unwrap field data keys under the application's context, and write and read audit seals.",
+        "Description": "What the worker itself may do: wrap and unwrap field data keys under the application's context, unwrap the custody seed (when its key exists), and write and read audit seals.",
         "AssumeRolePolicyDocument": {
           "Version": "2012-10-17",
           "Statement": [
@@ -309,6 +333,37 @@
                 }
               ]
             }
+          },
+          {
+            "Fn::If": [
+              "HasCustodyKey",
+              {
+                "PolicyName": "custody-seed",
+                "PolicyDocument": {
+                  "Version": "2012-10-17",
+                  "Statement": [
+                    {
+                      "Effect": "Allow",
+                      "Action": [
+                        "kms:Decrypt"
+                      ],
+                      "Resource": {
+                        "Ref": "CustodyKeyArn"
+                      },
+                      "Condition": {
+                        "StringEquals": {
+                          "kms:EncryptionContext:app": "inrp2p",
+                          "kms:EncryptionContext:purpose": "custody-seed"
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "Ref": "AWS::NoValue"
+              }
+            ]
           },
           {
             "PolicyName": "audit-seals",
@@ -454,6 +509,22 @@
                 }
               },
               {
+                "Name": "INRP2P_CUSTODY_KEK_PROVIDER",
+                "Value": "aws-kms"
+              },
+              {
+                "Name": "INRP2P_CUSTODY_KEK_ID",
+                "Value": {
+                  "Ref": "CustodyKekId"
+                }
+              },
+              {
+                "Name": "INRP2P_CUSTODY_KMS_KEY_ARN",
+                "Value": {
+                  "Ref": "CustodyKeyArn"
+                }
+              },
+              {
                 "Name": "INRP2P_OBJECT_STORE_REGION",
                 "Value": {
                   "Ref": "AWS::Region"
@@ -541,6 +612,12 @@
                 "Name": "INRP2P_TRON_PRIMARY_KEY",
                 "ValueFrom": {
                   "Fn::Sub": "${WorkerSecret}:INRP2P_TRON_PRIMARY_KEY::"
+                }
+              },
+              {
+                "Name": "INRP2P_CUSTODY_SEED_SEALED",
+                "ValueFrom": {
+                  "Fn::Sub": "${WorkerSecret}:INRP2P_CUSTODY_SEED_SEALED::"
                 }
               }
             ],

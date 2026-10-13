@@ -19,7 +19,8 @@
     "@inrp2p/settlement": "workspace:*",
     "kysely": "0.29.6",
     "@inrp2p/traders": "workspace:*",
-    "@inrp2p/scanner": "workspace:*"
+    "@inrp2p/scanner": "workspace:*",
+    "@inrp2p/network": "workspace:*"
   },
   "devDependencies": {
     "@inrp2p/adapters": "workspace:*",

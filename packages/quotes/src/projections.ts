@@ -18,6 +18,11 @@ export interface ClientQuoteView {
   readonly sentAt: string | null;
   readonly expiresAt: string | null;
   readonly status: 'SENT' | 'ACCEPTED' | 'EXPIRED' | 'REJECTED' | 'CANCELLED';
+  /**
+   * The TRC20 network fee the rate already includes (ADR 0017) — said so the client knows nothing is deducted on top:
+   * what it receives is exactly the quoted amount. Null for a quote priced before network fees existed.
+   */
+  readonly networkFeeIncluded: { readonly amount: string; readonly currency: 'INR' } | null;
 }
 
 /** Keys that must never appear anywhere in client-facing JSON (checked by tests on every client response). */
@@ -65,6 +70,8 @@ export async function toClientQuoteView(ex: Executor, quoteId: string): Promise<
     sentAt: q.sent_at ? q.sent_at.toISOString() : null,
     expiresAt: q.expires_at ? q.expires_at.toISOString() : null,
     status: q.status as Exclude<QuoteStatus, 'DRAFT'>,
+    networkFeeIncluded: await ex.selectFrom('quote_network_fee').select('fee_inr_minor').where('quote_id', '=', quoteId).executeTakeFirst()
+      .then((f) => (f ? Money.ofMinor(f.fee_inr_minor, 'INR').toJSON() : null)),
   };
   return view;
 }

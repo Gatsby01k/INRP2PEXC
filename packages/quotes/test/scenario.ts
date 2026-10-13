@@ -9,6 +9,7 @@ import { addBankAccount, addWallet, createClient, linkClientUser, setCanAcceptQu
 import { createRoute, configureRoute } from '@inrp2p/routes';
 import { publishRouteRate } from '@inrp2p/pricing';
 import { importPoolAddresses, recordCustodyCapability, registerTreasuryWallet } from '@inrp2p/treasury';
+import { fundBudget, seedNetworkCosts } from '@inrp2p/network/testing';
 import type { QuoteDeps } from '../src/index.ts';
 
 export const ipHash = (ip = '203.0.113.9') => createHash('sha256').update(ip).digest('hex');
@@ -91,6 +92,11 @@ export async function createScenario(label: string, opts: { custody?: 'POOL' | '
     await runAs(t.app, recordCustodyCapability(finance.actor), finance.ref, 'custody.record_capability', { provider: custody.provider, network: 'TRON' as const, capability: 'POOL' as const, consolidationNotes: 'Provider sweeps to the hot wallet; energy delegated.' });
     await runAs(t.app, importPoolAddresses(finance.actor, custody), finance.ref, 'custody.import_pool_addresses', { network: 'TRON' as const, treasuryWalletId: pool.walletId });
   }
+
+  // What the chain charges, a TRX price, and the platform's network budget for desk routes (ADR 0017): every world
+  // can price a quote and accept a trade, as production can once the worker has read the chain.
+  await seedNetworkCosts(t.app);
+  await fundBudget(t.app, { traderId: null, amountSun: 1_000_000_000_000n, from: encodeTronAddress(randomBytes(20)) });
 
   const acceptor = await person(t, owner, client.clientId, { canAccept: true, role: 'CLIENT_ADMIN' });
   const viewer = await person(t, owner, client.clientId, { canAccept: false });

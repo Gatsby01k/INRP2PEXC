@@ -6,10 +6,13 @@ import {
   type ApplyPayload, type ProposeSettlementPayload, acceptOrder, applyAsTrader, cancelReserveWithdrawal, declineOrder, orderDeliveryAddress, proposeSettlementChange,
   type ClaimedDeposit, claimReserveDeposit, requestReserveWithdrawal, setAvailability, submitOrderPayment, updateBlock,
 } from '@inrp2p/traders';
+import { cancelNetworkWithdrawal, claimNetworkDeposit, requestNetworkWithdrawal } from '@inrp2p/network';
+import type { TrxTransferFacts } from '@inrp2p/adapters';
+import { DomainError } from '@inrp2p/kernel';
 import { hitRateLimit } from '@inrp2p/commands';
 import { type CommandResult, failure } from '../command.ts';
 import { runWorkspaceCommand, workspaceContext } from '../client.ts';
-import { chainForWeb } from '../chain.ts';
+import { chainForWeb, sendNetworkForWeb } from '../chain.ts';
 
 /**
  * What a trader can do, as server actions. Each one runs a trader command as the signed-in person: the client comes
@@ -89,4 +92,32 @@ export async function requestWithdrawalAction(input: { amount: string }, key: st
 
 export async function cancelWithdrawalAction(input: { ref: string }, key: string): Promise<CommandResult<unknown>> {
   return run('trader_reserve.cancel_withdrawal', (ctx) => cancelReserveWithdrawal(ctx.actor), input, key);
+}
+
+/**
+ * The hash of a TRX transfer the trader made to the network budget wallet (ADR 0017 §2). Read from the providers
+ * before the command, final or refused; the command credits it only if the trader's registered wallet sent it.
+ */
+export async function claimNetworkDepositAction(input: { txHash: string }, key: string): Promise<CommandResult<{ credited: boolean; amount: string }>> {
+  let facts: TrxTransferFacts;
+  try {
+    const ctx = await workspaceContext();
+    await hitRateLimit(ctx.db, { bucket: 'trader_network_claim', subject: ctx.actor.userId, limit: 10, windowSeconds: 600 });
+    const hash = input.txHash.trim().toLowerCase().replace(/^0x/, '');
+    if (!/^[0-9a-f]{64}$/.test(hash)) throw new DomainError('INVALID_ARGUMENT', 'a transaction hash is 64 hexadecimal characters');
+    const read = await sendNetworkForWeb().trxTransfer(hash);
+    if (read.status !== 'FINAL') throw new DomainError('NETWORK_DEPOSIT_NOT_FOUND', read.status === 'NOT_A_TRX_TRANSFER' ? read.reason : 'TRON has not made this transaction final yet; try again in a minute');
+    facts = read.transfer;
+  } catch (e) {
+    return failure(e);
+  }
+  return run('network_deposit.claim', (ctx) => claimNetworkDeposit(ctx.actor, facts), input, key);
+}
+
+export async function requestNetworkWithdrawalAction(input: { amount: string }, key: string): Promise<CommandResult<{ withdrawalId: string; ref: string }>> {
+  return run('network_withdrawal.request', (ctx) => requestNetworkWithdrawal(ctx.actor), input, key);
+}
+
+export async function cancelNetworkWithdrawalAction(input: { withdrawalId: string }, key: string): Promise<CommandResult<{ status: 'CANCELLED' }>> {
+  return run('network_withdrawal.cancel', (ctx) => cancelNetworkWithdrawal(ctx.actor), input, key);
 }

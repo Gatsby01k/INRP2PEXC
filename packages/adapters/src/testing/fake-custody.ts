@@ -30,7 +30,7 @@ export class FakeCustodyAdapter implements CustodyAdapter {
     return { depositAddress: this.capability };
   }
 
-  async allocateDepositAddress(_network: CustodyNetwork, _tradeRef: string): Promise<ProvidedDepositAddress> {
+  async allocateDepositAddress(_network: CustodyNetwork, _tradeRef: string, _sequence?: bigint): Promise<ProvidedDepositAddress> {
     if (this.capability !== 'DERIVED') throw new DomainError('CUSTODY_CAPABILITY_MISMATCH', `fake provider is ${this.capability}`);
     return this.addressAt(this.#nextIndex++);
   }

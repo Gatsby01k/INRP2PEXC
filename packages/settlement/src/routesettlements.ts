@@ -34,6 +34,11 @@ export interface RecordRouteSettlementPayload {
    * where a counterparty-funded trade's client funds are.
    */
   readonly sourceDepositAddressId?: string | null;
+  /**
+   * The exchange's signer made this payment (ADR 0017): the earmark on the client's funds was taken when the send was
+   * planned, and the movement is that send's confirmed transaction.
+   */
+  readonly chainSendId?: string | null;
 }
 
 const sideOfFlow = (flow: RouteSettlementFlow): ObligationSide => (flow === 'TO_ROUTE' ? 'EXCHANGE_DELIVERS' : 'ROUTE_DELIVERS');
@@ -118,10 +123,14 @@ export async function recordRouteSettlementInTx(ctx: TxContext, deps: Settlement
       payerId: flow === 'TO_ROUTE' ? walletId : route.id,
       payeeType: flow === 'TO_ROUTE' ? 'ROUTE' : 'EXCHANGE_TREASURY',
       payeeId: flow === 'TO_ROUTE' ? route.id : walletId,
-      source: 'OPERATOR_SUBMITTED',
+      source: p.chainSendId ? 'CUSTODY_SIGNER' : 'OPERATOR_SUBMITTED',
     });
     transferKind = 'CRYPTO';
     transferId = movement.transferId;
+    if (p.chainSendId) {
+      // The send records its own transaction before the route settlement that is it (IX110, IX112).
+      await ctx.tx.updateTable('chain_send').set({ crypto_transfer_id: transferId, updated_at: sql<Date>`inrp2p_now()` }).where('id', '=', requireUuid(p.chainSendId, 'chainSendId')).execute();
+    }
   }
 
   const row = await ctx.tx
@@ -136,6 +145,7 @@ export async function recordRouteSettlementInTx(ctx: TxContext, deps: Settlement
       transfer_kind: transferKind,
       fiat_transfer_id: transferKind === 'FIAT' ? transferId : null,
       crypto_transfer_id: transferKind === 'CRYPTO' ? transferId : null,
+      chain_send_id: p.chainSendId ?? null,
       created_by: ctx.actor.id ?? 'SYSTEM',
     })
     .returning(['id', 'ref'])
@@ -161,7 +171,7 @@ export async function recordRouteSettlementInTx(ctx: TxContext, deps: Settlement
       allocated_by: ctx.actor.id ?? 'SYSTEM',
     })
     .execute();
-  if (fundedTrade) {
+  if (fundedTrade && !p.chainSendId) {
     // FI-73: the counterparty is paid with the client's money of this trade, from where that money is.
     const movement = transferKind === 'FIAT'
       ? inrLocation((await ctx.tx.selectFrom('fiat_transfer').select('payer_id').where('id', '=', transferId).executeTakeFirstOrThrow()).payer_id)
@@ -258,7 +268,9 @@ export async function confirmRouteSettlementInTx(ctx: TxContext, deps: Settlemen
     });
   }
   if (s.capacity_reservation_id) await consumeReservation(ctx, s.capacity_reservation_id, amount as Money<'INR'>);
-  if (s.flow === 'TO_ROUTE') await settleFunding(ctx, { kind: 'ROUTE_PAYMENT', routeSettlementId: s.id }, 'CONSUMED', `route settlement ${s.ref} confirmed`);
+  if (s.flow === 'TO_ROUTE') {
+    await settleFunding(ctx, s.chain_send_id ? { kind: 'ROUTE_PAYMENT', chainSendId: s.chain_send_id } : { kind: 'ROUTE_PAYMENT', routeSettlementId: s.id }, 'CONSUMED', `route settlement ${s.ref} confirmed`);
+  }
   const allocated = await allocateToObligation(ctx, { obligation, side, routeSettlementId: s.id, amount });
   await appendAudit(ctx, {
     action: 'route_settlement.confirmed', entityType: 'route_settlement', entityId: s.id,

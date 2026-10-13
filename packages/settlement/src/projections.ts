@@ -33,7 +33,10 @@ export async function getClientSettlementView(ex: Executor, tradeId: string, cli
   const { payout } = await effectiveObligations(ex, trade.id);
   const totals = await legTotals(ex, trade.id);
   const rows = await sql<{ ref: string; amount_minor: bigint; status: string; utr: string | null; tx_hash: string | null; confirmed_at: Date | null }>`
-    select l.ref, l.amount_minor, l.status, f.utr, c.tx_hash, l.confirmed_at
+    select l.ref, l.amount_minor, l.status, f.utr, l.confirmed_at,
+           -- A USDT payout the exchange's signer is sending shows its transaction as soon as a node took it (ADR 0017).
+           coalesce(c.tx_hash, (select t.txid from chain_send s join chain_send_attempt t on t.send_id = s.id and t.status in ('BROADCAST', 'CONFIRMED')
+                                 where s.settlement_leg_id = l.id order by t.seq desc limit 1)) as tx_hash
     from settlement_leg l
     left join transfer_allocation a on a.settlement_leg_id = l.id and a.voided_at is null
     left join fiat_transfer f on f.id = a.fiat_transfer_id

@@ -7,7 +7,10 @@ import { traderRoutingHandler } from '@inrp2p/traders';
 import { acceptanceCodeHandler } from '@inrp2p/quotes';
 import { receiptHandler } from '@inrp2p/reporting';
 import { destinationArchivedHandler } from '@inrp2p/settlement';
-import { CRONTAB, buildTaskList, quoteExpiryScheduler, recordHeartbeat } from './tasks.ts';
+import { CRONTAB, buildTaskList, onchainWakeup, quoteExpiryScheduler, recordHeartbeat } from './tasks.ts';
+import { TronSendNetwork } from '@inrp2p/adapters';
+import { signerFromEnv } from '@inrp2p/adapters/signer';
+import type { OnchainDeps } from '@inrp2p/onchain';
 import { UNCONFIGURED_PROTECTOR, auditArchiveFromEnv, chainMonitoringFromEnv, chainMonitoringReady, describeChainMonitoring, fieldProtectorFromEnv, receiptStorageFromEnv } from './config.ts';
 
 // E3: in production the worker starts only on a complete production configuration — names of what is missing are
@@ -91,6 +94,27 @@ if (auditArchive) {
   console.warn('audit seals: not exported — every copy of the seal chain is in this database (TD-17)');
 }
 
+// ADR 0017: the exchange's own signer. Its seed is opened from the sealed value with the custody key; it must be the
+// seed of the HD account the database recorded — a worker with another seed would sign for addresses nobody issued,
+// so it refuses to start. Without a seed nothing is signed and every send waits, visibly.
+const signer = await signerFromEnv(process.env);
+let rails: OnchainDeps | undefined;
+{
+  const account = await db.selectFrom('custody_hd_account').selectAll().executeTakeFirst();
+  if (signer && account && (signer.accountXpub !== account.account_xpub || signer.feeWalletAddress !== account.fee_wallet_address)) {
+    console.error('refusing to start: the custody seed is not the seed of the HD account the database recorded (custody_hd_account)');
+    signer.close();
+    await pool.end();
+    process.exit(1);
+  }
+  if (account && !signer) console.warn('custody signer: not configured — deposit addresses are issued, but nothing is signed: USDT payouts wait (INRP2P_CUSTODY_SEED_SEALED)');
+  if (signer && !account) console.warn('custody signer: a seed is configured but no HD account is recorded yet (custody.record_hd_account); it signs nothing until then');
+  if (monitoring.config) {
+    rails = { network: new TronSendNetwork(monitoring.config.gateways), signer: signer && account ? signer : null, chain: monitoring.config.chain };
+    console.log(`custody signer: ${signer && account ? `signing for ${account.provider} (budget wallet ${account.fee_wallet_address})` : 'not signing'}`);
+  }
+}
+
 // The heartbeat names this worker and what it runs (states and provider names only), so readiness can tell a stopped
 // worker from a quiet one.
 const identity = {
@@ -103,6 +127,7 @@ const identity = {
     fieldProtection: protector === UNCONFIGURED_PROTECTOR ? 'unconfigured' : 'configured',
     receipts: receipts ? `stored${receipts.pdf ? ' with pdf' : ''}` : 'regenerated',
     auditSeals: auditArchive ? 'exported' : 'not exported',
+    custodySigner: rails?.signer ? 'signing' : 'not signing',
   },
 };
 // The first beat also checks that the database is the one the workers last wrote to: if it was recovered, failed over
@@ -117,12 +142,13 @@ const runner = await run({
   concurrency: 5,
   noHandleSignals: false,
   pollInterval: 2000,
-  taskList: buildTaskList(db, [quoteExpiryScheduler(db), acceptanceCodeHandler(db, { protector }, notifications), clientNotificationHandler(db), traderNotificationHandler(db), traderRoutingHandler(db), receiptHandler(db, receipts), destinationArchivedHandler(db), acknowledgedSignalHandler(), ...emailChannel], {
+  taskList: buildTaskList(db, [quoteExpiryScheduler(db), acceptanceCodeHandler(db, { protector }, notifications), clientNotificationHandler(db), traderNotificationHandler(db), traderRoutingHandler(db), receiptHandler(db, receipts), destinationArchivedHandler(db), acknowledgedSignalHandler(), onchainWakeup(db), ...emailChannel], {
     monitoring,
     ...(monitoring.config ? { scanner: monitoring.config } : {}),
     ...(receipts ? { receipts } : {}),
     heartbeat: identity,
     ...(auditArchive ? { auditArchive } : {}),
+    ...(rails ? { rails } : {}),
   }),
   crontab: CRONTAB,
 });

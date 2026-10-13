@@ -556,12 +556,18 @@ export async function deskNow(ex: Executor): Promise<string> {
 }
 
 /** Counts for the navigation: open cases (and how many hold a trade or block), and decisions waiting for a second person. */
-export async function deskBadges(ex: Executor): Promise<{ readonly openCases: number; readonly blockingCases: number; readonly approvals: number }> {
-  const r = await sql<{ open_cases: string; blocking: string; approvals: string }>`
+export async function deskBadges(ex: Executor): Promise<{ readonly openCases: number; readonly blockingCases: number; readonly approvals: number; readonly sendsWaiting: number; readonly sendsBlocked: number }> {
+  const r = await sql<{ open_cases: string; blocking: string; approvals: string; sends_waiting: string; sends_blocked: string }>`
     select (select count(*) from exception_case where status in ('OPEN', 'IN_PROGRESS'))::text as open_cases,
            (select count(*) from exception_case where status in ('OPEN', 'IN_PROGRESS') and severity = 'BLOCKING')::text as blocking,
            ((select count(*) from financial_adjustment where status = 'REQUESTED')
-             + (select count(*) from settlement_leg where side = 'REFUND_TO_CLIENT' and status in ('PENDING', 'PROCESSING')))::text as approvals`.execute(ex);
+             + (select count(*) from settlement_leg l where l.side = 'REFUND_TO_CLIENT' and l.status in ('PENDING', 'PROCESSING')
+                  and not exists (select 1 from chain_send c where c.settlement_leg_id = l.id and c.status <> 'CANCELLED')))::text as approvals,
+           (select count(*) from chain_send where status in ('AWAITING_APPROVAL', 'BLOCKED'))::text as sends_waiting,
+           (select count(*) from chain_send where status = 'BLOCKED')::text as sends_blocked`.execute(ex);
   const row = r.rows[0]!;
-  return { openCases: Number.parseInt(row.open_cases, 10), blockingCases: Number.parseInt(row.blocking, 10), approvals: Number.parseInt(row.approvals, 10) };
+  return {
+    openCases: Number.parseInt(row.open_cases, 10), blockingCases: Number.parseInt(row.blocking, 10), approvals: Number.parseInt(row.approvals, 10),
+    sendsWaiting: Number.parseInt(row.sends_waiting, 10), sendsBlocked: Number.parseInt(row.sends_blocked, 10),
+  };
 }
