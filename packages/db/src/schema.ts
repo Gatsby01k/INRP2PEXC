@@ -1478,6 +1478,9 @@ export interface QuoteNetworkFeeTable {
   sends_priced: number;
   fee_sun: bigint;
   fee_inr_minor: bigint;
+  /** The trader order the quote prices and the reward it counted (IX113): the order starts with exactly these. */
+  trader_order_id: string | null;
+  reward_bps: number | null;
   reward_inr_minor: bigint;
   net_margin_inr_minor: bigint;
   reserve_sends: number;
@@ -1560,6 +1563,8 @@ export interface ChainSendTable {
   to_address: string;
   amount_minor: bigint;
   fee_estimate_sun: Generated<bigint>;
+  /** A USDT send's fixed TRX cap (IX114/IX115); null for a TRX send. */
+  network_cap_sun: bigint | null;
   funder_trader_id: string | null;
   bearer: ChainSendBearer;
   status: ChainSendStatus;

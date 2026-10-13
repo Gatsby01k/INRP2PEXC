@@ -6,7 +6,8 @@ import type { FunderRow, NetworkSendRow, NetworkView, TradeNetworkRow } from '@i
 import { Button, CopyButton } from '@inrp2p/ui';
 import { shortenAddress, shortenHash } from '@inrp2p/ui/format';
 import {
-  approveChainSendAction, cancelChainSendAction, decideNetworkWithdrawalAction, publishTrxRateAction, recordCustodyHdAccountAction, recordNetworkDepositAction, setNetworkFeePolicyAction, unblockChainSendAction,
+  approveChainSendAction, cancelChainSendAction, decideNetworkWithdrawalAction, publishTrxRateAction, raiseChainSendCapAction, recordCustodyHdAccountAction, recordNetworkDepositAction, setNetworkFeePolicyAction,
+  unblockChainSendAction,
 } from '../../../server/actions/network.ts';
 import { useCommand } from '../../../components/useCommand.tsx';
 import { Cell, type Column, DataTable } from '../_desk/DataTable.tsx';
@@ -17,7 +18,31 @@ import { dateTime, inr, usdt } from '../_desk/format.ts';
 import { Chip, Empty, Notice } from '../_desk/ui.tsx';
 import d from '../_desk/desk.module.css';
 
-export function SendsTable({ sends, canApprove, canCancel, me }: { sends: readonly NetworkSendRow[]; canApprove: boolean; canCancel: boolean; me: string }) {
+/**
+ * Raising one transfer's TRX cap: the only way it draws more than was fixed when it was planned. The new cap is typed,
+ * never suggested, and the reason goes to the audit; the trade's hold rises with it if it must.
+ */
+function RaiseCap({ send, busy, run }: { send: NetworkSendRow; busy: boolean; run: ReturnType<typeof useCommand>['run'] }) {
+  const [cap, setCap] = useState('');
+  return (
+    <span className={d.stackTight} style={{ gap: 4 }}>
+      <TextField label="New cap, TRX" value={cap} onChange={setCap} mono placeholder={send.networkCap ?? ''} />
+      <GuardedAction
+        label="Raise TRX cap"
+        stepUp
+        reasonLabel="Why it may cost more"
+        minReason={10}
+        disabled={!isPositiveDecimal(cap)}
+        disabledReason={!isPositiveDecimal(cap) ? `Now ${send.networkCap ? trx(send.networkCap) : '—'}, ${send.networkUsed ? trx(send.networkUsed) : '0 TRX'} drawn.` : null}
+        consequence={<>This transfer may draw up to {trx(cap)} of its trade’s TRX, retries included, and is decided again now. What it costs beyond the price comes out of the platform’s margin.</>}
+        busy={busy}
+        onConfirm={async (reason) => (await run(`Raise the TRX cap of ${send.ref}`, (k) => raiseChainSendCapAction({ sendId: send.id, cap, reason }, k))).ok}
+      />
+    </span>
+  );
+}
+
+export function SendsTable({ sends, canApprove, canCancel, canManage, me }: { sends: readonly NetworkSendRow[]; canApprove: boolean; canCancel: boolean; canManage: boolean; me: string }) {
   const cmd = useCommand();
   const columns: Column<NetworkSendRow>[] = [
     { key: 'ref', header: 'Send', render: (s) => <Cell main={<span className={d.mono}>{s.ref}</span>} sub={PURPOSE[s.purpose] ?? s.purpose} /> },
@@ -26,7 +51,10 @@ export function SendsTable({ sends, canApprove, canCancel, me }: { sends: readon
       header: 'Trade',
       render: (s) => (s.tradeRef ? <Link href={`/orders/${encodeURIComponent(s.tradeRef)}`} className={d.link}>{s.tradeRef}</Link> : <span className={d.muted}>—</span>),
     },
-    { key: 'amount', header: 'Amount', align: 'right', render: (s) => <strong>{s.amount}</strong> },
+    {
+      key: 'amount', header: 'Amount', align: 'right',
+      render: (s) => <Cell main={<strong>{s.amount}</strong>} sub={s.networkCap ? `TRX ${trx(s.networkUsed ?? '0').replace(' TRX', '')} of ${trx(s.networkCap)}` : undefined} />,
+    },
     {
       key: 'route',
       header: 'From → to',
@@ -82,6 +110,7 @@ export function SendsTable({ sends, canApprove, canCancel, me }: { sends: readon
               onConfirm={async () => (await cmd.run(`Approve ${s.ref}`, (k) => approveChainSendAction({ sendId: s.id }, k))).ok}
             />
           ) : null}
+          {s.status === 'BLOCKED' && s.networkCap && canManage ? <RaiseCap send={s} busy={cmd.busy} run={cmd.run} /> : null}
           {s.status === 'BLOCKED' && canCancel ? (
             <GuardedAction
               label="Send again"

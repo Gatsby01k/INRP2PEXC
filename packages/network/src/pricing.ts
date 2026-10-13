@@ -20,6 +20,9 @@ export interface NetworkPricing {
   readonly feeSun: bigint;
   readonly feeInrMinor: bigint;
   readonly rewardInrMinor: bigint;
+  /** The trader order whose reward is counted, and its basis points — frozen with the quote (IX113). */
+  readonly traderOrderId: string | null;
+  readonly rewardBps: number | null;
   readonly grossMarginInrMinor: bigint;
   readonly netMarginInrMinor: bigint;
   readonly minNetMarginInrMinor: bigint;
@@ -30,7 +33,10 @@ export interface NetworkPricing {
 
 export async function priceNetwork(
   ex: Executor,
-  input: { direction: 'SELL_USDT' | 'BUY_USDT'; clientRateMicro: bigint; grossMarginInrMinor: bigint; rewardInrMinor: bigint; funderTraderId: string | null },
+  input: {
+    direction: 'SELL_USDT' | 'BUY_USDT'; clientRateMicro: bigint; grossMarginInrMinor: bigint; funderTraderId: string | null;
+    reward: { readonly orderId: string; readonly bps: number | null; readonly rewardMinor: bigint } | null;
+  },
 ): Promise<NetworkPricing> {
   const { policy, snapshot, rate } = await currentNetworkCosts(ex);
   const feeSun = quoteFeeSun(snapshot, policy);
@@ -47,9 +53,11 @@ export async function priceNetwork(
     sendsPriced: 1,
     feeSun,
     feeInrMinor,
-    rewardInrMinor: input.rewardInrMinor,
+    rewardInrMinor: input.reward?.rewardMinor ?? 0n,
+    traderOrderId: input.reward?.orderId ?? null,
+    rewardBps: input.reward?.bps ?? null,
     grossMarginInrMinor: input.grossMarginInrMinor,
-    netMarginInrMinor: input.grossMarginInrMinor - input.rewardInrMinor - feeInrMinor,
+    netMarginInrMinor: input.grossMarginInrMinor - (input.reward?.rewardMinor ?? 0n) - feeInrMinor,
     minNetMarginInrMinor: policy.minNetMarginInrMinor,
     reserveSends: sends,
     perSendSun: perSend,
@@ -84,6 +92,8 @@ export async function recordQuoteNetworkFee(ctx: TxContext, quoteId: string, p: 
       sends_priced: p.sendsPriced,
       fee_sun: p.feeSun,
       fee_inr_minor: p.feeInrMinor,
+      trader_order_id: p.traderOrderId,
+      reward_bps: p.rewardBps,
       reward_inr_minor: p.rewardInrMinor,
       net_margin_inr_minor: p.netMarginInrMinor,
       reserve_sends: p.reserveSends,
@@ -101,6 +111,8 @@ export interface QuoteNetworkFee {
   readonly feeSun: bigint;
   readonly feeInrMinor: bigint;
   readonly rewardInrMinor: bigint;
+  readonly traderOrderId: string | null;
+  readonly rewardBps: number | null;
   readonly netMarginInrMinor: bigint;
   readonly reserveSends: number;
   readonly reserveSun: bigint;
@@ -111,7 +123,7 @@ export async function quoteNetworkFee(ex: Executor, quoteId: string): Promise<Qu
   if (!r) return null;
   return {
     quoteId: r.quote_id, funderTraderId: r.funder_trader_id, snapshotId: r.snapshot_id, usdtPerTrxMicro: r.usdt_per_trx_micro, feeSun: r.fee_sun,
-    feeInrMinor: r.fee_inr_minor, rewardInrMinor: r.reward_inr_minor, netMarginInrMinor: r.net_margin_inr_minor, reserveSends: r.reserve_sends, reserveSun: r.reserve_sun,
+    feeInrMinor: r.fee_inr_minor, rewardInrMinor: r.reward_inr_minor, traderOrderId: r.trader_order_id, rewardBps: r.reward_bps, netMarginInrMinor: r.net_margin_inr_minor, reserveSends: r.reserve_sends, reserveSun: r.reserve_sun,
   };
 }
 

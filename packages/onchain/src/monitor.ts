@@ -61,8 +61,8 @@ export async function runMonitor(db: Db, deps: OnchainDeps): Promise<MonitorRepo
         }
       }
       if ((outcome.status === 'NOT_FOUND' || outcome.status === 'UNKNOWN') && a.stale && clockOf(deps) < a.expiration.getTime()) {
-        await broadcastAttempt(db, deps, a.id);
-        report.rebroadcast += 1;
+        // Held after a restore: the same bytes wait (broadcastAttempt says no), and nothing else is signed meanwhile.
+        if (await broadcastAttempt(db, deps, a.id)) report.rebroadcast += 1;
       }
       if (outcome.status === 'PENDING') report.pending += 1;
       if (a.aged && outcome.status !== 'PENDING') {
@@ -94,6 +94,10 @@ async function settleFinal(db: Db, deps: OnchainDeps, attemptId: string, outcome
       .execute();
 
     if (!f.success) {
+      // A top-up that failed still burned its fee at the budget wallet: that is the trade's spend, against its send's cap.
+      if (send.purpose === 'TOPUP' && f.feeSun > 0n) {
+        await recordSpent(ctx, { funder: send.funder_trader_id, tradeId: send.trade_id!, attemptId: attempt.id, amountSun: f.feeSun, note: `top-up ${send.ref} failed on chain: ${formatTrx(f.feeSun)} TRX burned` });
+      }
       // Nothing moved but TRX was burned: the send is decided again from what the address now holds — unless it has
       // failed often enough that a person should look first.
       const failed = send.failed_attempts + 1;

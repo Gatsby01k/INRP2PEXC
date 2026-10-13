@@ -1,10 +1,10 @@
 import { sql } from 'kysely';
-import { DomainError, Money, requireOneOf, requireText, requireUuid } from '@inrp2p/kernel';
+import { DomainError, Money, formatTrx, parseTrx, requireOneOf, requireText, requireUuid } from '@inrp2p/kernel';
 import type { TxContext } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
 import { type OperatorActor, operatorCommand } from '@inrp2p/identity';
 import { assertPayoutsOpen, lockTrade } from '@inrp2p/trades';
-import { lockSend, planChainSend, signablePathOf, tradeHold } from '@inrp2p/network';
+import { lockFunder, lockSend, networkAvailable, planChainSend, signablePathOf, tradeHold } from '@inrp2p/network';
 import { enqueueOutbox } from '@inrp2p/outbox';
 import { assertPhysicallyAvailable } from './availability.ts';
 import { confirmPayoutLegInTx, type ConfirmPayoutResult } from './confirm.ts';
@@ -238,5 +238,60 @@ export function unblockChainSend(actor: OperatorActor) {
     await appendAudit(ctx, { action: 'chain_send.unblocked', entityType: 'chain_send', entityId: send.id, before: { status: 'BLOCKED', reason: send.blocked_reason }, after: { status: 'PLANNED', reason } });
     await enqueueOutbox(ctx, { type: 'chain_send.planned', aggregateType: 'chain_send', aggregateId: send.id, payload: { sendId: send.id, status: 'PLANNED' } });
     return { status: 'PLANNED' as const };
+  });
+}
+
+/**
+ * `chain_send.raise_network_cap` — `network:manage` (⧗), with the reason. A send's TRX cap is fixed when it is planned
+ * (the network fee its client's price carried, or one transfer's held cost); gas that rose or attempts that failed stop
+ * it there, blocked. Only a person lets it draw more. If the trade's sends then no longer fit in what the trade holds,
+ * the hold rises by the difference from the same funder's free TRX — said in the audit, and never past what the
+ * funder has (IX108). What the transfer costs beyond its price is the platform's: a trader that fronted it is paid
+ * back when the trade is over, out of realized margin.
+ */
+export function raiseChainSendCap(actor: OperatorActor) {
+  return operatorCommand(actor, 'network:manage', async (ctx, p: { sendId: string; cap: string; reason: string }) => {
+    const reason = requireText(p.reason, 'reason', 500);
+    const peek = await ctx.tx.selectFrom('chain_send').select(['trade_id', 'asset']).where('id', '=', requireUuid(p.sendId, 'sendId')).executeTakeFirst();
+    if (!peek) throw new DomainError('NOT_FOUND', 'send not found');
+    if (peek.asset !== 'USDT' || !peek.trade_id) throw new DomainError('INVALID_ARGUMENT', 'only a USDT transfer of a trade has a TRX cap');
+    await assertPayoutsOpen(ctx.tx);
+    await lockTrade(ctx.tx, peek.trade_id);
+    const send = await lockSend(ctx, p.sendId);
+    if (send.status === 'CONFIRMED' || send.status === 'CANCELLED') throw new DomainError('INVALID_TRANSITION', `send ${send.ref} is ${send.status.toLowerCase()}`);
+    const cap = parseTrx(p.cap);
+    const before = send.network_cap_sun!;
+    if (cap <= before) throw new DomainError('INVALID_ARGUMENT', `the cap of ${send.ref} is ${formatTrx(before)} TRX: it only rises`);
+    const hold = await ctx.tx.selectFrom('network_budget_hold').selectAll().where('trade_id', '=', send.trade_id!).forUpdate().executeTakeFirst();
+    if (!hold || hold.status !== 'ACTIVE') throw new DomainError('NETWORK_BUDGET_INSUFFICIENT', 'this trade holds no network budget any more');
+    const r = await sql<{ others: string; used: string }>`
+      select inrp2p_trade_network_committed(${send.trade_id}::uuid, ${send.id}::uuid)::text as others, inrp2p_send_network_used(${send.id}::uuid)::text as used`.execute(ctx.tx);
+    const used = BigInt(r.rows[0]!.used);
+    const needed = BigInt(r.rows[0]!.others) + (cap > used ? cap : used);
+    let raised = 0n;
+    if (needed > hold.amount_sun) {
+      raised = needed - hold.amount_sun;
+      await lockFunder(ctx, hold.trader_id);
+      const free = await networkAvailable(ctx.tx, hold.trader_id);
+      if (free < raised) {
+        throw new DomainError('NETWORK_BUDGET_INSUFFICIENT', `${hold.trader_id ? "the trader's network deposit" : 'the platform budget'} has ${formatTrx(free > 0n ? free : 0n)} TRX free; raising this cap needs ${formatTrx(raised)} TRX more held for the trade`, {
+          available: formatTrx(free > 0n ? free : 0n), needed: formatTrx(raised),
+        });
+      }
+      await ctx.tx.updateTable('network_budget_hold').set({ amount_sun: needed }).where('id', '=', hold.id).execute();
+    }
+    const unblock = send.status === 'BLOCKED';
+    await ctx.tx
+      .updateTable('chain_send')
+      .set({ network_cap_sun: cap, updated_at: sql<Date>`inrp2p_now()`, ...(unblock ? { status: 'PLANNED' as const, blocked_reason: null, failed_attempts: 0 } : {}) })
+      .where('id', '=', send.id)
+      .execute();
+    await appendAudit(ctx, {
+      action: 'chain_send.network_cap_raised', entityType: 'chain_send', entityId: send.id,
+      before: { cap_trx: formatTrx(before), status: send.status, hold_trx: formatTrx(hold.amount_sun) },
+      after: { cap_trx: formatTrx(cap), status: unblock ? 'PLANNED' : send.status, hold_trx: formatTrx(hold.amount_sun + raised), drawn_trx: formatTrx(used), funder: hold.trader_id ?? 'PLATFORM', reason },
+    });
+    if (unblock) await enqueueOutbox(ctx, { type: 'chain_send.planned', aggregateType: 'chain_send', aggregateId: send.id, payload: { sendId: send.id, status: 'PLANNED' } });
+    return { cap: formatTrx(cap), holdRaised: formatTrx(raised), status: unblock ? ('PLANNED' as const) : send.status };
   });
 }

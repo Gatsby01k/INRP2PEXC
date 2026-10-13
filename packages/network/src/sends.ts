@@ -55,10 +55,64 @@ export interface PlanSendInput {
   readonly approvedBy?: string | null;
 }
 
+/**
+ * After the database changed underneath (FI-54), nothing is planned, approved or signed to leave the exchange's
+ * addresses — TRX no more than USDT. The database refuses the same (IX100); this says so in words first.
+ */
+export async function assertSignerOpen(ex: Executor): Promise<void> {
+  const r = await sql<{ held: boolean; ref: string | null }>`
+    select inrp2p_payouts_held() as held, (select ref from restore_fence where status = 'RAISED' limit 1) as ref`.execute(ex);
+  if (r.rows[0]!.held) {
+    throw new DomainError('PAYOUTS_HELD', `Outgoing payments are held${r.rows[0]!.ref ? ` (${r.rows[0]!.ref})` : ''}: the database changed underneath, and every transfer since the records were last known whole must be checked against the chain first. Nothing is signed or sent until the fence is lifted.`);
+  }
+}
+
+/** What a send's top-ups have drawn on its trade's hold so far (spent, or under way). */
+export async function sendNetworkUsed(ex: Executor, sendId: string): Promise<bigint> {
+  const r = await sql<{ u: string }>`select inrp2p_send_network_used(${sendId}::uuid)::text as u`.execute(ex);
+  return BigInt(r.rows[0]!.u);
+}
+
+/**
+ * The fixed TRX cap of a new USDT send of a trade (ADR 0017 §2): for a transfer the client's price pays for, the network
+ * fee its quote priced; for any other (a refund, borne by the trader or the platform), the cost of one transfer its
+ * trade holds. Retries and gas that rose are paid from it, never from beyond it: what is over waits for a person.
+ */
+export async function networkCapFor(ex: Executor, input: { tradeId: string; bearer: ChainSendBearer }): Promise<bigint> {
+  const hold = await ex.selectFrom('network_budget_hold').select(['per_send_sun', 'status']).where('trade_id', '=', input.tradeId).executeTakeFirst();
+  if (!hold || hold.status !== 'ACTIVE') throw new DomainError('NETWORK_BUDGET_INSUFFICIENT', 'this trade holds no network budget for another transfer');
+  if (input.bearer === 'CLIENT') {
+    const fee = await ex
+      .selectFrom('trade as t')
+      .innerJoin('quote_network_fee as f', 'f.quote_id', 't.quote_id')
+      .select('f.fee_sun')
+      .where('t.id', '=', input.tradeId)
+      .executeTakeFirst();
+    if (fee) return fee.fee_sun;
+  }
+  return hold.per_send_sun;
+}
+
 export async function planChainSend(ctx: TxContext, input: PlanSendInput): Promise<{ sendId: string; ref: string; status: ChainSendStatus }> {
+  await assertSignerOpen(ctx.tx);
   const path = await signablePathOf(ctx.tx, input.fromAddress);
   if (!path) throw new DomainError('CUSTODY_PATH_REFUSED', `${input.fromAddress} is not an address the exchange's signer holds`);
   const awaiting = input.needsApproval && !input.approvedBy;
+  let cap: bigint | null = null;
+  if (input.asset === 'USDT') {
+    const tradeId = requireUuid(input.tradeId, 'tradeId');
+    cap = await networkCapFor(ctx.tx, { tradeId, bearer: input.bearer });
+    const fits = await sql<{ committed: string; held: string | null }>`
+      select inrp2p_trade_network_committed(${tradeId}::uuid, null)::text as committed,
+             (select amount_sun::text from network_budget_hold where trade_id = ${tradeId} and status = 'ACTIVE') as held`.execute(ctx.tx);
+    const committed = BigInt(fits.rows[0]!.committed);
+    const held = BigInt(fits.rows[0]!.held ?? '0');
+    if (committed + cap > held) {
+      throw new DomainError('NETWORK_BUDGET_INSUFFICIENT', `this trade holds ${formatTrx(held)} TRX for its transfers and ${formatTrx(committed)} TRX of it is committed; this transfer needs ${formatTrx(cap)} TRX — a person may raise what the trade holds`, {
+        held: formatTrx(held), committed: formatTrx(committed), needed: formatTrx(cap),
+      });
+    }
+  }
   const row = await ctx.tx
     .insertInto('chain_send')
     .values({
@@ -74,6 +128,7 @@ export async function planChainSend(ctx: TxContext, input: PlanSendInput): Promi
       to_address: normalizeTronAddress(input.toAddress),
       amount_minor: input.amountMinor,
       fee_estimate_sun: input.feeEstimateSun ?? 0n,
+      network_cap_sun: cap,
       funder_trader_id: input.funder,
       bearer: input.bearer,
       status: awaiting ? 'AWAITING_APPROVAL' : 'PLANNED',
@@ -89,6 +144,7 @@ export async function planChainSend(ctx: TxContext, input: PlanSendInput): Promi
     after: {
       ref: row.ref, purpose: input.purpose, asset: input.asset, amount: input.asset === 'TRX' ? `${formatTrx(input.amountMinor)} TRX` : input.amountMinor.toString(),
       from: input.fromAddress, to: input.toAddress, trade_id: input.tradeId ?? null, bearer: input.bearer, status: row.status, approved_by: input.approvedBy ?? null,
+      network_cap_trx: cap === null ? null : formatTrx(cap),
     },
   });
   await enqueueOutbox(ctx, { type: 'chain_send.planned', aggregateType: 'chain_send', aggregateId: row.id, payload: { sendId: row.id, status: row.status } });
@@ -120,6 +176,7 @@ export function approveChainSend(actor: OperatorActor) {
   return operatorCommand(actor, 'chain_send:approve', async (ctx, p: { sendId: string }) => {
     const send = await lockSend(ctx, p.sendId);
     if (send.status !== 'AWAITING_APPROVAL') throw new DomainError('INVALID_TRANSITION', `send ${send.ref} is ${send.status.toLowerCase()}`);
+    await assertSignerOpen(ctx.tx);
     const approver = ctx.actor.id ?? 'SYSTEM';
     if (approver === send.requested_by || approver === 'SYSTEM') throw new DomainError('SECOND_APPROVER_REQUIRED', 'a send is approved by someone other than the person who asked for it');
     if (send.purpose === 'REFUND') await authorizeOperator(ctx.tx, actor, 'refund:approve');
@@ -142,6 +199,7 @@ export function decideNetworkWithdrawal(actor: OperatorActor) {
     const w = await ctx.tx.selectFrom('network_deposit_withdrawal').selectAll().where('id', '=', p.withdrawalId).forUpdate().executeTakeFirstOrThrow();
     if (w.status !== 'REQUESTED') throw new DomainError('INVALID_TRANSITION', `withdrawal ${w.ref} is ${w.status.toLowerCase()}`);
     const by = ctx.actor.id ?? 'SYSTEM';
+    if (p.approve) await assertSignerOpen(ctx.tx);
     if (!p.approve) {
       const reason = requireText(p.reason, 'reason', 500);
       await ctx.tx.updateTable('network_deposit_withdrawal').set({ status: 'REJECTED', decided_by: by, decided_at: sql<Date>`inrp2p_now()`, closed_at: sql<Date>`inrp2p_now()`, close_reason: reason }).where('id', '=', w.id).execute();
@@ -182,6 +240,9 @@ export interface SendRow {
   readonly blockedReason: string | null;
   readonly lastError: string | null;
   readonly failedAttempts: number;
+  /** A USDT send's fixed TRX cap and what its top-ups drew on it so far (null for a TRX send). */
+  readonly networkCapSun: bigint | null;
+  readonly networkUsedSun: bigint | null;
   readonly createdAt: Date;
   readonly updatedAt: Date;
   readonly attempts: readonly {
@@ -198,10 +259,12 @@ export async function listSends(ex: Executor, filter: { tradeId?: string; open?:
   const sends = await q.execute();
   if (sends.length === 0) return [];
   const attempts = await ex.selectFrom('chain_send_attempt').selectAll().where('send_id', 'in', sends.map((s) => s.id)).orderBy('seq').execute();
+  const used = new Map<string, bigint>();
+  for (const s of sends) if (s.asset === 'USDT') used.set(s.id, await sendNetworkUsed(ex, s.id));
   return sends.map((s) => ({
     id: s.id, ref: s.ref, purpose: s.purpose, asset: s.asset, status: s.status, tradeId: s.trade_id, amountMinor: s.amount_minor, from: s.from_address, to: s.to_address,
     bearer: s.bearer, funder: s.funder_trader_id, needsApproval: s.needs_approval, approvedBy: s.approved_by, blockedReason: s.blocked_reason, lastError: s.last_error,
-    failedAttempts: s.failed_attempts, createdAt: s.created_at, updatedAt: s.updated_at,
+    failedAttempts: s.failed_attempts, createdAt: s.created_at, updatedAt: s.updated_at, networkCapSun: s.network_cap_sun, networkUsedSun: used.get(s.id) ?? null,
     attempts: attempts.filter((a) => a.send_id === s.id).map((a) => ({
       seq: a.seq, txid: a.txid, status: a.status, broadcasts: a.broadcasts, expiration: a.expiration, feeSun: a.fee_sun, energyUsed: a.energy_used, result: a.result,
       blockNumber: a.block_number, lastBroadcastResult: a.last_broadcast_result,

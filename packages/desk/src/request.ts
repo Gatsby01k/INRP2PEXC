@@ -2,7 +2,7 @@ import { DomainError, Money, requireUuid } from '@inrp2p/kernel';
 import type { DirectionValue, Executor, FixedSideValue } from '@inrp2p/db';
 import { currentRouteRate } from '@inrp2p/pricing';
 import { currentNetworkCosts, quoteFeeSun } from '@inrp2p/network';
-import { type DeskOrderRow, expectedOrderReward, requestTraderOrders } from '@inrp2p/traders';
+import { type DeskOrderRow, orderRewardTerms, requestTraderOrders } from '@inrp2p/traders';
 import type { DeskAccess } from './access.ts';
 import { microToDecimal } from './strip.ts';
 
@@ -116,7 +116,7 @@ export async function deskRequest(ex: Executor, requestId: string, access: DeskA
   let network: DeskRequest['network'] = null;
   try {
     const { policy, snapshot, rate } = await currentNetworkCosts(ex);
-    const reward = trader.live && trader.live.status === 'ACCEPTED' ? await expectedOrderReward(ex, trader.live.orderId) : null;
+    const reward = trader.live && trader.live.status === 'ACCEPTED' ? (await orderRewardTerms(ex, trader.live.orderId)).rewardMinor : null;
     network = { feeSun: quoteFeeSun(snapshot, policy).toString(), usdtPerTrxMicro: rate.usdtPerTrxMicro.toString(), minNetMarginMinor: policy.minNetMarginInrMinor.toString(), liveRewardMinor: reward === null ? null : reward.toString() };
   } catch (e) {
     if (!(e instanceof DomainError) || e.code !== 'NETWORK_FEES_UNKNOWN') throw e;

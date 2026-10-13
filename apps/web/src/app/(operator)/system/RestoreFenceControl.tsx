@@ -36,7 +36,8 @@ export function RestoreFenceControl({ state, canRaise, canApprove, viewerId }: {
             <p className={d.fieldHint}>
               Check each against the bank statements and the chain{fence?.knownUntil ? ` since ${dateTime(fence.knownUntil)}` : ''}: {r.payoutLegsToSend} payout leg(s) waiting
               to be sent, {r.payoutLegsInFlight} sent and not confirmed, {r.reserveApplicationsApproved} reserve application(s) approved, {r.reserveWithdrawalsRequested} reserve
-              withdrawal(s) requested, {r.routeObligationsOpen} route obligation(s) open. Record every payment already made with its UTR or transaction — that is never held.
+              withdrawal(s) requested, {r.routeObligationsOpen} route obligation(s) open, {r.signerSendsOpen} signer transfer(s) open with {r.signerTransactionsLive} transaction(s) the chain
+              has not decided (look each txid up: a transfer signed after the records were last whole may have landed). Record every payment already made with its UTR or transaction — that is never held.
             </p>
             {lift ? (
               <Notice tone="warning" icon="exceptions" role="status">

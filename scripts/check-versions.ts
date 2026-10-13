@@ -46,6 +46,12 @@ export const MATRIX: Record<string, string> = {
   three: '0.186.0',
   '@types/three': '0.186.0',
   'framer-motion': '13.4.3',
+  // ADR 0017: the exchange's own HD wallet and TRON transaction signing — audited, dependency-free libraries by one
+  // author, released together; @scure/bip32 depends on the other three at exactly these versions (one copy each).
+  '@noble/curves': '2.4.0',
+  '@noble/hashes': '2.4.0',
+  '@scure/bip32': '2.4.0',
+  '@scure/bip39': '2.4.0',
 };
 export const POSTGRES = '18.6';
 

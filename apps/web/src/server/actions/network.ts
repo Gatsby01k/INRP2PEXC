@@ -5,7 +5,7 @@ import { DomainError } from '@inrp2p/kernel';
 import { authorizeOperator } from '@inrp2p/identity';
 import type { TrxTransferFacts } from '@inrp2p/adapters';
 import { approveChainSend, decideNetworkWithdrawal, publishTrxRate, recordNetworkDeposit, setNetworkFeePolicy } from '@inrp2p/network';
-import { approveRefundSend, cancelChainSend, unblockChainSend } from '@inrp2p/settlement';
+import { approveRefundSend, cancelChainSend, raiseChainSendCap, unblockChainSend } from '@inrp2p/settlement';
 import { recordCustodyHdAccount } from '@inrp2p/treasury';
 import { HdWalletCustodyAdapter } from '@inrp2p/adapters';
 import { custodyForWeb } from '../quotes.ts';
@@ -51,6 +51,11 @@ export async function cancelChainSendAction(input: { sendId: string; reason: str
 
 export async function unblockChainSendAction(input: { sendId: string; reason: string }, key: string) {
   return done(await runCommand((ctx) => unblockChainSend(ctx.actor), input, { name: 'chain_send.unblock', idempotencyKey: key }));
+}
+
+/** A person lets one USDT transfer draw more TRX than was fixed for it, with the reason (the trade's hold rises if it must). */
+export async function raiseChainSendCapAction(input: { sendId: string; cap: string; reason: string }, key: string) {
+  return done(await runCommand((ctx) => raiseChainSendCap(ctx.actor), input, { name: 'chain_send.raise_network_cap', idempotencyKey: key }), '/network', '/');
 }
 
 export async function decideNetworkWithdrawalAction(input: { withdrawalId: string; approve: boolean; reason?: string }, key: string) {

@@ -76,8 +76,8 @@ export default async function NetworkPage() {
           </Notice>
         ) : null}
 
-        <Section title="Sends" count={live.length} hint="Every transfer the signer makes, with its transactions. A send is signed once and its bytes are stored before broadcast; another is signed only after the chain proves the first can never land." flush>
-          <SendsTable sends={view.sends} canApprove={allows(ctx.actor, 'chain_send:approve')} canCancel={allows(ctx.actor, 'chain_send:cancel')} me={ctx.actor.userId} />
+        <Section title="Sends" count={live.length} hint="Every transfer the signer makes, with its transactions and the TRX it may draw. A send is signed once and its bytes are stored before broadcast; another is signed only after the chain proves the first can never land. A transfer that would draw more TRX than its cap waits for a person." flush>
+          <SendsTable sends={view.sends} canApprove={allows(ctx.actor, 'chain_send:approve')} canCancel={allows(ctx.actor, 'chain_send:cancel')} canManage={allows(ctx.actor, 'network:manage')} me={ctx.actor.userId} />
         </Section>
 
         <Section title="Funders" count={view.funders.length} hint="TRX is prefunded: a trader’s deposit pays the transfers of its orders and is paid back in INR with its rewards when the client paid for them; the platform budget only desk routes and its own mistakes." flush>

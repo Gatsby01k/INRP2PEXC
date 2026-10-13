@@ -7,11 +7,17 @@ import { globalImbalance } from '@inrp2p/ledger';
 import { budgetFigures, currentNetworkCosts, networkAvailable, reservePerSendSun } from '@inrp2p/network';
 import { acceptQuote, createQuote, createRequest, sendQuote } from '@inrp2p/quotes';
 import { acceptOrder, assignRequest } from '@inrp2p/traders';
-import { approveRefundSend, confirmPayout, createPayoutLeg, createRefundLeg, recordLegEvidence, refundAndCancel, sendPayoutLeg, recordRouteSettlement } from '@inrp2p/settlement';
-import { orderDeliveryAddress, runTraderSweep } from '@inrp2p/traders';
-import { runSender } from '@inrp2p/onchain';
+import {
+  approveRefundSend, confirmPayout, createPayoutLeg, createRefundLeg, decideRestoreFenceLift, raiseChainSendCap, raiseRestoreFence, recordLegEvidence, refundAndCancel,
+  requestRestoreFenceLift, sendPayoutLeg, setNewBusiness, recordRouteSettlement,
+} from '@inrp2p/settlement';
+import { orderDeliveryAddress, releaseOrder, runTraderSweep } from '@inrp2p/traders';
+import { runFeeRefresh, runSender } from '@inrp2p/onchain';
+import { decideNetworkWithdrawal, requestNetworkWithdrawal } from '@inrp2p/network';
+import { payoutsHeld } from '@inrp2p/trades';
+import { deskTradeNetwork } from '@inrp2p/desk';
 import { balanceOf, newUtr, observe, settleFirstLeg } from '../../packages/settlement/test/world.ts';
-import { confirmOnChain, sendUsdt, utr } from './traders-world.ts';
+import { configureProgram, confirmOnChain, sendUsdt, utr } from './traders-world.ts';
 import { type RailsWorld, createRailsWorld, depositTrx, railsSettle, railsTrade, railsTrader, railsTurn, traderPaysInr } from './rails-world.ts';
 
 /**
@@ -383,4 +389,228 @@ describe('concurrent operations', () => {
     expect(await networkAvailable(w.app, lean.traderId)).toBeGreaterThanOrEqual(0n);
   });
 
+});
+
+/** What a USDT send has drawn on its trade's hold so far, and its cap. */
+const drawn = async (sendId: string) => {
+  const r = await sql<{ used: string; cap: string }>`
+    select inrp2p_send_network_used(${sendId}::uuid)::text as used, network_cap_sun::text as cap from chain_send where id = ${sendId}`.execute(w.app);
+  return { used: BigInt(r.rows[0]!.used), cap: BigInt(r.rows[0]!.cap) };
+};
+const holdOf = async (tradeId: string) => (await w.app.selectFrom('network_budget_hold').select('amount_sun').where('trade_id', '=', tradeId).executeTakeFirstOrThrow()).amount_sun;
+const payoutOf = async (tradeId: string) => (await sends(tradeId)).find((s) => s.purpose === 'CLIENT_PAYOUT');
+const raiseCap = (sendId: string, cap: string, who = w.finance) =>
+  runAs(w.app, raiseChainSendCap(who.actor), who.ref, 'chain_send.raise_network_cap', { sendId, cap, reason: 'checked the chain: energy is dearer now, the platform carries it' });
+
+describe('the reward a quote counted is the reward its order earns', () => {
+  it('keeps the quote’s reward through a programme change before acceptance — the order, the ledger and the desk say one figure', async () => {
+    const request = await runAs(w.app, createRequest(w.dealer.actor, {}), w.dealer.ref, 'request.create', {
+      clientId: w.clientId, direction: 'SELL_USDT' as const, fixedSide: 'BASE' as const, amount: '1000', bankAccountId: w.bankAccountId,
+    });
+    const assigned = await runAs(w.app, assignRequest(w.dealer.actor), w.dealer.ref, 'trader_order.assign', { requestId: request.requestId });
+    await runAs(w.app, acceptOrder(inrTrader.admin.actor), inrTrader.admin.ref, 'trader_order.accept', { ref: assigned.ref });
+    const order = await w.app.selectFrom('trader_order').select(['id', 'route_id', 'inr_minor']).where('ref', '=', assigned.ref).executeTakeFirstOrThrow();
+    const quote = await runAs(w.app, createQuote(w.dealer.actor, {}), w.dealer.ref, 'quote.create', { requestId: request.requestId, routeId: order.route_id, clientRate: '103.500000', validitySeconds: 300 });
+    await runAs(w.app, sendQuote(w.dealer.actor, {}), w.dealer.ref, 'quote.send', { quoteId: quote.quoteId });
+    const frozen = await w.app.selectFrom('quote_network_fee').select(['trader_order_id', 'reward_bps', 'reward_inr_minor']).where('quote_id', '=', quote.quoteId).executeTakeFirstOrThrow();
+    expect(frozen).toEqual({ trader_order_id: order.id, reward_bps: 10, reward_inr_minor: (order.inr_minor * 10n) / 10_000n });
+
+    // The programme changes between the quote and the client's acceptance.
+    await configureProgram(w, { rewardBps: 50 });
+    try {
+      const accepted = await runAs(w.app, acceptQuote(w.acceptor.actor, w.railsDeps), w.acceptor.ref, 'quote.accept', { quoteId: quote.quoteId });
+      const started = await w.app.selectFrom('trader_order').select(['status', 'reward_bps', 'reward_inr_minor']).where('id', '=', order.id).executeTakeFirstOrThrow();
+      expect(started).toEqual({ status: 'IN_PROGRESS', reward_bps: 10, reward_inr_minor: frozen.reward_inr_minor });
+      const desk = await deskTradeNetwork(w.app, accepted.tradeId, { economics: true });
+      expect(desk!.economics!.reward).toBe(Money.ofMinor(frozen.reward_inr_minor, 'INR').toDecimalString());
+
+      // The trade runs to the end: what the ledger accrues to the trader is the same reward.
+      await settleFirstLeg(w, accepted.tradeId);
+      await traderPaysInr(w, inrTrader, assigned.ref);
+      await railsSettle(w, accepted.tradeId);
+      await payInrFromCollection(accepted.tradeId, '103500.00');
+      await runTraderSweep(w.app);
+      const accrued = await sql<{ amount: string }>`
+        select e.amount_minor::text as amount from ledger_entry e join ledger_journal j on j.id = e.journal_id
+         where j.posting_key = ${`trader_reward:${order.id}:accrue`} and e.direction = 'CR'`.execute(w.app);
+      expect(accrued.rows.map((r) => BigInt(r.amount))).toEqual([frozen.reward_inr_minor]);
+    } finally {
+      await configureProgram(w, { rewardBps: 10 });
+    }
+  });
+
+  it('the database refuses a quote that counts another reward than its order’s, or a trader’s route without its order (IX113)', async () => {
+    const request = await runAs(w.app, createRequest(w.dealer.actor, {}), w.dealer.ref, 'request.create', {
+      clientId: w.clientId, direction: 'SELL_USDT' as const, fixedSide: 'BASE' as const, amount: '1000', bankAccountId: w.bankAccountId,
+    });
+    const assigned = await runAs(w.app, assignRequest(w.dealer.actor), w.dealer.ref, 'trader_order.assign', { requestId: request.requestId });
+    await runAs(w.app, acceptOrder(inrTrader.admin.actor), inrTrader.admin.ref, 'trader_order.accept', { ref: assigned.ref });
+    const order = await w.app.selectFrom('trader_order').select(['id', 'route_id', 'inr_minor']).where('ref', '=', assigned.ref).executeTakeFirstOrThrow();
+    const draft = await runAs(w.app, createQuote(w.dealer.actor, {}), w.dealer.ref, 'quote.create', { requestId: request.requestId, routeId: order.route_id, clientRate: '103.500000', validitySeconds: 300 });
+    const row = await w.app.selectFrom('quote_network_fee').selectAll().where('quote_id', '=', draft.quoteId).executeTakeFirstOrThrow();
+    const gross = row.net_margin_inr_minor + row.reward_inr_minor + row.fee_inr_minor;
+    const insert = (o: { order: string | null; bps: number | null; reward: bigint }) => sql`
+      insert into quote_network_fee (quote_id, funder_trader_id, snapshot_id, trx_rate_id, usdt_per_trx_micro, energy_price_sun, sends_priced, fee_sun, fee_inr_minor,
+                                     trader_order_id, reward_bps, reward_inr_minor, net_margin_inr_minor, reserve_sends, reserve_sun, min_net_margin_inr_minor)
+      values (${row.quote_id}, ${row.funder_trader_id}, ${row.snapshot_id}, ${row.trx_rate_id}, ${row.usdt_per_trx_micro}, ${row.energy_price_sun}, ${row.sends_priced},
+              ${row.fee_sun}, ${row.fee_inr_minor}, ${o.order}, ${o.bps}, ${o.reward}, ${gross - o.reward - row.fee_inr_minor}, ${row.reserve_sends}, ${row.reserve_sun},
+              ${row.min_net_margin_inr_minor})`.execute(w.app);
+    await expect(insert({ order: order.id, bps: 50, reward: (order.inr_minor * 10n) / 10_000n })).rejects.toSatisfy((e) => pgErrorCode(e) === 'IX113');
+    await expect(insert({ order: null, bps: null, reward: 0n })).rejects.toSatisfy((e) => pgErrorCode(e) === 'IX113');
+    await runAs(w.app, releaseOrder(w.dealer.actor), w.dealer.ref, 'trader_order.release', { orderId: order.id, reason: 'the regression is done with it' });
+  });
+});
+
+describe('after the database changed underneath, nothing leaves — TRX no more than USDT (FI-54)', () => {
+  it('signs, plans and broadcasts nothing while the fence is up, and broadcasts the same bytes, once, after it is lifted', async () => {
+    const trade = await fundedBuy();
+    await railsTurn(w); // the payout is planned, and its top-up
+    // The top-up is signed and the worker dies before a node takes it.
+    for (const g of w.gateways) g.loseBroadcast = true;
+    await runSender(w.app, w.rails);
+    for (const g of w.gateways) g.loseBroadcast = false;
+    const topup = (await sends(trade.tradeId)).find((s) => s.purpose === 'TOPUP')!;
+    const [signed] = await attemptsOf(topup.id);
+    expect(signed!.status).toBe('SIGNED');
+    const seen = () => w.net.received.filter((t) => t === signed!.txid).length;
+    const seenBefore = seen();
+
+    await runAs(w.app, raiseRestoreFence(w.financeOp.actor), w.financeOp.ref, 'operations.raise_restore_fence', { reason: 'restored from the provider console in the test' });
+    expect((await payoutsHeld(w.app)).held).toBe(true);
+    // The worker restarts and runs its cycle again and again: the signed TRX transfer is not broadcast, nothing is signed.
+    for (let i = 0; i < 3; i++) await railsTurn(w);
+    expect(seen()).toBe(seenBefore);
+    expect(await attemptsOf(topup.id)).toHaveLength(1);
+    expect(await attemptsOf((await payoutOf(trade.tradeId))!.id)).toHaveLength(0);
+    // The database says the same, whoever asks (IX100): no transaction signed, no TRX send planned.
+    await expect(sql`insert into chain_send_attempt (send_id, seq, txid, raw_data_hex, signature_hex, ref_block_num, expiration)
+                     values (${topup.id}, 2, ${'cd'.repeat(32)}, ${'0a'.repeat(20)}, ${'0'.repeat(130)}, 1, now())`.execute(w.t.owner))
+      .rejects.toSatisfy((e) => pgErrorCode(e) === 'IX100');
+    const fee = await w.app.selectFrom('custody_hd_account').select('fee_wallet_path').executeTakeFirstOrThrow();
+    await expect(sql`insert into chain_send (asset, purpose, trade_id, parent_send_id, from_address, from_path, to_address, amount_minor, funder_trader_id, bearer, status, needs_approval, requested_by)
+                     values ('TRX', 'TOPUP', ${trade.tradeId}, ${topup.parent_send_id}, ${topup.from_address}, ${fee.fee_wallet_path}, ${topup.to_address}, 1000000,
+                             ${topup.funder_trader_id}, 'CLIENT', 'PLANNED', false, 'test')`.execute(w.t.owner))
+      .rejects.toSatisfy((e) => pgErrorCode(e) === 'IX100');
+    // A trader's TRX withdrawal may be asked for, but not approved to leave.
+    const asked = await runAs(w.app, requestNetworkWithdrawal(usdtTrader.admin.actor), usdtTrader.admin.ref, 'network_withdrawal.request', { amount: '5' });
+    await expect(runAs(w.app, decideNetworkWithdrawal(w.finance.actor), w.finance.ref, 'network_withdrawal.decide', { withdrawalId: asked.withdrawalId, approve: true }))
+      .rejects.toMatchObject({ code: 'PAYOUTS_HELD' });
+    await runAs(w.app, decideNetworkWithdrawal(w.finance.actor), w.finance.ref, 'network_withdrawal.decide', { withdrawalId: asked.withdrawalId, approve: false, reason: 'after the reconciliation' });
+
+    // One person records the reconciliation, another lifts the fence; new business is its own decision.
+    const lift = await runAs(w.app, requestRestoreFenceLift(w.financeOp.actor), w.financeOp.ref, 'operations.request_restore_fence_lift', {
+      reconciliation: 'Looked up every signed transaction on the chain: the budget wallet top-up is unseen and unexpired.',
+    });
+    await runAs(w.app, decideRestoreFenceLift(w.financeOp2.actor), w.financeOp2.ref, 'operations.approve_restore_fence_lift', { liftId: lift.lift!.id, approve: true, note: 'checked' });
+    await runAs(w.app, setNewBusiness(w.financeOp.actor), w.financeOp.ref, 'settings.resume_new_business', { paused: false, reason: 'reconciled after the rails restore drill' });
+
+    await railsSettle(w, trade.tradeId, 10);
+    expect(seen()).toBeGreaterThan(seenBefore);
+    const attempts = await attemptsOf(topup.id);
+    expect(attempts.map((a) => [a.txid, a.status])).toEqual([[signed!.txid, 'CONFIRMED']]);
+    expect(await stateOf(trade.tradeId)).toBe('COMPLETED');
+  });
+});
+
+describe('a transfer never draws more TRX than was fixed for it', () => {
+  it('blocks a transfer that dearer gas would take past its cap — the trader’s other TRX untouched — until a person raises it', async () => {
+    const trade = await fundedBuy();
+    const freeAfterAcceptance = await networkAvailable(w.app, usdtTrader.traderId);
+    const heldBefore = await holdOf(trade.tradeId);
+    w.net.params.energyPriceSun = 400n;
+    await runFeeRefresh(w.app, w.rails);
+    try {
+      await railsTurn(w);
+      const payout = (await payoutOf(trade.tradeId))!;
+      expect(payout.status).toBe('BLOCKED');
+      expect(payout.blocked_reason).toMatch(/may draw .* TRX in all/);
+      expect((await sends(trade.tradeId)).filter((s) => s.purpose === 'TOPUP')).toEqual([]);
+      const caseRow = await w.app.selectFrom('exception_case').select(['type', 'status']).where('subject_id', '=', payout.id).executeTakeFirstOrThrow();
+      expect(caseRow).toEqual({ type: 'NETWORK_BUDGET_SHORT', status: 'OPEN' });
+      // Retrying by itself changes nothing: the cap is the cap.
+      await runAs(w.app, (await import('@inrp2p/settlement')).unblockChainSend(w.finance.actor), w.finance.ref, 'chain_send.unblock', { sendId: payout.id, reason: 'try again' });
+      await railsTurn(w);
+      expect((await payoutOf(trade.tradeId))!.status).toBe('BLOCKED');
+      expect(await networkAvailable(w.app, usdtTrader.traderId)).toBe(freeAfterAcceptance);
+      expect(await holdOf(trade.tradeId)).toBe(heldBefore);
+
+      // Only a person who may manage the network raises it, upward only, with a reason; the hold rises with it.
+      await expect(raiseCap(payout.id, '80', w.dealer)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+      await expect(raiseCap(payout.id, '1')).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' });
+      const raised = await raiseCap(payout.id, '80');
+      expect(raised.status).toBe('PLANNED');
+      expect(await holdOf(trade.tradeId)).toBe(parseTrx('80'));
+      expect(freeAfterAcceptance - (await networkAvailable(w.app, usdtTrader.traderId))).toBe(parseTrx('80') - heldBefore);
+      await railsSettle(w, trade.tradeId, 8);
+      expect(await stateOf(trade.tradeId)).toBe('COMPLETED');
+      const { used, cap } = await drawn(payout.id);
+      expect(cap).toBe(parseTrx('80'));
+      expect(used).toBeLessThanOrEqual(cap);
+    } finally {
+      w.net.params.energyPriceSun = 100n;
+      await runFeeRefresh(w.app, w.rails);
+    }
+  });
+
+  it('retries burn their own cap: once the next top-up would pass it, the transfer waits for a person instead of drawing more', async () => {
+    const trade = await fundedBuy();
+    const freeAfterAcceptance = await networkAvailable(w.app, usdtTrader.traderId);
+    // Every block the chain charges more energy than it estimated: each signed attempt fails OUT_OF_ENERGY.
+    const failingBlock = () => {
+      const before = [w.net.params.energyToHolder, w.net.params.energyToNewHolder] as const;
+      w.net.params.energyToHolder = 400_000n;
+      w.net.params.energyToNewHolder = 400_000n;
+      w.net.mine();
+      [w.net.params.energyToHolder, w.net.params.energyToNewHolder] = before;
+    };
+    for (let i = 0; i < 16 && (await payoutOf(trade.tradeId))?.status !== 'BLOCKED'; i++) {
+      await railsTurn(w, { mine: false });
+      failingBlock();
+    }
+    const payout = (await payoutOf(trade.tradeId))!;
+    expect(payout.status).toBe('BLOCKED');
+    expect(payout.blocked_reason).toMatch(/may draw .* TRX in all/);
+    const failed = (await attemptsOf(payout.id)).filter((a) => a.status === 'FAILED');
+    expect(failed.length).toBeGreaterThanOrEqual(1);
+    expect(failed.length).toBeLessThan(3);
+    const { used, cap } = await drawn(payout.id);
+    expect(used).toBeLessThanOrEqual(cap);
+    // Nothing beyond the trade's hold: the trader's free TRX is what it was right after acceptance.
+    expect(await networkAvailable(w.app, usdtTrader.traderId)).toBe(freeAfterAcceptance);
+
+    await raiseCap(payout.id, formatTrx(cap + parseTrx('20')));
+    await railsSettle(w, trade.tradeId, 8);
+    expect(await stateOf(trade.tradeId)).toBe('COMPLETED');
+    expect((await attemptsOf(payout.id)).filter((a) => a.status === 'CONFIRMED')).toHaveLength(1);
+  });
+
+  it('fits a trade’s caps in its hold — the client’s transfer at its priced fee, the return at one held transfer — and the database holds every line (IX114, IX115)', async () => {
+    // A client selling: the payment to the trader is capped at the fee its price carried, leaving the return its own.
+    const trade = await railsTrade(w, inrTrader, { direction: 'SELL_USDT', amount: '1000', clientRate: '103.500000' });
+    await settleFirstLeg(w, trade.tradeId);
+    await traderPaysInr(w, inrTrader, trade.orderRef);
+    await railsSettle(w, trade.tradeId);
+    const payment = (await sends(trade.tradeId)).find((s) => s.purpose === 'ROUTE_PAYMENT')!;
+    const fee = await w.app.selectFrom('quote_network_fee').select('fee_sun').where('quote_id', '=', trade.quote.quoteId).executeTakeFirstOrThrow();
+    const hold = await w.app.selectFrom('network_budget_hold').select(['amount_sun', 'per_send_sun']).where('trade_id', '=', trade.tradeId).executeTakeFirstOrThrow();
+    expect(payment.network_cap_sun).toBe(fee.fee_sun);
+    expect(hold.amount_sun - (await drawn(payment.id)).used).toBeGreaterThanOrEqual(hold.per_send_sun);
+
+    const budget = await w.app.selectFrom('custody_hd_account').select(['fee_wallet_address', 'fee_wallet_path']).executeTakeFirstOrThrow();
+    // A top-up past its send's cap (IX114).
+    const open = await fundedBuy();
+    await railsTurn(w);
+    const parent = (await payoutOf(open.tradeId))!;
+    const used = (await drawn(parent.id)).used;
+    await expect(sql`insert into chain_send (asset, purpose, trade_id, parent_send_id, from_address, from_path, to_address, amount_minor, funder_trader_id, bearer, status, needs_approval, requested_by)
+                     values ('TRX', 'TOPUP', ${open.tradeId}, ${parent.id}, ${budget.fee_wallet_address}, ${budget.fee_wallet_path}, ${parent.from_address},
+                             ${parent.network_cap_sun! - used + 1n}, ${parent.funder_trader_id}, 'CLIENT', 'PLANNED', false, 'test')`.execute(w.t.owner))
+      .rejects.toSatisfy((e) => pgErrorCode(e) === 'IX114');
+    // A cap that falls, or rises past the hold, and a hold that falls (IX115).
+    await expect(sql`update chain_send set network_cap_sun = network_cap_sun - 1 where id = ${parent.id}`.execute(w.t.owner)).rejects.toSatisfy((e) => pgErrorCode(e) === 'IX115');
+    await expect(sql`update chain_send set network_cap_sun = network_cap_sun + 1000000000 where id = ${parent.id}`.execute(w.t.owner)).rejects.toSatisfy((e) => pgErrorCode(e) === 'IX115');
+    await expect(sql`update network_budget_hold set amount_sun = amount_sun - 1 where trade_id = ${open.tradeId}`.execute(w.t.owner)).rejects.toSatisfy((e) => pgErrorCode(e) === 'IX115');
+    await railsSettle(w, open.tradeId);
+    expect(await stateOf(open.tradeId)).toBe('COMPLETED');
+  });
 });

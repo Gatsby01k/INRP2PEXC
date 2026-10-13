@@ -7,7 +7,7 @@ import { enqueueOutbox } from '@inrp2p/outbox';
 import { type OperatorActor, authorizeOperator, operatorCommand } from '@inrp2p/identity';
 import { requireUsableRoute } from '@inrp2p/routes';
 import { requireCurrentRouteRate, routeRateSnapshot } from '@inrp2p/pricing';
-import { expectedOrderReward, requireOrderForQuote } from '@inrp2p/trader-core';
+import { orderRewardTerms, requireOrderForQuote } from '@inrp2p/trader-core';
 import { assertProfitable, priceNetwork, quoteNetworkFee, recordQuoteNetworkFee } from '@inrp2p/network';
 import { type QuoteDeps, policyOf } from './policy.ts';
 import { lockRow } from './actors.ts';
@@ -73,9 +73,9 @@ export function createQuote(actor: OperatorActor, deps: Pick<QuoteDeps, 'policy'
     }
     // ADR 0017 §1: the client's rate must also pay the trader's reward and the network fee of the trade's transfer, and
     // leave the minimum net margin. A quote that would not is never created; the dealer is told the rate that would do.
-    const reward = traderOrder ? await expectedOrderReward(ctx.tx, traderOrder.orderId) : 0n;
+    const reward = traderOrder ? await orderRewardTerms(ctx.tx, traderOrder.orderId) : null;
     const network = await priceNetwork(ctx.tx, {
-      direction: request.direction, clientRateMicro: clientRate.micro, grossMarginInrMinor: econ.grossMargin.minor, rewardInrMinor: reward, funderTraderId: route.traderId,
+      direction: request.direction, clientRateMicro: clientRate.micro, grossMarginInrMinor: econ.grossMargin.minor, reward, funderTraderId: route.traderId,
     });
     assertProfitable(network, { breakEvenClientRate: breakEvenClientRate(request.direction, econ.base.minor, econ.routeInr.minor, network.rewardInrMinor + network.feeInrMinor + network.minNetMarginInrMinor) });
     // A quote that loses money never gets this far (the minimum net margin is never negative); the reason a negative

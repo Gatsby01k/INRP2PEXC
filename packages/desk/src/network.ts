@@ -41,6 +41,9 @@ export interface NetworkSendRow {
   readonly blockedReason: string | null;
   readonly lastError: string | null;
   readonly failedAttempts: number;
+  /** A USDT send's fixed TRX cap and what its top-ups drew on it (null for a TRX send). */
+  readonly networkCap: string | null;
+  readonly networkUsed: string | null;
   readonly updatedAt: string;
   readonly attempts: readonly { readonly seq: number; readonly txid: string; readonly status: string; readonly broadcasts: number; readonly expiration: string; readonly burned: string | null; readonly energy: string | null; readonly result: string | null }[];
 }
@@ -164,6 +167,7 @@ async function sendRowsOf(ex: Executor, filter: { tradeId?: string; limit: numbe
     amount: s.asset === 'TRX' ? `${trx(s.amountMinor)} TRX` : `${Money.ofMinor(s.amountMinor, 'USDT').toDecimalString()} USDT`,
     status: s.status, tradeId: s.tradeId, tradeRef: s.tradeId ? (tradeRefs.get(s.tradeId) ?? null) : null, from: s.from, to: s.to, bearer: s.bearer,
     needsApproval: s.needsApproval, approvedBy: s.approvedBy, requestedBy: requestedBy.get(s.id) ?? '', blockedReason: s.blockedReason, lastError: s.lastError, failedAttempts: s.failedAttempts,
+    networkCap: s.networkCapSun === null ? null : trx(s.networkCapSun), networkUsed: s.networkUsedSun === null ? null : trx(s.networkUsedSun),
     updatedAt: s.updatedAt.toISOString(),
     attempts: s.attempts.map((a) => ({ seq: a.seq, txid: a.txid, status: a.status, broadcasts: a.broadcasts, expiration: a.expiration.toISOString(), burned: a.feeSun === null ? null : trx(a.feeSun), energy: a.energyUsed === null ? null : a.energyUsed.toString(), result: a.result })),
   }));

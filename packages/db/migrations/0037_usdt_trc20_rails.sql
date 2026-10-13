@@ -22,8 +22,13 @@
 -- 5. A payment to the route that the signer makes is earmarked against the client's funds when it is planned
 --    (`funding_allocation.use_chain_send_id`), and becomes a route settlement when the chain makes it final
 --    (`route_settlement.chain_send_id`) — the same earmark, consumed once.
+-- 6. Fixed terms. The trader's reward a quote counted (its order and basis points) is the reward the order starts with
+--    (IX113). Each USDT send of a trade has a fixed TRX cap — the network fee the client's price carried for a transfer
+--    it pays for, the trade's held cost of one transfer for a refund — and the caps of a trade's sends fit in what the
+--    trade holds (IX115); a top-up beyond its send's cap is refused (IX114). More is spent only when a person raises a
+--    cap, with a reason. After the database changed underneath, nothing is signed or planned to leave (IX100).
 --
--- Error codes IX103–IX112 belong to this migration. 0001–0036 are not edited.
+-- Error codes IX103–IX115 belong to this migration. 0001–0036 are not edited.
 
 
 -- ---------------------------------------------------------------------------------------------------------------
@@ -134,13 +139,18 @@ CREATE TABLE quote_network_fee (
   -- The TRX the client's price covers, with its buffer, and its INR value at the quote's own rate (rounded up).
   fee_sun                bigint NOT NULL CHECK (fee_sun >= 0),
   fee_inr_minor          bigint NOT NULL CHECK (fee_inr_minor >= 0),
+  -- The trader's order the quote prices and the reward it counted, frozen here: the order starts with exactly these.
+  trader_order_id        uuid REFERENCES trader_order (id),
+  reward_bps             integer CHECK (reward_bps BETWEEN 0 AND 500),
   reward_inr_minor       bigint NOT NULL CHECK (reward_inr_minor >= 0),
   net_margin_inr_minor   bigint NOT NULL,
   -- What the trade holds of its funder's budget from acceptance on.
   reserve_sends          smallint NOT NULL CHECK (reserve_sends BETWEEN 1 AND 5),
   reserve_sun            bigint NOT NULL CHECK (reserve_sun > 0),
   min_net_margin_inr_minor bigint NOT NULL,
-  created_at             timestamptz NOT NULL DEFAULT inrp2p_now()
+  created_at             timestamptz NOT NULL DEFAULT inrp2p_now(),
+  CHECK (reward_bps IS NOT NULL OR reward_inr_minor = 0),
+  CHECK (trader_order_id IS NOT NULL OR reward_bps IS NULL)
 );
 CREATE TRIGGER quote_network_fee_append_only BEFORE UPDATE OR DELETE OR TRUNCATE ON quote_network_fee
   FOR EACH STATEMENT EXECUTE FUNCTION inrp2p_reject_mutation();
@@ -150,19 +160,52 @@ CREATE FUNCTION inrp2p_guard_quote_network_fee() RETURNS trigger
 LANGUAGE plpgsql AS $$
 DECLARE
   q record;
+  o record;
 BEGIN
-  SELECT status, gross_margin_inr_minor INTO q FROM quote WHERE id = NEW.quote_id;
+  SELECT status, gross_margin_inr_minor, route_id, trade_request_id INTO q FROM quote WHERE id = NEW.quote_id;
   IF q.status <> 'DRAFT' THEN
     RAISE EXCEPTION 'the network fee of quote % is fixed when it is created', NEW.quote_id USING ERRCODE = 'IX103';
   END IF;
   IF NEW.net_margin_inr_minor <> q.gross_margin_inr_minor - NEW.reward_inr_minor - NEW.fee_inr_minor THEN
     RAISE EXCEPTION 'net margin of quote % must equal gross margin less reward less network fee', NEW.quote_id USING ERRCODE = 'IX103';
   END IF;
+  -- The reward is the trader order's own: the order this quote prices, at the basis points it records, of its INR.
+  IF NEW.trader_order_id IS NOT NULL THEN
+    SELECT route_id, trade_request_id, inr_minor, status INTO o FROM trader_order WHERE id = NEW.trader_order_id;
+    IF o.route_id <> q.route_id OR o.trade_request_id <> q.trade_request_id OR o.status <> 'ACCEPTED'
+       OR NEW.reward_inr_minor <> (o.inr_minor * coalesce(NEW.reward_bps, 0)) / 10000 THEN
+      RAISE EXCEPTION 'the reward of quote % is not its trader order''s', NEW.quote_id USING ERRCODE = 'IX113';
+    END IF;
+  ELSIF (SELECT trader_id FROM liquidity_route WHERE id = q.route_id) IS NOT NULL THEN
+    RAISE EXCEPTION 'quote % is on a trader''s route: it names the order whose reward it counts', NEW.quote_id USING ERRCODE = 'IX113';
+  END IF;
   RETURN NEW;
 END
 $$;
 CREATE TRIGGER quote_network_fee_insert BEFORE INSERT ON quote_network_fee
   FOR EACH ROW EXECUTE FUNCTION inrp2p_guard_quote_network_fee();
+
+-- IX113: an order starts with the reward its quote counted — whatever the programme or the trader's override says by
+-- then. What the client's price paid for, the order earns, the ledger accrues and the desk reports are one figure.
+CREATE FUNCTION inrp2p_guard_trader_order_reward() RETURNS trigger
+LANGUAGE plpgsql AS $$
+DECLARE
+  f record;
+BEGIN
+  IF NOT (OLD.status = 'ACCEPTED' AND NEW.status = 'IN_PROGRESS') THEN
+    RETURN NEW;
+  END IF;
+  SELECT trader_order_id, reward_bps, reward_inr_minor INTO f FROM quote_network_fee WHERE quote_id = NEW.quote_id;
+  IF FOUND AND (f.trader_order_id IS DISTINCT FROM NEW.id OR f.reward_bps IS DISTINCT FROM NEW.reward_bps
+                OR f.reward_inr_minor <> coalesce(NEW.reward_inr_minor, 0)) THEN
+    RAISE EXCEPTION 'trader order % starts with the reward its quote counted (% bps, % paise)', NEW.ref, f.reward_bps, f.reward_inr_minor
+      USING ERRCODE = 'IX113';
+  END IF;
+  RETURN NEW;
+END
+$$;
+CREATE TRIGGER trader_order_reward_frozen BEFORE UPDATE ON trader_order
+  FOR EACH ROW EXECUTE FUNCTION inrp2p_guard_trader_order_reward();
 
 -- ---------------------------------------------------------------------------------------------------------------
 -- 3. The budget
@@ -190,7 +233,19 @@ CREATE INDEX network_budget_hold_funder_idx ON network_budget_hold (trader_id) W
 CREATE TRIGGER network_budget_hold_status BEFORE UPDATE ON network_budget_hold
   FOR EACH ROW EXECUTE FUNCTION inrp2p_guard_status_transition('status', 'ACTIVE>CLOSED');
 CREATE TRIGGER network_budget_hold_immutable BEFORE UPDATE ON network_budget_hold
-  FOR EACH ROW EXECUTE FUNCTION inrp2p_guard_immutable_columns('status', 'closed_at', 'close_reason', 'spent_sun', 'reimbursed_sun', 'reimbursed_inr_minor');
+  FOR EACH ROW EXECUTE FUNCTION inrp2p_guard_immutable_columns('status', 'closed_at', 'close_reason', 'spent_sun', 'reimbursed_sun', 'reimbursed_inr_minor', 'amount_sun');
+-- What a trade holds only ever rises, while it is open, and only by a person's decision (IX115; FI-91 at commit, IX108).
+CREATE FUNCTION inrp2p_guard_network_budget_hold_amount() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+  IF NEW.amount_sun <> OLD.amount_sun AND (NEW.amount_sun < OLD.amount_sun OR OLD.status <> 'ACTIVE') THEN
+    RAISE EXCEPTION 'the hold of trade % only rises while it is active', OLD.trade_id USING ERRCODE = 'IX115';
+  END IF;
+  RETURN NEW;
+END
+$$;
+CREATE TRIGGER network_budget_hold_amount BEFORE UPDATE OF amount_sun ON network_budget_hold
+  FOR EACH ROW EXECUTE FUNCTION inrp2p_guard_network_budget_hold_amount();
 CREATE TRIGGER network_budget_hold_no_delete BEFORE DELETE OR TRUNCATE ON network_budget_hold
   FOR EACH STATEMENT EXECUTE FUNCTION inrp2p_reject_mutation();
 
@@ -245,6 +300,9 @@ CREATE TABLE chain_send (
   amount_minor        bigint NOT NULL CHECK (amount_minor > 0),
   -- A TRX transfer's own fee, at most (top-ups and withdrawals): what the budget holds for it until it is final.
   fee_estimate_sun    bigint NOT NULL DEFAULT 0 CHECK (fee_estimate_sun >= 0),
+  -- A USDT send's fixed TRX cap: everything its top-ups may draw on the trade's hold, retries included. Raised only by
+  -- a person (`chain_send.raise_network_cap`).
+  network_cap_sun     bigint CHECK (network_cap_sun > 0),
   -- Whose TRX pays the network (NULL: the platform's), and who bears the cost in the end.
   funder_trader_id    uuid REFERENCES trader_profile (id),
   bearer              text NOT NULL CHECK (bearer IN ('CLIENT', 'TRADER', 'PLATFORM')),
@@ -274,7 +332,8 @@ CREATE TABLE chain_send (
   CHECK (approved_by IS NULL OR approved_by <> requested_by),
   CHECK ((approved_by IS NULL) = (approved_at IS NULL)),
   CHECK (NOT needs_approval OR status IN ('AWAITING_APPROVAL', 'CANCELLED') OR approved_by IS NOT NULL),
-  CHECK ((status = 'BLOCKED') = (blocked_reason IS NOT NULL))
+  CHECK ((status = 'BLOCKED') = (blocked_reason IS NOT NULL)),
+  CHECK ((asset = 'USDT') = (network_cap_sun IS NOT NULL))
 );
 -- A leg is paid by one send; one live route payment per obligation; one live top-up per send; one send per withdrawal.
 CREATE UNIQUE INDEX chain_send_one_per_leg ON chain_send (settlement_leg_id) WHERE settlement_leg_id IS NOT NULL AND status <> 'CANCELLED';
@@ -291,7 +350,7 @@ CREATE TRIGGER chain_send_status BEFORE UPDATE ON chain_send
     'SENDING>CONFIRMED,SENDING>PLANNED,SENDING>BLOCKED');
 CREATE TRIGGER chain_send_immutable BEFORE UPDATE ON chain_send
   FOR EACH ROW EXECUTE FUNCTION inrp2p_guard_immutable_columns('status', 'approved_by', 'approved_at', 'blocked_reason', 'last_error', 'last_error_at',
-    'failed_attempts', 'crypto_transfer_id', 'updated_at', 'closed_at', 'close_reason');
+    'failed_attempts', 'crypto_transfer_id', 'updated_at', 'closed_at', 'close_reason', 'network_cap_sun');
 CREATE TRIGGER chain_send_no_delete BEFORE DELETE OR TRUNCATE ON chain_send
   FOR EACH STATEMENT EXECUTE FUNCTION inrp2p_reject_mutation();
 
@@ -343,6 +402,10 @@ LANGUAGE plpgsql AS $$
 DECLARE
   s record;
 BEGIN
+  -- FI-54: after the database changed underneath, nothing is signed — TRX top-ups and withdrawals no more than USDT.
+  IF inrp2p_payouts_held() THEN
+    RAISE EXCEPTION 'outgoing payments are held until the restore fence is lifted: no transaction is signed' USING ERRCODE = 'IX100';
+  END IF;
   SELECT status, network FROM chain_send WHERE id = NEW.send_id FOR UPDATE INTO s;
   IF NOT FOUND OR s.status <> 'SENDING' THEN
     RAISE EXCEPTION 'send % is not sending (%): no transaction is signed for it', NEW.send_id, s.status USING ERRCODE = 'IX104';
@@ -366,9 +429,25 @@ LANGUAGE plpgsql AS $$
 DECLARE
   live integer;
   confirmed integer;
+  held bigint;
 BEGIN
+  IF NEW.network_cap_sun IS DISTINCT FROM OLD.network_cap_sun THEN
+    IF NEW.network_cap_sun < OLD.network_cap_sun THEN
+      RAISE EXCEPTION 'the TRX cap of send % only rises', NEW.ref USING ERRCODE = 'IX115';
+    END IF;
+    IF inrp2p_payouts_held() THEN
+      RAISE EXCEPTION 'outgoing payments are held until the restore fence is lifted: no cap is raised' USING ERRCODE = 'IX100';
+    END IF;
+    SELECT amount_sun INTO held FROM network_budget_hold WHERE trade_id = NEW.trade_id AND status = 'ACTIVE';
+    IF held IS NULL OR inrp2p_trade_network_committed(NEW.trade_id, NEW.id) + greatest(NEW.network_cap_sun, inrp2p_send_network_used(NEW.id)) > held THEN
+      RAISE EXCEPTION 'the TRX caps of trade % would exceed what it holds', NEW.trade_id USING ERRCODE = 'IX115';
+    END IF;
+  END IF;
   IF NEW.status = OLD.status THEN
     RETURN NEW;
+  END IF;
+  IF OLD.status = 'AWAITING_APPROVAL' AND NEW.status = 'PLANNED' AND inrp2p_payouts_held() THEN
+    RAISE EXCEPTION 'outgoing payments are held until the restore fence is lifted: send % is not approved', NEW.ref USING ERRCODE = 'IX100';
   END IF;
   SELECT count(*) FILTER (WHERE status IN ('SIGNED', 'BROADCAST')), count(*) FILTER (WHERE status = 'CONFIRMED')
     INTO live, confirmed FROM chain_send_attempt WHERE send_id = NEW.id;
@@ -396,6 +475,9 @@ DECLARE
   expected_from text;
   expected_path text;
 BEGIN
+  IF inrp2p_payouts_held() THEN
+    RAISE EXCEPTION 'outgoing payments are held until the restore fence is lifted: no % is planned', NEW.purpose USING ERRCODE = 'IX100';
+  END IF;
   IF NEW.status NOT IN ('AWAITING_APPROVAL', 'PLANNED') THEN
     RAISE EXCEPTION 'a send starts AWAITING_APPROVAL or PLANNED' USING ERRCODE = 'IX106';
   END IF;
@@ -440,9 +522,14 @@ BEGIN
     END IF;
     expected_from := NEW.from_address;
   ELSIF NEW.purpose = 'TOPUP' THEN
-    SELECT from_address, trade_id, asset INTO parent FROM chain_send WHERE id = NEW.parent_send_id;
+    SELECT from_address, trade_id, asset, network_cap_sun INTO parent FROM chain_send WHERE id = NEW.parent_send_id;
     IF parent.asset <> 'USDT' OR parent.trade_id IS DISTINCT FROM NEW.trade_id THEN
       RAISE EXCEPTION 'a top-up fuels a USDT send of its own trade' USING ERRCODE = 'IX106';
+    END IF;
+    -- IX114: never beyond what the send it fuels may draw — gas that rose or retries that burned it wait for a person.
+    IF inrp2p_send_network_used(NEW.parent_send_id) + NEW.amount_minor + NEW.fee_estimate_sun > parent.network_cap_sun THEN
+      RAISE EXCEPTION 'a top-up of % sun would take send % past its TRX cap of % sun', NEW.amount_minor + NEW.fee_estimate_sun, NEW.parent_send_id, parent.network_cap_sun
+        USING ERRCODE = 'IX114';
     END IF;
     expected_to := parent.from_address::text;
     expected_from := (SELECT w.address::text FROM treasury_wallet w WHERE w.role = 'NETWORK_BUDGET' AND w.status = 'ACTIVE');
@@ -461,6 +548,11 @@ BEGIN
     ELSE (SELECT h.fee_wallet_path FROM custody_hd_account h WHERE h.fee_wallet_address = NEW.from_address) END;
   IF expected_path IS DISTINCT FROM NEW.from_path THEN
     RAISE EXCEPTION 'send % leaves % which the custody HD account did not issue under %', NEW.purpose, NEW.from_address, NEW.from_path USING ERRCODE = 'IX106';
+  END IF;
+  -- IX115: a trade's USDT sends together never draw more than the trade holds; one that would not fit is not planned.
+  IF NEW.asset = 'USDT' AND inrp2p_trade_network_committed(NEW.trade_id, NULL) + NEW.network_cap_sun
+       > coalesce((SELECT amount_sun FROM network_budget_hold WHERE trade_id = NEW.trade_id AND status = 'ACTIVE'), 0) THEN
+    RAISE EXCEPTION 'send % of trade % needs a TRX cap of % sun that its hold no longer has', NEW.purpose, NEW.trade_id, NEW.network_cap_sun USING ERRCODE = 'IX115';
   END IF;
   RETURN NEW;
 END
@@ -517,8 +609,30 @@ $$;
 CREATE TRIGGER network_budget_entry_insert BEFORE INSERT ON network_budget_entry
   FOR EACH ROW EXECUTE FUNCTION inrp2p_guard_network_budget_entry();
 
+-- What a USDT send has drawn on its trade's hold: every top-up made for it — spent (sent and burned, failed ones
+-- included) or still under way.
+CREATE FUNCTION inrp2p_send_network_used(p_send uuid) RETURNS bigint
+LANGUAGE sql STABLE AS $$
+  SELECT coalesce((SELECT -sum(e.amount_sun) FROM network_budget_entry e
+                     JOIN chain_send_attempt a ON a.id = e.chain_send_attempt_id
+                     JOIN chain_send t ON t.id = a.send_id
+                    WHERE e.kind = 'SPENT' AND t.parent_send_id = p_send), 0)
+       + coalesce((SELECT sum(t.amount_minor + t.fee_estimate_sun) FROM chain_send t
+                    WHERE t.parent_send_id = p_send AND t.purpose = 'TOPUP' AND t.status NOT IN ('CONFIRMED', 'CANCELLED')), 0)
+$$;
+
+-- What a trade's USDT sends (but one) have committed of its hold: an open send its cap (or what it drew, if more), a
+-- finished or cancelled one what it drew.
+CREATE FUNCTION inrp2p_trade_network_committed(p_trade uuid, p_except uuid) RETURNS bigint
+LANGUAGE sql STABLE AS $$
+  SELECT coalesce(sum(CASE WHEN s.status IN ('CONFIRMED', 'CANCELLED') THEN inrp2p_send_network_used(s.id)
+                           ELSE greatest(s.network_cap_sun, inrp2p_send_network_used(s.id)) END), 0)
+    FROM chain_send s
+   WHERE s.trade_id = p_trade AND s.asset = 'USDT' AND s.id IS DISTINCT FROM p_except
+$$;
+
 -- What a funder can still commit: its balance, less what its open trades still hold, less top-ups and withdrawals
--- under way (FI-91). A top-up for a trade first uses that trade's hold; beyond it, the funder's free TRX.
+-- under way (FI-91). A trade's top-ups draw on its hold, never beyond it (IX114, IX115).
 CREATE FUNCTION inrp2p_network_available(p_trader uuid) RETURNS bigint
 LANGUAGE sql STABLE AS $$
   WITH spent AS (
@@ -563,7 +677,7 @@ BEGIN
   RETURN NULL;
 END
 $$;
-CREATE CONSTRAINT TRIGGER network_budget_hold_covered AFTER INSERT ON network_budget_hold
+CREATE CONSTRAINT TRIGGER network_budget_hold_covered AFTER INSERT OR UPDATE OF amount_sun ON network_budget_hold
   DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION inrp2p_check_network_budget();
 CREATE CONSTRAINT TRIGGER chain_send_topup_covered AFTER INSERT ON chain_send
   DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION inrp2p_check_network_budget();
@@ -862,11 +976,11 @@ $$;
 -- ---------------------------------------------------------------------------------------------------------------
 GRANT SELECT, INSERT ON custody_hd_account, network_fee_policy, network_fee_snapshot, network_trx_rate, quote_network_fee, network_budget_entry TO inrp2p_app;
 GRANT SELECT, INSERT ON network_budget_hold, network_deposit_withdrawal, chain_send, chain_send_attempt TO inrp2p_app;
-GRANT UPDATE (status, closed_at, close_reason, spent_sun, reimbursed_sun, reimbursed_inr_minor) ON network_budget_hold TO inrp2p_app;
+GRANT UPDATE (status, closed_at, close_reason, spent_sun, reimbursed_sun, reimbursed_inr_minor, amount_sun) ON network_budget_hold TO inrp2p_app;
 GRANT UPDATE (status, decided_by, decided_at, closed_at, close_reason) ON network_deposit_withdrawal TO inrp2p_app;
-GRANT UPDATE (status, approved_by, approved_at, blocked_reason, last_error, last_error_at, failed_attempts, crypto_transfer_id, updated_at, closed_at, close_reason) ON chain_send TO inrp2p_app;
+GRANT UPDATE (status, approved_by, approved_at, blocked_reason, last_error, last_error_at, failed_attempts, crypto_transfer_id, updated_at, closed_at, close_reason, network_cap_sun) ON chain_send TO inrp2p_app;
 GRANT UPDATE (status, broadcasts, last_broadcast_at, last_broadcast_result, block_number, block_time, fee_sun, energy_used, energy_fee_sun, net_fee_sun, result, decided_at, decided_by) ON chain_send_attempt TO inrp2p_app;
 GRANT SELECT ON custody_hd_account, network_fee_policy, network_fee_snapshot, network_trx_rate, quote_network_fee, network_budget_entry,
                network_budget_hold, network_deposit_withdrawal, chain_send, chain_send_attempt TO inrp2p_readonly;
 GRANT USAGE ON SEQUENCE custody_derivation_index_seq, chain_send_ref_seq, network_deposit_withdrawal_ref_seq TO inrp2p_app;
-GRANT EXECUTE ON FUNCTION inrp2p_network_available(uuid) TO inrp2p_app, inrp2p_readonly;
+GRANT EXECUTE ON FUNCTION inrp2p_network_available(uuid), inrp2p_send_network_used(uuid), inrp2p_trade_network_committed(uuid, uuid) TO inrp2p_app, inrp2p_readonly;

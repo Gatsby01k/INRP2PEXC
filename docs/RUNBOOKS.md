@@ -277,9 +277,14 @@ is what makes a second payment impossible.
 
 **What to do.**
 
-* Short of TRX: the trader tops up its network deposit (its Traders screen shows the address), or — for a desk
-  route — the platform budget is topped up and recorded (**Record a TRX deposit**, platform). Then **Unblock**
-  with a reason: the signer decides again (a top-up, then the transfer).
+* Short of TRX at the budget wallet: the trader tops up its network deposit (its Traders screen shows the address),
+  or — for a desk route — the platform budget is topped up and recorded (**Record a TRX deposit**, platform). Then
+  **Send again** with a reason: the signer decides again (a top-up, then the transfer).
+* Past its TRX cap ("may draw … TRX in all"): the transfer would cost more than was fixed for it — gas rose, or
+  failed attempts burned its share. Sending again changes nothing. Decide whether the trade is still worth it: the
+  extra cost comes out of the platform's margin (a trader that fronts it is paid back). If it is, **Raise TRX cap**
+  (OWNER or FINANCE, authenticator, reason) to what the chain charges now; the trade's hold rises from the same
+  funder's free TRX if it must, and the send goes on. If not, cancel it and settle the trade another way.
 * Failed on chain three times (out of energy, reverted): read `result`; raising `reserve_energy` in the fee policy
   covers a contract whose energy factor rose. Then **Unblock**.
 * Unresolved: wait for the providers. When the chain answers the send settles or is signed again by itself. If one
@@ -289,8 +294,9 @@ is what makes a second payment impossible.
   **Cancel** — only possible while no transaction of it is alive.
 
 **What never to do.** Do not record manual evidence for a signer's leg (the database refuses it, IX111), send the
-same USDT by hand from a wallet that has the seed, edit `chain_send` or `chain_send_attempt`, or switch the signer
-off and on to "retry" — retrying is the signer's job and it never re-signs a live transaction.
+same USDT by hand from a wallet that has the seed, edit `chain_send` or `chain_send_attempt`, raise a cap "to see if it
+goes through", or switch the signer off and on to "retry" — retrying is the signer's job and it never re-signs a live
+transaction.
 
 ---
 
@@ -589,7 +595,11 @@ Then, from that moment to now: every exchange account's bank statement (import i
 they belong to), the chain for every exchange address (the scanner re-reads from its restored cursor; `chain-backfill`
 for a gap), the custody provider's outgoing history, and every route's settlement messages. The panel counts what to
 check: payout legs waiting to be sent, legs sent and not confirmed, reserve applications approved, reserve withdrawals
-requested, route obligations open.
+requested, route obligations open, and the exchange signer's open transfers with their undecided transactions. For the
+signer, look up on the chain every transfer from the budget wallet and every deal address since that moment: a
+transaction signed after the records were last whole is not in the restored database, and may have landed. While the
+fence is up the signer plans, signs and broadcasts nothing — TRX top-ups and withdrawals included; a transaction it
+signed before the change waits and is broadcast as the same bytes once the fence is lifted.
 
 **What to do.** Record every payment that left since that moment as what it is — the leg's UTR or transaction, the
 route's settlement, the withdrawal's transaction — through the usual commands; recording evidence is never held, and a

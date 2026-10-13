@@ -62,6 +62,17 @@ Zod is still not a direct dependency (installed transitively by Better Auth only
 | @types/three | 0.186.0 | apps/web type checking; same minor as `three`; dev only | MIT |
 | framer-motion | 13.4.3 | apps/web — the hero quote module's term transitions (`LazyMotion` + `domAnimation`, `MotionConfig reducedMotion="user"`) | MIT |
 
+### The exchange's own wallet (ADR 0017)
+
+| Package | Version | Used by | License |
+|---|---|---|---|
+| @noble/hashes | 2.4.0 | packages/adapters — SHA-256 (txid, address checksum), Keccak-256 (address), HMAC/PBKDF2 under BIP-32/39 | MIT |
+| @noble/curves | 2.4.0 | packages/adapters — secp256k1 signatures of TRON transactions (worker only, `@inrp2p/adapters/signer`) and public-key recovery in tests | MIT |
+| @scure/bip32 | 2.4.0 | packages/adapters — HD derivation `m/44'/195'/…` (the web app from the account's extended public key, the worker from the seed) | MIT |
+| @scure/bip39 | 2.4.0 | packages/adapters — the 24-word custody seed (English word list, checksum) | MIT |
+
+All four are by the same author, have no dependencies outside the set (`@scure/bip32` also brings `@scure/base` 2.4.0), were released 2026-08-27/28 and are each the registry's `latest`; `pnpm audit` reports nothing against them. Every derivation and signature is pinned by golden vectors from TronWeb 6.0.4 (`packages/adapters/test/tron-tx.unit.test.ts`).
+
 **three (approved for the hero).** The robot is a brand element drawn live: it watches the quote module, reads while an amount is typed and acknowledges it, and shows which way value flows when the direction changes. Only the live path loads three.js (≈140 KB gzip, one lazy chunk, after `load` and an idle callback). The still robot — rendered from the same scene by `pnpm --filter @inrp2p/web poster:robot` and committed as three WebP sizes of 21–47 KB — is what everyone sees on first paint, and all that is shown to reduced-motion and Save-Data visitors, low-memory devices, and browsers that can only draw WebGL in software (`failIfMajorPerformanceCaveat`, SwiftShader/llvmpipe). That includes the headless browsers the e2e, visual and Lighthouse runs use, so those runs are deterministic and measure the page without the robot's cost. Nothing is downloaded at runtime: the environment map is generated from a small studio scene, and there is no model file.
 
 **No React renderer for it.** `@react-three/fiber` was evaluated and not added: 9.7 refuses React 19.3 (peer `<19.3`), 9.8 exists specifically to accept it — a dependency that has to be re-released for every React minor is a poor fit for a matrix pinned this tightly — and with three ≥ r183 it logs a `THREE.Clock` deprecation warning on every page view. For one figure in one fixed shot a reconciler adds nothing; the scene is plain three.js behind a small React component.
@@ -88,6 +99,7 @@ Zod is still not a direct dependency (installed transitively by Better Auth only
 | Storybook addon-a11y + Playwright axe | addon panel is set to manual inside the test run (`globals=a11y.manual:!true`) so only one axe run executes per page |
 | Better Auth schema | integration test runs Better Auth's migration planner against migration 0006 and asserts nothing to create or add |
 | framer-motion 13.4.3 ↔ react 19.3.0 | peers `react ^18.0.0 \|\| ^19.0.0`, `react-dom ^18.0.0 \|\| ^19.0.0` |
+| @noble/curves / @noble/hashes / @scure/bip32 / @scure/bip39 2.4.0 on Node 24 | `engines.node >= 20.19.0`; ESM only, loaded by Node's type stripping and by Next (server only); one copy of each in the lockfile |
 | three 0.186.0 ↔ next 16.3.5 (Turbopack) / TypeScript 6.0.3 | no peers; `next build` succeeds with three in its own lazy chunk; `@types/three` 0.186.0 typechecks under the repository's strict settings |
 | Workspace `sideEffects` declarations | `next build` and every unit test pass; production home page script 329 → 174 KB gzip on the still path |
 

@@ -3,7 +3,7 @@
 Status: **Accepted** — owner task of 2026-10-12 ("make USDT TRC20 work end to end, with automatic per-deal addresses
 and clear fees"). Builds on ADR 0016 (counterparty-funded execution) and changes none of it: every trade is still
 funded by its client and its counterparty, and the platform advances no trading money. Migration `0037`, error codes
-IX103–IX112, schema version 37.
+IX103–IX115 (and IX100 extended to the signer), schema version 37.
 
 ## 1. Context
 
@@ -29,8 +29,10 @@ the TRX one USDT transfer from a new deal address costs (activation 1.1 TRX + th
 quote's own client rate and the published TRX price, rounded **up**. Both are inside the client rate — never added on
 top — so the client pays and receives exactly the quoted amounts and the client screen says so. `quote.create`
 refuses (`QUOTE_UNPROFITABLE`) a rate that leaves less than `min_net_margin`, and tells the dealer the break-even rate;
-`quote_network_fee` freezes the fee, the TRX price, the snapshot, the reward and the funder with the quote (IX103:
-net = gross − reward − fee). No quote is sent, and no trade accepted, while the chain's fees or the TRX price are
+`quote_network_fee` freezes the fee, the TRX price, the snapshot, the funder and the reward — with the order and the
+basis points it was counted at — with the quote (IX103: net = gross − reward − fee). The order starts with exactly that
+reward, whatever the programme says by acceptance (IX113), so the price, the order, the ledger accrual and the desk's
+profit are one figure. No quote is sent, and no trade accepted, while the chain's fees or the TRX price are
 older than the policy allows (`NETWORK_FEES_UNKNOWN`).
 
 ### 2.2 Who pays the network: a prefunded TRX budget (FI-91)
@@ -46,6 +48,11 @@ TRX is not a trade currency, so it is not in the ledger: `network_budget_entry` 
   Routing does not offer an order to a trader whose free TRX cannot cover it (`NETWORK_DEPOSIT_SHORT`).
 - A transfer is fuelled by a **TRX top-up** from the budget wallet to the deal address, sized by the chain's own
   energy estimate; what the top-up and its fee burn is *spent* against the trade's hold.
+- **Every USDT send has a fixed TRX cap** (FI-95): the network fee its quote priced, for a transfer the client's price
+  pays for; one held transfer's cost, for a refund. The caps of a trade's sends fit in its hold, so a SELL's possible
+  return keeps its share. Top-ups — retries and failed ones included — never draw past the cap: gas that rose or
+  attempts that burned it block the send with a case. The funder's other TRX is never drawn automatically; a person
+  with `network:manage` may raise one send's cap, with the reason, and the trade's hold rises with it if it must.
 - When the trade is over, the hold closes: the unspent rest is free again; what the funder spent for transfers it
   does not bear (the client's payout, priced in; a platform mistake) is **paid back in INR** at the trade's quoted TRX
   price and rate, rounded down, accrued with the trader's rewards (`network_fee:{trade}:reimburse`, Dr
@@ -83,6 +90,9 @@ and **commits the attempt — txid and signed bytes — before broadcasting** it
   30 minutes a `CHAIN_SEND_UNRESOLVED` case is opened. Nobody can cancel a send with a live attempt
   (`CHAIN_SEND_IN_FLIGHT`), and no manual evidence may be recorded for a signer's leg (IX111, IX112).
 - A send short of TRX at the budget wallet is `BLOCKED` with a `NETWORK_BUDGET_SHORT` case until a person unblocks it.
+- After the database changed underneath (a restore, a failover — FI-54) nothing is planned, approved, signed or
+  broadcast, TRX as well as USDT, until a person has reconciled and a second has lifted the fence; a transaction signed
+  before the change waits and is then broadcast as the same bytes (IX100 in the database, `PAYOUTS_HELD` in code).
 
 USDT is paid **directly from the deal address** to its destination (client, counterparty, refund): no sweep, no
 intermediate hop. The only extra transfer is the TRX top-up.

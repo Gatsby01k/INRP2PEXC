@@ -59,6 +59,7 @@ export function TradeNetwork({ trade }: { trade: DeskTrade }) {
                   <div className={t.legMeta}>
                     <span className={d.mono}>{s.ref}</span>
                     <span>to {shortenAddress(s.to)}</span>
+                    {s.networkCap ? <span>{trx(s.networkUsed ?? '0')} of {trx(s.networkCap)} TRX cap drawn</span> : null}
                     {live ? (
                       <span>
                         <Chip tone={ATTEMPT[live.status] ?? 'neutral'}>{live.status.toLowerCase()}</Chip> <span className={d.mono}>{shortenHash(live.txid)}</span> <CopyButton value={live.txid} label="transaction hash" />
