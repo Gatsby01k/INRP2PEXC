@@ -9,6 +9,7 @@ import { useCommand } from '../../../components/useCommand.tsx';
 import { AmountField, TextArea } from '../_desk/fields.tsx';
 import { inr, inrCompact, parseAmount, share } from '../_desk/format.ts';
 import { Chip, Legend, Meter, Notice } from '../_desk/ui.tsx';
+import { CollectionDetails } from './AccountSetup.tsx';
 import d from '../_desk/desk.module.css';
 import s from './inr.module.css';
 
@@ -18,7 +19,7 @@ import s from './inr.module.css';
  * Changing today's capacity is step-up protected and always carries a reason, because a payout refused this
  * morning and allowed this afternoon has to be explainable.
  */
-export function InrAccounts({ accounts, canChange }: { accounts: readonly InrAccountView[]; canChange: boolean }) {
+export function InrAccounts({ accounts, canChange, canManage = false }: { accounts: readonly InrAccountView[]; canChange: boolean; canManage?: boolean }) {
   return (
     <div className={s.accounts}>
       <div className={s.accountsHead} aria-hidden="true">
@@ -31,7 +32,7 @@ export function InrAccounts({ accounts, canChange }: { accounts: readonly InrAcc
         <span />
       </div>
       {accounts.map((a) => (
-        <Account key={a.accountId} a={a} canChange={canChange} />
+        <Account key={a.accountId} a={a} canChange={canChange} canManage={canManage} />
       ))}
       <div className={s.legendRow}>
         <Legend
@@ -46,7 +47,7 @@ export function InrAccounts({ accounts, canChange }: { accounts: readonly InrAcc
   );
 }
 
-function Account({ a, canChange }: { a: InrAccountView; canChange: boolean }) {
+function Account({ a, canChange, canManage }: { a: InrAccountView; canChange: boolean; canManage: boolean }) {
   const cmd = useCommand();
   const [open, setOpen] = useState(false);
   const [value, setValue] = useState('');
@@ -101,6 +102,7 @@ function Account({ a, canChange }: { a: InrAccountView; canChange: boolean }) {
           ) : null}
         </span>
       </div>
+      <CollectionDetails a={a} canManage={canManage} />
       {open ? (
         <div className={s.editor}>
           <div className={d.formGrid}>

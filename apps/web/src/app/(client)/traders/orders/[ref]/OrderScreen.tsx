@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Money } from '@inrp2p/kernel';
+import { Money, checkUtrShape } from '@inrp2p/kernel';
 import type { PaymentRow, TraderOrderDetail } from '@inrp2p/traders';
 import { CopyButton, DepositAddress, UTRField, normalizeUtr } from '@inrp2p/ui';
 import { formatIstDateTime } from '@inrp2p/ui/format';
@@ -93,7 +93,10 @@ function PayInr({ detail }: { detail: TraderOrderDetail }) {
           <CopyButton value={payTo.narration} label="Copy narration" />
         </div>
       </dl>
-      <p className={styles.note}>Pay from your registered account only. A payment from any other account cannot be matched to this order.</p>
+      <p className={styles.note}>
+        Pay from your registered bank account only. Rupees from any other account — a relative’s, a friend’s, a business’s — are returned and never count: INRP2P checks
+        who sent every payment before it confirms it.
+      </p>
       <form
         className={styles.editForm}
         onSubmit={(e) => {
@@ -114,8 +117,9 @@ function PayInr({ detail }: { detail: TraderOrderDetail }) {
           </label>
           <UTRField value={utr} onChange={setUtr} label="Bank reference (UTR)" />
         </div>
+        {utr !== '' && !checkUtrShape(rail, utr).ok ? <p className={styles.note}>Not a {rail} reference yet: {(checkUtrShape(rail, utr) as { hint: string }).hint}.</p> : null}
         <div className={styles.formActions}>
-          <button type="submit" className={shell.action} disabled={busy || normalizeUtr(utr).length < 6}>
+          <button type="submit" className={shell.action} disabled={busy || !checkUtrShape(rail, utr).ok}>
             I have paid
           </button>
         </div>

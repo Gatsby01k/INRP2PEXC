@@ -3,7 +3,8 @@
 import { revalidatePath } from 'next/cache';
 import type { DirectionValue, FiatRail } from '@inrp2p/db';
 import { archiveBankAccount } from '@inrp2p/clients';
-import { setDayCapacity } from '@inrp2p/inr-accounts';
+import { createInrAccount, createSettlementEntity, setDayCapacity, setInrAccountCollectionDetails } from '@inrp2p/inr-accounts';
+import { protectorForWeb } from '../quotes.ts';
 import { publishRouteRate } from '@inrp2p/pricing';
 import { cancelQuote, createQuote, createQuoteLink, createRequest, declineRequest, sendQuote, withdrawRequest } from '@inrp2p/quotes';
 import {
@@ -11,6 +12,7 @@ import {
   confirmRefundLeg, confirmRouteSettlement, createPayoutLeg, createRefundLeg, failPayoutLeg, openException, recordIncomingFiat,
   recordLegEvidence, recordRouteSettlement, refundAndCancel, rejectAdjustment, requestAdjustment, resolveException, revertFirstLeg, sendPayoutLeg,
   takeException, voidException, approveDestinationChange, cancelDestinationChange, refundExcess, rejectDestinationChange, requestDestinationChange,
+  acceptIncomingSender, checkIncomingSender,
 } from '@inrp2p/settlement';
 import { type CommandResult, failure, runCommand, withOperator } from '../command.ts';
 
@@ -171,12 +173,32 @@ export async function cancelPayoutAction(input: { legId: string; reason: string 
 }
 
 export async function recordIncomingFiatAction(
-  input: { tradeId: string; rail: FiatRail; utr: string; amount: string; inrAccountId: string; valueDate?: string | null },
+  input: {
+    tradeId: string; rail: FiatRail; utr: string; amount: string; inrAccountId: string; valueDate?: string | null;
+    payerBankAccountId?: string | null; senderName?: string | null; senderAccount?: string | null;
+  },
   key: string,
 ): Promise<CommandResult<{ legId: string; ref: string }>> {
   const out = await runCommand((ctx) => recordIncomingFiat(ctx.actor), input, { name: 'fiat_in.record', idempotencyKey: key });
   if (out.ok) refresh();
   return out as CommandResult<{ legId: string; ref: string }>;
+}
+
+/**
+ * ADR 0018 — who sent a client's (or a trader's) rupees, as the desk sees it on the credit in the bank. Judged against
+ * the account the payment was declared from; a stranger opens a case at once.
+ */
+export async function checkSenderAction(input: { transferId: string; senderName: string; senderAccount?: string | null }, key: string): Promise<CommandResult<{ verdict: string }>> {
+  const out = await runCommand((ctx) => checkIncomingSender(ctx.actor), input, { name: 'fiat_in.check_sender', idempotencyKey: key });
+  if (out.ok) refresh();
+  return out as CommandResult<{ verdict: string }>;
+}
+
+/** A partial match accepted as the payer's own, with the reason (⧗). Never a stranger. */
+export async function acceptSenderAction(input: { transferId: string; reason: string }, key: string): Promise<CommandResult<unknown>> {
+  const out = await runCommand((ctx) => acceptIncomingSender(ctx.actor), input, { name: 'fiat_in.accept_sender', idempotencyKey: key });
+  if (out.ok) refresh();
+  return out;
 }
 
 export async function confirmIncomingAction(input: { legId: string }, key: string): Promise<CommandResult<unknown>> {
@@ -323,6 +345,41 @@ export async function confirmRouteSettlementAction(input: { routeSettlementId: s
 
 export async function setDayCapacityAction(input: { accountId: string; capacity: string; day?: string; reason: string }, key: string): Promise<CommandResult<unknown>> {
   const out = await runCommand((ctx) => setDayCapacity(ctx.actor), input, { name: 'capacity.set_day', idempotencyKey: key });
+  if (out.ok) refresh();
+  return out;
+}
+
+/**
+ * The exchange's own INR accounts (ADR 0018): the legal entity that owns them, a new account (its number sealed at
+ * once), and what a paying client sees on a collecting one — the payee name and its UPI ID. All `inr_account:manage` (⧗).
+ */
+export async function createSettlementEntityAction(input: { legalName: string; shortName: string }, key: string): Promise<CommandResult<{ entityId: string }>> {
+  const out = await runCommand((ctx) => createSettlementEntity(ctx.actor), input, { name: 'settlement_entity.create', idempotencyKey: key });
+  if (out.ok) refresh();
+  return out as CommandResult<{ entityId: string }>;
+}
+
+export async function createInrAccountAction(
+  input: {
+    entityId: string; label: string; bankName: string; ifsc: string; accountNumber: string; rails: readonly ('IMPS' | 'NEFT' | 'RTGS' | 'UPI')[];
+    direction: 'PAYOUT' | 'COLLECTION' | 'BOTH'; defaultDailyCapacity: string; upiVpa?: string | null; beneficiaryName?: string | null;
+  },
+  key: string,
+): Promise<CommandResult<{ accountId: string }>> {
+  const { upiVpa, beneficiaryName, ...account } = input;
+  const out = await runCommand((ctx) => createInrAccount(ctx.actor, protectorForWeb()), account, { name: 'inr_account.create', idempotencyKey: key });
+  if (!out.ok) return out as CommandResult<{ accountId: string }>;
+  const accountId = (out.result as { accountId: string }).accountId;
+  if (upiVpa || beneficiaryName) {
+    const details = await runCommand((ctx) => setInrAccountCollectionDetails(ctx.actor), { accountId, upiVpa: upiVpa ?? null, beneficiaryName: beneficiaryName ?? null }, { name: 'inr_account.set_collection_details', idempotencyKey: `${key}:details` });
+    if (!details.ok) return details as CommandResult<{ accountId: string }>;
+  }
+  refresh();
+  return { ok: true, result: { accountId } };
+}
+
+export async function setCollectionDetailsAction(input: { accountId: string; upiVpa: string | null; beneficiaryName: string | null }, key: string): Promise<CommandResult<unknown>> {
+  const out = await runCommand((ctx) => setInrAccountCollectionDetails(ctx.actor), input, { name: 'inr_account.set_collection_details', idempotencyKey: key });
   if (out.ok) refresh();
   return out;
 }

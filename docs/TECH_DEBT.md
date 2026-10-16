@@ -807,3 +807,25 @@ address. Staking TRX for energy, or renting energy from a market, costs less per
 **Resolution (to do, owner).** Decide whether to stake a part of the platform budget (energy delegated to deal
 addresses before each transfer) or to use a rental market; the signer's fuelling step (`prepareUsdt`) is where either
 would replace the top-up.
+
+## TD-33 — A client's registered bank account is not verified with the bank
+
+**Observed (ADR 0018, 2026-10-16).** The sender of a client's rupees is compared with the holder name of the account the
+desk registered for the client. Nothing yet asks the bank who holds that account, so a holder name typed wrongly — or a
+client who registers someone else's account in their own name — is believed.
+
+**Resolution (to do).** Verify every new destination with the bank before it becomes ACTIVE ("penny drop": ₹1 sent, the
+bank returns the beneficiary name — Cashfree, Razorpay, Setu or Decentro), matched against the client's KYC name with
+`matchNames`; the bank's name becomes the account's holder name.
+
+## TD-34 — A credit is identified by its reference, not by the bank
+
+**Observed (ADR 0018, 2026-10-16).** A client's payment is matched to its trade by the UTR the client (or the desk)
+files, and its sender is read from a statement export or a person's eyes. A stranger's rupees are returned by a bank
+transfer the desk makes and records in the case, outside the platform's legs.
+
+**Resolution (to do, partner).** A virtual account or a UPI ID per trade from a banking partner (collect API with a
+remitter callback): the bank names the trade and the remitter, the sender check runs on the bank's own data, the
+confirmation needs no person, and a stranger's rupees are refunded through the partner's API. Needs a partner that
+serves the business.
+

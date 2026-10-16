@@ -208,6 +208,14 @@ export const RESOLUTIONS: Record<ExceptionType, ResolutionChoices> = {
     voidable: true,
     financial: 'The trader tops up its network deposit, or the platform budget is topped up; the send resumes by itself.',
   },
+  INR_UNEXPECTED_SENDER: {
+    resolutions: [
+      { value: 'record_recovery_outcome', label: 'Record that it went back to the sender' },
+      { value: 'escalate', label: 'Escalate' },
+    ],
+    voidable: false,
+    financial: 'Rupees from someone other than the payer are never counted and never kept: send them back to the account they came from — not to the client — and mark the payment not received. The trade then waits for a payment from the client’s own account, or is cancelled.',
+  },
 };
 
 /** The fallback exists so an unknown type is still closable; the test makes sure it is never the live path. */

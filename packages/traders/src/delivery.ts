@@ -1,4 +1,4 @@
-import { DomainError, Money, requireOneOf, requireText } from '@inrp2p/kernel';
+import { DomainError, Money, requireOneOf, requireText, requireUtrShape } from '@inrp2p/kernel';
 import type { FiatRail, TxContext } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
 import { enqueueOutbox } from '@inrp2p/outbox';
@@ -53,13 +53,19 @@ export function submitOrderPayment(actor: ClientActor, deps: Pick<TraderDeps, 'c
     const owed = remaining.routeDelivers as Money<'INR'>;
     if (owed.isZero()) throw new DomainError('INVALID_TRANSITION', 'your payment for this order is already confirmed');
     const amount = p.amount ? Money.parse(p.amount, 'INR') : owed;
+    // ADR 0018: the trader pays from its own registered bank account — the one on its profile — and the desk counts
+    // the rupees only once the credit is seen to have come from it.
+    const profile = await ctx.tx.selectFrom('trader_profile').select('bank_account_id').where('id', '=', order.trader_id).executeTakeFirstOrThrow();
+    const rail = requireOneOf(p.rail, 'rail', ['IMPS', 'NEFT', 'RTGS', 'UPI'] as const);
     const recorded = await recordRouteSettlementInTx(ctx, deps, {
       routeObligationId: order.route_obligation_id,
       flow: 'FROM_ROUTE_TO_EXCHANGE',
       amount: amount.toDecimalString(),
-      rail: requireOneOf(p.rail, 'rail', ['IMPS', 'NEFT', 'RTGS', 'UPI'] as const),
-      utr: p.utr,
+      rail,
+      utr: requireUtrShape(rail, p.utr),
       inrAccountId: program.collectionAccountId,
+      payerBankAccountId: profile.bank_account_id,
+      filedBy: 'TRADER',
     });
     await appendAudit(ctx, { action: 'trader_order.payment_submitted', entityType: 'trader_order', entityId: order.id, after: { route_settlement_id: recorded.routeSettlementId, amount } });
     await enqueueOutbox(ctx, { type: 'trader.payment_submitted', aggregateType: 'trader_order', aggregateId: order.id, payload: { orderId: order.id, routeSettlementId: recorded.routeSettlementId } });

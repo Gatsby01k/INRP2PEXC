@@ -20,3 +20,6 @@ export * from './approvals.ts';
 export * from './destination-change.ts';
 export * from './reserve-delivery.ts';
 export * from './signed.ts';
+export * from './sender.ts';
+export * from './claim.ts';
+export * from './narration.ts';

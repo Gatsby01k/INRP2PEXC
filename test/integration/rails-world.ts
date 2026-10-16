@@ -12,6 +12,7 @@ import { acceptQuote, createQuote, createRequest, sendQuote } from '@inrp2p/quot
 import { confirmRouteSettlement } from '@inrp2p/settlement';
 import type { QuoteDeps } from '@inrp2p/quotes';
 import { type TradersWorld, type TraderSetup, configureProgram, createTradersWorld, liveTrader, traderClient, utr } from './traders-world.ts';
+import { seeOwnSender } from '../../packages/settlement/test/world.ts';
 
 /** The BIP-39 test mnemonic: its addresses are TronWeb's vectors (packages/adapters/test/tron-tx.unit.test.ts). */
 export const TEST_MNEMONIC = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'; // secret-scan:allow — BIP-39's published test vector, never a wallet with money
@@ -92,6 +93,7 @@ export async function railsTrade(w: RailsWorld, trader: TraderSetup, input: { di
 export async function traderPaysInr(w: RailsWorld, trader: TraderSetup, orderRef: string) {
   const claim = await runAs(w.app, submitOrderPayment(trader.admin.actor, w.traderDeps), trader.admin.ref, 'trader_order.submit_payment', { ref: orderRef, rail: 'IMPS' as const, utr: utr() });
   const rs = await w.app.selectFrom('route_settlement').select('id').where('ref', '=', claim.settlementRef).executeTakeFirstOrThrow();
+  await seeOwnSender(w.app, w.finance, { routeSettlementId: rs.id });
   await runAs(w.app, confirmRouteSettlement(w.finance.actor, w.settlementDeps), w.finance.ref, 'route_settlement.confirm', { routeSettlementId: rs.id });
 }
 

@@ -11,6 +11,7 @@ import { useAssistantState } from '../../_assistant/AssistantPanel.tsx';
 import { type Step, at, tradeAssistant } from '../../_assistant/model.ts';
 import { ArrowIcon, CheckIcon, ClockIcon, DownloadIcon, InfoIcon, PauseIcon, ReceiptIcon } from '../../_workspace/icons.tsx';
 import { SuccessMark } from '../../_workspace/SuccessMark.tsx';
+import { InrPayment } from './InrPayment.tsx';
 import shell from '../../shell.module.css';
 import styles from './trade.module.css';
 
@@ -137,7 +138,14 @@ export function TradeScreen({ view, justOpened = false }: { view: PortalTrade; j
   const exactAmount = trade.depositInstructions ? Money.parse(trade.depositInstructions.amount, 'USDT').toDecimalString() : null;
   // While the trade waits on the client, the headline says what it is waiting for; the card below says how.
   const headline = yourMove
-    ? { title: sell ? `Waiting for your ${usdt}` : `Waiting for your ${inr}`, body: sell ? 'Send it to this trade’s own address below. Your INR follows as soon as it is final on-chain.' : 'Pay it as the desk instructs. Your USDT follows as soon as the payment is confirmed.' }
+    ? {
+        title: sell ? `Waiting for your ${usdt}` : `Waiting for your ${inr}`,
+        body: sell
+          ? 'Send it to this trade’s own address below. Your INR follows as soon as it is final on-chain.'
+          : view.payment?.instructions
+            ? 'Pay it from your own account, as shown below, then tell us the reference. Your USDT follows as soon as the payment is confirmed.'
+            : 'Pay it as the desk instructs. Your USDT follows as soon as the payment is confirmed.',
+      }
     : { title: status.title, body: status.body };
 
   return (
@@ -235,18 +243,8 @@ export function TradeScreen({ view, justOpened = false }: { view: PortalTrade; j
           </section>
         ) : null}
 
-        {!sell && trade.status === 'AWAITING_FIRST_LEG' ? (
-          <section className={`${shell.card} ${styles.action}`} aria-labelledby="pay-title" data-attention={yourMove || undefined}>
-            <div className={styles.actionHead}>
-              <span className={styles.actionBadge}>Your move</span>
-              <h2 id="pay-title" className={styles.actionTitle}>
-                Pay {inr}
-              </h2>
-              <p className={styles.actionText}>
-                The desk sends you the account to pay into and the reference to use. Your USDT goes to your wallet as soon as the payment is confirmed by its UTR.
-              </p>
-            </div>
-          </section>
+        {!sell && view.payment && (trade.status === 'AWAITING_FIRST_LEG' || trade.status === 'FIRST_LEG_DETECTED' || (trade.status !== 'COMPLETED' && view.payment.payments.length > 0)) ? (
+          <InrPayment tradeRef={trade.ref} payment={view.payment} total={trade.inr.amount} />
         ) : null}
 
         {settlement.payments.length > 0 ? (

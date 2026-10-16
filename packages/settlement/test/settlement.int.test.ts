@@ -11,7 +11,7 @@ import {
   failPayoutLeg, obligationRemaining, openException, pnlSummary, recordIncomingFiat, recordLegEvidence, refundAndCancel,
   rejectAdjustment, requestAdjustment, resolveException, routeObligationMismatches, runReconciliation, runSettlementSla, sendPayoutLeg,
 } from '../src/index.ts';
-import { balanceOf, clientDepositAddressOf, createStaleSettlementOperator, createWorld, deliverCounterparty, newUtr, observe, openTrade, settleFirstLeg, type World } from './world.ts';
+import { balanceOf, clientDepositAddressOf, createStaleSettlementOperator, createWorld, deliverCounterparty, newUtr, observe, openTrade, seeOwnSender, settleFirstLeg, type World } from './world.ts';
 
 let w: World;
 beforeAll(async () => { w = await createWorld('settlement_core', { capacityInr: '500000000.00' }); });
@@ -161,6 +161,7 @@ describe('recording and confirming a client\u2019s incoming INR (T2, T4)', () =>
     // Confirming it does assert that, and keeps its step-up.
     await expect(runAs(w.app, confirmFirstLeg(staleOp.actor, w.settlementDeps), staleOp.ref, 'settlement.confirm_incoming', { legId: recorded.legId }))
       .rejects.toMatchObject({ code: 'STEP_UP_REQUIRED' });
+    await seeOwnSender(w.app, w.settlementOp, { legId: recorded.legId });
     await runAs(w.app, confirmFirstLeg(w.settlementOp.actor, w.settlementDeps), w.settlementOp.ref, 'settlement.confirm_incoming', { legId: recorded.legId });
     expect((await w.app.selectFrom('trade').select('lifecycle_state').where('id', '=', trade.tradeId).executeTakeFirstOrThrow()).lifecycle_state).toBe('FIRST_LEG_CONFIRMED');
   });

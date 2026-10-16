@@ -374,6 +374,9 @@ export interface InrSettlementAccountTable {
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
   version: Generated<number>;
+  /** ADR 0018: who payers pay, and the account's UPI ID when it has one. */
+  upi_vpa: string | null;
+  beneficiary_name: string | null;
 }
 
 export interface InrAccountDayTable {
@@ -714,7 +717,7 @@ export type ExceptionType =
   | 'ROUTE_SETTLEMENT_MISMATCH' | 'ROUTE_OBLIGATION_OVERDUE' | 'DUPLICATE_TX_HASH' | 'DUPLICATE_UTR'
   | 'PARTIAL_INR_PAYOUT' | 'INR_PAYOUT_DELAYED' | 'BANK_TRANSFER_FAILED' | 'CLIENT_BANK_CHANGED'
   | 'ROUTE_CAPACITY_CHANGED' | 'TRADE_CANCELLATION' | 'OPERATOR_MISTAKE' | 'RECONCILIATION_MISMATCH'
-  | 'CHAIN_SEND_UNRESOLVED' | 'NETWORK_BUDGET_SHORT';
+  | 'CHAIN_SEND_UNRESOLVED' | 'NETWORK_BUDGET_SHORT' | 'INR_UNEXPECTED_SENDER';
 
 export type ExceptionSubjectType = 'TRADE' | 'SETTLEMENT_LEG' | 'FIAT_TRANSFER' | 'CRYPTO_TRANSFER' | 'DEPOSIT_ADDRESS' | 'ROUTE_OBLIGATION' | 'ROUTE_SETTLEMENT' | 'INR_ACCOUNT' | 'CLIENT' | 'CHAIN_SEND';
 export type ExceptionStatus = 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'VOID';
@@ -915,6 +918,38 @@ export interface FiatTransferTable {
   confirmed_at: Date | null;
   failed_at: Date | null;
   failure_reason: string | null;
+  /** ADR 0018: the payer's registered account the rupees are declared to come from (IX118), and who filed it. */
+  payer_bank_account_id: string | null;
+  filed_by: Generated<FiatFiledBy>;
+}
+
+export type FiatFiledBy = 'DESK' | 'CLIENT' | 'TRADER';
+
+/** A BUY trade's payment instructions, fixed at acceptance (migration 0038, IX117). */
+export interface TradeCollectionTable {
+  trade_id: string;
+  inr_account_id: string;
+  reference: string;
+  pay_by: Date;
+  created_at: Generated<Date>;
+}
+
+export type SenderVerdict = 'MATCH' | 'PARTIAL' | 'MISMATCH' | 'UNKNOWN' | 'ACCEPTED';
+
+/** Who the sender of a credit was seen to be, and the verdict against the declared account (migration 0038). */
+export interface FiatSenderCheckTable {
+  id: Generated<string>;
+  fiat_transfer_id: string;
+  via: 'STATEMENT' | 'DESK';
+  seen_name: string | null;
+  seen_account: string | null;
+  expected_bank_account_id: string | null;
+  verdict: SenderVerdict;
+  detail: Generated<Json>;
+  statement_line_id: string | null;
+  reason: string | null;
+  checked_by: string;
+  checked_at: Generated<Date>;
 }
 
 export type CryptoPayerType = 'CLIENT' | 'EXCHANGE_TREASURY' | 'ROUTE' | 'TRADER' | 'UNKNOWN';
@@ -1110,7 +1145,8 @@ export type NotificationKind =
   | 'TRADER_PAYMENT_CONFIRMED'
   | 'TRADER_ORDER_COMPLETED'
   | 'TRADER_ORDER_CLOSED'
-  | 'TRADER_RESERVE_ISSUE';
+  | 'TRADER_RESERVE_ISSUE'
+  | 'PAYMENT_RETURNED';
 
 export interface ClientNotificationTable {
   id: Generated<string>;
@@ -1237,6 +1273,9 @@ export interface BankStatementLineTable {
   description: string | null;
   outcome: StatementLineOutcome;
   fiat_transfer_id: string | null;
+  /** The remitter as the statement shows it (its own columns, or read from the narration). */
+  sender_name: string | null;
+  sender_account: string | null;
 }
 
 // ---- Traders (migration 0022) ----
@@ -1680,6 +1719,8 @@ export interface Database {
   trade_destination_change: TradeDestinationChangeTable;
   operator_role_request: OperatorRoleRequestTable;
   fiat_transfer: FiatTransferTable;
+  trade_collection: TradeCollectionTable;
+  fiat_sender_check: FiatSenderCheckTable;
   crypto_transfer: CryptoTransferTable;
   route_settlement: RouteSettlementTable;
   transfer_allocation: TransferAllocationTable;

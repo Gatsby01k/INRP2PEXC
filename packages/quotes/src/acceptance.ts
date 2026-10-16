@@ -7,7 +7,7 @@ import { executeCommand } from '@inrp2p/commands';
 import type { ClientActor } from '@inrp2p/identity';
 import { assertNewBusinessOpen, openTradeFromAcceptedQuote, tradeFundingModel } from '@inrp2p/trades';
 import { getClientTradeView, type ClientTradeView } from '@inrp2p/trades';
-import { allocateDepositAddress, assertSellAcceptanceSupported } from '@inrp2p/treasury';
+import { allocateDepositAddress, assertSellAcceptanceSupported, assignTradeCollection } from '@inrp2p/treasury';
 import { startOrderForTrade } from '@inrp2p/trader-core';
 import { holdNetworkBudget, quoteNetworkFee } from '@inrp2p/network';
 import { lockRow, requireQuoteDecider } from './actors.ts';
@@ -125,6 +125,9 @@ async function acceptCore(ctx: TxContext, deps: QuoteDeps, input: { quote: Decis
   if (funding !== 'COUNTERPARTY_FUNDED') throw new DomainError('INVALID_TRANSITION', `a new trade must be counterparty-funded (it is ${funding})`);
   if (quote.direction === 'SELL_USDT') {
     await allocateDepositAddress(ctx, deps.custody, { network: 'TRON', tradeId: trade.tradeId, tradeRef: trade.ref, expectedAmount: Money.ofMinor(quote.base_minor, 'USDT') });
+  } else {
+    // ADR 0018: a BUY names the account its client pays, the trade's own payment reference and the time to pay.
+    await assignTradeCollection(ctx, { tradeId: trade.tradeId });
   }
   // ADR 0017 §2: the trade's transfers are paid for before it exists. Its funder — the trader of its route, or the
   // platform for a desk route — holds the worst case of them (its transfer and, for a SELL, a return of the client's

@@ -16,7 +16,7 @@ import { runFeeRefresh, runSender } from '@inrp2p/onchain';
 import { decideNetworkWithdrawal, requestNetworkWithdrawal } from '@inrp2p/network';
 import { payoutsHeld } from '@inrp2p/trades';
 import { deskTradeNetwork } from '@inrp2p/desk';
-import { balanceOf, newUtr, observe, settleFirstLeg } from '../../packages/settlement/test/world.ts';
+import { balanceOf, newUtr, observe, settleFirstLeg, seeOwnSender } from '../../packages/settlement/test/world.ts';
 import { configureProgram, confirmOnChain, sendUsdt, utr } from './traders-world.ts';
 import { type RailsWorld, createRailsWorld, depositTrx, railsSettle, railsTrade, railsTrader, railsTurn, traderPaysInr } from './rails-world.ts';
 
@@ -172,6 +172,7 @@ describe('a client buys USDT; the exchange pays the client from the trader’s U
       routeObligationId: trade.routeObligationId, flow: 'TO_ROUTE' as const, amount: '52600.00', rail: 'IMPS' as const, utr: utr('OUT'), inrAccountId: w.inrAccountId,
     });
     const { confirmRouteSettlement } = await import('@inrp2p/settlement');
+    await seeOwnSender(w.app, w.finance, { routeSettlementId: toTrader.routeSettlementId });
     await runAs(w.app, confirmRouteSettlement(w.finance.actor, w.settlementDeps), w.finance.ref, 'route_settlement.confirm', { routeSettlementId: toTrader.routeSettlementId });
     await runTraderSweep(w.app);
     await railsTurn(w, { mine: false });

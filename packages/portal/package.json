@@ -13,12 +13,14 @@
     "@inrp2p/trades": "workspace:*",
     "@inrp2p/settlement": "workspace:*",
     "@inrp2p/notifications": "workspace:*",
-    "kysely": "0.29.6"
+    "kysely": "0.29.6",
+    "@inrp2p/inr-accounts": "workspace:*",
+    "@inrp2p/adapters": "workspace:*",
+    "@inrp2p/identity": "workspace:*",
+    "@inrp2p/treasury": "workspace:*"
   },
   "devDependencies": {
-    "@inrp2p/adapters": "workspace:*",
     "@inrp2p/clients": "workspace:*",
-    "@inrp2p/commands": "workspace:*",
-    "@inrp2p/identity": "workspace:*"
+    "@inrp2p/commands": "workspace:*"
   }
 }

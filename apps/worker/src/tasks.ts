@@ -8,7 +8,7 @@ import type { TxContext } from '@inrp2p/db';
 import { releasePastDayReservations } from '@inrp2p/inr-accounts';
 import { releaseCooledDownAddresses } from '@inrp2p/treasury';
 import { type QuotePolicy, expireQuote, runExpirySweep } from '@inrp2p/quotes';
-import { runReconciliation, runSettlementSla } from '@inrp2p/settlement';
+import { expireUnpaidTrades, runReconciliation, runSettlementSla } from '@inrp2p/settlement';
 import { type ScannerDeps, observeBalances, runChainBackfill, runOrphanSweep, runTronConfirm, runTronScan } from '@inrp2p/scanner';
 import { runTraderSweep } from '@inrp2p/traders';
 import { type WorkerBeat, recordWorkerBeat } from '@inrp2p/trades';
@@ -78,6 +78,11 @@ export function buildTaskList(
   // SLA sweep: payouts in flight too long and route obligations past their SLA become desk cases.
   const settlementSla: Task = async () => {
     await runSettlementSla(db);
+  };
+  // ADR 0018: a BUY whose client neither paid nor said so within the payment window is cancelled, as the desk would.
+  const inrPaymentExpiry: Task = async (_payload, helpers) => {
+    const out = await expireUnpaidTrades(db);
+    for (const f of out.failures) helpers.logger.error(`inr_payment_expiry: trade ${f.tradeId} not cancelled: ${f.message}`);
   };
   // Phase 5 (STATE_MACHINES §5). Chain monitoring is either deliberately off, in which case the jobs do nothing
   // and that is healthy, or it is on, in which case it must actually work: an enabled-but-unconfigured worker
@@ -182,6 +187,7 @@ export function buildTaskList(
     quote_expiry_sweep: quoteExpirySweep,
     settlement_reconcile: reconcile,
     settlement_sla: settlementSla,
+    inr_payment_expiry: inrPaymentExpiry,
     tron_scan: tronScan,
     tron_confirm: tronConfirm,
     tron_orphan_sweep: tronOrphanSweep,
@@ -234,6 +240,7 @@ export const CRONTAB = [
   '*/10 * * * * deposit_address_cooldown_release ?max=3&jobKey=deposit_address_cooldown_release',
   '* * * * * quote_expiry_sweep ?max=1&jobKey=quote_expiry_sweep',
   '*/15 * * * * settlement_sla ?max=2&jobKey=settlement_sla',
+  '* * * * * inr_payment_expiry ?max=1&jobKey=inr_payment_expiry',
   '23 1 * * * settlement_reconcile ?max=2&jobKey=settlement_reconcile',
   '* * * * * tron_scan ?max=1&jobKey=tron_scan',
   '* * * * * tron_confirm ?max=1&jobKey=tron_confirm',

@@ -133,3 +133,22 @@
     justify-self: start;
   }
 }
+
+/* ADR 0018: what a paying client sees for a collecting account, and opening a new one. */
+.collectRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  padding: 0 var(--space-4) var(--space-3);
+}
+
+.collectRow .editor {
+  flex-basis: 100%;
+}
+
+.rails {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+}

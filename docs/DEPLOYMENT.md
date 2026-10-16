@@ -450,3 +450,26 @@ amount above the payout two-person threshold so a second person approves the tra
    what the trade left; the trader's Network deposit page shows the order's TRX spent and the INR paid back with its
    rewards; the budget wallet's chain balance matches the records on the Network page.
 
+## 12. Clean INR (ADR 0018)
+
+What the owner sets up once, before the first BUY.
+
+1. **Migration 38.** `DATABASE_MIGRATOR_URL=… node scripts/migrate.ts` (37 → 38); the release's deployment check then
+   requires 38. Additive: nothing that works stops working; what changes is that a payment from a stranger can no
+   longer be confirmed.
+2. **The exchange's collecting account.** Desk → **INR accounts** → *Add an account* (OWNER or FINANCE, authenticator):
+   the first time, the company that owns the accounts (its legal name is the payee clients see); then the account —
+   bank, IFSC, number (sealed at once), *Collects*, the rails, a daily capacity — and, if it has one, its **UPI ID**
+   and the payee name clients see. A collecting account with a UPI ID gives every BUY up to ₹1,00,000 a code the
+   client's UPI app fills in. Until an active account collects, the page says BUY clients have nowhere to pay.
+3. **Traders pay INR into.** Desk → Traders → Programme → *Traders pay INR into* = that account, so a trader's Buy USDT
+   order has somewhere to pay.
+4. **Every client's own account.** A client pays only from an account registered in its name (Desk → Clients →
+   bank accounts). A payment from any other account is returned, never counted.
+5. **Statements with the sender.** Export the collecting account's statement as CSV with
+   `value_date, direction, amount, reference, description` and, where the bank offers them, `sender_name` and
+   `sender_account`; without them the sender is read from the description. Desk → INR accounts → *Bank statement
+   reconciliation* checks every matched credit's sender.
+
+The worker's `inr_payment_expiry` job cancels a BUY nobody paid within 30 minutes; it needs nothing configured.
+

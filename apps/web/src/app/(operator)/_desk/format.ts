@@ -106,6 +106,7 @@ export const CASE_TITLE: Record<string, string> = {
   USDT_WRONG_AMOUNT: 'Wrong amount received',
   USDT_OVERPAYMENT: 'Overpayment',
   USDT_UNEXPECTED_SENDER: 'Unregistered sender',
+  INR_UNEXPECTED_SENDER: 'Rupees from someone else',
   WRONG_NETWORK: 'Sent on the wrong network',
   TX_NOT_FINAL: 'Transaction not final',
   ROUTE_DIRECT_PAYOUT_MISMATCH: 'Route payout mismatch',

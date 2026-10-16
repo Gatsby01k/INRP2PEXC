@@ -11,7 +11,7 @@ import {
   FULL_ACCESS, NO_ECONOMICS, accessFor, clientBook, clientDetail, deskApprovals, deskExceptions, deskQueue, deskStrip, deskTrade, deskTradeRecord,
   deskQuote, findByRef, inrView, listOrders, orderCounts, rateHistory, routePositions, searchOrders, tradeIdByRef, usdtView,
 } from '../src/index.ts';
-import { type World, createWorld, deliverCounterparty, newUtr, openTrade, settleFirstLeg, ensureCounterpartyFunds } from '../../settlement/test/world.ts';
+import { type World, createWorld, deliverCounterparty, newUtr, openTrade, seeOwnSender, settleFirstLeg, ensureCounterpartyFunds } from '../../settlement/test/world.ts';
 
 let w: World;
 beforeAll(async () => { w = await createWorld('desk_views', { capacityInr: '500000000.00' }); });
@@ -130,6 +130,7 @@ describe('the desk queue', () => {
     const recorded = await runAs(w.app, recordIncomingFiat(w.settlementOp.actor), w.settlementOp.ref, 'fiat_in.record', {
       tradeId: trade.tradeId, rail: 'IMPS' as const, utr: newUtr('IN'), amount: '1000.00', inrAccountId: w.inrAccountId,
     });
+    await seeOwnSender(w.app, w.settlementOp, { legId: recorded.legId });
     await runAs(w.app, confirmFirstLeg(w.settlementOp.actor, w.settlementDeps), w.settlementOp.ref, 'settlement.confirm_incoming', { legId: recorded.legId });
     expect(rowFor(await deskQueue(w.app, FULL_ACCESS), trade.tradeId)?.row.status).toBe('Short by 60.00 INR');
   });

@@ -15,7 +15,7 @@ import {
   assignRequest, confirmReserveWithdrawal, confirmRewardPayout, deskTrader, freeMarginAt, orderDeliveryAddress, recordReserveWithdrawalSent, recordRewardPayout,
   requestReserveWithdrawal, reserveFigures, runTraderSweep, setAvailability, submitOrderPayment, traderHome,
 } from '@inrp2p/traders';
-import { clientDepositAddressOf, observe, settleFirstLeg } from '../../packages/settlement/test/world.ts';
+import { clientDepositAddressOf, observe, settleFirstLeg, seeOwnSender } from '../../packages/settlement/test/world.ts';
 import {
   type TradersWorld, clientRequest, configureProgram, confirmOnChain, createTradersWorld, liveTrader, sendUsdt, traderClient, tradeThroughTrader, utr,
 } from './traders-world.ts';
@@ -69,6 +69,7 @@ describe('a trader’s whole life (D4)', () => {
     await dispatch();
     const claim = await runAs(w.app, submitOrderPayment(t.admin.actor, w.traderDeps), t.admin.ref, 'trader_order.submit_payment', { ref: a.orderRef, rail: 'IMPS' as const, utr: utr() });
     const claimed = await w.app.selectFrom('route_settlement').select('id').where('ref', '=', claim.settlementRef).executeTakeFirstOrThrow();
+    await seeOwnSender(w.app, w.finance, { routeSettlementId: claimed.id });
     await runAs(w.app, confirmRouteSettlement(w.finance.actor, w.settlementDeps), w.finance.ref, 'route_settlement.confirm', { routeSettlementId: claimed.id });
     // The client is paid with the trader's INR, from where it arrived; the trader with the client's USDT, from where it arrived.
     expect((await payClientInr(a.tradeId, '104200.00', w.collectionAccountId)).completed).toBe(true);
@@ -77,6 +78,7 @@ describe('a trader’s whole life (D4)', () => {
     const sentA = await runAs(w.app, recordRouteSettlement(w.finance.actor, w.settlementDeps), w.finance.ref, 'route_settlement.record', {
       routeObligationId: a.routeObligationId, flow: 'TO_ROUTE' as const, amount: '1000', txHash: toTraderA.txHash, logIndex: toTraderA.logIndex, sourceDepositAddressId: deposit.id,
     });
+    await seeOwnSender(w.app, w.finance, { routeSettlementId: sentA.routeSettlementId });
     await runAs(w.app, confirmRouteSettlement(w.finance.actor, w.settlementDeps), w.finance.ref, 'route_settlement.confirm', { routeSettlementId: sentA.routeSettlementId });
 
     // The trader sells USDT: the client buys 500 USDT for ₹53,000; the trader delivers to the order's own address.
@@ -99,6 +101,7 @@ describe('a trader’s whole life (D4)', () => {
     const sentB = await runAs(w.app, recordRouteSettlement(w.finance.actor, w.settlementDeps), w.finance.ref, 'route_settlement.record', {
       routeObligationId: b.routeObligationId, flow: 'TO_ROUTE' as const, amount: '52600.00', rail: 'IMPS' as const, utr: utr('OUT'), inrAccountId: w.inrAccountId,
     });
+    await seeOwnSender(w.app, w.finance, { routeSettlementId: sentB.routeSettlementId });
     await runAs(w.app, confirmRouteSettlement(w.finance.actor, w.settlementDeps), w.finance.ref, 'route_settlement.confirm', { routeSettlementId: sentB.routeSettlementId });
 
     // The sweep closes both orders and accrues their rewards (10 bps of ₹104,700 and of ₹52,600).

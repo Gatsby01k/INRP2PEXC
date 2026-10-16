@@ -35,6 +35,7 @@ export const CAPTURES = [
   // The client product (Phase 7). Same rules, same environment; different surface and, for the link, a phone.
   'client-exchange-quote',
   'client-trade-awaiting-usdt',
+  'client-trade-awaiting-inr',
   'client-trade-settling',
   'client-trade-completed',
   'client-history',

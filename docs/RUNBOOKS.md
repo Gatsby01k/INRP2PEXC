@@ -989,3 +989,55 @@ decision to rely on it.
 **What never to do.** Do not restore or recover over the production database to "test the backup", and do not record
 the drill as done on the basis that a dump file or a snapshot exists. A backup nobody has restored is a hope. Never lift
 the restore fence on a drill's recovered copy and then point anything at it that can send money.
+
+---
+
+## inr-unexpected-sender — rupees came from someone other than the payer
+
+**What you were told.** A case *Rupees from someone else* (`INR_UNEXPECTED_SENDER`) on a trade, and the trade on hold.
+A bank statement, or a person checking the credit, showed a remitter who is not the holder of the client's (or the
+trader's) registered account — a relative, a friend, a business, a stranger (ADR 0018).
+
+**Why it matters.** This is how scam money reaches a P2P desk. If it counts, the victim's complaint (1930 / NCCRP) puts
+a lien on every account it touched — the exchange's collection account first, and every trade with it.
+
+**What to do.**
+1. Look at the credit in the collection account: the remitter's name, account or UPI ID, and the amount.
+2. If the check itself was wrong — you mistyped the name — check the sender again with what the bank shows
+   (*Check sender* on the payment). A statement that showed someone else cannot be outvoted.
+3. Otherwise send the rupees back to the account they came from — **never to the client, never to another account** —
+   with a remark naming the UTR, and keep the bank's confirmation.
+4. Mark the payment *Not received* ("returned to the sender: UTR …"), and resolve the case with *Record that it went back
+   to the sender*, naming the return's UTR. The trade then waits for a payment from the client's own account, or is
+   cancelled.
+5. A client who keeps paying from other accounts is a compliance question: escalate.
+
+**What never to do.** Do not accept a stranger as "the client's family", re-assign the rupees to another trade or
+client, or ask the client to send the difference: the money is not theirs to use.
+
+---
+
+## inr-sender-partial — the sender only partly matches
+
+**What you were told.** A client's payment shows *Partial match* and cannot be confirmed: the credit showed too little to
+be sure (an initial and a surname, a company's first word) or the right name from an account the client never
+registered.
+
+**What to do.** Open the credit in the bank. If its account number's last digits are the client's registered account,
+check the sender again with them (*Check sender* → account) — matching digits settle it. If the bank shows the full name
+of the holder, check again with it. Accept it as the client's own (*Accept as the client's own*, authenticator) only for
+what you saw is the client's own account, saying what you saw; a relative's account is a stranger's (see
+`inr-unexpected-sender`).
+
+---
+
+## inr-payment-window — a BUY was cancelled because it was not paid in time
+
+**What you were told.** A client says it paid, and its trade shows *Cancelled — not paid within the payment window*. The
+worker cancels a BUY 30 minutes after acceptance when no payment was filed (`inr_payment_expiry`).
+
+**What to do.** Find the credit in the collection account. If it arrived, it shows on the next statement import as a
+line the desk did not record; return it to the account it came from (a client's own account) and record the return in
+the case, or — if the client still wants to trade — quote again and ask them to pay the new trade with its new
+reference. Never move a payment from a cancelled trade to a new one by hand.
+

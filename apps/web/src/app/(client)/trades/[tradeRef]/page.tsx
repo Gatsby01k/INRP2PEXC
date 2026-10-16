@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation';
 import { isDomainError } from '@inrp2p/kernel';
 import { type PortalTrade, portalTrade } from '@inrp2p/portal';
 import { clientPage } from '../../../../server/client.ts';
+import { protectorForWeb } from '../../../../server/quotes.ts';
 import { at } from '../../_assistant/model.ts';
 import { PageHead } from '../../_workspace/PageHead.tsx';
 import { StatusPill } from '../../_workspace/StatusPill.tsx';
@@ -20,7 +21,7 @@ export default async function TradePage({ params, searchParams }: { params: Prom
   const ctx = await clientPage();
   let view: PortalTrade;
   try {
-    view = await portalTrade(ctx.db, ctx.access.clientId, decodeURIComponent(tradeRef));
+    view = await portalTrade(ctx.db, ctx.access.clientId, decodeURIComponent(tradeRef), { protector: protectorForWeb() });
   } catch (e) {
     if (isDomainError(e) && e.code === 'NOT_FOUND') notFound();
     throw e;

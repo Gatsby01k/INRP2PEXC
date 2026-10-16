@@ -114,29 +114,42 @@ export function cancelTrade(actor: OperatorActor) {
   return operatorCommand(actor, 'trade:cancel', async (ctx, p: { tradeId: string; reason: string; exceptionId?: string | null }) => {
     const reason = requireText(p.reason, 'reason', 500);
     const trade = await lockTrade(ctx.tx, p.tradeId);
-    const totals = await legTotals(ctx.tx, trade.id);
-    // The reason matters to the operator: confirmed funds need the refund path, not a plain cancel.
-    if (totals.received > 0n) throw new DomainError('FUNDS_ALREADY_RECEIVED', 'client funds are confirmed; use refund and cancel');
-    if (trade.lifecycle_state !== 'AWAITING_FIRST_LEG' && trade.lifecycle_state !== 'FIRST_LEG_DETECTED') {
-      throw new DomainError('INVALID_TRANSITION', `a trade in ${trade.lifecycle_state} cannot be cancelled directly`);
-    }
-    const livePayout = await ctx.tx
-      .selectFrom('settlement_leg')
-      .select('id')
-      .where('trade_id', '=', trade.id)
-      .where('side', '=', 'EXCHANGE_TO_CLIENT')
-      .where('status', 'in', ['PROCESSING', 'COMPLETED'])
-      .executeTakeFirst();
-    if (livePayout) throw new DomainError('PAYOUT_IN_FLIGHT', 'a payout is already sent; resolve it before cancelling');
-    await assertNoUnconfirmedIncomingFiat(ctx, trade.id);
-
-    await releaseCommitments(ctx, trade, reason);
-    await reverseTradeJournals(ctx, trade.id);
-    await transitionTrade(ctx, trade, 'CANCELLED', { reason });
-    if (p.exceptionId) await resolveExceptionInTx(ctx, { exceptionId: p.exceptionId, resolution: 'cancel_trade', notes: reason });
-    await enqueueOutbox(ctx, { type: 'client.trade_cancelled', aggregateType: 'trade', aggregateId: trade.id, payload: { tradeId: trade.id, clientId: trade.client_id, reason } });
-    return { status: 'CANCELLED' as const, ref: trade.ref };
+    return cancelTradeInTx(ctx, { trade, reason, exceptionId: p.exceptionId ?? null });
   });
+}
+
+/**
+ * T9 without an actor policy — the desk's cancel above, and the system's for a BUY its client never paid within the
+ * payment window (ADR 0018). The trade must be locked by the caller.
+ */
+export async function cancelTradeInTx(
+  ctx: TxContext,
+  p: { trade: TradeRow; reason: string; exceptionId?: string | null; expiredUnpaid?: boolean },
+): Promise<{ status: 'CANCELLED'; ref: string }> {
+  const { trade, reason } = p;
+  const totals = await legTotals(ctx.tx, trade.id);
+  // The reason matters to the operator: confirmed funds need the refund path, not a plain cancel.
+  if (totals.received > 0n) throw new DomainError('FUNDS_ALREADY_RECEIVED', 'client funds are confirmed; use refund and cancel');
+  if (trade.lifecycle_state !== 'AWAITING_FIRST_LEG' && trade.lifecycle_state !== 'FIRST_LEG_DETECTED') {
+    throw new DomainError('INVALID_TRANSITION', `a trade in ${trade.lifecycle_state} cannot be cancelled directly`);
+  }
+  const livePayout = await ctx.tx
+    .selectFrom('settlement_leg')
+    .select('id')
+    .where('trade_id', '=', trade.id)
+    .where('side', '=', 'EXCHANGE_TO_CLIENT')
+    .where('status', 'in', ['PROCESSING', 'COMPLETED'])
+    .executeTakeFirst();
+  if (livePayout) throw new DomainError('PAYOUT_IN_FLIGHT', 'a payout is already sent; resolve it before cancelling');
+  await assertNoUnconfirmedIncomingFiat(ctx, trade.id);
+
+  await releaseCommitments(ctx, trade, reason);
+  await reverseTradeJournals(ctx, trade.id);
+  await transitionTrade(ctx, trade, 'CANCELLED', { reason });
+  if (p.exceptionId) await resolveExceptionInTx(ctx, { exceptionId: p.exceptionId, resolution: 'cancel_trade', notes: reason });
+  // One event for every cancellation: the client hears why, and a trader's order is released at once.
+  await enqueueOutbox(ctx, { type: 'client.trade_cancelled', aggregateType: 'trade', aggregateId: trade.id, payload: { tradeId: trade.id, clientId: trade.client_id, reason, ...(p.expiredUnpaid ? { expiredUnpaid: true } : {}) } });
+  return { status: 'CANCELLED' as const, ref: trade.ref };
 }
 
 /**

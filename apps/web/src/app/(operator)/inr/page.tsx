@@ -1,7 +1,8 @@
 import { inrView } from '@inrp2p/desk';
 import { can, operatorPage } from '../../../server/operator.ts';
 import { inr, inrCompact } from '../_desk/format.ts';
-import { KpiBand, Page, PageBody, PageHeader, Section } from '../_desk/ui.tsx';
+import { KpiBand, Notice, Page, PageBody, PageHeader, Section } from '../_desk/ui.tsx';
+import { AccountSetup } from './AccountSetup.tsx';
 import { InrAccounts } from './InrAccounts.tsx';
 import { StatementImport } from './StatementImport.tsx';
 
@@ -46,9 +47,19 @@ export default async function InrPage() {
             },
           ]}
         />
+        {view.accounts.every((a) => a.status !== 'ACTIVE' || a.direction === 'PAYOUT') ? (
+          <Notice tone="warning" icon="inr">
+            No active account collects INR: a client who accepts a BUY quote has nowhere to pay. Add a collecting account below.
+          </Notice>
+        ) : null}
         <Section title="Settlement accounts" count={view.accounts.length} hint="Capacity is the desk’s promise about what it can pay today. Every change is step-up and carries a reason." flush>
-          <InrAccounts accounts={view.accounts} canChange={can(ctx, 'capacity:change')} />
+          <InrAccounts accounts={view.accounts} canChange={can(ctx, 'capacity:change')} canManage={can(ctx, 'inr_account:manage')} />
         </Section>
+        {can(ctx, 'inr_account:manage') ? (
+          <Section title="Add an account" hint="The exchange’s own accounts: where clients and traders pay in, and what the desk pays out of.">
+            <AccountSetup entities={view.entities} />
+          </Section>
+        ) : null}
         <Section title="Bank statement reconciliation" hint="What the bank says it moved, against what this desk recorded. A payment we confirmed that the statement does not show opens a blocking case on its trade.">
           <StatementImport accounts={view.accounts} statements={view.statements} canImport={can(ctx, 'statement:import')} />
         </Section>

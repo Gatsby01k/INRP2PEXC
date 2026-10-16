@@ -6,6 +6,7 @@ import { markNotificationsRead } from '@inrp2p/notifications';
 import { quoteIdForRef, requestIdForRef } from '@inrp2p/portal';
 import { acceptQuote, createRequest, rejectQuote, withdrawRequest } from '@inrp2p/quotes';
 import { addBankAccount, addWallet, archiveBankAccount, archiveWallet, setCanAcceptQuotes } from '@inrp2p/clients';
+import { claimIncomingFiat } from '@inrp2p/settlement';
 import { type CommandResult, failure } from '../command.ts';
 import { runClientCommand, withClient, withMember } from '../client.ts';
 
@@ -57,6 +58,22 @@ export async function rejectQuoteAction(input: { quoteRef: string }, key: string
   const out = await runClientCommand((ctx) => rejectQuote(ctx.actor), { quoteId: id.result }, { name: 'quote.reject', idempotencyKey: key });
   if (out.ok) refresh();
   return out;
+}
+
+/**
+ * `fiat_in.claim` (ADR 0018) — "I paid": the client files its INR payment itself, from one of its own registered
+ * accounts, under the reference its bank gave it. The refusals are worded for the client, so they are shown as they
+ * are.
+ */
+const CLAIM_MESSAGES: ReadonlySet<string> = new Set(['INVALID_UTR', 'DUPLICATE_UTR', 'NOT_OWN_ACCOUNT', 'ACCOUNT_NOT_ACTIVE', 'NOTHING_OWED', 'NO_COLLECTION', 'INVALID_AMOUNT', 'INVALID_TRANSITION']);
+
+export async function claimPaymentAction(
+  input: { tradeRef: string; rail: 'IMPS' | 'NEFT' | 'RTGS' | 'UPI'; utr: string; fromBankAccountId: string; amount?: string | null },
+  key: string,
+): Promise<CommandResult<{ legRef: string }>> {
+  const out = await runClientCommand((ctx) => claimIncomingFiat(ctx.actor), input, { name: 'fiat_in.claim', idempotencyKey: key, keepMessages: CLAIM_MESSAGES });
+  if (out.ok) revalidatePath(`/trades/${encodeURIComponent(input.tradeRef)}`);
+  return out.ok ? { ok: true, result: { legRef: out.result.legRef } } : out;
 }
 
 /**

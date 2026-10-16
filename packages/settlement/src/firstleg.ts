@@ -4,7 +4,7 @@ import type { Executor, FiatRail, TxContext } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
 import { enqueueOutbox } from '@inrp2p/outbox';
 import { type OperatorActor, operatorCommand } from '@inrp2p/identity';
-import { effectiveObligations, legTotals, lockTrade, transitionTrade } from '@inrp2p/trades';
+import { type TradeRow, effectiveObligations, legTotals, lockTrade, transitionTrade } from '@inrp2p/trades';
 import { openExceptionInTx } from './exceptions.ts';
 import { lockLeg, nextLegSeq } from './legs.ts';
 import { lockMovement, markFiatFailed, postMovement, recordCryptoTransfer, recordFiatTransfer, verifyCryptoTransfer } from './movements.ts';
@@ -12,54 +12,87 @@ import { lockObligation, obligationRemaining } from './obligations.ts';
 import type { SettlementDeps } from './policy.ts';
 import { advanceTrade, clientLegsInFlight } from './progress.ts';
 import { attributeAppliedReserve } from './reserve-delivery.ts';
+import { assertSenderVerified, recordSenderCheckInTx } from './sender.ts';
 
 /**
  * `fiat_in.record` (T2, BUY) — `settlement:record_incoming`. The client says it sent the INR; the desk records the
  * reference. Recording needs no step-up (nothing is confirmed yet); making it count is `settlement:confirm_incoming`
  * (⧗). The UTR is unique across all fiat movements (FI-22), so the same payment cannot be claimed twice.
+ *
+ * ADR 0018: the desk may say which of the client's registered accounts the payment came from, and what the credit in
+ * the bank shows as its sender — then the sender is judged at once, and a stranger's rupees open a case right here.
  */
 export function recordIncomingFiat(actor: OperatorActor) {
-  return operatorCommand(actor, 'settlement:record_incoming', async (ctx, p: { tradeId: string; rail: FiatRail; utr: string; amount: string; inrAccountId: string; valueDate?: string | null }) => {
+  return operatorCommand(actor, 'settlement:record_incoming', async (ctx, p: {
+    tradeId: string; rail: FiatRail; utr: string; amount: string; inrAccountId: string; valueDate?: string | null;
+    payerBankAccountId?: string | null; senderName?: string | null; senderAccount?: string | null;
+  }) => {
     const trade = await lockTrade(ctx.tx, p.tradeId);
-    if (trade.direction !== 'BUY_USDT') throw new DomainError('INVALID_ARGUMENT', 'only a BUY trade receives INR from the client');
-    // A client may send the INR in several transfers (IMPS is capped per transfer), so a second reference is
-    // recorded while the first is still being checked. Once the first leg is confirmed nothing more is expected.
-    if (trade.lifecycle_state !== 'AWAITING_FIRST_LEG' && trade.lifecycle_state !== 'FIRST_LEG_DETECTED') {
-      throw new DomainError('INVALID_TRANSITION', `trade is ${trade.lifecycle_state}`);
-    }
-    const amount = Money.parse(p.amount, 'INR');
-    const inrAccountId = requireUuid(p.inrAccountId, 'inrAccountId');
-    const account = await ctx.tx.selectFrom('inr_settlement_account').select(['status', 'direction']).where('id', '=', inrAccountId).forShare().executeTakeFirstOrThrow();
-    if (account.status !== 'ACTIVE') throw new DomainError('ACCOUNT_NOT_ACTIVE', `INR account is ${account.status}`);
-
-    const seq = await nextLegSeq(ctx, trade.id);
-    const leg = await ctx.tx
-      .insertInto('settlement_leg')
-      .values({
-        trade_id: trade.id, seq, side: 'CLIENT_TO_EXCHANGE', asset: 'INR', amount_minor: amount.minor, status: 'PROCESSING',
-        payer: 'CLIENT', inr_account_id: null, created_by: ctx.actor.id ?? 'SYSTEM', sent_at: sql<Date>`inrp2p_now()`,
-      })
-      .returning(['id', 'ref'])
-      .executeTakeFirstOrThrow();
-    const movement = await recordFiatTransfer(ctx, {
-      rail: requireOneOf(p.rail, 'rail', ['IMPS', 'NEFT', 'RTGS', 'UPI'] as const),
-      utr: p.utr,
-      amount,
-      payerType: 'CLIENT',
-      payerId: trade.client_id,
-      payeeType: 'EXCHANGE_ACCOUNT',
-      payeeId: inrAccountId,
-      destinationMasked: 'exchange collection account',
-      valueDate: p.valueDate ?? null,
+    const recorded = await recordClientInrInTx(ctx, trade, {
+      rail: p.rail, utr: p.utr, amount: Money.parse(p.amount, 'INR'), inrAccountId: requireUuid(p.inrAccountId, 'inrAccountId'),
+      valueDate: p.valueDate ?? null, payerBankAccountId: p.payerBankAccountId ?? null, filedBy: 'DESK',
     });
-    await ctx.tx
-      .insertInto('transfer_allocation')
-      .values({ transfer_kind: 'FIAT', fiat_transfer_id: movement.transferId, dimension: 'CLIENT', settlement_leg_id: leg.id, amount_minor: amount.minor, allocated_by: ctx.actor.id ?? 'SYSTEM' })
-      .execute();
-    if (trade.lifecycle_state === 'AWAITING_FIRST_LEG') await transitionTrade(ctx, trade, 'FIRST_LEG_DETECTED', { extra: { leg_ref: leg.ref, amount } });
-    await appendAudit(ctx, { action: 'leg.created', entityType: 'settlement_leg', entityId: leg.id, after: { ref: leg.ref, side: 'CLIENT_TO_EXCHANGE', amount, inr_account_id: inrAccountId } });
-    return { legId: leg.id, ref: leg.ref, transferId: movement.transferId };
+    const sender = p.senderName || p.senderAccount
+      ? await recordSenderCheckInTx(ctx, { transferId: recorded.transferId, via: 'DESK', seen: { name: p.senderName ?? null, account: p.senderAccount ?? null }, locked: true })
+      : null;
+    return { ...recorded, senderVerdict: sender?.verdict ?? null };
   });
+}
+
+/**
+ * One INR payment from a BUY trade's client, whoever files it: the desk from what the client said or the bank
+ * shows, or the client itself (`fiat_in.claim`). The trade must be locked by the caller. A client may pay in several
+ * transfers (IMPS is capped per transfer), so another reference is taken while the first is still being checked; once
+ * the first leg is confirmed nothing more is expected.
+ */
+export async function recordClientInrInTx(
+  ctx: TxContext,
+  trade: TradeRow,
+  p: { rail: FiatRail; utr: string; amount: Money<'INR'>; inrAccountId: string; valueDate?: string | null; payerBankAccountId?: string | null; filedBy: 'DESK' | 'CLIENT' },
+): Promise<{ legId: string; ref: string; transferId: string }> {
+  if (trade.direction !== 'BUY_USDT') throw new DomainError('INVALID_ARGUMENT', 'only a BUY trade receives INR from the client');
+  if (trade.lifecycle_state !== 'AWAITING_FIRST_LEG' && trade.lifecycle_state !== 'FIRST_LEG_DETECTED') {
+    throw new DomainError('INVALID_TRANSITION', `trade is ${trade.lifecycle_state}`);
+  }
+  if (!p.amount.isPositive()) throw new DomainError('INVALID_AMOUNT', 'the amount paid must be positive');
+  const account = await ctx.tx.selectFrom('inr_settlement_account').select(['status', 'direction']).where('id', '=', p.inrAccountId).forShare().executeTakeFirstOrThrow();
+  if (account.status !== 'ACTIVE') throw new DomainError('ACCOUNT_NOT_ACTIVE', `INR account is ${account.status}`);
+  if (p.payerBankAccountId) {
+    // IX118 says it again at insert: the account a payment is declared from is the client's own.
+    const own = await ctx.tx.selectFrom('bank_account').select(['client_id', 'status']).where('id', '=', requireUuid(p.payerBankAccountId, 'payerBankAccountId')).executeTakeFirst();
+    if (!own || own.client_id !== trade.client_id) throw new DomainError('NOT_OWN_ACCOUNT', 'pay only from one of your own registered bank accounts');
+    if (own.status !== 'ACTIVE') throw new DomainError('ACCOUNT_NOT_ACTIVE', 'that bank account is not active');
+  }
+
+  const seq = await nextLegSeq(ctx, trade.id);
+  const leg = await ctx.tx
+    .insertInto('settlement_leg')
+    .values({
+      trade_id: trade.id, seq, side: 'CLIENT_TO_EXCHANGE', asset: 'INR', amount_minor: p.amount.minor, status: 'PROCESSING',
+      payer: 'CLIENT', inr_account_id: null, created_by: ctx.actor.id ?? 'SYSTEM', sent_at: sql<Date>`inrp2p_now()`,
+    })
+    .returning(['id', 'ref'])
+    .executeTakeFirstOrThrow();
+  const movement = await recordFiatTransfer(ctx, {
+    rail: requireOneOf(p.rail, 'rail', ['IMPS', 'NEFT', 'RTGS', 'UPI'] as const),
+    utr: p.utr,
+    amount: p.amount,
+    payerType: 'CLIENT',
+    payerId: trade.client_id,
+    payeeType: 'EXCHANGE_ACCOUNT',
+    payeeId: p.inrAccountId,
+    destinationMasked: 'exchange collection account',
+    valueDate: p.valueDate ?? null,
+    payerBankAccountId: p.payerBankAccountId ?? null,
+    filedBy: p.filedBy,
+  });
+  await ctx.tx
+    .insertInto('transfer_allocation')
+    .values({ transfer_kind: 'FIAT', fiat_transfer_id: movement.transferId, dimension: 'CLIENT', settlement_leg_id: leg.id, amount_minor: p.amount.minor, allocated_by: ctx.actor.id ?? 'SYSTEM' })
+    .execute();
+  if (trade.lifecycle_state === 'AWAITING_FIRST_LEG') await transitionTrade(ctx, trade, 'FIRST_LEG_DETECTED', { extra: { leg_ref: leg.ref, amount: p.amount } });
+  await appendAudit(ctx, { action: 'leg.created', entityType: 'settlement_leg', entityId: leg.id, after: { ref: leg.ref, side: 'CLIENT_TO_EXCHANGE', amount: p.amount, inr_account_id: p.inrAccountId, filed_by: p.filedBy } });
+  return { legId: leg.id, ref: leg.ref, transferId: movement.transferId };
 }
 
 /**
@@ -431,6 +464,8 @@ export async function confirmClientLegInTx(ctx: TxContext, deps: SettlementDeps,
   if (allocation.transfer_kind === 'FIAT') {
     const f = await ctx.tx.selectFrom('fiat_transfer').select(['status', 'payee_id']).where('id', '=', movementId).executeTakeFirstOrThrow();
     if (f.status !== 'RECORDED') throw new DomainError('INVALID_TRANSITION', `the payment reference is ${f.status}`);
+    // ADR 0018 (IX116): the client's rupees count only once someone has seen they came from the client's own account.
+    await assertSenderVerified(ctx.tx, movementId);
     await ctx.tx.updateTable('fiat_transfer').set({ status: 'CONFIRMED', confirmed_at: sql<Date>`inrp2p_now()` }).where('id', '=', movementId).execute();
     payeeAccount = { kind: 'EXCHANGE_ACCOUNT', inrAccountId: f.payee_id };
   } else {

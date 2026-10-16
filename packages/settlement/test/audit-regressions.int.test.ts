@@ -11,7 +11,7 @@ import {
   obligationRemaining, recordIncomingFiat, recordLegEvidence, recordRouteSettlement, requestAdjustment, resolveException, sendPayoutLeg,
   cancelPayoutLeg, confirmRefundLeg, destinationArchivedHandler, refundAndCancel, revertFirstLeg, submitTxForVerification, voidException,
 } from '../src/index.ts';
-import { balanceOf, clientDepositAddressOf, createWorld, deliverCounterparty, ensureCounterpartyFunds, newUtr, observe, openTrade, settleFirstLeg, type World } from './world.ts';
+import { balanceOf, clientDepositAddressOf, createWorld, deliverCounterparty, ensureCounterpartyFunds, newUtr, observe, openTrade, seeOwnSender, settleFirstLeg, type World } from './world.ts';
 
 /**
  * Regressions found by the end-to-end audit (2026-09-25). Each test states the flow a desk actually runs and the
@@ -36,7 +36,10 @@ async function depositTo(tradeId: string, amountUsdt: string, from = w.clientSou
   const receipt = w.chain.add({ from, to: a.address, amountMinor: usdt(amountUsdt) });
   return runAs(w.app, submitTxForVerification(w.settlementOp.actor, w.settlementDeps), w.settlementOp.ref, 'crypto.submit_tx_for_verification', { txHash: receipt.txHash, logIndex: receipt.logIndex });
 }
-const confirmLeg = (legId: string) => runAs(w.app, confirmFirstLeg(w.settlementOp.actor, w.settlementDeps), w.settlementOp.ref, 'settlement.confirm_incoming', { legId });
+const confirmLeg = async (legId: string) => {
+  await seeOwnSender(w.app, w.settlementOp, { legId });
+  return runAs(w.app, confirmFirstLeg(w.settlementOp.actor, w.settlementDeps), w.settlementOp.ref, 'settlement.confirm_incoming', { legId });
+};
 const resolve = (exceptionId: string, resolution: 'await_top_up' | 'escalate' = 'await_top_up') =>
   runAs(w.app, resolveException(w.dealer.actor), w.dealer.ref, 'exception.resolve', { exceptionId, resolution, notes: 'resolved by the desk after checking with the client' });
 

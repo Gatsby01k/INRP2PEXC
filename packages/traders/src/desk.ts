@@ -1,7 +1,7 @@
 import { sql } from 'kysely';
 import { DomainError, Money, Rate, requireUuid } from '@inrp2p/kernel';
 import type { DestinationStatus, Executor, P2pExperience, TraderOrderStatus, TraderReserveApplicationStatus, TraderSide, TraderStatus } from '@inrp2p/db';
-import { fundingSources, obligationRemaining } from '@inrp2p/settlement';
+import { type SenderView, fundingSources, obligationRemaining, senderView } from '@inrp2p/settlement';
 import { standingIssues, type StandingIssue } from './eligibility.ts';
 import { traderProgram, type TraderProgram } from '@inrp2p/trader-core';
 import { earnings } from './rewards.ts';
@@ -113,6 +113,8 @@ export interface DeskSettlementRow {
   readonly status: 'RECORDED' | 'CONFIRMED' | 'FAILED';
   readonly reference: string | null;
   readonly recordedAt: string;
+  /** ADR 0018 — a trader's INR into the exchange: the account it was declared from and who it was seen to come from. */
+  readonly inrSource: (SenderView & { readonly transferId: string; readonly filedBy: 'DESK' | 'CLIENT' | 'TRADER' }) | null;
 }
 
 export interface DeskOrderRow {
@@ -213,11 +215,18 @@ async function deskOrderRows(ex: Executor, where: { traderId?: string; requestId
         .selectFrom('route_settlement as s')
         .leftJoin('fiat_transfer as f', 'f.id', 's.fiat_transfer_id')
         .leftJoin('crypto_transfer as c', 'c.id', 's.crypto_transfer_id')
-        .select(['s.id', 's.ref', 's.obligation_side', 's.asset', 's.amount_minor', 's.status', 's.recorded_at', 'f.utr', 'c.tx_hash'])
+        .select(['s.id', 's.ref', 's.obligation_side', 's.asset', 's.amount_minor', 's.status', 's.recorded_at', 'f.utr', 'f.id as fiat_id', 'f.filed_by', 'c.tx_hash'])
         .where('s.route_obligation_id', '=', o.route_obligation_id)
         .orderBy('s.recorded_at')
         .execute();
-      settlements = s.map((x) => ({ id: x.id, ref: x.ref, side: x.obligation_side, asset: x.asset, amount: Money.ofMinor(x.amount_minor, x.asset).toDecimalString(), status: x.status, reference: x.utr ?? x.tx_hash ?? null, recordedAt: x.recorded_at.toISOString() }));
+      settlements = [];
+      for (const x of s) {
+        const checked = x.fiat_id && x.filed_by && x.obligation_side === 'ROUTE_DELIVERS' ? { ...(await senderView(ex, x.fiat_id)), transferId: x.fiat_id, filedBy: x.filed_by } : null;
+        settlements.push({
+          id: x.id, ref: x.ref, side: x.obligation_side, asset: x.asset, amount: Money.ofMinor(x.amount_minor, x.asset).toDecimalString(), status: x.status,
+          reference: x.utr ?? x.tx_hash ?? null, recordedAt: x.recorded_at.toISOString(), inrSource: checked,
+        });
+      }
       const d = await ex
         .selectFrom('deposit_assignment as a')
         .innerJoin('deposit_address as da', 'da.id', 'a.deposit_address_id')

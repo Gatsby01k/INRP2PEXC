@@ -15,7 +15,7 @@ import { executeCommand } from '@inrp2p/commands';
 import type { ClientActor, DomainCommand, OperatorActor, OperatorRole } from '@inrp2p/identity';
 import { createClientAuth, createOperatorAuth, provisionClientUser, provisionOperator } from '@inrp2p/identity';
 import { addBankAccount, addWallet, createClient, linkClientUser, setCanAcceptQuotes, setClientExchangeAccess } from '@inrp2p/clients';
-import { createInrAccount, createSettlementEntity, setDayCapacity } from '@inrp2p/inr-accounts';
+import { createInrAccount, createSettlementEntity, setDayCapacity, setInrAccountCollectionDetails } from '@inrp2p/inr-accounts';
 import { configureRoute, createRoute } from '@inrp2p/routes';
 import { publishRouteRate } from '@inrp2p/pricing';
 import { acceptQuote, createQuote, createQuoteLink, createRequest, sendQuote } from '@inrp2p/quotes';
@@ -88,7 +88,7 @@ export interface VisualState {
     readonly directRoute: string;
     readonly shortPaid: string;
   };
-  readonly tradeRefs: { readonly completed: string; readonly awaitingPayout: string; readonly awaitingDeposit: string };
+  readonly tradeRefs: { readonly completed: string; readonly awaitingPayout: string; readonly awaitingDeposit: string; readonly awaitingInr: string };
   readonly openRequestId: string;
   /** The client product's own fixture: one signed-in person, one live quote, one link to it. */
   readonly client: { readonly email: string; readonly quoteRef: string; readonly linkToken: string };
@@ -206,7 +206,7 @@ export async function seedVisual(adminUrl: string): Promise<VisualState> {
     clientId: acme.clientId, holderName: 'Acme Pay Private Limited', bankName: 'HDFC Bank', ifsc: 'HDFC0001234',
     accountNumber: '50100123458219', railPreferences: ['IMPS', 'NEFT'] as const,
   });
-  await run(world, addWallet(owner.actor), owner.ref, 'client_wallet.add', {
+  const acmeWallet = await run(world, addWallet(owner.actor), owner.ref, 'client_wallet.add', {
     clientId: acme.clientId, network: 'TRON' as const, address: address('acme-wallet'), purpose: 'DESTINATION' as const, label: 'Acme wallet',
   });
 
@@ -271,6 +271,10 @@ export async function seedVisual(adminUrl: string): Promise<VisualState> {
     rails: ['IMPS', 'NEFT', 'RTGS'] as const, direction: 'BOTH' as const, defaultDailyCapacity: '50000000.00',
   });
   await run(world, setDayCapacity(owner.actor), owner.ref, 'capacity.set_day', { accountId: account.accountId, capacity: '50000000.00', reason: 'visual fixture' });
+  // ADR 0018: what a client paying a BUY sees — the payee and the account's UPI ID, so its trade shows a UPI code.
+  await run(world, setInrAccountCollectionDetails(owner.actor), owner.ref, 'inr_account.set_collection_details', {
+    accountId: account.accountId, upiVpa: 'inrp2p.collect@icici', beneficiaryName: 'INRP2P Settlement Pvt Ltd',
+  });
 
   const custody = new FakeCustodyAdapter({ provider: VISUAL_CUSTODY_PROVIDER, capability: 'POOL', poolSize: 24, seed: 'visual' });
   const poolWallet = await run(world, registerTreasuryWallet(owner.actor), owner.ref, 'treasury.register_wallet', {
@@ -363,6 +367,12 @@ export async function seedVisual(adminUrl: string): Promise<VisualState> {
   const awaitingDeposit = await trade(world, owner, {
     clientId: acme.clientId, acceptor: acmeAcceptor, routeId: mumbai.routeId, bankAccountId: acmeBank.bankAccountId,
     amount: '5000', clientRate: '102.000000', chain, skipDeposit: true,
+  });
+
+  // 6b. A BUY the client has accepted and not yet paid (ADR 0018): where to pay, the UPI code, the trade's reference,
+  //     the time left, and the "I've paid" form — the screen a client has open while their payment app is.
+  const awaitingInr = await buyTrade(world, owner, {
+    clientId: acme.clientId, acceptor: acmeAcceptor, routeId: mumbai.routeId, walletId: acmeWallet.walletId, amount: '500', clientRate: '101.500000',
   });
 
   // 7. A live quote with a shareable link, so Exchange counts one down and the public link page has one to show.
@@ -483,7 +493,7 @@ export async function seedVisual(adminUrl: string): Promise<VisualState> {
     owner: { email: owner.email, password: OPERATOR_PASSWORD, totpSecret: owner.totpSecret },
     clients: { acme: acme.clientId, bharat: bharat.clientId },
     trades: { completed: completed.tradeId, awaitingPayout: awaiting.tradeId, directRoute: direct.tradeId, shortPaid: short.tradeId },
-    tradeRefs: { completed: refOf(completed.tradeId), awaitingPayout: refOf(awaiting.tradeId), awaitingDeposit: refOf(awaitingDeposit.tradeId) },
+    tradeRefs: { completed: refOf(completed.tradeId), awaitingPayout: refOf(awaiting.tradeId), awaitingDeposit: refOf(awaitingDeposit.tradeId), awaitingInr: refOf(awaitingInr.tradeId) },
     openRequestId: openRequest.requestId,
     client: { email: 'treasury@acmepay.test', quoteRef: pendingQuoteRef, linkToken },
     trader: { email: konkanDesk.email, traderId, orderRef: assigned.ref },
@@ -495,6 +505,30 @@ export async function seedVisual(adminUrl: string): Promise<VisualState> {
 }
 
 /** Request → quote → the client's own acceptance → the chain's delivery, exactly as the product does it. */
+/** A BUY accepted by the client in the app, through the same acceptance a client's session makes. */
+async function buyTrade(
+  db: Db,
+  owner: Awaited<ReturnType<typeof operator>>,
+  input: { clientId: string; acceptor: { userId: string }; routeId: string; walletId: string; amount: string; clientRate: string },
+): Promise<{ tradeId: string }> {
+  const request = await run(db, createRequest(owner.actor, {}), owner.ref, 'request.create', {
+    clientId: input.clientId, direction: 'BUY_USDT' as const, fixedSide: 'BASE' as const, amount: input.amount, targetRate: input.clientRate, walletId: input.walletId,
+  });
+  const quote = await run(db, createQuote(owner.actor, {}), owner.ref, 'quote.create', { requestId: request.requestId, routeId: input.routeId, clientRate: input.clientRate, validitySeconds: 180 });
+  await run(db, sendQuote(owner.actor, {}), owner.ref, 'quote.send', { quoteId: quote.quoteId });
+  const session = await db
+    .insertInto('auth_session')
+    .values({ expires_at: new Date(Date.now() + 3_600_000), token: randomUUID(), created_at: new Date(), updated_at: new Date(), user_id: input.acceptor.userId, surface: 'CLIENT' })
+    .returning('id')
+    .executeTakeFirstOrThrow();
+  const accepted = await executeCommand(
+    db,
+    acceptQuote({ kind: 'CLIENT', userId: input.acceptor.userId, sessionId: session.id }, { custody: new FakeCustodyAdapter({ provider: VISUAL_CUSTODY_PROVIDER, capability: 'POOL', poolSize: 24, seed: 'visual' }), protector: visualFieldProtector() }),
+    { name: 'quote.accept', actor: { type: 'USER', id: input.acceptor.userId, surface: 'CLIENT', sessionId: session.id }, payload: { quoteId: quote.quoteId }, idempotencyKey: randomUUID(), financial: true },
+  );
+  return { tradeId: (accepted.result as { tradeId: string }).tradeId };
+}
+
 async function trade(
   db: Db,
   owner: Awaited<ReturnType<typeof operator>>,

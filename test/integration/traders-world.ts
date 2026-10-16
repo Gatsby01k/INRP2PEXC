@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from 'node:crypto';
+import { randomBytes, randomInt, randomUUID } from 'node:crypto';
 import { encodeTronAddress, Money } from '@inrp2p/kernel';
 import type { Db } from '@inrp2p/db';
 import { testFieldProtector } from '@inrp2p/adapters/testing';
@@ -166,4 +166,6 @@ export async function tradeThroughTrader(w: TradersWorld, setup: TraderSetup, in
   return { orderId: assigned.orderId, orderRef: assigned.ref, tradeId: accepted.tradeId, routeObligationId: obligation.id, quoteId: quote.quoteId };
 }
 
-export const utr = (prefix = 'TRD') => `${prefix}${randomUUID().replace(/-/g, '').slice(0, 12).toUpperCase()}`;
+/** A bank reference: with a prefix, the free-form kind the desk records; without one, an IMPS/UPI reference (12 digits). */
+export const utr = (prefix?: string) =>
+  prefix ? `${prefix}${randomUUID().replace(/-/g, '').slice(0, 12).toUpperCase()}` : String(randomInt(1e11, 1e12));

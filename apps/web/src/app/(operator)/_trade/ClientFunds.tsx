@@ -9,10 +9,11 @@ import { confirmIncomingAction, recordIncomingFiatAction, revertIncomingAction }
 import { useCommand } from '../../../components/useCommand.tsx';
 import { PanelSection } from '../_desk/ContextPanel.tsx';
 import { GuardedAction } from '../_desk/GuardedAction.tsx';
-import { AmountField, SelectField } from '../_desk/fields.tsx';
+import { AmountField, SelectField, TextField } from '../_desk/fields.tsx';
 import { money, parseAmount, share, sub, time } from '../_desk/format.ts';
 import { LegStatusChip, Meter, Notice } from '../_desk/ui.tsx';
 import type { TradePerms } from './types.ts';
+import { SenderCheck, senderGate } from './SenderCheck.tsx';
 import d from '../_desk/desk.module.css';
 import t from './trade.module.css';
 
@@ -62,6 +63,17 @@ export function ClientFunds({ trade, perms, collectionAccounts = [] }: { trade: 
         </div>
       ) : null}
 
+      {!sell && trade.collection ? (
+        <div className={t.collection}>
+          <span className={d.fieldLabel}>Client pays into</span>
+          <span>
+            {trade.collection.bankName} ••{trade.collection.last4} · {trade.collection.label}
+          </span>
+          <span className={d.mono}>ref {trade.collection.reference}</span>
+          <span>by {time(trade.collection.payBy)}</span>
+        </div>
+      ) : null}
+
       {legs.length > 0 ? (
         <ul className={t.legs}>
           {legs.map((leg) => (
@@ -82,6 +94,7 @@ export function ClientFunds({ trade, perms, collectionAccounts = [] }: { trade: 
 function IncomingLeg({ tradeRef, leg, perms }: { tradeRef: string; leg: DeskTrade['legs'][number]; perms: TradePerms }) {
   const cmd = useCommand();
   const pending = leg.status === 'PROCESSING';
+  const blocked = senderGate(leg.inrSource);
   return (
     <li className={t.leg} {...(pending && perms.confirmIncoming ? { 'data-attention': '' } : {})} {...(leg.status === 'FAILED' ? { 'data-dim': '' } : {})}>
       <div className={t.legHead}>
@@ -94,15 +107,16 @@ function IncomingLeg({ tradeRef, leg, perms }: { tradeRef: string; leg: DeskTrad
         <span>{leg.confirmedAt ? `confirmed ${time(leg.confirmedAt)}` : `${leg.asset === 'USDT' ? 'detected' : 'recorded'} ${time(leg.createdAt)}`}</span>
       </div>
       {leg.failureReason ? <Notice tone="danger">{leg.failureReason}</Notice> : null}
+      {leg.inrSource ? <SenderCheck source={leg.inrSource} open={pending && perms.recordIncoming} /> : null}
       {pending ? (
         <div className={t.legNext}>
-          <span className={t.legNextLabel}>{leg.asset === 'USDT' ? 'Next · confirm on chain' : 'Next · check the collection account'}</span>
+          <span className={t.legNextLabel}>{leg.asset === 'USDT' ? 'Next · confirm on chain' : blocked ? 'Next · check who sent it' : 'Next · check the collection account'}</span>
           <div className={d.actions}>
             {perms.confirmIncoming ? (
               <Button
                 intent="primary"
                 size="sm"
-                disabled={cmd.busy}
+                disabled={cmd.busy || blocked !== null}
                 shortcut={<StepUpMark label="needs your authenticator code" />}
                 onClick={() => cmd.run(`Confirm client funds on ${tradeRef}`, (key) => confirmIncomingAction({ legId: leg.id }, key))}
               >
@@ -127,6 +141,7 @@ function IncomingLeg({ tradeRef, leg, perms }: { tradeRef: string; leg: DeskTrad
             ) : null}
           </div>
           {leg.asset === 'USDT' ? <span className={d.fieldHint}>Confirmation checks the transaction is final on TRON; it is refused until it is.</span> : null}
+          {blocked && perms.confirmIncoming ? <span className={d.fieldHint}>{blocked}</span> : null}
         </div>
       ) : null}
       {cmd.error ? (
@@ -144,7 +159,11 @@ function RecordIncoming({ trade, outstanding, accounts }: { trade: DeskTrade; ou
   const [amount, setAmount] = useState(outstanding);
   const [utr, setUtr] = useState('');
   const [rail, setRail] = useState<Rail>('IMPS');
-  const [accountId, setAccountId] = useState(accounts[0]?.accountId ?? '');
+  const [accountId, setAccountId] = useState(trade.collection?.inrAccountId ?? accounts[0]?.accountId ?? '');
+  const payers = trade.destinationOptions.refundBanks;
+  const [payerId, setPayerId] = useState(payers.length === 1 ? payers[0]!.id : '');
+  const [senderName, setSenderName] = useState('');
+  const [senderAccount, setSenderAccount] = useState('');
   const typed = parseAmount(amount, 'INR');
   const over = typed !== null && typed.minor > Money.parse(outstanding, 'INR').minor;
   const ready = !cmd.busy && typed !== null && typed.isPositive() && normalizeUtr(utr).length >= 6 && accountId !== '';
@@ -158,6 +177,16 @@ function RecordIncoming({ trade, outstanding, accounts }: { trade: DeskTrade; ou
         <SelectField<Rail> label="Rail" value={rail} onChange={setRail} options={(['IMPS', 'NEFT', 'RTGS', 'UPI'] as const).map((r) => ({ value: r, label: r }))} />
       </div>
       <UTRField value={utr} onChange={setUtr} label="Client’s UTR / reference" />
+      <SelectField
+        label="From the client’s account"
+        value={payerId}
+        onChange={setPayerId}
+        options={[{ value: '', label: 'Not declared — any of the client’s accounts' }, ...payers.map((b) => ({ value: b.id, label: b.label }))]}
+      />
+      <div className={d.formGrid}>
+        <TextField label="Sender name on the credit (if you see it)" value={senderName} onChange={setSenderName} placeholder="as the bank shows it" maxLength={140} />
+        <TextField label="Sender account or UPI ID" value={senderAccount} onChange={setSenderAccount} placeholder="XXXXXX1234 or name@bank" maxLength={80} mono />
+      </div>
       {accounts.length === 0 ? (
         <Notice tone="warning">No active account can collect INR. Open one on INR accounts.</Notice>
       ) : (
@@ -170,9 +199,21 @@ function RecordIncoming({ trade, outstanding, accounts }: { trade: DeskTrade; ou
           disabled={!ready || over}
           onClick={() =>
             void cmd
-              .run(`Record the client's INR on ${trade.ref}`, (key) => recordIncomingFiatAction({ tradeId: trade.tradeId, rail, utr: normalizeUtr(utr), amount, inrAccountId: accountId }, key))
+              .run(`Record the client's INR on ${trade.ref}`, (key) =>
+                recordIncomingFiatAction(
+                  {
+                    tradeId: trade.tradeId, rail, utr: normalizeUtr(utr), amount, inrAccountId: accountId,
+                    payerBankAccountId: payerId || null, senderName: senderName.trim() || null, senderAccount: senderAccount.trim() || null,
+                  },
+                  key,
+                ),
+              )
               .then((r) => {
-                if (r.ok) setUtr('');
+                if (r.ok) {
+                  setUtr('');
+                  setSenderName('');
+                  setSenderAccount('');
+                }
                 return r;
               })
           }
