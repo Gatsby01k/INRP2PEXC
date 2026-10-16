@@ -159,10 +159,17 @@ describe('the AWS template (worker on Fargate, KMS, audit archive, Vercel OIDC r
     expect(env.INRP2P_CUSTODY_KEK_ID).toBe('custody-v1');
   });
 
-  it('grants the custody key only once it exists, and starts with no seed', () => {
+  it('grants the custody key only once it exists', () => {
     expect(template.Parameters.CustodyKeyArn!.Default).toBe('');
     const custody = (props('WorkerTaskRole').Policies as Json[]).find((p) => 'Fn::If' in p);
     expect((custody!['Fn::If'] as unknown[])[0]).toBe('HasCustodyKey');
-    expect(JSON.parse(String(props('WorkerSecret').SecretString)).INRP2P_CUSTODY_SEED_SEALED).toBe('');
+  });
+
+  it('never changes the secret\'s placeholder: a stack update would overwrite every value filled in by hand', () => {
+    // CloudFormation applies a changed SecretString on the next stack update — the database URL, the Resend and TronGrid
+    // keys, the HMAC key and the sealed custody seed would all become SET-ME. The placeholder is only for creating the
+    // secret; a key added later (INRP2P_CUSTODY_SEED_SEALED) is added to the secret by hand (DEPLOYMENT §10, §11).
+    expect(props('WorkerSecret').SecretString).toBe('{"WORKER_DATABASE_URL":"SET-ME","RESEND_API_KEY":"SET-ME","INRP2P_FIELD_HMAC_BASE64":"SET-ME","INRP2P_TRON_PRIMARY_KEY":""}');
+    expect(props('WorkerSecret').Description).toBe('The worker\'s secrets, one JSON object. Fill every SET-ME in the console (Secrets Manager → inrp2p/worker → Retrieve → Edit) before the worker starts; values never go in the template or in chat.');
   });
 });

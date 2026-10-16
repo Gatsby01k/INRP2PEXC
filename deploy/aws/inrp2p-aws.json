@@ -234,7 +234,7 @@
       "Properties": {
         "Name": "inrp2p/worker",
         "Description": "The worker's secrets, one JSON object. Fill every SET-ME in the console (Secrets Manager → inrp2p/worker → Retrieve → Edit) before the worker starts; values never go in the template or in chat.",
-        "SecretString": "{\"WORKER_DATABASE_URL\":\"SET-ME\",\"RESEND_API_KEY\":\"SET-ME\",\"INRP2P_FIELD_HMAC_BASE64\":\"SET-ME\",\"INRP2P_TRON_PRIMARY_KEY\":\"\",\"INRP2P_CUSTODY_SEED_SEALED\":\"\"}"
+        "SecretString": "{\"WORKER_DATABASE_URL\":\"SET-ME\",\"RESEND_API_KEY\":\"SET-ME\",\"INRP2P_FIELD_HMAC_BASE64\":\"SET-ME\",\"INRP2P_TRON_PRIMARY_KEY\":\"\"}"
       }
     },
     "WorkerLogs": {

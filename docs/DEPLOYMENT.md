@@ -236,7 +236,9 @@ worker secrets are ready. For a different repository, use the identity segment i
 No long-term AWS key exists anywhere: a production process refuses one (`AKIA…`).
 
 **The AWS stack** (`deploy/aws/inrp2p-aws.json`, CloudFormation, created in `us-east-1`): the archive bucket, the ECR
-repository, the worker's secret (created with `SET-ME` placeholders, filled in the console), log group, cluster, task
+repository, the worker's secret (created with `SET-ME` placeholders, filled in the console — plus
+`INRP2P_CUSTODY_SEED_SEALED`, added by hand and empty until a custody seed exists; the template never changes the
+secret's value after creation), log group, cluster, task
 definition and service, GitHub's OIDC provider and the worker's three roles (execution, task, image push). It does
 **not** create the field-encryption key, the web app's role or Vercel's OIDC provider — the owner made those
 (2026-10-12); the task role is given the key by ARN (`FieldKeyArn`), across regions, which KMS allows. The key's policy
@@ -416,9 +418,10 @@ What the owner sets up once, in this order. Nothing is spent and nothing is sent
 3. **The seed.** On the owner's own machine, with an AWS session that may use that key:
    `node scripts/custody-seed.ts new` (RUNBOOKS `custody-seed`) — 24 words on paper twice; it prints the sealed seed,
    the account key, the budget wallet, the pool record address and deal address #0.
-4. **Secrets and settings.** Secrets Manager `inrp2p/worker`: add `INRP2P_CUSTODY_SEED_SEALED` (an existing secret
-   needs the key added by hand — the template's default applies only when the secret is created; without the key the
-   task does not start). Stack parameters: `CustodyKeyArn` = the key's ARN (`CustodyKekId` stays `custody-v1`). Vercel,
+4. **Secrets and settings.** Secrets Manager `inrp2p/worker`: add `INRP2P_CUSTODY_SEED_SEALED` by hand, **before** the
+   stack update — the task definition reads that key, and without it the task does not start. The template never
+   carries it: the secret's placeholder in the template is frozen (a changed placeholder would make the stack update
+   overwrite every value filled in by hand with `SET-ME`; a unit test holds it). Stack parameters: `CustodyKeyArn` = the key's ARN (`CustodyKekId` stays `custody-v1`). Vercel,
    Production: `INRP2P_CUSTODY_PROVIDER=hd-wallet`, `INRP2P_CUSTODY_CAPABILITY=DERIVED`, `INRP2P_CUSTODY_XPUB=xpub…`;
    redeploy. `node scripts/custody-seed.ts verify` with the sealed value and `INRP2P_CUSTODY_XPUB` says they match.
 5. **Register the wallet.** Desk → **Network** → *Register the exchange's HD wallet* (OWNER, authenticator): the budget
