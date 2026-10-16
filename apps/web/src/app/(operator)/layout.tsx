@@ -55,6 +55,7 @@ export default async function OperatorLayout({ children }: { children: ReactNode
         { href: '/rates', label: 'Rates', icon: 'rates', key: 'r' },
         { href: '/inr', label: 'INR accounts', icon: 'inr', key: 'i' },
         { href: '/usdt', label: 'USDT treasury', icon: 'usdt', key: 'u' },
+        ...(can(ctx, 'network:view') ? [{ href: '/network', label: 'Network budget', icon: 'usdt' as const, key: 'n', ...(badges.sendsWaiting > 0 ? { count: badges.sendsWaiting, tone: badges.sendsBlocked > 0 ? ('alert' as const) : ('action' as const) } : {}) }] : []),
         // A trader's rate is a route rate: the page is not found without `traders:view`, so neither is the link.
         ...(can(ctx, 'traders:view') ? [{ href: '/trader-desk', label: 'Traders', icon: 'traders' as const, key: 't' }] : []),
       ],

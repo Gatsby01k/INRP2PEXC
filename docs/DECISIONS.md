@@ -182,3 +182,17 @@ Full record: `docs/adr/0016-counterparty-funded-execution.md`.
   `us-east-1`, and is given the key by ARN.
 - Not part of this decision: the audit-archive retention period (the template's default is a proposal) and a second
   TRON provider (D-05).
+
+## D-19 — The exchange's own USDT TRC20 rails — Resolved (owner task, 2026-10-12; ADR 0017)
+- **An address per deal, from the exchange's own HD wallet.** BIP-44, coin type 195: the web app holds only the
+  account's extended public key and derives a new address per trade; the seed (24 words on paper, twice) is sealed
+  under a KMS key of its own and opened only by the worker. DERIVED custody replaces importing pool addresses for new
+  trades; addresses already issued keep working.
+- **The signer pays USDT directly from the deal address**, exactly once (signed bytes stored before broadcast, a new
+  attempt only after the old one is proven dead, an unknown outcome stays blocked).
+- **Network fees are prefunded by participants in TRX** — each trader's network deposit, apart from its Security
+  Reserve; the platform budget only for desk routes and the platform's own mistakes. Acceptance holds the worst case;
+  what a trader spent for a transfer the client's price paid for is paid back in INR with its rewards.
+- **Every quote carries the reward and the network fee inside the client rate** and leaves at least the minimum net
+  margin; the client sees the exact amounts. The TRX price is published by the desk until an oracle exists (TD-30).
+

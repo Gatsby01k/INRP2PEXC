@@ -3,6 +3,7 @@ import { DomainError } from '@inrp2p/kernel';
 import {
   type CustodyAdapter,
   type FieldProtector,
+  HdWalletCustodyAdapter,
   PoolCustodyAdapter,
   UNCONFIGURED_FIELD_PROTECTOR,
   UnconfiguredCustodyAdapter,
@@ -37,8 +38,9 @@ let custody: CustodyAdapter | undefined;
 /**
  * The custody adapter acceptance checks itself against.
  *
- * V1 runs in POOL mode (D-02): addresses are provisioned at the provider, imported once by an operator, and
- * handed out from `deposit_address`. The adapter's job at acceptance time is to say who it is and what it can do,
+ * POOL (D-02): addresses are provisioned at a provider, imported once by an operator, and handed out from
+ * `deposit_address`. DERIVED (ADR 0017): the exchange's own HD account derives a new address per trade from its
+ * extended public key — see below. The adapter's job at acceptance time is to say who it is and what it can do,
  * and `requireAdapterMatchesRecord` refuses if either disagrees with the recorded `custody_provider_config`. So
  * the app is configured with the provider slug alone — nothing here can invent an address.
  *
@@ -53,10 +55,16 @@ export function custodyForWeb(): CustodyAdapter {
     custody = new UnconfiguredCustodyAdapter();
     return custody;
   }
+  if (capability === 'DERIVED') {
+    // ADR 0017: the exchange's own HD account. The web app holds only its extended public key — it derives a new
+    // address per trade and can spend from none of them; the worker's signer holds the seed.
+    const xpub = optionalEnv('INRP2P_CUSTODY_XPUB');
+    if (!xpub) throw new DomainError('CUSTODY_MISCONFIGURED', 'INRP2P_CUSTODY_CAPABILITY=DERIVED needs INRP2P_CUSTODY_XPUB (the account key m/44\'/195\'/0\')');
+    custody = new HdWalletCustodyAdapter({ provider, accountXpub: xpub });
+    return custody;
+  }
   if (capability !== 'POOL') {
-    // DERIVED needs a provider integration that issues addresses; there is none in V1, and pretending otherwise
-    // would mean acceptance succeeding against an address nobody can sweep.
-    throw new DomainError('CUSTODY_CAPABILITY_UNSUPPORTED', `INRP2P_CUSTODY_CAPABILITY=${capability} is not implemented; V1 supports POOL (D-02)`);
+    throw new DomainError('CUSTODY_CAPABILITY_UNSUPPORTED', `INRP2P_CUSTODY_CAPABILITY=${capability} is not supported: POOL (D-02) or DERIVED (ADR 0017)`);
   }
   custody = new PoolCustodyAdapter(provider);
   return custody;

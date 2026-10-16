@@ -9,6 +9,7 @@ import { assertNewBusinessOpen, openTradeFromAcceptedQuote, tradeFundingModel } 
 import { getClientTradeView, type ClientTradeView } from '@inrp2p/trades';
 import { allocateDepositAddress, assertSellAcceptanceSupported } from '@inrp2p/treasury';
 import { startOrderForTrade } from '@inrp2p/trader-core';
+import { holdNetworkBudget, quoteNetworkFee } from '@inrp2p/network';
 import { lockRow, requireQuoteDecider } from './actors.ts';
 import { consumeChallengeInCommand, hitDecisionRateLimit, resolveLink, verifyChallengeCode } from './challenges.ts';
 import { closePendingChallenges } from './challenges.ts';
@@ -125,6 +126,14 @@ async function acceptCore(ctx: TxContext, deps: QuoteDeps, input: { quote: Decis
   if (quote.direction === 'SELL_USDT') {
     await allocateDepositAddress(ctx, deps.custody, { network: 'TRON', tradeId: trade.tradeId, tradeRef: trade.ref, expectedAmount: Money.ofMinor(quote.base_minor, 'USDT') });
   }
+  // ADR 0017 §2: the trade's transfers are paid for before it exists. Its funder — the trader of its route, or the
+  // platform for a desk route — holds the worst case of them (its transfer and, for a SELL, a return of the client's
+  // USDT) from now on; a funder without that much free TRX does not get the trade.
+  const network = await quoteNetworkFee(ctx.tx, quote.id);
+  if (!network) throw new DomainError('QUOTE_NETWORK_FEE_MISSING', 'this quote carries no network fee; ask the desk for a new quote');
+  await holdNetworkBudget(ctx, {
+    tradeId: trade.tradeId, funder: network.funderTraderId, perSendSun: network.reserveSun / BigInt(network.reserveSends), sends: network.reserveSends, snapshotId: network.snapshotId,
+  });
 
   await closePendingChallenges(ctx, quote.id, 'SUPERSEDED');
   await appendAudit(ctx, {

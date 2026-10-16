@@ -28,7 +28,7 @@ export interface PhysicalAvailability {
 export async function physicalAvailability(
   ex: Executor,
   deps: Pick<SettlementDeps, 'policy'>,
-  input: { address: string; amountMinor?: bigint; excludeLegId?: string | null },
+  input: { address: string; amountMinor?: bigint; excludeLegId?: string | null; excludeSendId?: string | null },
 ): Promise<PhysicalAvailability> {
   const policy = policyOf(deps);
   const obs = await latestObservation(ex, input.address);
@@ -61,6 +61,13 @@ export async function physicalAvailability(
          and (c.payer_type = 'EXCHANGE_TREASURY')
          and exists (select 1 from route_settlement s where s.crypto_transfer_id = c.id and s.flow = 'TO_ROUTE' and s.status in ('RECORDED', 'CONFIRMED')
                      union all select 1 from trader_reserve_withdrawal r where r.crypto_transfer_id = c.id and r.status in ('SENT', 'COMPLETED'))
+      union all
+      -- A route payment the exchange's signer has planned or is sending from this address (ADR 0017): leaving, with no
+      -- movement recorded until the chain makes it final — then it is the route settlement above.
+      select s.amount_minor, null::text, null::bigint
+        from chain_send s
+       where s.purpose = 'ROUTE_PAYMENT' and s.asset = 'USDT' and s.from_address = ${input.address} and s.status not in ('CONFIRMED', 'CANCELLED')
+         and (${input.excludeSendId ?? null}::uuid is null or s.id <> ${input.excludeSendId ?? null}::uuid)
     )
     -- A planned outflow has no transfer yet (state null): it counts. Only one confirmed at or below the reading's block
     -- is already reflected in it.
@@ -71,8 +78,8 @@ export async function physicalAvailability(
 }
 
 /** Refuses an outflow the chain cannot be shown to cover right now (B2). */
-export async function assertPhysicallyAvailable(ctx: TxContext, deps: Pick<SettlementDeps, 'policy'>, input: { address: string; amount: Money; excludeLegId?: string | null }): Promise<PhysicalAvailability> {
-  const a = await physicalAvailability(ctx.tx, deps, { address: input.address, amountMinor: input.amount.minor, excludeLegId: input.excludeLegId ?? null });
+export async function assertPhysicallyAvailable(ctx: TxContext, deps: Pick<SettlementDeps, 'policy'>, input: { address: string; amount: Money; excludeLegId?: string | null; excludeSendId?: string | null }): Promise<PhysicalAvailability> {
+  const a = await physicalAvailability(ctx.tx, deps, { address: input.address, amountMinor: input.amount.minor, excludeLegId: input.excludeLegId ?? null, excludeSendId: input.excludeSendId ?? null });
   if (a.unusable) {
     throw new DomainError('CUSTODY_OBSERVATION_STALE', `USDT at ${input.address} cannot be relied on: ${a.unusable}; refresh the balance first`, { address: input.address });
   }

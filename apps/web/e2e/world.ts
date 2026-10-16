@@ -19,6 +19,7 @@ import { createInrAccount, createSettlementEntity, setDayCapacity } from '@inrp2
 import { configureRoute, createRoute } from '@inrp2p/routes';
 import { publishRouteRate } from '@inrp2p/pricing';
 import { importPoolAddresses, recordCustodyCapability, registerTreasuryWallet } from '@inrp2p/treasury';
+import { fundBudget, seedNetworkCosts } from '@inrp2p/network/testing';
 
 export const E2E_DB = 'inrp2p_e2e';
 export const STATE_FILE = path.join(import.meta.dirname, '.state.json');
@@ -174,6 +175,10 @@ export async function seedE2E(adminUrl: string): Promise<E2EState> {
   });
   await run(db, publishRouteRate(owner.actor), owner.ref, 'rates.publish_route', { routeId: route.routeId, direction: 'SELL_USDT' as const, rate: '104.200000' });
   await run(db, publishRouteRate(owner.actor), owner.ref, 'rates.publish_route', { routeId: route.routeId, direction: 'BUY_USDT' as const, rate: '100.000000' });
+  // What a transfer costs on TRON and TRX in the platform budget (ADR 0017), as the worker and the desk would have them:
+  // every quote carries its network fee, and every acceptance holds its TRX.
+  await seedNetworkCosts(db);
+  await fundBudget(db, { traderId: null, amountSun: 1_000_000_000_000n, from: encodeTronAddress(randomBytes(20)) });
 
   const entity = await run(db, createSettlementEntity(owner.actor), owner.ref, 'settlement_entity.create', {
     legalName: 'INRP2P Settlement Private Limited', shortName: 'INRP2P',

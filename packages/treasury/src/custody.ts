@@ -1,5 +1,5 @@
 import { sql } from 'kysely';
-import { DomainError, type Money, isTronAddress, optionalText, requireOneOf, requireText, requireUuid } from '@inrp2p/kernel';
+import { DomainError, type Money, isTronAddress, optionalText, parseTronAddress, requireOneOf, requireText, requireUuid } from '@inrp2p/kernel';
 import { type DepositReleaseReason, type Executor, type TxContext, assertLockOrder, isUniqueViolation } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
 import type { CustodyAdapter, CustodyNetwork, DepositAddressCapability } from '@inrp2p/adapters';
@@ -254,7 +254,9 @@ async function allocateAddressFor(
     address = row;
   } else {
     const walletId = await requireDepositPoolWallet(ctx, network, input.treasuryWalletId);
-    const provided = await adapter.allocateDepositAddress(network, requireText(input.reference, 'reference', 40));
+    // A number the database never issues twice, drawn even if this transaction rolls back: the HD account's index.
+    const seq = await sql<{ n: string }>`select nextval('custody_derivation_index_seq')::text as n`.execute(ctx.tx);
+    const provided = await adapter.allocateDepositAddress(network, requireText(input.reference, 'reference', 40), BigInt(seq.rows[0]!.n));
     if (!isTronAddress(provided.address)) throw new DomainError('INVALID_ADDRESS', 'provider returned an invalid TRON address');
     try {
       address = await ctx.tx
@@ -387,4 +389,43 @@ export async function getDepositPoolStatus(ex: Executor, network: CustodyNetwork
   const rows = await ex.selectFrom('deposit_address').select(['status', sql<string>`count(*)::text`.as('n')]).where('network', '=', network).groupBy('status').execute();
   const count = (s: string) => parseInt(rows.find((r) => r.status === s)?.n ?? '0', 10);
   return { network, capability: cap.capability, provider: cap.provider, available: count('AVAILABLE'), assigned: count('ASSIGNED'), cooldown: count('COOLDOWN'), retired: count('RETIRED') };
+}
+
+/**
+ * `custody.record_hd_account` — `custody:configure` (⧗). Puts the exchange's own HD wallet in charge of deposit addresses
+ * (ADR 0017 §3), once: the account's extended public key (every deal address is derived from it — by the web app, which
+ * holds nothing that can spend), the budget wallet the signer tops addresses up from, and the capability DERIVED for the
+ * provider. The key itself is never here: the worker's signer proves at start that its seed is this account's.
+ */
+export function recordCustodyHdAccount(actor: OperatorActor, adapter: CustodyAdapter & { readonly account?: { readonly xpub: string } }) {
+  return operatorCommand(actor, 'custody:configure', async (ctx, p: { accountXpub: string; feeWalletAddress: string; depositPoolAddress: string; notes?: string | null }) => {
+    if (!adapter.account || adapter.account.xpub !== p.accountXpub.trim()) throw new DomainError('CUSTODY_CAPABILITY_MISMATCH', 'the adapter runs with another extended public key');
+    const live = await adapter.capabilities('TRON');
+    if (live.depositAddress !== 'DERIVED') throw new DomainError('CUSTODY_CAPABILITY_MISMATCH', 'the adapter does not derive addresses');
+    const feeWallet = parseTronAddress(p.feeWalletAddress.trim());
+    const pool = parseTronAddress(p.depositPoolAddress.trim());
+    const existing = await ctx.tx.selectFrom('custody_hd_account').select('provider').executeTakeFirst();
+    if (existing) throw new DomainError('INVALID_TRANSITION', `the HD account of ${existing.provider} is already recorded; it is never replaced in place`);
+    const by = actorLabel(ctx);
+    await ctx.tx.insertInto('custody_hd_account').values({
+      provider: adapter.provider, network: 'TRON', account_xpub: p.accountXpub.trim(), deposit_path_prefix: "m/44'/195'/0'/0", fee_wallet_path: "m/44'/195'/1'/0/0", fee_wallet_address: feeWallet, recorded_by: by,
+    }).execute();
+    const budget = await ctx.tx.insertInto('treasury_wallet')
+      .values({ network: 'TRON', address: feeWallet, label: 'Network budget (TRX)', role: 'NETWORK_BUDGET', custody: 'HD_SIGNER', created_by: by })
+      .returning('id').executeTakeFirstOrThrow();
+    const hasPool = await ctx.tx.selectFrom('treasury_wallet').select('id').where('role', '=', 'DEPOSIT_POOL').where('status', '=', 'ACTIVE').executeTakeFirst();
+    const poolId = hasPool?.id ?? (await ctx.tx.insertInto('treasury_wallet')
+      .values({ network: 'TRON', address: pool, label: 'Deal addresses (HD)', role: 'DEPOSIT_POOL', custody: 'HD_SIGNER', created_by: by })
+      .returning('id').executeTakeFirstOrThrow()).id;
+    const config = await ctx.tx.insertInto('custody_provider_config').values({
+      provider: adapter.provider, network: 'TRON', deposit_address_capability: 'DERIVED',
+      consolidation_notes: 'Own HD wallet (BIP-44, coin 195): one address per trade, paid out directly by the worker\'s signer; TRX for each transfer topped up from the network budget wallet (ADR 0017). No consolidation.',
+      notes: optionalText(p.notes, 'notes', 4000), verified_by: by,
+    }).returning('id').executeTakeFirstOrThrow();
+    await appendAudit(ctx, {
+      action: 'custody.hd_account_recorded', entityType: 'custody_provider_config', entityId: config.id,
+      after: { provider: adapter.provider, account_xpub: p.accountXpub.trim(), fee_wallet: feeWallet, budget_wallet_id: budget.id, deposit_pool_wallet_id: poolId },
+    });
+    return { configId: config.id, budgetWalletId: budget.id, depositPoolWalletId: poolId };
+  });
 }

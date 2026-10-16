@@ -10,3 +10,4 @@ export * from './conversion.ts';
 export * from './economics.ts';
 export * from './tron.ts';
 export * from './validation.ts';
+export * from './trx.ts';

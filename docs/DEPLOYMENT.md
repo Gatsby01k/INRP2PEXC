@@ -108,7 +108,10 @@ never activates a development default, a sink or a fake. Secrets come from the s
 | `RESEND_API_KEY`, `RESEND_FROM` | ✔ | ✔ | key ✔ | TD-04 |
 | `INRP2P_TRON_PRIMARY_URL`/`_GROUP`/`_NAME`/`_KEY`, `INRP2P_TRON_SECONDARY_*`, `INRP2P_USDT_CONTRACT` | ✔ | ✔ | keys ✔ | two groups for large amounts (D-05) |
 | `INRP2P_TRON_MONITORING` | | ✔ | | never `disabled` in production |
-| `INRP2P_CUSTODY_PROVIDER` | ✔ | | | POOL (D-02) |
+| `INRP2P_CUSTODY_PROVIDER`, `INRP2P_CUSTODY_CAPABILITY` | ✔ | | | `POOL` (D-02, the default) or `DERIVED` (ADR 0017: the exchange's own HD wallet; provider `hd-wallet`) |
+| `INRP2P_CUSTODY_XPUB` | ✔ | | | DERIVED only: the account's extended **public** key `m/44'/195'/0'` from `scripts/custody-seed.ts`; the web app may never hold the seed |
+| `INRP2P_CUSTODY_SEED_SEALED` | | ✔ | ✔ | the HD seed sealed under the custody key (RUNBOOKS `custody-seed`); without it the worker signs nothing |
+| `INRP2P_CUSTODY_KEK_PROVIDER=aws-kms`, `INRP2P_CUSTODY_KEK_ID`, `INRP2P_CUSTODY_KMS_KEY_ARN` | | ✔ | | a KMS key of its own, Decrypt only for the worker's role, only under the `custody-seed` context |
 | `INRP2P_OBJECT_STORE_REGION`, `INRP2P_OBJECT_STORE_ENDPOINT` | ✔ | ✔ | | https |
 | `INRP2P_RECEIPTS_BUCKET`, `INRP2P_RECEIPT_RETENTION_DAYS` | ✔ | ✔ | | optional (TD-12); retention is the owner's |
 | `INRP2P_AUDIT_SEAL_BUCKET`, `INRP2P_AUDIT_SEAL_RETENTION_DAYS` | | ✔ | | required (TD-17) |
@@ -178,7 +181,10 @@ reference drill migrates that way, twice in a row.
 The worker's crontab (`apps/worker/src/tasks.ts`): `outbox_dispatch` (minute), `audit_seal` (hourly), `audit_seal_export`
 (daily), `capacity_day_rollover`, `deposit_address_cooldown_release`, `quote_expiry_sweep`, `settlement_sla`,
 `settlement_reconcile` (daily), `tron_scan`, `tron_confirm`, `tron_orphan_sweep`, `tron_backfill`, `custody_observe`,
-`trader_orders_sweep`, `receipt_store_backfill`, `worker_heartbeat`. Every job is state-guarded and safe to run twice.
+`trader_orders_sweep`, `receipt_store_backfill`, `worker_heartbeat`, and the exchange's own rails (ADR 0017): `onchain_cycle`
+(every minute and on every planned send: plan payouts, fuel and sign, follow transactions to the end, close holds) and
+`network_fee_refresh` (every 10 minutes: the chain's energy and bandwidth prices). Every job is state-guarded and safe
+to run twice.
 
 ## 8. Health, readiness and alerts
 
@@ -397,3 +403,47 @@ no SELL trade can be accepted and no INR payout planned — nothing wrong happen
 AWS: the stack's parameters (`VpcId`, `SubnetIds`, `WorkerImage`, `FieldKeyArn`, retention), created in `us-east-1`, and the secret
 `inrp2p/worker` (`WORKER_DATABASE_URL`, `RESEND_API_KEY`, `INRP2P_FIELD_HMAC_BASE64`, `INRP2P_TRON_PRIMARY_KEY`). The
 worker's other settings are in the task definition.
+
+## 11. The exchange's own USDT rails (ADR 0017)
+
+What the owner sets up once, in this order. Nothing is spent and nothing is sent before step 8.
+
+1. **Migration 37.** `DATABASE_MIGRATOR_URL=… node scripts/migrate.ts` (36 → 37); the release's deployment check then
+   requires 37.
+2. **A KMS key for the custody seed**, made by the owner (symmetric, `ENCRYPT_DECRYPT`; in the worker's region or any
+   other — KMS allows the cross-region grant): the owner's own principal may Encrypt; the worker's task role gets
+   Decrypt from the stack (`CustodyKeyArn`, below), only under `{app: inrp2p, purpose: custody-seed}`. About $1 a month.
+3. **The seed.** On the owner's own machine, with an AWS session that may use that key:
+   `node scripts/custody-seed.ts new` (RUNBOOKS `custody-seed`) — 24 words on paper twice; it prints the sealed seed,
+   the account key, the budget wallet, the pool record address and deal address #0.
+4. **Secrets and settings.** Secrets Manager `inrp2p/worker`: add `INRP2P_CUSTODY_SEED_SEALED` (an existing secret
+   needs the key added by hand — the template's default applies only when the secret is created; without the key the
+   task does not start). Stack parameters: `CustodyKeyArn` = the key's ARN (`CustodyKekId` stays `custody-v1`). Vercel,
+   Production: `INRP2P_CUSTODY_PROVIDER=hd-wallet`, `INRP2P_CUSTODY_CAPABILITY=DERIVED`, `INRP2P_CUSTODY_XPUB=xpub…`;
+   redeploy. `node scripts/custody-seed.ts verify` with the sealed value and `INRP2P_CUSTODY_XPUB` says they match.
+5. **Register the wallet.** Desk → **Network** → *Register the exchange's HD wallet* (OWNER, authenticator): the budget
+   wallet and the pool record address as the script printed them. From now on every new trade gets its own address.
+6. **Publish the TRX price** (Network → TRX price, in USDT per TRX, with its source). Keep it fresh: quotes stop after
+   72 hours without one (`trx_price_age_seconds`, TD-30).
+7. **Start the worker** (`DesiredCount` 1). Its log says `custody signer: signing for hd-wallet (budget wallet T…)`;
+   within ten minutes the Network page shows what one transfer costs.
+8. **Fund the network.** Each trader sends TRX from its registered wallet to the budget wallet and hands in the hash
+   on its Traders → Network deposit page (≈ 20 TRX per open Buy order, ≈ 40 TRX per open Sell order at today's
+   prices; 200 TRX covers several orders at once). The platform budget needs TRX only for desk routes (≈ 40 TRX per
+   open desk-route SELL) — trader-routed trades need none.
+
+**The first controlled trade.** Pick one approved trader with a network deposit, a client the desk knows, and an
+amount above the payout two-person threshold so a second person approves the transfer (C1).
+
+1. Price the request on the desk: the builder shows the trader's reward, the network fee (≈ 18 TRX in INR at today's
+   prices) and the net margin; a rate below the break-even is refused and the builder says by how much.
+2. The client sees the exact amount it pays and receives, "nothing is deducted", and accepts.
+3. BUY: the client pays INR as usual; the trader delivers USDT to the order's own address; once both are confirmed
+   the payout appears on **Network → Sends** as *Needs approval* — a second person approves it, the signer tops the
+   deal address up with TRX, signs and sends the USDT straight to the client's wallet; the leg completes when TRON
+   makes it final (the client's screen shows the transaction hash meanwhile). SELL: the client sends USDT to the
+   trade's own address; once the trader's INR is confirmed, the signer pays the trader from that address.
+4. After completion: the trade's **Network** block shows what the price carried, what the network actually cost and
+   what the trade left; the trader's Network deposit page shows the order's TRX spent and the INR paid back with its
+   rewards; the budget wallet's chain balance matches the records on the Network page.
+

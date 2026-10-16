@@ -13,6 +13,7 @@ import {
   type ApplyPayload, type TraderDeps, acceptOrder, applyAsTrader, approveTrader, assignRequest, configureTraderProgram, setAvailability, sharedReserveAddress, updateBlock,
 } from '@inrp2p/traders';
 import { createWorld, type World } from '../../packages/settlement/test/world.ts';
+import { fundBudget } from '@inrp2p/network/testing';
 
 export interface TraderPerson {
   readonly userId: string;
@@ -118,7 +119,7 @@ export function applyAs(w: TradersWorld, who: TraderPerson, p: Partial<ApplyPayl
 export async function liveTrader(
   w: TradersWorld,
   setup: TraderSetup,
-  opts: { buy?: { capacity: string; rate: string; min: string; max: string }; sell?: { capacity: string; rate: string; min: string; max: string }; reserve?: string } = {},
+  opts: { buy?: { capacity: string; rate: string; min: string; max: string }; sell?: { capacity: string; rate: string; min: string; max: string }; reserve?: string; networkDeposit?: bigint | null } = {},
 ): Promise<{ traderId: string; buyRouteId: string | null; sellRouteId: string | null }> {
   await applyAs(w, setup.admin, {
     offersBuy: Boolean(opts.buy), offersSell: Boolean(opts.sell), typicalInr: opts.buy ? opts.buy.capacity : null, typicalUsdt: opts.sell ? opts.sell.capacity : null,
@@ -126,6 +127,8 @@ export async function liveTrader(
   });
   const traderId = await traderIdOf(w.app, setup.clientId);
   await runAs(w.app, approveTrader(w.finance.actor), w.finance.ref, 'trader.approve', { traderId, requiredReserve: '500' });
+  // The trader's TRX network deposit, from its registered wallet (ADR 0017): it pays the transfers of its orders.
+  if (opts.networkDeposit !== null) await fundBudget(w.app, { traderId, amountSun: opts.networkDeposit ?? 10_000_000_000n, from: setup.walletAddress });
   const { address } = (await sharedReserveAddress(w.app))!;
   await sendUsdt(w, setup.walletAddress, address, opts.reserve ?? '500');
   await confirmOnChain(w);

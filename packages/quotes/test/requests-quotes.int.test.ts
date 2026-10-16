@@ -81,15 +81,15 @@ describe('quotes (STATE_MACHINES §2, FI-02..FI-06)', () => {
     await expect(sql`update quote set quote_inr_minor = 1 where id = ${q.quoteId}`.execute(s.t.owner)).rejects.toSatisfy((e) => pgErrorCode(e) === 'IX041');
   });
 
-  it('a negative margin needs a reason at creation and a step-up permission at send', async () => {
+  it('a quote that would lose money is never created, whatever the reason given (ADR 0017: unprofitable deals are not accepted)', async () => {
     const r = await sellRequest();
-    await expect(quoteFor(r.requestId, { clientRate: '93.000000' })).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' });
-    const q = await quoteFor(r.requestId, { clientRate: '93.000000', negativeMarginReason: 'relationship trade approved by the desk head' });
-    await expect(sendWithLink(q.quoteId, false)).rejects.toMatchObject({ code: 'FORBIDDEN' });
-    let token: string | null = null;
-    await runAs(s.app, sendQuote(s.owner.actor, {}, (x) => { token = x; }), s.owner.ref, 'quote.send', { quoteId: q.quoteId, withLink: false });
-    expect(token).toBeNull();
-    expect((await s.app.selectFrom('quote').select('status').where('id', '=', q.quoteId).executeTakeFirstOrThrow()).status).toBe('SENT');
+    await expect(quoteFor(r.requestId, { clientRate: '93.000000' })).rejects.toMatchObject({ code: 'QUOTE_UNPROFITABLE' });
+    const refused = await quoteFor(r.requestId, { clientRate: '93.000000', negativeMarginReason: 'relationship trade approved by the desk head' }).catch((e) => e);
+    expect(refused).toMatchObject({ code: 'QUOTE_UNPROFITABLE' });
+    // The dealer is told the client rate that pays for the route, the network fee and the minimum margin.
+    expect(refused.details.breakEvenClientRate).toBe('92.499998');
+    expect(await s.app.selectFrom('quote').select('id').where('trade_request_id', '=', r.requestId).execute()).toEqual([]);
+    void sendQuote;
   });
 
   it('validity bounds hold, a link needs at least 120 s and only one quote of a request is SENT', async () => {

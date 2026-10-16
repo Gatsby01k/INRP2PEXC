@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { sql } from 'kysely';
 import { DomainError, Money, requireUuid } from '@inrp2p/kernel';
-import type { Db } from '@inrp2p/db';
+import type { Db, TxContext } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
 import { enqueueOutbox } from '@inrp2p/outbox';
 import { executeCommand } from '@inrp2p/commands';
@@ -36,7 +36,17 @@ export interface ConfirmPayoutResult {
  * If the route side does not fit, the whole command fails: no leg completion without the route allocation.
  */
 export function confirmPayoutLeg(actor: OperatorActor, deps: SettlementDeps) {
-  return operatorCommand(actor, 'settlement:confirm_payout', async (ctx, p: { legId: string }): Promise<ConfirmPayoutResult> => {
+  return operatorCommand(actor, 'settlement:confirm_payout', (ctx, p: { legId: string }) => confirmPayoutLegInTx(ctx, deps, p.legId));
+}
+
+/**
+ * The confirmation itself. An operator reaches it through `settlement:confirm_payout` (⧗); the exchange's signer
+ * reaches it as the system for a USDT payout it sent, once the chain made the transfer final (ADR 0017) — then the
+ * two people C1 asks for above the threshold are the one who sent it and the one who approved the send before it was
+ * signed (IX090 restated in migration 0037).
+ */
+export async function confirmPayoutLegInTx(ctx: TxContext, deps: SettlementDeps, legId: string): Promise<ConfirmPayoutResult> {
+    const p = { legId };
     const legPeek = await ctx.tx.selectFrom('settlement_leg').select(['trade_id', 'payer']).where('id', '=', requireUuid(p.legId, 'legId')).executeTakeFirst();
     if (!legPeek) throw new DomainError('NOT_FOUND', 'settlement leg not found');
     // Lock order: trade → route obligation → leg → movement (ARCHITECTURE §4).
@@ -53,7 +63,9 @@ export function confirmPayoutLeg(actor: OperatorActor, deps: SettlementDeps) {
     const confirmedBy = ctx.actor.id ?? `SYSTEM:${ctx.commandName}`;
     if (await payoutNeedsSecondPerson(ctx.tx, leg)) {
       const sender = leg.sent_by ?? leg.created_by;
-      if (confirmedBy.startsWith('SYSTEM') || confirmedBy === sender) {
+      const signed = await ctx.tx.selectFrom('chain_send').select(['status', 'approved_by']).where('settlement_leg_id', '=', leg.id).where('status', '<>', 'CANCELLED').executeTakeFirst();
+      const approvedSignerSend = signed !== undefined && signed.approved_by !== null && signed.approved_by !== sender && !signed.approved_by.startsWith('SYSTEM');
+      if ((confirmedBy.startsWith('SYSTEM') && !approvedSignerSend) || confirmedBy === sender) {
         throw new DomainError('SECOND_APPROVER_REQUIRED', `${leg.ref} is above the approval threshold: someone other than the person who ${leg.sent_by ? 'sent' : 'created'} it confirms it`, { legRef: leg.ref });
       }
     }
@@ -190,7 +202,6 @@ export function confirmPayoutLeg(actor: OperatorActor, deps: SettlementDeps) {
       routeSettlementId,
       completed,
     };
-  });
 }
 
 /**

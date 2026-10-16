@@ -97,7 +97,7 @@ export function QuoteCard({ quote, canAccept, now }: { quote: ClientQuoteView; c
             {sell ? `₹${inr}` : usdt}
             <span className={styles.heroUnit}>{sell ? 'INR' : 'USDT'}</span>
           </span>
-          <span className={styles.heroSub}>{sell ? `for ${usdt} USDT` : `for ₹${inr}`}</span>
+          <span className={styles.heroSub}>{sell ? `You send ${usdt} USDT` : `You pay ₹${inr}`} · exactly, nothing is deducted</span>
         </div>
 
         <div className={styles.rate} data-robot-target="rate">
@@ -122,6 +122,12 @@ export function QuoteCard({ quote, canAccept, now }: { quote: ClientQuoteView; c
             <dt>Network</dt>
             <dd>USDT on TRON (TRC20)</dd>
           </div>
+          {quote.networkFeeIncluded ? (
+            <div>
+              <dt>Fees</dt>
+              <dd>Included in the rate, with the TRC20 network fee of ₹{legAmount(quote.networkFeeIncluded.amount, 'INR')}</dd>
+            </div>
+          ) : null}
           <div>
             <dt>Settlement</dt>
             <dd>{sell ? 'Send your USDT to the trade’s own address; INR follows in one or more transfers, each with its bank reference.' : 'Pay the INR; the USDT is sent to your wallet once it is confirmed.'}</dd>

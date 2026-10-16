@@ -31,6 +31,26 @@ export function rewardFor(inrMinor: bigint, bps: number): bigint {
   return (inrMinor * BigInt(bps)) / 10_000n;
 }
 
+export interface OrderRewardTerms {
+  readonly orderId: string;
+  /** The trader's override, else the programme's rate; null when INRP2P pays this trader no reward. */
+  readonly bps: number | null;
+  readonly rewardMinor: bigint;
+}
+
+/**
+ * The reward an accepted order carries, as a quote on it counts it (ADR 0017 §1): what the client pays must cover it.
+ * The quote freezes these terms (`quote_network_fee`) and the order starts with exactly them (`startOrderForTrade`,
+ * IX113) — a change to the programme or to the trader's override after the quote never changes what the order earns.
+ */
+export async function orderRewardTerms(ex: Executor, orderId: string): Promise<OrderRewardTerms> {
+  const order = await ex.selectFrom('trader_order').select(['id', 'trader_id', 'inr_minor']).where('id', '=', requireUuid(orderId, 'orderId')).executeTakeFirstOrThrow();
+  const program = await traderProgram(ex);
+  const profile = await ex.selectFrom('trader_profile').select('reward_bps').where('id', '=', order.trader_id).executeTakeFirstOrThrow();
+  const bps = profile.reward_bps ?? program.rewardBps;
+  return { orderId: order.id, bps, rewardMinor: bps === null ? 0n : rewardFor(order.inr_minor, bps) };
+}
+
 /**
  * Called by the request commands when a request closes (declined, withdrawn, expired): a live offer is withdrawn
  * and an accepted order gives its capacity back. The caller holds the request lock.
@@ -84,9 +104,10 @@ export async function requireOrderForQuote(ctx: TxContext, input: { requestId: s
 
 /**
  * The client accepted a quote on a trader route: the trader's order starts, bound to the trade and its route
- * obligation (the database checks they are the accepted terms). The reward, if the programme pays one, is fixed
- * now from the order's INR value, so a later change to the programme never changes what this order earns. Runs in
- * the acceptance transaction; any failure here fails the acceptance.
+ * obligation (the database checks they are the accepted terms). The reward is the one the quote counted and froze
+ * (`quote_network_fee`, IX113) — not re-read from the programme — so what the client's price paid for, what the order
+ * earns, what the ledger accrues and what the desk reports are one figure. A quote from before frozen terms existed
+ * fixes it from the programme now, as before. Runs in the acceptance transaction; any failure fails the acceptance.
  */
 export async function startOrderForTrade(ctx: TxContext, input: { requestId: string; routeId: string; quoteId: string; tradeId: string; routeObligationId: string }): Promise<{ orderId: string }> {
   const peek = await ctx.tx
@@ -99,10 +120,19 @@ export async function startOrderForTrade(ctx: TxContext, input: { requestId: str
   if (!peek) throw new DomainError('TRADER_ORDER_REQUIRED', 'the trader order behind this quote is no longer held');
   const order = await lockOrder(ctx, peek.id);
   if (order.status !== 'ACCEPTED') throw new DomainError('TRADER_ORDER_REQUIRED', 'the trader order behind this quote is no longer held');
-  const program = await traderProgram(ctx.tx);
-  const profile = await ctx.tx.selectFrom('trader_profile').select(['reward_bps', 'client_id']).where('id', '=', order.trader_id).executeTakeFirstOrThrow();
-  const bps = profile.reward_bps ?? program.rewardBps;
-  const reward = bps === null ? null : rewardFor(order.inr_minor, bps);
+  const profile = await ctx.tx.selectFrom('trader_profile').select(['client_id']).where('id', '=', order.trader_id).executeTakeFirstOrThrow();
+  const frozen = await ctx.tx.selectFrom('quote_network_fee').select(['trader_order_id', 'reward_bps', 'reward_inr_minor']).where('quote_id', '=', input.quoteId).executeTakeFirst();
+  let bps: number | null;
+  let reward: bigint | null;
+  if (frozen) {
+    if (frozen.trader_order_id !== order.id) throw new DomainError('TRADER_ORDER_MISMATCH', 'the quote counted the reward of another order');
+    bps = frozen.reward_bps;
+    reward = bps === null ? null : frozen.reward_inr_minor;
+  } else {
+    const terms = await orderRewardTerms(ctx.tx, order.id);
+    bps = terms.bps;
+    reward = bps === null ? null : terms.rewardMinor;
+  }
   await ctx.tx
     .updateTable('trader_order')
     .set({

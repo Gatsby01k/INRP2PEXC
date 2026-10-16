@@ -15,6 +15,7 @@ import { type WorkerBeat, recordWorkerBeat } from '@inrp2p/trades';
 import { type ReceiptObjectStore, type ReceiptPdfPrinter, receiptsNotStored, storeReceiptObjects } from '@inrp2p/reporting';
 import { DomainError } from '@inrp2p/kernel';
 import type { ChainMonitoring } from './config.ts';
+import { type OnchainDeps, runAutopay, runFeeRefresh, runHoldClosing, runMonitor, runSender } from '@inrp2p/onchain';
 import { sql } from 'kysely';
 
 /** Runs a system job step through the command pipeline (one transaction, audit, retry-safe state guards). */
@@ -37,6 +38,8 @@ export function buildTaskList(
     receipts?: { readonly store: ReceiptObjectStore; readonly pdf?: ReceiptPdfPrinter | null; readonly retainDays?: number | null };
     heartbeat?: WorkerIdentity;
     auditArchive?: { readonly archive: SealArchive; readonly retainDays: number };
+    /** The exchange's own rails (ADR 0017): the gateways, the signer (null: nothing is signed) and the verifier. */
+    rails?: OnchainDeps;
   } = {},
 ): TaskList {
   const outboxDispatch: Task = async () => {
@@ -143,7 +146,34 @@ export function buildTaskList(
     const beat = await recordHeartbeat(db, opts.heartbeat);
     if (beat.raised) helpers.logger.error(`worker_heartbeat: the database changed underneath; outgoing payments are held (${beat.raised}, RUNBOOKS restore-fence)`);
   };
+  // ADR 0017: what is due is planned (autopay), what is planned is fuelled and signed (sender), what is signed is
+  // followed to the chain's answer and settled (monitor), and a finished trade's network budget is closed. Each part is
+  // its own steps in their own transactions; a step that fails is logged and tried again on the next cycle, which runs
+  // every minute and again soon after anything moved.
+  const onchainCycle: Task = async (_payload, helpers) => {
+    const rails = opts.rails;
+    if (!rails) return;
+    const autopay = await runAutopay(db, rails);
+    for (const f of autopay.skipped) helpers.logger.warn(`onchain_cycle: trade ${f.tradeId} not planned (${f.code}): ${f.message}`);
+    const sender = await runSender(db, rails);
+    for (const f of sender.failures) helpers.logger.error(`onchain_cycle: send ${f.sendRef} (${f.code}): ${f.message}`);
+    const monitor = await runMonitor(db, rails);
+    for (const f of monitor.failures) helpers.logger.error(`onchain_cycle: transaction ${f.txid} (${f.code}): ${f.message}`);
+    await runHoldClosing(db);
+    const moving = autopay.payoutsPlanned + autopay.routePaymentsPlanned + sender.signed + sender.topupsPlanned + sender.resumed + monitor.confirmed + monitor.pending + monitor.rebroadcast + monitor.expired;
+    if (moving > 0 || monitor.examined > 0) {
+      await sql`select graphile_worker.add_job('onchain_cycle', '{}'::json, run_at => now() + interval '10 seconds', job_key => 'onchain_cycle', job_key_mode => 'preserve_run_at')`.execute(db);
+    }
+  };
+  // What the chain charges for energy, bandwidth and new accounts, recorded for quotes and budget holds.
+  const networkFeeRefresh: Task = async (_payload, helpers) => {
+    if (!opts.rails) return;
+    const out = await runFeeRefresh(db, opts.rails);
+    helpers.logger.info(`network_fee_refresh: energy ${out.energyPriceSun} sun`);
+  };
   return {
+    onchain_cycle: onchainCycle,
+    network_fee_refresh: networkFeeRefresh,
     outbox_dispatch: outboxDispatch,
     audit_seal: auditSeal,
     capacity_day_rollover: capacityDayRollover,
@@ -214,7 +244,20 @@ export const CRONTAB = [
   '41 * * * * receipt_store_backfill ?max=2&jobKey=receipt_store_backfill',
   '* * * * * worker_heartbeat ?max=1&jobKey=worker_heartbeat',
   '17 2 * * * audit_seal_export ?max=3&jobKey=audit_seal_export',
+  '* * * * * onchain_cycle ?max=1&jobKey=onchain_cycle',
+  '*/10 * * * * network_fee_refresh ?max=3&jobKey=network_fee_refresh',
 ].join('\n');
+
+/** A send planned or confirmed starts the rails cycle now rather than at the next minute (the job key coalesces). */
+export function onchainWakeup(db: Db): OutboxHandler {
+  return {
+    name: 'onchain_wakeup',
+    handles: (type) => type === 'chain_send.planned' || type === 'chain_send.confirmed' || type === 'trade.opened',
+    run: async () => {
+      await sql`select graphile_worker.add_job('onchain_cycle', '{}'::json, job_key => 'onchain_cycle', job_key_mode => 'preserve_run_at')`.execute(db);
+    },
+  };
+}
 
 /** Who this worker is and what it runs — names and states only, never a secret, an address or a key. */
 export type WorkerIdentity = WorkerBeat;

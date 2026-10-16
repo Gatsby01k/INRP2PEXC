@@ -240,6 +240,23 @@ Security Reserve never stand in (FI-76). A trader route is always `TO_EXCHANGE`:
   nothing moved, nothing posted, the INR debt open — until it is released with a reason or the order completes or is
   cancelled (the sweep ends it). Converting it into an INR recovery is the owner's decision (TD-21).
 
+## 8a. Network deposit (ADR 0017)
+
+The exchange's signer pays USDT out of each deal's own address, and TRON charges TRX for it. For a trader's orders
+that TRX comes from the trader's **network deposit** — never from its Security Reserve, its capacity or anyone else's
+money:
+
+- The trader sends TRX from its registered wallet to the budget wallet (Traders → Network deposit, address and QR) and
+  hands in the hash; the sending wallet attributes it, credited once (FI-91).
+- Each order holds the worst case of its transfers from acceptance until it finishes (one for a Buy, two for a Sell:
+  paying the trader, or returning the client's USDT); an order is not offered while the free TRX cannot cover it
+  (routing exclusion `NETWORK_DEPOSIT_SHORT`).
+- What the order's transfers burn is spent from the deposit; what the client's price paid for (its payout or the
+  trader's payment) — and a transfer the platform's mistake caused — is paid back in INR at the order's quoted TRX
+  price, with the trader's rewards. A return of the client's USDT caused by the trader's side not being completed is
+  the trader's.
+- Free TRX can be withdrawn to the registered wallet (the desk approves; the withdrawal's own fee is the trader's).
+
 ## 9. Rewards
 
 - Model: `reward_bps` of the order's INR value (programme default, optional per-trader override), 0–500 bps,

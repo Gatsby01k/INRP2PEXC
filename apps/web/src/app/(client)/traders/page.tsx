@@ -1,4 +1,4 @@
-import { traderHome } from '@inrp2p/traders';
+import { traderHome, traderNetworkHome } from '@inrp2p/traders';
 import { workspacePage } from '../../../server/client.ts';
 import { PageHead } from '../_workspace/PageHead.tsx';
 import { TradersHome } from './TradersHome.tsx';
@@ -14,13 +14,14 @@ export default async function TradersPage() {
   const ctx = await workspacePage();
   const home = await traderHome(ctx.db, ctx.actor.userId);
   const working = home.state === 'APPROVED' || home.state === 'PAUSED';
+  const network = home.state === 'NONE' ? null : await traderNetworkHome(ctx.db, ctx.actor.userId);
   return (
     <>
       <PageHead
         title="Traders"
         lede={working ? `Your capacity, your rates and your orders${home.ref ? ` · ${home.ref}` : ''}.` : 'Provide INR or USDT capacity to INRP2P, and receive matching orders privately.'}
       />
-      <TradersHome home={home} />
+      <TradersHome home={home} network={network} />
     </>
   );
 }

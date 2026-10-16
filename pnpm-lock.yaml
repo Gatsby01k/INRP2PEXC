@@ -202,9 +202,15 @@ importers:
       '@inrp2p/ledger':
         specifier: workspace:*
         version: link:packages/ledger
+      '@inrp2p/network':
+        specifier: workspace:*
+        version: link:packages/network
       '@inrp2p/notifications':
         specifier: workspace:*
         version: link:packages/notifications
+      '@inrp2p/onchain':
+        specifier: workspace:*
+        version: link:packages/onchain
       '@inrp2p/outbox':
         specifier: workspace:*
         version: link:packages/outbox
@@ -301,6 +307,9 @@ importers:
       '@inrp2p/ledger':
         specifier: workspace:*
         version: link:../../packages/ledger
+      '@inrp2p/network':
+        specifier: workspace:*
+        version: link:../../packages/network
       '@inrp2p/notifications':
         specifier: workspace:*
         version: link:../../packages/notifications
@@ -419,6 +428,9 @@ importers:
       '@inrp2p/notifications':
         specifier: workspace:*
         version: link:../../packages/notifications
+      '@inrp2p/onchain':
+        specifier: workspace:*
+        version: link:../../packages/onchain
       '@inrp2p/outbox':
         specifier: workspace:*
         version: link:../../packages/outbox
@@ -458,6 +470,18 @@ importers:
       '@inrp2p/kernel':
         specifier: workspace:*
         version: link:../kernel
+      '@noble/curves':
+        specifier: 2.4.0
+        version: 2.4.0
+      '@noble/hashes':
+        specifier: 2.4.0
+        version: 2.4.0
+      '@scure/bip32':
+        specifier: 2.4.0
+        version: 2.4.0
+      '@scure/bip39':
+        specifier: 2.4.0
+        version: 2.4.0
       playwright-core:
         specifier: 1.56.1
         version: 1.56.1
@@ -546,6 +570,9 @@ importers:
       '@inrp2p/kernel':
         specifier: workspace:*
         version: link:../kernel
+      '@inrp2p/network':
+        specifier: workspace:*
+        version: link:../network
       '@inrp2p/pricing':
         specifier: workspace:*
         version: link:../pricing
@@ -651,6 +678,39 @@ importers:
         specifier: 0.29.6
         version: 0.29.6
 
+  packages/network:
+    dependencies:
+      '@inrp2p/adapters':
+        specifier: workspace:*
+        version: link:../adapters
+      '@inrp2p/audit':
+        specifier: workspace:*
+        version: link:../audit
+      '@inrp2p/commands':
+        specifier: workspace:*
+        version: link:../commands
+      '@inrp2p/db':
+        specifier: workspace:*
+        version: link:../db
+      '@inrp2p/identity':
+        specifier: workspace:*
+        version: link:../identity
+      '@inrp2p/kernel':
+        specifier: workspace:*
+        version: link:../kernel
+      '@inrp2p/ledger':
+        specifier: workspace:*
+        version: link:../ledger
+      '@inrp2p/outbox':
+        specifier: workspace:*
+        version: link:../outbox
+      '@inrp2p/trader-core':
+        specifier: workspace:*
+        version: link:../trader-core
+      kysely:
+        specifier: 0.29.6
+        version: 0.29.6
+
   packages/notifications:
     dependencies:
       '@inrp2p/adapters':
@@ -687,6 +747,48 @@ importers:
       '@inrp2p/trades':
         specifier: workspace:*
         version: link:../trades
+
+  packages/onchain:
+    dependencies:
+      '@inrp2p/adapters':
+        specifier: workspace:*
+        version: link:../adapters
+      '@inrp2p/audit':
+        specifier: workspace:*
+        version: link:../audit
+      '@inrp2p/commands':
+        specifier: workspace:*
+        version: link:../commands
+      '@inrp2p/db':
+        specifier: workspace:*
+        version: link:../db
+      '@inrp2p/identity':
+        specifier: workspace:*
+        version: link:../identity
+      '@inrp2p/kernel':
+        specifier: workspace:*
+        version: link:../kernel
+      '@inrp2p/network':
+        specifier: workspace:*
+        version: link:../network
+      '@inrp2p/outbox':
+        specifier: workspace:*
+        version: link:../outbox
+      '@inrp2p/scanner':
+        specifier: workspace:*
+        version: link:../scanner
+      '@inrp2p/settlement':
+        specifier: workspace:*
+        version: link:../settlement
+      '@inrp2p/trades':
+        specifier: workspace:*
+        version: link:../trades
+      '@inrp2p/treasury':
+        specifier: workspace:*
+        version: link:../treasury
+      kysely:
+        specifier: 0.29.6
+        version: 0.29.6
 
   packages/outbox:
     dependencies:
@@ -794,6 +896,9 @@ importers:
       '@inrp2p/ledger':
         specifier: workspace:*
         version: link:../ledger
+      '@inrp2p/network':
+        specifier: workspace:*
+        version: link:../network
       '@inrp2p/outbox':
         specifier: workspace:*
         version: link:../outbox
@@ -966,6 +1071,9 @@ importers:
       '@inrp2p/ledger':
         specifier: workspace:*
         version: link:../ledger
+      '@inrp2p/network':
+        specifier: workspace:*
+        version: link:../network
       '@inrp2p/outbox':
         specifier: workspace:*
         version: link:../outbox
@@ -1042,6 +1150,9 @@ importers:
       '@inrp2p/ledger':
         specifier: workspace:*
         version: link:../ledger
+      '@inrp2p/network':
+        specifier: workspace:*
+        version: link:../network
       '@inrp2p/outbox':
         specifier: workspace:*
         version: link:../outbox
@@ -1887,6 +1998,10 @@ packages:
     resolution: {integrity: sha512-AnjFn0Jv92laAkvMrghlFZq4qQCIN/4DxFV/eooqtC2YTjB7kBeLMS2T9KJX4Dn+ZVXLOwK0lSgqDtx9gvxtiw==}
     engines: {node: '>= 20.19.0'}
 
+  '@noble/curves@2.4.0':
+    resolution: {integrity: sha512-P4/62zrgfH33CneE3Dn4WhJVA22YUU0eR51wKIan4NVRvwsA0YnPTwWGpNbpuacSujmSFLvyzpyuR30+fbq2Ew==}
+    engines: {node: '>= 20.19.0'}
+
   '@noble/hashes@2.4.0':
     resolution: {integrity: sha512-X5XaVWZIBCT7HHZGm5I7ZQXDwLG+bGXuSrMQAW+7Zvl87h1kmc1ZB1VSRJcpUfoUrGQp4Fkoxm5kZ+Ms+aW+eA==}
     engines: {node: '>= 20.19.0'}
@@ -2328,6 +2443,15 @@ packages:
     peerDependenciesMeta:
       rollup:
         optional: true
+
+  '@scure/base@2.4.0':
+    resolution: {integrity: sha512-thZ1TuJwFwBblOhgsjDKvvGirBxNp+wSvY/DR6tJBJOTDhdAAcHJ8Vbr2eFnqaxeca4+t0i9KBf+uHYGWwZORg==}
+
+  '@scure/bip32@2.4.0':
+    resolution: {integrity: sha512-i3DS0CptAocyvqE4n3SUkpzeQK4vJMFwWLofTwRiiKo2aWojBOfyMCgfKw9HVpO6fSY5AK86sHS/Uzn8kK9Few==}
+
+  '@scure/bip39@2.4.0':
+    resolution: {integrity: sha512-82dxFbZUYboyOf0AXiydsQrFQ5Q4h9mX+O2UkE91ROYmsc0BKMGZLwDmy96Jpa2+vrtoxomjUhy1RPIgH/r2nA==}
 
   '@sentry/conventions@0.16.0':
     resolution: {integrity: sha512-fO9PLmHdVURcSPUpWCItWAtgKiMwGdJHbovoSEyLplX5sxs2ugvI4CBPTrkkgqhObnZOD0CnWBKDzSVQYBKEyQ==}
@@ -5092,6 +5216,10 @@ snapshots:
 
   '@noble/ciphers@2.4.0': {}
 
+  '@noble/curves@2.4.0':
+    dependencies:
+      '@noble/hashes': 2.4.0
+
   '@noble/hashes@2.4.0': {}
 
   '@opentelemetry/api-logs@0.220.0':
@@ -5355,6 +5483,18 @@ snapshots:
       '@types/estree': 1.0.9
       estree-walker: 2.0.2
       picomatch: 4.0.7
+
+  '@scure/base@2.4.0': {}
+
+  '@scure/bip32@2.4.0':
+    dependencies:
+      '@noble/curves': 2.4.0
+      '@noble/hashes': 2.4.0
+      '@scure/base': 2.4.0
+
+  '@scure/bip39@2.4.0':
+    dependencies:
+      '@noble/hashes': 2.4.0
 
   '@sentry/conventions@0.16.0': {}
 

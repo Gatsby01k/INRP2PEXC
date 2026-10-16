@@ -1,5 +1,9 @@
 import { DomainError, normalizeTronAddress, tronAddressToHex } from '@inrp2p/kernel';
 import type { BalanceReading, BalanceSource, ChainNetwork, ChainVerification, ChainVerifier, TransactionTransfers, TransferReceipt } from './chain.ts';
+import type {
+  BroadcastAnswer, ChainFeeParameters, EnergyEstimate, SolidifiedHead, TronAccountState, TronSendGateway, TrxTransferAnswer, TxOutcomeAnswer,
+} from './tron-send.ts';
+import { trc20TransferData } from './tron-tx.ts';
 
 /**
  * TRON provider port (ARCHITECTURE §6 `TronAdapter`). A provider returns **raw facts** — what the chain says —
@@ -172,6 +176,37 @@ function addressFromTopic(topic: unknown): string | null {
  * are 32-byte hex words (signature, then indexed parameters) and whose `data` holds the non-indexed parameters.
  * Anything the domain would rely on that does not decode is a hard error, never a missing fact.
  */
+/** A node's message field is hex-encoded UTF-8 in some answers and plain text in others. */
+function hexText(value: string): string {
+  if (/^([0-9a-fA-F]{2})+$/.test(value)) {
+    const text = Buffer.from(value, 'hex').toString('utf8');
+    if (/^[\x20-\x7e]*$/.test(text)) return text.slice(0, 300);
+  }
+  return value.slice(0, 300);
+}
+
+/**
+ * The outcome of a transaction from its solidified receipt (`/walletsolidity/gettransactioninfobyid`): the block, the
+ * fee burned (`fee`, the whole of it: energy, bandwidth and any account creation) and, for a contract call, how it
+ * ended. A plain TRX transfer has no `receipt.result`: it is included only if it was valid, so included is success.
+ */
+export function finalFacts(info: Record<string, unknown>, txHash: string): { blockNumber: bigint; blockTime: Date; success: boolean; result: string; feeSun: bigint; energyUsed: bigint; energyFeeSun: bigint; netFeeSun: bigint } {
+  if (typeof info.id !== 'string' || info.id.toLowerCase().replace(/^0x/, '') !== txHash) throw evidence('provider answered for another transaction', { asked: txHash });
+  const receipt = (info.receipt ?? {}) as Record<string, unknown>;
+  const n = (v: unknown, f: string) => BigInt(v === undefined ? 0 : safeInt(v, f, 0));
+  const result = typeof receipt.result === 'string' && receipt.result.length > 0 ? receipt.result : info.result === 'FAILED' ? 'FAILED' : 'SUCCESS';
+  return {
+    blockNumber: BigInt(safeInt(info.blockNumber, 'receipt block number', 1)),
+    blockTime: new Date(safeInt(info.blockTimeStamp, 'receipt block time', 1)),
+    success: result === 'SUCCESS' && info.result !== 'FAILED',
+    result,
+    feeSun: n(info.fee, 'fee'),
+    energyUsed: n(receipt.energy_usage_total, 'energy used'),
+    energyFeeSun: n(receipt.energy_fee, 'energy fee'),
+    netFeeSun: n(receipt.net_fee, 'bandwidth fee'),
+  };
+}
+
 export function parseTransactionInfo(info: unknown, txHash: string): TxEvidence {
   if (info === null || typeof info !== 'object' || Array.isArray(info)) throw evidence('provider returned a receipt that is not an object');
   const r = info as Record<string, unknown>;
@@ -292,7 +327,7 @@ async function mapBounded<T, R>(items: readonly T[], limit: number, fn: (item: T
  * address — an index without block numbers or log positions), `/wallet/gettransactioninfobyid` (the receipt: block,
  * result and the Transfer logs with their positions).
  */
-export class TronHttpProvider implements TronProvider {
+export class TronHttpProvider implements TronProvider, TronSendGateway {
   readonly name: string;
   readonly independenceGroup: string;
   readonly #baseUrl: string;
@@ -444,6 +479,103 @@ export class TronHttpProvider implements TronProvider {
       return { balanceMinor: balance, solidifiedBlock: before, trxSun: trx };
     }
     throw evidence('the solidified head kept moving while the balance was read');
+  }
+
+  // ---- sending (TronSendGateway, ADR 0017 §4) ------------------------------------------------------------------
+
+  async solidifiedHead(): Promise<SolidifiedHead> {
+    const r = await this.#call<{ blockID?: unknown; block_header?: { raw_data?: { number?: unknown; timestamp?: unknown } } }>(new CallCounter(), '/walletsolidity/getnowblock', { method: 'POST', body: {} });
+    if (typeof r.blockID !== 'string' || !/^[0-9a-fA-F]{64}$/.test(r.blockID)) throw evidence('provider returned no solidified block id');
+    return { number: toBlock(r.block_header?.raw_data?.number, 'solidified block number'), id: r.blockID.toLowerCase(), timestamp: safeInt(r.block_header?.raw_data?.timestamp, 'solidified block time', 1) };
+  }
+
+  async chainFeeParameters(): Promise<ChainFeeParameters> {
+    const r = await this.#call<{ chainParameter?: unknown }>(new CallCounter(), '/wallet/getchainparameters', { method: 'POST', body: {} });
+    if (!Array.isArray(r.chainParameter)) throw evidence('provider returned no chain parameters');
+    const values = new Map<string, unknown>();
+    for (const p of r.chainParameter as { key?: unknown; value?: unknown }[]) if (typeof p?.key === 'string') values.set(p.key, p.value ?? 0);
+    const need = (key: string): bigint => {
+      const v = values.get(key);
+      if (v === undefined) throw evidence(`provider returned no ${key}`);
+      return BigInt(safeInt(v, key, 0));
+    };
+    return {
+      energyPriceSun: need('getEnergyFee'),
+      bandwidthPriceSun: need('getTransactionFee'),
+      createAccountFeeSun: need('getCreateAccountFee'),
+      createNewAccountFeeSun: need('getCreateNewAccountFeeInSystemContract'),
+      freeNetLimit: Number(need('getFreeNetLimit')),
+    };
+  }
+
+  async accountState(address: string): Promise<TronAccountState> {
+    const a = normalizeTronAddress(address);
+    const counter = new CallCounter();
+    const account = await this.#call<Record<string, unknown>>(counter, '/wallet/getaccount', { method: 'POST', body: { address: a, visible: true } });
+    if (!account || typeof account !== 'object' || Array.isArray(account)) throw evidence('provider returned an unreadable account');
+    const exists = Object.keys(account).length > 0;
+    const balance = account.balance === undefined ? 0 : safeInt(account.balance, 'account balance', 0);
+    const res = exists
+      ? await this.#call<Record<string, unknown>>(counter, '/wallet/getaccountresource', { method: 'POST', body: { address: a, visible: true } })
+      : {};
+    const num = (v: unknown, f: string) => (v === undefined ? 0 : safeInt(v, f, 0));
+    return { address: a, exists, balanceSun: BigInt(balance), freeNetLimit: num(res.freeNetLimit, 'free bandwidth'), freeNetUsed: num(res.freeNetUsed, 'free bandwidth used') };
+  }
+
+  async estimateTrc20Energy(input: { from: string; contract: string; to: string; amountMinor: bigint }): Promise<EnergyEstimate> {
+    const r = await this.#call<{ result?: { result?: unknown; message?: unknown }; energy_used?: unknown; transaction?: { ret?: { ret?: unknown }[] } }>(new CallCounter(), '/wallet/triggerconstantcontract', {
+      method: 'POST',
+      body: {
+        owner_address: normalizeTronAddress(input.from), contract_address: normalizeTronAddress(input.contract),
+        function_selector: 'transfer(address,uint256)', parameter: trc20TransferData(input.to, input.amountMinor).slice(8), visible: true,
+      },
+    });
+    if (r?.result?.result !== true) return { ok: false, reason: typeof r?.result?.message === 'string' ? hexText(r.result.message) : 'the simulation did not run' };
+    if (r.transaction?.ret?.[0]?.ret === 'FAILED') return { ok: false, reason: 'the simulated transfer reverts' };
+    return { ok: true, energy: BigInt(safeInt(r.energy_used, 'energy used', 0)) };
+  }
+
+  async broadcastHex(signedHex: string): Promise<BroadcastAnswer> {
+    const r = await this.#call<{ result?: unknown; code?: unknown; message?: unknown }>(new CallCounter(), '/wallet/broadcasthex', { method: 'POST', body: { transaction: signedHex } });
+    if (r?.result === true) return { accepted: true, duplicate: false };
+    const code = typeof r?.code === 'string' ? r.code : 'UNKNOWN';
+    // Already in the node's pool or chain: the same bytes, the same transaction — exactly what a retry wants.
+    if (code === 'DUP_TRANSACTION_ERROR') return { accepted: true, duplicate: true };
+    return { accepted: false, code, message: typeof r?.message === 'string' ? hexText(r.message) : '' };
+  }
+
+  async transactionOutcome(txid: string): Promise<TxOutcomeAnswer> {
+    const hash = normalizeTxHash(txid);
+    const counter = new CallCounter();
+    const solid = await this.#call<Record<string, unknown>>(counter, '/walletsolidity/gettransactioninfobyid', { method: 'POST', body: { value: hash } });
+    if (solid && typeof solid === 'object' && Object.keys(solid).length > 0) return { status: 'FINAL', ...finalFacts(solid, hash) };
+    const head = await this.#call<Record<string, unknown>>(counter, '/wallet/gettransactioninfobyid', { method: 'POST', body: { value: hash } });
+    if (head && typeof head === 'object' && Object.keys(head).length > 0) return { status: 'PENDING' };
+    return { status: 'NOT_FOUND' };
+  }
+
+  async trxTransfer(txid: string): Promise<TrxTransferAnswer> {
+    const hash = normalizeTxHash(txid);
+    const outcome = await this.transactionOutcome(hash);
+    if (outcome.status !== 'FINAL') return outcome;
+    if (!outcome.success) return { status: 'NOT_A_TRX_TRANSFER', reason: `the transaction failed (${outcome.result})` };
+    const tx = await this.#call<{ txID?: unknown; raw_data?: { contract?: { type?: unknown; parameter?: { value?: Record<string, unknown> } }[] }; ret?: { contractRet?: unknown }[] }>(
+      new CallCounter(), '/walletsolidity/gettransactionbyid', { method: 'POST', body: { value: hash, visible: true } },
+    );
+    if (typeof tx?.txID !== 'string' || tx.txID.toLowerCase() !== hash) throw evidence('provider answered for another transaction', { asked: hash });
+    const contracts = tx.raw_data?.contract;
+    if (!Array.isArray(contracts) || contracts.length !== 1) return { status: 'NOT_A_TRX_TRANSFER', reason: 'not a single-contract transaction' };
+    const c = contracts[0]!;
+    if (c.type !== 'TransferContract') return { status: 'NOT_A_TRX_TRANSFER', reason: `a ${String(c.type)}, not a TRX transfer` };
+    if (tx.ret?.[0]?.contractRet !== undefined && tx.ret[0].contractRet !== 'SUCCESS') return { status: 'NOT_A_TRX_TRANSFER', reason: 'the transfer did not succeed' };
+    const v = c.parameter?.value ?? {};
+    return {
+      status: 'FINAL',
+      transfer: {
+        txid: hash, from: normalizeTronAddress(v.owner_address), to: normalizeTronAddress(v.to_address), amountSun: BigInt(safeInt(v.amount, 'amount', 1)),
+        blockNumber: outcome.blockNumber, blockTime: outcome.blockTime,
+      },
+    };
   }
 
   /**

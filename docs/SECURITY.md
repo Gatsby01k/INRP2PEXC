@@ -115,10 +115,16 @@ Legend: ✔ allowed · ⧗ allowed with step-up MFA · ✱ requires second appro
 | `trader_payout:confirm` (confirm or reject it — posts the movement) | ⧗ | — | — | ⧗ | — | — |
 | `trader_reserve:apply` (ask to apply a trader's Security Reserve to USDT one of its orders did not deliver, TD-21; withdraw the request) | ⧗ | — | — | ⧗ | — | — |
 | `trader_reserve:approve` (approve or decline it — never the requester; end an approved one before its USDT moves) | ⧗✱ | — | — | ⧗✱ | — | — |
+| `network:view` (the TRX network budget, every funder's deposit, sends and their attempts, ADR 0017) | ✔ | ✔ | ✔ | ✔ | — | — |
+| `network:manage` (publish the TRX price; record a TRX deposit or a platform top-up by its hash) | ⧗ | — | — | ⧗ | — | — |
+| `chain_send:approve` (approve a send the signer will sign — above the payout threshold, never the person who asked) | ⧗✱ | — | ⧗✱ | ⧗✱ | — | — |
+| `chain_send:cancel` (cancel a send no transaction of which can still land; its payout or payment ends with it) | ⧗ | — | ⧗ | ⧗ | — | — |
+| `network_withdrawal:decide` (approve or reject a trader's withdrawal of its TRX network deposit) | ⧗ | — | — | ⧗ | — | — |
 | `receipt:view` | ✔ | ✔ | ✔ | ✔ | ✔ | ✔ |
 | `audit:view` | ✔ | — | — | ✔ | — | — |
 | `users:manage` / `roles:assign` | ⧗ | — | — | — | — | — |
 | `settings:payout_approval` (the payout second-person threshold, §4; on, off or moved, with a reason) | ⧗ | — | — | — | — | — |
+| `settings:network_fees` (the network fee policy: energy priced and held, buffers, the minimum net margin, the signer's switch; with a reason) | ⧗ | — | — | — | — | — |
 | `settings:new_business` (pause or resume new requests, quotes, acceptances and trader offers; started trades continue) | ⧗ | — | — | ⧗ | — | — |
 | `operations:restore_fence` (hold outgoing payments by hand after records were lost, or record the reconciliation that asks to release them) | ⧗ | — | — | ⧗ | — | — |
 | `operations:approve_restore_fence_lift` (approve or decline releasing outgoing payments after a restore — never the person who reconciled) | ⧗✱ | — | — | ⧗✱ | — | — |
@@ -140,6 +146,7 @@ Rules:
 | Refund of confirmed client funds | requester ≠ approver |
 | Payout confirmation | above a threshold (default ₹2,500,000 per leg; a USDT leg valued at its trade's frozen client rate) the user who marked a leg sent cannot confirm it, and the system never does. The sender and confirmer are recorded from the verified actor (`settlement_leg.sent_by` / `confirmed_by`); a leg sent before they were recorded falls back to its creator. Enforced in the command and by the database (IX090). The threshold is `settings:payout_approval` (OWNER ⧗, with a reason, append-only history) |
 | Capacity increase | audited; above threshold requires approver |
+| Signer's USDT transfer (ADR 0017) | a client payout above the payout threshold is sent only after a second person approves it on the Network page (`chain_send:approve`), and that person — never the requester — counts as the confirmation's second person; a refund is sent only by its approver (`refund:approve`), who is not its creator; a withdrawal of a trader's TRX by `network_withdrawal:decide` |
 
 A single-person desk can run V1 by disabling thresholds explicitly in Settings (audited action, OWNER only).
 
@@ -151,7 +158,7 @@ A single-person desk can run V1 by disabling thresholds explicitly in Settings (
 - Masking helpers are the only way to render account numbers (`•••• 8219`) and UTRs (`••••7118`); raw values never enter logs, audit `before/after`, notifications or receipts beyond last 4 (receipts show full UTR — see D-09).
 - Attachments in private object storage, served via short-lived signed URLs after permission check; SHA-256 recorded.
 - Backups encrypted; restore drills in launch checklist.
-- No wallet private keys or seed phrases anywhere in V1 — enforced by review checklist and a secret scanner in CI (pattern for hex-64 / mnemonic words in code and fixtures).
+- **One seed, only in the worker (ADR 0017).** The exchange's HD wallet seed exists as 24 words on paper (two copies, RUNBOOKS `custody-seed`) and, in the system, only as `INRP2P_CUSTODY_SEED_SEALED` in the worker's secret: envelope-sealed under a KMS key of its own that only the worker's role may use, only to Decrypt, only under `{app: inrp2p, purpose: custody-seed}`. The worker opens it once into memory and signs only the two transaction shapes the exchange sends, from a deal address or the budget wallet, after checking the derived key is the transaction's own sender. The web app holds the account's extended public key only and is forbidden by lint to import the signer; a production web app with a seed refuses to start. No other private key or seed exists anywhere — enforced by review and the secret scanner (hex-64 / mnemonic patterns; the BIP-39 test vector is the one allowed fixture).
 
 ## 6. Database hardening
 

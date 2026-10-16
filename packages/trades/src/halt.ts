@@ -80,6 +80,9 @@ export interface RestoreFenceState {
     readonly reserveApplicationsApproved: number;
     readonly reserveWithdrawalsRequested: number;
     readonly routeObligationsOpen: number;
+    /** The exchange's signer (ADR 0017): transfers planned or waiting, and transactions signed that the chain has not decided. */
+    readonly signerSendsOpen: number;
+    readonly signerTransactionsLive: number;
   };
 }
 
@@ -88,7 +91,7 @@ export async function restoreFenceState(ex: Executor): Promise<RestoreFenceState
     held: boolean; fence_id: string | null; ref: string | null; reason: string | null; raised_at: Date | null; raised_by: string | null; known_until: Date | null;
     identity_before: unknown; identity_after: unknown; lift_id: string | null; reconciliation: string | null; requested_by: string | null; requested_by_label: string | null; requested_at: Date | null;
     last_ref: string | null; last_lifted_at: Date | null; last_lifted_by: string | null;
-    legs_to_send: string; legs_in_flight: string; applications: string; withdrawals: string; obligations: string;
+    legs_to_send: string; legs_in_flight: string; applications: string; withdrawals: string; obligations: string; sends: string; live_attempts: string;
   }>`
     with fence as (select * from restore_fence where status = 'RAISED' limit 1),
          lift as (select l.* from restore_fence_lift l join fence f on f.id = l.fence_id where l.status = 'REQUESTED'),
@@ -102,7 +105,9 @@ export async function restoreFenceState(ex: Executor): Promise<RestoreFenceState
            (select count(*) from settlement_leg where payer = 'EXCHANGE_ACCOUNT' and status = 'PROCESSING')::text as legs_in_flight,
            (select count(*) from trader_reserve_application where kind = 'APPLY' and status = 'APPROVED')::text as applications,
            (select count(*) from trader_reserve_withdrawal where status = 'REQUESTED')::text as withdrawals,
-           (select count(*) from route_obligation where status in ('OPEN', 'PARTIALLY_SETTLED'))::text as obligations
+           (select count(*) from route_obligation where status in ('OPEN', 'PARTIALLY_SETTLED'))::text as obligations,
+           (select count(*) from chain_send where status not in ('CONFIRMED', 'CANCELLED'))::text as sends,
+           (select count(*) from chain_send_attempt where status in ('SIGNED', 'BROADCAST'))::text as live_attempts
       from (select 1) one
       left join fence f on true
       left join auth_user ru on ru.id::text = f.raised_by
@@ -129,6 +134,7 @@ export async function restoreFenceState(ex: Executor): Promise<RestoreFenceState
     toReconcile: {
       payoutLegsToSend: count(row.legs_to_send), payoutLegsInFlight: count(row.legs_in_flight), reserveApplicationsApproved: count(row.applications),
       reserveWithdrawalsRequested: count(row.withdrawals), routeObligationsOpen: count(row.obligations),
+      signerSendsOpen: count(row.sends), signerTransactionsLive: count(row.live_attempts),
     },
   };
 }

@@ -774,3 +774,36 @@ then the public page baselines re-recorded through the canonical workflow.
 gateway (`/sign-in` on the app host) from the hero's quote module, the closing section, the footer and the guide pages;
 `requirement` and the closing's new-client text describe self sign-up. The desk's address, when configured, stays as a
 contact beside it. Public page baselines need the canonical re-record.
+
+## TD-30 — The TRX price is published by a person
+
+**Observed (ADR 0017, 2026-10-13).** Quotes value the network fee at the TRX price the desk publishes on the Network page
+(`network.publish_trx_rate`); a change of more than ten times needs saying so. There is no market feed, so a price is
+only as fresh as the last time someone set it: after 72 hours (`max_trx_rate_age`) no quote is sent at all, and between
+updates a falling TRX price makes the fee a little dearer for the client, a rising one costs the platform part of the
+10 % price buffer.
+
+**Resolution (to do).** A price read from two independent sources by the worker, published when they agree, with the
+desk's manual price kept as the fallback.
+
+## TD-31 — TRX left at a deal address after its last transfer is not swept back
+
+**Observed (ADR 0017, 2026-10-13).** A top-up sends a deal address what its transfer may burn at most (the chain's own
+energy estimate +10 %, plus a 0.4 TRX bandwidth buffer). What the transfer did not burn stays at the address — about
+1–2 TRX per trade at today's prices — and the books count the whole top-up as spent by the trade's funder (so a trader
+is paid back for it). Nothing is lost: the address is the exchange's and the seed opens it; a later transfer from the
+same address (a SELL's return) uses it first.
+
+**Resolution (to do).** A sweep job: when a deal address's trade is closed and it holds TRX, send it back to the budget
+wallet (a plain TRX transfer, paid by the address's free daily bandwidth) and credit the funder of the trade that left
+it (a new `RECLAIM` entry kind).
+
+## TD-32 — Network fees are burned, not paid with rented or staked energy
+
+**Observed (ADR 0017, 2026-10-13).** Every transfer burns TRX for its energy at the chain's price (100 sun per unit
+today): ≈ 6.5 TRX to a wallet that holds USDT, ≈ 13 TRX to one that never did, plus 1.1 TRX to activate each new deal
+address. Staking TRX for energy, or renting energy from a market, costs less per transfer.
+
+**Resolution (to do, owner).** Decide whether to stake a part of the platform budget (energy delegated to deal
+addresses before each transfer) or to use a rental market; the signer's fuelling step (`prepareUsdt`) is where either
+would replace the top-up.

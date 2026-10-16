@@ -16,7 +16,7 @@ type Json = Record<string, unknown>;
 const template = JSON.parse(readFileSync(path.join(import.meta.dirname, '../../deploy/aws/inrp2p-aws.json'), 'utf8')) as {
   Parameters: Record<string, { Default?: unknown }>; Conditions: Json; Resources: Record<string, { Type: string; Condition?: string; Properties: Json }>; Outputs: Json;
 };
-const PSEUDO = new Set(['AWS::Region', 'AWS::AccountId', 'AWS::Partition', 'AWS::StackName', 'AWS::URLSuffix']);
+const PSEUDO = new Set(['AWS::Region', 'AWS::AccountId', 'AWS::Partition', 'AWS::StackName', 'AWS::URLSuffix', 'AWS::NoValue']);
 const known = (name: string) => PSEUDO.has(name) || name in template.Parameters || name in template.Resources;
 
 function walk(node: unknown, visit: (key: string, value: unknown) => void): void {
@@ -24,6 +24,9 @@ function walk(node: unknown, visit: (key: string, value: unknown) => void): void
   else if (node && typeof node === 'object') for (const [k, v] of Object.entries(node)) { visit(k, v); walk(v, visit); }
 }
 const props = (name: string) => template.Resources[name]!.Properties;
+/** A role's policies, with a conditional one (`Fn::If`) taken as granted — the stricter reading. */
+const policiesOf = (r: { Properties: Json }) =>
+  ((r.Properties.Policies ?? []) as Json[]).map((p) => ('Fn::If' in p ? ((p['Fn::If'] as unknown[])[1] as Json) : p)) as { PolicyName: string; PolicyDocument: unknown }[];
 const statements = (doc: unknown): Json[] => ((doc as { Statement: Json[] }).Statement);
 
 describe('the AWS template (worker on Fargate, KMS, audit archive, Vercel OIDC role)', () => {
@@ -50,12 +53,17 @@ describe('the AWS template (worker on Fargate, KMS, audit archive, Vercel OIDC r
 
   it('grants the worker only what it uses, and KMS only on the owner’s key, under the adapter’s encryption context', () => {
     const roles = Object.entries(template.Resources).filter(([, r]) => r.Type === 'AWS::IAM::Role');
-    const grants = roles.flatMap(([name, r]) => ((r.Properties.Policies ?? []) as { PolicyDocument: unknown }[]).flatMap((p) => statements(p.PolicyDocument).map((s) => ({ name, s }))));
+    const grants = roles.flatMap(([name, r]) => policiesOf(r).flatMap((p) => statements(p.PolicyDocument).map((s) => ({ name, s }))));
     for (const { name, s } of grants) {
       const actions = ([] as string[]).concat(s.Action as string | string[]);
       expect(actions.every((a) => !a.endsWith(':*')), `${name}: ${actions.join(', ')}`).toBe(true);
       if (s.Resource === '*') expect(actions, name).toEqual(['ecr:GetAuthorizationToken']);
-      if (actions.some((a) => a.startsWith('kms:'))) {
+      if (actions.some((a) => a.startsWith('kms:')) && (s.Resource as Json).Ref === 'CustodyKeyArn') {
+        // The custody seed (ADR 0017): its own key, unwrap only, only under the seed's context — the worker never
+        // seals a seed, and the field key cannot open one.
+        expect(actions).toEqual(['kms:Decrypt']);
+        expect((s.Condition as Json).StringEquals).toEqual({ 'kms:EncryptionContext:app': 'inrp2p', 'kms:EncryptionContext:purpose': 'custody-seed' });
+      } else if (actions.some((a) => a.startsWith('kms:'))) {
         expect(actions.sort()).toEqual(['kms:Decrypt', 'kms:Encrypt']);
         expect(s.Resource).toEqual({ Ref: 'FieldKeyArn' });
         expect((s.Condition as Json).StringEquals).toEqual({
@@ -64,11 +72,11 @@ describe('the AWS template (worker on Fargate, KMS, audit archive, Vercel OIDC r
         });
       }
     }
-    expect(grants.filter((g) => ([] as string[]).concat(g.s.Action as string[]).includes('kms:Decrypt')).map((g) => g.name)).toEqual(['WorkerTaskRole']);
+    expect([...new Set(grants.filter((g) => ([] as string[]).concat(g.s.Action as string[]).includes('kms:Decrypt')).map((g) => g.name))]).toEqual(['WorkerTaskRole']);
   });
 
   it('permits both startup archive checks on the audit bucket only', () => {
-    const policies = props('WorkerTaskRole').Policies as { PolicyName: string; PolicyDocument: unknown }[];
+    const policies = policiesOf(template.Resources.WorkerTaskRole!);
     const grants = statements(policies.find((p) => p.PolicyName === 'audit-seals')!.PolicyDocument);
     for (const action of ['s3:GetBucketVersioning', 's3:GetBucketObjectLockConfiguration']) {
       const matching = grants.filter((s) => ([] as string[]).concat(s.Action as string | string[]).includes(action));
@@ -135,12 +143,26 @@ describe('the AWS template (worker on Fargate, KMS, audit archive, Vercel OIDC r
     const secrets: Record<string, string> = {
       WORKER_DATABASE_URL: 'postgresql://inrp2p_worker_login:x@ep-example.us-east-1.aws.neon.tech/neondb?sslmode=require',
       RESEND_API_KEY: 're_from_the_secret_manager', // secret-scan:allow — a placeholder, not a key
-      INRP2P_FIELD_HMAC_BASE64: randomBytes(32).toString('base64'), INRP2P_TRON_PRIMARY_KEY: '',
+      INRP2P_FIELD_HMAC_BASE64: randomBytes(32).toString('base64'), INRP2P_TRON_PRIMARY_KEY: '', INRP2P_CUSTODY_SEED_SEALED: '',
     };
     expect(container!.Secrets.map((s) => s.Name).sort()).toEqual(Object.keys(secrets).sort());
     const report = productionConfigReport('worker', { ...env, ...secrets, AWS_CONTAINER_CREDENTIALS_RELATIVE_URI: '/v2/credentials/task' });
     expect(report.problems).toEqual([]);
     // A second TRON provider and receipt storage are the owner's to add: said out loud, not hidden.
     expect(report.warnings.join('\n')).toMatch(/one TRON provider only[\s\S]*receipts are not stored/);
+    // With the custody key and the sealed seed filled in, the signer's configuration is complete too.
+    const custody = productionConfigReport('worker', {
+      ...env, ...secrets, AWS_CONTAINER_CREDENTIALS_RELATIVE_URI: '/v2/credentials/task',
+      INRP2P_CUSTODY_KMS_KEY_ARN: 'arn:aws:kms:us-east-1:075774506744:key/00000000-0000-0000-0000-000000000000', INRP2P_CUSTODY_SEED_SEALED: 'v1.custody-v1.x',
+    });
+    expect(custody.problems).toEqual([]);
+    expect(env.INRP2P_CUSTODY_KEK_ID).toBe('custody-v1');
+  });
+
+  it('grants the custody key only once it exists, and starts with no seed', () => {
+    expect(template.Parameters.CustodyKeyArn!.Default).toBe('');
+    const custody = (props('WorkerTaskRole').Policies as Json[]).find((p) => 'Fn::If' in p);
+    expect((custody!['Fn::If'] as unknown[])[0]).toBe('HasCustodyKey');
+    expect(JSON.parse(String(props('WorkerSecret').SecretString)).INRP2P_CUSTODY_SEED_SEALED).toBe('');
   });
 });

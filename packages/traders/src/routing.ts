@@ -1,5 +1,6 @@
 import { assertNewBusinessOpen, newBusinessState } from '@inrp2p/trades';
 import { sql } from 'kysely';
+import { currentNetworkCosts, networkAvailable, reservePerSendSun, reserveSends } from '@inrp2p/network';
 import { DomainError, Money, Rate, computeTradeEconomics, requireUuid } from '@inrp2p/kernel';
 import { type DirectionValue, type FixedSideValue, type TraderSide, type TxContext, assertLockOrder } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
@@ -73,7 +74,7 @@ export function sizeOrder(input: { direction: DirectionValue; fixedSide: FixedSi
   return { baseMinor: econ.base.minor, inrMinor: econ.routeInr.minor };
 }
 
-export type Exclusion = StandingIssue | FitIssue | 'NO_SIDE' | 'ALREADY_OFFERED' | 'OWN_REQUEST';
+export type Exclusion = StandingIssue | FitIssue | 'NO_SIDE' | 'ALREADY_OFFERED' | 'OWN_REQUEST' | 'NETWORK_DEPOSIT_SHORT' | 'NETWORK_FEES_UNKNOWN';
 
 export interface AssignResult {
   readonly orderId: string;
@@ -145,6 +146,15 @@ export async function assignRequestInTx(
   const exclude = (why: Exclusion) => {
     excluded[why] = (excluded[why] ?? 0) + 1;
   };
+  // ADR 0017 §2: a trader's network deposit pays for the transfers of its orders, and a trade holds the worst case of
+  // them from acceptance. A trader that could not cover one more order is not offered one.
+  let networkNeed: bigint | null = null;
+  try {
+    const costs = await currentNetworkCosts(ctx.tx);
+    networkNeed = reservePerSendSun(costs.snapshot, costs.policy) * BigInt(reserveSends(request.direction, costs.policy));
+  } catch (e) {
+    if (!(e instanceof DomainError && e.code === 'NETWORK_FEES_UNKNOWN')) throw e;
+  }
   const candidates: (Candidate & { sized: SizedOrder })[] = [];
   for (const t of traders.rows) {
     if (t.client_id === request.client_id) {
@@ -159,6 +169,14 @@ export async function assignRequestInTx(
     const issues = standingIssues(standing);
     if (issues.length > 0) {
       exclude(issues[0]!);
+      continue;
+    }
+    if (networkNeed === null) {
+      exclude('NETWORK_FEES_UNKNOWN');
+      continue;
+    }
+    if ((await networkAvailable(ctx.tx, t.id)) < networkNeed) {
+      exclude('NETWORK_DEPOSIT_SHORT');
       continue;
     }
     const block = (await readBlocks(ctx.tx, t.id)).find((b) => b.side === side);

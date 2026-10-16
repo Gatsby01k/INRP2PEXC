@@ -19,3 +19,4 @@ export * from './availability.ts';
 export * from './approvals.ts';
 export * from './destination-change.ts';
 export * from './reserve-delivery.ts';
+export * from './signed.ts';

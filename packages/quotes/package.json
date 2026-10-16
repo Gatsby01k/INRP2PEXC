@@ -21,7 +21,8 @@
     "@inrp2p/trades": "workspace:*",
     "kysely": "0.29.6",
     "@inrp2p/trader-core": "workspace:*",
-    "@inrp2p/commands": "workspace:*"
+    "@inrp2p/commands": "workspace:*",
+    "@inrp2p/network": "workspace:*"
   },
   "devDependencies": {
     "@inrp2p/inr-accounts": "workspace:*"

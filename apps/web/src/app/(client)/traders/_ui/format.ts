@@ -17,3 +17,10 @@ export function sentence(message: string): string {
 }
 
 export const sideTitle = (side: 'BUY_USDT' | 'SELL_USDT') => (side === 'BUY_USDT' ? 'Buy USDT' : 'Sell USDT');
+
+/** TRX for reading, grouped, to the hundredth (truncated: a display, never a computation). */
+export function trx(amount: string): string {
+  const [whole = '0', frac = ''] = amount.replace(/^-/, '').split('.');
+  const cents = (frac + '00').slice(0, 2);
+  return `${amount.startsWith('-') ? '−' : ''}${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}${cents === '00' ? '' : `.${cents}`} TRX`;
+}

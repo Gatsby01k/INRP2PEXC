@@ -104,7 +104,7 @@ export interface TreasuryWalletView {
   readonly walletId: string;
   readonly label: string;
   readonly address: string;
-  readonly role: 'HOT' | 'COLD' | 'DEPOSIT_POOL' | 'TRADER_RESERVE';
+  readonly role: 'HOT' | 'COLD' | 'DEPOSIT_POOL' | 'TRADER_RESERVE' | 'NETWORK_BUDGET';
   readonly status: 'ACTIVE' | 'PAUSED' | 'RETIRED';
   readonly observed: string;
   readonly reserved: string;

@@ -20,7 +20,8 @@
     "@inrp2p/routes": "workspace:*",
     "@inrp2p/treasury": "workspace:*",
     "@inrp2p/trades": "workspace:*",
-    "kysely": "0.29.6"
+    "kysely": "0.29.6",
+    "@inrp2p/network": "workspace:*"
   },
   "devDependencies": {
     "@inrp2p/pricing": "workspace:*",

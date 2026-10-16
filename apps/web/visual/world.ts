@@ -19,6 +19,7 @@ import { createInrAccount, createSettlementEntity, setDayCapacity } from '@inrp2
 import { configureRoute, createRoute } from '@inrp2p/routes';
 import { publishRouteRate } from '@inrp2p/pricing';
 import { acceptQuote, createQuote, createQuoteLink, createRequest, sendQuote } from '@inrp2p/quotes';
+import { fundBudget, seedNetworkCosts } from '@inrp2p/network/testing';
 import { confirmPayout, confirmRouteSettlement, createPayoutLeg, importBankStatement, recordLegEvidence, recordRouteSettlement, sendPayoutLeg } from '@inrp2p/settlement';
 import { acknowledgedSignalHandler, clientNotificationHandler, traderNotificationHandler } from '@inrp2p/notifications';
 import { receiptHandler } from '@inrp2p/reporting';
@@ -256,6 +257,11 @@ export async function seedVisual(adminUrl: string): Promise<VisualState> {
   await run(world, publishRouteRate(owner.actor), owner.ref, 'rates.publish_route', { routeId: chennai.routeId, direction: 'SELL_USDT' as const, rate: '104.000000' });
   await run(world, publishRouteRate(owner.actor), owner.ref, 'rates.publish_route', { routeId: chennai.routeId, direction: 'BUY_USDT' as const, rate: '100.500000' });
 
+  // What a transfer costs on TRON (ADR 0017), at today's real prices — 100 sun of energy, a TRX at 0.30 USDT — and TRX
+  // in the platform budget, so every quote carries its network fee and every acceptance holds its TRX.
+  await seedNetworkCosts(world, { usdtPerTrxMicro: 300_000n });
+  await fundBudget(world, { traderId: null, amountSun: 1_000_000_000_000n, from: address('platform-trx') });
+
   // ── The exchange's own money ────────────────────────────────────────────────────────────────────────────
   const entity = await run(world, createSettlementEntity(owner.actor), owner.ref, 'settlement_entity.create', {
     legalName: 'INRP2P Settlement Private Limited', shortName: 'INRP2P',
@@ -405,6 +411,8 @@ export async function seedVisual(adminUrl: string): Promise<VisualState> {
   });
   const traderId = (await world.selectFrom('trader_profile').select('id').where('client_id', '=', konkan.clientId).executeTakeFirstOrThrow()).id;
   await run(world, approveTrader(owner.actor), owner.ref, 'trader.approve', { traderId, requiredReserve: '500' });
+  // Its network deposit (ADR 0017): TRX from its registered wallet, enough for its orders' transfers.
+  await fundBudget(world, { traderId, amountSun: 250_000_000n, from: konkanWalletAddress });
   // The one reserve address every trader sends to (D-17); the trader's registered wallet is what makes it its own.
   const reserve = (await sharedReserveAddress(world))!;
   chain.chain.add({ from: konkanWalletAddress, to: reserve.address, amountMinor: Money.parse('800', 'USDT').minor });

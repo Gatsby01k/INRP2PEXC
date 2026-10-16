@@ -451,9 +451,10 @@ export interface TreasuryWalletTable {
   network: 'TRON';
   address: string;
   label: string;
-  role: 'HOT' | 'COLD' | 'DEPOSIT_POOL' | 'TRADER_RESERVE';
+  role: 'HOT' | 'COLD' | 'DEPOSIT_POOL' | 'TRADER_RESERVE' | 'NETWORK_BUDGET';
   status: Generated<'ACTIVE' | 'PAUSED' | 'RETIRED'>;
-  custody: Generated<'EXTERNAL'>;
+  /** `HD_SIGNER`: the exchange's own signer holds its key (the network budget wallet, migration 0037). */
+  custody: Generated<'EXTERNAL' | 'HD_SIGNER'>;
   observed_balance_minor: Generated<bigint>;
   observed_at: Date | null;
   reserved_minor: Generated<bigint>;
@@ -712,9 +713,10 @@ export type ExceptionType =
   | 'ROUTE_DIRECT_PAYOUT_MISMATCH' | 'FUNDS_AFTER_TRADE_CLOSED' | 'UNALLOCATED_DEPOSIT' | 'DEPOSIT_POOL_LOW'
   | 'ROUTE_SETTLEMENT_MISMATCH' | 'ROUTE_OBLIGATION_OVERDUE' | 'DUPLICATE_TX_HASH' | 'DUPLICATE_UTR'
   | 'PARTIAL_INR_PAYOUT' | 'INR_PAYOUT_DELAYED' | 'BANK_TRANSFER_FAILED' | 'CLIENT_BANK_CHANGED'
-  | 'ROUTE_CAPACITY_CHANGED' | 'TRADE_CANCELLATION' | 'OPERATOR_MISTAKE' | 'RECONCILIATION_MISMATCH';
+  | 'ROUTE_CAPACITY_CHANGED' | 'TRADE_CANCELLATION' | 'OPERATOR_MISTAKE' | 'RECONCILIATION_MISMATCH'
+  | 'CHAIN_SEND_UNRESOLVED' | 'NETWORK_BUDGET_SHORT';
 
-export type ExceptionSubjectType = 'TRADE' | 'SETTLEMENT_LEG' | 'FIAT_TRANSFER' | 'CRYPTO_TRANSFER' | 'DEPOSIT_ADDRESS' | 'ROUTE_OBLIGATION' | 'ROUTE_SETTLEMENT' | 'INR_ACCOUNT' | 'CLIENT';
+export type ExceptionSubjectType = 'TRADE' | 'SETTLEMENT_LEG' | 'FIAT_TRANSFER' | 'CRYPTO_TRANSFER' | 'DEPOSIT_ADDRESS' | 'ROUTE_OBLIGATION' | 'ROUTE_SETTLEMENT' | 'INR_ACCOUNT' | 'CLIENT' | 'CHAIN_SEND';
 export type ExceptionStatus = 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'VOID';
 
 export interface ExceptionCaseTable {
@@ -878,6 +880,8 @@ export interface FundingAllocationTable {
   use_kind: FundingUseKind;
   use_leg_id: string | null;
   use_route_settlement_id: string | null;
+  /** A route payment the signer will make, earmarked when it is planned (migration 0037). */
+  use_chain_send_id: Generated<string | null>;
   asset: AssetCode;
   amount_minor: bigint;
   location: string;
@@ -936,7 +940,7 @@ export interface CryptoTransferTable {
   solidified_block: bigint | null;
   state: Generated<CryptoTransferState>;
   verified_by: string | null;
-  source: 'SCANNER' | 'OPERATOR_SUBMITTED' | 'CLIENT_SUBMITTED';
+  source: 'SCANNER' | 'OPERATOR_SUBMITTED' | 'CLIENT_SUBMITTED' | 'CUSTODY_SIGNER';
   detected_at: Generated<Date>;
   confirmed_at: Date | null;
   failed_at: Date | null;
@@ -966,6 +970,8 @@ export interface RouteSettlementTable {
   failure_reason: string | null;
   /** Set when this delivery is a trader's Security Reserve applied to it (migration 0029, TD-21). */
   reserve_application_id: Generated<string | null>;
+  /** Set when the exchange's signer made this payment (migration 0037). */
+  chain_send_id: Generated<string | null>;
 }
 
 export type TransferKind = 'FIAT' | 'CRYPTO';
@@ -1410,8 +1416,213 @@ export interface TraderRewardPayoutTable {
   failure_reason: string | null;
 }
 
+// ---- USDT TRC20 rails (migration 0037, ADR 0017) ----
+
+export interface CustodyHdAccountTable {
+  provider: string;
+  network: 'TRON';
+  account_xpub: string;
+  deposit_path_prefix: string;
+  fee_wallet_path: string;
+  fee_wallet_address: string;
+  recorded_by: string;
+  recorded_at: Generated<Date>;
+}
+
+export interface NetworkFeePolicyTable {
+  id: Generated<string>;
+  quote_energy: number;
+  reserve_energy: number;
+  bandwidth_buffer_sun: bigint;
+  topup_bytes: number;
+  topup_buffer_bps: number;
+  price_buffer_bps: number;
+  refund_sends_sell: number;
+  min_net_margin_inr_minor: bigint;
+  max_snapshot_age_seconds: number;
+  max_trx_rate_age_seconds: number;
+  auto_send_enabled: boolean;
+  reason: string;
+  set_by: string;
+  set_at: Generated<Date>;
+}
+
+export interface NetworkFeeSnapshotTable {
+  id: Generated<string>;
+  network: Generated<'TRON'>;
+  energy_price_sun: bigint;
+  bandwidth_price_sun: bigint;
+  create_account_fee_sun: bigint;
+  create_new_account_fee_sun: bigint;
+  free_net_limit: number;
+  providers: string;
+  observed_by: string;
+  observed_at: Generated<Date>;
+}
+
+export interface NetworkTrxRateTable {
+  id: Generated<string>;
+  usdt_per_trx_micro: bigint;
+  source: string;
+  published_by: string;
+  effective_at: Generated<Date>;
+}
+
+export interface QuoteNetworkFeeTable {
+  quote_id: string;
+  funder_trader_id: string | null;
+  snapshot_id: string;
+  trx_rate_id: string;
+  usdt_per_trx_micro: bigint;
+  energy_price_sun: bigint;
+  sends_priced: number;
+  fee_sun: bigint;
+  fee_inr_minor: bigint;
+  /** The trader order the quote prices and the reward it counted (IX113): the order starts with exactly these. */
+  trader_order_id: string | null;
+  reward_bps: number | null;
+  reward_inr_minor: bigint;
+  net_margin_inr_minor: bigint;
+  reserve_sends: number;
+  reserve_sun: bigint;
+  min_net_margin_inr_minor: bigint;
+  created_at: Generated<Date>;
+}
+
+export type NetworkBudgetEntryKind = 'DEPOSIT' | 'WITHDRAWAL' | 'SPENT' | 'ADJUSTMENT';
+
+export interface NetworkBudgetEntryTable {
+  id: Generated<string>;
+  /** The funder: a trader's network deposit, or the platform's budget (null). */
+  trader_id: string | null;
+  kind: NetworkBudgetEntryKind;
+  amount_sun: bigint;
+  trade_id: string | null;
+  chain_send_attempt_id: string | null;
+  withdrawal_id: string | null;
+  tx_hash: string | null;
+  from_address: string | null;
+  posting_key: string;
+  note: string | null;
+  created_by: string;
+  created_at: Generated<Date>;
+}
+
+export interface NetworkBudgetHoldTable {
+  id: Generated<string>;
+  trade_id: string;
+  trader_id: string | null;
+  amount_sun: bigint;
+  sends: number;
+  per_send_sun: bigint;
+  snapshot_id: string;
+  status: Generated<'ACTIVE' | 'CLOSED'>;
+  created_at: Generated<Date>;
+  closed_at: Date | null;
+  close_reason: string | null;
+  spent_sun: bigint | null;
+  reimbursed_sun: bigint | null;
+  reimbursed_inr_minor: bigint | null;
+}
+
+export type NetworkWithdrawalStatus = 'REQUESTED' | 'APPROVED' | 'COMPLETED' | 'REJECTED' | 'CANCELLED';
+
+export interface NetworkDepositWithdrawalTable {
+  id: Generated<string>;
+  ref: Generated<string>;
+  trader_id: string;
+  amount_sun: bigint;
+  fee_estimate_sun: bigint;
+  to_address: string;
+  status: Generated<NetworkWithdrawalStatus>;
+  requested_by: string;
+  requested_at: Generated<Date>;
+  decided_by: string | null;
+  decided_at: Date | null;
+  closed_at: Date | null;
+  close_reason: string | null;
+}
+
+export type ChainSendPurpose = 'CLIENT_PAYOUT' | 'REFUND' | 'ROUTE_PAYMENT' | 'TOPUP' | 'DEPOSIT_WITHDRAWAL';
+export type ChainSendStatus = 'AWAITING_APPROVAL' | 'PLANNED' | 'AWAITING_RESOURCES' | 'BLOCKED' | 'SENDING' | 'CONFIRMED' | 'CANCELLED';
+export type ChainSendBearer = 'CLIENT' | 'TRADER' | 'PLATFORM';
+
+export interface ChainSendTable {
+  id: Generated<string>;
+  ref: Generated<string>;
+  network: Generated<'TRON'>;
+  asset: 'USDT' | 'TRX';
+  purpose: ChainSendPurpose;
+  trade_id: string | null;
+  settlement_leg_id: string | null;
+  route_obligation_id: string | null;
+  parent_send_id: string | null;
+  withdrawal_id: string | null;
+  from_address: string;
+  from_path: string;
+  to_address: string;
+  amount_minor: bigint;
+  fee_estimate_sun: Generated<bigint>;
+  /** A USDT send's fixed TRX cap (IX114/IX115); null for a TRX send. */
+  network_cap_sun: bigint | null;
+  funder_trader_id: string | null;
+  bearer: ChainSendBearer;
+  status: ChainSendStatus;
+  needs_approval: boolean;
+  requested_by: string;
+  approved_by: string | null;
+  approved_at: Date | null;
+  blocked_reason: string | null;
+  last_error: string | null;
+  last_error_at: Date | null;
+  failed_attempts: Generated<number>;
+  crypto_transfer_id: string | null;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+  closed_at: Date | null;
+  close_reason: string | null;
+}
+
+export type ChainSendAttemptStatus = 'SIGNED' | 'BROADCAST' | 'CONFIRMED' | 'FAILED' | 'EXPIRED';
+
+export interface ChainSendAttemptTable {
+  id: Generated<string>;
+  send_id: string;
+  seq: number;
+  txid: string;
+  raw_data_hex: string;
+  signature_hex: string;
+  ref_block_num: bigint;
+  expiration: Date;
+  fee_limit_sun: bigint | null;
+  status: Generated<ChainSendAttemptStatus>;
+  broadcasts: Generated<number>;
+  last_broadcast_at: Date | null;
+  last_broadcast_result: string | null;
+  block_number: bigint | null;
+  block_time: Date | null;
+  fee_sun: bigint | null;
+  energy_used: bigint | null;
+  energy_fee_sun: bigint | null;
+  net_fee_sun: bigint | null;
+  result: string | null;
+  signed_at: Generated<Date>;
+  decided_at: Date | null;
+  decided_by: string | null;
+}
+
 export interface Database {
   currency: CurrencyTable;
+  custody_hd_account: CustodyHdAccountTable;
+  network_fee_policy: NetworkFeePolicyTable;
+  network_fee_snapshot: NetworkFeeSnapshotTable;
+  network_trx_rate: NetworkTrxRateTable;
+  quote_network_fee: QuoteNetworkFeeTable;
+  network_budget_entry: NetworkBudgetEntryTable;
+  network_budget_hold: NetworkBudgetHoldTable;
+  network_deposit_withdrawal: NetworkDepositWithdrawalTable;
+  chain_send: ChainSendTable;
+  chain_send_attempt: ChainSendAttemptTable;
   idempotency_key: IdempotencyKeyTable;
   audit_event: AuditEventTable;
   audit_seal: AuditSealTable;

@@ -23,6 +23,7 @@
     "@inrp2p/trades": "workspace:*",
     "@inrp2p/settlement": "workspace:*",
     "kysely": "0.29.6",
-    "@inrp2p/trader-core": "workspace:*"
+    "@inrp2p/trader-core": "workspace:*",
+    "@inrp2p/network": "workspace:*"
   }
 }

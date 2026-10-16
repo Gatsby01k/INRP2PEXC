@@ -252,6 +252,112 @@ happens to have USDT — that is another trade's money (D-16).
 
 ---
 
+## chain-send-stuck — the signer cannot finish a transfer
+
+**What you were told.** `chain_sends_stuck` above zero: a transfer of the exchange's own signer (ADR 0017) is
+`BLOCKED`, or has been waiting for TRX or on chain for over 30 minutes. The **Network** page lists it under **Sends**
+with its transactions; a case is open on the trade (`NETWORK_BUDGET_SHORT` or `CHAIN_SEND_UNRESOLVED`).
+
+**What actually happens, so you know what not to fix.** The signer signs a transfer once, stores the signed bytes and
+its txid, and only then broadcasts it. From then on only the chain decides: a final success settles the payout,
+refund or route payment by itself; a failure on chain, or proof that the transaction expired unseen by every
+provider, lets it sign once more. Anything in between — providers that disagree, a provider down, a transaction
+nobody can find before its expiry — keeps the send `SENDING`. Nobody can cancel a send with a live transaction: that
+is what makes a second payment impossible.
+
+**What to check first.**
+
+1. The send's row: its status, the reason (`blocked_reason`, `last_error`) and each attempt (txid, status,
+   broadcasts, expiration). Open the txid in a TRON explorer.
+2. `BLOCKED` with "short of TRX": the funder's free TRX on **Funders**, and the budget wallet's balance on chain
+   against the records (the line under the page). A trader's deposit runs out when it took more orders than it
+   prefunded; the platform budget when a desk route or a mistake used it.
+3. `SENDING` for a long time: **Chain providers** on System (an outage explains every send at once,
+   `provider-outage`), and whether the worker's `onchain_cycle` runs (heartbeat, `custodySigner: signing`).
+
+**What to do.**
+
+* Short of TRX at the budget wallet: the trader tops up its network deposit (its Traders screen shows the address),
+  or — for a desk route — the platform budget is topped up and recorded (**Record a TRX deposit**, platform). Then
+  **Send again** with a reason: the signer decides again (a top-up, then the transfer).
+* Past its TRX cap ("may draw … TRX in all"): the transfer would cost more than was fixed for it — gas rose, or
+  failed attempts burned its share. Sending again changes nothing. Decide whether the trade is still worth it: the
+  extra cost comes out of the platform's margin (a trader that fronts it is paid back). If it is, **Raise TRX cap**
+  (OWNER or FINANCE, authenticator, reason) to what the chain charges now; the trade's hold rises from the same
+  funder's free TRX if it must, and the send goes on. If not, cancel it and settle the trade another way.
+* A trade with a `NETWORK_BUDGET_SHORT` case and no blocked send: a transfer its quote never priced (a second partial
+  payout, a refund on top of a payment) does not fit in what the trade holds, so it was not planned. On the trade's
+  **Network** block, **Raise the hold** (OWNER or FINANCE, authenticator, reason) by about one transfer; autopay plans
+  it at its next cycle. The extra cost is the platform's.
+* Failed on chain three times (out of energy, reverted): read `result`; raising `reserve_energy` in the fee policy
+  covers a contract whose energy factor rose. Then **Unblock**.
+* Unresolved: wait for the providers. When the chain answers the send settles or is signed again by itself. If one
+  provider keeps answering differently from the others, take it out of the worker's configuration
+  (`provider-outage`) — never confirm by hand.
+* A send that must not happen at all (the payout was already made outside the platform, the destination is wrong):
+  **Cancel** — only possible while no transaction of it is alive.
+
+**What never to do.** Do not record manual evidence for a signer's leg (the database refuses it, IX111), send the
+same USDT by hand from a wallet that has the seed, edit `chain_send` or `chain_send_attempt`, raise a cap "to see if it
+goes through", or switch the signer off and on to "retry" — retrying is the signer's job and it never re-signs a live
+transaction.
+
+---
+
+## network-fees-stale — quotes cannot carry the network fee
+
+**What you were told.** `trx_price_age_seconds` high: the TRX price quotes value the network fee with is two to three
+days old; at 72 hours no quote is sent. The Network page says the same, and the quote builder refuses with
+`NETWORK_FEES_UNKNOWN`. The chain's own fees (energy and bandwidth prices) are read by the worker every 10 minutes
+(`network_fee_refresh`); if those are old too, the worker is not running or cannot reach a provider.
+
+**What to do.** On **Network → TRX price**, publish the current price in USDT per TRX with its source (an exchange's
+spot price). A change of more than ten times asks you to confirm it. If the chain's fees are stale, see
+`worker-stopped` and `provider-outage`.
+
+**What never to do.** Do not publish a guessed price to unblock a quote: the client pays the fee it carries and a
+trader is paid back at it.
+
+---
+
+## custody-seed — the HD wallet's 24 words: making them, keeping them, recovering from them
+
+The exchange's own deal addresses and the network budget wallet all come from one 24-word seed (ADR 0017). Whoever
+has the words can move every USDT and TRX at those addresses; whoever loses every copy loses them. The worker holds
+the seed only sealed under a KMS key of its own; the web app holds only the public account key.
+
+**Making it (once).** On a machine nobody else uses, offline if possible, with the owner's AWS session for the
+custody key:
+
+```
+INRP2P_ENV=production INRP2P_CUSTODY_KEK_PROVIDER=aws-kms INRP2P_CUSTODY_KEK_ID=custody-v1 \
+INRP2P_CUSTODY_KMS_KEY_ARN=arn:aws:kms:… node scripts/custody-seed.ts new
+```
+
+Write the 24 words on paper twice, in order; the script asks three of them back before it seals anything. Keep the
+two copies in two places, apart from every computer, phone, photo and cloud. The script prints the sealed value (the
+worker's `INRP2P_CUSTODY_SEED_SEALED`, in Secrets Manager only), the account key (`INRP2P_CUSTODY_XPUB` on the web
+app), the budget wallet and the pool record address (both registered once on the Network page), and deal address #0.
+
+**Checking it.** `node scripts/custody-seed.ts verify` with the worker's sealed value and key, and
+`INRP2P_CUSTODY_XPUB` set: it says whether the web app's key is this seed's. The worker refuses to start with a seed
+that is not the recorded wallet's.
+
+**Recovering.** If the sealed value or the custody KMS key is lost: `node scripts/custody-seed.ts recover --seal`,
+typing the words (never shown), with a new key's settings — then replace `INRP2P_CUSTODY_SEED_SEALED` and the key ARN.
+The addresses do not change. If the platform itself is gone, the words open the same addresses in any BIP-44 TRON
+wallet: deal addresses at `m/44'/195'/0'/0/i` (i is the trade's address index in `deposit_address.custody_reference`),
+the budget wallet at `m/44'/195'/1'/0/0`.
+
+**If the words may have been seen.** Treat every address as exposed: stop the signer (Network → Stop the signer),
+make a new seed, move what the old addresses hold under two people, and register the new wallet — a new HD account
+is a reviewed change, never an edit of the recorded one.
+
+**What never to do.** Do not type the words into a website, a chat, a password manager synced to a cloud, or the
+command line as an argument; do not give the web app the seed or a key that can decrypt it.
+
+---
+
 ## capacity-emergency — the desk cannot pay today
 
 **What you were told.** `inr_capacity_available` has fallen to the alarm threshold, or payouts are being
@@ -493,7 +599,11 @@ Then, from that moment to now: every exchange account's bank statement (import i
 they belong to), the chain for every exchange address (the scanner re-reads from its restored cursor; `chain-backfill`
 for a gap), the custody provider's outgoing history, and every route's settlement messages. The panel counts what to
 check: payout legs waiting to be sent, legs sent and not confirmed, reserve applications approved, reserve withdrawals
-requested, route obligations open.
+requested, route obligations open, and the exchange signer's open transfers with their undecided transactions. For the
+signer, look up on the chain every transfer from the budget wallet and every deal address since that moment: a
+transaction signed after the records were last whole is not in the restored database, and may have landed. While the
+fence is up the signer plans, signs and broadcasts nothing — TRX top-ups and withdrawals included; a transaction it
+signed before the change waits and is broadcast as the same bytes once the fence is lifted.
 
 **What to do.** Record every payment that left since that moment as what it is — the leg's UTR or transaction, the
 route's settlement, the withdrawal's transaction — through the usual commands; recording evidence is never held, and a

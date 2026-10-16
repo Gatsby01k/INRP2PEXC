@@ -194,6 +194,20 @@ export const RESOLUTIONS: Record<ExceptionType, ResolutionChoices> = {
     voidable: true,
     financial: 'If the desk’s record is the one that is wrong, correcting it is a financial adjustment and needs a second approver.',
   },
+  CHAIN_SEND_UNRESOLVED: {
+    resolutions: [
+      { value: 'escalate', label: 'Escalate' },
+    ],
+    voidable: true,
+    financial: 'The send stays blocked until the chain decides: confirmed, it settles itself; proved expired, it is signed again. Nothing here can send it twice.',
+  },
+  NETWORK_BUDGET_SHORT: {
+    resolutions: [
+      { value: 'escalate', label: 'Escalate' },
+    ],
+    voidable: true,
+    financial: 'The trader tops up its network deposit, or the platform budget is topped up; the send resumes by itself.',
+  },
 };
 
 /** The fallback exists so an unknown type is still closable; the test makes sure it is never the live path. */

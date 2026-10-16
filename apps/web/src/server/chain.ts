@@ -1,9 +1,11 @@
 import 'server-only';
-import { type ChainVerifier, QuorumChainVerifier, TronHttpProvider, UnconfiguredChainVerifier } from '@inrp2p/adapters';
+import { type ChainVerifier, QuorumChainVerifier, TronHttpProvider, TronSendNetwork, UnconfiguredChainVerifier } from '@inrp2p/adapters';
+import { DomainError } from '@inrp2p/kernel';
 import { isTronAddress } from '@inrp2p/kernel';
 import { optionalEnv } from './env.ts';
 
 let verifier: ChainVerifier | undefined;
+let providers: readonly TronHttpProvider[] = [];
 
 /**
  * The chain verifier the desk's commands use (FI-24, D-05). The web app needs one only where an operator
@@ -40,6 +42,17 @@ export function chainForWeb(): ChainVerifier {
           ...(secondaryKey ? { apiKey: secondaryKey } : {}),
         })
       : undefined;
-  verifier = new QuorumChainVerifier({ providers: secondary ? [primary, secondary] : [primary], tokenContract: contract });
+  providers = secondary ? [primary, secondary] : [primary];
+  verifier = new QuorumChainVerifier({ providers, tokenContract: contract });
   return verifier;
+}
+
+/**
+ * The same providers, read as the signer reads them — for what the desk and traders hand in by hash (a TRX deposit to
+ * the network budget, ADR 0017). Reading only: the web app never signs or broadcasts.
+ */
+export function sendNetworkForWeb(): TronSendNetwork {
+  chainForWeb();
+  if (providers.length === 0) throw new DomainError('CHAIN_MONITORING_UNCONFIGURED', 'no TRON provider is configured here, so no transaction can be read');
+  return new TronSendNetwork(providers);
 }
