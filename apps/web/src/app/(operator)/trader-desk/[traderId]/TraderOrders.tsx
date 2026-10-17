@@ -13,6 +13,7 @@ import { SelectField, TextField } from '../../_desk/fields.tsx';
 import { dateTime, inr, rate, titleCase, usdt } from '../../_desk/format.ts';
 import { Chip, Empty, Notice, Side } from '../../_desk/ui.tsx';
 import type { TraderPerms } from './TraderControls.tsx';
+import { SenderCheck, senderGate } from '../../_trade/SenderCheck.tsx';
 import d from '../../_desk/desk.module.css';
 import t from '../../_trade/trade.module.css';
 
@@ -53,9 +54,21 @@ function OrderSettlement({ order, detail, accounts, perms }: { order: DeskOrderR
               </span>
               <Chip tone={s.status === 'CONFIRMED' ? 'success' : s.status === 'FAILED' ? 'danger' : 'warning'}>{s.status.toLowerCase()}</Chip>
               {s.status === 'RECORDED' && perms.routeConfirm ? (
-                <Button intent="primary" size="sm" shortcut={step} disabled={cmd.busy} onClick={() => cmd.run(`Confirm ${s.ref}`, (key) => confirmOrderSettlementAction({ orderId: order.orderId, routeSettlementId: s.id }, key))}>
+                <Button
+                  intent="primary"
+                  size="sm"
+                  shortcut={step}
+                  disabled={cmd.busy || senderGate(s.inrSource) !== null}
+                  {...(senderGate(s.inrSource) ? { title: senderGate(s.inrSource)! } : {})}
+                  onClick={() => cmd.run(`Confirm ${s.ref}`, (key) => confirmOrderSettlementAction({ orderId: order.orderId, routeSettlementId: s.id }, key))}
+                >
                   Confirm
                 </Button>
+              ) : null}
+              {s.inrSource ? (
+                <div style={{ flexBasis: '100%' }}>
+                  <SenderCheck source={s.inrSource} open={s.status === 'RECORDED' && perms.routeRecord} />
+                </div>
               ) : null}
             </li>
           ))}

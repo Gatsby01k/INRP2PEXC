@@ -169,6 +169,8 @@ export function tradeAssistant(view: PortalTrade): AssistantState {
       body: `${paid} paid in full to ${view.destination}. ${view.receipt ? 'The settlement receipt is ready.' : 'The settlement receipt follows shortly.'}`,
     };
   }
+  const p2p = p2pAssistant(view);
+  if (p2p) return p2p;
   if (AWAITING_CLIENT.has(trade.status)) {
     if (sell && view.incoming && view.incoming.state === 'DETECTED') {
       return {
@@ -210,6 +212,34 @@ export function tradeAssistant(view: PortalTrade): AssistantState {
       ? 'Your USDT is final on-chain. The desk pays the INR in one or more transfers, each shown here with its reference.'
       : 'The desk has your INR, and sends the USDT to your wallet.',
   };
+}
+
+/**
+ * A P2P deal (ADR 0019): the robot says whose move it is — the seller's escrow, the buyer's payment, the seller's
+ * confirmation — and that the USDT is locked meanwhile. A seller's own deposit reads like any other.
+ */
+function p2pAssistant(view: PortalTrade): AssistantState | null {
+  const deal = view.p2p;
+  if (!deal) return null;
+  const sell = view.trade.direction === 'SELL_USDT';
+  const amount = inr(deal.inr);
+  const coins = usdt(view.trade.base.amount);
+  switch (deal.step) {
+    case 'ESCROW':
+      return sell ? null : { mood: 'waiting', label: 'Escrow', title: `Securing your ${coins}`, body: 'The seller is putting it in INRP2P’s escrow. You pay only once it is locked for you.' };
+    case 'PAY':
+      return sell
+        ? { mood: 'waiting', label: 'Buyer paying', title: `${amount} is on its way to you`, body: 'Your USDT is locked in escrow. You confirm the money once it is in your account.' }
+        : { mood: 'waiting', label: 'Your move', title: `Pay ${amount} to the seller`, body: `Your ${coins} is locked in escrow. Pay from your own account, then enter the reference.` };
+    case 'CONFIRM':
+      return sell
+        ? { mood: 'waiting', label: 'Your move', title: `Check your bank for ${amount}`, body: 'The buyer says they paid. Confirm once you see it — that releases the escrow.' }
+        : { mood: 'verifying', label: 'Seller checking', title: 'The seller is confirming your payment', body: `Your ${coins} is released the moment they confirm it.` };
+    case 'RELEASE':
+      return { mood: 'verifying', label: 'Releasing', title: sell ? 'Releasing the escrow' : `Your ${coins} is on its way`, body: sell ? 'You confirmed the INR. Nothing more to do.' : 'Payment confirmed. The USDT is going to your wallet.' };
+    default:
+      return null;
+  }
 }
 
 export function historyAssistant(rows: readonly HistoryRow[], counts: { readonly all: number; readonly open: number; readonly completed: number }): AssistantState {

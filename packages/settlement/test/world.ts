@@ -3,14 +3,14 @@ import { expect } from 'vitest';
 import { sql } from 'kysely';
 import { Money, encodeTronAddress } from '@inrp2p/kernel';
 import type { Db } from '@inrp2p/db';
-import { FakeChainVerifier, testFieldProtector } from '@inrp2p/adapters/testing';
+import { FakeChainVerifier } from '@inrp2p/adapters/testing';
 import { runAs, type TestOperator } from '@inrp2p/identity/testing';
 import { createTestOperator } from '@inrp2p/identity/testing';
 import { addWallet } from '@inrp2p/clients';
 import { createInrAccount, createSettlementEntity, setDayCapacity } from '@inrp2p/inr-accounts';
 import { configureRoute } from '@inrp2p/routes';
 import { acceptQuote, createQuote, createRequest, sendQuote } from '@inrp2p/quotes';
-import { confirmFirstLeg, confirmRouteSettlement, obligationRemaining, recordRouteSettlement, submitTxForVerification, type SettlementDeps } from '../src/index.ts';
+import { checkIncomingSender, confirmFirstLeg, confirmRouteSettlement, expectedAccounts, obligationRemaining, recordRouteSettlement, submitTxForVerification, type SettlementDeps } from '../src/index.ts';
 import { createScenario, type Scenario } from '../../quotes/test/scenario.ts';
 
 export type { Scenario };
@@ -40,7 +40,8 @@ export async function createWorld(label: string, opts: { capacityInr?: string; c
   const financeOp2 = await createTestOperator(s.t.owner, ['FINANCE']);
 
   const entity = await runAs(s.app, createSettlementEntity(s.finance.actor), s.finance.ref, 'settlement_entity.create', { legalName: 'INRP2P Settlement Private Limited', shortName: `INRP2P-${randomUUID().slice(0, 6)}` });
-  const account = await runAs(s.app, createInrAccount(s.finance.actor, testFieldProtector()), s.finance.ref, 'inr_account.create', {
+  // Sealed with the scenario's own protector, so a client's payment screen can open the number (ADR 0018).
+  const account = await runAs(s.app, createInrAccount(s.finance.actor, s.deps.protector), s.finance.ref, 'inr_account.create', {
     entityId: entity.entityId,
     label: 'Payout account',
     bankName: 'ICICI Bank',
@@ -131,6 +132,7 @@ export async function settleFirstLeg(w: World, tradeId: string, opts: { amountUs
     tradeId, rail: 'IMPS' as const, utr: `IN${randomUUID().replace(/-/g, '').slice(0, 12).toUpperCase()}`,
     amount: Money.ofMinor(econ.quote_inr_minor, 'INR').toDecimalString(), inrAccountId: w.inrAccountId,
   });
+  await seeOwnSender(db, w.settlementOp, { transferId: recorded.transferId });
   await runAs(db, confirmFirstLeg(w.settlementOp.actor, w.settlementDeps), w.settlementOp.ref, 'settlement.confirm_incoming', { legId: recorded.legId });
   return { legId: recorded.legId, transferId: recorded.transferId };
 }
@@ -209,6 +211,9 @@ export async function createStaleSettlementOperator(w: World): Promise<TestOpera
   return createTestOperator(w.t.owner, ['SETTLEMENT_OPERATOR'], 'stale');
 }
 
+/** How the bank shows the scenario client's own account as a sender (ADR 0018). */
+export const CLIENT_SENDER = 'ACME PAY PVT LTD';
+
 export const newUtr = (prefix = 'UTR') => `${prefix}${randomUUID().replace(/-/g, '').slice(0, 14).toUpperCase()}`;
 
 /** Ledger balance of an account code (DR − CR), optionally restricted to one route obligation. */
@@ -227,3 +232,30 @@ export async function journalsFor(db: Db, movementId: string): Promise<string[]>
   const r = await db.selectFrom('ledger_journal').select('posting_key').where('posting_key', 'like', `%${movementId}%`).execute();
   return r.map((x) => x.posting_key);
 }
+
+/**
+ * ADR 0018: the desk saw a payment's credit come from the payer's own registered account — what every confirmation of a
+ * client's, or a trader's, rupees needs now. It checks with the holder name of the account the payment was declared
+ * from, or the payer's first active account. A USDT leg, or rupees from a desk route, need nothing and get nothing.
+ */
+export async function seeOwnSender(db: Db, operator: TestOperator, ref: { readonly transferId?: string; readonly legId?: string; readonly routeSettlementId?: string }): Promise<void> {
+  let transferId = ref.transferId ?? null;
+  if (!transferId && ref.legId) {
+    const a = await db.selectFrom('transfer_allocation').select('fiat_transfer_id').where('settlement_leg_id', '=', ref.legId).where('voided_at', 'is', null).executeTakeFirst();
+    transferId = a?.fiat_transfer_id ?? null;
+  }
+  if (!transferId && ref.routeSettlementId) {
+    const r = await db.selectFrom('route_settlement').select('fiat_transfer_id').where('id', '=', ref.routeSettlementId).executeTakeFirst();
+    transferId = r?.fiat_transfer_id ?? null;
+  }
+  if (!transferId) return;
+  const f = await sql<{ payer_type: string; payer_id: string; payer_bank_account_id: string | null; status: string; needs: boolean; verdict: string }>`
+    select f.payer_type, f.payer_id, f.payer_bank_account_id, f.status, inrp2p_fiat_needs_sender_check(f) as needs, inrp2p_fiat_sender_verdict(f.id) as verdict
+    from fiat_transfer f where f.id = ${transferId}`.execute(db);
+  const row = f.rows[0];
+  if (!row?.needs || row.status !== 'RECORDED' || row.verdict === 'MATCH' || row.verdict === 'ACCEPTED') return;
+  const [account] = await expectedAccounts(db, { payerType: row.payer_type, payerId: row.payer_id, declared: row.payer_bank_account_id });
+  if (!account) throw new Error(`payment ${transferId}: the payer has no registered account to have paid from`);
+  await runAs(db, checkIncomingSender(operator.actor), operator.ref, 'fiat_in.check_sender', { transferId, senderName: account.holderName });
+}
+

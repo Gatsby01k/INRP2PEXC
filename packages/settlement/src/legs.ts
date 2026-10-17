@@ -153,7 +153,7 @@ export async function createPayoutLegInTx(ctx: TxContext, deps: Pick<SettlementD
     let sourceAddress: string | null = null;
     let reservationId: string | null = null;
     if (payer === 'ROUTE') {
-      if (econ.executionMode !== 'DIRECT_TO_CLIENT') throw new DomainError('ROUTE_PAYER_NOT_ALLOWED', 'this trade’s route settles to the exchange, not to the client');
+      if (econ.executionMode !== 'DIRECT_TO_CLIENT' && econ.executionMode !== 'P2P') throw new DomainError('ROUTE_PAYER_NOT_ALLOWED', 'this trade’s route settles to the exchange, not to the client');
       const route = await ctx.tx.selectFrom('liquidity_route').select(['id', 'status']).where('id', '=', econ.routeId).forShare().executeTakeFirstOrThrow();
       if (route.status !== 'ACTIVE') throw new DomainError('ROUTE_NOT_USABLE', `route is ${route.status}`);
       routeId = route.id;

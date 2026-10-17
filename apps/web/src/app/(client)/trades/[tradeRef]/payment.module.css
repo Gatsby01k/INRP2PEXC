@@ -1,0 +1,691 @@
+/* Paying a BUY trade's rupees (ADR 0018): one card, three steps, one rule said first. */
+
+.card {
+  gap: var(--space-5);
+}
+
+.card[data-attention] {
+  box-shadow:
+    0 0 0 1.5px var(--brand-primary),
+    0 24px 48px -32px color-mix(in srgb, var(--brand-primary) 45%, transparent);
+}
+
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.headText {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-2);
+}
+
+.badge {
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--brand-soft);
+  color: var(--brand-action);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.title {
+  margin: 0;
+  font-size: var(--font-size-heading);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.lead {
+  max-width: 60ch;
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-normal);
+}
+
+.timer {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 6px var(--space-3);
+  border-radius: var(--radius-pill);
+  background: var(--bg-subtle);
+  box-shadow: inset 0 0 0 1px var(--border-default);
+  color: var(--text-secondary);
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-semibold);
+  white-space: nowrap;
+}
+
+.timer[data-state='soon'] {
+  background: var(--status-warning-soft);
+  box-shadow: none;
+  color: var(--status-warning);
+}
+
+.timer[data-state='over'] {
+  background: var(--status-danger-soft);
+  box-shadow: none;
+  color: var(--status-danger);
+}
+
+.inlineIcon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+
+/* ——— The rule ——— */
+
+.rule {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-3);
+  align-items: start;
+  padding: var(--space-4);
+  border-radius: var(--radius-control);
+  background: linear-gradient(110deg, var(--brand-soft), var(--bg-surface) 85%);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand-primary) 22%, transparent);
+}
+
+.rule p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-normal);
+}
+
+.rule strong {
+  color: var(--text-primary);
+}
+
+.ruleIcon {
+  width: 22px;
+  height: 22px;
+  color: var(--brand-action);
+}
+
+.alert,
+.overdue {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-3);
+  align-items: start;
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-control);
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-normal);
+}
+
+.alert {
+  background: var(--status-danger-soft);
+  color: var(--text-primary);
+}
+
+.alertIcon {
+  width: 20px;
+  height: 20px;
+  color: var(--status-danger);
+}
+
+.overdue {
+  background: var(--status-warning-soft);
+  color: var(--text-primary);
+}
+
+/* ——— Steps ——— */
+
+.steps {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.step {
+  position: relative;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: var(--space-4);
+  padding-bottom: var(--space-6);
+}
+
+.step:last-child {
+  padding-bottom: 0;
+}
+
+/* The thread that joins the steps. */
+.step:not(:last-child)::before {
+  content: '';
+  position: absolute;
+  top: 32px;
+  bottom: 4px;
+  left: 13.5px;
+  width: 1px;
+  background: var(--border-default);
+}
+
+.stepNo {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--bg-surface);
+  box-shadow: inset 0 0 0 1.5px var(--brand-primary);
+  color: var(--brand-action);
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-semibold);
+}
+
+.stepBody {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.stepHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.stepTitle {
+  margin: 0;
+  padding-top: 3px;
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-semibold);
+}
+
+.muted {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-normal);
+}
+
+/* ——— Accounts ——— */
+
+.accounts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--space-2);
+}
+
+.account {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-3);
+  align-items: center;
+  min-height: var(--touch-min);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  box-shadow: inset 0 0 0 1px var(--border-control);
+  cursor: pointer;
+  transition: box-shadow var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+}
+
+.account:hover {
+  background: var(--bg-subtle);
+}
+
+.account[data-selected] {
+  background: var(--brand-soft);
+  box-shadow: inset 0 0 0 1.5px var(--brand-primary);
+}
+
+.account:has(.radio:focus-visible),
+.railChoice:has(.radio:focus-visible) {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 2px;
+}
+
+.radio {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.accountIcon {
+  width: 20px;
+  height: 20px;
+  color: var(--text-secondary);
+}
+
+.accountText {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.accountBank {
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-semibold);
+}
+
+.accountHolder {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ——— How you pay ——— */
+
+.tabs {
+  display: inline-flex;
+  padding: 3px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-subtle);
+  box-shadow: inset 0 0 0 1px var(--border-default);
+}
+
+.tab {
+  min-height: 32px;
+  padding: 0 var(--space-4);
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+}
+
+.tab[aria-selected='true'] {
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-low);
+  color: var(--text-primary);
+}
+
+.tab:disabled {
+  color: var(--text-disabled);
+  cursor: not-allowed;
+}
+
+.upi {
+  display: grid;
+  grid-template-columns: 168px minmax(0, 1fr);
+  gap: var(--space-5);
+  align-items: start;
+  padding: var(--space-4);
+  border-radius: var(--radius-control);
+  background: var(--bg-subtle);
+}
+
+.qr {
+  width: 168px;
+  height: 168px;
+  border-radius: var(--radius-control);
+  background: var(--ivory, #fff);
+}
+
+.upiText {
+  display: grid;
+  gap: var(--space-3);
+  align-content: start;
+}
+
+.upiLead {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-normal);
+}
+
+/* On a phone the app is right here: one tap instead of a scan. */
+.openApp {
+  display: none;
+  justify-self: start;
+}
+
+.bank {
+  display: grid;
+  gap: 0;
+  border-radius: var(--radius-control);
+  background: var(--bg-subtle);
+  overflow: hidden;
+}
+
+.detail {
+  display: grid;
+  grid-template-columns: 130px minmax(0, 1fr) auto;
+  gap: var(--space-3);
+  align-items: center;
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid color-mix(in srgb, var(--border-default) 55%, transparent);
+}
+
+.detail:first-child {
+  border-top: 0;
+}
+
+.upi .detail {
+  grid-template-columns: 70px minmax(0, 1fr) auto;
+  padding: 0;
+  border-top: 0;
+}
+
+.detailLabel {
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+}
+
+.detailValue {
+  overflow-wrap: anywhere;
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-semibold);
+}
+
+.hint {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-start;
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid color-mix(in srgb, var(--border-default) 55%, transparent);
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+  line-height: var(--line-height-normal);
+}
+
+/* ——— Tell us you paid ——— */
+
+.rails {
+  display: inline-flex;
+  gap: var(--space-2);
+}
+
+.railChoice {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-pill);
+  box-shadow: inset 0 0 0 1px var(--border-control);
+  color: var(--text-secondary);
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+}
+
+.railChoice[data-selected] {
+  background: var(--brand-soft);
+  box-shadow: inset 0 0 0 1.5px var(--brand-primary);
+  color: var(--text-primary);
+}
+
+.field {
+  display: grid;
+  gap: var(--space-2);
+  max-width: 420px;
+}
+
+.fieldLabel {
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-semibold);
+}
+
+.input {
+  min-height: var(--touch-min);
+  padding: 0 var(--space-4);
+  border: 0;
+  border-radius: var(--radius-input);
+  background: var(--bg-surface);
+  box-shadow: inset 0 0 0 1px var(--border-control);
+  color: var(--text-primary);
+  font-size: var(--font-size-body-lg);
+  letter-spacing: 0.06em;
+}
+
+.input:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--brand-primary);
+}
+
+.input[aria-invalid='true'] {
+  box-shadow: inset 0 0 0 1.5px var(--status-warning);
+}
+
+.fieldHelp {
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+  line-height: var(--line-height-normal);
+}
+
+.fieldHelp[data-tone='warning'] {
+  color: var(--status-warning);
+}
+
+.where {
+  max-width: 60ch;
+  color: var(--text-secondary);
+  font-size: var(--font-size-meta);
+  line-height: var(--line-height-normal);
+}
+
+.where summary {
+  width: max-content;
+  color: var(--brand-action);
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+}
+
+.where p {
+  margin: var(--space-2) 0 0;
+}
+
+.confirm {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-3);
+  align-items: start;
+  max-width: 60ch;
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-normal);
+  cursor: pointer;
+}
+
+.confirm input {
+  width: 18px;
+  height: 18px;
+  margin: 2px 0 0;
+  accent-color: var(--brand-primary);
+}
+
+.submitRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+/* ——— After ——— */
+
+.checking {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-3);
+  align-items: center;
+  padding: var(--space-4);
+  border-radius: var(--radius-control);
+  background: var(--bg-subtle);
+}
+
+.checking p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-normal);
+}
+
+.checking strong {
+  color: var(--text-primary);
+}
+
+.pulse {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--brand-primary);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--brand-primary) 55%, transparent);
+  animation: pulse 1.8s var(--ease) infinite;
+}
+
+@keyframes pulse {
+  70% {
+    box-shadow: 0 0 0 10px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+.payments {
+  display: grid;
+  margin: 0 calc(var(--space-6) * -1) calc(var(--space-6) * -1);
+  padding: 0;
+  list-style: none;
+}
+
+.payment {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: var(--space-4);
+  align-items: center;
+  padding: var(--space-3) var(--space-6);
+  border-top: 1px solid color-mix(in srgb, var(--border-default) 55%, transparent);
+}
+
+.paymentMark {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--bg-subtle);
+  color: var(--text-secondary);
+  font-weight: var(--font-weight-semibold);
+}
+
+.paymentMark svg {
+  width: 16px;
+  height: 16px;
+}
+
+.payment[data-state='confirmed'] .paymentMark {
+  background: var(--status-success-soft);
+  color: var(--status-success);
+}
+
+.payment[data-state='returning'] .paymentMark,
+.payment[data-state='not_received'] .paymentMark {
+  background: var(--status-danger-soft);
+  color: var(--status-danger);
+}
+
+.paymentMain {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.paymentAmount {
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.paymentMeta {
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+}
+
+.paymentState {
+  display: grid;
+  justify-items: end;
+  gap: 2px;
+  color: var(--text-secondary);
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-semibold);
+  text-align: right;
+}
+
+.paymentState time {
+  color: var(--text-muted);
+  font-weight: var(--font-weight-regular);
+}
+
+@media (max-width: 720px), (pointer: coarse) {
+  .openApp {
+    display: inline-flex;
+  }
+}
+
+@media (max-width: 640px) {
+  .upi {
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: center;
+  }
+
+  .upiText {
+    justify-items: stretch;
+    width: 100%;
+  }
+
+  .detail {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .detailLabel {
+    grid-column: 1 / -1;
+  }
+
+  .payments {
+    margin-inline: calc(var(--space-4) * -1);
+  }
+
+  .payment {
+    padding-inline: var(--space-4);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pulse {
+    animation: none;
+  }
+}
+
+/* A step that is not the client's: the badge says where things are, quietly. */
+.badge[data-tone='quiet'] {
+  background: var(--bg-subtle);
+  color: var(--text-secondary);
+}
+
+/* The one rule before a decision that releases money: amber, not brand. */
+.rule[data-tone='warning'] {
+  background: linear-gradient(110deg, var(--status-warning-soft), var(--bg-surface) 85%);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--status-warning) 30%, transparent);
+}
+
+.rule[data-tone='warning'] .ruleIcon {
+  color: var(--status-warning);
+}

@@ -118,6 +118,14 @@ export function draftFor(kind: NotificationKind, facts: NotificationFacts): Noti
         subjectRef: facts.tradeRef ?? null,
         href: facts.tradeRef ? `/trades/${facts.tradeRef}` : null,
       };
+    case 'PAYMENT_RETURNED':
+      return {
+        kind,
+        title: 'Payment from another account',
+        body: short(`A payment for ${facts.tradeRef ?? 'your trade'} came from an account that is not yours. It is going back to where it came from and does not count — pay again from your own registered account.`, 400),
+        subjectRef: facts.tradeRef ?? null,
+        href: facts.tradeRef ? `/trades/${facts.tradeRef}` : null,
+      };
     case 'DESTINATION_ADDED':
       return {
         kind,

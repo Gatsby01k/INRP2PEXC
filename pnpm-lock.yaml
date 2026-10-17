@@ -810,9 +810,18 @@ importers:
 
   packages/portal:
     dependencies:
+      '@inrp2p/adapters':
+        specifier: workspace:*
+        version: link:../adapters
       '@inrp2p/db':
         specifier: workspace:*
         version: link:../db
+      '@inrp2p/identity':
+        specifier: workspace:*
+        version: link:../identity
+      '@inrp2p/inr-accounts':
+        specifier: workspace:*
+        version: link:../inr-accounts
       '@inrp2p/kernel':
         specifier: workspace:*
         version: link:../kernel
@@ -828,22 +837,19 @@ importers:
       '@inrp2p/trades':
         specifier: workspace:*
         version: link:../trades
+      '@inrp2p/treasury':
+        specifier: workspace:*
+        version: link:../treasury
       kysely:
         specifier: 0.29.6
         version: 0.29.6
     devDependencies:
-      '@inrp2p/adapters':
-        specifier: workspace:*
-        version: link:../adapters
       '@inrp2p/clients':
         specifier: workspace:*
         version: link:../clients
       '@inrp2p/commands':
         specifier: workspace:*
         version: link:../commands
-      '@inrp2p/identity':
-        specifier: workspace:*
-        version: link:../identity
 
   packages/pricing:
     dependencies:

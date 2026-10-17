@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import type { FiatRail, TraderSide } from '@inrp2p/db';
 import {
-  type ApplyPayload, type ProposeSettlementPayload, acceptOrder, applyAsTrader, cancelReserveWithdrawal, declineOrder, orderDeliveryAddress, proposeSettlementChange,
+  type ApplyPayload, type ProposeSettlementPayload, acceptOrder, applyAsTrader, cancelReserveWithdrawal, confirmOrderPaymentReceived, declineOrder, orderDeliveryAddress, proposeSettlementChange,
   type ClaimedDeposit, claimReserveDeposit, requestReserveWithdrawal, setAvailability, submitOrderPayment, updateBlock,
 } from '@inrp2p/traders';
 import { cancelNetworkWithdrawal, claimNetworkDeposit, requestNetworkWithdrawal } from '@inrp2p/network';
@@ -66,6 +66,18 @@ export async function declineOrderAction(input: { ref: string; reason?: string |
 
 export async function submitOrderPaymentAction(input: { ref: string; rail: FiatRail; utr: string; amount?: string }, key: string): Promise<CommandResult<{ settlementRef: string }>> {
   return run('trader_order.submit_payment', (ctx) => submitOrderPayment(ctx.actor, { chain: chainForWeb() }), input, key);
+}
+
+/**
+ * ADR 0019, a P2P sell: the buyer's rupees reached the trader's own account, and its bank shows who sent them. The
+ * verdict comes back as it is — a name that is not the buyer's is not counted, and the screen says so.
+ */
+export async function confirmOrderPaymentReceivedAction(
+  input: { ref: string; senderName: string; senderAccount?: string | null },
+  key: string,
+): Promise<CommandResult<{ verdict: string; confirmed: boolean }>> {
+  const out = await run('trader_order.confirm_received', (ctx) => confirmOrderPaymentReceived(ctx.actor, { chain: chainForWeb() }), input, key);
+  return out.ok ? { ok: true, result: { verdict: out.result.verdict, confirmed: out.result.confirmed } } : out;
 }
 
 export async function orderDeliveryAddressAction(input: { ref: string }, key: string): Promise<CommandResult<{ address: string; amount: string }>> {

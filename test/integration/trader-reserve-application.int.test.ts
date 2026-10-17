@@ -16,7 +16,7 @@ import {
   requestReserveApplication, requestReserveWithdrawal, reserveFigures, sharedReserveAddress, traderHome,
 } from '@inrp2p/traders';
 import type { TestOperator } from '@inrp2p/identity/testing';
-import { balanceOf, clientDepositAddressOf, journalsFor, observe, settleFirstLeg } from '../../packages/settlement/test/world.ts';
+import { balanceOf, clientDepositAddressOf, journalsFor, observe, settleFirstLeg, seeOwnSender } from '../../packages/settlement/test/world.ts';
 import {
   type TraderSetup, type TradersWorld, clientRequest, configureProgram, confirmOnChain, createTradersWorld, liveTrader, traderClient, tradeThroughTrader, utr,
 } from './traders-world.ts';
@@ -139,6 +139,7 @@ describe('applying a trader’s Security Reserve to USDT it did not deliver (D3)
     const toTrader = await runAs(w.app, recordRouteSettlement(w.finance.actor, w.settlementDeps), w.finance.ref, 'route_settlement.record', {
       routeObligationId: trade.routeObligationId, flow: 'TO_ROUTE' as const, amount: '52600.00', rail: 'IMPS' as const, utr: utr('OUT'), inrAccountId: w.inrAccountId,
     });
+    await seeOwnSender(w.app, w.finance, { routeSettlementId: toTrader.routeSettlementId });
     await runAs(w.app, confirmRouteSettlement(w.finance.actor, w.settlementDeps), w.finance.ref, 'route_settlement.confirm', { routeSettlementId: toTrader.routeSettlementId });
     expect(await reconcileOrderNow(w.app, trade.orderId)).toBe('COMPLETED');
     expect(await routeObligationBalances(w.app, trade.routeObligationId)).toEqual([]);

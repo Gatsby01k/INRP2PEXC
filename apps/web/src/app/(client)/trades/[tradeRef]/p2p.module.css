@@ -1,0 +1,207 @@
+/* A P2P deal (ADR 0019): the escrow strip — where the USDT is — and the buyer's claim as the seller checks it. */
+
+.card {
+  position: relative;
+}
+
+/* Seller → escrow → buyer, one line the USDT travels along, the lock in the middle. */
+.strip {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0;
+  padding: var(--space-4);
+  border-radius: var(--radius-control);
+  background: var(--bg-subtle);
+  list-style: none;
+  --line: var(--border-default);
+  --vault: var(--text-muted);
+}
+
+.strip[data-state='locked'] {
+  --line: color-mix(in srgb, var(--brand-primary) 45%, transparent);
+  --vault: var(--brand-action);
+}
+
+.strip[data-state='released'] {
+  --line: color-mix(in srgb, var(--status-success) 55%, transparent);
+  --vault: var(--status-success);
+}
+
+.strip[data-state='returning'] {
+  --vault: var(--status-warning);
+}
+
+.party {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  min-width: 56px;
+}
+
+.partyIcon {
+  width: 22px;
+  height: 22px;
+  color: var(--text-secondary);
+}
+
+.partyLabel {
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-semibold);
+}
+
+.vault {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+/* The line runs behind the vault from one party to the other. */
+.vault::before {
+  content: '';
+  position: absolute;
+  inset: 50% 0 auto;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--line);
+  transform: translateY(-50%);
+}
+
+.strip[data-state='waiting'] .vault::before {
+  background: repeating-linear-gradient(90deg, var(--line) 0 6px, transparent 6px 12px);
+}
+
+.vaultIcon,
+.vaultText {
+  position: relative;
+  z-index: 1;
+}
+
+.vaultIcon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--bg-surface);
+  box-shadow:
+    0 0 0 1.5px var(--vault),
+    var(--shadow-low);
+  color: var(--vault);
+}
+
+.vaultIcon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.strip[data-state='locked'] .vaultIcon {
+  animation: hold 2.4s var(--ease) infinite;
+}
+
+@keyframes hold {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1.5px var(--vault),
+      0 0 0 0 color-mix(in srgb, var(--brand-primary) 30%, transparent);
+  }
+  60% {
+    box-shadow:
+      0 0 0 1.5px var(--vault),
+      0 0 0 8px transparent;
+  }
+}
+
+.vaultText {
+  display: grid;
+  gap: 2px;
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--bg-subtle);
+}
+
+.vaultAmount {
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.vaultState {
+  color: var(--vault);
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-semibold);
+}
+
+/* What the buyer filed, as the seller checks it against its bank app. */
+.claim {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px var(--space-3);
+  align-items: center;
+  padding: var(--space-4);
+  border-radius: var(--radius-control);
+  box-shadow: inset 0 0 0 1px var(--border-default);
+}
+
+.claimLabel {
+  grid-column: 1;
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-semibold);
+}
+
+.claimAmount {
+  grid-column: 1;
+  font-size: var(--font-size-heading);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.claimMeta {
+  grid-column: 1;
+  color: var(--text-secondary);
+  font-size: var(--font-size-meta);
+}
+
+.claim > :last-child:not(.claimMeta) {
+  grid-column: 2;
+  grid-row: 1 / span 3;
+}
+
+@media (max-width: 560px) {
+  .strip {
+    gap: var(--space-2);
+    padding: var(--space-3);
+  }
+
+  .party {
+    min-width: 44px;
+  }
+
+  .vault {
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .vault::before {
+    inset: 20px 0 auto;
+  }
+
+  .vaultText {
+    justify-items: center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .strip[data-state='locked'] .vaultIcon {
+    animation: none;
+  }
+}

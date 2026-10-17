@@ -11,3 +11,4 @@ export * from './economics.ts';
 export * from './tron.ts';
 export * from './validation.ts';
 export * from './trx.ts';
+export * from './inr-payments.ts';

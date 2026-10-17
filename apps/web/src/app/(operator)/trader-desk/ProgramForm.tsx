@@ -21,6 +21,7 @@ export function ProgramForm({ program, accounts, canConfigure }: { program: Desk
   const [hold, setHold] = useState(String(program.holdTtlSeconds));
   const [auto, setAuto] = useState(program.autoAssign);
   const [collection, setCollection] = useState(program.collectionAccountId ?? '');
+  const [mode, setMode] = useState<'TO_EXCHANGE' | 'P2P'>(program.executionMode);
   const [reason, setReason] = useState('');
 
   const save = () =>
@@ -34,6 +35,7 @@ export function ProgramForm({ program, accounts, canConfigure }: { program: Desk
           holdTtlSeconds: Number.parseInt(hold, 10),
           autoAssign: auto,
           collectionAccountId: collection === '' ? null : collection,
+          executionMode: mode,
           reason,
         },
         key,
@@ -54,6 +56,17 @@ export function ProgramForm({ program, accounts, canConfigure }: { program: Desk
         <TextField label="Reward (bps of the order’s INR)" value={reward} onChange={setReward} placeholder="No reward" disabled={!canConfigure} hint="Fixed when an order starts; paid when it completes." />
         <TextField label="Offer time (s)" value={offer} onChange={setOffer} disabled={!canConfigure} hint="How long a trader has to take an offer." />
         <TextField label="Hold time (s)" value={hold} onChange={setHold} disabled={!canConfigure} hint="How long an accepted order holds the request." />
+        <SelectField
+          label="How traders settle"
+          value={mode}
+          onChange={(v) => setMode(v === 'P2P' ? 'P2P' : 'TO_EXCHANGE')}
+          disabled={!canConfigure}
+          hint={mode === 'P2P' ? 'Rupees go straight between client and trader; INRP2P holds the USDT in escrow. No reward; the platform pays the TRX.' : 'Rupees go through INRP2P’s own bank account.'}
+          options={[
+            { value: 'P2P', label: 'P2P — INRP2P holds the USDT' },
+            { value: 'TO_EXCHANGE', label: 'Through INRP2P’s account' },
+          ]}
+        />
         <SelectField
           label="Traders pay INR into"
           value={collection}

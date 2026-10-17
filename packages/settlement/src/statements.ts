@@ -2,6 +2,8 @@ import { sql } from 'kysely';
 import { DomainError, Money, requireOneOf, requireText, requireUuid } from '@inrp2p/kernel';
 import type { Executor, StatementLineOutcome } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
+import { readNarration } from './narration.ts';
+import { recordSenderCheckInTx } from './sender.ts';
 import { type OperatorActor, actorLabel, operatorCommand } from '@inrp2p/identity';
 import { openExceptionInTx } from './exceptions.ts';
 
@@ -30,6 +32,9 @@ export interface StatementLineInput {
   readonly amount: string;
   readonly reference: string;
   readonly description?: string | null;
+  /** ADR 0018: the remitter, when the export has its own columns for it; otherwise read from the description. */
+  readonly senderName?: string | null;
+  readonly senderAccount?: string | null;
 }
 
 export interface ImportStatementPayload {
@@ -53,6 +58,9 @@ export interface StatementImportResult {
   readonly unrecorded: number;
   /** Confirmed payments in the period that the statement does not show. Each one opened a blocking case. */
   readonly missing: number;
+  /** ADR 0018: payments from clients or traders whose sender the statement showed and was judged; of them, strangers. */
+  readonly sendersChecked: number;
+  readonly strangers: number;
   readonly casesOpened: number;
 }
 
@@ -174,15 +182,30 @@ export function importBankStatement(actor: OperatorActor) {
       .executeTakeFirstOrThrow();
 
     let casesOpened = 0;
+    let sendersChecked = 0;
+    let strangers = 0;
     for (const { line, outcome, transferId, review } of resolved) {
-      await ctx.tx
+      const inserted = await ctx.tx
         .insertInto('bank_statement_line')
         .values({
           import_id: importRow.id, seq: line.seq, value_date: line.valueDate, direction: line.direction,
           amount_minor: line.amount.minor, reference: line.reference, description: line.description,
-          outcome, fiat_transfer_id: transferId,
+          outcome, fiat_transfer_id: transferId, sender_name: line.sender.name, sender_account: line.sender.account,
         })
-        .execute();
+        .returning('id')
+        .executeTakeFirstOrThrow();
+      // ADR 0018: the statement says who sent a credit the desk recorded — the strongest evidence there is. A client's
+      // or a trader's rupees are judged against the account they were declared from; a stranger's open a case even
+      // when the payment was confirmed already.
+      if (outcome === 'MATCHED' && transferId && line.direction === 'CREDIT' && (line.sender.name || line.sender.account)) {
+        const needs = await sql<{ needs: boolean }>`select inrp2p_fiat_needs_sender_check(f) as needs from fiat_transfer f where f.id = ${transferId}`.execute(ctx.tx);
+        if (needs.rows[0]?.needs) {
+          const checked = await recordSenderCheckInTx(ctx, { transferId, via: 'STATEMENT', seen: line.sender, statementLineId: inserted.id, narration: line.description, locked: true });
+          sendersChecked += 1;
+          if (checked.verdict === 'MISMATCH') strangers += 1;
+          if (checked.exceptionId) casesOpened += 1;
+        }
+      }
       for (const t of review?.transfers ?? []) {
         const opened = await openExceptionInTx(ctx, {
           type: 'RECONCILIATION_MISMATCH', subjectType: 'FIAT_TRANSFER', subjectId: t.id,
@@ -208,12 +231,13 @@ export function importBankStatement(actor: OperatorActor) {
       after: {
         inr_account_id: accountId, account: account.label, period_from: from, period_to: to, filename, sha256: digest,
         lines: lines.length, matched: counts.MATCHED, mismatched: counts.MISMATCHED + counts.AMBIGUOUS, ambiguous: counts.AMBIGUOUS, unrecorded: counts.UNRECORDED, missing, cases_opened: casesOpened,
+        senders_checked: sendersChecked, strangers,
       },
     });
 
     return {
       importId: importRow.id, lines: lines.length, matched: counts.MATCHED, mismatched: counts.MISMATCHED + counts.AMBIGUOUS,
-      ambiguous: counts.AMBIGUOUS, unrecorded: counts.UNRECORDED, missing, casesOpened,
+      ambiguous: counts.AMBIGUOUS, unrecorded: counts.UNRECORDED, missing, casesOpened, sendersChecked, strangers,
     };
   });
 }
@@ -237,6 +261,7 @@ function requireDay(value: unknown, field: string): string {
 
 function readLine(line: StatementLineInput, index: number): {
   seq: number; valueDate: string; direction: 'CREDIT' | 'DEBIT'; amount: Money<'INR'>; reference: string; description: string | null;
+  sender: { name: string | null; account: string | null };
 } {
   const seq = index + 1;
   const amount = Money.parse(line.amount, 'INR');
@@ -248,10 +273,21 @@ function readLine(line: StatementLineInput, index: number): {
     amount,
     reference: requireText(line.reference, `lines[${index}].reference`, 40).trim().toUpperCase(),
     description: line.description ? requireText(line.description, `lines[${index}].description`, 300) : null,
+    sender: senderOf(line),
   };
 }
 
-const CSV_COLUMNS = ['value_date', 'direction', 'amount', 'reference', 'description'] as const;
+/** The remitter: the export's own columns when it has them, else what the narration says. */
+function senderOf(line: StatementLineInput): { name: string | null; account: string | null } {
+  const narrated = readNarration(line.description ?? null);
+  const name = line.senderName?.trim() ? line.senderName.trim().toUpperCase().slice(0, 140) : narrated.name;
+  const account = line.senderAccount?.trim() ? line.senderAccount.trim().slice(0, 80) : (narrated.vpa ?? narrated.accountDigits);
+  return { name, account };
+}
+
+const CSV_COLUMNS = ['value_date', 'direction', 'amount', 'reference', 'description', 'sender_name', 'sender_account'] as const;
+/** Columns a statement may leave out: the narration is optional, and the sender is read from it when it has no columns. */
+const OPTIONAL_COLUMNS: ReadonlySet<string> = new Set(['description', 'sender_name', 'sender_account']);
 
 /**
  * Read an exported bank statement (RFC 4180) into lines the import can take.
@@ -268,19 +304,21 @@ export function parseStatementCsv(text: string): readonly StatementLineInput[] {
   const rows = readCsv(text).filter((r) => r.some((c) => c.trim() !== ''));
   if (rows.length === 0) throw new DomainError('INVALID_ARGUMENT', 'the statement file is empty');
   const header = (rows[0] ?? []).map((c) => c.trim().toLowerCase().replace(/\s+/g, '_'));
-  const missing = CSV_COLUMNS.filter((c) => c !== 'description' && !header.includes(c));
+  const missing = CSV_COLUMNS.filter((c) => !OPTIONAL_COLUMNS.has(c) && !header.includes(c));
   if (missing.length > 0) {
-    throw new DomainError('INVALID_ARGUMENT', `the statement file must have a header row with ${CSV_COLUMNS.join(', ')}; missing: ${missing.join(', ')}`);
+    throw new DomainError('INVALID_ARGUMENT', `the statement file must have a header row with ${CSV_COLUMNS.filter((c) => !OPTIONAL_COLUMNS.has(c)).join(', ')} (and optionally description, sender_name, sender_account); missing: ${missing.join(', ')}`);
   }
   const at = (row: readonly string[], column: (typeof CSV_COLUMNS)[number]): string => (row[header.indexOf(column)] ?? '').trim();
   return rows.slice(1).map((row) => {
-    const description = header.includes('description') ? at(row, 'description') : '';
+    const optional = (c: (typeof CSV_COLUMNS)[number]): string | null => (header.includes(c) && at(row, c) !== '' ? at(row, c) : null);
     return {
       valueDate: at(row, 'value_date'),
       direction: at(row, 'direction').toUpperCase() as 'CREDIT' | 'DEBIT',
       amount: at(row, 'amount').replace(/[,\s₹]/g, ''),
       reference: at(row, 'reference'),
-      description: description === '' ? null : description,
+      description: optional('description'),
+      ...(optional('sender_name') ? { senderName: optional('sender_name') } : {}),
+      ...(optional('sender_account') ? { senderAccount: optional('sender_account') } : {}),
     };
   });
 }

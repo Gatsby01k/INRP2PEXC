@@ -22,8 +22,9 @@ export const Accounts = {
   routeReceivable: (routeId: string, currency: CurrencyCode) => sub('ASSET', 'ROUTE_RECEIVABLE', routeId, currency),
   routePayable: (routeId: string, currency: CurrencyCode) => sub('LIAB', 'ROUTE_PAYABLE', routeId, currency),
   routePrefund: (routeId: string, currency: CurrencyCode) => sub('ASSET', 'ROUTE_PREFUND', routeId, currency),
-  deferredMargin: () => sub('LIAB', 'DEFERRED_MARGIN', null, 'INR'),
-  grossMargin: () => sub('REVENUE', 'GROSS_MARGIN', null, 'INR'),
+  /** Margin in INR through the exchange; in USDT on a P2P trade (ADR 0019), where no rupee passes through it. */
+  deferredMargin: (currency: CurrencyCode = 'INR') => sub('LIAB', 'DEFERRED_MARGIN', null, currency),
+  grossMargin: (currency: CurrencyCode = 'INR') => sub('REVENUE', 'GROSS_MARGIN', null, currency),
   fees: (currency: CurrencyCode) => sub('EXPENSE', 'FEES', null, currency),
   suspenseUnallocated: (currency: CurrencyCode) => sub('SUSPENSE', 'UNALLOCATED', null, currency),
   /** USDT a trader has deposited as its Security Reserve: owed back to the trader, never trading capacity. */

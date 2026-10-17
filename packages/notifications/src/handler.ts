@@ -21,6 +21,7 @@ const HANDLED = new Set([
   'client.destination_added',
   'client.destination_archived',
   'client.trade_destination_changed',
+  'client.payment_third_party',
 ]);
 
 type Payload = Record<string, unknown>;
@@ -104,6 +105,8 @@ function kindFor(event: OutboxEvent, f: NotificationFacts): Parameters<typeof dr
       return 'DESTINATION_ARCHIVED';
     case 'client.trade_destination_changed':
       return 'TRADE_DESTINATION_CHANGED';
+    case 'client.payment_third_party':
+      return 'PAYMENT_RETURNED';
     default:
       return null;
   }

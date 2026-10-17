@@ -8,7 +8,7 @@ import {
   confirmFirstLeg, confirmPayout, confirmRefundLeg, createPayoutLeg, createRefundLeg, openException, recordIncomingFiat, recordLegEvidence,
   refundAndCancel, refundExcess, sendPayoutLeg,
 } from '../src/index.ts';
-import { balanceOf, clientDepositAddressOf, createWorld, deliverCounterparty, newUtr, observe, openTrade, settleFirstLeg, type World } from './world.ts';
+import { balanceOf, clientDepositAddressOf, createWorld, deliverCounterparty, newUtr, observe, openTrade, seeOwnSender, settleFirstLeg, type World } from './world.ts';
 
 /**
  * D2 (TD-19): an overpayment is returned — at most what arrived beyond the receivable, to a verified destination of
@@ -117,6 +117,7 @@ describe('an overpayment is returned and the trade goes on (D2)', () => {
     const recorded = await runAs(w.app, recordIncomingFiat(w.settlementOp.actor), w.settlementOp.ref, 'fiat_in.record', {
       tradeId: trade.tradeId, rail: 'IMPS' as const, utr: newUtr('IN'), amount: '10700.00', inrAccountId: w.inrAccountId,
     });
+    await seeOwnSender(w.app, w.settlementOp, { legId: recorded.legId });
     await runAs(w.app, confirmFirstLeg(w.settlementOp.actor, w.settlementDeps), w.settlementOp.ref, 'settlement.confirm_incoming', { legId: recorded.legId });
     expect((await stateOf(trade.tradeId)).hold).toBe(true);
     const planned = await runAs(w.app, refundExcess(w.settlementOp.actor), w.settlementOp.ref, 'trade.refund_excess', {

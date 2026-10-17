@@ -16,6 +16,7 @@ import { lockMovement, postMovement, verifyCryptoTransfer } from './movements.ts
 import { allocateToObligation, lockObligation, obligationOfTrade, obligationRemaining } from './obligations.ts';
 import { settleFunding } from './funding.ts';
 import type { SettlementDeps } from './policy.ts';
+import { assertSenderVerified } from './sender.ts';
 import { completeTrade } from './progress.ts';
 
 export interface ConfirmPayoutResult {
@@ -90,7 +91,7 @@ export async function confirmPayoutLegInTx(ctx: TxContext, deps: SettlementDeps,
 
     // The route side is checked before anything is written, so a mismatch leaves no trace to undo.
     if (obligation) {
-      if (obligation.execution_mode !== 'DIRECT_TO_CLIENT' || obligation.route_id !== leg.route_id) {
+      if ((obligation.execution_mode !== 'DIRECT_TO_CLIENT' && obligation.execution_mode !== 'P2P') || obligation.route_id !== leg.route_id) {
         throw new DomainError('ROUTE_DIRECT_PAYOUT_MISMATCH', 'this trade’s route does not pay the client directly', { legId: leg.id, tradeId: trade.id });
       }
       const remaining = await obligationRemaining(ctx.tx, obligation.id);
@@ -105,6 +106,8 @@ export async function confirmPayoutLegInTx(ctx: TxContext, deps: SettlementDeps,
     if (allocation.transfer_kind === 'FIAT') {
       const f = await ctx.tx.selectFrom('fiat_transfer').select(['status', 'utr']).where('id', '=', movementId).executeTakeFirstOrThrow();
       if (f.status !== 'RECORDED') throw new DomainError('INVALID_TRANSITION', `the payment reference is ${f.status}`);
+      // ADR 0019 (IX116): a trader's rupees paid straight to the client count only once their sender is the trader.
+      await assertSenderVerified(ctx.tx, movementId);
       await ctx.tx.updateTable('fiat_transfer').set({ status: 'CONFIRMED', confirmed_at: sql<Date>`inrp2p_now()` }).where('id', '=', movementId).execute();
     } else {
       const verified = await verifyCryptoTransfer(ctx, deps, movementId);

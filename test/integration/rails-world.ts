@@ -12,6 +12,7 @@ import { acceptQuote, createQuote, createRequest, sendQuote } from '@inrp2p/quot
 import { confirmRouteSettlement } from '@inrp2p/settlement';
 import type { QuoteDeps } from '@inrp2p/quotes';
 import { type TradersWorld, type TraderSetup, configureProgram, createTradersWorld, liveTrader, traderClient, utr } from './traders-world.ts';
+import { seeOwnSender } from '../../packages/settlement/test/world.ts';
 
 /** The BIP-39 test mnemonic: its addresses are TronWeb's vectors (packages/adapters/test/tron-tx.unit.test.ts). */
 export const TEST_MNEMONIC = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'; // secret-scan:allow — BIP-39's published test vector, never a wallet with money
@@ -73,12 +74,12 @@ export async function depositTrx(w: RailsWorld, setup: TraderSetup, amount: stri
 }
 
 /** Request → offer to the trader → trader accepts → desk quotes on its route → client accepts — on the rails. */
-export async function railsTrade(w: RailsWorld, trader: TraderSetup, input: { direction: 'SELL_USDT' | 'BUY_USDT'; amount: string; clientRate: string }) {
+export async function railsTrade(w: RailsWorld, trader: TraderSetup, input: { direction: 'SELL_USDT' | 'BUY_USDT'; amount: string; clientRate: string; plannedClientRate?: string }) {
   const request = await runAs(w.app, createRequest(w.dealer.actor, {}), w.dealer.ref, 'request.create', {
     clientId: w.clientId, direction: input.direction, fixedSide: 'BASE' as const, amount: input.amount,
     ...(input.direction === 'SELL_USDT' ? { bankAccountId: w.bankAccountId } : { walletId: w.walletId }),
   });
-  const assigned = await runAs(w.app, assignRequest(w.dealer.actor), w.dealer.ref, 'trader_order.assign', { requestId: request.requestId });
+  const assigned = await runAs(w.app, assignRequest(w.dealer.actor), w.dealer.ref, 'trader_order.assign', { requestId: request.requestId, plannedClientRate: input.plannedClientRate ?? null });
   await runAs(w.app, acceptOrder(trader.admin.actor), trader.admin.ref, 'trader_order.accept', { ref: assigned.ref });
   const order = await w.app.selectFrom('trader_order').select(['id', 'route_id']).where('ref', '=', assigned.ref).executeTakeFirstOrThrow();
   const quote = await runAs(w.app, createQuote(w.dealer.actor, {}), w.dealer.ref, 'quote.create', { requestId: request.requestId, routeId: order.route_id, clientRate: input.clientRate, validitySeconds: 300 });
@@ -92,6 +93,7 @@ export async function railsTrade(w: RailsWorld, trader: TraderSetup, input: { di
 export async function traderPaysInr(w: RailsWorld, trader: TraderSetup, orderRef: string) {
   const claim = await runAs(w.app, submitOrderPayment(trader.admin.actor, w.traderDeps), trader.admin.ref, 'trader_order.submit_payment', { ref: orderRef, rail: 'IMPS' as const, utr: utr() });
   const rs = await w.app.selectFrom('route_settlement').select('id').where('ref', '=', claim.settlementRef).executeTakeFirstOrThrow();
+  await seeOwnSender(w.app, w.finance, { routeSettlementId: rs.id });
   await runAs(w.app, confirmRouteSettlement(w.finance.actor, w.settlementDeps), w.finance.ref, 'route_settlement.confirm', { routeSettlementId: rs.id });
 }
 

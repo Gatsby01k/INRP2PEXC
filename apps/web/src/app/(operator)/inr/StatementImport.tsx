@@ -109,7 +109,12 @@ export function StatementImport({ accounts, statements, canImport }: { accounts:
       ) : (
         <Notice icon="lock">Importing a statement needs the owner or finance role.</Notice>
       )}
-      {canImport ? <p className={d.fieldHint}>Columns: value_date, direction, amount, reference, description. The file is hashed and never stored — only what it reconciled.</p> : null}
+      {canImport ? (
+        <p className={d.fieldHint}>
+          Columns: value_date, direction, amount, reference, description — and, if your bank exports them, sender_name and sender_account. Without them the sender is read from the
+          description. The file is hashed and never stored — only what it reconciled.
+        </p>
+      ) : null}
 
       {outcome ? (
         <div role="status" data-testid="statement-outcome" className={d.stackTight}>
@@ -121,6 +126,11 @@ export function StatementImport({ accounts, statements, canImport }: { accounts:
               { key: 'x', label: 'Mismatched', value: String(outcome.mismatched), ...(outcome.mismatched > 0 ? { tone: 'danger' as const } : {}) },
               { key: 'u', label: 'Not ours', value: String(outcome.unrecorded), sub: 'bank charges, other traffic' },
               { key: 'g', label: 'Missing', value: String(outcome.missing), sub: 'confirmed by us, not on the statement', ...(outcome.missing > 0 ? { tone: 'danger' as const } : {}) },
+              {
+                key: 's', label: 'Senders checked', value: String(outcome.sendersChecked ?? 0),
+                sub: (outcome.strangers ?? 0) > 0 ? `${outcome.strangers} from someone else` : 'every one the payer’s own',
+                ...((outcome.strangers ?? 0) > 0 ? { tone: 'danger' as const } : {}),
+              },
             ]}
           />
           <Notice tone={outcome.missing > 0 || outcome.mismatched > 0 ? 'danger' : 'success'} icon={outcome.missing > 0 || outcome.mismatched > 0 ? 'exceptions' : 'check'}>

@@ -9,6 +9,7 @@ import { openExceptionInTx } from './exceptions.ts';
 import { locateTransferLog, lockMovement, postMovement, recordCryptoTransfer, recordFiatTransfer, verifyCryptoTransfer } from './movements.ts';
 import { allocateToObligation, lockObligation, obligationRemaining } from './obligations.ts';
 import type { SettlementDeps } from './policy.ts';
+import { assertSenderVerified } from './sender.ts';
 import { allocateFunding, assertCounterpartyDelivered, inrLocation, settleFunding, tronLocation } from './funding.ts';
 import { requireSourceDepositAddress } from './legs.ts';
 import { isCounterpartyFunded, lockTrade } from '@inrp2p/trades';
@@ -23,6 +24,9 @@ export interface RecordRouteSettlementPayload {
   readonly utr?: string;
   /** The exchange account that received (FROM_ROUTE_TO_EXCHANGE) or pays (TO_ROUTE) the INR. */
   readonly inrAccountId?: string | null;
+  /** ADR 0018, INR from a trader's route: the trader's registered account it is declared from, and who filed it. */
+  readonly payerBankAccountId?: string | null;
+  readonly filedBy?: 'DESK' | 'TRADER';
   /** USDT evidence. */
   readonly txHash?: string;
   readonly logIndex?: number;
@@ -93,6 +97,8 @@ export async function recordRouteSettlementInTx(ctx: TxContext, deps: Settlement
       payeeType: flow === 'TO_ROUTE' ? 'ROUTE' : 'EXCHANGE_ACCOUNT',
       payeeId: flow === 'TO_ROUTE' ? route.id : inrAccountId,
       destinationMasked: flow === 'TO_ROUTE' ? 'liquidity route account' : 'exchange settlement account',
+      payerBankAccountId: flow === 'TO_ROUTE' ? null : (p.payerBankAccountId ?? null),
+      filedBy: p.filedBy ?? 'DESK',
     });
     transferKind = 'FIAT';
     transferId = movement.transferId;
@@ -213,6 +219,8 @@ export async function confirmRouteSettlementInTx(ctx: TxContext, deps: Settlemen
   if (s.transfer_kind === 'FIAT') {
     const f = await ctx.tx.selectFrom('fiat_transfer').select('status').where('id', '=', movementId).executeTakeFirstOrThrow();
     if (f.status !== 'RECORDED') throw new DomainError('INVALID_TRANSITION', `the payment reference is ${f.status}`);
+    // ADR 0018 (IX116): a trader's rupees count only once someone has seen they came from the trader's own account.
+    await assertSenderVerified(ctx.tx, movementId);
     await ctx.tx.updateTable('fiat_transfer').set({ status: 'CONFIRMED', confirmed_at: sql<Date>`inrp2p_now()` }).where('id', '=', movementId).execute();
   } else {
     const verified = await verifyCryptoTransfer(ctx, deps, movementId);

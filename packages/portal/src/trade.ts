@@ -2,9 +2,11 @@ import { sql } from 'kysely';
 import { DomainError, Money } from '@inrp2p/kernel';
 import type { Executor } from '@inrp2p/db';
 import { type ClientTradeView, getClientTradeView, isCounterpartyFunded } from '@inrp2p/trades';
-import { type ClientSettlementView, fundingSources, getClientSettlementView } from '@inrp2p/settlement';
+import { type ClientSettlementView, type P2pDeal, fundingSources, getClientSettlementView, p2pDeal } from '@inrp2p/settlement';
 import { maskedDestination } from '@inrp2p/quotes';
+import type { FieldProtector } from '@inrp2p/adapters';
 import { clientSafe } from './access.ts';
+import { type PortalInrPayment, portalInrPayment } from './payment.ts';
 
 /**
  * One trade, as its client sees it (UX_FLOWS F1 step 6).
@@ -42,9 +44,16 @@ export interface PortalTrade {
   readonly receipt: boolean;
   /** Where this trade pays out, as the client recognises it: a bank's name and last four, or a wallet address. */
   readonly destination: string;
+  /** BUY: how the client pays its rupees, and every payment filed (ADR 0018). Null for a SELL. */
+  readonly payment: PortalInrPayment | null;
+  /**
+   * ADR 0019: a P2P deal — the rupees go straight between the client and its counterparty, the USDT through INRP2P's
+   * escrow. Its step, whose move it is and until when, and the account to pay when the client pays. Null otherwise.
+   */
+  readonly p2p: P2pDeal | null;
 }
 
-export async function portalTrade(ex: Executor, clientId: string, tradeRef: string): Promise<PortalTrade> {
+export async function portalTrade(ex: Executor, clientId: string, tradeRef: string, opts: { readonly protector?: FieldProtector | null } = {}): Promise<PortalTrade> {
   const row = await ex
     .selectFrom('trade')
     .select(['id', 'client_id', 'hold', 'opened_at', 'completed_at', 'cancelled_at', 'lifecycle_state'])
@@ -109,6 +118,8 @@ export async function portalTrade(ex: Executor, clientId: string, tradeRef: stri
     completedAt: completed ? closedAt : null,
     receipt: receipt !== undefined,
     destination: await maskedDestination(ex, frozen),
+    payment: trade.direction === 'BUY_USDT' ? await portalInrPayment(ex, opts.protector ?? null, { tradeId: row.id, clientId, lifecycle: row.lifecycle_state, hold: row.hold }) : null,
+    p2p: await p2pDeal(ex, opts.protector ?? null, { tradeId: row.id, viewer: 'CLIENT' }),
   });
 }
 

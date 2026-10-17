@@ -17,7 +17,7 @@ export interface RoutePositionRowProps {
   audience: 'operator';
   tradeRef: string;
   routeName: string;
-  executionMode: 'DIRECT_TO_CLIENT' | 'TO_EXCHANGE';
+  executionMode: 'DIRECT_TO_CLIENT' | 'TO_EXCHANGE' | 'P2P';
   status: 'OPEN' | 'PARTIALLY_SETTLED' | 'SETTLED' | 'CANCELLED';
   routeDelivers: ObligationSide;
   exchangeDelivers: ObligationSide;

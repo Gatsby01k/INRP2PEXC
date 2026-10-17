@@ -70,9 +70,11 @@ export async function createScenario(label: string, opts: { custody?: 'POOL' | '
   const dealer = await createTestOperator(t.owner, ['DEALER']);
   const finance = await createTestOperator(t.owner, ['FINANCE']);
   const custody = new FakeCustodyAdapter({ capability: 'POOL', poolSize: opts.depositPoolSize ?? 10, seed: label });
+  // One protector for the world: what it seals (a bank account's number) the screens built on it can open.
+  const protector = testFieldProtector();
 
   const client = await runAs(t.app, createClient(dealer.actor), dealer.ref, 'client.create', { legalName: 'Acme Pay Private Limited', displayName: 'Acme Pay', type: 'COMPANY' as const, typicalDirection: 'SELL_USDT' as const });
-  const bank = await runAs(t.app, addBankAccount(owner.actor, testFieldProtector()), owner.ref, 'client_bank.add', {
+  const bank = await runAs(t.app, addBankAccount(owner.actor, protector), owner.ref, 'client_bank.add', {
     clientId: client.clientId, holderName: 'Acme Pay Private Limited', bankName: 'HDFC Bank', ifsc: 'HDFC0001234', accountNumber: '50100123458219', railPreferences: ['IMPS', 'NEFT'] as const,
   });
   const wallet = await runAs(t.app, addWallet(owner.actor), owner.ref, 'client_wallet.add', {
@@ -104,7 +106,7 @@ export async function createScenario(label: string, opts: { custody?: 'POOL' | '
 
   return {
     t, app: t.app, owner, dealer, finance,
-    deps: { protector: testFieldProtector(), custody },
+    deps: { protector, custody },
     clientId: client.clientId,
     bankAccountId: bank.bankAccountId,
     walletId: wallet.walletId,

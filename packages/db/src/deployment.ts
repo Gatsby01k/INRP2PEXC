@@ -5,7 +5,7 @@ import type { Executor } from './kysely.ts';
  * The schema this code was built for: the number of the last migration file. A unit test keeps it equal to the
  * highest file in `migrations/`, so a release and its migrations cannot drift apart unnoticed.
  */
-export const SCHEMA_VERSION = 37;
+export const SCHEMA_VERSION = 39;
 
 /**
  * What a production process checks about the database it was given before it serves or works (production task E3).

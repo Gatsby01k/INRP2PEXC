@@ -9,7 +9,7 @@ import { microToDecimal } from './strip.ts';
 export interface QuoteRouteOption {
   readonly routeId: string;
   readonly name: string;
-  readonly executionMode: 'DIRECT_TO_CLIENT' | 'TO_EXCHANGE';
+  readonly executionMode: 'DIRECT_TO_CLIENT' | 'TO_EXCHANGE' | 'P2P';
   /** Current route rate for this request's direction, or null when none has been published. */
   readonly rate: string | null;
   readonly publishedAt: string | null;

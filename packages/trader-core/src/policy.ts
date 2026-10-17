@@ -29,6 +29,8 @@ export interface TraderProgram {
   readonly holdTtlSeconds: number;
   readonly autoAssign: boolean;
   readonly collectionAccountId: string | null;
+  /** ADR 0019: rupees through the exchange's account (`TO_EXCHANGE`), or straight between client and trader (`P2P`). */
+  readonly executionMode: 'TO_EXCHANGE' | 'P2P';
   readonly version: number;
   readonly updatedAt: Date;
 }
@@ -42,6 +44,7 @@ export async function traderProgram(ex: Executor): Promise<TraderProgram> {
     holdTtlSeconds: r.hold_ttl_seconds,
     autoAssign: r.auto_assign,
     collectionAccountId: r.collection_account_id,
+    executionMode: r.execution_mode,
     version: r.version,
     updatedAt: r.updated_at,
   };
@@ -56,6 +59,8 @@ export interface ConfigureProgramPayload {
   readonly holdTtlSeconds?: number;
   readonly autoAssign?: boolean;
   readonly collectionAccountId?: string | null;
+  /** ADR 0019: switches every trader route at once — refused while any trader order or obligation is still live. */
+  readonly executionMode?: 'TO_EXCHANGE' | 'P2P';
   readonly reason: string;
 }
 
@@ -109,6 +114,21 @@ export function configureTraderProgram(actor: OperatorActor) {
         changes.collection_account_id = accountId;
       }
     }
+    if (p.executionMode !== undefined && p.executionMode !== before.execution_mode) {
+      const mode = p.executionMode === 'P2P' ? 'P2P' : p.executionMode === 'TO_EXCHANGE' ? 'TO_EXCHANGE' : null;
+      if (!mode) throw new DomainError('INVALID_ARGUMENT', 'executionMode must be TO_EXCHANGE or P2P');
+      // A route changes how it executes only between deals: an order or obligation in flight keeps the terms it began with.
+      const live = await sql<{ n: number }>`
+        select (select count(*) from trader_order where status in ('OFFERED', 'ACCEPTED', 'IN_PROGRESS'))::int
+             + (select count(*) from route_obligation o join liquidity_route r on r.id = o.route_id where r.trader_id is not null and o.status in ('OPEN', 'PARTIALLY_SETTLED'))::int as n`.execute(ctx.tx);
+      if (live.rows[0]!.n > 0) throw new DomainError('INVALID_TRANSITION', 'trader orders or obligations are still open: switch how traders settle once they are finished');
+      const routes = await ctx.tx.selectFrom('liquidity_route').select(['id', 'version', 'execution_mode']).where('trader_id', 'is not', null).orderBy('id').forUpdate().execute();
+      for (const r of routes) {
+        await ctx.tx.updateTable('liquidity_route').set({ execution_mode: mode, version: r.version + 1, updated_at: sql<Date>`statement_timestamp()` }).where('id', '=', r.id).execute();
+        await appendAudit(ctx, { action: 'routes.execution_mode_changed', entityType: 'liquidity_route', entityId: r.id, before: { execution_mode: r.execution_mode }, after: { execution_mode: mode, reason } });
+      }
+      changes.execution_mode = mode;
+    }
     const after = await ctx.tx
       .updateTable('trader_program')
       .set({ ...changes, updated_by: actorLabel(ctx), updated_at: sql<Date>`statement_timestamp()`, version: before.version + 1 })
@@ -117,8 +137,8 @@ export function configureTraderProgram(actor: OperatorActor) {
       .executeTakeFirstOrThrow();
     await appendAudit(ctx, {
       action: 'trader_program.configured', entityType: 'trader_program', entityId: null,
-      before: { default_required_reserve_minor: before.default_required_reserve_minor, reward_bps: before.reward_bps, offer_ttl_seconds: before.offer_ttl_seconds, hold_ttl_seconds: before.hold_ttl_seconds, auto_assign: before.auto_assign, collection_account_id: before.collection_account_id, version: before.version },
-      after: { default_required_reserve_minor: after.default_required_reserve_minor, reward_bps: after.reward_bps, offer_ttl_seconds: after.offer_ttl_seconds, hold_ttl_seconds: after.hold_ttl_seconds, auto_assign: after.auto_assign, collection_account_id: after.collection_account_id, version: after.version, reason },
+      before: { default_required_reserve_minor: before.default_required_reserve_minor, reward_bps: before.reward_bps, offer_ttl_seconds: before.offer_ttl_seconds, hold_ttl_seconds: before.hold_ttl_seconds, auto_assign: before.auto_assign, collection_account_id: before.collection_account_id, execution_mode: before.execution_mode, version: before.version },
+      after: { default_required_reserve_minor: after.default_required_reserve_minor, reward_bps: after.reward_bps, offer_ttl_seconds: after.offer_ttl_seconds, hold_ttl_seconds: after.hold_ttl_seconds, auto_assign: after.auto_assign, collection_account_id: after.collection_account_id, execution_mode: after.execution_mode, version: after.version, reason },
     });
     return { version: after.version };
   });

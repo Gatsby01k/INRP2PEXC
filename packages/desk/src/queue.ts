@@ -228,6 +228,7 @@ function parseDetails(raw: string | null): Record<string, unknown> {
 
 const HUMAN_CASE: Record<string, string> = {
   USDT_UNEXPECTED_SENDER: 'Unregistered sender',
+  INR_UNEXPECTED_SENDER: 'Rupees from someone else',
   WRONG_NETWORK: 'Wrong network',
   FUNDS_AFTER_TRADE_CLOSED: 'Funds after the trade closed',
   UNALLOCATED_DEPOSIT: 'Unallocated deposit',

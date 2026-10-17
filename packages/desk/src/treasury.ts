@@ -25,6 +25,9 @@ export interface InrAccountView {
   /** True when no `inr_account_day` row exists yet: today runs on the account's default capacity. */
   readonly dayOpened: boolean;
   readonly defaultDailyCapacity: string;
+  /** ADR 0018: what a paying client sees — the payee name and the account's UPI ID, when it collects. */
+  readonly upiVpa: string | null;
+  readonly beneficiaryName: string | null;
 }
 
 export interface InrView {
@@ -33,6 +36,8 @@ export interface InrView {
   readonly totals: { readonly capacity: string; readonly used: string; readonly reserved: string; readonly available: string };
   /** The bank statements reconciled against these accounts, newest first (SECURITY §5 S7). */
   readonly statements: readonly StatementImportSummary[];
+  /** The legal entities accounts belong to: a new account is opened under one of them. */
+  readonly entities: readonly { readonly entityId: string; readonly legalName: string; readonly shortName: string }[];
 }
 
 /** The INR screen: every settlement account and what today's capacity has left in it (FI-30, STATE_MACHINES §6). */
@@ -42,10 +47,10 @@ export async function inrView(ex: Executor): Promise<InrView> {
     id: string; entity_id: string; entity_name: string; label: string; bank_name: string; ifsc: string;
     account_last4: string; rails: string[]; direction: InrAccountView['direction']; status: InrAccountView['status'];
     version: number; default_daily_capacity_minor: bigint;
-    capacity_minor: bigint | null; used_minor: bigint | null; reserved_minor: bigint | null;
+    capacity_minor: bigint | null; used_minor: bigint | null; reserved_minor: bigint | null; upi_vpa: string | null; beneficiary_name: string | null;
   }>`
     select a.id, a.entity_id, e.legal_name as entity_name, a.label, a.bank_name, a.ifsc, a.account_last4,
-           a.rails, a.direction, a.status, a.version, a.default_daily_capacity_minor,
+           a.rails, a.direction, a.status, a.version, a.default_daily_capacity_minor, a.upi_vpa, a.beneficiary_name,
            d.capacity_minor, d.used_minor, d.reserved_minor
     from inr_settlement_account a
     join settlement_entity e on e.id = a.entity_id
@@ -83,14 +88,18 @@ export async function inrView(ex: Executor): Promise<InrView> {
       availableToday: Money.ofMinor(avail > 0n ? avail : 0n, 'INR').toDecimalString(),
       dayOpened: r.capacity_minor !== null,
       defaultDailyCapacity: Money.ofMinor(r.default_daily_capacity_minor, 'INR').toDecimalString(),
+      upiVpa: r.upi_vpa,
+      beneficiaryName: r.beneficiary_name,
     };
   });
   const available = capacity - used - reserved;
   const statements = await listStatementImports(ex, { limit: 10 });
+  const entities = await ex.selectFrom('settlement_entity').select(['id', 'legal_name', 'short_name']).where('status', '=', 'ACTIVE').orderBy('legal_name').execute();
   return {
     istDay: day,
     accounts,
     statements,
+    entities: entities.map((e) => ({ entityId: e.id, legalName: e.legal_name, shortName: e.short_name })),
     totals: {
       capacity: Money.ofMinor(capacity, 'INR').toDecimalString(),
       used: Money.ofMinor(used, 'INR').toDecimalString(),

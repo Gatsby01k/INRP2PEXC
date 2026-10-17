@@ -8,7 +8,7 @@ export interface ObligationRow {
   readonly ref: string;
   readonly route_id: string;
   readonly trade_id: string | null;
-  readonly execution_mode: 'DIRECT_TO_CLIENT' | 'TO_EXCHANGE';
+  readonly execution_mode: 'DIRECT_TO_CLIENT' | 'TO_EXCHANGE' | 'P2P';
   readonly status: 'OPEN' | 'PARTIALLY_SETTLED' | 'SETTLED' | 'CANCELLED';
   readonly route_delivers_asset: 'INR' | 'USDT';
   readonly route_delivers_minor: bigint;

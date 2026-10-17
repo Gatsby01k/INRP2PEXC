@@ -74,6 +74,7 @@ export type SignedSettlement =
   | { readonly purpose: 'CLIENT_PAYOUT'; readonly payout: ConfirmPayoutResult }
   | { readonly purpose: 'REFUND'; readonly status: 'COMPLETED' }
   | { readonly purpose: 'ROUTE_PAYMENT'; readonly routeSettlementId: string; readonly obligationStatus: string }
+  | { readonly purpose: 'ESCROW_RETURN'; readonly transferId: string }
   | { readonly purpose: 'TOPUP' | 'DEPOSIT_WITHDRAWAL' };
 
 /**
@@ -97,6 +98,8 @@ export async function settleSignedSendInTx(ctx: TxContext, deps: SettlementDeps,
     const confirmed = await confirmRouteSettlementInTx(ctx, deps, recorded.routeSettlementId);
     return { purpose: 'ROUTE_PAYMENT', routeSettlementId: recorded.routeSettlementId, obligationStatus: confirmed.obligationStatus };
   }
+
+  if (send.purpose === 'ESCROW_RETURN') return settleEscrowReturnInTx(ctx, deps, send, attempt.txid);
 
   const trade = await lockTrade(ctx.tx, send.trade_id!);
   // A payout's leg is locked by its confirmation below, in the lock order (trade → obligation → leg → movement); a
@@ -189,6 +192,74 @@ export async function planRoutePaymentInTx(ctx: TxContext, deps: Pick<Settlement
 
 
 /**
+ * Plans the return of a P2P trader's escrow (ADR 0019 §2.7): a client buying USDT never paid, the trade and its
+ * obligation are cancelled, and the USDT the trader delivered goes back from the address it arrived at to the trader's
+ * registered wallet — the only place it can go — at the platform's cost. At most what is still the trader's
+ * (`inrp2p_escrow_returnable`); earmarked when planned, so nothing else can take the same USDT (FI-75).
+ */
+export async function planEscrowReturnInTx(ctx: TxContext, deps: Pick<SettlementDeps, 'policy'>, tradeId: string, requestedBy: string): Promise<{ sendId: string; ref: string; status: string } | null> {
+  const trade = await lockTrade(ctx.tx, tradeId);
+  if (trade.lifecycle_state !== 'CANCELLED') return null;
+  await assertPayoutsOpen(ctx.tx);
+  const obligation = await lockObligation(ctx, (await obligationOfTrade(ctx.tx, trade.id)).id);
+  const live = await ctx.tx.selectFrom('chain_send').select('ref').where('route_obligation_id', '=', obligation.id).where('purpose', '=', 'ESCROW_RETURN')
+    .where('status', 'not in', ['CONFIRMED', 'CANCELLED']).executeTakeFirst();
+  if (live) return null;
+  const owed = BigInt((await sql<{ n: string }>`select inrp2p_escrow_returnable(${obligation.id}::uuid)::text as n`.execute(ctx.tx)).rows[0]!.n);
+  if (owed <= 0n) return null;
+  const source = (await fundingSources(ctx.tx, trade.id, { kind: 'COUNTERPARTY_FUNDS', asset: 'USDT' })).find((f) => f.availableMinor > 0n);
+  if (!source) return null;
+  const from = source.location.slice('TRON:'.length);
+  if (!(await signablePathOf(ctx.tx, from))) return null;
+  const amount = source.availableMinor < owed ? source.availableMinor : owed;
+  const route = await ctx.tx.selectFrom('liquidity_route').select('trader_id').where('id', '=', obligation.route_id).executeTakeFirstOrThrow();
+  if (!route.trader_id) throw new DomainError('INVALID_ARGUMENT', 'only a trader’s escrow goes back to it');
+  const w = await ctx.tx.selectFrom('trader_profile as t').innerJoin('crypto_wallet as w', 'w.id', 't.wallet_id').select(['w.address', 'w.status']).where('t.id', '=', route.trader_id).executeTakeFirstOrThrow();
+  if (w.status !== 'ACTIVE') throw new DomainError('TRADER_DESTINATION_INVALID', "the trader's registered wallet is not active");
+  await assertPhysicallyAvailable(ctx, deps, { address: from, amount: Money.ofMinor(amount, 'USDT') });
+  const hold = await tradeHold(ctx.tx, trade.id);
+  if (!hold || hold.status !== 'ACTIVE') throw new DomainError('NETWORK_BUDGET_INSUFFICIENT', 'this trade holds no network budget');
+  const send = await planChainSend(ctx, {
+    purpose: 'ESCROW_RETURN', asset: 'USDT', tradeId: trade.id, routeObligationId: obligation.id, fromAddress: from, toAddress: w.address, amountMinor: amount,
+    funder: hold.trader_id, bearer: 'PLATFORM', needsApproval: await payoutNeedsSecondPerson(ctx.tx, { trade_id: trade.id, asset: 'USDT', amount_minor: amount }), requestedBy,
+  });
+  await allocateFunding(ctx, { tradeId: trade.id, use: { kind: 'ESCROW_RETURN', chainSendId: send.sendId }, asset: 'USDT', amount: Money.ofMinor(amount, 'USDT'), location: tronLocation(from) });
+  await appendAudit(ctx, { action: 'escrow.return_planned', entityType: 'route_obligation', entityId: obligation.id, after: { send: send.ref, amount: Money.ofMinor(amount, 'USDT'), to: w.address, trade_id: trade.id } });
+  return send;
+}
+
+/** The trader's escrow back on chain: its own movement and the one journal that closes what it was owed (FI-27). */
+async function settleEscrowReturnInTx(
+  ctx: TxContext,
+  deps: SettlementDeps,
+  send: { readonly id: string; readonly ref: string; readonly trade_id: string | null; readonly route_obligation_id: string | null; readonly from_address: string; readonly to_address: string; readonly amount_minor: bigint },
+  txid: string,
+): Promise<SignedSettlement> {
+  await lockTrade(ctx.tx, send.trade_id!);
+  const obligation = await lockObligation(ctx, send.route_obligation_id!);
+  const deposit = await ctx.tx.selectFrom('deposit_address').select('treasury_wallet_id').where('network', '=', 'TRON').where('address', '=', send.from_address).executeTakeFirstOrThrow();
+  const located = await locateTransferLog(deps, { txHash: txid, from: send.from_address, to: [send.to_address], amountMinor: send.amount_minor });
+  const amount = Money.ofMinor(send.amount_minor, 'USDT');
+  const recorded = await recordCryptoTransfer(ctx, {
+    txHash: txid, logIndex: located.logIndex, tokenContract: deps.chain.tokenContract, fromAddress: send.from_address, toAddress: send.to_address,
+    amount, payerType: 'EXCHANGE_TREASURY', payerId: deposit.treasury_wallet_id, payeeType: 'ROUTE', payeeId: obligation.route_id, source: 'CUSTODY_SIGNER',
+  });
+  await ctx.tx.updateTable('chain_send').set({ crypto_transfer_id: recorded.transferId, updated_at: sql<Date>`inrp2p_now()` }).where('id', '=', send.id).execute();
+  await lockMovement(ctx, 'CRYPTO', recorded.transferId);
+  const verified = await verifyCryptoTransfer(ctx, deps, recorded.transferId);
+  if (!verified.confirmed) throw new DomainError('TRANSFER_NOT_CONFIRMED', verified.reason ?? 'the return is not final on chain');
+  await postMovement(ctx, {
+    kind: 'CRYPTO', movementId: recorded.transferId, amount,
+    from: { kind: 'EXCHANGE_TREASURY', walletId: deposit.treasury_wallet_id }, to: { kind: 'ROUTE', routeId: obligation.route_id, routeObligationId: obligation.id },
+    tradeId: send.trade_id, purpose: 'ESCROW_RETURN',
+  });
+  await settleFunding(ctx, { kind: 'ESCROW_RETURN', chainSendId: send.id }, 'CONSUMED', `escrow return ${send.ref} confirmed on chain`);
+  await appendAudit(ctx, { action: 'escrow.returned', entityType: 'route_obligation', entityId: obligation.id, after: { send: send.ref, amount, to: send.to_address, transfer_id: recorded.transferId } });
+  await enqueueOutbox(ctx, { type: 'trader.escrow_returned', aggregateType: 'route_obligation', aggregateId: obligation.id, payload: { routeObligationId: obligation.id, tradeId: send.trade_id, sendRef: send.ref } });
+  return { purpose: 'ESCROW_RETURN', transferId: recorded.transferId };
+}
+
+/**
  * What a person can do to a send (ADR 0017 §4). Never anything that could make a second transfer: a send is cancelled
  * only while no transaction of it can still land (IX105), and its business ends with it — the payout or refund fails
  * (its earmark goes back, a replacement is a new leg, FI-25), the payment to the counterparty releases its earmark, a
@@ -210,8 +281,8 @@ async function cancelInTx(ctx: TxContext, sendId: string, reason: string): Promi
   if (send.purpose === 'CLIENT_PAYOUT' || send.purpose === 'REFUND') {
     const leg = await ctx.tx.selectFrom('settlement_leg').select('status').where('id', '=', send.settlement_leg_id!).executeTakeFirstOrThrow();
     if (leg.status === 'PROCESSING') await failPayoutLegInTx(ctx, send.settlement_leg_id!, `send ${send.ref} cancelled before any transaction of it landed: ${reason}`);
-  } else if (send.purpose === 'ROUTE_PAYMENT') {
-    await settleFunding(ctx, { kind: 'ROUTE_PAYMENT', chainSendId: send.id }, 'RELEASED', `send ${send.ref} cancelled: ${reason}`);
+  } else if (send.purpose === 'ROUTE_PAYMENT' || send.purpose === 'ESCROW_RETURN') {
+    await settleFunding(ctx, { kind: send.purpose, chainSendId: send.id }, 'RELEASED', `send ${send.ref} cancelled: ${reason}`);
   } else if (send.purpose === 'TOPUP' && send.parent_send_id) {
     await ctx.tx.updateTable('chain_send').set({ status: 'PLANNED', updated_at: sql<Date>`inrp2p_now()` }).where('id', '=', send.parent_send_id).where('status', '=', 'AWAITING_RESOURCES').execute();
   } else if (send.purpose === 'DEPOSIT_WITHDRAWAL') {

@@ -234,20 +234,23 @@ export async function openRouteObligation(ctx: TxContext, input: OpenRouteObliga
 
 /**
  * Opens a trader's own route for one direction, inside the trader approval command (docs/TRADERS.md), which has
- * already authorized the operator. A trader route always delivers to the exchange (`TO_EXCHANGE`): a client's
- * destination is never handed to a trader. The database refuses any other shape (`liquidity_route_trader_shape`).
+ * already authorized the operator. A trader route delivers to the exchange (`TO_EXCHANGE`) or, under ADR 0019, pays and
+ * is paid by the client directly (`P2P`) — whichever the programme says. The database refuses any other shape
+ * (`liquidity_route_trader_shape`).
  */
 export async function createTraderRoute(
   ctx: TxContext,
   input: { traderId: string; name: string; direction: DirectionValue; registeredRouteAddress: string; registeredPayoutIdentity: string },
 ): Promise<{ routeId: string }> {
+  // ADR 0019: the programme decides whether its routes take rupees through the exchange or straight from client to trader.
+  const program = await ctx.tx.selectFrom('trader_program').select('execution_mode').where('id', '=', 1).executeTakeFirst();
   const row = await ctx.tx
     .insertInto('liquidity_route')
     .values({
       name: requireText(input.name, 'name', 80),
       direction: requireOneOf(input.direction, 'direction', ['SELL_USDT', 'BUY_USDT'] as const),
       settlement_model: 'PER_TRADE',
-      execution_mode: 'TO_EXCHANGE',
+      execution_mode: program?.execution_mode ?? 'TO_EXCHANGE',
       registered_payout_identity: optionalText(input.registeredPayoutIdentity, 'registeredPayoutIdentity', 200),
       registered_route_address: parseTronAddress(input.registeredRouteAddress.trim()),
       available_base_minor: 0n,

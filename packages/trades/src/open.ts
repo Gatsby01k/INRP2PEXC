@@ -22,6 +22,9 @@ export interface AcceptedQuoteTerms {
   readonly network: 'TRON';
   readonly bankAccountId: string | null;
   readonly cryptoWalletId: string | null;
+  /** P2P (ADR 0019): the trader's USDT and the exchange's USDT margin; null through the exchange. */
+  readonly routeBaseMinor?: bigint | null;
+  readonly grossMarginBaseMinor?: bigint | null;
 }
 
 export interface OpenedTrade {
@@ -39,6 +42,8 @@ export interface OpenedTrade {
  * economics equal the quote and that the obligation equals the economics.
  */
 export async function openTradeFromAcceptedQuote(ctx: TxContext, terms: AcceptedQuoteTerms, executionMode: ExecutionMode): Promise<OpenedTrade> {
+  const p2p = executionMode === 'P2P';
+  if (p2p !== (terms.routeBaseMinor !== null && terms.routeBaseMinor !== undefined)) throw new DomainError('INVALID_ARGUMENT', 'a P2P trade carries its trader\'s USDT side, and only a P2P trade does');
   if (terms.direction === 'SELL_USDT' && terms.grossMarginInrMinor !== terms.routeValueInrMinor - terms.quoteInrMinor) {
     throw new DomainError('INVALID_ARGUMENT', 'quote margin is inconsistent');
   }
@@ -69,6 +74,8 @@ export async function openTradeFromAcceptedQuote(ctx: TxContext, terms: Accepted
       network: terms.network,
       bank_account_id: terms.bankAccountId,
       crypto_wallet_id: terms.cryptoWalletId,
+      route_base_minor: terms.routeBaseMinor ?? null,
+      gross_margin_base_minor: terms.grossMarginBaseMinor ?? null,
     })
     .execute();
   await ctx.tx
@@ -79,9 +86,14 @@ export async function openTradeFromAcceptedQuote(ctx: TxContext, terms: Accepted
   const base = Money.ofMinor(terms.baseMinor, 'USDT');
   const clientInr = Money.ofMinor(terms.quoteInrMinor, 'INR');
   const routeInr = Money.ofMinor(terms.routeValueInrMinor, 'INR');
-  const obligation = await openRouteObligation(ctx, { tradeId: trade.id, routeId: terms.routeId, direction: terms.direction, executionMode, base, routeValueInr: routeInr });
+  const routeBase = p2p ? Money.ofMinor(terms.routeBaseMinor!, 'USDT') : null;
+  // The route's side: on a P2P route, the trader's own USDT (ADR 0019).
+  const obligation = await openRouteObligation(ctx, { tradeId: trade.id, routeId: terms.routeId, direction: terms.direction, executionMode, base: routeBase ?? base, routeValueInr: routeInr });
 
-  const econ: TradeEconomics = { direction: terms.direction, fixedSide: terms.fixedSide, base, clientInr, routeInr, grossMargin: Money.ofMinor(terms.grossMarginInrMinor, 'INR') };
+  const econ: TradeEconomics = {
+    direction: terms.direction, fixedSide: terms.fixedSide, base, clientInr, routeInr, grossMargin: Money.ofMinor(terms.grossMarginInrMinor, 'INR'),
+    ...(routeBase ? { routeBase, grossMarginBase: Money.ofMinor(terms.grossMarginBaseMinor!, 'USDT') } : {}),
+  };
   const journal = await postJournal(ctx, tradeAcceptJournal(econ, { tradeId: trade.id, clientId: terms.clientId, routeId: terms.routeId, routeObligationId: obligation.routeObligationId }));
 
   await appendAudit(ctx, {

@@ -10,7 +10,7 @@ import {
   sendPayoutLeg,
 } from '@inrp2p/settlement';
 import { orderDeliveryAddress, reconcileOrderNow, reserveFigures, runTraderSweep, sharedReserveAddress, submitOrderPayment } from '@inrp2p/traders';
-import { balanceOf, clientDepositAddressOf, newUtr, observe, settleFirstLeg } from '../../packages/settlement/test/world.ts';
+import { balanceOf, clientDepositAddressOf, newUtr, observe, settleFirstLeg, seeOwnSender } from '../../packages/settlement/test/world.ts';
 import {
   type TradersWorld, type TraderSetup, clientRequest, configureProgram, confirmOnChain, createTradersWorld, liveTrader, sendUsdt, traderClient, tradeThroughTrader, utr,
 } from './traders-world.ts';
@@ -68,6 +68,7 @@ async function payUsdtFrom(tradeId: string, amount: string, depositAddressId: st
 async function traderPaysInr(orderRef: string, amount?: string) {
   const claim = await runAs(w.app, submitOrderPayment(inrTrader.admin.actor, w.traderDeps), inrTrader.admin.ref, 'trader_order.submit_payment', { ref: orderRef, rail: 'IMPS' as const, utr: utr(), ...(amount ? { amount } : {}) });
   const rs = await w.app.selectFrom('route_settlement').select('id').where('ref', '=', claim.settlementRef).executeTakeFirstOrThrow();
+  await seeOwnSender(w.app, w.finance, { routeSettlementId: rs.id });
   await runAs(w.app, confirmRouteSettlement(w.finance.actor, w.settlementDeps), w.finance.ref, 'route_settlement.confirm', { routeSettlementId: rs.id });
 }
 
@@ -76,6 +77,7 @@ async function sendToTraderUsdt(routeObligationId: string, amount: string, depos
   const rs = await runAs(w.app, recordRouteSettlement(w.finance.actor, w.settlementDeps), w.finance.ref, 'route_settlement.record', {
     routeObligationId, flow: 'TO_ROUTE' as const, amount, txHash: sent.txHash, logIndex: sent.logIndex, sourceDepositAddressId: deposit.id,
   });
+  await seeOwnSender(w.app, w.finance, { routeSettlementId: rs.routeSettlementId });
   await runAs(w.app, confirmRouteSettlement(w.finance.actor, w.settlementDeps), w.finance.ref, 'route_settlement.confirm', { routeSettlementId: rs.routeSettlementId });
 }
 
@@ -164,6 +166,7 @@ describe('a client buys USDT; a USDT trader sells it (trader Sell USDT side)', (
     const toTrader = await runAs(w.app, recordRouteSettlement(w.finance.actor, w.settlementDeps), w.finance.ref, 'route_settlement.record', {
       routeObligationId: trade.routeObligationId, flow: 'TO_ROUTE' as const, amount: '52600.00', rail: 'IMPS' as const, utr: utr('OUT'), inrAccountId: w.inrAccountId,
     });
+    await seeOwnSender(w.app, w.finance, { routeSettlementId: toTrader.routeSettlementId });
     await runAs(w.app, confirmRouteSettlement(w.finance.actor, w.settlementDeps), w.finance.ref, 'route_settlement.confirm', { routeSettlementId: toTrader.routeSettlementId });
     expect(await reconcileOrderNow(w.app, trade.orderId)).toBe('COMPLETED');
 

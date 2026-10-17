@@ -171,7 +171,16 @@ export type DomainErrorCode =
   | 'QUOTE_NETWORK_FEE_MISSING'
   | 'CHAIN_SEND_IN_FLIGHT'
   | 'CHAIN_SEND_UNRESOLVED'
-  | 'AUTO_SEND_DISABLED';
+  | 'AUTO_SEND_DISABLED'
+  // ADR 0018: clean INR.
+  | 'INVALID_UTR'
+  | 'NO_COLLECTION'
+  | 'NOTHING_OWED'
+  | 'NOT_OWN_ACCOUNT'
+  | 'INR_SENDER_NOT_VERIFIED'
+  // ADR 0019: P2P escrow.
+  | 'ESCROW_NOT_FUNDED'
+  | 'NOT_THE_PAYEE';
 
 export class DomainError extends Error {
   readonly code: DomainErrorCode;

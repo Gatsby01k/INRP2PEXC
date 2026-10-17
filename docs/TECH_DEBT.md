@@ -807,3 +807,53 @@ address. Staking TRX for energy, or renting energy from a market, costs less per
 **Resolution (to do, owner).** Decide whether to stake a part of the platform budget (energy delegated to deal
 addresses before each transfer) or to use a rental market; the signer's fuelling step (`prepareUsdt`) is where either
 would replace the top-up.
+
+## TD-33 — A client's registered bank account is not verified with the bank
+
+**Observed (ADR 0018, 2026-10-16).** The sender of a client's rupees is compared with the holder name of the account the
+desk registered for the client. Nothing yet asks the bank who holds that account, so a holder name typed wrongly — or a
+client who registers someone else's account in their own name — is believed.
+
+**Resolution (to do).** Verify every new destination with the bank before it becomes ACTIVE ("penny drop": ₹1 sent, the
+bank returns the beneficiary name — Cashfree, Razorpay, Setu or Decentro), matched against the client's KYC name with
+`matchNames`; the bank's name becomes the account's holder name.
+
+## TD-34 — A credit is identified by its reference, not by the bank
+
+**Observed (ADR 0018, 2026-10-16).** A client's payment is matched to its trade by the UTR the client (or the desk)
+files, and its sender is read from a statement export or a person's eyes. A stranger's rupees are returned by a bank
+transfer the desk makes and records in the case, outside the platform's legs.
+
+**Resolution (to do, partner).** A virtual account or a UPI ID per trade from a banking partner (collect API with a
+remitter callback): the bank names the trade and the remitter, the sender check runs on the bank's own data, the
+confirmation needs no person, and a stranger's rupees are refunded through the partner's API. Needs a partner that
+serves the business.
+
+
+## TD-35 — A P2P sell whose trader never pays is refunded by hand
+
+**Observed (ADR 0019, 2026-10-17).** When a trader does not pay a client whose USDT is in escrow, the desk gets
+`P2P_PAYMENT_OVERDUE` after 30 minutes and refunds the client through *Refund and cancel* (second approver). A client who
+did not receive the rupees has no "not received" button: it waits, and the desk is told after 30 minutes.
+
+**Resolution (to do).** An automatic unwind for a SELL like the BUY's (`ESCROW_RETURN` to the client's source wallet,
+approved by a second person over the threshold), and a dispute button on both sides that opens the case at once with
+the payer's evidence attached.
+
+## TD-36 — P2P margin stays at each deal address
+
+**Observed (ADR 0019, 2026-10-17).** A P2P trade's margin is the USDT left at its deal address after the payout (≈ the
+margin less nothing — the network fee is TRX). It is in the books (`GROSS_MARGIN(USDT)`) and the seed opens it, but it is
+spread over one address per deal.
+
+**Resolution (to do).** The sweep of TD-31, extended to USDT: a closed deal's address sends what it holds to the hot
+wallet, with a movement journal between treasury accounts.
+
+## TD-37 — The counterparty's account number is shown without a per-view audit
+
+**Observed (ADR 0019, 2026-10-17).** On a P2P deal, the side that pays sees the other side's full account number while it
+is to pay. The page opens it from its seal on each load; the audit records the payment and its sender check, not each
+view.
+
+**Resolution (to do).** A reveal step (a button that opens it, audited once per deal and viewer), and a masked number
+until then.

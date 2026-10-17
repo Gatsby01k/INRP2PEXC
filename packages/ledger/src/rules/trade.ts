@@ -1,4 +1,4 @@
-import type { TradeEconomics } from '@inrp2p/kernel';
+import type { Money, TradeEconomics } from '@inrp2p/kernel';
 import { Accounts } from '../accounts.ts';
 import type { EntryInput, JournalInput } from '../posting.ts';
 
@@ -22,6 +22,7 @@ export function tradeAcceptJournal(econ: TradeEconomics, refs: TradeLedgerRefs):
       : [{ account: Accounts.deferredMargin(), direction: margin.isPositive() ? sideForPositive : 'DR', amount: margin.isNegative() ? margin.negate() : margin }];
 
   let entries: EntryInput[];
+  if (econ.routeBase && econ.grossMarginBase) return p2pAcceptJournal(econ as P2pEconomics, refs);
   if (econ.direction === 'SELL_USDT') {
     entries = [
       { account: Accounts.clientReceivable(clientId, 'USDT'), direction: 'DR', amount: econ.base },
@@ -42,8 +43,52 @@ export function tradeAcceptJournal(econ: TradeEconomics, refs: TradeLedgerRefs):
   return { postingKey: `trade:${tradeId}:accept`, eventType: 'trade.accepted', tradeId, entries };
 }
 
-/** `trade:{t}:complete`: moves deferred margin to realized gross margin. Zero margin posts nothing. */
+type P2pEconomics = TradeEconomics & { readonly routeBase: Money<'USDT'>; readonly grossMarginBase: Money<'USDT'> };
+
+/**
+ * `trade:{t}:accept` of a P2P trade (ADR 0019 §2.5): the rupees are one amount the client owes the route (client buys)
+ * or the route owes the client (client sells) — no exchange account will ever hold them — and the margin is the USDT
+ * between the client's amount and the trader's.
+ */
+function p2pAcceptJournal(econ: P2pEconomics, refs: TradeLedgerRefs): JournalInput {
+  const { tradeId, clientId, routeId, routeObligationId: ro } = refs;
+  const m = econ.grossMarginBase;
+  const margin: EntryInput[] = m.isZero() ? [] : [{ account: Accounts.deferredMargin('USDT'), direction: m.isPositive() ? 'CR' : 'DR', amount: m.isNegative() ? m.negate() : m }];
+  const entries: EntryInput[] =
+    econ.direction === 'BUY_USDT'
+      ? [
+          { account: Accounts.routeReceivable(routeId, 'USDT'), direction: 'DR', amount: econ.routeBase, routeObligationId: ro },
+          { account: Accounts.clientPayable(clientId, 'USDT'), direction: 'CR', amount: econ.base },
+          ...margin,
+          { account: Accounts.clientReceivable(clientId, 'INR'), direction: 'DR', amount: econ.clientInr },
+          { account: Accounts.routePayable(routeId, 'INR'), direction: 'CR', amount: econ.routeInr, routeObligationId: ro },
+        ]
+      : [
+          { account: Accounts.clientReceivable(clientId, 'USDT'), direction: 'DR', amount: econ.base },
+          { account: Accounts.routePayable(routeId, 'USDT'), direction: 'CR', amount: econ.routeBase, routeObligationId: ro },
+          ...margin,
+          { account: Accounts.routeReceivable(routeId, 'INR'), direction: 'DR', amount: econ.routeInr, routeObligationId: ro },
+          { account: Accounts.clientPayable(clientId, 'INR'), direction: 'CR', amount: econ.clientInr },
+        ];
+  return { postingKey: `trade:${tradeId}:accept`, eventType: 'trade.accepted', tradeId, entries };
+}
+
+/** `trade:{t}:complete`: moves deferred margin to realized gross margin — USDT on a P2P trade. Zero margin posts nothing. */
 export function tradeCompleteJournal(econ: TradeEconomics, refs: Pick<TradeLedgerRefs, 'tradeId'>): JournalInput | null {
+  if (econ.grossMarginBase) {
+    const m = econ.grossMarginBase;
+    if (m.isZero()) return null;
+    const abs = m.isNegative() ? m.negate() : m;
+    return {
+      postingKey: `trade:${refs.tradeId}:complete`,
+      eventType: 'trade.completed',
+      tradeId: refs.tradeId,
+      entries: [
+        { account: Accounts.deferredMargin('USDT'), direction: m.isPositive() ? 'DR' : 'CR', amount: abs },
+        { account: Accounts.grossMargin('USDT'), direction: m.isPositive() ? 'CR' : 'DR', amount: abs },
+      ],
+    };
+  }
   const m = econ.grossMargin;
   if (m.isZero()) return null;
   const abs = m.isNegative() ? m.negate() : m;

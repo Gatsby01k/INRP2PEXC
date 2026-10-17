@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Money } from '@inrp2p/kernel';
+import { Money, checkUtrShape } from '@inrp2p/kernel';
 import type { PaymentRow, TraderOrderDetail } from '@inrp2p/traders';
 import { CopyButton, DepositAddress, UTRField, normalizeUtr } from '@inrp2p/ui';
 import { formatIstDateTime } from '@inrp2p/ui/format';
@@ -15,6 +15,7 @@ import { InfoIcon } from '../../../_workspace/icons.tsx';
 import { Stepper } from '../../../_workspace/Stepper.tsx';
 import { useServerClock } from '../../../exchange/useServerClock.ts';
 import { OfferCard } from '../../_ui/OfferCard.tsx';
+import { P2pOrderAction } from './P2pOrderAction.tsx';
 import { amountIn, inr, rate, sentence, usdt } from '../../_ui/format.ts';
 import shell from '../../../shell.module.css';
 import styles from '../../traders.module.css';
@@ -93,7 +94,10 @@ function PayInr({ detail }: { detail: TraderOrderDetail }) {
           <CopyButton value={payTo.narration} label="Copy narration" />
         </div>
       </dl>
-      <p className={styles.note}>Pay from your registered account only. A payment from any other account cannot be matched to this order.</p>
+      <p className={styles.note}>
+        Pay from your registered bank account only. Rupees from any other account — a relative’s, a friend’s, a business’s — are returned and never count: INRP2P checks
+        who sent every payment before it confirms it.
+      </p>
       <form
         className={styles.editForm}
         onSubmit={(e) => {
@@ -114,8 +118,9 @@ function PayInr({ detail }: { detail: TraderOrderDetail }) {
           </label>
           <UTRField value={utr} onChange={setUtr} label="Bank reference (UTR)" />
         </div>
+        {utr !== '' && !checkUtrShape(rail, utr).ok ? <p className={styles.note}>Not a {rail} reference yet: {(checkUtrShape(rail, utr) as { hint: string }).hint}.</p> : null}
         <div className={styles.formActions}>
-          <button type="submit" className={shell.action} disabled={busy || normalizeUtr(utr).length < 6}>
+          <button type="submit" className={shell.action} disabled={busy || !checkUtrShape(rail, utr).ok}>
             I have paid
           </button>
         </div>
@@ -246,7 +251,7 @@ export function OrderScreen({ detail, canAct }: { detail: TraderOrderDetail; can
                 <Stepper steps={detail.steps} label="Order progress" />
               </section>
             ) : null}
-            <NextAction detail={detail} canAct={canAct} />
+            {detail.p2p && o.status !== 'ACCEPTED' ? <P2pOrderAction detail={detail} canAct={canAct} /> : <NextAction detail={detail} canAct={canAct} />}
           </>
         )}
 
@@ -302,8 +307,12 @@ export function OrderScreen({ detail, canAct }: { detail: TraderOrderDetail; can
               Payments
             </h2>
             <div className={styles.twoCol}>
-              <Payments title={buy ? 'Your INR' : 'Your USDT'} rows={detail.yourPayments} empty="Nothing recorded yet." />
-              <Payments title={buy ? 'USDT from INRP2P' : 'INR from INRP2P'} rows={detail.inrp2pPayments} empty="Nothing sent yet." />
+              <Payments title={buy ? 'Your INR' : 'Your USDT'} rows={detail.yourPayments} empty={detail.p2p && buy ? 'Your INR goes straight to the seller; it is counted when they confirm it.' : 'Nothing recorded yet.'} />
+              <Payments
+                title={detail.p2p ? (buy ? 'USDT from escrow' : 'INR from the buyer') : buy ? 'USDT from INRP2P' : 'INR from INRP2P'}
+                rows={detail.inrp2pPayments}
+                empty={detail.p2p && !buy ? 'The buyer’s INR is counted when you confirm it.' : 'Nothing sent yet.'}
+              />
             </div>
           </section>
         ) : null}

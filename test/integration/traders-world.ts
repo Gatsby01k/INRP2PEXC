@@ -1,7 +1,6 @@
-import { randomBytes, randomUUID } from 'node:crypto';
+import { randomBytes, randomInt, randomUUID } from 'node:crypto';
 import { encodeTronAddress, Money } from '@inrp2p/kernel';
 import type { Db } from '@inrp2p/db';
-import { testFieldProtector } from '@inrp2p/adapters/testing';
 import type { ClientActor } from '@inrp2p/identity';
 import { createTestClientLogin, runAs } from '@inrp2p/identity/testing';
 import { addBankAccount, addWallet, createClient, linkClientUser, setCanAcceptQuotes } from '@inrp2p/clients';
@@ -59,7 +58,7 @@ async function person(w: World, clientId: string, opts: { admin: boolean; canCom
 /** A client that will become a trader: its own bank account and a send-and-receive wallet, an admin and a member. */
 export async function traderClient(w: World, name: string, walletPurpose: 'BOTH' | 'DESTINATION' = 'BOTH'): Promise<TraderSetup> {
   const client = await runAs(w.app, createClient(w.dealer.actor), w.dealer.ref, 'client.create', { legalName: `${name} LLP`, displayName: name, type: 'COMPANY' as const, typicalDirection: 'BUY_USDT' as const });
-  const bank = await runAs(w.app, addBankAccount(w.owner.actor, testFieldProtector()), w.owner.ref, 'client_bank.add', {
+  const bank = await runAs(w.app, addBankAccount(w.owner.actor, w.deps.protector), w.owner.ref, 'client_bank.add', {
     clientId: client.clientId, holderName: `${name} LLP`, bankName: 'Kotak Mahindra Bank', ifsc: 'KKBK0000123', accountNumber: String(700000000000 + Math.floor(Math.random() * 1e9)), railPreferences: ['IMPS'] as const,
   });
   const walletAddress = encodeTronAddress(randomBytes(20));
@@ -166,4 +165,6 @@ export async function tradeThroughTrader(w: TradersWorld, setup: TraderSetup, in
   return { orderId: assigned.orderId, orderRef: assigned.ref, tradeId: accepted.tradeId, routeObligationId: obligation.id, quoteId: quote.quoteId };
 }
 
-export const utr = (prefix = 'TRD') => `${prefix}${randomUUID().replace(/-/g, '').slice(0, 12).toUpperCase()}`;
+/** A bank reference: with a prefix, the free-form kind the desk records; without one, an IMPS/UPI reference (12 digits). */
+export const utr = (prefix?: string) =>
+  prefix ? `${prefix}${randomUUID().replace(/-/g, '').slice(0, 12).toUpperCase()}` : String(randomInt(1e11, 1e12));

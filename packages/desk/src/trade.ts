@@ -3,7 +3,7 @@ import { DomainError, Money, requireUuid } from '@inrp2p/kernel';
 import type { DirectionValue, ExecutionMode, Executor } from '@inrp2p/db';
 import { istToday } from '@inrp2p/inr-accounts';
 import { effectiveObligations, legTotals, tradeFundingModel } from '@inrp2p/trades';
-import { fundingPosition, obligationRemaining } from '@inrp2p/settlement';
+import { type SenderView, fundingPosition, obligationRemaining, senderView } from '@inrp2p/settlement';
 import type { DeskAccess } from './access.ts';
 import { microToDecimal } from './strip.ts';
 import { type DeskTradeNetwork, deskTradeNetwork } from './network.ts';
@@ -44,6 +44,11 @@ export interface DeskLeg {
   readonly needsSecondPerson: boolean;
   /** A refund leg's kind (D2): UNWIND returns everything before a cancellation, EXCESS returns an overpayment. */
   readonly refundKind: 'UNWIND' | 'EXCESS' | null;
+  /**
+   * ADR 0018 — the client's INR payment behind this leg: who filed it, the client's account it was declared from, and
+   * who the credit was seen to come from. Null for any other leg.
+   */
+  readonly inrSource: (SenderView & { readonly transferId: string; readonly filedBy: 'DESK' | 'CLIENT' | 'TRADER' }) | null;
 }
 
 /** A destination of the client, as the desk picks one (verified only). */
@@ -191,6 +196,8 @@ export interface DeskTrade {
   };
   /** The exchange's own rails for this trade (ADR 0017): its TRX budget, network cost and signer sends; null for a trade priced before them. */
   readonly network: DeskTradeNetwork | null;
+  /** ADR 0018 — a BUY's payment instructions as the client saw them: the account to pay, the reference, the deadline. */
+  readonly collection: { readonly inrAccountId: string; readonly label: string; readonly bankName: string; readonly last4: string; readonly reference: string; readonly payBy: string } | null;
 }
 
 /**
@@ -252,6 +259,7 @@ export async function deskTrade(ex: Executor, tradeId: string, access: DeskAcces
       routeName: null,
     },
     network: await deskTradeNetwork(ex, id, { economics: access.economics }),
+    collection: row.direction === 'BUY_USDT' ? await collectionOf(ex, id) : null,
   };
 
   const deposit = await depositFor(ex, id);
@@ -275,19 +283,30 @@ export async function deskTrade(ex: Executor, tradeId: string, access: DeskAcces
   return { ...withDeposit, ...economics, ...(route ? { route } : {}) };
 }
 
+async function collectionOf(ex: Executor, tradeId: string): Promise<DeskTrade['collection']> {
+  const c = await ex
+    .selectFrom('trade_collection as c')
+    .innerJoin('inr_settlement_account as a', 'a.id', 'c.inr_account_id')
+    .select(['c.inr_account_id', 'a.label', 'a.bank_name', 'a.account_last4', 'c.reference', 'c.pay_by'])
+    .where('c.trade_id', '=', tradeId)
+    .executeTakeFirst();
+  return c ? { inrAccountId: c.inr_account_id, label: c.label, bankName: c.bank_name, last4: c.account_last4, reference: c.reference, payBy: c.pay_by.toISOString() } : null;
+}
+
 async function deskLegs(ex: Executor, tradeId: string): Promise<DeskLeg[]> {
   const rows = await sql<{
     id: string; ref: string; side: DeskLeg['side']; asset: 'INR' | 'USDT'; amount_minor: bigint; status: DeskLeg['status'];
     payer: DeskLeg['payer']; account_label: string | null; route_name: string | null; wallet_address: string | null; utr: string | null; tx_hash: string | null;
     created_at: Date; sent_at: Date | null; confirmed_at: Date | null; failed_at: Date | null; cancelled_at: Date | null; failure_reason: string | null;
     created_by: string; created_by_label: string | null; sent_by: string | null; sent_by_label: string | null; needs_second: boolean | null;
-    refund_kind: 'UNWIND' | 'EXCESS' | null;
+    refund_kind: 'UNWIND' | 'EXCESS' | null; fiat_id: string | null; filed_by: 'DESK' | 'CLIENT' | 'TRADER' | null;
   }>`
     select l.id, l.ref, l.side, l.asset, l.amount_minor, l.status, l.payer,
            a.label as account_label, r.name as route_name, coalesce(da.address, tw.address) as wallet_address, f.utr, c.tx_hash,
            l.created_at, l.sent_at, l.confirmed_at, l.failed_at, l.cancelled_at, l.failure_reason,
            l.created_by, coalesce(u.name, u.email) as created_by_label,
            l.sent_by, coalesce(su.name, su.email) as sent_by_label, l.refund_kind,
+           case when l.side = 'CLIENT_TO_EXCHANGE' and l.asset = 'INR' then coalesce(f.id, fv.id) end as fiat_id, coalesce(f.filed_by, fv.filed_by) as filed_by,
            case when l.side = 'EXCHANGE_TO_CLIENT' then inrp2p_payout_needs_second_person(l.trade_id, l.asset, l.amount_minor) end as needs_second
     from settlement_leg l
     left join inr_settlement_account a on a.id = l.inr_account_id
@@ -296,12 +315,22 @@ async function deskLegs(ex: Executor, tradeId: string): Promise<DeskLeg[]> {
     left join deposit_address da on da.id = l.source_deposit_address_id
     left join transfer_allocation al on al.settlement_leg_id = l.id and al.voided_at is null
     left join fiat_transfer f on f.id = al.fiat_transfer_id
+    -- A client payment the desk marked not received keeps its evidence (voided): its sender history still matters.
+    left join lateral (
+      select f2.id, f2.filed_by from transfer_allocation a2 join fiat_transfer f2 on f2.id = a2.fiat_transfer_id
+      where a2.settlement_leg_id = l.id and al.id is null order by a2.created_at desc limit 1
+    ) fv on true
     left join crypto_transfer c on c.id = al.crypto_transfer_id
     left join auth_user u on u.id::text = l.created_by
     left join auth_user su on su.id::text = l.sent_by
     where l.trade_id = ${tradeId}
     order by l.seq`.execute(ex);
+  const sources = new Map<string, DeskLeg['inrSource']>();
+  for (const r of rows.rows) {
+    if (r.fiat_id && r.filed_by) sources.set(r.id, { ...(await senderView(ex, r.fiat_id)), transferId: r.fiat_id, filedBy: r.filed_by });
+  }
   return rows.rows.map((r) => ({
+    inrSource: sources.get(r.id) ?? null,
     id: r.id,
     ref: r.ref,
     side: r.side,

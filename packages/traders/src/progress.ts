@@ -1,4 +1,5 @@
 import type { TraderOrderStatus, TraderSide } from '@inrp2p/db';
+import type { P2pStep } from '@inrp2p/settlement';
 
 /**
  * Where one order stands, from the trader's side, as pure functions of facts of record. The screen, the robot and
@@ -101,3 +102,44 @@ export function orderSteps(side: TraderSide, stage: OrderStage): OrderStep[] {
 
 /** The stages in which the trader itself has something to do. */
 export const TRADER_ACTION_STAGES: ReadonlySet<OrderStage> = new Set(['OFFER', 'YOUR_TURN']);
+
+/**
+ * A P2P order (ADR 0019), from the trader's side: the rupees go straight between it and the client, the USDT through
+ * the deal's escrow. Selling USDT, the trader funds the escrow first and later confirms the client's rupees; buying,
+ * it pays the client once the client's USDT is in escrow, and the client confirms.
+ */
+export function p2pOrderStage(side: TraderSide, status: TraderOrderStatus, step: P2pStep): OrderStage {
+  if (status !== 'IN_PROGRESS') return orderStage({ status, counterpartyFunded: false, traderOwedMinor: 0n, traderPaymentPending: false, inrp2pOwedMinor: 0n, inrp2pPaymentPending: false, needsReview: false });
+  const sells = side === 'SELL_USDT';
+  switch (step) {
+    case 'ESCROW':
+      return sells ? 'YOUR_TURN' : 'AWAITING_FUNDING';
+    case 'PAY':
+      return sells ? 'AWAITING_FUNDING' : 'YOUR_TURN';
+    case 'CONFIRM':
+      return sells ? 'YOUR_TURN' : 'CHECKING_YOURS';
+    case 'RELEASE':
+      return 'INRP2P_SENDING';
+    case 'DONE':
+      return 'CHECKING_INRP2P';
+    default:
+      return 'CLOSED';
+  }
+}
+
+/** The five steps of a started P2P order, labelled for the trader's side. */
+export function p2pOrderSteps(side: TraderSide, status: TraderOrderStatus, step: P2pStep): OrderStep[] {
+  const sells = side === 'SELL_USDT';
+  const labels = sells
+    ? ['Order accepted', 'You put USDT in escrow', 'Buyer pays you INR', 'You confirm the INR', 'Escrow released']
+    : ['Order accepted', 'Seller’s USDT in escrow', 'You pay INR', 'Seller confirms your INR', 'You receive USDT'];
+  const at: Record<P2pStep, number> = { ESCROW: 1, PAY: 2, CONFIRM: 3, RELEASE: 4, DONE: 4, CANCELLED: -1 };
+  const yours = sells ? new Set<P2pStep>(['ESCROW', 'CONFIRM']) : new Set<P2pStep>(['PAY']);
+  const current = status === 'COMPLETED' ? 5 : status === 'IN_PROGRESS' ? at[step] : -1;
+  return labels.map((label, i) => {
+    if (current < 0) return { label, status: 'pending' as const };
+    if (i < current) return { label, status: 'done' as const };
+    if (i === current) return { label, status: 'current' as const, detail: yours.has(step) ? 'your turn' : step === 'RELEASE' ? 'INRP2P is releasing it' : 'waiting for the other side' };
+    return { label, status: 'pending' as const };
+  });
+}

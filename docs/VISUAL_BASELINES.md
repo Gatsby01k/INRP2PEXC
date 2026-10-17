@@ -41,7 +41,7 @@ Before any test runs, the suite refuses to compare or record when:
 - the current image, platform, architecture, Playwright version or Chromium version differs from `CANONICAL` (the image is trusted only if `VISUAL_ENV_IMAGE` is set **and** `/ms-playwright` exists);
 - `ENVIRONMENT.json` is missing, or was recorded in a different environment;
 - the number of committed PNGs differs from `ENVIRONMENT.json` (baselines changed outside the update path);
-- a baseline the suite expects is not there (the page suite names its thirty-five in `apps/web/visual/captures.ts`);
+- a baseline the suite expects is not there (the page suite names its thirty-six in `apps/web/visual/captures.ts`);
 - `UPDATE_VISUALS=1` is set in GitHub Actions for any event other than `workflow_dispatch`;
 - `--update-snapshots` / `-u` is passed on the command line (config throws; only `UPDATE_VISUALS=1` records).
 
@@ -99,7 +99,7 @@ A page is harder to pin than a story, because it shows what a database says. The
    it holds, because a page still hydrating would put the live number back). Nothing else is masked: every
    other pixel is compared.
 
-The thirty-five capture names live in one static manifest, `apps/web/visual/captures.ts`, read by all three page spec
+The thirty-six capture names live in one static manifest, `apps/web/visual/captures.ts`, read by all three page spec
 files, by the
 compare guard and by the update reporter. It is static because the reporter has to know the whole expected set
 *before* any test runs, in order to drop baselines nothing expects any more without touching the ones that are

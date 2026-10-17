@@ -22,7 +22,32 @@ const owed = (o: Pick<OrderSummary, 'side' | 'youOwe'>) => (o.youOwe ? (o.side =
 const sideName = (side: OrderSummary['side']) => (side === 'BUY_USDT' ? 'Buy USDT' : 'Sell USDT');
 
 /** One started or held order, in the robot's words: whose move it is, and what it is. */
+/** A P2P order (ADR 0019): the escrow, the buyer's rupees, the seller's confirmation. */
+function p2pOrderState(o: OrderSummary): AssistantState | null {
+  const sells = o.side === 'SELL_USDT';
+  switch (o.p2pStep) {
+    case 'ESCROW':
+      return sells
+        ? { mood: 'alert', label: 'Your turn', title: `Put ${usdt(o.usdt)} in escrow for ${o.ref}`, body: 'The buyer pays you only once it is locked. If they don’t pay in time, it comes back to you.' }
+        : { mood: 'waiting', label: 'Waiting', title: `${o.ref}: the seller’s USDT is coming`, body: 'You pay only once it is locked in escrow for you.' };
+    case 'PAY':
+      return sells
+        ? { mood: 'waiting', label: 'Buyer paying', title: `${o.ref}: the buyer is paying you`, body: `${inr(o.inr)} straight to your bank account. Confirm it once you see it.` }
+        : { mood: 'alert', label: 'Your turn', title: `Pay ${inr(o.inr)} for ${o.ref}`, body: 'The seller’s USDT is locked in escrow. Their account is on the order.' };
+    case 'CONFIRM':
+      return sells
+        ? { mood: 'alert', label: 'Your turn', title: `Did ${inr(o.inr)} arrive for ${o.ref}?`, body: 'The buyer says they paid. Check your bank app, then confirm — that releases the escrow.' }
+        : { mood: 'verifying', label: 'Seller checking', title: `${o.ref}: the seller is confirming`, body: 'Your USDT is released the moment they confirm your payment.' };
+    case 'RELEASE':
+    case 'DONE':
+      return { mood: 'verifying', label: 'Releasing', title: `${o.ref}: releasing the escrow`, body: sells ? 'You confirmed the INR. Nothing more to do.' : 'Your USDT is on its way to your wallet.' };
+    default:
+      return null;
+  }
+}
+
 function orderState(o: OrderSummary): AssistantState | null {
+  if (o.p2pStep && o.status === 'IN_PROGRESS') return p2pOrderState(o);
   switch (o.stage) {
     case 'OFFER':
       return { mood: 'focused', label: 'New order', title: `New order ${o.ref}`, body: 'A new order matches your available capacity.' };

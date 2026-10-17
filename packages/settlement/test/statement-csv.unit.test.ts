@@ -31,6 +31,12 @@ describe('reading a bank statement', () => {
     expect(lines[0]?.description).toBe('quoted "thing"');
   });
 
+  it('reads the remitter when the bank exports it in columns of its own (ADR 0018)', () => {
+    const lines = parseStatementCsv(`${HEADER},sender_name,sender_account\n2026-09-15,CREDIT,48250.00,412345678901,UPI/412345678901,RAHUL KUMAR SHARMA,rahul@okhdfcbank\n2026-09-15,CREDIT,10.00,FEE1,,,\n`);
+    expect(lines[0]).toMatchObject({ reference: '412345678901', senderName: 'RAHUL KUMAR SHARMA', senderAccount: 'rahul@okhdfcbank' });
+    expect(lines[1]).not.toHaveProperty('senderName');
+  });
+
   it('refuses a file whose columns it cannot name', () => {
     try {
       parseStatementCsv('date,amount\n2026-09-15,10.00\n');

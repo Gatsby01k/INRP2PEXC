@@ -19,6 +19,8 @@ import type { OutboxHandler } from '@inrp2p/outbox';
  */
 const EMAILED = new Set([
   'QUOTE_SENT', 'REQUEST_DECLINED', 'TRADE_COMPLETED', 'TRADE_CANCELLED', 'DESTINATION_ADDED', 'DESTINATION_ARCHIVED',
+  // ADR 0018: rupees from someone else are going back — the client must know before paying again.
+  'PAYMENT_RETURNED',
   // A trader is often not looking at the product when an order arrives or its turn comes.
   'TRADER_APPROVED', 'TRADER_REJECTED', 'TRADER_PAUSED', 'TRADER_ORDER_NEW', 'TRADER_ACTION_REQUIRED', 'TRADER_ORDER_COMPLETED', 'TRADER_RESERVE_ISSUE',
 ]);

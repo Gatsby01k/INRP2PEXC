@@ -55,7 +55,7 @@ export interface FundingUse {
   readonly chainSendId?: string;
 }
 
-const SOURCE_FOR: Record<FundingUseKind, FundingSourceKind> = { CLIENT_PAYOUT: 'COUNTERPARTY_FUNDS', REFUND: 'CLIENT_FUNDS', ROUTE_PAYMENT: 'CLIENT_FUNDS' };
+const SOURCE_FOR: Record<FundingUseKind, FundingSourceKind> = { CLIENT_PAYOUT: 'COUNTERPARTY_FUNDS', REFUND: 'CLIENT_FUNDS', ROUTE_PAYMENT: 'CLIENT_FUNDS', ESCROW_RETURN: 'COUNTERPARTY_FUNDS' };
 const SOURCE_WORDS: Record<FundingSourceKind, string> = { COUNTERPARTY_FUNDS: "the counterparty's", CLIENT_FUNDS: "the client's" };
 
 /**
