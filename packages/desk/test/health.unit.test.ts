@@ -27,7 +27,8 @@ describe('every alert knows where to send the person it wakes', () => {
     const unreachable = headings.filter((h) => !HEALTH_CHECKS.some((c) => c.runbook === h));
     expect(unreachable.sort()).toEqual([
       'account-takeover', 'chain-backfill', 'client-authenticator-lost', 'custody-seed', 'duplicate-utr', 'failed-bank-transfer', 'field-encryption-keys',
-      'incident-recovery', 'operator-access', 'pause-new-business', 'payout-ambiguous', 'receipt-integrity', 'secret-rotation',
+      'incident-recovery', 'inr-payment-window', 'inr-sender-partial', 'inr-unexpected-sender', 'operator-access', 'p2p-escrow', 'pause-new-business',
+      'payout-ambiguous', 'receipt-integrity', 'secret-rotation',
     ]);
   });
 

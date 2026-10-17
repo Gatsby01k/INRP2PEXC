@@ -13,7 +13,7 @@ export interface StripRoute {
   readonly publishedAt: string | null;
   /** What the route says it can take on, in USDT, and how it settles (DIRECT_TO_CLIENT / TO_EXCHANGE). */
   readonly availableUsdt: string;
-  readonly executionMode: 'DIRECT_TO_CLIENT' | 'TO_EXCHANGE';
+  readonly executionMode: 'DIRECT_TO_CLIENT' | 'TO_EXCHANGE' | 'P2P';
 }
 
 export interface DeskStrip {
@@ -66,7 +66,7 @@ export async function deskStrip(ex: Executor, access: DeskAccess): Promise<DeskS
   if (access.economics) {
     const rows = await sql<{
       route_id: string; name: string; direction: DirectionValue; rate: string | null; published_at: Date | null;
-      available_base_minor: bigint; execution_mode: 'DIRECT_TO_CLIENT' | 'TO_EXCHANGE';
+      available_base_minor: bigint; execution_mode: 'DIRECT_TO_CLIENT' | 'TO_EXCHANGE' | 'P2P';
     }>`
       select r.id as route_id, r.name, d.direction, r.available_base_minor, r.execution_mode,
              (select s.rate_micro::text from rate_snapshot s
@@ -96,7 +96,7 @@ export async function deskStrip(ex: Executor, access: DeskAccess): Promise<DeskS
       from ledger_entry e
       join ledger_account a on a.id = e.account_id
       join ledger_journal j on j.id = e.journal_id
-      where a.code = 'REVENUE:GROSS_MARGIN' and (j.posted_at at time zone 'Asia/Kolkata')::date = ${day}::date`.execute(ex);
+      where a.code = 'REVENUE:GROSS_MARGIN' and a.currency = 'INR' and (j.posted_at at time zone 'Asia/Kolkata')::date = ${day}::date`.execute(ex);
     extras.realizedMarginToday = Money.ofMinor(BigInt(margin.rows[0]!.net), 'INR').toDecimalString();
   }
   return { ...strip, ...extras };

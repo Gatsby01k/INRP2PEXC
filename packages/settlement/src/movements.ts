@@ -295,7 +295,7 @@ export interface PostMovementInput {
   readonly from: MovementParty;
   readonly to: MovementParty;
   readonly tradeId?: string | null;
-  readonly purpose: 'CLIENT_FIRST_LEG' | 'CLIENT_PAYOUT' | 'ROUTE_SETTLEMENT' | 'REFUND' | 'UNALLOCATED' | 'TRADER_RESERVE' | 'TRADER_REWARD_PAYOUT' | 'TRADER_RESERVE_APPLIED';
+  readonly purpose: 'CLIENT_FIRST_LEG' | 'CLIENT_PAYOUT' | 'ROUTE_SETTLEMENT' | 'REFUND' | 'UNALLOCATED' | 'TRADER_RESERVE' | 'TRADER_REWARD_PAYOUT' | 'TRADER_RESERVE_APPLIED' | 'ESCROW_RETURN';
   /** `TRADER_RESERVE_APPLIED` only: the exchange wallets custody moved the reserve between. */
   readonly custody?: { readonly fromWalletId: string; readonly toWalletId: string } | null;
 }

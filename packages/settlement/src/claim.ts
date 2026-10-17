@@ -9,6 +9,7 @@ import type { ClientActor, DomainCommand } from '@inrp2p/identity';
 import { effectiveObligations, lockTrade } from '@inrp2p/trades';
 import { recordClientInrInTx } from './firstleg.ts';
 import { cancelTradeInTx } from './cancel.ts';
+import { obligationOfTrade, obligationRemaining } from './obligations.ts';
 
 /**
  * `fiat_in.claim` (ADR 0018) — the client says "I paid": from which of its own registered accounts, over which rail,
@@ -42,8 +43,19 @@ export function claimIncomingFiat(actor: ClientActor): DomainCommand<{ tradeRef:
       const row = await ctx.tx.selectFrom('trade').select(['id']).where('ref', '=', p.tradeRef).where('client_id', '=', clientId).executeTakeFirstOrThrow();
       const trade = await lockTrade(ctx.tx, row.id);
       if (trade.lifecycle_state === 'CANCELLED') throw new DomainError('INVALID_TRANSITION', 'this trade was cancelled — if you paid, the desk returns the money to the account it came from');
-      const collection = await ctx.tx.selectFrom('trade_collection').select(['inr_account_id', 'reference']).where('trade_id', '=', trade.id).executeTakeFirst();
-      if (!collection) throw new DomainError('NO_COLLECTION', 'the desk tells you where to pay this trade — send them your payment reference');
+      // P2P (ADR 0019): the client pays its trader directly — and only once the trader's USDT is in the escrow, final.
+      const e = await ctx.tx.selectFrom('trade_economics').select(['route_execution_mode', 'route_id']).where('trade_id', '=', trade.id).executeTakeFirstOrThrow();
+      let to: { kind: 'EXCHANGE_ACCOUNT'; inrAccountId: string } | { kind: 'ROUTE'; routeId: string };
+      if (e.route_execution_mode === 'P2P') {
+        const obligation = await obligationOfTrade(ctx.tx, trade.id);
+        const remaining = await obligationRemaining(ctx.tx, obligation.id);
+        if (!remaining.routeDelivers.isZero()) throw new DomainError('ESCROW_NOT_FUNDED', 'wait until the trader’s USDT is in escrow — you will see the account to pay then');
+        to = { kind: 'ROUTE', routeId: e.route_id };
+      } else {
+        const collection = await ctx.tx.selectFrom('trade_collection').select(['inr_account_id', 'reference']).where('trade_id', '=', trade.id).executeTakeFirst();
+        if (!collection) throw new DomainError('NO_COLLECTION', 'the desk tells you where to pay this trade — send them your payment reference');
+        to = { kind: 'EXCHANGE_ACCOUNT', inrAccountId: collection.inr_account_id };
+      }
       const rail = requireOneOf(p.rail, 'rail', ['IMPS', 'NEFT', 'RTGS', 'UPI'] as const);
       const utr = requireUtrShape(rail, p.utr);
 
@@ -57,7 +69,7 @@ export function claimIncomingFiat(actor: ClientActor): DomainCommand<{ tradeRef:
       if (amount.minor > owed) throw new DomainError('INVALID_AMOUNT', `that is more than the ${Money.ofMinor(owed, 'INR').toDecimalString()} INR still due`);
 
       const recorded = await recordClientInrInTx(ctx, trade, {
-        rail, utr, amount, inrAccountId: collection.inr_account_id, payerBankAccountId: requireUuid(p.fromBankAccountId, 'fromBankAccountId'), filedBy: 'CLIENT',
+        rail, utr, amount, to, payerBankAccountId: requireUuid(p.fromBankAccountId, 'fromBankAccountId'), filedBy: 'CLIENT',
       });
       await appendAudit(ctx, { action: 'fiat_in.claimed', entityType: 'trade', entityId: trade.id, after: { leg_ref: recorded.ref, rail, utr, amount, from_bank_account_id: p.fromBankAccountId } });
       await enqueueOutbox(ctx, { type: 'desk.client_payment_claimed', aggregateType: 'trade', aggregateId: trade.id, payload: { tradeId: trade.id, legId: recorded.legId } });

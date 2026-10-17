@@ -34,7 +34,7 @@ const EXCLUSION_TEXT: Record<string, string> = {
   DESTINATIONS_INACTIVE: 'settlement details inactive', ASSIGNMENTS_DISABLED: 'assignments off', NO_SIDE: 'side not offered', NO_RATE: 'no rate',
   NO_LIMITS: 'no order size', BLOCK_PAUSED: 'side paused', NO_CAPACITY: 'no capacity', BELOW_MINIMUM: 'below their minimum', ABOVE_MAXIMUM: 'above their maximum',
   NOT_ENOUGH_CAPACITY: 'not enough capacity', ALREADY_OFFERED: 'already declined or let lapse', OWN_REQUEST: 'own request',
-  NETWORK_DEPOSIT_SHORT: 'network deposit short of TRX', NETWORK_FEES_UNKNOWN: 'network fees not current',
+  NETWORK_DEPOSIT_SHORT: 'network deposit short of TRX', NETWORK_FEES_UNKNOWN: 'network fees not current', NEEDS_CLIENT_RATE: 'P2P: name the client rate first',
 };
 
 /**
@@ -322,7 +322,7 @@ function TraderSection({ request, canAssign, plannedRate }: { request: DeskReque
   const assign = async () => {
     setMiss(null);
     const out = await cmd.run(`Route ${request.ref} to a trader`, (key) =>
-      assignRequestAction({ requestId: request.requestId, ...(request.fixedSide === 'QUOTE' ? { plannedClientRate: plannedRate } : {}) }, key),
+      assignRequestAction({ requestId: request.requestId, ...(request.fixedSide === 'QUOTE' || plannedRate !== '' ? { plannedClientRate: plannedRate } : {}) }, key),
     );
     if (!out.ok && out.code === 'TRADER_NONE_ELIGIBLE') {
       const excluded = (out.details?.excluded ?? {}) as Record<string, number>;
@@ -359,7 +359,11 @@ function TraderSection({ request, canAssign, plannedRate }: { request: DeskReque
           ) : (
             <Notice>Routing to a trader needs traders:assign.</Notice>
           )}
-          {request.fixedSide === 'QUOTE' ? <p className={d.fieldHint}>An INR-fixed request is sized at the client rate above; the trader’s order is quoted at that same rate.</p> : null}
+          {request.fixedSide === 'QUOTE' ? (
+            <p className={d.fieldHint}>An INR-fixed request is sized at the client rate above; the trader’s order is quoted at that same rate.</p>
+          ) : (
+            <p className={d.fieldHint}>A P2P trader’s order is sized at the client rate above — the rupees are one amount for both — so set it before assigning.</p>
+          )}
         </>
       )}
       {miss ? <Notice tone="warning">{miss}</Notice> : null}

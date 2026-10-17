@@ -93,7 +93,7 @@ export function judgeAgainst(accounts: readonly ExpectedAccount[], seen: SeenSen
 export async function recordSenderCheckInTx(
   ctx: TxContext,
   input: {
-    readonly transferId: string; readonly via: 'STATEMENT' | 'DESK'; readonly seen: SeenSender; readonly statementLineId?: string | null; readonly narration?: string | null;
+    readonly transferId: string; readonly via: 'STATEMENT' | 'DESK' | 'PAYEE'; readonly seen: SeenSender; readonly statementLineId?: string | null; readonly narration?: string | null;
     /** The caller already holds the trade and the payment in the global lock order (the statement import, a claim). */
     readonly locked?: boolean;
   },
@@ -106,7 +106,7 @@ export async function recordSenderCheckInTx(
   }
   const t = await transferForCheck(ctx.tx, input.transferId);
   if (!t.needsCheck) throw new DomainError('INVALID_ARGUMENT', 'this payment is not one whose sender is checked');
-  if (input.via === 'DESK' && t.status !== 'RECORDED') throw new DomainError('INVALID_TRANSITION', `the payment is ${t.status.toLowerCase()}; its sender is no longer decided by hand`);
+  if (input.via !== 'STATEMENT' && t.status !== 'RECORDED') throw new DomainError('INVALID_TRANSITION', `the payment is ${t.status.toLowerCase()}; its sender is no longer decided by hand`);
   const seen: SeenSender = { name: optionalText(input.seen.name, 'senderName', 140), account: optionalText(input.seen.account, 'senderAccount', 80) };
   const judged = judgeAgainst(await expectedAccounts(ctx.tx, t), seen);
   const row = await ctx.tx
@@ -248,7 +248,7 @@ export interface SenderView {
   readonly verdict: SenderVerdict | 'NOT_CHECKED';
   readonly declared: ExpectedAccount | null;
   readonly checks: readonly {
-    readonly via: 'STATEMENT' | 'DESK';
+    readonly via: 'STATEMENT' | 'DESK' | 'PAYEE';
     readonly verdict: SenderVerdict;
     readonly seenName: string | null;
     readonly seenAccount: string | null;

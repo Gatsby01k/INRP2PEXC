@@ -74,12 +74,12 @@ export async function depositTrx(w: RailsWorld, setup: TraderSetup, amount: stri
 }
 
 /** Request → offer to the trader → trader accepts → desk quotes on its route → client accepts — on the rails. */
-export async function railsTrade(w: RailsWorld, trader: TraderSetup, input: { direction: 'SELL_USDT' | 'BUY_USDT'; amount: string; clientRate: string }) {
+export async function railsTrade(w: RailsWorld, trader: TraderSetup, input: { direction: 'SELL_USDT' | 'BUY_USDT'; amount: string; clientRate: string; plannedClientRate?: string }) {
   const request = await runAs(w.app, createRequest(w.dealer.actor, {}), w.dealer.ref, 'request.create', {
     clientId: w.clientId, direction: input.direction, fixedSide: 'BASE' as const, amount: input.amount,
     ...(input.direction === 'SELL_USDT' ? { bankAccountId: w.bankAccountId } : { walletId: w.walletId }),
   });
-  const assigned = await runAs(w.app, assignRequest(w.dealer.actor), w.dealer.ref, 'trader_order.assign', { requestId: request.requestId });
+  const assigned = await runAs(w.app, assignRequest(w.dealer.actor), w.dealer.ref, 'trader_order.assign', { requestId: request.requestId, plannedClientRate: input.plannedClientRate ?? null });
   await runAs(w.app, acceptOrder(trader.admin.actor), trader.admin.ref, 'trader_order.accept', { ref: assigned.ref });
   const order = await w.app.selectFrom('trader_order').select(['id', 'route_id']).where('ref', '=', assigned.ref).executeTakeFirstOrThrow();
   const quote = await runAs(w.app, createQuote(w.dealer.actor, {}), w.dealer.ref, 'quote.create', { requestId: request.requestId, routeId: order.route_id, clientRate: input.clientRate, validitySeconds: 300 });

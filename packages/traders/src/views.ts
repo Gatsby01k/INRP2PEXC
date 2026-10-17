@@ -3,11 +3,11 @@ import { DomainError, Money, Rate, requireText } from '@inrp2p/kernel';
 import type { DestinationStatus, Executor, P2pExperience, TraderOrderStatus, TraderSide, TraderStatus } from '@inrp2p/db';
 import type { FieldProtector } from '@inrp2p/adapters';
 import { inrAccountSealContext } from '@inrp2p/inr-accounts';
-import { obligationRemaining } from '@inrp2p/settlement';
+import { type P2pDeal, obligationRemaining, p2pDeal } from '@inrp2p/settlement';
 import { traderApplicant, traderMembership, traderProgram } from '@inrp2p/trader-core';
 import { CLIENT_FUNDED_STATES } from './delivery.ts';
 import { type BlockIssue, type StandingIssue, blockIssues, freeCapacity, standingIssues } from './eligibility.ts';
-import { type OrderStage, type OrderStep, orderStage, orderSteps } from './progress.ts';
+import { type OrderStage, type OrderStep, orderStage, orderSteps, p2pOrderStage, p2pOrderSteps } from './progress.ts';
 import { sharedReserveAddress } from './reserve.ts';
 import { earnings } from './rewards.ts';
 import { readBlocks, readStanding } from './standing.ts';
@@ -64,6 +64,8 @@ export interface OrderSummary {
   readonly reward: string | null;
   /** What the trader still owes on its side, in that side's currency. */
   readonly youOwe: string | null;
+  /** ADR 0019: the step of a P2P order's deal (escrow, payment, confirmation, release); null otherwise. */
+  readonly p2pStep: P2pDeal['step'] | null;
 }
 
 interface OrderRowFull {
@@ -84,21 +86,28 @@ interface OrderRowFull {
   reward_inr_minor: bigint | null;
   trade_id: string | null;
   route_obligation_id: string | null;
+  route_id: string;
 }
 
-const ORDER_SELECT = ['o.id', 'o.ref', 'o.side', 'o.status', 'o.base_minor', 'o.inr_minor', 'o.rate_micro', 'o.offered_at', 'o.offer_expires_at', 'o.hold_until', 'o.started_at', 'o.completed_at', 'o.closed_at', 'o.close_reason', 'o.reward_inr_minor', 'o.trade_id', 'o.route_obligation_id'] as const;
+const ORDER_SELECT = ['o.id', 'o.ref', 'o.side', 'o.status', 'o.base_minor', 'o.inr_minor', 'o.rate_micro', 'o.offered_at', 'o.offer_expires_at', 'o.hold_until', 'o.started_at', 'o.completed_at', 'o.closed_at', 'o.close_reason', 'o.reward_inr_minor', 'o.trade_id', 'o.route_obligation_id', 'o.route_id'] as const;
 
 interface OrderProgressFacts {
   readonly stage: OrderStage;
   readonly traderOwed: bigint;
   readonly inrp2pOwed: bigint;
   readonly deliveryAddress: string | null;
+  /** ADR 0019: the step of a P2P order's deal; null for an order through INRP2P's account. */
+  readonly p2pStep: P2pDeal['step'] | null;
+}
+
+async function isP2pOrder(ex: Executor, o: OrderRowFull): Promise<boolean> {
+  return (await ex.selectFrom('liquidity_route').select('execution_mode').where('id', '=', o.route_id).executeTakeFirstOrThrow()).execution_mode === 'P2P';
 }
 
 /** The facts behind an order's stage, from the trade, the obligation's allocations and its settlements. */
 async function progressFacts(ex: Executor, o: OrderRowFull): Promise<OrderProgressFacts> {
   if (o.status !== 'IN_PROGRESS' || !o.trade_id || !o.route_obligation_id) {
-    return { stage: orderStage({ status: o.status, counterpartyFunded: false, traderOwedMinor: 0n, traderPaymentPending: false, inrp2pOwedMinor: 0n, inrp2pPaymentPending: false, needsReview: false }), traderOwed: 0n, inrp2pOwed: 0n, deliveryAddress: null };
+    return { stage: orderStage({ status: o.status, counterpartyFunded: false, traderOwedMinor: 0n, traderPaymentPending: false, inrp2pOwedMinor: 0n, inrp2pPaymentPending: false, needsReview: false }), traderOwed: 0n, inrp2pOwed: 0n, deliveryAddress: null, p2pStep: null };
   }
   const trade = await ex.selectFrom('trade').select('lifecycle_state').where('id', '=', o.trade_id).executeTakeFirstOrThrow();
   const remaining = await obligationRemaining(ex, o.route_obligation_id);
@@ -124,6 +133,12 @@ async function progressFacts(ex: Executor, o: OrderRowFull): Promise<OrderProgre
   }
   const traderOwed = remaining.routeDelivers.minor;
   const inrp2pOwed = remaining.exchangeDelivers.minor;
+  if (await isP2pOrder(ex, o)) {
+    const deal = await p2pDeal(ex, null, { tradeId: o.trade_id, viewer: 'TRADER' });
+    if (deal) {
+      return { stage: needsReview ? 'REVIEW' : p2pOrderStage(o.side, o.status, deal.step), traderOwed, inrp2pOwed, deliveryAddress: delivery?.address ?? null, p2pStep: deal.step };
+    }
+  }
   return {
     stage: orderStage({
       status: o.status,
@@ -137,6 +152,7 @@ async function progressFacts(ex: Executor, o: OrderRowFull): Promise<OrderProgre
     traderOwed,
     inrp2pOwed,
     deliveryAddress: delivery?.address ?? null,
+    p2pStep: null,
   };
 }
 
@@ -159,6 +175,7 @@ function summarize(o: OrderRowFull, facts: OrderProgressFacts): OrderSummary {
     closeNote: o.close_reason,
     reward: o.reward_inr_minor !== null && o.reward_inr_minor > 0n ? inr(o.reward_inr_minor) : null,
     youOwe: o.status === 'IN_PROGRESS' && facts.traderOwed > 0n ? (buy ? inr(facts.traderOwed) : usdt(facts.traderOwed)) : null,
+    p2pStep: facts.p2pStep,
   };
 }
 
@@ -541,6 +558,11 @@ export interface TraderOrderDetail {
   /** Sell USDT: this order's own address, once issued. */
   readonly sendTo: string | null;
   readonly paymentDetailsPublished: boolean;
+  /**
+   * ADR 0019: a P2P order's deal — its step, whose move it is and until when, and, when the trader pays the rupees, the
+   * account it pays into. Null for an order through INRP2P's account.
+   */
+  readonly p2p: P2pDeal | null;
   readonly now: string;
 }
 
@@ -581,8 +603,9 @@ export async function traderOrderDetail(ex: Executor, userId: string, ref: strin
     at: (p.confirmed_at ?? p.recorded_at).toISOString(),
   });
 
+  const p2p = o.trade_id && (await isP2pOrder(ex, o)) ? await p2pDeal(ex, protector, { tradeId: o.trade_id, viewer: 'TRADER' }) : null;
   let payTo: TraderOrderDetail['payTo'] = null;
-  if (buy && facts.stage === 'YOUR_TURN' && program.collectionAccountId) {
+  if (!p2p && buy && facts.stage === 'YOUR_TURN' && program.collectionAccountId) {
     const account = await ex
       .selectFrom('inr_settlement_account as a')
       .innerJoin('settlement_entity as e', 'e.id', 'a.entity_id')
@@ -600,10 +623,16 @@ export async function traderOrderDetail(ex: Executor, userId: string, ref: strin
 
   return traderSafe({
     order: summary,
-    steps: o.status === 'OFFERED' || o.status === 'ACCEPTED' || o.status === 'IN_PROGRESS' || o.status === 'COMPLETED' ? orderSteps(o.side, facts.stage) : [],
-    method: buy
-      ? 'You pay INR by bank transfer to INRP2P from your registered account. INRP2P sends USDT on TRC20 to your registered wallet.'
-      : 'You send USDT on TRC20 from your registered wallet to this order’s own address. INRP2P pays INR to your registered bank account.',
+    steps: o.status === 'OFFERED' || o.status === 'ACCEPTED' || o.status === 'IN_PROGRESS' || o.status === 'COMPLETED'
+      ? p2p && o.status !== 'ACCEPTED' ? p2pOrderSteps(o.side, o.status, p2p.step) : orderSteps(o.side, facts.stage)
+      : [],
+    method: p2p
+      ? buy
+        ? 'The seller’s USDT is held in escrow by INRP2P. You pay INR straight to the seller’s bank account from your registered account; once the seller confirms it, INRP2P releases the USDT to your registered wallet.'
+        : 'You put the USDT in escrow — this order’s own address. The buyer pays INR straight to your registered bank account; once you confirm it arrived, INRP2P releases the USDT to the buyer.'
+      : buy
+        ? 'You pay INR by bank transfer to INRP2P from your registered account. INRP2P sends USDT on TRC20 to your registered wallet.'
+        : 'You send USDT on TRC20 from your registered wallet to this order’s own address. INRP2P pays INR to your registered bank account.',
     youReceiveAt: buy ? `TRC20 · ${maskWallet(o.address)}` : `${o.bank_name} ••••${o.account_last4}`,
     yourPayments: payments.filter((p) => p.obligation_side === 'ROUTE_DELIVERS').map(row),
     inrp2pPayments: payments.filter((p) => p.obligation_side === 'EXCHANGE_DELIVERS').map(row),
@@ -611,7 +640,8 @@ export async function traderOrderDetail(ex: Executor, userId: string, ref: strin
     inrp2pOwes: o.status === 'IN_PROGRESS' && facts.inrp2pOwed > 0n ? (buy ? usdt(facts.inrp2pOwed) : inr(facts.inrp2pOwed)) : null,
     payTo,
     sendTo: facts.deliveryAddress,
-    paymentDetailsPublished: program.collectionAccountId !== null,
+    paymentDetailsPublished: p2p !== null || program.collectionAccountId !== null,
+    p2p,
     now: now.toISOString(),
   });
 }

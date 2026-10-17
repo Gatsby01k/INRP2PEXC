@@ -473,3 +473,25 @@ What the owner sets up once, before the first BUY.
 
 The worker's `inr_payment_expiry` job cancels a BUY nobody paid within 30 minutes; it needs nothing configured.
 
+
+## 13. P2P escrow (ADR 0019)
+
+For a desk with no Indian bank account: the rupees go straight between client and trader, INRP2P holds the USDT.
+
+1. **Migration 39.** `DATABASE_MIGRATOR_URL=… node scripts/migrate.ts` (38 → 39); the release then requires 39. Nothing
+   changes until the programme says P2P.
+2. **Switch the programme.** Desk → Traders → Programme → *How traders settle* = **P2P** (OWNER or FINANCE, with a
+   reason). Refused while any trader order or obligation is open: switch between deals. Every trader route then settles
+   P2P, and no trader reward is counted.
+3. **The platform's TRX budget.** P2P transfers are paid from the platform's budget, not a trader's deposit: send TRX
+   from a wallet no trader registered to the budget wallet and record it on the Network page (*Record a top-up*,
+   *the platform's own*). Each deal holds about two transfers' worth until it closes.
+4. **Every trader's and client's own bank account.** A trader is paid into, and pays from, the account on its trader
+   file; a client likewise from its registered account. The counterparty's account is shown only to the side that pays,
+   only while it is to pay.
+5. **The client rate on assignment.** A P2P order is sized at the client rate the desk will quote: *Assign* asks for it,
+   and the quote must use exactly that rate.
+
+The worker's `escrow_deadlines` job (every minute) cancels a BUY whose escrow was not funded or not paid in 30 minutes —
+the trader's USDT then goes back by the signer — and gives the desk a case for a late payment or a late confirmation
+(RUNBOOKS `p2p-escrow`). It needs nothing configured; the signer must be switched on for escrow returns to be sent.

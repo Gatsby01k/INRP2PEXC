@@ -12,6 +12,7 @@ import { type Step, at, tradeAssistant } from '../../_assistant/model.ts';
 import { ArrowIcon, CheckIcon, ClockIcon, DownloadIcon, InfoIcon, PauseIcon, ReceiptIcon } from '../../_workspace/icons.tsx';
 import { SuccessMark } from '../../_workspace/SuccessMark.tsx';
 import { InrPayment } from './InrPayment.tsx';
+import { P2pDealCard } from './P2pDeal.tsx';
 import shell from '../../shell.module.css';
 import styles from './trade.module.css';
 
@@ -34,6 +35,12 @@ const STAGE_LABELS = {
   BUY_USDT: ['Quote accepted', 'INR received', 'USDT sent', 'Settled'],
 } as const;
 
+/** P2P (ADR 0019): the same four stages, in the words of a deal where the rupees go straight to the other side. */
+const P2P_STAGE_LABELS = {
+  SELL_USDT: ['Quote accepted', 'USDT in escrow', 'INR from the buyer', 'Settled'],
+  BUY_USDT: ['Quote accepted', 'Seller confirmed your INR', 'USDT released', 'Settled'],
+} as const;
+
 /** A public explorer for a TRON transaction, where the client can check it themselves. */
 const explorer = (hash: string) => `https://tronscan.org/#/transaction/${hash}`;
 
@@ -41,7 +48,7 @@ const explorer = (hash: string) => `https://tronscan.org/#/transaction/${hash}`;
 function stepsOf(view: PortalTrade): (Step & { at: string | null })[] {
   const cancelled = view.trade.status === 'CANCELLED';
   return view.stages.map((s, i) => {
-    const label = STAGE_LABELS[view.trade.direction][i] ?? s.key;
+    const label = (view.p2p ? P2P_STAGE_LABELS : STAGE_LABELS)[view.trade.direction][i] ?? s.key;
     if (cancelled && s.status === 'current') return { label, status: 'exception' as const, detail: 'cancelled', at: s.at };
     return { label, status: s.status, ...(s.detail ? { detail: s.detail } : {}), at: s.at };
   });
@@ -83,6 +90,21 @@ function eventsOf(view: PortalTrade, sell: boolean, rate: string): Event[] {
   }
   if (view.completedAt) events.push({ at: view.completedAt, title: 'Settled in full', tone: 'done' });
   return events.sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+}
+
+/** The headline of a P2P deal (ADR 0019): what the deal waits on, said the way the client lives it. */
+function p2pHeadline(deal: NonNullable<PortalTrade['p2p']>, sell: boolean, usdt: string, inr: string): { title: string; body: string } | null {
+  if (sell) {
+    if (deal.step === 'PAY') return { title: `The buyer is paying you ${inr}`, body: 'Your USDT is locked in INRP2P’s escrow. It is released only when you confirm the money is in your account.' };
+    if (deal.step === 'CONFIRM') return { title: `Check your bank for ${inr}`, body: 'The buyer says they paid. Confirm it once you see the credit — that releases the escrow.' };
+    if (deal.step === 'RELEASE') return { title: 'Done on your side', body: 'You confirmed the INR; INRP2P is releasing the escrow to the buyer.' };
+    return null;
+  }
+  if (deal.step === 'ESCROW') return { title: `Securing your ${usdt}`, body: 'The seller is putting the USDT in INRP2P’s escrow first. You pay only once it is locked for you.' };
+  if (deal.step === 'PAY') return { title: `Your ${usdt} is locked in escrow`, body: `Now pay the seller ${inr} straight from your own account and tell us the reference. The escrow releases the USDT to you as soon as the seller confirms it.` };
+  if (deal.step === 'CONFIRM') return { title: 'The seller is confirming your payment', body: `As soon as they see your ${inr}, the escrow releases your ${usdt}.` };
+  if (deal.step === 'RELEASE') return { title: `Your ${usdt} is on its way`, body: 'Payment confirmed. INRP2P is sending the USDT from escrow to your wallet.' };
+  return null;
 }
 
 /** How often the screen looks again while money is still moving, or a settled trade's receipt is still to come. */
@@ -131,13 +153,18 @@ export function TradeScreen({ view, justOpened = false }: { view: PortalTrade; j
   const rate = formatRate(Rate.parse(trade.clientRate, 'CLIENT'));
   const inrSettlement = settlement.expected.currency === 'INR';
   const receipt = `/api/receipts/${encodeURIComponent(trade.ref)}`;
-  const yourMove = trade.status === 'AWAITING_FIRST_LEG' && !view.onHold;
+  const p2p = view.p2p;
+  // P2P (ADR 0019): a buyer's move begins only once the seller's USDT is in escrow.
+  const yourMove = trade.status === 'AWAITING_FIRST_LEG' && !view.onHold && !(p2p && !sell && p2p.step === 'ESCROW');
   const reached = Math.max(0, steps.findIndex((s) => s.status !== 'done'));
   const progress = steps.every((s) => s.status === 'done') ? 1 : reached / (steps.length - 1);
   const events = eventsOf(view, sell, rate);
   const exactAmount = trade.depositInstructions ? Money.parse(trade.depositInstructions.amount, 'USDT').toDecimalString() : null;
   // While the trade waits on the client, the headline says what it is waiting for; the card below says how.
-  const headline = yourMove
+  const p2pHead = p2p && !view.onHold ? p2pHeadline(p2p, sell, usdt, inr) : null;
+  const headline = p2pHead
+    ? p2pHead
+    : yourMove
     ? {
         title: sell ? `Waiting for your ${usdt}` : `Waiting for your ${inr}`,
         body: sell
@@ -225,7 +252,11 @@ export function TradeScreen({ view, justOpened = false }: { view: PortalTrade; j
               <h2 id="deposit-title" className={styles.actionTitle}>
                 Send your USDT
               </h2>
-              <p className={styles.actionText}>Scan the code or copy the address into your wallet. The transfer is picked up on-chain the moment it lands — there is nothing to tell the desk.</p>
+              <p className={styles.actionText}>
+                {p2p
+                  ? 'This address is the deal’s escrow: INRP2P holds your USDT there and releases it to the buyer only after you confirm their INR reached your account.'
+                  : 'Scan the code or copy the address into your wallet. The transfer is picked up on-chain the moment it lands — there is nothing to tell the desk.'}
+              </p>
             </div>
             <DepositAddress
               address={trade.depositInstructions.address}
@@ -243,7 +274,9 @@ export function TradeScreen({ view, justOpened = false }: { view: PortalTrade; j
           </section>
         ) : null}
 
-        {!sell && view.payment && (trade.status === 'AWAITING_FIRST_LEG' || trade.status === 'FIRST_LEG_DETECTED' || (trade.status !== 'COMPLETED' && view.payment.payments.length > 0)) ? (
+        {p2p ? <P2pDealCard view={view} /> : null}
+
+        {!p2p && !sell && view.payment && (trade.status === 'AWAITING_FIRST_LEG' || trade.status === 'FIRST_LEG_DETECTED' || (trade.status !== 'COMPLETED' && view.payment.payments.length > 0)) ? (
           <InrPayment tradeRef={trade.ref} payment={view.payment} total={trade.inr.amount} />
         ) : null}
 

@@ -23,6 +23,7 @@ const order = (over: Partial<OrderSummary> & Pick<OrderSummary, 'ref' | 'stage'>
   closeNote: null,
   reward: null,
   youOwe: null,
+  p2pStep: null,
   ...over,
 });
 

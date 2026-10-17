@@ -216,6 +216,20 @@ export const RESOLUTIONS: Record<ExceptionType, ResolutionChoices> = {
     voidable: false,
     financial: 'Rupees from someone other than the payer are never counted and never kept: send them back to the account they came from — not to the client — and mark the payment not received. The trade then waits for a payment from the client’s own account, or is cancelled.',
   },
+  P2P_PAYMENT_OVERDUE: {
+    resolutions: [
+      { value: 'escalate', label: 'Escalate' },
+    ],
+    voidable: true,
+    financial: 'The trader has not paid a client whose USDT is in escrow. Chase the trader — the case closes by itself once it files its payment — or refund the client’s USDT and cancel, which needs a second approver.',
+  },
+  P2P_RECEIPT_OVERDUE: {
+    resolutions: [
+      { value: 'escalate', label: 'Escalate' },
+    ],
+    voidable: true,
+    financial: 'The one who received the rupees has not confirmed them. With the bank’s evidence of who paid, check the sender and confirm the payment for them; if the rupees never arrived, mark the payment not received. A late confirmation by the payee closes this by itself.',
+  },
 };
 
 /** The fallback exists so an unknown type is still closable; the test makes sure it is never the live path. */

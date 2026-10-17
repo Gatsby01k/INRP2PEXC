@@ -8,7 +8,7 @@ import type { TxContext } from '@inrp2p/db';
 import { releasePastDayReservations } from '@inrp2p/inr-accounts';
 import { releaseCooledDownAddresses } from '@inrp2p/treasury';
 import { type QuotePolicy, expireQuote, runExpirySweep } from '@inrp2p/quotes';
-import { expireUnpaidTrades, runReconciliation, runSettlementSla } from '@inrp2p/settlement';
+import { expireUnpaidTrades, runP2pDeadlines, runReconciliation, runSettlementSla } from '@inrp2p/settlement';
 import { type ScannerDeps, observeBalances, runChainBackfill, runOrphanSweep, runTronConfirm, runTronScan } from '@inrp2p/scanner';
 import { runTraderSweep } from '@inrp2p/traders';
 import { type WorkerBeat, recordWorkerBeat } from '@inrp2p/trades';
@@ -83,6 +83,12 @@ export function buildTaskList(
   const inrPaymentExpiry: Task = async (_payload, helpers) => {
     const out = await expireUnpaidTrades(db);
     for (const f of out.failures) helpers.logger.error(`inr_payment_expiry: trade ${f.tradeId} not cancelled: ${f.message}`);
+  };
+  // ADR 0019 §2.7: the time limits of P2P deals — unpaid ones cancelled (the trader's escrow then goes back), late ones
+  // handed to the desk.
+  const escrowDeadlines: Task = async (_payload, helpers) => {
+    const out = await runP2pDeadlines(db);
+    for (const f of out.failures) helpers.logger.error(`escrow_deadlines: trade ${f.tradeId}: ${f.message}`);
   };
   // Phase 5 (STATE_MACHINES §5). Chain monitoring is either deliberately off, in which case the jobs do nothing
   // and that is healthy, or it is on, in which case it must actually work: an enabled-but-unconfigured worker
@@ -188,6 +194,7 @@ export function buildTaskList(
     settlement_reconcile: reconcile,
     settlement_sla: settlementSla,
     inr_payment_expiry: inrPaymentExpiry,
+    escrow_deadlines: escrowDeadlines,
     tron_scan: tronScan,
     tron_confirm: tronConfirm,
     tron_orphan_sweep: tronOrphanSweep,
@@ -241,6 +248,7 @@ export const CRONTAB = [
   '* * * * * quote_expiry_sweep ?max=1&jobKey=quote_expiry_sweep',
   '*/15 * * * * settlement_sla ?max=2&jobKey=settlement_sla',
   '* * * * * inr_payment_expiry ?max=1&jobKey=inr_payment_expiry',
+  '* * * * * escrow_deadlines ?max=1&jobKey=escrow_deadlines',
   '23 1 * * * settlement_reconcile ?max=2&jobKey=settlement_reconcile',
   '* * * * * tron_scan ?max=1&jobKey=tron_scan',
   '* * * * * tron_confirm ?max=1&jobKey=tron_confirm',

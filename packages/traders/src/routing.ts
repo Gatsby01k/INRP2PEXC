@@ -1,7 +1,7 @@
 import { assertNewBusinessOpen, newBusinessState } from '@inrp2p/trades';
 import { sql } from 'kysely';
 import { currentNetworkCosts, networkAvailable, reservePerSendSun, reserveSends } from '@inrp2p/network';
-import { DomainError, Money, Rate, computeTradeEconomics, requireUuid } from '@inrp2p/kernel';
+import { DomainError, Money, Rate, computeP2pEconomics, computeTradeEconomics, requireUuid } from '@inrp2p/kernel';
 import { type DirectionValue, type FixedSideValue, type TraderSide, type TxContext, assertLockOrder } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
 import { enqueueOutbox } from '@inrp2p/outbox';
@@ -57,8 +57,17 @@ export interface SizedOrder {
  * A USDT-fixed request needs nothing else. An INR-fixed request needs the client rate the desk intends to quote,
  * because the USDT amount follows from it.
  */
-export function sizeOrder(input: { direction: DirectionValue; fixedSide: FixedSideValue; requestedMinor: bigint; traderRateMicro: bigint; plannedClientRateMicro: bigint | null }): SizedOrder {
+export function sizeOrder(input: { direction: DirectionValue; fixedSide: FixedSideValue; requestedMinor: bigint; traderRateMicro: bigint; plannedClientRateMicro: bigint | null; p2p?: boolean }): SizedOrder {
   const routeRate = Rate.ofMicro(input.traderRateMicro, 'ROUTE');
+  if (input.p2p) {
+    // ADR 0019: the trader's side is its own USDT for the one rupee amount the client pays or receives.
+    if (input.plannedClientRateMicro === null) throw new DomainError('INVALID_ARGUMENT', 'a P2P order needs the client rate you intend to quote', { field: 'plannedClientRate' });
+    const clientRate = Rate.ofMicro(input.plannedClientRateMicro, 'CLIENT');
+    const econ = input.fixedSide === 'BASE'
+      ? computeP2pEconomics({ direction: input.direction, fixedSide: 'BASE', amount: Money.ofMinor(input.requestedMinor, 'USDT'), clientRate, routeRate })
+      : computeP2pEconomics({ direction: input.direction, fixedSide: 'QUOTE', amount: Money.ofMinor(input.requestedMinor, 'INR'), clientRate, routeRate });
+    return { baseMinor: econ.routeBase.minor, inrMinor: econ.clientInr.minor };
+  }
   if (input.fixedSide === 'BASE') {
     const econ = computeTradeEconomics({
       direction: input.direction, fixedSide: 'BASE', amount: Money.ofMinor(input.requestedMinor, 'USDT'),
@@ -74,7 +83,7 @@ export function sizeOrder(input: { direction: DirectionValue; fixedSide: FixedSi
   return { baseMinor: econ.base.minor, inrMinor: econ.routeInr.minor };
 }
 
-export type Exclusion = StandingIssue | FitIssue | 'NO_SIDE' | 'ALREADY_OFFERED' | 'OWN_REQUEST' | 'NETWORK_DEPOSIT_SHORT' | 'NETWORK_FEES_UNKNOWN';
+export type Exclusion = StandingIssue | FitIssue | 'NO_SIDE' | 'ALREADY_OFFERED' | 'OWN_REQUEST' | 'NETWORK_DEPOSIT_SHORT' | 'NETWORK_FEES_UNKNOWN' | 'NEEDS_CLIENT_RATE';
 
 export interface AssignResult {
   readonly orderId: string;
@@ -155,7 +164,7 @@ export async function assignRequestInTx(
   } catch (e) {
     if (!(e instanceof DomainError && e.code === 'NETWORK_FEES_UNKNOWN')) throw e;
   }
-  const candidates: (Candidate & { sized: SizedOrder })[] = [];
+  const candidates: (Candidate & { sized: SizedOrder; p2p: boolean })[] = [];
   for (const t of traders.rows) {
     if (t.client_id === request.client_id) {
       exclude('OWN_REQUEST');
@@ -175,22 +184,29 @@ export async function assignRequestInTx(
       exclude('NETWORK_FEES_UNKNOWN');
       continue;
     }
-    if ((await networkAvailable(ctx.tx, t.id)) < networkNeed) {
-      exclude('NETWORK_DEPOSIT_SHORT');
-      continue;
-    }
     const block = (await readBlocks(ctx.tx, t.id)).find((b) => b.side === side);
     if (!block) {
       exclude('NO_SIDE');
+      continue;
+    }
+    // ADR 0019: a P2P route's transfers are paid from the platform's TRX budget, so its trader needs no network deposit;
+    // its order is sized at the client rate the desk names, because the rupees are one amount for both of them.
+    const p2p = (await ctx.tx.selectFrom('liquidity_route').select('execution_mode').where('id', '=', block.routeId).executeTakeFirstOrThrow()).execution_mode === 'P2P';
+    if (!p2p && (await networkAvailable(ctx.tx, t.id)) < networkNeed) {
+      exclude('NETWORK_DEPOSIT_SHORT');
       continue;
     }
     if (block.rateMicro === null) {
       exclude('NO_RATE');
       continue;
     }
+    if (p2p && input.plannedClientRateMicro === null) {
+      exclude('NEEDS_CLIENT_RATE');
+      continue;
+    }
     let sized: SizedOrder;
     try {
-      sized = sizeOrder({ direction: request.direction, fixedSide: request.fixed_side, requestedMinor, traderRateMicro: block.rateMicro, plannedClientRateMicro: input.plannedClientRateMicro });
+      sized = sizeOrder({ direction: request.direction, fixedSide: request.fixed_side, requestedMinor, traderRateMicro: block.rateMicro, plannedClientRateMicro: input.plannedClientRateMicro, p2p });
     } catch (e) {
       if (e instanceof DomainError && e.code === 'INVALID_AMOUNT') {
         exclude('BELOW_MINIMUM');
@@ -206,12 +222,12 @@ export async function assignRequestInTx(
     }
     candidates.push({
       traderId: t.id, traderRef: t.ref, blockId: block.id, routeId: block.routeId, rateMicro: block.rateMicro,
-      freeMinor: freeCapacity(block), openOrders: Number.parseInt(t.open, 10), completedOrders: Number.parseInt(t.completed, 10), sized,
+      freeMinor: freeCapacity(block), openOrders: Number.parseInt(t.open, 10), completedOrders: Number.parseInt(t.completed, 10), sized, p2p,
     });
   }
 
   const ranked = rankCandidates(request.direction, candidates);
-  const chosen = ranked[0] as (Candidate & { sized: SizedOrder }) | undefined;
+  const chosen = ranked[0] as (Candidate & { sized: SizedOrder; p2p: boolean }) | undefined;
   if (!chosen) {
     await appendAudit(ctx, { action: 'trader_order.no_trader', entityType: 'trade_request', entityId: request.id, after: { considered: traders.rows.length, excluded } });
     return { miss: { considered: traders.rows.length, excluded } };
@@ -230,7 +246,7 @@ export async function assignRequestInTx(
       inr_minor: chosen.sized.inrMinor,
       rate_micro: chosen.rateMicro,
       capacity_minor: capacityMinor,
-      planned_client_rate_micro: request.fixed_side === 'QUOTE' ? input.plannedClientRateMicro : null,
+      planned_client_rate_micro: request.fixed_side === 'QUOTE' || chosen.p2p ? input.plannedClientRateMicro : null,
       offered_by: input.offeredBy,
       offer_expires_at: sql<Date>`inrp2p_now() + make_interval(secs => ${program.offerTtlSeconds})`,
     })

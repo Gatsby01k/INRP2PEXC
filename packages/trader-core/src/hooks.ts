@@ -79,6 +79,8 @@ export interface OrderForQuote {
   readonly baseMinor: bigint;
   readonly inrMinor: bigint;
   readonly holdUntil: Date;
+  /** The client rate the order was sized at (an INR-fixed request, or any P2P order — ADR 0019). */
+  readonly plannedClientRateMicro: bigint | null;
 }
 
 /**
@@ -99,7 +101,7 @@ export async function requireOrderForQuote(ctx: TxContext, input: { requestId: s
   if (order.status !== 'ACCEPTED') throw new DomainError('TRADER_ORDER_REQUIRED', 'the trader order is no longer accepted');
   const now = await businessNow(ctx);
   if (!order.hold_until || now >= order.hold_until) throw new DomainError('TRADER_ORDER_HOLD_EXPIRED', "the trader's hold on this order has ended; route the request again");
-  return { orderId: order.id, ref: order.ref, snapshotId: order.route_rate_snapshot_id!, baseMinor: order.base_minor, inrMinor: order.inr_minor, holdUntil: order.hold_until };
+  return { orderId: order.id, ref: order.ref, snapshotId: order.route_rate_snapshot_id!, baseMinor: order.base_minor, inrMinor: order.inr_minor, holdUntil: order.hold_until, plannedClientRateMicro: order.planned_client_rate_micro };
 }
 
 /**

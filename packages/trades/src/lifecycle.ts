@@ -169,12 +169,12 @@ const TRANSITION_ACTIONS: Partial<Record<TradeLifecycleState, string>> = {
 };
 
 /** Reads the frozen economics as kernel money values (for ledger rules). */
-export async function tradeEconomics(ex: Executor, tradeId: string): Promise<TradeEconomics & { routeId: string; executionMode: 'DIRECT_TO_CLIENT' | 'TO_EXCHANGE'; clientId: string; routeObligationId: string }> {
+export async function tradeEconomics(ex: Executor, tradeId: string): Promise<TradeEconomics & { routeId: string; executionMode: 'DIRECT_TO_CLIENT' | 'TO_EXCHANGE' | 'P2P'; clientId: string; routeObligationId: string }> {
   const row = await ex
     .selectFrom('trade_economics as e')
     .innerJoin('trade as t', 't.id', 'e.trade_id')
     .innerJoin('route_obligation as o', 'o.trade_id', 'e.trade_id')
-    .select(['e.direction', 'e.fixed_side', 'e.base_minor', 'e.quote_inr_minor', 'e.route_value_inr_minor', 'e.gross_margin_inr_minor', 'e.route_id', 'e.route_execution_mode', 't.client_id', 'o.id as obligation_id'])
+    .select(['e.direction', 'e.fixed_side', 'e.base_minor', 'e.quote_inr_minor', 'e.route_value_inr_minor', 'e.gross_margin_inr_minor', 'e.route_id', 'e.route_execution_mode', 'e.route_base_minor', 'e.gross_margin_base_minor', 't.client_id', 'o.id as obligation_id'])
     .where('e.trade_id', '=', requireUuid(tradeId, 'tradeId'))
     .executeTakeFirst();
   if (!row) throw new DomainError('NOT_FOUND', 'trade economics not found');
@@ -185,6 +185,10 @@ export async function tradeEconomics(ex: Executor, tradeId: string): Promise<Tra
     clientInr: Money.ofMinor(row.quote_inr_minor, 'INR'),
     routeInr: Money.ofMinor(row.route_value_inr_minor, 'INR'),
     grossMargin: Money.ofMinor(row.gross_margin_inr_minor, 'INR'),
+    // ADR 0019: a P2P trade's trader side and its margin are USDT.
+    ...(row.route_base_minor !== null && row.gross_margin_base_minor !== null
+      ? { routeBase: Money.ofMinor(row.route_base_minor, 'USDT'), grossMarginBase: Money.ofMinor(row.gross_margin_base_minor, 'USDT') }
+      : {}),
     routeId: row.route_id,
     executionMode: row.route_execution_mode,
     clientId: row.client_id,

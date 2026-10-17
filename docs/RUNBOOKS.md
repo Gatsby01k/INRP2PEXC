@@ -1041,3 +1041,33 @@ line the desk did not record; return it to the account it came from (a client's 
 the case, or — if the client still wants to trade — quote again and ask them to pay the new trade with its new
 reference. Never move a payment from a cancelled trade to a new one by hand.
 
+
+---
+
+## p2p-escrow — a P2P deal is late, or its escrow went back
+
+**What you were told.** A case on a P2P trade (ADR 0019): *P2P payment overdue* (`P2P_PAYMENT_OVERDUE`) — a trader has not
+paid a client whose USDT is in escrow, 30 minutes after it was final; or *P2P receipt overdue* (`P2P_RECEIPT_OVERDUE`) —
+the one who received the rupees (the trader on a client's BUY, the client on a SELL) has neither confirmed nor disputed
+them 30 minutes after the payer filed them. Or a client or trader asks why a BUY was cancelled and USDT went back.
+
+**Why it matters.** The escrow holds someone's USDT while the other side's rupees are in a bank account INRP2P never
+sees. Nobody may be left holding both — and nobody may be left holding neither.
+
+**What to do.**
+1. *Payment overdue.* Ask the trader (its contact is on its file) to pay now from its registered account and file the
+   UTR on the order — the case closes by itself when it does. If it cannot or will not, refund the client's USDT from
+   the deal address and cancel (*Refund and cancel*, second approver); the trader's order is then cancelled and the
+   failure goes on its file.
+2. *Receipt overdue.* Ask the payee to open its bank app and confirm on the trade or order. If it says the rupees never
+   arrived, ask the payer for its bank's transaction receipt with the UTR. With the payee's bank evidence of who paid,
+   check the sender on the payment (*Check sender*) and confirm it for them; if the rupees never arrived, mark the
+   payment *Not received* — the payer may file it again. A late confirmation by the payee closes the case by itself.
+3. *A cancelled BUY.* The worker's `escrow_deadlines` cancels a client's BUY whose seller did not fund the escrow in 30
+   minutes, or whose client did not pay the funded escrow in 30 minutes and never said it paid. Whatever the trader
+   delivered goes back to its registered wallet by the signer (`ESCROW_RETURN`, Network page) at the platform's cost; a
+   return over the approval threshold waits for a second person there. A client who paid after the cancel is told to
+   ask the trader to return the rupees — the escrow is already back with the trader.
+
+**What never to do.** Do not confirm a payment because the payer insists, nor release an escrow on a screenshot: only the
+payee's bank — its own screen, or a statement — shows who sent what. Do not move an escrow to another trade.

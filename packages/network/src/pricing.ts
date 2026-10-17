@@ -1,4 +1,4 @@
-import { DomainError, Money, formatTrx, trxToInrMinor } from '@inrp2p/kernel';
+import { DomainError, Money, Rate, formatTrx, inrToUsdt, trxToInrMinor, trxToUsdtMinor, usdtToInr } from '@inrp2p/kernel';
 import type { Executor, TxContext } from '@inrp2p/db';
 import { quoteFeeSun, reservePerSendSun, reserveSends } from './estimate.ts';
 import { currentNetworkCosts } from './policy.ts';
@@ -29,6 +29,53 @@ export interface NetworkPricing {
   readonly reserveSends: number;
   readonly perSendSun: bigint;
   readonly reserveSun: bigint;
+  /** P2P (ADR 0019): what the quote leaves in USDT — its margin is USDT, the platform pays the TRX, no reward is counted. */
+  readonly p2p?: { readonly grossMarginBaseMinor: bigint; readonly feeUsdtMinor: bigint; readonly netMarginUsdtMinor: bigint; readonly minNetMarginUsdtMinor: bigint };
+}
+
+/**
+ * A P2P quote (ADR 0019, FI-97): no rupee passes the exchange, so what it keeps is USDT — the USDT between the client's
+ * amount and the trader's — and from that it pays the network fee of the transfers out of the escrow, which the
+ * platform's TRX budget funds. No trader reward is counted: the trader earns on its own rate. The minimum net margin is
+ * the policy's rupee minimum, valued in USDT at the client's rate (rounded up). The hold covers the transfer and a return
+ * of the escrow (whoever funded it), whichever direction.
+ */
+export async function priceNetworkP2p(
+  ex: Executor,
+  input: { direction: 'SELL_USDT' | 'BUY_USDT'; clientRateMicro: bigint; grossMarginBaseMinor: bigint; traderOrderId: string },
+): Promise<NetworkPricing> {
+  const { policy, snapshot, rate } = await currentNetworkCosts(ex);
+  const feeSun = quoteFeeSun(snapshot, policy);
+  const feeUsdtMinor = trxToUsdtMinor(feeSun, rate.usdtPerTrxMicro, 'UP');
+  const feeInrMinor = trxToInrMinor(feeSun, rate.usdtPerTrxMicro, input.clientRateMicro, 'UP');
+  const minNetMarginUsdtMinor = inrToUsdt(Money.ofMinor(policy.minNetMarginInrMinor, 'INR'), Rate.ofMicro(input.clientRateMicro, 'CLIENT'), 'UP').minor;
+  const netMarginUsdtMinor = input.grossMarginBaseMinor - feeUsdtMinor;
+  const asInr = (usdtMinor: bigint) => {
+    const v = usdtToInr(Money.ofMinor(usdtMinor < 0n ? -usdtMinor : usdtMinor, 'USDT'), Rate.ofMicro(input.clientRateMicro, 'CLIENT'), 'DOWN').minor;
+    return usdtMinor < 0n ? -v : v;
+  };
+  const sends = 1 + policy.refundSendsSell;
+  const perSend = reservePerSendSun(snapshot, policy);
+  return {
+    funderTraderId: null,
+    snapshotId: snapshot.id,
+    trxRateId: rate.id,
+    usdtPerTrxMicro: rate.usdtPerTrxMicro,
+    energyPriceSun: snapshot.energyPriceSun,
+    sendsPriced: 1,
+    feeSun,
+    feeInrMinor,
+    rewardInrMinor: 0n,
+    traderOrderId: input.traderOrderId,
+    rewardBps: 0,
+    grossMarginInrMinor: asInr(input.grossMarginBaseMinor),
+    netMarginInrMinor: asInr(netMarginUsdtMinor),
+    minNetMarginInrMinor: policy.minNetMarginInrMinor,
+    reserveSends: sends,
+    perSendSun: perSend,
+    reserveSun: perSend * BigInt(sends),
+    p2p: { grossMarginBaseMinor: input.grossMarginBaseMinor, feeUsdtMinor, netMarginUsdtMinor, minNetMarginUsdtMinor },
+  };
 }
 
 export async function priceNetwork(
@@ -67,6 +114,17 @@ export async function priceNetwork(
 
 /** Refuses a quote that would not leave the minimum net margin, saying what it would leave and why. */
 export function assertProfitable(p: NetworkPricing, extra: Record<string, unknown> = {}): void {
+  if (p.p2p) {
+    if (p.p2p.netMarginUsdtMinor >= p.p2p.minNetMarginUsdtMinor) return;
+    throw new DomainError('QUOTE_UNPROFITABLE', `this quote would leave ${Money.ofMinor(p.p2p.netMarginUsdtMinor, 'USDT').toDecimalString()} USDT after the network fee; the minimum is ${Money.ofMinor(p.p2p.minNetMarginUsdtMinor, 'USDT').toDecimalString()}`, {
+      grossMarginUsdt: Money.ofMinor(p.p2p.grossMarginBaseMinor, 'USDT').toDecimalString(),
+      networkFeeUsdt: Money.ofMinor(p.p2p.feeUsdtMinor, 'USDT').toDecimalString(),
+      networkFeeTrx: formatTrx(p.feeSun),
+      netMarginUsdt: Money.ofMinor(p.p2p.netMarginUsdtMinor, 'USDT').toDecimalString(),
+      minNetMarginUsdt: Money.ofMinor(p.p2p.minNetMarginUsdtMinor, 'USDT').toDecimalString(),
+      ...extra,
+    });
+  }
   if (p.netMarginInrMinor >= p.minNetMarginInrMinor) return;
   throw new DomainError('QUOTE_UNPROFITABLE', `this quote would leave ${Money.ofMinor(p.netMarginInrMinor, 'INR').toDecimalString()} INR after the trader's reward and the network fee; the minimum is ${Money.ofMinor(p.minNetMarginInrMinor, 'INR').toDecimalString()}`, {
     grossMargin: Money.ofMinor(p.grossMarginInrMinor, 'INR').toDecimalString(),
@@ -99,6 +157,9 @@ export async function recordQuoteNetworkFee(ctx: TxContext, quoteId: string, p: 
       reserve_sends: p.reserveSends,
       reserve_sun: p.reserveSun,
       min_net_margin_inr_minor: p.minNetMarginInrMinor,
+      fee_usdt_minor: p.p2p?.feeUsdtMinor ?? null,
+      net_margin_usdt_minor: p.p2p?.netMarginUsdtMinor ?? null,
+      min_net_margin_usdt_minor: p.p2p?.minNetMarginUsdtMinor ?? null,
     })
     .execute();
 }
@@ -116,6 +177,9 @@ export interface QuoteNetworkFee {
   readonly netMarginInrMinor: bigint;
   readonly reserveSends: number;
   readonly reserveSun: bigint;
+  /** P2P (ADR 0019): the fee and the net margin in USDT; null through the exchange. */
+  readonly feeUsdtMinor: bigint | null;
+  readonly netMarginUsdtMinor: bigint | null;
 }
 
 export async function quoteNetworkFee(ex: Executor, quoteId: string): Promise<QuoteNetworkFee | null> {
@@ -124,6 +188,7 @@ export async function quoteNetworkFee(ex: Executor, quoteId: string): Promise<Qu
   return {
     quoteId: r.quote_id, funderTraderId: r.funder_trader_id, snapshotId: r.snapshot_id, usdtPerTrxMicro: r.usdt_per_trx_micro, feeSun: r.fee_sun,
     feeInrMinor: r.fee_inr_minor, rewardInrMinor: r.reward_inr_minor, traderOrderId: r.trader_order_id, rewardBps: r.reward_bps, netMarginInrMinor: r.net_margin_inr_minor, reserveSends: r.reserve_sends, reserveSun: r.reserve_sun,
+    feeUsdtMinor: r.fee_usdt_minor, netMarginUsdtMinor: r.net_margin_usdt_minor,
   };
 }
 

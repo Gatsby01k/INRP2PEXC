@@ -29,7 +29,7 @@ interface DecisionContext {
     id: string; ref: string; trade_request_id: string; client_id: string; direction: 'SELL_USDT' | 'BUY_USDT'; fixed_side: 'BASE' | 'QUOTE';
     base_minor: bigint; quote_inr_minor: bigint; client_rate_micro: bigint; route_rate_micro: bigint; route_rate_snapshot_id: string; route_id: string;
     route_value_inr_minor: bigint; gross_margin_inr_minor: bigint; network: 'TRON'; bank_account_id: string | null; crypto_wallet_id: string | null;
-    status: string; expires_at: Date | null;
+    status: string; expires_at: Date | null; route_base_minor: bigint | null; gross_margin_base_minor: bigint | null;
   };
 }
 
@@ -109,6 +109,8 @@ async function acceptCore(ctx: TxContext, deps: QuoteDeps, input: { quote: Decis
     routeRateMicro: quote.route_rate_micro,
     routeValueInrMinor: quote.route_value_inr_minor,
     grossMarginInrMinor: quote.gross_margin_inr_minor,
+    routeBaseMinor: quote.route_base_minor,
+    grossMarginBaseMinor: quote.gross_margin_base_minor,
     routeId: quote.route_id,
     routeRateSnapshotId: quote.route_rate_snapshot_id,
     network: quote.network,
@@ -125,8 +127,9 @@ async function acceptCore(ctx: TxContext, deps: QuoteDeps, input: { quote: Decis
   if (funding !== 'COUNTERPARTY_FUNDED') throw new DomainError('INVALID_TRANSITION', `a new trade must be counterparty-funded (it is ${funding})`);
   if (quote.direction === 'SELL_USDT') {
     await allocateDepositAddress(ctx, deps.custody, { network: 'TRON', tradeId: trade.tradeId, tradeRef: trade.ref, expectedAmount: Money.ofMinor(quote.base_minor, 'USDT') });
-  } else {
-    // ADR 0018: a BUY names the account its client pays, the trade's own payment reference and the time to pay.
+  } else if (route.execution_mode !== 'P2P') {
+    // ADR 0018: a BUY names the account its client pays, the trade's own payment reference and the time to pay. A P2P
+    // client pays its trader directly (ADR 0019), once the trader's USDT is in escrow.
     await assignTradeCollection(ctx, { tradeId: trade.tradeId });
   }
   // ADR 0017 §2: the trade's transfers are paid for before it exists. Its funder — the trader of its route, or the

@@ -36,6 +36,8 @@ export const CAPTURES = [
   'client-exchange-quote',
   'client-trade-awaiting-usdt',
   'client-trade-awaiting-inr',
+  // P2P (ADR 0019): a client buying from a trader, the seller's USDT in escrow, paying the seller's own account.
+  'client-trade-p2p-pay',
   'client-trade-settling',
   'client-trade-completed',
   'client-history',
@@ -45,6 +47,7 @@ export const CAPTURES = [
   'client-traders',
   'client-trader-orders',
   'client-trader-order',
+  'client-trader-order-escrow',
   'client-trader-reserve',
   'client-trader-settlement',
   'client-trader-apply',

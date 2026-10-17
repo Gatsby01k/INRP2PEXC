@@ -413,7 +413,7 @@ export interface CapacityReservationTable {
 
 export type RouteStatus = 'ACTIVE' | 'PAUSED' | 'RETIRED';
 export type SettlementModel = 'PER_TRADE' | 'PREFUNDED' | 'NET_SETTLED';
-export type ExecutionMode = 'DIRECT_TO_CLIENT' | 'TO_EXCHANGE';
+export type ExecutionMode = 'DIRECT_TO_CLIENT' | 'TO_EXCHANGE' | 'P2P';
 
 export interface LiquidityRouteTable {
   id: Generated<string>;
@@ -566,6 +566,9 @@ export interface QuoteTable {
   network: 'TRON';
   bank_account_id: string | null;
   crypto_wallet_id: string | null;
+  /** P2P (ADR 0019): the trader's USDT and the exchange's USDT margin; null through the exchange. */
+  route_base_minor: bigint | null;
+  gross_margin_base_minor: bigint | null;
   valid_for_seconds: number;
   sent_at: Date | null;
   expires_at: Date | null;
@@ -672,6 +675,9 @@ export interface TradeEconomicsTable {
   route_id: string;
   route_rate_snapshot_id: string;
   route_execution_mode: ExecutionMode;
+  /** P2P (ADR 0019): the trader's USDT and the exchange's USDT margin; null through the exchange. */
+  route_base_minor: bigint | null;
+  gross_margin_base_minor: bigint | null;
   fees_json: Generated<Json>;
   network: 'TRON';
   bank_account_id: string | null;
@@ -717,7 +723,7 @@ export type ExceptionType =
   | 'ROUTE_SETTLEMENT_MISMATCH' | 'ROUTE_OBLIGATION_OVERDUE' | 'DUPLICATE_TX_HASH' | 'DUPLICATE_UTR'
   | 'PARTIAL_INR_PAYOUT' | 'INR_PAYOUT_DELAYED' | 'BANK_TRANSFER_FAILED' | 'CLIENT_BANK_CHANGED'
   | 'ROUTE_CAPACITY_CHANGED' | 'TRADE_CANCELLATION' | 'OPERATOR_MISTAKE' | 'RECONCILIATION_MISMATCH'
-  | 'CHAIN_SEND_UNRESOLVED' | 'NETWORK_BUDGET_SHORT' | 'INR_UNEXPECTED_SENDER';
+  | 'CHAIN_SEND_UNRESOLVED' | 'NETWORK_BUDGET_SHORT' | 'INR_UNEXPECTED_SENDER' | 'P2P_PAYMENT_OVERDUE' | 'P2P_RECEIPT_OVERDUE';
 
 export type ExceptionSubjectType = 'TRADE' | 'SETTLEMENT_LEG' | 'FIAT_TRANSFER' | 'CRYPTO_TRANSFER' | 'DEPOSIT_ADDRESS' | 'ROUTE_OBLIGATION' | 'ROUTE_SETTLEMENT' | 'INR_ACCOUNT' | 'CLIENT' | 'CHAIN_SEND';
 export type ExceptionStatus = 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'VOID';
@@ -858,7 +864,7 @@ export interface TradeFundingTable {
 }
 
 export type FundingSourceKind = 'CLIENT_FUNDS' | 'COUNTERPARTY_FUNDS';
-export type FundingUseKind = 'CLIENT_PAYOUT' | 'REFUND' | 'ROUTE_PAYMENT';
+export type FundingUseKind = 'CLIENT_PAYOUT' | 'REFUND' | 'ROUTE_PAYMENT' | 'ESCROW_RETURN';
 export type FundingAllocationStatus = 'ACTIVE' | 'CONSUMED' | 'RELEASED';
 
 /** A confirmed incoming movement of a trade and where it is (view, migration 0025). */
@@ -940,7 +946,7 @@ export type SenderVerdict = 'MATCH' | 'PARTIAL' | 'MISMATCH' | 'UNKNOWN' | 'ACCE
 export interface FiatSenderCheckTable {
   id: Generated<string>;
   fiat_transfer_id: string;
-  via: 'STATEMENT' | 'DESK';
+  via: 'STATEMENT' | 'DESK' | 'PAYEE';
   seen_name: string | null;
   seen_account: string | null;
   expected_bank_account_id: string | null;
@@ -982,7 +988,7 @@ export interface CryptoTransferTable {
   created_by: string;
 }
 
-export type RouteSettlementFlow = 'FROM_ROUTE_TO_EXCHANGE' | 'TO_ROUTE' | 'DIRECT_TO_CLIENT';
+export type RouteSettlementFlow = 'FROM_ROUTE_TO_EXCHANGE' | 'TO_ROUTE' | 'DIRECT_TO_CLIENT' | 'DIRECT_FROM_CLIENT';
 
 export interface RouteSettlementTable {
   id: Generated<string>;
@@ -1295,6 +1301,8 @@ export interface TraderProgramTable {
   hold_ttl_seconds: Generated<number>;
   auto_assign: Generated<boolean>;
   collection_account_id: string | null;
+  /** ADR 0019: how the programme's routes execute — rupees through the exchange, or P2P between client and trader. */
+  execution_mode: Generated<'TO_EXCHANGE' | 'P2P'>;
   updated_by: string;
   updated_at: Generated<Date>;
   version: Generated<number>;
@@ -1525,6 +1533,10 @@ export interface QuoteNetworkFeeTable {
   reserve_sends: number;
   reserve_sun: bigint;
   min_net_margin_inr_minor: bigint;
+  /** P2P (ADR 0019): the fee, the net margin and the minimum, in USDT; null through the exchange. */
+  fee_usdt_minor: bigint | null;
+  net_margin_usdt_minor: bigint | null;
+  min_net_margin_usdt_minor: bigint | null;
   created_at: Generated<Date>;
 }
 
@@ -1582,7 +1594,7 @@ export interface NetworkDepositWithdrawalTable {
   close_reason: string | null;
 }
 
-export type ChainSendPurpose = 'CLIENT_PAYOUT' | 'REFUND' | 'ROUTE_PAYMENT' | 'TOPUP' | 'DEPOSIT_WITHDRAWAL';
+export type ChainSendPurpose = 'CLIENT_PAYOUT' | 'REFUND' | 'ROUTE_PAYMENT' | 'ESCROW_RETURN' | 'TOPUP' | 'DEPOSIT_WITHDRAWAL';
 export type ChainSendStatus = 'AWAITING_APPROVAL' | 'PLANNED' | 'AWAITING_RESOURCES' | 'BLOCKED' | 'SENDING' | 'CONFIRMED' | 'CANCELLED';
 export type ChainSendBearer = 'CLIENT' | 'TRADER' | 'PLATFORM';
 

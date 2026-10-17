@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Money, Rate, computeTradeEconomics, inrToUsdt, usdtToInr } from '../src/index.ts';
+import { Money, Rate, computeP2pEconomics, computeTradeEconomics, inrToUsdt, usdtToInr } from '../src/index.ts';
 
 const client = (r: string) => Rate.parse(r, 'CLIENT');
 const route = (r: string) => Rate.parse(r, 'ROUTE');
@@ -96,5 +96,32 @@ describe('amounts too small to trade', () => {
     expect(computeTradeEconomics({ direction: 'BUY_USDT', fixedSide: 'BASE', amount: Money.parse('0.000001', 'USDT'), clientRate, routeRate }).clientInr.toDecimalString()).toBe('0.01');
     // The smallest amount that prices on every side is still accepted.
     expect(computeTradeEconomics({ direction: 'SELL_USDT', fixedSide: 'BASE', amount: Money.parse('0.0001', 'USDT'), clientRate, routeRate }).clientInr.toDecimalString()).toBe('0.01');
+  });
+});
+
+describe('P2P economics (ADR 0019): one rupee amount, the margin in USDT', () => {
+  it('a client buying USDT pays the trader exactly what the trader receives; the trader delivers more USDT than the client gets', () => {
+    const e = computeP2pEconomics({ direction: 'BUY_USDT', fixedSide: 'BASE', amount: Money.parse('500', 'USDT'), clientRate: client('101.500000'), routeRate: route('100.000000') });
+    expect(e.clientInr.toDecimalString()).toBe('50750.00');
+    expect(e.routeInr.toDecimalString()).toBe('50750.00');
+    expect(e.routeBase.toDecimalString()).toBe('507.500000');
+    expect(e.grossMarginBase.toDecimalString()).toBe('7.500000');
+    expect(e.grossMargin.isZero()).toBe(true);
+  });
+
+  it('a client selling USDT gives more USDT than the trader receives for the same rupees', () => {
+    const e = computeP2pEconomics({ direction: 'SELL_USDT', fixedSide: 'BASE', amount: Money.parse('1000', 'USDT'), clientRate: client('98.500000'), routeRate: route('100.000000') });
+    expect(e.clientInr.toDecimalString()).toBe('98500.00');
+    expect(e.routeBase.toDecimalString()).toBe('985.000000');
+    expect(e.grossMarginBase.toDecimalString()).toBe('15.000000');
+  });
+
+  it('rounds against whoever is paid, and fixes the rupees when the client names them', () => {
+    const buy = computeP2pEconomics({ direction: 'BUY_USDT', fixedSide: 'QUOTE', amount: Money.parse('10000.00', 'INR'), clientRate: client('101.300000'), routeRate: route('100.100000') });
+    expect(buy.base.toDecimalString()).toBe('98.716683'); // the client gets DOWN
+    expect(buy.routeBase.toDecimalString()).toBe('99.900100'); // the trader delivers UP
+    const sell = computeP2pEconomics({ direction: 'SELL_USDT', fixedSide: 'QUOTE', amount: Money.parse('10000.00', 'INR'), clientRate: client('98.300000'), routeRate: route('99.900000') });
+    expect(sell.base.toDecimalString()).toBe('101.729400'); // the client gives UP
+    expect(sell.routeBase.toDecimalString()).toBe('100.100100'); // the trader receives DOWN
   });
 });

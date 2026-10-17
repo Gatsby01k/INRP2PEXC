@@ -28,7 +28,10 @@ import type { SettlementDeps } from './policy.ts';
  */
 async function releaseCommitments(ctx: TxContext, trade: TradeRow, reason: string): Promise<void> {
   const obligation = await lockObligation(ctx, (await obligationOfTrade(ctx.tx, trade.id)).id);
-  if (obligation.status !== 'OPEN' && obligation.status !== 'CANCELLED') {
+  // P2P (ADR 0019 §2.7): the trader's USDT in the escrow of a deal the exchange delivered nothing against ends with the
+  // trade, and goes back to the trader (`planEscrowReturnInTx`). Any other obligation with allocations is past a cancel.
+  const unwind = obligation.status === 'PARTIALLY_SETTLED' && (await isEscrowOnly(ctx, obligation.id));
+  if (obligation.status !== 'OPEN' && obligation.status !== 'CANCELLED' && !unwind) {
     throw new DomainError('ROUTE_OBLIGATION_SETTLED', 'the route obligation already has allocations; cancel through a financial adjustment');
   }
 
@@ -67,10 +70,18 @@ async function releaseCommitments(ctx: TxContext, trade: TradeRow, reason: strin
   await releaseTreasuryReservation(ctx, { tradeId: trade.id, reason: 'TRADE_CANCELLED' });
   const assignment = await ctx.tx.selectFrom('deposit_assignment').select('id').where('trade_id', '=', trade.id).where('released_at', 'is', null).executeTakeFirst();
   if (assignment) await releaseDepositAssignment(ctx, { tradeId: trade.id, reason: 'TRADE_CANCELLED' });
-  if (obligation.status === 'OPEN') {
+  if (obligation.status === 'OPEN' || unwind) {
     await ctx.tx.updateTable('route_obligation').set({ status: 'CANCELLED', cancelled_at: sql<Date>`inrp2p_now()` }).where('id', '=', obligation.id).execute();
-    await appendAudit(ctx, { action: 'route_obligation.cancelled', entityType: 'route_obligation', entityId: obligation.id, before: { status: obligation.status }, after: { status: 'CANCELLED', trade_id: trade.id } });
+    await appendAudit(ctx, { action: 'route_obligation.cancelled', entityType: 'route_obligation', entityId: obligation.id, before: { status: obligation.status }, after: { status: 'CANCELLED', trade_id: trade.id, ...(unwind ? { escrow: 'returned to the trader' } : {}) } });
   }
+}
+
+/** A P2P obligation whose only allocations are the trader's USDT into the escrow (IX120 says the same at the update). */
+async function isEscrowOnly(ctx: TxContext, obligationId: string): Promise<boolean> {
+  const o = await ctx.tx.selectFrom('route_obligation').select(['execution_mode', 'route_delivers_asset']).where('id', '=', obligationId).executeTakeFirstOrThrow();
+  if (o.execution_mode !== 'P2P' || o.route_delivers_asset !== 'USDT') return false;
+  const exchangeSide = await ctx.tx.selectFrom('route_settlement').select('id').where('route_obligation_id', '=', obligationId).where('obligation_side', '=', 'EXCHANGE_DELIVERS').where('status', '!=', 'FAILED').executeTakeFirst();
+  return !exchangeSide;
 }
 
 /**

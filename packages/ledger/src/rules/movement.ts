@@ -29,8 +29,9 @@ export interface MovementJournalInput {
    * `TRADER_RESERVE` moves a trader's Security Reserve in (deposit) or out (withdrawal); `TRADER_REWARD_PAYOUT`
    * pays accrued rewards to the trader. `TRADER_RESERVE_APPLIED` is a trader's reserve delivering the USDT its route
    * owes (TD-21): from the trader, to the route obligation, moved by custody between two exchange wallets.
+   * `ESCROW_RETURN` gives a P2P trader its own USDT back from the escrow of a deal its client never paid (ADR 0019).
    */
-  readonly purpose: 'CLIENT_FIRST_LEG' | 'CLIENT_PAYOUT' | 'ROUTE_SETTLEMENT' | 'REFUND' | 'UNALLOCATED' | 'TRADER_RESERVE' | 'TRADER_REWARD_PAYOUT' | 'TRADER_RESERVE_APPLIED';
+  readonly purpose: 'CLIENT_FIRST_LEG' | 'CLIENT_PAYOUT' | 'ROUTE_SETTLEMENT' | 'REFUND' | 'UNALLOCATED' | 'TRADER_RESERVE' | 'TRADER_REWARD_PAYOUT' | 'TRADER_RESERVE_APPLIED' | 'ESCROW_RETURN';
   /** `TRADER_RESERVE_APPLIED` only: the treasury wallets the USDT left and reached (the same wallet moves nothing). */
   readonly custody?: { readonly fromWalletId: string; readonly toWalletId: string } | null;
 }
@@ -59,7 +60,11 @@ export function movementJournal(input: MovementJournalInput): JournalInput {
     case 'CLIENT_FIRST_LEG': {
       if (from.kind !== 'CLIENT') throw new DomainError('INVALID_ARGUMENT', `first-leg movement must come from the client (${key})`);
       entries = [
-        { account: exchangeAsset(to, amount), direction: 'DR', amount },
+        // P2P (ADR 0019): the client pays the route directly — what the client owes and what the exchange owes the route
+        // fall together, and no exchange account moves.
+        to.kind === 'ROUTE'
+          ? { account: Accounts.routePayable(to.routeId, amount.currency), direction: 'DR', amount, routeObligationId: to.routeObligationId ?? null }
+          : { account: exchangeAsset(to, amount), direction: 'DR', amount },
         { account: Accounts.clientReceivable(from.clientId, amount.currency), direction: 'CR', amount },
       ];
       break;
@@ -88,6 +93,18 @@ export function movementJournal(input: MovementJournalInput): JournalInput {
       } else {
         throw new DomainError('INVALID_ARGUMENT', `route settlement movement must involve a route (${key})`);
       }
+      break;
+    }
+    case 'ESCROW_RETURN': {
+      // The cancellation reversed what the route owed; its delivery is still credited to it. Sending the USDT back closes
+      // that: the route receivable is debited, the escrow's treasury asset credited.
+      if (from.kind !== 'EXCHANGE_TREASURY' || to.kind !== 'ROUTE' || amount.currency !== 'USDT') {
+        throw new DomainError('INVALID_ARGUMENT', `an escrow return is USDT from the exchange to the route (${key})`);
+      }
+      entries = [
+        { account: Accounts.routeReceivable(to.routeId, 'USDT'), direction: 'DR', amount, routeObligationId: to.routeObligationId ?? null },
+        { account: exchangeAsset(from, amount), direction: 'CR', amount },
+      ];
       break;
     }
     case 'REFUND': {

@@ -10,7 +10,7 @@ export interface PayerSelectorProps {
   value: Payer;
   onChange: (p: Payer) => void;
   /** Frozen trade execution mode (D-14). ROUTE is selectable only for DIRECT_TO_CLIENT. */
-  executionMode: 'DIRECT_TO_CLIENT' | 'TO_EXCHANGE';
+  executionMode: 'DIRECT_TO_CLIENT' | 'TO_EXCHANGE' | 'P2P';
 }
 
 export function PayerSelector({ value, onChange, executionMode }: PayerSelectorProps) {

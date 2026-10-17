@@ -37,7 +37,7 @@ export async function pnlSummary(ex: Executor, period: PnlPeriod): Promise<PnlSu
     from ledger_entry e
     join ledger_account a on a.id = e.account_id
     join ledger_journal j on j.id = e.journal_id
-    where a.code = 'REVENUE:GROSS_MARGIN'
+    where a.code = 'REVENUE:GROSS_MARGIN' and a.currency = 'INR'
       and (j.posted_at AT TIME ZONE 'Asia/Kolkata')::date between ${period.from}::date and ${period.to}::date`.execute(ex);
   // Completed volume is the effective base: frozen economics plus approved base adjustments (§4 "+ adjustments").
   const completed = await sql<{ volume: string; trades: string }>`

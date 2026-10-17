@@ -829,3 +829,31 @@ remitter callback): the bank names the trade and the remitter, the sender check 
 confirmation needs no person, and a stranger's rupees are refunded through the partner's API. Needs a partner that
 serves the business.
 
+
+## TD-35 — A P2P sell whose trader never pays is refunded by hand
+
+**Observed (ADR 0019, 2026-10-17).** When a trader does not pay a client whose USDT is in escrow, the desk gets
+`P2P_PAYMENT_OVERDUE` after 30 minutes and refunds the client through *Refund and cancel* (second approver). A client who
+did not receive the rupees has no "not received" button: it waits, and the desk is told after 30 minutes.
+
+**Resolution (to do).** An automatic unwind for a SELL like the BUY's (`ESCROW_RETURN` to the client's source wallet,
+approved by a second person over the threshold), and a dispute button on both sides that opens the case at once with
+the payer's evidence attached.
+
+## TD-36 — P2P margin stays at each deal address
+
+**Observed (ADR 0019, 2026-10-17).** A P2P trade's margin is the USDT left at its deal address after the payout (≈ the
+margin less nothing — the network fee is TRX). It is in the books (`GROSS_MARGIN(USDT)`) and the seed opens it, but it is
+spread over one address per deal.
+
+**Resolution (to do).** The sweep of TD-31, extended to USDT: a closed deal's address sends what it holds to the hot
+wallet, with a movement journal between treasury accounts.
+
+## TD-37 — The counterparty's account number is shown without a per-view audit
+
+**Observed (ADR 0019, 2026-10-17).** On a P2P deal, the side that pays sees the other side's full account number while it
+is to pay. The page opens it from its seal on each load; the audit records the payment and its sender check, not each
+view.
+
+**Resolution (to do).** A reveal step (a button that opens it, audited once per deal and viewer), and a masked number
+until then.

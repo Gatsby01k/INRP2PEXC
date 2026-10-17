@@ -127,6 +127,7 @@ const trade = (over: Partial<PortalTrade['trade']> = {}, rest: Partial<PortalTra
   receipt: false,
   destination: 'HDFC Bank •••• 8219',
   payment: null,
+  p2p: null,
   ...rest,
 });
 

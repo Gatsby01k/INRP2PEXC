@@ -23,6 +23,8 @@ export interface DeskProgram {
   readonly holdTtlSeconds: number;
   readonly autoAssign: boolean;
   readonly collectionAccountId: string | null;
+  /** ADR 0019: how trader routes settle — through INRP2P's account, or P2P with INRP2P holding the USDT. */
+  readonly executionMode: 'TO_EXCHANGE' | 'P2P';
   readonly version: number;
 }
 
@@ -33,6 +35,7 @@ const programView = (p: TraderProgram): DeskProgram => ({
   holdTtlSeconds: p.holdTtlSeconds,
   autoAssign: p.autoAssign,
   collectionAccountId: p.collectionAccountId,
+  executionMode: p.executionMode,
   version: p.version,
 });
 
