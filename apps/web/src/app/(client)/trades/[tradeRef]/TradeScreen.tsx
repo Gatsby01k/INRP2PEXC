@@ -47,9 +47,13 @@ const explorer = (hash: string) => `https://tronscan.org/#/transaction/${hash}`;
 /** The portal's four stages, labelled for the direction; a cancelled trade stops at the stage it was waiting on. */
 function stepsOf(view: PortalTrade): (Step & { at: string | null })[] {
   const cancelled = view.trade.status === 'CANCELLED';
+  // A P2P SELL whose buyer did not pay unwinds (ADR 0020 §2.15): the step it stopped at says so; a disputed one waits on INRP2P.
+  const refund = view.p2p?.step === 'REFUND';
+  const disputed = view.p2p?.dispute?.status === 'OPEN';
   return view.stages.map((s, i) => {
     const label = (view.p2p ? P2P_STAGE_LABELS : STAGE_LABELS)[view.trade.direction][i] ?? s.key;
-    if (cancelled && s.status === 'current') return { label, status: 'exception' as const, detail: 'cancelled', at: s.at };
+    if ((cancelled || refund) && s.status === 'current') return { label, status: 'exception' as const, detail: refund ? 'not paid — USDT going back' : 'cancelled', at: s.at };
+    if (disputed && s.status === 'current') return { label, status: s.status, detail: 'INRP2P is checking', at: s.at };
     return { label, status: s.status, ...(s.detail ? { detail: s.detail } : {}), at: s.at };
   });
 }
@@ -94,6 +98,18 @@ function eventsOf(view: PortalTrade, sell: boolean, rate: string): Event[] {
 
 /** The headline of a P2P deal (ADR 0019): what the deal waits on, said the way the client lives it. */
 function p2pHeadline(deal: NonNullable<PortalTrade['p2p']>, sell: boolean, usdt: string, inr: string): { title: string; body: string } | null {
+  // A dispute (block 9): the seller said the rupees did not arrive, and INRP2P decides from the seller's bank.
+  if (deal.dispute?.status === 'OPEN') {
+    return sell
+      ? { title: 'INRP2P is checking the payment', body: `You said ${inr} has not arrived. Your USDT stays locked in escrow until INRP2P decides — from your bank’s evidence, not the buyer’s word.` }
+      : { title: 'The seller says your payment has not arrived', body: `INRP2P is checking it with the seller’s bank. Your ${usdt} stays locked in escrow meanwhile — add your bank’s details below.` };
+  }
+  if (deal.step === 'REFUND') {
+    return {
+      title: `Your ${usdt} is going back to you`,
+      body: `${deal.unwind?.reason === 'NOT_PAID' ? 'INRP2P found the buyer’s payment did not arrive' : 'The buyer did not pay in time'}, so the trade is cancelled once your USDT is back. Nothing of yours is kept.`,
+    };
+  }
   if (sell) {
     if (deal.step === 'PAY') return { title: `The buyer is paying you ${inr}`, body: 'Your USDT is locked in INRP2P’s escrow. It is released only when you confirm the money is in your account.' };
     if (deal.step === 'CONFIRM') return { title: `Check your bank for ${inr}`, body: 'The buyer says they paid. Confirm it once you see the credit — that releases the escrow.' };
@@ -161,7 +177,7 @@ export function TradeScreen({ view, justOpened = false }: { view: PortalTrade; j
   const events = eventsOf(view, sell, rate);
   const exactAmount = trade.depositInstructions ? Money.parse(trade.depositInstructions.amount, 'USDT').toDecimalString() : null;
   // While the trade waits on the client, the headline says what it is waiting for; the card below says how.
-  const p2pHead = p2p && !view.onHold ? p2pHeadline(p2p, sell, usdt, inr) : null;
+  const p2pHead = p2p && (!view.onHold || p2p.dispute?.status === 'OPEN') ? p2pHeadline(p2p, sell, usdt, inr) : null;
   const headline = p2pHead
     ? p2pHead
     : yourMove
@@ -193,7 +209,7 @@ export function TradeScreen({ view, justOpened = false }: { view: PortalTrade; j
           </section>
         ) : null}
         <section className={`${shell.surface} ${styles.hero}`} data-mood={status.mood} aria-labelledby="state-title">
-          {view.onHold ? (
+          {view.onHold && p2p?.dispute?.status !== 'OPEN' ? (
             <p className={styles.hold} role="status">
               <PauseIcon />
               Paused while the desk checks something. Nothing is lost.
@@ -232,7 +248,7 @@ export function TradeScreen({ view, justOpened = false }: { view: PortalTrade; j
                 </span>
                 <span className={styles.stopLabel}>{s.label}</span>
                 <span className={styles.stopDetail}>
-                  {s.status === 'done' && s.at ? formatIstTime(new Date(s.at)) : s.status === 'current' ? (view.onHold ? 'on hold' : (s.detail ?? 'in progress')) : s.status === 'exception' ? 'cancelled' : ''}
+                  {s.status === 'done' && s.at ? formatIstTime(new Date(s.at)) : s.status === 'current' ? (view.onHold && p2p?.dispute?.status !== 'OPEN' ? 'on hold' : (s.detail ?? 'in progress')) : s.status === 'exception' ? 'cancelled' : ''}
                 </span>
               </li>
             ))}

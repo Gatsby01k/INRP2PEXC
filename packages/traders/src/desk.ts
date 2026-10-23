@@ -2,11 +2,11 @@ import { sql } from 'kysely';
 import { DomainError, Money, Rate, requireUuid } from '@inrp2p/kernel';
 import type { DestinationStatus, Executor, P2pExperience, TraderOrderStatus, TraderReserveApplicationStatus, TraderSide, TraderStatus } from '@inrp2p/db';
 import { type SenderView, fundingSources, obligationRemaining, senderView } from '@inrp2p/settlement';
-import { standingIssues, type StandingIssue } from './eligibility.ts';
+import { standingIssues, type StandingIssue } from '@inrp2p/trader-core';
 import { traderProgram, type TraderProgram } from '@inrp2p/trader-core';
 import { earnings } from './rewards.ts';
 import { sharedReserveAddress } from './reserve.ts';
-import { readBlocks, readStanding } from './standing.ts';
+import { readBlocks, readStanding } from '@inrp2p/trader-core';
 
 /**
  * What the desk sees of traders. Operator-only (`traders:view`): a trader's rate is a route rate, so these views

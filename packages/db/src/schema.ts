@@ -454,7 +454,7 @@ export interface TreasuryWalletTable {
   network: 'TRON';
   address: string;
   label: string;
-  role: 'HOT' | 'COLD' | 'DEPOSIT_POOL' | 'TRADER_RESERVE' | 'NETWORK_BUDGET';
+  role: 'HOT' | 'COLD' | 'DEPOSIT_POOL' | 'TRADER_RESERVE' | 'NETWORK_BUDGET' | 'REVENUE';
   status: Generated<'ACTIVE' | 'PAUSED' | 'RETIRED'>;
   /** `HD_SIGNER`: the exchange's own signer holds its key (the network budget wallet, migration 0037). */
   custody: Generated<'EXTERNAL' | 'HD_SIGNER'>;
@@ -533,6 +533,10 @@ export interface TradeRequestTable {
   bank_account_id: string | null;
   crypto_wallet_id: string | null;
   source_wallet_id: string | null;
+  /** Desks (migration 0040): the desk this request was placed with, by one of its clients; null for the INRP2P desk. */
+  desk_id: string | null;
+  /** Desks (migration 0040): the deal link this request was made from; null otherwise. */
+  desk_deal_link_id: string | null;
   network: Generated<'TRON'>;
   channel: 'CLIENT_APP' | 'OPERATOR' | 'LINK';
   status: Generated<RequestStatus>;
@@ -569,6 +573,9 @@ export interface QuoteTable {
   /** P2P (ADR 0019): the trader's USDT and the exchange's USDT margin; null through the exchange. */
   route_base_minor: bigint | null;
   gross_margin_base_minor: bigint | null;
+  /** Desks (migration 0040): the platform's fee on a desk's deal — the policy's bps and the USDT they come to; null otherwise. */
+  platform_fee_bps: number | null;
+  platform_fee_base_minor: bigint | null;
   valid_for_seconds: number;
   sent_at: Date | null;
   expires_at: Date | null;
@@ -678,6 +685,9 @@ export interface TradeEconomicsTable {
   /** P2P (ADR 0019): the trader's USDT and the exchange's USDT margin; null through the exchange. */
   route_base_minor: bigint | null;
   gross_margin_base_minor: bigint | null;
+  /** Desks (migration 0040): the platform's fee on a desk's deal, frozen from its quote; null otherwise. */
+  platform_fee_bps: number | null;
+  platform_fee_base_minor: bigint | null;
   fees_json: Generated<Json>;
   network: 'TRON';
   bank_account_id: string | null;
@@ -723,7 +733,8 @@ export type ExceptionType =
   | 'ROUTE_SETTLEMENT_MISMATCH' | 'ROUTE_OBLIGATION_OVERDUE' | 'DUPLICATE_TX_HASH' | 'DUPLICATE_UTR'
   | 'PARTIAL_INR_PAYOUT' | 'INR_PAYOUT_DELAYED' | 'BANK_TRANSFER_FAILED' | 'CLIENT_BANK_CHANGED'
   | 'ROUTE_CAPACITY_CHANGED' | 'TRADE_CANCELLATION' | 'OPERATOR_MISTAKE' | 'RECONCILIATION_MISMATCH'
-  | 'CHAIN_SEND_UNRESOLVED' | 'NETWORK_BUDGET_SHORT' | 'INR_UNEXPECTED_SENDER' | 'P2P_PAYMENT_OVERDUE' | 'P2P_RECEIPT_OVERDUE';
+  | 'CHAIN_SEND_UNRESOLVED' | 'NETWORK_BUDGET_SHORT' | 'INR_UNEXPECTED_SENDER' | 'P2P_PAYMENT_OVERDUE' | 'P2P_RECEIPT_OVERDUE'
+  | 'P2P_DISPUTE';
 
 export type ExceptionSubjectType = 'TRADE' | 'SETTLEMENT_LEG' | 'FIAT_TRANSFER' | 'CRYPTO_TRANSFER' | 'DEPOSIT_ADDRESS' | 'ROUTE_OBLIGATION' | 'ROUTE_SETTLEMENT' | 'INR_ACCOUNT' | 'CLIENT' | 'CHAIN_SEND';
 export type ExceptionStatus = 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'VOID';
@@ -864,7 +875,7 @@ export interface TradeFundingTable {
 }
 
 export type FundingSourceKind = 'CLIENT_FUNDS' | 'COUNTERPARTY_FUNDS';
-export type FundingUseKind = 'CLIENT_PAYOUT' | 'REFUND' | 'ROUTE_PAYMENT' | 'ESCROW_RETURN';
+export type FundingUseKind = 'CLIENT_PAYOUT' | 'REFUND' | 'ROUTE_PAYMENT' | 'ESCROW_RETURN' | 'FEE_SWEEP';
 export type FundingAllocationStatus = 'ACTIVE' | 'CONSUMED' | 'RELEASED';
 
 /** A confirmed incoming movement of a trade and where it is (view, migration 0025). */
@@ -1152,7 +1163,12 @@ export type NotificationKind =
   | 'TRADER_ORDER_COMPLETED'
   | 'TRADER_ORDER_CLOSED'
   | 'TRADER_RESERVE_ISSUE'
-  | 'PAYMENT_RETURNED';
+  | 'PAYMENT_RETURNED'
+  | 'TEAM_CHANGED'
+  | 'P2P_DISPUTE_OPENED'
+  | 'P2P_DISPUTE_DECIDED'
+  | 'P2P_REFUND'
+  | 'DESK_NOTICE';
 
 export interface ClientNotificationTable {
   id: Generated<string>;
@@ -1489,6 +1505,10 @@ export interface NetworkFeePolicyTable {
   max_snapshot_age_seconds: number;
   max_trx_rate_age_seconds: number;
   auto_send_enabled: boolean;
+  /** Block 10: sweeping INRP2P's earnings off deal addresses, from what an address must hold to be worth it; reclaiming TRX. */
+  fee_sweep_enabled: Generated<boolean>;
+  fee_sweep_min_usdt_minor: Generated<bigint>;
+  trx_reclaim_min_sun: Generated<bigint>;
   reason: string;
   set_by: string;
   set_at: Generated<Date>;
@@ -1540,7 +1560,7 @@ export interface QuoteNetworkFeeTable {
   created_at: Generated<Date>;
 }
 
-export type NetworkBudgetEntryKind = 'DEPOSIT' | 'WITHDRAWAL' | 'SPENT' | 'ADJUSTMENT';
+export type NetworkBudgetEntryKind = 'DEPOSIT' | 'WITHDRAWAL' | 'SPENT' | 'ADJUSTMENT' | 'RECLAIM';
 
 export interface NetworkBudgetEntryTable {
   id: Generated<string>;
@@ -1594,7 +1614,7 @@ export interface NetworkDepositWithdrawalTable {
   close_reason: string | null;
 }
 
-export type ChainSendPurpose = 'CLIENT_PAYOUT' | 'REFUND' | 'ROUTE_PAYMENT' | 'ESCROW_RETURN' | 'TOPUP' | 'DEPOSIT_WITHDRAWAL';
+export type ChainSendPurpose = 'CLIENT_PAYOUT' | 'REFUND' | 'ROUTE_PAYMENT' | 'ESCROW_RETURN' | 'TOPUP' | 'DEPOSIT_WITHDRAWAL' | 'FEE_SWEEP' | 'TRX_RECLAIM';
 export type ChainSendStatus = 'AWAITING_APPROVAL' | 'PLANNED' | 'AWAITING_RESOURCES' | 'BLOCKED' | 'SENDING' | 'CONFIRMED' | 'CANCELLED';
 export type ChainSendBearer = 'CLIENT' | 'TRADER' | 'PLATFORM';
 
@@ -1660,6 +1680,197 @@ export interface ChainSendAttemptTable {
   signed_at: Generated<Date>;
   decided_at: Date | null;
   decided_by: string | null;
+}
+
+/** Desks (migration 0040, docs/adr/0020-desks.md): a trader's own exchange. */
+export type DeskStatus = 'DRAFT' | 'LIVE' | 'PAUSED' | 'SUSPENDED';
+export type DeskClientSource = 'PAGE' | 'LINK' | 'INVITE';
+export type DeskClientStatus = 'ACTIVE' | 'BLOCKED';
+
+export interface FeePolicyTable {
+  id: Generated<string>;
+  own_deal_bps: number;
+  network_deal_bps: number;
+  reason: string;
+  set_by: string;
+  approved_by: string | null;
+  set_at: Generated<Date>;
+}
+
+/** A change of the platform's fee, proposed by one person and decided by another (migration 0040, block 11). */
+export interface FeePolicyProposalTable {
+  id: Generated<string>;
+  own_deal_bps: number;
+  network_deal_bps: number;
+  reason: string;
+  proposed_by: string;
+  proposed_at: Generated<Date>;
+  status: Generated<'PROPOSED' | 'APPROVED' | 'REJECTED' | 'WITHDRAWN'>;
+  decided_by: string | null;
+  decided_at: Date | null;
+  decision_note: string | null;
+  fee_policy_id: string | null;
+}
+
+export interface DeskTable {
+  id: Generated<string>;
+  trader_id: string;
+  handle: string;
+  display_name: string;
+  about: string | null;
+  status: Generated<DeskStatus>;
+  /** Block 11: INRP2P suspended the desk (status SUSPENDED), hid its page, or renamed it. */
+  suspension_reason: string | null;
+  suspended_at: Date | null;
+  page_hidden_reason: string | null;
+  page_hidden_at: Date | null;
+  handle_moderated_at: Date | null;
+  created_by: string;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+  version: Generated<number>;
+}
+
+export interface DeskPriceTable {
+  id: Generated<string>;
+  desk_id: string;
+  direction: DirectionValue;
+  rate_micro: bigint;
+  min_base_minor: bigint;
+  max_base_minor: bigint;
+  live: boolean;
+  valid_until: Date;
+  set_by: string;
+  set_at: Generated<Date>;
+}
+
+export interface DeskClientTable {
+  id: Generated<string>;
+  desk_id: string;
+  client_id: string;
+  source: DeskClientSource;
+  status: Generated<DeskClientStatus>;
+  max_deal_base_minor: bigint | null;
+  note: string | null;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+  version: Generated<number>;
+}
+
+export type DeskDealLinkStatus = 'OPEN' | 'CLAIMED' | 'REVOKED';
+
+export interface DeskDealLinkTable {
+  id: Generated<string>;
+  ref: Generated<string>;
+  desk_id: string;
+  token_hash: string;
+  direction: DirectionValue;
+  fixed_side: FixedSideValue;
+  amount_minor: bigint;
+  rate_micro: bigint;
+  note: string | null;
+  expires_at: Date;
+  status: Generated<DeskDealLinkStatus>;
+  claimed_client_id: string | null;
+  claimed_at: Date | null;
+  created_by: string;
+  created_at: Generated<Date>;
+  revoked_by: string | null;
+  revoked_at: Date | null;
+  revoke_reason: string | null;
+  version: Generated<number>;
+}
+
+/** A team role as the client sees it (migration 0040): ADMIN = CLIENT_ADMIN, OPERATOR = CLIENT_TRADER; both can bind it. */
+export type TeamRole = 'ADMIN' | 'OPERATOR';
+export type ClientInviteStatus = 'PENDING' | 'ACCEPTED' | 'REVOKED';
+
+/** An invitation to a client's team by email (migration 0040, IX127). */
+export interface ClientInviteTable {
+  id: Generated<string>;
+  client_id: string;
+  /** Lower-case; only a person signed in with this email accepts it. */
+  email: string;
+  role: TeamRole;
+  invited_by: string;
+  expires_at: Date;
+  status: Generated<ClientInviteStatus>;
+  accepted_client_user_id: string | null;
+  accepted_at: Date | null;
+  revoked_by: string | null;
+  revoked_at: Date | null;
+  revoke_reason: string | null;
+  email_sent_at: Date | null;
+  email_message_id: string | null;
+  created_at: Generated<Date>;
+}
+
+export type TelegramLinkStatus = 'PENDING' | 'ACTIVE' | 'REVOKED';
+
+/** A person's Telegram chat, linked by a one-time code they send the bot (migration 0040). */
+export interface TelegramLinkTable {
+  id: Generated<string>;
+  client_user_id: string;
+  code_hash: string | null;
+  code_expires_at: Date | null;
+  status: Generated<TelegramLinkStatus>;
+  /** Telegram's id of the chat (int8). */
+  chat_id: bigint | null;
+  username: string | null;
+  created_at: Generated<Date>;
+  linked_at: Date | null;
+  revoked_at: Date | null;
+  revoke_reason: string | null;
+}
+
+/** One alert to one chat, sent once (migration 0040). */
+export interface TelegramDeliveryTable {
+  id: string;
+  telegram_link_id: string;
+  dedupe_key: string;
+  body: string;
+  button_url: string | null;
+  status: Generated<'PENDING' | 'SENT' | 'FAILED'>;
+  attempts: Generated<number>;
+  provider_message_id: string | null;
+  last_error: string | null;
+  created_at: Generated<Date>;
+  sent_at: Date | null;
+  failed_at: Date | null;
+}
+
+/** The payee of a P2P payment says it did not arrive; INRP2P decides (migration 0040, IX128). */
+export interface P2pDisputeTable {
+  id: Generated<string>;
+  ref: Generated<string>;
+  trade_id: string;
+  settlement_leg_id: string;
+  exception_case_id: string;
+  payee: 'CLIENT' | 'TRADER';
+  reason: 'NO_CREDIT' | 'WRONG_AMOUNT' | 'OTHER';
+  payee_note: string | null;
+  opened_by: string;
+  payer_note: string | null;
+  payer_noted_by: string | null;
+  payer_noted_at: Date | null;
+  status: Generated<'OPEN' | 'PAID' | 'NOT_PAID'>;
+  decided_via: 'INRP2P' | 'PAYEE' | null;
+  decided_by: string | null;
+  decided_at: Date | null;
+  decision_notes: string | null;
+  created_at: Generated<Date>;
+}
+
+/** A P2P SELL whose trader did not pay: the client's USDT goes back (migration 0040, IX129). */
+export interface P2pUnwindTable {
+  trade_id: string;
+  reason: 'PAY_WINDOW_MISSED' | 'NOT_PAID';
+  p2p_dispute_id: string | null;
+  refund_leg_id: string | null;
+  waiting_reason: string | null;
+  decided_by: string;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
 }
 
 export interface Database {
@@ -1756,4 +1967,15 @@ export interface Database {
   trader_reserve_withdrawal: TraderReserveWithdrawalTable;
   trader_reserve_application: TraderReserveApplicationTable;
   trader_reward_payout: TraderRewardPayoutTable;
+  fee_policy: FeePolicyTable;
+  fee_policy_proposal: FeePolicyProposalTable;
+  desk: DeskTable;
+  desk_price: DeskPriceTable;
+  desk_client: DeskClientTable;
+  desk_deal_link: DeskDealLinkTable;
+  client_invite: ClientInviteTable;
+  telegram_link: TelegramLinkTable;
+  telegram_delivery: TelegramDeliveryTable;
+  p2p_dispute: P2pDisputeTable;
+  p2p_unwind: P2pUnwindTable;
 }

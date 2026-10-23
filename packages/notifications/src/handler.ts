@@ -1,5 +1,5 @@
 import { Money } from '@inrp2p/kernel';
-import type { Db } from '@inrp2p/db';
+import type { Db, NotificationKind } from '@inrp2p/db';
 import type { OutboxEvent, OutboxHandler } from '@inrp2p/outbox';
 import { recordNotification } from './inbox.ts';
 import { type NotificationFacts, draftFor } from './messages.ts';
@@ -22,6 +22,10 @@ const HANDLED = new Set([
   'client.destination_archived',
   'client.trade_destination_changed',
   'client.payment_third_party',
+  'client.team_changed',
+  'p2p.dispute_opened',
+  'p2p.dispute_decided',
+  'p2p.unwind_started',
 ]);
 
 type Payload = Record<string, unknown>;
@@ -81,6 +85,9 @@ async function facts(db: Db, event: OutboxEvent): Promise<{ clientId: string; fa
   if (label) out.label = label;
   if (paid) out.paid = paid;
   if (of) out.of = of;
+  // Team changes carry only enumerated values; anything else is ignored.
+  if (p.change === 'JOINED' || p.change === 'ROLE_CHANGED' || p.change === 'REMOVED') out.teamChange = p.change;
+  if (p.role === 'ADMIN' || p.role === 'OPERATOR') out.teamRole = p.role;
   return { clientId, facts: out };
 }
 
@@ -107,9 +114,44 @@ function kindFor(event: OutboxEvent, f: NotificationFacts): Parameters<typeof dr
       return 'TRADE_DESTINATION_CHANGED';
     case 'client.payment_third_party':
       return 'PAYMENT_RETURNED';
+    case 'client.team_changed':
+      return 'TEAM_CHANGED';
     default:
       return null;
   }
+}
+
+/**
+ * The client's side of a P2P dispute or unwind (block 9): told when the seller says its payment did not arrive (it
+ * paid), when INRP2P decides, and when the buyer let the time run out on its SELL. Not told what it did itself — opening
+ * a dispute, or confirming the rupees after all.
+ */
+function p2pKindFor(event: OutboxEvent, direction: NotificationFacts['direction']): { kind: NotificationKind; facts: NonNullable<NotificationFacts['p2p']> } | null {
+  const p = (event.payload ?? {}) as Payload;
+  const payee = direction === 'SELL_USDT';
+  switch (event.type) {
+    case 'p2p.dispute_opened':
+      return p.payee === 'TRADER' ? { kind: 'P2P_DISPUTE_OPENED', facts: { audience: 'CLIENT', payee: false } } : null;
+    case 'p2p.dispute_decided':
+      if (p.via !== 'INRP2P' || (p.decision !== 'PAID' && p.decision !== 'NOT_PAID')) return null;
+      return { kind: 'P2P_DISPUTE_DECIDED', facts: { audience: 'CLIENT', payee, decision: p.decision } };
+    case 'p2p.unwind_started':
+      return p.reason === 'PAY_WINDOW_MISSED' ? { kind: 'P2P_REFUND', facts: { audience: 'CLIENT', payee: true } } : null;
+    default:
+      return null;
+  }
+}
+
+/**
+ * A desk's price (ADR 0020) is asked for and decided on its own page, in the minute it is held: telling the client it is
+ * ready — or that it lapsed — would only be noise. Its trade is told like any other.
+ */
+async function isDeskQuoteEvent(db: Db, event: OutboxEvent): Promise<boolean> {
+  if (event.type !== 'quote.sent' && event.type !== 'client.quote_expired') return false;
+  const quoteId = str(((event.payload ?? {}) as Payload).quoteId);
+  if (!quoteId) return false;
+  const row = await db.selectFrom('quote as q').innerJoin('trade_request as r', 'r.id', 'q.trade_request_id').select('r.desk_id').where('q.id', '=', quoteId).executeTakeFirst();
+  return row !== undefined && row.desk_id !== null;
 }
 
 export function clientNotificationHandler(db: Db): OutboxHandler {
@@ -117,8 +159,15 @@ export function clientNotificationHandler(db: Db): OutboxHandler {
     name: 'client_notification_inbox',
     handles: (type) => HANDLED.has(type),
     run: async (event) => {
+      if (await isDeskQuoteEvent(db, event)) return;
       const resolved = await facts(db, event);
       if (!resolved) return;
+      if (event.type.startsWith('p2p.')) {
+        const p2p = p2pKindFor(event, resolved.facts.direction);
+        if (!p2p) return;
+        await recordNotification(db, { ...draftFor(p2p.kind, { ...resolved.facts, p2p: p2p.facts }), clientId: resolved.clientId, outboxEventId: event.id });
+        return;
+      }
       const kind = kindFor(event, resolved.facts);
       if (!kind) return;
       const draft = draftFor(kind, resolved.facts);

@@ -27,6 +27,11 @@ export interface OnchainPolicy {
   readonly blockedRetrySeconds: number;
   /** Sends handled in one run. */
   readonly batch: number;
+  /**
+   * Block 10: TRX is reclaimed from a deal address only once nothing has been sent from it or to it for this long — a
+   * late refund or a sweep of the same address would otherwise need it topped up again at once.
+   */
+  readonly reclaimIdleMinutes: number;
 }
 
 export const DEFAULT_ONCHAIN_POLICY: OnchainPolicy = Object.freeze({
@@ -37,6 +42,7 @@ export const DEFAULT_ONCHAIN_POLICY: OnchainPolicy = Object.freeze({
   maxFailedAttempts: 3,
   blockedRetrySeconds: 120,
   batch: 25,
+  reclaimIdleMinutes: 60,
 });
 
 export interface OnchainDeps {

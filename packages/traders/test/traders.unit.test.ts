@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parseRewardBps, rewardFor } from '@inrp2p/trader-core';
-import { type BlockFacts, type TraderStanding, blockIssues, effectiveMaxOrder, freeCapacity, orderFit, standingIssues, switchOnIssues } from '../src/eligibility.ts';
+import { type BlockFacts, type TraderStanding, blockIssues, effectiveMaxOrder, freeCapacity, orderFit, standingIssues, switchOnIssues } from '@inrp2p/trader-core';
 import { type Candidate, directionForSide, rankCandidates, sideForDirection, sizeOrder } from '../src/routing.ts';
 import { type StageFacts, TRADER_ACTION_STAGES, orderStage, orderSteps } from '../src/progress.ts';
 import { assertTraderSafe } from '../src/views.ts';

@@ -788,6 +788,10 @@ desk's manual price kept as the fallback.
 
 ## TD-31 — TRX left at a deal address after its last transfer is not swept back
 
+**Closed (ADR 0020 block 10, 2026-10-19).** Autopay reclaims it (`TRX_RECLAIM`) from an address idle for an hour holding at
+least the policy's minimum, and each funder's unburned share comes back as a `RECLAIM` of its budget (`creditReclaimInTx`,
+`splitReclaim`). Tests: `fee-sweep.int.test.ts`, `reclaim.unit.test.ts`.
+
 **Observed (ADR 0017, 2026-10-13).** A top-up sends a deal address what its transfer may burn at most (the chain's own
 energy estimate +10 %, plus a 0.4 TRX bandwidth buffer). What the transfer did not burn stays at the address — about
 1–2 TRX per trade at today's prices — and the books count the whole top-up as spent by the trade's funder (so a trader
@@ -832,6 +836,13 @@ serves the business.
 
 ## TD-35 — A P2P sell whose trader never pays is refunded by hand
 
+**Closed (ADR 0020 block 9, 2026-10-19).** A SELL its trader did not pay in time — or that INRP2P decides not paid —
+unwinds (`p2p_unwind`, IX129): autopay refunds the client's USDT from the deal address to the registered wallet it came
+from (`planP2pRefundInTx`, a signer send paid by the trader's deposit, a second person over the threshold), and
+`runUnwindClosing` cancels the trade once it is final. The payee of any P2P payment can say it did not arrive at once
+(`p2p_dispute`, IX128); INRP2P decides it paid or not paid (`decideP2pPayment`). Tests: `p2p.int.test.ts` (“the time
+limits…”, “a seller whose rupees did not arrive…”). Evidence files on a dispute remain for later.
+
 **Observed (ADR 0019, 2026-10-17).** When a trader does not pay a client whose USDT is in escrow, the desk gets
 `P2P_PAYMENT_OVERDUE` after 30 minutes and refunds the client through *Refund and cancel* (second approver). A client who
 did not receive the rupees has no "not received" button: it waits, and the desk is told after 30 minutes.
@@ -841,6 +852,10 @@ approved by a second person over the threshold), and a dispute button on both si
 the payer's evidence attached.
 
 ## TD-36 — P2P margin stays at each deal address
+
+**Closed (ADR 0020 block 10, 2026-10-19).** Completed trades' earnings at a free deal address are swept in one transfer to
+the platform's revenue wallet (`FEE_SWEEP`, `planFeeSweepInTx`), earmarked per trade within its margin (IX130), with a
+journal between the two treasury accounts. Tests: `fee-sweep.int.test.ts`.
 
 **Observed (ADR 0019, 2026-10-17).** A P2P trade's margin is the USDT left at its deal address after the payout (≈ the
 margin less nothing — the network fee is TRX). It is in the books (`GROSS_MARGIN(USDT)`) and the seed opens it, but it is
@@ -857,3 +872,19 @@ view.
 
 **Resolution (to do).** A reveal step (a button that opens it, audited once per deal and viewer), and a masked number
 until then.
+
+## TD-38 — A desk deal does not yet apply the trader's full standing
+
+**Closed (ADR 0020 block 2, 2026-10-18).** The standing read moved to `@inrp2p/trader-core` (which may now read the
+ledger for the reserve figures); `quoteDeskDealInTx` refuses a desk with any `switchOnIssues` and applies INRP2P's
+single-order and capacity ceilings on the trader. Tests: `desks.int.test.ts` (“a desk deals only in a trader's full
+standing”).
+
+**Observed (ADR 0020 block 1, 2026-10-17).** `quoteDeskDealInTx` refuses a desk that is not live, a trader that is not
+approved, a blocked client, a deal past the desk's limits or capacity, and a desk whose network deposit cannot cover the
+deal. It does not yet check what the INRP2P desk's routing checks through `standingIssues`: the Security Reserve set and
+funded, and the registered bank account and wallet active. Those reads live in `@inrp2p/traders`, which quote commands
+may not depend on.
+
+**Resolution (block 2).** Move the standing read (`readStanding` / `standingIssues`) into `@inrp2p/trader-core` and apply
+it to desk deals, minus the two switches that belong to the INRP2P desk's routing (`OFFLINE`, `ASSIGNMENTS_DISABLED`).

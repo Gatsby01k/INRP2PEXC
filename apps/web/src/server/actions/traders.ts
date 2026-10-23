@@ -4,8 +4,9 @@ import { revalidatePath } from 'next/cache';
 import type { FiatRail, TraderSide } from '@inrp2p/db';
 import {
   type ApplyPayload, type ProposeSettlementPayload, acceptOrder, applyAsTrader, cancelReserveWithdrawal, confirmOrderPaymentReceived, declineOrder, orderDeliveryAddress, proposeSettlementChange,
-  type ClaimedDeposit, claimReserveDeposit, requestReserveWithdrawal, setAvailability, submitOrderPayment, updateBlock,
+  type ClaimedDeposit, claimReserveDeposit, requestReserveWithdrawal, setAvailability, submitOrderPayment, updateBlock, answerOrderDispute, disputeOrderPayment,
 } from '@inrp2p/traders';
+import type { P2pDisputeReason } from '@inrp2p/settlement';
 import { cancelNetworkWithdrawal, claimNetworkDeposit, requestNetworkWithdrawal } from '@inrp2p/network';
 import type { TrxTransferFacts } from '@inrp2p/adapters';
 import { DomainError } from '@inrp2p/kernel';
@@ -26,7 +27,7 @@ function refresh(): void {
 }
 
 /** Codes whose domain wording is right for a trader and the desk's shared phrasing is not. */
-const TRADER_WORDING: ReadonlySet<string> = new Set(['CAPACITY_INSUFFICIENT', 'INVALID_TRANSITION']);
+const TRADER_WORDING: ReadonlySet<string> = new Set(['CAPACITY_INSUFFICIENT', 'INVALID_TRANSITION', 'DISPUTE_EXISTS', 'NOT_THE_PAYEE', 'NOT_THE_PAYER', 'P2P_PAYMENT_WINDOW_CLOSED']);
 
 async function run<P, R>(name: string, build: Parameters<typeof runWorkspaceCommand<P, R>>[0], payload: P, key: string): Promise<CommandResult<R>> {
   const out = await runWorkspaceCommand(build, payload, { name, idempotencyKey: key, keepMessages: TRADER_WORDING });
@@ -78,6 +79,16 @@ export async function confirmOrderPaymentReceivedAction(
 ): Promise<CommandResult<{ verdict: string; confirmed: boolean }>> {
   const out = await run('trader_order.confirm_received', (ctx) => confirmOrderPaymentReceived(ctx.actor, { chain: chainForWeb() }), input, key);
   return out.ok ? { ok: true, result: { verdict: out.result.verdict, confirmed: out.result.confirmed } } : out;
+}
+
+/** A P2P Sell USDT order whose buyer's rupees did not arrive (block 9): the deal stops, INRP2P decides from the trader's bank. */
+export async function disputeOrderPaymentAction(input: { ref: string; reason: P2pDisputeReason; note?: string | null }, key: string): Promise<CommandResult<{ ref: string }>> {
+  return run('trader_order.dispute', (ctx) => disputeOrderPayment(ctx.actor), input, key);
+}
+
+/** The trader's side, for INRP2P, when the seller says the trader's rupees did not arrive. */
+export async function answerOrderDisputeAction(input: { ref: string; note: string }, key: string): Promise<CommandResult<{ ref: string }>> {
+  return run('trader_order.answer_dispute', (ctx) => answerOrderDispute(ctx.actor), input, key);
 }
 
 export async function orderDeliveryAddressAction(input: { ref: string }, key: string): Promise<CommandResult<{ address: string; amount: string }>> {

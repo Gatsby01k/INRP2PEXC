@@ -49,6 +49,8 @@ export async function exchangeView(ex: Executor, clientId: string): Promise<Exch
       'bank_account_id', 'crypto_wallet_id', 'status', 'status_reason', 'created_at',
     ])
     .where('client_id', '=', clientId)
+    // A deal with an independent desk (ADR 0020) has its own page; the Exchange is the INRP2P desk's conversation.
+    .where('desk_id', 'is', null)
     .orderBy('created_at', 'desc')
     // Two rows can share a timestamp; the id breaks the tie, so "the latest" is one row and always the same one.
     .orderBy('id', 'desc')

@@ -503,3 +503,42 @@
   color: var(--text-secondary);
   font-size: var(--font-size-meta);
 }
+
+/* ── A P2P payment for INRP2P to decide (ADR 0020 §2.15) ────────────────────────────────────────── */
+
+.disputeSides {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.disputeSide {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+  padding: var(--space-3);
+  border-radius: var(--radius-control);
+  background: var(--bg-subtle);
+  font-size: var(--font-size-meta);
+}
+
+.disputeNote {
+  margin: 0;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.pair {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: var(--space-2);
+}
+
+@media (max-width: 560px) {
+  .disputeSides,
+  .pair {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

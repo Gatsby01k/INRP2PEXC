@@ -105,6 +105,7 @@ export function SetupGuide({ who }: { who: Who }) {
         email={who.email}
         holderName={who.clientName}
         next="exchange"
+        firstOfKind
       />
     </section>
   );

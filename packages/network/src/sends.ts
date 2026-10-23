@@ -6,6 +6,8 @@ import { enqueueOutbox } from '@inrp2p/outbox';
 import { type OperatorActor, authorizeOperator, operatorCommand } from '@inrp2p/identity';
 import { lockTrader } from '@inrp2p/trader-core';
 import { lockFunder, networkAvailable, networkBudgetWallet } from './budget.ts';
+import { reservePerSendSun } from './estimate.ts';
+import { latestFeeSnapshot, networkFeePolicy } from './policy.ts';
 
 /**
  * A send is one on-chain transfer the exchange's signer will make (ADR 0017 §4): planned here, inside the command that
@@ -99,7 +101,17 @@ export async function planChainSend(ctx: TxContext, input: PlanSendInput): Promi
   if (!path) throw new DomainError('CUSTODY_PATH_REFUSED', `${input.fromAddress} is not an address the exchange's signer holds`);
   const awaiting = input.needsApproval && !input.approvedBy;
   let cap: bigint | null = null;
-  if (input.asset === 'USDT') {
+  if (input.purpose === 'FEE_SWEEP') {
+    // The platform's own transfer (block 10): its cap is the worst case of one transfer, from the platform's budget, which
+    // must have it free now — the top-up is checked again at commit (IX108).
+    if (input.funder !== null || input.bearer !== 'PLATFORM') throw new DomainError('INVALID_ARGUMENT', 'a fee sweep is paid from the platform\'s budget');
+    const snapshot = await latestFeeSnapshot(ctx.tx);
+    if (!snapshot) throw new DomainError('NETWORK_FEES_UNKNOWN', 'the chain\'s fees have never been read');
+    cap = reservePerSendSun(snapshot, await networkFeePolicy(ctx.tx));
+    await lockFunder(ctx, null);
+    const free = await networkAvailable(ctx.tx, null);
+    if (free < cap) throw new DomainError('NETWORK_BUDGET_INSUFFICIENT', `the platform network budget has ${formatTrx(free > 0n ? free : 0n)} TRX free; a fee sweep may need ${formatTrx(cap)} TRX`, { needed: formatTrx(cap) });
+  } else if (input.asset === 'USDT') {
     const tradeId = requireUuid(input.tradeId, 'tradeId');
     cap = await networkCapFor(ctx.tx, { tradeId, bearer: input.bearer });
     const fits = await sql<{ committed: string; held: string | null }>`

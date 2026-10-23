@@ -12,7 +12,7 @@ export const BLOCKING_TYPES: readonly ExceptionType[] = Object.freeze([
   'USDT_WRONG_AMOUNT', 'USDT_OVERPAYMENT', 'USDT_UNEXPECTED_SENDER', 'WRONG_NETWORK', 'ROUTE_DIRECT_PAYOUT_MISMATCH',
   'FUNDS_AFTER_TRADE_CLOSED', 'UNALLOCATED_DEPOSIT', 'ROUTE_SETTLEMENT_MISMATCH', 'DUPLICATE_TX_HASH', 'DUPLICATE_UTR',
   'BANK_TRANSFER_FAILED', 'CLIENT_BANK_CHANGED', 'TRADE_CANCELLATION', 'OPERATOR_MISTAKE', 'RECONCILIATION_MISMATCH',
-  'INR_UNEXPECTED_SENDER',
+  'INR_UNEXPECTED_SENDER', 'P2P_DISPUTE',
 ]);
 
 export const severityOf = (type: ExceptionType): 'BLOCKING' | 'WARNING' => (BLOCKING_TYPES.includes(type) ? 'BLOCKING' : 'WARNING');
@@ -116,7 +116,7 @@ export const NON_FINANCIAL_RESOLUTIONS = Object.freeze([
   'record_correct_route', 'record_route_settlement', 'correct_utr', 'escalate',
 ] as const);
 
-export type ResolutionCommand = (typeof NON_FINANCIAL_RESOLUTIONS)[number] | 'confirm_new_destination' | 'financial_adjustment' | 'refund_and_cancel' | 'cancel_trade' | 'reclassify_payer' | 'refund_excess' | 'adjust_trade_to_received' | 'requote_for_same_client' | 'refund' | 'reallocate' | 'mark_failed' | 'confirm' | 'replenish_pool';
+export type ResolutionCommand = (typeof NON_FINANCIAL_RESOLUTIONS)[number] | 'confirm_new_destination' | 'financial_adjustment' | 'refund_and_cancel' | 'cancel_trade' | 'reclassify_payer' | 'refund_excess' | 'adjust_trade_to_received' | 'requote_for_same_client' | 'refund' | 'reallocate' | 'mark_failed' | 'confirm' | 'replenish_pool' | 'p2p_decide';
 
 async function lockException(ctx: TxContext, exceptionId: string) {
   const id = requireUuid(exceptionId, 'exceptionId');
@@ -160,8 +160,10 @@ export async function resolveExceptionInTx(
  * a case can never deadlock against a command already working on the same trade.
  */
 async function lockTradeOfException(ctx: TxContext, exceptionId: string): Promise<string | null> {
-  const peek = await ctx.tx.selectFrom('exception_case').select('trade_id').where('id', '=', requireUuid(exceptionId, 'exceptionId')).executeTakeFirst();
+  const peek = await ctx.tx.selectFrom('exception_case').select(['trade_id', 'type']).where('id', '=', requireUuid(exceptionId, 'exceptionId')).executeTakeFirst();
   if (!peek) throw new DomainError('NOT_FOUND', 'exception case not found');
+  // A dispute closes only with its decision (`escrow_payment.decide`): paid, or not paid — never by a note.
+  if (peek.type === 'P2P_DISPUTE') throw new DomainError('INVALID_TRANSITION', 'a P2P dispute is closed by deciding the payment on its trade: paid, or not paid');
   if (peek.trade_id) await lockTrade(ctx.tx, peek.trade_id);
   return peek.trade_id;
 }
@@ -207,4 +209,5 @@ export const EXCEPTION_TYPES = Object.freeze([
   'PARTIAL_INR_PAYOUT', 'INR_PAYOUT_DELAYED', 'BANK_TRANSFER_FAILED', 'CLIENT_BANK_CHANGED',
   'ROUTE_CAPACITY_CHANGED', 'TRADE_CANCELLATION', 'OPERATOR_MISTAKE', 'RECONCILIATION_MISMATCH',
   'CHAIN_SEND_UNRESOLVED', 'NETWORK_BUDGET_SHORT', 'INR_UNEXPECTED_SENDER', 'P2P_PAYMENT_OVERDUE', 'P2P_RECEIPT_OVERDUE',
+  'P2P_DISPUTE',
 ] as const);

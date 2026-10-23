@@ -25,6 +25,9 @@ export interface AcceptedQuoteTerms {
   /** P2P (ADR 0019): the trader's USDT and the exchange's USDT margin; null through the exchange. */
   readonly routeBaseMinor?: bigint | null;
   readonly grossMarginBaseMinor?: bigint | null;
+  /** A desk's deal (migration 0040): the platform's fee — its bps and the USDT it comes to; null otherwise. */
+  readonly platformFeeBps?: number | null;
+  readonly platformFeeBaseMinor?: bigint | null;
 }
 
 export interface OpenedTrade {
@@ -76,6 +79,8 @@ export async function openTradeFromAcceptedQuote(ctx: TxContext, terms: Accepted
       crypto_wallet_id: terms.cryptoWalletId,
       route_base_minor: terms.routeBaseMinor ?? null,
       gross_margin_base_minor: terms.grossMarginBaseMinor ?? null,
+      platform_fee_bps: terms.platformFeeBps ?? null,
+      platform_fee_base_minor: terms.platformFeeBaseMinor ?? null,
     })
     .execute();
   await ctx.tx

@@ -125,6 +125,9 @@ export const CASE_TITLE: Record<string, string> = {
   TRADE_CANCELLATION: 'Cancellation requested',
   OPERATOR_MISTAKE: 'Operator correction',
   RECONCILIATION_MISMATCH: 'Reconciliation mismatch',
+  P2P_PAYMENT_OVERDUE: 'P2P payment overdue',
+  P2P_RECEIPT_OVERDUE: 'P2P receipt overdue',
+  P2P_DISPUTE: 'P2P payment disputed',
 };
 
 export const caseTitle = (type: string): string => CASE_TITLE[type] ?? titleCase(type);

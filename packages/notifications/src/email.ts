@@ -21,6 +21,8 @@ const EMAILED = new Set([
   'QUOTE_SENT', 'REQUEST_DECLINED', 'TRADE_COMPLETED', 'TRADE_CANCELLED', 'DESTINATION_ADDED', 'DESTINATION_ARCHIVED',
   // ADR 0018: rupees from someone else are going back — the client must know before paying again.
   'PAYMENT_RETURNED',
+  // ADR 0020: who can act for the account changed — told by email, like a new place to be paid.
+  'TEAM_CHANGED',
   // A trader is often not looking at the product when an order arrives or its turn comes.
   'TRADER_APPROVED', 'TRADER_REJECTED', 'TRADER_PAUSED', 'TRADER_ORDER_NEW', 'TRADER_ACTION_REQUIRED', 'TRADER_ORDER_COMPLETED', 'TRADER_RESERVE_ISSUE',
 ]);
@@ -176,7 +178,7 @@ async function sendOne(db: Db, adapter: NotificationAdapter, deliveryId: string,
 export function clientNotificationEmailHandler(db: Db, adapter: NotificationAdapter, opts: EmailChannelOptions = {}): OutboxHandler {
   return {
     name: 'client_notification_email',
-    handles: (type) => type.startsWith('client.') || type.startsWith('trader.') || type === 'quote.sent' || type === 'trade.opened' || type === 'desk.payout_actionable',
+    handles: (type) => type.startsWith('client.') || type.startsWith('trader.') || type.startsWith('p2p.') || type === 'quote.sent' || type === 'trade.opened' || type === 'desk.payout_actionable',
     run: async (event) => {
       await emailNotification(db, adapter, { outboxEventId: event.id, ...opts });
     },

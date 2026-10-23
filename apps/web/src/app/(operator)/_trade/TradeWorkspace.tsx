@@ -7,6 +7,7 @@ import { CaseCard } from './Cases.tsx';
 import { ClientFunds, type CollectionAccount } from './ClientFunds.tsx';
 import { Destination } from './Destination.tsx';
 import { TradeNetwork } from './Network.tsx';
+import { P2pPayment } from './P2pPayment.tsx';
 import { Payouts } from './Payouts.tsx';
 import { Economics, Headline, Stages } from './Summary.tsx';
 import type { TradePerms } from './types.ts';
@@ -54,6 +55,8 @@ export function TradeWorkspace({
           {perms.economics ? <Economics trade={trade} realized={trade.lifecycle === 'COMPLETED'} compact /> : null}
         </PanelSection>
       )}
+      {/* A P2P payment waiting for INRP2P's decision leads: nothing else on the deal can move until it is decided. */}
+      <P2pPayment trade={trade} perms={perms} />
       {focus === 'exception' || trade.hold ? cases : null}
       {trade.lifecycle !== 'COMPLETED' && trade.lifecycle !== 'CANCELLED' ? <Destination trade={trade} perms={perms} /> : null}
       {waitingForClient ? (

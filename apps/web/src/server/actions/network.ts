@@ -5,8 +5,8 @@ import { DomainError } from '@inrp2p/kernel';
 import { authorizeOperator } from '@inrp2p/identity';
 import type { TrxTransferFacts } from '@inrp2p/adapters';
 import { approveChainSend, decideNetworkWithdrawal, publishTrxRate, recordNetworkDeposit, setNetworkFeePolicy } from '@inrp2p/network';
-import { approveRefundSend, cancelChainSend, raiseChainSendCap, raiseTradeNetworkHold, unblockChainSend } from '@inrp2p/settlement';
-import { recordCustodyHdAccount } from '@inrp2p/treasury';
+import { approveRefundSend, cancelChainSend, raiseChainSendCap, raiseTradeNetworkHold, sweepAddressNow, unblockChainSend } from '@inrp2p/settlement';
+import { recordCustodyHdAccount, registerTreasuryWallet } from '@inrp2p/treasury';
 import { HdWalletCustodyAdapter } from '@inrp2p/adapters';
 import { custodyForWeb } from '../quotes.ts';
 import { sendNetworkForWeb } from '../chain.ts';
@@ -67,8 +67,11 @@ export async function decideNetworkWithdrawalAction(input: { withdrawalId: strin
   return done(await runCommand((ctx) => decideNetworkWithdrawal(ctx.actor), input, { name: 'network_withdrawal.decide', idempotencyKey: key }));
 }
 
-export async function setNetworkFeePolicyAction(input: { autoSendEnabled?: boolean; minNetMargin?: string; quoteEnergy?: number; reserveEnergy?: number; priceBufferBps?: number; topupBufferBps?: number; reason: string }, key: string) {
-  return done(await runCommand((ctx) => setNetworkFeePolicy(ctx.actor), input, { name: 'settings.network_fees', idempotencyKey: key, financial: false }));
+export async function setNetworkFeePolicyAction(
+  input: { autoSendEnabled?: boolean; minNetMargin?: string; quoteEnergy?: number; reserveEnergy?: number; priceBufferBps?: number; topupBufferBps?: number; feeSweepEnabled?: boolean; feeSweepMin?: string; trxReclaimMin?: string; reason: string },
+  key: string,
+) {
+  return done(await runCommand((ctx) => setNetworkFeePolicy(ctx.actor), input, { name: 'settings.network_fees', idempotencyKey: key, financial: false }), '/network', '/revenue');
 }
 
 /** The second person a USDT refund needs: approving it sends it from the deal address (the signer makes the transfer). */
@@ -93,5 +96,19 @@ export async function recordCustodyHdAccountAction(input: { feeWalletAddress: st
   return done(
     await runCommand((ctx) => recordCustodyHdAccount(ctx.actor, adapter), { accountXpub: adapter.account.xpub, ...input }, { name: 'custody.record_hd_account', idempotencyKey: key }),
     '/network', '/usdt',
+  );
+}
+
+/** Block 10: one address's earnings swept to the revenue wallet now, whatever the threshold (`network:manage`). */
+export async function sweepAddressNowAction(input: { address: string }, key: string) {
+  return done(await runCommand((ctx, deps) => sweepAddressNow(ctx.actor, deps), input, { name: 'fee_sweep.plan', idempotencyKey: key }), '/revenue', '/network');
+}
+
+/** The platform's own wallet its earnings are swept to: an address it holds, registered watch-only (`treasury:manage_wallets`). */
+export async function registerRevenueWalletAction(input: { address: string; label: string }, key: string) {
+  return done(
+    await runCommand((ctx) => registerTreasuryWallet(ctx.actor), { network: 'TRON' as const, address: input.address, label: input.label, role: 'REVENUE' as const }, { name: 'treasury.register_wallet', idempotencyKey: key, financial: false }),
+    '/revenue',
+    '/usdt',
   );
 }

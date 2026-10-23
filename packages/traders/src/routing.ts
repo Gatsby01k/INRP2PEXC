@@ -6,9 +6,9 @@ import { type DirectionValue, type FixedSideValue, type TraderSide, type TxConte
 import { appendAudit } from '@inrp2p/audit';
 import { enqueueOutbox } from '@inrp2p/outbox';
 import { type OperatorActor, operatorCommand } from '@inrp2p/identity';
-import { type FitIssue, type StandingIssue, freeCapacity, orderFit, standingIssues } from './eligibility.ts';
+import { type FitIssue, type StandingIssue, freeCapacity, orderFit, standingIssues } from '@inrp2p/trader-core';
 import { traderProgram } from '@inrp2p/trader-core';
-import { readBlocks, readStanding } from './standing.ts';
+import { readBlocks, readStanding } from '@inrp2p/trader-core';
 
 /** The trader side that fills a client request: a client selling USDT needs a trader buying it, and vice versa. */
 export const sideForDirection = (direction: DirectionValue): TraderSide => (direction === 'SELL_USDT' ? 'BUY_USDT' : 'SELL_USDT');
@@ -110,12 +110,13 @@ interface RequestRow {
   fixed_side: FixedSideValue;
   requested_base_minor: bigint | null;
   requested_quote_minor: bigint | null;
+  desk_id: string | null;
 }
 
 async function lockRequest(ctx: TxContext, requestId: string): Promise<RequestRow> {
   assertLockOrder(ctx.tx, 'trade_request');
   const r = await sql<RequestRow>`
-    select id, ref, client_id, status, direction, fixed_side, requested_base_minor, requested_quote_minor
+    select id, ref, client_id, status, direction, fixed_side, requested_base_minor, requested_quote_minor, desk_id
     from trade_request where id = ${requireUuid(requestId, 'requestId')} for update`.execute(ctx.tx);
   const row = r.rows[0];
   if (!row) throw new DomainError('NOT_FOUND', 'request not found');
@@ -133,6 +134,8 @@ export async function assignRequestInTx(
 ): Promise<{ assigned: AssignResult } | { miss: RoutingMiss }> {
   const request = await lockRequest(ctx, input.requestId);
   if (request.status !== 'OPEN' && request.status !== 'QUOTED') throw new DomainError('REQUEST_NOT_OPEN', `request is ${request.status}`);
+  // A request placed with a desk is that desk's to fill (ADR 0020, IX124): it is never offered to anyone else.
+  if (request.desk_id) throw new DomainError('INVALID_ARGUMENT', `request ${request.ref} was placed with a desk: that desk fills it`);
   const live = await ctx.tx.selectFrom('trader_order').select('ref').where('trade_request_id', '=', request.id).where('status', 'in', ['OFFERED', 'ACCEPTED']).executeTakeFirst();
   if (live) throw new DomainError('TRADER_ORDER_NOT_LIVE', `request ${request.ref} is already with a trader (${live.ref})`);
   const side = sideForDirection(request.direction);
@@ -158,9 +161,13 @@ export async function assignRequestInTx(
   // ADR 0017 §2: a trader's network deposit pays for the transfers of its orders, and a trade holds the worst case of
   // them from acceptance. A trader that could not cover one more order is not offered one.
   let networkNeed: bigint | null = null;
+  let p2pNetworkNeed: bigint | null = null;
   try {
     const costs = await currentNetworkCosts(ctx.tx);
-    networkNeed = reservePerSendSun(costs.snapshot, costs.policy) * BigInt(reserveSends(request.direction, costs.policy));
+    const perSend = reservePerSendSun(costs.snapshot, costs.policy);
+    networkNeed = perSend * BigInt(reserveSends(request.direction, costs.policy));
+    // A P2P deal holds its transfer and a return of the escrow, whichever direction (`priceNetworkP2p`).
+    p2pNetworkNeed = perSend * BigInt(1 + costs.policy.refundSendsSell);
   } catch (e) {
     if (!(e instanceof DomainError && e.code === 'NETWORK_FEES_UNKNOWN')) throw e;
   }
@@ -189,10 +196,11 @@ export async function assignRequestInTx(
       exclude('NO_SIDE');
       continue;
     }
-    // ADR 0019: a P2P route's transfers are paid from the platform's TRX budget, so its trader needs no network deposit;
-    // its order is sized at the client rate the desk names, because the rupees are one amount for both of them.
+    // A P2P route's transfers are paid from its trader's network deposit like any trader route's (migration 0040: the
+    // platform has no TRX budget for P2P deals); its order is sized at the client rate the desk names, because the rupees
+    // are one amount for both of them (ADR 0019).
     const p2p = (await ctx.tx.selectFrom('liquidity_route').select('execution_mode').where('id', '=', block.routeId).executeTakeFirstOrThrow()).execution_mode === 'P2P';
-    if (!p2p && (await networkAvailable(ctx.tx, t.id)) < networkNeed) {
+    if ((await networkAvailable(ctx.tx, t.id)) < (p2p ? p2pNetworkNeed! : networkNeed)) {
       exclude('NETWORK_DEPOSIT_SHORT');
       continue;
     }
@@ -296,8 +304,8 @@ export function assignRequest(actor: OperatorActor) {
 export async function rerouteRequestInTx(ctx: TxContext, requestId: string): Promise<AssignResult | null> {
   // While new business is paused nobody is offered anything; the request waits in the desk's queue.
   if ((await newBusinessState(ctx.tx)).paused) return null;
-  const request = await ctx.tx.selectFrom('trade_request').select(['status']).where('id', '=', requireUuid(requestId, 'requestId')).executeTakeFirst();
-  if (!request || (request.status !== 'OPEN' && request.status !== 'QUOTED')) return null;
+  const request = await ctx.tx.selectFrom('trade_request').select(['status', 'desk_id']).where('id', '=', requireUuid(requestId, 'requestId')).executeTakeFirst();
+  if (!request || (request.status !== 'OPEN' && request.status !== 'QUOTED') || request.desk_id) return null;
   const live = await ctx.tx.selectFrom('trader_order').select('id').where('trade_request_id', '=', requestId).where('status', 'in', ['OFFERED', 'ACCEPTED', 'IN_PROGRESS', 'COMPLETED']).executeTakeFirst();
   if (live) return null;
   const last = await ctx.tx.selectFrom('trader_order').select(['planned_client_rate_micro']).where('trade_request_id', '=', requestId).orderBy('offered_at', 'desc').executeTakeFirst();
@@ -313,8 +321,8 @@ export async function autoAssignInTx(ctx: TxContext, requestId: string): Promise
   const program = await traderProgram(ctx.tx);
   if (!program.autoAssign) return null;
   if ((await newBusinessState(ctx.tx)).paused) return null;
-  const request = await ctx.tx.selectFrom('trade_request').select(['status', 'fixed_side']).where('id', '=', requireUuid(requestId, 'requestId')).executeTakeFirst();
-  if (!request || request.status !== 'OPEN' || request.fixed_side !== 'BASE') return null;
+  const request = await ctx.tx.selectFrom('trade_request').select(['status', 'fixed_side', 'desk_id']).where('id', '=', requireUuid(requestId, 'requestId')).executeTakeFirst();
+  if (!request || request.status !== 'OPEN' || request.fixed_side !== 'BASE' || request.desk_id) return null;
   const live = await ctx.tx.selectFrom('trader_order').select('id').where('trade_request_id', '=', requestId).executeTakeFirst();
   if (live) return null;
   const out = await assignRequestInTx(ctx, { requestId, plannedClientRateMicro: null, offeredBy: `SYSTEM:${ctx.commandName}` });

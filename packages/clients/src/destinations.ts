@@ -4,8 +4,8 @@ import { type Rail, type TxContext, isUniqueViolation } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
 import { enqueueOutbox } from '@inrp2p/outbox';
 import type { FieldProtector } from '@inrp2p/adapters';
-import { type OperatorActor, actorLabel, operatorCommand } from '@inrp2p/identity';
-import { type ClientDataActor, clientDataCommand } from './authz.ts';
+import { type AuthorizationDecision, type OperatorActor, actorLabel, operatorCommand } from '@inrp2p/identity';
+import { type ClientAdminCheck, type ClientDataActor, clientDataCommand } from './authz.ts';
 import { requireActiveClient } from './clients.ts';
 
 const RAILS = ['IMPS', 'NEFT', 'RTGS', 'UPI'] as const;
@@ -14,6 +14,9 @@ const RAILS = ['IMPS', 'NEFT', 'RTGS', 'UPI'] as const;
 export const bankAccountSealContext = (clientId: string) => `bank_account.account_number:${clientId}`;
 /** HMAC context for duplicate detection (same account number under the same client). */
 export const BANK_ACCOUNT_HMAC_CONTEXT = 'bank_account.account_number';
+
+/** How the person adding a destination was confirmed, for its audit record. */
+const confirmedBy = (via: AuthorizationDecision | ClientAdminCheck): string => ('confirmedBy' in via ? via.confirmedBy : 'OPERATOR');
 
 async function clientOfBankAccount(ctx: TxContext, id: string): Promise<string> {
   const row = await ctx.tx.selectFrom('bank_account').select('client_id').where('id', '=', requireUuid(id, 'bankAccountId')).executeTakeFirst();
@@ -37,12 +40,13 @@ export interface AddBankAccountPayload {
 }
 
 /**
- * `client_bank.add` — operator `client_bank:add` (⧗) or the client's CLIENT_ADMIN with fresh TOTP (D-08).
+ * `client_bank.add` — operator `client_bank:add` (⧗) or the client's CLIENT_ADMIN with fresh TOTP (D-08); its first
+ * account may instead be confirmed by a sign-in by email code in the last ten minutes (ADR 0020).
  * The account number is stored only envelope-encrypted, with last4 and a keyed HMAC (SECURITY §5).
  * All client admins are notified through the outbox (S8).
  */
 export function addBankAccount(actor: ClientDataActor, protector: FieldProtector) {
-  return clientDataCommand(actor, 'client_bank:add', { stepUp: true }, async (_ctx, p: AddBankAccountPayload) => requireUuid(p.clientId, 'clientId'), async (ctx, p, clientId) => {
+  return clientDataCommand(actor, 'client_bank:add', { stepUp: true, firstDestination: 'BANK_ACCOUNT' }, async (_ctx, p: AddBankAccountPayload) => requireUuid(p.clientId, 'clientId'), async (ctx, p, clientId, via) => {
     await requireActiveClient(ctx.tx, clientId);
     const accountNumber = normalizeIndianAccountNumber(p.accountNumber);
     const rails = [...new Set((p.railPreferences ?? ['IMPS', 'NEFT', 'RTGS']).map((r) => requireOneOf(r, 'railPreferences', RAILS)))];
@@ -68,7 +72,7 @@ export function addBankAccount(actor: ClientDataActor, protector: FieldProtector
       if (isUniqueViolation(e, 'bank_account_active_unique')) throw new DomainError('DUPLICATE_DESTINATION', 'this bank account is already active for the client');
       throw e;
     }
-    await appendAudit(ctx, { action: 'client_bank.added', entityType: 'bank_account', entityId: row.id, after: { ...row, added_via: actor.kind } });
+    await appendAudit(ctx, { action: 'client_bank.added', entityType: 'bank_account', entityId: row.id, after: { ...row, added_via: actor.kind, confirmed_by: confirmedBy(via) } });
     await enqueueOutbox(ctx, { type: 'client.destination_added', aggregateType: 'client', aggregateId: clientId, payload: { clientId, destination: 'BANK_ACCOUNT', id: row.id, last4: row.account_last4 } });
     return { bankAccountId: row.id, last4: row.account_last4 };
   });
@@ -126,11 +130,12 @@ export interface AddWalletPayload {
 }
 
 /**
- * `client_wallet.add` — operator `client_wallet:manage` (⧗) or the client's CLIENT_ADMIN with fresh TOTP (D-08, S8).
+ * `client_wallet.add` — operator `client_wallet:manage` (⧗) or the client's CLIENT_ADMIN with fresh TOTP (D-08, S8); its
+ * first wallet may instead be confirmed by a sign-in by email code in the last ten minutes (ADR 0020).
  * Same role/step-up policy as bank destinations, under its own permission. Address checksum is validated.
  */
 export function addWallet(actor: ClientDataActor) {
-  return clientDataCommand(actor, 'client_wallet:manage', { stepUp: true }, async (_ctx, p: AddWalletPayload) => requireUuid(p.clientId, 'clientId'), async (ctx, p, clientId) => {
+  return clientDataCommand(actor, 'client_wallet:manage', { stepUp: true, firstDestination: 'WALLET' }, async (_ctx, p: AddWalletPayload) => requireUuid(p.clientId, 'clientId'), async (ctx, p, clientId, via) => {
     await requireActiveClient(ctx.tx, clientId);
     const network = requireOneOf(p.network, 'network', ['TRON'] as const);
     const address = parseTronAddress(typeof p.address === 'string' ? p.address.trim() : '');
@@ -145,7 +150,7 @@ export function addWallet(actor: ClientDataActor) {
       if (isUniqueViolation(e, 'crypto_wallet_active_unique')) throw new DomainError('DUPLICATE_DESTINATION', 'this wallet is already active for the client');
       throw e;
     }
-    await appendAudit(ctx, { action: 'client_wallet.added', entityType: 'crypto_wallet', entityId: row.id, after: { ...row, added_via: actor.kind } });
+    await appendAudit(ctx, { action: 'client_wallet.added', entityType: 'crypto_wallet', entityId: row.id, after: { ...row, added_via: actor.kind, confirmed_by: confirmedBy(via) } });
     await enqueueOutbox(ctx, { type: 'client.destination_added', aggregateType: 'client', aggregateId: clientId, payload: { clientId, destination: 'WALLET', id: row.id } });
     return { walletId: row.id };
   });

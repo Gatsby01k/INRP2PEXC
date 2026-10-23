@@ -208,3 +208,63 @@ export const SparkIcon = ({ className }: IconProps) => (
     <path d="M12 3.5v4M12 16.5v4M3.5 12h4M16.5 12h4M6 6l2.6 2.6M15.4 15.4 18 18M6 18l2.6-2.6M15.4 8.6 18 6" />
   </svg>
 );
+
+/** A shopfront: the desk, a trader's own exchange (ADR 0020). */
+export const StoreIcon = ({ className }: IconProps) => (
+  <svg {...base} className={className}>
+    <path d="M4 9.5 5.4 4.8A1 1 0 0 1 6.4 4h11.2a1 1 0 0 1 1 .8L20 9.5" />
+    <path d="M4 9.5a2.7 2.7 0 0 0 5.3 0 2.7 2.7 0 0 0 5.4 0 2.7 2.7 0 0 0 5.3 0" />
+    <path d="M5.5 12v7a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1v-7" />
+    <path d="M10 20v-4.5h4V20" />
+  </svg>
+);
+
+export const LinkIcon = ({ className }: IconProps) => (
+  <svg {...base} className={className}>
+    <path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1" />
+    <path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" />
+  </svg>
+);
+
+export const ShareIcon = ({ className }: IconProps) => (
+  <svg {...base} className={className}>
+    <path d="M12 15V4" />
+    <path d="m8 8 4-4 4 4" />
+    <path d="M6 12v6.5A1.5 1.5 0 0 0 7.5 20h9a1.5 1.5 0 0 0 1.5-1.5V12" />
+  </svg>
+);
+
+export const ChatIcon = ({ className }: IconProps) => (
+  <svg {...base} className={className}>
+    <path d="M4.5 19.5 6 15.6A7.5 7.5 0 1 1 9 18.6Z" />
+  </svg>
+);
+
+export const SendIcon = ({ className }: IconProps) => (
+  <svg {...base} className={className}>
+    <path d="M20.5 3.5 10 14" />
+    <path d="m20.5 3.5-6.5 17-4-6.5-6.5-4Z" />
+  </svg>
+);
+
+export const ChartIcon = ({ className }: IconProps) => (
+  <svg {...base} className={className}>
+    <path d="M4 20h16" />
+    <path d="M7 16v-5" />
+    <path d="M12 16V7" />
+    <path d="M17 16v-8" />
+  </svg>
+);
+
+export const TagIcon = ({ className }: IconProps) => (
+  <svg {...base} className={className}>
+    <path d="M3.5 12.3V4.5a1 1 0 0 1 1-1h7.8l8.2 8.2a1 1 0 0 1 0 1.4l-7.8 7.8a1 1 0 0 1-1.4 0Z" />
+    <circle cx="8" cy="8" r="1.3" />
+  </svg>
+);
+
+export const PlaneIcon = ({ className }: IconProps) => (
+  <svg {...base} className={className}>
+    <path d="M21 4 3 11.2l6.3 2.3L18 7.5l-6.6 7.4.4 5.6 3.2-4.1 4.3 3.1Z" />
+  </svg>
+);

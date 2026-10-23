@@ -1,6 +1,6 @@
 import { DomainError } from './errors.ts';
 import { inrToUsdt, usdtToInr } from './conversion.ts';
-import type { Money } from './money.ts';
+import { Money } from './money.ts';
 import type { ClientRate, RouteRate } from './rate.ts';
 
 export type Direction = 'SELL_USDT' | 'BUY_USDT';
@@ -24,6 +24,11 @@ export interface TradeEconomics {
    */
   readonly routeBase?: Money<'USDT'>;
   readonly grossMarginBase?: Money<'USDT'>;
+  /**
+   * A desk's deal (ADR 0020, FI-99) only: the platform's fee in USDT — the part of `grossMarginBase` that is INRP2P's. On a
+   * deal the desk fills itself it is the whole margin.
+   */
+  readonly platformFeeBase?: Money<'USDT'>;
 }
 
 /**
@@ -97,4 +102,46 @@ export function computeP2pEconomics(input: EconomicsInput): TradeEconomics & { r
   if (!routeBase.isPositive()) throw new DomainError('INVALID_AMOUNT', 'amount is too small to price at these rates');
   const grossMarginBase = buy ? routeBase.sub(base) : base.sub(routeBase);
   return Object.freeze({ direction, fixedSide: input.fixedSide, base, clientInr: inr, routeInr: inr, grossMargin: inr.sub(inr), routeBase, grossMarginBase });
+}
+
+/**
+ * The platform's fee on a desk's deal (ADR 0020, FI-99): `bps` basis points of the deal's USDT, rounded up — the desk pays
+ * it, and what a payer owes is rounded against it (FINANCIAL_INVARIANTS §1.2). The database recomputes it the same way.
+ */
+export function platformFeeOf(base: Money<'USDT'>, bps: number): Money<'USDT'> {
+  if (!Number.isInteger(bps) || bps < 0 || bps > 1000) throw new DomainError('INVALID_ARGUMENT', 'fee basis points must be a whole number from 0 to 1000', { field: 'feeBps' });
+  if (base.isNegative()) throw new DomainError('INVALID_AMOUNT', 'a fee is charged on a positive amount');
+  return Money.ofMinor((base.minor * BigInt(bps) + 9999n) / 10000n, 'USDT');
+}
+
+export type DeskEconomicsInput =
+  | { direction: Direction; fixedSide: 'BASE'; amount: Money<'USDT'>; clientRate: ClientRate; feeBps: number }
+  | { direction: Direction; fixedSide: 'QUOTE'; amount: Money<'INR'>; clientRate: ClientRate; feeBps: number };
+
+export type DeskEconomics = TradeEconomics & { readonly routeBase: Money<'USDT'>; readonly grossMarginBase: Money<'USDT'>; readonly platformFeeBase: Money<'USDT'> };
+
+/**
+ * A deal a desk fills with its own liquidity (ADR 0020, FI-99). It runs P2P (ADR 0019): one rupee amount, straight between
+ * the client and the desk, at the desk's own rate — rounded against the client as always. The desk's USDT differs from the
+ * client's only by the platform's fee, taken from the escrow: a client selling sends `base` and the desk receives
+ * `base − fee`; a client buying receives `base` and the desk delivers `base + fee`. The fee is the deal's whole margin.
+ */
+export function computeDeskEconomics(input: DeskEconomicsInput): DeskEconomics {
+  const { direction, clientRate } = input;
+  if (!input.amount.isPositive()) throw new DomainError('INVALID_AMOUNT', 'amount must be positive');
+  const buy = direction === 'BUY_USDT';
+  let base: Money<'USDT'>;
+  let inr: Money<'INR'>;
+  if (input.fixedSide === 'BASE') {
+    base = input.amount;
+    inr = usdtToInr(base, clientRate, buy ? 'UP' : 'DOWN');
+  } else {
+    inr = input.amount;
+    base = inrToUsdt(inr, clientRate, buy ? 'DOWN' : 'UP');
+  }
+  assertPriceable(base, inr, inr);
+  const fee = platformFeeOf(base, input.feeBps);
+  const routeBase = buy ? base.add(fee) : base.sub(fee);
+  if (!routeBase.isPositive()) throw new DomainError('INVALID_AMOUNT', 'amount is too small to carry the platform fee');
+  return Object.freeze({ direction, fixedSide: input.fixedSide, base, clientInr: inr, routeInr: inr, grossMargin: inr.sub(inr), routeBase, grossMarginBase: fee, platformFeeBase: fee });
 }

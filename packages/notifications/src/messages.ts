@@ -34,6 +34,19 @@ export interface NotificationFacts {
   readonly side?: 'BUY_USDT' | 'SELL_USDT';
   readonly rate?: string;
   readonly reward?: string;
+  /** Team messages: what changed, and the role it concerns. Never the person's address — the Team screen shows who. */
+  readonly teamChange?: 'JOINED' | 'ROLE_CHANGED' | 'REMOVED';
+  readonly teamRole?: 'ADMIN' | 'OPERATOR';
+  /** P2P disputes and unwinds (block 9): who is told — the side that received the rupees, or the one that paid them. */
+  readonly p2p?: {
+    readonly audience: 'CLIENT' | 'TRADER';
+    readonly payee: boolean;
+    readonly decision?: 'PAID' | 'NOT_PAID';
+    /** A trader's order that is a desk's own deal: it opens in the desk's workspace. */
+    readonly deskDeal?: boolean;
+  };
+  /** A decision of INRP2P's about the trader's desk (block 11). */
+  readonly deskAction?: 'SUSPENDED' | 'RESUMED' | 'PAGE_HIDDEN' | 'PAGE_SHOWN' | 'RENAMED';
 }
 
 /** Thousands grouped the international way (D-11) — `10,200,000` — whatever the reader's locale. */
@@ -150,8 +163,76 @@ export function draftFor(kind: NotificationKind, facts: NotificationFacts): Noti
         subjectRef: facts.tradeRef ?? null,
         href: facts.tradeRef ? `/trades/${facts.tradeRef}` : '/destinations',
       };
+    case 'TEAM_CHANGED':
+      return teamDraft(facts);
+    case 'P2P_DISPUTE_OPENED':
+    case 'P2P_DISPUTE_DECIDED':
+    case 'P2P_REFUND':
+      return p2pDraft(kind, facts);
     default:
       return traderDraft(kind, facts);
+  }
+}
+
+/**
+ * Who can act for the account changed. Everyone on the team is told — like a new place to be paid, it is what someone
+ * who took over a session would do — and pointed at the Team screen, which shows who.
+ */
+function teamDraft(facts: NotificationFacts): NotificationDraft {
+  const as = facts.teamRole === 'ADMIN' ? 'an administrator' : 'an operator';
+  switch (facts.teamChange) {
+    case 'JOINED':
+      return { kind: 'TEAM_CHANGED', title: 'Someone joined your team', body: `A person accepted an invitation and can now act for your account as ${as}. If you did not expect this, remove them on Team straight away.`, subjectRef: null, href: '/account/team' };
+    case 'ROLE_CHANGED':
+      return { kind: 'TEAM_CHANGED', title: 'A role on your team changed', body: `A member of your team is now ${as}. If you did not expect this, check Team straight away.`, subjectRef: null, href: '/account/team' };
+    default:
+      return { kind: 'TEAM_CHANGED', title: 'Someone left your team', body: 'A member was removed from your team and can no longer act for your account.', subjectRef: null, href: '/account/team' };
+  }
+}
+
+/**
+ * A P2P deal's dispute or unwind, told to whichever side it concerns (block 9). The seller of the USDT receives the rupees
+ * and says when they did not arrive; INRP2P decides from its bank. Neither side is told the other's words — only what
+ * happens to the money.
+ */
+function p2pDraft(kind: 'P2P_DISPUTE_OPENED' | 'P2P_DISPUTE_DECIDED' | 'P2P_REFUND', facts: NotificationFacts): NotificationDraft {
+  const p = facts.p2p ?? { audience: 'CLIENT' as const, payee: false };
+  const trader = p.audience === 'TRADER';
+  const ref = (trader ? facts.orderRef : facts.tradeRef) ?? null;
+  const href = trader ? (ref ? (p.deskDeal ? `/desk/deals/${ref}` : `/traders/orders/${ref}`) : '/traders') : ref ? `/trades/${ref}` : '/trades';
+  const inrAmount = facts.inr ? inr(facts.inr) : 'the rupees';
+  const usdtAmount = facts.base ? usdt(facts.base) : 'the USDT';
+  const on = ref ? `${ref}: ` : '';
+  switch (kind) {
+    case 'P2P_DISPUTE_OPENED':
+      return {
+        kind,
+        title: 'The seller says your payment has not arrived',
+        body: `${on}the seller says ${inrAmount} has not reached their account. INRP2P is checking it with their bank — add your bank’s reference, the time you paid and the account you paid from on the ${trader ? 'order' : 'trade'}.`,
+        subjectRef: ref,
+        href,
+      };
+    case 'P2P_REFUND':
+      return trader
+        ? { kind, title: 'You did not pay in time', body: `${on}the time to pay ${inrAmount} ran out. The deal is cancelled and the seller’s USDT goes back to them — do not pay now.`, subjectRef: ref, href }
+        : { kind, title: 'The buyer did not pay in time', body: `${on}the buyer did not pay ${inrAmount} in time. The trade is cancelled and your ${usdtAmount} goes back to the wallet you sent it from.`, subjectRef: ref, href };
+    default: {
+      const paid = p.decision === 'PAID';
+      if (p.payee) {
+        return paid
+          ? { kind, title: 'INRP2P found the payment arrived', body: `${on}INRP2P checked with the bank’s evidence that ${inrAmount} reached your account from the buyer’s own account, and released the USDT to the buyer.`, subjectRef: ref, href }
+          : {
+              kind,
+              title: 'INRP2P found the payment did not arrive',
+              body: `${on}INRP2P found ${inrAmount} did not reach your account. The ${trader ? 'deal' : 'trade'} is cancelled and your ${trader ? 'USDT goes back to your registered wallet' : `${usdtAmount} goes back to the wallet you sent it from`}.`,
+              subjectRef: ref,
+              href,
+            };
+      }
+      return paid
+        ? { kind, title: 'Your payment is confirmed', body: `${on}INRP2P confirmed your ${inrAmount} reached the seller. Your USDT is being released to your wallet.`, subjectRef: ref, href }
+        : { kind, title: 'Your payment did not arrive', body: `${on}INRP2P found your ${inrAmount} did not reach the seller. The ${trader ? 'deal' : 'trade'} is cancelled and the USDT went back — do not pay again.`, subjectRef: ref, href };
+    }
   }
 }
 
@@ -229,6 +310,18 @@ function traderDraft(kind: NotificationKind, facts: NotificationFacts): Notifica
         subjectRef: ref,
         href: orderHref(facts),
       };
+    case 'DESK_NOTICE': {
+      const why = facts.reason ? ` INRP2P’s note: ${facts.reason}` : '';
+      const said: Record<NonNullable<NotificationFacts['deskAction']>, [string, string]> = {
+        SUSPENDED: ['INRP2P suspended your desk', `No new deal until INRP2P lifts it; deals already accepted settle as usual.${why}`],
+        RESUMED: ['Your desk is no longer suspended', `It is paused: take it live again on Desk when you are ready.${why}`],
+        PAGE_HIDDEN: ['INRP2P hid your desk’s page', `Your page is not shown to anyone until INRP2P shows it again. Change your desk’s name or words on Desk → Page.${why}`],
+        PAGE_SHOWN: ['Your desk’s page is back', `Anyone can open it again.${why}`],
+        RENAMED: ['INRP2P renamed your desk', `See its new name and address on Desk → Page.${why}`],
+      };
+      const [title, body] = said[facts.deskAction ?? 'SUSPENDED'];
+      return { kind, title, body: short(body, 400), subjectRef: null, href: '/desk' };
+    }
     case 'TRADER_RESERVE_ISSUE':
       return {
         kind,

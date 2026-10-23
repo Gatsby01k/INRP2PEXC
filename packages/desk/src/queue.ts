@@ -102,7 +102,8 @@ export async function deskQueue(ex: Executor, access: DeskAccess, opts: { limitP
            0::bigint as paid_minor, 0::bigint as committed_minor, null::bigint as payout_minor,
            null::text as blocking_case, null::text as case_detail, null::timestamptz as expires_at, false as has_link
     from trade_request r join client c on c.id = r.client_id
-    where r.status = 'OPEN'
+    -- A request placed with a desk is that desk's to price and fill (ADR 0020), never the INRP2P dealers'.
+    where r.status = 'OPEN' and r.desk_id is null
     order by r.created_at
     limit ${limit}`.execute(ex);
 

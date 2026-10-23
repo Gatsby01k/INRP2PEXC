@@ -58,6 +58,7 @@ export default async function OperatorLayout({ children }: { children: ReactNode
         ...(can(ctx, 'network:view') ? [{ href: '/network', label: 'Network budget', icon: 'usdt' as const, key: 'n', ...(badges.sendsWaiting > 0 ? { count: badges.sendsWaiting, tone: badges.sendsBlocked > 0 ? ('alert' as const) : ('action' as const) } : {}) }] : []),
         // A trader's rate is a route rate: the page is not found without `traders:view`, so neither is the link.
         ...(can(ctx, 'traders:view') ? [{ href: '/trader-desk', label: 'Traders', icon: 'traders' as const, key: 't' }] : []),
+        ...(can(ctx, 'desks:view') ? [{ href: '/desk-ops', label: 'Desks', icon: 'clients' as const, key: 'k', ...(badges.desksToReview > 0 ? { count: badges.desksToReview, tone: 'action' as const } : {}) }] : []),
       ],
     },
     {
@@ -66,7 +67,7 @@ export default async function OperatorLayout({ children }: { children: ReactNode
         { href: '/clients', label: 'Clients', icon: 'clients', key: 'c' },
         // Not rendered without `pnl:view`, because the page itself is not found without it: a settlement operator who
         // can see a link to the desk's margin has already been told the desk has one.
-        ...(can(ctx, 'pnl:view') ? [{ href: '/pnl', label: 'P&L', icon: 'pnl' as const, key: 'p' }] : []),
+        ...(can(ctx, 'pnl:view') ? [{ href: '/pnl', label: 'P&L', icon: 'pnl' as const, key: 'p' }, { href: '/revenue', label: 'Revenue', icon: 'usdt' as const, key: 'v' }] : []),
         ...(can(ctx, 'economics:view') ? [{ href: '/system', label: 'System health', icon: 'system' as const, key: 's' }] : []),
       ],
     },

@@ -2,7 +2,9 @@
 
 Status: **Accepted** — owner decisions of 2026-10-17: INRP2P has no Indian company and no INR bank account, so no rupee
 can pass through the exchange; the trader is paid no reward by INRP2P in this model (it earns on its own rate); the
-platform's TRX budget pays the network fees, which the client's price carries. Builds on ADR 0016 (counterparty-funded
+platform's TRX budget pays the network fees, which the client's price carries. **Revised by ADR 0020 (migration 0040):**
+the platform has no TRX budget; the route's trader funds every transfer of its P2P deals from its network deposit, nothing
+is paid back, and the platform's net margin is its USDT margin itself. Builds on ADR 0016 (counterparty-funded
 execution), ADR 0017 (own USDT rails) and ADR 0018 (clean INR). Migration `0039`, execution mode `P2P`, schema 39.
 
 ## 1. Context
@@ -69,14 +71,16 @@ The payer files the payment (`fiat_in.claim` for a client's, `trader_order.submi
 confirms it (`payout.confirm_received`), typing the sender as its bank shows it — the sender check of ADR 0018, `via =
 PAYEE`. Rupees from someone else are refused (`INR_UNEXPECTED_SENDER`) and go back. A payee who neither confirms nor
 disputes within the window gives the desk a case (`P2P_RECEIPT_OVERDUE`): the desk confirms on its behalf only with
-the bank's evidence, or marks the payment not received. A late confirmation still counts, and closes the case. The
+the bank's evidence, or marks the payment not received. A late confirmation still counts, and closes the case. The payee
+can also say at once that the rupees did not arrive — a dispute INRP2P decides, paid or not paid (ADR 0020 §2.15). The
 trader confirms a client's rupees with `trader_order.confirm_received` (a user who can commit for the trader).
 
 ### 2.7 Time limits (`escrow_deadlines`, every minute)
 - Client buys: the trader has 30 minutes from the trade's opening to fund the escrow; then the client has 30 minutes from
   the escrow being final to pay (or say it paid). Either missed, the trade is cancelled — never one with a payment filed.
-- Client sells: the client has the quote's deposit window; then the trader has 30 minutes to pay, or the desk gets a
-  case (`P2P_PAYMENT_OVERDUE`) and refunds the client by hand (TD-35). The case closes when the trader files its payment.
+- Client sells: the client has the quote's deposit window; then the trader has 30 minutes to pay, or the deal unwinds:
+  the client's USDT goes back to the wallet it came from, by the signer, and the trader can no longer pay (ADR 0020
+  §2.15, TD-35 — before it, a case for the desk and a refund by hand).
 - Receipt: the payee has 30 minutes to confirm, or the desk gets a case (§2.6).
 
 ### 2.8 An escrow nobody paid against goes back (FI-98)

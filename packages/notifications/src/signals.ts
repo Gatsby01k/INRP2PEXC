@@ -25,6 +25,7 @@ export const ACKNOWLEDGED_SIGNALS: Readonly<Record<string, string>> = Object.fre
   'desk.adjustment_requested': 'same as desk.exception_opened',
   'desk.route_settlement_failed': 'same as desk.exception_opened',
   'capacity.over_committed': 'the INR screen reads capacity from the rows; an operator alert is not built',
+  'desk_deal.requested': 'a desk prices its own requests (ADR 0020); its alerts arrive with the desk\'s Telegram channel',
 });
 
 export function acknowledgedSignalHandler(): OutboxHandler {

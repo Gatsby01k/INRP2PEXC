@@ -89,6 +89,12 @@ export const PERMISSION_MATRIX = Object.freeze({
   // approved by another.
   'trader_reserve:apply': r(S, D, D, S, D, D),
   'trader_reserve:approve': r(S2, D, D, S2, D, D),
+  // Desks (ADR 0020 §2.17): every trader's own exchange, overseen by INRP2P's desk — seen like traders; suspended, hidden
+  // or renamed with step-up; the platform's fee changed by one person and approved by another.
+  'desks:view': r(A, A, D, A, D, D),
+  'desks:moderate': r(S, S, D, D, D, D),
+  'fees:propose': r(S, D, D, S, D, D),
+  'fees:approve': r(S2, D, D, S2, D, D),
   // USDT TRC20 rails (ADR 0017): the TRX network budget and the exchange's own signer.
   'network:view': r(A, A, A, A, D, D),
   'network:manage': r(S, D, D, S, D, D),

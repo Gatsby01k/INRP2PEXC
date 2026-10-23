@@ -36,6 +36,10 @@ export interface FeePolicy {
   readonly maxSnapshotAgeSeconds: number;
   readonly maxTrxRateAgeSeconds: number;
   readonly autoSendEnabled: boolean;
+  /** Block 10: INRP2P's earnings are swept off a deal address once it holds this much of them; TRX reclaimed from this much. */
+  readonly feeSweepEnabled: boolean;
+  readonly feeSweepMinUsdtMinor: bigint;
+  readonly trxReclaimMinSun: bigint;
   readonly reason: string;
   readonly setBy: string;
   readonly setAt: Date;

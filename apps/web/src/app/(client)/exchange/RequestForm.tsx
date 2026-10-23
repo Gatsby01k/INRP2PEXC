@@ -355,6 +355,7 @@ export function RequestForm({ view, draft, who }: { view: ExchangeView; draft?: 
         email={who.email}
         holderName={who.clientName}
         next="exchange"
+        firstOfKind={sell ? banks.length === 0 : view.destinations.wallets.length === 0}
       />
     </>
   );

@@ -5,8 +5,8 @@ import { appendAudit } from '@inrp2p/audit';
 import type { ClientActor } from '@inrp2p/identity';
 import { publishTraderRate } from '@inrp2p/pricing';
 import { lockTraderOfClient, traderClientCommand, lockBlock, withdrawOffers } from '@inrp2p/trader-core';
-import { switchOnIssues } from './eligibility.ts';
-import { readStanding } from './standing.ts';
+import { switchOnIssues } from '@inrp2p/trader-core';
+import { readStanding } from '@inrp2p/trader-core';
 
 const ISSUE_TEXT: Record<string, string> = {
   NOT_APPROVED: 'your application has not been approved yet',

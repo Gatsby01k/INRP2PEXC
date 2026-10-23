@@ -25,6 +25,8 @@ export const Accounts = {
   /** Margin in INR through the exchange; in USDT on a P2P trade (ADR 0019), where no rupee passes through it. */
   deferredMargin: (currency: CurrencyCode = 'INR') => sub('LIAB', 'DEFERRED_MARGIN', null, currency),
   grossMargin: (currency: CurrencyCode = 'INR') => sub('REVENUE', 'GROSS_MARGIN', null, currency),
+  /** INRP2P's explicit fee on a desk's deal (ADR 0020), realized in USDT when the deal completes. */
+  platformFee: () => sub('REVENUE', 'PLATFORM_FEE', null, 'USDT'),
   fees: (currency: CurrencyCode) => sub('EXPENSE', 'FEES', null, currency),
   suspenseUnallocated: (currency: CurrencyCode) => sub('SUSPENSE', 'UNALLOCATED', null, currency),
   /** USDT a trader has deposited as its Security Reserve: owed back to the trader, never trading capacity. */

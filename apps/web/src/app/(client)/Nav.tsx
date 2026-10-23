@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { BankIcon, ClockIcon, SwapIcon, UserIcon, UsersIcon } from './_workspace/icons.tsx';
+import { BankIcon, ClockIcon, StoreIcon, SwapIcon, UserIcon, UsersIcon } from './_workspace/icons.tsx';
 import styles from './shell.module.css';
 
 export interface ClientNavEntry {
@@ -15,6 +15,8 @@ const ICONS: Record<string, typeof SwapIcon> = {
   '/exchange': SwapIcon,
   '/history': ClockIcon,
   '/destinations': BankIcon,
+  '/desk': StoreIcon,
+  '/desks': StoreIcon,
   '/traders': UsersIcon,
   '/open-account': UserIcon,
 };

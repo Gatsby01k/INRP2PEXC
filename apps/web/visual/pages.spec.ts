@@ -132,6 +132,26 @@ test('traders: one trader, its order and its reserve (TD-23)', async ({ page }) 
   await capture(page, 'operator-trader');
 });
 
+test('desks: every desk, for INRP2P (ADR 0020 §2.17)', async ({ page }) => {
+  await page.goto('/desk-ops');
+  await expect(page.getByRole('heading', { name: 'Desks', exact: true }).first()).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Konkan Liquidity' })).toBeVisible();
+  await capture(page, 'operator-desks');
+});
+
+test('desks: one desk, INRP2P’s decisions and their record', async ({ page }) => {
+  await page.goto('/desk-ops');
+  await page.getByRole('link', { name: 'Konkan Liquidity' }).click();
+  await expect(page.getByRole('heading', { name: 'INRP2P’s decisions' })).toBeVisible();
+  await capture(page, 'operator-desk-detail');
+});
+
+test('revenue: earned, where it is, and the sweeps (ADR 0020 §2.16)', async ({ page }) => {
+  await page.goto('/revenue');
+  await expect(page.getByRole('heading', { name: 'Revenue', exact: true }).first()).toBeVisible();
+  await capture(page, 'operator-revenue');
+});
+
 test('command bar', async ({ page }) => {
   const s = state();
   await page.goto('/');

@@ -217,7 +217,17 @@ async function alreadyRecorded(db: Db, transfer: Trc20Transfer): Promise<boolean
     .where('tx_hash', '=', transfer.txHash.toLowerCase())
     .where('log_index', '=', transfer.logIndex)
     .executeTakeFirst();
-  return row !== undefined;
+  if (row) return true;
+  // The signer's own sweep of earnings to the revenue wallet (block 10) is recorded by its monitor, from the send it
+  // signed: seen here first, it is not money from nobody.
+  const own = await db
+    .selectFrom('chain_send_attempt as a')
+    .innerJoin('chain_send as s', 's.id', 'a.send_id')
+    .select('s.id')
+    .where('a.txid', '=', transfer.txHash.toLowerCase())
+    .where('s.purpose', '=', 'FEE_SWEEP')
+    .executeTakeFirst();
+  return own !== undefined;
 }
 
 /** One chain event, one idempotent command. A replay returns the first run's result without touching anything. */

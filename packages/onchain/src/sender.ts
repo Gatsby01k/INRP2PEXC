@@ -5,7 +5,7 @@ import { type Db, type TxContext, pgErrorCode } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
 import { assertPayoutsOpen, lockTrade, payoutsHeld } from '@inrp2p/trades';
 import { assertPhysicallyAvailable, openExceptionInTx } from '@inrp2p/settlement';
-import { latestFeeSnapshot, lockFunder, lockSend, networkBudgetWallet, networkFeePolicy, planChainSend, sendNetworkUsed, topupFor } from '@inrp2p/network';
+import { latestFeeSnapshot, lockFunder, lockSend, networkAvailable, networkBudgetWallet, networkFeePolicy, planChainSend, sendNetworkUsed, topupFor } from '@inrp2p/network';
 import { observeBalances } from '@inrp2p/scanner';
 import { type OnchainDeps, policyOf, settlementDepsOf, step } from './deps.ts';
 
@@ -128,6 +128,11 @@ async function prepareUsdt(db: Db, deps: OnchainDeps, send: SendRow): Promise<Pr
       const used = await sendNetworkUsed(ctx.tx, current.id);
       const cap = current.network_cap_sun!;
       const wanted = need.topupSun + topupFee;
+      // A fee sweep waits for the platform's TRX rather than failing on it (IX108): its earnings are safe where they are.
+      if (current.purpose === 'FEE_SWEEP' && (await networkAvailable(ctx.tx, null)) < wanted) {
+        await block(ctx, current, `waiting for the platform network budget: ${formatTrx(wanted)} TRX is needed to sweep this address`, null);
+        return { kind: 'BLOCKED' as const };
+      }
       if (used + wanted > cap) {
         await block(ctx, current, `this transfer may draw ${formatTrx(cap)} TRX in all; ${formatTrx(used)} TRX is drawn and ${formatTrx(wanted)} TRX more is needed now — a person may raise its cap`, 'NETWORK_BUDGET_SHORT');
         return { kind: 'BLOCKED' as const };
@@ -174,10 +179,11 @@ async function prepareTrx(db: Db, deps: OnchainDeps, send: SendRow): Promise<Pre
   return sign(db, deps, send, tx);
 }
 
-async function block(ctx: TxContext, send: SendRow, reason: string, caseType: 'NETWORK_BUDGET_SHORT'): Promise<void> {
+async function block(ctx: TxContext, send: SendRow, reason: string, caseType: 'NETWORK_BUDGET_SHORT' | null): Promise<void> {
   await ctx.tx.updateTable('chain_send').set({ status: 'BLOCKED', blocked_reason: reason.slice(0, 500), updated_at: sql<Date>`inrp2p_now()` }).where('id', '=', send.id).execute();
   await appendAudit(ctx, { action: 'chain_send.blocked', entityType: 'chain_send', entityId: send.id, before: { status: send.status }, after: { status: 'BLOCKED', reason } });
-  await openExceptionInTx(ctx, { type: caseType, subjectType: 'CHAIN_SEND', subjectId: send.id, tradeId: send.trade_id, details: { ref: send.ref, reason } });
+  // A send that simply waits (a fee sweep for the platform's TRX) is tried again later; it is nobody's case.
+  if (caseType) await openExceptionInTx(ctx, { type: caseType, subjectType: 'CHAIN_SEND', subjectId: send.id, tradeId: send.trade_id, details: { ref: send.ref, reason } });
 }
 
 /**

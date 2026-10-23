@@ -12,7 +12,7 @@ import {
   confirmRefundLeg, confirmRouteSettlement, createPayoutLeg, createRefundLeg, failPayoutLeg, openException, recordIncomingFiat,
   recordLegEvidence, recordRouteSettlement, refundAndCancel, rejectAdjustment, requestAdjustment, resolveException, revertFirstLeg, sendPayoutLeg,
   takeException, voidException, approveDestinationChange, cancelDestinationChange, refundExcess, rejectDestinationChange, requestDestinationChange,
-  acceptIncomingSender, checkIncomingSender,
+  acceptIncomingSender, checkIncomingSender, decideP2pPayment,
 } from '@inrp2p/settlement';
 import { type CommandResult, failure, runCommand, withOperator } from '../command.ts';
 
@@ -221,6 +221,19 @@ export async function takeExceptionAction(input: { exceptionId: string }, key: s
   const out = await runCommand((ctx) => takeException(ctx.actor), input, { name: 'exception.take', idempotencyKey: key });
   if (out.ok) refresh();
   return out;
+}
+
+/**
+ * INRP2P decides a P2P payment its payee disputed or never answered (block 9): paid — with the sender the payee's bank
+ * shows — and the escrow releases; or not paid, and the deal unwinds.
+ */
+export async function decideP2pPaymentAction(
+  input: { tradeId: string; decision: 'PAID' | 'NOT_PAID'; notes: string; senderName?: string | null; senderAccount?: string | null },
+  key: string,
+): Promise<CommandResult<{ decision: 'PAID' | 'NOT_PAID'; legRef: string }>> {
+  const out = await runCommand((ctx, deps) => decideP2pPayment(ctx.actor, deps), input, { name: 'escrow_payment.decide', idempotencyKey: key });
+  if (out.ok) refresh();
+  return out as CommandResult<{ decision: 'PAID' | 'NOT_PAID'; legRef: string }>;
 }
 
 export async function resolveExceptionAction(

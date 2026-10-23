@@ -291,9 +291,11 @@ export async function sendPayoutLegInTx(ctx: TxContext, deps: Pick<SettlementDep
       if (sourceAddress && leg.side === 'EXCHANGE_TO_CLIENT' && (await signablePathOf(ctx.tx, sourceAddress)) && (await tradeHold(ctx.tx, trade.id))) {
         const hold = (await tradeHold(ctx.tx, trade.id))!;
         const wallet = await ctx.tx.selectFrom('crypto_wallet').select('address').where('id', '=', leg.destination_wallet_id!).executeTakeFirstOrThrow();
+        // The client's price paid for its payout; on a P2P deal the trader's own rate did, and its deposit bears it (0040).
+        const p2p = (await tradeEconomics(ctx.tx, trade.id)).executionMode === 'P2P';
         const planned = await planChainSend(ctx, {
           purpose: 'CLIENT_PAYOUT', asset: 'USDT', tradeId: trade.id, legId: leg.id, fromAddress: sourceAddress, toAddress: wallet.address, amountMinor: leg.amount_minor,
-          funder: hold.trader_id, bearer: 'CLIENT', needsApproval: await payoutNeedsSecondPerson(ctx.tx, leg), requestedBy: sentBy,
+          funder: hold.trader_id, bearer: p2p ? 'TRADER' : 'CLIENT', needsApproval: await payoutNeedsSecondPerson(ctx.tx, leg), requestedBy: sentBy,
         });
         sendRef = planned.ref;
       }
@@ -449,8 +451,11 @@ export function failPayoutLeg(actor: OperatorActor) {
   });
 }
 
-/** The failing itself (PROCESSING → FAILED): the money provably never left. */
-export async function failPayoutLegInTx(ctx: TxContext, legId: string, reason: string): Promise<{ status: 'FAILED' }> {
+/**
+ * The failing itself (PROCESSING → FAILED): the money provably never left. A case asks for a replacement leg — unless
+ * nothing replaces it: a P2P trader's payment INRP2P found never arrived unwinds the deal instead (`replacement: false`).
+ */
+export async function failPayoutLegInTx(ctx: TxContext, legId: string, reason: string, opts: { readonly replacement?: boolean } = {}): Promise<{ status: 'FAILED' }> {
     const legPeek = await ctx.tx.selectFrom('settlement_leg').select('trade_id').where('id', '=', requireUuid(legId, 'legId')).executeTakeFirstOrThrow();
     await lockTrade(ctx.tx, legPeek.trade_id);
     const leg = await lockLeg(ctx, legId);
@@ -482,10 +487,12 @@ export async function failPayoutLegInTx(ctx: TxContext, legId: string, reason: s
     // The bank (or the chain) says the money did not leave: its earmark is free for a replacement leg.
     await settleFunding(ctx, { kind: leg.side === 'REFUND_TO_CLIENT' ? 'REFUND' : 'CLIENT_PAYOUT', legId: leg.id }, 'RELEASED', `leg failed: ${reason}`);
     await appendAudit(ctx, { action: 'leg.failed', entityType: 'settlement_leg', entityId: leg.id, before: { status: 'PROCESSING' }, after: { status: 'FAILED', reason } });
-    await openExceptionInTx(ctx, {
-      type: 'BANK_TRANSFER_FAILED', subjectType: 'SETTLEMENT_LEG', subjectId: leg.id, tradeId: leg.trade_id,
-      detectedBy: 'OPERATOR', details: { reason, amount: Money.ofMinor(leg.amount_minor, leg.asset).toDecimalString(), ref: leg.ref },
-    });
+    if (opts.replacement ?? true) {
+      await openExceptionInTx(ctx, {
+        type: 'BANK_TRANSFER_FAILED', subjectType: 'SETTLEMENT_LEG', subjectId: leg.id, tradeId: leg.trade_id,
+        detectedBy: 'OPERATOR', details: { reason, amount: Money.ofMinor(leg.amount_minor, leg.asset).toDecimalString(), ref: leg.ref },
+      });
+    }
     await enqueueOutbox(ctx, { type: 'desk.leg_failed', aggregateType: 'settlement_leg', aggregateId: leg.id, payload: { legId: leg.id, tradeId: leg.trade_id } });
     return { status: 'FAILED' as const };
 }

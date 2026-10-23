@@ -556,18 +556,25 @@ export async function deskNow(ex: Executor): Promise<string> {
 }
 
 /** Counts for the navigation: open cases (and how many hold a trade or block), and decisions waiting for a second person. */
-export async function deskBadges(ex: Executor): Promise<{ readonly openCases: number; readonly blockingCases: number; readonly approvals: number; readonly sendsWaiting: number; readonly sendsBlocked: number }> {
-  const r = await sql<{ open_cases: string; blocking: string; approvals: string; sends_waiting: string; sends_blocked: string }>`
+export async function deskBadges(ex: Executor): Promise<{
+  readonly openCases: number; readonly blockingCases: number; readonly approvals: number; readonly sendsWaiting: number; readonly sendsBlocked: number;
+  /** Block 11: desks waiting on INRP2P — a hidden page their desk has changed since, a fee change to decide. */
+  readonly desksToReview: number;
+}> {
+  const r = await sql<{ open_cases: string; blocking: string; approvals: string; sends_waiting: string; sends_blocked: string; desks: string }>`
     select (select count(*) from exception_case where status in ('OPEN', 'IN_PROGRESS'))::text as open_cases,
            (select count(*) from exception_case where status in ('OPEN', 'IN_PROGRESS') and severity = 'BLOCKING')::text as blocking,
            ((select count(*) from financial_adjustment where status = 'REQUESTED')
              + (select count(*) from settlement_leg l where l.side = 'REFUND_TO_CLIENT' and l.status in ('PENDING', 'PROCESSING')
                   and not exists (select 1 from chain_send c where c.settlement_leg_id = l.id and c.status <> 'CANCELLED')))::text as approvals,
            (select count(*) from chain_send where status in ('AWAITING_APPROVAL', 'BLOCKED'))::text as sends_waiting,
-           (select count(*) from chain_send where status = 'BLOCKED')::text as sends_blocked`.execute(ex);
+           (select count(*) from chain_send where status = 'BLOCKED')::text as sends_blocked,
+           ((select count(*) from desk where page_hidden_at is not null and updated_at > page_hidden_at)
+             + (select count(*) from fee_policy_proposal where status = 'PROPOSED'))::text as desks`.execute(ex);
   const row = r.rows[0]!;
   return {
     openCases: Number.parseInt(row.open_cases, 10), blockingCases: Number.parseInt(row.blocking, 10), approvals: Number.parseInt(row.approvals, 10),
     sendsWaiting: Number.parseInt(row.sends_waiting, 10), sendsBlocked: Number.parseInt(row.sends_blocked, 10),
+    desksToReview: Number.parseInt(row.desks, 10),
   };
 }

@@ -140,11 +140,11 @@ export async function spentByBearer(ex: Executor, tradeId: string): Promise<{ cl
 }
 
 /**
- * Closes a finished trade's hold: what it did not spend is free again, and a trader that paid for transfers it does not
- * bear is owed their value in INR, at the TRX price and rate its trade was quoted with (rounded down: the exchange
- * pays). It is accrued with the trader's rewards (`network_fee:{trade}:reimburse`, Dr EXPENSE:NETWORK_FEES / Cr
- * LIAB:TRADER_REWARD_PAYABLE) and paid like them, only out of realized margin (FI-82). The caller has checked that no
- * transfer of the trade can still happen.
+ * Closes a finished trade's hold: what it did not spend is free again, and — through the exchange — a trader that paid for
+ * transfers it does not bear is owed their value in INR, at the TRX price and rate its trade was quoted with (rounded
+ * down: the exchange pays). It is accrued with the trader's rewards (`network_fee:{trade}:reimburse`, Dr
+ * EXPENSE:NETWORK_FEES / Cr LIAB:TRADER_REWARD_PAYABLE) and paid like them, only out of realized margin (FI-82). A P2P
+ * trader bears all of its deal's transfers. The caller has checked that no transfer of the trade can still happen.
  */
 export async function closeNetworkHold(ctx: TxContext, tradeId: string, reason: string): Promise<{ closed: boolean; spentSun: bigint; reimbursedSun: bigint; reimbursedInrMinor: bigint }> {
   const hold = await ctx.tx.selectFrom('network_budget_hold').selectAll().where('trade_id', '=', tradeId).forUpdate().executeTakeFirst();
@@ -152,7 +152,10 @@ export async function closeNetworkHold(ctx: TxContext, tradeId: string, reason: 
   const spent = await spentByBearer(ctx.tx, tradeId);
   let reimbursedSun = 0n;
   let reimbursedInr = 0n;
-  if (hold.trader_id) {
+  // A P2P deal's transfers are its trader's own cost, priced into its rate (migration 0040): nothing is paid back — no rupee
+  // passes the exchange to pay it with, and the platform has no TRX budget of its own to carry it.
+  const mode = (await ctx.tx.selectFrom('trade_economics').select('route_execution_mode').where('trade_id', '=', tradeId).executeTakeFirst())?.route_execution_mode;
+  if (hold.trader_id && mode !== 'P2P') {
     reimbursedSun = spent.client + spent.platform;
     const terms = await tradeNetworkFee(ctx.tx, tradeId);
     if (terms && reimbursedSun > 0n) {

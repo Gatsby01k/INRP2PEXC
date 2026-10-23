@@ -60,13 +60,15 @@ export async function physicalAvailability(
        where c.from_address = ${input.address} and c.state in ('DETECTED', 'CONFIRMED')
          and (c.payer_type = 'EXCHANGE_TREASURY')
          and exists (select 1 from route_settlement s where s.crypto_transfer_id = c.id and s.flow = 'TO_ROUTE' and s.status in ('RECORDED', 'CONFIRMED')
-                     union all select 1 from trader_reserve_withdrawal r where r.crypto_transfer_id = c.id and r.status in ('SENT', 'COMPLETED'))
+                     union all select 1 from trader_reserve_withdrawal r where r.crypto_transfer_id = c.id and r.status in ('SENT', 'COMPLETED')
+                     -- The signer's own sends that are no payout leg: an escrow back to its trader, earnings to the revenue wallet.
+                     union all select 1 from chain_send x where x.crypto_transfer_id = c.id and x.purpose in ('ESCROW_RETURN', 'FEE_SWEEP'))
       union all
       -- A route payment the exchange's signer has planned or is sending from this address (ADR 0017): leaving, with no
       -- movement recorded until the chain makes it final — then it is the route settlement above.
       select s.amount_minor, null::text, null::bigint
         from chain_send s
-       where s.purpose = 'ROUTE_PAYMENT' and s.asset = 'USDT' and s.from_address = ${input.address} and s.status not in ('CONFIRMED', 'CANCELLED')
+       where s.purpose in ('ROUTE_PAYMENT', 'ESCROW_RETURN', 'FEE_SWEEP') and s.asset = 'USDT' and s.from_address = ${input.address} and s.status not in ('CONFIRMED', 'CANCELLED')
          and (${input.excludeSendId ?? null}::uuid is null or s.id <> ${input.excludeSendId ?? null}::uuid)
     )
     -- A planned outflow has no transfer yet (state null): it counts. Only one confirmed at or below the reading's block

@@ -48,8 +48,9 @@ export function CaseCard({ c, perms, trade }: { c: CaseView; perms: CasePerms; t
   const mine = c.takenBy === perms.meId;
   const fact = headlineFact(c, trade);
   const shortfall = trade && (c.type === 'USDT_WRONG_AMOUNT' || c.type === 'USDT_OVERPAYMENT') ? shortfallOf(trade) : null;
-  // Amounts in a case are the trade's first-leg currency (USDT for a SELL, INR for a BUY); shown exactly.
-  const currency = trade?.direction === 'BUY_USDT' ? 'INR' : 'USDT';
+  // Amounts in a case are the trade's first-leg currency (USDT for a SELL, INR for a BUY); shown exactly. A P2P dispute is
+  // about a rupee payment, whichever way the trade goes.
+  const currency = trade?.direction === 'BUY_USDT' || c.type === 'P2P_DISPUTE' ? 'INR' : 'USDT';
   const details = caseDetails(c.details).map((x) =>
     AMOUNT_KEYS.has(x.label.toLowerCase()) && /^-?\d+(\.\d+)?$/.test(x.value) && trade ? { ...x, value: safeMoney(x.value, currency) } : x,
   );
@@ -71,7 +72,9 @@ export function CaseCard({ c, perms, trade }: { c: CaseView; perms: CasePerms; t
       {fact ? <span className={t.headlineFact}>{fact}</span> : null}
       {details.length > 0 ? <KeyValues items={details.map((x) => ({ label: x.label, value: x.value }))} /> : null}
 
-      {perms.resolveException ? (
+      {choices.decidedOnTrade ? (
+        <Notice icon="arrowUpRight">Decided on the trade, in <strong>P2P payment</strong>: paid, or not paid.</Notice>
+      ) : perms.resolveException ? (
         <>
           <Choices<Resolution>
             legend="Resolution"

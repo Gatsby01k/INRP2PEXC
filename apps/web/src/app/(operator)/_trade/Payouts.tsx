@@ -33,7 +33,8 @@ export function Payouts({ trade, perms, focus }: { trade: DeskTrade; perms: Trad
   const live = legs.filter((l) => l.status !== 'CANCELLED' && l.status !== 'FAILED');
   const closed = legs.filter((l) => l.status === 'CANCELLED' || l.status === 'FAILED');
   const fundsIn = ['FIRST_LEG_CONFIRMED', 'SETTLING', 'PARTIALLY_SETTLED'].includes(trade.lifecycle);
-  const canOpenLeg = perms.createPayout && fundsIn && !trade.hold && Money.parse(trade.unallocated, asset).isPositive();
+  // An unwound P2P deal is paid nobody: its client's USDT goes back instead (ADR 0020 §2.15).
+  const canOpenLeg = perms.createPayout && fundsIn && !trade.hold && !trade.p2p?.unwind && Money.parse(trade.unallocated, asset).isPositive();
 
   return (
     <>

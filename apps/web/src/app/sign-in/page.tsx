@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { headers } from 'next/headers';
 import { getRuntime } from '../../server/runtime.ts';
 import { publicOrigin } from '../../server/site.ts';
-import { surfaceForHost } from '../../server/surface.ts';
+import { safeReturnPath, surfaceForHost } from '../../server/surface.ts';
 import { SignInForm } from './SignInForm.tsx';
 import { WorkspaceGateway } from './WorkspaceGateway.tsx';
 import styles from './sign-in.module.css';
@@ -26,10 +26,12 @@ export async function generateMetadata(): Promise<Metadata> {
  * arrives in from the home page's "Open workspace"; the desk's is a plain card. Neither says anything about the
  * business before a session exists.
  */
-export default async function SignInPage() {
+export default async function SignInPage({ searchParams }: { searchParams: Promise<{ next?: string | string[] }> }) {
   if (await isClientHost()) {
-    // The way back is the public site's; the way in for someone new is this page itself (D-17).
-    return <WorkspaceGateway home={await publicOrigin()} />;
+    // The way back is the public site's; the way in for someone new is this page itself (D-17). Signed in, the person
+    // goes on to where they were headed — a desk's page or a deal link — when the proxy remembered it.
+    const next = safeReturnPath((await searchParams).next);
+    return <WorkspaceGateway home={await publicOrigin()} {...(next ? { next } : {})} />;
   }
 
   return (

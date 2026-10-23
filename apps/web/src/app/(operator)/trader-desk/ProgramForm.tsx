@@ -61,7 +61,7 @@ export function ProgramForm({ program, accounts, canConfigure }: { program: Desk
           value={mode}
           onChange={(v) => setMode(v === 'P2P' ? 'P2P' : 'TO_EXCHANGE')}
           disabled={!canConfigure}
-          hint={mode === 'P2P' ? 'Rupees go straight between client and trader; INRP2P holds the USDT in escrow. No reward; the platform pays the TRX.' : 'Rupees go through INRP2P’s own bank account.'}
+          hint={mode === 'P2P' ? 'Rupees go straight between client and trader; INRP2P holds the USDT in escrow. No reward; the trader’s network deposit pays the TRX.' : 'Rupees go through INRP2P’s own bank account.'}
           options={[
             { value: 'P2P', label: 'P2P — INRP2P holds the USDT' },
             { value: 'TO_EXCHANGE', label: 'Through INRP2P’s account' },

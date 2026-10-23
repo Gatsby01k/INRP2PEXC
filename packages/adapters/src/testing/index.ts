@@ -6,3 +6,4 @@ export * from './fake-tron.ts';
 export * from './fake-trongrid.ts';
 export * from './fake-kms.ts';
 export * from './fake-tron-network.ts';
+export * from './fake-telegram.ts';

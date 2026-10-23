@@ -5,7 +5,7 @@ import { type Db, type TxContext, pgErrorCode } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
 import { enqueueOutbox } from '@inrp2p/outbox';
 import { openExceptionInTx, settleSignedSendInTx } from '@inrp2p/settlement';
-import { lockSend, recordSpent } from '@inrp2p/network';
+import { creditReclaimInTx, lockSend, recordSpent } from '@inrp2p/network';
 import { broadcastAttempt } from './sender.ts';
 import { type OnchainDeps, clockOf, policyOf, settlementDepsOf, step } from './deps.ts';
 
@@ -118,6 +118,9 @@ async function settleFinal(db: Db, deps: OnchainDeps, attemptId: string, outcome
 
     if (send.purpose === 'TOPUP') {
       await recordSpent(ctx, { funder: send.funder_trader_id, tradeId: send.trade_id!, attemptId: attempt.id, amountSun: send.amount_minor + f.feeSun, note: `top-up ${send.ref}: ${formatTrx(send.amount_minor)} TRX sent, ${formatTrx(f.feeSun)} TRX burned` });
+    } else if (send.purpose === 'TRX_RECLAIM') {
+      // TD-31: the unburned TRX is back in the budget wallet — each funder's part back into its budget.
+      await creditReclaimInTx(ctx, { sendId: send.id, attemptId: attempt.id });
     } else if (send.purpose === 'DEPOSIT_WITHDRAWAL') {
       await ctx.tx.insertInto('network_budget_entry').values({
         trader_id: send.funder_trader_id, kind: 'WITHDRAWAL', amount_sun: -(send.amount_minor + f.feeSun), withdrawal_id: send.withdrawal_id, chain_send_attempt_id: attempt.id,

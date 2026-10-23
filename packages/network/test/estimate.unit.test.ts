@@ -12,7 +12,7 @@ const snapshot: FeeSnapshot = {
 };
 const policy: FeePolicy = {
   id: 'p', quoteEnergy: 131_000, reserveEnergy: 160_000, bandwidthBufferSun: 400_000n, topupBytes: 300, topupBufferBps: 1000, priceBufferBps: 1000, refundSendsSell: 1,
-  minNetMarginInrMinor: 1n, maxSnapshotAgeSeconds: 86_400, maxTrxRateAgeSeconds: 259_200, autoSendEnabled: true, reason: 'test', setBy: 'test', setAt: new Date(0),
+  minNetMarginInrMinor: 1n, maxSnapshotAgeSeconds: 86_400, maxTrxRateAgeSeconds: 259_200, autoSendEnabled: true, feeSweepEnabled: true, feeSweepMinUsdtMinor: 20_000_000n, trxReclaimMinSun: 1_000_000n, reason: 'test', setBy: 'test', setAt: new Date(0),
 };
 
 describe('network cost of a transfer', () => {

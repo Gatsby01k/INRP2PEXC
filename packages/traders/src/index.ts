@@ -1,6 +1,4 @@
 export * from '@inrp2p/trader-core';
-export * from './eligibility.ts';
-export * from './standing.ts';
 export * from './profile.ts';
 export * from './onboarding.ts';
 export * from './blocks.ts';
@@ -14,4 +12,9 @@ export * from './rewards.ts';
 export * from './progress.ts';
 export * from './views.ts';
 export * from './desk.ts';
+export * from './desks.ts';
+export * from './desk-page.ts';
 export * from './jobs.ts';
+export * from './desk-views.ts';
+export * from './alerts.ts';
+export * from './desk-ops-views.ts';

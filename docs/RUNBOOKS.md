@@ -1044,30 +1044,77 @@ reference. Never move a payment from a cancelled trade to a new one by hand.
 
 ---
 
-## p2p-escrow — a P2P deal is late, or its escrow went back
+## fee-sweep — INRP2P's earnings are not moving to the revenue wallet
 
-**What you were told.** A case on a P2P trade (ADR 0019): *P2P payment overdue* (`P2P_PAYMENT_OVERDUE`) — a trader has not
-paid a client whose USDT is in escrow, 30 minutes after it was final; or *P2P receipt overdue* (`P2P_RECEIPT_OVERDUE`) —
-the one who received the rupees (the trader on a client's BUY, the client on a SELL) has neither confirmed nor disputed
-them 30 minutes after the payer filed them. Or a client or trader asks why a BUY was cancelled and USDT went back.
+**What you were told.** `fee_sweeps_waiting` above zero (a sweep blocked for the platform's TRX, or not final after 30
+minutes), or *Revenue* shows "worth sweeping now" above zero for a while, or a sweep *Waiting* on *Recent sweeps*.
+
+**Why it matters.** Nothing is lost — earnings stay at their deal addresses, in the books — but they are spread over many
+addresses until swept, and the revenue wallet is where INRP2P spends from.
+
+**What to do.**
+1. *No revenue wallet.* Register it on *Revenue* (an address INRP2P holds the keys of). Nothing is swept before.
+2. *Waiting for the platform's TRX.* The sweep says so. Send TRX to the budget wallet and record it as the platform's
+   deposit (Network budget); the sweep goes on by itself within minutes.
+3. *Below the minimum.* An address is swept once it holds the policy's minimum (*Revenue* → Sweeping). Lower it only if
+   TRX is cheap enough: each sweep costs one USDT transfer's energy. *Sweep now* moves one free address at once.
+4. *A deal address still in use* is swept once its deal is done and the address is free.
+
+**What never to do.** Do not move USDT off a deal address by hand: the books would not know, and the next deal at that
+address would be short. Do not register an exchange deposit address as the revenue wallet.
+
+## p2p-escrow — a P2P payment is disputed or late, or an escrow went back
+
+**What you were told.** A case on a P2P trade (ADR 0019, ADR 0020 §2.15): *P2P payment disputed* (`P2P_DISPUTE`) — the
+one who received the rupees (the trader on a client's BUY, the client on a SELL) says they did not arrive; it blocks the
+trade. *P2P receipt overdue* (`P2P_RECEIPT_OVERDUE`) — that payee has neither confirmed nor disputed them 30 minutes after
+the payer filed them. *P2P payment overdue* (`P2P_PAYMENT_OVERDUE`) — a SELL being unwound whose refund the signer
+cannot make. Or a client or trader asks why a deal was cancelled and USDT went back.
 
 **Why it matters.** The escrow holds someone's USDT while the other side's rupees are in a bank account INRP2P never
 sees. Nobody may be left holding both — and nobody may be left holding neither.
 
 **What to do.**
-1. *Payment overdue.* Ask the trader (its contact is on its file) to pay now from its registered account and file the
-   UTR on the order — the case closes by itself when it does. If it cannot or will not, refund the client's USDT from
-   the deal address and cancel (*Refund and cancel*, second approver); the trader's order is then cancelled and the
-   failure goes on its file.
-2. *Receipt overdue.* Ask the payee to open its bank app and confirm on the trade or order. If it says the rupees never
-   arrived, ask the payer for its bank's transaction receipt with the UTR. With the payee's bank evidence of who paid,
-   check the sender on the payment (*Check sender*) and confirm it for them; if the rupees never arrived, mark the
-   payment *Not received* — the payer may file it again. A late confirmation by the payee closes the case by itself.
+1. *Disputed or overdue.* Open the trade: **P2P payment** leads the workspace — the payment as filed (UTR, time, the
+   account it was declared from), what the payee and the payer each wrote. Ask the payee for its bank's evidence — its
+   own app's screen or a statement line for that UTR — and the payer for its bank's transaction receipt. Then decide:
+   *Paid* with the sender exactly as the payee's bank shows it (and its account digits if shown) — the escrow releases;
+   or *Not paid* with what the payee's bank shows — a BUY is cancelled and the trader's USDT goes back, a SELL unwinds and
+   the client's goes back. The evidence you type is kept with the decision; both sides are told the outcome, never your
+   words or each other's. A payee who confirms after all closes the dispute by itself.
+2. *Unwinding SELL.* Nothing to do while the refund is on its way: the worker sends the client's USDT back to the wallet
+   it came from (a refund over the approval threshold waits for a second person on the Network page) and cancels the
+   trade once it is final. If the unwind says it waits for a person (a deal address the signer does not hold, a sender the
+   client never registered), refund it by hand to a wallet the client registers and use *Refund and cancel* on the trade
+   record (second approver); the case closes with it. A trader that paid after its window is told to ask the client for
+   the rupees back — the deal is gone.
 3. *A cancelled BUY.* The worker's `escrow_deadlines` cancels a client's BUY whose seller did not fund the escrow in 30
    minutes, or whose client did not pay the funded escrow in 30 minutes and never said it paid. Whatever the trader
-   delivered goes back to its registered wallet by the signer (`ESCROW_RETURN`, Network page) at the platform's cost; a
-   return over the approval threshold waits for a second person there. A client who paid after the cancel is told to
-   ask the trader to return the rupees — the escrow is already back with the trader.
+   delivered goes back to its registered wallet by the signer (`ESCROW_RETURN`, Network page), paid by the trader's
+   deposit; a return over the approval threshold waits for a second person there. A client who paid after the cancel is
+   told to ask the trader to return the rupees — the escrow is already back with the trader.
 
 **What never to do.** Do not confirm a payment because the payer insists, nor release an escrow on a screenshot: only the
 payee's bank — its own screen, or a statement — shows who sent what. Do not move an escrow to another trade.
+
+## desk-moderation — a desk should stop, its page should go, or its fee should change
+
+**What you were told.** A client or the bank complains about a desk (late payments, promises it should not make), its
+page's name or words do not belong on INRP2P, *Desks* shows *Page changed — review*, or the fee is to change.
+
+**Why it matters.** A desk deals under INRP2P's name. INRP2P can stop its new deals or take its page down at once — and
+its people read why, so the reason has to be one they can act on.
+
+**What to do.** Everything is on *Desks* (`/desk-ops`) → the desk (ADR 0020 §2.17).
+1. *New deals must stop.* **Suspend**, with the reason. Prices asked now are withdrawn, links cannot be taken; deals
+   already accepted settle as usual — a disputed one is decided on its trade. **Lift the suspension** when it is
+   resolved: the desk becomes paused and its people take it live again.
+2. *The page does not belong.* **Hide the page**, with what has to change. Clients and links keep working. When the desk
+   edits its name or words, *Desks* flags it: look, then **Show the page** or leave it hidden with a new note.
+3. *The address itself does not belong.* **Rename** — every link to the old address stops working, so prefer hiding the
+   page and letting the desk choose.
+4. *The fee.* *Desks* → Fee → propose the new bps with why; someone else approves it there. It applies to prices given
+   from then on.
+
+**What never to do.** Do not change a desk or the fee in the database: the desk would not be told, nothing would be
+recorded, and a live desk's address is guarded (IX121). Do not suspend to settle a single dispute — decide it on its trade.

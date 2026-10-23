@@ -27,7 +27,8 @@ const BOUNDARIES = {
   // rewards, built on routes, route obligations and route settlements through settlement's public API.
   // The part of the trader programme quote commands depend on: order holds for quotes, starting an order when its
   // quote is accepted, closing orders when a request closes, and the programme settings.
-  'trader-core': ['kernel', 'db', 'audit', 'outbox', 'identity', 'adapters'],
+  // It reads a trader's standing, Security Reserve figures included (from the ledger), for the desk deals quotes price.
+  'trader-core': ['kernel', 'db', 'audit', 'outbox', 'identity', 'adapters', 'ledger'],
   traders: ['kernel', 'db', 'audit', 'identity', 'outbox', 'adapters', 'commands', 'ledger', 'clients', 'inr-accounts', 'routes', 'pricing', 'treasury', 'trades', 'settlement', 'trader-core', 'network'],
   // USDT TRC20 rails (ADR 0017): the TRX network budget, network fees in quotes, and sends the signer will make. Below
   // settlement and quotes, which decide what is sent; the signer that sends it is `onchain`.
@@ -96,8 +97,10 @@ export default tseslint.config(
   },
   {
     // ADR 0017: the custody seed and the signer exist only in the worker. The web app derives addresses from the public
-    // key alone and must never be able to sign.
+    // key alone and must never be able to sign. The one exception is the desks' end-to-end world, which plays the worker
+    // beside the built app (with BIP-39's published test mnemonic) — it is a test, never part of the app.
     files: ['apps/web/**/*.ts', 'apps/web/**/*.tsx'],
+    ignores: ['apps/web/e2e/desk-world.ts'],
     rules: {
       'no-restricted-imports': ['error', { patterns: [
         { group: ['@inrp2p/*/src/*', '@inrp2p/*/test/*'], message: 'Import packages through their public entry points.' },

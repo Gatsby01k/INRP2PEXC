@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Money, Rate, computeP2pEconomics, computeTradeEconomics, inrToUsdt, usdtToInr } from '../src/index.ts';
+import { Money, Rate, computeDeskEconomics, computeP2pEconomics, computeTradeEconomics, inrToUsdt, platformFeeOf, usdtToInr } from '../src/index.ts';
 
 const client = (r: string) => Rate.parse(r, 'CLIENT');
 const route = (r: string) => Rate.parse(r, 'ROUTE');
@@ -123,5 +123,49 @@ describe('P2P economics (ADR 0019): one rupee amount, the margin in USDT', () =>
     const sell = computeP2pEconomics({ direction: 'SELL_USDT', fixedSide: 'QUOTE', amount: Money.parse('10000.00', 'INR'), clientRate: client('98.300000'), routeRate: route('99.900000') });
     expect(sell.base.toDecimalString()).toBe('101.729400'); // the client gives UP
     expect(sell.routeBase.toDecimalString()).toBe('100.100100'); // the trader receives DOWN
+  });
+});
+
+describe('a desk’s own deal (ADR 0020, FI-99): one rupee amount at the desk’s rate, the platform’s fee in USDT', () => {
+  it('charges the policy’s basis points of the client’s USDT, rounded up', () => {
+    expect(platformFeeOf(usdt('10000'), 25).toDecimalString()).toBe('25.000000');
+    // 1234.567891 × 0.25% = 3.08641972… → 3.086420 (the desk pays: rounded against it)
+    expect(platformFeeOf(usdt('1234.567891'), 25).toDecimalString()).toBe('3.086420');
+    expect(platformFeeOf(usdt('10000'), 0).isZero()).toBe(true);
+    expect(() => platformFeeOf(usdt('10'), 1001)).toThrow(/basis points/);
+    expect(() => platformFeeOf(usdt('10'), 2.5)).toThrow(/basis points/);
+  });
+
+  it('a client selling: the desk pays the rupees and receives the client’s USDT less the fee', () => {
+    const e = computeDeskEconomics({ direction: 'SELL_USDT', fixedSide: 'BASE', amount: usdt('10000'), clientRate: client('100.900000'), feeBps: 25 });
+    expect(e.clientInr.toDecimalString()).toBe('1009000.00');
+    expect(e.routeInr.equals(e.clientInr)).toBe(true);
+    expect(e.grossMargin.isZero()).toBe(true);
+    expect(e.routeBase.toDecimalString()).toBe('9975.000000');
+    expect(e.platformFeeBase.toDecimalString()).toBe('25.000000');
+    expect(e.grossMarginBase.equals(e.platformFeeBase)).toBe(true);
+    expect(e.base.sub(e.routeBase).equals(e.platformFeeBase)).toBe(true);
+  });
+
+  it('a client buying: the desk receives the rupees and delivers the client’s USDT plus the fee', () => {
+    const e = computeDeskEconomics({ direction: 'BUY_USDT', fixedSide: 'BASE', amount: usdt('10000'), clientRate: client('102.100000'), feeBps: 25 });
+    expect(e.clientInr.toDecimalString()).toBe('1021000.00');
+    expect(e.routeBase.toDecimalString()).toBe('10025.000000');
+    expect(e.routeBase.sub(e.base).equals(e.platformFeeBase)).toBe(true);
+  });
+
+  it('rounds the client’s side against the client when it names the rupees, and the fee follows its USDT', () => {
+    const buy = computeDeskEconomics({ direction: 'BUY_USDT', fixedSide: 'QUOTE', amount: inr('10000.00'), clientRate: client('101.300000'), feeBps: 25 });
+    expect(buy.base.toDecimalString()).toBe('98.716683'); // the client gets DOWN
+    expect(buy.platformFeeBase.toDecimalString()).toBe('0.246792');
+    expect(buy.routeBase.toDecimalString()).toBe('98.963475');
+    const sell = computeDeskEconomics({ direction: 'SELL_USDT', fixedSide: 'QUOTE', amount: inr('10000.00'), clientRate: client('98.300000'), feeBps: 25 });
+    expect(sell.base.toDecimalString()).toBe('101.729400'); // the client gives UP
+    expect(sell.platformFeeBase.toDecimalString()).toBe('0.254324');
+    expect(sell.routeBase.toDecimalString()).toBe('101.475076');
+  });
+
+  it('refuses an amount too small to price', () => {
+    expect(() => computeDeskEconomics({ direction: 'SELL_USDT', fixedSide: 'BASE', amount: usdt('0.000001'), clientRate: client('100'), feeBps: 25 })).toThrow(/too small/);
   });
 });

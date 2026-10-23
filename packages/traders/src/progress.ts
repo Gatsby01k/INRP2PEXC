@@ -122,23 +122,29 @@ export function p2pOrderStage(side: TraderSide, status: TraderOrderStatus, step:
       return 'INRP2P_SENDING';
     case 'DONE':
       return 'CHECKING_INRP2P';
+    case 'REFUND':
+      // The client's USDT goes back from a deal the trader did not pay: nothing is the trader's to do.
+      return 'REVIEW';
     default:
       return 'CLOSED';
   }
 }
 
 /** The five steps of a started P2P order, labelled for the trader's side. */
-export function p2pOrderSteps(side: TraderSide, status: TraderOrderStatus, step: P2pStep): OrderStep[] {
+export function p2pOrderSteps(side: TraderSide, status: TraderOrderStatus, step: P2pStep, disputed = false): OrderStep[] {
   const sells = side === 'SELL_USDT';
   const labels = sells
     ? ['Order accepted', 'You put USDT in escrow', 'Buyer pays you INR', 'You confirm the INR', 'Escrow released']
     : ['Order accepted', 'Seller’s USDT in escrow', 'You pay INR', 'Seller confirms your INR', 'You receive USDT'];
-  const at: Record<P2pStep, number> = { ESCROW: 1, PAY: 2, CONFIRM: 3, RELEASE: 4, DONE: 4, CANCELLED: -1 };
+  // A refund happens only on a trader's Buy order (a client's SELL it did not pay): it stops at the trader's payment.
+  const at: Record<P2pStep, number> = { ESCROW: 1, PAY: 2, CONFIRM: 3, RELEASE: 4, REFUND: 2, DONE: 4, CANCELLED: -1 };
   const yours = sells ? new Set<P2pStep>(['ESCROW', 'CONFIRM']) : new Set<P2pStep>(['PAY']);
   const current = status === 'COMPLETED' ? 5 : status === 'IN_PROGRESS' ? at[step] : -1;
   return labels.map((label, i) => {
     if (current < 0) return { label, status: 'pending' as const };
     if (i < current) return { label, status: 'done' as const };
+    if (i === current && step === 'REFUND') return { label, status: 'exception' as const, detail: 'not paid — the seller’s USDT goes back' };
+    if (i === current && disputed) return { label, status: 'exception' as const, detail: 'INRP2P is checking the payment' };
     if (i === current) return { label, status: 'current' as const, detail: yours.has(step) ? 'your turn' : step === 'RELEASE' ? 'INRP2P is releasing it' : 'waiting for the other side' };
     return { label, status: 'pending' as const };
   });

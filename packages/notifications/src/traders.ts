@@ -73,8 +73,57 @@ async function orderFacts(db: Db, orderId: string): Promise<{ clientId: string; 
   };
 }
 
+/**
+ * A trader's side of a P2P dispute or unwind (block 9): told when the client says the trader's rupees did not arrive,
+ * when INRP2P decides, and when the trader let the time to pay run out.
+ */
+async function p2pResolve(db: Db, event: OutboxEvent): Promise<{ clientId: string; kind: NotificationKind; facts: NotificationFacts } | null> {
+  const p = (event.payload ?? {}) as Payload;
+  const tradeId = str(p.tradeId);
+  if (!tradeId) return null;
+  const o = await db
+    .selectFrom('trader_order as o')
+    .innerJoin('trade_request as r', 'r.id', 'o.trade_request_id')
+    .select(['o.id', 'o.side', 'r.desk_id'])
+    .where('o.trade_id', '=', tradeId)
+    .orderBy('o.offered_at', 'desc')
+    .executeTakeFirst();
+  if (!o) return null;
+  // The trader sells USDT on a client's BUY: then it receives the rupees.
+  const payee = o.side === 'SELL_USDT';
+  let kind: NotificationKind;
+  let decision: 'PAID' | 'NOT_PAID' | undefined;
+  if (event.type === 'trader.p2p_dispute_opened') {
+    if (p.payee !== 'CLIENT') return null;
+    kind = 'P2P_DISPUTE_OPENED';
+  } else if (event.type === 'trader.p2p_dispute_decided') {
+    if (p.via !== 'INRP2P' || (p.decision !== 'PAID' && p.decision !== 'NOT_PAID')) return null;
+    kind = 'P2P_DISPUTE_DECIDED';
+    decision = p.decision;
+  } else if (event.type === 'trader.p2p_unwind_started') {
+    if (p.reason !== 'PAY_WINDOW_MISSED') return null;
+    kind = 'P2P_REFUND';
+  } else return null;
+  const resolved = await orderFacts(db, o.id);
+  if (!resolved) return null;
+  return { clientId: resolved.clientId, kind, facts: { ...resolved.facts, p2p: { audience: 'TRADER', payee, ...(decision ? { decision } : {}), deskDeal: o.desk_id !== null } } };
+}
+
+const DESK_ACTIONS = new Set(['SUSPENDED', 'RESUMED', 'PAGE_HIDDEN', 'PAGE_SHOWN', 'RENAMED']);
+
 async function resolve(db: Db, event: OutboxEvent): Promise<{ clientId: string; kind: NotificationKind; facts: NotificationFacts } | null> {
   const p = (event.payload ?? {}) as Payload;
+  if (event.type.startsWith('trader.p2p_')) return p2pResolve(db, event);
+  if (event.type === 'trader.desk_moderated') {
+    // INRP2P's decision about the trader's desk (block 11): the action from its enumerated values, the reason as written.
+    const traderId = str(p.traderId);
+    const action = str(p.action);
+    if (!traderId || !action || !DESK_ACTIONS.has(action)) return null;
+    const t = await db.selectFrom('trader_profile').select('client_id').where('id', '=', traderId).executeTakeFirst();
+    if (!t) return null;
+    const reason = str(p.reason);
+    return { clientId: t.client_id, kind: 'DESK_NOTICE', facts: { deskAction: action as NonNullable<NotificationFacts['deskAction']>, ...(reason ? { reason } : {}) } };
+  }
   if (event.type === 'desk.payout_actionable') {
     // The other side's funds are confirmed: if a trader's order stands behind this trade, it is now the trader's turn.
     const tradeId = str(p.tradeId);

@@ -24,3 +24,5 @@ export * from './sender.ts';
 export * from './claim.ts';
 export * from './narration.ts';
 export * from './p2p.ts';
+export * from './disputes.ts';
+export * from './sweeps.ts';

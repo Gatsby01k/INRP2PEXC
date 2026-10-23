@@ -24,6 +24,14 @@ const ENTRIES: ClientNavEntry[] = [
 /** A client that provides capacity only, or a trader applicant: Traders is the whole of their workspace. */
 const TRADER_ENTRIES: ClientNavEntry[] = [{ href: '/traders', label: 'Traders' }];
 
+/** A trader's own exchange (ADR 0020): its desk comes first, before the programme it trades through. */
+const DESK: ClientNavEntry = { href: '/desk', label: 'Desk' };
+const DESKS: ClientNavEntry = { href: '/desks', label: 'Desks' };
+const withDesk = (entries: ClientNavEntry[]): ClientNavEntry[] => {
+  const at = entries.findIndex((e) => e.href === '/traders');
+  return [...entries.slice(0, at), DESK, ...entries.slice(at)];
+};
+
 /** Signed in with no account yet (D-17): open one for the Exchange, or apply to provide capacity. */
 const NEW_ENTRIES: ClientNavEntry[] = [
   { href: '/open-account', label: 'Open account' },
@@ -52,7 +60,14 @@ export default async function ClientLayout({ children }: { children: ReactNode }
   const { held } = await payoutsHeld(ctx.db);
   const { props: markProps } = getImageProps({ src: mark, alt: '', width: 28, height: 28 });
   const { desk } = siteContacts();
-  const home = member?.exchangeAccess ? '/exchange' : member ? '/traders' : '/open-account';
+  // A trader runs a desk: approved or paused, or already with one open.
+  const trader = member ? await ctx.db.selectFrom('trader_profile').select('status').where('client_id', '=', member.clientId).executeTakeFirst() : undefined;
+  const desks = trader !== undefined && (trader.status === 'APPROVED' || trader.status === 'PAUSED');
+  const home = member?.exchangeAccess ? '/exchange' : desks ? '/desk' : member ? '/traders' : '/open-account';
+  // A client that deals with independent desks (ADR 0020) finds them beside the Exchange.
+  const dealsWithDesks = member ? Boolean(await ctx.db.selectFrom('desk_client').select('id').where('client_id', '=', member.clientId).limit(1).executeTakeFirst()) : false;
+  const base = member?.exchangeAccess ? ENTRIES : member ? TRADER_ENTRIES : NEW_ENTRIES;
+  const entries = dealsWithDesks && member?.exchangeAccess ? [base[0]!, DESKS, ...base.slice(1)] : base;
 
   return (
     <div className={styles.shell}>
@@ -62,7 +77,7 @@ export default async function ClientLayout({ children }: { children: ReactNode }
             <img {...markProps} className={styles.brandMark} />
             <span className={styles.brandName}>INRP2P</span>
           </Link>
-          <ClientNav entries={member?.exchangeAccess ? ENTRIES : member ? TRADER_ENTRIES : NEW_ENTRIES} />
+          <ClientNav entries={desks ? withDesk(entries) : entries} />
           <div className={styles.headerActions}>
             <SoundToggle className={styles.iconButton} iconClassName={styles.toolIcon} labelClassName="ix-visually-hidden" />
             {member ? (

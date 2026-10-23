@@ -57,6 +57,9 @@ export interface DeskServerOptions {
   readonly fieldKeys?: { readonly keyId: string; readonly kekBase64: string; readonly hmacBase64: string };
   /** Custody provider slug, which must match the capability the world recorded (D-02). */
   readonly custodyProvider?: string;
+  /** POOL (D-02, the default) or DERIVED — deal addresses from the exchange's own HD account (ADR 0017), with its xpub. */
+  readonly custodyCapability?: 'POOL' | 'DERIVED';
+  readonly custodyXpub?: string;
   /** Where the client sign-in code is written, so a run can sign in through the real form. Test-only. */
   readonly clientOtpSinkFile?: string;
   /** The addresses the public site publishes (server/site.ts `siteContacts`); unset, it publishes none. */
@@ -89,7 +92,8 @@ export function deskServerEnv(opts: Omit<DeskServerOptions, 'label' | 'surfaces'
     INRP2P_ENV: 'e2e',
     // The monitoring token the e2e run presents to read the full health picture, as a monitoring system would.
     INRP2P_HEALTH_TOKEN: E2E_HEALTH_TOKEN,
-    ...(opts.custodyProvider ? { INRP2P_CUSTODY_PROVIDER: opts.custodyProvider, INRP2P_CUSTODY_CAPABILITY: 'POOL' } : {}),
+    ...(opts.custodyProvider ? { INRP2P_CUSTODY_PROVIDER: opts.custodyProvider, INRP2P_CUSTODY_CAPABILITY: opts.custodyCapability ?? 'POOL' } : {}),
+    ...(opts.custodyXpub ? { INRP2P_CUSTODY_XPUB: opts.custodyXpub } : {}),
     ...(opts.fieldKeys
       ? { INRP2P_KEK_ID: opts.fieldKeys.keyId, INRP2P_KEK_BASE64: opts.fieldKeys.kekBase64, INRP2P_FIELD_HMAC_BASE64: opts.fieldKeys.hmacBase64 }
       : {}),

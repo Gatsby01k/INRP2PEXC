@@ -180,7 +180,24 @@ export type DomainErrorCode =
   | 'INR_SENDER_NOT_VERIFIED'
   // ADR 0019: P2P escrow.
   | 'ESCROW_NOT_FUNDED'
-  | 'NOT_THE_PAYEE';
+  | 'NOT_THE_PAYEE'
+  // ADR 0020: desks.
+  | 'DESK_EXISTS'
+  | 'DESK_HANDLE_TAKEN'
+  | 'DESK_HANDLE_INVALID'
+  | 'DESK_NOT_LIVE'
+  | 'DESK_CLIENT_BLOCKED'
+  | 'DESK_LINK_UNAVAILABLE'
+  | 'ALREADY_MEMBER'
+  | 'INVITE_UNAVAILABLE'
+  | 'TEAM_SELF_CHANGE'
+  // ADR 0020 §2.15: P2P disputes and unwinds.
+  | 'DISPUTE_EXISTS'
+  | 'NOT_THE_PAYER'
+  | 'NOT_DUE'
+  | 'SENDER_NOT_SHOWN'
+  | 'P2P_PAYMENT_WINDOW_CLOSED'
+  | 'INR_UNEXPECTED_SENDER';
 
 export class DomainError extends Error {
   readonly code: DomainErrorCode;

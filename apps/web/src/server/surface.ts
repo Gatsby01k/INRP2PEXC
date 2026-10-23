@@ -1,3 +1,4 @@
+import { isDeskHandle } from '@inrp2p/kernel';
 import { SITE_PATHS } from '../content/site.ts';
 
 /**
@@ -39,6 +40,29 @@ export const TRADER_ENTRY_PATH = '/become-a-trader';
 
 /** The shareable quote link (D-01): opening it authorizes nothing, so it is reachable without a session. */
 export const isQuoteLinkPath = (path: string): boolean => path === '/q' || path.startsWith('/q/');
+
+/** Where Telegram delivers the bot's updates, on the public host; the route checks Telegram's secret itself. */
+export const TELEGRAM_WEBHOOK_PATH = '/api/telegram/webhook';
+
+/** A desk's deal link (ADR 0020 §2.9): like the quote link, opening it authorizes nothing. */
+export const isDealLinkPath = (path: string): boolean => path === '/d' || path.startsWith('/d/');
+
+/**
+ * A desk's own page, `inrp2p.com/<handle>` (ADR 0020 §2.10). One path segment in the shape of a handle — 3 to 30 lower-case
+ * letters, digits and inner hyphens — that is not one of the site's, the app's or the desk's own paths (the kernel's
+ * reserved list, which the database holds too). Those keep the gate they always had. Served from `DESK_PAGE_PREFIX/<handle>` by an internal rewrite, like `/home`.
+ */
+const HANDLE_PATH = /^\/([a-z0-9][a-z0-9-]{1,28}[a-z0-9])$/;
+export const DESK_PAGE_PREFIX = '/public-desk';
+
+export function deskHandleOfPath(path: string): string | null {
+  const m = HANDLE_PATH.exec(path);
+  if (!m || isPublicSitePath(path) || !isDeskHandle(m[1]!)) return null;
+  return m[1]!;
+}
+
+/** The inside of that rewrite: one handle under the prefix, and nothing else. */
+export const isDeskPagePath = (path: string): boolean => /^\/public-desk\/[a-z0-9][a-z0-9-]{1,28}[a-z0-9]$/.test(path);
 
 /**
  * The public site's own paths (PRODUCT §7.4), plus the two files a crawler asks for.
@@ -102,8 +126,24 @@ export function gateFor(surface: Surface, pathname: string): Gate {
     if (path === '/sign-in' || path === TRADER_ENTRY_PATH) return 'CLIENT_SIGN_IN';
     return 'CLIENT_SESSION';
   }
-  // Public host: the site's own pages and the shareable quote link, and nothing else. Auth endpoints are not
-  // served here at all, and any other path is refused rather than rendered — a page that needs a session has no
-  // business on a host that never receives one.
-  return isQuoteLinkPath(path) || isPublicSitePath(path) ? 'PUBLIC' : 'CLIENT_SESSION';
+  // Public host: the site's own pages, the shareable quote link, a desk's page and its deal links, and nothing else.
+  // Auth endpoints are not served here at all, and any other path is refused rather than rendered — a page that
+  // needs a session has no business on a host that never receives one.
+  // The Telegram bot's webhook authenticates itself with the secret Telegram sends (ADR 0020 §2.14).
+  if (path === TELEGRAM_WEBHOOK_PATH) return 'PUBLIC';
+  return isQuoteLinkPath(path) || isDealLinkPath(path) || isPublicSitePath(path) || deskHandleOfPath(path) !== null || isDeskPagePath(path) ? 'PUBLIC' : 'CLIENT_SESSION';
+}
+
+/**
+ * Where to go back to after signing in (or opening an account) on the client host: the page the person was on when the
+ * proxy sent them to sign in — a desk's page, a deal link. Only a path on this same host: one leading slash, never two,
+ * no backslash or control character, not the sign-in itself or an API route, and short. Anything else is no path at all,
+ * so this can never be used to send someone elsewhere.
+ */
+export function safeReturnPath(value: unknown): string | null {
+  if (typeof value !== 'string' || value.length < 2 || value.length > 512) return null;
+  if (!value.startsWith('/') || value.startsWith('//') || value.includes('\\') || [...value].some((c) => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127)) return null;
+  const path = value.split(/[?#]/)[0]!;
+  if (path === '/sign-in' || path.startsWith('/sign-in/') || path === '/api' || path.startsWith('/api/')) return null;
+  return value;
 }

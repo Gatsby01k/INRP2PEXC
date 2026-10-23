@@ -9,9 +9,9 @@ import { publishTraderRate } from '@inrp2p/pricing';
 import { obligationRemaining } from '@inrp2p/settlement';
 import { releaseSubjectAssignment } from '@inrp2p/treasury';
 import { lockTrader, lockTraderOfClient, traderClientCommand, type CloseReason, type OrderRow, closeUnstartedOrder, lockBlock, lockOrder, traderProgram } from '@inrp2p/trader-core';
-import { freeCapacity, standingIssues } from './eligibility.ts';
+import { freeCapacity, standingIssues } from '@inrp2p/trader-core';
 import { directionForSide } from './routing.ts';
-import { readBlocks, readStanding } from './standing.ts';
+import { readBlocks, readStanding } from '@inrp2p/trader-core';
 
 async function lockRequestRow(ctx: TxContext, requestId: string): Promise<{ status: string }> {
   assertLockOrder(ctx.tx, 'trade_request');

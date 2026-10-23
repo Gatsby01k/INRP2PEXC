@@ -55,7 +55,9 @@ export interface FundingUse {
   readonly chainSendId?: string;
 }
 
-const SOURCE_FOR: Record<FundingUseKind, FundingSourceKind> = { CLIENT_PAYOUT: 'COUNTERPARTY_FUNDS', REFUND: 'CLIENT_FUNDS', ROUTE_PAYMENT: 'CLIENT_FUNDS', ESCROW_RETURN: 'COUNTERPARTY_FUNDS' };
+// A fee sweep (block 10) draws on whichever of a completed trade's sources is free at the address: `planFeeSweepInTx`
+// earmarks it source by source, never through `allocateFunding`.
+const SOURCE_FOR: Record<Exclude<FundingUseKind, 'FEE_SWEEP'>, FundingSourceKind> = { CLIENT_PAYOUT: 'COUNTERPARTY_FUNDS', REFUND: 'CLIENT_FUNDS', ROUTE_PAYMENT: 'CLIENT_FUNDS', ESCROW_RETURN: 'COUNTERPARTY_FUNDS' };
 const SOURCE_WORDS: Record<FundingSourceKind, string> = { COUNTERPARTY_FUNDS: "the counterparty's", CLIENT_FUNDS: "the client's" };
 
 /**
@@ -70,7 +72,7 @@ const SOURCE_WORDS: Record<FundingSourceKind, string> = { COUNTERPARTY_FUNDS: "t
  */
 export async function allocateFunding(
   ctx: TxContext,
-  input: { tradeId: string; use: FundingUse; asset: AssetCode; amount: Money; location: string },
+  input: { tradeId: string; use: FundingUse & { readonly kind: Exclude<FundingUseKind, 'FEE_SWEEP'> }; asset: AssetCode; amount: Money; location: string },
 ): Promise<{ allocations: readonly { id: string; sourceId: string; amountMinor: bigint }[] }> {
   const { amount, asset, location, use } = input;
   if (amount.currency !== asset || !amount.isPositive()) throw new DomainError('INVALID_AMOUNT', 'an earmark must be a positive amount of the use\'s asset');

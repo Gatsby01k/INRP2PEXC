@@ -1,8 +1,8 @@
 import { hostname } from 'node:os';
 import { run } from 'graphile-worker';
 import { createDb, createPool, databaseDeploymentProblems } from '@inrp2p/db';
-import { isNotificationProviderConfigured, isProduction, notificationAdapterFromEnv, productionConfigReport } from '@inrp2p/adapters';
-import { acknowledgedSignalHandler, clientNotificationEmailHandler, clientNotificationHandler, traderNotificationHandler } from '@inrp2p/notifications';
+import { isNotificationProviderConfigured, isProduction, notificationAdapterFromEnv, productionConfigReport, telegramFromEnv } from '@inrp2p/adapters';
+import { acknowledgedSignalHandler, clientNotificationEmailHandler, clientNotificationHandler, teamInviteEmailHandler, telegramOrderHandler, traderNotificationHandler } from '@inrp2p/notifications';
 import { traderRoutingHandler } from '@inrp2p/traders';
 import { acceptanceCodeHandler } from '@inrp2p/quotes';
 import { receiptHandler } from '@inrp2p/reporting';
@@ -56,6 +56,11 @@ const emailChannel = isNotificationProviderConfigured(notifications)
   ? [clientNotificationEmailHandler(db, notifications, { linkBase: process.env.CLIENT_BASE_URL })]
   : [];
 if (emailChannel.length === 0) console.warn('client notifications: in-app only — no email provider is configured (TD-04)');
+
+// ADR 0020 §2.14: Telegram alerts for desks and traders, only with a bot configured (nobody can link a chat without one).
+const telegram = telegramFromEnv(process.env);
+const telegramChannel = telegram ? [telegramOrderHandler(db, telegram, { linkBase: process.env.CLIENT_BASE_URL })] : [];
+console.log(`telegram: ${telegram ? `@${telegram.botUsername}` : 'not configured'}`);
 
 // Chain monitoring state is always stated (DISABLED / READY / DEGRADED / UNCONFIGURED). An enabled but
 // unconfigured worker refuses to start rather than run with three jobs that would fail every minute while the
@@ -142,13 +147,14 @@ const runner = await run({
   concurrency: 5,
   noHandleSignals: false,
   pollInterval: 2000,
-  taskList: buildTaskList(db, [quoteExpiryScheduler(db), acceptanceCodeHandler(db, { protector }, notifications), clientNotificationHandler(db), traderNotificationHandler(db), traderRoutingHandler(db), receiptHandler(db, receipts), destinationArchivedHandler(db), acknowledgedSignalHandler(), onchainWakeup(db), ...emailChannel], {
+  taskList: buildTaskList(db, [quoteExpiryScheduler(db), acceptanceCodeHandler(db, { protector }, notifications), teamInviteEmailHandler(db, notifications, { linkBase: process.env.CLIENT_BASE_URL }), clientNotificationHandler(db), traderNotificationHandler(db), traderRoutingHandler(db), receiptHandler(db, receipts), destinationArchivedHandler(db), acknowledgedSignalHandler(), onchainWakeup(db), ...emailChannel, ...telegramChannel], {
     monitoring,
     ...(monitoring.config ? { scanner: monitoring.config } : {}),
     ...(receipts ? { receipts } : {}),
     heartbeat: identity,
     ...(auditArchive ? { auditArchive } : {}),
     ...(rails ? { rails } : {}),
+    ...(telegram ? { telegram: { adapter: telegram, linkBase: process.env.CLIENT_BASE_URL } } : {}),
   }),
   crontab: CRONTAB,
 });

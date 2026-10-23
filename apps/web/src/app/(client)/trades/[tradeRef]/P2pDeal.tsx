@@ -6,7 +6,8 @@ import type { PortalTrade } from '@inrp2p/portal';
 import { CopyButton } from '@inrp2p/ui';
 import { formatCountdown, formatInr, formatIstDateTime, formatUsdtHeadline, maskUtr } from '@inrp2p/ui/format';
 import { useCommand } from '../../../../components/useCommand.tsx';
-import { claimPaymentAction, confirmReceiptAction } from '../../../../server/actions/client.ts';
+import { answerDisputeAction, claimPaymentAction, confirmReceiptAction, openDisputeAction } from '../../../../server/actions/client.ts';
+import { AddYourSide, DisputeUnderReview, NotArrived } from '../../_workspace/P2pDispute.tsx';
 import { playSound } from '../../_assistant/sound.ts';
 import { BankIcon, CheckIcon, ClockIcon, InfoIcon, LockIcon, ShieldIcon, UserIcon, WalletIcon } from '../../_workspace/icons.tsx';
 import shell from '../../shell.module.css';
@@ -33,18 +34,20 @@ export function P2pDealCard({ view }: { view: PortalTrade }) {
   const inr = formatInr(Money.parse(deal.inr, 'INR'), { fraction: 'always' });
   const now = useNow();
   const remaining = deal.dueBy ? Date.parse(deal.dueBy) - now : null;
+  const disputed = deal.dispute?.status === 'OPEN';
+  const decidedUnpaid = deal.dispute?.status === 'NOT_PAID';
   // A seller's own deposit has its card already (the trade's address); this one starts once the USDT is in.
-  if (deal.step === 'DONE' || (deal.step === 'CANCELLED' && !deal.escrowReturn) || (!buy && deal.step === 'ESCROW')) return null;
+  if (deal.step === 'DONE' || (deal.step === 'CANCELLED' && !deal.escrowReturn && !deal.unwind && !decidedUnpaid) || (!buy && deal.step === 'ESCROW')) return null;
 
   const timer = remaining !== null ? <StepTimer remaining={remaining} verb={deal.turn === (buy ? 'BUYER' : 'SELLER') ? 'Within' : 'Expected within'} /> : null;
-  const yours = (buy && (deal.step === 'PAY')) || (!buy && deal.step === 'CONFIRM');
+  const yours = !disputed && ((buy && deal.step === 'PAY') || (!buy && deal.step === 'CONFIRM'));
 
   return (
     <section className={`${shell.card} ${pay.card} ${styles.card}`} aria-labelledby="deal-title" {...(yours ? { 'data-attention': '' } : {})}>
       <div className={pay.head}>
         <div className={pay.headText}>
           <span className={pay.badge} data-tone={yours ? undefined : 'quiet'}>
-            {yours ? 'Your move' : deal.step === 'RELEASE' ? 'Releasing' : 'Escrow'}
+            {disputed ? 'With INRP2P' : yours ? 'Your move' : deal.step === 'RELEASE' ? 'Releasing' : deal.step === 'REFUND' ? 'Refund' : 'Escrow'}
           </span>
           <h2 id="deal-title" className={pay.title}>
             {titleOf(deal, buy, usdt, inr)}
@@ -62,7 +65,8 @@ export function P2pDealCard({ view }: { view: PortalTrade }) {
         </p>
       ) : null}
       {buy && deal.step === 'PAY' ? <PayTheSeller view={view} deal={deal} inr={inr} /> : null}
-      {buy && deal.step === 'CONFIRM' ? (
+      {buy && deal.step === 'CONFIRM' && disputed ? <BuyerSide view={view} deal={deal} inr={inr} /> : null}
+      {buy && deal.step === 'CONFIRM' && !disputed ? (
         <Waiting>
           <strong>The seller is checking your payment.</strong> Once they confirm it arrived from your account, INRP2P releases your {usdt}. If they do not answer in time,
           the desk steps in with your bank’s evidence.
@@ -75,7 +79,25 @@ export function P2pDealCard({ view }: { view: PortalTrade }) {
           you do.
         </Waiting>
       ) : null}
-      {!buy && deal.step === 'CONFIRM' ? <ConfirmReceipt view={view} deal={deal} inr={inr} usdt={usdt} /> : null}
+      {!buy && deal.step === 'CONFIRM' && !disputed ? (
+        <>
+          <ConfirmReceipt view={view} deal={deal} inr={inr} usdt={usdt} />
+          <SellerNotArrived view={view} inr={inr} />
+        </>
+      ) : null}
+      {!buy && deal.step === 'CONFIRM' && disputed ? (
+        <DisputeUnderReview dispute={deal.dispute!}>
+          <ConfirmReceipt view={view} deal={deal} inr={inr} usdt={usdt} />
+        </DisputeUnderReview>
+      ) : null}
+
+      {deal.step === 'REFUND' && deal.unwind ? <RefundState unwind={deal.unwind} usdt={usdt} /> : null}
+      {deal.step === 'CANCELLED' && deal.unwind ? (
+        <p className={pay.lead}>
+          {deal.unwind.reason === 'NOT_PAID' ? 'INRP2P found the buyer’s payment did not arrive.' : 'The buyer did not pay in time.'} Your {formatUsdtHeadline(Money.parse(deal.unwind.amount, 'USDT'))}{' '}
+          went back to the wallet you sent it from; nothing of yours was kept.
+        </p>
+      ) : null}
 
       {deal.step === 'RELEASE' ? (
         <Waiting>
@@ -83,7 +105,12 @@ export function P2pDealCard({ view }: { view: PortalTrade }) {
         </Waiting>
       ) : null}
 
-      {deal.step === 'CANCELLED' && deal.escrowReturn ? (
+      {deal.step === 'CANCELLED' && buy && decidedUnpaid ? (
+        <p className={pay.lead}>
+          INRP2P found your {inr} did not reach the seller, so this trade is cancelled and the seller’s USDT went back to them. Do not pay again for it. If money left your account,
+          write to INRP2P with your bank statement.
+        </p>
+      ) : deal.step === 'CANCELLED' && deal.escrowReturn ? (
         <p className={pay.lead}>This trade was cancelled before it was paid. The seller’s USDT goes back to them from the escrow; nothing was taken from you.</p>
       ) : null}
 
@@ -93,6 +120,7 @@ export function P2pDealCard({ view }: { view: PortalTrade }) {
 }
 
 function titleOf(deal: Deal, buy: boolean, usdt: string, inr: string): string {
+  if (deal.dispute?.status === 'OPEN') return buy ? `The seller says your ${inr} has not arrived` : `You said ${inr} has not arrived`;
   switch (deal.step) {
     case 'ESCROW':
       return buy ? `The seller is putting ${usdt} in escrow` : `Send ${usdt} to escrow`;
@@ -102,6 +130,10 @@ function titleOf(deal: Deal, buy: boolean, usdt: string, inr: string): string {
       return buy ? 'The seller is confirming your payment' : `Did ${inr} arrive?`;
     case 'RELEASE':
       return buy ? `Releasing ${usdt} to you` : 'Releasing the escrow';
+    case 'REFUND':
+      return 'Back to the wallet you sent it from';
+    case 'CANCELLED':
+      return deal.unwind ? `Your ${usdt} went back to you` : 'Cancelled';
     default:
       return 'Escrow';
   }
@@ -109,8 +141,8 @@ function titleOf(deal: Deal, buy: boolean, usdt: string, inr: string): string {
 
 /** Where the USDT is, always in view: seller → INRP2P escrow → buyer, the lock between them. */
 function EscrowStrip({ deal, buy, usdt }: { deal: Deal; buy: boolean; usdt: string }) {
-  const where = deal.step === 'CANCELLED' ? 'returning' : deal.step === 'RELEASE' || deal.step === 'DONE' ? 'released' : deal.escrowFunded ? 'locked' : 'waiting';
-  const words = { waiting: 'Not in yet', locked: 'Locked by INRP2P', released: 'Released', returning: 'Going back to the seller' }[where];
+  const where = deal.step === 'CANCELLED' || deal.step === 'REFUND' ? 'returning' : deal.step === 'RELEASE' || deal.step === 'DONE' ? 'released' : deal.escrowFunded ? 'locked' : 'waiting';
+  const words = { waiting: 'Not in yet', locked: 'Locked by INRP2P', released: 'Released', returning: buy ? 'Going back to the seller' : deal.unwind?.status === 'SENT' ? 'Back with you' : 'Going back to you' }[where];
   return (
     <ol className={styles.strip} data-state={where} aria-label="Where the USDT is">
       <li className={styles.party}>
@@ -305,7 +337,7 @@ function ConfirmReceipt({ view, deal, inr, usdt }: { view: PortalTrade; deal: De
         <ShieldIcon className={pay.ruleIcon} />
         <p>
           <strong>Open your bank app first.</strong> Confirm only once {inr} is in your account — confirming releases {usdt} to the buyer and cannot be undone. Not there
-          yet? Don’t confirm: if it doesn’t arrive, the desk is told automatically.
+          yet? Don’t confirm — give it a few minutes, or tell INRP2P below.
         </p>
       </div>
       {verdict && verdict !== 'MATCH' ? (
@@ -350,6 +382,58 @@ function ConfirmReceipt({ view, deal, inr, usdt }: { view: PortalTrade; deal: De
       ) : null}
       {cmd.dialog}
     </>
+  );
+}
+
+/** The seller's "it hasn't arrived": the deal stops and INRP2P decides from the seller's bank. */
+function SellerNotArrived({ view, inr }: { view: PortalTrade; inr: string }) {
+  const cmd = useCommand();
+  return (
+    <>
+      <NotArrived
+        inr={inr}
+        busy={cmd.busy}
+        onSubmit={async (reason, note) => {
+          const out = await cmd.run(`Tell INRP2P ${inr} has not arrived`, (key) => openDisputeAction({ tradeRef: view.trade.ref, reason, note }, key));
+          return out.ok ? { ok: true } : { ok: false, error: out.message };
+        }}
+      />
+      {cmd.dialog}
+    </>
+  );
+}
+
+/** The buyer's side of the seller's dispute, for INRP2P. */
+function BuyerSide({ view, deal, inr }: { view: PortalTrade; deal: Deal; inr: string }) {
+  const cmd = useCommand();
+  return (
+    <>
+      <AddYourSide
+        dispute={deal.dispute!}
+        inr={inr}
+        busy={cmd.busy}
+        onSubmit={async (note) => {
+          const out = await cmd.run('Send your details to INRP2P', (key) => answerDisputeAction({ tradeRef: view.trade.ref, note }, key));
+          return out.ok ? { ok: true } : { ok: false, error: out.message };
+        }}
+      />
+      {cmd.dialog}
+    </>
+  );
+}
+
+/** The client's USDT on its way back from the escrow of a deal its buyer did not pay. */
+function RefundState({ unwind, usdt }: { unwind: NonNullable<Deal['unwind']>; usdt: string }) {
+  const why = unwind.reason === 'NOT_PAID' ? 'INRP2P found the buyer’s payment did not arrive.' : 'The buyer did not pay in time.';
+  return (
+    <Waiting>
+      <strong>{why}</strong>{' '}
+      {unwind.status === 'SENDING'
+        ? `Your ${usdt} is on its way back to the wallet you sent it from.`
+        : unwind.status === 'SENT'
+          ? `Your ${usdt} is back in the wallet you sent it from.`
+          : `INRP2P is sending your ${usdt} back to the wallet you sent it from. Nothing to do.`}
+    </Waiting>
   );
 }
 
