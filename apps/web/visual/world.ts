@@ -158,6 +158,11 @@ async function pinWallClockColumns(db: Db): Promise<void> {
       const set = columns.map((c) => `${c} = '${FROZEN_NOW}'::timestamptz`).join(', ');
       await sql.raw(`update ${table} set ${set} where ${columns[0]} is not null`).execute(db);
     }
+    // A BUY's payment reference is random by design (`paymentReference`), and it is inside the UPI code the client
+    // scans: numbered here by trade, it is the same on every run, and so is the code.
+    await sql`update trade_collection c set reference = 'P' || lpad(x.n::text, 7, '0')
+      from (select c2.trade_id, row_number() over (order by t.ref) as n from trade_collection c2 join trade t on t.id = c2.trade_id) x
+      where x.trade_id = c.trade_id`.execute(db);
   } finally {
     await sql`set session_replication_role = origin`.execute(db);
   }
@@ -383,22 +388,8 @@ export async function seedVisual(adminUrl: string): Promise<VisualState> {
     clientId: acme.clientId, acceptor: acmeAcceptor, routeId: mumbai.routeId, walletId: acmeWallet.walletId, amount: '500', clientRate: '101.500000',
   });
 
-  // 7. A live quote with a shareable link, so Exchange counts one down and the public link page has one to show.
-  //    The business clock is frozen, so this quote is permanently 180 s from expiry — which is the point.
-  const pendingRequest = await run(world, createRequest(owner.actor, {}), owner.ref, 'request.create', {
-    clientId: acme.clientId, direction: 'SELL_USDT' as const, fixedSide: 'BASE' as const, amount: '100000',
-    targetRate: '102.000000', bankAccountId: acmeBank.bankAccountId,
-  });
-  const pendingQuote = await run(world, createQuote(owner.actor, {}), owner.ref, 'quote.create', {
-    requestId: pendingRequest.requestId, routeId: mumbai.routeId, clientRate: '102.000000', validitySeconds: 180,
-  });
-  await run(world, sendQuote(owner.actor, {}), owner.ref, 'quote.send', { quoteId: pendingQuote.quoteId });
-  let linkToken = '';
-  await run(world, createQuoteLink(owner.actor, {}, (t) => { linkToken = t; }), owner.ref, 'quote_link.create', { quoteId: pendingQuote.quoteId });
-  const pendingQuoteRef = (await world.selectFrom('quote').select('ref').where('id', '=', pendingQuote.quoteId).executeTakeFirstOrThrow()).ref;
-
   // ── Traders (TD-23, ADR 0019) ──────────────────────────────────────────────────────────────────────────
-  // 7b. The programme settles P2P: Konkan Liquidity trades with its own INR and USDT, applied, approved, its Security
+  // 7. The programme settles P2P: Konkan Liquidity trades with its own INR and USDT, applied, approved, its Security
   //     Reserve funded on chain from its registered wallet, both blocks live. Bharat sells 10,000 USDT through the
   //     desk, which routes the request to Konkan at the client rate it quotes; Konkan accepts, the client accepts and
   //     its USDT arrives in escrow — so the order waits on Konkan paying Bharat's own account. And Acme buys 2,000
@@ -474,7 +465,7 @@ export async function seedVisual(adminUrl: string): Promise<VisualState> {
   await runTronConfirm(world, chain.deps);
 
   // ── A desk (ADR 0020) ──────────────────────────────────────────────────────────────────────────────────────
-  // 7c. Konkan runs its own exchange on INRP2P: its page at /konkan, live prices on both sides, an operator on its team.
+  // 7b. Konkan runs its own exchange on INRP2P: its page at /konkan, live prices on both sides, an operator on its team.
   //     Meera Textiles — a new client — sells 1,500 USDT from the page, its USDT already in the deal's escrow, so the
   //     desk owes it rupees. Acme takes a link to buy 800 USDT: the desk owes its USDT to the escrow. Bharat holds the
   //     page's price for 2,000 USDT; and one link is still waiting for its client.
@@ -530,6 +521,22 @@ export async function seedVisual(adminUrl: string): Promise<VisualState> {
   const orderRefOf = async (orderId: string) => (await world.selectFrom('trader_order').select('ref').where('id', '=', orderId).executeTakeFirstOrThrow()).ref;
   const payDealRef = await orderRefOf(meeraQuote.orderId);
   const escrowDealRef = await orderRefOf(linkQuote.orderId);
+
+  // 7c. A live quote with a shareable link, so Exchange counts one down and the public link page has one to show.
+  //    The business clock is frozen, so this quote is permanently 180 s from expiry — which is the point. It is
+  //    Acme's latest request on the Exchange, so it comes after the P2P buy above: Exchange shows the client's last
+  //    request, and that one became a trade.
+  const pendingRequest = await run(world, createRequest(owner.actor, {}), owner.ref, 'request.create', {
+    clientId: acme.clientId, direction: 'SELL_USDT' as const, fixedSide: 'BASE' as const, amount: '100000',
+    targetRate: '102.000000', bankAccountId: acmeBank.bankAccountId,
+  });
+  const pendingQuote = await run(world, createQuote(owner.actor, {}), owner.ref, 'quote.create', {
+    requestId: pendingRequest.requestId, routeId: mumbai.routeId, clientRate: '102.000000', validitySeconds: 180,
+  });
+  await run(world, sendQuote(owner.actor, {}), owner.ref, 'quote.send', { quoteId: pendingQuote.quoteId });
+  let linkToken = '';
+  await run(world, createQuoteLink(owner.actor, {}, (t) => { linkToken = t; }), owner.ref, 'quote_link.create', { quoteId: pendingQuote.quoteId });
+  const pendingQuoteRef = (await world.selectFrom('quote').select('ref').where('id', '=', pendingQuote.quoteId).executeTakeFirstOrThrow()).ref;
 
   // 8. The inbox, filled the way production fills it: by running the outbox over the events these commands
   //    already enqueued. Nothing writes a notification directly.

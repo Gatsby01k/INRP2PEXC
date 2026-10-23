@@ -40,7 +40,7 @@ test('trade: accepted, waiting for the client’s USDT', async ({ page }) => {
 
 test('trade: a BUY waiting for the client’s rupees (ADR 0018)', async ({ page }) => {
   await page.goto(`/trades/${state().tradeRefs.awaitingInr}`);
-  await expect(page.getByRole('heading', { name: /^Pay ₹/ })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 2, name: /^Pay ₹/ })).toBeVisible();
   await expect(page.getByText('Pay only from your own account.')).toBeVisible();
   await capture(page, 'client-trade-awaiting-inr');
 });
