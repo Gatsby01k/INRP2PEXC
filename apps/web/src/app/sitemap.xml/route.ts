@@ -1,4 +1,5 @@
 import { headers } from 'next/headers';
+import { liveDeskHandles } from '@inrp2p/traders';
 import { SITE_PAGES } from '../../content/site.ts';
 import { getRuntime } from '../../server/runtime.ts';
 import { publicOrigin } from '../../server/site.ts';
@@ -27,9 +28,13 @@ export async function GET() {
   const urls = SITE_PAGES.map((page) => {
     const loc = escapeXml(`${origin}${page.path === '/' ? '/' : page.path}`);
     return `  <url>\n    <loc>${loc}</loc>\n    <priority>${page.priority.toFixed(1)}</priority>\n  </url>`;
-  }).join('\n');
+  });
+  // The desks taking deals (ADR 0020 §2.10): each one's page is its shop window.
+  for (const handle of await liveDeskHandles(getRuntime().appDb)) {
+    urls.push(`  <url>\n    <loc>${escapeXml(`${origin}/${handle}`)}</loc>\n    <priority>0.6</priority>\n  </url>`);
+  }
 
-  const body = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>\n`;
+  const body = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.join('\n')}\n</urlset>\n`;
   return new Response(body, {
     headers: { 'content-type': 'application/xml; charset=utf-8', 'cache-control': 'public, max-age=3600' },
   });

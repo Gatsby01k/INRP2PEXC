@@ -6,7 +6,7 @@ import { HdSigner } from '@inrp2p/adapters/signer';
 import { runAs } from '@inrp2p/identity/testing';
 import { recordCustodyHdAccount } from '@inrp2p/treasury';
 import { claimNetworkDeposit, publishTrxRate } from '@inrp2p/network';
-import { type OnchainDeps, runAutopay, runFeeRefresh, runHoldClosing, runMonitor, runSender } from '@inrp2p/onchain';
+import { type OnchainDeps, runAutopay, runFeeRefresh, runHoldClosing, runMonitor, runSender, runUnwindClosing } from '@inrp2p/onchain';
 import { acceptOrder, assignRequest, submitOrderPayment } from '@inrp2p/traders';
 import { acceptQuote, createQuote, createRequest, sendQuote } from '@inrp2p/quotes';
 import { confirmRouteSettlement } from '@inrp2p/settlement';
@@ -106,8 +106,9 @@ export async function railsTurn(w: RailsWorld, opts: { mine?: boolean } = {}) {
   const sender = await runSender(w.app, w.rails);
   if (opts.mine ?? true) w.net.mine();
   const monitor = await runMonitor(w.app, w.rails);
+  const unwound = await runUnwindClosing(w.app);
   const holds = await runHoldClosing(w.app);
-  return { autopay, sender, monitor, holds };
+  return { autopay, sender, monitor, unwound, holds };
 }
 
 /** Turns until no send of the trade is open (or `max` turns). */

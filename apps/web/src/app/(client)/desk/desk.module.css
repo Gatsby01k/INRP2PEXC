@@ -1,0 +1,1356 @@
+/*
+ * The desk's workspace (ADR 0020): a trader's own exchange, run from the same room as the rest of the workspace — the
+ * warm field, hairline surfaces, one orange signal. What is specific to a desk is drawn here: its address and status,
+ * the tabs of its sections, the numbers it lives by (prices, turnover, fees) and the deals waiting on it.
+ */
+
+/* ——— Heading: the page head and the desk's sections under it ——— */
+
+.head {
+  grid-area: head;
+  display: grid;
+  gap: var(--space-6);
+  margin-bottom: var(--space-8);
+  min-width: 0;
+}
+
+/* The page head keeps its own layout, but here it is a row of the desk's heading, not the workspace's head area. */
+.head > header {
+  grid-area: auto;
+  margin-bottom: 0;
+}
+
+.tabs {
+  display: flex;
+  gap: var(--space-1);
+  margin: 0 calc(var(--gutter) * -1);
+  padding: 0 var(--gutter);
+  overflow-x: auto;
+  scrollbar-width: none;
+  box-shadow: inset 0 -1px 0 var(--line);
+}
+
+.tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 44px;
+  padding: 0 var(--space-3);
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-medium);
+  text-decoration: none;
+  white-space: nowrap;
+  transition: color var(--dur-fast) var(--ease);
+}
+
+.tab::after {
+  content: '';
+  position: absolute;
+  right: var(--space-3);
+  bottom: 0;
+  left: var(--space-3);
+  height: 2px;
+  border-radius: 2px;
+  background: transparent;
+  transition: background-color var(--dur-fast) var(--ease);
+}
+
+@media (hover: hover) {
+  .tab:hover {
+    color: var(--text-primary);
+  }
+}
+
+.tab[aria-current='page'] {
+  color: var(--text-primary);
+}
+
+.tab[aria-current='page']::after {
+  background: var(--brand-primary);
+}
+
+.tabCount {
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: var(--brand-primary);
+  color: var(--text-on-action);
+  font-size: 11px;
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The desk's address under its name: the page clients come to. */
+.address {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  color: var(--text-secondary);
+  font-size: var(--font-size-body);
+}
+
+.addressText {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-body-sm);
+  color: var(--text-primary);
+}
+
+/* ——— Status ——— */
+
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 28px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-pill);
+  background: var(--bg-subtle);
+  box-shadow: inset 0 0 0 1px var(--line);
+  color: var(--text-secondary);
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.statusDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+
+.status[data-tone='live'] {
+  background: var(--status-success-soft);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--status-success) 18%, transparent);
+  color: var(--status-success);
+}
+
+.status[data-tone='live'] .statusDot {
+  background: var(--status-success);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--status-success) 50%, transparent);
+  animation: beat 2.4s var(--ease) infinite;
+}
+
+.status[data-tone='paused'] {
+  background: var(--status-warning-soft);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--status-warning) 18%, transparent);
+  color: var(--status-warning);
+}
+
+.status[data-tone='paused'] .statusDot {
+  background: var(--status-warning);
+}
+
+.status[data-tone='action'] {
+  background: color-mix(in srgb, var(--brand-primary) 10%, var(--bg-surface));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand-primary) 22%, transparent);
+  color: var(--brand-action);
+}
+
+.status[data-tone='action'] .statusDot {
+  background: var(--brand-primary);
+}
+
+.status[data-tone='done'] {
+  color: var(--text-primary);
+}
+
+.status[data-tone='done'] .statusDot {
+  background: var(--status-success);
+}
+
+@keyframes beat {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--status-success) 45%, transparent);
+  }
+  70%,
+  100% {
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--status-success) 0%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .status[data-tone='live'] .statusDot {
+    animation: none;
+  }
+}
+
+/* ——— Today: the numbers ——— */
+
+.kpis {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.kpi {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-5) var(--space-6);
+  min-width: 0;
+}
+
+.kpi + .kpi {
+  box-shadow: inset 1px 0 0 var(--line);
+}
+
+.kpiLabel {
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-medium);
+}
+
+.kpiValue {
+  font-size: clamp(22px, 2vw, 28px);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+.kpiUnit {
+  margin-left: 4px;
+  color: var(--text-muted);
+  font-size: 0.55em;
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0;
+}
+
+.kpiSub {
+  color: var(--text-secondary);
+  font-size: var(--font-size-meta);
+  font-variant-numeric: tabular-nums;
+}
+
+.periods {
+  display: inline-flex;
+  padding: 3px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-subtle);
+  box-shadow: inset 0 0 0 1px var(--line-soft);
+}
+
+.period {
+  min-height: 30px;
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+}
+
+.period[aria-pressed='true'] {
+  background: var(--bg-surface);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--text-primary) 10%, transparent), 0 0 0 1px var(--line);
+  color: var(--text-primary);
+}
+
+/* ——— Prices: two tiles, what the desk pays and what it asks ——— */
+
+.priceTiles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.priceTile {
+  position: relative;
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-5);
+  border-radius: 16px;
+  background: var(--bg-subtle);
+  box-shadow: inset 0 0 0 1px var(--line-soft);
+  min-width: 0;
+}
+
+.priceTile[data-off] {
+  background: var(--bg-surface);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+.priceCaption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-medium);
+}
+
+.priceValue {
+  font-size: clamp(28px, 3vw, 38px);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.05;
+}
+
+.priceTile[data-off] .priceValue {
+  color: var(--text-muted);
+}
+
+.priceMeta {
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+  font-variant-numeric: tabular-nums;
+}
+
+.liveDot {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--status-success);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.liveDot::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.liveDot[data-off] {
+  color: var(--text-muted);
+}
+
+.spread {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-sm);
+}
+
+.spread strong {
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ——— Going live: what is done, what is next ——— */
+
+.checklist {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.check {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+}
+
+.check + .check {
+  box-shadow: inset 0 1px 0 var(--line-soft);
+}
+
+.checkMark {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1.5px var(--border-strong);
+  color: transparent;
+}
+
+.checkMark svg {
+  width: 14px;
+  height: 14px;
+}
+
+.check[data-done] .checkMark {
+  background: var(--status-success);
+  box-shadow: none;
+  color: var(--text-on-action);
+}
+
+.check[data-next] .checkMark {
+  box-shadow: inset 0 0 0 2px var(--brand-primary);
+}
+
+.checkText {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.checkTitle {
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-medium);
+}
+
+.check[data-done] .checkTitle {
+  color: var(--text-secondary);
+}
+
+.checkDetail {
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+  line-height: var(--line-height-normal);
+}
+
+.progress {
+  position: relative;
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-subtle);
+  box-shadow: inset 0 0 0 1px var(--line-soft);
+  overflow: hidden;
+}
+
+.progressBar {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--brand-primary), color-mix(in srgb, var(--brand-primary) 70%, #ffb38a));
+  transition: width var(--dur-complete) var(--ease);
+}
+
+/* ——— Deals ——— */
+
+.deals {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.deal {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3) var(--space-4);
+  padding: var(--space-3) var(--space-2);
+  margin: 0 calc(var(--space-2) * -1);
+  border-radius: 12px;
+  color: inherit;
+  text-decoration: none;
+  transition: background-color var(--dur-fast) var(--ease);
+}
+
+.deals > li + li .deal {
+  box-shadow: 0 -1px 0 var(--line-soft);
+}
+
+@media (hover: hover) {
+  .deal:hover {
+    background: color-mix(in srgb, var(--text-primary) 3%, transparent);
+  }
+}
+
+.avatar {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--brand-primary) 10%, var(--bg-subtle));
+  color: var(--brand-action);
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-semibold);
+}
+
+.avatar[data-tone='buy'] {
+  background: color-mix(in srgb, var(--status-success) 12%, var(--bg-subtle));
+  color: var(--status-success);
+}
+
+.dealText {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.dealTitle {
+  overflow: hidden;
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dealMeta {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dealRight {
+  display: grid;
+  justify-items: end;
+  gap: 4px;
+  text-align: right;
+}
+
+.dealAmount {
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.due {
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.due[data-urgent] {
+  color: var(--brand-action);
+  font-weight: var(--font-weight-semibold);
+}
+
+/* A card whose work waits on the desk: an orange edge, so it is the first thing the eye finds. */
+.urgent {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--brand-primary) 32%, transparent), var(--lift);
+}
+
+.cardActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  align-items: center;
+}
+
+/* ——— Two columns of cards on a wide screen ——— */
+
+.grid2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-5);
+}
+
+.stack {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.figure {
+  display: grid;
+  gap: 2px;
+}
+
+.figureValue {
+  font-size: var(--font-size-body-lg);
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.figureLabel {
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+}
+
+/* ——— Tables (deals, clients, links): rows on a wide screen, cards on a phone ——— */
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-body-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.table th {
+  padding: 0 var(--space-3) var(--space-3);
+  color: var(--text-muted);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.08em;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.table td {
+  padding: var(--space-3);
+  box-shadow: inset 0 1px 0 var(--line-soft);
+  vertical-align: middle;
+}
+
+.table th:first-child,
+.table td:first-child {
+  padding-left: 0;
+}
+
+.table th:last-child,
+.table td:last-child {
+  padding-right: 0;
+}
+
+.num {
+  text-align: right !important;
+  white-space: nowrap;
+}
+
+.rowLink {
+  color: inherit;
+  font-weight: var(--font-weight-medium);
+  text-decoration: none;
+}
+
+@media (hover: hover) {
+  .table tbody tr:hover td {
+    background: color-mix(in srgb, var(--text-primary) 2.5%, transparent);
+  }
+
+  .rowLink:hover {
+    text-decoration: underline;
+    text-decoration-color: color-mix(in srgb, var(--brand-action) 55%, transparent);
+    text-underline-offset: 3px;
+  }
+}
+
+.who {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.who .avatar {
+  width: 32px;
+  height: 32px;
+  font-size: var(--font-size-meta);
+}
+
+.whoText {
+  display: grid;
+  min-width: 0;
+}
+
+.whoName {
+  overflow: hidden;
+  font-weight: var(--font-weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.whoMeta {
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.search {
+  min-width: 220px;
+  flex: 0 1 320px;
+}
+
+.summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-6);
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-sm);
+}
+
+.summary strong {
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ——— Sheets: the new deal, a client, an invitation ——— */
+
+.form {
+  display: grid;
+  gap: var(--space-5);
+}
+
+.row2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+/* What the deal is, as the client and the desk will each see it. */
+.preview {
+  display: grid;
+  gap: 0;
+  border-radius: 14px;
+  background: var(--bg-subtle);
+  box-shadow: inset 0 0 0 1px var(--line-soft);
+  overflow: hidden;
+}
+
+.previewRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--font-size-body-sm);
+}
+
+.previewRow + .previewRow {
+  box-shadow: inset 0 1px 0 var(--line-soft);
+}
+
+.previewRow dt {
+  color: var(--text-secondary);
+}
+
+.previewRow dd {
+  margin: 0;
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.previewRow[data-strong] dd {
+  font-size: var(--font-size-body-lg);
+}
+
+.previewRow[data-quiet] dt,
+.previewRow[data-quiet] dd {
+  color: var(--text-muted);
+  font-weight: var(--font-weight-regular);
+}
+
+.choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.choice {
+  min-height: 36px;
+  padding: 0 var(--space-4);
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+}
+
+.choice[aria-pressed='true'] {
+  background: var(--text-primary);
+  box-shadow: none;
+  color: var(--bg-surface);
+}
+
+.fieldGroup {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.fieldLabel {
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-medium);
+}
+
+/* The link, ready to send. */
+.share {
+  display: grid;
+  gap: var(--space-5);
+  justify-items: stretch;
+}
+
+.shareHero {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) 0 var(--space-2);
+  text-align: center;
+}
+
+.shareTitle {
+  margin: 0;
+  font-size: var(--font-size-heading);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.02em;
+}
+
+.shareBody {
+  margin: 0;
+  max-width: 34ch;
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-normal);
+}
+
+.linkBox {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 56px;
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4);
+  border-radius: var(--radius-input);
+  background: var(--bg-subtle);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+
+.linkText {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-body-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shareButtons {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.shareButton {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-2);
+  border: 0;
+  border-radius: 14px;
+  background: var(--bg-surface);
+  box-shadow: inset 0 0 0 1px var(--line);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-medium);
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease);
+}
+
+@media (hover: hover) {
+  .shareButton:hover {
+    background: var(--bg-subtle);
+  }
+}
+
+.shareIcon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--bg-subtle);
+}
+
+.shareIcon svg {
+  width: 20px;
+  height: 20px;
+}
+
+.shareIcon[data-brand='whatsapp'] {
+  background: #25d366;
+  color: #fff;
+}
+
+.shareIcon[data-brand='done'] {
+  width: 56px;
+  height: 56px;
+  background: var(--status-success);
+  color: var(--text-on-action);
+  animation: pop var(--dur-base) var(--ease) both;
+}
+
+.shareIcon[data-brand='done'] svg {
+  width: 26px;
+  height: 26px;
+}
+
+@keyframes pop {
+  from {
+    transform: scale(0.6);
+    opacity: 0;
+  }
+}
+
+.shareIcon[data-brand='telegram'] {
+  background: #229ed9;
+  color: #fff;
+}
+
+/* ——— Onboarding: opening the desk ——— */
+
+.hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  gap: var(--space-10);
+  align-items: start;
+}
+
+.heroText {
+  display: grid;
+  gap: var(--space-5);
+}
+
+.heroTitle {
+  margin: 0;
+  font-size: clamp(28px, 3.2vw, 44px);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.04em;
+  line-height: 1.05;
+  text-wrap: balance;
+}
+
+.heroLede {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-lg);
+  line-height: var(--line-height-normal);
+  text-wrap: pretty;
+}
+
+.points {
+  display: grid;
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.point {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  gap: var(--space-3);
+  align-items: start;
+}
+
+.pointIcon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  background: var(--bg-surface);
+  box-shadow: 0 0 0 1px var(--line), var(--lift);
+  color: var(--brand-action);
+}
+
+.pointIcon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.pointTitle {
+  margin: 0;
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-semibold);
+}
+
+.pointBody {
+  margin: 2px 0 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-normal);
+}
+
+.handlePreview {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-input);
+  background: var(--bg-subtle);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-body-sm);
+  overflow-wrap: anywhere;
+}
+
+.handlePreview span {
+  color: var(--text-muted);
+}
+
+/* The page as a client will see it: a small card, its name, its prices. */
+.pageCard {
+  display: grid;
+  gap: var(--space-4);
+  padding: var(--space-6);
+  border-radius: 20px;
+  background:
+    radial-gradient(ellipse 80% 60% at 100% 0%, color-mix(in srgb, var(--brand-soft) 70%, transparent) 0%, transparent 100%),
+    var(--bg-surface);
+  box-shadow: 0 0 0 1px var(--line), var(--lift-strong);
+}
+
+.pageCardHead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.pageMark {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  background: var(--text-primary);
+  color: var(--bg-surface);
+  font-size: var(--font-size-body-lg);
+  font-weight: var(--font-weight-semibold);
+}
+
+.pageName {
+  margin: 0;
+  font-size: var(--font-size-body-lg);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.01em;
+}
+
+.pageAbout {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-normal);
+}
+
+/* ——— Team ——— */
+
+.people {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.person {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3) var(--space-4);
+  padding: var(--space-3) 0;
+}
+
+.person + .person {
+  box-shadow: inset 0 1px 0 var(--line-soft);
+}
+
+.person[data-disabled] {
+  opacity: 0.55;
+}
+
+.roleTag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--bg-subtle);
+  color: var(--text-secondary);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.roleTag[data-role='ADMIN'] {
+  background: var(--text-primary);
+  color: var(--bg-surface);
+}
+
+.personActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.menu {
+  position: relative;
+}
+
+.menuList {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 10;
+  display: grid;
+  min-width: 200px;
+  padding: var(--space-1);
+  border-radius: 12px;
+  background: var(--bg-surface);
+  box-shadow: 0 0 0 1px var(--line), var(--lift-strong);
+}
+
+.menuItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 40px;
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--font-size-body-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .menuItem:hover {
+    background: var(--bg-subtle);
+  }
+}
+
+.menuItem[data-danger] {
+  color: var(--status-danger);
+}
+
+.iconButton {
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.iconButton svg {
+  width: 20px;
+  height: 20px;
+}
+
+@media (hover: hover) {
+  .iconButton:hover {
+    background: var(--bg-subtle);
+    color: var(--text-primary);
+  }
+}
+
+/* ——— Narrower ——— */
+
+@media (max-width: 1099px) {
+  .head {
+    margin-bottom: 0;
+  }
+
+  .hero {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-8);
+  }
+}
+
+@media (max-width: 760px) {
+  .grid2 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .kpi {
+    padding: var(--space-4);
+  }
+
+  .kpiValue {
+    font-size: 20px;
+  }
+
+  .table thead {
+    display: none;
+  }
+
+  .table,
+  .table tbody,
+  .table tr,
+  .table td {
+    display: block;
+    width: 100%;
+  }
+
+  .table tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: var(--space-1) var(--space-3);
+    padding: var(--space-3) 0;
+    box-shadow: inset 0 1px 0 var(--line-soft);
+  }
+
+  .table td {
+    padding: 0 !important;
+    box-shadow: none;
+  }
+
+  .table td[data-col='hide'] {
+    display: none;
+  }
+
+  .table td.num {
+    text-align: right;
+  }
+
+  .search {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+}
+
+@media (max-width: 599px) {
+  .kpis {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .kpi + .kpi {
+    box-shadow: inset 0 1px 0 var(--line);
+  }
+
+  .kpi {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: baseline;
+  }
+
+  .kpiSub {
+    grid-column: 1 / -1;
+  }
+
+  .priceTiles {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .row2 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .deal {
+    grid-template-columns: 36px minmax(0, 1fr) auto;
+  }
+
+  .avatar {
+    width: 36px;
+    height: 36px;
+  }
+}
+
+/* A longer answer: the desk's description, a note about a client. */
+.textarea {
+  width: 100%;
+  min-height: 96px;
+  padding: var(--space-3) var(--space-4);
+  border: 0;
+  border-radius: var(--radius-input);
+  background: var(--bg-surface);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-normal);
+  resize: vertical;
+  outline: 0;
+  transition: box-shadow var(--dur-fast) var(--ease);
+}
+
+.textarea:focus {
+  box-shadow:
+    inset 0 0 0 1.5px var(--text-primary),
+    0 0 0 4px color-mix(in srgb, var(--brand-primary) 14%, transparent);
+}
+
+/* The turnover figures run to the card's edges, under a hairline. */
+.kpisInCard {
+  margin: 0 calc(var(--space-6) * -1) calc(var(--space-6) * -1);
+  box-shadow: inset 0 1px 0 var(--line);
+}
+
+@media (max-width: 599px) {
+  .kpisInCard {
+    margin: 0 calc(var(--space-4) * -1) calc(var(--space-5) * -1);
+  }
+}
+
+.periodLink {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
+/* A name that opens its record: reads as the name, acts as a button. */
+.nameButton {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.infoStack {
+  display: grid;
+  gap: var(--space-3);
+  width: 100%;
+  justify-items: start;
+}
+
+/* A figure that needs its unit only where its column heading is gone. */
+.unitMobile {
+  display: none;
+}
+
+@media (max-width: 760px) {
+  .unitMobile {
+    display: inline;
+  }
+}
+
+/* A heading with its switch: the switch stays at the end of the line, however narrow. */
+.switchRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+/* What INRP2P decided about the desk (block 11): above everything else on Today and Page. */
+.notices {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.noticeWhy {
+  display: block;
+  margin-top: var(--space-1);
+  color: var(--text-secondary);
+}

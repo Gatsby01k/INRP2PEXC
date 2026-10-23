@@ -32,6 +32,10 @@ export const CAPTURES = [
   // The desk's Traders pages (TD-23): the list, and one trader with its order and reserve.
   'operator-trader-desk',
   'operator-trader',
+  // Desks for INRP2P (ADR 0020 §2.17): every desk, and one desk with INRP2P's decisions; and the platform's revenue (§2.16).
+  'operator-desks',
+  'operator-desk-detail',
+  'operator-revenue',
   // The client product (Phase 7). Same rules, same environment; different surface and, for the link, a phone.
   'client-exchange-quote',
   'client-trade-awaiting-usdt',
@@ -51,11 +55,27 @@ export const CAPTURES = [
   'client-trader-reserve',
   'client-trader-settlement',
   'client-trader-apply',
+  // A trader's own desk (ADR 0020): Today on a desktop and a phone, its deals, one deal, prices, clients, team and page.
+  'client-desk-today',
+  'client-desk-today-mobile',
+  'client-desk-deals',
+  'client-desk-deal',
+  'client-desk-prices',
+  'client-desk-clients',
+  'client-desk-team',
+  'client-desk-page',
+  // A client of the exchange dealing with that desk: its list of desks, and the desk's ticket in its workspace.
+  'client-desks',
+  'client-desk-ticket',
   'link-quote-mobile',
   'link-verification-mobile',
+  // A desk's deal link (ADR 0020), as the person holding it sees it.
+  'link-deal-mobile',
   // Phase 9: the public site, on the same phone the link is read on.
   'public-home-mobile',
   'public-usdt-to-inr-mobile',
+  // A desk's own page (ADR 0020).
+  'public-desk-mobile',
 ] as const;
 
 export type CaptureName = (typeof CAPTURES)[number];

@@ -1,0 +1,730 @@
+/*
+ * A desk's storefront on INRP2P (ADR 0020): its page at inrp2p.com/<handle> and its deal links at /d/<token>.
+ *
+ * The page is the desk's, not INRP2P's: its name leads, its prices are the thing to read, and INRP2P appears as what it
+ * is to the client — the escrow every deal settles through. One quiet bar on top, the desk and its price ticket side by
+ * side (stacked on a phone, ticket first), how a deal works, and a footer line. Server-rendered; only the ticket
+ * hydrates.
+ */
+.page {
+  --line: color-mix(in srgb, var(--border-default) 78%, transparent);
+  --line-soft: color-mix(in srgb, var(--border-default) 55%, transparent);
+  --lift: 0 1px 2px color-mix(in srgb, var(--text-primary) 4%, transparent), 0 14px 36px -28px color-mix(in srgb, var(--text-primary) 22%, transparent);
+  --lift-strong: 0 1px 2px color-mix(in srgb, var(--text-primary) 5%, transparent), 0 30px 70px -40px color-mix(in srgb, var(--text-primary) 32%, transparent);
+  --measure: 1080px;
+  --gutter: var(--space-8);
+  min-height: 100vh;
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+  color: var(--text-primary);
+  background:
+    radial-gradient(ellipse 60% 40% at 85% -5%, color-mix(in srgb, var(--brand-soft) 55%, transparent) 0%, transparent 100%),
+    radial-gradient(ellipse 50% 35% at 0% 30%, color-mix(in srgb, var(--brand-soft) 25%, transparent) 0%, transparent 100%),
+    var(--bg-app);
+}
+
+/* ——— The bar ——— */
+
+.bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  width: 100%;
+  max-width: var(--measure);
+  margin: 0 auto;
+  padding: var(--space-5) var(--gutter);
+}
+
+.by {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text-secondary);
+  font-size: var(--font-size-meta);
+  text-decoration: none;
+}
+
+.byMark {
+  display: block;
+  border-radius: 50%;
+}
+
+.by strong {
+  color: var(--text-primary);
+  font-weight: var(--font-weight-semibold);
+}
+
+.signIn {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-pill);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+  color: var(--text-primary);
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-medium);
+  text-decoration: none;
+  background: color-mix(in srgb, var(--bg-surface) 70%, transparent);
+}
+
+@media (hover: hover) {
+  .signIn:hover {
+    box-shadow: inset 0 0 0 1px var(--text-muted);
+  }
+}
+
+/* ——— The desk and its ticket ——— */
+
+.main {
+  flex: 1 1 auto;
+  width: 100%;
+  max-width: var(--measure);
+  margin: 0 auto;
+  padding: var(--space-6) var(--gutter) var(--space-16);
+  display: grid;
+  gap: var(--space-16);
+}
+
+.hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+  grid-template-areas:
+    'identity ticket'
+    'proof ticket';
+  gap: var(--space-6) var(--space-12);
+  align-items: start;
+}
+
+.hero > .ticket {
+  grid-area: ticket;
+}
+
+.identity {
+  grid-area: identity;
+  display: grid;
+  gap: var(--space-6);
+  padding-top: var(--space-6);
+}
+
+/* What stands behind the desk: its record and the escrow. Under its name on a desktop, under its ticket on a phone. */
+.proof {
+  grid-area: proof;
+  display: grid;
+  gap: var(--space-6);
+}
+
+.deskRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.monogram {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 20px;
+  background: var(--text-primary);
+  box-shadow: 0 18px 40px -22px color-mix(in srgb, var(--text-primary) 70%, transparent);
+  color: var(--bg-surface);
+  font-size: 28px;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.03em;
+}
+
+.name {
+  margin: 0;
+  font-size: clamp(34px, 4.4vw, 56px);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.02;
+  letter-spacing: -0.045em;
+  text-wrap: balance;
+}
+
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: fit-content;
+  min-height: 28px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-semibold);
+  background: var(--status-success-soft);
+  color: var(--status-success);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--status-success) 18%, transparent);
+}
+
+.status::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.status[data-tone='paused'] {
+  background: var(--status-warning-soft);
+  color: var(--status-warning);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--status-warning) 18%, transparent);
+}
+
+.about {
+  margin: 0;
+  max-width: 34rem;
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-lg);
+  line-height: var(--line-height-normal);
+  text-wrap: pretty;
+}
+
+/* What the books say about the desk: completed deals, how long they take, since when. */
+.record {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0;
+  margin: 0;
+  max-width: 34rem;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--bg-surface) 72%, transparent);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+.record > div {
+  display: grid;
+  gap: 2px;
+  padding: var(--space-4) var(--space-5);
+}
+
+.record > div + div {
+  box-shadow: inset 1px 0 0 var(--line);
+}
+
+.record dt {
+  order: 2;
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+}
+
+.record dd {
+  margin: 0;
+  font-size: var(--font-size-heading);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.escrowNote {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  max-width: 34rem;
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-normal);
+}
+
+.escrowIcon {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin-top: 1px;
+  color: var(--status-success);
+}
+
+/* ——— The ticket ——— */
+
+.ticket {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-5);
+  min-width: 0;
+  padding: var(--space-6);
+  border-radius: 24px;
+  background: var(--bg-surface);
+  box-shadow: 0 0 0 1px var(--line), var(--lift-strong);
+}
+
+.sides {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 4px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-subtle);
+  box-shadow: inset 0 0 0 1px var(--line-soft);
+}
+
+.side {
+  display: grid;
+  justify-items: center;
+  gap: 0;
+  min-height: 52px;
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  cursor: pointer;
+  transition:
+    background-color var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+
+.side[aria-pressed='true'] {
+  background: var(--bg-surface);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--text-primary) 10%, transparent), 0 0 0 1px var(--line);
+  color: var(--text-primary);
+}
+
+.side:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.sideLabel {
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-semibold);
+}
+
+.sideRate {
+  font-size: var(--font-size-meta);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.leg {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-4) var(--space-5);
+  border-radius: 18px;
+  background: var(--bg-subtle);
+  box-shadow: inset 0 0 0 1px var(--line-soft);
+  transition: box-shadow var(--dur-fast) var(--ease);
+}
+
+.leg:focus-within {
+  box-shadow:
+    inset 0 0 0 1.5px var(--text-primary),
+    0 0 0 4px color-mix(in srgb, var(--brand-primary) 14%, transparent);
+}
+
+.legLabel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  color: var(--text-secondary);
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-medium);
+}
+
+.legValue {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.amount {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: clamp(28px, 3vw, 36px);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+
+.result {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-size: clamp(28px, 3vw, 36px);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.unit {
+  flex: none;
+  color: var(--text-muted);
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-semibold);
+}
+
+.swapUnit {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-medium);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--brand-action) 55%, transparent);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.rateLine {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-sm);
+}
+
+.rateLine strong {
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.hint {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+}
+
+.hint[data-tone='warning'] {
+  color: var(--status-warning);
+  font-weight: var(--font-weight-medium);
+}
+
+.cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: 56px;
+  padding: 0 var(--space-6);
+  border-radius: 16px;
+  background: var(--brand-action);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--text-on-action) 16%, transparent),
+    0 14px 30px -16px color-mix(in srgb, var(--brand-action) 80%, transparent);
+  color: var(--text-on-action);
+  font-size: var(--font-size-body-lg);
+  font-weight: var(--font-weight-semibold);
+  text-decoration: none;
+  transition: background-color var(--dur-base) var(--ease);
+}
+
+@media (hover: hover) {
+  .cta:hover {
+    background: var(--brand-action-hover);
+  }
+}
+
+.cta[aria-disabled='true'] {
+  background: var(--bg-subtle);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.ctaButton {
+  border: 0;
+  font: inherit;
+  font-size: var(--font-size-body-lg);
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+}
+
+.ctaButton:disabled {
+  background: var(--bg-subtle);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+  color: var(--text-muted);
+  cursor: default;
+}
+
+.ctaIcon {
+  width: 18px;
+  height: 18px;
+}
+
+.fine {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+  line-height: var(--line-height-normal);
+  text-align: center;
+}
+
+.closed {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-6);
+  border-radius: 18px;
+  background: var(--bg-subtle);
+  text-align: center;
+}
+
+.closedTitle {
+  margin: 0;
+  font-size: var(--font-size-body-lg);
+  font-weight: var(--font-weight-semibold);
+}
+
+/* ——— How a deal works ——— */
+
+.how {
+  display: grid;
+  gap: var(--space-6);
+}
+
+.howTitle {
+  margin: 0;
+  font-size: clamp(22px, 2.2vw, 28px);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.03em;
+}
+
+.steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: step;
+}
+
+.step {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-6);
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--bg-surface) 80%, transparent);
+  box-shadow: inset 0 0 0 1px var(--line);
+  counter-increment: step;
+}
+
+.step::before {
+  content: counter(step);
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  margin-bottom: var(--space-2);
+  border-radius: 50%;
+  background: var(--text-primary);
+  color: var(--bg-surface);
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-semibold);
+}
+
+.stepTitle {
+  margin: 0;
+  font-size: var(--font-size-body-lg);
+  font-weight: var(--font-weight-semibold);
+}
+
+.stepBody {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-normal);
+}
+
+/* ——— Footer ——— */
+
+.footer {
+  box-shadow: 0 -1px 0 var(--line);
+}
+
+.footerInner {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-6);
+  max-width: var(--measure);
+  margin: 0 auto;
+  padding: var(--space-6) var(--gutter);
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+  line-height: var(--line-height-normal);
+}
+
+.footerInner a {
+  color: var(--text-secondary);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--brand-action) 45%, transparent);
+  text-underline-offset: 3px;
+}
+
+/* ——— A deal link: one column, one decision ——— */
+
+.linkMain {
+  flex: 1 1 auto;
+  width: 100%;
+  max-width: 520px;
+  margin: 0 auto;
+  padding: var(--space-4) var(--space-4) var(--space-12);
+  display: grid;
+  gap: var(--space-5);
+  align-content: start;
+}
+
+.linkDesk {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  color: inherit;
+  text-decoration: none;
+}
+
+.linkDesk .monogram {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  font-size: var(--font-size-body-lg);
+}
+
+.linkDeskName {
+  display: grid;
+  gap: 2px;
+}
+
+.linkDeskName strong {
+  font-size: var(--font-size-body-lg);
+  font-weight: var(--font-weight-semibold);
+}
+
+.linkDeskName span {
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+}
+
+.dealTitle {
+  margin: 0;
+  font-size: clamp(26px, 6vw, 34px);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.1;
+  letter-spacing: -0.035em;
+  text-wrap: balance;
+}
+
+.legs {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.legFigure {
+  font-size: clamp(28px, 7vw, 36px);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.countdown {
+  font-variant-numeric: tabular-nums;
+}
+
+.linkMain .steps {
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-3);
+}
+
+.linkMain .step {
+  grid-template-columns: 32px minmax(0, 1fr);
+  column-gap: var(--space-4);
+  align-items: start;
+  padding: var(--space-5);
+}
+
+.linkMain .step::before {
+  grid-row: span 2;
+  margin-bottom: 0;
+}
+
+/* ——— Narrower ——— */
+
+@media (max-width: 899px) {
+  .page {
+    --gutter: var(--space-5);
+  }
+
+  .hero {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      'identity'
+      'ticket'
+      'proof';
+    gap: var(--space-6);
+  }
+
+  .step {
+    grid-template-columns: 32px minmax(0, 1fr);
+    column-gap: var(--space-4);
+    align-items: start;
+  }
+
+  .step::before {
+    grid-row: span 2;
+    margin-bottom: 0;
+  }
+
+  .identity {
+    padding-top: 0;
+  }
+
+  .steps {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .main {
+    gap: var(--space-12);
+  }
+}
+
+@media (max-width: 599px) {
+  .page {
+    --gutter: var(--space-4);
+  }
+
+  .monogram {
+    width: 52px;
+    height: 52px;
+    border-radius: 16px;
+    font-size: 22px;
+  }
+
+  .record > div {
+    padding: var(--space-3) var(--space-4);
+  }
+
+  .record dd {
+    font-size: var(--font-size-body-lg);
+  }
+
+  .ticket {
+    padding: var(--space-5) var(--space-4);
+    border-radius: 20px;
+  }
+
+  .step {
+    padding: var(--space-5);
+  }
+}

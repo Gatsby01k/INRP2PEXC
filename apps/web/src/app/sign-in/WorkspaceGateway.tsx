@@ -31,7 +31,7 @@ const COPY = {
   TRADER: { eyebrow: 'Become a trader', title: 'Provide liquidity.', lede: 'Apply with your email. The desk reviews every trader before any order is sent.' },
 } as const;
 
-export function WorkspaceGateway({ home, mode = 'SIGN_IN' }: { home: string; mode?: 'SIGN_IN' | 'TRADER' }) {
+export function WorkspaceGateway({ home, mode = 'SIGN_IN', next }: { home: string; mode?: 'SIGN_IN' | 'TRADER'; next?: string }) {
   const copy = COPY[mode];
   const { props: markProps } = getImageProps({ src: mark, alt: '', width: 32, height: 32 });
   return (
@@ -64,7 +64,7 @@ export function WorkspaceGateway({ home, mode = 'SIGN_IN' }: { home: string; mod
           </div>
 
           <div className={styles.access}>
-            <AccessSurface mode={mode} />
+            <AccessSurface mode={mode} {...(next ? { next } : {})} />
           </div>
         </div>
       </main>

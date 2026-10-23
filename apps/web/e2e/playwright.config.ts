@@ -31,5 +31,8 @@ export default defineConfig({
     // The client product is opened on a phone: the quote link arrives by message, and the trade is followed from
     // the same device. Running it on a real mobile device profile is the point, not a detail of the profile.
     { name: 'client-mobile', testMatch: /client\.spec\.ts/, use: { ...devices['Pixel 7'] } },
+    // A desk's deals both ways (ADR 0020): its own world and server on the HD rails, the desk on a desktop and its client
+    // on a phone in the same run. Last, so nothing it changes reaches the others.
+    { name: 'desks', testMatch: /desks\.spec\.ts/, use: { ...devices['Desktop Chrome'] } },
   ],
 });

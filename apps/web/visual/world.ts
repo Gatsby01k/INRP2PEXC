@@ -18,7 +18,7 @@ import { addBankAccount, addWallet, createClient, linkClientUser, setCanAcceptQu
 import { createInrAccount, createSettlementEntity, setDayCapacity, setInrAccountCollectionDetails } from '@inrp2p/inr-accounts';
 import { configureRoute, createRoute } from '@inrp2p/routes';
 import { publishRouteRate } from '@inrp2p/pricing';
-import { acceptQuote, createQuote, createQuoteLink, createRequest, sendQuote } from '@inrp2p/quotes';
+import { acceptQuote, claimDeskDealLink, createDeskDealLink, createQuote, createQuoteLink, createRequest, requestDeskQuote, sendQuote } from '@inrp2p/quotes';
 import { fundBudget, seedNetworkCosts } from '@inrp2p/network/testing';
 import { confirmPayout, confirmRouteSettlement, createPayoutLeg, importBankStatement, recordLegEvidence, recordRouteSettlement, sendPayoutLeg } from '@inrp2p/settlement';
 import { acknowledgedSignalHandler, clientNotificationHandler, traderNotificationHandler } from '@inrp2p/notifications';
@@ -26,7 +26,7 @@ import { receiptHandler } from '@inrp2p/reporting';
 import { runTronConfirm, runTronScan } from '@inrp2p/scanner';
 import { importPoolAddresses, recordCustodyCapability, registerTreasuryWallet } from '@inrp2p/treasury';
 import {
-  acceptOrder, applyAsTrader, approveTrader, assignRequest, configureTraderProgram, orderDeliveryAddress, setAvailability, sharedReserveAddress, updateBlock,
+  acceptOrder, applyAsTrader, approveTrader, assignRequest, configureTraderProgram, openDesk, orderDeliveryAddress, setAvailability, setDeskPrices, setDeskStatus, sharedReserveAddress, updateBlock,
 } from '@inrp2p/traders';
 
 /**
@@ -97,6 +97,11 @@ export interface VisualState {
    * whose USDT is in escrow, and one where its own USDT is in escrow while the buyer pays it.
    */
   readonly trader: { readonly email: string; readonly traderId: string; readonly orderRef: string; readonly sellOrderRef: string };
+  /**
+   * The same trader's own desk (ADR 0020), live: Meera Textiles sold it USDT from its page and waits for the desk's
+   * rupees; Acme took a deal link to buy and waits for the desk's USDT in escrow; Bharat holds its price; one link waits.
+   */
+  readonly desk: { readonly handle: string; readonly payDealRef: string; readonly escrowDealRef: string; readonly openLinkToken: string };
 }
 
 /** The one protector the seed and the built app share. */
@@ -142,6 +147,8 @@ const WALL_CLOCK_COLUMNS: readonly { table: string; columns: readonly string[] }
   { table: 'audit_event', columns: ['at'] },
   { table: 'bank_account', columns: ['created_at'] },
   { table: 'crypto_wallet', columns: ['created_at'] },
+  // A team member is shown "since" the day they joined (ADR 0020 team page).
+  { table: 'client_user', columns: ['created_at'] },
 ];
 
 async function pinWallClockColumns(db: Db): Promise<void> {
@@ -153,6 +160,11 @@ async function pinWallClockColumns(db: Db): Promise<void> {
       const set = columns.map((c) => `${c} = '${FROZEN_NOW}'::timestamptz`).join(', ');
       await sql.raw(`update ${table} set ${set} where ${columns[0]} is not null`).execute(db);
     }
+    // A BUY's payment reference is random by design (`paymentReference`), and it is inside the UPI code the client
+    // scans: numbered here by trade, it is the same on every run, and so is the code.
+    await sql`update trade_collection c set reference = 'P' || lpad(x.n::text, 7, '0')
+      from (select c2.trade_id, row_number() over (order by t.ref) as n from trade_collection c2 join trade t on t.id = c2.trade_id) x
+      where x.trade_id = c.trade_id`.execute(db);
   } finally {
     await sql`set session_replication_role = origin`.execute(db);
   }
@@ -378,22 +390,8 @@ export async function seedVisual(adminUrl: string): Promise<VisualState> {
     clientId: acme.clientId, acceptor: acmeAcceptor, routeId: mumbai.routeId, walletId: acmeWallet.walletId, amount: '500', clientRate: '101.500000',
   });
 
-  // 7. A live quote with a shareable link, so Exchange counts one down and the public link page has one to show.
-  //    The business clock is frozen, so this quote is permanently 180 s from expiry — which is the point.
-  const pendingRequest = await run(world, createRequest(owner.actor, {}), owner.ref, 'request.create', {
-    clientId: acme.clientId, direction: 'SELL_USDT' as const, fixedSide: 'BASE' as const, amount: '100000',
-    targetRate: '102.000000', bankAccountId: acmeBank.bankAccountId,
-  });
-  const pendingQuote = await run(world, createQuote(owner.actor, {}), owner.ref, 'quote.create', {
-    requestId: pendingRequest.requestId, routeId: mumbai.routeId, clientRate: '102.000000', validitySeconds: 180,
-  });
-  await run(world, sendQuote(owner.actor, {}), owner.ref, 'quote.send', { quoteId: pendingQuote.quoteId });
-  let linkToken = '';
-  await run(world, createQuoteLink(owner.actor, {}, (t) => { linkToken = t; }), owner.ref, 'quote_link.create', { quoteId: pendingQuote.quoteId });
-  const pendingQuoteRef = (await world.selectFrom('quote').select('ref').where('id', '=', pendingQuote.quoteId).executeTakeFirstOrThrow()).ref;
-
   // ── Traders (TD-23, ADR 0019) ──────────────────────────────────────────────────────────────────────────
-  // 7b. The programme settles P2P: Konkan Liquidity trades with its own INR and USDT, applied, approved, its Security
+  // 7. The programme settles P2P: Konkan Liquidity trades with its own INR and USDT, applied, approved, its Security
   //     Reserve funded on chain from its registered wallet, both blocks live. Bharat sells 10,000 USDT through the
   //     desk, which routes the request to Konkan at the client rate it quotes; Konkan accepts, the client accepts and
   //     its USDT arrives in escrow — so the order waits on Konkan paying Bharat's own account. And Acme buys 2,000
@@ -468,6 +466,80 @@ export async function seedVisual(adminUrl: string): Promise<VisualState> {
   await runTronScan(world, chain.deps);
   await runTronConfirm(world, chain.deps);
 
+  // ── A desk (ADR 0020) ──────────────────────────────────────────────────────────────────────────────────────
+  // 7b. Konkan runs its own exchange on INRP2P: its page at /konkan, live prices on both sides, an operator on its team.
+  //     Meera Textiles — a new client — sells 1,500 USDT from the page, its USDT already in the deal's escrow, so the
+  //     desk owes it rupees. Acme takes a link to buy 800 USDT: the desk owes its USDT to the escrow. Bharat holds the
+  //     page's price for 2,000 USDT; and one link is still waiting for its client.
+  const deskQuoteDeps = { custody, protector };
+  const opened = await runClient(world, openDesk(konkanDesk.actor), konkanDesk.ref, 'desk.open', {
+    handle: 'konkan', displayName: 'Konkan Liquidity', about: 'OTC desk in Mumbai since 2019. IMPS and NEFT, 9:00–23:00 IST. Large tickets welcome.',
+  });
+  await runClient(world, setDeskPrices(konkanDesk.actor), konkanDesk.ref, 'desk.set_prices', {
+    prices: [
+      { direction: 'SELL_USDT' as const, rate: '104.600000', min: '100', max: '10000', live: true },
+      { direction: 'BUY_USDT' as const, rate: '105.400000', min: '100', max: '5000', live: true },
+    ],
+    validForHours: 24,
+  });
+  await runClient(world, setDeskStatus(konkanDesk.actor), konkanDesk.ref, 'desk.set_status', { expectedVersion: opened.version, status: 'LIVE' as const });
+  const ravi = await provisionClientUser(clientAuth, { email: 'ravi@konkanliquidity.test', name: 'Ravi' });
+  await sql`update auth_user set email_verified = true where id = ${ravi}`.execute(world);
+  const raviLinked = await run(world, linkClientUser(owner.actor), owner.ref, 'client_user.link', { clientId: konkan.clientId, userId: ravi, role: 'CLIENT_TRADER' as const });
+  await run(world, setCanAcceptQuotes(owner.actor), owner.ref, 'client_user.set_accept_quotes', { clientUserId: raviLinked.clientUserId, canAcceptQuotes: true });
+
+  const meera = await run(world, createClient(owner.actor), owner.ref, 'client.create', { legalName: 'Meera Textiles Private Limited', displayName: 'Meera Textiles', type: 'COMPANY' as const });
+  const meeraBank = await run(world, addBankAccount(owner.actor, protector), owner.ref, 'client_bank.add', {
+    clientId: meera.clientId, holderName: 'Meera Textiles Private Limited', bankName: 'HDFC Bank', ifsc: 'HDFC0000240', accountNumber: '50200061234570', railPreferences: ['IMPS', 'NEFT'] as const,
+  });
+  const meeraWalletAddress = address('meera-wallet');
+  await run(world, addWallet(owner.actor), owner.ref, 'client_wallet.add', { clientId: meera.clientId, network: 'TRON' as const, address: meeraWalletAddress, purpose: 'BOTH' as const, label: 'Meera wallet' });
+  const meeraPerson = await clientPerson(world, clientAuth, owner, meera.clientId, 'finance@meeratextiles.test', 'Meera finance');
+  const meeraQuote = await runClient(world, requestDeskQuote(meeraPerson.actor, deskQuoteDeps), meeraPerson.ref, 'desk_deal.request_quote', {
+    handle: 'konkan', direction: 'SELL_USDT' as const, fixedSide: 'BASE' as const, amount: '1500', bankAccountId: meeraBank.bankAccountId,
+  });
+  const meeraTrade = await runClient(world, acceptQuote(meeraPerson.actor, deskQuoteDeps), meeraPerson.ref, 'quote.accept', { quoteId: meeraQuote.quoteId });
+  const meeraEscrow = await world.selectFrom('deposit_assignment as a').innerJoin('deposit_address as d', 'd.id', 'a.deposit_address_id').select('d.address').where('a.trade_id', '=', meeraTrade.tradeId).executeTakeFirstOrThrow();
+  chain.chain.add({ from: meeraWalletAddress, to: meeraEscrow.address, amountMinor: Money.parse('1500', 'USDT').minor });
+  chain.chain.solidifyAll();
+  await runTronScan(world, chain.deps);
+  await runTronConfirm(world, chain.deps);
+
+  let dealToken = '';
+  await runClient(world, createDeskDealLink(konkanDesk.actor, (t) => { dealToken = t; }), konkanDesk.ref, 'desk_deal_link.create', {
+    direction: 'BUY_USDT' as const, fixedSide: 'BASE' as const, amount: '800', rate: '105.300000', validMinutes: 1440, note: 'Acme treasury, WhatsApp',
+  });
+  const acmeSession = await clientSession(world, acmeAcceptor.userId);
+  const linkQuote = await runClient(world, claimDeskDealLink(acmeSession.actor, deskQuoteDeps), acmeSession.ref, 'desk_deal_link.claim', { token: dealToken, walletId: acmeWallet.walletId });
+  await runClient(world, acceptQuote(acmeSession.actor, deskQuoteDeps), acmeSession.ref, 'quote.accept', { quoteId: linkQuote.quoteId });
+  let openLinkToken = '';
+  await runClient(world, createDeskDealLink(konkanDesk.actor, (t) => { openLinkToken = t; }), konkanDesk.ref, 'desk_deal_link.create', {
+    direction: 'SELL_USDT' as const, fixedSide: 'BASE' as const, amount: '2500', rate: '104.700000', validMinutes: 1440, note: 'Ravi’s contact, Telegram',
+  });
+  const bharatSession = await clientSession(world, bharatAcceptor.userId);
+  await runClient(world, requestDeskQuote(bharatSession.actor, deskQuoteDeps), bharatSession.ref, 'desk_deal.request_quote', {
+    handle: 'konkan', direction: 'SELL_USDT' as const, fixedSide: 'BASE' as const, amount: '2000', bankAccountId: bharatBank.bankAccountId,
+  });
+  const orderRefOf = async (orderId: string) => (await world.selectFrom('trader_order').select('ref').where('id', '=', orderId).executeTakeFirstOrThrow()).ref;
+  const payDealRef = await orderRefOf(meeraQuote.orderId);
+  const escrowDealRef = await orderRefOf(linkQuote.orderId);
+
+  // 7c. A live quote with a shareable link, so Exchange counts one down and the public link page has one to show.
+  //    The business clock is frozen, so this quote is permanently 180 s from expiry — which is the point. It is
+  //    Acme's latest request on the Exchange, so it comes after the P2P buy above: Exchange shows the client's last
+  //    request, and that one became a trade.
+  const pendingRequest = await run(world, createRequest(owner.actor, {}), owner.ref, 'request.create', {
+    clientId: acme.clientId, direction: 'SELL_USDT' as const, fixedSide: 'BASE' as const, amount: '100000',
+    targetRate: '102.000000', bankAccountId: acmeBank.bankAccountId,
+  });
+  const pendingQuote = await run(world, createQuote(owner.actor, {}), owner.ref, 'quote.create', {
+    requestId: pendingRequest.requestId, routeId: mumbai.routeId, clientRate: '102.000000', validitySeconds: 180,
+  });
+  await run(world, sendQuote(owner.actor, {}), owner.ref, 'quote.send', { quoteId: pendingQuote.quoteId });
+  let linkToken = '';
+  await run(world, createQuoteLink(owner.actor, {}, (t) => { linkToken = t; }), owner.ref, 'quote_link.create', { quoteId: pendingQuote.quoteId });
+  const pendingQuoteRef = (await world.selectFrom('quote').select('ref').where('id', '=', pendingQuote.quoteId).executeTakeFirstOrThrow()).ref;
+
   // 8. The inbox, filled the way production fills it: by running the outbox over the events these commands
   //    already enqueued. Nothing writes a notification directly.
   await dispatchOutbox(world, [clientNotificationHandler(world), traderNotificationHandler(world), receiptHandler(world), acknowledgedSignalHandler()], { batchSize: 500 });
@@ -519,6 +591,7 @@ export async function seedVisual(adminUrl: string): Promise<VisualState> {
     openRequestId: openRequest.requestId,
     client: { email: 'treasury@acmepay.test', quoteRef: pendingQuoteRef, linkToken },
     trader: { email: konkanDesk.email, traderId, orderRef: assigned.ref, sellOrderRef: sellOrder.ref },
+    desk: { handle: 'konkan', payDealRef, escrowDealRef, openLinkToken },
   };
   writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
   await world.destroy();
@@ -668,6 +741,17 @@ async function clientPerson(db: Db, clientAuth: ReturnType<typeof createClientAu
   await sql`insert into step_up_verification (user_id, session_id, method, verified_at) values (${userId}, ${session.id}, 'TOTP', statement_timestamp())`.execute(db);
   const actor: ClientActor = { kind: 'CLIENT', userId, sessionId: session.id };
   return { userId, email, actor, ref: { type: 'USER' as const, id: userId, surface: 'CLIENT' as const, sessionId: session.id } };
+}
+
+/** A client session for a person the seed already made, for the commands they take themselves. */
+async function clientSession(db: Db, userId: string) {
+  const session = await db
+    .insertInto('auth_session')
+    .values({ expires_at: new Date(Date.now() + 3_600_000), token: randomUUID(), created_at: new Date(), updated_at: new Date(), user_id: userId, surface: 'CLIENT' })
+    .returning('id')
+    .executeTakeFirstOrThrow();
+  const actor: ClientActor = { kind: 'CLIENT', userId, sessionId: session.id };
+  return { actor, ref: { type: 'USER' as const, id: userId, surface: 'CLIENT' as const, sessionId: session.id } };
 }
 
 async function runClient<P, R>(db: Db, def: DomainCommand<P, R>, ref: { type: 'USER'; id: string; surface: 'CLIENT'; sessionId: string }, name: string, payload: P): Promise<R> {

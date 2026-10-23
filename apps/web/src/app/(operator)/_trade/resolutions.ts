@@ -13,6 +13,8 @@ export interface ResolutionChoices {
   readonly resolutions: readonly ResolutionOption[];
   /** True when the spec's way out is that the case should not have been opened (`void`). */
   readonly voidable: boolean;
+  /** A case closed only by its own decision on the trade (a P2P dispute): no resolution form is offered on it. */
+  readonly decidedOnTrade?: true;
   /**
    * What the desk must do elsewhere when the honest answer moves money. Stated rather than offered, because a
    * refund or a cancellation is its own command with its own approval — a dropdown that pretended to perform
@@ -228,7 +230,15 @@ export const RESOLUTIONS: Record<ExceptionType, ResolutionChoices> = {
       { value: 'escalate', label: 'Escalate' },
     ],
     voidable: true,
-    financial: 'The one who received the rupees has not confirmed them. With the bank’s evidence of who paid, check the sender and confirm the payment for them; if the rupees never arrived, mark the payment not received. A late confirmation by the payee closes this by itself.',
+    financial: 'The one who received the rupees has not confirmed them. Decide the payment on the trade (P2P payment): paid, with the sender the payee’s bank shows — the escrow releases; or not paid — the deal unwinds. A late confirmation by the payee closes this by itself.',
+  },
+  P2P_DISPUTE: {
+    resolutions: [
+      { value: 'escalate', label: 'Escalate' },
+    ],
+    voidable: false,
+    decidedOnTrade: true,
+    financial: 'The payee says the rupees did not arrive. Decide it on the trade (P2P payment) from the payee’s bank: paid releases the escrow; not paid cancels a BUY and returns the trader’s USDT, or unwinds a SELL and returns the client’s.',
   },
 };
 

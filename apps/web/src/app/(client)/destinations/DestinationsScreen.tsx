@@ -211,6 +211,7 @@ export function DestinationsScreen({
         hasAuthenticator={hasAuthenticator}
         email={email}
         holderName={clientName}
+        firstOfKind={(adding ?? lastKind) === 'bank' ? banks.length === 0 : wallets.length === 0}
       />
       <ArchiveDialog target={archiving} onClose={() => setArchiving(null)} />
       <Sheet open={securing} onClose={() => setSecuring(false)} eyebrow="Account & security" title="Set up your authenticator" description="Six-digit codes from your phone confirm the changes that matter.">

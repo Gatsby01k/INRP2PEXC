@@ -32,9 +32,10 @@ describe('exception resolutions', () => {
   it('offers more than escalation wherever the domain has a real way out', () => {
     // Escalation alone is honest only where the case closes by itself or by another screen's command — a signer send
     // left unresolved or short of TRX is worked on the Network page (unblock, cancel, a top-up) and closes with it; a P2P
-    // deal's late payment or late confirmation closes when the trader files it or the payee confirms (ADR 0019).
+    // deal's late payment or late confirmation closes when the trader files it or the payee confirms (ADR 0019), and a
+    // dispute only by deciding the payment on its trade (block 9).
     const escalationOnly = EXCEPTION_TYPES.filter((t) => RESOLUTIONS[t].resolutions.every((o) => o.value === 'escalate'));
-    expect(escalationOnly).toEqual(['TX_NOT_FINAL', 'INR_PAYOUT_DELAYED', 'TRADE_CANCELLATION', 'CHAIN_SEND_UNRESOLVED', 'NETWORK_BUDGET_SHORT', 'P2P_PAYMENT_OVERDUE', 'P2P_RECEIPT_OVERDUE']);
+    expect(escalationOnly).toEqual(['TX_NOT_FINAL', 'INR_PAYOUT_DELAYED', 'TRADE_CANCELLATION', 'CHAIN_SEND_UNRESOLVED', 'NETWORK_BUDGET_SHORT', 'P2P_PAYMENT_OVERDUE', 'P2P_RECEIPT_OVERDUE', 'P2P_DISPUTE']);
     for (const type of escalationOnly) {
       expect(RESOLUTIONS[type].voidable || RESOLUTIONS[type].financial !== null).toBe(true);
     }

@@ -82,6 +82,8 @@ interface RawRow {
   case_detail: string | null;
   expires_at: Date | null;
   has_link: boolean;
+  /** P2P (ADR 0019): the rupees go between client and trader, never through INRP2P — there is no payout to make. */
+  p2p?: boolean;
 }
 
 /**
@@ -102,7 +104,8 @@ export async function deskQueue(ex: Executor, access: DeskAccess, opts: { limitP
            0::bigint as paid_minor, 0::bigint as committed_minor, null::bigint as payout_minor,
            null::text as blocking_case, null::text as case_detail, null::timestamptz as expires_at, false as has_link
     from trade_request r join client c on c.id = r.client_id
-    where r.status = 'OPEN'
+    -- A request placed with a desk is that desk's to price and fill (ADR 0020), never the INRP2P dealers'.
+    where r.status = 'OPEN' and r.desk_id is null
     order by r.created_at
     limit ${limit}`.execute(ex);
 
@@ -141,11 +144,16 @@ export async function deskQueue(ex: Executor, access: DeskAccess, opts: { limitP
            (select x.details::text from exception_case x
              where x.trade_id = t.id and x.status in ('OPEN', 'IN_PROGRESS') and x.severity = 'BLOCKING'
              order by x.opened_at limit 1) as case_detail,
-           null::timestamptz as expires_at, false as has_link
+           null::timestamptz as expires_at, false as has_link,
+           e.route_execution_mode = 'P2P' as p2p
     from trade t
     join client c on c.id = t.client_id
     join trade_economics e on e.trade_id = t.id
+    join trade_request rq on rq.id = t.trade_request_id
     where t.lifecycle_state not in ('COMPLETED', 'CANCELLED')
+      -- A desk's deal is the desk's to work (ADR 0020): INRP2P sees it here only once it is held or has a case.
+      and (rq.desk_id is null or t.hold or exists (
+        select 1 from exception_case x where x.trade_id = t.id and x.status in ('OPEN', 'IN_PROGRESS') and x.severity = 'BLOCKING'))
     order by t.opened_at
     limit ${limit * 3}`.execute(ex);
 
@@ -173,6 +181,7 @@ function classifyTrade(r: RawRow): { group: QueueGroupKey; status: string; actio
     return { group: 'exception', status: exceptionLabel(r), action: 'RESOLVE_EXCEPTION' };
   }
   const sell = r.direction === 'SELL_USDT';
+  if (r.p2p) return classifyP2p(r.lifecycle, sell);
   switch (r.lifecycle) {
     case 'AWAITING_FIRST_LEG':
       return { group: 'waiting_client', status: sell ? 'Awaiting USDT' : 'Awaiting INR', action: 'NONE' };
@@ -198,6 +207,30 @@ function classifyTrade(r: RawRow): { group: QueueGroupKey; status: string; actio
     }
     default:
       return { group: 'processing', status: r.lifecycle ?? 'Open', action: 'NONE' };
+  }
+}
+
+/**
+ * A P2P trade (ADR 0019): the rupees go between the client and the trader, and the one who received them confirms —
+ * INRP2P makes no payout and confirms no credit. It waits on whoever's move it is, until a case brings it back here.
+ */
+function classifyP2p(lifecycle: string | null, sell: boolean): { group: QueueGroupKey; status: string; action: QueueAction } {
+  switch (lifecycle) {
+    case 'AWAITING_FIRST_LEG':
+      return { group: 'waiting_client', status: sell ? 'Awaiting USDT into escrow' : 'Awaiting the escrow and the INR', action: 'NONE' };
+    case 'FIRST_LEG_DETECTED':
+      return sell
+        ? { group: 'processing', status: 'USDT detected · awaiting solidification', action: 'NONE' }
+        : { group: 'processing', status: 'Client paid · trader confirms', action: 'NONE' };
+    case 'FIRST_LEG_CONFIRMED':
+      return sell
+        ? { group: 'processing', status: 'Trader pays the client', action: 'NONE' }
+        : { group: 'processing', status: 'Releasing the USDT', action: 'NONE' };
+    case 'SETTLING':
+    case 'PARTIALLY_SETTLED':
+      return { group: 'processing', status: sell ? 'Trader paid · client confirms' : 'Releasing the USDT', action: 'NONE' };
+    default:
+      return { group: 'processing', status: lifecycle ?? 'Open', action: 'NONE' };
   }
 }
 

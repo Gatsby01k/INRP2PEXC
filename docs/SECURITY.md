@@ -41,9 +41,40 @@ Status: Phase 0, revision 3 (`DECISIONS.md` Revision 3).
 - Only client users with `can_accept_quotes` may accept or reject quotes. The flag is granted or revoked by a `CLIENT_ADMIN` of that client or by an operator with `client_user:grant_accept_quotes` (⧗); every change is audited (`client_user.accept_permission_changed`).
 - Granting or revoking quote-acceptance authority is a **sensitive client-admin action**: the `CLIENT_ADMIN` must have TOTP enrolled and a fresh TOTP step-up (verified within the last 10 minutes) in the current session. A client admin without TOTP must enroll it before performing this action; there is no email-OTP-only path. The operator-side `client_user:grant_accept_quotes` step-up is unchanged.
 - Adding or archiving client destinations (bank accounts, wallets) by a `CLIENT_ADMIN` likewise requires fresh TOTP step-up (D-08). Operators act on behalf through `client_bank:add` (bank accounts) and `client_wallet:manage` (wallets), both ⧗.
+- **First destination by email (D-20, ADR 0020).** A client's **first** bank account, and its **first** wallet, may instead be confirmed by the session itself when it was opened by an email code within the last ten minutes (the same freshness the authenticator's enrolment asks for) — so a client who came through a desk's page or link sets up where it is paid without installing an app first. "First" means the client has no ACTIVE or PENDING_REVIEW destination of that kind; the client row is locked while that is judged, so two cannot both be first. A session older than ten minutes is answered `STEP_UP_REQUIRED` (`via: EMAIL`): a fresh code, then the same request. Every further destination, and every archive, still needs the authenticator — what **replaces** where a client is paid is never confirmed by email alone. The audit records how each was confirmed (`confirmed_by`: `TOTP`, `EMAIL_SIGN_IN`, `OPERATOR`).
+- **Team (ADR 0020 §2.11).** A `CLIENT_ADMIN` invites a person by email as an administrator or an operator; both get `can_accept_quotes`. The invitation carries no secret — only someone signed in with that email (an email code, the only way in) accepts it, within seven days — and inviting, changing a role or removing someone are sensitive client-admin actions: fresh TOTP step-up, as for granting quote acceptance. Withdrawing an invitation needs none. An administrator never changes or removes themselves, and team changes lock the client row, so a client always keeps an administrator. Removing a person disables their client user, ends every session of theirs and withdraws the invitations they made. Every join, role change and removal is told to the whole team in the inbox and by email. One person, one account: an email with its own account cannot join another (`client_user.user_id` unique). The database checks who invites and who accepts (IX127).
 - **Client authenticator (TD-11).** A client user sets up TOTP on the Destinations screen (Better Auth `twoFactor`, `allowPasswordless`, `skipVerificationOnEnable: false`): only within ten minutes of signing in with an email code, never over an existing one, and it is enrolled only once a code from it is accepted. One-time recovery codes are shown once. The client surface offers no way to **remove** an authenticator or show its secret again, no new recovery codes without a fresh step-up with the current authenticator, and no trusted devices — so a stolen session cannot swap the authenticator for its own. A verified code (or recovery code) is that session's step-up. A lost authenticator is removed by the desk after confirming the person out of band (`client_user.reset_mfa`, OWNER/SUPPORT ⧗, with a reason; it ends every session of that user) — never by a public bypass. TOTP is a step-up factor for clients, not a second sign-in factor: client sign-in stays the email code.
 - **Self sign-up (D-17, 2026-10-10).** The workspace sign-in creates a bare client sign-in identity — no client, no role, no permission — for an address that has none, before sending the code (`startClientAccessAction`, rate-limited per caller and per address; the same answer for known and unknown addresses). Signed in with no account, a person reaches `/open-account` and Traders only; `client.open_account` creates their client with the Exchange open and makes them its `CLIENT_ADMIN` with `can_accept_quotes`, once per person (`client_user.user_id` unique, an advisory lock per user). No operator reviews the client first: what protects money afterwards is unchanged — TOTP step-up for destinations, a person on the desk prices every request, payouts only to the client's own ACTIVE destinations. KYC/AML is not performed (D-07, counsel).
 - **Cross-surface addresses (TD-02).** On the client surface an address that is not an active client's — an operator's, or a disabled one — gets no code and no session, and exactly the answer an unknown address or a wrong code gets; each such refusal is audited once (`session.failed`, `NOT_A_CLIENT_ADDRESS`). The session guard and the database trigger (IX020) stay behind it.
+
+### 2.3a Desk pages and deal links (ADR 0020 §2.10)
+- `inrp2p.com/<handle>` is a desk's public storefront: indexed while the desk is live; it shows only what the desk publishes and its record from the books — never its clients, volumes, own USDT or INRP2P's fee. Its ticket computes in the browser and holds nothing.
+- `/d/{token}` is a desk's deal link: the same token rules as the quote link (128-bit, base62, hash-only, `no-referrer`, `noindex`), view-only, 30 opens a minute per address hash, unknown = not found. Taking it needs a signed-in client in the client app; the first taker is the only one who ever can (IX126).
+- Both are served on the public host only; a handle can never shadow a site, app or desk path (kernel `RESERVED_DESK_HANDLES`, the same list in the database).
+- On the client host, `/desks/<handle>` and `/d/{token}` need a client session like every client page. Sent to sign in, a person comes back to where they were going: the proxy keeps it in `?next=`, and sign-in and account opening follow it only when it is a path on the same host (one leading slash, never `//` or a backslash, no control characters, not `/sign-in` or `/api`, at most 512 characters — `safeReturnPath`), so it can never send anyone elsewhere.
+
+### 2.3b Telegram alerts (ADR 0020 §2.14)
+- A chat is linked by a one-time code the signed-in person asks for: 128-bit, base64url, SHA-256 stored, valid 15 minutes, single use; a new code replaces a waiting one. Only the bot's webhook completes a link (`SYSTEM` actor).
+- The webhook is served on the public host only and refuses any request without `X-Telegram-Bot-Api-Secret-Token` equal to `TELEGRAM_WEBHOOK_SECRET` (constant-time compare, ≥ 24 characters); it acts on private chats only, at most 20 updates a minute per chat, and always acknowledges so Telegram does not retry.
+- Messages are plain text (no markup parsed), name a desk's own client only to that desk's people, and carry no account numbers, addresses or codes. A chat is never a sign-in or approval channel.
+
+### 2.3c P2P disputes (ADR 0020 §2.15)
+- Only the payee of a P2P payment opens its dispute, only the payer answers it, each as a member of its own client (a
+  trader's with the right to commit). One dispute per payment, enforced by the database (IX128); a decided one never changes.
+- What each side writes reaches INRP2P only: the other side's projection carries the dispute's state, never its words,
+  so a note cannot move a desk's client — or a programme client — off the platform.
+- INRP2P decides with `exception:resolve` and the outcome's own permission (confirming the payment, or cancelling the
+  trade); *paid* runs the same sender check as the payee's confirmation and never accepts a stranger. The case closes only
+  through the decision.
+- An unwound SELL's refund goes only to the registered wallet the client's USDT came from, by the signer, over the
+  approval threshold with a second person; the database refuses a trader's payment on an unwound deal (IX129).
+
+### 2.3d INRP2P's earnings off the deal addresses (ADR 0020 §2.16)
+- A sweep goes only to the one active `REVENUE` wallet and only from a deal address no trade uses; the database checks
+  both (IX106) and that every USDT it moves is a completed trade's own margin, earmarked (IX130, IX086). Registering the
+  revenue wallet is `treasury:manage_wallets` with step-up; it is watch-only — no key ever enters the system.
+- A TRX reclaim goes only from a deal address no trade uses to the budget wallet; the platform's sends never draw on a
+  trader's TRX (IX109).
 
 ### 2.3 Quote link (`/q/{token}`) and acceptance challenge
 - Token: 128 bits CSPRNG, base62, only SHA-256 hash stored; constant-time lookup by hash; `Referrer-Policy: no-referrer`; `noindex`; no third-party scripts.
@@ -115,6 +146,10 @@ Legend: ✔ allowed · ⧗ allowed with step-up MFA · ✱ requires second appro
 | `trader_payout:confirm` (confirm or reject it — posts the movement) | ⧗ | — | — | ⧗ | — | — |
 | `trader_reserve:apply` (ask to apply a trader's Security Reserve to USDT one of its orders did not deliver, TD-21; withdraw the request) | ⧗ | — | — | ⧗ | — | — |
 | `trader_reserve:approve` (approve or decline it — never the requester; end an approved one before its USDT moves) | ⧗✱ | — | — | ⧗✱ | — | — |
+| `desks:view` (every desk, its deals, clients' counts, fees and disputes, ADR 0020) | ✔ | ✔ | — | ✔ | — | — |
+| `desks:moderate` (suspend or resume a desk; hide or show its page; rename it — with the reason, which its trader sees) | ⧗ | ⧗ | — | — | — | — |
+| `fees:propose` (propose a change of the platform's fee; withdraw one's own proposal) | ⧗ | — | — | ⧗ | — | — |
+| `fees:approve` (approve or reject a proposed fee — never the proposer) | ⧗✱ | — | — | ⧗✱ | — | — |
 | `network:view` (the TRX network budget, every funder's deposit, sends and their attempts, ADR 0017) | ✔ | ✔ | ✔ | ✔ | — | — |
 | `network:manage` (publish the TRX price; record a TRX deposit or a platform top-up by its hash) | ⧗ | — | — | ⧗ | — | — |
 | `chain_send:approve` (approve a send the signer will sign — above the payout threshold, never the person who asked) | ⧗✱ | — | ⧗✱ | ⧗✱ | — | — |

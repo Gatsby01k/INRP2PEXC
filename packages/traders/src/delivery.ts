@@ -3,7 +3,7 @@ import type { FiatRail, TxContext } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
 import { enqueueOutbox } from '@inrp2p/outbox';
 import type { ClientActor } from '@inrp2p/identity';
-import { confirmP2pReceiptInTx, fileRoutePayoutInTx, obligationRemaining, recordRouteSettlementInTx } from '@inrp2p/settlement';
+import { type P2pDisputeReason, answerP2pDisputeInTx, confirmP2pReceiptInTx, fileRoutePayoutInTx, obligationRemaining, openP2pDisputeInTx, recordRouteSettlementInTx } from '@inrp2p/settlement';
 import { allocateObligationDeliveryAddress } from '@inrp2p/treasury';
 import { lockTraderOfClient, traderClientCommand, lockOrder, type TraderDeps, traderProgram } from '@inrp2p/trader-core';
 
@@ -144,3 +144,40 @@ export function confirmOrderPaymentReceived(actor: ClientActor, deps: Pick<Trade
   });
 }
 
+/** A P2P order of the trader's own client, by its reference, with the trade it stands behind. */
+async function p2pOrderOfClient(ctx: TxContext, clientId: string, ref: string) {
+  const row = await ctx.tx
+    .selectFrom('trader_order as o')
+    .innerJoin('trader_profile as t', 't.id', 'o.trader_id')
+    .innerJoin('liquidity_route as r', 'r.id', 'o.route_id')
+    .select(['o.id', 'o.side', 'o.trade_id', 'r.execution_mode'])
+    .where('o.ref', '=', requireText(ref, 'ref', 32))
+    .where('t.client_id', '=', clientId)
+    .executeTakeFirst();
+  if (!row || !row.trade_id) throw new DomainError('NOT_FOUND', 'order not found');
+  if (row.execution_mode !== 'P2P') throw new DomainError('INVALID_ARGUMENT', 'only a P2P order’s payments are disputed by the one who receives them');
+  return { ...row, trade_id: row.trade_id };
+}
+
+/**
+ * `trader_order.dispute` (block 9) — a user who can commit, on a P2P Sell USDT order: the client's rupees it was told of
+ * did not reach the trader's account. The deal stops, and INRP2P decides from the trader's bank.
+ */
+export function disputeOrderPayment(actor: ClientActor) {
+  return traderClientCommand(actor, 'COMMIT', async (ctx, p: { ref: string; reason: P2pDisputeReason; note?: string | null }, member) => {
+    const order = await p2pOrderOfClient(ctx, member.clientId, p.ref);
+    if (order.side !== 'SELL_USDT') throw new DomainError('NOT_THE_PAYEE', 'on a Buy USDT order the client receives your rupees');
+    const out = await openP2pDisputeInTx(ctx, { tradeId: order.trade_id, payee: 'TRADER', userId: actor.userId, reason: p.reason, note: p.note ?? null });
+    await appendAudit(ctx, { action: 'trader_order.payment_disputed', entityType: 'trader_order', entityId: order.id, after: { dispute: out.ref } });
+    return out;
+  });
+}
+
+/** `trader_order.answer_dispute` — on a P2P Buy USDT order whose client says the trader's rupees did not arrive: the trader's side, for INRP2P. */
+export function answerOrderDispute(actor: ClientActor) {
+  return traderClientCommand(actor, 'COMMIT', async (ctx, p: { ref: string; note: string }, member) => {
+    const order = await p2pOrderOfClient(ctx, member.clientId, p.ref);
+    if (order.side !== 'BUY_USDT') throw new DomainError('NOT_THE_PAYER', 'on a Sell USDT order the client paid you');
+    return answerP2pDisputeInTx(ctx, { tradeId: order.trade_id, payer: 'TRADER', userId: actor.userId, note: p.note });
+  });
+}

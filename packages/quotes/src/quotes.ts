@@ -78,7 +78,7 @@ export function createQuote(actor: OperatorActor, deps: Pick<QuoteDeps, 'policy'
     }
     // ADR 0017 §1: the client's rate must also pay the trader's reward and the network fee of the trade's transfer, and
     // leave the minimum net margin. A quote that would not is never created; the dealer is told the rate that would do.
-    // ADR 0019: a P2P quote keeps USDT, counts no reward, and the platform pays the TRX.
+    // ADR 0019: a P2P quote keeps USDT and counts no reward; its trader's network deposit pays the TRX (migration 0040).
     let network;
     if (p2p) {
       if (!traderOrder || !econ.grossMarginBase) throw new DomainError('INVALID_ARGUMENT', 'a P2P quote prices a trader order');

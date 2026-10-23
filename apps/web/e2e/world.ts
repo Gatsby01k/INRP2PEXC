@@ -105,7 +105,7 @@ function withDatabase(url: string, db: string): string {
 
 const actorRef = (userId: string, sessionId: string) => ({ type: 'USER' as const, id: userId, surface: 'OPERATOR' as const, sessionId });
 
-async function run<P, R>(db: Db, def: DomainCommand<P, R>, ref: ReturnType<typeof actorRef>, name: string, payload: P): Promise<R> {
+export async function run<P, R>(db: Db, def: DomainCommand<P, R>, ref: ReturnType<typeof actorRef>, name: string, payload: P): Promise<R> {
   const out = await executeCommand(db, def, { name, actor: ref, payload, idempotencyKey: randomUUID(), financial: true });
   return out.result;
 }
@@ -223,7 +223,7 @@ export async function seedE2E(adminUrl: string): Promise<E2EState> {
 }
 
 /** Creates an operator, completes real TOTP enrolment, and opens a server-side session for the seeding commands. */
-async function operator(auth: ReturnType<typeof createOperatorAuth>, db: Db, email: string, roles: readonly OperatorRole[]) {
+export async function operator(auth: ReturnType<typeof createOperatorAuth>, db: Db, email: string, roles: readonly OperatorRole[]) {
   const userId = await provisionOperator(auth, db, { email, name: email.split('@')[0]!, password: OPERATOR_PASSWORD, roles });
   const jar = new Map<string, string>();
   const call = async (path: string, body: unknown) => {

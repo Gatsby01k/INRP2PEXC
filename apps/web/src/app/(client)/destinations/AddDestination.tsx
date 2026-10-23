@@ -34,7 +34,9 @@ const PURPOSE_WORDS: Record<Purpose, string> = { DESTINATION: 'Receives the USDT
  * Adding where the client is paid — a bank account for the INR of what they sell, or a TRC20 wallet for the USDT they
  * buy — as one guided task in a sheet, from wherever they were:
  *
- * 1. if they have no authenticator yet, they set one up first (it confirms this change and every one after it);
+ * 1. if they have no authenticator yet, they set one up first (it confirms this change and every one after it) — unless
+ *    this is their first bank account or first wallet, which a sign-in by email code in the last ten minutes confirms
+ *    (D-20): a client who came through a desk sets up where it is paid without installing an app first;
  * 2. the details, checked field by field as they are typed — an IFSC names its bank, an account number is typed
  *    twice, a wallet address has its checksum checked before anything is sent;
  * 3. a review of exactly what will be saved, drawn the way it will appear;
@@ -42,7 +44,8 @@ const PURPOSE_WORDS: Record<Purpose, string> = { DESTINATION: 'Receives the USDT
  *    lapsed — and the same intent key, so a retry can never add the account twice;
  * 5. done: what is ready now, and the obvious next step.
  *
- * The server checks everything again and decides (`client_bank.add`, `client_wallet.add`, CLIENT_ADMIN + TOTP).
+ * The server checks everything again and decides (`client_bank.add`, `client_wallet.add`, CLIENT_ADMIN + TOTP, or for a
+ * first one a fresh email sign-in — when the sign-in is older, a code to the client's own email is asked for here).
  */
 export function AddDestination({
   open,
@@ -53,6 +56,7 @@ export function AddDestination({
   holderName,
   onAdded,
   next,
+  firstOfKind,
 }: {
   open: boolean;
   kind: DestinationKind;
@@ -62,7 +66,9 @@ export function AddDestination({
   holderName: string;
   onAdded?: (kind: DestinationKind) => void;
   /** Where "done" leads: back to the page (the default), or on to the Exchange. */
-  next?: 'stay' | 'exchange';
+  next?: 'stay' | 'exchange' | 'deal';
+  /** The client has no bank account (or no wallet) yet: an email sign-in confirms this one (D-20). */
+  firstOfKind?: boolean;
 }) {
   const [session, setSession] = useState(0);
   const [locked, setLocked] = useState(false);
@@ -88,6 +94,7 @@ export function AddDestination({
         onClose={onClose}
         onLocked={setLocked}
         next={next ?? 'stay'}
+        firstOfKind={firstOfKind ?? false}
         {...(onAdded ? { onAdded } : {})}
       />
     </Sheet>
@@ -103,6 +110,7 @@ function Flow({
   onLocked,
   onAdded,
   next,
+  firstOfKind,
 }: {
   kind: DestinationKind;
   hasAuthenticator: boolean;
@@ -111,11 +119,14 @@ function Flow({
   onClose: () => void;
   onLocked: (locked: boolean) => void;
   onAdded?: (kind: DestinationKind) => void;
-  next: 'stay' | 'exchange';
+  next: 'stay' | 'exchange' | 'deal';
+  firstOfKind: boolean;
 }) {
   const router = useRouter();
   const bank = kind === 'bank';
-  const [stage, setStage] = useState<Stage>(hasAuthenticator ? 'details' : 'secure');
+  const [stage, setStage] = useState<Stage>(hasAuthenticator || firstOfKind ? 'details' : 'secure');
+  /** How the change is confirmed when the server asks: the authenticator, or a fresh code to the client's own email. */
+  const [via, setVia] = useState<'TOTP' | 'EMAIL'>('TOTP');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [code, setCode] = useState('');
@@ -211,6 +222,10 @@ function Flow({
     }
     if (out.stepUp) {
       setCode('');
+      if (out.details?.via === 'EMAIL') {
+        setVia('EMAIL');
+        void sendEmailCode();
+      } else setVia('TOTP');
       setStage('confirm');
       return;
     }
@@ -246,13 +261,23 @@ function Flow({
     }
   };
 
+  const sendEmailCode = async () => {
+    const res = await fetch('/api/auth/email-otp/send-verification-otp', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, type: 'sign-in' }) }).catch(() => null);
+    if (!res?.ok) setError('We could not send a code just now. Try again in a moment.');
+  };
+
   const confirmWithCode = async () => {
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch('/api/auth/two-factor/verify-totp', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code }) }).catch(() => null);
+      // The authenticator's code is this session's step-up; an email code is a fresh sign-in, which is what a first
+      // destination needs (D-20). Either way the very same intent is sent again.
+      const res =
+        via === 'EMAIL'
+          ? await fetch('/api/auth/sign-in/email-otp', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, otp: code }) }).catch(() => null)
+          : await fetch('/api/auth/two-factor/verify-totp', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code }) }).catch(() => null);
       if (!res?.ok) {
-        setError('That code was not accepted. Enter the one your app shows now.');
+        setError(via === 'EMAIL' ? 'That code was not accepted. Check the latest email and try again.' : 'That code was not accepted. Enter the one your app shows now.');
         return;
       }
       settle(await send(intent.current ?? newIntentKey()));
@@ -261,7 +286,7 @@ function Flow({
     }
   };
 
-  const steps = hasAuthenticator ? ['Details', 'Review'] : ['Security', 'Details', 'Review'];
+  const steps = hasAuthenticator || firstOfKind ? ['Details', 'Review'] : ['Security', 'Details', 'Review'];
   const at = stage === 'secure' ? 0 : stage === 'details' ? steps.length - 2 : steps.length - 1;
 
   if (stage === 'done') {
@@ -273,9 +298,9 @@ function Flow({
           {bank ? 'You can sell USDT now: the INR from each trade is paid to this account.' : purpose === 'SOURCE' ? 'USDT you send from this wallet is recognised as yours.' : 'You can buy USDT now: it is delivered to this wallet.'}
         </p>
         <div className={styles.doneActions}>
-          {next === 'exchange' ? (
+          {next === 'exchange' || next === 'deal' ? (
             <button type="button" className={`${shell.action} ${shell.wide}`} onClick={onClose} data-autofocus="">
-              Back to your request
+              {next === 'deal' ? 'Back to your deal' : 'Back to your request'}
               <ArrowIcon className={shell.actionIcon} />
             </button>
           ) : purpose === 'SOURCE' && !bank ? (
@@ -542,11 +567,11 @@ function Flow({
                   <LockIcon />
                 </span>
                 <div>
-                  <h3 className={styles.confirmTitle}>Confirm with your authenticator</h3>
-                  <p className={styles.confirmText}>Enter the six-digit code your app shows now.</p>
+                  <h3 className={styles.confirmTitle}>{via === 'EMAIL' ? 'Confirm it’s you' : 'Confirm with your authenticator'}</h3>
+                  <p className={styles.confirmText}>{via === 'EMAIL' ? `We sent a six-digit code to ${email}.` : 'Enter the six-digit code your app shows now.'}</p>
                 </div>
               </div>
-              <OtpInput label="Authenticator code" value={code} onChange={setCode} invalid={Boolean(error)} autoFocus />
+              <OtpInput label={via === 'EMAIL' ? 'Code from your email' : 'Authenticator code'} value={code} onChange={setCode} invalid={Boolean(error)} autoFocus />
               {error ? (
                 <p className={shell.error} role="alert">
                   {error}
@@ -556,6 +581,11 @@ function Flow({
                 {busy ? <ArcLoader size="sm" label="Confirming" tone="inherit" /> : null}
                 {bank ? 'Confirm and add account' : 'Confirm and add wallet'}
               </button>
+              {via === 'EMAIL' ? (
+                <button type="button" className={shell.textAction} onClick={() => void sendEmailCode()} disabled={busy}>
+                  Send another code
+                </button>
+              ) : null}
               <button type="button" className={styles.back} onClick={() => setStage('review')} disabled={busy}>
                 <BackIcon />
                 Back

@@ -6,11 +6,11 @@ import { inrAccountSealContext } from '@inrp2p/inr-accounts';
 import { type P2pDeal, obligationRemaining, p2pDeal } from '@inrp2p/settlement';
 import { traderApplicant, traderMembership, traderProgram } from '@inrp2p/trader-core';
 import { CLIENT_FUNDED_STATES } from './delivery.ts';
-import { type BlockIssue, type StandingIssue, blockIssues, freeCapacity, standingIssues } from './eligibility.ts';
+import { type BlockIssue, type StandingIssue, blockIssues, freeCapacity, standingIssues } from '@inrp2p/trader-core';
 import { type OrderStage, type OrderStep, orderStage, orderSteps, p2pOrderStage, p2pOrderSteps } from './progress.ts';
 import { sharedReserveAddress } from './reserve.ts';
 import { earnings } from './rewards.ts';
-import { readBlocks, readStanding } from './standing.ts';
+import { readBlocks, readStanding } from '@inrp2p/trader-core';
 
 /**
  * What a trader sees, and nothing else.
@@ -66,6 +66,8 @@ export interface OrderSummary {
   readonly youOwe: string | null;
   /** ADR 0019: the step of a P2P order's deal (escrow, payment, confirmation, release); null otherwise. */
   readonly p2pStep: P2pDeal['step'] | null;
+  /** When the current step of a P2P deal runs out; null when nothing is timed. */
+  readonly dueBy: string | null;
 }
 
 interface OrderRowFull {
@@ -98,6 +100,7 @@ interface OrderProgressFacts {
   readonly deliveryAddress: string | null;
   /** ADR 0019: the step of a P2P order's deal; null for an order through INRP2P's account. */
   readonly p2pStep: P2pDeal['step'] | null;
+  readonly dueBy: string | null;
 }
 
 async function isP2pOrder(ex: Executor, o: OrderRowFull): Promise<boolean> {
@@ -107,7 +110,7 @@ async function isP2pOrder(ex: Executor, o: OrderRowFull): Promise<boolean> {
 /** The facts behind an order's stage, from the trade, the obligation's allocations and its settlements. */
 async function progressFacts(ex: Executor, o: OrderRowFull): Promise<OrderProgressFacts> {
   if (o.status !== 'IN_PROGRESS' || !o.trade_id || !o.route_obligation_id) {
-    return { stage: orderStage({ status: o.status, counterpartyFunded: false, traderOwedMinor: 0n, traderPaymentPending: false, inrp2pOwedMinor: 0n, inrp2pPaymentPending: false, needsReview: false }), traderOwed: 0n, inrp2pOwed: 0n, deliveryAddress: null, p2pStep: null };
+    return { stage: orderStage({ status: o.status, counterpartyFunded: false, traderOwedMinor: 0n, traderPaymentPending: false, inrp2pOwedMinor: 0n, inrp2pPaymentPending: false, needsReview: false }), traderOwed: 0n, inrp2pOwed: 0n, deliveryAddress: null, p2pStep: null, dueBy: null };
   }
   const trade = await ex.selectFrom('trade').select('lifecycle_state').where('id', '=', o.trade_id).executeTakeFirstOrThrow();
   const remaining = await obligationRemaining(ex, o.route_obligation_id);
@@ -136,7 +139,7 @@ async function progressFacts(ex: Executor, o: OrderRowFull): Promise<OrderProgre
   if (await isP2pOrder(ex, o)) {
     const deal = await p2pDeal(ex, null, { tradeId: o.trade_id, viewer: 'TRADER' });
     if (deal) {
-      return { stage: needsReview ? 'REVIEW' : p2pOrderStage(o.side, o.status, deal.step), traderOwed, inrp2pOwed, deliveryAddress: delivery?.address ?? null, p2pStep: deal.step };
+      return { stage: needsReview || deal.turn === 'INRP2P' && deal.step !== 'RELEASE' ? 'REVIEW' : p2pOrderStage(o.side, o.status, deal.step), traderOwed, inrp2pOwed, deliveryAddress: delivery?.address ?? null, p2pStep: deal.step, dueBy: deal.dueBy };
     }
   }
   return {
@@ -153,6 +156,7 @@ async function progressFacts(ex: Executor, o: OrderRowFull): Promise<OrderProgre
     inrp2pOwed,
     deliveryAddress: delivery?.address ?? null,
     p2pStep: null,
+    dueBy: null,
   };
 }
 
@@ -176,7 +180,20 @@ function summarize(o: OrderRowFull, facts: OrderProgressFacts): OrderSummary {
     reward: o.reward_inr_minor !== null && o.reward_inr_minor > 0n ? inr(o.reward_inr_minor) : null,
     youOwe: o.status === 'IN_PROGRESS' && facts.traderOwed > 0n ? (buy ? inr(facts.traderOwed) : usdt(facts.traderOwed)) : null,
     p2pStep: facts.p2pStep,
+    dueBy: facts.dueBy,
   };
+}
+
+/**
+ * Orders of one trader by id, summarized as its trader sees them — for the trader's desk, whose deals are its own orders
+ * (docs/adr/0020-desks.md). Ids of another trader's orders are simply absent.
+ */
+export async function orderSummariesOf(ex: Executor, traderId: string, orderIds: readonly string[]): Promise<Map<string, OrderSummary>> {
+  const out = new Map<string, OrderSummary>();
+  if (orderIds.length === 0) return out;
+  const rows = await ex.selectFrom('trader_order as o').select(ORDER_SELECT).where('o.trader_id', '=', traderId).where('o.id', 'in', [...orderIds]).execute();
+  for (const o of rows) out.set(o.id, summarize(o, await progressFacts(ex, o)));
+  return out;
 }
 
 export interface BlockView {
@@ -624,7 +641,7 @@ export async function traderOrderDetail(ex: Executor, userId: string, ref: strin
   return traderSafe({
     order: summary,
     steps: o.status === 'OFFERED' || o.status === 'ACCEPTED' || o.status === 'IN_PROGRESS' || o.status === 'COMPLETED'
-      ? p2p && o.status !== 'ACCEPTED' ? p2pOrderSteps(o.side, o.status, p2p.step) : orderSteps(o.side, facts.stage)
+      ? p2p && o.status !== 'ACCEPTED' ? p2pOrderSteps(o.side, o.status, p2p.step, p2p.dispute?.status === 'OPEN') : orderSteps(o.side, facts.stage)
       : [],
     method: p2p
       ? buy

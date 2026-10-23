@@ -73,7 +73,7 @@ Primary provider + independent second provider. CONFIRMED requires: solidified b
 - Production launch remains gated on counsel sign-off, including the treatment of direct route payouts to client bank accounts (D-14).
 
 ## D-08 — Client authentication — Resolved (rev 3)
-Passwordless email-OTP login for client users through Better Auth (verifies the email, satisfying D-01's "verified contact"). Optional TOTP per client user; TOTP required for `CLIENT_ADMIN` when adding/archiving bank accounts or wallets.
+Passwordless email-OTP login for client users through Better Auth (verifies the email, satisfying D-01's "verified contact"). Optional TOTP per client user; TOTP required for `CLIENT_ADMIN` when adding/archiving bank accounts or wallets. *Amended by D-20:* a client's first bank account and first wallet may be confirmed by a sign-in by email code in the last ten minutes.
 
 ## D-09 — UTR visibility — Default
 Masked `••••7118` in UI rows; full UTR on the client's own receipt; full view for operators with permission.
@@ -196,3 +196,20 @@ Full record: `docs/adr/0016-counterparty-funded-execution.md`.
 - **Every quote carries the reward and the network fee inside the client rate** and leaves at least the minimum net
   margin; the client sees the exact amounts. The TRX price is published by the desk until an oracle exists (TD-30).
 
+## D-20 — Desks: every trader runs its own exchange; explicit fees; P2P network paid by the trader — Resolved (owner, 2026-10-17; ADR 0020)
+- **A trader becomes a desk**: a page at `inrp2p.com/<handle>`, its own prices and clients, deals filled with its own
+  liquidity through the P2P escrow. A desk's request is never priced or routed by the INRP2P desk.
+- **INRP2P's revenue on desk deals is an explicit fee**, never a spread: 0.25% of the deal's USDT on a deal the desk fills
+  itself, 0.6% on a deal the network fills for it (stage 2), paid by the desk whose client it is; executors of network
+  deals pay nothing. The fee policy changes only with a second person and never touches a priced quote or trade.
+- **The platform has no TRX budget**: every P2P deal's transfers are paid from its trader's network deposit and nothing is
+  paid back (this revises ADR 0019 §2.3 and §2.8, where the platform paid). The INRP2P desk's own P2P quotes keep their
+  whole USDT margin.
+- **A client's first destinations by email (2026-10-18):** its first bank account and its first wallet may be confirmed by
+  a sign-in by email code in the last ten minutes, instead of an authenticator (amends D-08; SECURITY §2.2). Any further
+  destination, and every archive, still needs the authenticator.
+- **A desk decides whom it deals with:** it may block a client (what the client is asking is withdrawn at once; open
+  deals run on), set its own limit on one deal with it, and keep a note it alone sees.
+- **A desk's team (2026-10-18):** an administrator invites people by email as administrators or operators (both can bind
+  the desk); they join by signing in with that email. Inviting, changing a role and removing need the administrator's
+  authenticator; the whole team is told of every change. One person, one account.

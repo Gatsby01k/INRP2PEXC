@@ -256,6 +256,21 @@ money:
   price, with the trader's rewards. A return of the client's USDT caused by the trader's side not being completed is
   the trader's.
 - Free TRX can be withdrawn to the registered wallet (the desk approves; the withdrawal's own fee is the trader's).
+- **P2P (ADR 0019, revised by ADR 0020):** a P2P route's trader funds every transfer of its deals the same way — its
+  payout or the client's, a return of the escrow, a refund — and nothing is paid back: no rupee passes the exchange to pay
+  it with and the platform has no TRX budget. A P2P order is offered only to a trader whose free TRX covers the deal's
+  transfer and a return of the escrow.
+
+## 8b. Desks (ADR 0020)
+
+A trader may open its **desk** — its own exchange on INRP2P, at `inrp2p.com/<handle>` — and deal with its own clients at
+its own prices, filling their deals with its own liquidity through the P2P escrow. INRP2P takes the fee policy's
+basis points of each deal's USDT (0.25% today) out of the escrow. Tables `desk`, `desk_price`, `desk_client`,
+`fee_policy`; a desk's request is never offered to another trader (IX124). Commands: `desk.open`, `desk.update`,
+`desk.set_status`, `desk.set_prices` (`@inrp2p/traders`); `desk_deal.request_quote` (a client's instant price on the desk's
+page), `desk_deal_link.create` / `.revoke` / `.claim` (`@inrp2p/quotes`); read models `deskPage`, `previewDeskDeal`,
+`deskDealLinkView`, `deskDealLinks`; `desk_client.update` (block, limit, note) and `deskClients` (`@inrp2p/quotes`). Standing (`readStanding`, `standingIssues`, `switchOnIssues`) and the reserve figures
+now live in `@inrp2p/trader-core`, where a desk deal checks them.
 
 ## 9. Rewards
 

@@ -25,6 +25,9 @@ const sideName = (side: OrderSummary['side']) => (side === 'BUY_USDT' ? 'Buy USD
 /** A P2P order (ADR 0019): the escrow, the buyer's rupees, the seller's confirmation. */
 function p2pOrderState(o: OrderSummary): AssistantState | null {
   const sells = o.side === 'SELL_USDT';
+  // INRP2P has the deal: a payment disputed, or the seller's USDT going back (ADR 0020 §2.15).
+  if (o.p2pStep === 'REFUND') return { mood: 'waiting', label: 'With INRP2P', title: `${o.ref}: the seller’s USDT is going back`, body: 'The time to pay ran out, or the payment did not arrive. Do not pay now.' };
+  if (o.stage === 'REVIEW') return { mood: 'verifying', label: 'With INRP2P', title: `${o.ref}: INRP2P is checking the payment`, body: sells ? 'Your USDT stays locked in escrow until it decides.' : 'Add your bank’s details on the order. The USDT stays locked meanwhile.' };
   switch (o.p2pStep) {
     case 'ESCROW':
       return sells

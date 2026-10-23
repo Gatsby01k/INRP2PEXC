@@ -79,7 +79,7 @@ async function post(path: string, body: unknown): Promise<Response | null> {
  * the address has a sign-in identity (never more than that — see `startTraderAccessAction`), and once the code is
  * taken it opens Traders, where the application starts. The code, its limits and its refusals are the same.
  */
-export function AccessSurface({ mode = 'SIGN_IN' }: { mode?: 'SIGN_IN' | 'TRADER' }) {
+export function AccessSurface({ mode = 'SIGN_IN', next }: { mode?: 'SIGN_IN' | 'TRADER'; next?: string }) {
   const trader = mode === 'TRADER';
   const router = useRouter();
   const id = useId();
@@ -208,7 +208,7 @@ export function AccessSurface({ mode = 'SIGN_IN' }: { mode?: 'SIGN_IN' | 'TRADER
       robotCues.emit({ kind: 'submitted' });
       // Still busy: the surface stays as it is until the workspace replaces it. The server routes by what the
       // account is: a client with the Exchange lands there, someone new on opening their account, a trader in Traders.
-      router.push(trader ? '/traders' : '/exchange');
+      router.push(next ?? (trader ? '/traders' : '/exchange'));
       router.refresh();
       return;
     }

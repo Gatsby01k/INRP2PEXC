@@ -5,7 +5,7 @@ import type { BlockView } from '@inrp2p/traders';
 import { sanitizeAmountInput } from '@inrp2p/ui';
 import { useCommand } from '../../../../components/useCommand.tsx';
 import { updateBlockAction } from '../../../../server/actions/traders.ts';
-import { amountIn, rate, sentence } from './format.ts';
+import { amountIn, balanceIn, rate, sentence } from './format.ts';
 import shell from '../../shell.module.css';
 import styles from '../traders.module.css';
 
@@ -156,7 +156,7 @@ export function BlockCard({ block, canAct }: { block: BlockView; canAct: boolean
           <dl className={styles.blockFigures}>
             <div>
               <dt>{buy ? 'INR available' : 'USDT available'}</dt>
-              <dd data-big="">{amountIn(currency, block.available)}</dd>
+              <dd data-big="">{balanceIn(currency, block.available)}</dd>
               {block.limitMaxCapacity ? <span className={styles.blockLimit}>INRP2P limit {amountIn(currency, block.limitMaxCapacity)}</span> : null}
             </div>
             <div>

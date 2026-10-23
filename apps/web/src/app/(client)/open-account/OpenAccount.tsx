@@ -4,12 +4,14 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ArcLoader } from '@inrp2p/ui';
+import type { MyInviteRow } from '@inrp2p/clients';
 import { useCommand } from '../../../components/useCommand.tsx';
 import { openAccountAction } from '../../../server/actions/open-account.ts';
 import { RobotFigure } from '../_assistant/RobotFigure.tsx';
 import { Field } from '../_workspace/Field.tsx';
 import { ArrowIcon, BankIcon, LockIcon, UserIcon, UsersIcon } from '../_workspace/icons.tsx';
 import { sentence } from '../traders/_ui/format.ts';
+import { Invitations } from './Invitations.tsx';
 import shell from '../shell.module.css';
 import styles from './open.module.css';
 
@@ -25,19 +27,20 @@ const KINDS: readonly { value: EntityType; label: string; detail: string; Icon: 
  * makes the signed-in person its administrator, able to accept quotes. The two things a client needs before a first
  * trade — an authenticator, then somewhere to be paid — follow on the Exchange, where a guide waits for them.
  */
-export function OpenAccount({ email }: { email: string }) {
+export function OpenAccount({ email, invites = [], next }: { email: string; invites?: readonly MyInviteRow[]; next?: string }) {
   const router = useRouter();
   const open = useCommand();
   const [name, setName] = useState('');
   const [entityType, setEntityType] = useState<EntityType>('COMPANY');
   const submit = async () => {
     const out = await open.run('Open your account', (key) => openAccountAction({ name: name.trim(), entityType }, key));
-    if (out.ok) router.push('/exchange');
+    if (out.ok) router.push(next ?? '/exchange');
   };
 
   return (
     <>
       <main className={shell.main}>
+        <Invitations invites={invites} />
         <section className={styles.card} aria-labelledby="open-title">
           <div className={styles.stage} aria-hidden="true">
             <RobotFigure mood="ready" className={styles.figure} />

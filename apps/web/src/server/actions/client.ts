@@ -6,7 +6,7 @@ import { markNotificationsRead } from '@inrp2p/notifications';
 import { quoteIdForRef, requestIdForRef } from '@inrp2p/portal';
 import { acceptQuote, createRequest, rejectQuote, withdrawRequest } from '@inrp2p/quotes';
 import { addBankAccount, addWallet, archiveBankAccount, archiveWallet, setCanAcceptQuotes } from '@inrp2p/clients';
-import { claimIncomingFiat, confirmClientReceipt } from '@inrp2p/settlement';
+import { type P2pDisputeReason, answerClientDispute, claimIncomingFiat, confirmClientReceipt, openClientDispute } from '@inrp2p/settlement';
 import { chainForWeb } from '../chain.ts';
 import { type CommandResult, failure } from '../command.ts';
 import { runClientCommand, withClient, withMember } from '../client.ts';
@@ -158,3 +158,21 @@ export async function setCanAcceptQuotesAction(input: { clientUserId: string; ca
   return out;
 }
 
+const DISPUTE_MESSAGES: ReadonlySet<string> = new Set(['INVALID_TRANSITION', 'NOT_THE_PAYEE', 'NOT_THE_PAYER', 'DISPUTE_EXISTS', 'INVALID_ARGUMENT']);
+
+/**
+ * The client of a P2P SELL says the trader's rupees did not reach its account (block 9): the deal stops and INRP2P
+ * decides from its bank. What its bank shows, and a note for INRP2P only.
+ */
+export async function openDisputeAction(input: { tradeRef: string; reason: P2pDisputeReason; note?: string | null }, key: string): Promise<CommandResult<{ ref: string }>> {
+  const out = await runClientCommand((ctx) => openClientDispute(ctx.actor), input, { name: 'escrow_dispute.open', idempotencyKey: key, keepMessages: DISPUTE_MESSAGES });
+  if (out.ok) revalidatePath(`/trades/${encodeURIComponent(input.tradeRef)}`);
+  return out;
+}
+
+/** The client of a P2P BUY adds its side for INRP2P when the seller says its payment did not arrive. */
+export async function answerDisputeAction(input: { tradeRef: string; note: string }, key: string): Promise<CommandResult<{ ref: string }>> {
+  const out = await runClientCommand((ctx) => answerClientDispute(ctx.actor), input, { name: 'escrow_dispute.answer', idempotencyKey: key, keepMessages: DISPUTE_MESSAGES, financial: false });
+  if (out.ok) revalidatePath(`/trades/${encodeURIComponent(input.tradeRef)}`);
+  return out;
+}

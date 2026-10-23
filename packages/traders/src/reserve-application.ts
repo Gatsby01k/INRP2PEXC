@@ -11,7 +11,7 @@ import {
 import { assertPayoutsOpen } from '@inrp2p/trades';
 import { lockOrder, lockTrader, type OrderRow, type TraderDeps } from '@inrp2p/trader-core';
 import { CLIENT_FUNDED_STATES } from './delivery.ts';
-import { reserveFigures } from './reserve.ts';
+import { reserveFigures } from '@inrp2p/trader-core';
 
 /**
  * Applying a trader's Security Reserve to USDT one of its own orders did not deliver (production task D3, TD-21;

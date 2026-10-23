@@ -1120,6 +1120,9 @@ importers:
       '@inrp2p/kernel':
         specifier: workspace:*
         version: link:../kernel
+      '@inrp2p/ledger':
+        specifier: workspace:*
+        version: link:../ledger
       '@inrp2p/outbox':
         specifier: workspace:*
         version: link:../outbox

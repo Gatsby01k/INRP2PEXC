@@ -179,13 +179,17 @@ describe('client wallet permission (client_wallet:manage)', () => {
     expect(effectiveRequirement('client_wallet:manage', ['READ_ONLY'], ['client_bank:add'])).toBe('DENY');
   });
 
-  it('client admins add/archive wallets for their own client only with fresh TOTP', async () => {
+  it('client admins add/archive wallets for their own client only with fresh TOTP — the first one by a fresh email sign-in', async () => {
     const c = await newClient('WalletAdmin');
     const withTotp = await createTestClientLogin(t.owner, { stepUp: 'fresh' });
     const noTotp = await createTestClientLogin(t.owner, { stepUp: 'stale' });
     const notEnrolled = await createTestClientLogin(t.owner);
     for (const l of [withTotp, noTotp, notEnrolled]) await runAs(t.app, linkClientUser(dealer.actor), dealer.ref, 'client_user.link', { clientId: c.clientId, userId: l.userId, role: 'CLIENT_ADMIN' as const });
     const asClient = (l: typeof withTotp): ClientActor => ({ kind: 'CLIENT', userId: l.userId, sessionId: l.sessionId });
+    // D-20: the client's first wallet is confirmed by the email sign-in that opened the session minutes ago.
+    const first = { clientId: c.clientId, network: 'TRON' as const, address: encodeTronAddress(randomBytes(20)), label: 'First', purpose: 'BOTH' as const };
+    await runAs(t.app, addWallet(asClient(notEnrolled)), notEnrolled.ref, 'client_wallet.add', first);
+    // Every further one needs a fresh TOTP.
     const payload = { clientId: c.clientId, network: 'TRON' as const, address: encodeTronAddress(randomBytes(20)), label: 'Hot', purpose: 'SOURCE' as const };
     await expect(runAs(t.app, addWallet(asClient(noTotp)), noTotp.ref, 'client_wallet.add', payload)).rejects.toMatchObject({ code: 'STEP_UP_REQUIRED' });
     await expect(runAs(t.app, addWallet(asClient(notEnrolled)), notEnrolled.ref, 'client_wallet.add', payload)).rejects.toMatchObject({ code: 'MFA_ENROLLMENT_REQUIRED' });
@@ -307,7 +311,9 @@ describe('a lost client authenticator (TD-11)', () => {
     expect(await t.app.selectFrom('auth_session').select('id').where('user_id', '=', admin.userId).execute()).toEqual([]);
     expect((await audits(linked.clientUserId)).at(-1)).toMatchObject({ action: 'client_user.mfa_reset', actor_id: support.ref.id });
 
-    // Signed in again, without an authenticator: sensitive changes wait for a new one, whatever the session holds.
+    // Signed in again, without an authenticator: sensitive changes wait for a new one, whatever the session holds. (The
+    // client already has an account, so the new one is not its first — D-20's email path does not apply.)
+    await runAs(t.app, addBankAccount(owner.actor, protector), owner.ref, 'client_bank.add', bank(c.clientId, '112233445566'));
     const session = await t.owner.insertInto('auth_session').values({ expires_at: new Date(Date.now() + 3_600_000), token: randomUUID(), created_at: new Date(), updated_at: new Date(), user_id: admin.userId, surface: 'CLIENT' }).returning('id').executeTakeFirstOrThrow();
     await sql`insert into step_up_verification (user_id, session_id, method, verified_at) values (${admin.userId}, ${session.id}, 'TOTP', statement_timestamp())`.execute(t.owner);
     const ref = { type: 'USER' as const, id: admin.userId, surface: 'CLIENT' as const, sessionId: session.id };

@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { requireClientSession, requireOperatorSession } from '@inrp2p/identity';
 import { getRuntime } from './server/runtime.ts';
-import { type Surface, PUBLIC_HOME_PATH, gateFor, surfaceForHost } from './server/surface.ts';
+import { type Surface, DESK_PAGE_PREFIX, PUBLIC_HOME_PATH, deskHandleOfPath, gateFor, isDeskPagePath, safeReturnPath, surfaceForHost } from './server/surface.ts';
 import { contentSecurityPolicy, isHttps, securityHeaders } from './server/headers.ts';
 import { authErrorResponse } from './server/http.ts';
 
@@ -54,6 +54,21 @@ export async function proxy(request: NextRequest) {
     to.pathname = '/';
     return withHeaders(NextResponse.redirect(to, 308), headers);
   }
+  // A desk's page: `inrp2p.com/<handle>` is rendered from `/public-desk/<handle>` (ADR 0020), and — as with `/home` — the
+  // inside of the rewrite is not a second address: arriving there from outside is sent to the one address it has.
+  if (surface === 'PUBLIC') {
+    const handle = deskHandleOfPath(request.nextUrl.pathname);
+    if (handle) {
+      const to = request.nextUrl.clone();
+      to.pathname = `${DESK_PAGE_PREFIX}/${handle}`;
+      return withHeaders(NextResponse.rewrite(to, { request: { headers: forwarded(request, surface, nonce, https) } }), headers);
+    }
+    if (isDeskPagePath(request.nextUrl.pathname) && !request.headers.get('x-inrp2p-nonce')) {
+      const to = request.nextUrl.clone();
+      to.pathname = request.nextUrl.pathname.slice(DESK_PAGE_PREFIX.length);
+      return withHeaders(NextResponse.redirect(to, 308), headers);
+    }
+  }
   try {
     if (gate === 'OPERATOR_SESSION') await requireOperatorSession(rt.operatorAuth, rt.appDb, request.headers);
     else if (gate === 'CLIENT_SESSION') await requireClientSession(rt.clientAuth, rt.appDb, request.headers);
@@ -62,6 +77,9 @@ export async function proxy(request: NextRequest) {
       const to = request.nextUrl.clone();
       to.pathname = '/sign-in';
       to.search = '';
+      // On the client host the person comes back where they were going — a desk's page, a deal link — once signed in.
+      const back = surface === 'CLIENT' ? safeReturnPath(`${request.nextUrl.pathname}${request.nextUrl.search}`) : null;
+      if (back && request.nextUrl.pathname !== '/' && request.nextUrl.pathname !== '/exchange') to.searchParams.set('next', back);
       return withHeaders(NextResponse.redirect(to), headers);
     }
     return withHeaders(authErrorResponse(err), headers);

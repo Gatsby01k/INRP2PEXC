@@ -15,6 +15,7 @@ import { assertNoPayoutUnderway, failPayoutLegInTx, legSourceAddress, lockLeg } 
 import { locateTransferLog, lockMovement, postMovement, recordCryptoTransfer, verifyCryptoTransfer } from './movements.ts';
 import { advanceTrade } from './progress.ts';
 import { confirmRouteSettlementInTx, recordRouteSettlementInTx } from './routesettlements.ts';
+import { settleFeeSweepInTx } from './sweeps.ts';
 import type { SettlementDeps } from './policy.ts';
 
 /**
@@ -49,6 +50,10 @@ export function approveRefundSend(actor: OperatorActor, deps: Pick<SettlementDep
     const hold = await tradeHold(ctx.tx, trade.id);
     if (!hold || hold.status !== 'ACTIVE') throw new DomainError('NETWORK_BUDGET_INSUFFICIENT', 'this trade holds no network budget for a refund');
     if (bearer === 'TRADER' && !hold.trader_id) throw new DomainError('INVALID_ARGUMENT', 'a desk route has no trader to bear the fee');
+    // Migration 0040: every transfer of a P2P deal is its trader's cost, paid from its deposit; the platform carries none.
+    if (bearer === 'PLATFORM' && (await ctx.tx.selectFrom('trade_economics').select('route_execution_mode').where('trade_id', '=', trade.id).executeTakeFirstOrThrow()).route_execution_mode === 'P2P') {
+      throw new DomainError('INVALID_ARGUMENT', "a P2P deal's transfers are paid from its trader's network deposit: the platform does not bear this refund's fee");
+    }
     let to: string;
     if (leg.destination_wallet_id) {
       to = (await ctx.tx.selectFrom('crypto_wallet').select('address').where('id', '=', leg.destination_wallet_id).where('status', '=', 'ACTIVE').executeTakeFirstOrThrow()).address;
@@ -75,6 +80,7 @@ export type SignedSettlement =
   | { readonly purpose: 'REFUND'; readonly status: 'COMPLETED' }
   | { readonly purpose: 'ROUTE_PAYMENT'; readonly routeSettlementId: string; readonly obligationStatus: string }
   | { readonly purpose: 'ESCROW_RETURN'; readonly transferId: string }
+  | { readonly purpose: 'FEE_SWEEP'; readonly transferId: string }
   | { readonly purpose: 'TOPUP' | 'DEPOSIT_WITHDRAWAL' };
 
 /**
@@ -100,6 +106,8 @@ export async function settleSignedSendInTx(ctx: TxContext, deps: SettlementDeps,
   }
 
   if (send.purpose === 'ESCROW_RETURN') return settleEscrowReturnInTx(ctx, deps, send, attempt.txid);
+  if (send.purpose === 'FEE_SWEEP') return { purpose: 'FEE_SWEEP', ...(await settleFeeSweepInTx(ctx, deps, send, attempt.txid)) };
+  if (send.purpose === 'TRX_RECLAIM') throw new DomainError('INVALID_ARGUMENT', 'a TRX reclaim settles in the network budget, not here');
 
   const trade = await lockTrade(ctx.tx, send.trade_id!);
   // A payout's leg is locked by its confirmation below, in the lock order (trade → obligation → leg → movement); a
@@ -184,7 +192,8 @@ export async function planRoutePaymentInTx(ctx: TxContext, deps: Pick<Settlement
   if (!hold || hold.status !== 'ACTIVE') throw new DomainError('NETWORK_BUDGET_INSUFFICIENT', 'this trade holds no network budget');
   const send = await planChainSend(ctx, {
     purpose: 'ROUTE_PAYMENT', asset: 'USDT', tradeId: trade.id, routeObligationId: obligation.id, fromAddress: from, toAddress: to, amountMinor: amount,
-    funder: hold.trader_id, bearer: 'CLIENT', needsApproval: await payoutNeedsSecondPerson(ctx.tx, { trade_id: trade.id, asset: 'USDT', amount_minor: amount }), requestedBy,
+    // Through the exchange the client's price paid for it; on a P2P deal the trader's rate did, and its deposit bears it.
+    funder: hold.trader_id, bearer: obligation.execution_mode === 'P2P' ? 'TRADER' : 'CLIENT', needsApproval: await payoutNeedsSecondPerson(ctx.tx, { trade_id: trade.id, asset: 'USDT', amount_minor: amount }), requestedBy,
   });
   await allocateFunding(ctx, { tradeId: trade.id, use: { kind: 'ROUTE_PAYMENT', chainSendId: send.sendId }, asset: 'USDT', amount: Money.ofMinor(amount, 'USDT'), location: tronLocation(from) });
   return send;
@@ -194,7 +203,8 @@ export async function planRoutePaymentInTx(ctx: TxContext, deps: Pick<Settlement
 /**
  * Plans the return of a P2P trader's escrow (ADR 0019 §2.7): a client buying USDT never paid, the trade and its
  * obligation are cancelled, and the USDT the trader delivered goes back from the address it arrived at to the trader's
- * registered wallet — the only place it can go — at the platform's cost. At most what is still the trader's
+ * registered wallet — the only place it can go — paid from the trader's own network deposit (migration 0040: the platform
+ * has no TRX budget for P2P deals). At most what is still the trader's
  * (`inrp2p_escrow_returnable`); earmarked when planned, so nothing else can take the same USDT (FI-75).
  */
 export async function planEscrowReturnInTx(ctx: TxContext, deps: Pick<SettlementDeps, 'policy'>, tradeId: string, requestedBy: string): Promise<{ sendId: string; ref: string; status: string } | null> {
@@ -221,7 +231,7 @@ export async function planEscrowReturnInTx(ctx: TxContext, deps: Pick<Settlement
   if (!hold || hold.status !== 'ACTIVE') throw new DomainError('NETWORK_BUDGET_INSUFFICIENT', 'this trade holds no network budget');
   const send = await planChainSend(ctx, {
     purpose: 'ESCROW_RETURN', asset: 'USDT', tradeId: trade.id, routeObligationId: obligation.id, fromAddress: from, toAddress: w.address, amountMinor: amount,
-    funder: hold.trader_id, bearer: 'PLATFORM', needsApproval: await payoutNeedsSecondPerson(ctx.tx, { trade_id: trade.id, asset: 'USDT', amount_minor: amount }), requestedBy,
+    funder: hold.trader_id, bearer: 'TRADER', needsApproval: await payoutNeedsSecondPerson(ctx.tx, { trade_id: trade.id, asset: 'USDT', amount_minor: amount }), requestedBy,
   });
   await allocateFunding(ctx, { tradeId: trade.id, use: { kind: 'ESCROW_RETURN', chainSendId: send.sendId }, asset: 'USDT', amount: Money.ofMinor(amount, 'USDT'), location: tronLocation(from) });
   await appendAudit(ctx, { action: 'escrow.return_planned', entityType: 'route_obligation', entityId: obligation.id, after: { send: send.ref, amount: Money.ofMinor(amount, 'USDT'), to: w.address, trade_id: trade.id } });
@@ -281,7 +291,7 @@ async function cancelInTx(ctx: TxContext, sendId: string, reason: string): Promi
   if (send.purpose === 'CLIENT_PAYOUT' || send.purpose === 'REFUND') {
     const leg = await ctx.tx.selectFrom('settlement_leg').select('status').where('id', '=', send.settlement_leg_id!).executeTakeFirstOrThrow();
     if (leg.status === 'PROCESSING') await failPayoutLegInTx(ctx, send.settlement_leg_id!, `send ${send.ref} cancelled before any transaction of it landed: ${reason}`);
-  } else if (send.purpose === 'ROUTE_PAYMENT' || send.purpose === 'ESCROW_RETURN') {
+  } else if (send.purpose === 'ROUTE_PAYMENT' || send.purpose === 'ESCROW_RETURN' || send.purpose === 'FEE_SWEEP') {
     await settleFunding(ctx, { kind: send.purpose, chainSendId: send.id }, 'RELEASED', `send ${send.ref} cancelled: ${reason}`);
   } else if (send.purpose === 'TOPUP' && send.parent_send_id) {
     await ctx.tx.updateTable('chain_send').set({ status: 'PLANNED', updated_at: sql<Date>`inrp2p_now()` }).where('id', '=', send.parent_send_id).where('status', '=', 'AWAITING_RESOURCES').execute();

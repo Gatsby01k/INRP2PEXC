@@ -8,6 +8,8 @@ import { setCanAcceptQuotesAction } from '../../../server/actions/client.ts';
 import { Switch } from '../_workspace/Field.tsx';
 import { CheckIcon, LockIcon, ShieldIcon, SignOutIcon, UsersIcon } from '../_workspace/icons.tsx';
 import { SecureAccount } from '../_workspace/SecureAccount.tsx';
+import { TelegramConnect } from '../_workspace/TelegramConnect.tsx';
+import type { TelegramLinkView } from '@inrp2p/clients';
 import { Sheet } from '../_workspace/Sheet.tsx';
 import shell from '../shell.module.css';
 import styles from './account.module.css';
@@ -27,6 +29,7 @@ export function AccountScreen({
   hasAuthenticator,
   people,
   isAdmin,
+  telegram,
 }: {
   clientName: string;
   email: string;
@@ -35,6 +38,7 @@ export function AccountScreen({
   hasAuthenticator: boolean;
   people: readonly ClientPerson[];
   isAdmin: boolean;
+  telegram: { view: TelegramLinkView; botConfigured: boolean };
 }) {
   const router = useRouter();
   const [securing, setSecuring] = useState(false);
@@ -117,6 +121,8 @@ export function AccountScreen({
             </li>
           </ul>
         </section>
+
+        <TelegramConnect view={telegram.view} botConfigured={telegram.botConfigured} />
 
         {isAdmin ? (
           <section className={shell.card} aria-labelledby="team-title">

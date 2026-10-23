@@ -152,6 +152,8 @@ export function tradeAssistant(view: PortalTrade): AssistantState {
       body: 'Nothing further moves on this trade. The reason is in your notifications.',
     };
   }
+  // A P2P dispute holds the trade too, and says what it is waiting for (ADR 0020 §2.15).
+  if (view.p2p?.dispute?.status === 'OPEN') return p2pAssistant(view)!;
   if (view.onHold) {
     return {
       mood: 'alert',
@@ -224,6 +226,11 @@ function p2pAssistant(view: PortalTrade): AssistantState | null {
   const sell = view.trade.direction === 'SELL_USDT';
   const amount = inr(deal.inr);
   const coins = usdt(view.trade.base.amount);
+  if (deal.dispute?.status === 'OPEN') {
+    return sell
+      ? { mood: 'verifying', label: 'With INRP2P', title: 'INRP2P is checking the payment', body: `You said ${amount} has not arrived. Your USDT stays locked in escrow until it decides.` }
+      : { mood: 'alert', label: 'With INRP2P', title: 'The seller says your payment has not arrived', body: 'INRP2P is checking it. Add your bank’s details on the trade.' };
+  }
   switch (deal.step) {
     case 'ESCROW':
       return sell ? null : { mood: 'waiting', label: 'Escrow', title: `Securing your ${coins}`, body: 'The seller is putting it in INRP2P’s escrow. You pay only once it is locked for you.' };
@@ -237,6 +244,8 @@ function p2pAssistant(view: PortalTrade): AssistantState | null {
         : { mood: 'verifying', label: 'Seller checking', title: 'The seller is confirming your payment', body: `Your ${coins} is released the moment they confirm it.` };
     case 'RELEASE':
       return { mood: 'verifying', label: 'Releasing', title: sell ? 'Releasing the escrow' : `Your ${coins} is on its way`, body: sell ? 'You confirmed the INR. Nothing more to do.' : 'Payment confirmed. The USDT is going to your wallet.' };
+    case 'REFUND':
+      return { mood: 'waiting', label: 'Refund', title: `Your ${coins} is going back to you`, body: 'The buyer did not pay. It returns to the wallet you sent it from — nothing to do.' };
     default:
       return null;
   }

@@ -10,12 +10,14 @@ import { releaseCooledDownAddresses } from '@inrp2p/treasury';
 import { type QuotePolicy, expireQuote, runExpirySweep } from '@inrp2p/quotes';
 import { expireUnpaidTrades, runP2pDeadlines, runReconciliation, runSettlementSla } from '@inrp2p/settlement';
 import { type ScannerDeps, observeBalances, runChainBackfill, runOrphanSweep, runTronConfirm, runTronScan } from '@inrp2p/scanner';
-import { runTraderSweep } from '@inrp2p/traders';
+import { ordersDueSoon, runTraderSweep } from '@inrp2p/traders';
+import type { TelegramAdapter } from '@inrp2p/adapters';
+import { orderAlertText, orderAlertUrl, orderFacts, queueTelegram, sendTelegramDeliveries } from '@inrp2p/notifications';
 import { type WorkerBeat, recordWorkerBeat } from '@inrp2p/trades';
 import { type ReceiptObjectStore, type ReceiptPdfPrinter, receiptsNotStored, storeReceiptObjects } from '@inrp2p/reporting';
 import { DomainError } from '@inrp2p/kernel';
 import type { ChainMonitoring } from './config.ts';
-import { type OnchainDeps, runAutopay, runFeeRefresh, runHoldClosing, runMonitor, runSender } from '@inrp2p/onchain';
+import { type OnchainDeps, runAutopay, runFeeRefresh, runHoldClosing, runMonitor, runSender, runUnwindClosing } from '@inrp2p/onchain';
 import { sql } from 'kysely';
 
 /** Runs a system job step through the command pipeline (one transaction, audit, retry-safe state guards). */
@@ -40,6 +42,8 @@ export function buildTaskList(
     auditArchive?: { readonly archive: SealArchive; readonly retainDays: number };
     /** The exchange's own rails (ADR 0017): the gateways, the signer (null: nothing is signed) and the verifier. */
     rails?: OnchainDeps;
+    /** The Telegram bot (ADR 0020 §2.14), when one is configured: deadline reminders go through it. */
+    telegram?: { readonly adapter: TelegramAdapter; readonly linkBase?: string | undefined };
   } = {},
 ): TaskList {
   const outboxDispatch: Task = async () => {
@@ -84,8 +88,8 @@ export function buildTaskList(
     const out = await expireUnpaidTrades(db);
     for (const f of out.failures) helpers.logger.error(`inr_payment_expiry: trade ${f.tradeId} not cancelled: ${f.message}`);
   };
-  // ADR 0019 §2.7: the time limits of P2P deals — unpaid ones cancelled (the trader's escrow then goes back), late ones
-  // handed to the desk.
+  // ADR 0019 §2.7: the time limits of P2P deals — unpaid BUYs cancelled (the trader's escrow then goes back), SELLs their
+  // trader did not pay unwound (the client's USDT goes back, TD-35), unanswered payments handed to the desk.
   const escrowDeadlines: Task = async (_payload, helpers) => {
     const out = await runP2pDeadlines(db);
     for (const f of out.failures) helpers.logger.error(`escrow_deadlines: trade ${f.tradeId}: ${f.message}`);
@@ -170,8 +174,9 @@ export function buildTaskList(
     for (const f of sender.failures) helpers.logger.error(`onchain_cycle: send ${f.sendRef} (${f.code}): ${f.message}`);
     const monitor = await runMonitor(db, rails);
     for (const f of monitor.failures) helpers.logger.error(`onchain_cycle: transaction ${f.txid} (${f.code}): ${f.message}`);
+    await runUnwindClosing(db);
     await runHoldClosing(db);
-    const moving = autopay.payoutsPlanned + autopay.routePaymentsPlanned + sender.signed + sender.topupsPlanned + sender.resumed + monitor.confirmed + monitor.pending + monitor.rebroadcast + monitor.expired;
+    const moving = autopay.payoutsPlanned + autopay.routePaymentsPlanned + autopay.refundsPlanned + autopay.sweepsPlanned + autopay.reclaimsPlanned + sender.signed + sender.topupsPlanned + sender.resumed + monitor.confirmed + monitor.pending + monitor.rebroadcast + monitor.expired;
     if (moving > 0 || monitor.examined > 0) {
       await sql`select graphile_worker.add_job('onchain_cycle', '{}'::json, run_at => now() + interval '10 seconds', job_key => 'onchain_cycle', job_key_mode => 'preserve_run_at')`.execute(db);
     }
@@ -182,7 +187,28 @@ export function buildTaskList(
     const out = await runFeeRefresh(db, opts.rails);
     helpers.logger.info(`network_fee_refresh: energy ${out.energyPriceSun} sun`);
   };
+  // ADR 0020 §2.14: a trader's P2P step due within ten minutes is told once to its linked chats. Each order is its own
+  // attempt: one that cannot be sent now is tried again on the next minute, under the same key, and sent once.
+  const telegramDeadlines: Task = async (_payload, helpers) => {
+    const telegram = opts.telegram;
+    if (!telegram) return;
+    const now = (await sql<{ now: Date }>`select inrp2p_now() as now`.execute(db)).rows[0]!.now;
+    for (const due of await ordersDueSoon(db, { withinMinutes: 10, now })) {
+      try {
+        const facts = await orderFacts(db, due.orderId);
+        // Whole minutes left, rounded up: "10 minutes left" while there are more than nine.
+        const minutesLeft = Math.max(1, Math.ceil((Date.parse(due.dueBy) - now.getTime()) / 60_000));
+        const body = facts ? orderAlertText(facts, 'DEADLINE', minutesLeft) : null;
+        if (!facts || !body) continue;
+        const ids = await queueTelegram(db, { clientId: facts.traderClientId, dedupeKey: `deadline:${due.orderId}:${due.step}`, body, buttonUrl: orderAlertUrl(facts, telegram.linkBase) });
+        if (ids.length > 0) await sendTelegramDeliveries(db, telegram.adapter, ids);
+      } catch (e) {
+        helpers.logger.warn(`telegram_deadlines: order ${due.orderId} not told yet: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+  };
   return {
+    telegram_deadlines: telegramDeadlines,
     onchain_cycle: onchainCycle,
     network_fee_refresh: networkFeeRefresh,
     outbox_dispatch: outboxDispatch,
@@ -261,6 +287,7 @@ export const CRONTAB = [
   '17 2 * * * audit_seal_export ?max=3&jobKey=audit_seal_export',
   '* * * * * onchain_cycle ?max=1&jobKey=onchain_cycle',
   '*/10 * * * * network_fee_refresh ?max=3&jobKey=network_fee_refresh',
+  '* * * * * telegram_deadlines ?max=1&jobKey=telegram_deadlines',
 ].join('\n');
 
 /** A send planned or confirmed starts the rails cycle now rather than at the next minute (the job key coalesces). */

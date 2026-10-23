@@ -6,7 +6,8 @@ import type { TraderOrderDetail } from '@inrp2p/traders';
 import { CopyButton, DepositAddress, UTRField, normalizeUtr } from '@inrp2p/ui';
 import { formatCountdown, formatIstDateTime } from '@inrp2p/ui/format';
 import { useCommand } from '../../../../../components/useCommand.tsx';
-import { confirmOrderPaymentReceivedAction, orderDeliveryAddressAction, submitOrderPaymentAction } from '../../../../../server/actions/traders.ts';
+import { answerOrderDisputeAction, confirmOrderPaymentReceivedAction, disputeOrderPaymentAction, orderDeliveryAddressAction, submitOrderPaymentAction } from '../../../../../server/actions/traders.ts';
+import { AddYourSide, DisputeUnderReview, NotArrived } from '../../../_workspace/P2pDispute.tsx';
 import { ClockIcon, InfoIcon, LockIcon, ShieldIcon } from '../../../_workspace/icons.tsx';
 import { inr, sentence, usdt } from '../../_ui/format.ts';
 import shell from '../../../shell.module.css';
@@ -27,9 +28,11 @@ export function P2pOrderAction({ detail, canAct }: { detail: TraderOrderDetail; 
   const sells = o.side === 'SELL_USDT';
   const now = useNow();
   const remaining = deal.dueBy ? Date.parse(deal.dueBy) - now : null;
-  const yours = (sells && (deal.step === 'ESCROW' || deal.step === 'CONFIRM')) || (!sells && deal.step === 'PAY');
+  const disputed = deal.dispute?.status === 'OPEN';
+  const yours = !disputed && ((sells && (deal.step === 'ESCROW' || deal.step === 'CONFIRM')) || (!sells && deal.step === 'PAY'));
 
   const title = (() => {
+    if (disputed) return sells ? `You said ${inr(deal.inr)} has not arrived` : `The seller says your ${inr(deal.inr)} has not arrived`;
     switch (deal.step) {
       case 'ESCROW':
         return sells ? `Put ${usdt(o.usdt)} in escrow` : 'Waiting for the seller’s USDT';
@@ -39,6 +42,8 @@ export function P2pOrderAction({ detail, canAct }: { detail: TraderOrderDetail; 
         return sells ? `Did ${inr(deal.inr)} arrive?` : 'The seller is confirming your payment';
       case 'RELEASE':
         return sells ? 'Releasing the escrow to the buyer' : `${usdt(o.usdt)} is on its way to you`;
+      case 'REFUND':
+        return 'The seller’s USDT is going back to them';
       case 'CANCELLED':
         return deal.escrowReturn ? `Your ${usdt(deal.escrowReturn.amount)} is going back to you` : 'Cancelled';
       default:
@@ -47,7 +52,14 @@ export function P2pOrderAction({ detail, canAct }: { detail: TraderOrderDetail; 
   })();
 
   const body = (() => {
-    if (!canAct && yours) return <p className={styles.note}>Someone who can accept quotes for your account does this.</p>;
+    if (!canAct && (yours || disputed)) return <p className={styles.note}>Someone who can accept quotes for your account does this.</p>;
+    if (disputed) return sells ? (
+      <DisputeUnderReview dispute={deal.dispute!}>
+        <ConfirmReceived detail={detail} deal={deal} />
+      </DisputeUnderReview>
+    ) : (
+      <PayerSide detail={detail} deal={deal} />
+    );
     switch (deal.step) {
       case 'ESCROW':
         return sells ? (
@@ -65,22 +77,36 @@ export function P2pOrderAction({ detail, canAct }: { detail: TraderOrderDetail; 
         );
       case 'CONFIRM':
         return sells ? (
-          <ConfirmReceived detail={detail} deal={deal} />
+          <>
+            <ConfirmReceived detail={detail} deal={deal} />
+            <PayeeNotArrived detail={detail} deal={deal} />
+          </>
         ) : (
           <p className={styles.note}>The seller is checking your payment in their bank app. Once they confirm, INRP2P releases {usdt(o.usdt)} to your registered wallet.</p>
         );
       case 'RELEASE':
         return <p className={styles.note}>{sells ? 'You confirmed the INR. Nothing more to do on this order.' : 'The seller confirmed your payment. INRP2P is sending the USDT from escrow to your registered wallet.'}</p>;
-      case 'CANCELLED':
+      case 'REFUND':
+        return (
+          <p className={styles.note}>
+            {deal.unwind?.reason === 'NOT_PAID' ? 'INRP2P found your payment did not reach the seller.' : 'The time to pay ran out.'} The deal is cancelled and the seller’s USDT goes back
+            to them. Do not pay now — a payment would not count.
+          </p>
+        );
+      case 'CANCELLED': {
+        const why = deal.dispute?.status === 'NOT_PAID' ? (sells ? 'INRP2P found the buyer’s payment did not arrive.' : 'INRP2P found your payment did not reach the seller.') : deal.unwind ? 'The time to pay ran out.' : 'The buyer did not pay in time.';
         return (
           <p className={styles.note}>
             {deal.escrowReturn
               ? deal.escrowReturn.status === 'SENT'
-                ? `The buyer did not pay in time. ${usdt(deal.escrowReturn.amount)} went back to your registered wallet.`
-                : `The buyer did not pay in time. INRP2P is sending ${usdt(deal.escrowReturn.amount)} back from the escrow to your registered wallet.`
-              : (o.closeNote ?? 'Nothing is held for this order.')}
+                ? `${why} ${usdt(deal.escrowReturn.amount)} went back to your registered wallet.`
+                : `${why} INRP2P is sending ${usdt(deal.escrowReturn.amount)} back from the escrow to your registered wallet.`
+              : deal.unwind
+                ? `${why} The seller’s USDT went back to them.`
+                : (o.closeNote ?? 'Nothing is held for this order.')}
           </p>
         );
+      }
       default:
         return <p className={styles.note}>Settled in full on both sides.</p>;
     }
@@ -104,6 +130,8 @@ export function P2pOrderAction({ detail, canAct }: { detail: TraderOrderDetail; 
         <LockIcon className={styles.p2pEscrowIcon} />
         {deal.step === 'CANCELLED'
           ? 'Escrow closed'
+          : deal.step === 'REFUND'
+            ? 'Escrow going back to the seller'
           : deal.escrowFunded
             ? `${usdt(o.usdt)} locked in INRP2P escrow${deal.step === 'RELEASE' || deal.step === 'DONE' ? ' — releasing' : ''}`
             : 'Escrow not funded yet'}
@@ -261,7 +289,7 @@ function ConfirmReceived({ detail, deal }: { detail: TraderOrderDetail; deal: De
         <InfoIcon className={shell.infoIcon} />
         <span>
           Open your bank app first. Confirm only once the money is in your account — confirming releases your escrowed USDT to the buyer and cannot be undone. Not there yet?
-          Don’t confirm; the desk is told if it doesn’t arrive.
+          Don’t confirm — give it a few minutes, or tell INRP2P below.
         </span>
       </p>
       {verdict && verdict !== 'MATCH' ? (
@@ -302,6 +330,43 @@ function ConfirmReceived({ detail, deal }: { detail: TraderOrderDetail; deal: De
       </form>
       {dialog}
     </div>
+  );
+}
+
+/** Selling: the buyer's rupees are not in the trader's account — the deal stops and INRP2P decides from its bank. */
+function PayeeNotArrived({ detail, deal }: { detail: TraderOrderDetail; deal: Deal }) {
+  const { run, busy, dialog } = useCommand();
+  return (
+    <>
+      <NotArrived
+        inr={inr(deal.inr)}
+        busy={busy}
+        onSubmit={async (reason, note) => {
+          const out = await run(`Tell INRP2P ${inr(deal.inr)} has not arrived`, (key) => disputeOrderPaymentAction({ ref: detail.order.ref, reason, note }, key));
+          return out.ok ? { ok: true } : { ok: false, error: sentence(out.message) };
+        }}
+      />
+      {dialog}
+    </>
+  );
+}
+
+/** Buying: the seller says the trader's rupees did not arrive — the trader's side, for INRP2P. */
+function PayerSide({ detail, deal }: { detail: TraderOrderDetail; deal: Deal }) {
+  const { run, busy, dialog } = useCommand();
+  return (
+    <>
+      <AddYourSide
+        dispute={deal.dispute!}
+        inr={inr(deal.inr)}
+        busy={busy}
+        onSubmit={async (note) => {
+          const out = await run('Send your details to INRP2P', (key) => answerOrderDisputeAction({ ref: detail.order.ref, note }, key));
+          return out.ok ? { ok: true } : { ok: false, error: sentence(out.message) };
+        }}
+      />
+      {dialog}
+    </>
   );
 }
 

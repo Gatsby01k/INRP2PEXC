@@ -15,3 +15,4 @@ export * from './rewrap.ts';
 export * from './tron-tx.ts';
 export * from './hd-wallet.ts';
 export * from './tron-send.ts';
+export * from './telegram.ts';

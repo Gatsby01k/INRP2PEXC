@@ -30,8 +30,10 @@ export interface MovementJournalInput {
    * pays accrued rewards to the trader. `TRADER_RESERVE_APPLIED` is a trader's reserve delivering the USDT its route
    * owes (TD-21): from the trader, to the route obligation, moved by custody between two exchange wallets.
    * `ESCROW_RETURN` gives a P2P trader its own USDT back from the escrow of a deal its client never paid (ADR 0019).
+   * `FEE_SWEEP` moves INRP2P's earnings from a deal address to its revenue wallet (ADR 0020 §2.16): between two of the
+   * exchange's own treasury accounts — nothing is earned or owed by it.
    */
-  readonly purpose: 'CLIENT_FIRST_LEG' | 'CLIENT_PAYOUT' | 'ROUTE_SETTLEMENT' | 'REFUND' | 'UNALLOCATED' | 'TRADER_RESERVE' | 'TRADER_REWARD_PAYOUT' | 'TRADER_RESERVE_APPLIED' | 'ESCROW_RETURN';
+  readonly purpose: 'CLIENT_FIRST_LEG' | 'CLIENT_PAYOUT' | 'ROUTE_SETTLEMENT' | 'REFUND' | 'UNALLOCATED' | 'TRADER_RESERVE' | 'TRADER_REWARD_PAYOUT' | 'TRADER_RESERVE_APPLIED' | 'ESCROW_RETURN' | 'FEE_SWEEP';
   /** `TRADER_RESERVE_APPLIED` only: the treasury wallets the USDT left and reached (the same wallet moves nothing). */
   readonly custody?: { readonly fromWalletId: string; readonly toWalletId: string } | null;
 }
@@ -104,6 +106,16 @@ export function movementJournal(input: MovementJournalInput): JournalInput {
       entries = [
         { account: Accounts.routeReceivable(to.routeId, 'USDT'), direction: 'DR', amount, routeObligationId: to.routeObligationId ?? null },
         { account: exchangeAsset(from, amount), direction: 'CR', amount },
+      ];
+      break;
+    }
+    case 'FEE_SWEEP': {
+      if (from.kind !== 'EXCHANGE_TREASURY' || to.kind !== 'EXCHANGE_TREASURY' || amount.currency !== 'USDT' || from.walletId === to.walletId) {
+        throw new DomainError('INVALID_ARGUMENT', `a fee sweep is USDT between two of the exchange's own wallets (${key})`);
+      }
+      entries = [
+        { account: Accounts.treasuryUsdt(to.walletId), direction: 'DR', amount },
+        { account: Accounts.treasuryUsdt(from.walletId), direction: 'CR', amount },
       ];
       break;
     }

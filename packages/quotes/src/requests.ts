@@ -9,7 +9,7 @@ import { requireActiveClient } from '@inrp2p/clients';
 import { type QuoteActor, lockRow, operatorOrMemberCommand } from './actors.ts';
 import { type QuoteDeps, policyOf } from './policy.ts';
 import { closePendingChallenges } from './challenges.ts';
-import { closeOrdersForRequest } from '@inrp2p/trader-core';
+import { closeOrdersForRequest, deskById, deskClient } from '@inrp2p/trader-core';
 
 export interface CreateRequestPayload {
   readonly clientId: string;
@@ -24,6 +24,8 @@ export interface CreateRequestPayload {
   readonly walletId?: string | null;
   /** SELL: optional expected sender (checked later, never used for attribution — D-02). */
   readonly sourceWalletId?: string | null;
+  /** ADR 0020: the desk the request is placed with — the client must be one of its active clients. */
+  readonly deskId?: string | null;
 }
 
 /**
@@ -31,61 +33,93 @@ export interface CreateRequestPayload {
  * Destination must be ACTIVE and owned by the client; amount within policy; direction enabled.
  */
 export function createRequest(actor: QuoteActor, deps: Pick<QuoteDeps, 'policy'>) {
+  return operatorOrMemberCommand(actor, 'request:create', async (_ctx, p: CreateRequestPayload) => requireUuid(p.clientId, 'clientId'), async (ctx, p, clientId) =>
+    openRequestInTx(ctx, deps, { clientId, payload: p, channel: actor.kind === 'OPERATOR' ? 'OPERATOR' : 'CLIENT_APP' }));
+}
+
+/**
+ * The body of `request.create`, for the commands that open a request on a client's behalf in their own transaction — a
+ * desk's instant price and a desk's deal link (ADR 0020). The caller has authorized the client; everything about the
+ * request itself is checked here, and the database re-checks the desk and the link (IX123, IX126).
+ */
+export async function openRequestInTx(
+  ctx: TxContext,
+  deps: Pick<QuoteDeps, 'policy'>,
+  input: { clientId: string; payload: CreateRequestPayload; channel: 'CLIENT_APP' | 'OPERATOR' | 'LINK'; deskDealLinkId?: string | null },
+): Promise<{ requestId: string; ref: string }> {
   const policy = policyOf(deps);
-  return operatorOrMemberCommand(actor, 'request:create', async (_ctx, p: CreateRequestPayload) => requireUuid(p.clientId, 'clientId'), async (ctx, p, clientId) => {
-    await assertNewBusinessOpen(ctx.tx);
-    const client = await requireActiveClient(ctx.tx, clientId);
-    // A client that exists only as a trader has no Exchange until the desk opens it (migration 0023; IX080 backs this).
-    const access = await ctx.tx.selectFrom('client').select('exchange_access').where('id', '=', clientId).executeTakeFirstOrThrow();
-    if (!access.exchange_access) throw new DomainError('EXCHANGE_NOT_ENABLED', `the Exchange is not open for client ${client.ref}`);
-    const direction = requireOneOf(p.direction, 'direction', ['SELL_USDT', 'BUY_USDT'] as const);
-    if (!policy.enabledDirections.includes(direction)) throw new DomainError('DIRECTION_DISABLED', `${direction} is not enabled`);
-    const fixedSide = requireOneOf(p.fixedSide, 'fixedSide', ['BASE', 'QUOTE'] as const);
-    const amount = fixedSide === 'BASE' ? Money.parse(p.amount, 'USDT') : Money.parse(p.amount, 'INR');
-    if (!amount.isPositive()) throw new DomainError('INVALID_AMOUNT', 'amount must be positive');
-    const max = fixedSide === 'BASE' ? Money.parse(policy.maxBaseUsdt, 'USDT') : Money.parse(policy.maxQuoteInr, 'INR');
-    if (amount.minor > max.minor) throw new DomainError('AMOUNT_ABOVE_LIMIT', `amount exceeds ${max.toString()}`);
-    const target = p.targetRate ? Rate.parse(p.targetRate, 'CLIENT') : null;
+  const p = input.payload;
+  await assertNewBusinessOpen(ctx.tx);
+  const client = await requireActiveClient(ctx.tx, input.clientId);
+  // A client that exists only as a trader has no Exchange until the desk opens it (migration 0023; IX080 backs this).
+  const access = await ctx.tx.selectFrom('client').select('exchange_access').where('id', '=', client.id).executeTakeFirstOrThrow();
+  if (!access.exchange_access) throw new DomainError('EXCHANGE_NOT_ENABLED', `the Exchange is not open for client ${client.ref}`);
+  const direction = requireOneOf(p.direction, 'direction', ['SELL_USDT', 'BUY_USDT'] as const);
+  if (!policy.enabledDirections.includes(direction)) throw new DomainError('DIRECTION_DISABLED', `${direction} is not enabled`);
+  const fixedSide = requireOneOf(p.fixedSide, 'fixedSide', ['BASE', 'QUOTE'] as const);
+  const amount = fixedSide === 'BASE' ? Money.parse(p.amount, 'USDT') : Money.parse(p.amount, 'INR');
+  if (!amount.isPositive()) throw new DomainError('INVALID_AMOUNT', 'amount must be positive');
+  const max = fixedSide === 'BASE' ? Money.parse(policy.maxBaseUsdt, 'USDT') : Money.parse(policy.maxQuoteInr, 'INR');
+  if (amount.minor > max.minor) throw new DomainError('AMOUNT_ABOVE_LIMIT', `amount exceeds ${max.toString()}`);
+  const target = p.targetRate ? Rate.parse(p.targetRate, 'CLIENT') : null;
 
-    let bankAccountId: string | null = null;
-    let walletId: string | null = null;
-    let sourceWalletId: string | null = null;
-    if (direction === 'SELL_USDT') {
-      bankAccountId = requireUuid(p.bankAccountId, 'bankAccountId');
-      const b = await ctx.tx.selectFrom('bank_account').select(['client_id', 'status']).where('id', '=', bankAccountId).forShare().executeTakeFirst();
-      if (!b || b.client_id !== client.id || b.status !== 'ACTIVE') throw new DomainError('DESTINATION_INVALID', 'bank account must be ACTIVE and belong to the client');
-      if (p.sourceWalletId) {
-        sourceWalletId = requireUuid(p.sourceWalletId, 'sourceWalletId');
-        const w = await ctx.tx.selectFrom('crypto_wallet').select(['client_id', 'status', 'purpose']).where('id', '=', sourceWalletId).executeTakeFirst();
-        if (!w || w.client_id !== client.id || w.status !== 'ACTIVE' || w.purpose === 'DESTINATION') throw new DomainError('DESTINATION_INVALID', 'source wallet must be an ACTIVE source wallet of the client');
-      }
-    } else {
-      walletId = requireUuid(p.walletId, 'walletId');
-      const w = await ctx.tx.selectFrom('crypto_wallet').select(['client_id', 'status', 'purpose']).where('id', '=', walletId).forShare().executeTakeFirst();
-      if (!w || w.client_id !== client.id || w.status !== 'ACTIVE' || w.purpose === 'SOURCE') throw new DomainError('DESTINATION_INVALID', 'wallet must be an ACTIVE destination wallet of the client');
+  let bankAccountId: string | null = null;
+  let walletId: string | null = null;
+  let sourceWalletId: string | null = null;
+  if (direction === 'SELL_USDT') {
+    bankAccountId = requireUuid(p.bankAccountId, 'bankAccountId');
+    const b = await ctx.tx.selectFrom('bank_account').select(['client_id', 'status']).where('id', '=', bankAccountId).forShare().executeTakeFirst();
+    if (!b || b.client_id !== client.id || b.status !== 'ACTIVE') throw new DomainError('DESTINATION_INVALID', 'bank account must be ACTIVE and belong to the client');
+    if (p.sourceWalletId) {
+      sourceWalletId = requireUuid(p.sourceWalletId, 'sourceWalletId');
+      const w = await ctx.tx.selectFrom('crypto_wallet').select(['client_id', 'status', 'purpose']).where('id', '=', sourceWalletId).executeTakeFirst();
+      if (!w || w.client_id !== client.id || w.status !== 'ACTIVE' || w.purpose === 'DESTINATION') throw new DomainError('DESTINATION_INVALID', 'source wallet must be an ACTIVE source wallet of the client');
     }
+  } else {
+    walletId = requireUuid(p.walletId, 'walletId');
+    const w = await ctx.tx.selectFrom('crypto_wallet').select(['client_id', 'status', 'purpose']).where('id', '=', walletId).forShare().executeTakeFirst();
+    if (!w || w.client_id !== client.id || w.status !== 'ACTIVE' || w.purpose === 'SOURCE') throw new DomainError('DESTINATION_INVALID', 'wallet must be an ACTIVE destination wallet of the client');
+  }
 
-    const row = await ctx.tx
-      .insertInto('trade_request')
-      .values({
-        client_id: client.id,
-        direction,
-        fixed_side: fixedSide,
-        requested_base_minor: fixedSide === 'BASE' ? amount.minor : null,
-        requested_quote_minor: fixedSide === 'QUOTE' ? amount.minor : null,
-        target_rate_micro: target?.micro ?? null,
-        bank_account_id: bankAccountId,
-        crypto_wallet_id: walletId,
-        source_wallet_id: sourceWalletId,
-        channel: actor.kind === 'OPERATOR' ? 'OPERATOR' : 'CLIENT_APP',
-        created_by: ctx.actor.id ?? 'SYSTEM',
-      })
-      .returning(['id', 'ref'])
-      .executeTakeFirstOrThrow();
-    await appendAudit(ctx, { action: 'request.created', entityType: 'trade_request', entityId: row.id, after: { ref: row.ref, client_id: client.id, direction, fixed_side: fixedSide, amount, target_rate: target, channel: actor.kind } });
-    await enqueueOutbox(ctx, { type: 'desk.new_request', aggregateType: 'trade_request', aggregateId: row.id, payload: { requestId: row.id, ref: row.ref } });
-    return { requestId: row.id, ref: row.ref };
+  // ADR 0020: a request placed with a desk is that desk's to price and fill; the database re-checks it (IX123).
+  let deskId: string | null = null;
+  if (p.deskId) {
+    deskId = requireUuid(p.deskId, 'deskId');
+    const desk = await deskById(ctx.tx, deskId);
+    if (!desk || desk.status !== 'LIVE') throw new DomainError('DESK_NOT_LIVE', 'this desk is not taking deals right now');
+    const relation = await deskClient(ctx.tx, deskId, client.id);
+    if (!relation || relation.status !== 'ACTIVE') throw new DomainError('DESK_CLIENT_BLOCKED', 'this desk is not dealing with this client');
+  }
+  if (input.deskDealLinkId && !deskId) throw new DomainError('INVALID_ARGUMENT', 'a deal link belongs to a desk');
+
+  const row = await ctx.tx
+    .insertInto('trade_request')
+    .values({
+      desk_id: deskId,
+      desk_deal_link_id: input.deskDealLinkId ?? null,
+      client_id: client.id,
+      direction,
+      fixed_side: fixedSide,
+      requested_base_minor: fixedSide === 'BASE' ? amount.minor : null,
+      requested_quote_minor: fixedSide === 'QUOTE' ? amount.minor : null,
+      target_rate_micro: target?.micro ?? null,
+      bank_account_id: bankAccountId,
+      crypto_wallet_id: walletId,
+      source_wallet_id: sourceWalletId,
+      channel: input.channel,
+      created_by: ctx.actor.id ?? 'SYSTEM',
+    })
+    .returning(['id', 'ref'])
+    .executeTakeFirstOrThrow();
+  await appendAudit(ctx, {
+    action: 'request.created', entityType: 'trade_request', entityId: row.id,
+    after: { ref: row.ref, client_id: client.id, direction, fixed_side: fixedSide, amount, target_rate: target, channel: input.channel, desk_id: deskId, desk_deal_link_id: input.deskDealLinkId ?? null },
   });
+  // The INRP2P desk's queue and routing take only its own requests; a desk's request goes to that desk.
+  await enqueueOutbox(ctx, deskId
+    ? { type: 'desk_deal.requested', aggregateType: 'trade_request', aggregateId: row.id, payload: { requestId: row.id, ref: row.ref, deskId } }
+    : { type: 'desk.new_request', aggregateType: 'trade_request', aggregateId: row.id, payload: { requestId: row.id, ref: row.ref } });
+  return { requestId: row.id, ref: row.ref };
 }
 
 async function requestClient(ctx: TxContext, requestId: string): Promise<string> {
@@ -105,7 +139,7 @@ export async function cancelSentQuoteOfRequest(ctx: TxContext, requestId: string
   return sent.id;
 }
 
-async function closeRequest(tx: Tx, requestId: string, status: 'DECLINED' | 'WITHDRAWN' | 'EXPIRED', reason: string | null, version: number): Promise<void> {
+export async function closeRequest(tx: Tx, requestId: string, status: 'DECLINED' | 'WITHDRAWN' | 'EXPIRED', reason: string | null, version: number): Promise<void> {
   await tx
     .updateTable('trade_request')
     .set({ status, status_reason: reason, closed_at: sql<Date>`inrp2p_now()`, last_activity_at: sql<Date>`inrp2p_now()`, version: version + 1 })

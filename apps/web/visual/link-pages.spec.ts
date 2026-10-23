@@ -54,6 +54,20 @@ test('the public home page as a stranger sees it', async ({ page }) => {
   await capture(page, 'public-home-mobile');
 });
 
+/** A desk's own page and one of its deal links (ADR 0020), on the phone they are opened on. */
+test('a desk’s page: its prices and the ticket', async ({ page }) => {
+  await page.goto(`/${state().desk.handle}`);
+  await expect(page.getByRole('heading', { level: 1, name: 'Konkan Liquidity' })).toBeVisible();
+  await expect(page.getByRole('link', { name: /Sell with Konkan Liquidity/ })).toBeVisible();
+  await capture(page, 'public-desk-mobile');
+});
+
+test('a deal link as the person holding it sees it', async ({ page }) => {
+  await page.goto(`/d/${state().desk.openLinkToken}`);
+  await expect(page.getByRole('heading', { level: 1, name: /^Sell 2,500 USDT for/ })).toBeVisible();
+  await capture(page, 'link-deal-mobile');
+});
+
 test('an SEO page, which every other one is shaped like', async ({ page }) => {
   await page.goto('/usdt-to-inr');
   await expect(page.getByRole('heading', { level: 1, name: 'USDT to INR' })).toBeVisible();

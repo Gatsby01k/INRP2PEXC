@@ -495,3 +495,63 @@ For a desk with no Indian bank account: the rupees go straight between client an
 The worker's `escrow_deadlines` job (every minute) cancels a BUY whose escrow was not funded or not paid in 30 minutes —
 the trader's USDT then goes back by the signer — and gives the desk a case for a late payment or a late confirmation
 (RUNBOOKS `p2p-escrow`). It needs nothing configured; the signer must be switched on for escrow returns to be sent.
+
+## 14. Desks (ADR 0020)
+
+### 14.0 The release from production at 37 (stage 1 of desks)
+
+Production stopped at schema 37 on 2026-10-16 (new business paused, the signer's automatic sends off). This release
+carries 38 (§12), 39 (§13) and 40 (below) at once, with one web deployment and one worker image. In order:
+
+1. **The code.** The branch merged to `main` with all seven CI jobs green on its final commit — `visual-pages` against
+   baselines recorded by the canonical workflow (the desk's, the P2P and the Desks/Revenue pages are new) — and the
+   worker image built for that commit by the *Worker image* workflow (`inrp2p-worker@sha256:…`, not a tag).
+2. **Stop the worker** (ECS desired count 0) and confirm its last heartbeat. Nothing may write while the schema moves.
+3. **The backup of record**: a Neon branch of production named `before-40-<date>` (a physical copy: the audit seal chain
+   restores intact). A logical JSON-rows backup as on 2026-10-16 may be taken beside it, but it cannot tell a JSON `null`
+   from SQL `NULL` in `jsonb` columns, so the first audit seal of a database restored from it does not verify (seen in
+   the rehearsal below) — it is not the backup to roll back to.
+4. **Migrate 37 → 40** through the migrator login on the direct (non-pooler) endpoint:
+   `DATABASE_MIGRATOR_URL=… node scripts/migrate.ts`. Rehearsed on 2026-10-23 on a local copy of production's rows (the
+   2026-10-16 backup, at 36): 37–40 applied in 75 ms; trades, journals, entries, audit events and seals the same before
+   and after, not one audit or ledger row changed; every read model of the release answered on that data.
+5. **The web app.** Vercel deploys `main` on merge; it is ready once `/api/health/ready` answers 200 on the public, app
+   and desk hosts (it checks schema 40 through the application login). Optional new settings: `TELEGRAM_*` (item 6 below).
+6. **The worker image.** Update the stack to the image digest of step 1 (a change set, as on 2026-10-16), start it, and
+   confirm its heartbeat and `onchain_cycle`. The signer stays off for automatic sends until step 8.
+7. **What the owner decides on the desk**, in this order: the programme to **P2P** (§13 item 2); the TRX price renewed
+   (Network); each trader's TRX network deposit sent from its registered wallet (item 2 below); the revenue wallet
+   registered (item 7 below).
+8. **Resume**: the signer's automatic sends on, then new business open — once the first controlled deal has settled
+   end to end.
+
+1. **Migration 40.** `DATABASE_MIGRATOR_URL=… node scripts/migrate.ts` (39 → 40), with the backup taken as for 37; the
+   release then requires 40, the web app and the worker image alike. Nothing changes for open deals.
+2. **P2P network fees move to the traders.** From 40 on, every new P2P quote is funded by its trader's network deposit
+   (IX103): before switching the programme to P2P, each trader sends TRX from its registered wallet to the budget wallet
+   (Traders → Network deposit) — about 40 TRX holds one open deal at today's prices. The platform's own TRX is no longer
+   used by P2P deals; a P2P trader without TRX receives no orders (`NETWORK_DEPOSIT_SHORT`).
+3. **Fees.** `fee_policy` starts at 0.25% (own deal) and 0.6% (network deal, stage 2). A change is proposed on
+   *Desks* → Fee by someone with `fees:propose` and approved by another person with `fees:approve` (block 11).
+4. **Team invitations are emailed** by the worker (`client_invite.send`, handler `team_invite_email`), registered whatever
+   the email configuration, like acceptance codes: without `RESEND_*` they fail visibly, and an invited person can still
+   sign in and accept on the client app. Links in them use `CLIENT_BASE_URL`.
+5. Desks themselves need nothing configured: an approved trader's administrator opens one under **Desk** in the client
+   workspace. Its page is `PUBLIC_BASE_URL/<handle>` and its links
+   `PUBLIC_BASE_URL/d/<token>`, both on the public host; taking a deal from either happens in the client app (`/desks/<handle>`,
+   `/d/<token>`), after signing in.
+6. **Telegram alerts (optional).** Create a bot with @BotFather and set, on the web app **and** the worker,
+   `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME` (without @) and, on the web app, `TELEGRAM_WEBHOOK_SECRET` (24+ random
+   characters). Then point the bot at the public host once:
+   `curl -s "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/setWebhook" -d url="$PUBLIC_BASE_URL/api/telegram/webhook" -d secret_token="$TELEGRAM_WEBHOOK_SECRET" -d allowed_updates='["message"]'`.
+   Without these, no "Connect Telegram" is shown and the worker registers no Telegram channel.
+7. **INRP2P's earnings (block 10).** Register the platform's **revenue wallet** on *Revenue* (an address INRP2P holds the
+   keys of — a hardware wallet or its cold wallet, never a deal address or an exchange account). Until it is registered
+   nothing is swept: earnings stay, safe, at their deal addresses. Sweeps are paid from the **platform's** TRX budget
+   (Network budget → record a TRX deposit to the budget wallet as the platform's); without platform TRX they wait. Set
+   the minimum an address must hold to be worth a sweep on *Revenue* → Sweeping (default 20 USDT). TRX reclaims from idle
+   deal addresses need nothing configured.
+8. **INRP2P's controls over desks (block 11).** *Desks* (`/desk-ops` on the operator host) needs `desks:view` (OWNER,
+   DEALER, FINANCE); suspending, hiding a page and renaming need `desks:moderate` (OWNER, DEALER) and a step-up; the fee
+   needs two people (`fees:propose`, `fees:approve`: OWNER, FINANCE). Nothing to configure; the desk is told each decision
+   in the app and, when connected, in Telegram.

@@ -22,6 +22,9 @@ export async function networkFeePolicy(ex: Executor): Promise<FeePolicy> {
     maxSnapshotAgeSeconds: p.max_snapshot_age_seconds,
     maxTrxRateAgeSeconds: p.max_trx_rate_age_seconds,
     autoSendEnabled: p.auto_send_enabled,
+    feeSweepEnabled: p.fee_sweep_enabled,
+    feeSweepMinUsdtMinor: p.fee_sweep_min_usdt_minor,
+    trxReclaimMinSun: p.trx_reclaim_min_sun,
     reason: p.reason,
     setBy: p.set_by,
     setAt: p.set_at,
@@ -37,6 +40,11 @@ export interface SetNetworkFeePolicyPayload {
   readonly refundSendsSell?: number;
   readonly minNetMargin?: string;
   readonly autoSendEnabled?: boolean;
+  /** Block 10: sweeping INRP2P's earnings off deal addresses — on or off, and from how much (USDT) an address is worth it. */
+  readonly feeSweepEnabled?: boolean;
+  readonly feeSweepMin?: string;
+  /** TRX left at a deal address worth sending back to the budget wallet. */
+  readonly trxReclaimMin?: string;
   readonly reason: string;
 }
 
@@ -62,6 +70,10 @@ export function setNetworkFeePolicy(actor: OperatorActor) {
     const bandwidthBuffer = p.bandwidthBuffer === undefined ? before.bandwidthBufferSun : parseDecimalToMinor(p.bandwidthBuffer, 6);
     if (bandwidthBuffer < 0n || bandwidthBuffer > 10_000_000n) throw new DomainError('INVALID_ARGUMENT', 'the bandwidth buffer is 0–10 TRX');
     const minNet = p.minNetMargin === undefined ? before.minNetMarginInrMinor : Money.parse(p.minNetMargin, 'INR').minor;
+    const sweepMin = p.feeSweepMin === undefined ? before.feeSweepMinUsdtMinor : Money.parse(p.feeSweepMin, 'USDT').minor;
+    if (sweepMin < 1_000_000n || sweepMin > 100_000_000_000n) throw new DomainError('INVALID_AMOUNT', 'an address is swept from 1 to 100,000 USDT of earnings');
+    const reclaimMin = p.trxReclaimMin === undefined ? before.trxReclaimMinSun : parseDecimalToMinor(p.trxReclaimMin, 6);
+    if (reclaimMin < 100_000n || reclaimMin > 100_000_000n) throw new DomainError('INVALID_AMOUNT', 'TRX is reclaimed from 0.1 to 100 TRX left at an address');
     if (minNet < 0n) throw new DomainError('INVALID_AMOUNT', 'the minimum net margin is never negative: a quote that loses money is never sent');
     const row = {
       quote_energy: quoteEnergy,
@@ -75,6 +87,9 @@ export function setNetworkFeePolicy(actor: OperatorActor) {
       max_snapshot_age_seconds: before.maxSnapshotAgeSeconds,
       max_trx_rate_age_seconds: before.maxTrxRateAgeSeconds,
       auto_send_enabled: p.autoSendEnabled === undefined ? before.autoSendEnabled : Boolean(p.autoSendEnabled),
+      fee_sweep_enabled: p.feeSweepEnabled === undefined ? before.feeSweepEnabled : Boolean(p.feeSweepEnabled),
+      fee_sweep_min_usdt_minor: sweepMin,
+      trx_reclaim_min_sun: reclaimMin,
       reason,
       set_by: ctx.actor.id ?? 'SYSTEM',
     };
@@ -82,7 +97,10 @@ export function setNetworkFeePolicy(actor: OperatorActor) {
     await appendAudit(ctx, {
       action: 'settings.network_fees_changed', entityType: 'network_fee_policy', entityId: null,
       before: { quote_energy: before.quoteEnergy, reserve_energy: before.reserveEnergy, min_net_margin: Money.ofMinor(before.minNetMarginInrMinor, 'INR'), auto_send: before.autoSendEnabled },
-      after: { ...row, bandwidth_buffer_sun: formatTrx(row.bandwidth_buffer_sun), min_net_margin_inr_minor: Money.ofMinor(minNet, 'INR') },
+      after: {
+        ...row, bandwidth_buffer_sun: formatTrx(row.bandwidth_buffer_sun), min_net_margin_inr_minor: Money.ofMinor(minNet, 'INR'),
+        fee_sweep_min_usdt_minor: Money.ofMinor(sweepMin, 'USDT'), trx_reclaim_min_sun: formatTrx(reclaimMin),
+      },
     });
     return networkFeePolicy(ctx.tx);
   });

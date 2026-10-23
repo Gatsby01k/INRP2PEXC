@@ -56,10 +56,20 @@ export async function orderRewardTerms(ex: Executor, orderId: string): Promise<O
  * and an accepted order gives its capacity back. The caller holds the request lock.
  */
 export async function closeOrdersForRequest(ctx: TxContext, requestId: string): Promise<number> {
-  const live = await ctx.tx.selectFrom('trader_order').select(['id', 'trader_id']).where('trade_request_id', '=', requestId).where('status', 'in', ['OFFERED', 'ACCEPTED']).execute();
-  for (const o of live) {
-    await lockTrader(ctx, o.trader_id);
-    const order = await lockOrder(ctx, o.id);
+  return closeOrdersForRequests(ctx, [requestId]);
+}
+
+/**
+ * The same for several requests closing together (a desk blocking a client, ADR 0020): every trader first, then every
+ * order, then the blocks the orders give capacity back to — the global lock order, however many orders there are.
+ */
+export async function closeOrdersForRequests(ctx: TxContext, requestIds: readonly string[]): Promise<number> {
+  if (requestIds.length === 0) return 0;
+  const live = await ctx.tx.selectFrom('trader_order').select(['id', 'trader_id']).where('trade_request_id', 'in', [...requestIds]).where('status', 'in', ['OFFERED', 'ACCEPTED']).orderBy('id').execute();
+  for (const traderId of [...new Set(live.map((o) => o.trader_id))].sort()) await lockTrader(ctx, traderId);
+  const orders = [];
+  for (const o of live) orders.push(await lockOrder(ctx, o.id));
+  for (const order of orders) {
     if (order.status === 'OFFERED') await closeUnstartedOrder(ctx, order, 'WITHDRAWN', 'REQUEST_CLOSED');
     else if (order.status === 'ACCEPTED') await closeUnstartedOrder(ctx, order, 'RELEASED', 'REQUEST_CLOSED');
   }

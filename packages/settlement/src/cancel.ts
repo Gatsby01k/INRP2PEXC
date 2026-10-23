@@ -12,7 +12,7 @@ import { openExceptionInTx, resolveExceptionInTx } from './exceptions.ts';
 import { assertNoPayoutUnderway, lockLeg, nextLegSeq, requireSourceDepositAddress } from './legs.ts';
 import { allocateFunding, inrLocation, settleFunding, tronLocation } from './funding.ts';
 import { assertPhysicallyAvailable } from './availability.ts';
-import { lockMovement, maskedBankDestination, postMovement, recordFiatTransfer, verifyCryptoTransfer } from './movements.ts';
+import { lockMovement, markFiatFailed, maskedBankDestination, postMovement, recordFiatTransfer, verifyCryptoTransfer } from './movements.ts';
 import { advanceTrade } from './progress.ts';
 import { lockObligation, obligationOfTrade } from './obligations.ts';
 import type { SettlementDeps } from './policy.ts';
@@ -26,7 +26,7 @@ import type { SettlementDeps } from './policy.ts';
  * still land — so it becomes a `FUNDS_AFTER_TRADE_CLOSED` case, and when the chain confirms it the scanner parks
  * it in suspense (STATE_MACHINES T9). Left attached to a failed leg it would confirm with no journal and no case.
  */
-async function releaseCommitments(ctx: TxContext, trade: TradeRow, reason: string): Promise<void> {
+async function releaseCommitments(ctx: TxContext, trade: TradeRow, reason: string, opts: { readonly notReceived?: boolean } = {}): Promise<void> {
   const obligation = await lockObligation(ctx, (await obligationOfTrade(ctx.tx, trade.id)).id);
   // P2P (ADR 0019 §2.7): the trader's USDT in the escrow of a deal the exchange delivered nothing against ends with the
   // trade, and goes back to the trader (`planEscrowReturnInTx`). Any other obligation with allocations is past a cancel.
@@ -47,6 +47,11 @@ async function releaseCommitments(ctx: TxContext, trade: TradeRow, reason: strin
       .returning(['transfer_kind', 'fiat_transfer_id', 'crypto_transfer_id', 'amount_minor'])
       .execute();
     for (const e of evidence) {
+      // A P2P payment INRP2P found never arrived (block 9) is closed as such: nothing of it can still land here.
+      if (opts.notReceived && e.fiat_transfer_id) {
+        await markFiatFailed(ctx, e.fiat_transfer_id, `not received: ${reason}`.slice(0, 500));
+        continue;
+      }
       await openExceptionInTx(ctx, {
         type: 'FUNDS_AFTER_TRADE_CLOSED',
         subjectType: e.transfer_kind === 'FIAT' ? 'FIAT_TRANSFER' : 'CRYPTO_TRANSFER',
@@ -135,7 +140,7 @@ export function cancelTrade(actor: OperatorActor) {
  */
 export async function cancelTradeInTx(
   ctx: TxContext,
-  p: { trade: TradeRow; reason: string; exceptionId?: string | null; expiredUnpaid?: boolean },
+  p: { trade: TradeRow; reason: string; exceptionId?: string | null; expiredUnpaid?: boolean; notReceived?: boolean },
 ): Promise<{ status: 'CANCELLED'; ref: string }> {
   const { trade, reason } = p;
   const totals = await legTotals(ctx.tx, trade.id);
@@ -152,9 +157,10 @@ export async function cancelTradeInTx(
     .where('status', 'in', ['PROCESSING', 'COMPLETED'])
     .executeTakeFirst();
   if (livePayout) throw new DomainError('PAYOUT_IN_FLIGHT', 'a payout is already sent; resolve it before cancelling');
-  await assertNoUnconfirmedIncomingFiat(ctx, trade.id);
+  // INRP2P's decision that a P2P payment did not arrive is the answer this check waits for (block 9).
+  if (!p.notReceived) await assertNoUnconfirmedIncomingFiat(ctx, trade.id);
 
-  await releaseCommitments(ctx, trade, reason);
+  await releaseCommitments(ctx, trade, reason, { notReceived: p.notReceived ?? false });
   await reverseTradeJournals(ctx, trade.id);
   await transitionTrade(ctx, trade, 'CANCELLED', { reason });
   if (p.exceptionId) await resolveExceptionInTx(ctx, { exceptionId: p.exceptionId, resolution: 'cancel_trade', notes: reason });
@@ -435,20 +441,70 @@ export function refundAndCancel(actor: OperatorActor) {
     const reason = requireText(p.reason, 'reason', 500);
     await authorizeOperator(ctx.tx, actor, 'exception:resolve');
     const trade = await lockTrade(ctx.tx, p.tradeId);
-    if (trade.lifecycle_state === 'COMPLETED' || trade.lifecycle_state === 'CANCELLED') throw new DomainError('INVALID_TRANSITION', `trade is ${trade.lifecycle_state}`);
-    const totals = await legTotals(ctx.tx, trade.id);
-    // A payout already sent may yet reach the client; refunding and cancelling on top of it would pay twice (FI-25).
-    await assertNoPayoutUnderway(ctx.tx, trade.id);
-    await assertNoUnconfirmedIncomingFiat(ctx, trade.id);
-    const refunded = await refundTotal(ctx, trade.id, ['COMPLETED']);
-    if (refunded !== totals.received) {
-      throw new DomainError('REFUND_INCOMPLETE', `confirmed client funds ${totals.received} are not fully refunded (${refunded})`);
-    }
-    await releaseCommitments(ctx, trade, reason);
-    await reverseTradeJournals(ctx, trade.id);
-    await transitionTrade(ctx, trade, 'CANCELLED', { reason, extra: { refunded: refunded.toString() } });
-    if (p.exceptionId) await resolveExceptionInTx(ctx, { exceptionId: p.exceptionId, resolution: 'refund_and_cancel', notes: reason });
-    await enqueueOutbox(ctx, { type: 'client.trade_cancelled', aggregateType: 'trade', aggregateId: trade.id, payload: { tradeId: trade.id, clientId: trade.client_id, reason } });
-    return { status: 'CANCELLED' as const, refunded: refunded.toString() };
+    return cancelRefundedTradeInTx(ctx, trade, { reason, exceptionId: p.exceptionId ?? null });
   });
+}
+
+/**
+ * T10 without an actor policy: the desk's refund-and-cancel above, and the system's once a P2P client's USDT is back from
+ * the escrow of a deal its trader never paid (`p2p_unwind`). The caller holds the trade lock.
+ */
+export async function cancelRefundedTradeInTx(ctx: TxContext, trade: TradeRow, p: { reason: string; exceptionId?: string | null }): Promise<{ status: 'CANCELLED'; refunded: string }> {
+  const { reason } = p;
+  if (trade.lifecycle_state === 'COMPLETED' || trade.lifecycle_state === 'CANCELLED') throw new DomainError('INVALID_TRANSITION', `trade is ${trade.lifecycle_state}`);
+  const totals = await legTotals(ctx.tx, trade.id);
+  // A payout already sent may yet reach the client; refunding and cancelling on top of it would pay twice (FI-25).
+  await assertNoPayoutUnderway(ctx.tx, trade.id);
+  await assertNoUnconfirmedIncomingFiat(ctx, trade.id);
+  const refunded = await refundTotal(ctx, trade.id, ['COMPLETED']);
+  if (refunded !== totals.received) {
+    throw new DomainError('REFUND_INCOMPLETE', `confirmed client funds ${totals.received} are not fully refunded (${refunded})`);
+  }
+  await releaseCommitments(ctx, trade, reason);
+  await reverseTradeJournals(ctx, trade.id);
+  await transitionTrade(ctx, trade, 'CANCELLED', { reason, extra: { refunded: refunded.toString() } });
+  if (p.exceptionId) await resolveExceptionInTx(ctx, { exceptionId: p.exceptionId, resolution: 'refund_and_cancel', notes: reason });
+  await enqueueOutbox(ctx, { type: 'client.trade_cancelled', aggregateType: 'trade', aggregateId: trade.id, payload: { tradeId: trade.id, clientId: trade.client_id, reason } });
+  return { status: 'CANCELLED' as const, refunded: refunded.toString() };
+}
+
+/**
+ * A P2P unwind whose refund is back with the client ends its trade (TD-35): cancelled exactly as the desk's refund and
+ * cancel would, with the cases that waited on it closed. Anything short of a full return leaves the trade as it is. Its
+ * own step (`runUnwindClosing`): the refund's settlement holds its leg, and a cancel locks the obligation before legs.
+ */
+export async function finishP2pUnwindInTx(ctx: TxContext, tradeId: string): Promise<boolean> {
+  const unwind = await ctx.tx.selectFrom('p2p_unwind').select('reason').where('trade_id', '=', tradeId).executeTakeFirst();
+  if (!unwind) return false;
+  const trade = await lockTrade(ctx.tx, tradeId);
+  if (trade.lifecycle_state === 'COMPLETED' || trade.lifecycle_state === 'CANCELLED') return false;
+  const totals = await legTotals(ctx.tx, trade.id);
+  if ((await refundTotal(ctx, trade.id, ['COMPLETED'])) < totals.received) return false;
+  const reason = unwind.reason === 'PAY_WINDOW_MISSED' ? 'the trader did not pay in time: the client’s USDT went back to it' : 'the trader’s payment did not arrive: the client’s USDT went back to it';
+  const waiting = await ctx.tx.selectFrom('exception_case').select('id').where('trade_id', '=', trade.id).where('type', '=', 'P2P_PAYMENT_OVERDUE').where('status', 'in', ['OPEN', 'IN_PROGRESS']).orderBy('id').execute();
+  for (const c of waiting) await resolveExceptionInTx(ctx, { exceptionId: c.id, resolution: 'refund_and_cancel', notes: reason });
+  await cancelRefundedTradeInTx(ctx, trade, { reason });
+  return true;
+}
+
+/**
+ * The refund of a P2P unwind (ADR 0019 §2.7, TD-35): every USDT the client sent this trade, from the deal address it
+ * arrived at, to the client's registered wallet it came from — planned, never paid, here; the signer pays it once a send
+ * is planned for it. The caller holds the trade lock and has just observed the address (B2).
+ */
+export async function createUnwindRefundLegInTx(
+  ctx: TxContext,
+  deps: Pick<SettlementDeps, 'policy'>,
+  trade: TradeRow,
+  input: { readonly sourceDepositAddressId: string; readonly destinationWalletId: string; readonly notes: string },
+): Promise<{ id: string; ref: string; amount: Money<'USDT'> }> {
+  if (trade.direction !== 'SELL_USDT') throw new DomainError('INVALID_ARGUMENT', 'only a client’s USDT is refunded from an escrow');
+  const totals = await legTotals(ctx.tx, trade.id);
+  const committed = await refundTotal(ctx, trade.id, ['PENDING', 'PROCESSING', 'COMPLETED']);
+  const outstanding = totals.received - committed;
+  if (outstanding <= 0n) throw new DomainError('REFUND_IN_PROGRESS', 'the client’s USDT is already refunded, or its refund is already planned');
+  const amount = Money.ofMinor(outstanding, 'USDT');
+  const leg = await insertRefundLeg(ctx, deps, trade, amount, { sourceDepositAddressId: input.sourceDepositAddressId, notes: input.notes }, { kind: 'UNWIND', destinationWalletId: input.destinationWalletId });
+  await appendAudit(ctx, { action: 'leg.created', entityType: 'settlement_leg', entityId: leg.id, after: { ref: leg.ref, side: 'REFUND_TO_CLIENT', refund_kind: 'UNWIND', amount, trade_id: trade.id, destination_wallet_id: input.destinationWalletId, p2p: true } });
+  return { ...leg, amount };
 }

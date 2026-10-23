@@ -8,7 +8,8 @@ export interface RegisterTreasuryWalletPayload {
   readonly network: 'TRON';
   readonly address: string;
   readonly label: string;
-  readonly role: 'HOT' | 'COLD' | 'DEPOSIT_POOL';
+  /** `REVENUE` (block 10): the platform's own wallet its earnings are swept to — one active at a time. */
+  readonly role: 'HOT' | 'COLD' | 'DEPOSIT_POOL' | 'REVENUE';
 }
 
 /** `treasury.register_wallet` — `treasury:manage_wallets` (⧗). Watch-only: an address and label, never keys. */
@@ -19,11 +20,11 @@ export function registerTreasuryWallet(actor: OperatorActor) {
     try {
       row = await ctx.tx
         .insertInto('treasury_wallet')
-        .values({ network: requireOneOf(p.network, 'network', ['TRON'] as const), address, label: requireText(p.label, 'label', 80), role: requireOneOf(p.role, 'role', ['HOT', 'COLD', 'DEPOSIT_POOL'] as const), created_by: actorLabel(ctx) })
+        .values({ network: requireOneOf(p.network, 'network', ['TRON'] as const), address, label: requireText(p.label, 'label', 80), role: requireOneOf(p.role, 'role', ['HOT', 'COLD', 'DEPOSIT_POOL', 'REVENUE'] as const), created_by: actorLabel(ctx) })
         .returning(['id', 'network', 'address', 'label', 'role', 'status', 'custody'])
         .executeTakeFirstOrThrow();
     } catch (e) {
-      if (isUniqueViolation(e)) throw new DomainError('INVALID_ARGUMENT', 'wallet address or label already registered');
+      if (isUniqueViolation(e)) throw new DomainError('INVALID_ARGUMENT', p.role === 'REVENUE' ? 'a revenue wallet is already active (retire it first), or this address or label is registered' : 'wallet address or label already registered');
       throw e;
     }
     await appendAudit(ctx, { action: 'treasury_wallet.registered', entityType: 'treasury_wallet', entityId: row.id, after: row });

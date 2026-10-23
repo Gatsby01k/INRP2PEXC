@@ -9,3 +9,8 @@ export * from './acceptance.ts';
 export * from './views.ts';
 export * from './expiry.ts';
 export * from './delivery.ts';
+export * from './desk-deals.ts';
+export * from './desk-links.ts';
+export * from './desk-clients.ts';
+export * from './desk-client-views.ts';
+export * from './desk-ops.ts';

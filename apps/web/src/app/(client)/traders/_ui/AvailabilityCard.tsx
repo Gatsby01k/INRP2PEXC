@@ -5,7 +5,7 @@ import type { TraderHome } from '@inrp2p/traders';
 import { useCommand } from '../../../../components/useCommand.tsx';
 import { setAvailabilityAction } from '../../../../server/actions/traders.ts';
 import { InfoIcon } from '../../_workspace/icons.tsx';
-import { amountIn, sentence, usdt } from './format.ts';
+import { amountIn, balanceIn, sentence, usdt } from './format.ts';
 import shell from '../../shell.module.css';
 import styles from '../traders.module.css';
 
@@ -110,8 +110,8 @@ export function AvailabilityCard({ home }: { home: TraderHome }) {
         </div>
         <div className={styles.figure} {...(sell ? {} : { 'data-quiet': '' })}>
           <dt>USDT available</dt>
-          <dd>{sell ? amountIn('USDT', sell.available) : '—'}</dd>
-          <span className={styles.figureNote}>{sell ? (/[1-9]/.test(sell.held) ? `${amountIn('USDT', sell.held)} held for orders` : 'Nothing held') : 'Not offered'}</span>
+          <dd>{sell ? balanceIn('USDT', sell.available) : '—'}</dd>
+          <span className={styles.figureNote}>{sell ? (/[1-9]/.test(sell.held) ? `${balanceIn('USDT', sell.held)} held for orders` : 'Nothing held') : 'Not offered'}</span>
         </div>
         <div className={styles.figure}>
           <dt>Security Reserve</dt>

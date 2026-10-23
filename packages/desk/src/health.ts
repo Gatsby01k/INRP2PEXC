@@ -249,6 +249,16 @@ export const HEALTH_CHECKS: readonly HealthCheckDefinition[] = Object.freeze([
     group: 'money',
   },
   {
+    id: 'fee_sweeps_waiting',
+    title: 'Sweeps of INRP2P’s earnings waiting — for the platform’s TRX, or unresolved for over 30 minutes',
+    warn: 1,
+    alarm: 5,
+    unit: 'count',
+    runbook: 'fee-sweep',
+    why: 'INRP2P’s earnings stay at the deal addresses until the signer sweeps them to the revenue wallet, paid from the platform’s own TRX (ADR 0020 §2.16). Nothing is lost while they wait, but nothing reaches the revenue wallet either.',
+    group: 'money',
+  },
+  {
     id: 'trx_price_age_seconds',
     title: 'Seconds since the TRX price quotes are priced with was published',
     warn: 172_800,
@@ -374,6 +384,7 @@ export async function systemHealth(ex: Executor): Promise<SystemHealth> {
     inr_capacity_available: string;
     deposit_pool_free: string;
     chain_sends_stuck: string;
+    fee_sweeps_waiting: string;
     trx_price_age_seconds: string;
     checked_at: Date;
   }>`
@@ -458,9 +469,15 @@ export async function systemHealth(ex: Executor): Promise<SystemHealth> {
       -- With the HD wallet recorded (ADR 0017) addresses are derived per trade: the pool is not a limit.
       (case when exists (select 1 from custody_hd_account) then 999999
             else (select count(*) from deposit_address where status = 'AVAILABLE') end)::text as deposit_pool_free,
+      -- A sweep of INRP2P's own earnings is nobody waiting for money: it is its own signal below.
       (select count(*) from chain_send
-        where status = 'BLOCKED'
-           or (status in ('SENDING', 'AWAITING_RESOURCES') and updated_at < inrp2p_now() - make_interval(mins => 30)))::text as chain_sends_stuck,
+        where purpose <> 'FEE_SWEEP'
+          and (status = 'BLOCKED'
+           or (status in ('SENDING', 'AWAITING_RESOURCES') and updated_at < inrp2p_now() - make_interval(mins => 30))))::text as chain_sends_stuck,
+      (select count(*) from chain_send
+        where purpose = 'FEE_SWEEP'
+          and (status = 'BLOCKED'
+           or (status in ('PLANNED', 'SENDING', 'AWAITING_RESOURCES') and updated_at < inrp2p_now() - make_interval(mins => 30))))::text as fee_sweeps_waiting,
       -- Only once the exchange's own rails exist: before that no quote depends on a TRX price.
       (case when exists (select 1 from custody_hd_account)
             then coalesce((select extract(epoch from (inrp2p_now() - max(effective_at)))::bigint from network_trx_rate), 999999)
@@ -499,6 +516,7 @@ export async function systemHealth(ex: Executor): Promise<SystemHealth> {
     inr_capacity_available: int(row.inr_capacity_available),
     deposit_pool_free: int(row.deposit_pool_free),
     chain_sends_stuck: int(row.chain_sends_stuck),
+    fee_sweeps_waiting: int(row.fee_sweeps_waiting),
     trx_price_age_seconds: int(row.trx_price_age_seconds),
   };
 

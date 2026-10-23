@@ -1,7 +1,7 @@
 import { sql } from 'kysely';
 import type { Executor, TraderSide } from '@inrp2p/db';
 import type { BlockFacts, TraderStanding } from './eligibility.ts';
-import { type ReserveFigures, reserveFigures, reserveFunded } from './reserve.ts';
+import { type ReserveFigures, reserveFigures, reserveFunded } from './reserve-figures.ts';
 
 export interface StandingRead {
   readonly standing: TraderStanding;

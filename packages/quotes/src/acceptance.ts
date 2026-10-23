@@ -30,6 +30,7 @@ interface DecisionContext {
     base_minor: bigint; quote_inr_minor: bigint; client_rate_micro: bigint; route_rate_micro: bigint; route_rate_snapshot_id: string; route_id: string;
     route_value_inr_minor: bigint; gross_margin_inr_minor: bigint; network: 'TRON'; bank_account_id: string | null; crypto_wallet_id: string | null;
     status: string; expires_at: Date | null; route_base_minor: bigint | null; gross_margin_base_minor: bigint | null;
+    platform_fee_bps: number | null; platform_fee_base_minor: bigint | null;
   };
 }
 
@@ -111,6 +112,8 @@ async function acceptCore(ctx: TxContext, deps: QuoteDeps, input: { quote: Decis
     grossMarginInrMinor: quote.gross_margin_inr_minor,
     routeBaseMinor: quote.route_base_minor,
     grossMarginBaseMinor: quote.gross_margin_base_minor,
+    platformFeeBps: quote.platform_fee_bps,
+    platformFeeBaseMinor: quote.platform_fee_base_minor,
     routeId: quote.route_id,
     routeRateSnapshotId: quote.route_rate_snapshot_id,
     network: quote.network,
