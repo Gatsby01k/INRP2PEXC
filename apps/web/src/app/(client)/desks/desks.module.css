@@ -314,3 +314,113 @@
     gap: var(--space-3);
   }
 }
+
+/* ——— My desks: each desk a small storefront — its name, its two prices large, and the way to deal ——— */
+
+.deskGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 360px), 1fr));
+  gap: var(--space-5);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.deskCard {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  gap: var(--space-6);
+  padding: var(--space-6);
+  overflow: hidden;
+  border-radius: 26px;
+  background: var(--bg-surface);
+  box-shadow: 0 0 0 1px var(--line), var(--lift);
+  color: inherit;
+  text-decoration: none;
+  transition:
+    transform var(--dur-complete) var(--ease),
+    box-shadow var(--dur-complete) var(--ease);
+}
+
+@media (hover: hover) {
+  .deskCard:hover {
+    transform: translateY(-3px);
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--brand-primary) 40%, transparent),
+      0 24px 50px -28px color-mix(in srgb, var(--brand-primary) 55%, transparent);
+  }
+
+  .deskCard:hover .deskCardGoIcon {
+    transform: translateX(3px);
+  }
+}
+
+.deskCardArt {
+  position: absolute;
+  z-index: -1;
+  top: -70px;
+  right: -80px;
+  width: 260px;
+  height: 260px;
+  color: color-mix(in srgb, var(--brand-primary) 9%, transparent);
+}
+
+.deskCardHead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.deskCard .monogram {
+  border-radius: 50%;
+}
+
+.deskCardRates {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.deskCardRate {
+  display: grid;
+  gap: 2px;
+  padding: var(--space-4);
+  border-radius: 18px;
+  background: var(--bg-subtle);
+  box-shadow: inset 0 0 0 1px var(--line-soft);
+  color: var(--text-secondary);
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-medium);
+}
+
+.deskCardRate strong {
+  color: var(--text-primary);
+  font-size: clamp(24px, 2.4vw, 30px);
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.04em;
+}
+
+.deskCardGo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: 48px;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(160deg, var(--brand-primary), var(--brand-action));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--text-on-action) 28%, transparent),
+    0 12px 24px -14px color-mix(in srgb, var(--brand-primary) 80%, transparent);
+  color: var(--text-on-action);
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-semibold);
+}
+
+.deskCardGoIcon {
+  width: 16px;
+  height: 16px;
+  transition: transform var(--dur-base) var(--ease);
+}

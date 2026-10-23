@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { OWN_DESK, type OwnDeskFeature } from '../../../../content/site.ts';
 import { ArrowIcon, CheckIcon } from '../icons.tsx';
 import { MASKS } from '../masks.ts';
+import { MarkArt } from '../../../../components/MarkArt.tsx';
 import section from '../section.module.css';
 import styles from './owndesk.module.css';
 
@@ -203,6 +204,7 @@ export function OwnDesk({ appOrigin, host }: { appOrigin: string; host: string }
           </Tile>
 
           <article className={`${styles.tile} ${styles.wide} ${styles.ctaTile}`}>
+            <MarkArt className={styles.ctaArt} live />
             <div className={styles.ctaHead}>
               <h3 className={styles.ctaTitle}>{cta.title}</h3>
               <div className={styles.ctaActions}>

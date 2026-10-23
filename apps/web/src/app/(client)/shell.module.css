@@ -1,189 +1,236 @@
 /*
- * The client workspace: the home page's room — its warm off-white field, near-black type, a controlled orange
- * signal — with the client's work in the middle of it.
+ * The client workspace: the home page's room — its warm paper, near-black type and the mark's orange — with the
+ * client's work in the middle of it.
  *
  * One system for every page:
- * - on a computer, a sidebar: the mark, who is signed in, the workspace's sections and — for a trader — the desk's
- *   own; over the page a slim glass bar with search (⌘K), sound, notifications and the account;
- * - on a phone the sidebar folds away: the sections become a tab bar at the bottom, where a thumb reaches them;
- * - a heading across the top (`PageHead`), then the page's work (`.main`) and, where the page has context to
- *   give, a column beside it (`.aside`) that stays in view while the work scrolls — laid out by the width the
- *   page actually has (a container query), not the window's;
- * - surfaces drawn with hairlines, an inner highlight and a layered lift rather than borders, on an 8px rhythm.
+ * - the home page's masthead: the mark and the name, the sections in a floating pill whose current one is filled in
+ *   the mark's orange and slides as you move, then search (⌘K), sound, notifications and the account;
+ * - on a phone the sections drop to a floating bar under the thumb;
+ * - a heading set at the home page's scale (`PageHead`), then the page's work (`.main`) and, where the page has
+ *   context to give, a column beside it (`.aside`) that stays in view — laid out by the width the page has (a
+ *   container query), not the window's;
+ * - one orange moment per page (`.brandField`): the figure that matters, in white, on the mark's own colour, with
+ *   the mark's geometry behind it (`MarkArt`); everything else is paper and white sheets.
  */
 .shell {
   --line: color-mix(in srgb, var(--border-default) 82%, transparent);
   --line-soft: color-mix(in srgb, var(--border-default) 55%, transparent);
-  --lift: 0 1px 2px color-mix(in srgb, var(--text-primary) 4%, transparent), 0 8px 24px -16px color-mix(in srgb, var(--text-primary) 16%, transparent), 0 24px 48px -36px color-mix(in srgb, var(--text-primary) 18%, transparent);
-  --lift-strong: 0 1px 2px color-mix(in srgb, var(--text-primary) 5%, transparent), 0 12px 32px -18px color-mix(in srgb, var(--text-primary) 22%, transparent), 0 40px 80px -48px color-mix(in srgb, var(--text-primary) 30%, transparent);
-  --highlight: inset 0 1px 0 color-mix(in srgb, var(--bg-surface) 100%, transparent);
+  --lift: 0 1px 2px color-mix(in srgb, var(--text-primary) 4%, transparent), 0 10px 28px -18px color-mix(in srgb, var(--text-primary) 18%, transparent), 0 30px 60px -44px color-mix(in srgb, var(--text-primary) 20%, transparent);
+  --lift-strong: 0 1px 2px color-mix(in srgb, var(--text-primary) 5%, transparent), 0 16px 40px -22px color-mix(in srgb, var(--text-primary) 24%, transparent), 0 48px 96px -56px color-mix(in srgb, var(--text-primary) 32%, transparent);
+  --glow: 0 2px 4px color-mix(in srgb, var(--brand-action) 24%, transparent), 0 24px 48px -22px color-mix(in srgb, var(--brand-primary) 62%, transparent), 0 60px 110px -60px color-mix(in srgb, var(--brand-primary) 70%, transparent);
   --gutter: var(--space-10);
-  --masthead: 64px;
-  --sidebar: 264px;
-  --measure: 1180px;
-  display: grid;
-  grid-template-columns: var(--sidebar) minmax(0, 1fr);
+  --masthead: 76px;
+  --measure: 1240px;
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
   min-height: 100vh;
   min-height: 100svh;
   color: var(--text-primary);
   background:
-    radial-gradient(ellipse 46% 34% at 92% -4%, color-mix(in srgb, var(--brand-soft) 70%, transparent) 0%, transparent 100%),
-    radial-gradient(ellipse 30% 26% at 30% 0%, color-mix(in srgb, var(--ivory) 80%, transparent) 0%, transparent 100%),
+    radial-gradient(ellipse 42% 36% at 88% -6%, color-mix(in srgb, var(--brand-soft) 95%, transparent) 0%, transparent 100%),
+    radial-gradient(ellipse 34% 30% at 12% 0%, color-mix(in srgb, var(--ivory) 100%, transparent) 0%, transparent 100%),
+    radial-gradient(ellipse 50% 40% at 50% 110%, color-mix(in srgb, var(--brand-soft) 50%, transparent) 0%, transparent 100%),
     var(--bg-app);
   background-attachment: fixed;
 }
 
-/* ——— Sidebar ——— */
+/* ——— Masthead: the home page's own ——— */
 
-.sidebar {
-  position: relative;
-  z-index: 22;
-  background: color-mix(in srgb, var(--bg-surface) 62%, transparent);
-  box-shadow: 1px 0 0 var(--line);
-}
-
-/* The column runs the page's full height; what is in it stays in view while the page scrolls. */
-.sidebarInner {
+.header {
   position: sticky;
   top: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  height: 100vh;
-  height: 100svh;
-  padding: var(--space-4) var(--space-3) var(--space-4);
-  overflow-y: auto;
-  scrollbar-width: none;
+  z-index: 20;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--bg-app) 92%, transparent) 0%, color-mix(in srgb, var(--bg-app) 70%, transparent) 100%);
+  backdrop-filter: saturate(1.4) blur(16px);
 }
 
-.sidebarInner::-webkit-scrollbar {
-  display: none;
-}
-
-.brand,
-.topBrand {
-  display: inline-flex;
+.mastheadInner {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: var(--space-3);
-  color: inherit;
-  text-decoration: none;
+  column-gap: var(--space-6);
+  max-width: var(--measure);
+  height: var(--masthead);
+  margin: 0 auto;
+  padding: 0 var(--gutter);
 }
 
 .brand {
-  min-height: 40px;
-  padding: 0 var(--space-2);
-  margin-bottom: var(--space-3);
-}
-
-.topBrand {
-  display: none;
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  gap: var(--space-3);
+  color: inherit;
+  text-decoration: none;
 }
 
 .brandMark {
   display: block;
   flex: none;
   border-radius: 50%;
-  box-shadow: 0 4px 12px -4px color-mix(in srgb, var(--brand-primary) 60%, transparent);
+  box-shadow: 0 6px 16px -6px color-mix(in srgb, var(--brand-primary) 70%, transparent);
+  transition: transform var(--dur-complete) var(--ease);
+}
+
+.brand:hover .brandMark {
+  transform: rotate(-24deg);
 }
 
 .brandName {
   font-size: var(--font-size-body-lg);
   font-weight: var(--font-weight-semibold);
   letter-spacing: -0.02em;
+  white-space: nowrap;
 }
 
-.brandTag {
-  margin-left: auto;
-  padding: 3px 8px;
+.brandSub {
+  color: var(--text-secondary);
+  font-weight: var(--font-weight-medium);
+}
+
+/* The sections: a floating white pill; the one you are on is filled in the mark's orange. */
+.nav {
+  display: flex;
+  align-items: center;
+  justify-self: center;
+  gap: 2px;
+  padding: 5px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--bg-surface) 88%, transparent);
+  box-shadow:
+    0 0 0 1px var(--line),
+    0 1px 2px color-mix(in srgb, var(--text-primary) 5%, transparent),
+    0 12px 30px -18px color-mix(in srgb, var(--text-primary) 30%, transparent);
+}
+
+.navItem {
+  position: relative;
+  isolation: isolate;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 40px;
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-pill);
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-medium);
+  text-decoration: none;
+  white-space: nowrap;
+  transition: color var(--dur-base) var(--ease);
+}
+
+.navPill {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(160deg, var(--brand-primary) 0%, var(--brand-action) 100%);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--text-on-action) 30%, transparent),
+    0 6px 16px -6px color-mix(in srgb, var(--brand-primary) 75%, transparent);
+}
+
+.navIcon {
+  display: block;
+  flex: none;
+  width: 18px;
+  height: 18px;
+}
+
+@media (hover: hover) {
+  .navItem:not([aria-current='page']):hover {
+    color: var(--text-primary);
+    background: color-mix(in srgb, var(--text-primary) 5%, transparent);
+  }
+}
+
+.navItem[aria-current='page'] {
+  color: var(--text-on-action);
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  justify-self: end;
+  gap: var(--space-1);
+}
+
+.iconButton {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-secondary);
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    color var(--dur-fast) var(--ease),
+    background-color var(--dur-fast) var(--ease),
+    box-shadow var(--dur-fast) var(--ease);
+}
+
+.iconButton[aria-current='page'] {
+  background: var(--bg-surface);
+  box-shadow: 0 0 0 1px var(--line);
+  color: var(--brand-action);
+}
+
+.iconButton[aria-pressed='false'] {
+  color: var(--text-muted);
+}
+
+@media (hover: hover) {
+  .iconButton:hover {
+    background: var(--bg-surface);
+    box-shadow: 0 0 0 1px var(--line), 0 6px 14px -8px color-mix(in srgb, var(--text-primary) 30%, transparent);
+    color: var(--text-primary);
+  }
+}
+
+.toolIcon {
+  width: 20px;
+  height: 20px;
+}
+
+.unread {
+  position: absolute;
+  top: 1px;
+  right: -1px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(160deg, var(--brand-primary), var(--brand-action));
+  box-shadow: 0 0 0 2px var(--bg-app);
+  color: var(--text-on-action);
+  font-size: 10px;
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.deskState {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
   border-radius: var(--radius-pill);
   background: color-mix(in srgb, var(--text-primary) 5%, transparent);
   color: var(--text-secondary);
   font-size: var(--font-size-micro);
   font-weight: var(--font-weight-medium);
-  letter-spacing: 0.02em;
-}
-
-/* Who is signed in: the workspace's own name at the top of its sidebar. */
-.who {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  margin-bottom: var(--space-4);
-  padding: var(--space-2) var(--space-3) var(--space-2) var(--space-2);
-  border-radius: 14px;
-  background: var(--bg-surface);
-  box-shadow:
-    0 0 0 1px var(--line),
-    0 1px 2px color-mix(in srgb, var(--text-primary) 4%, transparent),
-    0 8px 20px -14px color-mix(in srgb, var(--text-primary) 18%, transparent);
-}
-
-.whoAvatar {
-  display: inline-grid;
-  flex: none;
-  place-items: center;
-  width: 36px;
-  height: 36px;
-  border-radius: 11px;
-  background: linear-gradient(150deg, var(--brand-primary), var(--brand-action));
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--text-on-action) 30%, transparent);
-  color: var(--text-on-action);
-  font-size: var(--font-size-body-lg);
-  font-weight: var(--font-weight-semibold);
-}
-
-.whoText {
-  display: grid;
-  min-width: 0;
-}
-
-.whoName {
-  overflow: hidden;
-  font-size: var(--font-size-body-sm);
-  font-weight: var(--font-weight-semibold);
-  letter-spacing: -0.01em;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.whoMeta {
-  overflow: hidden;
-  color: var(--text-muted);
-  font-size: var(--font-size-meta);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.navLabel {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
-  padding: var(--space-3) var(--space-3) var(--space-2);
-  color: var(--text-muted);
-  font-size: var(--font-size-micro);
-  font-weight: var(--font-weight-semibold);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.navLabelText {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.deskState {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  gap: 5px;
-  padding: 2px 8px;
-  border-radius: var(--radius-pill);
-  background: color-mix(in srgb, var(--text-primary) 5%, transparent);
-  color: var(--text-secondary);
-  font-size: 10px;
-  letter-spacing: 0.04em;
 }
 
 .deskState[data-tone='live'] {
@@ -203,292 +250,47 @@
   background: currentColor;
 }
 
-.deskState[data-tone='live'] .deskStateDot {
-  animation: beat 2.4s var(--ease) infinite;
-}
+/* ——— The orange moment: the mark's own field, a figure in white, the mark's geometry behind it ——— */
 
-@keyframes beat {
-  0%,
-  100% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--status-success) 50%, transparent);
-  }
-  60% {
-    box-shadow: 0 0 0 5px color-mix(in srgb, var(--status-success) 0%, transparent);
-  }
-}
-
-/* The sections: a column of rows; the one you are on is a raised white chip with its glyph in the brand's orange. */
-.nav,
-.deskNav {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-/* The desk's own sections sit right under the desk: its entry in the workspace's list would only repeat them. On a
-   phone the desk's sections fold away with the sidebar, so the tab bar keeps the entry. */
-@media (min-width: 900px) {
-  .sidebar:has(.deskNav) .nav .navItem[href='/desk'] {
-    display: none;
-  }
-}
-
-.navItem {
+.brandField {
+  --mark-cut: var(--brand-action);
   position: relative;
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  min-height: 40px;
-  padding: 0 var(--space-3) 0 6px;
-  border-radius: 12px;
-  color: var(--text-secondary);
-  font-size: var(--font-size-body-sm);
-  font-weight: var(--font-weight-medium);
-  text-decoration: none;
-  white-space: nowrap;
-  transition:
-    color var(--dur-fast) var(--ease),
-    background-color var(--dur-fast) var(--ease),
-    box-shadow var(--dur-fast) var(--ease);
-}
-
-.navGlyph {
-  display: inline-grid;
-  flex: none;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 9px;
-  color: var(--text-muted);
-  transition:
-    color var(--dur-fast) var(--ease),
-    background-color var(--dur-fast) var(--ease);
-}
-
-.navIcon {
-  display: block;
-  width: 20px;
-  height: 20px;
-}
-
-.navText {
+  isolation: isolate;
   overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-@media (hover: hover) {
-  .navItem:hover {
-    background: color-mix(in srgb, var(--text-primary) 4%, transparent);
-    color: var(--text-primary);
-  }
-
-  .navItem:hover .navGlyph {
-    color: var(--text-primary);
-  }
-}
-
-.navItem[aria-current='page'] {
-  background: var(--bg-surface);
+  border-radius: 28px;
+  background:
+    radial-gradient(ellipse 70% 90% at 0% 0%, color-mix(in srgb, var(--brand-primary) 100%, transparent) 0%, transparent 70%),
+    radial-gradient(ellipse 60% 80% at 100% 100%, color-mix(in srgb, var(--brand-action-hover) 100%, transparent) 0%, transparent 70%),
+    var(--brand-action);
   box-shadow:
-    0 0 0 1px var(--line),
-    0 1px 2px color-mix(in srgb, var(--text-primary) 5%, transparent),
-    0 6px 16px -10px color-mix(in srgb, var(--text-primary) 22%, transparent);
-  color: var(--text-primary);
-  font-weight: var(--font-weight-semibold);
+    inset 0 1px 0 color-mix(in srgb, var(--text-on-action) 28%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--text-on-action) 10%, transparent),
+    var(--glow);
+  color: var(--text-on-action);
 }
 
-.navItem[aria-current='page'] .navGlyph {
-  background: var(--brand-soft);
-  color: var(--brand-action);
-}
-
-.navItem[aria-current='page']::before {
+/* A fine grain over the orange, so the field reads as a material rather than a fill. */
+.brandField::after {
   content: '';
   position: absolute;
-  top: 10px;
-  bottom: 10px;
-  left: -12px;
-  width: 3px;
-  border-radius: 0 3px 3px 0;
-  background: var(--brand-primary);
+  inset: 0;
+  z-index: -1;
+  background-image: radial-gradient(color-mix(in srgb, var(--text-on-action) 14%, transparent) 0.7px, transparent 0.8px);
+  background-size: 6px 6px;
+  mask-image: linear-gradient(120deg, transparent 20%, var(--text-primary) 100%);
+  pointer-events: none;
 }
 
-.sidebarFoot {
-  margin-top: auto;
-  padding-top: var(--space-6);
-}
-
-.helpCard {
-  position: relative;
-  display: grid;
-  gap: var(--space-3);
-  padding: var(--space-4);
-  overflow: hidden;
-  border-radius: 16px;
-  background:
-    radial-gradient(circle at 100% 0%, color-mix(in srgb, var(--brand-primary) 22%, transparent) 0%, transparent 60%),
-    var(--text-primary);
-  color: var(--bg-surface);
-}
-
-.helpIcon {
-  display: inline-grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--bg-surface) 12%, transparent);
-}
-
-.helpIcon svg {
-  width: 18px;
-  height: 18px;
-}
-
-.helpText {
-  display: grid;
-  gap: 2px;
-}
-
-.helpTitle {
-  font-size: var(--font-size-body-sm);
-  font-weight: var(--font-weight-semibold);
-}
-
-.helpBody {
-  color: color-mix(in srgb, var(--bg-surface) 70%, transparent);
-  font-size: var(--font-size-meta);
-  line-height: 1.45;
-}
-
-.helpLink {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-2);
-  min-height: 36px;
-  border-radius: 10px;
-  background: var(--bg-surface);
-  color: var(--text-primary);
-  font-size: var(--font-size-body-sm);
-  font-weight: var(--font-weight-medium);
-  text-decoration: none;
-  transition: transform var(--dur-fast) var(--ease);
-}
-
-.helpLink:active {
-  transform: scale(0.98);
-}
-
-.helpLinkIcon {
-  width: 16px;
-  height: 16px;
-}
-
-/* ——— The page frame and its bar ——— */
-
-.frame {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  container-type: inline-size;
-  container-name: page;
-}
-
-.header {
-  position: sticky;
-  top: 0;
-  z-index: 20;
-  background: color-mix(in srgb, var(--bg-app) 72%, transparent);
-  backdrop-filter: saturate(1.4) blur(16px);
-  box-shadow: 0 1px 0 var(--line-soft);
-}
-
-.mastheadInner {
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
-  max-width: var(--measure);
-  height: var(--masthead);
-  margin: 0 auto;
-  padding: 0 var(--gutter);
-}
-
-.headerActions {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: var(--space-1);
-  margin-left: auto;
-}
-
-.headerRule {
-  width: 1px;
-  height: 24px;
-  margin: 0 var(--space-2);
-  background: var(--border-default);
-}
-
-.iconButton {
-  position: relative;
-  display: inline-grid;
-  place-items: center;
-  width: 40px;
-  height: 40px;
-  padding: 0;
-  border: 0;
-  border-radius: 12px;
-  background: transparent;
-  color: var(--text-secondary);
-  text-decoration: none;
-  cursor: pointer;
-  transition:
-    color var(--dur-fast) var(--ease),
-    background-color var(--dur-fast) var(--ease),
-    box-shadow var(--dur-fast) var(--ease);
-}
-
-.iconButton[aria-current='page'] {
-  background: var(--bg-surface);
-  box-shadow: 0 0 0 1px var(--line), 0 4px 12px -8px color-mix(in srgb, var(--text-primary) 30%, transparent);
-  color: var(--brand-action);
-}
-
-.iconButton[aria-pressed='false'] {
-  color: var(--text-muted);
-}
-
-@media (hover: hover) {
-  .iconButton:hover {
-    background: var(--bg-surface);
-    box-shadow: 0 0 0 1px var(--line);
-    color: var(--text-primary);
-  }
-}
-
-.toolIcon {
-  width: 20px;
-  height: 20px;
-}
-
-.unread {
+.brandArt {
   position: absolute;
-  top: 2px;
-  right: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  border-radius: var(--radius-pill);
-  background: linear-gradient(160deg, var(--brand-primary), var(--brand-action));
-  box-shadow: 0 0 0 2px var(--bg-app);
-  color: var(--text-on-action);
-  font-size: 10px;
-  font-weight: var(--font-weight-semibold);
-  font-variant-numeric: tabular-nums;
-  line-height: 1;
+  z-index: -1;
+  top: 50%;
+  right: -90px;
+  width: 440px;
+  height: 440px;
+  color: color-mix(in srgb, var(--text-on-action) 16%, transparent);
+  transform: translateY(-50%);
+  pointer-events: none;
 }
 
 /* ——— Payments being reconciled after a database recovery (migration 0034) ——— */
@@ -582,29 +384,12 @@
 }
 
 .eyebrow {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  justify-self: start;
-  margin: 0 0 var(--space-1);
-  padding: 4px 10px 4px 8px;
-  border-radius: var(--radius-pill);
-  background: color-mix(in srgb, var(--bg-surface) 80%, transparent);
-  box-shadow: 0 0 0 1px var(--line);
+  margin: 0 0 var(--space-2);
   font-size: var(--font-size-micro);
-  font-weight: var(--font-weight-semibold);
-  letter-spacing: 0.12em;
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.16em;
   text-transform: uppercase;
   color: var(--brand-action);
-}
-
-.eyebrow::before {
-  content: '';
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--brand-primary);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-primary) 18%, transparent);
 }
 
 .titleRow {
@@ -614,40 +399,40 @@
   gap: var(--space-2) var(--space-4);
 }
 
-/* The section's glyph on a raised tile, in front of the title. */
+/* The section's glyph, set as the mark is: white on a disc of the mark's orange. */
 .pageGlyph {
   display: inline-grid;
   flex: none;
   place-items: center;
-  width: 44px;
-  height: 44px;
-  border-radius: 14px;
-  background: linear-gradient(180deg, var(--bg-surface), var(--bg-subtle));
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: linear-gradient(160deg, var(--brand-primary), var(--brand-action));
   box-shadow:
-    0 0 0 1px var(--line),
-    inset 0 1px 0 var(--bg-surface),
-    0 1px 2px color-mix(in srgb, var(--text-primary) 5%, transparent),
-    0 10px 20px -12px color-mix(in srgb, var(--text-primary) 26%, transparent);
-  color: var(--brand-action);
+    inset 0 1px 0 color-mix(in srgb, var(--text-on-action) 30%, transparent),
+    0 10px 24px -10px color-mix(in srgb, var(--brand-primary) 70%, transparent);
+  color: var(--text-on-action);
 }
 
 .pageGlyph svg {
-  width: 24px;
-  height: 24px;
+  width: 26px;
+  height: 26px;
+  stroke-width: 1.8;
 }
 
 .pageTitle {
   margin: 0;
-  font-size: clamp(28px, 2.6vw, 38px);
+  font-size: clamp(34px, 4vw, 54px);
   font-weight: var(--font-weight-semibold);
-  line-height: 1.06;
-  letter-spacing: -0.04em;
+  line-height: 1.02;
+  letter-spacing: -0.045em;
   text-wrap: balance;
 }
 
 .lede {
-  margin: 0;
-  font-size: var(--font-size-body);
+  margin: var(--space-2) 0 0;
+  max-width: 40rem;
+  font-size: var(--font-size-body-lg);
   line-height: var(--line-height-normal);
   color: var(--text-secondary);
   text-wrap: pretty;
@@ -676,12 +461,17 @@
   gap: var(--space-2);
 }
 
-.footerDot {
-  width: 6px;
-  height: 6px;
+.footerMark {
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
-  background: var(--status-success);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--status-success) 18%, transparent);
+}
+
+.footerIcon {
+  width: 14px;
+  height: 14px;
+  margin-right: 6px;
+  vertical-align: -2px;
 }
 
 .footerLink {
@@ -699,8 +489,8 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-5);
-  padding: var(--space-6);
-  border-radius: 22px;
+  padding: var(--space-8);
+  border-radius: 28px;
   background: var(--bg-surface);
   box-shadow: 0 0 0 1px var(--line), var(--lift-strong);
   animation: enter var(--dur-complete) var(--ease) both;
@@ -711,8 +501,8 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
-  padding: var(--space-6);
-  border-radius: 18px;
+  padding: var(--space-6) var(--space-8);
+  border-radius: 24px;
   background: var(--bg-surface);
   box-shadow: 0 0 0 1px var(--line), var(--lift);
   animation: enter var(--dur-complete) var(--ease) both;
@@ -736,7 +526,7 @@
 
 .cardTitle {
   margin: 0;
-  font-size: var(--font-size-body-lg);
+  font-size: var(--font-size-heading);
   font-weight: var(--font-weight-semibold);
   letter-spacing: -0.015em;
 }
@@ -1060,7 +850,7 @@
 
 /* ——— Narrower pages: one column; the context follows the work, a page's status leads it ——— */
 
-@container page (max-width: 1019px) {
+@media (max-width: 1099px) {
   .workspace {
     grid-template-columns: minmax(0, 1fr);
     grid-template-areas:
@@ -1087,170 +877,99 @@
   }
 }
 
-/* ——— Between a phone and a full desk: the sidebar keeps only its glyphs ——— */
+/* ——— A narrower window: the pill keeps every glyph and only the current section's word ——— */
 
-@media (max-width: 1179px) and (min-width: 900px) {
+@media (max-width: 1379px) and (min-width: 900px) {
   .shell {
-    --sidebar: 76px;
     --gutter: var(--space-8);
   }
 
-  .sidebarInner {
-    align-items: center;
-    padding-inline: var(--space-2);
-  }
-
-  .brand {
-    padding: 0;
-  }
-
-  .brandName,
-  .brandTag,
-  .whoText,
-  .navLabel,
-  .navText,
-  .sidebarFoot {
+  .brandSub {
     display: none;
   }
 
-  .who {
-    padding: 6px;
-    box-shadow: none;
-    background: transparent;
+  .navItem:not([aria-current='page']) {
+    padding: 0 var(--space-3);
   }
 
-  .nav,
-  .deskNav {
-    align-items: center;
-  }
-
-  .deskNav {
-    margin-top: var(--space-3);
-    padding-top: var(--space-3);
-    border-top: 1px solid var(--line);
-  }
-
-  .navItem {
-    justify-content: center;
-    width: 48px;
-    min-height: 44px;
-    padding: 0;
-  }
-
-  .navItem[aria-current='page']::before {
-    left: -14px;
+  .navItem:not([aria-current='page']) .navText {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
   }
 }
 
-/* ——— A phone: no sidebar; the sections are a tab bar under the thumb ——— */
+/* ——— A phone: the sections drop to a floating bar under the thumb ——— */
 
 @media (max-width: 899px) {
   .shell {
     --gutter: var(--space-6);
-    display: flex;
-    flex-direction: column;
-    padding-bottom: calc(72px + env(safe-area-inset-bottom));
-  }
-
-  /* The sidebar's frame dissolves: only its sections stay, fixed to the bottom of the screen. */
-  .sidebar {
-    position: static;
-    display: contents;
-  }
-
-  .sidebarInner {
-    position: static;
-    display: contents;
-  }
-
-  .brand,
-  .who,
-  .navLabel,
-  .deskNav,
-  .sidebarFoot {
-    display: none;
-  }
-
-  .topBrand {
-    display: inline-flex;
-    flex: none;
-  }
-
-  .header {
-    background: color-mix(in srgb, var(--bg-app) 88%, transparent);
+    --masthead: 64px;
+    padding-bottom: calc(84px + env(safe-area-inset-bottom));
   }
 
   .mastheadInner {
-    gap: var(--space-2);
+    grid-template-columns: minmax(0, 1fr) auto;
   }
 
-  .mastheadInner > :nth-child(2) {
-    margin-left: auto;
-  }
-
-  .headerActions {
-    margin-left: 0;
-  }
-
-  .headerRule {
+  .brandSub {
     display: none;
   }
 
-  /* The sections become a floating tab bar at the bottom of the screen, under the thumb. */
+  /* A backdrop filter would make the masthead the frame of anything fixed inside it — the bar below. */
+  .header {
+    background: var(--bg-app);
+    backdrop-filter: none;
+    box-shadow: 0 1px 0 var(--line-soft);
+  }
+
   .nav {
     position: fixed;
     right: var(--space-3);
     bottom: calc(var(--space-3) + env(safe-area-inset-bottom));
     left: var(--space-3);
     z-index: 25;
-    flex-direction: row;
+    justify-self: stretch;
     justify-content: space-around;
-    gap: 2px;
     padding: 6px;
-    border-radius: 22px;
-    background: color-mix(in srgb, var(--bg-surface) 86%, transparent);
+    border-radius: 26px;
+    background: color-mix(in srgb, var(--bg-surface) 90%, transparent);
     backdrop-filter: saturate(1.6) blur(20px);
     box-shadow:
       0 0 0 1px var(--line),
       0 2px 6px color-mix(in srgb, var(--text-primary) 6%, transparent),
-      0 18px 40px -16px color-mix(in srgb, var(--text-primary) 34%, transparent);
+      0 20px 44px -16px color-mix(in srgb, var(--text-primary) 36%, transparent);
   }
 
   .navItem {
     flex: 1 1 0;
     flex-direction: column;
     justify-content: center;
-    gap: 2px;
+    gap: 3px;
     min-width: 0;
-    min-height: 54px;
+    min-height: 56px;
     padding: 0 2px;
-    border-radius: 16px;
+    border-radius: 20px;
     font-size: 10.5px;
     letter-spacing: -0.01em;
   }
 
-  .navGlyph {
-    width: 26px;
-    height: 26px;
-    background: transparent;
+  .navPill {
+    border-radius: 20px;
+  }
+
+  .navIcon {
+    width: 22px;
+    height: 22px;
   }
 
   .navText {
     max-width: 100%;
-  }
-
-  .navItem[aria-current='page'] {
-    background: var(--brand-soft);
-    box-shadow: none;
-    color: var(--brand-action);
-  }
-
-  .navItem[aria-current='page'] .navGlyph {
-    background: transparent;
-  }
-
-  .navItem[aria-current='page']::before {
-    display: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .workspace {
@@ -1272,10 +991,34 @@
     font-size: var(--font-size-body);
   }
 
+  .pageGlyph {
+    width: 40px;
+    height: 40px;
+  }
+
+  .pageGlyph svg {
+    width: 20px;
+    height: 20px;
+  }
+
+  .titleRow {
+    gap: var(--space-2) var(--space-3);
+  }
+
   .surface,
   .card {
     padding: var(--space-5) var(--space-4);
-    border-radius: 18px;
+    border-radius: 22px;
+  }
+
+  .brandField {
+    border-radius: 24px;
+  }
+
+  .brandArt {
+    right: -140px;
+    width: 340px;
+    height: 340px;
   }
 }
 
@@ -1283,10 +1026,6 @@
   .pageHead,
   .surface,
   .card {
-    animation: none;
-  }
-
-  .deskState[data-tone='live'] .deskStateDot {
     animation: none;
   }
 }

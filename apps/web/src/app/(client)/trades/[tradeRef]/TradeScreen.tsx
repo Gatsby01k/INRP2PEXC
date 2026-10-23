@@ -13,6 +13,7 @@ import { ArrowIcon, CheckIcon, ClockIcon, DownloadIcon, InfoIcon, PauseIcon, Rec
 import { SuccessMark } from '../../_workspace/SuccessMark.tsx';
 import { InrPayment } from './InrPayment.tsx';
 import { P2pDealCard } from './P2pDeal.tsx';
+import { MarkArt } from '../../../../components/MarkArt.tsx';
 import shell from '../../shell.module.css';
 import styles from './trade.module.css';
 
@@ -174,6 +175,8 @@ export function TradeScreen({ view, justOpened = false }: { view: PortalTrade; j
   const yourMove = trade.status === 'AWAITING_FIRST_LEG' && !view.onHold && !(p2p && !sell && p2p.step === 'ESCROW');
   const reached = Math.max(0, steps.findIndex((s) => s.status !== 'done'));
   const progress = steps.every((s) => s.status === 'done') ? 1 : reached / (steps.length - 1);
+  // The mark's three arcs are a trade's three moments — priced, funded, settled: the last lights only when it settles.
+  const stages = (steps.every((s) => s.status === 'done') ? 3 : Math.min(2, steps.filter((s) => s.status === 'done').length)) as 0 | 1 | 2 | 3;
   const events = eventsOf(view, sell, rate);
   const exactAmount = trade.depositInstructions ? Money.parse(trade.depositInstructions.amount, 'USDT').toDecimalString() : null;
   // While the trade waits on the client, the headline says what it is waiting for; the card below says how.
@@ -215,6 +218,9 @@ export function TradeScreen({ view, justOpened = false }: { view: PortalTrade; j
               Paused while the desk checks something. Nothing is lost.
             </p>
           ) : null}
+          {/* The trade's face: the mark's orange, the state in white, and the mark itself completing arc by arc. */}
+          <div className={`${shell.brandField} ${styles.face}`}>
+          <MarkArt className={styles.progressArt} stages={stages} live={moving} />
           <div className={styles.state} aria-live="polite">
             <h2 id="state-title" className={styles.stateTitle}>
               {headline.title}
@@ -238,6 +244,7 @@ export function TradeScreen({ view, justOpened = false }: { view: PortalTrade; j
               <span className={styles.amountLabel}>Rate</span>
               <span className={styles.rateFigure}>{rate}</span>
             </div>
+          </div>
           </div>
 
           <ol className={styles.track} aria-label="Trade progress" style={{ ['--progress' as string]: progress }}>

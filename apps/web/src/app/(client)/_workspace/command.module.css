@@ -4,31 +4,31 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  width: min(100%, 420px);
   height: 40px;
+  margin-right: var(--space-1);
   padding: 0 6px 0 var(--space-3);
   border: 0;
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--bg-surface) 70%, transparent);
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface);
   box-shadow:
-    inset 0 0 0 1px color-mix(in srgb, var(--border-default) 90%, transparent),
+    0 0 0 1px var(--border-default),
     0 1px 2px color-mix(in srgb, var(--text-primary) 4%, transparent);
-  color: var(--text-muted);
+  color: var(--text-secondary);
   font: inherit;
   font-size: var(--font-size-body-sm);
   text-align: left;
-  cursor: text;
+  cursor: pointer;
   transition:
     box-shadow var(--dur-fast) var(--ease),
-    background-color var(--dur-fast) var(--ease);
+    color var(--dur-fast) var(--ease);
 }
 
 @media (hover: hover) {
   .trigger:hover {
-    background: var(--bg-surface);
     box-shadow:
-      inset 0 0 0 1px var(--border-strong),
-      0 2px 8px -4px color-mix(in srgb, var(--text-primary) 18%, transparent);
+      0 0 0 1px var(--border-strong),
+      0 6px 14px -8px color-mix(in srgb, var(--text-primary) 30%, transparent);
+    color: var(--text-primary);
   }
 }
 
@@ -44,10 +44,13 @@
 }
 
 .triggerText {
-  flex: 1 1 auto;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+@media (max-width: 1379px) {
+  .triggerText {
+    display: none;
+  }
 }
 
 .kbd {
@@ -72,8 +75,8 @@
 
 .trigger .kbd {
   height: 26px;
-  border-radius: 8px;
-  background: var(--bg-surface);
+  border-radius: var(--radius-pill);
+  background: var(--bg-subtle);
 }
 
 /* ——— The panel ——— */

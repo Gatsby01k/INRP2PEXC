@@ -511,6 +511,102 @@ label.destination:has(input:checked) .radioMark {
 
 /* ——— The firm quote ——— */
 
+/* The quote's face: the mark's own orange field at the top of the ticket, every figure on it in white. */
+.face {
+  display: grid;
+  gap: var(--space-6);
+  margin: calc(var(--space-3) * -1) calc(var(--space-3) * -1) 0;
+  padding: var(--space-6) var(--space-6) var(--space-6);
+  animation: rise var(--dur-complete) var(--ease) both;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+  }
+}
+
+.face .quoteId > :first-child,
+.face .heroLabel,
+.face .heroSub,
+.face .heroUnit,
+.face .rateUnit,
+.face .timerLabel {
+  color: color-mix(in srgb, var(--text-on-action) 82%, transparent);
+}
+
+.face .quoteRef,
+.face .heroFigure,
+.face .rateValue,
+.face .rateNote,
+.face .timerTime,
+.face .timer[data-state='expiring'] .timerTime {
+  color: var(--text-on-action);
+}
+
+.face .side {
+  background: color-mix(in srgb, var(--text-on-action) 16%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-on-action) 30%, transparent);
+  color: var(--text-on-action);
+}
+
+.face .heroFigure {
+  font-size: clamp(44px, 5.4vw, 76px);
+  letter-spacing: -0.05em;
+}
+
+.face .timer {
+  --tone: var(--text-on-action);
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--text-on-action) 12%, transparent);
+  backdrop-filter: blur(6px);
+}
+
+.face .timerTrack {
+  stroke: color-mix(in srgb, var(--text-on-action) 26%, transparent);
+}
+
+.face .timer[data-state='expiring'] {
+  animation: urgent 1.2s var(--ease) infinite;
+}
+
+@keyframes urgent {
+  50% {
+    box-shadow: 0 0 0 8px color-mix(in srgb, var(--text-on-action) 0%, transparent), 0 0 0 0 color-mix(in srgb, var(--text-on-action) 40%, transparent);
+    background: color-mix(in srgb, var(--text-on-action) 22%, transparent);
+  }
+}
+
+.face .rate {
+  background: color-mix(in srgb, var(--text-on-action) 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-on-action) 26%, transparent);
+  backdrop-filter: blur(8px);
+}
+
+.face .rateLock {
+  background: var(--text-on-action);
+  box-shadow: 0 6px 14px -6px color-mix(in srgb, var(--text-primary) 50%, transparent);
+  color: var(--brand-action);
+}
+
+@media (max-width: 599px) {
+  .face {
+    margin: calc(var(--space-2) * -1) calc(var(--space-2) * -1) 0;
+    padding: var(--space-5) var(--space-4);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .face,
+  .face .timer[data-state='expiring'] {
+    animation: none;
+  }
+}
+
+
 .quoteHead {
   display: flex;
   align-items: center;

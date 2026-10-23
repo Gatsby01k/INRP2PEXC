@@ -1,0 +1,72 @@
+/* The mark's geometry. Everything is drawn in currentColor; the rupee is cut in the field's own colour (--mark-cut). */
+
+.art {
+  display: block;
+  overflow: visible;
+}
+
+.arc {
+  stroke: currentColor;
+  stroke-width: 32;
+  stroke-linecap: butt;
+  opacity: 0.28;
+  transition: opacity var(--dur-complete) var(--ease);
+}
+
+.arc[data-on] {
+  opacity: 1;
+}
+
+.spoke {
+  stroke: currentColor;
+  stroke-width: 22;
+  stroke-linecap: round;
+}
+
+.node,
+.hub {
+  fill: currentColor;
+}
+
+.rupee {
+  stroke: var(--mark-cut, var(--brand-primary));
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Live: the ring turns, very slowly, and the parties breathe one after another. */
+.art[data-live] .ring {
+  transform-origin: 256px 250px;
+  animation: turn 48s linear infinite;
+}
+
+.art[data-live] .node {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: breathe 3.6s var(--ease) infinite;
+  animation-delay: calc(var(--i) * 1.2s);
+}
+
+@keyframes turn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes breathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.18);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .art[data-live] .ring,
+  .art[data-live] .node {
+    animation: none;
+  }
+}

@@ -140,7 +140,7 @@ export function CommandMenu({ entries }: { entries: readonly CommandEntry[] }) {
     <>
       <button ref={trigger} type="button" className={styles.trigger} onClick={() => setOpen(true)} aria-haspopup="dialog" aria-expanded={open}>
         <SearchIcon className={styles.triggerIcon} />
-        <span className={styles.triggerText}>Search or jump to…</span>
+        <span className={styles.triggerText}>Search</span>
         <kbd className={styles.kbd} aria-hidden="true">
           {mac ? '⌘' : 'Ctrl'} K
         </kbd>

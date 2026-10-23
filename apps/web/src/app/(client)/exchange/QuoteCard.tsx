@@ -11,6 +11,7 @@ import { useCommand } from '../../../components/useCommand.tsx';
 import { acceptQuoteAction, rejectQuoteAction } from '../../../server/actions/client.ts';
 import { playSound } from '../_assistant/sound.ts';
 import { ArrowIcon, InfoIcon, LockIcon } from '../_workspace/icons.tsx';
+import { MarkArt } from '../../../components/MarkArt.tsx';
 import { legAmount } from './amounts.ts';
 import shell from '../shell.module.css';
 import styles from './exchange.module.css';
@@ -80,6 +81,9 @@ export function QuoteCard({ quote, canAccept, now }: { quote: ClientQuoteView; c
   return (
     <>
       <section className={`${shell.surface} ${styles.ticket}`} aria-label="Firm quote" data-robot-target="panel">
+        {/* The quote's face: the mark's own orange, the figure in white, the mark turning slowly behind it. */}
+        <div className={`${shell.brandField} ${styles.face}`}>
+        <MarkArt className={shell.brandArt} live />
         <header className={styles.quoteHead}>
           <div className={styles.quoteId}>
             <span className={shell.label}>Firm quote</span>
@@ -111,6 +115,7 @@ export function QuoteCard({ quote, canAccept, now }: { quote: ClientQuoteView; c
             </span>
           </span>
           <span className={styles.rateNote}>Locked until {formatIstTime(expiresAt)}</span>
+        </div>
         </div>
 
         <dl className={styles.terms}>

@@ -4,7 +4,8 @@ import { formatIstDate } from '@inrp2p/ui/format';
 import { memberPage } from '../../../server/client.ts';
 import { EmptyState } from '../_workspace/EmptyState.tsx';
 import { PageHead } from '../_workspace/PageHead.tsx';
-import { StoreIcon } from '../_workspace/icons.tsx';
+import { ArrowIcon, StoreIcon } from '../_workspace/icons.tsx';
+import { MarkArt } from '../../../components/MarkArt.tsx';
 import { DeskStatus } from '../desk/_ui/DeskStatus.tsx';
 import { rate, usdt } from '../desk/_ui/format.ts';
 import shell from '../shell.module.css';
@@ -28,33 +29,42 @@ export default async function MyDesksPage() {
             <EmptyState icon={<StoreIcon />} title="No desks yet" body="A desk appears here the first time you ask its page for a price or take a deal link it sent you." />
           </section>
         ) : (
-          <ul className={styles.list}>
+          <ul className={styles.deskGrid}>
             {desks.map((d) => (
               <li key={d.handle}>
-                <Link className={styles.row} href={`/desks/${d.handle}`}>
-                  <span className={styles.monogram} aria-hidden="true">
-                    {d.displayName.trim().charAt(0).toUpperCase()}
+                <Link className={styles.deskCard} href={`/desks/${d.handle}`}>
+                  <MarkArt className={styles.deskCardArt} hub={false} />
+                  <span className={styles.deskCardHead}>
+                    <span className={styles.monogram} aria-hidden="true">
+                      {d.displayName.trim().charAt(0).toUpperCase()}
+                    </span>
+                    <span className={styles.rowText}>
+                      <span className={styles.rowName}>
+                        {d.displayName} {d.deskStatus !== 'LIVE' ? <DeskStatus status={d.deskStatus} /> : null}
+                      </span>
+                      <span className={styles.rowMeta}>
+                        {d.relation === 'BLOCKED'
+                          ? 'Not dealing with your account'
+                          : d.completedDeals > 0
+                            ? `${d.completedDeals} ${d.completedDeals === 1 ? 'deal' : 'deals'} · ${usdt(d.completedUsdt)}${d.lastDealAt ? ` · last ${formatIstDate(new Date(d.lastDealAt))}` : ''}`
+                            : `Since ${formatIstDate(new Date(d.since))}`}
+                        {d.openDeals > 0 ? ` · ${d.openDeals} open` : ''}
+                      </span>
+                    </span>
                   </span>
-                  <span className={styles.rowText}>
-                    <span className={styles.rowName}>
-                      {d.displayName} {d.deskStatus !== 'LIVE' ? <DeskStatus status={d.deskStatus} /> : null}
+                  <span className={styles.deskCardRates}>
+                    <span className={styles.deskCardRate}>
+                      <span>Sell USDT</span>
+                      <strong>{d.prices.SELL_USDT ? rate(d.prices.SELL_USDT) : '—'}</strong>
                     </span>
-                    <span className={styles.rowMeta}>
-                      {d.relation === 'BLOCKED'
-                        ? 'Not dealing with your account'
-                        : d.completedDeals > 0
-                          ? `${d.completedDeals} ${d.completedDeals === 1 ? 'deal' : 'deals'} · ${usdt(d.completedUsdt)}${d.lastDealAt ? ` · last ${formatIstDate(new Date(d.lastDealAt))}` : ''}`
-                          : `Since ${formatIstDate(new Date(d.since))}`}
-                      {d.openDeals > 0 ? ` · ${d.openDeals} open` : ''}
+                    <span className={styles.deskCardRate}>
+                      <span>Buy USDT</span>
+                      <strong>{d.prices.BUY_USDT ? rate(d.prices.BUY_USDT) : '—'}</strong>
                     </span>
                   </span>
-                  <span className={styles.rowRates}>
-                    <span>
-                      Sell <strong>{d.prices.SELL_USDT ? rate(d.prices.SELL_USDT) : '—'}</strong>
-                    </span>
-                    <span>
-                      Buy <strong>{d.prices.BUY_USDT ? rate(d.prices.BUY_USDT) : '—'}</strong>
-                    </span>
+                  <span className={styles.deskCardGo}>
+                    Get a firm price
+                    <ArrowIcon className={styles.deskCardGoIcon} />
                   </span>
                 </Link>
               </li>

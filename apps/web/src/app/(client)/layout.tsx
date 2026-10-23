@@ -9,9 +9,9 @@ import { mailto, siteContacts } from '../../server/site.ts';
 import { SoundToggle } from './_assistant/SoundToggle.tsx';
 import { AccountMenu } from './_workspace/AccountMenu.tsx';
 import { CommandMenu, type CommandEntry } from './_workspace/CommandMenu.tsx';
-import { HelpIcon, MailIcon } from './_workspace/icons.tsx';
+import { MailIcon } from './_workspace/icons.tsx';
 import { NotificationsLink } from './_workspace/NotificationsLink.tsx';
-import { ClientNav, DeskNav, type ClientNavEntry } from './Nav.tsx';
+import { ClientNav, type ClientNavEntry } from './Nav.tsx';
 import styles from './shell.module.css';
 
 export const dynamic = 'force-dynamic';
@@ -64,11 +64,11 @@ const DESK_STATE: Record<string, { label: string; tone: 'live' | 'paused' | 'neu
  * account: a client with the Exchange sees all four sections; a trader applicant, or a client that provides capacity
  * only, sees Traders.
  *
- * On a computer the sections live in a sidebar — who you are signed in as, the workspace's sections, and for a trader
- * the desk's own sections under them — with a slim bar over the page: search (⌘K), sound, notifications and the
- * account. On a phone the sidebar folds away: the sections become a tab bar under the thumb and the bar keeps the
- * mark. Below the bar each page lays out its own work: a heading, the work, and — where the page has one — a column
- * of context beside it (`shell.module.css`).
+ * The masthead is the home page's own: the mark and the name on the left, the sections in a floating pill in the
+ * middle — the one you are on filled in the mark's orange, sliding to the next as you move — and search (⌘K), sound,
+ * notifications and the account on the right. On a phone the sections drop to a floating bar under the thumb. Below
+ * it each page lays out its own work: a heading, the work, and — where the page has one — a column of context beside
+ * it (`shell.module.css`).
  */
 export default async function ClientLayout({ children }: { children: ReactNode }) {
   const ctx = await workspacePage();
@@ -77,7 +77,7 @@ export default async function ClientLayout({ children }: { children: ReactNode }
   // After a database recovery the workspace may ask for a payment that was already made; it says so, in plain words
   // and without the internals, until the desk has reconciled (migration 0034, RUNBOOKS `restore-fence`).
   const { held } = await payoutsHeld(ctx.db);
-  const { props: markProps } = getImageProps({ src: mark, alt: '', width: 28, height: 28 });
+  const { props: markProps } = getImageProps({ src: mark, alt: '', width: 32, height: 32 });
   const { desk } = siteContacts();
   // A trader runs a desk: approved or paused, or already with one open.
   const trader = member
@@ -92,7 +92,6 @@ export default async function ClientLayout({ children }: { children: ReactNode }
   const withDesks = dealsWithDesks && member?.exchangeAccess ? [base[0]!, DESKS, ...base.slice(1)] : base;
   const entries = desks ? withDesk(withDesks) : withDesks;
   const name = member?.clientName ?? ctx.access.email;
-  const initial = name.trim().charAt(0).toUpperCase() || '·';
   const deskState = ownDesk ? DESK_STATE[ownDesk.status] : undefined;
 
   const commands: CommandEntry[] = [
@@ -105,107 +104,58 @@ export default async function ClientLayout({ children }: { children: ReactNode }
 
   return (
     <div className={styles.shell}>
-      <aside className={styles.sidebar}>
-        <div className={styles.sidebarInner}>
+      <header className={styles.header}>
+        <div className={styles.mastheadInner}>
           <Link href={home} className={styles.brand} aria-label="INRP2P workspace">
             <img {...markProps} className={styles.brandMark} />
-            <span className={styles.brandName}>INRP2P</span>
-            <span className={styles.brandTag}>Workspace</span>
+            <span className={styles.brandName}>
+              INRP2P <span className={styles.brandSub}>Exchange</span>
+            </span>
           </Link>
-
-          <div className={styles.who}>
-            <span className={styles.whoAvatar} aria-hidden="true">
-              {initial}
-            </span>
-            <span className={styles.whoText}>
-              <span className={styles.whoName}>{name}</span>
-              <span className={styles.whoMeta}>{member ? (ROLE[member.role] ?? 'Viewer') : 'No account yet'}</span>
-            </span>
-          </div>
-
-          <span className={styles.navLabel} aria-hidden="true">
-            Workspace
-          </span>
           <ClientNav entries={entries} />
-
-          {ownDesk && deskState ? (
-            <>
-              <span className={styles.navLabel} aria-hidden="true">
-                <span className={styles.navLabelText}>{ownDesk.display_name}</span>
-                <span className={styles.deskState} data-tone={deskState.tone}>
-                  <span className={styles.deskStateDot} />
-                  {deskState.label}
-                </span>
-              </span>
-              <DeskNav entries={DESK_SECTIONS} />
-            </>
-          ) : null}
-
-          <div className={styles.sidebarFoot}>
-            <div className={styles.helpCard}>
-              <span className={styles.helpIcon} aria-hidden="true">
-                <HelpIcon />
-              </span>
-              <span className={styles.helpText}>
-                <span className={styles.helpTitle}>Need a hand?</span>
-                <span className={styles.helpBody}>Quote your trade reference and a person on the desk picks it up.</span>
-              </span>
-              {desk ? (
-                <a className={styles.helpLink} href={mailto(desk, 'Question from the workspace')}>
-                  <MailIcon className={styles.helpLinkIcon} />
-                  Contact the desk
-                </a>
-              ) : null}
-            </div>
-          </div>
-        </div>
-      </aside>
-
-      <div className={styles.frame}>
-        <header className={styles.header}>
-          <div className={styles.mastheadInner}>
-            <Link href={home} className={styles.topBrand} aria-label="INRP2P">
-              <img {...markProps} className={styles.brandMark} />
-              <span className={styles.brandName}>INRP2P</span>
-            </Link>
+          <div className={styles.headerActions}>
             <CommandMenu entries={commands} />
-            <div className={styles.headerActions}>
-              <SoundToggle className={styles.iconButton} iconClassName={styles.toolIcon} labelClassName="ix-visually-hidden" />
-              {member ? (
-                <NotificationsLink unread={unread} className={styles.iconButton} iconClassName={styles.toolIcon} badgeClassName={styles.unread} />
-              ) : null}
-              <span className={styles.headerRule} aria-hidden="true" />
-              <AccountMenu name={name} email={ctx.access.email} role={member ? (ROLE[member.role] ?? 'Viewer') : null} hasAccount={member !== null} />
-            </div>
+            <SoundToggle className={styles.iconButton} iconClassName={styles.toolIcon} labelClassName="ix-visually-hidden" />
+            {member ? (
+              <NotificationsLink unread={unread} className={styles.iconButton} iconClassName={styles.toolIcon} badgeClassName={styles.unread} />
+            ) : null}
+            <AccountMenu name={name} email={ctx.access.email} role={member ? (ROLE[member.role] ?? 'Viewer') : null} hasAccount={member !== null} />
           </div>
-        </header>
-
-        {held ? (
-          <p className={styles.holdNotice} role="status" data-testid="payments-reconciling">
-            We are reconciling recent payments. If you have already sent a payment, please do not send it again — it will be matched to your trade or order.
-          </p>
-        ) : null}
-
-        <div className={styles.workspace} data-robot-scope="">
-          {children}
         </div>
+      </header>
 
-        <footer className={styles.footer}>
-          <div className={styles.footerInner}>
-            <span className={styles.footerBrand}>
-              <span className={styles.footerDot} aria-hidden="true" />
-              INRP2P Exchange · USDT ↔ INR
-            </span>
-            {desk ? (
-              <a className={styles.footerLink} href={mailto(desk, 'Question from the workspace')}>
-                Contact the desk — quote your trade reference
-              </a>
-            ) : (
-              <span>Questions about a trade? Quote its reference when you contact the desk.</span>
-            )}
-          </div>
-        </footer>
+      {held ? (
+        <p className={styles.holdNotice} role="status" data-testid="payments-reconciling">
+          We are reconciling recent payments. If you have already sent a payment, please do not send it again — it will be matched to your trade or order.
+        </p>
+      ) : null}
+
+      <div className={styles.workspace} data-robot-scope="">
+        {children}
       </div>
+
+      <footer className={styles.footer}>
+        <div className={styles.footerInner}>
+          <span className={styles.footerBrand}>
+            <img {...markProps} className={styles.footerMark} />
+            INRP2P Exchange · USDT ↔ INR
+            {deskState && ownDesk ? (
+              <span className={styles.deskState} data-tone={deskState.tone}>
+                <span className={styles.deskStateDot} />
+                {ownDesk.display_name} · {deskState.label}
+              </span>
+            ) : null}
+          </span>
+          {desk ? (
+            <a className={styles.footerLink} href={mailto(desk, 'Question from the workspace')}>
+              <MailIcon className={styles.footerIcon} />
+              Contact the desk — quote your trade reference
+            </a>
+          ) : (
+            <span>Questions about a trade? Quote its reference when you contact the desk.</span>
+          )}
+        </div>
+      </footer>
     </div>
   );
 }

@@ -7,7 +7,8 @@ import type { DeskToday } from '@inrp2p/traders';
 import type { TelegramLinkView } from '@inrp2p/clients';
 import { TelegramConnect } from '../_workspace/TelegramConnect.tsx';
 import { CopyButton } from '@inrp2p/ui';
-import { BankIcon, BoltIcon, ChartIcon, CheckIcon, DealsIcon, GaugeIcon, InfoIcon, TagIcon, TrendIcon, VaultIcon, WalletIcon } from '../_workspace/icons.tsx';
+import { ArrowIcon, BankIcon, BoltIcon, ChartIcon, CheckIcon, DealsIcon, GaugeIcon, InfoIcon, TrendIcon, VaultIcon, WalletIcon } from '../_workspace/icons.tsx';
+import { MarkArt } from '../../../components/MarkArt.tsx';
 import { useServerClock } from '../exchange/useServerClock.ts';
 import { DeskHead } from './_ui/DeskHead.tsx';
 import { DeskNotice } from './_ui/DeskNotice.tsx';
@@ -94,6 +95,47 @@ export function TodayScreen({
       />
       <main className={shell.main}>
         <DeskNotice desk={desk} />
+        <section className={`${shell.brandField} ${styles.priceHero}`} aria-labelledby="prices-title">
+          <MarkArt className={shell.brandArt} live={desk.status === 'LIVE'} />
+          <div className={styles.priceHeroHead}>
+            <h2 id="prices-title" className={styles.priceHeroTitle}>
+              Your prices
+            </h2>
+            {canCommit ? (
+              <Link className={styles.heroButton} href="/desk/prices">
+                Edit prices
+                <ArrowIcon className={styles.heroButtonIcon} />
+              </Link>
+            ) : null}
+          </div>
+          <div className={styles.monuments}>
+            {(['SELL_USDT', 'BUY_USDT'] as const).map((d) => {
+              const price = prices[d];
+              const on = price?.offered ?? false;
+              return (
+                <div key={d} className={styles.monument} {...(on ? {} : { 'data-off': '' })}>
+                  <span className={styles.monumentLabel}>
+                    {DESK_SIDE[d].you}
+                    <span className={styles.monumentState}>
+                      <span className={styles.monumentDot} aria-hidden="true" />
+                      {on ? 'Live' : 'Off'}
+                    </span>
+                  </span>
+                  <span className={styles.monumentValue}>{price ? rate(price.rate) : '—'}</span>
+                  <span className={styles.monumentMeta}>
+                    {price ? `${usdt(price.min, false)}–${usdt(price.max)}` : 'No price yet'}
+                    {price && on ? ` · ${relative(Date.parse(price.validUntil), now).replace('in ', '')} left` : ''}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+          {spread !== null ? (
+            <p className={styles.spreadChip}>
+              Your spread <strong>{spread} per USDT</strong>
+            </p>
+          ) : null}
+        </section>
         {!dealing && !suspended ? (
           <section className={shell.card} aria-labelledby="ready-title">
             <div className={shell.cardHead}>
@@ -217,107 +259,60 @@ export function TodayScreen({
           </div>
         </section>
 
-        <div className={styles.grid2}>
-          <section className={shell.card} aria-labelledby="prices-title">
-            <div className={shell.cardHead}>
-              <span className={shell.cardTitleRow}>
-                <span className={shell.cardGlyph} aria-hidden="true">
-                  <TagIcon />
-                </span>
-                <h2 id="prices-title" className={shell.cardTitle}>
-                  Your prices
-                </h2>
+        <section className={shell.card} aria-labelledby="fill-title">
+          <div className={shell.cardHead}>
+            <span className={shell.cardTitleRow}>
+              <span className={shell.cardGlyph} aria-hidden="true">
+                <VaultIcon />
               </span>
-              {canCommit ? (
-                <Link className={shell.textAction} href="/desk/prices">
-                  Edit
-                </Link>
-              ) : null}
-            </div>
-            <div className={styles.priceTiles}>
-              {(['SELL_USDT', 'BUY_USDT'] as const).map((d) => {
-                const price = prices[d];
-                const on = price?.offered ?? false;
-                return (
-                  <div key={d} className={styles.priceTile} {...(on ? {} : { 'data-off': '' })}>
-                    <span className={styles.priceCaption}>
-                      {DESK_SIDE[d].you}
-                      <span className={styles.liveDot} {...(on ? {} : { 'data-off': '' })}>
-                        {on ? 'Live' : 'Off'}
-                      </span>
-                    </span>
-                    <span className={styles.priceValue}>{price ? rate(price.rate) : '—'}</span>
-                    <span className={styles.priceMeta}>
-                      {price ? `${usdt(price.min, false)}–${usdt(price.max)}` : 'No price yet'}
-                      {price && on ? ` · ${relative(Date.parse(price.validUntil), now).replace('in ', '')} left` : ''}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-            {spread !== null ? (
-              <p className={styles.spread}>
-                <span>Your spread</span>
-                <strong>{spread} per USDT</strong>
-              </p>
-            ) : null}
-          </section>
-
-          <section className={shell.card} aria-labelledby="fill-title">
-            <div className={shell.cardHead}>
-              <span className={shell.cardTitleRow}>
-                <span className={shell.cardGlyph} aria-hidden="true">
-                  <VaultIcon />
+              <h2 id="fill-title" className={shell.cardTitle}>
+                What you can fill
+              </h2>
+            </span>
+            <Link className={shell.textAction} href="/traders">
+              Capacity
+            </Link>
+          </div>
+          <div className={styles.stack}>
+            <div className={styles.figure}>
+              <span className={styles.figureLabel}>
+                <span className={styles.figureIcon} aria-hidden="true">
+                  <BankIcon />
                 </span>
-                <h2 id="fill-title" className={shell.cardTitle}>
-                  What you can fill
-                </h2>
+                Rupees to buy USDT
               </span>
-              <Link className={shell.textAction} href="/traders">
-                Capacity
-              </Link>
+              <span className={styles.figureValue}>{today.capacity.SELL_USDT ? inr(today.capacity.SELL_USDT.available) : 'Not offered'}</span>
             </div>
-            <div className={styles.stack}>
-              <div className={styles.figure}>
-                <span className={styles.figureLabel}>
-                  <span className={styles.figureIcon} aria-hidden="true">
-                    <BankIcon />
-                  </span>
-                  Rupees to buy USDT
+            <div className={styles.figure}>
+              <span className={styles.figureLabel}>
+                <span className={styles.figureIcon} aria-hidden="true">
+                  <WalletIcon />
                 </span>
-                <span className={styles.figureValue}>{today.capacity.SELL_USDT ? inr(today.capacity.SELL_USDT.available) : 'Not offered'}</span>
-              </div>
-              <div className={styles.figure}>
-                <span className={styles.figureLabel}>
-                  <span className={styles.figureIcon} aria-hidden="true">
-                    <WalletIcon />
-                  </span>
-                  USDT to sell
-                </span>
-                <span className={styles.figureValue}>{today.capacity.BUY_USDT ? usdtShort(today.capacity.BUY_USDT.available) : 'Not offered'}</span>
-              </div>
-              <div className={styles.figure}>
-                <span className={styles.figureLabel}>
-                  <span className={styles.figureIcon} aria-hidden="true">
-                    <BoltIcon />
-                  </span>
-                  Network deposit
-                </span>
-                <span className={styles.figureValue}>
-                  {today.network.dealsCovered === null ? '—' : today.network.dealsCovered === 1 ? 'Covers 1 more deal' : `Covers ${today.network.dealsCovered} more deals`}
-                </span>
-              </div>
+                USDT to sell
+              </span>
+              <span className={styles.figureValue}>{today.capacity.BUY_USDT ? usdtShort(today.capacity.BUY_USDT.available) : 'Not offered'}</span>
             </div>
-            {today.network.short ? (
-              <p className={shell.info} data-tone="warning">
-                <InfoIcon className={shell.infoIcon} />
-                <span>
-                  Not enough TRX for the next deal’s transfers. <Link className={shell.textAction} href="/traders/network">Add TRX</Link>
+            <div className={styles.figure}>
+              <span className={styles.figureLabel}>
+                <span className={styles.figureIcon} aria-hidden="true">
+                  <BoltIcon />
                 </span>
-              </p>
-            ) : null}
-          </section>
-        </div>
+                Network deposit
+              </span>
+              <span className={styles.figureValue}>
+                {today.network.dealsCovered === null ? '—' : today.network.dealsCovered === 1 ? 'Covers 1 more deal' : `Covers ${today.network.dealsCovered} more deals`}
+              </span>
+            </div>
+          </div>
+          {today.network.short ? (
+            <p className={shell.info} data-tone="warning">
+              <InfoIcon className={shell.infoIcon} />
+              <span>
+                Not enough TRX for the next deal’s transfers. <Link className={shell.textAction} href="/traders/network">Add TRX</Link>
+              </span>
+            </p>
+          ) : null}
+        </section>
 
         <TelegramConnect view={telegram.view} botConfigured={telegram.botConfigured} title="Deal alerts in Telegram" />
 
