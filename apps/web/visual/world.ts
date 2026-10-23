@@ -147,6 +147,8 @@ const WALL_CLOCK_COLUMNS: readonly { table: string; columns: readonly string[] }
   { table: 'audit_event', columns: ['at'] },
   { table: 'bank_account', columns: ['created_at'] },
   { table: 'crypto_wallet', columns: ['created_at'] },
+  // A team member is shown "since" the day they joined (ADR 0020 team page).
+  { table: 'client_user', columns: ['created_at'] },
 ];
 
 async function pinWallClockColumns(db: Db): Promise<void> {

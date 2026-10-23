@@ -38,7 +38,7 @@ const STAGE_LABELS = {
 /** P2P (ADR 0019): the same four stages, in the words of a deal where the rupees go straight to the other side. */
 const P2P_STAGE_LABELS = {
   SELL_USDT: ['Quote accepted', 'USDT in escrow', 'INR from the buyer', 'Settled'],
-  BUY_USDT: ['Quote accepted', 'Seller confirmed your INR', 'USDT released', 'Settled'],
+  BUY_USDT: ['Quote accepted', 'INR confirmed', 'USDT released', 'Settled'],
 } as const;
 
 /** A public explorer for a TRON transaction, where the client can check it themselves. */

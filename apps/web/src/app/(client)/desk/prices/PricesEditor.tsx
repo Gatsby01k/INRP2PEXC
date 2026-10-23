@@ -8,7 +8,7 @@ import { setDeskPricesAction } from '../../../../server/actions/desks.ts';
 import { Field, Switch } from '../../_workspace/Field.tsx';
 import { InfoIcon } from '../../_workspace/icons.tsx';
 import { useServerClock } from '../../exchange/useServerClock.ts';
-import { DESK_SIDE, inr, percent, previewDeal, rate as rateText, rateGap, relative, sentence, usdt } from '../_ui/format.ts';
+import { DESK_SIDE, inr, percent, previewDeal, rate as rateText, rateGap, relative, sentence, usdt, usdtShort } from '../_ui/format.ts';
 import shell from '../../shell.module.css';
 import styles from '../desk.module.css';
 
@@ -146,7 +146,7 @@ export function PricesEditor({
                 </dl>
               ) : null}
               <p className={shell.muted}>
-                {capacity === null ? 'You do not offer this side on Traders.' : d === 'SELL_USDT' ? `You can pay up to ${inr(capacity)} right now.` : `You can deliver up to ${usdt(capacity)} right now.`}
+                {capacity === null ? 'You do not offer this side on Traders.' : d === 'SELL_USDT' ? `You can pay up to ${inr(capacity)} right now.` : `You can deliver up to ${usdtShort(capacity)} right now.`}
               </p>
             </section>
           );

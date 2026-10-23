@@ -129,7 +129,7 @@ export function RevenueScreen({ report, addresses, perms }: { report: RevenueRep
           ]}
         />
         {addresses.length === 0 ? (
-          <Empty title="Nothing at the deal addresses" body="Every completed deal’s earnings are in the revenue wallet." />
+          <Empty title="Nothing at the deal addresses" body="No completed deal has left earnings to sweep." />
         ) : (
           <DataTable caption="Earnings by deal address" columns={addressColumns} rows={addresses} rowKey={(a) => a.address} />
         )}

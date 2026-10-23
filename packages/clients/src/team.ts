@@ -314,6 +314,7 @@ export async function clientTeam(ex: Executor, clientId: string, viewerUserId?: 
     .where('cu.client_id', '=', id)
     .orderBy(sql`cu.status = 'ACTIVE'`, 'desc')
     .orderBy('cu.created_at')
+    .orderBy('cu.id')
     .execute();
   const invites = await ex
     .selectFrom('client_invite')
