@@ -2,6 +2,7 @@
 
 import { type ReactNode, forwardRef, useId } from 'react';
 import { groupDigits } from '@inrp2p/ui/format';
+import { Coin } from '../../../components/Coin.tsx';
 import styles from './exchange.module.css';
 
 export type Currency = 'USDT' | 'INR';
@@ -9,9 +10,7 @@ export type Currency = 'USDT' | 'INR';
 export function CurrencyTag({ currency }: { currency: Currency }) {
   return (
     <span className={styles.currency}>
-      <span className={styles.coin} data-coin={currency} aria-hidden="true">
-        {currency === 'INR' ? '₹' : '₮'}
-      </span>
+      <Coin currency={currency} size={32} />
       <span>
         {currency}
         <br />

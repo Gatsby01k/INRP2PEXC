@@ -8,7 +8,6 @@ import { workspacePage } from '../../server/client.ts';
 import { mailto, siteContacts } from '../../server/site.ts';
 import { AccountMenu } from './_workspace/AccountMenu.tsx';
 import { CommandMenu, type CommandEntry } from './_workspace/CommandMenu.tsx';
-import { MarkBlueprint } from '../../components/MarkArt.tsx';
 import { MailIcon } from './_workspace/icons.tsx';
 import { NotificationsLink } from './_workspace/NotificationsLink.tsx';
 import { ClientNav, type ClientNavEntry } from './Nav.tsx';
@@ -104,10 +103,10 @@ export default async function ClientLayout({ children }: { children: ReactNode }
 
   return (
     <div className={styles.shell}>
-      {/* The page's backdrop: the mark itself, drawn as its construction, faint in the corner — the brand's geometry
-          rather than a gradient. */}
+      {/* The page's backdrop: light from above, a fine grid fading into the paper, one warm glow of the mark's orange
+          drifting slowly, and a grain — the room the work sits in. */}
       <div className={styles.backdrop} aria-hidden="true">
-        <MarkBlueprint className={styles.backdropMark} />
+        <span className={styles.glow} />
       </div>
       <header className={styles.header}>
         <div className={styles.mastheadInner}>

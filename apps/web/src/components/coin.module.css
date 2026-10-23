@@ -1,0 +1,50 @@
+/* Coins and the mark's rupee. The tether green is the one colour here that is not the product's own: it is the
+   currency's, as a bank's colour on a card is the bank's. */
+
+.coin {
+  --usdt: #26a17b;
+  display: block;
+  flex: none;
+  filter: drop-shadow(0 4px 8px color-mix(in srgb, var(--text-primary) 16%, transparent));
+}
+
+.disc {
+  fill: var(--brand-action);
+}
+
+.coin[data-coin='INR'] .disc {
+  fill: var(--brand-primary);
+}
+
+.coin[data-coin='USDT'] .disc {
+  fill: var(--usdt);
+}
+
+.rim {
+  fill: none;
+  stroke: color-mix(in srgb, var(--text-on-action) 26%, transparent);
+  stroke-width: 1.5;
+}
+
+.sign {
+  fill: none;
+  stroke: var(--text-on-action);
+  stroke-width: 2.1;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.coin[data-coin='INR'] .sign {
+  stroke-width: 1.7;
+}
+
+.rupee {
+  display: inline-block;
+  width: auto;
+  height: 0.72em;
+  overflow: visible;
+  stroke: currentColor;
+  stroke-width: 1.65;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}

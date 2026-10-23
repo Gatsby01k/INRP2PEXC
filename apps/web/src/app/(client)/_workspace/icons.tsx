@@ -41,9 +41,10 @@ export const ArrowIcon = ({ className }: IconProps) => (
 
 export const BankIcon = ({ className }: IconProps) => (
   <svg {...base} className={className}>
-    <path d="M3.5 9 12 4.5 20.5 9" />
-    <path d="M5 9.5v8M9.7 9.5v8M14.3 9.5v8M19 9.5v8" />
-    <path d="M3.5 19.5h17" />
+    <path d="M4 9.2 12 5l8 4.2" />
+    <path d="M5.5 10v7.5M10 10v7.5M14 10v7.5M18.5 10v7.5" />
+    <path d="M4 19.5h16" />
+    <circle cx="12" cy="4.4" r="1.5" fill="currentColor" stroke="none" />
   </svg>
 );
 
@@ -76,10 +77,14 @@ export const CheckIcon = ({ className }: IconProps) => (
   </svg>
 );
 
+/** History: the mark's broken ring as a dial, its hand from the hub. */
 export const ClockIcon = ({ className }: IconProps) => (
   <svg {...base} className={className}>
-    <circle cx="12" cy="12" r="8.5" />
-    <path d="M12 7.5V12l3 2" />
+    <path d="M3.6 13.5A8.5 8.5 0 0 1 8 4.5" />
+    <path d="M16 4.5a8.5 8.5 0 0 1 4.4 9" />
+    <path d="M16.7 19.1a8.5 8.5 0 0 1-9.4 0" />
+    <path d="M12 8v4l2.6 1.6" />
+    <circle cx="12" cy="12" r="1.3" fill="currentColor" stroke="none" />
   </svg>
 );
 
@@ -196,10 +201,15 @@ export const ArchiveIcon = ({ className }: IconProps) => (
   </svg>
 );
 
+/** Exchange: two arcs of the mark's ring turning into each other, a node where each one starts. */
 export const SwapIcon = ({ className }: IconProps) => (
   <svg {...base} className={className}>
-    <path d="M8 4.5v15M4.5 16 8 19.5 11.5 16" />
-    <path d="M16 19.5v-15M12.5 8 16 4.5 19.5 8" />
+    <path d="M5.4 9.6A7 7 0 0 1 17.4 7.5" />
+    <path d="M14.4 7 17.4 7.5 17.4 4.5" />
+    <path d="M18.6 14.4A7 7 0 0 1 6.6 16.5" />
+    <path d="M9.6 17 6.6 16.5 6.6 19.5" />
+    <circle cx="5.4" cy="9.6" r="1.6" fill="currentColor" stroke="none" />
+    <circle cx="18.6" cy="14.4" r="1.6" fill="currentColor" stroke="none" />
   </svg>
 );
 
@@ -209,13 +219,14 @@ export const SparkIcon = ({ className }: IconProps) => (
   </svg>
 );
 
-/** A shopfront: the desk, a trader's own exchange (ADR 0020). */
+/** A desk: the mark's hub with its three spokes to the parties of a deal. */
 export const StoreIcon = ({ className }: IconProps) => (
   <svg {...base} className={className}>
-    <path d="M4 9.5 5.4 4.8A1 1 0 0 1 6.4 4h11.2a1 1 0 0 1 1 .8L20 9.5" />
-    <path d="M4 9.5a2.7 2.7 0 0 0 5.3 0 2.7 2.7 0 0 0 5.4 0 2.7 2.7 0 0 0 5.3 0" />
-    <path d="M5.5 12v7a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1v-7" />
-    <path d="M10 20v-4.5h4V20" />
+    <circle cx="12" cy="12.6" r="2.7" />
+    <path d="M12 9.9V6.3M9.7 14 6.6 15.8M14.3 14l3.1 1.8" />
+    <circle cx="12" cy="4.6" r="2" fill="currentColor" stroke="none" />
+    <circle cx="5.1" cy="16.7" r="2" fill="currentColor" stroke="none" />
+    <circle cx="18.9" cy="16.7" r="2" fill="currentColor" stroke="none" />
   </svg>
 );
 
@@ -276,20 +287,26 @@ export const SearchIcon = ({ className }: IconProps) => (
   </svg>
 );
 
-/** Today on the desk: a dial reading where things stand. */
+/** Today: three arcs of the mark's ring as a dial, the needle on the hub. */
 export const GaugeIcon = ({ className }: IconProps) => (
   <svg {...base} className={className}>
-    <path d="M4.2 16.5a8.5 8.5 0 1 1 15.6 0" />
-    <path d="m12 13.5 3.5-4" />
-    <circle cx="12" cy="13.5" r="1.4" fill="currentColor" stroke="none" />
+    <path d="M4.1 15.8a8.4 8.4 0 0 1 2.4-8.6" />
+    <path d="M9.3 5.1a8.4 8.4 0 0 1 5.4 0" />
+    <path d="M17.5 7.2a8.4 8.4 0 0 1 2.4 8.6" />
+    <path d="m12 14 3.4-3.6" />
+    <circle cx="12" cy="14" r="1.8" fill="currentColor" stroke="none" />
   </svg>
 );
 
-/** A deal: two sides moving against each other. */
+/** A deal: two sides moving against each other, each from its own node. */
 export const DealsIcon = ({ className }: IconProps) => (
   <svg {...base} className={className}>
-    <path d="M4.5 8.5h13M14 5l3.5 3.5L14 12" />
-    <path d="M19.5 15.5h-13M10 12l-3.5 3.5L10 19" />
+    <path d="M6.4 8.5H18" />
+    <path d="m15 5.5 3 3-3 3" />
+    <path d="M17.6 15.5H6" />
+    <path d="m9 12.5-3 3 3 3" />
+    <circle cx="4.6" cy="8.5" r="1.6" fill="currentColor" stroke="none" />
+    <circle cx="19.4" cy="15.5" r="1.6" fill="currentColor" stroke="none" />
   </svg>
 );
 

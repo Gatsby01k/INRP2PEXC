@@ -18,6 +18,7 @@ import { inr, previewDeal, rate as rateText, sentence, usdt } from '../../desk/_
 import { DeskQuoteCard } from '../_ui/DeskQuoteCard.tsx';
 import { DestinationPick, type PickOption } from '../_ui/DestinationPick.tsx';
 import shell from '../../shell.module.css';
+import { Amount } from '../../../../components/Amount.tsx';
 import styles from '../desks.module.css';
 
 type Side = 'SELL_USDT' | 'BUY_USDT';
@@ -141,7 +142,7 @@ export function DeskDealScreen(props: DeskDealProps) {
             />
             <div className={styles.result} aria-live="polite">
               <span className={styles.resultLabel}>{sells ? (fixed === 'BASE' ? 'You receive' : 'You send') : fixed === 'BASE' ? 'You pay' : 'You receive'}</span>
-              <span className={styles.resultFigure}>{priced ? (fixed === 'BASE' ? inr(priced.clientInr.toDecimalString()) : usdt(priced.base.toDecimalString())) : '—'}</span>
+              <span className={styles.resultFigure}>{priced ? <Amount value={fixed === 'BASE' ? inr(priced.clientInr.toDecimalString()) : usdt(priced.base.toDecimalString())} /> : '—'}</span>
             </div>
             {price ? (
               <p className={styles.meta}>

@@ -426,3 +426,9 @@
   height: 16px;
   transition: transform var(--dur-base) var(--ease);
 }
+
+/* A deal's line keeps its state on one line beside it. */
+.trade > :last-child {
+  flex: none;
+  white-space: nowrap;
+}

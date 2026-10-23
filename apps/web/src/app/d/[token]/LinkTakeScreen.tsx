@@ -13,6 +13,7 @@ import { inr, rate as rateText, sentence, usdt } from '../../(client)/desk/_ui/f
 import { DeskQuoteCard } from '../../(client)/desks/_ui/DeskQuoteCard.tsx';
 import { DestinationPick, type PickOption } from '../../(client)/desks/_ui/DestinationPick.tsx';
 import shell from '../../(client)/shell.module.css';
+import { Amount } from '../../../components/Amount.tsx';
 import styles from '../../public-desk/storefront.module.css';
 
 /**
@@ -82,11 +83,11 @@ export function LinkTakeScreen({
           <div className={styles.legs}>
             <div className={styles.leg}>
               <span className={styles.legLabel}>You send</span>
-              <span className={styles.legFigure}>{sells ? usdt(link.base) : inr(link.inr)}</span>
+              <span className={styles.legFigure}><Amount value={sells ? usdt(link.base) : inr(link.inr)} /></span>
             </div>
             <div className={styles.leg}>
               <span className={styles.legLabel}>You receive</span>
-              <span className={styles.legFigure}>{sells ? inr(link.inr) : usdt(link.base)}</span>
+              <span className={styles.legFigure}><Amount value={sells ? inr(link.inr) : usdt(link.base)} /></span>
             </div>
           </div>
           <p className={styles.rateLine}>

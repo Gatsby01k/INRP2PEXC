@@ -41,27 +41,53 @@
   z-index: -1;
   overflow: hidden;
   pointer-events: none;
+  background: radial-gradient(ellipse 60% 48% at 12% -12%, var(--bg-surface) 0%, transparent 72%);
 }
 
+/* A fine grid of points, the paper's ruling: strongest under the masthead, gone by the middle of the page. */
+.backdrop::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(color-mix(in srgb, var(--text-primary) 14%, transparent) 1px, transparent 1.5px);
+  background-size: 24px 24px;
+  mask-image: radial-gradient(ellipse 85% 62% at 50% -4%, var(--text-primary) 0%, transparent 78%);
+  -webkit-mask-image: radial-gradient(ellipse 85% 62% at 50% -4%, var(--text-primary) 0%, transparent 78%);
+}
+
+/* The paper's grain, over everything, multiplied in so it darkens nothing but texture. */
 .backdrop::after {
   content: '';
   position: absolute;
   inset: 0;
-  opacity: 0.35;
+  opacity: 0.32;
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.45  0 0 0 0 0.38  0 0 0 0 0.3  0 0 0 .55 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
   mix-blend-mode: multiply;
 }
 
-.backdropMark {
+/* One warm glow: the mark's orange let into the ivory, high on the right like early light, drifting very slowly. */
+.glow {
   position: absolute;
-  top: -120px;
-  right: -200px;
-  width: 860px;
-  height: 860px;
-  color: color-mix(in srgb, var(--border-strong) 80%, var(--brand-primary));
-  opacity: 0.85;
-  mask-image: radial-gradient(circle at 50% 48%, var(--text-primary) 0%, var(--text-primary) 34%, transparent 64%);
-  -webkit-mask-image: radial-gradient(circle at 50% 48%, var(--text-primary) 0%, var(--text-primary) 34%, transparent 64%);
+  top: -34vh;
+  right: -18vw;
+  width: 78vw;
+  height: 78vh;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--brand-primary) 16%, var(--ivory)) 0%, color-mix(in srgb, var(--brand-primary) 7%, var(--ivory)) 42%, transparent 100%);
+  opacity: 0.9;
+  animation: drift 26s ease-in-out infinite alternate;
+}
+
+@keyframes drift {
+  to {
+    transform: translate(-6vw, 5vh) scale(1.08);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .glow {
+    animation: none;
+  }
 }
 
 /* ——— Masthead: the home page's own ——— */
@@ -179,6 +205,17 @@
   flex: none;
   width: 18px;
   height: 18px;
+  transition: transform var(--dur-base) var(--ease);
+}
+
+@media (hover: hover) {
+  .navItem:hover .navIcon {
+    transform: translateY(-1px) scale(1.08);
+  }
+}
+
+.navItem:active .navIcon {
+  transform: scale(0.92);
 }
 
 @media (hover: hover) {
@@ -384,6 +421,31 @@
   gap: var(--space-5);
 }
 
+/* The page's blocks arrive one after another, a few tens of milliseconds apart, the first with the heading. */
+.main > *,
+.aside > * {
+  animation: enter var(--dur-complete) var(--ease) both;
+}
+
+.main > :nth-child(2),
+.aside > :nth-child(1) {
+  animation-delay: 60ms;
+}
+
+.main > :nth-child(3),
+.aside > :nth-child(2) {
+  animation-delay: 120ms;
+}
+
+.main > :nth-child(4),
+.aside > :nth-child(3) {
+  animation-delay: 180ms;
+}
+
+.main > :nth-child(n + 5) {
+  animation-delay: 240ms;
+}
+
 /* The column beside the work: context the client may want while they work, kept in view. */
 .aside {
   grid-area: aside;
@@ -461,6 +523,17 @@
   stroke-width: 1.8;
 }
 
+.pageGlyph {
+  animation: glyphIn 700ms var(--ease) both;
+}
+
+@keyframes glyphIn {
+  from {
+    opacity: 0;
+    transform: rotate(-90deg) scale(0.6);
+  }
+}
+
 .pageTitle {
   font-family: var(--font-display);
   margin: 0;
@@ -535,8 +608,6 @@
   border-radius: 28px;
   background: var(--bg-surface);
   box-shadow: 0 0 0 1px var(--line), var(--lift-strong);
-  animation: enter var(--dur-complete) var(--ease) both;
-  animation-delay: 40ms;
 }
 
 .card {
@@ -547,8 +618,6 @@
   border-radius: 24px;
   background: var(--bg-surface);
   box-shadow: 0 0 0 1px var(--line), var(--lift);
-  animation: enter var(--dur-complete) var(--ease) both;
-  animation-delay: 80ms;
 }
 
 @keyframes enter {
@@ -726,6 +795,35 @@
   width: 18px;
   height: 18px;
   transition: transform var(--dur-base) var(--ease);
+}
+
+/* A band of light crosses the primary action once as the pointer arrives — the way light catches a pressed metal key. */
+.action {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.action::after {
+  content: '';
+  position: absolute;
+  inset: -2px auto -2px -40%;
+  z-index: -1;
+  width: 34%;
+  background: linear-gradient(100deg, transparent, color-mix(in srgb, var(--text-on-action) 30%, transparent), transparent);
+  transform: skewX(-18deg) translateX(-120%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .action:not(:disabled):hover::after {
+    opacity: 1;
+    transform: skewX(-18deg) translateX(520%);
+    transition:
+      transform 900ms var(--ease),
+      opacity 200ms var(--ease);
+  }
 }
 
 .action:not(:disabled):active {
@@ -1061,14 +1159,6 @@
     border-radius: 24px;
   }
 
-  /* On a phone the drawing stays at the edge, behind the masthead, never under the words. */
-  .backdropMark {
-    top: -230px;
-    right: -250px;
-    width: 460px;
-    height: 460px;
-    opacity: 0.55;
-  }
 
   .brandArt {
     right: -140px;
@@ -1079,8 +1169,9 @@
 
 @media (prefers-reduced-motion: reduce) {
   .pageHead,
-  .surface,
-  .card {
+  .pageGlyph,
+  .main > *,
+  .aside > * {
     animation: none;
   }
 }

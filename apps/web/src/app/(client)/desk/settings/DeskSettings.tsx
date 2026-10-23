@@ -11,6 +11,7 @@ import { DeskNotice } from '../_ui/DeskNotice.tsx';
 import { DeskStatus } from '../_ui/DeskStatus.tsx';
 import { rate, sentence, usdt } from '../_ui/format.ts';
 import shell from '../../shell.module.css';
+import { Amount } from '../../../../components/Amount.tsx';
 import styles from '../desk.module.css';
 
 const HANDLE = /^[a-z0-9][a-z0-9-]{1,28}[a-z0-9]$/;
@@ -52,7 +53,7 @@ export function DeskSettings({ desk, prices, host, canAdmin, approved }: { desk:
               return (
                 <div key={d} className={styles.priceTile} {...(on ? {} : { 'data-off': '' })}>
                   <span className={styles.priceCaption}>{d === 'SELL_USDT' ? 'Sell USDT' : 'Buy USDT'}</span>
-                  <span className={styles.priceValue}>{on && p ? rate(p.rate) : '—'}</span>
+                  <span className={styles.priceValue}>{on && p ? <Amount value={rate(p.rate)} /> : '—'}</span>
                   <span className={styles.priceMeta}>{on && p ? `${usdt(p.min, false)}–${usdt(p.max)}` : desk.status === 'LIVE' ? 'Not offered now' : 'Shown once live'}</span>
                 </div>
               );

@@ -14,17 +14,16 @@
     var(--bg-app);
 }
 
-/* A faint grid behind the bento, fading out toward the edges: the network the desks stand on. */
+/* The workspace's own ruling behind the bento: a fine grid of points, fading out toward the edges. */
 .ownDesk::before {
   content: '';
   position: absolute;
   inset: 0;
   z-index: -1;
-  background-image:
-    linear-gradient(to right, color-mix(in srgb, var(--border-default) 55%, transparent) 1px, transparent 1px),
-    linear-gradient(to bottom, color-mix(in srgb, var(--border-default) 55%, transparent) 1px, transparent 1px);
-  background-size: 56px 56px;
-  mask-image: radial-gradient(ellipse 70% 60% at 50% 55%, #000 0%, transparent 75%);
+  background-image: radial-gradient(color-mix(in srgb, var(--text-primary) 14%, transparent) 1px, transparent 1.5px);
+  background-size: 24px 24px;
+  mask-image: radial-gradient(ellipse 75% 60% at 50% 45%, var(--text-primary) 0%, transparent 78%);
+  -webkit-mask-image: radial-gradient(ellipse 75% 60% at 50% 45%, var(--text-primary) 0%, transparent 78%);
 }
 
 .bento {
@@ -204,7 +203,7 @@
   place-items: center;
   width: 44px;
   height: 44px;
-  border-radius: 13px;
+  border-radius: 50%;
   background: var(--text-primary);
   color: var(--bg-surface);
   font-size: var(--font-size-heading);
@@ -383,7 +382,7 @@
   place-items: center;
   width: 22px;
   height: 22px;
-  border-radius: 7px;
+  border-radius: 50%;
   background: var(--text-primary);
   color: var(--bg-surface);
   font-size: var(--font-size-micro);

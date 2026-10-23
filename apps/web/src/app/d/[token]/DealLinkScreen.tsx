@@ -3,6 +3,7 @@
 import { useServerClock } from '../../(client)/exchange/useServerClock.ts';
 import { formatCountdown, formatIstDateTime } from '@inrp2p/ui/format';
 import { inr, rate as rateText, usdt } from '../../(client)/desk/_ui/format.ts';
+import { Amount } from '../../../components/Amount.tsx';
 import styles from '../../public-desk/storefront.module.css';
 
 interface LinkView {
@@ -49,11 +50,11 @@ export function DealLinkScreen({ view, now: serverNow, takeUrl }: { view: LinkVi
         <div className={styles.legs}>
           <div className={styles.leg}>
             <span className={styles.legLabel}>You send</span>
-            <span className={styles.legFigure}>{sells ? usdt(view.base) : inr(view.inr)}</span>
+            <span className={styles.legFigure}><Amount value={sells ? usdt(view.base) : inr(view.inr)} /></span>
           </div>
           <div className={styles.leg}>
             <span className={styles.legLabel}>You receive</span>
-            <span className={styles.legFigure}>{sells ? inr(view.inr) : usdt(view.base)}</span>
+            <span className={styles.legFigure}><Amount value={sells ? inr(view.inr) : usdt(view.base)} /></span>
           </div>
         </div>
         <p className={styles.rateLine}>

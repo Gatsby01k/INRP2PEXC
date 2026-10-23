@@ -1,4 +1,5 @@
-/* A statement's figure: sign raised, fraction lighter, unit quieter — sizes relative to the figure itself. */
+/* A statement's figure: the mark's rupee on the line, the fraction a step quieter, the unit quieter still — every size
+   relative to the figure itself, so it reads the same at any size. */
 
 .amount {
   font-variant-numeric: tabular-nums lining-nums;
@@ -7,24 +8,44 @@
 
 .cur {
   display: inline-block;
-  margin-right: 0.04em;
-  font-size: 0.6em;
+  margin-right: 0.03em;
   font-weight: var(--font-weight-medium);
-  letter-spacing: 0;
-  vertical-align: 0.5em;
-  line-height: 0;
+}
+
+.rupee {
+  vertical-align: baseline;
+}
+
+.ch {
+  display: inline-block;
+  animation: digit 520ms var(--ease) both;
+  animation-delay: calc(var(--i) * 26ms);
+}
+
+@keyframes digit {
+  from {
+    opacity: 0;
+    transform: translateY(0.32em);
+    filter: blur(3px);
+  }
 }
 
 .fraction {
-  font-size: 0.62em;
+  font-size: 0.68em;
   letter-spacing: -0.01em;
-  opacity: 0.62;
+  opacity: 0.74;
 }
 
 .unit {
-  margin-left: 0.08em;
-  font-size: 0.46em;
+  margin-left: 0.18em;
+  font-size: 0.44em;
   font-weight: var(--font-weight-medium);
-  letter-spacing: 0;
-  opacity: 0.62;
+  letter-spacing: 0.02em;
+  opacity: 0.66;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ch {
+    animation: none;
+  }
 }

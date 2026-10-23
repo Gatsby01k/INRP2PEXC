@@ -64,34 +64,6 @@
   }
 }
 
-/* The construction drawing: hairlines that stay one pixel at any size; the arcs carry the faintest wash of the
-   mark's orange, the circles and axes they are built on are dashed. */
-.blueprint {
-  display: block;
-  overflow: visible;
-}
-
-.blueprint path,
-.blueprint circle {
-  stroke: currentColor;
-  stroke-width: 1;
-  vector-effect: non-scaling-stroke;
-}
-
-.construction {
-  opacity: 0.55;
-}
-
-.construction path,
-.construction circle {
-  stroke-dasharray: 3 5;
-}
-
-.band,
-.bandNode {
-  fill: color-mix(in srgb, var(--brand-primary) 5%, transparent);
-}
-
 @media (prefers-reduced-motion: reduce) {
   .art[data-live] .ring,
   .art[data-live] .node {

@@ -4,6 +4,8 @@ import { useMemo, useState } from 'react';
 import type { DeskPagePrice } from '@inrp2p/traders';
 import { Money } from '@inrp2p/kernel';
 import { inr, previewDeal, rate as rateText, usdt } from '../../(client)/desk/_ui/format.ts';
+import { Amount } from '../../../components/Amount.tsx';
+import { Coin } from '../../../components/Coin.tsx';
 import styles from '../storefront.module.css';
 
 type Side = 'SELL_USDT' | 'BUY_USDT';
@@ -80,15 +82,25 @@ export function DeskTicket({
         <span className={styles.legValue}>
           {fixed === 'QUOTE' ? <span className={styles.unit}>₹</span> : null}
           <input className={styles.amount} inputMode="decimal" autoComplete="off" aria-label={`${top}, in ${fixed === 'BASE' ? 'USDT' : 'rupees'}`} value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ''))} />
-          {fixed === 'BASE' ? <span className={styles.unit}>USDT</span> : null}
+          {fixed === 'BASE' ? (
+            <span className={styles.unit}>
+              <Coin currency="USDT" size={24} />
+              USDT
+            </span>
+          ) : null}
         </span>
       </label>
 
       <div className={styles.leg} aria-live="polite">
         <span className={styles.legLabel}>{bottom}</span>
         <span className={styles.legValue}>
-          <span className={styles.result}>{result}</span>
-          {fixed === 'QUOTE' ? <span className={styles.unit}>USDT</span> : null}
+          <span className={styles.result}>{result === '—' ? result : <Amount value={result} />}</span>
+          {fixed === 'QUOTE' ? (
+            <span className={styles.unit}>
+              <Coin currency="USDT" size={24} />
+              USDT
+            </span>
+          ) : null}
         </span>
       </div>
 

@@ -9,7 +9,6 @@ import { getRuntime } from '../../../server/runtime.ts';
 import { appOrigin, publicOrigin } from '../../../server/site.ts';
 import { surfaceForHost } from '../../../server/surface.ts';
 import { DeskTicket } from './DeskTicket.tsx';
-import { MarkBlueprint } from '../../../components/MarkArt.tsx';
 import styles from '../storefront.module.css';
 
 export const dynamic = 'force-dynamic';
@@ -79,7 +78,7 @@ export default async function PublicDeskPage({ params }: { params: Promise<{ han
   return (
     <div className={styles.page}>
       <div className={styles.backdrop} aria-hidden="true">
-        <MarkBlueprint className={styles.backdropMark} />
+        <span className={styles.glow} />
       </div>
       <header className={styles.bar}>
         <a className={styles.by} href="/">
