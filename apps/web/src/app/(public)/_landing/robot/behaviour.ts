@@ -1,8 +1,6 @@
 import type { Direction } from '@inrp2p/kernel';
-import type { VoiceLine } from '../../../../content/site.ts';
 import { INPUT_PRIORITY, MOOD_PRIORITY, type RobotCue, type RobotFocus, type RobotMood } from './cues.ts';
 import { between, blinkOpenness, clamp, envelope, follow, follower, loadCycle } from './motion.ts';
-import { SPEECH, clipOf, loudness, nodTime, speakingSpec } from './speech.ts';
 import { DURATION, LOOK_FALLBACK, type LookTarget, type RobotState, type StateSpec, STATES } from './states.ts';
 
 export type { LookTarget, RobotState } from './states.ts';
@@ -38,9 +36,6 @@ export type { LookTarget, RobotState } from './states.ts';
  * changes, a pulse at its hub for a new rate, the whole mark resolving when a rate locks or a request is accepted, a
  * band of light through the eyes for each change read, and the antenna's tip — one soft pulse for a greeting, two
  * blinks and a steady glow for a problem. Each starts at an event and ends.
- *
- * When the voice says a line, the body follows that line's own timeline (`speech.ts`): attention at once, then a
- * nod on the stressed syllable and the hub light following the voice, timed to when the sound is heard.
  *
  * Pure: time, focus and where things are come in; the frame loop owns the scene.
  */
@@ -165,16 +160,6 @@ const SCAN = { duration: 0.55, gap: 0.5 } as const;
 /** One breath of the waiting face: the dots brighten in turn over this many seconds. */
 const WAIT_BREATH = 1.6;
 
-/** The line being spoken: when it was asked for, how long until it is heard, and when it stopped early, if it did. */
-interface Speech {
-  readonly line: VoiceLine;
-  readonly spec: StateSpec;
-  readonly at: number;
-  readonly lead: number;
-  readonly nod: number | null;
-  stoppedAt: number;
-}
-
 export class RobotBehaviour {
   private readonly random: () => number;
 
@@ -221,7 +206,6 @@ export class RobotBehaviour {
   private noticeAt = -10;
   private focusAt = -10;
   private focusDepth = 0;
-  private speech: Speech | null = null;
   /** When coming online, the greeting that follows the emblem's sweep. */
   private welcomeAt = Number.POSITIVE_INFINITY;
   private greetAt = -10;
@@ -258,7 +242,6 @@ export class RobotBehaviour {
   private readonly armLagYaw = follower();
   private readonly armLagLean = follower();
   private readonly headTilt = follower();
-  private readonly voiceLight = follower();
   // The face: one follower per number of the rig, so every expression eases into every other.
   private readonly smile = follower();
   private readonly lid = follower();
@@ -353,21 +336,6 @@ export class RobotBehaviour {
         return;
       case 'engage':
         if (this.inputHeard()) this.greet(time);
-        return;
-      case 'speak': {
-        const at = time;
-        const lead = clamp(cue.lead, 0, 0.3);
-        const nod = nodTime(cue.line);
-        this.speech = { line: cue.line, spec: speakingSpec(cue.line), at, lead, nod, stoppedAt: Number.POSITIVE_INFINITY };
-        // Speaking supersedes a value still settling: its confirmation would land on the words.
-        this.valuePending = false;
-        this.enter('speaking', time, at + lead + clipOf(cue.line).duration + SPEECH[cue.line].hold);
-        return;
-      }
-      case 'hush':
-        if (!this.speech || this.speech.stoppedAt <= time) return;
-        this.speech.stoppedAt = time;
-        if (this.state === 'speaking') this.until = Math.min(this.until, time + 0.2);
         return;
       case 'mood':
         this.arrive(cue.mood, time);
@@ -514,29 +482,9 @@ export class RobotBehaviour {
     // Full strength while it crosses the eyes; it fades only where there is nothing left to light.
     const scan = envelope(reading, 0.06, SCAN.duration - 0.15, 0.09) * this.squint.value;
 
-    // Speech: a held tilt while the line lasts, one nod on its stressed syllable, the hub light on the voice and,
-    // for a received request, the emblem resolving with the nod. All timed from when the sound is heard, and
-    // all ending with the line — or at once, eased, if it is stopped.
-    const speech = this.speech;
-    const heard = speech ? time - speech.at - speech.lead : Number.NEGATIVE_INFINITY;
-    const speaking = speech !== null && this.state === 'speaking';
-    const script = speech ? SPEECH[speech.line] : null;
-    const cut = speech ? speech.stoppedAt - speech.at - speech.lead : Number.POSITIVE_INFINITY;
-    follow(this.headTilt, spec.roll * this.side, speaking ? 0.35 : spec.settle, dt);
-    const voice = speech && script && heard < cut ? loudness(speech.line, heard) ** 1.5 * script.light : 0;
-    follow(this.voiceLight, voice, 0.045, dt);
-    const nodAt = speech?.nod ?? null;
-    // The nod starts a little before its syllable so that its lowest point lands on it; a stopped line only
-    // keeps a nod already under way.
-    const nodStart = nodAt === null ? Number.POSITIVE_INFINITY : nodAt - 0.1;
-    const spoken = speech && script?.nod && nodStart < cut ? envelope(heard - nodStart, 0.14, 0.04, 0.42) * script.nod.depth : 0;
-    // Something accepted gets one small nod of its own, after the glance that confirms it.
-    const nod = spoken + envelope(since(this.nodAt), 0.14, 0.05, 0.45) * 0.022;
-    const complete =
-      speech && script?.resolve && nodAt !== null && nodAt < cut
-        ? envelope(heard - nodAt, 0.22, Math.max(0, clipOf(speech.line).duration - nodAt) + script.hold * 0.5, 0.8) * 0.8
-        : 0;
-    if (speech && !speaking && heard > clipOf(speech.line).duration + 2) this.speech = null;
+    follow(this.headTilt, spec.roll * this.side, spec.settle, dt);
+    // Something accepted gets one small nod, after the glance that confirms it.
+    const nod = envelope(since(this.nodAt), 0.14, 0.05, 0.45) * 0.022;
 
     // Noticing opens and brightens the optics a touch; focusing narrows them briefly, once.
     const notice = envelope(since(this.noticeAt), 0.07, 0.05, 0.3);
@@ -547,7 +495,7 @@ export class RobotBehaviour {
     const resolved = envelope(since(this.resolveAt), 0.3, DURATION.locked - 1.3, 0.9);
     // The response to a meaningful change: one short, faint pass through the arcs in the direction of flow.
     const response = since(this.respondAt);
-    const arc = (slot: number) => envelope(response - this.sweepOrder.indexOf(slot) * 0.06, 0.05, 0.02, 0.28) * 0.75 + resolved * 1.2 + complete;
+    const arc = (slot: number) => envelope(response - this.sweepOrder.indexOf(slot) * 0.06, 0.05, 0.02, 0.28) * 0.75 + resolved * 1.2;
 
     return {
       load: loadCycle(this.loadPhase) * this.loadDepth * this.loadDepthOfState.value,
@@ -579,15 +527,15 @@ export class RobotBehaviour {
       armSwing: (this.armLagRoll.value - bodyRoll) * 0.9,
       armPitch: (this.armLagLean.value - bodyLean) * 1.2,
       armTwist: (this.armLagYaw.value - bodyYaw) * 1.2,
-      accentGlow: this.accent.value + 0.35 * resolved + 0.2 * complete,
+      accentGlow: this.accent.value + 0.35 * resolved,
       arcGlow: [arc(0), arc(1), arc(2)],
-      hubGlow: 1.1 * pulse + 1.2 * resolved + this.voiceLight.value + 0.6 * complete,
+      hubGlow: 1.1 * pulse + 1.2 * resolved,
     };
   }
 
-  /** What a state asks of the body; speaking asks what the line being spoken asks. */
+  /** What a state asks of the body. */
   private specOf(state: RobotState): StateSpec {
-    return state === 'speaking' && this.speech ? this.speech.spec : STATES[state];
+    return STATES[state];
   }
 
   /** Whether the client's own input may move the robot now: only while no state of record outranks it. */
@@ -598,7 +546,7 @@ export class RobotBehaviour {
   /** `continuing` takes a state up again without the optics' one-off response to entering it. */
   private enter(state: RobotState, time: number, until: number, resting = false, continuing = false): void {
     this.resting = resting;
-    if (state !== this.state || state === 'speaking') {
+    if (state !== this.state) {
       this.from = state === this.state ? this.from : this.state;
       this.since = time;
       const { eyes } = this.specOf(state);

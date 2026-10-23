@@ -17,6 +17,7 @@ import { DealList } from './_ui/DealList.tsx';
 import { NewDealSheet } from './_ui/NewDealSheet.tsx';
 import { DESK_SIDE, inr, percent, rate, rateGap, relative, usdt, usdtShort } from './_ui/format.ts';
 import shell from '../shell.module.css';
+import { Amount } from '../../../components/Amount.tsx';
 import styles from './desk.module.css';
 
 /** Deals move on the client's side and the chain's: the screen looks again while it is being looked at. */
@@ -121,7 +122,7 @@ export function TodayScreen({
                       {on ? 'Live' : 'Off'}
                     </span>
                   </span>
-                  <span className={styles.monumentValue}>{price ? rate(price.rate) : '—'}</span>
+                  <span className={styles.monumentValue}>{price ? <Amount value={rate(price.rate)} /> : '—'}</span>
                   <span className={styles.monumentMeta}>
                     {price ? `${usdt(price.min, false)}–${usdt(price.max)}` : 'No price yet'}
                     {price && on ? ` · ${relative(Date.parse(price.validUntil), now).replace('in ', '')} left` : ''}

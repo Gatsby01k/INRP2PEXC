@@ -9,6 +9,7 @@ import { MarkArt } from '../../../components/MarkArt.tsx';
 import { DeskStatus } from '../desk/_ui/DeskStatus.tsx';
 import { rate, usdt } from '../desk/_ui/format.ts';
 import shell from '../shell.module.css';
+import { Amount } from '../../../components/Amount.tsx';
 import styles from './desks.module.css';
 
 export const dynamic = 'force-dynamic';
@@ -55,11 +56,11 @@ export default async function MyDesksPage() {
                   <span className={styles.deskCardRates}>
                     <span className={styles.deskCardRate}>
                       <span>Sell USDT</span>
-                      <strong>{d.prices.SELL_USDT ? rate(d.prices.SELL_USDT) : '—'}</strong>
+                      <strong>{d.prices.SELL_USDT ? <Amount value={rate(d.prices.SELL_USDT)} /> : '—'}</strong>
                     </span>
                     <span className={styles.deskCardRate}>
                       <span>Buy USDT</span>
-                      <strong>{d.prices.BUY_USDT ? rate(d.prices.BUY_USDT) : '—'}</strong>
+                      <strong>{d.prices.BUY_USDT ? <Amount value={rate(d.prices.BUY_USDT)} /> : '—'}</strong>
                     </span>
                   </span>
                   <span className={styles.deskCardGo}>

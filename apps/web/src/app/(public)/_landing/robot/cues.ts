@@ -1,5 +1,4 @@
 import type { Direction } from '@inrp2p/kernel';
-import type { VoiceLine } from '../../../../content/site.ts';
 
 /**
  * How quote UI tells the robot what just happened.
@@ -27,7 +26,7 @@ export type RobotCue =
   | { readonly kind: 'lock' }
   /**
    * The visitor started working in the module: the first press or focus inside it — not a press on the call to
-   * action, which answers for itself. The robot greets them; the voice, if it is on, says so.
+   * action, which answers for itself. The robot greets them.
    */
   | { readonly kind: 'engage' }
   /**
@@ -37,7 +36,7 @@ export type RobotCue =
   | { readonly kind: 'submitted' }
   /**
    * What the visitor asked for cannot go as it is (no amount, a refused code): recoverable, and shown next to what
-   * needs changing. The robot turns to it and signals, gently; the voice, if it is on, says so.
+   * needs changing. The robot turns to it and signals, gently.
    */
   | { readonly kind: 'problem' }
   /**
@@ -45,13 +44,6 @@ export type RobotCue =
    * The robot waits with them in between.
    */
   | { readonly kind: 'wait'; readonly on: boolean }
-  /**
-   * The voice has started a line. `lead` is how long until its first sound reaches the speakers — the body's
-   * attention moves now, its timing to the words waits that long.
-   */
-  | { readonly kind: 'speak'; readonly line: VoiceLine; readonly lead: number }
-  /** The line stopped before its end (muted, interrupted, the page hidden). */
-  | { readonly kind: 'hush' }
   /** The state of record changed (`RobotMood`): what the robot rests in until the next change. */
   | { readonly kind: 'mood'; readonly mood: RobotMood };
 

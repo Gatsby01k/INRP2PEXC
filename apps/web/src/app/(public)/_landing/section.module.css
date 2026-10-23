@@ -25,6 +25,7 @@
 }
 
 .title {
+  font-family: var(--font-display);
   max-width: 22ch;
   margin: 0;
   font-size: clamp(36px, 3.9vw, 56px);

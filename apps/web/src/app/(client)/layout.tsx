@@ -6,9 +6,9 @@ import { payoutsHeld } from '@inrp2p/trades';
 import mark from '../../../../../brand/inrp2p-mark.png';
 import { workspacePage } from '../../server/client.ts';
 import { mailto, siteContacts } from '../../server/site.ts';
-import { SoundToggle } from './_assistant/SoundToggle.tsx';
 import { AccountMenu } from './_workspace/AccountMenu.tsx';
 import { CommandMenu, type CommandEntry } from './_workspace/CommandMenu.tsx';
+import { MarkBlueprint } from '../../components/MarkArt.tsx';
 import { MailIcon } from './_workspace/icons.tsx';
 import { NotificationsLink } from './_workspace/NotificationsLink.tsx';
 import { ClientNav, type ClientNavEntry } from './Nav.tsx';
@@ -104,6 +104,11 @@ export default async function ClientLayout({ children }: { children: ReactNode }
 
   return (
     <div className={styles.shell}>
+      {/* The page's backdrop: the mark itself, drawn as its construction, faint in the corner — the brand's geometry
+          rather than a gradient. */}
+      <div className={styles.backdrop} aria-hidden="true">
+        <MarkBlueprint className={styles.backdropMark} />
+      </div>
       <header className={styles.header}>
         <div className={styles.mastheadInner}>
           <Link href={home} className={styles.brand} aria-label="INRP2P workspace">
@@ -115,7 +120,6 @@ export default async function ClientLayout({ children }: { children: ReactNode }
           <ClientNav entries={entries} />
           <div className={styles.headerActions}>
             <CommandMenu entries={commands} />
-            <SoundToggle className={styles.iconButton} iconClassName={styles.toolIcon} labelClassName="ix-visually-hidden" />
             {member ? (
               <NotificationsLink unread={unread} className={styles.iconButton} iconClassName={styles.toolIcon} badgeClassName={styles.unread} />
             ) : null}

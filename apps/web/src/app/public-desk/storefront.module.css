@@ -138,6 +138,7 @@
 }
 
 .name {
+  font-family: var(--font-display);
   margin: 0;
   font-size: clamp(34px, 4.4vw, 56px);
   font-weight: var(--font-weight-semibold);
@@ -221,6 +222,7 @@
 }
 
 .record dd {
+  font-family: var(--font-display);
   order: 1;
   margin: 0;
   font-size: var(--font-size-heading);
@@ -338,6 +340,7 @@
 }
 
 .legValue {
+  font-family: var(--font-display);
   display: flex;
   align-items: baseline;
   gap: var(--space-2);
@@ -663,6 +666,7 @@
 }
 
 .dealTitle {
+  font-family: var(--font-display);
   margin: 0;
   font-size: clamp(26px, 6vw, 34px);
   font-weight: var(--font-weight-semibold);
@@ -677,6 +681,7 @@
 }
 
 .legFigure {
+  font-family: var(--font-display);
   font-size: clamp(28px, 7vw, 36px);
   font-weight: var(--font-weight-semibold);
   letter-spacing: -0.03em;

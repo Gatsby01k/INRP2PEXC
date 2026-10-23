@@ -121,6 +121,7 @@
 }
 
 .title {
+  font-family: var(--font-display);
   margin: 0;
   font-size: clamp(var(--font-size-title), 4.6vw, var(--font-size-display-xl));
   font-weight: var(--font-weight-semibold);

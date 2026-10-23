@@ -241,6 +241,7 @@
 }
 
 .kpiValue {
+  font-family: var(--font-display);
   font-size: clamp(26px, 2.4vw, 34px);
   font-weight: var(--font-weight-semibold);
   letter-spacing: -0.03em;
@@ -325,6 +326,7 @@
 }
 
 .priceValue {
+  font-family: var(--font-display);
   font-size: clamp(28px, 3vw, 38px);
   font-weight: var(--font-weight-semibold);
   letter-spacing: -0.04em;
@@ -621,6 +623,7 @@
 }
 
 .figure > .figureValue {
+  font-family: var(--font-display);
   grid-column: 1 / -1;
   padding-left: calc(26px + var(--space-2));
   font-size: var(--font-size-heading);
@@ -1534,6 +1537,7 @@
 }
 
 .monumentValue {
+  font-family: var(--font-display);
   font-size: clamp(48px, 6vw, 84px);
   font-weight: var(--font-weight-semibold);
   font-variant-numeric: tabular-nums;

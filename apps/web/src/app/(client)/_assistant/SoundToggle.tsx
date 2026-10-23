@@ -22,7 +22,7 @@ export function SoundToggle({ className, iconClassName, labelClassName }: { clas
   return (
     <button type="button" className={className} aria-pressed={on} onClick={() => setSoundEnabled(!on)} title={on ? 'Sounds on — click to mute' : 'Sounds off — click to turn on'}>
       <SpeakerIcon on={on} className={iconClassName} />
-      <span className={labelClassName}>Sound</span>
+      <span className={labelClassName}>Sounds</span>
     </button>
   );
 }

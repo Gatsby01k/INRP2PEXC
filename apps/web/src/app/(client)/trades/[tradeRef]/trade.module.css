@@ -107,6 +107,7 @@
 }
 
 .stateTitle {
+  font-family: var(--font-display);
   margin: 0;
   font-size: clamp(24px, 2.6vw, 32px);
   font-weight: var(--font-weight-semibold);
@@ -150,6 +151,7 @@
 }
 
 .amountFigure {
+  font-family: var(--font-display);
   font-size: clamp(22px, 2.4vw, 30px);
   font-weight: var(--font-weight-semibold);
   font-variant-numeric: tabular-nums;
@@ -181,6 +183,7 @@
 }
 
 .rateFigure {
+  font-family: var(--font-display);
   font-size: var(--font-size-heading);
   font-weight: var(--font-weight-semibold);
   font-variant-numeric: tabular-nums;

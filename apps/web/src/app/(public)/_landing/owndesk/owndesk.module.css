@@ -94,6 +94,7 @@
 }
 
 .tileTitle {
+  font-family: var(--font-display);
   margin: 0;
   font-size: clamp(20px, 1.6vw, 24px);
   font-weight: var(--font-weight-semibold);
@@ -211,6 +212,7 @@
 }
 
 .storeName {
+  font-family: var(--font-display);
   font-size: var(--font-size-heading);
   font-weight: var(--font-weight-semibold);
   letter-spacing: -0.03em;
@@ -277,6 +279,7 @@
 }
 
 .rateValue {
+  font-family: var(--font-display);
   font-size: 26px;
   font-weight: var(--font-weight-semibold);
   letter-spacing: 0.02em;
@@ -389,6 +392,7 @@
 }
 
 .linkAmount {
+  font-family: var(--font-display);
   font-size: var(--font-size-heading);
   font-weight: var(--font-weight-semibold);
   letter-spacing: 0.02em;
@@ -536,6 +540,7 @@
 }
 
 .priceValue {
+  font-family: var(--font-display);
   font-size: var(--font-size-heading);
   font-weight: var(--font-weight-semibold);
   letter-spacing: 0.02em;
@@ -749,6 +754,7 @@
 }
 
 .ctaTitle {
+  font-family: var(--font-display);
   max-width: 14ch;
   margin: 0;
   font-size: clamp(28px, 2.6vw, 38px);
@@ -770,7 +776,7 @@
   gap: var(--space-2);
   min-height: 52px;
   padding: 0 var(--space-6);
-  border-radius: var(--radius-pill);
+  border-radius: 14px;
   background: var(--text-on-action);
   color: var(--brand-action);
   font-weight: var(--font-weight-semibold);
@@ -920,6 +926,7 @@
 }
 
 .stepTitle {
+  font-family: var(--font-display);
   font-size: var(--font-size-body-lg);
   font-weight: var(--font-weight-semibold);
   letter-spacing: -0.01em;

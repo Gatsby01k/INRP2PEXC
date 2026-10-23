@@ -59,7 +59,7 @@ export function QuoteModule({ appOrigin, onboarding, copy }: { appOrigin: string
     onCta.current[key] = on;
     robotCues.setFocus(onCta.current.hover || onCta.current.focus ? 'cta' : 'none');
   };
-  // The first press or focus inside the module is the visitor starting work, and the robot's voice answers it.
+  // The first press or focus inside the module is the visitor starting work, and the robot answers it.
   // Not a press on the call to action: that answers for itself, by leaving for the request or by asking for an
   // amount. Keyboard focus arriving on it is still a first move.
   const engaged = useRef(false);
@@ -75,7 +75,7 @@ export function QuoteModule({ appOrigin, onboarding, copy }: { appOrigin: string
   useEffect(() => () => robotCues.setFocus('none'), []);
 
   // A request with no amount is caught here rather than sent on: the visitor stays, the field says why and has
-  // the focus, and the robot's voice says so once. Typing an amount clears it.
+  // the focus, and the robot signals it once. Typing an amount clears it.
   const [missingAmount, setMissingAmount] = useState(false);
   const amountField = useRef<HTMLDivElement>(null);
   const hasAmount = (value: string) => /[1-9]/.test(value);

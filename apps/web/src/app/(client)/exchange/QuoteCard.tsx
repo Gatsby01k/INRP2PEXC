@@ -14,6 +14,7 @@ import { ArrowIcon, InfoIcon, LockIcon } from '../_workspace/icons.tsx';
 import { MarkArt } from '../../../components/MarkArt.tsx';
 import { legAmount } from './amounts.ts';
 import shell from '../shell.module.css';
+import { Amount } from '../../../components/Amount.tsx';
 import styles from './exchange.module.css';
 
 const R = 34;
@@ -98,7 +99,7 @@ export function QuoteCard({ quote, canAccept, now }: { quote: ClientQuoteView; c
         <div className={styles.hero}>
           <span className={styles.heroLabel}>You receive</span>
           <span className={styles.heroFigure}>
-            {sell ? `₹${inr}` : usdt}
+            <Amount value={sell ? `₹${inr}` : usdt} />
             <span className={styles.heroUnit}>{sell ? 'INR' : 'USDT'}</span>
           </span>
           <span className={styles.heroSub}>{sell ? `You send ${usdt} USDT` : `You pay ₹${inr}`} · exactly, nothing is deducted</span>
@@ -110,7 +111,7 @@ export function QuoteCard({ quote, canAccept, now }: { quote: ClientQuoteView; c
               <LockIcon />
             </span>
             <span>
-              <span className={styles.rateValue}>{rate}</span>
+              <Amount className={styles.rateValue} value={rate} />
               <span className={styles.rateUnit}>per USDT</span>
             </span>
           </span>

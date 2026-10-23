@@ -34,8 +34,6 @@ export type RobotState =
   | 'intent'
   /** The visitor is on the masthead's way into the workspace: a glance up at it, even quieter than `intent`. */
   | 'entry'
-  /** The robot is saying one of its lines: each has its own authored timeline (`speech.ts`). */
-  | 'speaking'
   /*
    * The workspace's held states: each is what the robot rests in while a mood lasts (`cues.ts` `RobotMood`). A held
    * `waiting` is `waiting` itself; the others have no event of their own to borrow from.
@@ -452,23 +450,6 @@ export const STATES: Record<RobotState, StateSpec> = {
     blinks: true,
     accent: 0.4,
     settle: 0.6,
-    drift: false,
-  },
-  // Stands in for the line being spoken: the behaviour uses that line's own spec from `speech.ts`.
-  speaking: {
-    attention: () => 'viewer',
-    head: { yaw: 0.5, pitch: 0.56, share: 0.5, ease: 0.3 },
-    eyes: { aperture: 1, time: 0.25, gain: 1, notice: false, focus: 0 },
-    face: EXPRESSIONS.neutral,
-    faceTime: 0.2,
-    lean: 0,
-    turn: 0,
-    chin: 0,
-    roll: 0,
-    breath: 0.6,
-    blinks: false,
-    accent: REST_ACCENT,
-    settle: 0.5,
     drift: false,
   },
 };

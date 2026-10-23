@@ -64,6 +64,7 @@
 }
 
 .resultFigure {
+  font-family: var(--font-display);
   overflow-wrap: anywhere;
   font-size: clamp(26px, 2.6vw, 34px);
   font-weight: var(--font-weight-semibold);
@@ -396,6 +397,7 @@
 }
 
 .deskCardRate strong {
+  font-family: var(--font-display);
   color: var(--text-primary);
   font-size: clamp(24px, 2.4vw, 30px);
   font-weight: var(--font-weight-semibold);
@@ -409,8 +411,8 @@
   justify-content: center;
   gap: var(--space-2);
   min-height: 48px;
-  border-radius: var(--radius-pill);
-  background: linear-gradient(160deg, var(--brand-primary), var(--brand-action));
+  border-radius: 14px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--brand-primary) 55%, var(--brand-action)), var(--brand-action));
   box-shadow:
     inset 0 1px 0 color-mix(in srgb, var(--text-on-action) 28%, transparent),
     0 12px 24px -14px color-mix(in srgb, var(--brand-primary) 80%, transparent);

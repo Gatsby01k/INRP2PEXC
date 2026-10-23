@@ -176,14 +176,12 @@
   pointer-events: none;
 }
 
-/* Centred as the home page centres the quote module together with the voice switch under it (a 12px gap and a
-   32px switch), so the surface's frame lands exactly on the module's. */
+/* Centred as the home page centres the quote module, so the surface's frame lands exactly on the module's. */
 .access {
   grid-area: access;
   align-self: center;
   position: relative;
   z-index: 3;
-  padding-bottom: 44px;
 }
 
 /* ——— The access surface: the quote module's frame, width and material ——— */

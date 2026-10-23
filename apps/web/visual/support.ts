@@ -13,7 +13,7 @@ export function fixtureDb(): Db {
   return db;
 }
 
-const FONT_FACES = ["400 15px 'Geist'", "500 15px 'Geist'", "600 15px 'Geist'", "400 15px 'Geist Mono'", "500 15px 'Geist Mono'"];
+const FONT_FACES = ["400 15px 'Geist'", "500 15px 'Geist'", "600 15px 'Geist'", "400 15px 'Geist Mono'", "500 15px 'Geist Mono'", "600 15px 'Sora'", "700 15px 'Sora'"];
 
 /** The browser's clock, matching the frozen business clock so anything counted down in the page agrees with it. */
 export const FIXED_TIME = new Date(FROZEN_NOW);
@@ -102,7 +102,7 @@ export async function settle(page: Page): Promise<void> {
 }
 
 /**
- * Every rendered glyph must come from the bundled Geist faces. A system-font fallback (a character missing from
+ * Every rendered glyph must come from the bundled faces — Geist, and Sora for display. A system-font fallback (a character missing from
  * Geist) renders differently on every machine and makes baselines non-portable.
  */
 export async function platformFontsOutsideGeist(page: Page): Promise<string[]> {
@@ -114,7 +114,7 @@ export async function platformFontsOutsideGeist(page: Page): Promise<string[]> {
   const offenders = new Set<string>();
   for (const nodeId of nodeIds) {
     const { fonts } = await cdp.send('CSS.getPlatformFontsForNode', { nodeId });
-    const bad = fonts.filter((f) => !f.isCustomFont || !/^Geist( Mono)?( (Regular|Medium|SemiBold))?$/.test(f.familyName));
+    const bad = fonts.filter((f) => !f.isCustomFont || !/^(Geist( Mono)?( (Regular|Medium|SemiBold))?|Sora( \w+)?)$/.test(f.familyName));
     if (bad.length === 0) continue;
     // Naming the text makes the failure actionable: the fix is an SVG for that glyph, never a looser rule.
     const { object } = await cdp.send('DOM.resolveNode', { nodeId });

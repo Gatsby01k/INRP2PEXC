@@ -22,7 +22,7 @@ const NOTHING = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAA
  *
  * The same figure, the same still image and the same live scene as the hero, placed where the hero places it, so
  * arriving here from the home page changes the words and the surface but not the room. It is calmer by what it
- * is given, not by a different drawing: there is no voice and no quote to follow, so it holds position, settles
+ * is given, not by a different drawing: there is no quote to follow, so it holds position, settles
  * now and then, and glances at the surface's action while the visitor is on it.
  *
  * Only on a desktop. A phone signing in needs the form, not a figure above it: there the still image is swapped for

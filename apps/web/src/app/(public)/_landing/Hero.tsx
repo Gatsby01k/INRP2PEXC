@@ -3,7 +3,6 @@ import { appOrigin, onboardingHref } from '../../../server/site.ts';
 import { ArrowIcon, PointIcon } from './icons.tsx';
 import { QuoteModule } from './QuoteModule.tsx';
 import { RobotStage } from './robot/RobotStage.tsx';
-import { VoiceControl } from './voice/VoiceControl.tsx';
 import styles from './hero.module.css';
 
 /**
@@ -14,7 +13,7 @@ import styles from './hero.module.css';
  * whether or not the robot ever does.
  */
 export function Hero() {
-  const { eyebrow, headline, lede, points, quote, voice } = HERO;
+  const { eyebrow, headline, lede, points, quote } = HERO;
   return (
     <section className={styles.hero} aria-labelledby="hero-title" data-robot-scope="">
       <div className={styles.frame}>
@@ -50,7 +49,6 @@ export function Hero() {
 
         <div className={styles.quote}>
           <QuoteModule appOrigin={appOrigin()} onboarding={onboardingHref()} copy={quote} />
-          <VoiceControl copy={voice} />
         </div>
       </div>
     </section>

@@ -17,6 +17,10 @@ const point = (deg: number, r = R) => {
   return `${(CX + r * Math.cos(a)).toFixed(1)} ${(CY + r * Math.sin(a)).toFixed(1)}`;
 };
 const arc = (from: number, to: number) => `M ${point(from)} A ${R} ${R} 0 0 1 ${point(to)}`;
+/** An arc drawn as its outline: the band between two radii, closed at both ends — the mark's arc as a draughtsman draws it. */
+const band = (from: number, to: number, inner = R - 16, outer = R + 16) =>
+  `M ${point(from, outer)} A ${outer} ${outer} 0 0 1 ${point(to, outer)} L ${point(to, inner)} A ${inner} ${inner} 0 0 0 ${point(from, inner)} Z`;
+const BANDS = [band(170, 242), band(298, 370), band(56, 124)];
 
 /** Left (priced), right (funded), bottom (settled): the order a trade completes them in. */
 const ARCS = [arc(170, 242), arc(298, 370), arc(56, 124)];
@@ -25,6 +29,40 @@ const NODES = [
   { x: 150, y: 312 },
   { x: 362, y: 312 },
 ];
+
+/**
+ * The mark as a construction drawing: every part in one hairline, with the circles and axes it is built on. It is the
+ * workspace's backdrop — the brand's own geometry, faint, in the corner of the page — not a figure to read.
+ */
+export function MarkBlueprint({ className }: { className?: string | undefined }) {
+  return (
+    <svg className={`${styles.blueprint} ${className ?? ''}`} viewBox="0 0 512 512" fill="none" aria-hidden="true" focusable="false">
+      <g className={styles.construction}>
+        <circle cx={CX} cy={CY} r={R + 16} />
+        <circle cx={CX} cy={CY} r={R - 16} />
+        <circle cx={CX} cy={CY} r={R + 62} />
+        <circle cx={CX} cy={CY} r={R + 110} />
+        <path d={`M ${CX - 250} ${CY} H ${CX + 250} M ${CX} ${CY - 250} V ${CY + 250}`} />
+        {NODES.map((n, i) => (
+          <path key={i} d={`M ${CX} ${CY} L ${CX + (n.x - CX) * 2.1} ${CY + (n.y - CY) * 2.1}`} />
+        ))}
+      </g>
+      <g className={styles.lines}>
+        {BANDS.map((d) => (
+          <path key={d} d={d} className={styles.band} />
+        ))}
+        {NODES.map((n, i) => (
+          <g key={i}>
+            <path d={`M ${CX} ${CY} L ${n.x} ${n.y}`} />
+            <circle cx={n.x} cy={n.y} r="24" className={styles.bandNode} />
+          </g>
+        ))}
+        <circle cx={CX} cy={CY} r="50" />
+        <path transform={`translate(${CX} ${CY}) scale(4.6) translate(-12.2 -12.3)`} d="M8.5 7.5h7 M8.5 10.5h7 M10 7.5c2.6 0 3.9 1.1 3.9 2.9 0 1.9-1.4 3-3.9 3H9l4.8 3.6" />
+      </g>
+    </svg>
+  );
+}
 
 export function MarkArt({ className, stages = 3, live = false, hub = true }: { className?: string | undefined; stages?: 0 | 1 | 2 | 3; live?: boolean; hub?: boolean }) {
   return (

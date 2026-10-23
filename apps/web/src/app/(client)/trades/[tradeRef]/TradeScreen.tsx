@@ -15,6 +15,7 @@ import { InrPayment } from './InrPayment.tsx';
 import { P2pDealCard } from './P2pDeal.tsx';
 import { MarkArt } from '../../../../components/MarkArt.tsx';
 import shell from '../../shell.module.css';
+import { Amount } from '../../../../components/Amount.tsx';
 import styles from './trade.module.css';
 
 const LEG_STATUS: Record<string, LegStatus> = {
@@ -231,18 +232,18 @@ export function TradeScreen({ view, justOpened = false }: { view: PortalTrade; j
           <div className={styles.amounts}>
             <div className={styles.amount}>
               <span className={styles.amountLabel}>{sell ? 'You sell' : 'You pay'}</span>
-              <span className={styles.amountFigure}>{sell ? usdt : inr}</span>
+              <Amount className={styles.amountFigure} value={sell ? usdt : inr} />
             </div>
             <span className={styles.amountArrow} aria-hidden="true">
               <ArrowIcon />
             </span>
             <div className={styles.amount}>
               <span className={styles.amountLabel}>You receive</span>
-              <span className={styles.amountFigure}>{sell ? inr : usdt}</span>
+              <Amount className={styles.amountFigure} value={sell ? inr : usdt} />
             </div>
             <div className={`${styles.amount} ${styles.amountRate}`}>
               <span className={styles.amountLabel}>Rate</span>
-              <span className={styles.rateFigure}>{rate}</span>
+              <Amount className={styles.rateFigure} value={rate} />
             </div>
           </div>
           </div>

@@ -74,31 +74,9 @@ export interface HeroCopy {
   readonly lede: string;
   readonly points: readonly { readonly icon: HeroPointIcon; readonly label: string }[];
   readonly quote: QuoteModuleCopy;
-  readonly voice: HeroVoiceCopy;
 }
 
 export type HeroPointIcon = 'rupee' | 'lock' | 'dealer' | 'destination';
-
-/**
- * Everything the robot ever says: the visitor's first move, a request received, and a problem worth a second
- * look. Changing an amount or a direction is shown, never spoken — rarity is what keeps a voice worth hearing.
- */
-export const VOICE_LINES = ['ready', 'received', 'check'] as const;
-export type VoiceLine = (typeof VOICE_LINES)[number];
-
-/**
- * The robot's voice: three short, recorded lines, each said only after something the visitor did, and only once
- * the visitor has turned the voice on. `lines` are the words of the recordings (`voice/clips`), spoken, not
- * shown; `control` names the button that turns them on and off, `state` is the word it shows for each position,
- * and `on` and `off` describe that position in full.
- */
-export interface HeroVoiceCopy {
-  readonly control: string;
-  readonly state: { readonly on: string; readonly off: string };
-  readonly on: string;
-  readonly off: string;
-  readonly lines: Record<VoiceLine, string>;
-}
 
 /**
  * The way in for someone who is not a client yet (D-17): they open their own account in the workspace, with the same
@@ -154,17 +132,6 @@ export const HERO: HeroCopy = {
     cta: 'Request quote',
     amountRequired: 'Enter an amount to request a quote.',
     note: 'Sent from your client account.',
-  },
-  voice: {
-    control: 'Voice',
-    state: { on: 'On', off: 'Off' },
-    on: 'Voice cues are on. Press to turn them off.',
-    off: 'Voice cues are off. Press to turn them on.',
-    lines: {
-      ready: 'Ready when you are.',
-      received: 'Request received.',
-      check: "Let's check that.",
-    },
   },
 };
 

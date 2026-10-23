@@ -1,3 +1,19 @@
+/* The brand's display face for every page and section title (tokens: --font-display). */
+h1,
+h2 {
+  font-family: var(--font-display);
+}
+
+/* Selected text takes the mark's colours, and scrollbars stay quiet on the paper. */
+::selection {
+  background: color-mix(in srgb, var(--brand-primary) 22%, transparent);
+  color: var(--text-primary);
+}
+
+html {
+  scrollbar-color: color-mix(in srgb, var(--text-primary) 22%, transparent) transparent;
+}
+
 /* Desk-only helpers. Anything reusable belongs in the design system, not here. */
 .ix-linkish {
   background: none;

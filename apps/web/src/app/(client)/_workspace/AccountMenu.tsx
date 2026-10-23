@@ -3,12 +3,13 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { SoundToggle } from '../_assistant/SoundToggle.tsx';
 import { ChevronDownIcon, ShieldIcon, SignOutIcon } from './icons.tsx';
 import styles from './account-menu.module.css';
 
 /**
  * Who is signed in, and the few things that belong to them rather than to a page: their account and its security,
- * and signing out. A disclosure button and a short list of links — the menu closes on Escape, on a click outside,
+ * whether the workspace plays its sounds, and signing out. A disclosure button and a short list of links — the menu closes on Escape, on a click outside,
  * and when one of its links is followed.
  */
 export function AccountMenu({ name, email, role, hasAccount }: { name: string; email: string; role: string | null; hasAccount: boolean }) {
@@ -88,6 +89,9 @@ export function AccountMenu({ name, email, role, hasAccount }: { name: string; e
               </Link>
             </li>
           ) : null}
+          <li>
+            <SoundToggle className={styles.item} iconClassName={styles.itemIcon} labelClassName={styles.itemLabel} />
+          </li>
           <li>
             <button type="button" className={styles.item} onClick={() => void signOut()} disabled={leaving}>
               <SignOutIcon className={styles.itemIcon} />

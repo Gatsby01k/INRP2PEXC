@@ -74,6 +74,7 @@
 .legPending {
   flex: 1 1 auto;
   min-width: 0;
+  font-family: var(--font-display);
   font-size: clamp(30px, 3.4vw, 42px);
   font-weight: var(--font-weight-semibold);
   font-variant-numeric: tabular-nums;
@@ -717,6 +718,7 @@ label.destination:has(input:checked) .radioMark {
 }
 
 .heroFigure {
+  font-family: var(--font-display);
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
@@ -778,6 +780,7 @@ label.destination:has(input:checked) .radioMark {
 }
 
 .rateValue {
+  font-family: var(--font-display);
   font-size: var(--font-size-heading-lg);
   font-weight: var(--font-weight-semibold);
   font-variant-numeric: tabular-nums;
@@ -1104,6 +1107,7 @@ label.destination:has(input:checked) .radioMark {
 }
 
 .setupFigure {
+  font-family: var(--font-display);
   position: absolute;
   right: 0;
   bottom: 0;

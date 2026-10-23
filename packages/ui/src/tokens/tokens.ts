@@ -55,6 +55,8 @@ export const FONT_WEIGHT = { regular: '400', medium: '500', semibold: '600' } as
 export const FONT_FAMILY = {
   sans: "'Geist', 'Helvetica Neue', Arial, sans-serif",
   mono: "'Geist Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace",
+  /** The brand's display face: page and section titles, and the figures a page is about. Never body text. */
+  display: "'Sora', 'Geist', 'Helvetica Neue', Arial, sans-serif",
 } as const;
 
 export const RADIUS = { control: '8px', input: '10px', surface: '14px', pill: '999px' } as const;

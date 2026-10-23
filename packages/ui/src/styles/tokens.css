@@ -53,6 +53,7 @@
   --font-weight-semibold: 600;
   --font-sans: 'Geist', 'Helvetica Neue', Arial, sans-serif;
   --font-mono: 'Geist Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  --font-display: 'Sora', 'Geist', 'Helvetica Neue', Arial, sans-serif;
   --radius-control: 8px;
   --radius-input: 10px;
   --radius-surface: 14px;
