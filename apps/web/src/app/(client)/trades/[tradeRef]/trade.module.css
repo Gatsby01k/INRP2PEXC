@@ -575,6 +575,8 @@ a.eventDetail:hover {
 }
 
 .help {
+  background: color-mix(in srgb, var(--bg-surface) 72%, transparent);
+  backdrop-filter: blur(10px);
   display: flex;
   align-items: flex-start;
   gap: var(--space-3);

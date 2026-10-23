@@ -9,7 +9,7 @@ import { StatusBanner, useAssistantState } from '../_assistant/AssistantPanel.ts
 import { RobotFigure } from '../_assistant/RobotFigure.tsx';
 import { historyAssistant, isOpenTrade, lifecycleSteps } from '../_assistant/model.ts';
 import { EmptyState } from '../_workspace/EmptyState.tsx';
-import { ArrowIcon, ChevronIcon, ClockIcon, ReceiptIcon } from '../_workspace/icons.tsx';
+import { ArrowDownLeftIcon, ArrowIcon, ArrowUpRightIcon, ChevronIcon, ClockIcon, ReceiptIcon } from '../_workspace/icons.tsx';
 import { Stepper } from '../_workspace/Stepper.tsx';
 import { StatusPill } from '../_workspace/StatusPill.tsx';
 import shell from '../shell.module.css';
@@ -157,10 +157,18 @@ export function HistoryScreen({ rows, open, counts, filter }: { rows: readonly H
                           </button>
                         </td>
                         <td className={styles.ref}>
-                          <Link href={`/trades/${r.ref}`} onClick={(e) => e.stopPropagation()}>
-                            {r.ref}
-                          </Link>
-                          <span className={styles.direction}>{sell ? 'Sell USDT' : 'Buy USDT'}</span>
+                          <span className={styles.refRow}>
+                            {/* USDT leaving the client is a sell (up, in the mark's orange); arriving, a buy (down, in ink). */}
+                            <span className={styles.dirDisc} data-dir={sell ? 'sell' : 'buy'} aria-hidden="true">
+                              {sell ? <ArrowUpRightIcon /> : <ArrowDownLeftIcon />}
+                            </span>
+                            <span className={styles.refText}>
+                              <Link href={`/trades/${r.ref}`} onClick={(e) => e.stopPropagation()}>
+                                {r.ref}
+                              </Link>
+                              <span className={styles.direction}>{sell ? 'Sell USDT' : 'Buy USDT'}</span>
+                            </span>
+                          </span>
                         </td>
                         <td className={styles.started}>
                           <When iso={r.openedAt} />

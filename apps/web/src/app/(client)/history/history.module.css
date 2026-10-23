@@ -174,6 +174,40 @@
   white-space: nowrap;
 }
 
+.refRow {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.refText {
+  display: grid;
+}
+
+.dirDisc {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--text-primary);
+  box-shadow: 0 6px 14px -8px color-mix(in srgb, var(--text-primary) 60%, transparent);
+  color: var(--bg-surface);
+}
+
+.dirDisc[data-dir='sell'] {
+  background: linear-gradient(160deg, var(--brand-primary), var(--brand-action));
+  box-shadow: 0 6px 14px -6px color-mix(in srgb, var(--brand-primary) 70%, transparent);
+  color: var(--text-on-action);
+}
+
+.dirDisc svg {
+  width: 16px;
+  height: 16px;
+  stroke-width: 2;
+}
+
 .ref a {
   display: block;
   color: var(--text-primary);
@@ -456,5 +490,12 @@
 
   .detailActions a {
     width: 100%;
+  }
+}
+
+/* On a phone a trade is a card whose first line already says buy or sell: the disc would crowd its status. */
+@media (max-width: 959px) {
+  .dirDisc {
+    display: none;
   }
 }

@@ -54,13 +54,14 @@
 
 .backdropMark {
   position: absolute;
-  top: -260px;
-  right: -300px;
-  width: 980px;
-  height: 980px;
-  color: color-mix(in srgb, var(--border-strong) 85%, var(--brand-primary));
-  mask-image: radial-gradient(circle at 60% 40%, var(--text-primary) 0%, var(--text-primary) 30%, transparent 68%);
-  -webkit-mask-image: radial-gradient(circle at 60% 40%, var(--text-primary) 0%, var(--text-primary) 30%, transparent 68%);
+  top: -120px;
+  right: -200px;
+  width: 860px;
+  height: 860px;
+  color: color-mix(in srgb, var(--border-strong) 80%, var(--brand-primary));
+  opacity: 0.85;
+  mask-image: radial-gradient(circle at 50% 48%, var(--text-primary) 0%, var(--text-primary) 34%, transparent 64%);
+  -webkit-mask-image: radial-gradient(circle at 50% 48%, var(--text-primary) 0%, var(--text-primary) 34%, transparent 64%);
 }
 
 /* ——— Masthead: the home page's own ——— */
@@ -69,8 +70,20 @@
   position: sticky;
   top: 0;
   z-index: 20;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--bg-app) 92%, transparent) 0%, color-mix(in srgb, var(--bg-app) 70%, transparent) 100%);
-  backdrop-filter: saturate(1.4) blur(16px);
+  isolation: isolate;
+}
+
+/* The masthead's glass fades out downward rather than ending on an edge: the page passes under it softly. */
+.header::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 -28px;
+  z-index: -1;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--bg-app) 94%, transparent) 0%, color-mix(in srgb, var(--bg-app) 70%, transparent) 60%, color-mix(in srgb, var(--bg-app) 0%, transparent) 100%);
+  backdrop-filter: saturate(1.3) blur(14px);
+  mask-image: linear-gradient(180deg, var(--text-primary) 55%, transparent 100%);
+  -webkit-mask-image: linear-gradient(180deg, var(--text-primary) 55%, transparent 100%);
+  pointer-events: none;
 }
 
 .mastheadInner {
@@ -952,8 +965,11 @@
   /* A backdrop filter would make the masthead the frame of anything fixed inside it — the bar below. */
   .header {
     background: var(--bg-app);
-    backdrop-filter: none;
     box-shadow: 0 1px 0 var(--line-soft);
+  }
+
+  .header::before {
+    display: none;
   }
 
   .nav {
@@ -1045,11 +1061,13 @@
     border-radius: 24px;
   }
 
+  /* On a phone the drawing stays at the edge, behind the masthead, never under the words. */
   .backdropMark {
-    top: -140px;
-    right: -260px;
-    width: 620px;
-    height: 620px;
+    top: -230px;
+    right: -250px;
+    width: 460px;
+    height: 460px;
+    opacity: 0.55;
   }
 
   .brandArt {

@@ -279,7 +279,6 @@
 }
 
 .rateValue {
-  font-family: var(--font-display);
   font-size: 26px;
   font-weight: var(--font-weight-semibold);
   letter-spacing: 0.02em;
@@ -392,7 +391,6 @@
 }
 
 .linkAmount {
-  font-family: var(--font-display);
   font-size: var(--font-size-heading);
   font-weight: var(--font-weight-semibold);
   letter-spacing: 0.02em;
@@ -540,7 +538,6 @@
 }
 
 .priceValue {
-  font-family: var(--font-display);
   font-size: var(--font-size-heading);
   font-weight: var(--font-weight-semibold);
   letter-spacing: 0.02em;

@@ -16,6 +16,7 @@ import { redirect } from 'next/navigation';
 import { workspacePage } from '../../../server/client.ts';
 import { DealLinkScreen } from './DealLinkScreen.tsx';
 import { LinkTakeScreen } from './LinkTakeScreen.tsx';
+import { MarkBlueprint } from '../../../components/MarkArt.tsx';
 import styles from '../../public-desk/storefront.module.css';
 
 export const dynamic = 'force-dynamic';
@@ -50,6 +51,9 @@ export default async function DealLinkPage({ params }: { params: Promise<{ token
 
   return (
     <div className={styles.page}>
+      <div className={styles.backdrop} aria-hidden="true">
+        <MarkBlueprint className={styles.backdropMark} />
+      </div>
       <header className={styles.bar}>
         <a className={styles.by} href="/">
           <img {...markProps} className={styles.byMark} />
@@ -87,6 +91,9 @@ async function ClientLinkPage({ token }: { token: string }) {
   const { props: markProps } = getImageProps({ src: mark, alt: '', width: 22, height: 22 });
   return (
     <div className={styles.page}>
+      <div className={styles.backdrop} aria-hidden="true">
+        <MarkBlueprint className={styles.backdropMark} />
+      </div>
       <header className={styles.bar}>
         <span className={styles.by}>
           <img {...markProps} className={styles.byMark} />

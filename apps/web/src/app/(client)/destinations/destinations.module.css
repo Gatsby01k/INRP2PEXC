@@ -161,8 +161,9 @@
   place-items: center;
   width: 44px;
   height: 44px;
-  border-radius: 12px;
-  background: var(--text-primary);
+  border-radius: 50%;
+  background: linear-gradient(160deg, color-mix(in srgb, var(--text-primary) 78%, var(--bg-surface)), var(--text-primary));
+  box-shadow: 0 6px 14px -8px color-mix(in srgb, var(--text-primary) 60%, transparent);
   color: var(--bg-surface);
   font-size: var(--font-size-meta);
   font-weight: var(--font-weight-semibold);
@@ -170,7 +171,8 @@
 }
 
 .monogram[data-kind='wallet'] {
-  background: var(--status-success);
+  background: linear-gradient(160deg, var(--brand-primary), var(--brand-action));
+  box-shadow: 0 6px 14px -6px color-mix(in srgb, var(--brand-primary) 70%, transparent);
   font-size: var(--font-size-body-lg);
 }
 
@@ -424,6 +426,8 @@
 }
 
 .trust {
+  background: color-mix(in srgb, var(--bg-surface) 72%, transparent);
+  backdrop-filter: blur(10px);
   display: grid;
   gap: var(--space-3);
   padding: var(--space-5);
