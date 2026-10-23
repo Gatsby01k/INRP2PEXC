@@ -21,7 +21,7 @@ export default async function MyDesksPage() {
   const desks = await clientDesks(ctx.db, ctx.member.clientId);
   return (
     <>
-      <PageHead title="Desks" lede="Independent desks you deal with on INRP2P. Their prices are their own; every deal settles through INRP2P’s escrow." />
+      <PageHead icon={<StoreIcon />} title="Desks" lede="Independent desks you deal with on INRP2P. Their prices are their own; every deal settles through INRP2P’s escrow." />
       <main className={shell.main}>
         {desks.length === 0 ? (
           <section className={shell.card}>

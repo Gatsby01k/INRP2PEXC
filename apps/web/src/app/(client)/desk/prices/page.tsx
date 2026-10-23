@@ -4,6 +4,7 @@ import { memberPage } from '../../../../server/client.ts';
 import { DeskHead } from '../_ui/DeskHead.tsx';
 import { DeskStatus } from '../_ui/DeskStatus.tsx';
 import { PricesEditor } from './PricesEditor.tsx';
+import { TagIcon } from '../../_workspace/icons.tsx';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,7 +16,7 @@ export default async function DeskPricesPage() {
   const pricing = await deskPricing(ctx.db, ctx.actor.userId);
   return (
     <>
-      <DeskHead title="Prices" status={<DeskStatus status={ws.desk.status} />} lede="Clients on your page are priced at these, instantly. Deal links carry their own rate." />
+      <DeskHead icon={<TagIcon />} title="Prices" status={<DeskStatus status={ws.desk.status} />} lede="Clients on your page are priced at these, instantly. Deal links carry their own rate." />
       <PricesEditor pricing={pricing} canCommit={ws.canCommit} />
     </>
   );

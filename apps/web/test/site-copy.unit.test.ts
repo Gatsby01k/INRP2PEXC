@@ -3,7 +3,7 @@ import { draftFor } from '@inrp2p/notifications';
 import { RECEIPT_SNAPSHOT_VERSION, type ReceiptSnapshot, receiptHtml } from '@inrp2p/reporting';
 import type { NotificationKind } from '@inrp2p/db';
 import {
-  ACTIONS, AUDIENCE, BUSINESS, CLOSING, DESK, FLOW, FOOTER, FOOTER_NOTE, HERO, NAV, ONBOARDING, SITE_NAME, SITE_PAGES, SITE_PATHS, TAGLINE, TRUST, WORKSPACE_ENTRY,
+  ACTIONS, AUDIENCE, BUSINESS, CLOSING, DESK, FLOW, FOOTER, FOOTER_NOTE, HERO, NAV, ONBOARDING, OWN_DESK, SITE_NAME, SITE_PAGES, SITE_PATHS, TAGLINE, TRUST, WORKSPACE_ENTRY,
 } from '../src/content/site.ts';
 
 /**
@@ -115,6 +115,7 @@ const SITE_COPY: readonly { readonly where: string; readonly text: string }[] = 
   ...copyIn(AUDIENCE, 'AUDIENCE'),
   ...copyIn(DESK, 'DESK'),
   ...copyIn(BUSINESS, 'BUSINESS'),
+  ...copyIn(OWN_DESK, 'OWN_DESK'),
   ...copyIn(CLOSING, 'CLOSING'),
   ...copyIn(ONBOARDING, 'ONBOARDING'),
   ...copyIn(FOOTER, 'FOOTER'),

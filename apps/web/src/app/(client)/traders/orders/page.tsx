@@ -2,6 +2,7 @@ import { traderOrders } from '@inrp2p/traders';
 import { memberPage } from '../../../../server/client.ts';
 import { PageHead } from '../../_workspace/PageHead.tsx';
 import { OrdersScreen } from './OrdersScreen.tsx';
+import { DealsIcon } from '../../_workspace/icons.tsx';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,7 +16,7 @@ export default async function TraderOrdersPage({ searchParams }: { searchParams:
   const open = selected === 'active' ? rows : (await traderOrders(ctx.db, ctx.actor.userId, 'active')).rows;
   return (
     <>
-      <PageHead eyebrow="Traders" title="Orders" lede="Every order INRP2P has sent you, with where it stands and what it earned." />
+      <PageHead icon={<DealsIcon />} eyebrow="Traders" title="Orders" lede="Every order INRP2P has sent you, with where it stands and what it earned." />
       <OrdersScreen rows={rows} open={open} counts={counts} tab={selected} />
     </>
   );

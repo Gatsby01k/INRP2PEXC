@@ -2,6 +2,7 @@ import { clientHistory, historyCounts } from '@inrp2p/portal';
 import { clientPage } from '../../../server/client.ts';
 import { PageHead } from '../_workspace/PageHead.tsx';
 import { HistoryScreen } from './HistoryScreen.tsx';
+import { ClockIcon } from '../_workspace/icons.tsx';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,7 +23,7 @@ export default async function HistoryPage({ searchParams }: { searchParams: Prom
 
   return (
     <>
-      <PageHead title="History" lede="Every trade you have made with the desk: its figures, how far it has got, and its receipt." />
+      <PageHead icon={<ClockIcon />} title="History" lede="Every trade you have made with the desk: its figures, how far it has got, and its receipt." />
       <HistoryScreen rows={rows} open={open} counts={counts} filter={selected ?? 'all'} />
     </>
   );

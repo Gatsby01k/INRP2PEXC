@@ -3,6 +3,7 @@ import { businessNow } from '@inrp2p/quotes';
 import { clientPage } from '../../../server/client.ts';
 import { PageHead } from '../_workspace/PageHead.tsx';
 import { ExchangeScreen, type RequestDraft } from './ExchangeScreen.tsx';
+import { SwapIcon } from '../_workspace/icons.tsx';
 
 export const dynamic = 'force-dynamic';
 
@@ -40,7 +41,7 @@ export default async function ExchangePage({ searchParams }: { searchParams: Pro
 
   return (
     <>
-      <PageHead title="Exchange" lede="Firm prices from the desk for USDT against INR. Nothing is committed until you accept." />
+      <PageHead icon={<SwapIcon />} title="Exchange" lede="Firm prices from the desk for USDT against INR. Nothing is committed until you accept." />
       <ExchangeScreen
         view={view}
         canAccept={ctx.access.canAcceptQuotes}

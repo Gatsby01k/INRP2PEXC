@@ -1,6 +1,6 @@
-import { HERO } from '../../../content/site.ts';
+import { HERO, OWN_DESK } from '../../../content/site.ts';
 import { appOrigin, onboardingHref } from '../../../server/site.ts';
-import { PointIcon } from './icons.tsx';
+import { ArrowIcon, PointIcon } from './icons.tsx';
 import { QuoteModule } from './QuoteModule.tsx';
 import { RobotStage } from './robot/RobotStage.tsx';
 import { VoiceControl } from './voice/VoiceControl.tsx';
@@ -19,6 +19,12 @@ export function Hero() {
     <section className={styles.hero} aria-labelledby="hero-title" data-robot-scope="">
       <div className={styles.frame}>
         <div className={styles.copy}>
+          {/* What is new on INRP2P: traders running their own exchange on it, further down this page. */}
+          <a className={styles.announce} href="#own-desk">
+            <span className={styles.announceTag}>{OWN_DESK.announce.tag}</span>
+            <span className={styles.announceText}>{OWN_DESK.announce.text}</span>
+            <ArrowIcon className={styles.announceArrow} />
+          </a>
           <p className={styles.eyebrow}>{eyebrow}</p>
           <h1 id="hero-title" className={styles.title}>
             <span className={styles.line}>{headline.lead}</span>{' '}

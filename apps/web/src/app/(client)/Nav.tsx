@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { BankIcon, ClockIcon, StoreIcon, SwapIcon, UserIcon, UsersIcon } from './_workspace/icons.tsx';
+import { BankIcon, ClockIcon, DealsIcon, GaugeIcon, GlobeIcon, StoreIcon, SwapIcon, TagIcon, UserIcon, UsersIcon } from './_workspace/icons.tsx';
 import styles from './shell.module.css';
 
 export interface ClientNavEntry {
@@ -10,7 +10,7 @@ export interface ClientNavEntry {
   readonly label: string;
 }
 
-/** The glyph each section carries in the phone's tab bar, where a word alone is too small a target to find. */
+/** The glyph each section carries — in the sidebar beside its word, and in the phone's tab bar above it. */
 const ICONS: Record<string, typeof SwapIcon> = {
   '/exchange': SwapIcon,
   '/history': ClockIcon,
@@ -19,6 +19,15 @@ const ICONS: Record<string, typeof SwapIcon> = {
   '/desks': StoreIcon,
   '/traders': UsersIcon,
   '/open-account': UserIcon,
+};
+
+const DESK_ICONS: Record<string, typeof SwapIcon> = {
+  '/desk': GaugeIcon,
+  '/desk/deals': DealsIcon,
+  '/desk/prices': TagIcon,
+  '/desk/clients': UserIcon,
+  '/desk/team': UsersIcon,
+  '/desk/settings': GlobeIcon,
 };
 
 /**
@@ -35,9 +44,39 @@ export function ClientNav({ entries }: { entries: readonly ClientNavEntry[] }) {
         const current = section === e.href || section.startsWith(`${e.href}/`);
         const Icon = ICONS[e.href];
         return (
-          <Link key={e.href} href={e.href} className={styles.navItem} {...(current ? { 'aria-current': 'page' as const } : {})}>
-            {Icon ? <Icon className={styles.navIcon} /> : null}
-            {e.label}
+          <Link key={e.href} href={e.href} className={styles.navItem} title={e.label} {...(current ? { 'aria-current': 'page' as const } : {})}>
+            {Icon ? (
+              <span className={styles.navGlyph} aria-hidden="true">
+                <Icon className={styles.navIcon} />
+              </span>
+            ) : null}
+            <span className={styles.navText}>{e.label}</span>
+          </Link>
+        );
+      })}
+    </nav>
+  );
+}
+
+/**
+ * The desk's own sections, under the workspace's in the sidebar: the trader runs its exchange from here. On a phone
+ * the sidebar is folded away and the desk's pages carry these as tabs under their heading instead (`DeskTabs`).
+ */
+export function DeskNav({ entries }: { entries: readonly ClientNavEntry[] }) {
+  const pathname = usePathname();
+  return (
+    <nav className={styles.deskNav} aria-label="Your desk">
+      {entries.map((e) => {
+        const current = e.href === '/desk' ? pathname === '/desk' : pathname === e.href || pathname.startsWith(`${e.href}/`);
+        const Icon = DESK_ICONS[e.href];
+        return (
+          <Link key={e.href} href={e.href} className={styles.navItem} data-sub="" title={e.label} {...(current ? { 'aria-current': 'page' as const } : {})}>
+            {Icon ? (
+              <span className={styles.navGlyph} aria-hidden="true">
+                <Icon className={styles.navIcon} />
+              </span>
+            ) : null}
+            <span className={styles.navText}>{e.label}</span>
           </Link>
         );
       })}

@@ -4,6 +4,7 @@ import { telegramFromEnv } from '@inrp2p/adapters';
 import { clientPage } from '../../../server/client.ts';
 import { PageHead } from '../_workspace/PageHead.tsx';
 import { AccountScreen } from './AccountScreen.tsx';
+import { ShieldIcon } from '../_workspace/icons.tsx';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,7 +25,7 @@ export default async function AccountPage() {
 
   return (
     <>
-      <PageHead title="Account & security" lede="Who you are signed in as, how your sign-in is protected, and who on your account may accept quotes." />
+      <PageHead icon={<ShieldIcon />} title="Account & security" lede="Who you are signed in as, how your sign-in is protected, and who on your account may accept quotes." />
       <AccountScreen
         clientName={ctx.access.clientName}
         email={who.email}

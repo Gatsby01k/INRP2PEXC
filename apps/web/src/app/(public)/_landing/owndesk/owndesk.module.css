@@ -1,0 +1,991 @@
+/* "Your own exchange, on INRP2P": a bento of the desk programme's surfaces on the page's warm field. Each tile is a
+   white sheet with a hairline and a layered lift; the product inside it is drawn in markup, every figure masked. */
+
+.ownDesk {
+  --line: color-mix(in srgb, var(--border-default) 86%, transparent);
+  --lift: 0 1px 2px color-mix(in srgb, var(--text-primary) 4%, transparent), 0 18px 44px -30px color-mix(in srgb, var(--text-primary) 26%, transparent);
+  position: relative;
+  isolation: isolate;
+  overflow: clip;
+  border-top: 1px solid var(--border-default);
+  background:
+    radial-gradient(ellipse 40% 30% at 85% 12%, color-mix(in srgb, var(--brand-soft) 80%, transparent) 0%, transparent 100%),
+    radial-gradient(ellipse 36% 28% at 8% 92%, color-mix(in srgb, var(--ivory) 90%, transparent) 0%, transparent 100%),
+    var(--bg-app);
+}
+
+/* A faint grid behind the bento, fading out toward the edges: the network the desks stand on. */
+.ownDesk::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-image:
+    linear-gradient(to right, color-mix(in srgb, var(--border-default) 55%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in srgb, var(--border-default) 55%, transparent) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 55%, #000 0%, transparent 75%);
+}
+
+.bento {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: var(--space-5);
+  margin-top: clamp(48px, 7vh, 72px);
+}
+
+.wide {
+  grid-column: span 7;
+}
+
+.narrow {
+  grid-column: span 5;
+}
+
+.third {
+  grid-column: span 4;
+}
+
+.tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  min-width: 0;
+  padding: var(--space-8);
+  overflow: hidden;
+  border-radius: 28px;
+  background: linear-gradient(180deg, var(--bg-surface) 0%, color-mix(in srgb, var(--bg-surface) 70%, var(--bg-subtle)) 100%);
+  box-shadow: 0 0 0 1px var(--line), inset 0 1px 0 var(--bg-surface), var(--lift);
+  transition:
+    transform var(--dur-complete) var(--ease),
+    box-shadow var(--dur-complete) var(--ease);
+}
+
+@media (hover: hover) {
+  .tile:hover {
+    transform: translateY(-3px);
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--border-strong) 80%, transparent),
+      inset 0 1px 0 var(--bg-surface),
+      0 2px 4px color-mix(in srgb, var(--text-primary) 5%, transparent),
+      0 30px 60px -36px color-mix(in srgb, var(--text-primary) 34%, transparent);
+  }
+}
+
+.tileText {
+  display: grid;
+  gap: var(--space-3);
+  max-width: 30rem;
+}
+
+.tileGlyph {
+  display: inline-grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin-bottom: var(--space-2);
+  border-radius: 14px;
+  background: var(--brand-soft);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand-primary) 22%, transparent);
+  color: var(--brand-action);
+}
+
+.tileTitle {
+  margin: 0;
+  font-size: clamp(20px, 1.6vw, 24px);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.15;
+  letter-spacing: -0.025em;
+  text-wrap: balance;
+}
+
+.tileBody {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-body);
+  line-height: 1.55;
+  text-wrap: pretty;
+}
+
+.mock {
+  position: relative;
+  flex: 1 1 auto;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  min-height: 0;
+  font-size: var(--font-size-body-sm);
+  user-select: none;
+}
+
+/* ——— The page: a browser window with the desk's storefront in it ——— */
+
+.browser {
+  width: 100%;
+  margin-bottom: calc(var(--space-8) * -1);
+  overflow: hidden;
+  border-radius: 18px 18px 0 0;
+  background: var(--bg-surface);
+  box-shadow:
+    0 0 0 1px var(--line),
+    0 -10px 40px -20px color-mix(in srgb, var(--text-primary) 22%, transparent);
+}
+
+.browserBar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-subtle);
+}
+
+.dots {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.dots i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--border-strong);
+}
+
+.dots i:first-child {
+  background: color-mix(in srgb, var(--brand-primary) 70%, var(--bg-surface));
+}
+
+.address {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin: 0 auto;
+  padding: 5px 14px;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface);
+  box-shadow: inset 0 0 0 1px var(--line);
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.address b {
+  color: var(--text-primary);
+  font-weight: var(--font-weight-medium);
+}
+
+.address svg {
+  flex: none;
+  color: var(--status-success);
+}
+
+.store {
+  display: grid;
+  gap: var(--space-5);
+  padding: var(--space-6) var(--space-6) var(--space-10);
+}
+
+.storeHead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.storeMark {
+  display: inline-grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 13px;
+  background: var(--text-primary);
+  color: var(--bg-surface);
+  font-size: var(--font-size-heading);
+  font-weight: var(--font-weight-semibold);
+}
+
+.storeName {
+  font-size: var(--font-size-heading);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.03em;
+}
+
+.livePill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--status-success-soft);
+  color: var(--status-success);
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+}
+
+.liveDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: beat 2.2s var(--ease) infinite;
+}
+
+@keyframes beat {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--status-success) 55%, transparent);
+  }
+  60% {
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--status-success) 0%, transparent);
+  }
+}
+
+.rates {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.rate {
+  display: grid;
+  gap: 2px;
+  padding: var(--space-4);
+  border-radius: 14px;
+  background: var(--bg-subtle);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+.rate[data-on] {
+  background: var(--bg-surface);
+  box-shadow:
+    inset 0 0 0 1.5px var(--text-primary),
+    0 8px 20px -14px color-mix(in srgb, var(--text-primary) 40%, transparent);
+}
+
+.rateLabel {
+  color: var(--text-secondary);
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-medium);
+}
+
+.rateValue {
+  font-size: 26px;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+}
+
+.rateUnit {
+  color: var(--text-muted);
+  font-size: var(--font-size-micro);
+}
+
+.storeCta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: 48px;
+  border-radius: 14px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--brand-primary) 55%, var(--brand-action)), var(--brand-action));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--text-on-action) 26%, transparent),
+    0 12px 24px -14px var(--brand-action);
+  color: var(--text-on-action);
+  font-weight: var(--font-weight-medium);
+}
+
+/* ——— The deal link: a phone, a message, and the link's own card ——— */
+
+.phone {
+  position: relative;
+  display: grid;
+  align-content: start;
+  gap: var(--space-3);
+  width: min(100%, 300px);
+  height: 330px;
+  margin-bottom: calc(var(--space-8) * -1 - 60px);
+  padding: var(--space-8) var(--space-4) var(--space-4);
+  border-radius: 40px 40px 0 0;
+  background: color-mix(in srgb, var(--status-success-soft) 55%, var(--bg-subtle));
+  box-shadow:
+    0 0 0 8px var(--text-primary),
+    0 0 0 9px color-mix(in srgb, var(--text-primary) 60%, var(--bg-surface)),
+    0 30px 60px -20px color-mix(in srgb, var(--text-primary) 40%, transparent);
+}
+
+.phoneNotch {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  width: 84px;
+  height: 22px;
+  border-radius: var(--radius-pill);
+  background: var(--text-primary);
+  transform: translateX(-50%);
+}
+
+.bubble {
+  justify-self: start;
+  max-width: 88%;
+  padding: var(--space-2) var(--space-3);
+  border-radius: 4px 14px 14px 14px;
+  background: var(--bg-surface);
+  box-shadow: 0 1px 1px color-mix(in srgb, var(--text-primary) 10%, transparent);
+  color: var(--text-primary);
+  font-size: var(--font-size-meta);
+  line-height: 1.4;
+}
+
+.linkCard {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border-radius: 16px;
+  background: var(--bg-surface);
+  box-shadow:
+    0 0 0 1px var(--line),
+    0 14px 28px -18px color-mix(in srgb, var(--text-primary) 50%, transparent);
+  animation: float 6s var(--ease) infinite;
+}
+
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+.linkTop {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text-secondary);
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-medium);
+}
+
+.linkMark {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  background: var(--text-primary);
+  color: var(--bg-surface);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-semibold);
+}
+
+.linkAmount {
+  font-size: var(--font-size-heading);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.02em;
+}
+
+.linkAmount small {
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-regular);
+  letter-spacing: 0;
+}
+
+.linkHeld {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--brand-action);
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-medium);
+}
+
+.ring {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: conic-gradient(var(--brand-primary) 0 72%, color-mix(in srgb, var(--brand-primary) 18%, transparent) 72% 100%);
+  mask: radial-gradient(circle, transparent 4px, #000 4.5px);
+}
+
+.linkTake {
+  display: grid;
+  place-items: center;
+  min-height: 40px;
+  margin-top: var(--space-1);
+  border-radius: 12px;
+  background: var(--text-primary);
+  color: var(--bg-surface);
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-medium);
+}
+
+/* ——— Escrow: the deal's three moments ——— */
+
+.escrow {
+  position: relative;
+  display: grid;
+  gap: var(--space-4);
+  width: 100%;
+  margin: 0;
+  padding: var(--space-5);
+  border-radius: 18px;
+  background: var(--bg-subtle);
+  box-shadow: inset 0 0 0 1px var(--line);
+  list-style: none;
+}
+
+.escrowStep {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--text-secondary);
+  font-weight: var(--font-weight-medium);
+}
+
+.escrowStep:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  top: 32px;
+  left: 15px;
+  width: 2px;
+  height: calc(var(--space-4) + 2px);
+  border-radius: 2px;
+  background: var(--status-success);
+}
+
+.escrowNode {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--status-success);
+  color: var(--bg-surface);
+}
+
+.escrowNode svg {
+  width: 14px;
+  height: 14px;
+}
+
+.escrowStep[data-state='now'] {
+  color: var(--text-primary);
+}
+
+.escrowStep[data-state='now'] .escrowNode {
+  background: var(--brand-soft);
+  box-shadow: 0 0 0 1.5px var(--brand-primary), 0 0 0 6px color-mix(in srgb, var(--brand-primary) 14%, transparent);
+  color: var(--brand-action);
+  animation: halo 2.6s var(--ease) infinite;
+}
+
+.escrowStep[data-state='now'] .escrowNode svg {
+  width: 18px;
+  height: 18px;
+}
+
+@keyframes halo {
+  0%,
+  100% {
+    box-shadow: 0 0 0 1.5px var(--brand-primary), 0 0 0 4px color-mix(in srgb, var(--brand-primary) 16%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 1.5px var(--brand-primary), 0 0 0 9px color-mix(in srgb, var(--brand-primary) 4%, transparent);
+  }
+}
+
+/* ——— Prices: two switches and how long they hold ——— */
+
+.prices {
+  display: grid;
+  gap: var(--space-2);
+  width: 100%;
+}
+
+.priceRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-radius: 14px;
+  background: var(--bg-surface);
+  box-shadow: 0 0 0 1px var(--line), 0 6px 16px -14px color-mix(in srgb, var(--text-primary) 40%, transparent);
+}
+
+.priceText {
+  display: grid;
+}
+
+.priceLabel {
+  color: var(--text-secondary);
+  font-size: var(--font-size-meta);
+}
+
+.priceValue {
+  font-size: var(--font-size-heading);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.02em;
+}
+
+.toggle {
+  position: relative;
+  width: 42px;
+  height: 24px;
+  border-radius: var(--radius-pill);
+  background: var(--status-success);
+}
+
+.toggle > span {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--bg-surface);
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--text-primary) 30%, transparent);
+}
+
+.holds {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: var(--space-2);
+}
+
+.holdsLabel {
+  margin-right: var(--space-1);
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+}
+
+.hold {
+  padding: 5px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface);
+  box-shadow: inset 0 0 0 1px var(--line);
+  color: var(--text-secondary);
+  font-size: var(--font-size-meta);
+}
+
+.hold[data-on] {
+  background: var(--text-primary);
+  box-shadow: none;
+  color: var(--bg-surface);
+}
+
+/* ——— Alerts: a stack of messages from the bot ——— */
+
+.alerts {
+  display: grid;
+  gap: var(--space-2);
+  width: 100%;
+}
+
+.alert {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--bg-surface) 88%, transparent);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 0 0 1px var(--line), 0 10px 24px -18px color-mix(in srgb, var(--text-primary) 45%, transparent);
+  opacity: calc(1 - var(--i) * 0.18);
+  transform: scale(calc(1 - var(--i) * 0.03));
+  transform-origin: top center;
+}
+
+.alertBot {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: linear-gradient(160deg, color-mix(in srgb, var(--status-success) 30%, var(--bg-surface)), var(--status-success-soft));
+  color: var(--status-success);
+}
+
+.alertBot svg {
+  width: 16px;
+  height: 16px;
+}
+
+.alertText {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+  font-size: var(--font-size-meta);
+  line-height: 1.35;
+}
+
+.alertText b {
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-semibold);
+}
+
+.alertText > span:last-child {
+  color: var(--text-secondary);
+}
+
+.alertFrom {
+  color: var(--text-muted);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* ——— The team: people and their roles ——— */
+
+.team {
+  display: grid;
+  gap: var(--space-2);
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.member {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-radius: 14px;
+  background: var(--bg-surface);
+  box-shadow: 0 0 0 1px var(--line);
+}
+
+.memberMark {
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: linear-gradient(160deg, var(--brand-primary), var(--brand-action));
+  color: var(--text-on-action);
+  font-weight: var(--font-weight-semibold);
+}
+
+.memberMark[data-hue='1'] {
+  background: linear-gradient(160deg, color-mix(in srgb, var(--status-success) 70%, var(--bg-surface)), var(--status-success));
+}
+
+.memberMark[data-hue='2'] {
+  background: linear-gradient(160deg, color-mix(in srgb, var(--text-primary) 55%, var(--bg-surface)), var(--text-primary));
+}
+
+.memberName {
+  font-weight: var(--font-weight-medium);
+}
+
+.role {
+  margin-left: auto;
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-subtle);
+  box-shadow: inset 0 0 0 1px var(--line);
+  color: var(--text-secondary);
+  font-size: var(--font-size-meta);
+}
+
+.role[data-admin] {
+  background: var(--brand-soft);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand-primary) 24%, transparent);
+  color: var(--brand-action);
+}
+
+/* ——— The way in: dark, the one tile that asks for something ——— */
+
+.ctaTile {
+  justify-content: space-between;
+  background:
+    radial-gradient(ellipse 60% 90% at 100% 0%, color-mix(in srgb, var(--brand-primary) 38%, transparent) 0%, transparent 70%),
+    radial-gradient(ellipse 50% 60% at 0% 100%, color-mix(in srgb, var(--brand-primary) 14%, transparent) 0%, transparent 70%),
+    var(--text-primary);
+  box-shadow: 0 30px 60px -36px color-mix(in srgb, var(--text-primary) 70%, transparent);
+  color: var(--bg-surface);
+}
+
+.ctaHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-5);
+}
+
+.ctaTitle {
+  max-width: 14ch;
+  margin: 0;
+  font-size: clamp(28px, 2.6vw, 38px);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.06;
+  letter-spacing: -0.035em;
+  text-wrap: balance;
+}
+
+.ctaActions {
+  display: grid;
+  justify-items: end;
+  gap: var(--space-3);
+}
+
+.ctaButton {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 52px;
+  padding: 0 var(--space-6);
+  border-radius: 14px;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: var(--font-size-body-lg);
+  font-weight: var(--font-weight-medium);
+  text-decoration: none;
+  box-shadow: 0 12px 30px -12px color-mix(in srgb, var(--brand-primary) 70%, transparent);
+  transition: transform var(--dur-fast) var(--ease);
+}
+
+.ctaButton:hover .ctaArrow {
+  transform: translateX(3px);
+}
+
+.ctaButton:active {
+  transform: scale(0.98);
+}
+
+.ctaArrow {
+  transition: transform var(--dur-base) var(--ease);
+}
+
+.ctaLink {
+  color: color-mix(in srgb, var(--bg-surface) 74%, transparent);
+  font-size: var(--font-size-body-sm);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--brand-primary) 70%, transparent);
+  text-underline-offset: 3px;
+}
+
+.ctaLink:hover {
+  color: var(--bg-surface);
+}
+
+/* Client, escrow, desk: the deal's three parties on one line, a pulse running between them. */
+.flow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: var(--space-2) 0;
+}
+
+.flowPart {
+  display: flex;
+  flex: 1 1 0;
+  align-items: flex-start;
+}
+
+.flowPart:first-child {
+  flex: 0 0 auto;
+}
+
+.flowNode {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-2);
+  flex: none;
+  width: 112px;
+}
+
+.flowOrb {
+  display: inline-grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--bg-surface) 10%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--bg-surface) 18%, transparent);
+  color: var(--bg-surface);
+}
+
+.flowNode[data-middle] .flowOrb {
+  width: 56px;
+  height: 56px;
+  margin-top: -4px;
+  background: linear-gradient(160deg, var(--brand-primary), var(--brand-action));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--bg-surface) 30%, transparent),
+    0 0 0 6px color-mix(in srgb, var(--brand-primary) 16%, transparent),
+    0 14px 30px -10px var(--brand-primary);
+}
+
+.flowLabel {
+  color: color-mix(in srgb, var(--bg-surface) 72%, transparent);
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-medium);
+  text-align: center;
+}
+
+.flowLine {
+  position: relative;
+  flex: 1 1 auto;
+  height: 2px;
+  margin-top: 23px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: repeating-linear-gradient(to right, color-mix(in srgb, var(--bg-surface) 28%, transparent) 0 6px, transparent 6px 12px);
+}
+
+.flowLine::after {
+  content: '';
+  position: absolute;
+  top: -1px;
+  left: -30%;
+  width: 30%;
+  height: 4px;
+  border-radius: 4px;
+  background: linear-gradient(to right, transparent, var(--brand-primary), transparent);
+  animation: run 2.8s var(--ease) infinite;
+}
+
+.flowPart:last-child .flowLine::after {
+  animation-delay: 1.4s;
+}
+
+@keyframes run {
+  to {
+    left: 100%;
+  }
+}
+
+.steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.step {
+  display: grid;
+  align-content: start;
+  gap: var(--space-2);
+  padding: var(--space-5);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--bg-surface) 7%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--bg-surface) 12%, transparent);
+}
+
+.stepIndex {
+  color: var(--brand-primary);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-medium);
+}
+
+.stepTitle {
+  font-size: var(--font-size-body-lg);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.01em;
+}
+
+.stepBody {
+  color: color-mix(in srgb, var(--bg-surface) 68%, transparent);
+  font-size: var(--font-size-body-sm);
+  line-height: 1.5;
+}
+
+/* Tiles rise into place as they scroll in, where the browser can tie an animation to scrolling. */
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    .tile {
+      animation: rise linear both;
+      animation-timeline: view();
+      animation-range: entry 0% cover 28%;
+    }
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(28px) scale(0.985);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flowLine::after {
+    display: none;
+  }
+
+  .liveDot,
+  .linkCard,
+  .escrowStep[data-state='now'] .escrowNode {
+    animation: none;
+  }
+}
+
+@media (max-width: 1099px) {
+  .bento {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-4);
+    margin-top: var(--space-10);
+  }
+
+  .wide,
+  .narrow,
+  .third {
+    grid-column: auto;
+  }
+
+  .tile {
+    padding: var(--space-6);
+    border-radius: 24px;
+  }
+
+  .browser {
+    margin-bottom: calc(var(--space-6) * -1);
+  }
+
+  .phone {
+    margin-bottom: calc(var(--space-6) * -1 - 60px);
+  }
+
+  .steps {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ctaActions {
+    justify-items: start;
+  }
+}
+
+@media (max-width: 479px) {
+  .flowNode {
+    width: 84px;
+  }
+
+  .rates {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .store {
+    padding: var(--space-5) var(--space-4) var(--space-8);
+  }
+}

@@ -2,6 +2,7 @@ import { clientDestinations, hasAuthenticator, workspaceAccess } from '@inrp2p/p
 import { clientPage } from '../../../server/client.ts';
 import { PageHead } from '../_workspace/PageHead.tsx';
 import { DestinationsScreen } from './DestinationsScreen.tsx';
+import { BankIcon } from '../_workspace/icons.tsx';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,7 +23,7 @@ export default async function DestinationsPage() {
 
   return (
     <>
-      <PageHead title="Bank & wallets" lede="Where the desk pays you. INR goes only to these bank accounts, and USDT only to these wallets." />
+      <PageHead icon={<BankIcon />} title="Bank & wallets" lede="Where the desk pays you. INR goes only to these bank accounts, and USDT only to these wallets." />
       <DestinationsScreen
         destinations={destinations}
         clientName={ctx.access.clientName}

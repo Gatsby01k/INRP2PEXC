@@ -6,6 +6,7 @@ import { workspacePage } from '../../../../server/client.ts';
 import { PageHead } from '../../_workspace/PageHead.tsx';
 import { DeskStatus } from '../../desk/_ui/DeskStatus.tsx';
 import { DeskDealScreen } from './DeskDealScreen.tsx';
+import { StoreIcon } from '../../_workspace/icons.tsx';
 
 export const dynamic = 'force-dynamic';
 
@@ -49,7 +50,7 @@ export default async function ClientDeskPage({ params, searchParams }: { params:
 
   return (
     <>
-      <PageHead eyebrow="Desk" title={page.displayName} status={<DeskStatus status={page.status} />} lede="An independent desk on INRP2P. Its prices are its own; every deal settles through INRP2P’s escrow." />
+      <PageHead icon={<StoreIcon />} eyebrow="Desk" title={page.displayName} status={<DeskStatus status={page.status} />} lede="An independent desk on INRP2P. Its prices are its own; every deal settles through INRP2P’s escrow." />
       <DeskDealScreen
         desk={{ handle: page.handle, displayName: page.displayName, about: page.about, live: page.status === 'LIVE', prices: page.prices, completedDeals: page.record.completedDeals }}
         blocked={state.relation?.status === 'BLOCKED'}

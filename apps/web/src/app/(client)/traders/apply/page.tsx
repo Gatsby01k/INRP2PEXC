@@ -3,6 +3,7 @@ import { traderApplicationOptions, traderHome } from '@inrp2p/traders';
 import { workspacePage } from '../../../../server/client.ts';
 import { PageHead } from '../../_workspace/PageHead.tsx';
 import { ApplyFlow } from './ApplyFlow.tsx';
+import { UsersIcon } from '../../_workspace/icons.tsx';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,7 +19,7 @@ export default async function ApplyPage() {
   if (!options.canApply) redirect('/traders');
   return (
     <>
-      <PageHead eyebrow="Traders" title="Become a trader" lede="Tell INRP2P who you are, what you can provide and how you settle. The desk reviews it before any order is sent to you." />
+      <PageHead icon={<UsersIcon />} eyebrow="Traders" title="Become a trader" lede="Tell INRP2P who you are, what you can provide and how you settle. The desk reviews it before any order is sent to you." />
       <ApplyFlow options={options} />
     </>
   );

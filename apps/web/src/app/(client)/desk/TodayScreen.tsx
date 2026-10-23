@@ -7,7 +7,7 @@ import type { DeskToday } from '@inrp2p/traders';
 import type { TelegramLinkView } from '@inrp2p/clients';
 import { TelegramConnect } from '../_workspace/TelegramConnect.tsx';
 import { CopyButton } from '@inrp2p/ui';
-import { CheckIcon, InfoIcon } from '../_workspace/icons.tsx';
+import { BankIcon, BoltIcon, ChartIcon, CheckIcon, DealsIcon, GaugeIcon, InfoIcon, TagIcon, TrendIcon, VaultIcon, WalletIcon } from '../_workspace/icons.tsx';
 import { useServerClock } from '../exchange/useServerClock.ts';
 import { DeskHead } from './_ui/DeskHead.tsx';
 import { DeskNotice } from './_ui/DeskNotice.tsx';
@@ -80,6 +80,7 @@ export function TodayScreen({
   return (
     <>
       <DeskHead
+        icon={<GaugeIcon />}
         title={desk.displayName}
         status={<DeskStatus status={desk.status} />}
         lede={
@@ -144,9 +145,14 @@ export function TodayScreen({
         {today.yourMove.length > 0 ? (
           <section className={`${shell.card} ${styles.urgent}`} aria-labelledby="move-title">
             <div className={shell.cardHead}>
-              <h2 id="move-title" className={shell.cardTitle}>
-                Waiting on you
-              </h2>
+              <span className={shell.cardTitleRow}>
+                <span className={shell.cardGlyph} data-tone="brand" aria-hidden="true">
+                  <BoltIcon />
+                </span>
+                <h2 id="move-title" className={shell.cardTitle}>
+                  Waiting on you
+                </h2>
+              </span>
               <span className={shell.muted}>{today.yourMove.length === 1 ? '1 deal' : `${today.yourMove.length} deals`}</span>
             </div>
             <DealList deals={today.yourMove} now={today.now} showNext />
@@ -155,9 +161,14 @@ export function TodayScreen({
 
         <section className={shell.card} aria-labelledby="numbers-title">
           <div className={shell.cardHead}>
-            <h2 id="numbers-title" className={shell.cardTitle}>
-              Turnover
-            </h2>
+            <span className={shell.cardTitleRow}>
+              <span className={shell.cardGlyph} aria-hidden="true">
+                <ChartIcon />
+              </span>
+              <h2 id="numbers-title" className={shell.cardTitle}>
+                Turnover
+              </h2>
+            </span>
             <div className={styles.periods} role="group" aria-label="Period">
               {PERIODS.map((x) => (
                 <button key={x.key} type="button" className={styles.period} aria-pressed={period === x.key} onClick={() => setPeriod(x.key)}>
@@ -168,12 +179,22 @@ export function TodayScreen({
           </div>
           <div className={`${styles.kpis} ${styles.kpisInCard}`}>
             <div className={styles.kpi}>
-              <span className={styles.kpiLabel}>Deals completed</span>
+              <span className={styles.kpiLabel}>
+                <span className={styles.kpiIcon} aria-hidden="true">
+                  <DealsIcon />
+                </span>
+                Deals completed
+              </span>
               <span className={styles.kpiValue}>{p.deals}</span>
               <span className={styles.kpiSub}>{today.clients.total === 1 ? '1 client' : `${today.clients.total} clients`}{today.clients.newThisWeek > 0 ? ` · ${today.clients.newThisWeek} new this week` : ''}</span>
             </div>
             <div className={styles.kpi}>
-              <span className={styles.kpiLabel}>Volume</span>
+              <span className={styles.kpiLabel}>
+                <span className={styles.kpiIcon} aria-hidden="true">
+                  <TrendIcon />
+                </span>
+                Volume
+              </span>
               <span className={styles.kpiValue}>
                 {usdt(p.usdt, false)}
                 <span className={styles.kpiUnit}>USDT</span>
@@ -181,7 +202,12 @@ export function TodayScreen({
               <span className={styles.kpiSub}>Through your desk</span>
             </div>
             <div className={styles.kpi}>
-              <span className={styles.kpiLabel}>INRP2P fees</span>
+              <span className={styles.kpiLabel}>
+                <span className={styles.kpiIcon} aria-hidden="true">
+                  <ChartIcon />
+                </span>
+                INRP2P fees
+              </span>
               <span className={styles.kpiValue}>
                 {usdt(p.fees, false)}
                 <span className={styles.kpiUnit}>USDT</span>
@@ -194,9 +220,14 @@ export function TodayScreen({
         <div className={styles.grid2}>
           <section className={shell.card} aria-labelledby="prices-title">
             <div className={shell.cardHead}>
-              <h2 id="prices-title" className={shell.cardTitle}>
-                Your prices
-              </h2>
+              <span className={shell.cardTitleRow}>
+                <span className={shell.cardGlyph} aria-hidden="true">
+                  <TagIcon />
+                </span>
+                <h2 id="prices-title" className={shell.cardTitle}>
+                  Your prices
+                </h2>
+              </span>
               {canCommit ? (
                 <Link className={shell.textAction} href="/desk/prices">
                   Edit
@@ -234,24 +265,44 @@ export function TodayScreen({
 
           <section className={shell.card} aria-labelledby="fill-title">
             <div className={shell.cardHead}>
-              <h2 id="fill-title" className={shell.cardTitle}>
-                What you can fill
-              </h2>
+              <span className={shell.cardTitleRow}>
+                <span className={shell.cardGlyph} aria-hidden="true">
+                  <VaultIcon />
+                </span>
+                <h2 id="fill-title" className={shell.cardTitle}>
+                  What you can fill
+                </h2>
+              </span>
               <Link className={shell.textAction} href="/traders">
                 Capacity
               </Link>
             </div>
             <div className={styles.stack}>
               <div className={styles.figure}>
-                <span className={styles.figureLabel}>Rupees to buy USDT</span>
+                <span className={styles.figureLabel}>
+                  <span className={styles.figureIcon} aria-hidden="true">
+                    <BankIcon />
+                  </span>
+                  Rupees to buy USDT
+                </span>
                 <span className={styles.figureValue}>{today.capacity.SELL_USDT ? inr(today.capacity.SELL_USDT.available) : 'Not offered'}</span>
               </div>
               <div className={styles.figure}>
-                <span className={styles.figureLabel}>USDT to sell</span>
+                <span className={styles.figureLabel}>
+                  <span className={styles.figureIcon} aria-hidden="true">
+                    <WalletIcon />
+                  </span>
+                  USDT to sell
+                </span>
                 <span className={styles.figureValue}>{today.capacity.BUY_USDT ? usdtShort(today.capacity.BUY_USDT.available) : 'Not offered'}</span>
               </div>
               <div className={styles.figure}>
-                <span className={styles.figureLabel}>Network deposit</span>
+                <span className={styles.figureLabel}>
+                  <span className={styles.figureIcon} aria-hidden="true">
+                    <BoltIcon />
+                  </span>
+                  Network deposit
+                </span>
                 <span className={styles.figureValue}>
                   {today.network.dealsCovered === null ? '—' : today.network.dealsCovered === 1 ? 'Covers 1 more deal' : `Covers ${today.network.dealsCovered} more deals`}
                 </span>
@@ -272,9 +323,14 @@ export function TodayScreen({
 
         <section className={shell.card} aria-labelledby="open-title">
           <div className={shell.cardHead}>
-            <h2 id="open-title" className={shell.cardTitle}>
-              Open deals
-            </h2>
+            <span className={shell.cardTitleRow}>
+              <span className={shell.cardGlyph} aria-hidden="true">
+                <DealsIcon />
+              </span>
+              <h2 id="open-title" className={shell.cardTitle}>
+                Open deals
+              </h2>
+            </span>
             <Link className={shell.textAction} href="/desk/deals">
               All deals
             </Link>

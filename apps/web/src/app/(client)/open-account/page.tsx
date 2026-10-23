@@ -4,6 +4,7 @@ import { workspacePage } from '../../../server/client.ts';
 import { safeReturnPath } from '../../../server/surface.ts';
 import { PageHead } from '../_workspace/PageHead.tsx';
 import { OpenAccount } from './OpenAccount.tsx';
+import { UserIcon } from '../_workspace/icons.tsx';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,7 +19,7 @@ export default async function OpenAccountPage({ searchParams }: { searchParams: 
   if (ctx.access.kind === 'MEMBER') redirect(next ?? (ctx.access.member.exchangeAccess ? '/exchange' : '/traders'));
   return (
     <>
-      <PageHead title="Open your account" lede="Name the account you will trade under. The Exchange opens the moment it exists." />
+      <PageHead icon={<UserIcon />} title="Open your account" lede="Name the account you will trade under. The Exchange opens the moment it exists." />
       <OpenAccount email={ctx.access.email} invites={await invitesForUser(ctx.db, ctx.actor.userId)} {...(next ? { next } : {})} />
     </>
   );

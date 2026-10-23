@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import Link from 'next/link';
 import { getImageProps } from 'next/image';
 import mark from '../../../../../brand/inrp2p-mark.png';
-import { CLOSING, FOOTER, FOOTER_NOTE, NAV, SITE_NAME, SITE_PAGES, TAGLINE, TRADER_ENTRY, WORKSPACE_ENTRY } from '../../content/site.ts';
+import { CLOSING, FOOTER, FOOTER_NOTE, NAV, OWN_DESK, SITE_NAME, SITE_PAGES, TAGLINE, TRADER_ENTRY, WORKSPACE_ENTRY } from '../../content/site.ts';
 import { appOrigin, mailto, onboardingHref, siteContacts } from '../../server/site.ts';
 import styles from './public.module.css';
 
@@ -111,6 +111,10 @@ export function PublicShell({ children, nonce }: { children: ReactNode; nonce?: 
                 {item.label}
               </Link>
             ))}
+            <Link href="/#own-desk" className={styles.navLink} prefetch={false}>
+              {OWN_DESK.nav}
+              <span className={styles.navNew} aria-hidden="true" />
+            </Link>
           </nav>
           {/* The way in for a new trader, beside the way back for everyone who already has a workspace. */}
           <a className={styles.traderEntry} href={`${app}${TRADER_ENTRY.appPath}`}>

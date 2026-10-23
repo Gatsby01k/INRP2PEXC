@@ -5,6 +5,7 @@ import { memberPage } from '../../../../server/client.ts';
 import { TeamScreen } from '../../account/team/TeamScreen.tsx';
 import { DeskHead } from '../_ui/DeskHead.tsx';
 import { DeskStatus } from '../_ui/DeskStatus.tsx';
+import { UsersIcon } from '../../_workspace/icons.tsx';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,7 +17,7 @@ export default async function DeskTeamPage() {
   const team = await clientTeam(ctx.db, ctx.member.clientId, ctx.actor.userId);
   return (
     <>
-      <DeskHead title="Team" status={<DeskStatus status={ws.desk.status} />} lede="The people who run your desk with you. Operators work deals; administrators run the desk." />
+      <DeskHead icon={<UsersIcon />} title="Team" status={<DeskStatus status={ws.desk.status} />} lede="The people who run your desk with you. Operators work deals; administrators run the desk." />
       <TeamScreen members={team.members} invites={team.invites} isAdmin={ws.canAdmin} clientName={ws.desk.displayName} />
     </>
   );

@@ -8,6 +8,7 @@ import { OrderScreen } from '../../../traders/orders/[ref]/OrderScreen.tsx';
 import { DeskHead } from '../../_ui/DeskHead.tsx';
 import { DealStatus } from '../../_ui/DeskStatus.tsx';
 import { inr, rate, usdt } from '../../_ui/format.ts';
+import { DealsIcon } from '../../../_workspace/icons.tsx';
 
 export const dynamic = 'force-dynamic';
 
@@ -35,6 +36,7 @@ export default async function DeskDealPage({ params }: { params: Promise<{ ref: 
   return (
     <>
       <DeskHead
+        icon={<DealsIcon />}
         eyebrow={`Deal ${deal.ref}${deal.via === 'LINK' ? ' · by link' : ''}`}
         title={deal.clientName}
         status={<DealStatus state={deal.state} yourMove={deal.yourMove} inReview={deal.stage === 'REVIEW'} />}

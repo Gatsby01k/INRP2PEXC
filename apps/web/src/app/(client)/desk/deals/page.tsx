@@ -6,6 +6,7 @@ import { DeskHead } from '../_ui/DeskHead.tsx';
 import { DeskStatus } from '../_ui/DeskStatus.tsx';
 import { NewDealSheet } from '../_ui/NewDealSheet.tsx';
 import { DealsScreen } from './DealsScreen.tsx';
+import { DealsIcon } from '../../_workspace/icons.tsx';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,6 +27,7 @@ export default async function DeskDealsPage({ searchParams }: { searchParams: Pr
   return (
     <>
       <DeskHead
+        icon={<DealsIcon />}
         title="Deals"
         status={<DeskStatus status={ws.desk.status} />}
         lede="Every deal your clients made with your desk — from your page and from your links."

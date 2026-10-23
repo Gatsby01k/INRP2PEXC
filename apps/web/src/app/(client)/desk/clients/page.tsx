@@ -5,6 +5,7 @@ import { memberPage } from '../../../../server/client.ts';
 import { DeskHead } from '../_ui/DeskHead.tsx';
 import { DeskStatus } from '../_ui/DeskStatus.tsx';
 import { ClientsScreen } from './ClientsScreen.tsx';
+import { UserIcon } from '../../_workspace/icons.tsx';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,7 +17,7 @@ export default async function DeskClientsPage() {
   const clients = await deskClients(ctx.db, ws.desk.id);
   return (
     <>
-      <DeskHead title="Clients" status={<DeskStatus status={ws.desk.status} />} lede="Everyone who came to your desk through your page or a link. They are yours: no other desk sees them." />
+      <DeskHead icon={<UserIcon />} title="Clients" status={<DeskStatus status={ws.desk.status} />} lede="Everyone who came to your desk through your page or a link. They are yours: no other desk sees them." />
       <ClientsScreen clients={clients} canCommit={ws.canCommit} />
     </>
   );

@@ -206,6 +206,14 @@
   box-shadow: inset 1px 0 0 var(--line);
 }
 
+.recordIcon {
+  order: 0;
+  width: 18px;
+  height: 18px;
+  margin-bottom: var(--space-2);
+  color: var(--brand-action);
+}
+
 .record dt {
   order: 2;
   color: var(--text-muted);
@@ -213,6 +221,7 @@
 }
 
 .record dd {
+  order: 1;
   margin: 0;
   font-size: var(--font-size-heading);
   font-weight: var(--font-weight-semibold);
@@ -511,12 +520,14 @@
 }
 
 .step {
+  position: relative;
   display: grid;
+  align-content: start;
   gap: var(--space-2);
   padding: var(--space-6);
-  border-radius: 20px;
-  background: color-mix(in srgb, var(--bg-surface) 80%, transparent);
-  box-shadow: inset 0 0 0 1px var(--line);
+  border-radius: 22px;
+  background: linear-gradient(180deg, var(--bg-surface), color-mix(in srgb, var(--bg-surface) 75%, var(--bg-subtle)));
+  box-shadow: 0 0 0 1px var(--line), var(--lift);
   counter-increment: step;
 }
 
@@ -532,6 +543,41 @@
   color: var(--bg-surface);
   font-size: var(--font-size-body-sm);
   font-weight: var(--font-weight-semibold);
+}
+
+/* A step with a glyph: the glyph leads it, and its number moves to the corner, small and in the mono face. */
+.step:has(.stepGlyph)::before {
+  content: '0' counter(step);
+  position: absolute;
+  top: var(--space-6);
+  right: var(--space-6);
+  display: block;
+  width: auto;
+  height: auto;
+  margin: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-regular);
+}
+
+.stepGlyph {
+  display: inline-grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin-bottom: var(--space-3);
+  border-radius: 14px;
+  background: var(--brand-soft);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand-primary) 22%, transparent);
+  color: var(--brand-action);
+}
+
+.stepGlyph svg {
+  width: 22px;
+  height: 22px;
 }
 
 .stepTitle {
@@ -682,6 +728,15 @@
   }
 
   .step::before {
+    grid-row: span 2;
+    margin-bottom: 0;
+  }
+
+  .step:has(.stepGlyph) {
+    grid-template-columns: 44px minmax(0, 1fr);
+  }
+
+  .step:has(.stepGlyph) .stepGlyph {
     grid-row: span 2;
     margin-bottom: 0;
   }

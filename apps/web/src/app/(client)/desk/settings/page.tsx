@@ -5,6 +5,7 @@ import { publicOrigin } from '../../../../server/site.ts';
 import { DeskHead } from '../_ui/DeskHead.tsx';
 import { DeskStatus } from '../_ui/DeskStatus.tsx';
 import { DeskSettings } from './DeskSettings.tsx';
+import { GlobeIcon } from '../../_workspace/icons.tsx';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,7 +18,7 @@ export default async function DeskSettingsPage() {
   const host = (await publicOrigin()).replace(/^https?:\/\//, '');
   return (
     <>
-      <DeskHead title="Page" status={<DeskStatus status={ws.desk.status} />} lede="What a client sees at your address, and whether your desk is taking deals." />
+      <DeskHead icon={<GlobeIcon />} title="Page" status={<DeskStatus status={ws.desk.status} />} lede="What a client sees at your address, and whether your desk is taking deals." />
       <DeskSettings desk={ws.desk} prices={prices} host={host} canAdmin={ws.canAdmin} approved={ws.traderStatus === 'APPROVED'} />
     </>
   );

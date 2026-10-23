@@ -7,10 +7,12 @@ import { Closing } from '../_landing/closing/Closing.tsx';
 import { Desk } from '../_landing/desk/Desk.tsx';
 import { Flow } from '../_landing/flow/Flow.tsx';
 import { Hero } from '../_landing/Hero.tsx';
+import { OwnDesk } from '../_landing/owndesk/OwnDesk.tsx';
 import { Story } from '../_landing/Story.tsx';
 import { Trust } from '../_landing/trust/Trust.tsx';
 import { pageMetadata } from '../metadata.ts';
 import { SitePageView } from '../SitePageView.tsx';
+import { appOrigin, publicOrigin } from '../../../server/site.ts';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,9 +31,11 @@ export async function generateMetadata(): Promise<Metadata> {
   return page ? pageMetadata(page) : {};
 }
 
-export default function Page() {
+export default async function Page() {
   const page = pageForPath(PATH);
   if (!page) notFound();
+  // The desk programme's mock-up shows a desk's address on this site's own host, as a desk's page really has it.
+  const host = (await publicOrigin()).replace(/^https?:\/\//, '');
   return (
     <SitePageView
       page={page}
@@ -39,6 +43,7 @@ export default function Page() {
       story={
         <Story>
           <Flow />
+          <OwnDesk appOrigin={appOrigin()} host={host} />
           <Trust />
           <Audience />
           <Desk />

@@ -3,6 +3,7 @@ import { traderHome } from '@inrp2p/traders';
 import { memberPage } from '../../../../server/client.ts';
 import { PageHead } from '../../_workspace/PageHead.tsx';
 import { SettlementChange } from './SettlementChange.tsx';
+import { BankIcon } from '../../_workspace/icons.tsx';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,6 +20,7 @@ export default async function SettlementPage() {
   return (
     <>
       <PageHead
+        icon={<BankIcon />}
         eyebrow="Traders"
         title="New settlement details"
         lede={working ? 'Submit a new bank account or wallet. The desk reviews it; until it approves, your current details keep working.' : 'Replace the bank account or wallet in your application. The desk reviews it before anything settles through it.'}

@@ -268,3 +268,161 @@ export const PlaneIcon = ({ className }: IconProps) => (
     <path d="M21 4 3 11.2l6.3 2.3L18 7.5l-6.6 7.4.4 5.6 3.2-4.1 4.3 3.1Z" />
   </svg>
 );
+
+export const SearchIcon = ({ className }: IconProps) => (
+  <svg {...base} className={className}>
+    <circle cx="11" cy="11" r="6.5" />
+    <path d="m16 16 4 4" />
+  </svg>
+);
+
+/** Today on the desk: a dial reading where things stand. */
+export const GaugeIcon = ({ className }: IconProps) => (
+  <svg {...base} className={className}>
+    <path d="M4.2 16.5a8.5 8.5 0 1 1 15.6 0" />
+    <path d="m12 13.5 3.5-4" />
+    <circle cx="12" cy="13.5" r="1.4" fill="currentColor" stroke="none" />
+  </svg>
+);
+
+/** A deal: two sides moving against each other. */
+export const DealsIcon = ({ className }: IconProps) => (
+  <svg {...base} className={className}>
+    <path d="M4.5 8.5h13M14 5l3.5 3.5L14 12" />
+    <path d="M19.5 15.5h-13M10 12l-3.5 3.5L10 19" />
+  </svg>
+);
+
+export const GlobeIcon = ({ className }: IconProps) => (
+  <svg {...base} className={className}>
+    <circle cx="12" cy="12" r="8.5" />
+    <path d="M3.5 12h17" />
+    <path d="M12 3.5c2.3 2.4 3.5 5.2 3.5 8.5s-1.2 6.1-3.5 8.5c-2.3-2.4-3.5-5.2-3.5-8.5S9.7 5.9 12 3.5Z" />
+  </svg>
+);
+
+export const MailIcon = ({ className }: IconProps) => (
+  <svg {...base} className={className}>
+    <rect x="3.5" y="5.5" width="17" height="13" rx="2.5" />
+    <path d="m4.5 7 7.5 6 7.5-6" />
+  </svg>
+);
+
+export const BoltIcon = ({ className }: IconProps) => (
+  <svg {...base} className={className}>
+    <path d="M13 3.5 5.5 13.5H12l-1 7 7.5-10H12l1-7Z" />
+  </svg>
+);
+
+/** Escrow: a vault that holds what is owed until it is released. */
+export const VaultIcon = ({ className }: IconProps) => (
+  <svg {...base} className={className}>
+    <rect x="3.5" y="4.5" width="17" height="15" rx="2.5" />
+    <circle cx="12" cy="12" r="3.5" />
+    <path d="M12 8.5v1M12 14.5v1M8.5 12h1M14.5 12h1" />
+    <path d="M6.5 19.5v1.5M17.5 19.5v1.5" />
+  </svg>
+);
+
+export const TrendIcon = ({ className }: IconProps) => (
+  <svg {...base} className={className}>
+    <path d="m3.5 16.5 5.5-5.5 4 4 7.5-7.5" />
+    <path d="M15.5 7.5h5v5" />
+  </svg>
+);
+
+export const ArrowUpRightIcon = ({ className }: IconProps) => (
+  <svg {...base} className={className}>
+    <path d="M7 17 17 7" />
+    <path d="M8.5 7H17v8.5" />
+  </svg>
+);
+
+export const ArrowDownLeftIcon = ({ className }: IconProps) => (
+  <svg {...base} className={className}>
+    <path d="M17 7 7 17" />
+    <path d="M15.5 17H7V8.5" />
+  </svg>
+);
+
+export const InboxIcon = ({ className }: IconProps) => (
+  <svg {...base} className={className}>
+    <path d="M4 13.5 6.3 5.6a1.5 1.5 0 0 1 1.4-1.1h8.6a1.5 1.5 0 0 1 1.4 1.1l2.3 7.9" />
+    <path d="M4 13.5v5a1.5 1.5 0 0 0 1.5 1.5h13a1.5 1.5 0 0 0 1.5-1.5v-5h-4.5l-1.5 2.5h-4L8.5 13.5Z" />
+  </svg>
+);
+
+export const HelpIcon = ({ className }: IconProps) => (
+  <svg {...base} className={className}>
+    <circle cx="12" cy="12" r="8.5" />
+    <path d="M9.6 9.4a2.5 2.5 0 0 1 4.8.9c0 1.7-2.4 2.2-2.4 3.7" />
+    <circle cx="12" cy="16.9" r="0.7" fill="currentColor" stroke="none" />
+  </svg>
+);
+
+export const SettingsIcon = ({ className }: IconProps) => (
+  <svg {...base} className={className}>
+    <path d="M4 7h9M17 7h3M4 17h3M11 17h9" />
+    <circle cx="15" cy="7" r="2" />
+    <circle cx="9" cy="17" r="2" />
+  </svg>
+);
+
+export const KeyIcon = ({ className }: IconProps) => (
+  <svg {...base} className={className}>
+    <circle cx="8" cy="15" r="4" />
+    <path d="m11 12 8.5-8.5M16.5 6.5l2.5 2.5M14 9l2 2" />
+  </svg>
+);
+
+export const CalendarIcon = ({ className }: IconProps) => (
+  <svg {...base} className={className}>
+    <rect x="4" y="5.5" width="16" height="14.5" rx="2.5" />
+    <path d="M4 10h16M8.5 3.5v4M15.5 3.5v4" />
+  </svg>
+);
+
+export const ExternalIcon = ({ className }: IconProps) => (
+  <svg {...base} className={className}>
+    <path d="M13.5 4.5h6v6M19.5 4.5 11 13" />
+    <path d="M17.5 14v4a1.5 1.5 0 0 1-1.5 1.5H6A1.5 1.5 0 0 1 4.5 18V8A1.5 1.5 0 0 1 6 6.5h4" />
+  </svg>
+);
+
+export const QrIcon = ({ className }: IconProps) => (
+  <svg {...base} className={className}>
+    <rect x="4" y="4" width="6" height="6" rx="1.2" />
+    <rect x="14" y="4" width="6" height="6" rx="1.2" />
+    <rect x="4" y="14" width="6" height="6" rx="1.2" />
+    <path d="M14 14h2.5v2.5M20 14v.01M14 20h.01M17 20h3v-3" />
+  </svg>
+);
+
+export const SunIcon = ({ className }: IconProps) => (
+  <svg {...base} className={className}>
+    <circle cx="12" cy="12" r="3.8" />
+    <path d="M12 3v1.8M12 19.2V21M3 12h1.8M19.2 12H21M5.6 5.6l1.3 1.3M17.1 17.1l1.3 1.3M5.6 18.4l1.3-1.3M17.1 6.9l1.3-1.3" />
+  </svg>
+);
+
+export const MoonIcon = ({ className }: IconProps) => (
+  <svg {...base} className={className}>
+    <path d="M19.5 14.2A7.8 7.8 0 0 1 9.8 4.5a7.8 7.8 0 1 0 9.7 9.7Z" />
+  </svg>
+);
+
+export const ReturnIcon = ({ className }: IconProps) => (
+  <svg {...base} className={className}>
+    <path d="M19 5.5v6a2.5 2.5 0 0 1-2.5 2.5H6" />
+    <path d="m9.5 10.5-3.5 3.5 3.5 3.5" />
+  </svg>
+);
+
+export const GridIcon = ({ className }: IconProps) => (
+  <svg {...base} className={className}>
+    <rect x="4" y="4" width="6.5" height="6.5" rx="1.6" />
+    <rect x="13.5" y="4" width="6.5" height="6.5" rx="1.6" />
+    <rect x="4" y="13.5" width="6.5" height="6.5" rx="1.6" />
+    <rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.6" />
+  </svg>
+);

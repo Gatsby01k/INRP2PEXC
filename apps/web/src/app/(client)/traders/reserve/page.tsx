@@ -3,6 +3,7 @@ import { traderHome } from '@inrp2p/traders';
 import { memberPage } from '../../../../server/client.ts';
 import { PageHead } from '../../_workspace/PageHead.tsx';
 import { ReserveScreen } from './ReserveScreen.tsx';
+import { ShieldIcon } from '../../_workspace/icons.tsx';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,7 +14,7 @@ export default async function ReservePage() {
   if (!home.reserve) redirect('/traders');
   return (
     <>
-      <PageHead eyebrow="Traders" title="Security Reserve" lede="A USDT reserve, kept separate from your trading capacity. It is locked while you provide liquidity and released after your orders finish." />
+      <PageHead icon={<ShieldIcon />} eyebrow="Traders" title="Security Reserve" lede="A USDT reserve, kept separate from your trading capacity. It is locked while you provide liquidity and released after your orders finish." />
       <ReserveScreen home={home} />
     </>
   );

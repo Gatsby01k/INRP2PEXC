@@ -3,6 +3,7 @@ import { businessNow } from '@inrp2p/quotes';
 import { memberPage } from '../../../server/client.ts';
 import { PageHead } from '../_workspace/PageHead.tsx';
 import { Inbox } from './Inbox.tsx';
+import { BellIcon } from '../_workspace/icons.tsx';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,7 +18,7 @@ export default async function NotificationsPage() {
 
   return (
     <>
-      <PageHead title="Notifications" lede="What the desk has told you, newest first — quotes, payments, and changes to your bank accounts and wallets." />
+      <PageHead icon={<BellIcon />} title="Notifications" lede="What the desk has told you, newest first — quotes, payments, and changes to your bank accounts and wallets." />
       <Inbox rows={rows} now={now.toISOString()} />
     </>
   );

@@ -5,7 +5,7 @@ import { useCommand } from '../../../components/useCommand.tsx';
 import { openDeskAction } from '../../../server/actions/desks.ts';
 import { Field } from '../_workspace/Field.tsx';
 import { PageHead } from '../_workspace/PageHead.tsx';
-import { LinkIcon, ShieldIcon, TagIcon, UsersIcon } from '../_workspace/icons.tsx';
+import { LinkIcon, ShieldIcon, StoreIcon, TagIcon, UsersIcon } from '../_workspace/icons.tsx';
 import { sentence } from './_ui/format.ts';
 import shell from '../shell.module.css';
 import styles from './desk.module.css';
@@ -33,7 +33,7 @@ export function OpenDesk({ canAdmin, host, clientName }: { canAdmin: boolean; ho
 
   return (
     <>
-      <PageHead eyebrow="Desk" title="Your own exchange, on INRP2P" lede="A page and a link of your own, your prices, your clients. Deals settle through INRP2P’s escrow." />
+      <PageHead icon={<StoreIcon />} eyebrow="Desk" title="Your own exchange, on INRP2P" lede="A page and a link of your own, your prices, your clients. Deals settle through INRP2P’s escrow." />
       <main className={shell.main}>
         <div className={styles.hero}>
           <div className={styles.heroText}>

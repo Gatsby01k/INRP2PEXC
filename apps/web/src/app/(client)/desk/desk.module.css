@@ -30,6 +30,13 @@
   box-shadow: inset 0 -1px 0 var(--line);
 }
 
+/* On a computer the desk's sections live in the sidebar, under the desk's name. */
+@media (min-width: 900px) {
+  .tabs {
+    display: none;
+  }
+}
+
 .tabs::-webkit-scrollbar {
   display: none;
 }
@@ -208,13 +215,36 @@
 }
 
 .kpiLabel {
-  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+  color: var(--text-secondary);
   font-size: var(--font-size-meta);
   font-weight: var(--font-weight-medium);
 }
 
+.kpiIcon,
+.figureIcon {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: var(--bg-subtle);
+  box-shadow: inset 0 0 0 1px var(--line);
+  color: var(--text-secondary);
+}
+
+.kpiIcon svg,
+.figureIcon svg {
+  width: 16px;
+  height: 16px;
+}
+
 .kpiValue {
-  font-size: clamp(22px, 2vw, 28px);
+  font-size: clamp(26px, 2.4vw, 34px);
   font-weight: var(--font-weight-semibold);
   letter-spacing: -0.03em;
   font-variant-numeric: tabular-nums;
@@ -537,7 +567,10 @@
 
 /* A card whose work waits on the desk: an orange edge, so it is the first thing the eye finds. */
 .urgent {
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--brand-primary) 32%, transparent), var(--lift);
+  background:
+    radial-gradient(ellipse 60% 80% at 100% 0%, color-mix(in srgb, var(--brand-soft) 90%, transparent) 0%, transparent 70%),
+    var(--bg-surface);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--brand-primary) 32%, transparent), 0 18px 40px -26px color-mix(in srgb, var(--brand-primary) 55%, transparent);
 }
 
 .cardActions {
@@ -562,7 +595,17 @@
 
 .figure {
   display: grid;
-  gap: 2px;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-radius: 14px;
+  background: var(--bg-subtle);
+  box-shadow: inset 0 0 0 1px var(--line-soft);
+}
+
+.figure > .figureLabel {
+  grid-column: 1 / -1;
 }
 
 .figureValue {
@@ -572,8 +615,19 @@
 }
 
 .figureLabel {
-  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text-secondary);
   font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-medium);
+}
+
+.figure > .figureValue {
+  grid-column: 1 / -1;
+  padding-left: calc(26px + var(--space-2));
+  font-size: var(--font-size-heading);
+  letter-spacing: -0.02em;
 }
 
 /* ——— Tables (deals, clients, links): rows on a wide screen, cards on a phone ——— */

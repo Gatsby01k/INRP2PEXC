@@ -8,6 +8,7 @@ import { PageHead } from '../../../_workspace/PageHead.tsx';
 import { OrderPill } from '../../_ui/OrderPill.tsx';
 import { sideTitle, usdt } from '../../_ui/format.ts';
 import { OrderScreen } from './OrderScreen.tsx';
+import { DealsIcon } from '../../../_workspace/icons.tsx';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,6 +27,7 @@ export default async function TraderOrderPage({ params }: { params: Promise<{ re
   return (
     <>
       <PageHead
+        icon={<DealsIcon />}
         eyebrow={`Order · ${sideTitle(o.side)}`}
         title={o.ref}
         status={<OrderPill stage={o.stage} status={o.status} size="lg" />}

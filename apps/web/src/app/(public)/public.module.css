@@ -75,6 +75,18 @@
   color: var(--text-primary);
 }
 
+/* What is new: a small orange dot beside the programme's link, the way an app marks a fresh section. */
+.navNew {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: var(--brand-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-primary) 18%, transparent);
+  vertical-align: 2px;
+}
+
 /* The way into the workspace: set in the navigation's type, one step heavier and in the primary ink, with no box,
    fill or border of its own. The glyph is the only part that answers. On hover or keyboard focus its line runs
    three pixels further and takes the brand orange, as one move on the page's own easing. Nothing scales, glows or

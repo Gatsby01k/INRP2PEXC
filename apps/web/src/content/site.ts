@@ -622,6 +622,133 @@ export const BUSINESS: BusinessCopy = {
 };
 
 /**
+ * A trader's own exchange on INRP2P (ADR 0020): the desk programme, told to the traders and brokers who would run
+ * one. Every sentence describes something the workspace does today — the page, deal links, escrow, prices, the team,
+ * Telegram alerts — and the mock-ups beside them draw their figures masked, like the rest of the site.
+ */
+export const OWN_DESK_FEATURES = ['page', 'link', 'escrow', 'prices', 'team', 'alerts'] as const;
+export type OwnDeskFeature = (typeof OWN_DESK_FEATURES)[number];
+
+export interface OwnDeskCopy {
+  readonly nav: string;
+  readonly announce: { readonly tag: string; readonly text: string };
+  readonly eyebrow: string;
+  readonly heading: string;
+  readonly lede: string;
+  readonly features: readonly { readonly key: OwnDeskFeature; readonly title: string; readonly body: string }[];
+  readonly mock: {
+    readonly deskName: string;
+    readonly handle: string;
+    readonly taking: string;
+    readonly sell: string;
+    readonly buy: string;
+    readonly perUsdt: string;
+    readonly ask: string;
+    readonly chat: string;
+    readonly linkTitle: string;
+    readonly linkMeta: string;
+    readonly held: string;
+    readonly take: string;
+    readonly escrow: readonly string[];
+    readonly youBuy: string;
+    readonly youSell: string;
+    readonly live: string;
+    readonly holdFor: string;
+    readonly holds: readonly string[];
+    readonly team: readonly { readonly name: string; readonly role: string }[];
+    readonly bot: string;
+    readonly alerts: readonly { readonly title: string; readonly body: string }[];
+    readonly flow: readonly string[];
+  };
+  readonly steps: readonly { readonly title: string; readonly body: string }[];
+  readonly cta: { readonly title: string; readonly label: string; readonly appPath: string; readonly signedIn: string; readonly signedInPath: string };
+}
+
+export const OWN_DESK: OwnDeskCopy = {
+  nav: 'For desks',
+  announce: { tag: 'New', text: 'Run your own exchange on INRP2P' },
+  eyebrow: 'For traders and brokers',
+  heading: 'Your own exchange, on INRP2P.',
+  lede: 'A page and deal links under your name, your own prices, your clients and your team. Rupees move straight between you and your client; the USDT waits in escrow until they are confirmed.',
+  features: [
+    {
+      key: 'page',
+      title: 'Your page, at your own address.',
+      body: 'Clients open your page, see your rates and ask for a firm price under your name. Every client who comes through it is yours.',
+    },
+    {
+      key: 'link',
+      title: 'A deal link for one client.',
+      body: 'Price a deal for one client and send it on WhatsApp or Telegram. They open it, sign in with their email and take it while the price holds.',
+    },
+    {
+      key: 'escrow',
+      title: 'Escrow on every deal.',
+      body: 'Whoever sells puts the USDT into the deal’s own escrow address. It is released only after the rupees are confirmed, never before.',
+    },
+    {
+      key: 'prices',
+      title: 'Prices you control.',
+      body: 'What you pay and what you ask, the smallest and largest deal, and how long they hold. They switch themselves off when their time runs out.',
+    },
+    {
+      key: 'team',
+      title: 'A team, with roles.',
+      body: 'Invite operators to work deals and administrators to run the desk. Every step is recorded against the person who took it.',
+    },
+    {
+      key: 'alerts',
+      title: 'Alerts where you already are.',
+      body: 'A new deal, your move, a client who has paid: Telegram tells you, and reminds you before a step runs out of time.',
+    },
+  ],
+  mock: {
+    deskName: 'Your desk',
+    handle: 'your-desk',
+    taking: 'Taking deals',
+    sell: 'Sell USDT',
+    buy: 'Buy USDT',
+    perUsdt: 'INR per USDT',
+    ask: 'Get a firm price',
+    chat: 'Here is your deal — the price holds while you sign in.',
+    linkTitle: 'A deal from Your desk',
+    linkMeta: 'USDT at',
+    held: 'Price held',
+    take: 'Take this deal',
+    escrow: ['USDT in escrow', 'Rupees confirmed', 'USDT released'],
+    youBuy: 'You buy USDT',
+    youSell: 'You sell USDT',
+    live: 'Live',
+    holdFor: 'Hold for',
+    holds: ['Half a day', 'A day', 'A week'],
+    team: [
+      { name: 'Meera', role: 'Administrator' },
+      { name: 'Ravi', role: 'Operator' },
+      { name: 'Asha', role: 'Operator' },
+    ],
+    bot: 'INRP2P alerts',
+    alerts: [
+      { title: 'New deal on your desk', body: 'A client asked for a firm price.' },
+      { title: 'Your move', body: 'Send the rupees before the step runs out.' },
+      { title: 'Client has paid', body: 'Check your bank, then confirm.' },
+    ],
+    flow: ['Your client', 'Escrow by INRP2P', 'Your desk'],
+  },
+  steps: [
+    { title: 'Apply as a trader', body: 'With your own email. INRP2P reviews every trader before a first deal.' },
+    { title: 'Set your prices', body: 'Your rates, your limits, and how long they hold.' },
+    { title: 'Share your page', body: 'Send your address or a deal link. Clients sign in with their email and deal.' },
+  ],
+  cta: {
+    title: 'Open your desk in three steps.',
+    label: 'Open your desk',
+    appPath: '/become-a-trader',
+    signedIn: 'Already a trader? Open your desk',
+    signedInPath: '/desk',
+  },
+};
+
+/**
  * The page's last word: the call to action for a client, and the way in for someone who is not one yet.
  *
  * A trade is requested from a client account, so the action leads there. A visitor without one is told what the
