@@ -1,7 +1,8 @@
 import Link from 'next/link';
 import { isDomainError } from '@inrp2p/kernel';
-import { deskApprovals, deskExceptions, deskNow, deskTrade } from '@inrp2p/desk';
+import { deskApprovals, deskExceptions, deskTrade } from '@inrp2p/desk';
 import { can, operatorPage } from '../../../server/operator.ts';
+import { nowOf } from '../_desk/reads.ts';
 import { ContextPanel, PanelSection } from '../_desk/ContextPanel.tsx';
 import { LiveRefresh } from '../_desk/Keyboard.tsx';
 import { age, caseTitle, dateTime, money } from '../_desk/format.ts';
@@ -39,7 +40,7 @@ export default async function ExceptionsPage({ searchParams }: { searchParams: P
   const params = await searchParams;
   const tab = params.tab === 'approvals' ? 'approvals' : 'cases';
   const caseId = typeof params.case === 'string' ? params.case : null;
-  const [cases, approvals, now] = await Promise.all([deskExceptions(ctx.db), deskApprovals(ctx.db, ctx.access), deskNow(ctx.db)]);
+  const [cases, approvals, now] = await Promise.all([deskExceptions(ctx.db), deskApprovals(ctx.db, ctx.access), nowOf(ctx)]);
   const perms = tradePerms(ctx);
   const selected = caseId ? (cases.find((c) => c.id === caseId) ?? null) : null;
   let trade = null;

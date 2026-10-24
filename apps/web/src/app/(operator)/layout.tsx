@@ -1,12 +1,13 @@
 import type { ReactNode } from 'react';
 import Link from 'next/link';
 import { getImageProps } from 'next/image';
-import { deskBadges, deskNow, deskQueue } from '@inrp2p/desk';
+import { deskBadges } from '@inrp2p/desk';
 import { payoutsHeld } from '@inrp2p/trades';
 import mark from '../../../../../brand/inrp2p-mark.png';
 import { can, operatorPage } from '../../server/operator.ts';
 import { ClockProvider } from './_desk/clock.tsx';
 import { CommandPalette } from './_desk/CommandPalette.tsx';
+import { nowOf, queueOf } from './_desk/reads.ts';
 import { GlobalKeys, Toaster } from './_desk/Keyboard.tsx';
 import { type NavGroup, Sidebar } from './_desk/Sidebar.tsx';
 import styles from './shell.module.css';
@@ -30,13 +31,8 @@ const ROLE_WORD: Record<string, string> = {
  */
 export default async function OperatorLayout({ children }: { children: ReactNode }) {
   const ctx = await operatorPage();
-  const [groups, badges, now, me, hold] = await Promise.all([
-    deskQueue(ctx.db, ctx.access, { limitPerGroup: 50 }),
-    deskBadges(ctx.db),
-    deskNow(ctx.db),
-    ctx.db.selectFrom('auth_user').select(['name', 'email']).where('id', '=', ctx.actor.userId).executeTakeFirst(),
-    payoutsHeld(ctx.db),
-  ]);
+  const [groups, badges, now, hold] = await Promise.all([queueOf(ctx), deskBadges(ctx.db), nowOf(ctx), payoutsHeld(ctx.db)]);
+  const me = ctx.operator;
   const actionable = groups.filter((g) => g.key === 'needs_action' || g.key === 'exception').reduce((n, g) => n + g.rows.length, 0);
   const onHold = groups.find((g) => g.key === 'exception')?.rows.length ?? 0;
   const approver = can(ctx, 'adjustment:approve') || can(ctx, 'refund:approve');
@@ -85,7 +81,7 @@ export default async function OperatorLayout({ children }: { children: ReactNode
         <div className={styles.backdrop} aria-hidden="true">
           <span className={styles.glow} />
         </div>
-        <Sidebar groups={nav} operator={{ name: me?.name || me?.email || 'Operator', roles, economics: ctx.access.economics }} mark={markProps.src} />
+        <Sidebar groups={nav} operator={{ name: me.name || me.email || 'Operator', roles, economics: ctx.access.economics }} mark={markProps.src} />
         <main className={styles.workspace}>
           {hold.held ? (
             // Every page, not only System: whoever is about to pay someone must see this first (RUNBOOKS `restore-fence`).

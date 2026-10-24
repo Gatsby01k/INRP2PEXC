@@ -5,5 +5,6 @@ export * from './rbac/owner-grant.ts';
 export * from './rbac/command.ts';
 export * from './auth/config.ts';
 export * from './auth/guard.ts';
+export * from './auth/session-cookie.ts';
 export * from './auth/users.ts';
 export * from './auth/schema-mapping.ts';

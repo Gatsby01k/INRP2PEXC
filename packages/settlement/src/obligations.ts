@@ -40,21 +40,42 @@ export interface ObligationRemaining {
 /** What each side of the obligation still owes (FI-61, FI-64 compares this to the ledger). */
 export async function obligationRemaining(ex: Executor, obligationId: string): Promise<ObligationRemaining> {
   const id = requireUuid(obligationId, 'routeObligationId');
-  const o = await sql<{ route_delivers_asset: 'INR' | 'USDT'; exchange_delivers_asset: 'INR' | 'USDT'; route_side: string; exchange_side: string }>`
-    select route_delivers_asset, exchange_delivers_asset,
-           inrp2p_route_obligation_side(id, 'ROUTE_DELIVERS')::text as route_side,
-           inrp2p_route_obligation_side(id, 'EXCHANGE_DELIVERS')::text as exchange_side
-    from route_obligation where id = ${id}`.execute(ex);
-  const row = o.rows[0];
-  if (!row) throw new DomainError('NOT_FOUND', 'route obligation not found');
-  const allocated = await sql<{ side: ObligationSide; total: string }>`
-    select side, coalesce(sum(amount_minor), 0)::text as total
-    from route_settlement_allocation where route_obligation_id = ${id} group by side`.execute(ex);
-  const sum = (side: ObligationSide) => BigInt(allocated.rows.find((r) => r.side === side)?.total ?? '0');
-  return {
-    routeDelivers: Money.ofMinor(BigInt(row.route_side) - sum('ROUTE_DELIVERS'), row.route_delivers_asset),
-    exchangeDelivers: Money.ofMinor(BigInt(row.exchange_side) - sum('EXCHANGE_DELIVERS'), row.exchange_delivers_asset),
-  };
+  const remaining = (await obligationsRemaining(ex, [id])).get(id);
+  if (!remaining) throw new DomainError('NOT_FOUND', 'route obligation not found');
+  return remaining;
+}
+
+/**
+ * The same, for many obligations in one statement — the one formula, whether a command asks about one obligation under
+ * its lock or the Rates screen about a hundred: each side as the obligation defines it now (frozen economics ⊕ posted
+ * adjustments, `inrp2p_route_obligation_side`), minus what route settlements were allocated to it. An id with no
+ * obligation is simply absent from the map.
+ */
+export async function obligationsRemaining(ex: Executor, obligationIds: readonly string[]): Promise<ReadonlyMap<string, ObligationRemaining>> {
+  const ids = obligationIds.map((id) => requireUuid(id, 'routeObligationId'));
+  if (ids.length === 0) return new Map();
+  const r = await sql<{
+    id: string; route_delivers_asset: 'INR' | 'USDT'; exchange_delivers_asset: 'INR' | 'USDT';
+    route_side: string; exchange_side: string; route_allocated: string; exchange_allocated: string;
+  }>`
+    select o.id, o.route_delivers_asset, o.exchange_delivers_asset,
+           inrp2p_route_obligation_side(o.id, 'ROUTE_DELIVERS')::text as route_side,
+           inrp2p_route_obligation_side(o.id, 'EXCHANGE_DELIVERS')::text as exchange_side,
+           coalesce((select sum(a.amount_minor) from route_settlement_allocation a
+                      where a.route_obligation_id = o.id and a.side = 'ROUTE_DELIVERS'), 0)::text as route_allocated,
+           coalesce((select sum(a.amount_minor) from route_settlement_allocation a
+                      where a.route_obligation_id = o.id and a.side = 'EXCHANGE_DELIVERS'), 0)::text as exchange_allocated
+    from route_obligation o
+    where o.id = any(${ids}::uuid[])`.execute(ex);
+  return new Map(
+    r.rows.map((row) => [
+      row.id,
+      {
+        routeDelivers: Money.ofMinor(BigInt(row.route_side) - BigInt(row.route_allocated), row.route_delivers_asset),
+        exchangeDelivers: Money.ofMinor(BigInt(row.exchange_side) - BigInt(row.exchange_allocated), row.exchange_delivers_asset),
+      },
+    ]),
+  );
 }
 
 /**

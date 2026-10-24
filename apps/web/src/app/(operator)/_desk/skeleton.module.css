@@ -1,0 +1,75 @@
+/* The desk page's shape in quiet placeholders, drawn on the page frame's own header and body so nothing moves when the
+   real page arrives. The same shimmer as the client workspace's. */
+
+.bar,
+.block {
+  display: block;
+  border-radius: 10px;
+  background: linear-gradient(
+    100deg,
+    color-mix(in srgb, var(--border-default) 55%, transparent) 30%,
+    color-mix(in srgb, var(--bg-surface) 80%, transparent) 50%,
+    color-mix(in srgb, var(--border-default) 55%, transparent) 70%
+  );
+  background-size: 300% 100%;
+  animation: shimmer 1.4s var(--ease) infinite;
+}
+
+.title {
+  width: min(220px, 60%);
+  height: 36px;
+}
+
+.meta {
+  width: min(320px, 80%);
+  height: 14px;
+}
+
+.tabs {
+  width: min(420px, 100%);
+  height: 42px;
+  border-radius: var(--radius-pill);
+}
+
+.kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+/* Two classes, so the KPI tile keeps its own height over the generic block's. */
+.block.kpi {
+  height: 92px;
+  border-radius: 18px;
+}
+
+.block {
+  height: 320px;
+  border-radius: 18px;
+}
+
+.block[data-size='sm'] {
+  height: 180px;
+}
+
+@media (max-width: 767px) {
+  .kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: 0 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bar,
+  .block {
+    animation: none;
+  }
+}

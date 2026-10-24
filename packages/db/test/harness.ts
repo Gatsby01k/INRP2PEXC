@@ -1,8 +1,10 @@
 import { randomBytes } from 'node:crypto';
 import pg from 'pg';
+import { Kysely, PostgresDialect } from 'kysely';
 import { inject } from 'vitest';
 import { createPool, type Int8Mode } from '../src/pool.ts';
 import { createDb, type Db } from '../src/kysely.ts';
+import type { Database } from '../src/schema.ts';
 
 declare module 'vitest' {
   export interface ProvidedContext {
@@ -112,4 +114,20 @@ export async function insertTradeStubs(owner: Db, count = 1, opts: { funding?: '
     }
     return ids;
   });
+}
+
+/**
+ * A database handle over `pool` that records every statement it sends, in order. For the tests that hold a read to a
+ * budget of round trips — what a page or a session check costs is a number of statements, and a regression (an N+1, a
+ * check run twice) shows up as that number growing long before anyone measures a millisecond.
+ */
+export function countingDb(pool: pg.Pool): { readonly db: Db; readonly statements: string[]; reset(): void } {
+  const statements: string[] = [];
+  const db = new Kysely<Database>({
+    dialect: new PostgresDialect({ pool }),
+    log: (event) => {
+      statements.push(event.query.sql.replace(/\s+/g, ' ').trim());
+    },
+  });
+  return { db, statements, reset: () => void statements.splice(0) };
 }

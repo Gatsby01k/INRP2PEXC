@@ -1,9 +1,10 @@
 import 'server-only';
+import { cache } from 'react';
 import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { DomainError, isDomainError } from '@inrp2p/kernel';
 import type { Db } from '@inrp2p/db';
-import { type OperatorActor, type Permission, effectiveRequirement, hasFreshStepUp, requireOperatorSession } from '@inrp2p/identity';
+import { type OperatorActor, type Permission, effectiveRequirement, operatorSession } from '@inrp2p/identity';
 import { type DeskAccess, accessFor } from '@inrp2p/desk';
 import { getRuntime } from './runtime.ts';
 
@@ -13,23 +14,30 @@ export interface OperatorContext {
   readonly access: DeskAccess;
   /** True when this session's TOTP verification is inside the step-up window (SECURITY §2.1). */
   readonly stepUpFresh: boolean;
+  /** Who is signed in, as the sidebar names them. */
+  readonly operator: { readonly name: string; readonly email: string };
 }
 
 /**
- * The operator behind the current request. The proxy has already refused anonymous, idle and un-verified
- * sessions; this reads the same session again inside the page or action, because a page that trusts the proxy
- * alone is one routing mistake away from rendering someone else's desk.
+ * The operator behind the current request — the check that decides. The proxy only sends a request without a desk
+ * cookie to sign in; whether the session is real, live, MFA-verified and on the desk is read here, next to the
+ * database, inside every page, route and action, because a page that trusts routing alone is one mistake away from
+ * rendering someone else's desk.
+ *
+ * Once per request: the layout, the page and anything else rendered for the same request share one read (React
+ * `cache` is scoped to a single server request, so nothing about one request or operator reaches another).
  */
-export async function operatorContext(): Promise<OperatorContext> {
+export const operatorContext = cache(async (): Promise<OperatorContext> => {
   const rt = getRuntime();
-  const actor = await requireOperatorSession(rt.operatorAuth, rt.appDb, await headers());
+  const session = await operatorSession(rt.operatorAuth, rt.appDb, await headers());
   return {
-    actor,
+    actor: session.actor,
     db: rt.appDb,
-    access: accessFor(actor),
-    stepUpFresh: await hasFreshStepUp(rt.appDb, actor.sessionId),
+    access: accessFor(session.actor),
+    stepUpFresh: session.stepUpFresh,
+    operator: { name: session.name, email: session.email },
   };
-}
+});
 
 /** Page-level variant: an expired or missing session sends the operator to sign in rather than showing an error. */
 export async function operatorPage(): Promise<OperatorContext> {

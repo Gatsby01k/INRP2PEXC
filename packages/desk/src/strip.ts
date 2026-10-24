@@ -36,38 +36,12 @@ export interface DeskStrip {
  * a desk promises money it does not have.
  */
 export async function deskStrip(ex: Executor, access: DeskAccess): Promise<DeskStrip> {
-  const day = await istToday(ex);
-
-  const capacity = await sql<{ available: string }>`
-    select coalesce(sum(greatest(d.capacity_minor - d.used_minor - d.reserved_minor, 0)), 0)::text as available
-    from inr_account_day d
-    join inr_settlement_account a on a.id = d.account_id
-    where d.day = ${day}::date and a.status = 'ACTIVE' and a.direction in ('PAYOUT', 'BOTH')`.execute(ex);
-
-  const treasury = await sql<{ available: string }>`
-    select coalesce(sum(greatest(observed_balance_minor - reserved_minor, 0)), 0)::text as available
-    from treasury_wallet where status = 'ACTIVE' and role in ('HOT', 'DEPOSIT_POOL')`.execute(ex);
-
-  const trades = await sql<{ open: string; hold: string }>`
-    select count(*) filter (where lifecycle_state not in ('COMPLETED', 'CANCELLED'))::text as open,
-           count(*) filter (where hold and lifecycle_state not in ('COMPLETED', 'CANCELLED'))::text as hold
-    from trade`.execute(ex);
-
-  const strip: DeskStrip = {
-    inrAvailableToday: Money.ofMinor(BigInt(capacity.rows[0]!.available), 'INR').toDecimalString(),
-    usdtAvailable: Money.ofMinor(BigInt(treasury.rows[0]!.available), 'USDT').toDecimalString(),
-    openTrades: Number.parseInt(trades.rows[0]!.open, 10),
-    tradesOnHold: Number.parseInt(trades.rows[0]!.hold, 10),
-    istDay: day,
-  };
-  if (!access.economics && !access.pnl) return strip;
-
-  const extras: { routes?: readonly StripRoute[]; realizedMarginToday?: string } = {};
-  if (access.economics) {
-    const rows = await sql<{
-      route_id: string; name: string; direction: DirectionValue; rate: string | null; published_at: Date | null;
-      available_base_minor: bigint; execution_mode: 'DIRECT_TO_CLIENT' | 'TO_EXCHANGE' | 'P2P';
-    }>`
+  // Two round trips, not six: what does not depend on the IST day is read alongside it, then the two figures that do.
+  const routesRead = access.economics
+    ? sql<{
+        route_id: string; name: string; direction: DirectionValue; rate: string | null; published_at: Date | null;
+        available_base_minor: bigint; execution_mode: 'DIRECT_TO_CLIENT' | 'TO_EXCHANGE' | 'P2P';
+      }>`
       select r.id as route_id, r.name, d.direction, r.available_base_minor, r.execution_mode,
              (select s.rate_micro::text from rate_snapshot s
                where s.route_id = r.id and s.direction = d.direction and s.kind = 'ROUTE'
@@ -79,8 +53,48 @@ export async function deskStrip(ex: Executor, access: DeskAccess): Promise<DeskS
       cross join (values ('SELL_USDT'), ('BUY_USDT')) as d(direction)
       -- The desk's own routes. A trader's route carries the trader's rate and is read on Traders, not published here.
       where r.status = 'ACTIVE' and r.trader_id is null
-      order by r.name, d.direction`.execute(ex);
-    extras.routes = rows.rows.map((r) => ({
+      order by r.name, d.direction`.execute(ex)
+    : null;
+  const [day, treasury, trades, routes] = await Promise.all([
+    istToday(ex),
+    sql<{ available: string }>`
+      select coalesce(sum(greatest(observed_balance_minor - reserved_minor, 0)), 0)::text as available
+      from treasury_wallet where status = 'ACTIVE' and role in ('HOT', 'DEPOSIT_POOL')`.execute(ex),
+    sql<{ open: string; hold: string }>`
+      select count(*) filter (where lifecycle_state not in ('COMPLETED', 'CANCELLED'))::text as open,
+             count(*) filter (where hold and lifecycle_state not in ('COMPLETED', 'CANCELLED'))::text as hold
+      from trade`.execute(ex),
+    routesRead,
+  ]);
+
+  const [capacity, margin] = await Promise.all([
+    sql<{ available: string }>`
+      select coalesce(sum(greatest(d.capacity_minor - d.used_minor - d.reserved_minor, 0)), 0)::text as available
+      from inr_account_day d
+      join inr_settlement_account a on a.id = d.account_id
+      where d.day = ${day}::date and a.status = 'ACTIVE' and a.direction in ('PAYOUT', 'BOTH')`.execute(ex),
+    access.pnl
+      ? sql<{ net: string }>`
+          select coalesce(sum(case e.direction when 'CR' then e.amount_minor else -e.amount_minor end), 0)::text as net
+          from ledger_entry e
+          join ledger_account a on a.id = e.account_id
+          join ledger_journal j on j.id = e.journal_id
+          where a.code = 'REVENUE:GROSS_MARGIN' and a.currency = 'INR' and (j.posted_at at time zone 'Asia/Kolkata')::date = ${day}::date`.execute(ex)
+      : null,
+  ]);
+
+  const strip: DeskStrip = {
+    inrAvailableToday: Money.ofMinor(BigInt(capacity.rows[0]!.available), 'INR').toDecimalString(),
+    usdtAvailable: Money.ofMinor(BigInt(treasury.rows[0]!.available), 'USDT').toDecimalString(),
+    openTrades: Number.parseInt(trades.rows[0]!.open, 10),
+    tradesOnHold: Number.parseInt(trades.rows[0]!.hold, 10),
+    istDay: day,
+  };
+  if (!access.economics && !access.pnl) return strip;
+
+  const extras: { routes?: readonly StripRoute[]; realizedMarginToday?: string } = {};
+  if (routes) {
+    extras.routes = routes.rows.map((r) => ({
       routeId: r.route_id,
       routeName: r.name,
       direction: r.direction,
@@ -90,15 +104,7 @@ export async function deskStrip(ex: Executor, access: DeskAccess): Promise<DeskS
       executionMode: r.execution_mode,
     }));
   }
-  if (access.pnl) {
-    const margin = await sql<{ net: string }>`
-      select coalesce(sum(case e.direction when 'CR' then e.amount_minor else -e.amount_minor end), 0)::text as net
-      from ledger_entry e
-      join ledger_account a on a.id = e.account_id
-      join ledger_journal j on j.id = e.journal_id
-      where a.code = 'REVENUE:GROSS_MARGIN' and a.currency = 'INR' and (j.posted_at at time zone 'Asia/Kolkata')::date = ${day}::date`.execute(ex);
-    extras.realizedMarginToday = Money.ofMinor(BigInt(margin.rows[0]!.net), 'INR').toDecimalString();
-  }
+  if (margin) extras.realizedMarginToday = Money.ofMinor(BigInt(margin.rows[0]!.net), 'INR').toDecimalString();
   return { ...strip, ...extras };
 }
 

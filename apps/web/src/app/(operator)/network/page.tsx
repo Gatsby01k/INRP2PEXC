@@ -1,6 +1,7 @@
-import { allows, deskNow, networkView } from '@inrp2p/desk';
+import { allows, networkView } from '@inrp2p/desk';
 import { notFound } from 'next/navigation';
 import { operatorPage } from '../../../server/operator.ts';
+import { nowOf } from '../_desk/reads.ts';
 import { age, dateTime, plainDecimal } from '../_desk/format.ts';
 import { Chip, KpiBand, Notice, Page, PageBody, PageHeader, Section } from '../_desk/ui.tsx';
 import { optionalEnv } from '../../../server/env.ts';
@@ -24,7 +25,7 @@ export const dynamic = 'force-dynamic';
 export default async function NetworkPage() {
   const ctx = await operatorPage();
   if (!allows(ctx.actor, 'network:view')) notFound();
-  const [view, now] = await Promise.all([networkView(ctx.db), deskNow(ctx.db)]);
+  const [view, now] = await Promise.all([networkView(ctx.db), nowOf(ctx)]);
   const nowMs = new Date(now).getTime();
   const platform = view.funders.find((f) => f.funder === 'PLATFORM')!;
   const traders = view.funders.filter((f) => f.funder !== 'PLATFORM');

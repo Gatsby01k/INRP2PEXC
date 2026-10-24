@@ -135,6 +135,13 @@ export function gateFor(surface: Surface, pathname: string): Gate {
 }
 
 /**
+ * The request header the proxy writes on the client host with the path a person asked for, so that a page which finds
+ * the session ended can send them to sign in and back. The proxy always overwrites it — a value a browser sent is never
+ * passed on — and whoever reads it passes it through `safeReturnPath` again.
+ */
+export const RETURN_PATH_HEADER = 'x-inrp2p-return';
+
+/**
  * Where to go back to after signing in (or opening an account) on the client host: the page the person was on when the
  * proxy sent them to sign in — a desk's page, a deal link. Only a path on this same host: one leading slash, never two,
  * no backslash or control character, not the sign-in itself or an API route, and short. Anything else is no path at all,

@@ -95,7 +95,9 @@ interface RawRow {
 export async function deskQueue(ex: Executor, access: DeskAccess, opts: { limitPerGroup?: number } = {}): Promise<readonly QueueGroup[]> {
   const limit = opts.limitPerGroup ?? 50;
 
-  const requests = await sql<RawRow>`
+  // Three independent reads, so they go out together: one round trip for the queue, not three in a row.
+  const [requests, quotes, trades] = await Promise.all([
+    sql<RawRow>`
     select 'REQUEST' as kind, r.id, r.ref, r.client_id, c.display_name as client_name, r.direction,
            r.requested_base_minor as base_minor, r.requested_quote_minor as quote_minor,
            r.target_rate_micro as client_rate_micro, null::bigint as route_rate_micro, null::bigint as margin_minor,
@@ -107,9 +109,9 @@ export async function deskQueue(ex: Executor, access: DeskAccess, opts: { limitP
     -- A request placed with a desk is that desk's to price and fill (ADR 0020), never the INRP2P dealers'.
     where r.status = 'OPEN' and r.desk_id is null
     order by r.created_at
-    limit ${limit}`.execute(ex);
+    limit ${limit}`.execute(ex),
 
-  const quotes = await sql<RawRow>`
+    sql<RawRow>`
     select 'QUOTE' as kind, q.id, q.ref, q.client_id, c.display_name as client_name, q.direction,
            q.base_minor, q.quote_inr_minor as quote_minor, q.client_rate_micro, q.route_rate_micro,
            q.gross_margin_inr_minor as margin_minor,
@@ -121,9 +123,9 @@ export async function deskQueue(ex: Executor, access: DeskAccess, opts: { limitP
     from quote q join client c on c.id = q.client_id
     where q.status = 'SENT' and q.expires_at > inrp2p_now()
     order by q.expires_at
-    limit ${limit}`.execute(ex);
+    limit ${limit}`.execute(ex),
 
-  const trades = await sql<RawRow>`
+    sql<RawRow>`
     select 'TRADE' as kind, t.id, t.ref, t.client_id, c.display_name as client_name, t.direction,
            e.base_minor, e.quote_inr_minor as quote_minor, e.client_rate_micro, e.route_rate_micro,
            e.gross_margin_inr_minor as margin_minor,
@@ -155,7 +157,8 @@ export async function deskQueue(ex: Executor, access: DeskAccess, opts: { limitP
       and (rq.desk_id is null or t.hold or exists (
         select 1 from exception_case x where x.trade_id = t.id and x.status in ('OPEN', 'IN_PROGRESS') and x.severity = 'BLOCKING'))
     order by t.opened_at
-    limit ${limit * 3}`.execute(ex);
+    limit ${limit * 3}`.execute(ex),
+  ]);
 
   const rows: { group: QueueGroupKey; row: QueueRow }[] = [];
   for (const r of requests.rows) rows.push({ group: 'needs_action', row: view(r, access, 'New request', 'QUOTE') });

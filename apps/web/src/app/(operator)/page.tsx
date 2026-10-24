@@ -1,9 +1,10 @@
 import { isDomainError } from '@inrp2p/kernel';
-import { type QueueGroupKey, deskNow, deskQueue, deskQuote, deskRequest, deskStrip, deskTrade } from '@inrp2p/desk';
+import { type QueueGroupKey, deskQuote, deskRequest, deskStrip, deskTrade } from '@inrp2p/desk';
 import { collectionAccounts } from '@inrp2p/traders';
 import { optionalEnv } from '../../server/env.ts';
 import { can, operatorPage } from '../../server/operator.ts';
 import { ContextPanel } from './_desk/ContextPanel.tsx';
+import { nowOf, queueOf } from './_desk/reads.ts';
 import { LiveRefresh } from './_desk/Keyboard.tsx';
 import { dateTime, money, pair, side } from './_desk/format.ts';
 import { Chip, LifecycleChip, LinkTabs, Page, PageHeader, Side } from './_desk/ui.tsx';
@@ -50,12 +51,16 @@ export default async function DeskPage({ searchParams }: { searchParams: Promise
   const section = typeof params.do === 'string' ? params.do : undefined;
   const view = (typeof params.view === 'string' && (VIEWS as readonly string[]).includes(params.view) ? params.view : 'all') as QueueGroupKey | 'all';
 
-  const [strip, groups, now] = await Promise.all([deskStrip(ctx.db, ctx.access), deskQueue(ctx.db, ctx.access), deskNow(ctx.db)]);
-
-  // The panel is server-rendered from the same rows the queue read, so it can never show a different trade.
-  const trade = selected?.kind === 'trade' ? await orNull(deskTrade(ctx.db, selected.id, ctx.access)) : null;
-  const request = selected?.kind === 'request' ? await orNull(deskRequest(ctx.db, selected.id, ctx.access)) : null;
-  const quote = selected?.kind === 'quote' ? await orNull(deskQuote(ctx.db, selected.id, ctx.access)) : null;
+  // The panel is server-rendered in the same request as the queue, so it can never show a different trade. Its read
+  // starts with the queue's rather than after it: a selected row costs one round trip more, not one more page load.
+  const [strip, groups, now, trade, request, quote] = await Promise.all([
+    deskStrip(ctx.db, ctx.access),
+    queueOf(ctx),
+    nowOf(ctx),
+    selected?.kind === 'trade' ? orNull(deskTrade(ctx.db, selected.id, ctx.access)) : null,
+    selected?.kind === 'request' ? orNull(deskRequest(ctx.db, selected.id, ctx.access)) : null,
+    selected?.kind === 'quote' ? orNull(deskQuote(ctx.db, selected.id, ctx.access)) : null,
+  ]);
   const collection = trade && trade.direction === 'BUY_USDT' ? await collectionAccounts(ctx.db) : [];
   const hasPanel = Boolean(trade || request || quote);
 

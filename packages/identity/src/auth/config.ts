@@ -8,13 +8,9 @@ import type { Db } from '@inrp2p/db';
 import { appendAuditDirect } from '@inrp2p/audit';
 import { accountSchema, rateLimitSchema, sessionSchema, twoFactorSchema, userSchema, verificationSchema } from './schema-mapping.ts';
 
-export type Surface = 'OPERATOR' | 'CLIENT';
+import { SESSION_POLICY, type Surface } from './policy.ts';
 
-/** Session policy (SECURITY §2.1 / §2.2). Absolute lifetime is enforced by Better Auth; idle timeout by the INRP2P guard. */
-export const SESSION_POLICY = {
-  OPERATOR: { absoluteSeconds: 12 * 3600, idleSeconds: 30 * 60, sameSite: 'strict' as const, cookiePrefix: 'inrp2p-desk' },
-  CLIENT: { absoluteSeconds: 7 * 24 * 3600, idleSeconds: 60 * 60, sameSite: 'lax' as const, cookiePrefix: 'inrp2p-app' },
-} as const;
+export { ACTIVITY_WRITE_INTERVAL_SECONDS, SESSION_POLICY, type Surface } from './policy.ts';
 
 export interface EmailOtpSender {
   /** Delivers a client login OTP. Never persisted outside Better Auth's hashed verification row. */
@@ -93,7 +89,9 @@ function common(deps: AuthDeps, surface: Surface) {
       crossSubDomainCookies: { enabled: false },
       defaultCookieAttributes: { sameSite: policy.sameSite, httpOnly: true, secure: deps.useSecureCookies ?? true },
       // Every Better Auth write path gets a UUIDv7 (some plugin paths ignore `false` and generate their own ids).
-      database: { generateId: () => uuidv7() },
+      // `joins`: the session and its user are read in one statement instead of two in a row. Every page, route and
+      // action reads the session, so the second round trip was paid on every request.
+      database: { generateId: () => uuidv7(), joins: true },
     },
     databaseHooks: {
       session: { create: { before: sessionCreateGuard(deps.appDb, surface) } },

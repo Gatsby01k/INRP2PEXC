@@ -3,6 +3,7 @@ import { createDb, createPool, type Db } from '@inrp2p/db';
 import { createClientAuth, createOperatorAuth, type ClientAuth, type OperatorAuth } from '@inrp2p/identity';
 import { envFlag, optionalEnv, requiredEnv as required } from './env.ts';
 import { clientOtpSender } from './client-otp.ts';
+import { hostConfig } from './hosts.ts';
 import type { HostConfig } from './surface.ts';
 
 /**
@@ -34,7 +35,7 @@ export function getRuntime(): Runtime {
   const databaseUrl = required('DATABASE_URL');
   const appDb = createDb(createPool({ connectionString: databaseUrl, applicationName: 'inrp2p-web', int8: 'bigint' }));
   const authDb = createDb(createPool({ connectionString: databaseUrl, applicationName: 'inrp2p-web-auth', int8: 'number' }));
-  const hosts: HostConfig = { deskHost: required('DESK_HOST'), appHost: required('APP_HOST'), publicHost: required('PUBLIC_HOST') };
+  const hosts = hostConfig();
   const secure = useSecureCookies();
   const operatorAuth = createOperatorAuth({
     authDb, appDb, secret: required('OPERATOR_AUTH_SECRET'),

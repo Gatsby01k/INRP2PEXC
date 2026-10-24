@@ -1,7 +1,7 @@
 import { sql } from 'kysely';
 import { Money } from '@inrp2p/kernel';
 import type { DirectionValue, ExecutionMode, Executor } from '@inrp2p/db';
-import { obligationRemaining } from '@inrp2p/settlement';
+import { obligationsRemaining } from '@inrp2p/settlement';
 
 export interface RouteSettlementRow {
   readonly id: string;
@@ -66,10 +66,13 @@ export async function routePositions(ex: Executor, opts: { status?: 'OPEN' | 'AL
     order by o.opened_at
     limit ${opts.limit ?? 100}`.execute(ex);
 
-  const out: RoutePosition[] = [];
-  for (const o of rows.rows) {
-    const remaining = await obligationRemaining(ex, o.id);
-    out.push({
+  // What is left of each, and every settlement against them, in two statements for the whole page — not three per
+  // obligation in a row.
+  const ids = rows.rows.map((o) => o.id);
+  const [remaining, settlements] = await Promise.all([obligationsRemaining(ex, ids), settlementsOf(ex, ids)]);
+  return rows.rows.map((o) => {
+    const left = remaining.get(o.id)!;
+    return {
       obligationId: o.id,
       ref: o.ref,
       routeId: o.route_id,
@@ -82,22 +85,23 @@ export async function routePositions(ex: Executor, opts: { status?: 'OPEN' | 'AL
       status: o.status,
       openedAt: o.opened_at.toISOString(),
       routeDelivers: Money.ofMinor(o.route_delivers_minor, o.route_delivers_asset).toJSON(),
-      routeDeliversRemaining: remaining.routeDelivers.toJSON(),
+      routeDeliversRemaining: left.routeDelivers.toJSON(),
       exchangeDelivers: Money.ofMinor(o.exchange_delivers_minor, o.exchange_delivers_asset).toJSON(),
-      exchangeDeliversRemaining: remaining.exchangeDelivers.toJSON(),
-      settlements: await settlementsOf(ex, o.id),
-    });
-  }
-  return out;
+      exchangeDeliversRemaining: left.exchangeDelivers.toJSON(),
+      settlements: settlements.get(o.id) ?? [],
+    };
+  });
 }
 
-async function settlementsOf(ex: Executor, obligationId: string): Promise<readonly RouteSettlementRow[]> {
+async function settlementsOf(ex: Executor, obligationIds: readonly string[]): Promise<ReadonlyMap<string, readonly RouteSettlementRow[]>> {
+  if (obligationIds.length === 0) return new Map();
   const rows = await sql<{
+    obligation_id: string;
     id: string; ref: string; flow: RouteSettlementRow['flow']; obligation_side: RouteSettlementRow['side'];
     asset: 'INR' | 'USDT'; amount_minor: bigint; status: RouteSettlementRow['status'];
     utr: string | null; tx_hash: string | null; confirmed_at: Date | null; leg_ref: string | null;
   }>`
-    select s.id, s.ref, s.flow, s.obligation_side, s.asset, s.amount_minor, s.status,
+    select s.route_obligation_id as obligation_id, s.id, s.ref, s.flow, s.obligation_side, s.asset, s.amount_minor, s.status,
            f.utr, c.tx_hash, s.confirmed_at,
            (select l.ref from transfer_allocation a
               join settlement_leg l on l.id = a.settlement_leg_id
@@ -108,19 +112,25 @@ async function settlementsOf(ex: Executor, obligationId: string): Promise<readon
     from route_settlement s
     left join fiat_transfer f on f.id = s.fiat_transfer_id
     left join crypto_transfer c on c.id = s.crypto_transfer_id
-    where s.route_obligation_id = ${obligationId}
-    order by s.recorded_at`.execute(ex);
-  return rows.rows.map((r) => ({
-    id: r.id,
-    ref: r.ref,
-    flow: r.flow,
-    side: r.obligation_side,
-    asset: r.asset,
-    amount: Money.ofMinor(r.amount_minor, r.asset).toDecimalString(),
-    status: r.status,
-    reference: r.utr ?? r.tx_hash ?? null,
-    confirmedAt: r.confirmed_at ? r.confirmed_at.toISOString() : null,
-    readOnly: r.flow === 'DIRECT_TO_CLIENT',
-    legRef: r.leg_ref,
-  }));
+    where s.route_obligation_id = any(${obligationIds}::uuid[])
+    order by s.recorded_at, s.id`.execute(ex);
+  const out = new Map<string, RouteSettlementRow[]>();
+  for (const r of rows.rows) {
+    const list = out.get(r.obligation_id) ?? [];
+    list.push({
+      id: r.id,
+      ref: r.ref,
+      flow: r.flow,
+      side: r.obligation_side,
+      asset: r.asset,
+      amount: Money.ofMinor(r.amount_minor, r.asset).toDecimalString(),
+      status: r.status,
+      reference: r.utr ?? r.tx_hash ?? null,
+      confirmedAt: r.confirmed_at ? r.confirmed_at.toISOString() : null,
+      readOnly: r.flow === 'DIRECT_TO_CLIENT',
+      legRef: r.leg_ref,
+    });
+    out.set(r.obligation_id, list);
+  }
+  return out;
 }

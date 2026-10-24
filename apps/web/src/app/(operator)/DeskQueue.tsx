@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useCallback } from 'react';
+import { useCallback, useState, useTransition } from 'react';
 import type { QueueAction, QueueGroup, QueueGroupKey, QueueRow } from '@inrp2p/desk';
 import { Age, Countdown } from './_desk/clock.tsx';
 import { Cell, type Column, DataTable } from './_desk/DataTable.tsx';
@@ -36,6 +36,10 @@ const KIND_WORD: Record<QueueRow['subject']['kind'], string> = { REQUEST: 'reque
 export function DeskQueue({ groups, economics, selected, view, compact = false }: { groups: readonly QueueGroup[]; economics: boolean; selected: string | null; view: QueueGroupKey | 'all'; compact?: boolean }) {
   const router = useRouter();
   const params = useSearchParams();
+  // The row an operator just opened is the selected row from the click on, while its panel is read; the queue itself
+  // stays as it is (selecting a row changes only the page's query, which shows no loading shape).
+  const [opening, setOpening] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
 
   const open = useCallback(
     (rowId: string, section?: string) => {
@@ -43,7 +47,8 @@ export function DeskQueue({ groups, economics, selected, view, compact = false }
       next.set('row', rowId);
       if (section) next.set('do', section);
       else next.delete('do');
-      router.push(`/?${next.toString()}`, { scroll: false });
+      setOpening(rowId);
+      startTransition(() => router.push(`/?${next.toString()}`, { scroll: false }));
     },
     [params, router],
   );
@@ -130,7 +135,7 @@ export function DeskQueue({ groups, economics, selected, view, compact = false }
   const empty = <Empty title="Nothing waiting" body="Every request is priced and every trade is where it should be. New work appears here as it arrives." />;
 
   return (
-    <div data-testid="desk-queue">
+    <div data-testid="desk-queue" {...(pending ? { 'aria-busy': true } : {})}>
       <div className={q.table}>
         <DataTable<QueueRow>
           caption="Desk queue"
@@ -139,7 +144,7 @@ export function DeskQueue({ groups, economics, selected, view, compact = false }
           {...(view === 'all' ? { groups: shown.map((g) => ({ key: g.key, title: GROUP_TITLE[g.key], rows: g.rows, ...(g.key === 'exception' ? { tone: 'danger' as const } : g.key === 'needs_action' ? { tone: 'brand' as const } : {}) })) } : { rows: shown.flatMap((g) => g.rows) })}
           rowKey={(r) => r.id}
           onOpen={(r) => open(r.id)}
-          selectedKey={selected}
+          selectedKey={pending && opening ? opening : selected}
           rail={(r) => railOf(groupOf.get(r.id)!)}
           onRowKey={(r, key) => {
             const section = HOTKEYS[key];

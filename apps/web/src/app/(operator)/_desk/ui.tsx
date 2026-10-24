@@ -2,6 +2,7 @@ import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { StatusGlyph, type GlyphState } from '@inrp2p/ui';
 import { Icon, type IconName } from './icons.tsx';
+import { LinkPending } from './LinkPending.tsx';
 import s from './desk.module.css';
 
 /**
@@ -100,6 +101,7 @@ export function LinkTabs({ items, label }: { items: readonly TabItem[]; label: s
               {t.count}
             </span>
           ) : null}
+          <LinkPending />
         </Link>
       ))}
     </nav>
@@ -112,6 +114,7 @@ export function Segmented({ items, label }: { items: readonly { href: string; la
       {items.map((t) => (
         <Link key={t.href} href={t.href} className={s.segment} scroll={false} {...(t.current ? { 'aria-current': 'page' as const } : {})}>
           {t.label}
+          <LinkPending />
         </Link>
       ))}
     </nav>

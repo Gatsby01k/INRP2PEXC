@@ -79,9 +79,12 @@ export async function deskTraders(ex: Executor): Promise<{ program: DeskProgram;
              ((t.proposed_bank_account_id is not null and exists (select 1 from bank_account b where b.id = t.proposed_bank_account_id and b.status = 'PENDING_REVIEW'))
               or (t.proposed_wallet_id is not null and exists (select 1 from crypto_wallet w where w.id = t.proposed_wallet_id and w.status = 'PENDING_REVIEW'))) desc,
              t.ref`.execute(ex);
+  // Each trader's standing is the same read its commands make (trader-core); the list asks for all of them at once
+  // rather than one trader after another, and reads the programme alongside.
+  const [standings, program] = await Promise.all([Promise.all(rows.rows.map((r) => readStanding(ex, r.id))), traderProgram(ex)]);
   const traders: DeskTraderRow[] = [];
-  for (const r of rows.rows) {
-    const { standing, reserve } = await readStanding(ex, r.id);
+  for (const [i, r] of rows.rows.entries()) {
+    const { standing, reserve } = standings[i]!;
     traders.push({
       traderId: r.id,
       ref: r.ref,
@@ -104,7 +107,7 @@ export async function deskTraders(ex: Executor): Promise<{ program: DeskProgram;
       exchangeAccess: r.exchange_access,
     });
   }
-  return { program: programView(await traderProgram(ex)), traders };
+  return { program: programView(program), traders };
 }
 
 export interface DeskSettlementRow {

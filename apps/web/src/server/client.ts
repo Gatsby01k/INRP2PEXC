@@ -1,15 +1,17 @@
 import 'server-only';
+import { cache } from 'react';
 import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { isDomainError } from '@inrp2p/kernel';
 import type { ActorRef, Db } from '@inrp2p/db';
 import { executeCommand, limitFinancialMutations } from '@inrp2p/commands';
-import { type ClientActor, type DomainCommand, hasFreshStepUp, requireClientSession } from '@inrp2p/identity';
+import { type ClientActor, type ClientSession, type DomainCommand, clientSession } from '@inrp2p/identity';
 import { type PortalAccess, type WorkspaceAccess, portalAccess, workspaceAccess } from '@inrp2p/portal';
 import type { QuoteDeps } from '@inrp2p/quotes';
 import { getRuntime } from './runtime.ts';
 import { quoteDepsForWeb } from './quotes.ts';
 import { failure, type CommandResult } from './command.ts';
+import { RETURN_PATH_HEADER, safeReturnPath } from './surface.ts';
 
 export interface ClientContext {
   readonly actor: ClientActor;
@@ -21,24 +23,36 @@ export interface ClientContext {
 }
 
 /**
- * The client user behind the current request.
+ * The session behind the current request — the check that decides. The proxy only sends a request without a client
+ * cookie to sign in; whether the session is real, live and on this host is read here, next to the database, inside
+ * every page, route and action, for the same reason the desk does — a page that trusts routing alone is one mistake
+ * away from showing someone else's trades.
  *
- * The proxy has already refused anonymous and idle sessions on the client host; this reads the session again
- * inside the page or action for the same reason the desk does — a page that trusts routing alone is one mistake
- * away from showing someone else's trades. The client id comes from the membership, never from the URL.
+ * Once per request: the workspace frame and the page rendered inside it share one read (React `cache` is scoped to a
+ * single server request).
  */
-export async function clientContext(): Promise<ClientContext> {
+const sessionOfRequest = cache(async (): Promise<ClientSession> => {
   const rt = getRuntime();
-  const actor = await requireClientSession(rt.clientAuth, rt.appDb, await headers());
-  return {
-    actor,
-    db: rt.appDb,
-    access: await portalAccess(rt.appDb, actor.userId),
-    stepUpFresh: await hasFreshStepUp(rt.appDb, actor.sessionId),
-  };
-}
+  return clientSession(rt.clientAuth, rt.appDb, await headers());
+});
+
+/** The client user behind the current request. The client id comes from the membership, never from the URL. */
+export const clientContext = cache(async (): Promise<ClientContext> => {
+  const rt = getRuntime();
+  const { actor, stepUpFresh } = await sessionOfRequest();
+  return { actor, db: rt.appDb, access: await portalAccess(rt.appDb, actor.userId), stepUpFresh };
+});
 
 const SIGN_IN_CODES = ['UNAUTHENTICATED', 'SESSION_IDLE_TIMEOUT', 'SESSION_SURFACE_MISMATCH'];
+
+/**
+ * Sign-in, and back to where this person was going once signed in — the path the proxy recorded for this request
+ * (SECURITY §2.3a). It is checked again here, so nothing but a path on this host is ever followed.
+ */
+async function signInAgain(): Promise<never> {
+  const back = safeReturnPath((await headers()).get(RETURN_PATH_HEADER));
+  redirect(back ? `/sign-in?${new URLSearchParams({ next: back }).toString()}` : '/sign-in');
+}
 
 /**
  * Page-level variant, for the Exchange's own pages. An expired or missing session goes to sign in; someone signed in
@@ -50,11 +64,9 @@ export async function clientPage(): Promise<ClientContext> {
   try {
     return await clientContext();
   } catch (e) {
-    if (isDomainError(e) && SIGN_IN_CODES.includes(e.code)) redirect('/sign-in');
+    if (isDomainError(e) && SIGN_IN_CODES.includes(e.code)) await signInAgain();
     if (isDomainError(e, 'EXCHANGE_NOT_ENABLED')) {
-      const rt = getRuntime();
-      const actor = await requireClientSession(rt.clientAuth, rt.appDb, await headers());
-      redirect((await workspaceAccess(rt.appDb, actor.userId)).kind === 'NEW' ? '/open-account' : '/traders');
+      redirect((await workspaceContext()).access.kind === 'NEW' ? '/open-account' : '/traders');
     }
     throw e;
   }
@@ -71,17 +83,17 @@ export interface WorkspaceContext {
   readonly access: WorkspaceAccess;
 }
 
-export async function workspaceContext(): Promise<WorkspaceContext> {
+export const workspaceContext = cache(async (): Promise<WorkspaceContext> => {
   const rt = getRuntime();
-  const actor = await requireClientSession(rt.clientAuth, rt.appDb, await headers());
+  const { actor } = await sessionOfRequest();
   return { actor, db: rt.appDb, access: await workspaceAccess(rt.appDb, actor.userId) };
-}
+});
 
 export async function workspacePage(): Promise<WorkspaceContext> {
   try {
     return await workspaceContext();
   } catch (e) {
-    if (isDomainError(e) && SIGN_IN_CODES.includes(e.code)) redirect('/sign-in');
+    if (isDomainError(e) && SIGN_IN_CODES.includes(e.code)) await signInAgain();
     throw e;
   }
 }

@@ -35,7 +35,7 @@ function freePort(): Promise<number> {
   });
 }
 
-function request(path: string, opts: { method?: string; body?: unknown; host?: string } = {}): Promise<{ status: number; json: Record<string, unknown> | null }> {
+function request(path: string, opts: { method?: string; body?: unknown; host?: string; cookie?: string } = {}): Promise<{ status: number; json: Record<string, unknown> | null; location: string | null }> {
   return new Promise((resolve, reject) => {
     const body = opts.body === undefined ? undefined : JSON.stringify(opts.body);
     const req = http.request({
@@ -45,7 +45,7 @@ function request(path: string, opts: { method?: string; body?: unknown; host?: s
         origin: OPERATOR_BASE_URL,
         'x-forwarded-for': '203.0.113.7',
         ...(body ? { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body) } : {}),
-        ...(cookies.size ? { cookie: [...cookies].map(([k, v]) => `${k}=${v}`).join('; ') } : {}),
+        ...(opts.cookie ? { cookie: opts.cookie } : cookies.size ? { cookie: [...cookies].map(([k, v]) => `${k}=${v}`).join('; ') } : {}),
       },
     }, (res) => {
       for (const c of res.headers['set-cookie'] ?? []) {
@@ -61,7 +61,7 @@ function request(path: string, opts: { method?: string; body?: unknown; host?: s
       res.on('end', () => {
         let json: Record<string, unknown> | null;
         try { json = data ? JSON.parse(data) : null; } catch { json = null; }
-        resolve({ status: res.statusCode ?? 0, json });
+        resolve({ status: res.statusCode ?? 0, json, location: res.headers.location ?? null });
       });
     });
     req.on('error', reject);
@@ -72,7 +72,7 @@ function request(path: string, opts: { method?: string; body?: unknown; host?: s
 
 const hasBuild = existsSync(new URL('../.next/BUILD_ID', import.meta.url));
 
-describe.skipIf(!hasBuild && !process.env.CI)('Next.js proxy: MFA enforced on every operator route (built app)', () => {
+describe.skipIf(!hasBuild && !process.env.CI)('MFA enforced on every operator route: the proxy turns away no cookie, the page and route refuse the rest (built app)', () => {
   beforeAll(async () => {
     if (!hasBuild) throw new Error('apps/web must be built (pnpm --filter @inrp2p/web build) before integration tests in CI');
     t = await createTestDatabase('web');
@@ -112,19 +112,24 @@ describe.skipIf(!hasBuild && !process.env.CI)('Next.js proxy: MFA enforced on ev
   });
 
   it('denies every operator path without a session, then without MFA, and allows only after TOTP verification', async () => {
-    const paths = ['/api/operator/me', '/', '/orders', '/api/operator/anything'];
+    const pages = ['/', '/orders'];
+    const paths = ['/api/operator/me', ...pages, '/api/operator/anything'];
+    // No desk cookie: turned away at the proxy, before anything renders.
     for (const p of paths) expect((await request(p)).status).toBe(401);
+
+    // A cookie that is not a session gets past the proxy's filter and no further: the page and the route check it.
+    const forged = `__Secure-inrp2p-desk.session_token=${'x'.repeat(32)}.${'A'.repeat(43)}=`;
+    expect(await request('/api/operator/me', { cookie: forged })).toMatchObject({ status: 401, json: { error: 'UNAUTHENTICATED' } });
+    for (const p of pages) expect(await request(p, { cookie: forged })).toMatchObject({ status: 307, location: '/sign-in' });
 
     const operatorAuth = createOperatorAuth({ authDb: t.auth, appDb: t.app, secret: OPERATOR_SECRET, baseURL: `https://${DESK_HOST}`, rateLimit: { enabled: false } });
     const email = `op-${randomUUID()}@inrp2p.test`;
     await provisionOperator(operatorAuth, t.app, { email, name: 'Op', password: PASSWORD, roles: ['DEALER'] });
 
+    // A real session, but not MFA-verified: the route refuses it and every page sends it to sign in — nothing renders.
     expect((await request('/api/auth/sign-in/email', { method: 'POST', body: { email, password: PASSWORD } })).status).toBe(200);
-    for (const p of paths) {
-      const r = await request(p);
-      expect(r.status).toBe(403);
-      expect(r.json).toEqual({ error: 'MFA_ENROLLMENT_REQUIRED' });
-    }
+    expect(await request('/api/operator/me')).toMatchObject({ status: 403, json: { error: 'MFA_ENROLLMENT_REQUIRED' } });
+    for (const p of pages) expect(await request(p)).toMatchObject({ status: 307, location: '/sign-in' });
 
     const enable = await request('/api/auth/two-factor/enable', { method: 'POST', body: { password: PASSWORD } });
     expect(enable.status).toBe(200);

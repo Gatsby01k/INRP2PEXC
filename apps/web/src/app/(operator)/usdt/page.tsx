@@ -1,6 +1,7 @@
 import { Money } from '@inrp2p/kernel';
-import { HEALTH_CHECKS, allows, deskNow, stateOf, usdtView } from '@inrp2p/desk';
+import { HEALTH_CHECKS, allows, stateOf, usdtView } from '@inrp2p/desk';
 import { operatorPage } from '../../../server/operator.ts';
+import { nowOf } from '../_desk/reads.ts';
 import { age, dateTime, usdt } from '../_desk/format.ts';
 import { Chip, KpiBand, Meter, Notice, Page, PageBody, PageHeader, Section, Segmented } from '../_desk/ui.tsx';
 import { BackfillsTable, CustodyTable, ProvidersTable, TransfersTable, WalletsTable } from './UsdtTables.tsx';
@@ -23,7 +24,7 @@ export default async function UsdtPage({ searchParams }: { searchParams: Promise
   const ctx = await operatorPage();
   const params = await searchParams;
   const filter: Filter = params.show === 'detected' || params.show === 'unattributed' ? params.show : 'all';
-  const [view, now] = await Promise.all([usdtView(ctx.db, { transferLimit: 100 }), deskNow(ctx.db)]);
+  const [view, now] = await Promise.all([usdtView(ctx.db, { transferLimit: 100 }), nowOf(ctx)]);
   const nowMs = new Date(now).getTime();
 
   const total = (values: readonly string[]) => values.reduce((acc, v) => acc.add(Money.parse(v, 'USDT')), Money.zero('USDT')).toDecimalString();

@@ -1,7 +1,8 @@
 import { NextResponse, type NextRequest } from 'next/server';
-import { requireClientSession, requireOperatorSession } from '@inrp2p/identity';
-import { getRuntime } from './server/runtime.ts';
-import { type Surface, DESK_PAGE_PREFIX, PUBLIC_HOME_PATH, deskHandleOfPath, gateFor, isDeskPagePath, safeReturnPath, surfaceForHost } from './server/surface.ts';
+import { DomainError } from '@inrp2p/kernel';
+import { carriesSessionCookie } from '@inrp2p/identity/session-cookie';
+import { hostConfig } from './server/hosts.ts';
+import { type Surface, DESK_PAGE_PREFIX, PUBLIC_HOME_PATH, RETURN_PATH_HEADER, deskHandleOfPath, gateFor, isDeskPagePath, safeReturnPath, surfaceForHost } from './server/surface.ts';
 import { contentSecurityPolicy, isHttps, securityHeaders } from './server/headers.ts';
 import { authErrorResponse } from './server/http.ts';
 
@@ -20,12 +21,18 @@ function wantsHtml(request: NextRequest): boolean {
 }
 
 /**
- * Runs before every route. Desk host: every non-auth path requires a valid, MFA-verified,
- * non-idle operator session. Route handlers re-check (defense in depth) and commands authorize.
+ * Runs before every route — at the edge, in the region nearest the person, which is not where the database is. So it
+ * reads no database. It classifies the host, sets the security headers and the CSP nonce, and on a host that needs a
+ * session it turns away a request that carries no session cookie for that surface (to sign in, or a 401 for an API
+ * call). That is a filter, not the control: every page, route handler and server action reads the session itself, next
+ * to the database (`operatorContext` / `clientContext` → `requireOperatorSession` / `requireClientSession`: a live,
+ * MFA-verified, non-idle session on this surface), and every command authorizes again inside its own transaction.
+ *
+ * It used to run that whole check here as well: five round trips to the database — one of them a write — on every
+ * navigation, prefetch, refresh and action, across an ocean, before the page began.
  */
-export async function proxy(request: NextRequest) {
-  const rt = getRuntime();
-  const surface = surfaceForHost(request.headers.get('host'), rt.hosts);
+export function proxy(request: NextRequest) {
+  const surface = surfaceForHost(request.headers.get('host'), hostConfig());
   const nonce = newNonce();
   const https = isHttps({ proto: request.headers.get('x-forwarded-proto'), url: request.url });
   const headers = securityHeaders({ surface, nonce, https });
@@ -69,22 +76,35 @@ export async function proxy(request: NextRequest) {
       return withHeaders(NextResponse.redirect(to, 308), headers);
     }
   }
-  try {
-    if (gate === 'OPERATOR_SESSION') await requireOperatorSession(rt.operatorAuth, rt.appDb, request.headers);
-    else if (gate === 'CLIENT_SESSION') await requireClientSession(rt.clientAuth, rt.appDb, request.headers);
-  } catch (err) {
-    if ((gate === 'OPERATOR_SESSION' || gate === 'CLIENT_SESSION') && surface !== 'PUBLIC' && wantsHtml(request)) {
+  const needs: Surface | null = gate === 'OPERATOR_SESSION' ? 'OPERATOR' : gate === 'CLIENT_SESSION' ? 'CLIENT' : null;
+  // The public host never receives a session cookie (they are host-only), so a path there that would need one is
+  // refused whatever the request carries.
+  if (needs && (surface === 'PUBLIC' || !carriesSessionCookie(request.headers, needs))) {
+    if (surface !== 'PUBLIC' && wantsHtml(request)) {
       const to = request.nextUrl.clone();
       to.pathname = '/sign-in';
       to.search = '';
-      // On the client host the person comes back where they were going — a desk's page, a deal link — once signed in.
-      const back = surface === 'CLIENT' ? safeReturnPath(`${request.nextUrl.pathname}${request.nextUrl.search}`) : null;
-      if (back && request.nextUrl.pathname !== '/' && request.nextUrl.pathname !== '/exchange') to.searchParams.set('next', back);
+      const back = surface === 'CLIENT' ? returnPath(request) : null;
+      if (back) to.searchParams.set('next', back);
       return withHeaders(NextResponse.redirect(to), headers);
     }
-    return withHeaders(authErrorResponse(err), headers);
+    return withHeaders(authErrorResponse(new DomainError('UNAUTHENTICATED')), headers);
   }
   return withHeaders(NextResponse.next({ request: { headers: forwarded(request, surface, nonce, https) } }), headers);
+}
+
+/**
+ * On the client host the person comes back where they were going — a desk's page, a deal link — once signed in
+ * (SECURITY §2.3a). The Exchange itself is where sign-in lands anyway. `_rsc` is the router's own cache-busting
+ * parameter, never part of the address a person went to.
+ */
+function returnPath(request: NextRequest): string | null {
+  const { pathname } = request.nextUrl;
+  if (pathname === '/' || pathname === '/exchange') return null;
+  const search = new URLSearchParams(request.nextUrl.search);
+  search.delete('_rsc');
+  const query = search.toString();
+  return safeReturnPath(`${pathname}${query ? `?${query}` : ''}`);
 }
 
 /**
@@ -99,6 +119,10 @@ function forwarded(request: NextRequest, surface: Surface, nonce: string, https:
   const headers = new Headers(request.headers);
   headers.set('x-inrp2p-nonce', nonce);
   headers.set('content-security-policy', contentSecurityPolicy({ surface, nonce, https }));
+  // Only ever the proxy's own value: one a browser sent is dropped before the page can read it.
+  headers.delete(RETURN_PATH_HEADER);
+  const back = surface === 'CLIENT' ? returnPath(request) : null;
+  if (back) headers.set(RETURN_PATH_HEADER, back);
   return headers;
 }
 
