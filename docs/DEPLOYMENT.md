@@ -183,7 +183,8 @@ The worker's crontab (`apps/worker/src/tasks.ts`): `outbox_dispatch` (minute), `
 `settlement_reconcile` (daily), `tron_scan`, `tron_confirm`, `tron_orphan_sweep`, `tron_backfill`, `custody_observe`,
 `trader_orders_sweep`, `receipt_store_backfill`, `worker_heartbeat`, and the exchange's own rails (ADR 0017): `onchain_cycle`
 (every minute and on every planned send: plan payouts, fuel and sign, follow transactions to the end, close holds) and
-`network_fee_refresh` (every 10 minutes: the chain's energy and bandwidth prices). Every job is state-guarded and safe
+`network_fee_refresh` (every 10 minutes: the chain's energy and bandwidth prices), `trx_rate_refresh` (hourly: the TRX
+price from Kraken and CoinGecko — outbound HTTPS to api.kraken.com and api.coingecko.com). Every job is state-guarded and safe
 to run twice.
 
 ## 8. Health, readiness and alerts

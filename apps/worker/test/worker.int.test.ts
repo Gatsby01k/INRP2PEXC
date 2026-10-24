@@ -106,13 +106,14 @@ describe('graphile worker end to end', () => {
   it('the rails jobs (ADR 0017) exist, are scheduled, and do nothing on a worker without the exchange’s own rails', async () => {
     const taskList = buildTaskList(t.worker, []);
     const helpers = {} as Parameters<NonNullable<typeof taskList.onchain_cycle>>[1];
-    for (const name of ['onchain_cycle', 'network_fee_refresh'] as const) {
+    for (const name of ['onchain_cycle', 'network_fee_refresh', 'trx_rate_refresh'] as const) {
       expect(CRONTAB).toContain(name);
       await taskList[name]!({}, helpers);
     }
     // No signer, no fee reading: nothing is planned, signed or recorded.
     expect(await t.app.selectFrom('chain_send').select('id').execute()).toEqual([]);
     expect(await t.app.selectFrom('network_fee_snapshot').select('id').execute()).toEqual([]);
+    expect(await t.app.selectFrom('network_trx_rate').select('id').execute()).toEqual([]);
   });
 
   it('an enabled but unconfigured worker fails its chain jobs instead of quietly doing nothing', async () => {

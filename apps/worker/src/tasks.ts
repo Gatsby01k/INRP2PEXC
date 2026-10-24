@@ -11,13 +11,13 @@ import { type QuotePolicy, expireQuote, runExpirySweep } from '@inrp2p/quotes';
 import { expireUnpaidTrades, runP2pDeadlines, runReconciliation, runSettlementSla } from '@inrp2p/settlement';
 import { type ScannerDeps, observeBalances, runChainBackfill, runOrphanSweep, runTronConfirm, runTronScan } from '@inrp2p/scanner';
 import { ordersDueSoon, runTraderSweep } from '@inrp2p/traders';
-import type { TelegramAdapter } from '@inrp2p/adapters';
+import { type TelegramAdapter, marketTrxPriceSources, readTrxPrice } from '@inrp2p/adapters';
 import { orderAlertText, orderAlertUrl, orderFacts, queueTelegram, sendTelegramDeliveries } from '@inrp2p/notifications';
 import { type WorkerBeat, recordWorkerBeat } from '@inrp2p/trades';
 import { type ReceiptObjectStore, type ReceiptPdfPrinter, receiptsNotStored, storeReceiptObjects } from '@inrp2p/reporting';
 import { DomainError } from '@inrp2p/kernel';
 import type { ChainMonitoring } from './config.ts';
-import { type OnchainDeps, runAutopay, runFeeRefresh, runHoldClosing, runMonitor, runSender, runUnwindClosing } from '@inrp2p/onchain';
+import { type OnchainDeps, runAutopay, runFeeRefresh, runHoldClosing, runMonitor, runSender, runTrxRateRefresh, runUnwindClosing } from '@inrp2p/onchain';
 import { sql } from 'kysely';
 
 /** Runs a system job step through the command pipeline (one transaction, audit, retry-safe state guards). */
@@ -187,7 +187,15 @@ export function buildTaskList(
     const out = await runFeeRefresh(db, opts.rails);
     helpers.logger.info(`network_fee_refresh: energy ${out.energyPriceSun} sun`);
   };
-  // ADR 0020 §2.14: a trader's P2P step due within ten minutes is told once to its linked chats. Each order is its own
+  // The TRX price every quote's network fee is valued at, from public markets: hourly, so it never reaches the
+  // 72-hour limit past which no quote is sent. A move too large is left for a person (`recordMarketTrxRate`).
+  const trxRateRefresh: Task = async (_payload, helpers) => {
+    if (!opts.rails) return;
+    const out = await runTrxRateRefresh(db, () => readTrxPrice(marketTrxPriceSources()));
+    if (out.skipped) helpers.logger.warn(`trx_rate_refresh: ${out.skipped}`);
+    else helpers.logger.info(`trx_rate_refresh: ${out.usdtPerTrxMicro} micro-USDT per TRX`);
+  };
+  // ADR 0020 §2.14: a trader's P2P step due within ten minutes  // ADR 0020 §2.14: a trader's P2P step due within ten minutes is told once to its linked chats. Each order is its own
   // attempt: one that cannot be sent now is tried again on the next minute, under the same key, and sent once.
   const telegramDeadlines: Task = async (_payload, helpers) => {
     const telegram = opts.telegram;
@@ -211,6 +219,7 @@ export function buildTaskList(
     telegram_deadlines: telegramDeadlines,
     onchain_cycle: onchainCycle,
     network_fee_refresh: networkFeeRefresh,
+    trx_rate_refresh: trxRateRefresh,
     outbox_dispatch: outboxDispatch,
     audit_seal: auditSeal,
     capacity_day_rollover: capacityDayRollover,
@@ -287,6 +296,7 @@ export const CRONTAB = [
   '17 2 * * * audit_seal_export ?max=3&jobKey=audit_seal_export',
   '* * * * * onchain_cycle ?max=1&jobKey=onchain_cycle',
   '*/10 * * * * network_fee_refresh ?max=3&jobKey=network_fee_refresh',
+  '23 * * * * trx_rate_refresh ?max=3&jobKey=trx_rate_refresh',
   '* * * * * telegram_deadlines ?max=1&jobKey=telegram_deadlines',
 ].join('\n');
 

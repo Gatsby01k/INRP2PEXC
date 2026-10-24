@@ -3,7 +3,7 @@ import { Money, isDomainError } from '@inrp2p/kernel';
 import { type Db, pgErrorCode } from '@inrp2p/db';
 import { effectiveObligations, legTotals } from '@inrp2p/trades';
 import { createPayoutLegInTx, finishP2pUnwindInTx, fundingSources, openExceptionInTx, planEscrowReturnInTx, planFeeSweepInTx, planP2pRefundInTx, planRoutePaymentInTx, revenueWallet, sendPayoutLegInTx } from '@inrp2p/settlement';
-import { closeNetworkHold, latestFeeSnapshot, networkAvailable, networkFeePolicy, planTrxReclaimInTx, recordFeeSnapshot, reservePerSendSun, signablePathOf } from '@inrp2p/network';
+import { closeNetworkHold, latestFeeSnapshot, networkAvailable, networkFeePolicy, planTrxReclaimInTx, recordFeeSnapshot, recordMarketTrxRate, reservePerSendSun, signablePathOf } from '@inrp2p/network';
 import { observeBalances } from '@inrp2p/scanner';
 import { type OnchainDeps, policyOf, settlementDepsOf, step } from './deps.ts';
 
@@ -260,6 +260,16 @@ export async function runHoldClosing(db: Db): Promise<{ closed: number }> {
 }
 
 /** `network_fee_refresh`: what the chain charges now, read from the providers and recorded. */
+/**
+ * The TRX price from public markets (`trx_rate_refresh`): read, then published under the system actor unless it moved
+ * too far from the last one. Without it, quotes stop 72 hours after a person last remembered to publish a price.
+ */
+export async function runTrxRateRefresh(db: Db, read: () => Promise<{ usdtPerTrxMicro: bigint; source: string }>): Promise<{ rateId: string | null; usdtPerTrxMicro: string; skipped?: string }> {
+  const reading = await read();
+  const out = await step(db, 'network.trx_rate_published', { source: reading.source }, (ctx) => recordMarketTrxRate(ctx, reading));
+  return { ...out, usdtPerTrxMicro: reading.usdtPerTrxMicro.toString() };
+}
+
 export async function runFeeRefresh(db: Db, deps: Pick<OnchainDeps, 'network'>): Promise<{ snapshotId: string; energyPriceSun: string }> {
   const params = await deps.network.feeParameters();
   const out = await step(db, 'network.fees_observed', { by: params.by }, (ctx) => recordFeeSnapshot(ctx, params.value, [params.by]));

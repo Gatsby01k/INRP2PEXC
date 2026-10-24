@@ -4,7 +4,7 @@ import { Money, formatTrx, parseTrx } from '@inrp2p/kernel';
 import { pgErrorCode } from '@inrp2p/db';
 import { runAs } from '@inrp2p/identity/testing';
 import { globalImbalance } from '@inrp2p/ledger';
-import { budgetFigures, currentNetworkCosts, networkAvailable, reservePerSendSun } from '@inrp2p/network';
+import { budgetFigures, currentNetworkCosts, latestTrxRate, networkAvailable, reservePerSendSun } from '@inrp2p/network';
 import { acceptQuote, createQuote, createRequest, sendQuote } from '@inrp2p/quotes';
 import { acceptOrder, assignRequest } from '@inrp2p/traders';
 import {
@@ -12,7 +12,7 @@ import {
   requestRestoreFenceLift, sendPayoutLeg, setNewBusiness, recordRouteSettlement,
 } from '@inrp2p/settlement';
 import { orderDeliveryAddress, releaseOrder, runTraderSweep } from '@inrp2p/traders';
-import { runFeeRefresh, runSender } from '@inrp2p/onchain';
+import { runFeeRefresh, runSender, runTrxRateRefresh } from '@inrp2p/onchain';
 import { decideNetworkWithdrawal, requestNetworkWithdrawal } from '@inrp2p/network';
 import { payoutsHeld } from '@inrp2p/trades';
 import { deskTradeNetwork } from '@inrp2p/desk';
@@ -643,5 +643,27 @@ describe('a transfer never draws more TRX than was fixed for it', () => {
     await expect(sql`update network_budget_hold set amount_sun = amount_sun - 1 where trade_id = ${open.tradeId}`.execute(w.t.owner)).rejects.toSatisfy((e) => pgErrorCode(e) === 'IX115');
     await railsSettle(w, open.tradeId);
     expect(await stateOf(open.tradeId)).toBe('COMPLETED');
+  });
+});
+
+describe('the TRX price keeps itself current', () => {
+  it('publishes the market price under the system actor, and leaves a move too large for a person', async () => {
+    const before = await latestTrxRate(w.app);
+    expect(before).not.toBeNull();
+    // A small move: published, so quotes never reach the 72-hour limit for want of someone publishing.
+    const near = (before!.usdtPerTrxMicro * 105n) / 100n;
+    const out = await runTrxRateRefresh(w.app, async () => ({ usdtPerTrxMicro: near, source: 'market: test 1.05x' }));
+    expect(out.rateId).not.toBeNull();
+    const now = await latestTrxRate(w.app);
+    expect(now!.usdtPerTrxMicro).toBe(near);
+    expect(now!.source).toBe('market: test 1.05x');
+    // A jump of more than 30%: not published — a broken feed is not priced into anyone's fee.
+    const far = near * 2n;
+    const skipped = await runTrxRateRefresh(w.app, async () => ({ usdtPerTrxMicro: far, source: 'market: test 2x' }));
+    expect(skipped.rateId).toBeNull();
+    expect(skipped.skipped).toMatch(/left for a person/);
+    expect((await latestTrxRate(w.app))!.usdtPerTrxMicro).toBe(near);
+    // And quotes still price with it.
+    await expect(currentNetworkCosts(w.app)).resolves.toMatchObject({ rate: { usdtPerTrxMicro: near } });
   });
 });

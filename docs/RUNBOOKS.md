@@ -307,7 +307,9 @@ transaction.
 ## network-fees-stale — quotes cannot carry the network fee
 
 **What you were told.** `trx_price_age_seconds` high: the TRX price quotes value the network fee with is two to three
-days old; at 72 hours no quote is sent. The Network page says the same, and the quote builder refuses with
+days old; at 72 hours no quote is sent. The worker publishes the market price every hour (`trx_rate_refresh`: Kraken and
+CoinGecko, only when they agree within 3% and the move from the last price is under 30%), so an old price means that
+job is failing — its log line says why (no source reachable, sources disagreeing, or a move left for a person). The Network page says the same, and the quote builder refuses with
 `NETWORK_FEES_UNKNOWN`. The chain's own fees (energy and bandwidth prices) are read by the worker every 10 minutes
 (`network_fee_refresh`); if those are old too, the worker is not running or cannot reach a provider.
 

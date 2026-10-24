@@ -180,6 +180,27 @@ export async function recordFeeSnapshot(ctx: TxContext, params: ChainFeeParamete
 }
 
 /**
+ * The worker's own TRX price (`trx_rate_refresh`), from public markets. Published like a desk's price, under the system
+ * actor, with one more guard than a person gets: a move of more than `maxJumpPercent` from the last price is not
+ * published automatically — it may be a broken feed, and a person decides.
+ */
+export async function recordMarketTrxRate(ctx: TxContext, input: { usdtPerTrxMicro: bigint; source: string }, maxJumpPercent = 30n): Promise<{ rateId: string | null; skipped?: string }> {
+  const before = await latestTrxRate(ctx.tx);
+  const micro = input.usdtPerTrxMicro;
+  if (micro <= 0n || micro > 1_000_000_000n) throw new DomainError('INVALID_RATE', 'a TRX price is a positive number of USDT');
+  if (before) {
+    const move = micro > before.usdtPerTrxMicro ? micro - before.usdtPerTrxMicro : before.usdtPerTrxMicro - micro;
+    if (move * 100n > before.usdtPerTrxMicro * maxJumpPercent) {
+      return { rateId: null, skipped: `market price ${formatTrx(micro)} moved more than ${maxJumpPercent}% from the last (${formatTrx(before.usdtPerTrxMicro)}): left for a person to publish` };
+    }
+  }
+  const source = requireText(input.source, 'source', 200);
+  const row = await ctx.tx.insertInto('network_trx_rate').values({ usdt_per_trx_micro: micro, source, published_by: 'SYSTEM' }).returning(['id', 'effective_at']).executeTakeFirstOrThrow();
+  await appendAudit(ctx, { action: 'network.trx_rate_published', entityType: 'network_trx_rate', entityId: row.id, before: before ? { usdt_per_trx: formatTrx(before.usdtPerTrxMicro) } : null, after: { usdt_per_trx: formatTrx(micro), source } });
+  return { rateId: row.id };
+}
+
+/**
  * `network.publish_trx_rate` — `network:manage` (⧗). What one TRX is worth in USDT, with where it was read. The client's
  * network fee is priced with it, and a trader's TRX is paid back at the rate its trade was quoted with.
  */
