@@ -12,12 +12,15 @@ export function PageHead({ eyebrow, title, status, lede, aside, icon }: { eyebro
       <div className={styles.pageHeadText}>
         {eyebrow ? <p className={styles.eyebrow}>{eyebrow}</p> : null}
         <div className={styles.titleRow}>
-          {icon ? (
-            <span className={styles.pageGlyph} aria-hidden="true">
-              {icon}
-            </span>
-          ) : null}
-          <h1 className={styles.pageTitle}>{title}</h1>
+          {/* The glyph and the title stay together: a long title wraps beside its glyph, never under it. */}
+          <span className={styles.titleMain}>
+            {icon ? (
+              <span className={styles.pageGlyph} aria-hidden="true">
+                {icon}
+              </span>
+            ) : null}
+            <h1 className={styles.pageTitle}>{title}</h1>
+          </span>
           {status}
         </div>
         {lede ? <p className={styles.lede}>{lede}</p> : null}

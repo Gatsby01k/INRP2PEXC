@@ -502,6 +502,13 @@
   gap: var(--space-2) var(--space-4);
 }
 
+.titleMain {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
 /* The section's glyph, set as the mark is: white on a disc of the mark's orange. */
 .pageGlyph {
   display: inline-grid;
