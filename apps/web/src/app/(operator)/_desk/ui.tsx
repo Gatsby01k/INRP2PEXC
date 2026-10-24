@@ -190,7 +190,9 @@ export function KpiBand({ items, label }: { items: readonly KpiItem[]; label: st
             {k.sub ? <dd className={s.kpiSub} style={{ margin: 0 }}>{k.sub}</dd> : null}
           </>
         );
-        const attrs = { ...(k.tone ? { 'data-tone': k.tone } : {}), ...(k.size ? { 'data-size': k.size } : {}) };
+        // A long figure ("188,474.71 USDT") steps down with its tile instead of being cut; short ones keep their size.
+        const long = typeof k.value === 'string' && k.value.length > 11;
+        const attrs = { ...(k.tone ? { 'data-tone': k.tone } : {}), ...(k.size ? { 'data-size': k.size } : {}), ...(long ? { 'data-long': '' } : {}) };
         return k.href ? (
           <Link key={k.key ?? i} href={k.href} className={s.kpi} {...attrs}>
             {inner}

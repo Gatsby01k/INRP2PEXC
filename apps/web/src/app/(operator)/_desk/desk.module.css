@@ -342,8 +342,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   font-family: var(--font-display);
-  /* A long figure ("188,474.71 USDT") steps down with its tile instead of being cut. */
-  font-size: clamp(15px, 10.5cqi, 22px);
+  font-size: 22px;
   font-weight: var(--font-weight-semibold);
   line-height: var(--line-height-snug);
   letter-spacing: -0.025em;
@@ -352,6 +351,14 @@
 }
 
 .kpi[data-size='lg'] .kpiValue {
+  font-size: 24px;
+}
+
+.kpi[data-long] .kpiValue {
+  font-size: clamp(15px, 10.5cqi, 22px);
+}
+
+.kpi[data-long][data-size='lg'] .kpiValue {
   font-size: clamp(16px, 11cqi, 24px);
 }
 
@@ -1364,8 +1371,12 @@ textarea.control {
     padding: var(--space-3) var(--space-4);
     box-shadow: -1px 0 0 var(--line-soft, var(--border-default)), 0 -1px 0 var(--line-soft, var(--border-default));
   }
-  .kpiValue {
-    font-size: clamp(15px, 11cqi, 19px);
+  .kpiValue,
+  .kpi[data-size='lg'] .kpiValue {
+    font-size: 19px;
+  }
+  .kpi[data-long] .kpiValue {
+    font-size: clamp(14px, 10.5cqi, 19px);
   }
   .sectionHead {
     padding: var(--space-3) var(--space-4);
