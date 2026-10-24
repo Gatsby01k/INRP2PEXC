@@ -102,7 +102,7 @@ export default async function DeskPage({ searchParams }: { searchParams: Promise
       />
       <LiveRefresh seconds={20} />
       <div className={q.strip}>
-        <Strip strip={strip} now={now} />
+        <Strip strip={strip} now={now} focus={{ act: count('needs_action'), blocked: count('exception'), settling: count('settlement') }} />
       </div>
       <div className={q.split} {...(hasPanel ? { 'data-panel': '' } : {})}>
         <div className={q.list}>

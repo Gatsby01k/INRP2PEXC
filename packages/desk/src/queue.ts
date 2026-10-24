@@ -31,7 +31,7 @@ export interface QueueRow {
   readonly clientRate?: string | null;
   readonly routeRate?: string | null;
   readonly margin?: string | null;
-  /** Short status phrase, already domain-accurate ("USDT confirmed", "Short by 50 USDT"). */
+  /** Short status phrase, already domain-accurate ("USDT confirmed", "Short by 50 USDT", "Short by ₹60"). */
   readonly status: string;
   readonly action: QueueAction;
   readonly hold: boolean;
@@ -243,8 +243,8 @@ function exceptionLabel(r: RawRow): string {
   const received = typeof detail.received === 'string' ? detail.received : null;
   // The amount cases count the client's first leg, which is USDT for a SELL and INR for a BUY.
   const currency = r.direction === 'BUY_USDT' ? 'INR' : 'USDT';
-  if (type === 'USDT_WRONG_AMOUNT' && expected && received) return `Short by ${difference(expected, received, currency)} ${currency}`;
-  if (type === 'USDT_OVERPAYMENT' && expected && received) return `Over by ${difference(received, expected, currency)} ${currency}`;
+  if (type === 'USDT_WRONG_AMOUNT' && expected && received) return `Short by ${difference(expected, received, currency)}`;
+  if (type === 'USDT_OVERPAYMENT' && expected && received) return `Over by ${difference(received, expected, currency)}`;
   return HUMAN_CASE[type] ?? type.replace(/_/g, ' ').toLowerCase();
 }
 
@@ -277,12 +277,19 @@ const HUMAN_CASE: Record<string, string> = {
 };
 
 /** Exact decimal difference of two decimal strings in one currency (never floats); `?` if they do not parse. */
+/** The gap as a person reads it: "₹60", "0.05 USDT", "1,250.50 USDT" — grouped, no padding zeros, never rounded. */
 function difference(a: string, b: string, currency: 'INR' | 'USDT'): string {
+  let value: string;
   try {
-    return Money.parse(a, currency).sub(Money.parse(b, currency)).toDecimalString();
+    value = Money.parse(a, currency).sub(Money.parse(b, currency)).toDecimalString();
   } catch {
-    return '?';
+    return `? ${currency}`;
   }
+  const [whole = '0', fraction = ''] = value.replace(/^-/, '').split('.');
+  const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  const kept = fraction.replace(/0+$/, '');
+  const digits = `${grouped}${kept === '' ? '' : `.${kept.padEnd(2, '0')}`}`;
+  return currency === 'INR' ? `₹${digits}` : `${digits} USDT`;
 }
 
 function view(r: RawRow, access: DeskAccess, status: string, action: QueueAction): QueueRow {

@@ -10,12 +10,12 @@ import t from './trade.module.css';
  * Server-renderable; the frozen terms come from the trade, never from a recomputation here (FI-10).
  */
 
-export function Headline({ trade, large = false }: { trade: DeskTrade; large?: boolean }) {
+export function Headline({ trade, large = false, field = false }: { trade: DeskTrade; large?: boolean; field?: boolean }) {
   const sell = trade.direction === 'SELL_USDT';
   const base = usdt(trade.base, { exact: false });
   const quote = inr(trade.quoteInr);
   return (
-    <div className={t.headline}>
+    <div className={t.headline} {...(field ? { 'data-field': '' } : {})}>
       <div className={`${t.amounts} ${large ? t.amountsLg : ''}`}>
         <span>{sell ? base : quote}</span>
         <span className={t.arrow} aria-label="to">

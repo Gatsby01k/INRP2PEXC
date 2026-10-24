@@ -560,10 +560,19 @@ function summarizeAudit(after: unknown): string {
   if (!after || typeof after !== 'object') return '';
   const a = after as Record<string, unknown>;
   const parts: string[] = [];
-  for (const key of ['status', 'available', 'assignments_enabled', 'destination', 'label', 'bank', 'wallet', 'reason', 'note', 'required_reserve', 'reward_bps']) {
+  const said = (v: unknown) => (typeof v === 'object' ? JSON.stringify(v) : String(v));
+  // A stored decimal reads as a person would write it: "500.000000" → "500", "12.500000" → "12.50".
+  const amount = (v: unknown) => said(v).replace(/^(\d+)\.(\d*?)0+$/, (_, w: string, f: string) => (f === '' ? w : `${w}.${f.padEnd(2, '0')}`));
+  for (const key of ['status', 'available', 'assignments_enabled', 'destination', 'label', 'bank', 'wallet', 'required_reserve', 'reward_bps', 'reason', 'note']) {
     const v = a[key];
     if (v === undefined || v === null) continue;
-    parts.push(`${key.replace(/_/g, ' ')}: ${typeof v === 'object' ? JSON.stringify(v) : String(v)}`);
+    if (key === 'status') parts.push(`now ${said(v).toLowerCase().replace(/_/g, ' ')}`);
+    else if (key === 'available') parts.push(v === true ? 'now online' : v === false ? 'now offline' : `available: ${said(v)}`);
+    else if (key === 'assignments_enabled') parts.push(v === true ? 'new assignments on' : v === false ? 'new assignments off' : `assignments: ${said(v)}`);
+    else if (key === 'required_reserve') parts.push(`required reserve ${amount(v)} USDT`);
+    else if (key === 'reward_bps') parts.push(`reward ${said(v)} bps`);
+    else if (key === 'reason' || key === 'note') parts.push(`“${said(v)}”`);
+    else parts.push(`${key.replace(/_/g, ' ')}: ${said(v)}`);
   }
   return parts.join(' · ');
 }

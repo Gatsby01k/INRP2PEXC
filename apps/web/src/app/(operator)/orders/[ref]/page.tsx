@@ -11,6 +11,7 @@ import { Adjustments, Closeout, FlagException } from '../../_trade/Closeout.tsx'
 import { tradePerms } from '../../_trade/perms.ts';
 import { Economics, Headline, Stages } from '../../_trade/Summary.tsx';
 import { TradeWorkspace } from '../../_trade/TradeWorkspace.tsx';
+import { MarkArt } from '../../../../components/MarkArt.tsx';
 import d from '../../_desk/desk.module.css';
 import o from '../orders.module.css';
 
@@ -74,7 +75,11 @@ export default async function TradeRecordPage({ params }: { params: Promise<{ re
       />
       <PageBody>
         <div className={o.hero}>
-          <Headline trade={trade} large />
+          <div className={o.heroField} {...(trade.lifecycle === 'CANCELLED' ? { 'data-state': 'cancelled' } : {})}>
+            <MarkArt className={o.heroArt} stages={completed ? 3 : ['FIRST_LEG_CONFIRMED', 'SETTLING', 'PARTIALLY_SETTLED'].includes(trade.lifecycle) ? 2 : 1} hub={false} />
+            <span className={o.heroEyebrow}>{trade.direction === 'SELL_USDT' ? 'Client sells USDT' : 'Client buys USDT'}</span>
+            <Headline trade={trade} large field />
+          </div>
           <div className={o.heroSide}>
             <Stages trade={trade} />
             {perms.economics ? <Economics trade={trade} realized={completed} /> : null}

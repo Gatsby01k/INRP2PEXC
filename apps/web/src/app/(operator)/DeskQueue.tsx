@@ -92,8 +92,9 @@ export function DeskQueue({ groups, economics, selected, view, compact = false }
           ),
         },
         { key: 'amount', header: 'Amount', align: 'right', render: amount },
-        ...(economics ? ([{ key: 'margin', header: 'Margin', align: 'right', render: margin }] as Column<QueueRow>[]) : []),
-        { key: 'status', header: 'Status', render: (r) => <Status row={r} group={groupOf.get(r.id)!} /> },
+        // Beside the panel the queue keeps who, how much, where it stands and the next move; the margin of the row
+        // being worked is in the panel, and the full queue shows every row's.
+        { key: 'status', header: 'Status', wrap: true, render: (r) => <Status row={r} group={groupOf.get(r.id)!} /> },
         { key: 'next', header: 'Next', align: 'right', render: next },
       ]
     : [

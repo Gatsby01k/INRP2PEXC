@@ -1,12 +1,18 @@
 import { allows, deskNow, networkView } from '@inrp2p/desk';
 import { notFound } from 'next/navigation';
 import { operatorPage } from '../../../server/operator.ts';
-import { age, dateTime } from '../_desk/format.ts';
+import { age, dateTime, plainDecimal } from '../_desk/format.ts';
 import { Chip, KpiBand, Notice, Page, PageBody, PageHeader, Section } from '../_desk/ui.tsx';
 import { optionalEnv } from '../../../server/env.ts';
 import { trx } from '../_desk/network.ts';
 import { DepositForm, FundersTable, RegisterHdWallet, SendsTable, SignerSwitch, TradesNetworkTable, TrxPriceForm, WithdrawalsTable } from './NetworkPanels.tsx';
 import d from '../_desk/desk.module.css';
+
+/** A TRX price keeps every digit it was published with, without the padding zeros: "0.329785", "0.30". */
+const plainPrice = (value: string): string => {
+  const v = plainDecimal(value);
+  return /\.\d$/.test(v) ? `${v}0` : v.includes('.') ? v : `${v}.00`;
+};
 
 export const dynamic = 'force-dynamic';
 
@@ -50,7 +56,7 @@ export default async function NetworkPage() {
               sub: view.fees ? `priced · ${trx(view.fees.perSendHeldTrx)} held · energy ${view.fees.energyPriceSun} sun` : 'the chain has not been read',
               ...(feesStale ? { tone: 'warning' as const } : {}),
             },
-            { key: 'r', label: 'TRX price', value: view.trxRate ? `${view.trxRate.usdtPerTrx} USDT` : '—', sub: view.trxRate ? `${age(view.trxRate.effectiveAt, nowMs)} old · ${view.trxRate.source}` : 'publish one below', ...(priceStale ? { tone: 'warning' as const } : {}) },
+            { key: 'r', label: 'TRX price', value: view.trxRate ? `${plainPrice(view.trxRate.usdtPerTrx)} USDT` : '—', sub: view.trxRate ? `${age(view.trxRate.effectiveAt, nowMs)} old · ${view.trxRate.source}` : 'publish one below', ...(priceStale ? { tone: 'warning' as const } : {}) },
           ]}
         />
 

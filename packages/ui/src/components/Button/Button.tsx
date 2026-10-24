@@ -25,6 +25,7 @@ export function Button({ intent = 'secondary', size = 'md', fullWidth, loading, 
       type={type}
       disabled={disabled || loading}
       aria-busy={loading || undefined}
+      data-intent={intent}
       className={cx(styles.button, styles[intent], styles[size], fullWidth && styles.full)}
     >
       {loading ? <ArcLoader size="sm" label="Working" tone="inherit" /> : null}

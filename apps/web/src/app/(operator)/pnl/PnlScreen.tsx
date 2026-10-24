@@ -107,7 +107,7 @@ export function PnlScreen({ view, canExport }: { view: PnlPage; canExport: boole
         <KpiBand
           label="Realized in the period"
           items={[
-            { key: 'r', label: 'Realized gross margin', value: inr(s.realizedGrossMargin, { sign: true }), sub: 'from the ledger', size: 'lg', ...(isNegative(s.realizedGrossMargin, 'INR') ? { tone: 'danger' as const } : { tone: 'success' as const }) },
+            { key: 'r', label: 'Realized gross margin', value: inr(s.realizedGrossMargin, { sign: true }), sub: 'from the ledger', size: 'lg', ...(isNegative(s.realizedGrossMargin, 'INR') ? { tone: 'danger' as const } : /[1-9]/.test(s.realizedGrossMargin) ? { tone: 'success' as const } : {}) },
             { key: 'v', label: 'Completed volume', value: usdt(s.completedVolume), sub: `${s.completedTrades} trade${s.completedTrades === 1 ? '' : 's'}` },
             { key: 'a', label: 'Average margin / USDT', value: averageMarginPerUsdt(Money.parse(s.realizedGrossMargin, 'INR'), Money.parse(s.completedVolume, 'USDT')), sub: 'realized over completed volume' },
             { key: 'c', label: 'Completed trades', value: String(s.completedTrades) },
@@ -126,11 +126,12 @@ export function PnlScreen({ view, canExport }: { view: PnlPage; canExport: boole
         <KpiBand
           label="After rewards and recorded fees"
           items={[
-            { key: 'g', label: 'Realized gross margin', value: inr(s.realizedGrossMargin, { sign: true }) },
-            { key: 'r', label: 'Trader rewards', value: inr(cost(s.traderRewards), { sign: true }), sub: 'recognised in the period' },
-            { key: 'f', label: 'Recorded fees', value: inr(cost(s.recordedFees), { sign: true }), sub: /[1-9]/.test(s.recordedFees) ? 'bank charges recorded' : 'none recorded yet' },
+            // A waterfall, read left to right: the gross it starts from, what comes off it, what is left.
+            { key: 'g', label: 'Gross', value: inr(s.realizedGrossMargin, { sign: true }), sub: 'realized, as above' },
+            { key: 'r', label: 'Less trader rewards', value: inr(cost(s.traderRewards), { sign: true }), sub: 'recognised in the period' },
+            { key: 'f', label: 'Less recorded fees', value: inr(cost(s.recordedFees), { sign: true }), sub: /[1-9]/.test(s.recordedFees) ? 'bank charges recorded' : 'none recorded yet' },
             {
-              key: 'n', label: 'Net', value: inr(s.netAfterRewardsAndFees, { sign: true }), sub: 'gross less rewards and recorded fees', size: 'lg',
+              key: 'n', label: 'Net', value: inr(s.netAfterRewardsAndFees, { sign: true }), sub: 'what the period leaves', size: 'lg',
               ...(isNegative(s.netAfterRewardsAndFees, 'INR') ? { tone: 'danger' as const } : {}),
             },
           ]}

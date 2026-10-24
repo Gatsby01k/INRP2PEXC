@@ -8,11 +8,10 @@ import {
   approveTraderAction, pauseTraderAction, rejectTraderAction, resumeTraderAction, setAssignmentsAction, setLimitsAction, setRequiredReserveAction, setRewardAction,
   setSettlementDetailsAction,
 } from '../../../../server/actions/traders-desk.ts';
-import { PanelSection } from '../../_desk/ContextPanel.tsx';
 import { GuardedAction } from '../../_desk/GuardedAction.tsx';
 import { SelectField, TextArea, TextField } from '../../_desk/fields.tsx';
-import { inr, rate, usdt } from '../../_desk/format.ts';
-import { Chip, KeyValues, Notice } from '../../_desk/ui.tsx';
+import { inr, plainDecimal, rate, share, usdt } from '../../_desk/format.ts';
+import { Chip, KeyValues, Meter, Notice, Section } from '../../_desk/ui.tsx';
 import d from '../../_desk/desk.module.css';
 
 export interface TraderPerms {
@@ -40,12 +39,12 @@ const blank = (v: string) => (v.trim() === '' ? null : v.trim());
 export function TraderControls({ detail, perms }: { detail: DeskTraderDetail; perms: TraderPerms }) {
   const cmd = useCommand();
   const t = detail.trader;
-  const [reserve, setReserve] = useState(detail.reserve.required ?? detail.program.defaultRequiredReserve ?? '');
+  const [reserve, setReserve] = useState(plainDecimal(detail.reserve.required ?? detail.program.defaultRequiredReserve));
   const [reward, setReward] = useState(t.rewardBps === null ? '' : String(t.rewardBps));
-  const [maxOrderInr, setMaxOrderInr] = useState(t.limits.maxOrderInr ?? '');
-  const [maxOrderUsdt, setMaxOrderUsdt] = useState(t.limits.maxOrderUsdt ?? '');
-  const [maxCapInr, setMaxCapInr] = useState(t.limits.maxCapacityInr ?? '');
-  const [maxCapUsdt, setMaxCapUsdt] = useState(t.limits.maxCapacityUsdt ?? '');
+  const [maxOrderInr, setMaxOrderInr] = useState(plainDecimal(t.limits.maxOrderInr));
+  const [maxOrderUsdt, setMaxOrderUsdt] = useState(plainDecimal(t.limits.maxOrderUsdt));
+  const [maxCapInr, setMaxCapInr] = useState(plainDecimal(t.limits.maxCapacityInr));
+  const [maxCapUsdt, setMaxCapUsdt] = useState(plainDecimal(t.limits.maxCapacityUsdt));
   const [reason, setReason] = useState('');
   const [bankId, setBankId] = useState(detail.bank.bankAccountId);
   const [walletId, setWalletId] = useState(detail.wallet.walletId);
@@ -65,9 +64,20 @@ export function TraderControls({ detail, perms }: { detail: DeskTraderDetail; pe
     </div>
   );
 
+  // A Buy USDT block is the trader's INR, a Sell USDT block its USDT (`amountOf` in @inrp2p/traders).
+  const blockAmount = (side: string, value: string) => (side === 'BUY_USDT' ? inr(value) : usdt(value));
+  const reasonField = (
+    <TextArea
+      label={t.status === 'UNDER_REVIEW' ? 'Note to the applicant' : 'Reason for the change'}
+      value={reason}
+      onChange={setReason}
+      hint={t.status === 'UNDER_REVIEW' ? 'Required to reject — the applicant sees it.' : 'Every change below needs it and keeps it; the trader sees pause reasons.'}
+    />
+  );
+
   return (
     <div className={d.stack}>
-      <PanelSection title={t.status === 'UNDER_REVIEW' ? 'Decision' : 'Controls'}>
+      <Section title={t.status === 'UNDER_REVIEW' ? 'Decision' : 'Controls'} hint={t.status === 'UNDER_REVIEW' ? 'Approve with the terms below, or reject with a note.' : 'Who may be offered orders, and why.'}>
         <KeyValues
           items={[
             { label: 'Provides', value: t.sides.map((s) => (s === 'BUY_USDT' ? 'INR (buys USDT)' : 'USDT (sells USDT)')).join(' · ') },
@@ -77,12 +87,14 @@ export function TraderControls({ detail, perms }: { detail: DeskTraderDetail; pe
             ...(t.controlNote ? [{ label: 'Hold reason', value: t.controlNote }] : []),
           ]}
         />
-        <TextArea label="Reason / note (the trader sees pause and rejection reasons)" value={reason} onChange={setReason} />
+        {reasonField}
 
         {t.status === 'UNDER_REVIEW' && perms.configure ? (
           <>
-            <TextField label="Security Reserve for this trader (USDT)" value={reserve} onChange={setReserve} placeholder="Required" hint="From the programme default when left as is." />
-            <TextField label="Reward override (basis points)" value={reward} onChange={setReward} placeholder="Follow the programme" />
+            <div className={d.formGrid}>
+              <TextField label="Security Reserve (USDT)" value={reserve} onChange={setReserve} placeholder="Required" hint="The programme default unless changed." />
+              <TextField label="Reward (basis points)" value={reward} onChange={setReward} placeholder="Follow the programme" />
+            </div>
             {limitFields}
             {detailsVerified ? null : <Notice tone="warning">Verify the submitted bank account and wallet first — approval waits for both.</Notice>}
             <div className={d.actions}>
@@ -106,7 +118,7 @@ export function TraderControls({ detail, perms }: { detail: DeskTraderDetail; pe
                 stepUp
                 busy={cmd.busy}
                 disabled={!hasReason}
-                disabledReason="Write the reason above — the applicant sees it."
+                disabledReason="Write the note above — the applicant sees it."
                 consequence="The application is closed and the applicant is told why. They can apply again."
                 onConfirm={async () => (await cmd.run(`Reject ${t.ref}`, (key) => rejectTraderAction({ traderId: t.traderId, note: reason }, key))).ok}
               />
@@ -142,10 +154,10 @@ export function TraderControls({ detail, perms }: { detail: DeskTraderDetail; pe
             </Button>
           </div>
         ) : null}
-      </PanelSection>
+      </Section>
 
       {approved && perms.configure ? (
-        <PanelSection title="Terms">
+        <Section title="Terms" hint="INRP2P's ceilings sit on top of what the trader sets; the trader is told.">
           {limitFields}
           <div className={d.actions}>
             <Button size="sm" shortcut={step} disabled={cmd.busy || !hasReason} onClick={() => cmd.run(`Change limits for ${t.ref}`, (key) => setLimitsAction({ traderId: t.traderId, ...limits, reason }, key))}>
@@ -154,7 +166,7 @@ export function TraderControls({ detail, perms }: { detail: DeskTraderDetail; pe
           </div>
           <div className={d.formGrid}>
             <TextField label="Required Security Reserve (USDT)" value={reserve} onChange={setReserve} />
-            <TextField label="Reward override (basis points)" value={reward} onChange={setReward} placeholder="Follow the programme" />
+            <TextField label="Reward (basis points)" value={reward} onChange={setReward} placeholder="Follow the programme" />
           </div>
           <div className={d.actions}>
             <Button
@@ -174,12 +186,37 @@ export function TraderControls({ detail, perms }: { detail: DeskTraderDetail; pe
               Save reward
             </Button>
           </div>
-          {!hasReason ? <p className={d.fieldHint}>Each change needs the reason above; it is kept with the change.</p> : null}
-        </PanelSection>
+          {!hasReason ? <p className={d.fieldHint}>Write the reason under Controls first; it is kept with the change.</p> : null}
+        </Section>
       ) : null}
 
+      <Section title="Capacity and rates" hint="Set by the trader. What is held is promised to open orders.">
+        {detail.blocks.length === 0 ? <p className={d.fieldHint}>Opened when the trader is approved.</p> : null}
+        {detail.blocks.map((b) => {
+          const asset = b.side === 'BUY_USDT' ? ('INR' as const) : ('USDT' as const);
+          return (
+            <div key={b.side} className={d.stackTight}>
+              <div className={d.spread}>
+                <strong>{b.side === 'BUY_USDT' ? 'Buys USDT · pays INR' : 'Sells USDT · takes INR'}</strong>
+                <Chip tone={b.status === 'ACTIVE' ? 'success' : 'muted'}>{b.status === 'ACTIVE' ? 'Active' : b.status.charAt(0) + b.status.slice(1).toLowerCase()}</Chip>
+              </div>
+              <Meter label={`${blockAmount(b.side, b.held)} of ${blockAmount(b.side, b.capacity)} held`} parts={[{ value: share(b.held, b.capacity, asset), tone: 'brand' }]} />
+              <KeyValues
+                split
+                items={[
+                  { label: 'Rate', value: b.rate ? rate(b.rate) : 'not set', strong: true },
+                  { label: 'Capacity', value: blockAmount(b.side, b.capacity) },
+                  { label: 'Held by open orders', value: blockAmount(b.side, b.held) },
+                  { label: 'Per order', value: b.minOrder && b.maxOrder ? `${blockAmount(b.side, b.minOrder)} – ${blockAmount(b.side, b.maxOrder)}` : 'not set' },
+                ]}
+              />
+            </div>
+          );
+        })}
+      </Section>
+
       {perms.configure && approved ? (
-        <PanelSection title="Switch to another verified destination">
+        <Section title="Settlement destination" hint="Where INRP2P pays the trader and takes its USDT from.">
           <SelectField label="Bank account" value={bankId} onChange={setBankId} options={detail.clientDestinations.banks.map((b) => ({ value: b.id, label: b.label }))} />
           <SelectField label="Wallet (send and receive)" value={walletId} onChange={setWalletId} options={detail.clientDestinations.wallets.map((w) => ({ value: w.id, label: w.label }))} />
           <div className={d.actions}>
@@ -193,23 +230,8 @@ export function TraderControls({ detail, perms }: { detail: DeskTraderDetail; pe
             </Button>
           </div>
           {t.openOrders > 0 ? <p className={d.fieldHint}>Not while an order is accepted or in progress.</p> : null}
-        </PanelSection>
+        </Section>
       ) : null}
-
-      <PanelSection title="Capacity and rates · set by the trader">
-        {detail.blocks.length === 0 ? <p className={d.fieldHint}>Opened when the trader is approved.</p> : null}
-        {detail.blocks.map((b) => (
-          <KeyValues
-            key={b.side}
-            items={[
-              { label: b.side === 'BUY_USDT' ? 'Buys USDT' : 'Sells USDT', value: <Chip tone={b.status === 'ACTIVE' ? 'success' : 'muted'}>{b.status.toLowerCase()}</Chip> },
-              { label: 'Rate', value: b.rate ? rate(b.rate) : 'not set' },
-              { label: 'Capacity', value: `${b.capacity} (${b.held} held)` },
-              { label: 'Per order', value: b.minOrder && b.maxOrder ? `${b.minOrder} – ${b.maxOrder}` : 'not set' },
-            ]}
-          />
-        ))}
-      </PanelSection>
 
       {cmd.error ? (
         <p className={d.errorLine} role="alert">

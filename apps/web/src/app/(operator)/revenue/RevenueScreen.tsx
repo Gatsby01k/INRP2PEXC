@@ -87,7 +87,7 @@ export function RevenueScreen({ report, addresses, perms }: { report: RevenueRep
       <KpiBand
         label="Earned in the period"
         items={[
-          { key: 't', label: 'Earned', value: usdt(report.earned.total), sub: 'realized when deals completed', size: 'lg', tone: 'success' },
+          { key: 't', label: 'Earned', value: usdt(report.earned.total), sub: 'realized when deals completed', size: 'lg', ...(/[1-9]/.test(report.earned.total) ? { tone: 'success' as const } : {}) },
           { key: 'f', label: 'Platform fees', value: usdt(report.earned.platformFees), sub: 'desks’ own deals' },
           { key: 'm', label: 'INRP2P margins', value: usdt(report.earned.margins), sub: 'deals INRP2P’s desk routes' },
           { key: 's', label: 'Swept in the period', value: usdt(w.sweptInPeriod), sub: `${usdt(w.sweptAllTime)} in all` },

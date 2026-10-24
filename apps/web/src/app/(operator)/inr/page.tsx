@@ -35,7 +35,7 @@ export default async function InrPage() {
           label="Today across active accounts"
           items={[
             { key: 'a', label: 'Available today', value: inr(view.totals.available), sub: 'what the desk can still pay', size: 'lg' },
-            { key: 'c', label: 'Working capacity', value: inrCompact(view.totals.capacity), sub: inr(view.totals.capacity) },
+            { key: 'c', label: 'Working capacity', value: <span title={inr(view.totals.capacity)}>{inrCompact(view.totals.capacity)}</span>, sub: 'set for today' },
             { key: 'u', label: 'Used', value: inrCompact(view.totals.used), sub: 'payouts sent today' },
             { key: 'r', label: 'Reserved', value: inrCompact(view.totals.reserved), sub: 'legs not yet sent' },
             {

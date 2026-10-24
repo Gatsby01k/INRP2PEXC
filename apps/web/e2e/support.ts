@@ -72,7 +72,7 @@ export async function signIn(page: Page, who: E2EOperator): Promise<void> {
   await page.getByRole('button', { name: 'Continue' }).click();
   await page.getByLabel('Authenticator code').fill(await freshTotp(who.totpSecret));
   await page.getByRole('button', { name: 'Verify and open the desk' }).click();
-  // Exact: the sign-in page's own heading is "INRP2P Desk", which a substring match would happily accept.
+  // Exact: the sign-in page's own heading ("Sign in to the desk") contains the word, which a substring match would accept.
   await expect(page.getByRole('heading', { name: 'Desk', exact: true })).toBeVisible();
 }
 

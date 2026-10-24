@@ -79,8 +79,8 @@ export default async function TraderDeskPage({ params }: { params: Promise<{ tra
             { key: 'v', label: 'Details verified', value: `${[detail.bank.status, detail.wallet.status].filter((x) => x === 'ACTIVE').length} of 2`, sub: 'bank account and wallet', ...([detail.bank.status, detail.wallet.status].some((x) => x !== 'ACTIVE') ? { tone: 'warning' as const } : {}) },
           ] : [
             { key: 'r', label: 'Security Reserve', value: usdt(detail.reserve.balance), sub: detail.reserve.required ? `of ${usdt(detail.reserve.required)} required` : 'requirement not set', ...(short ? { tone: 'warning' as const } : {}) },
-            { key: 'o', label: 'Open orders', value: String(t.openOrders), sub: t.offers > 0 ? `${t.offers} offered` : 'none offered' },
-            { key: 'u', label: 'Unresolved', value: String(t.unresolved), ...(t.unresolved > 0 ? { tone: 'danger' as const } : {}) },
+            { key: 'o', label: 'Open orders', value: String(t.openOrders), sub: t.offers > 0 ? `${t.offers} waiting for an answer` : 'no offer waiting' },
+            { key: 'u', label: 'Unresolved', value: String(t.unresolved), sub: t.unresolved > 0 ? 'owed and not yet settled' : 'nothing owed', ...(t.unresolved > 0 ? { tone: 'warning' as const } : {}) },
             { key: 'c', label: 'Completed orders', value: String(t.completedOrders), sub: `${usdt(detail.earnings.completedUsdt)}` },
             { key: 'e', label: 'Rewards unpaid', value: inr(detail.earnings.available), sub: detail.earnings.rewardBps === null ? 'no reward' : `${detail.earnings.rewardBps} bps` },
           ]}
@@ -95,9 +95,7 @@ export default async function TraderDeskPage({ params }: { params: Promise<{ tra
               </Section>
               {decisions}
             </Stack>
-            <Section>
-              <TraderControls detail={detail} perms={perms} />
-            </Section>
+            <TraderControls detail={detail} perms={perms} />
           </Columns>
         ) : (
           <Columns>
@@ -109,9 +107,7 @@ export default async function TraderDeskPage({ params }: { params: Promise<{ tra
               {decisions}
             </Stack>
             <Stack>
-              <Section>
-                <TraderControls detail={detail} perms={perms} />
-              </Section>
+              <TraderControls detail={detail} perms={perms} />
               <Section>
                 <TraderReview detail={detail} perms={perms} />
               </Section>

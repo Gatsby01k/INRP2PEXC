@@ -14,6 +14,13 @@ const PATHS = {
   usdt: 'M2.5 3.5h11L8 13.5zM5.2 3.5 8 8.7l2.8-5.2M4.2 6.6h7.6',
   traders: 'M6 7.2a2.2 2.2 0 1 0 0-4.4 2.2 2.2 0 0 0 0 4.4zM1.8 13.2c.4-2.3 2.1-3.7 4.2-3.7s3.8 1.4 4.2 3.7M10.6 3a2.2 2.2 0 0 1 0 4.2M11.8 9.7c1.3.5 2.2 1.7 2.4 3.5',
   clients: 'M2.5 13.5V5.5l5.5-3 5.5 3v8M5.5 13.5v-4h5v4M1.5 13.5h13',
+  // The mark's own figure, small: a hub, three spokes, three nodes — the network budget pays every hop.
+  network: 'M8 9.6a1.6 1.6 0 1 0 0-3.2 1.6 1.6 0 0 0 0 3.2zM8 6.4V4M6.6 8.9 4.4 10.4M9.4 8.9l2.2 1.5M8 4a1 1 0 1 0 0-2 1 1 0 0 0 0 2zM3.6 12a1 1 0 1 0 0-2 1 1 0 0 0 0 2zM12.4 12a1 1 0 1 0 0-2 1 1 0 0 0 0 2z',
+  // A coin with the platform's fee leaving it: revenue is what the exchange keeps.
+  revenue: 'M8 13.5a5.5 5.5 0 1 1 5.5-5.5M8 5v6M9.8 6.4C9.6 5.8 8.9 5.4 8 5.4c-1 0-1.8.5-1.8 1.3 0 1.8 3.6.9 3.6 2.6 0 .8-.8 1.3-1.8 1.3-.9 0-1.6-.4-1.8-1M12.5 10.5v3M11 12l1.5 1.5L14 12',
+  // A storefront: an independent desk's own shop on the network.
+  desks: 'M2.5 6.5 3.4 2.5h9.2l.9 4M2.5 6.5c0 .9.7 1.5 1.7 1.5s1.8-.6 1.8-1.5c0 .9.8 1.5 2 1.5s2-.6 2-1.5c0 .9.7 1.5 1.8 1.5s1.7-.6 1.7-1.5M3.5 8v5.5h9V8M6.5 13.5v-3h3v3',
+  menu: 'M2.5 4.5h11M2.5 8h11M2.5 11.5h7',
   pnl: 'M2.5 13.5h11M4.5 11V7.5M8 11V4.5M11.5 11V9',
   system: 'M1.5 8.5h3l1.8-4 3.4 8 1.8-4h3',
   search: 'M7 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10zM10.6 10.6 14 14',

@@ -1,7 +1,9 @@
 import type { ReactNode } from 'react';
 import Link from 'next/link';
+import { getImageProps } from 'next/image';
 import { deskBadges, deskNow, deskQueue } from '@inrp2p/desk';
 import { payoutsHeld } from '@inrp2p/trades';
+import mark from '../../../../../brand/inrp2p-mark.png';
 import { can, operatorPage } from '../../server/operator.ts';
 import { ClockProvider } from './_desk/clock.tsx';
 import { CommandPalette } from './_desk/CommandPalette.tsx';
@@ -55,10 +57,10 @@ export default async function OperatorLayout({ children }: { children: ReactNode
         { href: '/rates', label: 'Rates', icon: 'rates', key: 'r' },
         { href: '/inr', label: 'INR accounts', icon: 'inr', key: 'i' },
         { href: '/usdt', label: 'USDT treasury', icon: 'usdt', key: 'u' },
-        ...(can(ctx, 'network:view') ? [{ href: '/network', label: 'Network budget', icon: 'usdt' as const, key: 'n', ...(badges.sendsWaiting > 0 ? { count: badges.sendsWaiting, tone: badges.sendsBlocked > 0 ? ('alert' as const) : ('action' as const) } : {}) }] : []),
+        ...(can(ctx, 'network:view') ? [{ href: '/network', label: 'Network budget', icon: 'network' as const, key: 'n', ...(badges.sendsWaiting > 0 ? { count: badges.sendsWaiting, tone: badges.sendsBlocked > 0 ? ('alert' as const) : ('action' as const) } : {}) }] : []),
         // A trader's rate is a route rate: the page is not found without `traders:view`, so neither is the link.
         ...(can(ctx, 'traders:view') ? [{ href: '/trader-desk', label: 'Traders', icon: 'traders' as const, key: 't' }] : []),
-        ...(can(ctx, 'desks:view') ? [{ href: '/desk-ops', label: 'Desks', icon: 'clients' as const, key: 'k', ...(badges.desksToReview > 0 ? { count: badges.desksToReview, tone: 'action' as const } : {}) }] : []),
+        ...(can(ctx, 'desks:view') ? [{ href: '/desk-ops', label: 'Desks', icon: 'desks' as const, key: 'k', ...(badges.desksToReview > 0 ? { count: badges.desksToReview, tone: 'action' as const } : {}) }] : []),
       ],
     },
     {
@@ -67,17 +69,23 @@ export default async function OperatorLayout({ children }: { children: ReactNode
         { href: '/clients', label: 'Clients', icon: 'clients', key: 'c' },
         // Not rendered without `pnl:view`, because the page itself is not found without it: a settlement operator who
         // can see a link to the desk's margin has already been told the desk has one.
-        ...(can(ctx, 'pnl:view') ? [{ href: '/pnl', label: 'P&L', icon: 'pnl' as const, key: 'p' }, { href: '/revenue', label: 'Revenue', icon: 'usdt' as const, key: 'v' }] : []),
+        ...(can(ctx, 'pnl:view') ? [{ href: '/pnl', label: 'P&L', icon: 'pnl' as const, key: 'p' }, { href: '/revenue', label: 'Revenue', icon: 'revenue' as const, key: 'v' }] : []),
         ...(can(ctx, 'economics:view') ? [{ href: '/system', label: 'System health', icon: 'system' as const, key: 's' }] : []),
       ],
     },
   ];
 
   const roles = ctx.actor.roles.map((r) => ROLE_WORD[r] ?? r).join(' · ') || 'No role';
+  const { props: markProps } = getImageProps({ src: mark, alt: '', width: 34, height: 34 });
   return (
     <ClockProvider serverNow={now}>
       <div className={styles.shell}>
-        <Sidebar groups={nav} operator={{ name: me?.name || me?.email || 'Operator', roles, economics: ctx.access.economics }} />
+        {/* The client workspace's own room: light from above, a fine grid of points fading into the paper, one warm
+            glow of the mark's orange, and a grain. */}
+        <div className={styles.backdrop} aria-hidden="true">
+          <span className={styles.glow} />
+        </div>
+        <Sidebar groups={nav} operator={{ name: me?.name || me?.email || 'Operator', roles, economics: ctx.access.economics }} mark={markProps.src} />
         <main className={styles.workspace}>
           {hold.held ? (
             // Every page, not only System: whoever is about to pay someone must see this first (RUNBOOKS `restore-fence`).

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { plainDecimal } from '../_desk/format.ts';
 import type { DeskProgram } from '@inrp2p/traders';
 import { Button, StepUpMark } from '@inrp2p/ui';
 import { configureProgramAction } from '../../../server/actions/traders-desk.ts';
@@ -15,7 +16,7 @@ import d from '../_desk/desk.module.css';
  */
 export function ProgramForm({ program, accounts, canConfigure }: { program: DeskProgram; accounts: readonly { accountId: string; label: string; bankName: string; last4: string }[]; canConfigure: boolean }) {
   const cmd = useCommand();
-  const [reserve, setReserve] = useState(program.defaultRequiredReserve ?? '');
+  const [reserve, setReserve] = useState(plainDecimal(program.defaultRequiredReserve));
   const [reward, setReward] = useState(program.rewardBps === null ? '' : String(program.rewardBps));
   const [offer, setOffer] = useState(String(program.offerTtlSeconds));
   const [hold, setHold] = useState(String(program.holdTtlSeconds));

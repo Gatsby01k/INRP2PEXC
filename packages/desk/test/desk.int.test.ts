@@ -120,7 +120,7 @@ describe('the desk queue', () => {
 
     const placed = rowFor(await deskQueue(w.app, FULL_ACCESS), trade.tradeId);
     expect(placed?.group).toBe('exception');
-    expect(placed?.row.status).toBe('Short by 0.050000 USDT');
+    expect(placed?.row.status).toBe('Short by 0.05 USDT');
     expect(placed?.row.action).toBe('RESOLVE_EXCEPTION');
     expect(placed?.row.hold).toBe(true);
   });
@@ -132,7 +132,7 @@ describe('the desk queue', () => {
     });
     await seeOwnSender(w.app, w.settlementOp, { legId: recorded.legId });
     await runAs(w.app, confirmFirstLeg(w.settlementOp.actor, w.settlementDeps), w.settlementOp.ref, 'settlement.confirm_incoming', { legId: recorded.legId });
-    expect(rowFor(await deskQueue(w.app, FULL_ACCESS), trade.tradeId)?.row.status).toBe('Short by 60.00 INR');
+    expect(rowFor(await deskQueue(w.app, FULL_ACCESS), trade.tradeId)?.row.status).toBe('Short by ₹60');
   });
 
   it('never carries a rate or a margin for an operator without economics:view', async () => {

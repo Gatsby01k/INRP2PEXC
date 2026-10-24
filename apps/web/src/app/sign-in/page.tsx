@@ -1,5 +1,7 @@
 import type { Metadata } from 'next';
 import { headers } from 'next/headers';
+import { getImageProps } from 'next/image';
+import mark from '../../../../../brand/inrp2p-mark.png';
 import { getRuntime } from '../../server/runtime.ts';
 import { publicOrigin } from '../../server/site.ts';
 import { safeReturnPath, surfaceForHost } from '../../server/surface.ts';
@@ -23,8 +25,8 @@ export async function generateMetadata(): Promise<Metadata> {
  * The desk and the client app are two products with two authentication schemes — password plus authenticator
  * (SECURITY §2.1) and a code to a known address (§2.2) — and they never share a session. One page renders both
  * because the host already decides which is which. The client's is the workspace gateway, the room a client
- * arrives in from the home page's "Open workspace"; the desk's is a plain card. Neither says anything about the
- * business before a session exists.
+ * arrives in from the home page's "Open workspace"; the desk's is one card on the brand's paper — the mark, the name,
+ * the form. Neither says anything about the business before a session exists.
  */
 export default async function SignInPage({ searchParams }: { searchParams: Promise<{ next?: string | string[] }> }) {
   if (await isClientHost()) {
@@ -34,11 +36,24 @@ export default async function SignInPage({ searchParams }: { searchParams: Promi
     return <WorkspaceGateway home={await publicOrigin()} {...(next ? { next } : {})} />;
   }
 
+  const { props: markProps } = getImageProps({ src: mark, alt: '', width: 44, height: 44 });
   return (
     <main className={styles.page}>
+      <div className={styles.backdrop} aria-hidden="true">
+        <span className={styles.glow} />
+      </div>
       <div className={styles.card}>
-        <h1 className={styles.title}>INRP2P Desk</h1>
-        <p className={styles.body}>Operator access. Every action you take here is recorded against your account.</p>
+        <div className={styles.brand}>
+          <img {...markProps} className={styles.mark} />
+          <span className={styles.brandText}>
+            <span className={styles.brandName}>INRP2P</span>
+            <span className={styles.brandSub}>Operator desk</span>
+          </span>
+        </div>
+        <div className={styles.intro}>
+          <h1 className={styles.title}>Sign in to the desk</h1>
+          <p className={styles.body}>Operator access. Every action you take here is recorded against your account.</p>
+        </div>
         <SignInForm />
       </div>
     </main>

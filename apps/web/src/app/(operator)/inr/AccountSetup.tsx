@@ -70,9 +70,8 @@ export function AccountSetup({ entities }: { entities: InrView['entities'] }) {
   const ready = !cmd.busy && entityId !== '' && label.trim().length >= 2 && bankName.trim().length >= 2 && ifscOk && numberOk && rails.length > 0 && capacity.trim() !== '' && upiOk;
 
   return (
-    <div className={d.guard}>
-      <p className={d.guardTitle}>Add an INR account</p>
-      <p className={d.guardBody}>The account number is encrypted the moment it is saved; the desk shows its last four digits only. Clients paying a BUY see the full details of a collecting account on their trade.</p>
+    <div className={d.stack}>
+      <p className={d.fieldHint}>The account number is encrypted the moment it is saved; the desk shows its last four digits only. Clients paying a BUY see the full details of a collecting account on their trade.</p>
       <div className={d.formGrid}>
         {entities.length > 1 ? (
           <SelectField label="Owner" value={entityId} onChange={setEntityId} options={entities.map((e) => ({ value: e.entityId, label: e.legalName }))} />

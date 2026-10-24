@@ -88,10 +88,15 @@ export function TraderList({ traders }: { traders: readonly DeskTraderRow[] }) {
       caption="Traders"
       label="Traders"
       columns={columns}
-      groups={[
-        { key: 'needs', title: 'Needs a decision', tone: 'brand', rows: needs },
-        { key: 'all', title: 'Traders', rows: rest },
-      ]}
+      // A group heading only earns its place when there is something to tell apart: decisions first, then the rest.
+      {...(needs.length > 0
+        ? {
+            groups: [
+              { key: 'needs', title: 'Needs a decision', tone: 'brand' as const, rows: needs },
+              { key: 'all', title: 'Everyone else', rows: rest },
+            ],
+          }
+        : { rows: rest })}
       rowKey={(t) => t.traderId}
       onOpen={(t) => router.push(`/trader-desk/${t.traderId}`)}
       rail={(t) => (t.status === 'UNDER_REVIEW' || t.awaitingReview > 0 ? 'action' : t.unresolved > 0 ? 'danger' : null)}

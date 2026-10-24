@@ -237,7 +237,8 @@ export interface Choice<V extends string> {
 }
 
 /** A radio group drawn as rows: the choice, what it means, and — where there is one — the figure that decides it. */
-export function Choices<V extends string>({ legend, value, onChange, choices, name }: { legend: string; value: V; onChange: (v: V) => void; choices: readonly Choice<V>[]; name?: string }) {
+/** `value` may be null: nothing chosen yet, for a choice that must be made on purpose (a case that holds a trade). */
+export function Choices<V extends string>({ legend, value, onChange, choices, name }: { legend: string; value: V | null; onChange: (v: V) => void; choices: readonly Choice<V>[]; name?: string }) {
   const generated = useId();
   const group = name ?? generated;
   return (

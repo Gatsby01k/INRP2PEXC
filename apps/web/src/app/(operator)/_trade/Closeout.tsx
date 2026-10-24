@@ -348,7 +348,8 @@ type FlagType = (typeof FLAG_TYPES)[number]['value'];
 /** The cases the system cannot see for itself (`exception.open`). A blocking one puts the trade on hold at once. */
 export function FlagException({ trade }: { trade: DeskTrade }) {
   const cmd = useCommand();
-  const [type, setType] = useState<FlagType>('TRADE_CANCELLATION');
+  // Nothing is chosen for the operator: most of these hold the trade, so the case is picked on purpose.
+  const [type, setType] = useState<FlagType | null>(null);
   const blocking = type !== 'INR_PAYOUT_DELAYED';
   return (
     <PanelSection title="Flag an exception">
@@ -358,9 +359,11 @@ export function FlagException({ trade }: { trade: DeskTrade }) {
         trigger="secondary"
         tone={blocking ? 'danger' : 'neutral'}
         busy={cmd.busy}
+        disabled={type === null}
+        disabledReason="Choose what happened first."
         consequence={blocking ? `${trade.ref} goes on hold immediately: no payout can be created or sent until the case is resolved.` : 'The case is listed on Exceptions; the trade keeps moving.'}
         reasonLabel="Details for whoever resolves it"
-        onConfirm={async (notes) => (await cmd.run(`Open a case on ${trade.ref}`, (key) => openTradeExceptionAction({ tradeId: trade.tradeId, type, notes }, key))).ok}
+        onConfirm={async (notes) => (type === null ? false : (await cmd.run(`Open a case on ${trade.ref}`, (key) => openTradeExceptionAction({ tradeId: trade.tradeId, type, notes }, key))).ok)}
       />
       {cmd.error ? (
         <p className={d.errorLine} role="alert">

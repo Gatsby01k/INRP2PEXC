@@ -11,13 +11,36 @@ export type Asset = 'INR' | 'USDT';
 export const inr = (amount: string, opts: { sign?: boolean; paise?: boolean } = {}): string =>
   formatInr(Money.parse(amount, 'INR'), { ...(opts.sign ? { sign: 'always' as const } : {}), ...(opts.paise ? { fraction: 'always' as const } : {}) });
 
-/** USDT to two places (summary) unless `exact`; whole-number amounts drop the zeros ("100,000 USDT"). */
+/**
+ * USDT to two places (summary) unless `exact`; whole-number amounts drop the zeros ("100,000 USDT"). `exact` keeps
+ * every stored micro-unit that carries value and drops only the zeros after it — "9,732.824427 USDT", "0.05 USDT",
+ * "100,000 USDT" — so the evidence is never rounded and never padded to six places either.
+ */
 export const usdt = (amount: string, opts: { exact?: boolean; unit?: boolean } = {}): string => {
   const m = Money.parse(amount, 'USDT');
   const unit = opts.unit ?? true;
-  if (opts.exact) return formatUsdt(m, { precision: 'exact', unit });
+  if (opts.exact) return trimZeros(formatUsdt(m, { precision: 'exact', unit }));
   const headline = formatUsdtHeadline(m, { unit });
   return headline.includes('.') ? formatUsdt(m, { unit }) : headline;
+};
+
+/** "100,000.000000" → "100,000"; "9,732.500000" → "9,732.50"; "0.050000" → "0.05". Digits only, never rounds. */
+function trimZeros(text: string): string {
+  return text.replace(/(\d)\.(\d+)/, (_, last: string, fraction: string) => {
+    const kept = fraction.replace(/0+$/, '');
+    if (kept === '') return last;
+    return `${last}.${kept.length < 2 ? kept.padEnd(2, '0') : kept}`;
+  });
+}
+
+/** A stored decimal as a person would type it back into a field: "500.000000" → "500", "12.500000" → "12.5". */
+export const plainDecimal = (value: string | null | undefined): string => (value ? value.replace(/^(-?\d+)\.(\d*?)0+$/, (_, w: string, f: string) => (f === '' ? w : `${w}.${f}`)) : '');
+
+/** A summary USDT figure: in full to the cent below a million, compact above it ("1.2M USDT"). */
+export const usdtSummary = (amount: string): string => {
+  const m = Money.parse(amount, 'USDT');
+  const abs = m.isNegative() ? m.negate() : m;
+  return abs.minor >= 1_000_000_000_000n ? `${formatUsdtCompact(m)} USDT` : usdt(amount);
 };
 
 export const money = (amount: string, asset: Asset, opts: { exact?: boolean } = {}): string => (asset === 'INR' ? inr(amount) : usdt(amount, opts));

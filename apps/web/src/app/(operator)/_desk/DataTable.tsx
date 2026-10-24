@@ -97,7 +97,7 @@ export function DataTable<R>({ caption, columns, rows, groups, rowKey, onOpen, s
         onKeyDown={(e) => onKey(e, row)}
       >
         {columns.map((c) => (
-          <td key={c.key} {...(c.align ? { 'data-align': c.align } : {})} {...(c.wrap ? { 'data-wrap': '' } : {})} style={c.width !== undefined ? { width: c.width } : undefined}>
+          <td key={c.key} data-col={c.key} {...(c.align ? { 'data-align': c.align } : {})} {...(c.wrap ? { 'data-wrap': '' } : {})} style={c.width !== undefined ? { width: c.width } : undefined}>
             {c.render(row)}
           </td>
         ))}
