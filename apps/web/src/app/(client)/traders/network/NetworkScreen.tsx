@@ -124,8 +124,8 @@ export function NetworkScreen({ network: n, canAct }: { network: TraderNetworkVi
                     </span>
                   </label>
                   <div className={styles.formActions}>
-                    <button type="submit" className={shell.secondaryAction} disabled={claim.busy || txHash.replace(/^0x/, '').length !== 64}>
-                      Credit my TRX
+                    <button type="submit" className={shell.secondaryAction} aria-busy={claim.busy} disabled={claim.busy || txHash.replace(/^0x/, '').length !== 64}>
+                      {claim.busy ? 'Reading TRON…' : 'Credit my TRX'}
                     </button>
                   </div>
                 </form>

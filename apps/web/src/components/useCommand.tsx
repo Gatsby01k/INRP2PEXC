@@ -67,6 +67,10 @@ export function useCommand(): CommandState & {
       let out: ActionResult<R>;
       try {
         out = await action(key);
+      } catch {
+        // The call itself failed: the connection dropped, or this page predates a new release and its action no longer
+        // exists on the server. Say so — a click that ends in silence reads as a button that does nothing.
+        out = { ok: false, code: 'UNREACHABLE', message: 'This did not reach the server — the page may be out of date. Reload the page and try again; nothing was applied.' };
       } finally {
         // Only the call itself is "busy". Waiting for the operator to read an authenticator is not, or the
         // dialog's own confirm button would sit disabled behind the command that raised it.
