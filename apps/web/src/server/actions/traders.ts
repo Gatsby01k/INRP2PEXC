@@ -128,7 +128,16 @@ export async function claimNetworkDepositAction(input: { txHash: string }, key: 
     await hitRateLimit(ctx.db, { bucket: 'trader_network_claim', subject: ctx.actor.userId, limit: 10, windowSeconds: 600 });
     const hash = input.txHash.trim().toLowerCase().replace(/^0x/, '');
     if (!/^[0-9a-f]{64}$/.test(hash)) throw new DomainError('INVALID_ARGUMENT', 'a transaction hash is 64 hexadecimal characters');
-    const read = await sendNetworkForWeb().trxTransfer(hash);
+    const read = await sendNetworkForWeb()
+      .trxTransfer(hash)
+      .catch((e: unknown) => {
+        // The chain was not read — not "the transaction is missing". Say so, and that pressing again is safe.
+        if (e instanceof DomainError && e.code === 'CHAIN_PROVIDER_ERROR') {
+          console.error(JSON.stringify({ level: 'error', event: 'network_deposit.chain_unreadable', message: e.message }));
+          throw new DomainError('CHAIN_PROVIDER_ERROR', 'TRON could not be read just now (the network data service is busy). Your transfer is safe on-chain — press “Credit my TRX” again in a minute.', { transient: true });
+        }
+        throw e;
+      });
     if (read.status !== 'FINAL') throw new DomainError('NETWORK_DEPOSIT_NOT_FOUND', read.status === 'NOT_A_TRX_TRANSFER' ? read.reason : 'TRON has not made this transaction final yet; try again in a minute');
     facts = read.transfer;
   } catch (e) {

@@ -125,6 +125,8 @@ export interface TronHttpProviderOptions {
   /** Extra attempts for a transient failure (network, timeout, 429, 5xx, unreadable body). */
   readonly retries?: number;
   readonly retryBaseDelayMs?: number;
+  /** The first wait after a rate limit (429), doubling per attempt; a `Retry-After` longer than it wins. */
+  readonly rateLimitDelayMs?: number;
   /** Wall-clock budget of one window read; past it the read stops and reports what it covered. */
   readonly readBudgetMs?: number;
 }
@@ -339,6 +341,7 @@ export class TronHttpProvider implements TronProvider, TronSendGateway {
   readonly #receiptConcurrency: number;
   readonly #retries: number;
   readonly #retryBaseDelayMs: number;
+  readonly #rateLimitDelayMs: number;
   readonly #readBudgetMs: number;
   /** Block → timestamp. Immutable for a given block of the canonical chain; bounded. */
   readonly #blockTimes = new Map<bigint, number>();
@@ -355,6 +358,7 @@ export class TronHttpProvider implements TronProvider, TronSendGateway {
     this.#receiptConcurrency = Math.max(opts.receiptConcurrency ?? 4, 1);
     this.#retries = Math.max(opts.retries ?? 2, 0);
     this.#retryBaseDelayMs = Math.max(opts.retryBaseDelayMs ?? 250, 0);
+    this.#rateLimitDelayMs = Math.max(opts.rateLimitDelayMs ?? 1_000, 0);
     this.#readBudgetMs = Math.max(opts.readBudgetMs ?? 60_000, 1);
   }
 
@@ -380,9 +384,12 @@ export class TronHttpProvider implements TronProvider, TronSendGateway {
       clearTimeout(timer);
     }
     if (!response.ok) {
+      // A rate limit says how long to wait (`Retry-After`, in seconds); the retry honours it instead of asking again at once.
+      const retryAfter = Number.parseFloat(response.headers.get('retry-after') ?? '');
       throw new DomainError('CHAIN_PROVIDER_ERROR', `${this.name} answered ${response.status} for ${path.split('?')[0]}`, {
         status: response.status,
         transient: response.status === 429 || response.status >= 500,
+        ...(response.status === 429 ? { rateLimited: true, ...(Number.isFinite(retryAfter) && retryAfter > 0 ? { retryAfterMs: Math.min(retryAfter * 1000, 10_000) } : {}) } : {}),
       });
     }
     try {
@@ -392,7 +399,11 @@ export class TronHttpProvider implements TronProvider, TronSendGateway {
     }
   }
 
-  /** Bounded retry with backoff for transient failures only; a definite answer is never retried into another. */
+  /**
+   * Bounded retry with backoff for transient failures only; a definite answer is never retried into another. A rate
+   * limit (429) waits as long as the provider asks, and at least a second, with one more attempt than other failures:
+   * asking again a quarter of a second later only meets the same limit.
+   */
   async #call<T>(counter: CallCounter, path: string, init?: { method?: 'GET' | 'POST'; body?: unknown }, deadline?: number): Promise<T> {
     for (let attempt = 0; ; attempt++) {
       counter.requests += 1;
@@ -400,8 +411,11 @@ export class TronHttpProvider implements TronProvider, TronSendGateway {
         return await this.#once<T>(path, init);
       } catch (e) {
         const transient = e instanceof DomainError && e.details.transient === true;
-        if (!transient || attempt >= this.#retries || (deadline !== undefined && Date.now() >= deadline)) throw e;
-        await sleep(this.#retryBaseDelayMs * 2 ** attempt);
+        const limited = transient && e.details.rateLimited === true;
+        if (!transient || attempt >= this.#retries + (limited ? 1 : 0) || (deadline !== undefined && Date.now() >= deadline)) throw e;
+        const backoff = this.#retryBaseDelayMs * 2 ** attempt;
+        const asked = limited && typeof e.details.retryAfterMs === 'number' ? e.details.retryAfterMs : 0;
+        await sleep(limited ? Math.max(backoff, asked, this.#rateLimitDelayMs * 2 ** attempt) : backoff);
       }
     }
   }

@@ -161,6 +161,31 @@ describe('the TronGrid HTTP provider', () => {
     });
     await expect(unreachable.getSolidifiedBlockNumber()).rejects.toSatisfy((e) => isDomainError(e, 'CHAIN_PROVIDER_ERROR'));
   });
+
+  it('waits out a rate limit (429) for as long as the provider asks, and then reads', async () => {
+    const calls: number[] = [];
+    const limited = new TronHttpProvider({
+      name: 'node-busy', independenceGroup: 'group-busy', baseUrl: 'https://api.example.test', retryBaseDelayMs: 0, rateLimitDelayMs: 1,
+      fetchImpl: (async () => {
+        calls.push(Date.now());
+        // Rate limited three times in a row — one more than other transient failures are retried — then an answer.
+        if (calls.length <= 3) return new Response('slow down', { status: 429, headers: { 'retry-after': '0.02' } });
+        return Response.json({ block_header: { raw_data: { number: 42 } } });
+      }) as typeof fetch,
+    });
+    expect(await limited.getLatestBlockNumber()).toBe(42n);
+    expect(calls).toHaveLength(4);
+    // Each wait honoured the provider's Retry-After (20 ms) rather than asking again at once.
+    for (let i = 1; i < calls.length; i++) expect(calls[i]! - calls[i - 1]!).toBeGreaterThanOrEqual(15);
+  });
+
+  it('gives up on a rate limit that does not lift, as a provider error that says so', async () => {
+    const limited = new TronHttpProvider({
+      name: 'node-busy', independenceGroup: 'group-busy', baseUrl: 'https://api.example.test', retryBaseDelayMs: 0, rateLimitDelayMs: 0,
+      fetchImpl: (async () => new Response('slow down', { status: 429 })) as typeof fetch,
+    });
+    await expect(limited.getLatestBlockNumber()).rejects.toSatisfy((e) => isDomainError(e, 'CHAIN_PROVIDER_ERROR') && /429/.test((e as Error).message));
+  });
 });
 
 describe('the fake TRON chain', () => {

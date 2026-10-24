@@ -162,7 +162,10 @@ export class TronSendNetwork {
   async accountState(address: string): Promise<TronAccountState> {
     const answers = await Promise.all(this.gateways.map((g) => settle(g.accountState(address))));
     const ok = answers.filter((a): a is { ok: true; value: TronAccountState } => a.ok).map((a) => a.value);
-    if (ok.length === 0) throw new DomainError('CHAIN_PROVIDER_ERROR', `no TRON provider answered for ${address}`, { transient: true });
+    if (ok.length === 0) {
+      const errors = answers.map((a, i) => `${this.gateways[i]!.name}: ${a.ok ? 'answered' : a.error}`).join('; ');
+      throw new DomainError('CHAIN_PROVIDER_ERROR', `no TRON provider answered for ${address}: ${errors}`, { transient: true });
+    }
     return ok.reduce((m, a) => ({
       address: m.address,
       exists: m.exists && a.exists,
@@ -243,7 +246,11 @@ export class TronSendNetwork {
   async trxTransfer(txid: string): Promise<TrxTransferAnswer & { readonly agreedGroups?: readonly string[] }> {
     const answers = await Promise.all(this.gateways.map(async (g) => ({ g, r: await settle(g.trxTransfer(txid)) })));
     const ok = answers.filter((a) => a.r.ok) as { g: TronSendGateway; r: { ok: true; value: TrxTransferAnswer } }[];
-    if (ok.length === 0) throw new DomainError('CHAIN_PROVIDER_ERROR', `no TRON provider answered for ${txid}`, { transient: true });
+    if (ok.length === 0) {
+      // Which provider refused and why (a rate limit, a timeout): without it the failure reads like a missing transaction.
+      const errors = answers.map((a) => `${a.g.name}: ${a.r.ok ? 'answered' : a.r.error}`).join('; ');
+      throw new DomainError('CHAIN_PROVIDER_ERROR', `no TRON provider answered for ${txid}: ${errors}`, { transient: true });
+    }
     const finals = ok.filter((a) => a.r.value.status === 'FINAL') as { g: TronSendGateway; r: { ok: true; value: { status: 'FINAL'; transfer: TrxTransferFacts } } }[];
     const refused = ok.find((a) => a.r.value.status === 'NOT_A_TRX_TRANSFER');
     if (refused) return refused.r.value;
