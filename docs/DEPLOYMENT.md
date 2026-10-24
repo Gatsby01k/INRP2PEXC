@@ -541,7 +541,9 @@ carries 38 (§12), 39 (§13) and 40 (below) at once, with one web deployment and
    workspace. Its page is `PUBLIC_BASE_URL/<handle>` and its links
    `PUBLIC_BASE_URL/d/<token>`, both on the public host; taking a deal from either happens in the client app (`/desks/<handle>`,
    `/d/<token>`), after signing in.
-6. **Telegram alerts (optional).** Create a bot with @BotFather and set, on the web app **and** the worker,
+6. **Telegram alerts (optional).** Create a bot with @BotFather. On the worker (AWS): add `TELEGRAM_BOT_TOKEN` to the
+   secret `inrp2p/worker` by hand **first** (a task whose secret lacks a referenced key does not start), then update
+   the stack with the current template and the parameter `TelegramBotUsername`. On the web app and the worker alike,
    `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME` (without @) and, on the web app, `TELEGRAM_WEBHOOK_SECRET` (24+ random
    characters). Then point the bot at the public host once:
    `curl -s "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/setWebhook" -d url="$PUBLIC_BASE_URL/api/telegram/webhook" -d secret_token="$TELEGRAM_WEBHOOK_SECRET" -d allowed_updates='["message"]'`.

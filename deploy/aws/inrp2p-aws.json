@@ -88,6 +88,11 @@
       "Default": "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t",
       "Description": "USDT TRC-20 on TRON mainnet."
     },
+    "TelegramBotUsername": {
+      "Type": "String",
+      "Default": "",
+      "Description": "TELEGRAM_BOT_USERNAME (without @), for desk alerts in Telegram (ADR 0020 §2.14). Empty: no Telegram. The bot token is TELEGRAM_BOT_TOKEN in the worker secret, added by hand before this is set."
+    },
     "WorkerCpu": {
       "Type": "String",
       "Default": "256",
@@ -585,6 +590,12 @@
                 }
               },
               {
+                "Name": "TELEGRAM_BOT_USERNAME",
+                "Value": {
+                  "Ref": "TelegramBotUsername"
+                }
+              },
+              {
                 "Name": "INRP2P_WORKER_ID",
                 "Value": "aws-fargate"
               }
@@ -618,6 +629,12 @@
                 "Name": "INRP2P_CUSTODY_SEED_SEALED",
                 "ValueFrom": {
                   "Fn::Sub": "${WorkerSecret}:INRP2P_CUSTODY_SEED_SEALED::"
+                }
+              },
+              {
+                "Name": "TELEGRAM_BOT_TOKEN",
+                "ValueFrom": {
+                  "Fn::Sub": "${WorkerSecret}:TELEGRAM_BOT_TOKEN::"
                 }
               }
             ],
