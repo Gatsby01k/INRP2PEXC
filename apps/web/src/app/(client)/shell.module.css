@@ -741,8 +741,10 @@
 }
 
 /* Definition rows: a quiet term, the fact, on one line. */
+/* Rows sit at the top of their column: a long answer beside them must not spread them apart. */
 .facts {
   display: grid;
+  align-content: start;
   gap: var(--space-3);
   margin: 0;
 }

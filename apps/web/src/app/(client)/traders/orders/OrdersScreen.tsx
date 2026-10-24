@@ -74,10 +74,18 @@ export function OrdersScreen({ rows, open, counts, tab }: { rows: readonly Order
                         {inr(o.inr)} at {rate(o.rate)}
                       </span>
                     </span>
-                    <span className={styles.cell}>
-                      <span className={styles.cellMain}>{formatIstDateTime(new Date(o.startedAt ?? o.offeredAt))}</span>
-                      <span className={styles.cellSub}>{tab === 'active' ? nextStepText(o) : o.reward && o.status === 'COMPLETED' ? `Earned ${inr(o.reward)}` : o.status === 'COMPLETED' ? 'No reward' : (o.closeNote ?? '')}</span>
-                    </span>
+                    {/* An active order leads with what happens next, in full; a finished one with when it ran. */}
+                    {tab === 'active' ? (
+                      <span className={styles.cell}>
+                        <span className={`${styles.cellMain} ${styles.cellWrap}`}>{nextStepText(o)}</span>
+                        <span className={styles.cellSub}>{formatIstDateTime(new Date(o.startedAt ?? o.offeredAt))}</span>
+                      </span>
+                    ) : (
+                      <span className={styles.cell}>
+                        <span className={styles.cellMain}>{formatIstDateTime(new Date(o.startedAt ?? o.offeredAt))}</span>
+                        <span className={styles.cellSub}>{o.reward && o.status === 'COMPLETED' ? `Earned ${inr(o.reward)}` : o.status === 'COMPLETED' ? 'No reward' : (o.closeNote ?? '')}</span>
+                      </span>
+                    )}
                     <span className={styles.cellEnd}>
                       <OrderPill stage={o.stage} status={o.status} />
                       <ChevronIcon className={styles.chevron} />

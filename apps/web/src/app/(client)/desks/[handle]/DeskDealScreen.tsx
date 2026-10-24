@@ -215,7 +215,8 @@ export function DeskDealScreen(props: DeskDealProps) {
                   <Link className={styles.trade} href={`/trades/${d.tradeRef}`}>
                     <span className={styles.rowText}>
                       <span>
-                        {d.direction === 'SELL_USDT' ? 'Sold' : 'Bought'} {usdt(d.usdt)}
+                        {/* Past tense only once it happened: an open deal is still selling or buying. */}
+                        {d.state === 'COMPLETED' ? (d.direction === 'SELL_USDT' ? 'Sold' : 'Bought') : d.state === 'CANCELLED' ? (d.direction === 'SELL_USDT' ? 'Sell of' : 'Buy of') : d.direction === 'SELL_USDT' ? 'Selling' : 'Buying'} {usdt(d.usdt)}
                       </span>
                       <span className={styles.tradeRef}>
                         {d.tradeRef} · {formatIstDate(new Date(d.openedAt))}

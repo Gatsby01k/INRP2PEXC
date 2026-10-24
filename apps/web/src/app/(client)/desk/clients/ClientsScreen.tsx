@@ -133,7 +133,7 @@ export function ClientsScreen({ clients, canCommit }: { clients: readonly DeskCl
               <div className={styles.periods} role="group" aria-label="Show">
                 {(['ALL', 'ACTIVE', 'BLOCKED'] as const).map((f) => (
                   <button key={f} type="button" className={styles.period} aria-pressed={filter === f} onClick={() => setFilter(f)}>
-                    {f === 'ALL' ? `All ${clients.length}` : f === 'ACTIVE' ? 'Active' : `Blocked ${blocked}`}
+                    {f === 'ALL' ? `All ${clients.length}` : f === 'ACTIVE' ? `Active ${clients.length - blocked}` : `Blocked ${blocked}`}
                   </button>
                 ))}
               </div>

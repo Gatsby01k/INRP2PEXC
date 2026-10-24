@@ -100,6 +100,8 @@ export async function portalTrade(ex: Executor, clientId: string, tradeRef: stri
       funded,
       detected: transfer !== undefined,
       paidSomething: paid.isPositive(),
+      // A payment sent and not yet confirmed is already on its way: the stage must not still say it is being prepared.
+      sending: settlement.payments.some((p) => p.status === 'SENT' || p.status === 'PROCESSING' || p.status === 'EVIDENCE_RECORDED'),
       liquidity,
       completed,
       closedAt: closedAt,
@@ -150,6 +152,7 @@ function stagesFor(f: {
   detected: boolean;
   funded: boolean;
   paidSomething: boolean;
+  sending?: boolean;
   liquidity: 'WAITING' | 'PARTIAL' | 'ARRIVED' | null;
   completed: boolean;
   closedAt: string | null;
@@ -173,7 +176,7 @@ function stagesFor(f: {
           at: null,
           detail: f.paidSomething
             ? f.liquidity === 'PARTIAL' ? 'paying out as liquidity arrives' : 'paying out'
-            : f.liquidity === 'WAITING' ? 'waiting for liquidity' : 'preparing your payment',
+            : f.sending ? 'a payment is on its way' : f.liquidity === 'WAITING' ? 'waiting for liquidity' : 'preparing your payment',
         }
       : { key: 'settling', status: 'pending', at: null, detail: null };
   const completed: TradeStage = f.completed

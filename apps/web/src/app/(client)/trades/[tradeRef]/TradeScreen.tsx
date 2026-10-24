@@ -309,9 +309,12 @@ export function TradeScreen({ view, justOpened = false }: { view: PortalTrade; j
             <div className={shell.cardHead}>
               <h2 className={shell.cardTitle}>{inrSettlement ? 'Your INR' : 'Your USDT'}</h2>
               <span className={shell.muted}>
+                {/* The figures are on the bar below for INR; the head says only how the payments stand. */}
                 {settlement.remaining.amount.replace(/[0.]/g, '') === ''
                   ? 'Paid in full'
-                  : `${inrSettlement ? formatInr(Money.parse(settlement.remaining.amount, 'INR')) : formatUsdtHeadline(Money.parse(settlement.remaining.amount, 'USDT'))} still to come`}
+                  : inrSettlement
+                    ? `${settlement.payments.length} payment${settlement.payments.length === 1 ? '' : 's'} so far`
+                    : `${formatUsdtHeadline(Money.parse(settlement.remaining.amount, 'USDT'))} still to come`}
               </span>
             </div>
             {inrSettlement ? <SettlementProgress received={Money.parse(settlement.paid.amount, 'INR')} total={Money.parse(settlement.expected.amount, 'INR')} /> : null}

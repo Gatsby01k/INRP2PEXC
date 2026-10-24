@@ -235,9 +235,10 @@
 }
 
 .tradeRef {
-  font-family: var(--font-mono);
   font-size: var(--font-size-meta);
   color: var(--text-muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 /* "My desks" */

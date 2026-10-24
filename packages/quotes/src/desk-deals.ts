@@ -64,6 +64,12 @@ const HOLD_GRACE_SECONDS = 60;
 
 const sideFor = (direction: DirectionValue): TraderSide => (direction === 'SELL_USDT' ? 'BUY_USDT' : 'SELL_USDT');
 const usdt = (m: bigint) => Money.ofMinor(m, 'USDT').toDecimalString();
+/** The same amount as a client reads it in a refusal: "500", "1,250.50" — grouped, no padding zeros, never rounded. */
+const said = (m: bigint) => {
+  const [whole = '0', fraction = ''] = usdt(m).split('.');
+  const kept = fraction.replace(/0+$/, '');
+  return `${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}${kept === '' ? '' : `.${kept.padEnd(2, '0')}`}`;
+};
 
 /** `quoteDeskDealInTx` with the request locked first (ARCHITECTURE §4). */
 export async function quoteDeskDealInTx(ctx: TxContext, deps: Pick<QuoteDeps, 'policy'>, input: DeskDealInput): Promise<DeskDealQuote> {
@@ -118,10 +124,10 @@ export async function quoteLockedDeskDealInTx(ctx: TxContext, deps: Pick<QuoteDe
   const requested = (request.fixed_side === 'BASE' ? request.requested_base_minor : request.requested_quote_minor)!;
   const econ = priceDeskDeal({ direction: request.direction, fixedSide: request.fixed_side, amountMinor: requested, clientRate, policy: fees });
   if (limits && (econ.base.minor < limits.min || econ.base.minor > limits.max)) {
-    throw new DomainError('INVALID_AMOUNT', `this desk deals ${usdt(limits.min)} to ${usdt(limits.max)} USDT at its live price`, { min: usdt(limits.min), max: usdt(limits.max) });
+    throw new DomainError('INVALID_AMOUNT', `this desk deals ${said(limits.min)} to ${said(limits.max)} USDT at its live price`, { min: usdt(limits.min), max: usdt(limits.max) });
   }
   if (relation.maxDealBaseMinor !== null && econ.base.minor > relation.maxDealBaseMinor) {
-    throw new DomainError('INVALID_AMOUNT', `this desk deals up to ${usdt(relation.maxDealBaseMinor)} USDT with you`, { max: usdt(relation.maxDealBaseMinor) });
+    throw new DomainError('INVALID_AMOUNT', `this desk deals up to ${said(relation.maxDealBaseMinor)} USDT with you`, { max: usdt(relation.maxDealBaseMinor) });
   }
   // INRP2P's own ceiling on this trader's single order binds its desk deals too; its capacity ceiling is in `freeCapacity`.
   const capacityMinor = side === 'BUY_USDT' ? econ.clientInr.minor : econ.routeBase.minor;

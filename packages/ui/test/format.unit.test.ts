@@ -56,7 +56,9 @@ describe('USDT and rate formatting', () => {
     expect(formatUsdt(usdt('100000'), { precision: 'exact' })).toBe('100,000.000000 USDT');
     expect(formatUsdt(usdt('1840220.125'), { unit: false })).toBe('1,840,220.12');
     expect(formatUsdtHeadline(usdt('100000'))).toBe('100,000 USDT');
-    expect(formatUsdtHeadline(usdt('99950.5'))).toBe('99,950.500000 USDT');
+    expect(formatUsdtHeadline(usdt('99950.5'))).toBe('99,950.50 USDT');
+    expect(formatUsdtHeadline(usdt('9732.824427'))).toBe('9,732.824427 USDT');
+    expect(formatUsdtHeadline(usdt('0.05'), { unit: false })).toBe('0.05');
   });
 
   it('rates keep at least 2 decimals and never drop stored precision', () => {

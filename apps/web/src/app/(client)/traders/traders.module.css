@@ -506,7 +506,13 @@
 .pair {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
   gap: var(--space-3);
+}
+
+/* Side by side with the UTR field, the rail picker takes its height: one line of controls, not two sizes. */
+.pair select {
+  min-height: 40px;
 }
 
 .check {
@@ -1013,6 +1019,13 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
+}
+
+/* A sentence a person must read whole — what happens next — wraps instead of being cut. */
+.cellWrap {
+  font-weight: var(--font-weight-medium);
+  white-space: normal;
+  line-height: var(--line-height-snug);
 }
 
 .cellEnd {

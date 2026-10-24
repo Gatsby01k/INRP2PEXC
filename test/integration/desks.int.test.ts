@@ -238,7 +238,7 @@ describe('a client buys USDT on a deal link’s rate', () => {
 describe('what a desk deal will not do', () => {
   it('goes past the desk’s live limits, a price that is off, or a desk that cannot fund the network', async () => {
     const big = await deskRequest('SELL_USDT', '25000');
-    await expect(quoteDeal(big.requestId)).rejects.toMatchObject({ code: 'INVALID_AMOUNT', message: expect.stringContaining('100.000000 to 20000.000000') });
+    await expect(quoteDeal(big.requestId)).rejects.toMatchObject({ code: 'INVALID_AMOUNT', message: expect.stringContaining('100 to 20,000 USDT') });
     await runAs(w.app, setDeskPrices(desk.admin.actor), desk.admin.ref, 'desk.set_prices', { prices: [{ direction: 'SELL_USDT' as const, rate: '100.900000', min: '100', max: '20000', live: false }] });
     const off = await deskRequest('SELL_USDT', '1000');
     await expect(quoteDeal(off.requestId)).rejects.toMatchObject({ code: 'DESK_NOT_LIVE' });
@@ -481,7 +481,7 @@ describe('a desk’s clients', () => {
   it('get the desk’s own limit on one deal, and a note only the desk sees', async () => {
     await update({ clientId: bharat.clientId, maxDeal: '500', note: 'exporter, pays from HDFC' });
     expect(await clientRow(bharat.clientId)).toMatchObject({ maxDeal: '500.000000', note: 'exporter, pays from HDFC' });
-    await expect(bharatQuote('BUY_USDT', '1000')).rejects.toMatchObject({ code: 'INVALID_AMOUNT', message: expect.stringContaining('up to 500.000000 USDT with you') });
+    await expect(bharatQuote('BUY_USDT', '1000')).rejects.toMatchObject({ code: 'INVALID_AMOUNT', message: expect.stringContaining('up to 500 USDT with you') });
     expect(await bharatQuote('BUY_USDT', '400')).toMatchObject({ base: '400.000000' });
     await update({ clientId: bharat.clientId, maxDeal: null });
     expect((await clientRow(bharat.clientId)).maxDeal).toBeNull();

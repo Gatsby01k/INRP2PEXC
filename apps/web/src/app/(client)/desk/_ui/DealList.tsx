@@ -5,7 +5,7 @@ import type { DeskDeal } from '@inrp2p/traders';
 import { formatCountdown, formatIstDateTime } from '@inrp2p/ui/format';
 import { useServerClock } from '../../exchange/useServerClock.ts';
 import { DealStatus } from './DeskStatus.tsx';
-import { initial, inr, rate, usdt } from './format.ts';
+import { initial, inr, isZero, rate, usdt } from './format.ts';
 import styles from '../desk.module.css';
 
 /** What the desk does next on a deal that waits on it, in one line. */
@@ -50,6 +50,8 @@ export function DealList({ deals, now: serverNow, showNext = false }: { deals: r
               <span className={styles.dealMeta}>
                 {d.direction === 'SELL_USDT' ? 'Sells' : 'Buys'} {usdt(d.usdt)} at {rate(d.rate)}
                 {d.via === 'LINK' ? ' · by link' : ''}
+                {/* The escrow is the client's USDT plus INRP2P's fee: say so, or 802 beside "800" reads as a mistake. */}
+                {d.yourMove && d.step === 'ESCROW' && d.direction === 'BUY_USDT' && !isZero(d.fee) ? ` · escrow incl. ${usdt(d.fee)} fee` : ''}
                 {d.completedAt ? ` · ${formatIstDateTime(new Date(d.completedAt))}` : ''}
               </span>
             </span>

@@ -63,10 +63,10 @@ function Totals({ periods }: { periods: { today: DeskPeriod; week: DeskPeriod; m
   return (
     <p className={styles.summary}>
       <span>
-        Today <strong>{periods.today.deals}</strong> · <strong>{usdt(periods.today.usdt)}</strong>
+        Today <strong>{periods.today.deals}</strong> {periods.today.deals === 1 ? 'deal' : 'deals'} · <strong>{usdt(periods.today.usdt)}</strong>
       </span>
       <span>
-        30 days <strong>{periods.month.deals}</strong> deals · <strong>{usdt(periods.month.usdt)}</strong>
+        30 days <strong>{periods.month.deals}</strong> {periods.month.deals === 1 ? 'deal' : 'deals'} · <strong>{usdt(periods.month.usdt)}</strong>
       </span>
       <span>
         INRP2P fees, 30 days <strong>{usdt(periods.month.fees)}</strong>

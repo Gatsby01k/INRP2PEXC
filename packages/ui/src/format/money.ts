@@ -32,11 +32,16 @@ export function formatUsdt(amount: Money<'USDT'>, opts: { precision?: UsdtPrecis
   return `${d.negative ? '−' : ''}${d.whole}.${d.fraction}${unit}`;
 }
 
-/** Whole-unit USDT for headline amounts where the value is integral: "100,000 USDT". Falls back to summary precision. */
+/**
+ * USDT for headline amounts: whole units where the value is integral ("100,000 USDT"), otherwise every decimal that
+ * carries value and none that do not ("99,950.50 USDT", "9,732.824427 USDT") — never rounded, never padded to six.
+ */
 export function formatUsdtHeadline(amount: Money<'USDT'>, opts: { unit?: boolean } = {}): string {
   const d = splitMinor(amount.minor, exponentOf('USDT'));
-  if (/^0+$/.test(d.fraction)) return `${d.negative ? '−' : ''}${d.whole}${opts.unit === false ? '' : ' USDT'}`;
-  return formatUsdt(amount, { precision: 'exact', ...(opts.unit === undefined ? {} : { unit: opts.unit }) });
+  const unit = opts.unit === false ? '' : ' USDT';
+  const kept = d.fraction.replace(/0+$/, '');
+  if (kept === '') return `${d.negative ? '−' : ''}${d.whole}${unit}`;
+  return `${d.negative ? '−' : ''}${d.whole}.${kept.length < 2 ? kept.padEnd(2, '0') : kept}${unit}`;
 }
 
 /**

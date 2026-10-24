@@ -41,7 +41,7 @@ function nextStep(r: HistoryRow): string {
   if (r.onHold && isOpenTrade(r.status)) return 'Nothing for now. The desk is checking something and moves the trade on when it is done.';
   switch (r.status) {
     case 'AWAITING_FIRST_LEG':
-      return sell ? `Send exactly ${usdt(r)} to this trade’s deposit address on TRC20 — the trade page shows it.` : `Pay ${inr(r)}. The desk confirms it by its bank reference (UTR).`;
+      return sell ? `Send exactly ${usdt(r)} to this trade’s deposit address on TRC20 — the trade page shows it.` : `The trade page shows where and by when to pay ${inr(r)} — always from your own account.`;
     case 'FIRST_LEG_DETECTED':
       return 'Nothing — your transfer is on-chain and becoming final.';
     case 'COMPLETED':
