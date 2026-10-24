@@ -60,6 +60,9 @@ export function useGuarded(send: (key: string) => Promise<GuardedOutcome>) {
         return false;
       }
       return settle(await send(key.current ?? newIntentKey()));
+    } catch {
+      setError('The connection dropped before an answer came. Try again — it will not happen twice.');
+      return false;
     } finally {
       setBusy(false);
     }

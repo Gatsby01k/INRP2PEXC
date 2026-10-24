@@ -114,12 +114,19 @@ export function useCommand(): CommandState & {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ code }),
-      });
-      if (!res.ok) {
+      }).catch(() => null);
+      if (!res?.ok) {
         setStepUpError('That code was not accepted. Try the current one.');
         return;
       }
-      const out = await p.run(p.key);
+      let out: Awaited<ReturnType<typeof p.run>>;
+      try {
+        out = await p.run(p.key);
+      } catch {
+        // Verified, but the command itself never came back: the same intent key makes trying again safe.
+        setStepUpError('This did not reach the server — the page may be out of date. Reload the page and try again; nothing was applied.');
+        return;
+      }
       if (!out.ok && out.stepUp) {
         setStepUpError('Verification did not take effect. Try again.');
         return;

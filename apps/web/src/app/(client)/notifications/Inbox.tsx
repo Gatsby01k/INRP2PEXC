@@ -73,6 +73,7 @@ function dayOf(iso: string, today: string, yesterday: string): string {
 export function Inbox({ rows, now }: { rows: readonly ClientNotification[]; now: string }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
   const unread = rows.filter((r) => !r.read);
   const today = formatIstDate(new Date(now));
   const yesterday = formatIstDate(new Date(Date.parse(now) - 86_400_000));
@@ -104,9 +105,12 @@ export function Inbox({ rows, now }: { rows: readonly ClientNotification[]; now:
                 disabled={busy}
                 onClick={async () => {
                   setBusy(true);
+                  setFailed(false);
                   try {
                     await markNotificationsReadAction(unread.map((r) => r.id));
                     router.refresh();
+                  } catch {
+                    setFailed(true);
                   } finally {
                     setBusy(false);
                   }
@@ -115,6 +119,11 @@ export function Inbox({ rows, now }: { rows: readonly ClientNotification[]; now:
                 {busy ? <ArcLoader size="sm" label="Marking as read" tone="inherit" /> : <CheckIcon />}
                 Mark all as read
               </button>
+            ) : null}
+            {failed ? (
+              <span className={shell.error} role="alert">
+                Not marked — reload the page and try again.
+              </span>
             ) : null}
           </div>
           {days.map(({ day, items }) => (

@@ -29,7 +29,8 @@ export function SignInForm() {
   const [setup, setSetup] = useState<TotpSetup | null>(null);
 
   const send = async (path: string, body: unknown): Promise<{ ok: boolean; json: Record<string, unknown> | null }> => {
-    const res = await fetch(`/api/auth${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const res = await fetch(`/api/auth${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).catch(() => null);
+    if (!res) return { ok: false, json: { message: 'The connection dropped. Try again.' } };
     const json = (await res.json().catch(() => null)) as Record<string, unknown> | null;
     return { ok: res.ok, json };
   };

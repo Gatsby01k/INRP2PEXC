@@ -97,6 +97,7 @@ export function QuoteLinkScreen({ view, token }: { view: QuoteLinkView; token: s
                 if (out.ok) setChallengeId(out.result.challengeId);
                 else setError(out.message);
               })
+              .catch(() => setError('The code could not be sent — the connection dropped or the page is out of date. Reload the page and try again.'))
               .finally(() => setBusy(false));
           }}
           onConfirm={() => {
@@ -116,6 +117,7 @@ export function QuoteLinkScreen({ view, token }: { view: QuoteLinkView; token: s
                 }
                 setStage(stage.intent === 'accept' ? { kind: 'accepted', tradeRef: (out.result as { tradeRef: string }).tradeRef } : { kind: 'rejected' });
               })
+              .catch(() => setError('This did not reach the server — the page may be out of date. Reload the page and try again; nothing was applied.'))
               .finally(() => setBusy(false));
           }}
           onCancel={() => {
