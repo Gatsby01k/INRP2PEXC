@@ -1,5 +1,6 @@
 import { getImageProps } from 'next/image';
 import mark from '../../../../../brand/inrp2p-mark.png';
+import { Halo } from '../(public)/_landing/Halo.tsx';
 import { AccessSurface } from './AccessSurface.tsx';
 import { GatewayRobot } from './GatewayRobot.tsx';
 import styles from './gateway.module.css';
@@ -25,10 +26,18 @@ function BackGlyph() {
  *
  * A server component. Two islands hydrate inside it: the surface (the form) and the robot.
  */
-/** The room's words: a workspace — returning to one or opening one (D-17) — or starting as a trader (the same code, the same room). */
+/**
+ * The room's words. Two doors, each named for what the person wants: a workspace to buy and sell USDT — returning to
+ * one or opening one with the same code (D-17) — or an exchange of their own, which starts with the same code and an
+ * application.
+ */
 const COPY = {
-  SIGN_IN: { eyebrow: 'Workspace access', title: 'Enter the desk.', lede: 'Sign in with your email, or open your account with it. Every trade is priced by the INRP2P desk.' },
-  TRADER: { eyebrow: 'Become a trader', title: 'Provide liquidity.', lede: 'Apply with your email. The desk reviews every trader before any order is sent.' },
+  SIGN_IN: { eyebrow: 'INRP2P workspace', title: 'One email. No password.', lede: 'We send a code to your email. New here? The same code opens your account.' },
+  TRADER: {
+    eyebrow: 'For traders',
+    title: 'Open your exchange.',
+    lede: 'Your page, your prices, your clients, with INRP2P’s escrow on every deal. It starts with your email.',
+  },
 } as const;
 
 export function WorkspaceGateway({ home, mode = 'SIGN_IN', next }: { home: string; mode?: 'SIGN_IN' | 'TRADER'; next?: string }) {
@@ -60,6 +69,7 @@ export function WorkspaceGateway({ home, mode = 'SIGN_IN', next }: { home: strin
           </div>
 
           <div className={styles.stage} aria-hidden="true">
+            <Halo />
             <GatewayRobot />
           </div>
 

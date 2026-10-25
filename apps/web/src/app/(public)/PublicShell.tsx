@@ -119,10 +119,6 @@ export function PublicShell({ children, nonce }: { children: ReactNode; nonce?: 
               <span className={styles.navNew} aria-hidden="true" />
             </Link>
           </nav>
-          {/* The way in for a new trader, beside the way back for everyone who already has a workspace. */}
-          <a className={styles.traderEntry} href={`${app}${TRADER_ENTRY.appPath}`}>
-            {TRADER_ENTRY.label}
-          </a>
           {/* The way into the workspace. `data-robot-target` lets the home page's robot glance at it; the shell
               itself still ships no script. */}
           <a className={styles.entry} href={`${app}${WORKSPACE_ENTRY.appPath}`} data-robot-target="entry">

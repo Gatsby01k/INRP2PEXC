@@ -149,6 +149,7 @@
 
 .title {
   margin: 0;
+  font-family: var(--font-display);
   font-size: clamp(var(--font-size-title), 4.6vw, var(--font-size-display-xl));
   font-weight: var(--font-weight-semibold);
   line-height: 1.02;
@@ -186,40 +187,48 @@
 
 /* ——— The access surface: the quote module's frame, width and material ——— */
 
-/* At the quote module's height on a desktop (527px, its content being fixed), so the frame the visitor just saw
-   there is the frame they see here. Inside, the action settles to the bottom, where the module's is. */
+/* At the quote module's height on a desktop (529px, its content being fixed), in its glass sheet and its radius, so
+   the frame the visitor just saw there is the frame they see here. Inside, the action settles to the bottom, where
+   the module's is. */
 .surface {
   position: relative;
   display: grid;
   grid-template-rows: auto 1fr;
-  gap: var(--space-3);
-  min-height: 527px;
+  gap: var(--space-4);
+  min-height: 529px;
   padding: var(--space-6);
-  background: var(--bg-surface);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-surface);
+  border-radius: 30px;
+  background: color-mix(in srgb, var(--bg-surface) 94%, transparent);
+  backdrop-filter: blur(18px) saturate(1.4);
+  -webkit-backdrop-filter: blur(18px) saturate(1.4);
   box-shadow:
-    0 1px 0 color-mix(in srgb, var(--text-primary) 4%, transparent),
-    0 28px 64px -32px color-mix(in srgb, var(--text-primary) 30%, transparent);
+    0 0 0 1px color-mix(in srgb, var(--border-default) 70%, transparent),
+    0 2px 4px color-mix(in srgb, var(--text-primary) 4%, transparent),
+    0 40px 80px -36px color-mix(in srgb, var(--text-primary) 38%, transparent);
 }
 
+/* Where the visitor is: the product, or the step of opening an exchange — a small pill with the mark's orange dot. */
 .product {
-  display: flex;
+  display: inline-flex;
   align-items: center;
+  justify-self: start;
   gap: var(--space-2);
   margin: 0;
-  font-size: var(--font-size-table);
-  font-weight: var(--font-weight-medium);
+  padding: 5px 12px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-app);
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-semibold);
   color: var(--text-secondary);
 }
 
-/* A station on the rail, lit: the product is on. */
 .product::before {
   content: '';
   width: 6px;
   height: 6px;
   border-radius: 50%;
   background: var(--brand-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-primary) 18%, transparent);
 }
 
 /* Both states share one cell, so the surface keeps its size while its contents change. The one in use is shown;
@@ -272,10 +281,11 @@
 
 .heading {
   margin: 0;
+  font-family: var(--font-display);
   font-size: var(--font-size-heading-lg);
   font-weight: var(--font-weight-semibold);
-  line-height: var(--line-height-snug);
-  letter-spacing: -0.02em;
+  line-height: 1.2;
+  letter-spacing: -0.03em;
 }
 
 .sentTo {
@@ -295,44 +305,38 @@
 .label {
   font-size: var(--font-size-meta);
   font-weight: var(--font-weight-medium);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
   color: var(--text-muted);
 }
 
-/* The address sits on a rule, as the amount does; the rule turns orange while the field is in use. The inset
-   shadow thickens it without moving anything. */
+/* The address in a warm panel, as the converter holds its amount; the panel takes an orange ring while it is in
+   use, and a red one when the address will not do. */
 .input {
   width: 100%;
-  min-height: 52px;
-  padding: 0;
+  min-height: 60px;
+  padding: 0 var(--space-5);
   border: 0;
-  border-bottom: 1px solid var(--border-control);
-  border-radius: 0;
-  background: transparent;
+  border-radius: 18px;
+  background: var(--bg-app);
   color: var(--text-primary);
+  font-family: var(--font-display);
   font-size: var(--font-size-heading);
-  font-weight: var(--font-weight-medium);
+  font-weight: var(--font-weight-semibold);
   letter-spacing: -0.01em;
   outline: none;
-  transition:
-    border-color var(--dur-fast) var(--ease),
-    box-shadow var(--dur-fast) var(--ease);
+  transition: box-shadow var(--dur-fast) var(--ease);
 }
 
 .input::placeholder {
   color: var(--text-disabled);
-  font-weight: var(--font-weight-regular);
+  font-weight: var(--font-weight-medium);
 }
 
 .input:focus {
-  border-bottom-color: var(--brand-primary);
-  box-shadow: inset 0 -1px 0 var(--brand-primary);
+  box-shadow: inset 0 0 0 1.5px var(--brand-primary);
 }
 
 .field[data-invalid] .input {
-  border-bottom-color: var(--status-danger);
-  box-shadow: inset 0 -1px 0 var(--status-danger);
+  box-shadow: inset 0 0 0 1.5px var(--status-danger);
 }
 
 /* The one line under a field: a problem, or a notice. It always keeps its line, so nothing below it moves. */
@@ -382,10 +386,11 @@
   position: relative;
   display: grid;
   place-items: center;
-  height: 56px;
-  border: 1px solid var(--border-control);
-  border-radius: var(--radius-input);
-  background: var(--bg-surface);
+  height: 60px;
+  border: 1px solid transparent;
+  border-radius: 16px;
+  background: var(--bg-app);
+  font-family: var(--font-display);
   font-size: var(--font-size-heading-lg);
   font-weight: var(--font-weight-medium);
   color: var(--text-primary);
@@ -439,15 +444,18 @@
   justify-content: center;
   gap: var(--space-2);
   width: 100%;
-  min-height: 52px;
+  min-height: 58px;
   padding: 0 var(--space-6);
-  border: 1px solid var(--brand-action);
-  border-radius: var(--radius-input);
-  background: var(--brand-action);
+  border: 0;
+  border-radius: 18px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--brand-primary) 70%, var(--brand-action)), var(--brand-action));
   color: var(--text-on-action);
+  font-family: var(--font-display);
   font-size: var(--font-size-body-lg);
-  font-weight: var(--font-weight-medium);
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--text-on-action) 16%, transparent);
+  font-weight: var(--font-weight-semibold);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--text-on-action) 22%, transparent),
+    0 14px 28px -14px color-mix(in srgb, var(--brand-action) 80%, transparent);
   cursor: pointer;
   transition:
     background-color var(--dur-base) var(--ease),
@@ -472,8 +480,7 @@
 
 @media (hover: hover) {
   .action:not(:disabled):hover {
-    border-color: var(--brand-action-hover);
-    background: var(--brand-action-hover);
+    filter: brightness(1.05);
   }
 
   .action:not(:disabled):hover .actionIcon {
@@ -481,23 +488,20 @@
   }
 }
 
-/* Waiting for what it needs: the same shape drawn in the surface's own quiet materials — a warm fill, a hairline,
-   the label in muted ink with its arrow — so it reads as the next step, not as something broken. It takes the
-   orange the moment there is something to send. */
+/* Waiting for what it needs: still the orange button, softened, so it reads as the next step rather than as
+   something broken. It takes its full colour the moment there is something to send. */
 .action:disabled {
-  border-color: var(--border-strong);
-  background: var(--bg-subtle);
-  color: var(--text-muted);
+  opacity: 0.45;
   box-shadow: none;
   cursor: default;
 }
 
-/* Sending: still the action, still orange, its arrow replaced by the brand's arc while the request is out. */
+/* Sending: the action at full colour, its arrow replaced by the brand's arc while the request is out. */
 .action[aria-busy='true']:disabled {
-  border-color: var(--brand-action);
-  background: var(--brand-action);
-  color: var(--text-on-action);
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--text-on-action) 16%, transparent);
+  opacity: 1;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--text-on-action) 22%, transparent),
+    0 14px 28px -14px color-mix(in srgb, var(--brand-action) 80%, transparent);
   cursor: progress;
 }
 
@@ -508,44 +512,99 @@
   color: var(--text-muted);
 }
 
-/* The way in for someone who is not a client yet: under a rule, clearly second to the action. */
-.onboarding {
-  margin: var(--space-2) 0 0;
-  padding-top: var(--space-4);
-  border-top: 1px solid var(--border-default);
-  font-size: var(--font-size-body-sm);
-  color: var(--text-secondary);
-}
-
-.onboardingLink {
-  display: inline-flex;
+/* The other door — an exchange of one's own, or back to the workspace — as a warm tile under the action. */
+.door {
+  display: flex;
   align-items: center;
-  gap: var(--space-1);
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-radius: 18px;
+  background: var(--bg-app);
   color: var(--text-primary);
-  font-weight: var(--font-weight-medium);
   text-decoration: none;
-  white-space: nowrap;
-}
-
-.onboardingIcon {
-  width: 14px;
-  height: 14px;
-  color: var(--text-secondary);
   transition:
-    color var(--dur-base) var(--ease),
-    transform var(--dur-base) var(--ease);
+    background-color var(--dur-base) var(--ease),
+    box-shadow var(--dur-base) var(--ease);
 }
 
-.onboardingLink:focus-visible .onboardingIcon {
+.doorText {
+  display: grid;
+  flex: 1;
+  gap: 1px;
+}
+
+.doorQuestion {
+  font-size: var(--font-size-meta);
+  color: var(--text-muted);
+}
+
+.doorAction {
+  font-family: var(--font-display);
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-semibold);
+}
+
+.doorIcon {
+  flex: none;
+  width: 16px;
+  height: 16px;
   color: var(--brand-action);
-  transform: translateX(2px);
+  transition: transform var(--dur-base) var(--ease);
+}
+
+.door:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 2px;
 }
 
 @media (hover: hover) {
-  .onboardingLink:hover .onboardingIcon {
-    color: var(--brand-action);
-    transform: translateX(2px);
+  .door:hover {
+    box-shadow: inset 0 0 0 1px var(--border-strong);
   }
+
+  .door:hover .doorIcon {
+    transform: translateX(3px);
+  }
+}
+
+/* The email step keeps its action right under the field; what the code opens and the other door fill the rest, the
+   door at the foot of the surface. */
+.emailForm {
+  justify-content: flex-start;
+  gap: var(--space-4);
+}
+
+.emailForm .lower {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.emailForm .door {
+  margin-top: auto;
+}
+
+.perks {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.perk {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--text-primary);
+}
+
+.tick {
+  flex: none;
+  color: var(--status-success);
 }
 
 /* ——— The code step's ways out ——— */

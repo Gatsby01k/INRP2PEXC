@@ -96,13 +96,15 @@ export const ONBOARDING = {
 /** Words that change with the direction are keyed by it, so the module can never pair a label with the wrong side. */
 export interface QuoteModuleCopy {
   readonly title: string;
+  /** The USDT side: what the visitor types. */
   readonly amount: Record<Direction, string>;
+  /** The rupee side: priced by the desk, so it says what the price will be rather than a figure. */
   readonly counter: Record<Direction, string>;
   readonly counterValue: string;
-  readonly destination: Record<Direction, string>;
-  readonly destinationValue: Record<Direction, string>;
-  readonly rate: string;
-  readonly rateValue: string;
+  /** The button between the two sides that turns the deal round. */
+  readonly swap: string;
+  /** One line under the two sides: what the escrow does for this direction. */
+  readonly promise: Record<Direction, string>;
   readonly presets: string;
   readonly cta: string;
   /** Shown under the amount when the call to action is pressed without one; the visitor stays on the page. */
@@ -134,11 +136,12 @@ export const HERO: HeroCopy = {
     title: 'Request a quote',
     amount: { SELL_USDT: 'You sell', BUY_USDT: 'You buy' },
     counter: { SELL_USDT: 'You receive', BUY_USDT: 'You pay' },
-    counterValue: 'INR at one firm rate',
-    destination: { SELL_USDT: 'Paid to', BUY_USDT: 'Delivered to' },
-    destinationValue: { SELL_USDT: 'Your own bank account', BUY_USDT: 'Your own TRC20 wallet' },
-    rate: 'Escrow',
-    rateValue: 'USDT held until the rupees land',
+    counterValue: 'One firm price for the whole amount',
+    swap: 'Switch between selling and buying',
+    promise: {
+      SELL_USDT: 'Your USDT waits in escrow until the rupees are in your bank',
+      BUY_USDT: 'The USDT is locked in escrow before you pay a rupee',
+    },
     presets: 'Common amounts',
     cta: 'Get a firm price',
     amountRequired: 'Enter an amount to get a price.',
@@ -453,8 +456,8 @@ export interface OwnDeskCopy {
 }
 
 export const OWN_DESK: OwnDeskCopy = {
-  nav: 'For desks',
-  announce: { tag: 'New', text: 'Run your own exchange on INRP2P' },
+  nav: 'For traders',
+  announce: { tag: 'New', text: 'Traders: open your own exchange on INRP2P' },
   eyebrow: 'For traders and brokers',
   heading: 'Your own exchange, on INRP2P.',
   lede: 'Your page, your prices, your clients, your team. Rupees go straight between you and your client, and INRP2P holds the USDT in escrow until they land.',
@@ -523,15 +526,15 @@ export const OWN_DESK: OwnDeskCopy = {
     flow: ['Your client', 'Escrow by INRP2P', 'Your desk'],
   },
   steps: [
-    { title: 'Apply as a trader', body: 'With your own email. INRP2P reviews every trader before a first deal.' },
+    { title: 'Apply with your email', body: 'Who you are and what you can provide. INRP2P reviews every trader before a first deal.' },
     { title: 'Set your prices', body: 'Your rates, your limits, and how long they hold.' },
     { title: 'Share your page', body: 'Send your address or a deal link. Clients sign in with their email and deal.' },
   ],
   cta: {
-    title: 'Open your desk in three steps.',
-    label: 'Open your desk',
+    title: 'Open your exchange in three steps.',
+    label: 'Open your exchange',
     appPath: '/become-a-trader',
-    signedIn: 'Already a trader? Open your desk',
+    signedIn: 'Already approved? Go to your desk',
     signedInPath: '/desk',
   },
 };
@@ -553,15 +556,15 @@ export const CLOSING = {
 } as const;
 
 /**
- * The way in for someone who wants to provide capacity rather than trade: the client app's own trader entry, where
- * an email and a code start an application. Anyone may apply; the desk reviews every trader before any order is
- * sent, and applying opens nothing else.
+ * The second door, for a trader or broker: an exchange of their own on INRP2P. It is the client app's trader entry,
+ * where an email and a code start the application; INRP2P reviews every trader before a first deal, and the exchange
+ * opens once it approves them. One name for the whole way — "Open your exchange" — wherever it is offered.
  */
 export const TRADER_ENTRY = {
-  label: 'Become a trader',
+  label: 'Open your exchange',
   appPath: '/become-a-trader',
-  title: 'Trade from your own desk?',
-  body: 'Apply with your own email. INRP2P reviews every trader before a first deal.',
+  title: 'Run an exchange or have liquidity?',
+  body: 'Open your own exchange on INRP2P: your page, your prices, your clients, with escrow on every deal.',
 } as const;
 
 /**

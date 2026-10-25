@@ -205,88 +205,6 @@
   gap: var(--space-3);
 }
 
-/* Behind the robot: the mark's orange as a sun at the height of its head, the mark's three arcs turning slowly
-   round it, and a dotted orbit with the mark's three nodes on it. Square, in the stage's own proportions, so it sits
-   behind the head at every size. */
-.halo {
-  position: absolute;
-  top: -7%;
-  left: 60%;
-  width: 101%;
-  aspect-ratio: 1;
-  transform: translateX(-50%);
-  pointer-events: none;
-}
-
-.sun {
-  position: absolute;
-  inset: 6%;
-  border-radius: 50%;
-  background:
-    radial-gradient(circle at 34% 28%, color-mix(in srgb, #ffffff 34%, var(--brand-primary)) 0%, transparent 46%),
-    radial-gradient(circle at 50% 50%, var(--brand-primary) 0%, var(--brand-primary) 52%, var(--brand-action) 100%);
-  box-shadow:
-    0 40px 90px -30px color-mix(in srgb, var(--brand-primary) 70%, transparent),
-    inset 0 -18px 40px color-mix(in srgb, var(--brand-action) 60%, transparent);
-  animation: sunrise 1100ms var(--ease) 120ms both;
-}
-
-.ring,
-.orbit {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  overflow: visible;
-}
-
-.ring {
-  inset: 7%;
-  width: 86%;
-  height: 86%;
-  stroke: var(--brand-primary);
-  stroke-width: 0.9;
-  stroke-linecap: round;
-  opacity: 0.55;
-  animation:
-    fade 900ms var(--ease) 500ms both,
-    turn 60s linear infinite;
-}
-
-.orbit {
-  stroke: color-mix(in srgb, var(--text-primary) 30%, transparent);
-  stroke-width: 0.35;
-  stroke-linecap: round;
-  animation:
-    fade 900ms var(--ease) 700ms both,
-    turn 120s linear infinite reverse;
-}
-
-.node {
-  fill: var(--brand-primary);
-  stroke: var(--bg-app);
-  stroke-width: 0.6;
-}
-
-@keyframes sunrise {
-  from {
-    opacity: 0;
-    transform: scale(0.86);
-  }
-}
-
-@keyframes fade {
-  from {
-    opacity: 0;
-  }
-}
-
-@keyframes turn {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
 /* The deal, floating in front of the robot, low on its left — under the arc the waving arm sweeps: a white card
    whose steps tick off one after the other once the robot has greeted, and whose status then turns to done. */
 .deal {
@@ -381,6 +299,12 @@
   animation: tick 420ms cubic-bezier(0.2, 1.6, 0.4, 1) calc(2300ms + var(--i) * 700ms) both;
 }
 
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}
+
 @keyframes dealIn {
   from {
     opacity: 0;
@@ -408,8 +332,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ring,
-  .orbit,
   .deal,
   .dealStep,
   .dealCheck,
@@ -493,14 +415,9 @@
     --light-x: 50%;
   }
 
-  /* On a phone the card would cover the robot; the sun and its ring stay, centred behind it. */
+  /* On a phone the card would cover the robot; the sun and its ring stay (Halo.tsx). */
   .deal {
     display: none;
   }
 
-  .halo {
-    top: -4%;
-    left: 50%;
-    width: 100%;
-  }
 }
