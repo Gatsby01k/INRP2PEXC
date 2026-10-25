@@ -1,61 +1,75 @@
-/* The final call to action.
+/* The final call to action, on the mark's orange.
 
-   The page returns to the desk's navy for its last screen, and the footer continues the same field below it, so
-   the page ends on one surface rather than a stack of bands. The heading is the largest thing since the hero; the
-   one action is the only filled button below it. The colours are the public field's (public.module.css), each
-   chosen for AA on the navy. */
+   The page ends on its brand field: the largest heading since the hero in white, one white button, the robot waving
+   goodbye beside them, and the mark's ring drawn large and faint behind it all. The field is the deep end of the
+   orange — every word on it holds AA in white. Under them, the two ways in sit on frosted panels of the same field. */
 
 .closing {
   position: relative;
   isolation: isolate;
   overflow: clip;
   background:
-    radial-gradient(ellipse 50% 90% at 18% 0%, color-mix(in srgb, var(--field-2) 95%, transparent), transparent 70%),
-    var(--field);
-  color: var(--field-ink);
+    radial-gradient(ellipse 60% 80% at 82% 100%, color-mix(in srgb, var(--brand-primary) 70%, transparent), transparent 70%),
+    linear-gradient(160deg, var(--brand-action) 0%, #a9340f 100%);
+  color: var(--text-on-action);
 }
 
-/* The same hairline the controls open with, where the paper ends. */
-.closing::before {
-  content: '';
+/* The mark's own ring and spokes, large and faint, turning very slowly behind the robot. */
+.mark {
   position: absolute;
-  inset: 0 0 auto;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, rgb(236 232 224 / 0.18) 30%, rgb(236 232 224 / 0.05));
+  z-index: -1;
+  top: 50%;
+  right: -8%;
+  width: min(900px, 80vw);
+  height: min(900px, 80vw);
+  color: color-mix(in srgb, var(--text-on-action) 12%, transparent);
+  transform: translateY(-50%);
+  animation: turn 120s linear infinite;
+}
+
+@keyframes turn {
+  to {
+    transform: translateY(-50%) rotate(360deg);
+  }
 }
 
 .inner {
   display: grid;
   grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+  grid-template-areas:
+    'main robot'
+    'ways robot';
   column-gap: var(--space-8);
-  align-items: end;
+  row-gap: var(--space-12);
   max-width: 1440px;
   margin: 0 auto;
-  padding: clamp(112px, 16vh, 176px) var(--space-10) clamp(80px, 11vh, 120px);
+  padding: clamp(104px, 14vh, 160px) var(--space-10) 0;
 }
 
 .main {
+  grid-area: main;
   display: grid;
   justify-items: start;
 }
 
 .title {
-  max-width: 16ch;
+  max-width: 15ch;
   margin: 0;
-  font-size: clamp(40px, 4.6vw, var(--font-size-display-xl));
+  font-family: var(--font-display);
+  font-size: clamp(44px, 5.2vw, 76px);
   font-weight: var(--font-weight-semibold);
   line-height: 1.02;
   letter-spacing: -0.04em;
-  color: var(--field-ink);
+  color: var(--text-on-action);
   text-wrap: balance;
 }
 
 .body {
-  max-width: 30rem;
+  max-width: 32rem;
   margin: var(--space-6) 0 0;
   font-size: var(--font-size-body-lg);
   line-height: 1.6;
-  color: var(--field-ink-2);
+  color: var(--text-on-action);
   text-wrap: pretty;
 }
 
@@ -63,25 +77,24 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  min-height: 52px;
+  min-height: 56px;
   margin-top: var(--space-10);
-  padding: 0 var(--space-6);
-  border-radius: var(--radius-control);
-  background: var(--brand-action);
-  color: var(--text-on-action);
+  padding: 0 var(--space-8);
+  border-radius: var(--radius-input);
+  background: var(--bg-surface);
+  color: var(--brand-action);
   font-size: var(--font-size-body-lg);
-  font-weight: var(--font-weight-medium);
+  font-weight: var(--font-weight-semibold);
   text-decoration: none;
-  box-shadow:
-    0 1px 0 rgb(255 255 255 / 0.14) inset,
-    0 14px 30px -16px rgb(240 78 35 / 0.7);
+  box-shadow: 0 24px 48px -20px rgb(60 14 2 / 0.55);
   transition:
-    background-color var(--dur-fast) var(--ease),
+    transform var(--dur-base) var(--ease),
     box-shadow var(--dur-base) var(--ease);
 }
 
 .cta:hover {
-  background: var(--brand-action-hover);
+  transform: translateY(-2px);
+  box-shadow: 0 30px 56px -20px rgb(60 14 2 / 0.6);
 }
 
 .ctaArrow {
@@ -95,33 +108,73 @@
 
 .cta:focus-visible,
 .contact:focus-visible {
-  outline-color: var(--brand-primary);
+  outline: 2px solid var(--text-on-action);
   outline-offset: 3px;
 }
 
-/* For someone without a client account yet: what happens before a first trade, beside the action it needs. */
-.newClient {
-  display: grid;
-  justify-items: start;
-  gap: var(--space-3);
-  max-width: 30rem;
-  padding: var(--space-6) 0 var(--space-1) var(--space-8);
-  border-left: 1px solid var(--field-rule);
+/* The robot, waving goodbye, standing on the field's lower edge. */
+.robot {
+  grid-area: robot;
+  align-self: end;
+  justify-self: center;
+  width: min(460px, 100%);
+  height: auto;
+  margin-bottom: -4px;
+  pointer-events: none;
 }
 
-.newTitle {
+@supports (animation-timeline: view()) {
+  .robot {
+    animation: rise linear both;
+    animation-timeline: view();
+    animation-range: entry 10% cover 45%;
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(60px);
+  }
+}
+
+/* For someone without an account yet, and for someone who would trade from their own desk: two frosted panels. */
+.ways {
+  grid-area: ways;
+  align-self: end;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+  padding-bottom: clamp(56px, 8vh, 96px);
+}
+
+.way {
+  display: grid;
+  align-content: start;
+  justify-items: start;
+  gap: var(--space-2);
+  padding: var(--space-6);
+  border-radius: 22px;
+  background: rgb(80 20 4 / 0.22);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.18);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.wayTitle {
   margin: 0;
+  font-family: var(--font-display);
   font-size: var(--font-size-heading);
   font-weight: var(--font-weight-semibold);
   letter-spacing: -0.015em;
-  color: var(--field-ink);
+  color: var(--text-on-action);
 }
 
-.newBody {
+.wayBody {
   margin: 0;
   font-size: var(--font-size-body);
   line-height: 1.6;
-  color: var(--field-ink-2);
+  color: var(--text-on-action);
   text-wrap: pretty;
 }
 
@@ -130,40 +183,51 @@
   gap: 2px;
   margin-top: var(--space-2);
   padding: var(--space-1) 0;
-  color: var(--field-ink);
+  color: var(--text-on-action);
   text-decoration: none;
 }
 
 .contactLabel {
-  font-weight: var(--font-weight-medium);
+  font-weight: var(--font-weight-semibold);
   text-decoration: underline;
-  text-decoration-color: rgb(240 78 35 / 0.7);
+  text-decoration-color: rgb(255 255 255 / 0.6);
   text-decoration-thickness: 1.5px;
   text-underline-offset: 4px;
   transition: text-decoration-color var(--dur-fast) var(--ease);
 }
 
 .contact:hover .contactLabel {
-  text-decoration-color: var(--brand-primary);
+  text-decoration-color: var(--text-on-action);
 }
 
 .contactAddress {
   font-family: var(--font-mono);
   font-size: var(--font-size-meta);
   letter-spacing: 0.02em;
-  color: var(--field-ink-3);
+  color: var(--text-on-action);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mark,
+  .robot {
+    animation: none;
+  }
 }
 
 @media (max-width: 1099px) {
   .inner {
     grid-template-columns: minmax(0, 1fr);
-    row-gap: var(--space-12);
+    grid-template-areas:
+      'main'
+      'ways'
+      'robot';
+    row-gap: var(--space-10);
     max-width: 640px;
-    padding: var(--space-20) var(--space-4) var(--space-16);
+    padding: var(--space-20) var(--space-4) 0;
   }
 
   .title {
-    font-size: clamp(34px, 9vw, 48px);
+    font-size: clamp(36px, 10vw, 52px);
   }
 
   .cta {
@@ -172,14 +236,20 @@
     margin-top: var(--space-8);
   }
 
-  .newClient {
-    padding: var(--space-6) 0 0;
-    border-top: 1px solid var(--field-rule);
-    border-left: 0;
+  .ways {
+    grid-template-columns: minmax(0, 1fr);
+    padding-bottom: 0;
   }
-}
 
-/* The trader's way in follows the client's, as a second short block under the same rule. */
-.traderTitle {
-  margin-top: var(--space-6);
+  .robot {
+    width: 260px;
+  }
+
+  .mark {
+    top: auto;
+    bottom: -20%;
+    right: -40%;
+    transform: none;
+    animation: none;
+  }
 }

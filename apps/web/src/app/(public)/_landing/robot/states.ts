@@ -1,11 +1,12 @@
 /**
  * What the robot does in each state of a quote, written down as targets.
  *
- * A state never plays an animation. It names where attention goes, which of the robot's five expressions its face
- * settles to, and what the body settles to — how the head moves, how the optics respond, how the torso is oriented —
- * and the behaviour eases the body towards those numbers, critically damped, from wherever it happens to be. That is
- * the difference between a machine that responds and a mascot that performs: the same event from a different
- * starting point produces a different, always-direct movement, and nothing is ever repeated for its own sake.
+ * A state names where attention goes, which expression its face settles to, and what the body settles to — how the
+ * head moves, how the optics respond, how the torso is oriented — and the behaviour eases the body towards those
+ * numbers, critically damped, from wherever it happens to be. The robot is a character, not an instrument: it greets
+ * with a wave, follows the visitor's pointer, is visibly impressed by a large amount, leans in when the visitor is
+ * about to ask for a price, and is delighted when something is accepted. Its gestures (`behaviour.ts`) play over
+ * the state it is in.
  *
  * Angles are radians; lean is forward-positive, turn is towards the quote module, chin is upward-positive, roll
  * tilts the head towards its right shoulder (the visitor's left, away from the module).
@@ -47,13 +48,19 @@ export type RobotState =
   /** Something needs the client: concern, the antenna's tip lit and held. */
   | 'attention'
   /** The workspace with nothing live: rest, standing by, turned a touch towards the page. */
-  | 'ready';
+  | 'ready'
+  /** A large amount has just settled: eyes wide, chin up, rocked back a little — impressed. */
+  | 'wow'
+  /** An ordinary amount has just settled: a pleased look at it, then at the visitor. */
+  | 'pleased'
+  /** At rest, the robot reads the page's headline for a moment, head tilted — curious. */
+  | 'curious';
 
 /**
  * The places attention can go. The page supplies where they are; `viewer` is the camera. `entry` is the one
  * target outside the hero: the masthead's way into the workspace.
  */
-export type LookTarget = 'viewer' | 'panel' | 'amount' | 'toggle' | 'rate' | 'cta' | 'entry';
+export type LookTarget = 'viewer' | 'panel' | 'amount' | 'toggle' | 'rate' | 'cta' | 'entry' | 'pointer' | 'title';
 
 /**
  * When a target is not on the page, attention falls back towards the module, then the visitor. The masthead is
@@ -67,6 +74,8 @@ export const LOOK_FALLBACK: Record<LookTarget, LookTarget | null> = {
   rate: 'panel',
   cta: 'panel',
   entry: 'viewer',
+  pointer: 'viewer',
+  title: 'viewer',
 };
 
 /**
@@ -81,9 +90,13 @@ export interface Expression {
   readonly squint: number;
   readonly dots: number;
   readonly beacon: number;
+  /** Eyes opened wide and round: surprise. */
+  readonly wide: number;
+  /** Eyes become hearts. */
+  readonly heart: number;
 }
 
-export type ExpressionName = 'neutral' | 'welcome' | 'verifying' | 'waiting' | 'success' | 'alert';
+export type ExpressionName = 'neutral' | 'welcome' | 'verifying' | 'waiting' | 'success' | 'alert' | 'excited' | 'wow' | 'love' | 'curious';
 
 /**
  * The robot's five expressions, and the neutral face it rests in. Each is minimal on purpose — two shapes of light,
@@ -96,13 +109,23 @@ export type ExpressionName = 'neutral' | 'welcome' | 'verifying' | 'waiting' | '
  * - Help / alert: the eyes open a touch with their inner ends lifted — concern, not alarm — and the antenna's tip
  *   lights orange, twice, then holds.
  */
+const FACE = { smile: 0, lid: 0, tilt: 0, squint: 0, dots: 0, beacon: 0, wide: 0, heart: 0 } as const;
+
 export const EXPRESSIONS: Record<ExpressionName, Expression> = {
-  neutral: { smile: 0, lid: 0, tilt: 0, squint: 0, dots: 0, beacon: 0 },
-  welcome: { smile: 1, lid: 0, tilt: 0, squint: 0, dots: 0, beacon: 0 },
-  verifying: { smile: 0, lid: 0.08, tilt: 0.05, squint: 0.85, dots: 0, beacon: 0 },
-  waiting: { smile: 0, lid: 0, tilt: 0, squint: 0, dots: 1, beacon: 0 },
-  success: { smile: 0.5, lid: 0, tilt: 0, squint: 0, dots: 0, beacon: 0 },
-  alert: { smile: 0, lid: 0.14, tilt: -0.4, squint: 0, dots: 0, beacon: 0.7 },
+  neutral: FACE,
+  welcome: { ...FACE, smile: 1 },
+  verifying: { ...FACE, lid: 0.08, tilt: 0.05, squint: 0.85 },
+  waiting: { ...FACE, dots: 1 },
+  success: { ...FACE, smile: 0.5 },
+  alert: { ...FACE, lid: 0.14, tilt: -0.4, beacon: 0.7 },
+  /** About to be asked for a price: bright, a little wide, smiling. */
+  excited: { ...FACE, smile: 0.42, wide: 0.35, beacon: 0.25 },
+  /** Impressed: wide, round eyes and the antenna lit. */
+  wow: { ...FACE, wide: 1, beacon: 0.8 },
+  /** Delighted: two hearts. */
+  love: { ...FACE, heart: 1, beacon: 0.4 },
+  /** Reading something interesting: the inner ends of the lids lifted a touch. */
+  curious: { ...FACE, lid: 0.06, tilt: -0.22, wide: 0.15 },
 };
 
 /**
@@ -192,10 +215,10 @@ export const STATES: Record<RobotState, StateSpec> = {
     eyes: { aperture: 1, time: 0.2, gain: 1.08, notice: false, focus: 0 },
     face: EXPRESSIONS.welcome,
     faceTime: 0.12,
-    lean: -0.008,
+    lean: -0.025,
     turn: 0,
-    chin: 0.02,
-    roll: 0.05,
+    chin: 0.06,
+    roll: 0.13,
     breath: 0.8,
     blinks: false,
     accent: 0.55,
@@ -225,13 +248,13 @@ export const STATES: Record<RobotState, StateSpec> = {
     // A switch was thrown: a quicker turn with a crisp start, and the optics shift state without a flourish.
     head: { yaw: 0.32, pitch: 0.42, share: 0.55, ease: 0.18 },
     eyes: { aperture: 0.96, time: 0.3, gain: 1.03, notice: false, focus: 0 },
-    face: EXPRESSIONS.neutral,
-    faceTime: 0.2,
+    face: EXPRESSIONS.success,
+    faceTime: 0.16,
     lean: 0,
     // Signed by the flow at runtime: towards the side value is moving to.
-    turn: 0.02,
-    chin: 0,
-    roll: 0,
+    turn: 0.06,
+    chin: 0.02,
+    roll: 0.07,
     breath: 0.9,
     blinks: true,
     accent: REST_ACCENT,
@@ -260,12 +283,12 @@ export const STATES: Record<RobotState, StateSpec> = {
     // Firm and direct: the glance is brief and the return to the visitor is decided, not drifted.
     head: { yaw: 0.42, pitch: 0.5, share: 0.5, ease: 0.3 },
     eyes: { aperture: 1, time: 0.25, gain: 1.12, notice: true, focus: 0 },
-    face: EXPRESSIONS.success,
+    face: EXPRESSIONS.love,
     faceTime: 0.22,
-    lean: -0.01,
+    lean: -0.02,
     turn: 0,
-    chin: 0.02,
-    roll: 0,
+    chin: 0.05,
+    roll: 0.06,
     breath: 0.5,
     blinks: false,
     accent: 0.5,
@@ -277,12 +300,12 @@ export const STATES: Record<RobotState, StateSpec> = {
     attention: (elapsed) => (elapsed < 0.3 ? 'panel' : 'viewer'),
     head: { yaw: 0.42, pitch: 0.5, share: 0.5, ease: 0.3 },
     eyes: { aperture: 1, time: 0.25, gain: 1.1, notice: true, focus: 0 },
-    face: EXPRESSIONS.success,
+    face: EXPRESSIONS.love,
     faceTime: 0.22,
-    lean: -0.01,
+    lean: -0.02,
     turn: 0,
-    chin: 0.018,
-    roll: 0,
+    chin: 0.05,
+    roll: 0.06,
     breath: 0.6,
     blinks: false,
     accent: 0.5,
@@ -297,10 +320,10 @@ export const STATES: Record<RobotState, StateSpec> = {
     eyes: { aperture: 1.06, time: 0.18, gain: 1.06, notice: true, focus: 0 },
     face: EXPRESSIONS.alert,
     faceTime: 0.16,
-    lean: 0.012,
-    turn: 0.01,
-    chin: -0.006,
-    roll: -0.035,
+    lean: 0.03,
+    turn: 0.02,
+    chin: -0.02,
+    roll: -0.09,
     breath: 0.7,
     blinks: false,
     accent: 0.45,
@@ -327,20 +350,20 @@ export const STATES: Record<RobotState, StateSpec> = {
   },
   intent: {
     attention: () => 'cta',
-    // A shift of attention, not a gesture: the eyes go to the button, the head follows only a little, and the
-    // body, the optics and the lights stay exactly as they were.
-    head: { yaw: 0.5, pitch: 0.56, share: 0.22, ease: 0.3 },
-    eyes: { aperture: 1, time: 0.25, gain: 1, notice: false, focus: 0 },
-    face: EXPRESSIONS.neutral,
-    faceTime: 0.3,
-    lean: 0,
-    turn: 0,
+    // The visitor is about to ask for a price: the robot lights up — eyes on the button, leaning in towards it,
+    // smiling, the accents brightening.
+    head: { yaw: 0.4, pitch: 0.46, share: 0.45, ease: 0.25 },
+    eyes: { aperture: 1.04, time: 0.2, gain: 1.15, notice: true, focus: 0 },
+    face: EXPRESSIONS.excited,
+    faceTime: 0.18,
+    lean: 0.035,
+    turn: 0.05,
     chin: 0,
-    roll: 0,
-    breath: 1,
+    roll: 0.05,
+    breath: 0.9,
     blinks: true,
-    accent: REST_ACCENT,
-    settle: 0.6,
+    accent: 0.75,
+    settle: 0.45,
     drift: false,
   },
   entry: {
@@ -452,11 +475,67 @@ export const STATES: Record<RobotState, StateSpec> = {
     settle: 0.6,
     drift: false,
   },
+  wow: {
+    // A large amount: a look at it, then at the visitor — eyes wide, chin up, rocked back on the heels.
+    attention: (elapsed) => (elapsed < 0.5 ? 'amount' : 'viewer'),
+    head: { yaw: 0.36, pitch: 0.42, share: 0.55, ease: 0.2 },
+    eyes: { aperture: 1.08, time: 0.12, gain: 1.2, notice: true, focus: 0 },
+    face: EXPRESSIONS.wow,
+    faceTime: 0.1,
+    lean: -0.045,
+    turn: 0,
+    chin: 0.09,
+    roll: -0.04,
+    breath: 0.6,
+    blinks: false,
+    accent: 0.8,
+    settle: 0.35,
+    drift: false,
+  },
+  pleased: {
+    // An amount settled: a pleased look at it, with a nod, then straight back to the visitor.
+    attention: (elapsed) => (elapsed < 0.6 ? 'amount' : 'viewer'),
+    head: { yaw: 0.42, pitch: 0.5, share: 0.5, ease: 0.3 },
+    eyes: { aperture: 1, time: 0.2, gain: 1.08, notice: true, focus: 0 },
+    face: EXPRESSIONS.success,
+    faceTime: 0.18,
+    lean: -0.01,
+    turn: 0,
+    chin: 0.03,
+    roll: 0.05,
+    breath: 0.8,
+    blinks: false,
+    accent: 0.5,
+    settle: 0.5,
+    drift: false,
+  },
+  curious: {
+    // Reading the headline beside it, head well over to one side — the way a person reads something interesting.
+    attention: () => 'title',
+    head: { yaw: 0.55, pitch: 0.6, share: 0.6, ease: 0.35 },
+    eyes: { aperture: 1, time: 0.25, gain: 1.04, notice: false, focus: 0 },
+    face: EXPRESSIONS.curious,
+    faceTime: 0.25,
+    lean: 0.01,
+    turn: -0.03,
+    chin: 0.01,
+    roll: -0.14,
+    breath: 0.9,
+    blinks: true,
+    accent: REST_ACCENT,
+    settle: 0.6,
+    drift: false,
+  },
 };
 
 /** How long event-driven states last before the robot returns to rest (value lasts until it has confirmed). */
 export const DURATION = {
-  welcome: 1.7,
+  welcome: 2.3,
+  wow: 1.9,
+  pleased: 1.1,
+  curious: 1.8,
+  /** Amounts from this many USDT up impress the robot. */
+  impressive: 250_000,
   direction: 0.7,
   rate: 1.0,
   locked: 2.8,

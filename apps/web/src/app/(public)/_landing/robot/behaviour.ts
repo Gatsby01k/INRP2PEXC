@@ -27,10 +27,15 @@ export type { LookTarget, RobotState } from './states.ts';
  * from one cycle to the next, a small correction of posture every few seconds at irregular intervals, and a
  * slower drift of weight. None of it repeats on a period an eye could learn.
  *
- * The face shows one of the robot's five expressions (`states.ts` `EXPRESSIONS`): a greeting when it comes online
- * and when the visitor starts, reading while a value changes, waiting while something is on its way, pleasure when
- * something is accepted, and concern when something needs changing. Each is a state's target like any other, eased
- * into from wherever the face is.
+ * The face shows the state's expression (`states.ts` `EXPRESSIONS`): a greeting when it comes online and when the
+ * visitor starts, reading while a value changes, wide eyes for a large amount, waiting while something is on its way,
+ * hearts when something is accepted, and concern when something needs changing. Each is a state's target like any
+ * other, eased into from wherever the face is.
+ *
+ * Gestures play over whatever state the robot is in, each once, from an event: a wave with its greeting, a hop for
+ * a new direction, a large amount or an accepted request, a shake of the head for a problem. At rest it follows the
+ * visitor's pointer, and every few seconds, at irregular intervals, does something of its own — winks, reads the
+ * headline beside it, glances at the quote module and nods, hops, or waves.
  *
  * Lights run on their own clock: one short, faint sweep of the emblem when a value is confirmed or the direction
  * changes, a pulse at its hub for a new rate, the whole mark resolving when a rate locks or a request is accepted, a
@@ -53,6 +58,8 @@ export interface BehaviourInput {
   readonly focus: RobotFocus;
   /** Look angles for a target, or null when that target is not on the page. */
   readonly angles: (target: LookTarget) => LookAngles | null;
+  /** The visitor's pointer moved a moment ago: at rest, the robot's eyes follow it. */
+  readonly pointer?: boolean;
 }
 
 export interface Pose {
@@ -93,6 +100,15 @@ export interface Pose {
   readonly dotLevel: readonly [number, number, number];
   /** Glow of the antenna's tip: dark at rest, lit when the robot is asking for attention. */
   readonly beacon: number;
+  /** The eye on the visitor's right smiled shut (0 → 1); the eyes opened wide (surprise); the eyes as hearts. */
+  readonly wink: number;
+  readonly wide: number;
+  readonly heart: number;
+  /** The whole figure lifted off its rest, in the figure's units: a hop. */
+  readonly hop: number;
+  /** The waving arm lifted (0 → 1), and its swing from the shoulder, in radians. */
+  readonly waveLift: number;
+  readonly waveSwing: number;
   /**
    * How far the arms trail the body: sideways when it rolls (both arms alike), fore-and-aft when it leans, and
    * in opposition when the chest turns — the arm on the side turning away stays forward a moment.
@@ -160,6 +176,17 @@ const SCAN = { duration: 0.55, gap: 0.5 } as const;
 /** One breath of the waiting face: the dots brighten in turn over this many seconds. */
 const WAIT_BREATH = 1.6;
 
+/** The gestures. A wave lasts about two seconds and swings three times; a hop is short and low. */
+const WAVE = { lift: 0.35, hold: 1.4, drop: 0.5, period: 0.62, swing: 0.32 } as const;
+const HOP = { duration: 0.46, height: 0.075 } as const;
+const SHAKE = { duration: 0.9, period: 0.3, yaw: 0.12 } as const;
+
+/** At rest, the robot does something of its own every so often — never sooner after the visitor's last move. */
+const PLAY = { min: 4.5, max: 8.5, quiet: 2.5 } as const;
+
+/** States the robot plays in: rest, with nothing of the visitor's in hand. */
+const PLAYS_IN: ReadonlySet<RobotState> = new Set<RobotState>(['idle', 'ready']);
+
 export class RobotBehaviour {
   private readonly random: () => number;
 
@@ -215,6 +242,17 @@ export class RobotBehaviour {
   /** When attention last left a typed value, so a keystroke soon after continues that number rather than starting over. */
   private valueLeftAt = Number.NEGATIVE_INFINITY;
   private nodAt = -10;
+  /** The amount the last value cue said, if it said one. */
+  private amount: number | null = null;
+  private waveAt = -10;
+  private hopAt = -10;
+  private shakeAt = -10;
+  private winkAt = -10;
+  private grinAt = -10;
+  private lastInputAt = Number.NEGATIVE_INFINITY;
+  private nextPlayAt: number;
+  /** Whether the robot does things of its own at rest: the live robot does; a still drawn for a sheet does not. */
+  private readonly playful: boolean;
 
   /** Where the head is aimed: the look target, taken up first so a move starts as the state asks, not at once. */
   private readonly aimYaw = follower();
@@ -249,13 +287,16 @@ export class RobotBehaviour {
   private readonly squint = follower();
   private readonly dots = follower();
   private readonly beacon = follower();
+  private readonly wide = follower();
+  private readonly heart = follower();
 
   /**
    * `mirror` for a robot standing to the right of what it attends to. Its look is aimed at wherever things are on
    * the page either way; what flips is the little each state leans, turns and tilts relative to the module.
    */
-  constructor(options: { direction: Direction; mood?: RobotMood; mirror?: boolean; wakeAt?: number; random?: () => number }) {
+  constructor(options: { direction: Direction; mood?: RobotMood; mirror?: boolean; wakeAt?: number; random?: () => number; playful?: boolean }) {
     this.side = options.mirror ? -1 : 1;
+    this.playful = options.playful ?? true;
     this.random = options.random ?? Math.random;
     this.direction = options.direction;
     // A robot that arrives while a mood already holds rests in it from its first frame, without the mood's arrival.
@@ -264,6 +305,7 @@ export class RobotBehaviour {
     this.nextBlinkAt = between(2.2, 3.6, this.random);
     this.loadPeriod = between(4.6, 6.8, this.random);
     this.loadDepth = between(0.65, 1, this.random);
+    this.nextPlayAt = between(PLAY.min, PLAY.max, this.random) + 3;
     // Coming online is reported the way the robot reports everything: one short sweep of the emblem — and then,
     // as the sweep ends, a greeting.
     if (options.wakeAt !== undefined) {
@@ -279,10 +321,12 @@ export class RobotBehaviour {
   }
 
   cue(cue: RobotCue, time: number): void {
+    if (cue.kind !== 'mood') this.lastInputAt = time;
     switch (cue.kind) {
       case 'value': {
         // The client's input moves the robot only while no state of record outranks it (`cues.ts` MOOD_PRIORITY).
         if (!this.inputHeard()) return;
+        this.amount = cue.amount ?? null;
         this.valuePending = true;
         this.confirmAt = time + (cue.settled ? DURATION.settledSettle : DURATION.typedSettle);
         // A keystroke while attention is still lingering on the number is the same number: the robot takes it up
@@ -299,6 +343,7 @@ export class RobotBehaviour {
         // Remembered either way, so the flow is right when input is heard again; answered only while it is.
         if (!this.inputHeard()) return;
         this.enter('direction', time, time + DURATION.direction);
+        this.hopAt = time;
         // Always answered, even straight after another response: the sweep is what shows the new flow.
         this.respond(time, 0);
         return;
@@ -311,6 +356,7 @@ export class RobotBehaviour {
         this.valuePending = false;
         this.resolveAt = time;
         this.nodAt = time + 0.4;
+        this.hopAt = time + 0.15;
         this.enter('locked', time, time + DURATION.locked);
         return;
       case 'submitted':
@@ -318,11 +364,13 @@ export class RobotBehaviour {
         this.valuePending = false;
         this.resolveAt = time;
         this.nodAt = time + 0.36;
+        this.hopAt = time + 0.15;
         this.enter('accepted', time, time + DURATION.accepted);
         return;
       case 'problem':
         this.valuePending = false;
         this.alertAt = time;
+        this.shakeAt = time + 0.1;
         this.enter('problem', time, time + DURATION.problem);
         return;
       case 'wait':
@@ -354,10 +402,25 @@ export class RobotBehaviour {
       this.greet(time);
     }
     if (this.valuePending && time >= this.confirmAt) {
-      // The value has settled: confirm it once, and let attention go.
+      // The value has settled: confirm it once — impressed by a large amount, pleased by any other.
       this.valuePending = false;
       this.respond(time, RESPONSE_GAP);
-      if (this.state === 'value') this.until = time + DURATION.confirmHold;
+      if (this.state === 'value') {
+        this.valueLeftAt = time;
+        if (this.amount !== null && this.amount >= DURATION.impressive) {
+          this.hopAt = time;
+          this.pulseAt = time;
+          this.enter('wow', time, time + DURATION.wow);
+        } else {
+          this.nodAt = time + 0.25;
+          this.enter('pleased', time, time + DURATION.pleased);
+        }
+      }
+    }
+    // At rest and left alone for a while, the robot does something of its own.
+    if (this.playful && this.resting && PLAYS_IN.has(this.state) && input.focus === 'none' && time >= this.nextPlayAt) {
+      if (time - this.lastInputAt >= PLAY.quiet) this.play(time);
+      this.nextPlayAt = time + between(PLAY.min, PLAY.max, this.random);
     }
     // What the client is on is input too: it draws the eyes only while nothing of record outranks it.
     const rest = input.focus === 'none' || !this.inputHeard() ? MOOD_REST[this.mood] : REST[input.focus];
@@ -374,7 +437,9 @@ export class RobotBehaviour {
     }
 
     // ---- attention: eyes, head, neck -------------------------------------------------------------------
-    const wanted = spec.attention(time - this.since, this.from);
+    // At rest, a pointer that moved a moment ago has the robot's eyes instead of the visitor's face.
+    const asked = spec.attention(time - this.since, this.from);
+    const wanted = asked === 'viewer' && input.pointer && PLAYS_IN.has(this.state) ? 'pointer' : asked;
     const look = this.locate(wanted, input) ?? { yaw: 0, pitch: 0 };
     const yaw = clamp(look.yaw, -MAX_YAW, MAX_YAW);
     const pitch = clamp(look.pitch, -MAX_PITCH, MAX_PITCH);
@@ -470,6 +535,8 @@ export class RobotBehaviour {
     follow(this.lidTilt, face.tilt, faceTime, dt);
     follow(this.squint, face.squint, faceTime, dt);
     follow(this.dots, face.dots, faceTime, dt);
+    follow(this.wide, face.wide, faceTime, dt);
+    follow(this.heart, face.heart, faceTime * 1.4, dt);
     const alerting = since(this.alertAt) < 0.95;
     follow(this.beacon, alerting ? 0 : face.beacon, 0.3, dt);
     const blinks = Math.max(envelope(since(this.alertAt), 0.05, 0.1, 0.22), envelope(since(this.alertAt) - 0.5, 0.05, 0.1, 0.22));
@@ -483,8 +550,19 @@ export class RobotBehaviour {
     const scan = envelope(reading, 0.06, SCAN.duration - 0.15, 0.09) * this.squint.value;
 
     follow(this.headTilt, spec.roll * this.side, spec.settle, dt);
-    // Something accepted gets one small nod, after the glance that confirms it.
-    const nod = envelope(since(this.nodAt), 0.14, 0.05, 0.45) * 0.022;
+    // Something accepted gets a nod, after the glance that confirms it.
+    const nod = envelope(since(this.nodAt), 0.14, 0.05, 0.45) * 0.06;
+
+    // ---- gestures --------------------------------------------------------------------------------------
+    const waving = since(this.waveAt);
+    const waveLift = envelope(waving, WAVE.lift, WAVE.hold, WAVE.drop);
+    const waveSwing = waveLift * WAVE.swing * Math.sin((2 * Math.PI * Math.max(waving - WAVE.lift * 0.6, 0)) / WAVE.period);
+    const hopping = since(this.hopAt);
+    const hop = hopping >= 0 && hopping < HOP.duration ? HOP.height * Math.sin((Math.PI * hopping) / HOP.duration) : 0;
+    const shaking = since(this.shakeAt);
+    const shake = shaking >= 0 && shaking < SHAKE.duration ? SHAKE.yaw * Math.sin((2 * Math.PI * shaking) / SHAKE.period) * (1 - shaking / SHAKE.duration) : 0;
+    const wink = envelope(since(this.winkAt), 0.08, 0.34, 0.16);
+    const grin = envelope(since(this.grinAt), 0.12, 0.7, 0.35);
 
     // Noticing opens and brightens the optics a touch; focusing narrows them briefly, once.
     const notice = envelope(since(this.noticeAt), 0.07, 0.05, 0.3);
@@ -505,17 +583,17 @@ export class RobotBehaviour {
       chestPitch,
       chestYaw: this.chestYaw.value,
       chestRoll,
-      headYaw: this.headYaw.value,
+      headYaw: this.headYaw.value + shake,
       headPitch: this.headPitch.value + this.chin.value - nod,
-      headRoll: -0.1 * this.headYaw.value + this.headRollBias.value + this.headTilt.value,
-      neckYaw: this.neckYaw.value,
+      headRoll: -0.1 * this.headYaw.value + this.headRollBias.value + this.headTilt.value + (0.08 * wink + 0.05 * grin) * this.side,
+      neckYaw: this.neckYaw.value + shake * 0.3,
       neckPitch: this.neckPitch.value - nod * 0.3,
       neckRoll: clamp(-0.02 * this.headYaw.velocity, -0.012, 0.012),
       gazeX: this.eyeYaw.value * EYE_UNITS_X,
       gazeY: this.eyePitch.value * EYE_UNITS_Y,
       eyeOpen: blinkOpenness(since(this.blinkAt)) * this.aperture.value * (1 + 0.05 * notice) * (1 - focus),
       eyeGain: this.gain.value + 0.07 * notice + 0.08 * pulse,
-      smile: this.smile.value,
+      smile: Math.max(this.smile.value, 0.5 * grin),
       lid: this.lid.value,
       lidTilt: this.lidTilt.value,
       squint: this.squint.value,
@@ -524,6 +602,12 @@ export class RobotBehaviour {
       dots: this.dots.value,
       dotLevel: [dot(0), dot(1), dot(2)],
       beacon: Math.max(this.beacon.value, blinks, greeting),
+      wink,
+      wide: this.wide.value,
+      heart: this.heart.value,
+      hop,
+      waveLift,
+      waveSwing,
       armSwing: (this.armLagRoll.value - bodyRoll) * 0.9,
       armPitch: (this.armLagLean.value - bodyLean) * 1.2,
       armTwist: (this.armLagYaw.value - bodyYaw) * 1.2,
@@ -592,11 +676,32 @@ export class RobotBehaviour {
     }
   }
 
-  /** A greeting, from rest only: a warm face for a moment, and one soft pulse of the antenna's tip. */
+  /** A greeting, from rest only: a smile, a wave, and one soft pulse of the antenna's tip. */
   private greet(time: number): void {
     if (!GREETS_FROM.has(this.state)) return;
     this.greetAt = time;
+    this.waveAt = time + 0.1;
     this.enter('welcome', time, time + DURATION.welcome);
+  }
+
+  /** Something of the robot's own, at rest: a wink, a read of the headline, a glance and a nod, a hop, or a wave. */
+  private play(time: number): void {
+    const r = this.random();
+    if (r < 0.28) {
+      this.winkAt = time;
+    } else if (r < 0.52) {
+      this.enter('curious', time, time + DURATION.curious);
+    } else if (r < 0.72) {
+      this.nodAt = time + 0.35;
+      this.grinAt = time;
+      this.enter('pleased', time, time + DURATION.pleased);
+    } else if (r < 0.9) {
+      this.hopAt = time;
+      this.grinAt = time;
+    } else {
+      this.waveAt = time;
+      this.grinAt = time;
+    }
   }
 
   /** The emblem's one response, unless another was shown less than `gap` seconds ago. */
@@ -648,6 +753,12 @@ export const REST_POSE: Pose = {
   dots: 0,
   dotLevel: [1, 1, 1],
   beacon: 0,
+  wink: 0,
+  wide: 0,
+  heart: 0,
+  hop: 0,
+  waveLift: 0,
+  waveSwing: 0,
   armSwing: 0,
   armPitch: 0,
   armTwist: 0,

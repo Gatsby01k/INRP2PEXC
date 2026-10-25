@@ -24,11 +24,26 @@
   margin-top: var(--space-5);
 }
 
+/* The robot, winking, and what it says: the way to ask the desk, as a speech bubble pointing back at it. */
+.helper {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-10);
+}
+
+.robot {
+  flex: none;
+  width: 200px;
+  height: 200px;
+  margin: -16px -12px -32px -28px;
+}
+
 .ask {
+  position: relative;
   display: grid;
   gap: var(--space-1);
-  max-width: 22rem;
-  margin-top: var(--space-10);
+  max-width: 20rem;
   padding: var(--space-5) var(--space-6);
   border-radius: 20px;
   background: var(--bg-surface);
@@ -42,6 +57,19 @@
 
 .ask:hover {
   transform: translateY(-2px);
+}
+
+/* The bubble's tail, towards the robot. */
+.ask::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: -7px;
+  width: 14px;
+  height: 14px;
+  background: var(--bg-surface);
+  box-shadow: -1px 1px 0 var(--line);
+  transform: translateY(-50%) rotate(45deg);
 }
 
 .askTitle {
@@ -205,9 +233,14 @@
     order: 1;
   }
 
-  .ask {
+  .helper {
     order: 2;
     margin-top: 0;
+  }
+
+  .robot {
+    width: 128px;
+    height: 128px;
   }
 
   .answer {

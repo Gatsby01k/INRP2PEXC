@@ -1,18 +1,21 @@
+import { getImageProps } from 'next/image';
 import { FAQ } from '../../../../content/site.ts';
 import { mailto, siteContacts } from '../../../../server/site.ts';
 import { ArrowIcon } from '../icons.tsx';
+import wink from '../robot/stills/robot-wink.webp';
 import section from '../section.module.css';
 import styles from './faq.module.css';
 
 /**
- * Questions before a first deal: the heading and a way to ask the desk on the left (on a phone, the way to ask
- * comes after the answers), the answers on the right as native disclosure widgets — one open at a time where the
- * browser groups them by name, readable and searchable without script everywhere. The way to ask is drawn only when
- * an address to write to is configured.
+ * Questions before a first deal: the heading, and the robot winking with the way to ask the desk as what it says, on
+ * the left (on a phone, after the answers); the answers on the right as native disclosure widgets — one open at a
+ * time where the browser groups them by name, readable and searchable without script everywhere. The way to ask is
+ * drawn only when an address to write to is configured.
  */
 export function Faq() {
   const { eyebrow, heading, lede, items, ask } = FAQ;
   const { desk } = siteContacts();
+  const { props: robot } = getImageProps({ src: wink, alt: '', width: 200, height: 200, sizes: '200px' });
   return (
     <section id="faq" className={styles.faq} aria-labelledby="faq-title">
       <div className={section.inner}>
@@ -25,16 +28,19 @@ export function Faq() {
               </h2>
               <p className={`${section.lede} ${styles.lede}`}>{lede}</p>
             </header>
-            {desk ? (
-              <a className={styles.ask} href={mailto(desk)}>
-                <span className={styles.askTitle}>{ask.title}</span>
-                <span className={styles.askBody}>{ask.body}</span>
-                <span className={styles.askAddress}>
-                  {desk}
-                  <ArrowIcon className={styles.askArrow} />
-                </span>
-              </a>
-            ) : null}
+            <div className={styles.helper}>
+              <img {...robot} className={styles.robot} loading="lazy" decoding="async" aria-hidden="true" />
+              {desk ? (
+                <a className={styles.ask} href={mailto(desk)}>
+                  <span className={styles.askTitle}>{ask.title}</span>
+                  <span className={styles.askBody}>{ask.body}</span>
+                  <span className={styles.askAddress}>
+                    {desk}
+                    <ArrowIcon className={styles.askArrow} />
+                  </span>
+                </a>
+              ) : null}
+            </div>
           </div>
 
           <div className={styles.list}>

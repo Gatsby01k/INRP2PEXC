@@ -156,6 +156,12 @@ export interface FaceUniforms {
   readonly uScanAt: { value: number };
   /** 0 two eyes; 1 three dots — the face of waiting. */
   readonly uDots: { value: number };
+  /** 0 open; 1 the eye on the visitor's right closed into the smiling arc — a wink. */
+  readonly uWink: { value: number };
+  /** 0 as set; 1 opened wide and round — surprise. */
+  readonly uWide: { value: number };
+  /** 0 eyes; 1 two hearts. */
+  readonly uHeart: { value: number };
   /** Brightness of each dot, left to right, while waiting. */
   readonly uDotLevel: { value: Vector3 };
 }
@@ -185,6 +191,9 @@ export function visorMaterial(): { material: MeshPhysicalMaterial; face: FaceUni
     uScanAt: { value: 0 },
     uDots: { value: 0 },
     uDotLevel: { value: new Vector3(1, 1, 1) },
+    uWink: { value: 0 },
+    uWide: { value: 0 },
+    uHeart: { value: 0 },
   };
   const material = patch(
     new MeshPhysicalMaterial({ color: GLASS, roughness: 0.16, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.025, specularIntensity: 0.6 }),
@@ -210,6 +219,9 @@ export function visorMaterial(): { material: MeshPhysicalMaterial; face: FaceUni
         uniform float uScanAt;
         uniform float uDots;
         uniform vec3 uDotLevel;
+        uniform float uWink;
+        uniform float uWide;
+        uniform float uHeart;
         // The eye line, the display's depth behind the glass, and the eyes' size and spacing.
         const vec2 FACE = vec2(0.0, -0.01);
         const float DEPTH = 0.055;
@@ -218,22 +230,38 @@ export function visorMaterial(): { material: MeshPhysicalMaterial; face: FaceUni
         const float DOT_X = 0.17;
         const float DOT_R = 0.05;
 
-        // One eye in its own frame: x outward from the face's centre line, y up.
-        float eyeShape(vec2 q) {
-          // Squinting narrows an eye and draws it out a little sideways, the way a real one narrows to read.
+        // A heart, its point at the origin, about one unit tall and wide (after Inigo Quilez's sdHeart).
+        float sdHeart(vec2 p) {
+          p.x = abs(p.x);
+          if (p.y + p.x > 1.0) return length(p - vec2(0.25, 0.75)) - 0.35355;
+          vec2 a = p - vec2(0.0, 1.0);
+          vec2 b = p - 0.5 * max(p.x + p.y, 0.0);
+          return sqrt(min(dot(a, a), dot(b, b))) * sign(p.x - p.y);
+        }
+
+        // One eye in its own frame: x outward from the face's centre line, y up. \`smile\` is this eye's own: a wink
+        // smiles one eye shut while the other stays as it was.
+        float eyeShape(vec2 q, float smile) {
+          // Squinting narrows an eye and draws it out a little sideways, the way a real one narrows to read;
+          // surprise opens it wide and round.
           vec2 h = vec2(EYE.x * (1.0 + 0.3 * uSquint), max(EYE.y * uEyeOpen * (1.0 - 0.55 * uSquint), 0.004));
+          h = mix(h, vec2(0.1, 0.104) * vec2(1.0, uEyeOpen), uWide);
           float d = sdRoundBox(q, h, min(h.x, h.y));
           // The upper lid: a straight edge, lowered and sloped.
           float k = uTilt * 0.6;
-          float dLid = (q.y - (h.y * (1.0 - 1.9 * uLid) + k * q.x)) * inversesqrt(1.0 + k * k);
+          float dLid = (q.y - (h.y * (1.0 - 1.9 * uLid * (1.0 - uWide)) + k * q.x)) * inversesqrt(1.0 + k * k);
           d = smax(d, dLid, 0.018);
           // Smiling bends the eye into an arch — a full one halfway — and then draws it out into a single arc
           // with the same weight at every point.
-          float bend = smoothstep(0.0, 0.5, uSmile);
-          float thin = smoothstep(0.5, 1.0, uSmile);
+          float bend = smoothstep(0.0, 0.5, smile);
+          float thin = smoothstep(0.5, 1.0, smile);
           float a = radians(mix(74.0, 60.0, thin));
           float arc = sdArc(q - vec2(0.0, mix(-0.052, -0.035, thin)), vec2(sin(a), cos(a)), mix(0.068, 0.1, thin), mix(0.043, 0.027, thin));
-          return mix(d, arc, bend);
+          d = mix(d, arc, bend);
+          // Love: the eye becomes a heart, a little larger than the eye it replaces, beating with the eye's light.
+          float size = 0.15;
+          float heart = sdHeart((q - vec2(0.0, -0.09)) / size) * size;
+          return mix(d, heart, uHeart);
         }
 
         vec3 glow(float d, float level) {
@@ -252,7 +280,9 @@ export function visorMaterial(): { material: MeshPhysicalMaterial; face: FaceUni
         vec2 pe = onDisplay - FACE - uGaze;
         float side = pe.x < 0.0 ? uDotLevel.x : uDotLevel.z;
         float eyeX = mix(EYE_X, DOT_X, uDots);
-        float dEye = eyeShape(vec2(abs(pe.x) - eyeX, pe.y));
+        // The wink closes the eye on the visitor's right.
+        float smile = pe.x > 0.0 ? max(uSmile, uWink) : uSmile;
+        float dEye = eyeShape(vec2(abs(pe.x) - eyeX, pe.y), smile);
         float dDot = length(vec2(abs(pe.x) - eyeX, pe.y)) - DOT_R;
         float d = mix(dEye, dDot, uDots);
         // Reading: a band of brighter light passes through the eyes, from one side to the other.
@@ -260,6 +290,9 @@ export function visorMaterial(): { material: MeshPhysicalMaterial; face: FaceUni
         vec3 light = glow(d, mix(1.0, side, uDots) * (1.0 + 0.9 * scan));
         float middle = smoothstep(0.3, 0.9, uDots);
         light += glow(length(pe) - DOT_R * middle, uDotLevel.y) * middle;
+        // Surprise opens a small round mouth under the eyes.
+        float mouth = smoothstep(0.55, 1.0, uWide);
+        light += glow(abs(length((pe - vec2(0.0, -0.19)) * vec2(1.0, 0.85)) - 0.034 * mouth) - 0.013, mouth) * mouth;
         totalEmissiveRadiance += light * uEyeGain;
       `,
     },

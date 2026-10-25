@@ -73,6 +73,8 @@ export interface HeroCopy {
   readonly headline: { readonly lead: string; readonly accent: string; readonly tail: string };
   readonly lede: string;
   readonly points: readonly { readonly icon: HeroPointIcon; readonly label: string }[];
+  /** The deal card floating beside the robot: the escrow's moments, ticked off in the order a deal reaches them. */
+  readonly deal: { readonly title: string; readonly status: string; readonly steps: readonly { readonly icon: HeroPointIcon; readonly text: string }[] };
   readonly quote: QuoteModuleCopy;
 }
 
@@ -119,6 +121,15 @@ export const HERO: HeroCopy = {
     { icon: 'rupee', label: 'UPI, IMPS, NEFT, RTGS' },
     { icon: 'dealer', label: 'Reviewed traders only' },
   ],
+  deal: {
+    title: 'Your deal',
+    status: 'Completed',
+    steps: [
+      { icon: 'lock', text: 'USDT locked in escrow' },
+      { icon: 'rupee', text: 'Rupees received' },
+      { icon: 'destination', text: 'USDT released' },
+    ],
+  },
   quote: {
     title: 'Request a quote',
     amount: { SELL_USDT: 'You sell', BUY_USDT: 'You buy' },
@@ -261,6 +272,14 @@ export interface WhyCopy {
   readonly eyebrow: string;
   readonly heading: string;
   readonly lede: string;
+  /**
+   * The scene above the table: the same deal twice — as a chat that goes wrong, and as a deal here, step by step.
+   * Drawn for the eye; the table under it says the same in full.
+   */
+  readonly scene: {
+    readonly chat: { readonly title: string; readonly messages: readonly { readonly from: 'them' | 'you' | 'system'; readonly text: string }[] };
+    readonly ours: { readonly title: string; readonly card: string; readonly status: string; readonly steps: readonly string[] };
+  };
   /** The table's caption, for whoever reads it without seeing it. */
   readonly caption: string;
   readonly columns: { readonly topic: string; readonly direct: string; readonly ours: string };
@@ -271,6 +290,24 @@ export const WHY: WhyCopy = {
   eyebrow: 'Why INRP2P',
   heading: 'Everything that goes wrong in a P2P deal, handled.',
   lede: 'The same deal, done two ways: with someone you found in a chat, and on INRP2P.',
+  scene: {
+    chat: {
+      title: 'Deal in a chat',
+      messages: [
+        { from: 'them', text: 'Send the USDT first, I pay right after' },
+        { from: 'you', text: 'Sent. Waiting for the rupees' },
+        { from: 'them', text: 'Rate moved. Send a bit more' },
+        { from: 'you', text: 'Hello?' },
+        { from: 'system', text: 'This person left the chat' },
+      ],
+    },
+    ours: {
+      title: 'Deal on INRP2P',
+      card: 'Your deal',
+      status: 'Completed',
+      steps: ['Rate locked for the whole amount', 'USDT locked in escrow', 'Rupees received, sender checked', 'USDT released', 'Receipt issued'],
+    },
+  },
   caption: 'A deal in a chat compared with a deal on INRP2P',
   columns: { topic: 'In the deal', direct: 'Deal in a chat', ours: 'Deal on INRP2P' },
   rows: [

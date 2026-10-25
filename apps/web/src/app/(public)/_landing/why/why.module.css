@@ -12,10 +12,215 @@
     var(--bg-app);
 }
 
+/* The scene: two panels side by side. The chat is grey paper — muted bubbles, a dark one for the visitor, and the
+   red line where it ends — with the robot worried at its foot. The deal here is the mark's orange, a white deal card
+   ticked off step by step, and the robot delighted. */
+.scene {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-5);
+  margin-top: clamp(48px, 7vh, 72px);
+}
+
+.panel {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  min-height: 460px;
+  padding: var(--space-8);
+  border-radius: 32px;
+}
+
+.panelTitle {
+  margin: 0 0 var(--space-6);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.chat {
+  background:
+    radial-gradient(ellipse 70% 60% at 20% 0%, color-mix(in srgb, var(--bg-surface) 60%, transparent), transparent 70%),
+    #ebe8e1;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border-strong) 60%, transparent);
+}
+
+.chat .panelTitle {
+  color: var(--text-muted);
+}
+
+.messages {
+  display: grid;
+  gap: var(--space-3);
+  max-width: 74%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.message {
+  justify-self: start;
+  max-width: 100%;
+  padding: 10px 14px;
+  border-radius: 18px 18px 18px 6px;
+  background: var(--bg-surface);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--text-primary) 8%, transparent);
+  font-size: var(--font-size-body);
+  line-height: 1.4;
+  color: var(--text-primary);
+}
+
+.message[data-from='you'] {
+  justify-self: end;
+  border-radius: 18px 18px 6px 18px;
+  background: #2b2d33;
+  color: #f4f2ee;
+}
+
+.message[data-from='system'] {
+  justify-self: center;
+  margin-top: var(--space-2);
+  padding: 6px 12px;
+  border-radius: var(--radius-pill);
+  background: var(--status-danger-soft);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--status-danger) 25%, transparent);
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--status-danger);
+}
+
+.robot {
+  position: absolute;
+  z-index: -1;
+  right: -10px;
+  bottom: -54px;
+  width: 290px;
+  height: 290px;
+  pointer-events: none;
+}
+
+.oursPanel {
+  background:
+    radial-gradient(circle at 30% 20%, color-mix(in srgb, #ffffff 28%, var(--brand-primary)) 0%, transparent 55%),
+    linear-gradient(150deg, var(--brand-primary) 0%, var(--brand-action) 100%);
+  box-shadow: 0 40px 80px -40px color-mix(in srgb, var(--brand-primary) 80%, transparent);
+  color: var(--text-on-action);
+}
+
+.oursPanel .panelTitle {
+  color: color-mix(in srgb, var(--text-on-action) 82%, transparent);
+}
+
+.panelMark {
+  position: absolute;
+  z-index: -1;
+  top: -90px;
+  right: -90px;
+  width: 340px;
+  height: 340px;
+  color: color-mix(in srgb, var(--text-on-action) 16%, transparent);
+}
+
+.dealCard {
+  max-width: 78%;
+  padding: var(--space-5);
+  border-radius: 22px;
+  background: var(--bg-surface);
+  box-shadow: 0 30px 60px -30px color-mix(in srgb, #5a1a06 60%, transparent);
+  color: var(--text-primary);
+}
+
+.dealHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-4);
+  font-family: var(--font-display);
+  font-size: var(--font-size-body-lg);
+  font-weight: var(--font-weight-semibold);
+}
+
+.dealStatus {
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--status-success-soft);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-medium);
+  color: var(--status-success);
+}
+
+.dealSteps {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dealStep {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-medium);
+}
+
+.dealTick {
+  display: grid;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--brand-primary);
+  color: var(--text-on-action);
+}
+
+/* As the scene scrolls in: the chat's messages arrive one by one, and the deal's steps tick off one by one. */
+@supports (animation-timeline: view()) {
+  .message,
+  .dealStep {
+    animation: arrive linear both;
+    animation-timeline: view();
+    animation-range: entry calc(20% + var(--i) * 9%) entry calc(45% + var(--i) * 9%);
+  }
+
+  .robot {
+    animation: rise linear both;
+    animation-timeline: view();
+    animation-range: entry 30% cover 40%;
+  }
+}
+
+@keyframes arrive {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.96);
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(40px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .message,
+  .dealStep,
+  .robot {
+    animation: none;
+  }
+}
+
 .board {
   position: relative;
   isolation: isolate;
-  margin-top: clamp(48px, 7vh, 72px);
+  margin-top: clamp(56px, 8vh, 88px);
 }
 
 .table {
@@ -214,6 +419,27 @@
 /* Narrower than the three columns need: each row is a card — the topic, the chat's answer set back, INRP2P's
    answer on white — and the head row is left to the table's caption. */
 @media (max-width: 859px) {
+  .scene {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .panel {
+    min-height: 400px;
+    padding: var(--space-6);
+    border-radius: 26px;
+  }
+
+  .messages,
+  .dealCard {
+    max-width: 86%;
+  }
+
+  .robot {
+    width: 160px;
+    height: 160px;
+    bottom: -26px;
+  }
+
   .sheet,
   .cols {
     display: none;

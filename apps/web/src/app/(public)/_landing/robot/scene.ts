@@ -29,7 +29,8 @@ const HEAD = new Vector3(HEAD_CENTRE.x, HEAD_CENTRE.y, HEAD_CENTRE.z);
  * Where each look target lives on the page. `rate` is marked only by UI that shows a firm rate; without it,
  * attention falls back to the module (`states.ts`).
  */
-const TARGET_SELECTORS: Record<Exclude<LookTarget, 'viewer' | 'entry'>, string> = {
+const TARGET_SELECTORS: Record<Exclude<LookTarget, 'viewer' | 'entry' | 'pointer'>, string> = {
+  title: '#hero-title',
   panel: '[data-robot-target="panel"]',
   amount: '[data-robot-target="amount"]',
   toggle: '[data-robot-target="toggle"]',
@@ -50,6 +51,9 @@ const ENTRY_EVENTS = ['pointerenter', 'pointerleave', 'focus', 'blur'] as const;
  * home page's never are, and finds each once.
  */
 const TARGET_RECHECK_MS = 400;
+
+/** How long after the pointer last moved the robot still follows it, before it looks back at the visitor. */
+const POINTER_HOLD_MS = 2200;
 
 export interface RobotSceneOptions {
   readonly canvas: HTMLCanvasElement;
@@ -84,6 +88,8 @@ export class RobotScene {
   private readonly missingUntil = new Map<LookTarget, number>();
   private readonly entry: Element | null;
   private readonly entryHeld = { pointer: false, focus: false };
+  /** Where a mouse last was on screen, and when it got there. */
+  private readonly pointer = { x: 0, y: 0, at: Number.NEGATIVE_INFINITY };
   private readonly resize: ResizeObserver;
   private readonly unsubscribe: () => void;
   private readonly ray = new Raycaster();
@@ -135,6 +141,7 @@ export class RobotScene {
       for (const type of ENTRY_EVENTS) this.entry.addEventListener(type, this.onEntry);
     }
     canvas.addEventListener('webglcontextlost', this.onContextLost);
+    if (!options.still) window.addEventListener('pointermove', this.onPointer, { passive: true });
 
     this.timer.connect(document);
     this.resize = new ResizeObserver(() => this.fit());
@@ -182,6 +189,7 @@ export class RobotScene {
       robotCues.setEntry(false);
     }
     this.options.canvas.removeEventListener('webglcontextlost', this.onContextLost);
+    window.removeEventListener('pointermove', this.onPointer);
     this.timer.dispose();
     // Programs still compiling belong to the driver until it answers; release them once it has.
     const release = () => {
@@ -199,6 +207,14 @@ export class RobotScene {
     if (e.type === 'focus' || e.type === 'blur') this.entryHeld.focus = on;
     else this.entryHeld.pointer = on;
     robotCues.setEntry(this.entryHeld.pointer || this.entryHeld.focus);
+  };
+
+  /** A mouse moving anywhere on the page draws the resting robot's eyes; a finger on a phone does not. */
+  private onPointer = (e: PointerEvent) => {
+    if (e.pointerType !== 'mouse') return;
+    this.pointer.x = e.clientX;
+    this.pointer.y = e.clientY;
+    this.pointer.at = performance.now();
   };
 
   private loop = () => {
@@ -226,11 +242,13 @@ export class RobotScene {
       dt: this.timer.getDelta(),
       focus: robotCues.focus(),
       angles: (target) => this.anglesTo(target),
+      pointer: performance.now() - this.pointer.at < POINTER_HOLD_MS,
     });
   }
 
   private anglesTo(target: LookTarget): LookAngles | null {
     if (target === 'viewer') return this.anglesFrom(this.hit.copy(this.camera.position));
+    if (target === 'pointer') return Number.isFinite(this.pointer.at) ? this.anglesAt(this.pointer.x, this.pointer.y) : null;
     let el = this.targets.get(target);
     // An element the page has since replaced is looked for again; one that is gone stays gone for a moment.
     if ((!el || !el.isConnected) && target !== 'entry') el = this.find(target);

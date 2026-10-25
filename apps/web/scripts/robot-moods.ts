@@ -36,6 +36,8 @@ const ANGLES: Record<LookTarget, LookAngles> = {
   rate: { yaw: -0.42, pitch: -0.06 },
   cta: { yaw: -0.42, pitch: -0.28 },
   entry: { yaw: 0, pitch: 0.32 },
+  pointer: { yaw: 0.1, pitch: 0 },
+  title: { yaw: 0, pitch: 0 },
 };
 
 /** A small seeded generator, so the stills are the same stills every time. */
@@ -51,7 +53,7 @@ function seeded(seed: number): () => number {
 
 /** The pose `seconds` after a settled robot is told the page is in `mood`. */
 function held(mood: RobotMood, seconds: number): Pose {
-  const robot = new RobotBehaviour({ direction: 'SELL_USDT', mirror: true, random: seeded(3) });
+  const robot = new RobotBehaviour({ direction: 'SELL_USDT', mirror: true, random: seeded(3), playful: false });
   let time = 0;
   let pose = REST_POSE;
   const run = (until: number) => {

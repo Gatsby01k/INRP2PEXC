@@ -15,9 +15,10 @@ import type { Direction } from '@inrp2p/kernel';
 export type RobotCue =
   /**
    * The quote's value changed. `settled` when the change is complete in one step (a preset, a paste); otherwise
-   * the visitor is typing, and the robot waits for them to stop before it confirms.
+   * the visitor is typing, and the robot waits for them to stop before it confirms. `amount` is the USDT amount it
+   * now says, when there is one: a large one impresses the robot.
    */
-  | { readonly kind: 'value'; readonly settled?: boolean }
+  | { readonly kind: 'value'; readonly settled?: boolean; readonly amount?: number }
   /** The direction changed. The robot shows which way value is about to flow. */
   | { readonly kind: 'direction'; readonly direction: Direction }
   /** A firm rate arrived or changed. Only from UI that shows one. */

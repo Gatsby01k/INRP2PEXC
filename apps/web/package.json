@@ -15,6 +15,7 @@
     "poster:robot": "node scripts/robot-poster.ts",
     "robot:sheet": "node scripts/robot-sheet.ts",
     "robot:moods": "node scripts/robot-moods.ts",
+    "robot:landing": "node scripts/robot-landing.ts",
     "og:card": "node scripts/og-card.ts"
   },
   "dependencies": {

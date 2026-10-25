@@ -1,7 +1,10 @@
+import { getImageProps } from 'next/image';
 import { CLOSING, WHY } from '../../../../content/site.ts';
 import { MarkArt } from '../../../../components/MarkArt.tsx';
 import { appOrigin } from '../../../../server/site.ts';
 import { ArrowIcon, CheckIcon } from '../icons.tsx';
+import love from '../robot/stills/robot-love.webp';
+import worried from '../robot/stills/robot-worried.webp';
 import section from '../section.module.css';
 import styles from './why.module.css';
 
@@ -13,13 +16,20 @@ function CrossIcon({ className }: { className?: string | undefined }) {
   );
 }
 
+/** The robot, still, at the size it is drawn: served resized, never redrawn. */
+function robot(src: typeof love) {
+  return getImageProps({ src, alt: '', width: 290, height: 290, sizes: '290px' }).props;
+}
+
 /**
- * Why INRP2P: the same deal done in a chat and done here, row by row — a real table, so it reads as one to whoever
- * cannot see it. INRP2P's column stands as one raised sheet under the page's orange moment; on a phone each row
- * becomes a card of its own, the two answers labelled. Server markup only.
+ * Why INRP2P: the same deal twice. First as a scene — a chat that goes wrong, the robot worried beside it, and the
+ * deal done here on the mark's orange, the robot delighted — then row by row, as a real table, so it reads as one to
+ * whoever cannot see it. INRP2P's column stands as one raised sheet; on a phone each row becomes a card of its own,
+ * the two answers labelled. Server markup only; the scene plays once as it scrolls in, where the browser can tie an
+ * animation to scrolling.
  */
 export function Why() {
-  const { eyebrow, heading, lede, caption, columns, rows } = WHY;
+  const { eyebrow, heading, lede, scene, caption, columns, rows } = WHY;
   return (
     <section id="why" className={styles.why} aria-labelledby="why-title">
       <div className={section.inner}>
@@ -32,6 +42,41 @@ export function Why() {
           </div>
           <p className={section.lede}>{lede}</p>
         </header>
+
+        <div className={styles.scene} aria-hidden="true">
+          <div className={`${styles.panel} ${styles.chat}`}>
+            <p className={styles.panelTitle}>{scene.chat.title}</p>
+            <ol className={styles.messages}>
+              {scene.chat.messages.map((m, i) => (
+                <li key={m.text} className={styles.message} data-from={m.from} style={{ ['--i' as string]: i }}>
+                  {m.text}
+                </li>
+              ))}
+            </ol>
+            <img {...robot(worried)} className={styles.robot} loading="lazy" decoding="async" />
+          </div>
+          <div className={`${styles.panel} ${styles.oursPanel}`}>
+            <MarkArt className={styles.panelMark} />
+            <p className={styles.panelTitle}>{scene.ours.title}</p>
+            <div className={styles.dealCard}>
+              <p className={styles.dealHead}>
+                <span>{scene.ours.card}</span>
+                <span className={styles.dealStatus}>{scene.ours.status}</span>
+              </p>
+              <ol className={styles.dealSteps}>
+                {scene.ours.steps.map((step, i) => (
+                  <li key={step} className={styles.dealStep} style={{ ['--i' as string]: i }}>
+                    <span className={styles.dealTick}>
+                      <CheckIcon />
+                    </span>
+                    {step}
+                  </li>
+                ))}
+              </ol>
+            </div>
+            <img {...robot(love)} className={styles.robot} loading="lazy" decoding="async" />
+          </div>
+        </div>
 
         <div className={styles.board}>
           {/* The raised sheet INRP2P's column stands on, drawn behind the cells. */}
