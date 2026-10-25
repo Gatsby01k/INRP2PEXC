@@ -84,7 +84,7 @@ const HERO_MODULE_COPY = Object.entries(HERO.quote as unknown as Record<string, 
  * leads to, the section a question points to — are not copy and are skipped; everything else is read, so a string
  * added anywhere in the structure is read with it.
  */
-const IDENTIFIER_KEYS = new Set(['key', 'at', 'kind', 'mask', 'appPath', 'anchor']);
+const IDENTIFIER_KEYS = new Set(['key', 'at', 'kind', 'mask', 'appPath', 'anchor', 'icon', 'from']);
 function copyIn(value: unknown, where: string): { where: string; text: string }[] {
   if (typeof value === 'string') return [{ where, text: value }];
   if (Array.isArray(value)) return value.flatMap((v, i) => copyIn(v, `${where}[${i}]`));
@@ -101,6 +101,7 @@ const SITE_COPY: readonly { readonly where: string; readonly text: string }[] = 
   { where: 'HERO.headline', text: `${HERO.headline.lead} ${HERO.headline.accent} ${HERO.headline.tail}` },
   { where: 'HERO.lede', text: HERO.lede },
   ...HERO.points.map((p) => ({ where: `HERO.points ${p.label}`, text: p.label })),
+  ...copyIn(HERO.deal, 'HERO.deal'),
   ...HERO_MODULE_COPY,
   ...NAV.map((n) => ({ where: `NAV ${n.label}`, text: n.label })),
   { where: 'WORKSPACE_ENTRY', text: WORKSPACE_ENTRY.label },

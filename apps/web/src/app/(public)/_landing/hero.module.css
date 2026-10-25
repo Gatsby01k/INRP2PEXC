@@ -19,6 +19,18 @@
     var(--bg-app);
 }
 
+/* A fine grid of points under everything, fading out from the robot: the paper the desk is drawn on. */
+.hero::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-image: radial-gradient(color-mix(in srgb, var(--text-primary) 13%, transparent) 1px, transparent 1.5px);
+  background-size: 22px 22px;
+  mask-image: radial-gradient(ellipse 46% 70% at var(--light-x, 58%) 52%, var(--text-primary) 0%, transparent 80%);
+  -webkit-mask-image: radial-gradient(ellipse 46% 70% at var(--light-x, 58%) 52%, var(--text-primary) 0%, transparent 80%);
+}
+
 .frame {
   --panel-width: 392px;
   --hero-height: clamp(640px, calc(100svh - 72px), 860px);
@@ -193,6 +205,219 @@
   gap: var(--space-3);
 }
 
+/* Behind the robot: the mark's orange as a sun at the height of its head, the mark's three arcs turning slowly
+   round it, and a dotted orbit with the mark's three nodes on it. Square, in the stage's own proportions, so it sits
+   behind the head at every size. */
+.halo {
+  position: absolute;
+  top: -7%;
+  left: 60%;
+  width: 101%;
+  aspect-ratio: 1;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.sun {
+  position: absolute;
+  inset: 6%;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 34% 28%, color-mix(in srgb, #ffffff 34%, var(--brand-primary)) 0%, transparent 46%),
+    radial-gradient(circle at 50% 50%, var(--brand-primary) 0%, var(--brand-primary) 52%, var(--brand-action) 100%);
+  box-shadow:
+    0 40px 90px -30px color-mix(in srgb, var(--brand-primary) 70%, transparent),
+    inset 0 -18px 40px color-mix(in srgb, var(--brand-action) 60%, transparent);
+  animation: sunrise 1100ms var(--ease) 120ms both;
+}
+
+.ring,
+.orbit {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.ring {
+  inset: 7%;
+  width: 86%;
+  height: 86%;
+  stroke: var(--brand-primary);
+  stroke-width: 0.9;
+  stroke-linecap: round;
+  opacity: 0.55;
+  animation:
+    fade 900ms var(--ease) 500ms both,
+    turn 60s linear infinite;
+}
+
+.orbit {
+  stroke: color-mix(in srgb, var(--text-primary) 30%, transparent);
+  stroke-width: 0.35;
+  stroke-linecap: round;
+  animation:
+    fade 900ms var(--ease) 700ms both,
+    turn 120s linear infinite reverse;
+}
+
+.node {
+  fill: var(--brand-primary);
+  stroke: var(--bg-app);
+  stroke-width: 0.6;
+}
+
+@keyframes sunrise {
+  from {
+    opacity: 0;
+    transform: scale(0.86);
+  }
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes turn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* The deal, floating in front of the robot, low on its left — under the arc the waving arm sweeps: a white card
+   whose steps tick off one after the other once the robot has greeted, and whose status then turns to done. */
+.deal {
+  position: absolute;
+  z-index: 2;
+  top: 72%;
+  left: -3%;
+  width: 256px;
+  padding: 14px 14px 12px;
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--bg-surface) 90%, transparent);
+  backdrop-filter: blur(14px) saturate(1.4);
+  -webkit-backdrop-filter: blur(14px) saturate(1.4);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--border-default) 80%, transparent),
+    0 1px 2px color-mix(in srgb, var(--text-primary) 6%, transparent),
+    0 26px 50px -24px color-mix(in srgb, var(--text-primary) 42%, transparent);
+  animation:
+    dealIn 800ms cubic-bezier(0.2, 1.25, 0.4, 1) 1300ms both,
+    float 6s ease-in-out 2600ms infinite;
+}
+
+.dealHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 0 var(--space-3);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.dealStatus {
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--status-success-soft);
+  color: var(--status-success);
+  letter-spacing: 0.04em;
+  animation: fade 400ms var(--ease) 4100ms both;
+}
+
+.dealSteps {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dealStep {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  white-space: nowrap;
+  animation: stepIn 500ms var(--ease) calc(1900ms + var(--i) * 700ms) both;
+}
+
+.dealIcon {
+  display: grid;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 9px;
+  background: linear-gradient(160deg, var(--brand-primary), var(--brand-action));
+  color: var(--text-on-action);
+}
+
+.dealIcon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.dealText {
+  flex: 1;
+  font-family: var(--font-display);
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-primary);
+}
+
+.dealCheck {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  padding: 3px;
+  border-radius: 50%;
+  background: var(--status-success);
+  color: var(--text-on-action);
+  animation: tick 420ms cubic-bezier(0.2, 1.6, 0.4, 1) calc(2300ms + var(--i) * 700ms) both;
+}
+
+@keyframes dealIn {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.94);
+  }
+}
+
+@keyframes stepIn {
+  from {
+    opacity: 0.25;
+  }
+}
+
+@keyframes tick {
+  from {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+}
+
+@keyframes float {
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ring,
+  .orbit,
+  .deal,
+  .dealStep,
+  .dealCheck,
+  .dealStatus {
+    animation: none;
+  }
+}
+
 /* Entrance: the words settle, then the module; the robot's own arrival is its business. CSS rather than script,
    so it runs on first paint whether or not anything has hydrated, and not at all under reduced motion. */
 @keyframes rise {
@@ -266,5 +491,16 @@
 
   .hero {
     --light-x: 50%;
+  }
+
+  /* On a phone the card would cover the robot; the sun and its ring stay, centred behind it. */
+  .deal {
+    display: none;
+  }
+
+  .halo {
+    top: -4%;
+    left: 50%;
+    width: 100%;
   }
 }

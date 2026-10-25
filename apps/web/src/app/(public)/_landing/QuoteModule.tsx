@@ -98,7 +98,8 @@ export function QuoteModule({ appOrigin, onboarding, copy }: { appOrigin: string
     if (next === amount) return;
     setAmount(next);
     if (hasAmount(next)) setMissingAmount(false);
-    robotCues.emit({ kind: 'value', settled });
+    const usdt = Number(next.replace(/[^\d.]/g, ''));
+    robotCues.emit({ kind: 'value', settled, ...(Number.isFinite(usdt) && usdt > 0 ? { amount: usdt } : {}) });
   };
 
   const terms = [

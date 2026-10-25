@@ -36,6 +36,8 @@ const ANGLES: Record<LookTarget, LookAngles> = {
   rate: { yaw: 0.46, pitch: -0.14 },
   cta: { yaw: 0.44, pitch: -0.3 },
   entry: { yaw: 0.5, pitch: 0.32 },
+  pointer: { yaw: 0.2, pitch: -0.05 },
+  title: { yaw: -0.5, pitch: 0.12 },
 };
 
 const FRAME = 1 / 60;
@@ -52,8 +54,8 @@ interface Run {
   step(seconds: number, options?: { focus?: RobotFocus; angles?: (t: LookTarget) => LookAngles | null }, each?: (frame: Frame) => void): Frame;
 }
 
-function start(options: { wakeAt?: number } = {}): Run {
-  const behaviour = new RobotBehaviour({ direction: 'SELL_USDT', random: seeded(7), ...options });
+function start(options: { wakeAt?: number; playful?: boolean } = {}): Run {
+  const behaviour = new RobotBehaviour({ direction: 'SELL_USDT', random: seeded(7), playful: false, ...options });
   const run: Run = {
     behaviour,
     time: 0,
@@ -344,7 +346,8 @@ describe('typing one number', () => {
           dir = d;
         }
       }
-      expect(turns, `no nodding along with ${gaps.join(', ')}`).toBeLessThanOrEqual(2);
+      // Down to the number, one nod when it settles, and back up: never a nod per pause.
+      expect(turns, `no nodding along with ${gaps.join(', ')}`).toBeLessThanOrEqual(4);
       expect(frames.at(-1)!.state).toBe('idle');
     }
   });
@@ -354,7 +357,7 @@ describe('typing one number', () => {
     const frames: Frame[] = [];
     typeWith(run, [0.2, 0.2], (f) => frames.push(f));
     run.step(DURATION.typedSettle + DURATION.confirmHold + 0.1, {}, (f) => frames.push(f));
-    expect(frames.at(-1)!.state, 'let go of the number').toBe('idle');
+    expect(frames.at(-1)!.state, 'pleased with the number').toBe('pleased');
     typeWith(run, [0.2], (f) => frames.push(f));
     expect(frames.at(-1)!.state).toBe('value');
     expect(focusesIn(frames)).toBe(1);
@@ -506,10 +509,10 @@ describe('the body as one mechanism', () => {
     run.step(0.6, {}, ({ pose }) => {
       largest = Math.max(largest, Math.abs(pose.armTwist));
     });
-    // Well under a degree, and back down to the hundredths of a degree the arms trail the resting drift by once
-    // the body is at rest again (after the hold and the return).
+    // A couple of degrees at most, and back down to the hundredths of a degree the arms trail the resting drift by
+    // once the body is at rest again (after the hold and the return).
     expect(largest).toBeGreaterThan(1e-3);
-    expect(largest).toBeLessThan(0.015);
+    expect(largest).toBeLessThan(0.05);
     expect(Math.abs(run.step(6).pose.armTwist)).toBeLessThan(5e-4);
   });
 
@@ -574,7 +577,7 @@ describe('rate updated (from UI that shows a firm rate)', () => {
 });
 
 describe('rate locked (from UI that shows a firm rate)', () => {
-  it('resolves the whole mark at once, holds the visitor level and steady, then lets go', () => {
+  it('resolves the whole mark at once, holds the visitor with hearts and a happy tilt, then lets go', () => {
     const run = settled();
     const resting = run.step(0.01).pose;
     run.behaviour.cue({ kind: 'lock' }, run.time);
@@ -590,7 +593,9 @@ describe('rate locked (from UI that shows a firm rate)', () => {
     const holding = run.step(1.2, {}, watch);
     expect(holding.state).toBe('locked');
     expect(Math.abs(holding.pose.headYaw), 'facing the visitor').toBeLessThan(0.03);
-    expect(Math.abs(holding.pose.headRoll), 'level').toBeLessThan(0.01);
+    expect(holding.pose.headRoll, 'a happy tilt').toBeGreaterThan(0.02);
+    expect(holding.pose.headRoll).toBeLessThan(0.12);
+    expect(holding.pose.heart, 'hearts').toBeGreaterThan(0.9);
     expect(holding.pose.headPitch, 'chin up a touch from rest').toBeGreaterThan(resting.headPitch + 0.01);
     expect(holding.pose.eyeGain).toBeGreaterThan(1.05);
     expect(holding.pose.arcGlow[0], 'the mark is lit through the hold').toBeGreaterThan(1);
@@ -614,7 +619,7 @@ describe('rate locked (from UI that shows a firm rate)', () => {
 });
 
 describe('call to action', () => {
-  it('moves the eyes and, a little, the head — and nothing else: no lean, no light, no change of the optics', () => {
+  it('lights up at the button: eyes and head on it, leaning in, smiling, eyes a little wide, the accents brighter', () => {
     const run = settled();
     const before = run.step(0.5).pose;
     let brightest = 0;
@@ -622,21 +627,24 @@ describe('call to action', () => {
       brightest = Math.max(brightest, brightestArc(pose));
     });
     expect(on.state).toBe('intent');
-    expect(on.pose.gazeX).toBeGreaterThan(0.03);
-    expect(on.pose.headYaw).toBeGreaterThan(0.03);
-    expect(on.pose.torsoPitch).toBeCloseTo(before.torsoPitch, 4);
-    expect(on.pose.eyeGain).toBeCloseTo(1, 3);
+    expect(on.pose.gazeX).toBeGreaterThan(0.01);
+    expect(on.pose.headYaw).toBeGreaterThan(0.1);
+    expect(on.pose.torsoPitch, 'leaning in').toBeGreaterThan(before.torsoPitch + 0.02);
+    expect(on.pose.smile).toBeGreaterThan(0.3);
+    expect(on.pose.wide).toBeGreaterThan(0.25);
+    expect(on.pose.accentGlow).toBeGreaterThan(before.accentGlow + 0.3);
+    // The emblem stays dark: the button is not an event.
     expect(brightest).toBe(0);
     const off = run.step(2.5);
     expect(off.state).toBe('idle');
     expect(Math.abs(off.pose.headYaw), 'straight back, without a detour').toBeLessThan(0.02);
   });
 
-  it('turns the head less towards the button than towards the amount; the eyes carry the difference', () => {
+  it('leans in for the button, not for the amount it reads', () => {
     const toCta = settled().step(1.5, { focus: 'cta' }).pose;
     const toAmount = typing(settled(), 1.6).pose;
-    expect(Math.abs(toCta.headYaw)).toBeLessThan(toAmount.headYaw * 0.7);
-    expect(toCta.gazeX).toBeGreaterThan(toAmount.gazeX);
+    expect(toCta.torsoPitch).toBeGreaterThan(toAmount.torsoPitch + 0.02);
+    expect(toCta.smile).toBeGreaterThan(toAmount.smile);
   });
 
   it('lets an event finish its response before attending to the button', () => {
@@ -680,6 +688,99 @@ describe('the way into the workspace', () => {
   });
 });
 
+describe('gestures', () => {
+  it('greets with a wave: the arm lifts beside the head, swings, and comes back down', () => {
+    const run = settled();
+    run.behaviour.cue({ kind: 'engage' }, run.time);
+    const lifts: number[] = [];
+    const swings: number[] = [];
+    run.step(3, {}, ({ pose }) => {
+      lifts.push(pose.waveLift);
+      swings.push(pose.waveSwing);
+    });
+    expect(Math.max(...lifts)).toBeGreaterThan(0.95);
+    // Swings both ways, more than once.
+    let reversals = 0;
+    for (let i = 2; i < swings.length; i++) if (Math.sign(swings[i]! - swings[i - 1]!) !== Math.sign(swings[i - 1]! - swings[i - 2]!)) reversals += 1;
+    expect(reversals).toBeGreaterThanOrEqual(3);
+    expect(lifts.at(-1)).toBe(0);
+    expect(swings.at(-1)).toBe(0);
+  });
+
+  it('is impressed by a large amount — eyes wide, chin up, a hop — and pleased by any other', () => {
+    const big = settled();
+    big.behaviour.cue({ kind: 'value', settled: true, amount: 500_000 }, big.time);
+    const frames: Frame[] = [];
+    big.step(1.2, {}, (f) => frames.push(f));
+    expect(frames.some((f) => f.state === 'wow')).toBe(true);
+    expect(Math.max(...frames.map((f) => f.pose.wide))).toBeGreaterThan(0.9);
+    expect(Math.max(...frames.map((f) => f.pose.hop))).toBeGreaterThan(0.05);
+    expect(big.step(3).state).toBe('idle');
+
+    const small = settled();
+    small.behaviour.cue({ kind: 'value', settled: true, amount: 25_000 }, small.time);
+    const after = small.step(0.8);
+    expect(after.state).toBe('pleased');
+    expect(after.pose.smile).toBeGreaterThan(0.3);
+    expect(after.pose.wide).toBeLessThan(0.05);
+  });
+
+  it('shakes its head once at a problem, and stops', () => {
+    const run = settled();
+    run.behaviour.cue({ kind: 'problem' }, run.time);
+    const yaws: number[] = [];
+    run.step(1.2, {}, ({ pose }) => yaws.push(pose.headYaw - pose.neckYaw));
+    let reversals = 0;
+    for (let i = 2; i < yaws.length; i++) if (Math.sign(yaws[i]! - yaws[i - 1]!) !== Math.sign(yaws[i - 1]! - yaws[i - 2]!)) reversals += 1;
+    expect(reversals).toBeGreaterThanOrEqual(3);
+    expect(run.step(4).state).toBe('idle');
+  });
+
+  it('follows the pointer at rest, and only at rest', () => {
+    const run = settled();
+    const pointerAngles = (t: LookTarget) => (t === 'pointer' ? { yaw: -0.4, pitch: 0.1 } : ANGLES[t]);
+    let pose = REST_POSE;
+    for (let i = 0; i < 90; i++) {
+      run.time += FRAME;
+      pose = run.behaviour.update({ time: run.time, dt: FRAME, focus: 'none', angles: pointerAngles, pointer: true });
+    }
+    expect(pose.headYaw, 'towards the pointer').toBeLessThan(-0.08);
+    run.behaviour.cue({ kind: 'value', settled: true }, run.time);
+    for (let i = 0; i < 30; i++) {
+      run.time += FRAME;
+      pose = run.behaviour.update({ time: run.time, dt: FRAME, focus: 'none', angles: pointerAngles, pointer: true });
+    }
+    expect(pose.gazeX, 'the amount outranks the pointer: the eyes are already there').toBeGreaterThan(0);
+  });
+
+  it('plays on its own at rest — every few seconds, never on a beat, never while the visitor is busy — and always comes back', () => {
+    const run = start({ playful: true });
+    run.step(3);
+    const moments: number[] = [];
+    let previous: RobotState = 'idle';
+    let winks = 0;
+    let winking = false;
+    run.step(120, {}, ({ pose, state, time }) => {
+      if (state !== previous && state !== 'idle') moments.push(time);
+      previous = state;
+      if (pose.wink > 0.5 && !winking) winks += 1;
+      winking = pose.wink > 0.5;
+      expect(['idle', 'curious', 'pleased']).toContain(state);
+      expect(brightestArc(pose)).toBe(0);
+    });
+    const things = moments.length + winks;
+    expect(things).toBeGreaterThan(8);
+    expect(things).toBeLessThan(30);
+    // Typing keeps it busy: no play while the visitor works, however long.
+    const busy = start({ playful: true });
+    busy.step(3);
+    for (let t = 0; t < 20; t += 0.5) {
+      busy.behaviour.cue({ kind: 'value' }, busy.time);
+      busy.step(0.5, {}, ({ state }) => expect(['value', 'pleased', 'idle', 'welcome']).toContain(state));
+    }
+  });
+});
+
 describe('every response', () => {
   it('ends: after any sequence of events, the robot is back at rest and its lights are out', () => {
     const run = settled();
@@ -709,6 +810,7 @@ describe('every response', () => {
       expect(pose.hubGlow).toBeLessThan(1e-3);
       expect(pose.beacon).toBeLessThan(1e-3);
       expect(pose.smile + pose.squint + pose.dots + Math.abs(pose.lidTilt)).toBeLessThan(1e-3);
+      expect(pose.wide + pose.heart + pose.wink + pose.hop + pose.waveLift).toBeLessThan(1e-3);
       expect(pose.scan).toBe(0);
       expect(pose.accentGlow).toBeCloseTo(STATES.idle.accent, 3);
       expect(Math.abs(pose.chestYaw)).toBeLessThan(0.002);
@@ -716,7 +818,7 @@ describe('every response', () => {
   });
 });
 
-describe('the five expressions', () => {
+describe('the expressions', () => {
   /** The largest step any face number takes from one frame to the next: an expression eases, it never cuts. */
   const largestFaceStep = (frames: readonly Pose[]) => {
     let largest = 0;
@@ -728,12 +830,12 @@ describe('the five expressions', () => {
     return largest;
   };
 
-  it('are five distinct settings of one face, and a neutral one to rest in', () => {
-    const { neutral, ...five } = EXPRESSIONS;
-    expect(Object.keys(five).sort()).toEqual(['alert', 'success', 'verifying', 'waiting', 'welcome']);
+  it('are distinct settings of one face, and a neutral one to rest in', () => {
+    const { neutral, ...rest } = EXPRESSIONS;
+    expect(Object.keys(rest).sort()).toEqual(['alert', 'curious', 'excited', 'love', 'success', 'verifying', 'waiting', 'welcome', 'wow']);
     expect(Object.values(neutral).every((v) => v === 0)).toBe(true);
-    const settings = Object.values(five).map((e) => JSON.stringify(e));
-    expect(new Set(settings).size).toBe(5);
+    const settings = Object.values(rest).map((e) => JSON.stringify(e));
+    expect(new Set(settings).size).toBe(Object.keys(rest).length);
     expect(STATES.idle.face).toBe(neutral);
   });
 
@@ -826,7 +928,7 @@ describe('the five expressions', () => {
     expect(run.step(2).state).toBe('idle');
   });
 
-  it('success: something accepted — full arches, the mark resolved, one small nod after a glance', () => {
+  it('love: something accepted — hearts, the mark resolved, a hop and a nod after a glance', () => {
     const run = settled();
     const resting = run.step(0.01).pose;
     run.behaviour.cue({ kind: 'submitted' }, run.time);
@@ -834,25 +936,24 @@ describe('the five expressions', () => {
     run.step(2, {}, (f) => frames.push(f));
     const pleased = frames.at(-1)!;
     expect(pleased.state).toBe('accepted');
-    expect(pleased.pose.smile).toBeGreaterThan(0.45);
-    expect(pleased.pose.smile).toBeLessThan(0.55);
+    expect(pleased.pose.heart).toBeGreaterThan(0.9);
     expect(Math.min(...pleased.pose.arcGlow)).toBeGreaterThan(1);
+    expect(Math.max(...frames.map((f) => f.pose.hop)), 'a hop').toBeGreaterThan(0.05);
     const pitch = frames.map((f) => f.pose.headPitch - f.pose.neckPitch);
     const lowest = Math.min(...pitch.slice(20, 70));
     expect(lowest, 'a nod').toBeLessThan(pitch.at(-1)! - 0.01);
-    expect(resting.headPitch - lowest).toBeLessThan(0.06);
+    expect(resting.headPitch - lowest).toBeLessThan(0.12);
     const after = run.step(3);
     expect(after.state).toBe('idle');
     expect(brightestArc(after.pose)).toBe(0);
-    expect(after.pose.smile).toBeLessThan(0.01);
+    expect(after.pose.heart).toBeLessThan(0.01);
+    expect(after.pose.hop).toBe(0);
   });
 
-  it('success: a locked rate is met with the same pleased face', () => {
+  it('love: a locked rate is met with the same hearts', () => {
     const run = settled();
     run.behaviour.cue({ kind: 'lock' }, run.time);
-    const pose = run.step(1.2).pose;
-    expect(pose.smile).toBeGreaterThan(0.45);
-    expect(pose.smile).toBeLessThan(0.55);
+    expect(run.step(1.2).pose.heart).toBeGreaterThan(0.9);
   });
 
   it('help / alert: concern, not alarm — attention on what needs changing, inner lids raised, two blinks of the tip, then a steady glow', () => {

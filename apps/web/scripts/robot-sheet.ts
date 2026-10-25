@@ -5,10 +5,10 @@ import { fileURLToPath } from 'node:url';
 import { chromium } from '@playwright/test';
 import { createServer } from 'vite';
 import { type LookAngles, type LookTarget, type Pose, REST_POSE, RobotBehaviour } from '../src/app/(public)/_landing/robot/behaviour.ts';
-import type { RobotCue } from '../src/app/(public)/_landing/robot/cues.ts';
+import type { RobotCue, RobotFocus } from '../src/app/(public)/_landing/robot/cues.ts';
 
 /**
- * Renders the robot's sheet: its rest pose and each of its five expressions, as stills.
+ * Renders the robot's sheet: its rest pose, its expressions and its gestures, as stills.
  *
  *   pnpm --filter @inrp2p/web robot:sheet <folder>
  *
@@ -37,6 +37,8 @@ const ANGLES: Record<LookTarget, LookAngles> = {
   rate: { yaw: 0.46, pitch: -0.12 },
   cta: { yaw: 0.44, pitch: -0.28 },
   entry: { yaw: 0.5, pitch: 0.32 },
+  pointer: { yaw: 0.2, pitch: -0.05 },
+  title: { yaw: -0.5, pitch: 0.12 },
 };
 
 /** A small seeded generator, so the sheet is the same sheet every time. */
@@ -51,14 +53,14 @@ function seeded(seed: number): () => number {
 }
 
 /** The pose `seconds` after `cues` are sent — each at its own offset — to a robot that has settled at rest. */
-function moment(cues: readonly { readonly at: number; readonly cue: RobotCue }[], seconds: number): Pose {
-  const robot = new RobotBehaviour({ direction: 'SELL_USDT', random: seeded(3) });
+function moment(cues: readonly { readonly at: number; readonly cue: RobotCue }[], seconds: number, focus: RobotFocus = 'none'): Pose {
+  const robot = new RobotBehaviour({ direction: 'SELL_USDT', random: seeded(3), playful: false });
   let time = 0;
   let pose = REST_POSE;
   const run = (until: number) => {
     while (time < until - 1e-9) {
       time += FRAME;
-      pose = robot.update({ time, dt: FRAME, focus: 'none', angles: (t) => ANGLES[t] });
+      pose = robot.update({ time, dt: FRAME, focus: time > 3 ? focus : 'none', angles: (t) => ANGLES[t] });
     }
   };
   run(3);
@@ -76,12 +78,16 @@ const typing = (seconds: number) => Array.from({ length: Math.round(seconds / 0.
 
 const SHEET: Record<string, Pose> = {
   rest: REST_POSE,
-  welcome: moment([{ at: 0, cue: { kind: 'engage' } }], 0.75),
+  // Mid-wave: the arm up beside the head, swung out.
+  welcome: moment([{ at: 0, cue: { kind: 'engage' } }], 0.95),
   // Between two passes of the reading band, so the eyes are shown narrowed and even.
   verifying: moment(typing(1.4), 1.25),
   waiting: moment([{ at: 0, cue: { kind: 'wait', on: true } }], 2.05),
   success: moment([{ at: 0, cue: { kind: 'submitted' } }], 1.4),
   alert: moment([{ at: 0, cue: { kind: 'problem' } }], 1.5),
+  wow: moment([{ at: 0, cue: { kind: 'value', settled: true, amount: 500_000 } }], 0.9),
+  excited: moment([], 1.2, 'cta'),
+  wink: { ...REST_POSE, wink: 1, headRoll: 0.08 },
 };
 
 const root = mkdtempSync(path.join(tmpdir(), 'inrp2p-robot-sheet-'));

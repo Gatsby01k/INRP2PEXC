@@ -32,6 +32,13 @@ const BODY_TURN = 0.07;
 /** How far the arms hang away from the body at rest. */
 const ARM_SPREAD = 0.05;
 
+/**
+ * The arm that waves: the one on the visitor's left, away from whatever the robot is standing beside, and how far a
+ * full wave lifts it — out and up past the shoulder, beside the head.
+ */
+const WAVE_SIDE = -1;
+const WAVE_LIFT = 2.5;
+
 /** The hips, well below the frame; the chest's pivot above them; the shoulder line, where the collar sits. */
 const HIPS_Y = -2.1;
 const CHEST_PIVOT = 1.0;
@@ -212,6 +219,8 @@ export function buildFigure(): Figure {
     root,
     apply(pose) {
       const load = pose.load;
+      // A hop lifts the whole figure, and lands it again.
+      root.position.y = pose.hop;
       hips.rotation.set(pose.torsoPitch, pose.torsoYaw, pose.torsoRoll);
       // The load cycle, barely: scaling from the hips lifts the shoulders and head with it by a hair.
       hips.scale.set(1 + 0.002 * load, 1 + 0.003 * load, 1 + 0.005 * load);
@@ -227,8 +236,11 @@ export function buildFigure(): Figure {
       headPivot.rotation.set(-(pose.headPitch - pose.neckPitch), pose.headYaw - pose.neckYaw, pose.headRoll * 0.7, 'YXZ');
       // The arms hang from the shoulders and trail the body: sideways as one when it rolls, fore-and-aft as one
       // when it leans, and in opposition when the chest turns. They open a hair with the load (mirrored).
+      // The waving arm lifts out to the side and swings from the shoulder, its hand brought a little forward.
       for (const { group, side } of armPivots) {
-        group.rotation.set(pose.armPitch + pose.armTwist * side, 0, ARM_SPREAD * side + pose.armSwing + 0.003 * load * side);
+        const lift = side === WAVE_SIDE ? pose.waveLift : 0;
+        const swing = side === WAVE_SIDE ? pose.waveSwing : 0;
+        group.rotation.set(pose.armPitch + pose.armTwist * side - 0.35 * lift, 0, ARM_SPREAD * side + pose.armSwing + 0.003 * load * side + side * WAVE_LIFT * lift + swing);
       }
       const face = visor.face;
       face.uGaze.value.set(pose.gazeX, pose.gazeY);
@@ -242,6 +254,9 @@ export function buildFigure(): Figure {
       face.uScanAt.value = pose.scanAt;
       face.uDots.value = pose.dots;
       face.uDotLevel.value.set(pose.dotLevel[0], pose.dotLevel[1], pose.dotLevel[2]);
+      face.uWink.value = pose.wink;
+      face.uWide.value = pose.wide;
+      face.uHeart.value = pose.heart;
       emblem.mark.uArcGlow.value.set(pose.arcGlow[0], pose.arcGlow[1], pose.arcGlow[2]);
       emblem.mark.uHubGlow.value = pose.hubGlow;
       light.emissiveIntensity = pose.accentGlow;
