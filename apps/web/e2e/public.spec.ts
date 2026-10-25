@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { AUDIENCE, BUSINESS, CLOSING, DESK, FLOW, ONBOARDING, SITE_PAGES, SITE_PATHS, TRADER_ENTRY, TRUST } from '../src/content/site.ts';
+import { CLOSING, FAQ, FLOW, HERO, ONBOARDING, OWN_DESK, SITE_PAGES, SITE_PATHS, TRADER_ENTRY, WHY } from '../src/content/site.ts';
 import { appBaseUrl, deskSendsQuoteWithLink, linkBaseUrl, operatorBaseUrl } from './support.ts';
 import { E2E_PUBLIC_CONTACTS } from './world.ts';
 import { E2E_HEALTH_TOKEN } from '../harness/desk-server.ts';
@@ -57,7 +57,7 @@ test('the home page asks for Geist Mono only once it has loaded, then sets its f
 
 test('the home page ends with one call to action, and its footer links only to what exists', async ({ page }) => {
   await page.goto(linkBaseUrl());
-  for (const heading of [AUDIENCE.heading, DESK.heading, BUSINESS.heading, CLOSING.heading]) {
+  for (const heading of [FLOW.heading, WHY.heading, OWN_DESK.heading, FAQ.heading, CLOSING.heading]) {
     await expect(page.getByRole('heading', { level: 2, name: heading })).toBeVisible();
   }
   // The old reading column is gone: the home page says everything in its own sections, once.
@@ -72,11 +72,12 @@ test('the home page ends with one call to action, and its footer links only to w
   await expect(closing.getByRole('link', { name: new RegExp(`^${ONBOARDING.label}`) })).toHaveAttribute('href', onboardingHref());
   await expect(closing.getByRole('link', { name: TRADER_ENTRY.label })).toHaveAttribute('href', `${appBaseUrl()}${TRADER_ENTRY.appPath}`);
 
-  // Every footer link is a published page, a section of the home page that is there, the client app, or one of the
-  // addresses this run configured.
+  // Every footer and masthead link is a published page, a section of the home page that is there, the client app, or
+  // one of the addresses this run configured.
   const footer = page.getByRole('contentinfo');
   const hrefs = await footer.getByRole('link').evaluateAll((links) => links.map((a) => a.getAttribute('href') ?? ''));
   expect(hrefs.length).toBeGreaterThan(SITE_PATHS.length);
+  hrefs.push(...(await page.getByRole('navigation', { name: 'Pages' }).getByRole('link').evaluateAll((links) => links.map((a) => a.getAttribute('href') ?? ''))));
   const configured = Object.values(E2E_PUBLIC_CONTACTS);
   for (const href of hrefs) {
     if (href.startsWith('/#')) await expect(page.locator(href.slice(1)), href).toHaveCount(1);
@@ -97,7 +98,7 @@ test('a visitor without a client account is offered one way in, wherever the que
   const onboarding = hero.getByRole('link', { name: ONBOARDING.label });
   await expect(onboarding).toBeVisible();
   await expect(onboarding).toHaveAttribute('href', onboardingHref());
-  await expect(hero.getByRole('link', { name: 'Request quote' })).toHaveAttribute('href', new RegExp(`^${appBaseUrl()}/exchange`));
+  await expect(hero.getByRole('link', { name: HERO.quote.cta })).toHaveAttribute('href', new RegExp(`^${appBaseUrl()}/exchange`));
   // Existing clients go into the workspace from the masthead; the client app asks for a code if it needs one.
   await expect(page.getByRole('banner').getByRole('link', { name: 'Open workspace' })).toHaveAttribute('href', `${appBaseUrl()}/exchange`);
   // Beside it, the way in for a new trader: the client app's own entry, open to anyone.
@@ -108,55 +109,43 @@ test('a visitor without a client account is offered one way in, wherever the que
   await expect(page.getByRole('main').getByRole('link', { name: ONBOARDING.label })).toHaveAttribute('href', onboardingHref());
 });
 
-test('the operational controls are read one at a time, beside the record they leave', async ({ page }) => {
+test('the comparison is a table: every row names what it compares, and answers it both ways', async ({ page }) => {
   await page.goto(linkBaseUrl());
-  const section = page.locator('#controls');
-  const heading = (label: string) => section.getByRole('button', { name: new RegExp(`^${label}`) });
-  const [first, second] = [TRUST.controls[0]!, TRUST.controls[1]!];
+  const table = page.locator('#why').getByRole('table', { name: WHY.caption });
+  for (const name of Object.values(WHY.columns)) await expect(table.getByRole('columnheader', { name })).toHaveCount(1);
+  const rows = table.getByRole('row').filter({ has: page.getByRole('rowheader') });
+  await expect(rows).toHaveCount(WHY.rows.length);
+  for (const [i, row] of WHY.rows.entries()) {
+    await expect(rows.nth(i).getByRole('rowheader')).toHaveText(row.topic);
+    await expect(rows.nth(i).getByRole('cell')).toContainText([row.direct, row.ours]);
+  }
 
-  // Every control's claim is on the page; only the first is open.
-  for (const c of TRUST.controls) await expect(heading(c.label)).toContainText(c.title);
-  await expect(heading(first.label)).toHaveAttribute('aria-expanded', 'true');
-  await expect(section.getByText(first.body)).toBeVisible();
-  await expect(section.getByText(second.body)).toBeHidden();
-
-  // Opening another closes the first, and the record lights the new one's lines.
-  await heading(second.label).click();
-  await expect(heading(second.label)).toHaveAttribute('aria-expanded', 'true');
-  await expect(heading(first.label)).toHaveAttribute('aria-expanded', 'false');
-  await expect(section.getByText(second.body)).toBeVisible();
-  await expect(section.getByText(first.body)).toBeHidden();
-  await expect(section).toHaveAttribute('data-active', second.key);
-
-  // From the keyboard: arrows move between the headings, and Enter opens one.
-  await heading(second.label).focus();
-  await page.keyboard.press('ArrowDown');
-  await expect(heading(TRUST.controls[2]!.label)).toBeFocused();
-  await page.keyboard.press('End');
-  await expect(heading(TRUST.controls.at(-1)!.label)).toBeFocused();
-  await page.keyboard.press('Enter');
-  await expect(heading(TRUST.controls.at(-1)!.label)).toHaveAttribute('aria-expanded', 'true');
-
-  // The record's example and the execution flow's direction are one choice: moving either moves both.
-  const example = section.getByRole('group', { name: TRUST.direction.label });
-  const flow = page.locator('#execution-flow').getByRole('group', { name: FLOW.direction.label });
-  await example.getByRole('button', { name: TRUST.direction.options.SELL_USDT }).click();
+  // The flow's direction switch moves the whole story with it.
+  const flow = page.locator('#how-it-works').getByRole('group', { name: FLOW.direction.label });
+  await flow.getByRole('button', { name: FLOW.direction.options.SELL_USDT }).click();
   await expect(page.locator('[data-story]')).toHaveAttribute('data-direction', 'SELL_USDT');
-  await expect(flow.getByRole('button', { name: FLOW.direction.options.SELL_USDT })).toHaveAttribute('aria-pressed', 'true');
-  await flow.getByRole('button', { name: FLOW.direction.options.BUY_USDT }).click();
-  await expect(example.getByRole('button', { name: TRUST.direction.options.BUY_USDT })).toHaveAttribute('aria-pressed', 'true');
 });
 
-test('the execution desk names who acts at every step, and what happens when something goes wrong', async ({ page }) => {
+test('the questions open one at a time, and the desk question leads to the desk programme', async ({ page }) => {
   await page.goto(linkBaseUrl());
-  const steps = page.getByRole('list', { name: DESK.list }).getByRole('listitem').filter({ has: page.getByRole('heading', { level: 3 }) });
-  await expect(steps).toHaveCount(DESK.steps.length);
-  for (const [i, step] of DESK.steps.entries()) {
-    const row = steps.nth(i);
-    await expect(row.getByRole('heading', { level: 3 })).toHaveText(step.name);
-    await expect(row.getByText(step.exception.text)).toBeVisible();
-    if (step.exception.status) await expect(row.getByText(step.exception.status, { exact: true })).toBeVisible();
-  }
+  const faq = page.locator('#faq');
+  const question = (q: string) => faq.locator('details').filter({ has: page.locator('summary', { hasText: q }) });
+  const [first, second] = [FAQ.items[0]!, FAQ.items[1]!];
+
+  await expect(faq.locator('details')).toHaveCount(FAQ.items.length);
+  await expect(question(first.question)).toHaveAttribute('open', '');
+  await expect(faq.getByText(first.answer)).toBeVisible();
+  await expect(faq.getByText(second.answer)).toBeHidden();
+
+  // Opening another closes the first: the answers are one group.
+  await question(second.question).locator('summary').click();
+  await expect(faq.getByText(second.answer)).toBeVisible();
+  await expect(question(first.question)).not.toHaveAttribute('open');
+
+  const desk = FAQ.items.find((item) => item.more)!;
+  await question(desk.question).locator('summary').click();
+  await expect(faq.getByRole('link', { name: desk.more!.label })).toHaveAttribute('href', `#${desk.more!.anchor}`);
+  await expect(page.locator(`#${desk.more!.anchor}`)).toHaveCount(1);
 });
 
 /**

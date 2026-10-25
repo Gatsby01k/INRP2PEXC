@@ -1,0 +1,289 @@
+/* Why INRP2P: a comparison table on paper. The chat column is set back — muted words, a hairline cross — and
+   INRP2P's column stands as one raised white sheet whose head is the section's orange moment, the mark drawn white
+   on it. On a phone every row is a card of its own. */
+
+.why {
+  --line: color-mix(in srgb, var(--border-default) 86%, transparent);
+  --sheet-radius: 28px;
+  position: relative;
+  border-top: 1px solid var(--border-default);
+  background:
+    radial-gradient(ellipse 42% 36% at 82% 20%, color-mix(in srgb, var(--brand-soft) 70%, transparent) 0%, transparent 100%),
+    var(--bg-app);
+}
+
+.board {
+  position: relative;
+  isolation: isolate;
+  margin-top: clamp(48px, 7vh, 72px);
+}
+
+.table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.colTopic {
+  width: 24%;
+}
+
+.colDirect {
+  width: 32%;
+}
+
+.colOurs {
+  width: 44%;
+}
+
+/* The sheet under INRP2P's column: the column's own width, the table's own height, lifted off the paper. */
+.sheet {
+  position: absolute;
+  inset: 0 0 0 56%;
+  z-index: -1;
+  border-radius: var(--sheet-radius);
+  background: var(--bg-surface);
+  box-shadow:
+    0 0 0 1px var(--line),
+    0 2px 4px color-mix(in srgb, var(--text-primary) 4%, transparent),
+    0 32px 64px -36px color-mix(in srgb, var(--text-primary) 34%, transparent);
+}
+
+.topicHead,
+.directHead,
+.oursHead {
+  text-align: left;
+  vertical-align: bottom;
+}
+
+.topicHead,
+.directHead {
+  padding: 0 var(--space-6) var(--space-5) 0;
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.directHead {
+  padding-left: var(--space-6);
+}
+
+.oursHead {
+  position: relative;
+  overflow: hidden;
+  padding: var(--space-6) var(--space-8);
+  border-radius: var(--sheet-radius) var(--sheet-radius) 0 0;
+  background: linear-gradient(150deg, var(--brand-primary) 0%, var(--brand-action) 100%);
+  color: var(--text-on-action);
+  font-family: var(--font-display);
+  font-size: var(--font-size-heading);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.02em;
+}
+
+/* The mark, white and large, cropped by the head's right edge. */
+.oursMark {
+  position: absolute;
+  top: 50%;
+  right: -28px;
+  width: 132px;
+  height: 132px;
+  color: color-mix(in srgb, var(--text-on-action) 32%, transparent);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.topic,
+.direct,
+.ours {
+  padding: var(--space-6) var(--space-6);
+  text-align: left;
+  vertical-align: top;
+  border-top: 1px solid var(--line);
+}
+
+.topic {
+  padding-left: 0;
+  font-family: var(--font-display);
+  font-size: var(--font-size-body-lg);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.4;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+}
+
+.direct {
+  font-size: var(--font-size-body);
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+
+.ours {
+  padding-right: var(--space-8);
+  padding-left: var(--space-8);
+  border-top-color: color-mix(in srgb, var(--border-default) 70%, transparent);
+  font-size: var(--font-size-body-lg);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.5;
+  color: var(--text-primary);
+}
+
+/* The head's orange meets the first row directly. */
+.row:first-child .ours {
+  border-top-color: transparent;
+}
+
+.answer {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  column-gap: var(--space-3);
+  align-items: start;
+  text-wrap: pretty;
+}
+
+.cross,
+.check {
+  display: inline-grid;
+  width: 22px;
+  height: 22px;
+  margin-top: 1px;
+  place-items: center;
+  border-radius: var(--radius-pill);
+}
+
+.cross {
+  color: var(--text-disabled);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+
+.check {
+  background: var(--brand-primary);
+  color: var(--text-on-action);
+  box-shadow: 0 4px 10px -4px color-mix(in srgb, var(--brand-primary) 80%, transparent);
+}
+
+/* Each cell's column name, read only where the columns are not side by side. */
+.label {
+  display: none;
+}
+
+.foot {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--space-10);
+}
+
+.cta {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 52px;
+  padding: 0 var(--space-6);
+  border-radius: var(--radius-input);
+  background: var(--brand-action);
+  color: var(--text-on-action);
+  font-size: var(--font-size-body-lg);
+  font-weight: var(--font-weight-medium);
+  text-decoration: none;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--text-on-action) 16%, transparent);
+  transition:
+    background-color var(--dur-fast) var(--ease),
+    transform var(--dur-fast) var(--ease);
+}
+
+.cta:hover {
+  background: var(--brand-action-hover);
+}
+
+.cta:active {
+  transform: translateY(1px);
+}
+
+.ctaArrow {
+  transition: transform var(--dur-base) var(--ease);
+}
+
+.cta:hover .ctaArrow,
+.cta:focus-visible .ctaArrow {
+  transform: translateX(2px);
+}
+
+/* Narrower than the three columns need: each row is a card — the topic, the chat's answer set back, INRP2P's
+   answer on white — and the head row is left to the table's caption. */
+@media (max-width: 859px) {
+  .sheet,
+  .cols {
+    display: none;
+  }
+
+  /* Still read as the columns' names, never seen: each card labels its own answers. */
+  .head {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .table,
+  .table tbody,
+  .row {
+    display: block;
+  }
+
+  .row {
+    display: grid;
+    gap: var(--space-3);
+    padding: var(--space-6) 0;
+    border-top: 1px solid var(--line);
+  }
+
+  .row:last-child {
+    border-bottom: 1px solid var(--line);
+  }
+
+  .topic,
+  .direct,
+  .ours {
+    display: block;
+    padding: 0;
+    border: 0;
+  }
+
+  .ours {
+    padding: var(--space-4) var(--space-5);
+    border-radius: 18px;
+    background: var(--bg-surface);
+    box-shadow:
+      0 0 0 1px var(--line),
+      0 14px 32px -24px color-mix(in srgb, var(--text-primary) 30%, transparent);
+    font-size: var(--font-size-body);
+  }
+
+  .label {
+    display: block;
+    margin-bottom: var(--space-2);
+    font-size: var(--font-size-micro);
+    font-weight: var(--font-weight-medium);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+
+  .ours .label {
+    color: var(--brand-action);
+  }
+
+  .foot {
+    justify-content: stretch;
+  }
+
+  .cta {
+    flex: 1;
+    justify-content: center;
+  }
+}

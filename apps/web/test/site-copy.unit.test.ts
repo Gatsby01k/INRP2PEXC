@@ -3,7 +3,7 @@ import { draftFor } from '@inrp2p/notifications';
 import { RECEIPT_SNAPSHOT_VERSION, type ReceiptSnapshot, receiptHtml } from '@inrp2p/reporting';
 import type { NotificationKind } from '@inrp2p/db';
 import {
-  ACTIONS, AUDIENCE, BUSINESS, CLOSING, DESK, FLOW, FOOTER, FOOTER_NOTE, HERO, NAV, ONBOARDING, OWN_DESK, SITE_NAME, SITE_PAGES, SITE_PATHS, TAGLINE, TRUST, WORKSPACE_ENTRY,
+  ACTIONS, CLOSING, FAQ, FLOW, FOOTER, FOOTER_NOTE, HERO, NAV, ONBOARDING, OWN_DESK, SITE_NAME, SITE_PAGES, SITE_PATHS, TAGLINE, TRADER_ENTRY, WHY, WORKSPACE_ENTRY,
 } from '../src/content/site.ts';
 
 /**
@@ -62,8 +62,11 @@ const FABRICATED = [
   /\b\d+\s*(star|stars|reviews?|ratings?)\b/i,
 ];
 
-/** Digits that are part of a name rather than a claim. Everything else in site copy must be spelled out. */
-const ALLOWED_DIGIT_TOKENS = [/TRC20/g, /INRP2P/g, /TRON/g];
+/**
+ * Digits that are part of a name rather than a claim — the network's, the product's, and peer-to-peer's own short
+ * form. Everything else in site copy must be spelled out.
+ */
+const ALLOWED_DIGIT_TOKENS = [/TRC20/g, /INRP2P/g, /TRON/g, /\bP2P\b/g];
 
 /**
  * The hero's module words, flattened: plain strings, and the ones that change with the direction under each
@@ -77,11 +80,11 @@ const HERO_MODULE_COPY = Object.entries(HERO.quote as unknown as Record<string, 
 
 /**
  * Every string inside a structure of copy, each named by its path. Keys that hold identifiers rather than words —
- * a station's or a control's key, where a line belongs, the shape a masked figure is drawn in, who acted on a
- * step, the client app path an action leads to — are not copy
- * and are skipped; everything else is read, so a string added anywhere in the structure is read with it.
+ * a station's key, where a line belongs, the shape a masked figure is drawn in, the client app path an action
+ * leads to, the section a question points to — are not copy and are skipped; everything else is read, so a string
+ * added anywhere in the structure is read with it.
  */
-const IDENTIFIER_KEYS = new Set(['key', 'at', 'kind', 'mask', 'regions', 'actor', 'appPath']);
+const IDENTIFIER_KEYS = new Set(['key', 'at', 'kind', 'mask', 'appPath', 'anchor']);
 function copyIn(value: unknown, where: string): { where: string; text: string }[] {
   if (typeof value === 'string') return [{ where, text: value }];
   if (Array.isArray(value)) return value.flatMap((v, i) => copyIn(v, `${where}[${i}]`));
@@ -105,13 +108,12 @@ const SITE_COPY: readonly { readonly where: string; readonly text: string }[] = 
   { where: 'FOOTER_NOTE', text: FOOTER_NOTE },
   ...ACTIONS.map((a) => ({ where: `ACTIONS ${a.label}`, text: a.label })),
   ...copyIn(FLOW, 'FLOW'),
-  ...copyIn(TRUST, 'TRUST'),
-  ...copyIn(AUDIENCE, 'AUDIENCE'),
-  ...copyIn(DESK, 'DESK'),
-  ...copyIn(BUSINESS, 'BUSINESS'),
+  ...copyIn(WHY, 'WHY'),
   ...copyIn(OWN_DESK, 'OWN_DESK'),
+  ...copyIn(FAQ, 'FAQ'),
   ...copyIn(CLOSING, 'CLOSING'),
   ...copyIn(ONBOARDING, 'ONBOARDING'),
+  ...copyIn(TRADER_ENTRY, 'TRADER_ENTRY'),
   ...copyIn(FOOTER, 'FOOTER'),
   ...SITE_PAGES.flatMap((p) => [
     { where: `${p.path} title`, text: p.title },
@@ -280,7 +282,11 @@ describe('the pages themselves', () => {
     expect(home?.h1).toBe(`${HERO.headline.lead} ${HERO.headline.accent} ${HERO.headline.tail}`);
   });
 
-  it('link the masthead only to pages that are published', () => {
-    for (const item of NAV) expect(SITE_PATHS, item.label).toContain(item.path);
+  it('link the masthead only to pages that are published, or to the home page\u2019s own sections', () => {
+    // A section link is checked against the rendered page by the e2e suite (public.spec.ts); here, its shape.
+    for (const item of NAV) {
+      if (item.path.startsWith('/#')) expect(item.path, item.label).toMatch(/^\/#[a-z-]+$/);
+      else expect(SITE_PATHS, item.label).toContain(item.path);
+    }
   });
 });
