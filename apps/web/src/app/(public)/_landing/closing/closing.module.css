@@ -38,7 +38,8 @@
   grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
   grid-template-areas:
     'main robot'
-    'ways robot';
+    'ways robot'
+    'telegram robot';
   column-gap: var(--space-8);
   row-gap: var(--space-12);
   max-width: 1440px;
@@ -145,7 +146,83 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-4);
+}
+
+/* INRP2P on Telegram: the two channels and the CEO, as a row of pills on the field. */
+.telegram {
+  grid-area: telegram;
+  align-self: end;
+  margin-top: calc(var(--space-12) * -0.5);
   padding-bottom: clamp(56px, 8vh, 96px);
+}
+
+.telegramTitle {
+  margin: 0 0 var(--space-3);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-on-action);
+}
+
+.telegramList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.telegramLink {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 8px 16px 8px 8px;
+  border-radius: var(--radius-pill);
+  background: rgb(255 255 255 / 0.12);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.24);
+  color: var(--text-on-action);
+  text-decoration: none;
+  transition:
+    background-color var(--dur-base) var(--ease),
+    transform var(--dur-base) var(--ease);
+}
+
+.telegramLink:hover {
+  background: rgb(255 255 255 / 0.2);
+  transform: translateY(-1px);
+}
+
+.telegramLink:focus-visible {
+  outline: 2px solid var(--text-on-action);
+  outline-offset: 3px;
+}
+
+.telegramIcon {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--bg-surface);
+  color: var(--brand-action);
+}
+
+.telegramText {
+  display: grid;
+  line-height: 1.25;
+}
+
+.telegramLabel {
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-semibold);
+}
+
+.telegramHandle {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-meta);
+  color: var(--text-on-action);
 }
 
 .way {
@@ -220,6 +297,7 @@
     grid-template-areas:
       'main'
       'ways'
+      'telegram'
       'robot';
     row-gap: var(--space-10);
     max-width: 640px;
@@ -238,7 +316,19 @@
 
   .ways {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .telegram {
+    margin-top: 0;
     padding-bottom: 0;
+  }
+
+  .telegramList {
+    display: grid;
+  }
+
+  .telegramLink {
+    display: flex;
   }
 
   .robot {

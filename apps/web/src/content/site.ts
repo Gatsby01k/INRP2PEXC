@@ -363,7 +363,7 @@ export interface FaqCopy {
     /** A section of this page that answers it at length. */
     readonly more?: { readonly label: string; readonly anchor: string };
   }[];
-  /** Under the questions: the way to ask one that is not answered here, when an address to write to is set. */
+  /** Beside the questions, as the robot's speech bubble: the way to ask one that is not answered here — the CEO. */
   readonly ask: { readonly title: string; readonly body: string };
 }
 
@@ -406,7 +406,7 @@ export const FAQ: FaqCopy = {
       more: { label: 'See the desk programme', anchor: 'own-desk' },
     },
   ],
-  ask: { title: 'Something else?', body: 'Write to the desk. A person answers.' },
+  ask: { title: 'Something else?', body: 'Message our CEO on Telegram. A person answers.' },
 };
 
 /**
@@ -570,7 +570,7 @@ export const TRADER_ENTRY = {
  * is no privacy notice, no terms and no operating entity to name until they exist, so none is linked or named.
  */
 export const FOOTER = {
-  groups: { product: 'Product', pages: 'Guides', security: 'Safety', contact: 'Contact' },
+  groups: { product: 'Product', pages: 'Guides', security: 'Safety', telegram: 'Telegram', contact: 'Contact' },
   links: {
     request: 'Get a firm price',
     signIn: 'Client sign in',
@@ -588,6 +588,32 @@ export const FOOTER = {
   /** Whose names these are. */
   marks: 'USDT is a token issued by Tether; TRON and TRC20 are names of the network it is sent on. Neither is affiliated with INRP2P.',
 } as const;
+
+/**
+ * INRP2P on Telegram: the two public channels and the CEO's own account. Each is a real public Telegram handle; a
+ * handle is a name, not copy, so the copy guard skips it (it is read as `handle`).
+ */
+export interface TelegramContact {
+  readonly handle: string;
+  readonly label: string;
+  readonly note: string;
+}
+
+export const TELEGRAM: {
+  readonly title: string;
+  readonly channels: readonly TelegramContact[];
+  readonly ceo: TelegramContact;
+} = {
+  title: 'INRP2P on Telegram',
+  channels: [
+    { handle: 'INRP2P_Exchange', label: 'Official channel', note: 'News and updates from INRP2P' },
+    { handle: 'INR_P2P_USDT', label: 'Traders and liquidity', note: 'Buy, sell, OTC and liquidity partners' },
+  ],
+  ceo: { handle: 'INRP2P_CEO', label: 'Message the CEO', note: 'Straight to the person in charge' },
+};
+
+/** A Telegram handle's public address. */
+export const telegramUrl = (handle: string): string => `https://t.me/${handle}`;
 
 /**
  * The masthead's way into the product. It opens the workspace itself — the client app's Exchange screen — and the

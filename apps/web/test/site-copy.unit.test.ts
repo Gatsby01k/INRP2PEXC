@@ -3,7 +3,7 @@ import { draftFor } from '@inrp2p/notifications';
 import { RECEIPT_SNAPSHOT_VERSION, type ReceiptSnapshot, receiptHtml } from '@inrp2p/reporting';
 import type { NotificationKind } from '@inrp2p/db';
 import {
-  ACTIONS, CLOSING, FAQ, FLOW, FOOTER, FOOTER_NOTE, HERO, NAV, ONBOARDING, OWN_DESK, SITE_NAME, SITE_PAGES, SITE_PATHS, TAGLINE, TRADER_ENTRY, WHY, WORKSPACE_ENTRY,
+  ACTIONS, CLOSING, FAQ, FLOW, FOOTER, FOOTER_NOTE, HERO, NAV, ONBOARDING, OWN_DESK, SITE_NAME, SITE_PAGES, SITE_PATHS, TAGLINE, TELEGRAM, TRADER_ENTRY, WHY, WORKSPACE_ENTRY,
 } from '../src/content/site.ts';
 
 /**
@@ -84,7 +84,7 @@ const HERO_MODULE_COPY = Object.entries(HERO.quote as unknown as Record<string, 
  * leads to, the section a question points to — are not copy and are skipped; everything else is read, so a string
  * added anywhere in the structure is read with it.
  */
-const IDENTIFIER_KEYS = new Set(['key', 'at', 'kind', 'mask', 'appPath', 'anchor', 'icon', 'from']);
+const IDENTIFIER_KEYS = new Set(['key', 'at', 'kind', 'mask', 'appPath', 'anchor', 'icon', 'from', 'handle']);
 function copyIn(value: unknown, where: string): { where: string; text: string }[] {
   if (typeof value === 'string') return [{ where, text: value }];
   if (Array.isArray(value)) return value.flatMap((v, i) => copyIn(v, `${where}[${i}]`));
@@ -115,6 +115,7 @@ const SITE_COPY: readonly { readonly where: string; readonly text: string }[] = 
   ...copyIn(CLOSING, 'CLOSING'),
   ...copyIn(ONBOARDING, 'ONBOARDING'),
   ...copyIn(TRADER_ENTRY, 'TRADER_ENTRY'),
+  ...copyIn(TELEGRAM, 'TELEGRAM'),
   ...copyIn(FOOTER, 'FOOTER'),
   ...SITE_PAGES.flatMap((p) => [
     { where: `${p.path} title`, text: p.title },

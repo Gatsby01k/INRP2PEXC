@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { ACTIONS, ONBOARDING, SITE_NAME, type SitePage } from '../../content/site.ts';
+import { ACTIONS, ONBOARDING, SITE_NAME, type SitePage, TELEGRAM, telegramUrl } from '../../content/site.ts';
 import { appOrigin, onboardingHref, publicOrigin, requestNonce } from '../../server/site.ts';
 import styles from './public.module.css';
 
@@ -14,7 +14,7 @@ import styles from './public.module.css';
 function structuredData(page: SitePage, origin: string): string {
   const url = `${origin}${page.path === '/' ? '' : page.path}`;
   const graph: unknown[] = [
-    { '@type': 'Organization', '@id': `${origin}#organization`, name: SITE_NAME, url: origin },
+    { '@type': 'Organization', '@id': `${origin}#organization`, name: SITE_NAME, url: origin, sameAs: TELEGRAM.channels.map((c) => telegramUrl(c.handle)) },
     { '@type': 'WebSite', '@id': `${origin}#website`, name: SITE_NAME, url: origin, publisher: { '@id': `${origin}#organization` }, inLanguage: 'en-IN' },
     {
       '@type': 'WebPage',
