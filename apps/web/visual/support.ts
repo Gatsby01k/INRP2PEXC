@@ -92,6 +92,11 @@ export async function settle(page: Page): Promise<void> {
     .toBe(true);
   await pinWallClockText(page);
   await pinLiveMeasurements(page);
+  // A capture is of the whole page, so a lazy image it draws below the fold (the home page's robot stills) is asked
+  // for now rather than when it would have been scrolled to.
+  await page.evaluate(() => {
+    for (const i of document.images) if (i.loading === 'lazy' && i.checkVisibility()) i.loading = 'eager';
+  });
   // Every image being drawn has arrived and decoded — the workspace robot's still is lazy, and a capture must not
   // race it. Images not drawn at all (the other moods' stills) are left alone: a lazy one of those never loads.
   await expect
