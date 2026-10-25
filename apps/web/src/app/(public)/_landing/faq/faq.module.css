@@ -1,0 +1,216 @@
+/* Questions: a sticky heading column and a list of answers between hairlines. The toggle is a plus drawn in two
+   strokes that turns into a minus; where the browser can animate to an intrinsic height the answer opens smoothly,
+   and elsewhere it simply appears. */
+
+.faq {
+  --line: color-mix(in srgb, var(--border-default) 86%, transparent);
+  border-top: 1px solid var(--border-default);
+  background: var(--bg-app);
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  column-gap: clamp(48px, 7vw, 120px);
+  align-items: start;
+}
+
+.side {
+  position: sticky;
+  top: 112px;
+}
+
+.lede {
+  margin-top: var(--space-5);
+}
+
+.ask {
+  display: grid;
+  gap: var(--space-1);
+  max-width: 22rem;
+  margin-top: var(--space-10);
+  padding: var(--space-5) var(--space-6);
+  border-radius: 20px;
+  background: var(--bg-surface);
+  box-shadow:
+    0 0 0 1px var(--line),
+    0 18px 40px -30px color-mix(in srgb, var(--text-primary) 30%, transparent);
+  color: var(--text-primary);
+  text-decoration: none;
+  transition: transform var(--dur-base) var(--ease);
+}
+
+.ask:hover {
+  transform: translateY(-2px);
+}
+
+.askTitle {
+  font-family: var(--font-display);
+  font-size: var(--font-size-body-lg);
+  font-weight: var(--font-weight-semibold);
+}
+
+.askBody {
+  font-size: var(--font-size-body-sm);
+  color: var(--text-secondary);
+}
+
+.askAddress {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--brand-action);
+}
+
+.askArrow,
+.moreArrow {
+  transition: transform var(--dur-base) var(--ease);
+}
+
+.ask:hover .askArrow,
+.more:hover .moreArrow {
+  transform: translateX(2px);
+}
+
+.list {
+  border-top: 1px solid var(--line);
+}
+
+.item {
+  border-bottom: 1px solid var(--line);
+  interpolate-size: allow-keywords;
+}
+
+.item::details-content {
+  height: 0;
+  overflow: clip;
+  transition:
+    height var(--dur-complete) var(--ease),
+    content-visibility var(--dur-complete) var(--ease) allow-discrete;
+}
+
+.item[open]::details-content {
+  height: auto;
+}
+
+.question {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-6);
+  padding: var(--space-6) 0;
+  cursor: pointer;
+  list-style: none;
+  font-family: var(--font-display);
+  font-size: clamp(17px, 1.5vw, 20px);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.35;
+  letter-spacing: -0.015em;
+  color: var(--text-primary);
+}
+
+.question::-webkit-details-marker {
+  display: none;
+}
+
+.question:hover {
+  color: var(--brand-action);
+}
+
+.question:focus-visible {
+  outline: 2px solid var(--brand-action);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+
+/* A plus in two strokes; open, the upright one turns flat and the plus reads as a minus. */
+.toggle {
+  position: relative;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-pill);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+  transition:
+    background-color var(--dur-base) var(--ease),
+    box-shadow var(--dur-base) var(--ease);
+}
+
+.toggle::before,
+.toggle::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 12px;
+  height: 1.6px;
+  border-radius: 1px;
+  background: currentColor;
+  transform: translate(-50%, -50%);
+  transition: transform var(--dur-complete) var(--ease);
+}
+
+.toggle::after {
+  transform: translate(-50%, -50%) rotate(90deg);
+}
+
+.item[open] .toggle {
+  background: var(--brand-primary);
+  box-shadow: none;
+  color: var(--text-on-action);
+}
+
+.item[open] .toggle::after {
+  transform: translate(-50%, -50%) rotate(0deg);
+}
+
+.answer {
+  max-width: 40rem;
+  padding: 0 calc(32px + var(--space-6)) var(--space-6) 0;
+  font-size: var(--font-size-body-lg);
+  line-height: 1.65;
+  color: var(--text-secondary);
+  text-wrap: pretty;
+}
+
+.answer p {
+  margin: 0;
+}
+
+.more {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  font-weight: var(--font-weight-medium);
+  color: var(--brand-action);
+  text-decoration: none;
+}
+
+@media (max-width: 1099px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: var(--space-10);
+  }
+
+  /* One column: the heading, the answers, then the way to ask. */
+  .side {
+    display: contents;
+  }
+
+  .list {
+    order: 1;
+  }
+
+  .ask {
+    order: 2;
+    margin-top: 0;
+  }
+
+  .answer {
+    padding-right: 0;
+  }
+}

@@ -3,8 +3,7 @@
 
 .site {
   /* The desk's navy, for the page's closing field and the footer that continues it. The design system is drawn
-     for light surfaces; these are the public site's own, each text colour chosen for AA on the navy (the
-     operational controls define the same values for their field). */
+     for light surfaces; these are the public site's own, each text colour chosen for AA on the navy. */
   --field: #0e1522;
   --field-2: #172238;
   --field-rule: rgb(236 232 224 / 0.12);

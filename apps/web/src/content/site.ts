@@ -40,7 +40,7 @@ export interface SitePage {
 export const SITE_NAME = 'INRP2P Exchange';
 
 /** The one-line positioning from PRODUCT §7.4. Positioning, not measurement: no figure appears in it. */
-export const TAGLINE = 'Large trades. Locked rates. INR settlement.';
+export const TAGLINE = 'Firm rates. Escrow on every deal. Rupees bank to bank.';
 
 /**
  * What the buttons do. There is no public request form in V1 — a trade needs a client the desk has onboarded,
@@ -83,12 +83,12 @@ export type HeroPointIcon = 'rupee' | 'lock' | 'dealer' | 'destination';
  * email code a client signs in with — so the way in is the workspace gateway, offered wherever the question comes up.
  */
 export const ONBOARDING = {
-  prompt: 'New to the desk?',
+  prompt: 'New here?',
   label: 'Open an account',
   /** The workspace gateway: sign in, or open an account with the same email code. */
   appPath: '/sign-in',
   /** What an SEO page says under its actions, before the link. */
-  requirement: 'Trading needs a client account with the bank account or wallet you are paid to registered in advance. You open it yourself, from the workspace.',
+  requirement: 'Trading needs an account with your bank account and wallet added once. You open it yourself, with your email.',
 } as const;
 
 /** Words that change with the direction are keyed by it, so the module can never pair a label with the wrong side. */
@@ -103,35 +103,35 @@ export interface QuoteModuleCopy {
   readonly rateValue: string;
   readonly presets: string;
   readonly cta: string;
-  /** Shown under the amount when "Request quote" is pressed without one; the visitor stays on the page. */
+  /** Shown under the amount when the call to action is pressed without one; the visitor stays on the page. */
   readonly amountRequired: string;
   /** Under the call to action, followed by the way in for a visitor who is not a client yet (ONBOARDING). */
   readonly note: string;
 }
 
 export const HERO: HeroCopy = {
-  eyebrow: 'OTC desk for USDT and INR',
+  eyebrow: 'USDT and INR, with escrow',
   headline: { lead: 'Buy & Sell', accent: 'USDT', tail: 'in India.' },
-  lede: 'Large trades at one firm rate for the whole amount, settled only to the bank account or wallet you registered in advance.',
+  lede: 'One firm rate for the whole amount. Rupees go bank to bank, and the USDT waits in escrow until they arrive.',
   points: [
-    { icon: 'rupee', label: 'INR settlement' },
-    { icon: 'lock', label: 'Locked rates' },
-    { icon: 'dealer', label: 'A dealer on every trade' },
-    { icon: 'destination', label: 'Registered destinations' },
+    { icon: 'destination', label: 'Escrow on every deal' },
+    { icon: 'lock', label: 'Rate locked on accept' },
+    { icon: 'rupee', label: 'UPI, IMPS, NEFT, RTGS' },
+    { icon: 'dealer', label: 'Reviewed traders only' },
   ],
   quote: {
     title: 'Request a quote',
     amount: { SELL_USDT: 'You sell', BUY_USDT: 'You buy' },
     counter: { SELL_USDT: 'You receive', BUY_USDT: 'You pay' },
-    counterValue: 'INR, priced by the desk',
+    counterValue: 'INR at one firm rate',
     destination: { SELL_USDT: 'Paid to', BUY_USDT: 'Delivered to' },
-    destinationValue: { SELL_USDT: 'Your registered bank account', BUY_USDT: 'Your registered TRC20 wallet' },
-    rate: 'Rate',
-    rateValue: 'Firm, locked when you accept',
+    destinationValue: { SELL_USDT: 'Your own bank account', BUY_USDT: 'Your own TRC20 wallet' },
+    rate: 'Escrow',
+    rateValue: 'USDT held until the rupees land',
     presets: 'Common amounts',
-    cta: 'Request quote',
-    amountRequired: 'Enter an amount to request a quote.',
-    note: 'Sent from your client account.',
+    cta: 'Get a firm price',
+    amountRequired: 'Enter an amount to get a price.',
+    note: 'You decide after you see the price.',
   },
 };
 
@@ -139,10 +139,11 @@ export const HERO: HeroCopy = {
 const both = (text: string): Record<Direction, string> => ({ SELL_USDT: text, BUY_USDT: text });
 
 /**
- * The home page's execution flow: the stations every trade passes, in the order it passes them.
+ * The home page's "how it works": the stations every deal passes, in the order it passes them (ADR 0019).
  *
- * Both directions run through the same five stations; the ends swap and the settlement changes hands. Every
- * station says what happens there and what the trade holds once it is past — a mechanism, never a duration.
+ * Both directions run through the same five stations; the ends swap, and so does who funds the escrow and who pays
+ * the rupees. Every station says what happens there and what the deal holds once it is past — a mechanism, never a
+ * duration.
  * The ticket that travels the rail fills in as it goes; a rate or an expiry is drawn masked, because a real one
  * exists only inside a quote issued to a client.
  */
@@ -150,7 +151,7 @@ export const FLOW_STATIONS = ['source', 'quote', 'execution', 'settlement', 'des
 export type FlowStation = (typeof FLOW_STATIONS)[number];
 
 /** A figure that belongs to a real trade, shown only as its shape. */
-export type MaskedValue = 'rate' | 'time' | 'amount' | 'account' | 'wallet' | 'hash' | 'reference';
+export type MaskedValue = 'rate' | 'time' | 'amount';
 
 export interface FlowStationCopy {
   readonly key: FlowStation;
@@ -183,409 +184,192 @@ export interface FlowCopy {
 }
 
 export const FLOW: FlowCopy = {
-  eyebrow: 'Execution flow',
-  heading: 'The price is fixed before any money moves.',
-  lede: 'Both directions pass the same five steps. Switch between them to follow the money either way.',
+  eyebrow: 'How it works',
+  heading: 'The USDT waits in escrow until the rupees land.',
+  lede: 'The same five steps whichever way you trade. Switch direction to follow your money.',
   direction: { label: 'Direction shown', options: { BUY_USDT: 'INR to USDT', SELL_USDT: 'USDT to INR' } },
   stations: [
     {
       key: 'source',
       name: { BUY_USDT: 'INR', SELL_USDT: 'USDT' },
-      title: { BUY_USDT: 'Your rupees', SELL_USDT: 'Your USDT' },
+      title: both('Name your amount'),
       body: {
-        BUY_USDT: 'Fix the rupees you will spend or the USDT you want to end with. Nothing is sent yet.',
-        SELL_USDT: 'Fix the USDT you will sell or the rupees you need to receive. Nothing is sent yet.',
+        BUY_USDT: 'The USDT you want, or the rupees you will spend. Nothing moves yet.',
+        SELL_USDT: 'The USDT you will sell, or the rupees you need. Nothing moves yet.',
       },
-      record: both('Request: direction, amount, destination'),
+      record: both('Request'),
     },
     {
       key: 'quote',
-      name: both('Quote'),
-      title: both('Priced by a dealer'),
-      body: both('One rate for the whole amount rather than fills from a book, with the moment it expires written on it.'),
+      name: both('Price'),
+      title: both('One firm rate'),
+      body: both('For the whole amount, with its expiry on it. Accept it and it is locked.'),
       record: both('Firm rate · expiry'),
     },
     {
       key: 'execution',
-      name: both('Execution'),
-      title: both('Accepted while firm'),
+      name: both('Escrow'),
+      title: { BUY_USDT: 'USDT locked first', SELL_USDT: 'USDT into escrow' },
       body: {
-        BUY_USDT: 'Rate, amounts and destination are frozen, and the trade names the account to pay and the reference to use.',
-        SELL_USDT: 'Rate, amounts and destination are frozen, and the trade gets a deposit address of its own.',
+        BUY_USDT: 'The trader puts the USDT into this deal’s own escrow address before you pay a rupee.',
+        SELL_USDT: 'You send the USDT to this deal’s own escrow address. Only INRP2P can release it.',
       },
-      record: both('Frozen terms'),
+      record: both('USDT in escrow'),
     },
     {
       key: 'settlement',
-      name: both('Settlement'),
-      title: both('Your side, then ours'),
+      name: both('Rupees'),
+      title: { BUY_USDT: 'You pay the trader', SELL_USDT: 'The trader pays you' },
       body: {
-        BUY_USDT: 'You pay INR as the trade instructs. Only once it is confirmed is the USDT sent.',
-        SELL_USDT: 'You send USDT to that address. Only once it is final is the INR paid.',
+        BUY_USDT: 'Straight from your bank account to theirs, by UPI, IMPS, NEFT or RTGS.',
+        SELL_USDT: 'Straight to your bank account. You check the money arrived, and who sent it.',
       },
-      record: { BUY_USDT: 'Bank reference · transaction hash', SELL_USDT: 'Transaction hash · bank references' },
+      record: both('Bank reference'),
     },
     {
       key: 'destination',
       name: { BUY_USDT: 'USDT', SELL_USDT: 'INR' },
-      title: { BUY_USDT: 'Your registered wallet', SELL_USDT: 'Your registered bank account' },
+      title: { BUY_USDT: 'USDT in your wallet', SELL_USDT: 'Rupees in your bank' },
       body: {
-        BUY_USDT: 'Delivered on TRC20 to the wallet registered before the trade, and to no other address.',
-        SELL_USDT: 'Paid to the bank account registered before the trade, and to no other account.',
+        BUY_USDT: 'The trader confirms your rupees, and the escrow pays the USDT to your wallet.',
+        SELL_USDT: 'You confirm they arrived. Only then is the USDT released to the trader.',
       },
-      record: both('Settlement receipt'),
+      record: both('Receipt'),
     },
   ],
   ticket: {
-    status: { source: 'Request', quote: 'Quoted', execution: 'Accepted', settlement: 'Settling', destination: 'Completed' },
+    status: { source: 'Request', quote: 'Quoted', execution: 'In escrow', settlement: 'Paying', destination: 'Completed' },
     rows: [
       { label: 'Rate', value: { mask: 'rate' }, at: 'quote' },
       { label: 'Expires', value: { mask: 'time' }, at: 'quote' },
-      { label: 'Terms', value: 'Frozen', at: 'execution' },
-      { label: 'Your side', value: 'Confirmed', at: 'settlement' },
-      { label: 'Paid to you', value: 'Confirmed', at: 'destination' },
+      { label: 'Escrow', value: 'Locked', at: 'execution' },
+      { label: 'Rupees', value: 'Received', at: 'settlement' },
+      { label: 'USDT', value: 'Released', at: 'destination' },
       { label: 'Receipt', value: 'Issued', at: 'destination' },
     ],
   },
 };
 
 /**
- * The home page's operational controls, and the trade record they are drawn against.
+ * Why INRP2P: the same deal done two ways — with someone found in a chat, and here — row by row.
  *
- * Each control is something the software does on every trade — not a policy, not a promise — and each one
- * governs particular lines of the record: `regions` on a line names the controls that put it there. The record
- * is a specimen of the record's shape, with every figure masked; its words are the product's own. One control
- * is read at a time: its title is always shown, its body when it is the one open.
+ * Every line on INRP2P's side is something the software does on every P2P deal (ADR 0019, ADR 0020 §2.15): escrow,
+ * the firm rate, reviewed traders, the sender check, time limits that unwind a deal, disputes decided on the bank's
+ * evidence, the receipt. The other side names no one: it is the deal people do without an escrow.
  */
-export const TRUST_CONTROLS = ['destinations', 'evidence', 'settlement', 'reconciliation', 'desk'] as const;
-export type TrustControl = (typeof TRUST_CONTROLS)[number];
-
-export interface TrustControlCopy {
-  readonly key: TrustControl;
-  readonly label: string;
-  readonly title: string;
-  readonly body: string;
-}
-
-export interface RecordLine {
-  readonly label: string;
-  readonly value: string | { readonly mask: MaskedValue; readonly unit?: string };
-  /** A state the line has reached, shown as a status mark. */
-  readonly state?: string;
-  readonly regions: readonly TrustControl[];
-}
-
-/** A group of lines under a heading, or the rule between the client's side and the payout. */
-export type RecordBlock =
-  | { readonly kind: 'lines'; readonly heading: string; readonly lines: readonly RecordLine[] }
-  | { readonly kind: 'gate'; readonly text: string; readonly regions: readonly TrustControl[] };
-
-export interface TrustCopy {
+export interface WhyCopy {
   readonly eyebrow: string;
   readonly heading: string;
   readonly lede: string;
-  readonly controls: readonly TrustControlCopy[];
-  /** The switch between the record's two examples; it moves the flow's switch with it, and the other way round. */
-  readonly direction: { readonly label: string; readonly options: Record<Direction, string> };
-  readonly record: {
-    readonly title: string;
-    readonly status: string;
-    readonly summary: Record<Direction, string>;
-    readonly blocks: Record<Direction, readonly RecordBlock[]>;
-    /** The record's last line: open cases and the receipt, side by side. */
-    readonly footer: readonly RecordLine[];
-  };
+  /** The table's caption, for whoever reads it without seeing it. */
+  readonly caption: string;
+  readonly columns: { readonly topic: string; readonly direct: string; readonly ours: string };
+  readonly rows: readonly { readonly topic: string; readonly direct: string; readonly ours: string }[];
 }
 
-const TERMS_HEADING = 'Terms · frozen at acceptance';
-const DESTINATION_HEADING = 'Destination · registered before the trade';
-const GATE: RecordBlock = { kind: 'gate', text: 'Payout released only after your side is confirmed', regions: ['settlement'] };
-const PRICED_BY: RecordLine = { label: 'Priced by', value: 'A dealer, for this trade', regions: ['desk'] };
-const RATE: RecordLine = { label: 'Rate', value: { mask: 'rate', unit: 'INR per USDT' }, regions: [] };
-const CONFIRMED_BY: RecordLine = { label: 'Confirmed by', value: 'The desk, with a second factor', regions: ['desk', 'settlement'] };
-const TOTAL: RecordLine = { label: 'Total paid', value: 'Equals the agreed amount', state: 'Matched', regions: ['reconciliation'] };
-
-export const TRUST: TrustCopy = {
-  eyebrow: 'Operational controls',
-  heading: 'Built to be checked, not taken on trust.',
-  lede: 'Each control runs on every trade, and each leaves its own lines in the trade’s record.',
-  controls: [
+export const WHY: WhyCopy = {
+  eyebrow: 'Why INRP2P',
+  heading: 'Everything that goes wrong in a P2P deal, handled.',
+  lede: 'The same deal, done two ways: with someone you found in a chat, and on INRP2P.',
+  caption: 'A deal in a chat compared with a deal on INRP2P',
+  columns: { topic: 'In the deal', direct: 'Deal in a chat', ours: 'Deal on INRP2P' },
+  rows: [
     {
-      key: 'destinations',
-      label: 'Destinations',
-      title: 'Money goes only where you registered it.',
-      body: 'Bank accounts and wallets are registered before a trade, never typed during one; each takes a second factor, and you are told of it. A change is a new registration, not an edit, so an agreed destination cannot move.',
+      topic: 'Who sends first',
+      direct: 'One of you, on trust.',
+      ours: 'Nobody on trust. The USDT waits in escrow, and whoever’s money is at risk goes second.',
     },
     {
-      key: 'evidence',
-      label: 'Evidence',
-      title: 'Every payment carries its own reference.',
-      body: 'Bank transfers are recorded with their UTR, USDT transfers with their transaction hash. USDT is matched to a trade only by the deposit address issued for it — never by amount or sender — and each transfer is recorded once.',
+      topic: 'The price',
+      direct: 'Agreed in chat, then changed at the last minute.',
+      ours: 'One firm rate for the whole amount, locked the moment you accept.',
     },
     {
-      key: 'settlement',
-      label: 'Controlled settlement',
-      title: 'Your side is final before ours is sent.',
-      body: 'USDT counts once its TRON block is final, and larger transfers need independent sources to agree. INR counts once it matches the bank’s own record. The desk then confirms each payout with a second factor.',
+      topic: 'The other side',
+      direct: 'Whoever answered first.',
+      ours: 'A trader INRP2P reviewed before their first deal.',
     },
     {
-      key: 'reconciliation',
-      label: 'Reconciliation',
-      title: 'A trade closes only when the payments add up.',
-      body: 'Every movement is posted once to a double-entry ledger that is only ever added to. A correction is a new entry, and a second person must approve it.',
+      topic: 'Where the rupees come from',
+      direct: 'Any account, in anyone’s name.',
+      ours: 'Only the other side’s own bank account. Rupees from anyone else are refused and sent back.',
     },
     {
-      key: 'desk',
-      label: 'The desk',
-      title: 'A person on every trade, and on every exception.',
-      body: 'A dealer prices each trade and an operator confirms each payout, and the record says so. Anything that does not match becomes a case, and a person resolves it.',
+      topic: 'If they go quiet',
+      direct: 'Your money goes quiet with them.',
+      ours: 'Every step has a time limit. Miss it and the deal unwinds: the USDT goes back where it came from.',
+    },
+    {
+      topic: 'If something is wrong',
+      direct: 'Nobody to call.',
+      ours: 'Open a dispute on the deal. INRP2P decides it on the bank’s evidence.',
+    },
+    {
+      topic: 'Afterwards',
+      direct: 'A chat history and a few screenshots.',
+      ours: 'A receipt for every deal, as a document, CSV and JSON.',
     },
   ],
-  direction: { label: 'Example shown', options: { BUY_USDT: 'Buy USDT', SELL_USDT: 'Sell USDT' } },
-  record: {
-    title: 'Trade record',
-    status: 'Completed',
-    summary: { SELL_USDT: 'Sell USDT · paid to a registered bank account', BUY_USDT: 'Buy USDT · delivered to a registered wallet' },
-    blocks: {
-      SELL_USDT: [
-        {
-          kind: 'lines',
-          heading: TERMS_HEADING,
-          lines: [PRICED_BY, RATE, { label: 'You sell', value: { mask: 'amount', unit: 'USDT' }, regions: [] }],
-        },
-        {
-          kind: 'lines',
-          heading: DESTINATION_HEADING,
-          lines: [{ label: 'Bank account', value: { mask: 'account' }, state: 'Registered', regions: ['destinations'] }],
-        },
-        {
-          kind: 'lines',
-          heading: 'Your side · USDT on TRC20',
-          lines: [
-            { label: 'Sent to', value: 'The deposit address issued for this trade', regions: ['evidence'] },
-            { label: 'Transaction', value: { mask: 'hash' }, state: 'Final on chain', regions: ['evidence', 'settlement'] },
-          ],
-        },
-        GATE,
-        {
-          kind: 'lines',
-          heading: 'Payout · INR',
-          lines: [
-            { label: 'Bank reference', value: { mask: 'reference' }, state: 'Confirmed', regions: ['evidence'] },
-            { label: 'Bank reference', value: { mask: 'reference' }, state: 'Confirmed', regions: ['evidence'] },
-            CONFIRMED_BY,
-            TOTAL,
-          ],
-        },
-      ],
-      BUY_USDT: [
-        {
-          kind: 'lines',
-          heading: TERMS_HEADING,
-          lines: [PRICED_BY, RATE, { label: 'You buy', value: { mask: 'amount', unit: 'USDT' }, regions: [] }],
-        },
-        {
-          kind: 'lines',
-          heading: DESTINATION_HEADING,
-          lines: [{ label: 'TRC20 wallet', value: { mask: 'wallet' }, state: 'Registered', regions: ['destinations'] }],
-        },
-        {
-          kind: 'lines',
-          heading: 'Your side · INR',
-          lines: [
-            { label: 'Paid to', value: 'The settlement account named on the trade', regions: ['evidence'] },
-            { label: 'Bank reference', value: { mask: 'reference' }, state: 'Confirmed', regions: ['evidence', 'settlement'] },
-          ],
-        },
-        GATE,
-        {
-          kind: 'lines',
-          heading: 'Payout · USDT on TRC20',
-          lines: [
-            { label: 'Transaction', value: { mask: 'hash' }, state: 'Final on chain', regions: ['evidence'] },
-            CONFIRMED_BY,
-            TOTAL,
-          ],
-        },
-      ],
-    },
-    footer: [
-      { label: 'Open cases', value: 'None', regions: ['desk'] },
-      { label: 'Receipt', value: 'Document · CSV · JSON', regions: ['reconciliation'] },
-    ],
-  },
 };
 
 /**
- * Who the desk is for: three kinds of counterparty, and the part of the product that answers to each.
- *
- * A description of fit, never of customers — nothing here says that anyone already trades here, or how many.
+ * The questions a first-time client asks before a first deal, answered in the product's own terms. Each answer is
+ * a mechanism, never a speed or a figure; the last one points to the desk programme further up the page.
  */
-export const AUDIENCE_GROUPS = ['traders', 'business', 'partners'] as const;
-export type AudienceGroup = (typeof AUDIENCE_GROUPS)[number];
-
-export interface AudienceCopy {
+export interface FaqCopy {
   readonly eyebrow: string;
   readonly heading: string;
   readonly lede: string;
-  readonly groups: readonly {
-    readonly key: AudienceGroup;
-    readonly name: string;
-    /** Who they are, in their own terms. */
-    readonly situation: string;
-    /** What in the product fits them. Mechanism only. */
-    readonly fit: string;
+  readonly items: readonly {
+    readonly question: string;
+    readonly answer: string;
+    /** A section of this page that answers it at length. */
+    readonly more?: { readonly label: string; readonly anchor: string };
   }[];
+  /** Under the questions: the way to ask one that is not answered here, when an address to write to is set. */
+  readonly ask: { readonly title: string; readonly body: string };
 }
 
-export const AUDIENCE: AudienceCopy = {
-  eyebrow: 'Who it’s for',
-  heading: 'For trades too large to leave to a screen.',
-  lede: 'Three kinds of counterparty come to a desk rather than a book. What they share is size: a price that moves while an order fills is expensive, and the record has to hold up afterwards.',
-  groups: [
+export const FAQ: FaqCopy = {
+  eyebrow: 'Questions',
+  heading: 'Before your first deal.',
+  lede: 'What people ask before they trade here, answered plainly.',
+  items: [
     {
-      key: 'traders',
-      name: 'Active traders',
-      situation: 'You trade size often, and decide on the move.',
-      fit: 'A firm price reaches your phone as a private link, and the bank accounts and wallets you registered once are there to choose on every trade after.',
+      question: 'Who is on the other side of my deal?',
+      answer: 'A trader INRP2P reviewed before their first deal. INRP2P sets your price and holds the USDT; the trader pays you, or is paid by you, bank to bank.',
     },
     {
-      key: 'business',
-      name: 'Businesses & treasury teams',
-      situation: 'Several people share one account, and the books have to close.',
-      fit: 'One client record for the whole team, with each person holding only the permissions you choose for them.',
+      question: 'Where is my USDT while the deal runs?',
+      answer: 'In an escrow address made for that one deal. Only INRP2P can move it, and only where the deal says: to you, to the trader, or back where it came from.',
     },
     {
-      key: 'partners',
-      name: 'OTC & liquidity partners',
-      situation: 'You fill other people’s size, or you supply it.',
-      fit: 'Each trade is settled on its own, against its own agreed terms, and every movement between us is evidenced the same way as a client’s.',
+      question: 'What if the rupees don’t arrive?',
+      answer: 'Say so on the deal, and the USDT stays in escrow. If the other side misses their time limit, the deal unwinds; if they say they paid, INRP2P decides on the bank’s evidence.',
+    },
+    {
+      question: 'How do I pay and get paid in rupees?',
+      answer: 'From and to your own bank account, by UPI, IMPS, NEFT or RTGS. You add the account once, before your first deal. The rupees never pass through INRP2P.',
+    },
+    {
+      question: 'What does it cost?',
+      answer: 'It is in the rate. The amount on your quote is the amount you get, with the network fee already inside it. If a sale is cancelled after you send USDT, it comes back less its own network fee, shown on the deal before you send.',
+    },
+    {
+      question: 'Which network is the USDT on?',
+      answer: 'TRON (TRC20). Send only to the escrow address shown on your deal: a TRON transfer cannot be recalled once it is final.',
+    },
+    {
+      question: 'How do I start?',
+      answer: 'Open an account with your email, add your bank account and your wallet, and ask for your first price. You decide after you see it.',
+    },
+    {
+      question: 'Can I run my own exchange on INRP2P?',
+      answer: 'Yes. Traders and brokers get their own page, deal links, prices, team and Telegram alerts, with INRP2P’s escrow on every deal.',
+      more: { label: 'See the desk programme', anchor: 'own-desk' },
     },
   ],
-};
-
-/**
- * The execution desk: who owns each step of a trade, and what happens at that step when something goes wrong.
- *
- * The execution flow above says how the price is fixed and the money moves; this says who does it. Each step
- * names the people who act — the client, a dealer, an operator, or the system's own checks — what they do, and
- * the way off the main path at that step, with the status the client sees when the trade takes it.
- */
-export const DESK_STEPS = ['request', 'price', 'accept', 'settle', 'complete'] as const;
-export type DeskStep = (typeof DESK_STEPS)[number];
-
-/** Who acts. `you` is the client; the other three are the desk. */
-export type DeskActor = 'you' | 'dealer' | 'operator' | 'system';
-
-export interface DeskStepCopy {
-  readonly key: DeskStep;
-  readonly name: string;
-  /** In the order they act. */
-  readonly actor: readonly DeskActor[] | Record<Direction, readonly DeskActor[]>;
-  readonly does: string | Record<Direction, string>;
-  /** What happens at this step when it does not go as planned, and the status the client sees if there is one. */
-  readonly exception: { readonly text: string; readonly status?: string };
-}
-
-export interface DeskCopy {
-  readonly eyebrow: string;
-  readonly heading: string;
-  readonly lede: string;
-  /** The steps' accessible name. */
-  readonly list: string;
-  /** Column heads on a wide screen; a label on each step on a narrow one. */
-  readonly columns: { readonly actor: string; readonly does: string; readonly exception: string };
-  readonly actors: Record<DeskActor, string>;
-  readonly steps: readonly DeskStepCopy[];
-}
-
-export const DESK: DeskCopy = {
-  eyebrow: 'Execution desk',
-  heading: 'From request to receipt, every step has an owner.',
-  lede: 'Who acts at each step, and what happens when something does not match.',
-  list: 'Who owns each step of a trade',
-  columns: { actor: 'Who acts', does: 'What they do', exception: 'If it goes wrong' },
-  actors: { you: 'You', dealer: 'Dealer', operator: 'Operator', system: 'System' },
-  steps: [
-    {
-      key: 'request',
-      name: 'Request',
-      actor: ['you', 'system'],
-      does: 'You ask for a price to a registered destination. The system checks your client record, the destination and the desk’s limit.',
-      exception: { text: 'A request that fails a check is not opened.' },
-    },
-    {
-      key: 'price',
-      name: 'Price',
-      actor: ['dealer'],
-      does: 'A dealer prices the trade and sends you a firm quote.',
-      exception: { text: 'The dealer declines instead, with the reason written on it.', status: 'Declined' },
-    },
-    {
-      key: 'accept',
-      name: 'Accept',
-      actor: ['you'],
-      does: 'You accept while the quote is firm: in your client account, or from its private link with a code sent to your verified email.',
-      exception: { text: 'A quote that expires or is rejected sends the request back to the dealer, who may price it again.' },
-    },
-    {
-      key: 'settle',
-      name: 'Settle',
-      actor: { BUY_USDT: ['you', 'operator'], SELL_USDT: ['you', 'system', 'operator'] },
-      does: {
-        BUY_USDT: 'You pay INR. An operator confirms it against the bank’s record, then sends your USDT.',
-        SELL_USDT: 'You send USDT. The system confirms it once final on chain, then an operator pays your INR.',
-      },
-      exception: { text: 'A wrong amount, an unexpected sender or a failed transfer opens a case, and the trade holds until a person resolves it.', status: 'On hold' },
-    },
-    {
-      key: 'complete',
-      name: 'Complete',
-      actor: ['system'],
-      does: 'The system completes the trade when confirmed payments equal the agreed amount, and writes the receipt.',
-      exception: { text: 'An open case keeps it from completing, even when the amounts add up.' },
-    },
-  ],
-};
-
-/**
- * Large-volume execution: what changes when the amount is large, for a business or a desk of its own.
- *
- * Four terms, each one a rule the software enforces on every trade rather than a service level.
- */
-export interface BusinessCopy {
-  readonly eyebrow: string;
-  readonly heading: string;
-  readonly lede: string;
-  readonly terms: readonly { readonly label: string; readonly title: string; readonly body: string }[];
-}
-
-export const BUSINESS: BusinessCopy = {
-  eyebrow: 'Large-volume execution',
-  heading: 'Large amounts, agreed as one trade.',
-  lede: 'At size the questions change: whether the price holds for the whole amount, who is allowed to say yes, how a large payout arrives, and what you can show for it afterwards.',
-  terms: [
-    {
-      label: 'Pricing',
-      title: 'Set your target rate.',
-      body: 'Put a target rate on the request. The dealer may quote at it, counter with another rate, or decline and say why — for the full amount either way.',
-    },
-    {
-      label: 'Authority',
-      title: 'Only the people you name can say yes.',
-      body: 'Accepting a quote commits your organisation, so only the people you name may do it. Granting or removing that permission takes a second factor, and is recorded.',
-    },
-    {
-      label: 'Payout',
-      title: 'A large payout, in parts you can follow.',
-      body: 'INR may arrive as several transfers to your registered account. Each one appears on your trade as it is confirmed, with its own bank reference.',
-    },
-    {
-      label: 'Records',
-      title: 'A receipt your books can use.',
-      body: 'Every completed trade leaves a receipt as a document, CSV and JSON. It is written once, when the trade completes, and is the same every time it is downloaded.',
-    },
-  ],
+  ask: { title: 'Something else?', body: 'Write to the desk. A person answers.' },
 };
 
 /**
@@ -636,7 +420,7 @@ export const OWN_DESK: OwnDeskCopy = {
   announce: { tag: 'New', text: 'Run your own exchange on INRP2P' },
   eyebrow: 'For traders and brokers',
   heading: 'Your own exchange, on INRP2P.',
-  lede: 'A page and deal links under your name, your own prices, your clients and your team. Rupees move straight between you and your client; the USDT waits in escrow until they are confirmed.',
+  lede: 'Your page, your prices, your clients, your team. Rupees go straight between you and your client, and INRP2P holds the USDT in escrow until they land.',
   features: [
     {
       key: 'page',
@@ -722,12 +506,12 @@ export const OWN_DESK: OwnDeskCopy = {
  * desk sets up before a first trade, and offered the way in (ONBOARDING) when an address to write to is set.
  */
 export const CLOSING = {
-  heading: 'Ask for a firm price on your trade.',
-  body: 'Requested from your client account, priced by a dealer, and firm until it expires.',
-  cta: { label: 'Request a quote', appPath: '/exchange' },
+  heading: 'Get a firm price on your next deal.',
+  body: 'Add your bank account and wallet once. Every deal after that runs through escrow, at a rate you see before you agree.',
+  cta: { label: 'Get a firm price', appPath: '/exchange' },
   newClient: {
     title: ONBOARDING.prompt,
-    body: 'Open your account in the workspace with your work email, turn on an authenticator, and add the bank accounts and wallets you settle to. Every trade after that is priced by the desk.',
+    body: 'Open an account with your email and a code, add the bank account and wallet you settle to, and ask for your first price.',
   },
 } as const;
 
@@ -739,8 +523,8 @@ export const CLOSING = {
 export const TRADER_ENTRY = {
   label: 'Become a trader',
   appPath: '/become-a-trader',
-  title: 'Provide INR or USDT capacity?',
-  body: 'Apply with your own email. The desk reviews every trader before any order is sent.',
+  title: 'Trade from your own desk?',
+  body: 'Apply with your own email. INRP2P reviews every trader before a first deal.',
 } as const;
 
 /**
@@ -749,22 +533,23 @@ export const TRADER_ENTRY = {
  * is no privacy notice, no terms and no operating entity to name until they exist, so none is linked or named.
  */
 export const FOOTER = {
-  groups: { product: 'Product', pages: 'Guides', security: 'Security', contact: 'Contact' },
+  groups: { product: 'Product', pages: 'Guides', security: 'Safety', contact: 'Contact' },
   links: {
-    request: 'Request a quote',
+    request: 'Get a firm price',
     signIn: 'Client sign in',
     trader: TRADER_ENTRY.label,
-    flow: 'How a trade runs',
-    desk: 'Execution desk',
-    controls: 'Operational controls',
+    flow: 'How it works',
+    ownDesk: OWN_DESK.nav,
+    why: 'Escrow and disputes',
+    faq: 'Questions',
     securityReport: 'Report a security issue',
     onboarding: ONBOARDING.label,
     deskContact: 'Contact the desk',
   },
   /** The one risk that is the visitor's to manage and cannot be undone: where USDT is sent. */
-  risk: 'A USDT transfer on TRON cannot be recalled once it is final. Send USDT only to the deposit address issued for your trade.',
+  risk: 'A USDT transfer on TRON cannot be recalled once it is final. Send USDT only to the escrow address shown on your deal.',
   /** Whose names these are. */
-  marks: 'USDT is a token issued by Tether; TRON and TRC20 are names of the network it is sent on. Neither is affiliated with this desk.',
+  marks: 'USDT is a token issued by Tether; TRON and TRC20 are names of the network it is sent on. Neither is affiliated with INRP2P.',
 } as const;
 
 /**
@@ -774,22 +559,25 @@ export const FOOTER = {
  */
 export const WORKSPACE_ENTRY = { label: 'Open workspace', appPath: '/exchange' } as const;
 
-/** The masthead's links: pages that explain the desk. Buying and selling are chosen in one place — the hero. */
+/**
+ * The masthead's links: the home page's sections, reached from any page. The guides are in the footer; buying and
+ * selling are chosen in one place — the hero. The desk programme is drawn after these, marked as new.
+ */
 export const NAV: readonly { readonly label: string; readonly path: string }[] = [
-  { label: 'OTC desk', path: '/usdt-otc-india' },
-  { label: 'USDT to INR', path: '/usdt-to-inr' },
-  { label: 'INR to USDT', path: '/inr-to-usdt' },
+  { label: 'How it works', path: '/#how-it-works' },
+  { label: 'Why INRP2P', path: '/#why' },
+  { label: 'Questions', path: '/#faq' },
 ];
 
 const HOME: SitePage = {
   path: '/',
   title: `Buy and sell USDT in India — ${SITE_NAME}`,
   description:
-    'An OTC desk for USDT and Indian rupees. Ask for a price on your trade, accept it while it is firm, and settle to a bank account or wallet you registered in advance.',
+    'Buy and sell USDT for Indian rupees with escrow on every deal: one firm rate for the whole amount, rupees bank to bank, and USDT released only once they arrive.',
   h1: `${HERO.headline.lead} ${HERO.headline.accent} ${HERO.headline.tail}`,
   lede: TAGLINE,
-  // The home page tells its story in its own sections (FLOW, TRUST, AUDIENCE, DESK, BUSINESS, CLOSING), which
-  // say everything the reading column once did: a desk rather than a book, both directions, and the receipt.
+  // The home page tells its story in its own sections (FLOW, OWN_DESK, WHY, FAQ, CLOSING), which say everything
+  // the reading column once did: both directions, the escrow, and what happens when a deal goes wrong.
   sections: [],
   priority: 1,
 };
@@ -877,7 +665,7 @@ const SELL_IN_INDIA: SitePage = {
     {
       heading: 'What we need before the first trade',
       body: [
-        'A client record, the people authorised to accept quotes on it, and at least one Indian bank account to pay to. Onboarding is done by the desk, not by a form on this page.',
+        'An account, the people allowed to accept quotes on it, and at least one Indian bank account to be paid to. You open the account yourself, with your email.',
         'Every one of those is checked again when a trade settles, which is why they are set up once rather than asked for each time.',
       ],
     },
@@ -916,7 +704,7 @@ const BUY_IN_INDIA: SitePage = {
     {
       heading: 'What we need before the first trade',
       body: [
-        'A client record, the people authorised to accept quotes on it, and a registered wallet. Onboarding is done by the desk.',
+        'An account, the people allowed to accept quotes on it, and a wallet added before the trade. You open the account yourself, with your email.',
       ],
     },
   ],

@@ -8,7 +8,7 @@ import { SwapIcon } from '../_workspace/icons.tsx';
 export const dynamic = 'force-dynamic';
 
 /**
- * What the home page's quote module hands over: "Request quote" there opens this screen with the direction and
+ * What the home page's quote module hands over: "Get a firm price" there opens this screen with the direction and
  * amount already chosen (`_landing/request.ts`). Only a well-formed USDT amount is taken; anything else is ignored
  * rather than guessed at, and the form simply starts empty.
  */

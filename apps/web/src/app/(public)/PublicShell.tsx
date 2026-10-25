@@ -62,7 +62,7 @@ function EntryGlyph({ className, headClassName }: { className?: string | undefin
  * The frame every public page is drawn in.
  *
  * A server component with no interactivity of its own. The home page hydrates a few small islands (the hero's
- * quote module, the robot stage, the execution flow's switch and the controls' reader);
+ * quote module, the robot stage and the flow's switch);
  * everything else on the public site is plain server-rendered HTML, which keeps it fast on a phone on Indian
  * mobile data and keeps its Content-Security-Policy to one nonce.
  */
@@ -79,17 +79,18 @@ export function PublicShell({ children, nonce }: { children: ReactNode; nonce?: 
     { label: links.request, href: `${app}${CLOSING.cta.appPath}` },
     { label: links.signIn, href: `${app}/sign-in` },
     { label: links.trader, href: `${app}${TRADER_ENTRY.appPath}` },
-    { label: links.flow, href: '/#execution-flow' },
-    { label: links.desk, href: '/#execution-desk' },
+    { label: links.flow, href: '/#how-it-works' },
+    { label: links.ownDesk, href: '/#own-desk' },
   ];
   const pages: FooterLink[] = SITE_PAGES.filter((p) => p.path !== '/').map((p) => ({ label: p.h1, href: p.path }));
   const security: FooterLink[] = [
-    { label: links.controls, href: '/#controls' },
+    { label: links.why, href: '/#why' },
     ...(contacts.security ? [{ label: links.securityReport, href: mailto(contacts.security), detail: contacts.security }] : []),
   ];
   const onboarding = onboardingHref();
   const contact: FooterLink[] = [
     { label: links.onboarding, href: onboarding },
+    { label: links.faq, href: '/#faq' },
     ...(contacts.desk ? [{ label: links.deskContact, href: mailto(contacts.desk), detail: contacts.desk }] : []),
   ];
   return (
@@ -107,7 +108,7 @@ export function PublicShell({ children, nonce }: { children: ReactNode; nonce?: 
           </Link>
           <nav className={styles.nav} aria-label="Pages">
             {NAV.map((item) => (
-              <Link key={item.path} href={item.path} className={styles.navLink}>
+              <Link key={item.path} href={item.path} className={styles.navLink} prefetch={false}>
                 {item.label}
               </Link>
             ))}

@@ -7,7 +7,7 @@ import { FlowStage } from './FlowStage.tsx';
 import styles from './flow.module.css';
 
 /**
- * The execution flow: the five stations every trade passes, drawn as one rail from the currency a client brings
+ * How it works: the five stations every deal passes, drawn as one rail from the currency a client brings
  * to the currency they receive.
  *
  * Rendered on the server and complete without script: every station's words are in the list, in both
@@ -108,7 +108,7 @@ export function Flow() {
   const { eyebrow, heading, lede, direction, stations } = FLOW;
   const [source, destination] = [stations[0]!, stations.at(-1)!];
   return (
-    <section id="execution-flow" className={styles.flow} aria-labelledby="flow-title" data-flow="">
+    <section id="how-it-works" className={styles.flow} aria-labelledby="flow-title" data-flow="">
       <div className={styles.stage}>
         <div className={styles.inner}>
           <header className={styles.head}>

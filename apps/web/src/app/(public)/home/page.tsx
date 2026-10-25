@@ -1,15 +1,13 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { pageForPath } from '../../../content/site.ts';
-import { Audience } from '../_landing/audience/Audience.tsx';
-import { Business } from '../_landing/business/Business.tsx';
 import { Closing } from '../_landing/closing/Closing.tsx';
-import { Desk } from '../_landing/desk/Desk.tsx';
+import { Faq } from '../_landing/faq/Faq.tsx';
 import { Flow } from '../_landing/flow/Flow.tsx';
 import { Hero } from '../_landing/Hero.tsx';
 import { OwnDesk } from '../_landing/owndesk/OwnDesk.tsx';
 import { Story } from '../_landing/Story.tsx';
-import { Trust } from '../_landing/trust/Trust.tsx';
+import { Why } from '../_landing/why/Why.tsx';
 import { pageMetadata } from '../metadata.ts';
 import { SitePageView } from '../SitePageView.tsx';
 import { appOrigin, publicOrigin } from '../../../server/site.ts';
@@ -43,11 +41,9 @@ export default async function Page() {
       story={
         <Story>
           <Flow />
+          <Why />
           <OwnDesk appOrigin={appOrigin()} host={host} />
-          <Trust />
-          <Audience />
-          <Desk />
-          <Business />
+          <Faq />
           <Closing />
         </Story>
       }

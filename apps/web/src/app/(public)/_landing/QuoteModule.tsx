@@ -18,7 +18,7 @@ import styles from './quote.module.css';
  * It is the page's one primary action, and the only place on the page where a direction is chosen. It prints no
  * rate and no converted amount: the desk prices a trade, and a figure computed here would be a price nobody
  * offered. What it does print is what the request will say and what happens to it, which is true for every
- * amount. "Request quote" opens the client app's Exchange screen with the direction and amount already chosen —
+ * amount. "Get a firm price" opens the client app's Exchange screen with the direction and amount already chosen —
  * or, with no amount yet, keeps the visitor here and asks for one next to the field.
  */
 
