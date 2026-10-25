@@ -3,7 +3,7 @@ import type { DeskTrade } from '@inrp2p/desk';
 import { CopyButton } from '@inrp2p/ui';
 import { shortenAddress, shortenHash } from '@inrp2p/ui/format';
 import { PanelSection } from '../_desk/ContextPanel.tsx';
-import { inr } from '../_desk/format.ts';
+import { inr, usdt } from '../_desk/format.ts';
 import { ATTEMPT, PURPOSE, STATUS, trx } from '../_desk/network.ts';
 import { Chip, KeyValues, Notice } from '../_desk/ui.tsx';
 import { RaiseHold } from './RaiseHold.tsx';
@@ -22,8 +22,22 @@ export function TradeNetwork({ trade, perms }: { trade: DeskTrade; perms: TradeP
   const open = n.sends.filter((s) => s.status !== 'CONFIRMED' && s.status !== 'CANCELLED');
   const attention = open.some((s) => s.status === 'BLOCKED' || s.status === 'AWAITING_APPROVAL');
   return (
-    <PanelSection title="Network" aside={n.holdStatus === 'ACTIVE' ? `${trx(n.heldTrx)} held` : n.holdStatus === 'CLOSED' ? 'settled' : undefined} testId="trade-network">
+    <PanelSection
+      title="Network"
+      aside={n.gasFree ? `GasFree · ${usdt(n.gasFree.allowance)}` : n.holdStatus === 'ACTIVE' ? `${trx(n.heldTrx)} held` : n.holdStatus === 'CLOSED' ? 'settled' : undefined}
+      testId="trade-network"
+    >
       <div className={d.stackTight}>
+        {n.gasFree ? (
+          <KeyValues
+            split
+            label="GasFree"
+            items={[
+              { label: 'Carried by the deal', value: `${usdt(n.gasFree.allowance)} in its USDT` },
+              ...(n.gasFree.spent !== null ? [{ label: 'Its transfers took', value: usdt(n.gasFree.spent) }, { label: 'Left for the sweep', value: usdt(n.gasFree.unused ?? '0') }] : []),
+            ]}
+          />
+        ) : (
         <KeyValues
           split
           label="Network budget"
@@ -46,6 +60,7 @@ export function TradeNetwork({ trade, perms }: { trade: DeskTrade; perms: TradeP
               : []),
           ]}
         />
+        )}
         {n.sends.length > 0 ? (
           <ul className={t.legs} aria-label="Signer transfers">
             {n.sends.map((s) => {
@@ -62,6 +77,8 @@ export function TradeNetwork({ trade, perms }: { trade: DeskTrade; perms: TradeP
                     <span className={d.mono}>{s.ref}</span>
                     <span>to {shortenAddress(s.to)}</span>
                     {s.networkCap ? <span>{trx(s.networkUsed ?? '0')} of {trx(s.networkCap)} TRX cap drawn</span> : null}
+                    {s.feeCap ? <span>GasFree {s.feeCharged ? `${usdt(s.feeCharged)} charged` : `up to ${usdt(s.feeCap)}`}</span> : null}
+                    {s.permits.at(-1) ? <span>permit {s.permits.at(-1)!.status.toLowerCase()} · nonce {s.permits.at(-1)!.nonce}</span> : null}
                     {live ? (
                       <span>
                         <Chip tone={ATTEMPT[live.status] ?? 'neutral'}>{live.status.toLowerCase()}</Chip> <span className={d.mono}>{shortenHash(live.txid)}</span> <CopyButton value={live.txid} label="transaction hash" />
@@ -76,7 +93,7 @@ export function TradeNetwork({ trade, perms }: { trade: DeskTrade; perms: TradeP
           </ul>
         ) : null}
         {/* Only where a transfer is waiting for room: a hold is raised by a person's decision, never as routine. */}
-        {perms.manageNetwork && n.holdStatus === 'ACTIVE' && (trade.cases.some((c) => c.type === 'NETWORK_BUDGET_SHORT') || open.some((s) => s.status === 'BLOCKED')) ? (
+        {perms.manageNetwork && n.holdStatus === 'ACTIVE' && !n.gasFree && (trade.cases.some((c) => c.type === 'NETWORK_BUDGET_SHORT') || open.some((s) => s.status === 'BLOCKED')) ? (
           <RaiseHold tradeId={trade.tradeId} tradeRef={trade.ref} held={n.heldTrx} />
         ) : null}
         {attention ? (

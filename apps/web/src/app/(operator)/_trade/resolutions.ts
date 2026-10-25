@@ -210,6 +210,13 @@ export const RESOLUTIONS: Record<ExceptionType, ResolutionChoices> = {
     voidable: true,
     financial: 'The trader tops up its network deposit, or the platform budget is topped up; the send resumes by itself.',
   },
+  GASFREE_UNAVAILABLE: {
+    resolutions: [
+      { value: 'escalate', label: 'Escalate' },
+    ],
+    voidable: true,
+    financial: 'No energy provider could fuel the transfer (refused, silent or out of float). Nothing was sent and nothing burned; top up the float or wait — the send is tried again by itself.',
+  },
   INR_UNEXPECTED_SENDER: {
     resolutions: [
       { value: 'record_recovery_outcome', label: 'Record that it went back to the sender' },

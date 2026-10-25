@@ -17,6 +17,9 @@ export const dynamic = 'force-dynamic';
  * the deal's own steps, which are a trader order's (the escrow, the rupees, the confirmation). Another desk's deal is
  * "not found".
  */
+/** ADR 0022: the network the deal's USDT side carries — GasFree's fees for its payout and the sweep, paid in USDT. */
+const networkClause = (network: string | null) => (network && !/^0(\.0+)?$/.test(network) ? ` · network ${usdt(network)} (GasFree)` : '');
+
 export default async function DeskDealPage({ params }: { params: Promise<{ ref: string }> }) {
   const { ref: raw } = await params;
   const ref = decodeURIComponent(raw);
@@ -42,8 +45,8 @@ export default async function DeskDealPage({ params }: { params: Promise<{ ref: 
         status={<DealStatus state={deal.state} yourMove={deal.yourMove} inReview={deal.stage === 'REVIEW'} />}
         lede={
           sells
-            ? `Sells you ${usdt(deal.usdt)} at ${rate(deal.rate)} · you pay ${inr(deal.inr)} and receive ${usdt(deal.deskUsdt)} · INRP2P fee ${usdt(deal.fee)} · ${formatIstDateTime(new Date(deal.at))}`
-            : `Buys ${usdt(deal.usdt)} at ${rate(deal.rate)} · pays you ${inr(deal.inr)} · you put ${usdt(deal.deskUsdt)} in escrow · INRP2P fee ${usdt(deal.fee)} · ${formatIstDateTime(new Date(deal.at))}`
+            ? `Sells you ${usdt(deal.usdt)} at ${rate(deal.rate)} · you pay ${inr(deal.inr)} and receive ${usdt(deal.deskUsdt)} · INRP2P fee ${usdt(deal.fee)}${networkClause(deal.network)} · ${formatIstDateTime(new Date(deal.at))}`
+            : `Buys ${usdt(deal.usdt)} at ${rate(deal.rate)} · pays you ${inr(deal.inr)} · you put ${usdt(deal.deskUsdt)} in escrow · INRP2P fee ${usdt(deal.fee)}${networkClause(deal.network)} · ${formatIstDateTime(new Date(deal.at))}`
         }
       />
       <OrderScreen detail={detail} canAct={ctx.member.canAcceptQuotes} />

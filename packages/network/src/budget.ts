@@ -7,7 +7,8 @@ import { type ClientActor, type OperatorActor, operatorCommand } from '@inrp2p/i
 import { postJournal, traderNetworkReimbursementJournal } from '@inrp2p/ledger';
 import type { TrxTransferFacts } from '@inrp2p/adapters';
 import { lockTrader, traderClientCommand } from '@inrp2p/trader-core';
-import { tradeNetworkFee } from './pricing.ts';
+import { type QuoteNetworkFee, tradeNetworkFee } from './pricing.ts';
+import { closeUsdtNetworkHold, holdUsdtNetwork } from './gasfree.ts';
 
 /**
  * The TRX network budget (ADR 0017 §2): the only money the exchange's signer burns. Each funder — a trader's network
@@ -62,7 +63,7 @@ export async function budgetFigures(ex: Executor, funder: Funder): Promise<Budge
       coalesce((select -sum(amount_sun) from network_budget_entry where kind = 'WITHDRAWAL' and trader_id is not distinct from ${funder}::uuid), 0)::text as withdrawn,
       coalesce((select sum(greatest(h.amount_sun - coalesce(s.amt, 0) - coalesce(p.amt, 0), 0)) from network_budget_hold h
                  left join spent s on s.trade_id = h.trade_id left join pending p on p.trade_id = h.trade_id
-                where h.status = 'ACTIVE' and h.trader_id is not distinct from ${funder}::uuid), 0)::text as held,
+                where h.status = 'ACTIVE' and h.unit = 'TRX' and h.trader_id is not distinct from ${funder}::uuid), 0)::text as held,
       coalesce((select sum(amt) from pending), 0)::text as inflight,
       coalesce((select sum(amount_sun + fee_estimate_sun) from network_deposit_withdrawal
                 where ${funder}::uuid is not null and trader_id = ${funder}::uuid and status in ('REQUESTED', 'APPROVED')), 0)::text as withdrawing,
@@ -100,6 +101,15 @@ export async function holdNetworkBudget(ctx: TxContext, input: { tradeId: string
 
 export async function tradeHold(ex: Executor, tradeId: string) {
   return ex.selectFrom('network_budget_hold').selectAll().where('trade_id', '=', tradeId).executeTakeFirst();
+}
+
+/**
+ * A new trade's network, held at acceptance from the terms its quote froze: TRX from its funder's budget (ADR 0017), or
+ * the USDT allowance its own escrow carries (ADR 0022) — nobody else's money.
+ */
+export async function holdTradeNetwork(ctx: TxContext, tradeId: string, terms: QuoteNetworkFee): Promise<{ holdId: string }> {
+  if (terms.unit === 'USDT') return holdUsdtNetwork(ctx, { tradeId, funderTraderId: terms.funderTraderId, allowanceUsdtMinor: terms.feeUsdtMinor! });
+  return holdNetworkBudget(ctx, { tradeId, funder: terms.funderTraderId, perSendSun: terms.reserveSun! / BigInt(terms.reserveSends), sends: terms.reserveSends, snapshotId: terms.snapshotId! });
 }
 
 /** A spend for a trade: a top-up that went final (its amount and the fee it burned at the budget wallet). Once per attempt. */
@@ -149,6 +159,11 @@ export async function spentByBearer(ex: Executor, tradeId: string): Promise<{ cl
 export async function closeNetworkHold(ctx: TxContext, tradeId: string, reason: string): Promise<{ closed: boolean; spentSun: bigint; reimbursedSun: bigint; reimbursedInrMinor: bigint }> {
   const hold = await ctx.tx.selectFrom('network_budget_hold').selectAll().where('trade_id', '=', tradeId).forUpdate().executeTakeFirst();
   if (!hold || hold.status !== 'ACTIVE') return { closed: false, spentSun: 0n, reimbursedSun: 0n, reimbursedInrMinor: 0n };
+  // ADR 0022: a USDT hold is settled at what GasFree charged, in USDT.
+  if (hold.unit === 'USDT') {
+    const out = await closeUsdtNetworkHold(ctx, tradeId, reason);
+    return { closed: out.closed, spentSun: 0n, reimbursedSun: 0n, reimbursedInrMinor: 0n };
+  }
   const spent = await spentByBearer(ctx.tx, tradeId);
   let reimbursedSun = 0n;
   let reimbursedInr = 0n;
@@ -158,7 +173,7 @@ export async function closeNetworkHold(ctx: TxContext, tradeId: string, reason: 
   if (hold.trader_id && mode !== 'P2P') {
     reimbursedSun = spent.client + spent.platform;
     const terms = await tradeNetworkFee(ctx.tx, tradeId);
-    if (terms && reimbursedSun > 0n) {
+    if (terms?.usdtPerTrxMicro && reimbursedSun > 0n) {
       reimbursedInr = trxToInrMinor(reimbursedSun, terms.usdtPerTrxMicro, terms.clientRateMicro, 'DOWN');
       if (reimbursedInr > 0n) {
         await postJournal(ctx, traderNetworkReimbursementJournal({ tradeId, traderId: hold.trader_id, amount: Money.ofMinor(reimbursedInr, 'INR') }));
@@ -172,7 +187,7 @@ export async function closeNetworkHold(ctx: TxContext, tradeId: string, reason: 
     .execute();
   await appendAudit(ctx, {
     action: 'network.budget_released', entityType: 'trade', entityId: tradeId,
-    after: { funder: hold.trader_id ?? 'PLATFORM', held_trx: formatTrx(hold.amount_sun), spent_trx: formatTrx(spent.total), reimbursed_trx: formatTrx(reimbursedSun), reimbursed_inr: Money.ofMinor(reimbursedInr, 'INR'), reason },
+    after: { funder: hold.trader_id ?? 'PLATFORM', held_trx: formatTrx(hold.amount_sun!), spent_trx: formatTrx(spent.total), reimbursed_trx: formatTrx(reimbursedSun), reimbursed_inr: Money.ofMinor(reimbursedInr, 'INR'), reason },
   });
   return { closed: true, spentSun: spent.total, reimbursedSun, reimbursedInrMinor: reimbursedInr };
 }

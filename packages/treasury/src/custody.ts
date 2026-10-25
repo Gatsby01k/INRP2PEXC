@@ -2,7 +2,7 @@ import { sql } from 'kysely';
 import { DomainError, type Money, isTronAddress, optionalText, parseTronAddress, requireOneOf, requireText, requireUuid } from '@inrp2p/kernel';
 import { type DepositReleaseReason, type Executor, type TxContext, assertLockOrder, isUniqueViolation } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
-import type { CustodyAdapter, CustodyNetwork, DepositAddressCapability } from '@inrp2p/adapters';
+import { type CustodyAdapter, type CustodyNetwork, type DepositAddressCapability, type GasFreeChain, gasFreeAddressOf, gasFreeChainOfController } from '@inrp2p/adapters';
 import { type OperatorActor, actorLabel, operatorCommand } from '@inrp2p/identity';
 
 /** Default cooldown before a pool address can be reused (STATE_MACHINES §11, D-02). */
@@ -228,6 +228,28 @@ async function openAssignment(ctx: TxContext, subject: DepositSubject): Promise<
   return row ? { depositAddressId: row.deposit_address_id, assignmentId: row.id, address: row.address, source: row.source } : null;
 }
 
+/**
+ * The GasFree deployment a new deal address is issued on (ADR 0022 §2.1): a trade — or the trade of a route obligation —
+ * whose network was priced in USDT, on the controller its fees were read from. Null for everything else.
+ */
+async function gasFreeChainFor(ctx: TxContext, subject: DepositSubject): Promise<GasFreeChain | null> {
+  const tradeId = subject.kind === 'TRADE'
+    ? subject.tradeId
+    : subject.kind === 'ROUTE_OBLIGATION'
+      ? (await ctx.tx.selectFrom('route_obligation').select('trade_id').where('id', '=', subject.routeObligationId).executeTakeFirst())?.trade_id ?? null
+      : null;
+  if (!tradeId) return null;
+  const terms = await ctx.tx
+    .selectFrom('trade as t')
+    .innerJoin('quote_network_fee as f', 'f.quote_id', 't.quote_id')
+    .leftJoin('gasfree_fee_reading as r', 'r.id', 'f.gasfree_fee_reading_id')
+    .select(['f.unit', 'r.controller'])
+    .where('t.id', '=', tradeId)
+    .executeTakeFirst();
+  if (!terms || terms.unit !== 'USDT') return null;
+  return gasFreeChainOfController(terms.controller!);
+}
+
 async function allocateAddressFor(
   ctx: TxContext,
   adapter: CustodyAdapter,
@@ -258,10 +280,17 @@ async function allocateAddressFor(
     const seq = await sql<{ n: string }>`select nextval('custody_derivation_index_seq')::text as n`.execute(ctx.tx);
     const provided = await adapter.allocateDepositAddress(network, requireText(input.reference, 'reference', 40), BigInt(seq.rows[0]!.n));
     if (!isTronAddress(provided.address)) throw new DomainError('INVALID_ADDRESS', 'provider returned an invalid TRON address');
+    // ADR 0022: a deal priced on GasFree gets the GasFree account of that key as its address — computed here, from the
+    // key alone, never asked of GasFree; the key itself stays its owner.
+    const gasFree = await gasFreeChainFor(ctx, input.subject);
+    const issued = gasFree ? gasFreeAddressOf(provided.address, gasFree) : provided.address;
     try {
       address = await ctx.tx
         .insertInto('deposit_address')
-        .values({ treasury_wallet_id: walletId, network, address: provided.address, source: 'DERIVED', provider: adapter.provider, custody_reference: provided.custodyReference, status: 'ASSIGNED', created_by: actorLabel(ctx) })
+        .values({
+          treasury_wallet_id: walletId, network, address: issued, owner_address: gasFree ? provided.address : null, source: 'DERIVED', provider: adapter.provider,
+          custody_reference: provided.custodyReference, status: 'ASSIGNED', created_by: actorLabel(ctx),
+        })
         .returning(['id', 'address'])
         .executeTakeFirstOrThrow();
     } catch (e) {

@@ -1,5 +1,6 @@
 import { isTronAddress } from '@inrp2p/kernel';
 import { fieldProtectionFromEnv } from './field-config.ts';
+import { gasFreeFromEnv } from './gasfree.ts';
 
 /**
  * The production configuration contract (production task E3).
@@ -119,6 +120,13 @@ export function productionConfigReport(role: ProcessRole, env: NodeJS.ProcessEnv
       if ((env.INRP2P_CUSTODY_KEK_PROVIDER ?? 'aws-kms').trim().toLowerCase() !== 'aws-kms') problems.push('INRP2P_CUSTODY_KEK_PROVIDER must be aws-kms in production');
     }
     if (set(env, 'INRP2P_AUDIT_SEAL_RETENTION_DAYS') && !/^[1-9][0-9]{0,4}$/.test(env.INRP2P_AUDIT_SEAL_RETENTION_DAYS!.trim())) problems.push('INRP2P_AUDIT_SEAL_RETENTION_DAYS must be a whole number of days');
+    // ADR 0022: GasFree accounts send through GasFree; half its credentials refuses the start, none at all is said out
+    // loud (deals stay on TRX deposits, and GasFree cannot be switched on).
+    try {
+      if (!gasFreeFromEnv(env)) warnings.push('no GasFree credentials (GASFREE_API_KEY, GASFREE_API_SECRET): deals stay on TRX deposits, and GasFree cannot be switched on');
+    } catch (e) {
+      problems.push(`GasFree: ${(e as Error).message}`);
+    }
   }
   if ((set(env, 'INRP2P_RECEIPTS_BUCKET') || set(env, 'INRP2P_AUDIT_SEAL_BUCKET')) && set(env, 'INRP2P_OBJECT_STORE_ENDPOINT') && !https(env.INRP2P_OBJECT_STORE_ENDPOINT)) {
     problems.push('INRP2P_OBJECT_STORE_ENDPOINT must be https');

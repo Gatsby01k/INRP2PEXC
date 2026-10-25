@@ -7,6 +7,7 @@ import { type OperatorActor, authorizeOperator, operatorCommand } from '@inrp2p/
 import { reverseJournal, tradeCancelReversal } from '@inrp2p/ledger';
 import { releaseReservation, reserveCapacity } from '@inrp2p/inr-accounts';
 import { releaseDepositAssignment, releaseTreasuryReservation } from '@inrp2p/treasury';
+import { escrowSendFee } from '@inrp2p/network';
 import { type TradeRow, effectiveObligations, isCounterpartyFunded, legTotals, lockTrade, transitionTrade } from '@inrp2p/trades';
 import { openExceptionInTx, resolveExceptionInTx } from './exceptions.ts';
 import { assertNoPayoutUnderway, lockLeg, nextLegSeq, requireSourceDepositAddress } from './legs.ts';
@@ -235,11 +236,16 @@ async function insertRefundLeg(
     treasuryWalletId = requireUuid(p.treasuryWalletId, 'treasuryWalletId');
     sourceAddress = (await ctx.tx.selectFrom('treasury_wallet').select('address').where('id', '=', treasuryWalletId).executeTakeFirstOrThrow()).address;
   }
+  // ADR 0022 §2.3: out of a GasFree account the refund carries its own network — the client receives the rest.
+  const networkFee = asset === 'USDT' && sourceAddress ? await escrowSendFee(ctx.tx, { tradeId: trade.id, fromAddress: sourceAddress }) : 0n;
+  if (networkFee > 0n && amount.minor <= networkFee) {
+    throw new DomainError('INVALID_AMOUNT', `${amount.toDecimalString()} USDT would not cover its own network (${Money.ofMinor(networkFee, 'USDT').toDecimalString()} USDT): nothing is sent back`);
+  }
   const seq = await nextLegSeq(ctx, trade.id);
   const leg = await ctx.tx
     .insertInto('settlement_leg')
     .values({
-      trade_id: trade.id, seq, side: 'REFUND_TO_CLIENT', asset, amount_minor: amount.minor, payer: 'EXCHANGE_ACCOUNT',
+      trade_id: trade.id, seq, side: 'REFUND_TO_CLIENT', asset, amount_minor: amount.minor - networkFee, network_fee_minor: networkFee > 0n ? networkFee : null, payer: 'EXCHANGE_ACCOUNT',
       inr_account_id: inrAccountId, treasury_wallet_id: treasuryWalletId, source_deposit_address_id: sourceDepositAddressId, capacity_reservation_id: reservationId,
       destination_bank_account_id: opts.destinationBankAccountId ?? null, destination_wallet_id: opts.destinationWalletId ?? null, refund_kind: opts.kind,
       notes: p.notes ? requireText(p.notes, 'notes', 2000) : null, created_by: ctx.actor.id ?? 'SYSTEM',
@@ -248,7 +254,8 @@ async function insertRefundLeg(
     .executeTakeFirstOrThrow();
   if (await isCounterpartyFunded(ctx.tx, trade.id)) {
     // FI-74: a refund gives back the client's own money of this trade — never the counterparty's, never the platform's.
-    await allocateFunding(ctx, { tradeId: trade.id, use: { kind: 'REFUND', legId: leg.id }, asset, amount, location: asset === 'INR' ? inrLocation(inrAccountId!) : tronLocation(sourceAddress!) });
+    // Out of a GasFree account, what reaches the client; the refund's own network is earmarked with its send (ADR 0022).
+    await allocateFunding(ctx, { tradeId: trade.id, use: { kind: 'REFUND', legId: leg.id }, asset, amount: Money.ofMinor(amount.minor - networkFee, asset), location: asset === 'INR' ? inrLocation(inrAccountId!) : tronLocation(sourceAddress!) });
   }
   // B2: a USDT refund is planned only against what the chain shows at the address it will leave from.
   if (asset === 'USDT') await assertPhysicallyAvailable(ctx, deps, { address: sourceAddress!, amount, excludeLegId: leg.id });
@@ -317,7 +324,8 @@ export function refundExcess(actor: OperatorActor, deps: Pick<SettlementDeps, 'p
 async function refundTotal(ctx: TxContext, tradeId: string, statuses: readonly ('PENDING' | 'PROCESSING' | 'COMPLETED')[]): Promise<bigint> {
   const r = await ctx.tx
     .selectFrom('settlement_leg')
-    .select(({ fn }) => fn.sum<string>('amount_minor').as('total'))
+    // What a refund out of a GasFree account left for its own network is returned to the client as surely as what reached it.
+    .select(sql<string>`sum(amount_minor + coalesce(network_fee_minor, 0))`.as('total'))
     .where('trade_id', '=', tradeId)
     .where('side', '=', 'REFUND_TO_CLIENT')
     .where('status', 'in', statuses)
@@ -505,6 +513,8 @@ export async function createUnwindRefundLegInTx(
   if (outstanding <= 0n) throw new DomainError('REFUND_IN_PROGRESS', 'the client’s USDT is already refunded, or its refund is already planned');
   const amount = Money.ofMinor(outstanding, 'USDT');
   const leg = await insertRefundLeg(ctx, deps, trade, amount, { sourceDepositAddressId: input.sourceDepositAddressId, notes: input.notes }, { kind: 'UNWIND', destinationWalletId: input.destinationWalletId });
-  await appendAudit(ctx, { action: 'leg.created', entityType: 'settlement_leg', entityId: leg.id, after: { ref: leg.ref, side: 'REFUND_TO_CLIENT', refund_kind: 'UNWIND', amount, trade_id: trade.id, destination_wallet_id: input.destinationWalletId, p2p: true } });
-  return { ...leg, amount };
+  // What reaches the client: out of a GasFree account, the refund less its own network (ADR 0022 §2.3).
+  const sent = Money.ofMinor((await ctx.tx.selectFrom('settlement_leg').select('amount_minor').where('id', '=', leg.id).executeTakeFirstOrThrow()).amount_minor, 'USDT');
+  await appendAudit(ctx, { action: 'leg.created', entityType: 'settlement_leg', entityId: leg.id, after: { ref: leg.ref, side: 'REFUND_TO_CLIENT', refund_kind: 'UNWIND', amount: sent, owed: amount, trade_id: trade.id, destination_wallet_id: input.destinationWalletId, p2p: true } });
+  return { ...leg, amount: sent };
 }

@@ -16,6 +16,7 @@ import styles from '../traders.module.css';
 
 function networkAssistant(n: TraderNetworkView): AssistantState {
   if (n.withdrawal) return { mood: 'waiting', label: 'Withdrawal', title: `${trx(n.withdrawal.amount)} on its way back`, body: n.withdrawal.status === 'APPROVED' ? 'Approved; the signer is sending it to your registered wallet.' : 'The desk approves it, then it is sent to your registered wallet.' };
+  if (n.mode === 'GASFREE') return { mood: 'ready', label: 'Network', title: 'Nothing to prepay', body: 'Each deal pays its own network in USDT, through GasFree. No TRX needed.' };
   if (!n.perOrder) return { mood: 'waiting', label: 'Network fees', title: 'Fees are being updated', body: 'New orders resume as soon as the exchange has current TRON fees.' };
   if (n.short) return { mood: 'alert', label: 'Top up', title: 'Not enough TRX for a new order', body: `An order holds up to ${trx(n.perOrderNeed ?? n.perOrder.BUY_USDT)} until it finishes. Send TRX from your registered wallet.` };
   return { mood: 'ready', label: 'Network deposit', title: `${trx(n.available)} free`, body: n.ordersCovered !== null ? `Enough for ${n.ordersCovered} more ${n.ordersCovered === 1 ? 'order' : 'orders'} at today’s fees.` : 'Ready for your next order.' };
@@ -85,13 +86,21 @@ export function NetworkScreen({ network: n, canAct }: { network: TraderNetworkVi
               <span className={styles.figureNote}>what client prices covered, in INR</span>
             </div>
           </dl>
+          {n.mode === 'GASFREE' ? (
+            <p className={styles.note}>
+              Your deals no longer use this deposit: each one pays its own network in USDT through GasFree, out of the deal itself — a transfer costs GasFree’s fee,
+              shown in the deal before you agree to it. Whatever TRX is left here stays yours: withdraw it to your registered wallet below.
+            </p>
+          ) : (
           <p className={styles.note}>
             Sending USDT on TRON burns TRX. For your orders it comes from this deposit, not from your Security Reserve or anyone else’s money: each order holds
             {n.perOrder ? <> up to <span className="ix-num">{trx(n.perOrder.BUY_USDT)}</span> (Buy USDT: paying you, or returning the client’s USDT) or <span className="ix-num">{trx(n.perOrder.SELL_USDT)}</span> (Sell USDT)</> : ' its worst case'} until it finishes, and the rest is free again. The network fee is in the client’s price, so what you spend for it is paid back in INR with your rewards. A return caused by your side not being completed is yours.
           </p>
+          )}
         </section>
 
         <div className={styles.stack}>
+          {n.mode === 'GASFREE' ? null : (
           <section className={shell.card} aria-labelledby="add-title">
             <h2 id="add-title" className={shell.cardTitle}>
               Add TRX
@@ -145,6 +154,7 @@ export function NetworkScreen({ network: n, canAct }: { network: TraderNetworkVi
               </p>
             ) : null}
           </section>
+          )}
 
           <section className={shell.card} aria-labelledby="withdraw-title">
             <h2 id="withdraw-title" className={shell.cardTitle}>

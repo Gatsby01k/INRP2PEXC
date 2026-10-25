@@ -41,6 +41,18 @@ export const Accounts = {
    * ledger (it is kept apart, in `network_budget_entry`).
    */
   networkFees: () => sub('EXPENSE', 'NETWORK_FEES', null, 'INR'),
+  /**
+   * ADR 0022: the USDT of a deal's network allowance once the deal is done, until its network is settled at the
+   * providers' actual charges (`network:{trade}:settle`). Carries the trade dimension; settles to zero per trade.
+   */
+  networkAllowance: () => sub('LIAB', 'NETWORK_ALLOWANCE', null, 'USDT'),
+  /**
+   * What GasFree charged a deal's own transfers (ADR 0022), recovered at cost from the allowance the deal carried: the
+   * counterpart of the network expense each transfer booked, never a margin.
+   */
+  networkRecovered: () => sub('REVENUE', 'NETWORK_RECOVERED', null, 'USDT'),
+  /** The network GasFree charged the exchange's transfers out of their deal addresses, in USDT (ADR 0022). */
+  networkFeesUsdt: () => sub('EXPENSE', 'NETWORK_FEES', null, 'USDT'),
 } as const;
 
 /** Resolves (creating if needed) ledger account ids. Accounts themselves are append-only. */

@@ -24,7 +24,12 @@ import styles from './desk.module.css';
 const LIVE_POLL_MS = 8_000;
 
 type Readiness = DeskToday['readiness'];
-const CHECKS: readonly { key: keyof Readiness; title: string; detail: string; href: string; fix: string }[] = [
+type Check = { key: keyof Readiness; title: string; detail: string; href: string; fix: string };
+/** ADR 0022: on GasFree each deal pays its own network in USDT — there is nothing to deposit. */
+const GASFREE_CHECK: Check = {
+  key: 'network', title: 'Network', detail: 'Each deal pays its own network in USDT, through GasFree. No TRX, nothing to deposit.', href: '/traders/network', fix: 'See how',
+};
+const CHECKS: readonly Check[] = [
   { key: 'approved', title: 'Approved as a trader', detail: 'INRP2P reviews your application once.', href: '/traders', fix: 'Traders' },
   { key: 'reserve', title: 'Security Reserve funded', detail: 'USDT from your registered wallet stands behind every deal.', href: '/traders/reserve', fix: 'Top up' },
   { key: 'destinations', title: 'Bank account and wallet verified', detail: 'Where your rupees and USDT come from and go to.', href: '/traders/settlement', fix: 'Check' },
@@ -70,9 +75,10 @@ export function TodayScreen({
     return () => window.clearInterval(timer);
   }, [router]);
 
-  const done = CHECKS.filter((c) => readiness[c.key]).length;
-  const next = CHECKS.find((c) => !readiness[c.key]);
-  const dealing = done === CHECKS.length;
+  const checks = today.network.mode === 'GASFREE' ? CHECKS.map((c) => (c.key === 'network' ? GASFREE_CHECK : c)) : CHECKS;
+  const done = checks.filter((c) => readiness[c.key]).length;
+  const next = checks.find((c) => !readiness[c.key]);
+  const dealing = done === checks.length;
   // A suspended desk is told why above; its own steps do not bring it back, so the checklist (and its “Go live”) waits.
   const suspended = desk.status === 'SUSPENDED';
   const p = today.periods[period];
@@ -91,7 +97,7 @@ export function TodayScreen({
             <CopyButton value={`https://${address}`} label="your desk’s address" />
           </span>
         }
-        aside={<NewDealSheet deskName={desk.displayName} feeBps={today.feeBps} prices={prices} status={desk.status} canCommit={canCommit} />}
+        aside={<NewDealSheet deskName={desk.displayName} feeBps={today.feeBps} networkFee={today.networkFee} prices={prices} status={desk.status} canCommit={canCommit} />}
         waiting={today.yourMove.length}
       />
       <main className={shell.main}>
@@ -141,17 +147,17 @@ export function TodayScreen({
           <section className={shell.card} aria-labelledby="ready-title">
             <div className={shell.cardHead}>
               <h2 id="ready-title" className={shell.cardTitle}>
-                {desk.status === 'LIVE' ? 'Clients cannot get a price right now' : done === CHECKS.length - 1 ? 'Ready to go live' : 'Getting your desk ready'}
+                {desk.status === 'LIVE' ? 'Clients cannot get a price right now' : done === checks.length - 1 ? 'Ready to go live' : 'Getting your desk ready'}
               </h2>
               <span className={shell.muted}>
-                {done} of {CHECKS.length}
+                {done} of {checks.length}
               </span>
             </div>
-            <div className={styles.progress} role="progressbar" aria-valuemin={0} aria-valuemax={CHECKS.length} aria-valuenow={done} aria-label="Steps done">
-              <span className={styles.progressBar} style={{ width: `${(done / CHECKS.length) * 100}%` }} />
+            <div className={styles.progress} role="progressbar" aria-valuemin={0} aria-valuemax={checks.length} aria-valuenow={done} aria-label="Steps done">
+              <span className={styles.progressBar} style={{ width: `${(done / checks.length) * 100}%` }} />
             </div>
             <ol className={styles.checklist}>
-              {CHECKS.map((c) => {
+              {checks.map((c) => {
                 const ok = readiness[c.key];
                 const isNext = c === next;
                 const canFix = c.key === 'live' ? canAdmin : c.key === 'prices' ? canCommit : true;
@@ -298,10 +304,12 @@ export function TodayScreen({
                 <span className={styles.figureIcon} aria-hidden="true">
                   <BoltIcon />
                 </span>
-                Network deposit
+                {today.network.mode === 'GASFREE' ? 'Network' : 'Network deposit'}
               </span>
               <span className={styles.figureValue}>
-                {today.network.dealsCovered === null ? '—' : today.network.dealsCovered === 1 ? 'Covers 1 more deal' : `Covers ${today.network.dealsCovered} more deals`}
+                {today.network.mode === 'GASFREE'
+                  ? today.networkFee ? `${usdtShort(today.networkFee)} in each deal` : 'In each deal, in USDT'
+                  : today.network.dealsCovered === null ? '—' : today.network.dealsCovered === 1 ? 'Covers 1 more deal' : `Covers ${today.network.dealsCovered} more deals`}
               </span>
             </div>
           </div>

@@ -7,12 +7,12 @@ import { type OperatorActor, authorizeOperator, operatorCommand } from '@inrp2p/
 import { consumeReservation, refundConsumedCapacity, releaseReservation, reserveCapacity } from '@inrp2p/inr-accounts';
 import { assertPayoutsOpen, effectiveObligations, isCounterpartyFunded, legTotals, lockTrade, tradeEconomics, transitionTrade } from '@inrp2p/trades';
 import { openExceptionInTx } from './exceptions.ts';
-import { allocateFunding, inrLocation, settleFunding, tronLocation } from './funding.ts';
+import { allocateFunding, earmarkSendNetwork, inrLocation, settleFunding, tronLocation } from './funding.ts';
 import { assertPhysicallyAvailable } from './availability.ts';
 import { maskedBankDestination, recordFiatTransfer } from './movements.ts';
 import { type SettlementDeps, policyOf } from './policy.ts';
 import { payoutNeedsSecondPerson } from './approvals.ts';
-import { planChainSend, sendOfLeg, signablePathOf, tradeHold } from '@inrp2p/network';
+import { escrowSendFee, planChainSend, sendOfLeg, signablePathOf, tradeHold } from '@inrp2p/network';
 
 export const payoutAssetOf = (direction: 'SELL_USDT' | 'BUY_USDT'): AssetCode => (direction === 'SELL_USDT' ? 'INR' : 'USDT');
 
@@ -280,7 +280,9 @@ export async function sendPayoutLegInTx(ctx: TxContext, deps: Pick<SettlementDep
         // B2: USDT leaves only an address a fresh reading of the chain shows holding it, after every outflow from that
         // address the reading does not show yet.
         sourceAddress = await legSourceAddress(ctx, leg);
-        await assertPhysicallyAvailable(ctx, deps, { address: sourceAddress, amount: Money.ofMinor(leg.amount_minor, 'USDT'), excludeLegId: leg.id });
+        // Out of a GasFree account the payout's own network leaves with it (ADR 0022).
+        const network = await escrowSendFee(ctx.tx, { tradeId: trade.id, fromAddress: sourceAddress });
+        await assertPhysicallyAvailable(ctx, deps, { address: sourceAddress, amount: Money.ofMinor(leg.amount_minor + network, 'USDT'), excludeLegId: leg.id });
       }
       // C1: who marked it sent is recorded from the verified actor — the person who may not confirm it above the
       // approval threshold.
@@ -291,12 +293,14 @@ export async function sendPayoutLegInTx(ctx: TxContext, deps: Pick<SettlementDep
       if (sourceAddress && leg.side === 'EXCHANGE_TO_CLIENT' && (await signablePathOf(ctx.tx, sourceAddress)) && (await tradeHold(ctx.tx, trade.id))) {
         const hold = (await tradeHold(ctx.tx, trade.id))!;
         const wallet = await ctx.tx.selectFrom('crypto_wallet').select('address').where('id', '=', leg.destination_wallet_id!).executeTakeFirstOrThrow();
-        // The client's price paid for its payout; on a P2P deal the trader's own rate did, and its deposit bears it (0040).
+        // The client's price paid for its payout; on a P2P deal whoever owns the client did — the trader (0040, a desk:
+        // ADR 0022), or INRP2P on its own deal priced in USDT.
         const p2p = (await tradeEconomics(ctx.tx, trade.id)).executionMode === 'P2P';
         const planned = await planChainSend(ctx, {
           purpose: 'CLIENT_PAYOUT', asset: 'USDT', tradeId: trade.id, legId: leg.id, fromAddress: sourceAddress, toAddress: wallet.address, amountMinor: leg.amount_minor,
-          funder: hold.trader_id, bearer: p2p ? 'TRADER' : 'CLIENT', needsApproval: await payoutNeedsSecondPerson(ctx.tx, leg), requestedBy: sentBy,
+          funder: hold.trader_id, bearer: p2p ? (hold.trader_id ? 'TRADER' : 'PLATFORM') : 'CLIENT', needsApproval: await payoutNeedsSecondPerson(ctx.tx, leg), requestedBy: sentBy,
         });
+        await earmarkSendNetwork(ctx, planned.sendId);
         sendRef = planned.ref;
       }
       await appendAudit(ctx, { action: 'leg.sent', entityType: 'settlement_leg', entityId: leg.id, before: { status: 'PENDING' }, after: { status: 'PROCESSING', payer: leg.payer, sent_by: sentBy, chain_send: sendRef } });

@@ -29,10 +29,15 @@ export async function currentFeePolicy(ex: Executor): Promise<FeePolicy> {
  * A deal the desk fills with its own liquidity, priced at the desk's rate with the policy's fee (FI-99). The same function
  * prices the quote and sizes the desk's order, so the two always agree (the database checks it, IX125).
  */
-export function priceDeskDeal(input: { direction: DirectionValue; fixedSide: FixedSideValue; amountMinor: bigint; clientRate: ClientRate; policy: FeePolicy }): DeskEconomics {
+export function priceDeskDeal(input: {
+  direction: DirectionValue; fixedSide: FixedSideValue; amountMinor: bigint; clientRate: ClientRate; policy: FeePolicy;
+  /** ADR 0022: the network allowance the desk's USDT side carries (what its network credit does not cover). */
+  networkFeeMinor?: bigint | null;
+}): DeskEconomics {
+  const networkFee = input.networkFeeMinor === undefined || input.networkFeeMinor === null ? {} : { networkFee: Money.ofMinor(input.networkFeeMinor, 'USDT') };
   return input.fixedSide === 'BASE'
-    ? computeDeskEconomics({ direction: input.direction, fixedSide: 'BASE', amount: Money.ofMinor(input.amountMinor, 'USDT'), clientRate: input.clientRate, feeBps: input.policy.ownDealBps })
-    : computeDeskEconomics({ direction: input.direction, fixedSide: 'QUOTE', amount: Money.ofMinor(input.amountMinor, 'INR'), clientRate: input.clientRate, feeBps: input.policy.ownDealBps });
+    ? computeDeskEconomics({ direction: input.direction, fixedSide: 'BASE', amount: Money.ofMinor(input.amountMinor, 'USDT'), clientRate: input.clientRate, feeBps: input.policy.ownDealBps, ...networkFee })
+    : computeDeskEconomics({ direction: input.direction, fixedSide: 'QUOTE', amount: Money.ofMinor(input.amountMinor, 'INR'), clientRate: input.clientRate, feeBps: input.policy.ownDealBps, ...networkFee });
 }
 
 // ---- handles -----------------------------------------------------------------------------------------------------

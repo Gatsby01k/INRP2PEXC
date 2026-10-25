@@ -93,6 +93,12 @@
       "Default": "",
       "Description": "TELEGRAM_BOT_USERNAME (without @), for desk alerts in Telegram (ADR 0020 §2.14). Empty: no Telegram. The bot token is TELEGRAM_BOT_TOKEN in the worker secret, added by hand before this is set."
     },
+    "GasFreeNetwork": {
+      "Type": "String",
+      "Default": "mainnet",
+      "AllowedValues": ["mainnet", "nile"],
+      "Description": "GASFREE_NETWORK: the GasFree deployment deal addresses send through (ADR 0022). Its key and secret are GASFREE_API_KEY and GASFREE_API_SECRET in the worker secret, added by hand (empty strings until GasFree is used) before this stack is updated."
+    },
     "WorkerCpu": {
       "Type": "String",
       "Default": "256",
@@ -596,6 +602,12 @@
                 }
               },
               {
+                "Name": "GASFREE_NETWORK",
+                "Value": {
+                  "Ref": "GasFreeNetwork"
+                }
+              },
+              {
                 "Name": "INRP2P_WORKER_ID",
                 "Value": "aws-fargate"
               }
@@ -635,6 +647,18 @@
                 "Name": "TELEGRAM_BOT_TOKEN",
                 "ValueFrom": {
                   "Fn::Sub": "${WorkerSecret}:TELEGRAM_BOT_TOKEN::"
+                }
+              },
+              {
+                "Name": "GASFREE_API_KEY",
+                "ValueFrom": {
+                  "Fn::Sub": "${WorkerSecret}:GASFREE_API_KEY::"
+                }
+              },
+              {
+                "Name": "GASFREE_API_SECRET",
+                "ValueFrom": {
+                  "Fn::Sub": "${WorkerSecret}:GASFREE_API_SECRET::"
                 }
               }
             ],

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { ChainVerifier, TronSendNetwork, UnsignedTronTx } from '@inrp2p/adapters';
+import type { ChainVerifier, GasFreeChain, GasFreePermit, GasFreeService, TronSendNetwork, UnsignedTronTx } from '@inrp2p/adapters';
 import type { ActorRef, Db, TxContext } from '@inrp2p/db';
 import { executeCommand } from '@inrp2p/commands';
 import type { SettlementDeps } from '@inrp2p/settlement';
@@ -10,6 +10,8 @@ export interface TxSigner {
   readonly feeWalletAddress: string;
   addressOf(path: string): string;
   sign(path: string, tx: UnsignedTronTx): string;
+  /** ADR 0022: a GasFree permit, signed only by the key at `path` when it is the permit's owner. */
+  signPermit(path: string, permit: GasFreePermit, chain: GasFreeChain): { readonly digest: string; readonly signature: string };
 }
 
 export interface OnchainPolicy {
@@ -32,6 +34,12 @@ export interface OnchainPolicy {
    * late refund or a sweep of the same address would otherwise need it topped up again at once.
    */
   readonly reclaimIdleMinutes: number;
+  /**
+   * ADR 0022: how long a GasFree permit may wait to execute (GasFree takes 60–600 s), and how far past its deadline every
+   * provider's solidified head must be before the permit is called dead.
+   */
+  readonly permitValiditySeconds: number;
+  readonly permitDeadlineMarginSeconds: number;
 }
 
 export const DEFAULT_ONCHAIN_POLICY: OnchainPolicy = Object.freeze({
@@ -43,6 +51,8 @@ export const DEFAULT_ONCHAIN_POLICY: OnchainPolicy = Object.freeze({
   blockedRetrySeconds: 120,
   batch: 25,
   reclaimIdleMinutes: 60,
+  permitValiditySeconds: 180,
+  permitDeadlineMarginSeconds: 60,
 });
 
 export interface OnchainDeps {
@@ -51,6 +61,8 @@ export interface OnchainDeps {
   readonly signer: TxSigner | null;
   /** The USDT verifier settlement confirms with (FI-24). */
   readonly chain: ChainVerifier;
+  /** ADR 0022: GasFree, through which deal addresses that are GasFree accounts send; none, and their sends wait, visibly. */
+  readonly gasFree?: GasFreeService;
   readonly policy?: Partial<OnchainPolicy>;
   readonly settlementPolicy?: SettlementDeps['policy'];
   /** Wall clock, ms — when to look for an expiry proof (the proof itself is the chain's). Tests use the fake chain's. */

@@ -15,7 +15,14 @@ export default async function NetworkDepositPage() {
   const home = await traderHome(ctx.db, ctx.actor.userId);
   return (
     <>
-      <PageHead icon={<BoltIcon />} eyebrow="Traders" title="Network deposit" lede="TRX that pays TRON for the USDT sent on your orders. Kept apart from your Security Reserve; what client prices cover comes back to you in INR." />
+      <PageHead
+        icon={<BoltIcon />}
+        eyebrow="Traders"
+        title="Network deposit"
+        lede={network.mode === 'GASFREE'
+          ? 'No TRX needed: each deal now pays its own network in USDT, through GasFree, out of the deal itself. TRX left here from before stays yours to take back.'
+          : 'TRX that pays TRON for the USDT sent on your orders. Kept apart from your Security Reserve; what client prices cover comes back to you in INR.'}
+      />
       <NetworkScreen network={network} canAct={home.canAct} />
     </>
   );

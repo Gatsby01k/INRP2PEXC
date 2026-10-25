@@ -26,3 +26,4 @@ export * from './narration.ts';
 export * from './p2p.ts';
 export * from './disputes.ts';
 export * from './sweeps.ts';
+export * from './gasfree.ts';

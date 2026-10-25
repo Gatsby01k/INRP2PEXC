@@ -1,5 +1,5 @@
 import { sql } from 'kysely';
-import { DomainError, formatTrx, normalizeTronAddress, requireText, requireUuid } from '@inrp2p/kernel';
+import { DomainError, Money, formatTrx, normalizeTronAddress, requireText, requireUuid } from '@inrp2p/kernel';
 import type { ChainSendBearer, ChainSendPurpose, ChainSendStatus, Executor, TxContext } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
 import { enqueueOutbox } from '@inrp2p/outbox';
@@ -8,6 +8,7 @@ import { lockTrader } from '@inrp2p/trader-core';
 import { lockFunder, networkAvailable, networkBudgetWallet } from './budget.ts';
 import { reservePerSendSun } from './estimate.ts';
 import { latestFeeSnapshot, networkFeePolicy } from './policy.ts';
+import { gasFreeOwnerOf, gasFreeSendCap } from './gasfree.ts';
 
 /**
  * A send is one on-chain transfer the exchange's signer will make (ADR 0017 §4): planned here, inside the command that
@@ -81,8 +82,8 @@ export async function sendNetworkUsed(ex: Executor, sendId: string): Promise<big
  * trade holds. Retries and gas that rose are paid from it, never from beyond it: what is over waits for a person.
  */
 export async function networkCapFor(ex: Executor, input: { tradeId: string; bearer: ChainSendBearer }): Promise<bigint> {
-  const hold = await ex.selectFrom('network_budget_hold').select(['per_send_sun', 'status']).where('trade_id', '=', input.tradeId).executeTakeFirst();
-  if (!hold || hold.status !== 'ACTIVE') throw new DomainError('NETWORK_BUDGET_INSUFFICIENT', 'this trade holds no network budget for another transfer');
+  const hold = await ex.selectFrom('network_budget_hold').select(['per_send_sun', 'status']).where('trade_id', '=', input.tradeId).where('unit', '=', 'TRX').executeTakeFirst();
+  if (!hold || hold.status !== 'ACTIVE' || hold.per_send_sun === null) throw new DomainError('NETWORK_BUDGET_INSUFFICIENT', 'this trade holds no network budget for another transfer');
   if (input.bearer === 'CLIENT') {
     const fee = await ex
       .selectFrom('trade as t')
@@ -101,7 +102,16 @@ export async function planChainSend(ctx: TxContext, input: PlanSendInput): Promi
   if (!path) throw new DomainError('CUSTODY_PATH_REFUSED', `${input.fromAddress} is not an address the exchange's signer holds`);
   const awaiting = input.needsApproval && !input.approvedBy;
   let cap: bigint | null = null;
-  if (input.purpose === 'FEE_SWEEP') {
+  let feeCap: bigint | null = null;
+  if (input.asset === 'USDT' && (await gasFreeOwnerOf(ctx.tx, input.fromAddress))) {
+    // ADR 0022: a GasFree account pays its own network in USDT, out of what it holds — nobody's TRX, nobody's budget. Its
+    // cap is one transfer (and the account's activation, the first time) at the fees its trade was priced on.
+    // A refund leg already said what its transfer leaves for the network (the client receives the rest): that is its cap.
+    const leg = input.purpose === 'REFUND' && input.legId
+      ? await ctx.tx.selectFrom('settlement_leg').select('network_fee_minor').where('id', '=', requireUuid(input.legId, 'legId')).executeTakeFirst()
+      : undefined;
+    feeCap = leg?.network_fee_minor ?? (await gasFreeSendCap(ctx.tx, { tradeId: requireUuid(input.tradeId, 'tradeId'), fromAddress: input.fromAddress }));
+  } else if (input.purpose === 'FEE_SWEEP') {
     // The platform's own transfer (block 10): its cap is the worst case of one transfer, from the platform's budget, which
     // must have it free now — the top-up is checked again at commit (IX108).
     if (input.funder !== null || input.bearer !== 'PLATFORM') throw new DomainError('INVALID_ARGUMENT', 'a fee sweep is paid from the platform\'s budget');
@@ -141,6 +151,7 @@ export async function planChainSend(ctx: TxContext, input: PlanSendInput): Promi
       amount_minor: input.amountMinor,
       fee_estimate_sun: input.feeEstimateSun ?? 0n,
       network_cap_sun: cap,
+      fee_cap_usdt_minor: feeCap,
       funder_trader_id: input.funder,
       bearer: input.bearer,
       status: awaiting ? 'AWAITING_APPROVAL' : 'PLANNED',
@@ -157,6 +168,7 @@ export async function planChainSend(ctx: TxContext, input: PlanSendInput): Promi
       ref: row.ref, purpose: input.purpose, asset: input.asset, amount: input.asset === 'TRX' ? `${formatTrx(input.amountMinor)} TRX` : input.amountMinor.toString(),
       from: input.fromAddress, to: input.toAddress, trade_id: input.tradeId ?? null, bearer: input.bearer, status: row.status, approved_by: input.approvedBy ?? null,
       network_cap_trx: cap === null ? null : formatTrx(cap),
+      fee_cap: feeCap === null ? null : Money.ofMinor(feeCap, 'USDT'),
     },
   });
   await enqueueOutbox(ctx, { type: 'chain_send.planned', aggregateType: 'chain_send', aggregateId: row.id, payload: { sendId: row.id, status: row.status } });
@@ -255,6 +267,10 @@ export interface SendRow {
   /** A USDT send's fixed TRX cap and what its top-ups drew on it so far (null for a TRX send). */
   readonly networkCapSun: bigint | null;
   readonly networkUsedSun: bigint | null;
+  /** ADR 0022: a GasFree send's fee cap, and what the controller charged it once confirmed. */
+  readonly feeCapUsdtMinor: bigint | null;
+  readonly feeChargedUsdtMinor: bigint | null;
+  readonly permits: readonly { readonly seq: number; readonly status: string; readonly nonce: bigint; readonly deadline: Date; readonly txid: string | null; readonly feeMinor: bigint | null; readonly lastAnswer: string | null }[];
   readonly createdAt: Date;
   readonly updatedAt: Date;
   readonly attempts: readonly {
@@ -271,12 +287,15 @@ export async function listSends(ex: Executor, filter: { tradeId?: string; open?:
   const sends = await q.execute();
   if (sends.length === 0) return [];
   const attempts = await ex.selectFrom('chain_send_attempt').selectAll().where('send_id', 'in', sends.map((s) => s.id)).orderBy('seq').execute();
+  const permits = await ex.selectFrom('gasfree_permit').selectAll().where('send_id', 'in', sends.map((s) => s.id)).orderBy('seq').execute();
   const used = new Map<string, bigint>();
-  for (const s of sends) if (s.asset === 'USDT') used.set(s.id, await sendNetworkUsed(ex, s.id));
+  for (const s of sends) if (s.network_cap_sun !== null) used.set(s.id, await sendNetworkUsed(ex, s.id));
   return sends.map((s) => ({
     id: s.id, ref: s.ref, purpose: s.purpose, asset: s.asset, status: s.status, tradeId: s.trade_id, amountMinor: s.amount_minor, from: s.from_address, to: s.to_address,
     bearer: s.bearer, funder: s.funder_trader_id, needsApproval: s.needs_approval, approvedBy: s.approved_by, blockedReason: s.blocked_reason, lastError: s.last_error,
     failedAttempts: s.failed_attempts, createdAt: s.created_at, updatedAt: s.updated_at, networkCapSun: s.network_cap_sun, networkUsedSun: used.get(s.id) ?? null,
+    feeCapUsdtMinor: s.fee_cap_usdt_minor, feeChargedUsdtMinor: permits.find((p) => p.send_id === s.id && p.status === 'CONFIRMED')?.fee_minor ?? null,
+    permits: permits.filter((p) => p.send_id === s.id).map((p) => ({ seq: p.seq, status: p.status, nonce: p.nonce, deadline: p.deadline, txid: p.txid, feeMinor: p.fee_minor, lastAnswer: p.last_answer })),
     attempts: attempts.filter((a) => a.send_id === s.id).map((a) => ({
       seq: a.seq, txid: a.txid, status: a.status, broadcasts: a.broadcasts, expiration: a.expiration, feeSun: a.fee_sun, energyUsed: a.energy_used, result: a.result,
       blockNumber: a.block_number, lastBroadcastResult: a.last_broadcast_result,

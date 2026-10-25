@@ -179,7 +179,8 @@ async function liveQuote(ex: Executor, quoteId: string): Promise<DeskDealQuote> 
     quoteId: r.id, ref: r.ref, requestId: r.trade_request_id, orderId: order.id, orderRef: order.ref, direction: r.direction,
     clientRate: Rate.ofMicro(r.client_rate_micro, 'CLIENT').toDecimalString(), base: Money.ofMinor(r.base_minor, 'USDT').toDecimalString(),
     clientInr: Money.ofMinor(r.quote_inr_minor, 'INR').toDecimalString(), deskBase: Money.ofMinor(r.route_base_minor!, 'USDT').toDecimalString(),
-    platformFee: Money.ofMinor(r.platform_fee_base_minor!, 'USDT').toDecimalString(), expiresAt: r.expires_at!.toISOString(),
+    platformFee: Money.ofMinor(r.platform_fee_base_minor!, 'USDT').toDecimalString(),
+    networkFee: r.network_fee_base_minor === null ? null : Money.ofMinor(r.network_fee_base_minor, 'USDT').toDecimalString(), expiresAt: r.expires_at!.toISOString(),
   };
 }
 

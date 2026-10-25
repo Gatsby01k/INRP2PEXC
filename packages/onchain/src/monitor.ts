@@ -8,6 +8,7 @@ import { openExceptionInTx, settleSignedSendInTx } from '@inrp2p/settlement';
 import { creditReclaimInTx, lockSend, recordSpent } from '@inrp2p/network';
 import { broadcastAttempt } from './sender.ts';
 import { type OnchainDeps, clockOf, policyOf, settlementDepsOf, step } from './deps.ts';
+import { type PermitReport, runPermits } from './gasfree.ts';
 
 /**
  * The signer's following half (ADR 0017 §4): every signed attempt is followed until the chain decides it.
@@ -31,6 +32,8 @@ export interface MonitorReport {
   readonly pending: number;
   readonly unresolved: number;
   readonly failures: readonly { readonly txid: string; readonly code: string; readonly message: string }[];
+  /** ADR 0022: the GasFree permits followed in the same pass. */
+  readonly permits: PermitReport;
 }
 
 export async function runMonitor(db: Db, deps: OnchainDeps): Promise<MonitorReport> {
@@ -73,7 +76,7 @@ export async function runMonitor(db: Db, deps: OnchainDeps): Promise<MonitorRepo
       report.failures.push({ txid: a.txid, code: isDomainError(e) ? e.code : (pgErrorCode(e) ?? 'UNEXPECTED'), message: (e instanceof Error ? e.message : String(e)).slice(0, 500) });
     }
   }
-  return report;
+  return { ...report, permits: await runPermits(db, deps) };
 }
 
 /** Records a final outcome and settles what it paid. Returns true when the transfer succeeded. */

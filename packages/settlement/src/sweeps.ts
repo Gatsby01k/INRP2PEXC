@@ -3,10 +3,10 @@ import { DomainError, Money, normalizeTronAddress, requireUuid } from '@inrp2p/k
 import type { Executor, TxContext } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
 import { type OperatorActor, operatorCommand } from '@inrp2p/identity';
-import { planChainSend, signablePathOf } from '@inrp2p/network';
+import { escrowSendFee, planChainSend, signablePathOf } from '@inrp2p/network';
 import { assertPayoutsOpen, lockTrade } from '@inrp2p/trades';
 import { assertPhysicallyAvailable } from './availability.ts';
-import { fundingSources, settleFunding, tronLocation } from './funding.ts';
+import { earmarkSendNetwork, fundingSources, settleFunding, tronLocation } from './funding.ts';
 import { locateTransferLog, lockMovement, postMovement, recordCryptoTransfer, verifyCryptoTransfer } from './movements.ts';
 import type { SettlementDeps } from './policy.ts';
 
@@ -60,19 +60,23 @@ export async function planFeeSweepInTx(ctx: TxContext, deps: Pick<SettlementDeps
   const trades = await sweepableTradesAt(ctx.tx, address);
   const total = trades.reduce((t, x) => t + x.sweepableMinor, 0n);
   if (total <= 0n || total < input.minMinor) return null;
-  const amount = Money.ofMinor(total, 'USDT');
-  await assertPhysicallyAvailable(ctx, deps, { address, amount });
-  // The send names the latest trade it carries the earnings of: the lock its signing takes, the key it is planned under.
-  const anchor = trades[0]!;
+  // The send names the trade that earned the most there: the lock its signing takes, the key it is planned under — and,
+  // out of a GasFree account, whose allowance pays the sweep's own network (ADR 0022 §2.3), which the sweep leaves behind.
+  const anchor = trades.reduce((m, t) => (t.sweepableMinor > m.sweepableMinor ? t : m), trades[0]!);
+  const network = await escrowSendFee(ctx.tx, { tradeId: anchor.tradeId, fromAddress: address });
+  if (anchor.sweepableMinor <= network) return null;
+  const amount = Money.ofMinor(total - network, 'USDT');
+  await assertPhysicallyAvailable(ctx, deps, { address, amount: Money.ofMinor(total, 'USDT') });
   const send = await planChainSend(ctx, {
-    purpose: 'FEE_SWEEP', asset: 'USDT', tradeId: anchor.tradeId, fromAddress: address, toAddress: wallet.address, amountMinor: total,
+    purpose: 'FEE_SWEEP', asset: 'USDT', tradeId: anchor.tradeId, fromAddress: address, toAddress: wallet.address, amountMinor: amount.minor,
     funder: null, bearer: 'PLATFORM', needsApproval: false, requestedBy: input.requestedBy,
   });
+  await earmarkSendNetwork(ctx, send.sendId);
 
   // Each trade's part, from its own sources at the address, oldest money first.
   const location = tronLocation(address);
   for (const t of trades) {
-    let left = t.sweepableMinor;
+    let left = t.tradeId === anchor.tradeId ? t.sweepableMinor - network : t.sweepableMinor;
     for (const s of await fundingSources(ctx.tx, t.tradeId, { asset: 'USDT' })) {
       if (left === 0n) break;
       if (s.location !== location || s.availableMinor <= 0n) continue;

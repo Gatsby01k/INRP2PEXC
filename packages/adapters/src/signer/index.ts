@@ -5,7 +5,8 @@ import { wordlist } from '@scure/bip39/wordlists/english.js';
 import { DomainError, type TronAddress, normalizeTronAddress } from '@inrp2p/kernel';
 import { AwsKmsKeyEncryptionKey, awsCredentialsFromEnvironment } from '../aws-kms.ts';
 import { type FieldProtector, type Sealed, createFieldProtector } from '../field-protection.ts';
-import { DEPOSIT_ACCOUNT_PATH, FEE_WALLET_PATH, isSignablePath } from '../hd-wallet.ts';
+import { type GasFreeChain, type GasFreePermit, permitDigest, signPermitDigest } from '../gasfree.ts';
+import { DEPOSIT_ACCOUNT_PATH, FEE_WALLET_PATH, depositIndexOf, isSignablePath } from '../hd-wallet.ts';
 import { type KeyEncryptionKey, LocalKeyEncryptionKey } from '../keys.ts';
 import { type UnsignedTronTx, decodeTronTransaction, signTxid, tronAddressOfPublicKey } from '../tron-tx.ts';
 
@@ -82,6 +83,24 @@ export class HdSigner {
       const owner = tronAddressOfPublicKey(key.publicKey!);
       if (owner !== decoded.contract.from) throw new DomainError('CUSTODY_TX_MISMATCH', `the key at ${path} is ${owner}, the transaction is sent by ${decoded.contract.from}`);
       return signTxid(decoded.txid, key.privateKey!);
+    } finally {
+      key.wipePrivateData();
+    }
+  }
+
+  /**
+   * Signs a GasFree permit (ADR 0022) — USDT out of the GasFree account a deposit key owns. The digest is computed here,
+   * from the permit itself, and signed only when the key at `path` is the permit's owner.
+   */
+  signPermit(path: string, permit: GasFreePermit, chain: GasFreeChain): { readonly digest: string; readonly signature: string } {
+    if (depositIndexOf(path) === null) throw new DomainError('CUSTODY_PATH_REFUSED', `a GasFree account belongs to a deposit address; ${path} is not one`);
+    if (permit.token !== chain.usdt) throw new DomainError('CUSTODY_TX_MISMATCH', `a permit moves USDT (${chain.usdt}) only, not ${permit.token}`);
+    const key = this.#key(path);
+    try {
+      const owner = tronAddressOfPublicKey(key.publicKey!);
+      if (owner !== permit.user) throw new DomainError('CUSTODY_TX_MISMATCH', `the key at ${path} is ${owner}; it is not the permit's owner ${permit.user}`);
+      const digest = permitDigest(permit, chain);
+      return { digest, signature: signPermitDigest(digest, key.privateKey!) };
     } finally {
       key.wipePrivateData();
     }

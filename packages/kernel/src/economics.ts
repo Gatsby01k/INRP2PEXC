@@ -29,6 +29,12 @@ export interface TradeEconomics {
    * deal the desk fills itself it is the whole margin.
    */
   readonly platformFeeBase?: Money<'USDT'>;
+  /**
+   * ADR 0022 (FI-101): the network allowance the deal's escrow carries, in USDT — part of `grossMarginBase` until the
+   * trade's network is settled at the providers' actual charges. A desk's USDT side carries it beside the platform fee;
+   * INRP2P's own P2P deal carries it out of its margin. Absent on a trade priced in TRX.
+   */
+  readonly networkFeeBase?: Money<'USDT'>;
 }
 
 /**
@@ -115,16 +121,22 @@ export function platformFeeOf(base: Money<'USDT'>, bps: number): Money<'USDT'> {
 }
 
 export type DeskEconomicsInput =
-  | { direction: Direction; fixedSide: 'BASE'; amount: Money<'USDT'>; clientRate: ClientRate; feeBps: number }
-  | { direction: Direction; fixedSide: 'QUOTE'; amount: Money<'INR'>; clientRate: ClientRate; feeBps: number };
+  | { direction: Direction; fixedSide: 'BASE'; amount: Money<'USDT'>; clientRate: ClientRate; feeBps: number; networkFee?: Money<'USDT'> }
+  | { direction: Direction; fixedSide: 'QUOTE'; amount: Money<'INR'>; clientRate: ClientRate; feeBps: number; networkFee?: Money<'USDT'> };
 
-export type DeskEconomics = TradeEconomics & { readonly routeBase: Money<'USDT'>; readonly grossMarginBase: Money<'USDT'>; readonly platformFeeBase: Money<'USDT'> };
+export type DeskEconomics = TradeEconomics & {
+  readonly routeBase: Money<'USDT'>; readonly grossMarginBase: Money<'USDT'>; readonly platformFeeBase: Money<'USDT'>; readonly networkFeeBase?: Money<'USDT'>;
+};
 
 /**
  * A deal a desk fills with its own liquidity (ADR 0020, FI-99). It runs P2P (ADR 0019): one rupee amount, straight between
  * the client and the desk, at the desk's own rate — rounded against the client as always. The desk's USDT differs from the
  * client's only by the platform's fee, taken from the escrow: a client selling sends `base` and the desk receives
  * `base − fee`; a client buying receives `base` and the desk delivers `base + fee`. The fee is the deal's whole margin.
+ *
+ * ADR 0022: when the deal's network is priced in USDT, the desk's side carries its network allowance too — `base − fee −
+ * network` to the desk, `base + fee + network` from it — and the margin at the escrow is both; the client's amounts never
+ * change.
  */
 export function computeDeskEconomics(input: DeskEconomicsInput): DeskEconomics {
   const { direction, clientRate } = input;
@@ -141,7 +153,13 @@ export function computeDeskEconomics(input: DeskEconomicsInput): DeskEconomics {
   }
   assertPriceable(base, inr, inr);
   const fee = platformFeeOf(base, input.feeBps);
-  const routeBase = buy ? base.add(fee) : base.sub(fee);
-  if (!routeBase.isPositive()) throw new DomainError('INVALID_AMOUNT', 'amount is too small to carry the platform fee');
-  return Object.freeze({ direction, fixedSide: input.fixedSide, base, clientInr: inr, routeInr: inr, grossMargin: inr.sub(inr), routeBase, grossMarginBase: fee, platformFeeBase: fee });
+  const network = input.networkFee;
+  if (network?.isNegative()) throw new DomainError('INVALID_AMOUNT', 'a network allowance is never negative');
+  const margin = network ? fee.add(network) : fee;
+  const routeBase = buy ? base.add(margin) : base.sub(margin);
+  if (!routeBase.isPositive()) throw new DomainError('INVALID_AMOUNT', network ? 'amount is too small to carry the platform fee and the network' : 'amount is too small to carry the platform fee');
+  return Object.freeze({
+    direction, fixedSide: input.fixedSide, base, clientInr: inr, routeInr: inr, grossMargin: inr.sub(inr), routeBase, grossMarginBase: margin, platformFeeBase: fee,
+    ...(network ? { networkFeeBase: network } : {}),
+  });
 }

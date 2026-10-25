@@ -213,3 +213,14 @@ Full record: `docs/adr/0016-counterparty-funded-execution.md`.
 - **A desk's team (2026-10-18):** an administrator invites people by email as administrators or operators (both can bind
   the desk); they join by signing in with that email. Inviting, changing a role and removing need the administrator's
   authenticator; the whole team is told of every change. One person, one account.
+
+## D-21 — Network fees in USDT through GasFree: nobody prepays — Resolved (owner, 2026-10-25; ADR 0022)
+- **Neither the owner nor the platform pays for anyone's network, not even as a float**; no participant needs TRX.
+  Rented energy (Netts, TronZap) needs a prepaid TRX balance and was rejected for that.
+- **Deal addresses are GasFree accounts** of the exchange's own HD keys: their USDT leaves by permits the key signs, and
+  each transfer's network (1.5 USDT, plus 1.5 USDT the first time) is paid in USDT out of that same account.
+- **The deal carries its network**: a desk's in its USDT side, INRP2P's own out of its margin (4.5 USDT a deal today);
+  refunds and returns go back less their own network.
+- **Custody trust accepted**: while a deal is open its USDT moves only through GasFree, whose controller is upgradable.
+- Off by default after migration 0041; a person switches deals to GasFree once its fees are read on chain.
+

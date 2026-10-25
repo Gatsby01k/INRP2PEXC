@@ -9,7 +9,10 @@ import {
   attachDeskClientInTx, closeUnstartedOrder, currentDeskPrices, currentFeePolicy, deskByHandle, deskById, deskClient, freeCapacity, lockBlock, lockTrader,
   priceDeskDeal, readBlocks, readOrder, readStanding, switchOnIssues, traderProgram,
 } from '@inrp2p/trader-core';
-import { assertProfitable, currentNetworkCosts, networkAvailable, priceNetworkP2p, recordQuoteNetworkFee, reservePerSendSun } from '@inrp2p/network';
+import {
+  type UsdtNetworkTerms, assertProfitable, currentNetworkCosts, networkAvailable, networkFeePolicy, priceNetworkP2p, pricingOfUsdtTerms, recordQuoteNetworkFee, reservePerSendSun,
+  usdtNetworkTerms,
+} from '@inrp2p/network';
 import { lockRow } from './actors.ts';
 import { type QuoteDeps, policyOf } from './policy.ts';
 import { type CreateRequestPayload, cancelSentQuoteOfRequest, closeRequest, openRequestInTx } from './requests.ts';
@@ -24,8 +27,9 @@ import { businessNow } from './security.ts';
  * - the rupees are one amount, straight between the client and the desk (ADR 0019 P2P); the desk's USDT differs from the
  *   client's only by the platform's fee, the policy's basis points of the client's USDT, rounded up (`priceDeskDeal`);
  * - the desk must be in standing (approved, its Security Reserve funded, its registered bank account and wallet active —
- *   the same standing a trader switches on with, TD-38), within the limits INRP2P set on it, and its network deposit must
- *   cover the deal's transfers (migration 0040);
+ *   the same standing a trader switches on with, TD-38), within the limits INRP2P set on it; its network is priced in USDT
+ *   and carried by its own USDT side beside the fee, less what its network credit covers — and the credit must hold a
+ *   sell's refund (ADR 0022) — or, priced in TRX, its network deposit must cover the deal's transfers (migration 0040);
  * - the capacity it holds is held only as long as the quote can be accepted, and a minute more;
  * - the database re-checks the desk, its client, the route and the fee (IX123–IX125), a link's rate (IX126), and that the
  *   order and the quote price the same amounts (IX075).
@@ -54,6 +58,8 @@ export interface DeskDealQuote {
   /** The desk's USDT: what it receives (client sells) or delivers (client buys). */
   readonly deskBase: string;
   readonly platformFee: string;
+  /** ADR 0022: the network allowance the desk's USDT side carries (settled at cost into its network credit); null in TRX. */
+  readonly networkFee: string | null;
   readonly expiresAt: string;
 }
 
@@ -122,7 +128,17 @@ export async function quoteLockedDeskDealInTx(ctx: TxContext, deps: Pick<QuoteDe
   const clientRate = Rate.ofMicro(rateMicro, 'CLIENT');
   const fees = await currentFeePolicy(ctx.tx);
   const requested = (request.fixed_side === 'BASE' ? request.requested_base_minor : request.requested_quote_minor)!;
-  const econ = priceDeskDeal({ direction: request.direction, fixedSide: request.fixed_side, amountMinor: requested, clientRate, policy: fees });
+  // ADR 0022: on GasFree the deal's network rides on the desk's USDT side, at GasFree's fees — nothing is prepaid.
+  let rented: UsdtNetworkTerms | null = null;
+  if ((await networkFeePolicy(ctx.tx)).resourceMode === 'GASFREE') {
+    rented = await usdtNetworkTerms(ctx.tx, { funderTraderId: trader.id });
+  } else {
+    // Its transfers are the desk's to fund in TRX: it holds its transfer and a return of the escrow from its network deposit.
+    const costs = await currentNetworkCosts(ctx.tx);
+    const need = reservePerSendSun(costs.snapshot, costs.policy) * BigInt(1 + costs.policy.refundSendsSell);
+    if ((await networkAvailable(ctx.tx, trader.id)) < need) throw new DomainError('NETWORK_BUDGET_INSUFFICIENT', "the desk's network deposit cannot cover this deal's transfers");
+  }
+  const econ = priceDeskDeal({ direction: request.direction, fixedSide: request.fixed_side, amountMinor: requested, clientRate, policy: fees, networkFeeMinor: rented?.allowanceUsdtMinor ?? null });
   if (limits && (econ.base.minor < limits.min || econ.base.minor > limits.max)) {
     throw new DomainError('INVALID_AMOUNT', `this desk deals ${said(limits.min)} to ${said(limits.max)} USDT at its live price`, { min: usdt(limits.min), max: usdt(limits.max) });
   }
@@ -134,11 +150,6 @@ export async function quoteLockedDeskDealInTx(ctx: TxContext, deps: Pick<QuoteDe
   if (facts.operatorMaxOrderMinor !== null && capacityMinor > facts.operatorMaxOrderMinor) {
     throw new DomainError('INVALID_AMOUNT', 'this deal is larger than this desk can take in one deal');
   }
-
-  // Its transfers are the desk's to fund: it holds its transfer and a return of the escrow from its network deposit.
-  const costs = await currentNetworkCosts(ctx.tx);
-  const need = reservePerSendSun(costs.snapshot, costs.policy) * BigInt(1 + costs.policy.refundSendsSell);
-  if ((await networkAvailable(ctx.tx, trader.id)) < need) throw new DomainError('NETWORK_BUDGET_INSUFFICIENT', "the desk's network deposit cannot cover this deal's transfers");
 
   // What the client asked before gives its capacity back first: a lapsed quote of this request, or the client's earlier
   // requests this one supersedes.
@@ -191,13 +202,15 @@ export async function quoteLockedDeskDealInTx(ctx: TxContext, deps: Pick<QuoteDe
       base_minor: econ.base.minor, quote_inr_minor: econ.clientInr.minor, client_rate_micro: rateMicro, route_rate_micro: rateMicro,
       route_rate_snapshot_id: snapshot.snapshotId, route_id: facts.routeId, route_value_inr_minor: econ.routeInr.minor, gross_margin_inr_minor: 0n,
       route_base_minor: econ.routeBase.minor, gross_margin_base_minor: econ.grossMarginBase.minor,
-      platform_fee_bps: fees.ownDealBps, platform_fee_base_minor: econ.platformFeeBase.minor,
+      platform_fee_bps: fees.ownDealBps, platform_fee_base_minor: econ.platformFeeBase.minor, network_fee_base_minor: econ.networkFeeBase?.minor ?? null,
       network: request.network, bank_account_id: request.bank_account_id, crypto_wallet_id: request.crypto_wallet_id,
       valid_for_seconds: validity, is_counter: false, negative_margin_reason: null, created_by: committedBy,
     })
     .returning(['id', 'ref'])
     .executeTakeFirstOrThrow();
-  const network = await priceNetworkP2p(ctx.tx, { direction: request.direction, clientRateMicro: rateMicro, grossMarginBaseMinor: econ.grossMarginBase.minor, traderOrderId: order.id });
+  const network = rented
+    ? pricingOfUsdtTerms(rented, { direction: request.direction, clientRateMicro: rateMicro, grossMarginBaseMinor: econ.grossMarginBase.minor, traderOrderId: order.id })
+    : await priceNetworkP2p(ctx.tx, { direction: request.direction, clientRateMicro: rateMicro, grossMarginBaseMinor: econ.grossMarginBase.minor, traderOrderId: order.id });
   assertProfitable(network);
   await recordQuoteNetworkFee(ctx, quote.id, network);
 
@@ -209,14 +222,15 @@ export async function quoteLockedDeskDealInTx(ctx: TxContext, deps: Pick<QuoteDe
     after: {
       ref: quote.ref, desk_id: desk.id, order_id: order.id, request_id: request.id, direction: request.direction, client_rate: clientRate,
       priced_on: limits ? 'LIVE_PRICE' : 'DEAL_RATE', superseded: supersede,
-      base: econ.base, client_inr: econ.clientInr, desk_base: econ.routeBase, platform_fee: econ.platformFeeBase, fee_bps: fees.ownDealBps, network_funder: trader.id, expires_at: expiresAt,
+      base: econ.base, client_inr: econ.clientInr, desk_base: econ.routeBase, platform_fee: econ.platformFeeBase, fee_bps: fees.ownDealBps, network_funder: trader.id,
+      network_in_escrow: econ.networkFeeBase ?? null, expires_at: expiresAt,
     },
   });
   await enqueueOutbox(ctx, { type: 'quote.sent', aggregateType: 'quote', aggregateId: quote.id, payload: { quoteId: quote.id, expiresAt: expiresAt.toISOString(), clientId: request.client_id } });
   return {
     quoteId: quote.id, ref: quote.ref, requestId: request.id, orderId: order.id, orderRef: order.ref, direction: request.direction, clientRate: clientRate.toDecimalString(),
     base: econ.base.toDecimalString(), clientInr: econ.clientInr.toDecimalString(), deskBase: econ.routeBase.toDecimalString(),
-    platformFee: econ.platformFeeBase.toDecimalString(), expiresAt: expiresAt.toISOString(),
+    platformFee: econ.platformFeeBase.toDecimalString(), networkFee: econ.networkFeeBase?.toDecimalString() ?? null, expiresAt: expiresAt.toISOString(),
   };
 }
 

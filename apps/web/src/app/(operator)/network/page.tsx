@@ -6,7 +6,7 @@ import { age, dateTime, plainDecimal } from '../_desk/format.ts';
 import { Chip, KpiBand, Notice, Page, PageBody, PageHeader, Section } from '../_desk/ui.tsx';
 import { optionalEnv } from '../../../server/env.ts';
 import { trx } from '../_desk/network.ts';
-import { DepositForm, FundersTable, RegisterHdWallet, SendsTable, SignerSwitch, TradesNetworkTable, TrxPriceForm, WithdrawalsTable } from './NetworkPanels.tsx';
+import { DepositForm, FundersTable, RegisterHdWallet, ResourceModeSwitch, SendsTable, SignerSwitch, TradesNetworkTable, TrxPriceForm, WithdrawalsTable, usdt } from './NetworkPanels.tsx';
 import d from '../_desk/desk.module.css';
 
 /** A TRX price keeps every digit it was published with, without the padding zeros: "0.329785", "0.30". */
@@ -43,9 +43,34 @@ export default async function NetworkPage() {
       <PageHeader
         title="Network budget"
         meta={view.hdAccount ? <>Deal addresses from {view.hdAccount.provider} · budget wallet <span className={d.mono}>{view.hdAccount.feeWallet}</span></> : 'No HD account recorded: deposit addresses are not issued by the exchange’s own wallet yet.'}
-        badge={<SignerSwitch on={view.policy.autoSend} canSet={allows(ctx.actor, 'settings:network_fees')} />}
+        badge={
+          <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
+            <ResourceModeSwitch mode={view.gasFree.mode} canSet={allows(ctx.actor, 'settings:network_fees')} />
+            <SignerSwitch on={view.policy.autoSend} canSet={allows(ctx.actor, 'settings:network_fees')} />
+          </span>
+        }
       />
       <PageBody>
+        {view.gasFree.mode === 'GASFREE' || view.gasFree.fees ? (
+          <KpiBand
+            label="GasFree"
+            items={[
+              {
+                key: 'd', label: 'A deal carries', value: view.gasFree.fees ? usdt(view.gasFree.fees.perDeal) : '—', size: 'lg',
+                sub: view.gasFree.fees ? `${usdt(view.gasFree.fees.transfer)} a transfer · ${usdt(view.gasFree.fees.activation)} activation` : 'its fees were never read',
+                ...(view.gasFree.mode === 'GASFREE' && (!view.gasFree.fees || view.gasFree.fees.stale) ? { tone: 'danger' as const } : {}),
+              },
+              { key: 'r', label: 'Read from the controller', value: view.gasFree.fees ? `${age(view.gasFree.fees.observedAt, nowMs)} ago` : '—', sub: 'on chain, every ten minutes' },
+              { key: 'c', label: 'Charged to deals', value: usdt(view.gasFree.charged.deals), sub: `${view.gasFree.charged.transfers} transfers · refunds ${usdt(view.gasFree.charged.clients)} · returns ${usdt(view.gasFree.charged.traders)}` },
+              { key: 'p', label: 'Permits in flight', value: String(view.gasFree.livePermits), sub: 'signed, waiting for the chain' },
+            ]}
+          />
+        ) : null}
+        {view.gasFree.mode === 'GASFREE' && (!view.gasFree.fees || view.gasFree.fees.stale) ? (
+          <Notice tone="danger" icon="exceptions" role="alert">
+            <strong>GasFree’s fees are not current.</strong> No deal can be priced on GasFree until the worker reads them again (RUNBOOKS gasfree).
+          </Notice>
+        ) : null}
         <KpiBand
           label="Network budget"
           items={[

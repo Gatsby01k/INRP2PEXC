@@ -68,7 +68,10 @@ export async function decideNetworkWithdrawalAction(input: { withdrawalId: strin
 }
 
 export async function setNetworkFeePolicyAction(
-  input: { autoSendEnabled?: boolean; minNetMargin?: string; quoteEnergy?: number; reserveEnergy?: number; priceBufferBps?: number; topupBufferBps?: number; feeSweepEnabled?: boolean; feeSweepMin?: string; trxReclaimMin?: string; reason: string },
+  input: {
+    autoSendEnabled?: boolean; minNetMargin?: string; quoteEnergy?: number; reserveEnergy?: number; priceBufferBps?: number; topupBufferBps?: number; feeSweepEnabled?: boolean; feeSweepMin?: string;
+    trxReclaimMin?: string; resourceMode?: 'BURN' | 'GASFREE'; reason: string;
+  },
   key: string,
 ) {
   return done(await runCommand((ctx) => setNetworkFeePolicy(ctx.actor), input, { name: 'settings.network_fees', idempotencyKey: key, financial: false }), '/network', '/revenue');

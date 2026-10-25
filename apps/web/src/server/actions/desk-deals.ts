@@ -20,7 +20,9 @@ const CANNOT_FILL = 'This desk cannot take this deal right now. Try a smaller am
 
 function phrased<R>(out: CommandResult<R>): CommandResult<R> {
   if (out.ok) return out;
-  if (out.code === 'NETWORK_BUDGET_INSUFFICIENT' || out.code === 'CAPACITY_INSUFFICIENT' || out.code === 'TRADER_CAPACITY_INSUFFICIENT') return { ...out, message: CANNOT_FILL };
+  if (out.code === 'NETWORK_BUDGET_INSUFFICIENT' || out.code === 'NETWORK_FEES_UNKNOWN' || out.code === 'CAPACITY_INSUFFICIENT' || out.code === 'TRADER_CAPACITY_INSUFFICIENT') {
+    return { ...out, message: CANNOT_FILL };
+  }
   if (out.code === 'EXCHANGE_NOT_ENABLED') return { ...out, message: 'This account cannot deal yet. Ask INRP2P to open the Exchange for it.' };
   return out;
 }

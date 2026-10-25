@@ -9,6 +9,22 @@ import styles from '../traders.module.css';
  * money, apart from the Security Reserve; what the client's price already paid for comes back with the rewards.
  */
 export function NetworkCard({ network }: { network: TraderNetworkView }) {
+  // ADR 0022: on GasFree each deal pays its own network in USDT — nothing to keep here.
+  if (network.mode === 'GASFREE') {
+    return (
+      <section className={shell.card} aria-labelledby="network-title">
+        <div className={shell.cardHead}>
+          <h2 id="network-title" className={shell.cardTitle}>
+            Network
+          </h2>
+          <Link className={shell.textAction} href="/traders/network">
+            Details
+          </Link>
+        </div>
+        <p className={styles.note}>Each deal pays its own network in USDT, through GasFree. No TRX to buy, nothing to deposit.</p>
+      </section>
+    );
+  }
   return (
     <section className={shell.card} aria-labelledby="network-title">
       <div className={shell.cardHead}>

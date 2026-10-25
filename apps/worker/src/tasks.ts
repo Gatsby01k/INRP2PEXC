@@ -17,7 +17,7 @@ import { type WorkerBeat, recordWorkerBeat } from '@inrp2p/trades';
 import { type ReceiptObjectStore, type ReceiptPdfPrinter, receiptsNotStored, storeReceiptObjects } from '@inrp2p/reporting';
 import { DomainError } from '@inrp2p/kernel';
 import type { ChainMonitoring } from './config.ts';
-import { type OnchainDeps, runAutopay, runFeeRefresh, runHoldClosing, runMonitor, runSender, runTrxRateRefresh, runUnwindClosing } from '@inrp2p/onchain';
+import { type OnchainDeps, runAutopay, runFeeRefresh, runGasFreeFeeRefresh, runHoldClosing, runMonitor, runSender, runTrxRateRefresh, runUnwindClosing } from '@inrp2p/onchain';
 import { sql } from 'kysely';
 
 /** Runs a system job step through the command pipeline (one transaction, audit, retry-safe state guards). */
@@ -176,7 +176,10 @@ export function buildTaskList(
     for (const f of monitor.failures) helpers.logger.error(`onchain_cycle: transaction ${f.txid} (${f.code}): ${f.message}`);
     await runUnwindClosing(db);
     await runHoldClosing(db);
-    const moving = autopay.payoutsPlanned + autopay.routePaymentsPlanned + autopay.refundsPlanned + autopay.sweepsPlanned + autopay.reclaimsPlanned + sender.signed + sender.topupsPlanned + sender.resumed + monitor.confirmed + monitor.pending + monitor.rebroadcast + monitor.expired;
+    for (const f of monitor.permits.failures) helpers.logger.warn(`onchain_cycle: GasFree permit ${f.permitId}: ${f.code} ${f.message}`);
+    // ADR 0022: permits signed, given to GasFree, confirmed or proved dead keep the cycle hot like transactions do.
+    const permits = sender.permitsSigned + monitor.permits.submitted + monitor.permits.confirmed + monitor.permits.pending + monitor.permits.expired;
+    const moving = autopay.payoutsPlanned + autopay.routePaymentsPlanned + autopay.refundsPlanned + autopay.sweepsPlanned + autopay.reclaimsPlanned + sender.signed + sender.topupsPlanned + sender.resumed + permits + monitor.confirmed + monitor.pending + monitor.rebroadcast + monitor.expired;
     if (moving > 0 || monitor.examined > 0) {
       await sql`select graphile_worker.add_job('onchain_cycle', '{}'::json, run_at => now() + interval '10 seconds', job_key => 'onchain_cycle', job_key_mode => 'preserve_run_at')`.execute(db);
     }
@@ -186,6 +189,13 @@ export function buildTaskList(
     if (!opts.rails) return;
     const out = await runFeeRefresh(db, opts.rails);
     helpers.logger.info(`network_fee_refresh: energy ${out.energyPriceSun} sun`);
+  };
+
+  // ADR 0022: GasFree's fees, read from its controller on chain — what deals priced on GasFree carry for their network.
+  const gasfreeFeeRefresh: Task = async (_payload, helpers) => {
+    if (!opts.rails?.gasFree) return;
+    const out = await runGasFreeFeeRefresh(db, opts.rails);
+    helpers.logger.info(`gasfree_fee_refresh: ${out.transferFee} USDT a transfer, ${out.activateFee} USDT an activation`);
   };
   // The TRX price every quote's network fee is valued at, from public markets: hourly, so it never reaches the
   // 72-hour limit past which no quote is sent. A move too large is left for a person (`recordMarketTrxRate`).
@@ -219,6 +229,7 @@ export function buildTaskList(
     telegram_deadlines: telegramDeadlines,
     onchain_cycle: onchainCycle,
     network_fee_refresh: networkFeeRefresh,
+    gasfree_fee_refresh: gasfreeFeeRefresh,
     trx_rate_refresh: trxRateRefresh,
     outbox_dispatch: outboxDispatch,
     audit_seal: auditSeal,
@@ -296,6 +307,7 @@ export const CRONTAB = [
   '17 2 * * * audit_seal_export ?max=3&jobKey=audit_seal_export',
   '* * * * * onchain_cycle ?max=1&jobKey=onchain_cycle',
   '*/10 * * * * network_fee_refresh ?max=3&jobKey=network_fee_refresh',
+  '*/10 * * * * gasfree_fee_refresh ?max=3&jobKey=gasfree_fee_refresh',
   '23 * * * * trx_rate_refresh ?max=3&jobKey=trx_rate_refresh',
   '* * * * * telegram_deadlines ?max=1&jobKey=telegram_deadlines',
 ].join('\n');

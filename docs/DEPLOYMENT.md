@@ -558,3 +558,30 @@ carries 38 (§12), 39 (§13) and 40 (below) at once, with one web deployment and
    DEALER, FINANCE); suspending, hiding a page and renaming need `desks:moderate` (OWNER, DEALER) and a step-up; the fee
    needs two people (`fees:propose`, `fees:approve`: OWNER, FINANCE). Nothing to configure; the desk is told each decision
    in the app and, when connected, in Telegram.
+
+## 15. Network fees in USDT through GasFree (ADR 0022)
+
+Migration `0041` (schema 41) adds GasFree but **does not switch it on**: production keeps TRX deposits (`BURN`), as at
+40, and nothing has to be configured for the release. Once switched on (step 4), new P2P deals get GasFree accounts as
+their addresses and carry their network in USDT; nobody prepays anything — no TRX for desks, no float for the platform.
+Deals already accepted keep their terms and addresses.
+
+1. **Release order** (from production at 40): the code on `main` with all CI jobs green; stop the worker; a Neon branch
+   `before-41-<date>`; `node scripts/migrate.ts` through the migrator login (direct endpoint); Vercel ready on 41; the
+   worker image of the same commit. Nothing on Vercel changes: the web app derives GasFree addresses itself and never
+   calls GasFree.
+2. **A GasFree API key** (developer.gasfree.io, the owner's account, free): `GASFREE_API_KEY` and `GASFREE_API_SECRET`.
+   First on Nile (`GasFreeNetwork = nile`, a staging stack) for the walkthrough in RUNBOOKS `gasfree`, then mainnet.
+3. **The worker's secret first, then the stack.** Add `GASFREE_API_KEY` and `GASFREE_API_SECRET` to `inrp2p/worker`
+   (empty strings until GasFree is used) **before** updating the stack: ECS refuses to start a task that names a key the
+   secret does not have. Then update the stack with `GasFreeNetwork`, all other parameters `UsePreviousValue`. The worker
+   logs `GasFree: mainnet` at start and refuses to start on half the credentials. Within ten minutes it reads GasFree's
+   fees from the controller (`gasfree_fee_refresh`; the Network page shows them).
+4. **Switching deals to GasFree** is one policy change (*Network* → *Deal on GasFree*, step-up), refused until the fees
+   were read within the hour. **Back to TRX deposits** is the same switch the other way, never refused; deals already
+   on GasFree finish on GasFree.
+5. **Desks** need nothing: no deposit, no TRX. TRX left in old network deposits stays withdrawable on *Network deposit*.
+6. **Custody (accepted by the owner, ADR 0022 §3):** while a deal is open its USDT sits in a GasFree account and moves only
+   through GasFree. If GasFree stops answering, deals wait (RUNBOOKS `gasfree`); the health check
+   `gasfree_permits_stuck` says so.
+

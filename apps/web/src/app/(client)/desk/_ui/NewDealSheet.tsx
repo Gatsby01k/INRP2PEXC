@@ -38,6 +38,7 @@ const VALIDITY = [
 export function NewDealSheet({
   deskName,
   feeBps,
+  networkFee,
   prices,
   status,
   canCommit,
@@ -45,6 +46,7 @@ export function NewDealSheet({
 }: {
   deskName: string;
   feeBps: number;
+  networkFee: string | null;
   prices: Readonly<Record<Direction, DeskPriceView | null>>;
   status: string;
   canCommit: boolean;
@@ -61,7 +63,7 @@ export function NewDealSheet({
   const [made, setMade] = useState<{ url: string; ref: string; expiresAt: string } | null>(null);
   const { run, busy, error, clearError, dialog } = useCommand();
 
-  const deal = useMemo(() => previewDeal({ direction, fixedSide, amount, rate, feeBps }), [direction, fixedSide, amount, rate, feeBps]);
+  const deal = useMemo(() => previewDeal({ direction, fixedSide, amount, rate, feeBps, networkFee }), [direction, fixedSide, amount, rate, feeBps, networkFee]);
   const priced = deal !== null && typeof deal !== 'string' ? deal : null;
   const sells = direction === 'SELL_USDT';
 
@@ -244,13 +246,19 @@ export function NewDealSheet({
                   <dd>{sells ? inr(priced.clientInr.toDecimalString()) : usdt(priced.base.toDecimalString())}</dd>
                 </div>
                 <div className={styles.previewRow} data-strong="">
-                  <dt>{sells ? 'You receive' : 'You put in escrow'}</dt>
+                  <dt>{sells ? (priced.networkFeeBase ? 'You receive at least' : 'You receive') : priced.networkFeeBase ? 'You put in escrow, at most' : 'You put in escrow'}</dt>
                   <dd>{usdt(priced.routeBase!.toDecimalString())}</dd>
                 </div>
                 <div className={styles.previewRow} data-quiet="">
                   <dt>INRP2P fee · {percent(feeBps)}</dt>
                   <dd>{usdt(priced.platformFeeBase.toDecimalString())}</dd>
                 </div>
+                {priced.networkFeeBase ? (
+                  <div className={styles.previewRow} data-quiet="">
+                    <dt>Network · GasFree, in USDT</dt>
+                    <dd>{usdt(priced.networkFeeBase.toDecimalString())}</dd>
+                  </div>
+                ) : null}
               </dl>
             ) : null}
             {error ? (

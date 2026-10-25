@@ -1,7 +1,7 @@
 import { hostname } from 'node:os';
 import { run } from 'graphile-worker';
 import { createDb, createPool, databaseDeploymentProblems } from '@inrp2p/db';
-import { isNotificationProviderConfigured, isProduction, notificationAdapterFromEnv, productionConfigReport, telegramFromEnv } from '@inrp2p/adapters';
+import { gasFreeFromEnv, isNotificationProviderConfigured, isProduction, notificationAdapterFromEnv, productionConfigReport, telegramFromEnv } from '@inrp2p/adapters';
 import { acknowledgedSignalHandler, clientNotificationEmailHandler, clientNotificationHandler, teamInviteEmailHandler, telegramOrderHandler, traderNotificationHandler } from '@inrp2p/notifications';
 import { traderRoutingHandler } from '@inrp2p/traders';
 import { acceptanceCodeHandler } from '@inrp2p/quotes';
@@ -115,8 +115,18 @@ let rails: OnchainDeps | undefined;
   if (account && !signer) console.warn('custody signer: not configured — deposit addresses are issued, but nothing is signed: USDT payouts wait (INRP2P_CUSTODY_SEED_SEALED)');
   if (signer && !account) console.warn('custody signer: a seed is configured but no HD account is recorded yet (custody.record_hd_account); it signs nothing until then');
   if (monitoring.config) {
-    rails = { network: new TronSendNetwork(monitoring.config.gateways), signer: signer && account ? signer : null, chain: monitoring.config.chain };
+    // ADR 0022: GasFree, through which deal addresses that are GasFree accounts send. Half its credentials refuses the start.
+    let gasFree;
+    try {
+      gasFree = gasFreeFromEnv(process.env) ?? undefined;
+    } catch (e) {
+      console.error(`refusing to start: ${e instanceof Error ? e.message : String(e)}`);
+      await pool.end();
+      process.exit(1);
+    }
+    rails = { network: new TronSendNetwork(monitoring.config.gateways), signer: signer && account ? signer : null, chain: monitoring.config.chain, ...(gasFree ? { gasFree } : {}) };
     console.log(`custody signer: ${signer && account ? `signing for ${account.provider} (budget wallet ${account.fee_wallet_address})` : 'not signing'}`);
+    console.log(`GasFree: ${gasFree ? gasFree.chain.name.toLowerCase() : 'not configured — deals stay on TRX deposits (GASFREE_API_KEY, GASFREE_API_SECRET)'}`);
   }
 }
 
@@ -133,6 +143,7 @@ const identity = {
     receipts: receipts ? `stored${receipts.pdf ? ' with pdf' : ''}` : 'regenerated',
     auditSeals: auditArchive ? 'exported' : 'not exported',
     custodySigner: rails?.signer ? 'signing' : 'not signing',
+    gasfree: rails?.gasFree ? rails.gasFree.chain.name.toLowerCase() : 'none',
   },
 };
 // The first beat also checks that the database is the one the workers last wrote to: if it was recovered, failed over

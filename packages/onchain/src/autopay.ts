@@ -3,7 +3,7 @@ import { Money, isDomainError } from '@inrp2p/kernel';
 import { type Db, pgErrorCode } from '@inrp2p/db';
 import { effectiveObligations, legTotals } from '@inrp2p/trades';
 import { createPayoutLegInTx, finishP2pUnwindInTx, fundingSources, openExceptionInTx, planEscrowReturnInTx, planFeeSweepInTx, planP2pRefundInTx, planRoutePaymentInTx, revenueWallet, sendPayoutLegInTx } from '@inrp2p/settlement';
-import { closeNetworkHold, latestFeeSnapshot, networkAvailable, networkFeePolicy, planTrxReclaimInTx, recordFeeSnapshot, recordMarketTrxRate, reservePerSendSun, signablePathOf } from '@inrp2p/network';
+import { closeNetworkHold, gasFreeOwnerOf, latestFeeSnapshot, networkAvailable, networkFeePolicy, planTrxReclaimInTx, recordFeeSnapshot, recordMarketTrxRate, reservePerSendSun, signablePathOf } from '@inrp2p/network';
 import { observeBalances } from '@inrp2p/scanner';
 import { type OnchainDeps, policyOf, settlementDepsOf, step } from './deps.ts';
 
@@ -176,8 +176,9 @@ async function runFeeSweeps(db: Db, deps: OnchainDeps, report: { sweepsPlanned: 
     const perSweep = reservePerSendSun(snapshot, fees);
     for (const a of due.rows) {
       sweepable.add(a.address);
-      // The platform pays its own sweeps: none is planned it could not fuel now.
-      if ((await networkAvailable(db, null)) < perSweep) {
+      // The platform pays its own sweeps from a plain address: none is planned it could not fuel now. A GasFree account
+      // pays its sweep's network out of the deal's own allowance (ADR 0022): nothing of the platform's.
+      if (!(await gasFreeOwnerOf(db, a.address)) && (await networkAvailable(db, null)) < perSweep) {
         report.sweepsWaiting += 1;
         continue;
       }

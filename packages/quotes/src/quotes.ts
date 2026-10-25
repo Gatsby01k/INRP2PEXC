@@ -8,7 +8,7 @@ import { type OperatorActor, authorizeOperator, operatorCommand } from '@inrp2p/
 import { requireUsableRoute } from '@inrp2p/routes';
 import { requireCurrentRouteRate, routeRateSnapshot } from '@inrp2p/pricing';
 import { orderRewardTerms, requireOrderForQuote } from '@inrp2p/trader-core';
-import { assertProfitable, priceNetwork, priceNetworkP2p, quoteNetworkFee, recordQuoteNetworkFee } from '@inrp2p/network';
+import { assertProfitable, networkFeePolicy, priceNetwork, priceNetworkP2p, pricingOfUsdtTerms, quoteNetworkFee, recordQuoteNetworkFee, usdtNetworkTerms } from '@inrp2p/network';
 import { type QuoteDeps, policyOf } from './policy.ts';
 import { lockRow } from './actors.ts';
 import { closePendingChallenges } from './challenges.ts';
@@ -78,11 +78,16 @@ export function createQuote(actor: OperatorActor, deps: Pick<QuoteDeps, 'policy'
     }
     // ADR 0017 §1: the client's rate must also pay the trader's reward and the network fee of the trade's transfer, and
     // leave the minimum net margin. A quote that would not is never created; the dealer is told the rate that would do.
-    // ADR 0019: a P2P quote keeps USDT and counts no reward; its trader's network deposit pays the TRX (migration 0040).
+    // ADR 0019: a P2P quote keeps USDT and counts no reward; its trader's network deposit pays the TRX (migration 0040) — or,
+    // priced in USDT (ADR 0022), INRP2P's own deal carries its network out of its own margin and the executor pays nothing.
     let network;
     if (p2p) {
       if (!traderOrder || !econ.grossMarginBase) throw new DomainError('INVALID_ARGUMENT', 'a P2P quote prices a trader order');
-      network = await priceNetworkP2p(ctx.tx, { direction: request.direction, clientRateMicro: clientRate.micro, grossMarginBaseMinor: econ.grossMarginBase.minor, traderOrderId: traderOrder.orderId });
+      network = (await networkFeePolicy(ctx.tx)).resourceMode === 'GASFREE'
+        ? pricingOfUsdtTerms(await usdtNetworkTerms(ctx.tx, { funderTraderId: null }), {
+          direction: request.direction, clientRateMicro: clientRate.micro, grossMarginBaseMinor: econ.grossMarginBase.minor, traderOrderId: traderOrder.orderId,
+        })
+        : await priceNetworkP2p(ctx.tx, { direction: request.direction, clientRateMicro: clientRate.micro, grossMarginBaseMinor: econ.grossMarginBase.minor, traderOrderId: traderOrder.orderId });
       assertProfitable(network);
     } else {
       const reward = traderOrder ? await orderRewardTerms(ctx.tx, traderOrder.orderId) : null;
@@ -113,6 +118,7 @@ export function createQuote(actor: OperatorActor, deps: Pick<QuoteDeps, 'policy'
         gross_margin_inr_minor: econ.grossMargin.minor,
         route_base_minor: econ.routeBase?.minor ?? null,
         gross_margin_base_minor: econ.grossMarginBase?.minor ?? null,
+        network_fee_base_minor: network.usdt ? network.p2p!.feeUsdtMinor : null,
         network: request.network,
         bank_account_id: request.bank_account_id,
         crypto_wallet_id: request.crypto_wallet_id,

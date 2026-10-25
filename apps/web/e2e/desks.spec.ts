@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { type Browser, type BrowserContext, type Page, devices, expect, test } from '@playwright/test';
-import { encodeTronAddress } from '@inrp2p/kernel';
+import { Money, encodeTronAddress } from '@inrp2p/kernel';
 import { DESK, DESKS_OTP_SINK, type DeskWorld, createDeskWorld } from './desk-world.ts';
 
 /**
@@ -148,10 +148,12 @@ test('the client opens the link on its phone, signs up, adds its bank account an
 
 test('the client’s USDT reaches the escrow, the desk pays the rupees, and the client releases it', async () => {
   const trade = await tradeOnPhone('SELL_USDT');
-  const econ = await w.db.selectFrom('trade_economics').select(['base_minor', 'route_base_minor', 'platform_fee_base_minor']).where('trade_id', '=', trade.id).executeTakeFirstOrThrow();
-  // 0.25% of the client's 1,000 USDT is INRP2P's; the desk receives the rest.
+  const econ = await w.db.selectFrom('trade_economics').select(['base_minor', 'route_base_minor', 'platform_fee_base_minor', 'network_fee_base_minor']).where('trade_id', '=', trade.id).executeTakeFirstOrThrow();
+  // 0.25% of the client's 1,000 USDT is INRP2P's; the desk receives the rest less the deal's network — GasFree's activation,
+  // the payout and the sweep, 4.5 USDT (ADR 0022).
   expect(econ.platform_fee_base_minor).toBe(2_500_000n);
-  expect(econ.route_base_minor).toBe(997_500_000n);
+  expect(econ.network_fee_base_minor).toBe(4_500_000n);
+  expect(econ.route_base_minor).toBe(997_500_000n - 4_500_000n);
 
   const deposit = await w.db.selectFrom('deposit_assignment as a').innerJoin('deposit_address as d', 'd.id', 'a.deposit_address_id')
     .select('d.address').where('a.trade_id', '=', trade.id).executeTakeFirstOrThrow();
@@ -178,8 +180,12 @@ test('the client’s USDT reaches the escrow, the desk pays the rupees, and the 
   // The worker's signer pays the desk from the escrow; the fee stays at the deal's address.
   const before = w.chain.balanceOf(w.deskWalletAddress);
   expect(await w.settle(trade.id)).toBe('COMPLETED');
-  expect(w.chain.balanceOf(w.deskWalletAddress) - before).toBe(997_500_000n);
-  expect(w.chain.balanceOf(deposit.address)).toBe(2_500_000n);
+  expect(w.chain.balanceOf(w.deskWalletAddress) - before).toBe(econ.route_base_minor);
+  // Paid by one GasFree permit, its network (activation and the transfer, 3 USDT) out of the deal's allowance: left at the
+  // address are INRP2P's fee and the sweep's own network. No TRX ever reached it.
+  expect(w.chain.balanceOf(deposit.address)).toBe(2_500_000n + (econ.network_fee_base_minor ?? 0n) - 3_000_000n);
+  expect(await w.db.selectFrom('gasfree_permit as p').innerJoin('chain_send as s', 's.id', 'p.send_id').select(['p.status', 'p.fee_minor']).where('s.trade_id', '=', trade.id).execute())
+    .toEqual([{ status: 'CONFIRMED', fee_minor: 3_000_000n }]);
   await phone.bringToFront();
   await phone.reload();
   await expect(phone.getByText('Completed', { exact: false }).first()).toBeVisible();
@@ -208,9 +214,10 @@ test('the same client buys USDT on the desk’s page: the desk funds the escrow,
   await expect(phone).toHaveURL(/\/trades\/IX-/);
 
   const trade = await tradeOnPhone('BUY_USDT');
-  const econ = await w.db.selectFrom('trade_economics').select(['route_base_minor', 'platform_fee_base_minor']).where('trade_id', '=', trade.id).executeTakeFirstOrThrow();
+  const econ = await w.db.selectFrom('trade_economics').select(['route_base_minor', 'platform_fee_base_minor', 'network_fee_base_minor']).where('trade_id', '=', trade.id).executeTakeFirstOrThrow();
+  // The client's 500 USDT, the 0.25% fee, and the deal's network on GasFree.
   expect(econ.platform_fee_base_minor).toBe(1_250_000n);
-  expect(econ.route_base_minor).toBe(501_250_000n);
+  expect(econ.route_base_minor).toBe(501_250_000n + 4_500_000n);
 
   // The desk's move: its USDT, and INRP2P's fee, into the deal's escrow from its registered wallet.
   await desk.bringToFront();
@@ -223,7 +230,7 @@ test('the same client buys USDT on the desk’s page: the desk funds the escrow,
   await expect.poll(escrowOf).not.toBe('');
   const escrow = await escrowOf();
   await expect(desk.getByText(escrow).first()).toBeVisible();
-  await w.sendUsdt(w.deskWalletAddress, escrow, '501.25');
+  await w.sendUsdt(w.deskWalletAddress, escrow, Money.ofMinor(econ.route_base_minor!, 'USDT').toDecimalString());
 
   // The client's move: pay the desk's account, from its own, and say so.
   await phone.bringToFront();

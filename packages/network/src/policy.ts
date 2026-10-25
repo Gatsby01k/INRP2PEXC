@@ -25,6 +25,8 @@ export async function networkFeePolicy(ex: Executor): Promise<FeePolicy> {
     feeSweepEnabled: p.fee_sweep_enabled,
     feeSweepMinUsdtMinor: p.fee_sweep_min_usdt_minor,
     trxReclaimMinSun: p.trx_reclaim_min_sun,
+    resourceMode: p.resource_mode,
+    gasfreeFeeMaxAgeSeconds: p.gasfree_fee_max_age_seconds,
     reason: p.reason,
     setBy: p.set_by,
     setAt: p.set_at,
@@ -45,6 +47,8 @@ export interface SetNetworkFeePolicyPayload {
   readonly feeSweepMin?: string;
   /** TRX left at a deal address worth sending back to the budget wallet. */
   readonly trxReclaimMin?: string;
+  /** ADR 0022: what new P2P deals are priced and issued on — TRX deposits, or GasFree accounts paying in USDT. */
+  readonly resourceMode?: 'BURN' | 'GASFREE';
   readonly reason: string;
 }
 
@@ -75,6 +79,16 @@ export function setNetworkFeePolicy(actor: OperatorActor) {
     const reclaimMin = p.trxReclaimMin === undefined ? before.trxReclaimMinSun : parseDecimalToMinor(p.trxReclaimMin, 6);
     if (reclaimMin < 100_000n || reclaimMin > 100_000_000n) throw new DomainError('INVALID_AMOUNT', 'TRX is reclaimed from 0.1 to 100 TRX left at an address');
     if (minNet < 0n) throw new DomainError('INVALID_AMOUNT', 'the minimum net margin is never negative: a quote that loses money is never sent');
+    const resourceMode = p.resourceMode === undefined ? before.resourceMode : p.resourceMode;
+    if (resourceMode !== 'BURN' && resourceMode !== 'GASFREE') throw new DomainError('INVALID_ARGUMENT', 'resourceMode is GASFREE or BURN');
+    if (resourceMode === 'GASFREE' && before.resourceMode !== 'GASFREE') {
+      // ADR 0022 §2.6: new deals go to GasFree accounts only once the worker has read GasFree's fees from the controller
+      // within the hour — which also proves it is configured to submit their permits.
+      const fresh = await sql<{ n: string }>`
+        select count(*)::text as n from gasfree_fee_reading
+         where observed_at >= inrp2p_now() - make_interval(secs => ${before.gasfreeFeeMaxAgeSeconds})`.execute(ctx.tx);
+      if (fresh.rows[0]!.n === '0') throw new DomainError('NETWORK_FEES_UNKNOWN', 'GasFree\'s fees were not read in the last hour: configure GasFree on the worker before switching to it');
+    }
     const row = {
       quote_energy: quoteEnergy,
       reserve_energy: reserveEnergy,
@@ -90,13 +104,15 @@ export function setNetworkFeePolicy(actor: OperatorActor) {
       fee_sweep_enabled: p.feeSweepEnabled === undefined ? before.feeSweepEnabled : Boolean(p.feeSweepEnabled),
       fee_sweep_min_usdt_minor: sweepMin,
       trx_reclaim_min_sun: reclaimMin,
+      resource_mode: resourceMode,
+      gasfree_fee_max_age_seconds: before.gasfreeFeeMaxAgeSeconds,
       reason,
       set_by: ctx.actor.id ?? 'SYSTEM',
     };
     await ctx.tx.insertInto('network_fee_policy').values(row).execute();
     await appendAudit(ctx, {
       action: 'settings.network_fees_changed', entityType: 'network_fee_policy', entityId: null,
-      before: { quote_energy: before.quoteEnergy, reserve_energy: before.reserveEnergy, min_net_margin: Money.ofMinor(before.minNetMarginInrMinor, 'INR'), auto_send: before.autoSendEnabled },
+      before: { quote_energy: before.quoteEnergy, reserve_energy: before.reserveEnergy, min_net_margin: Money.ofMinor(before.minNetMarginInrMinor, 'INR'), auto_send: before.autoSendEnabled, resource_mode: before.resourceMode },
       after: {
         ...row, bandwidth_buffer_sun: formatTrx(row.bandwidth_buffer_sun), min_net_margin_inr_minor: Money.ofMinor(minNet, 'INR'),
         fee_sweep_min_usdt_minor: Money.ofMinor(sweepMin, 'USDT'), trx_reclaim_min_sun: formatTrx(reclaimMin),

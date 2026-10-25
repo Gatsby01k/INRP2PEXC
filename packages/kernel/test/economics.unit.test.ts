@@ -168,4 +168,21 @@ describe('a desk’s own deal (ADR 0020, FI-99): one rupee amount at the desk’
   it('refuses an amount too small to price', () => {
     expect(() => computeDeskEconomics({ direction: 'SELL_USDT', fixedSide: 'BASE', amount: usdt('0.000001'), clientRate: client('100'), feeBps: 25 })).toThrow(/too small/);
   });
+
+  it('ADR 0022: the desk’s USDT side carries the network allowance beside the fee; the client’s amounts never change', () => {
+    const plain = computeDeskEconomics({ direction: 'SELL_USDT', fixedSide: 'BASE', amount: usdt('1000'), clientRate: client('100.900000'), feeBps: 25 });
+    const sell = computeDeskEconomics({ direction: 'SELL_USDT', fixedSide: 'BASE', amount: usdt('1000'), clientRate: client('100.900000'), feeBps: 25, networkFee: usdt('0.966426') });
+    expect(sell.clientInr.equals(plain.clientInr)).toBe(true);
+    expect(sell.base.equals(plain.base)).toBe(true);
+    expect(sell.routeBase.toDecimalString()).toBe('996.533574');
+    expect(sell.grossMarginBase.toDecimalString()).toBe('3.466426');
+    expect(sell.platformFeeBase.toDecimalString()).toBe('2.500000');
+    expect(sell.networkFeeBase?.toDecimalString()).toBe('0.966426');
+    const buy = computeDeskEconomics({ direction: 'BUY_USDT', fixedSide: 'BASE', amount: usdt('1000'), clientRate: client('102.100000'), feeBps: 25, networkFee: usdt('1') });
+    expect(buy.routeBase.toDecimalString()).toBe('1003.500000');
+    // Without one, nothing about the network is in the economics.
+    expect(plain.networkFeeBase).toBeUndefined();
+    expect(() => computeDeskEconomics({ direction: 'SELL_USDT', fixedSide: 'BASE', amount: usdt('3'), clientRate: client('100'), feeBps: 25, networkFee: usdt('3') })).toThrow(/network/);
+    expect(() => computeDeskEconomics({ direction: 'SELL_USDT', fixedSide: 'BASE', amount: usdt('100'), clientRate: client('100'), feeBps: 25, networkFee: usdt('-1') })).toThrow(/never negative/);
+  });
 });

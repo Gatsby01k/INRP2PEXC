@@ -144,6 +144,7 @@ describe('the AWS template (worker on Fargate, KMS, audit archive, Vercel OIDC r
       WORKER_DATABASE_URL: 'postgresql://inrp2p_worker_login:x@ep-example.us-east-1.aws.neon.tech/neondb?sslmode=require',
       RESEND_API_KEY: 're_from_the_secret_manager', // secret-scan:allow — a placeholder, not a key
       INRP2P_FIELD_HMAC_BASE64: randomBytes(32).toString('base64'), INRP2P_TRON_PRIMARY_KEY: '', INRP2P_CUSTODY_SEED_SEALED: '', TELEGRAM_BOT_TOKEN: '',
+      GASFREE_API_KEY: '', GASFREE_API_SECRET: '',
     };
     expect(container!.Secrets.map((s) => s.Name).sort()).toEqual(Object.keys(secrets).sort());
     const report = productionConfigReport('worker', { ...env, ...secrets, AWS_CONTAINER_CREDENTIALS_RELATIVE_URI: '/v2/credentials/task' });

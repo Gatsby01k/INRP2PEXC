@@ -260,6 +260,14 @@ Flows: `FROM_ROUTE_TO_EXCHANGE` (route → exchange account / treasury), `TO_ROU
 
 Append-only readings of an exchange address: `AGREED` (two independence groups, same balance), `SINGLE_SOURCE`, `DISAGREED`, `ERROR`. A wallet's `observed_balance_minor` / `observed_at` move only to its latest usable reading (IX089). A USDT payout (`payout_leg.send`) or refund (`refund_leg.create`) needs the latest reading of its source address to be usable, younger than `maxObservationAgeSeconds` (300 s) — single-source only below the D-05 threshold — and to show the amount free after every outflow it does not reflect.
 
+## 11d. GasFreePermit (ADR 0022)
+
+`SIGNED` → `SUBMITTED` (GasFree took it: its trace id) → `CONFIRMED` (its transaction final and successful on the
+providers; what the controller charged recorded) — or `SIGNED`/`SUBMITTED` → `EXPIRED` (proved dead: its deadline behind
+every provider's solidified head and its nonce unused). `SIGNED` → `CONFIRMED` too, when the transaction is found
+without GasFree's answer (`gasfree_permit.resolve`). A decided permit never changes (IX132); never two live for a send or
+an owner (IX131). Its send is `SENDING` while it lives, `PLANNED` again once it expired, `CONFIRMED` with it.
+
 ## 12. AcceptanceChallenge (`DECISIONS.md D-01`)
 
 `PENDING ──correct code + quote accepted or rejected (same txn)──▶ CONSUMED`

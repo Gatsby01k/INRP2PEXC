@@ -259,6 +259,26 @@ export const HEALTH_CHECKS: readonly HealthCheckDefinition[] = Object.freeze([
     group: 'money',
   },
   {
+    id: 'gasfree_fees_stale',
+    title: 'Deals priced on GasFree, and its fees not read from the controller in the last hour',
+    warn: 0,
+    alarm: 1,
+    unit: 'count',
+    runbook: 'gasfree',
+    why: 'On GasFree a deal is priced at the fees GasFree charges, read from its controller on chain every ten minutes (ADR 0022). Without a current reading no deal can be priced, and new deals stop until the worker reads them again.',
+    group: 'money',
+  },
+  {
+    id: 'gasfree_permits_stuck',
+    title: 'GasFree permits neither executed nor provably dead after 30 minutes',
+    warn: 0,
+    alarm: 5,
+    unit: 'count',
+    runbook: 'gasfree',
+    why: 'A permit is signed once and given to GasFree; its send waits until the chain says it executed or can never execute (ADR 0022 §2.4). A permit GasFree does not carry out holds its send — and its deal — until it does, or until its deadline passes.',
+    group: 'money',
+  },
+  {
     id: 'trx_price_age_seconds',
     title: 'Seconds since the TRX price quotes are priced with was published',
     warn: 172_800,
@@ -385,6 +405,8 @@ export async function systemHealth(ex: Executor): Promise<SystemHealth> {
     deposit_pool_free: string;
     chain_sends_stuck: string;
     fee_sweeps_waiting: string;
+    gasfree_fees_stale: string;
+    gasfree_permits_stuck: string;
     trx_price_age_seconds: string;
     checked_at: Date;
   }>`
@@ -478,6 +500,11 @@ export async function systemHealth(ex: Executor): Promise<SystemHealth> {
         where purpose = 'FEE_SWEEP'
           and (status = 'BLOCKED'
            or (status in ('PLANNED', 'SENDING', 'AWAITING_RESOURCES') and updated_at < inrp2p_now() - make_interval(mins => 30))))::text as fee_sweeps_waiting,
+      -- ADR 0022: on GasFree, whether its fees are current enough to price a deal on.
+      (select case when p.resource_mode = 'GASFREE' and not exists (select 1 from gasfree_fee_reading r where r.observed_at >= inrp2p_now() - make_interval(secs => p.gasfree_fee_max_age_seconds))
+                   then 1 else 0 end
+         from (select resource_mode, gasfree_fee_max_age_seconds from network_fee_policy order by set_at desc, id desc limit 1) p)::text as gasfree_fees_stale,
+      (select count(*) from gasfree_permit where status in ('SIGNED', 'SUBMITTED') and signed_at < inrp2p_now() - make_interval(mins => 30))::text as gasfree_permits_stuck,
       -- Only once the exchange's own rails exist: before that no quote depends on a TRX price.
       (case when exists (select 1 from custody_hd_account)
             then coalesce((select extract(epoch from (inrp2p_now() - max(effective_at)))::bigint from network_trx_rate), 999999)
@@ -517,6 +544,8 @@ export async function systemHealth(ex: Executor): Promise<SystemHealth> {
     deposit_pool_free: int(row.deposit_pool_free),
     chain_sends_stuck: int(row.chain_sends_stuck),
     fee_sweeps_waiting: int(row.fee_sweeps_waiting),
+    gasfree_fees_stale: int(row.gasfree_fees_stale),
+    gasfree_permits_stuck: int(row.gasfree_permits_stuck),
     trx_price_age_seconds: int(row.trx_price_age_seconds),
   };
 

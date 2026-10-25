@@ -24,6 +24,25 @@ import d from '../_desk/desk.module.css';
  */
 function RaiseCap({ send, busy, run }: { send: NetworkSendRow; busy: boolean; run: ReturnType<typeof useCommand>['run'] }) {
   const [cap, setCap] = useState('');
+  // ADR 0022: a send out of a GasFree account has a USDT fee cap — GasFree's fee rose after the deal was priced.
+  if (send.feeCap) {
+    return (
+      <span className={d.stackTight} style={{ gap: 4 }}>
+        <TextField label="New fee cap, USDT" value={cap} onChange={setCap} mono placeholder={send.feeCap} />
+        <GuardedAction
+          label="Raise fee cap"
+          stepUp
+          reasonLabel="Why GasFree charges more"
+          minReason={10}
+          disabled={!isPositiveDecimal(cap)}
+          disabledReason={!isPositiveDecimal(cap) ? `Now ${usdt(send.feeCap)}.` : null}
+          consequence={<>GasFree may take up to {usdt(cap)} USDT for this transfer, out of the deal address. What it costs beyond the deal’s price comes out of INRP2P’s fee there.</>}
+          busy={busy}
+          onConfirm={async (reason) => (await run(`Raise the fee cap of ${send.ref}`, (k) => raiseChainSendCapAction({ sendId: send.id, cap, reason }, k))).ok}
+        />
+      </span>
+    );
+  }
   return (
     <span className={d.stackTight} style={{ gap: 4 }}>
       <TextField label="New cap, TRX" value={cap} onChange={setCap} mono placeholder={send.networkCap ?? ''} />
@@ -53,7 +72,12 @@ export function SendsTable({ sends, canApprove, canCancel, canManage, me }: { se
     },
     {
       key: 'amount', header: 'Amount', align: 'right',
-      render: (s) => <Cell main={<strong>{s.amount}</strong>} sub={s.networkCap ? `TRX ${trx(s.networkUsed ?? '0').replace(' TRX', '')} of ${trx(s.networkCap)}` : undefined} />,
+      render: (s) => (
+        <Cell
+          main={<strong>{s.amount}</strong>}
+          sub={s.feeCap ? `GasFree ${s.feeCharged ? `${usdt(s.feeCharged)} charged` : `up to ${usdt(s.feeCap)}`}` : s.networkCap ? `TRX ${trx(s.networkUsed ?? '0').replace(' TRX', '')} of ${trx(s.networkCap)}` : undefined}
+        />
+      ),
     },
     {
       key: 'route',
@@ -110,7 +134,7 @@ export function SendsTable({ sends, canApprove, canCancel, canManage, me }: { se
               onConfirm={async () => (await cmd.run(`Approve ${s.ref}`, (k) => approveChainSendAction({ sendId: s.id }, k))).ok}
             />
           ) : null}
-          {s.status === 'BLOCKED' && s.networkCap && canManage ? <RaiseCap send={s} busy={cmd.busy} run={cmd.run} /> : null}
+          {s.status === 'BLOCKED' && (s.networkCap || s.feeCap) && canManage ? <RaiseCap send={s} busy={cmd.busy} run={cmd.run} /> : null}
           {s.status === 'BLOCKED' && canCancel ? (
             <GuardedAction
               label="Send again"
@@ -317,6 +341,30 @@ export function SignerSwitch({ on, canSet }: { on: boolean; canSet: boolean }) {
         consequence={on ? 'Nothing new is signed. Transactions already broadcast are still followed to their end.' : 'Due sends are fuelled and signed again.'}
         busy={cmd.busy}
         onConfirm={async (reason) => (await cmd.run(on ? 'Stop the signer' : 'Start the signer', (k) => setNetworkFeePolicyAction({ autoSendEnabled: !on, reason }, k))).ok}
+      />
+    </>
+  );
+}
+
+/** What new deals are priced and issued on (ADR 0022): TRX deposits, or GasFree accounts paying their own network in USDT. */
+export function ResourceModeSwitch({ mode, canSet }: { mode: 'BURN' | 'GASFREE'; canSet: boolean }) {
+  const cmd = useCommand();
+  if (!canSet) return <Chip tone={mode === 'GASFREE' ? 'success' : 'neutral'}>{mode === 'GASFREE' ? 'GasFree' : 'TRX deposits'}</Chip>;
+  const next = mode === 'GASFREE' ? 'BURN' : 'GASFREE';
+  return (
+    <>
+      {cmd.dialog}
+      <GuardedAction
+        label={mode === 'GASFREE' ? 'Back to TRX deposits' : 'Deal on GasFree'}
+        tone={mode === 'GASFREE' ? 'danger' : 'neutral'}
+        stepUp
+        reasonLabel="Reason"
+        minReason={10}
+        consequence={next === 'GASFREE'
+          ? 'New P2P deals get GasFree accounts as their addresses and carry their network in USDT: no TRX for anyone, nothing prepaid. Refused until GasFree’s fees were read within the hour. Deals already priced keep their terms.'
+          : 'New P2P deals are priced in TRX from the traders’ deposits again. Deals already on GasFree finish on GasFree.'}
+        busy={cmd.busy}
+        onConfirm={async (reason) => (await cmd.run(next === 'GASFREE' ? 'Deal on GasFree' : 'Back to TRX deposits', (k) => setNetworkFeePolicyAction({ resourceMode: next, reason }, k))).ok}
       />
     </>
   );

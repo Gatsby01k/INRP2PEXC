@@ -1,4 +1,4 @@
-import { DomainError, type Money, type TradeEconomics } from '@inrp2p/kernel';
+import { DomainError, Money, type TradeEconomics } from '@inrp2p/kernel';
 import { Accounts } from '../accounts.ts';
 import type { EntryInput, JournalInput } from '../posting.ts';
 
@@ -76,13 +76,16 @@ function p2pAcceptJournal(econ: P2pEconomics, refs: TradeLedgerRefs): JournalInp
 /**
  * `trade:{t}:complete`: moves deferred margin to realized revenue — USDT on a P2P trade. On a desk's deal (ADR 0020) the
  * platform's fee is realized as `REVENUE:PLATFORM_FEE` and only what is left of the margin (none on a deal the desk fills
- * itself) as gross margin. Zero margin posts nothing.
+ * itself) as gross margin. A deal whose network is priced in USDT (ADR 0022) moves the allowance its escrow carries to
+ * `LIAB:NETWORK_ALLOWANCE`, where the trade's network is settled at cost once nothing more is sent for it. Zero margin
+ * posts nothing.
  */
 export function tradeCompleteJournal(econ: TradeEconomics, refs: Pick<TradeLedgerRefs, 'tradeId'>): JournalInput | null {
-  if (econ.grossMarginBase && econ.platformFeeBase) {
-    const fee = econ.platformFeeBase;
-    const rest = econ.grossMarginBase.sub(fee);
-    if (fee.isNegative() || rest.isNegative()) throw new DomainError('INVALID_ARGUMENT', 'a desk deal\'s fee is part of its margin');
+  if (econ.grossMarginBase && (econ.platformFeeBase || econ.networkFeeBase)) {
+    const fee = econ.platformFeeBase ?? Money.zero('USDT');
+    const network = econ.networkFeeBase ?? Money.zero('USDT');
+    const rest = econ.grossMarginBase.sub(fee).sub(network);
+    if (fee.isNegative() || network.isNegative() || rest.isNegative()) throw new DomainError('INVALID_ARGUMENT', 'a deal\'s fee and network allowance are part of its margin');
     if (econ.grossMarginBase.isZero()) return null;
     return {
       postingKey: `trade:${refs.tradeId}:complete`,
@@ -91,6 +94,7 @@ export function tradeCompleteJournal(econ: TradeEconomics, refs: Pick<TradeLedge
       entries: [
         { account: Accounts.deferredMargin('USDT'), direction: 'DR', amount: econ.grossMarginBase },
         ...(fee.isZero() ? [] : [{ account: Accounts.platformFee(), direction: 'CR' as const, amount: fee }]),
+        ...(network.isZero() ? [] : [{ account: Accounts.networkAllowance(), direction: 'CR' as const, amount: network }]),
         ...(rest.isZero() ? [] : [{ account: Accounts.grossMargin('USDT'), direction: 'CR' as const, amount: rest }]),
       ],
     };

@@ -497,6 +497,17 @@ export class TronHttpProvider implements TronProvider, TronSendGateway {
 
   // ---- sending (TronSendGateway, ADR 0017 §4) ------------------------------------------------------------------
 
+  async solidifiedView(contract: string, selector: string, parameterHex: string): Promise<string> {
+    if (!/^[a-zA-Z0-9_]+\([a-z0-9,[\]]*\)$/.test(selector) || !/^([0-9a-f]{64})*$/.test(parameterHex)) throw new DomainError('INVALID_ARGUMENT', 'a view is a selector and whole ABI words');
+    const r = await this.#call<{ result?: { result?: unknown }; constant_result?: unknown }>(new CallCounter(), '/walletsolidity/triggerconstantcontract', {
+      method: 'POST',
+      body: { owner_address: normalizeTronAddress(contract), contract_address: normalizeTronAddress(contract), function_selector: selector, parameter: parameterHex, visible: true },
+    });
+    const word = Array.isArray(r?.constant_result) ? r.constant_result[0] : undefined;
+    if (r?.result?.result !== true || typeof word !== 'string' || !/^[0-9a-fA-F]{64}/.test(word)) throw evidence(`provider returned an unreadable ${selector} result`);
+    return word.slice(0, 64).toLowerCase();
+  }
+
   async solidifiedHead(): Promise<SolidifiedHead> {
     const r = await this.#call<{ blockID?: unknown; block_header?: { raw_data?: { number?: unknown; timestamp?: unknown } } }>(new CallCounter(), '/walletsolidity/getnowblock', { method: 'POST', body: {} });
     if (typeof r.blockID !== 'string' || !/^[0-9a-fA-F]{64}$/.test(r.blockID)) throw evidence('provider returned no solidified block id');

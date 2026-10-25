@@ -219,7 +219,7 @@ describe('cancellation and refunds', () => {
     const before = await networkAvailable(w.app, inrTrader.traderId);
     const trade = await railsTrade(w, inrTrader, { direction: 'SELL_USDT', amount: '200', clientRate: '101.000000' });
     const hold = await w.app.selectFrom('network_budget_hold').select(['amount_sun', 'per_send_sun', 'sends']).where('trade_id', '=', trade.tradeId).executeTakeFirstOrThrow();
-    expect(hold.amount_sun).toBe(hold.per_send_sun * 2n);
+    expect(hold.amount_sun).toBe(hold.per_send_sun! * 2n);
     expect(before - (await networkAvailable(w.app, inrTrader.traderId))).toBe(hold.amount_sun);
   });
 });
@@ -398,7 +398,7 @@ const drawn = async (sendId: string) => {
     select inrp2p_send_network_used(${sendId}::uuid)::text as used, network_cap_sun::text as cap from chain_send where id = ${sendId}`.execute(w.app);
   return { used: BigInt(r.rows[0]!.used), cap: BigInt(r.rows[0]!.cap) };
 };
-const holdOf = async (tradeId: string) => (await w.app.selectFrom('network_budget_hold').select('amount_sun').where('trade_id', '=', tradeId).executeTakeFirstOrThrow()).amount_sun;
+const holdOf = async (tradeId: string) => (await w.app.selectFrom('network_budget_hold').select('amount_sun').where('trade_id', '=', tradeId).executeTakeFirstOrThrow()).amount_sun!;
 const payoutOf = async (tradeId: string) => (await sends(tradeId)).find((s) => s.purpose === 'CLIENT_PAYOUT');
 const raiseCap = (sendId: string, cap: string, who = w.finance) =>
   runAs(w.app, raiseChainSendCap(who.actor), who.ref, 'chain_send.raise_network_cap', { sendId, cap, reason: 'checked the chain: energy is dearer now, the platform carries it' });
@@ -625,7 +625,7 @@ describe('a transfer never draws more TRX than was fixed for it', () => {
     const fee = await w.app.selectFrom('quote_network_fee').select('fee_sun').where('quote_id', '=', trade.quote.quoteId).executeTakeFirstOrThrow();
     const hold = await w.app.selectFrom('network_budget_hold').select(['amount_sun', 'per_send_sun']).where('trade_id', '=', trade.tradeId).executeTakeFirstOrThrow();
     expect(payment.network_cap_sun).toBe(fee.fee_sun);
-    expect(hold.amount_sun - (await drawn(payment.id)).used).toBeGreaterThanOrEqual(hold.per_send_sun);
+    expect(hold.amount_sun! - (await drawn(payment.id)).used).toBeGreaterThanOrEqual(hold.per_send_sun!);
 
     const budget = await w.app.selectFrom('custody_hd_account').select(['fee_wallet_address', 'fee_wallet_path']).executeTakeFirstOrThrow();
     // A top-up past its send's cap (IX114).

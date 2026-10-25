@@ -1120,3 +1120,31 @@ its people read why, so the reason has to be one they can act on.
 
 **What never to do.** Do not change a desk or the fee in the database: the desk would not be told, nothing would be
 recorded, and a live desk's address is guarded (IX121). Do not suspend to settle a single dispute — decide it on its trade.
+
+## gasfree — GasFree fees not current, or a permit not carried out
+
+**What you were told.** The Network page or the health check says GasFree's fees are not current
+(`gasfree_fees_stale`), or permits are neither executed nor dead after 30 minutes (`gasfree_permits_stuck`); a
+`CHAIN_SEND_UNRESOLVED` case names a permit whose nonce was used without a transaction anyone could name; a send is
+*blocked* with "GasFree now charges … its cap is …".
+
+**Why it matters.** Nothing is lost: a permit pays only the receiver and amount it names, only once (its nonce), and
+never after its deadline. But while GasFree does not answer, deals priced on GasFree cannot be quoted (no current fees)
+or paid out (their permits wait).
+
+**What to do.**
+1. *Fees not current.* The worker's log (`gasfree_fee_refresh`): it reads `tokenFees` and `activateFees` from the
+   controller through the TRON providers — a TRON provider problem, not GasFree's. Fix that; the next reading clears it.
+2. *Permits stuck.* GasFree's status page and the worker's log (`onchain_cycle: GasFree permit …`). A permit GasFree
+   never carries out dies at its deadline (three minutes); the signer proves it on chain and signs the send again with
+   the same nonce. Nothing to do but wait — unless GasFree is down for long: then **switch deals back to TRX deposits**
+   (*Network* → *Back to TRX deposits*) so new deals do not depend on it; open ones finish when GasFree is back.
+3. *A permit executed, no transaction named.* Open the deal address (a GasFree account) on Tronscan, find the USDT
+   transfer to the send's receiver for its amount, and resolve the permit with that transaction's hash
+   (`gasfree_permit.resolve`). Only a final, successful transaction that pays exactly that is accepted.
+4. *GasFree's fee rose past a send's cap.* On *Sends*, raise its fee cap to what GasFree charges now, with the reason;
+   the difference comes out of INRP2P's fee at that address.
+
+**What never to do.** Do not send TRX or USDT to a deal address to "unstick" it: a GasFree account pays its network out
+of its own USDT, and anything sent there only sits there. Never sign a permit by hand.
+

@@ -174,7 +174,7 @@ export async function tradeEconomics(ex: Executor, tradeId: string): Promise<Tra
     .selectFrom('trade_economics as e')
     .innerJoin('trade as t', 't.id', 'e.trade_id')
     .innerJoin('route_obligation as o', 'o.trade_id', 'e.trade_id')
-    .select(['e.direction', 'e.fixed_side', 'e.base_minor', 'e.quote_inr_minor', 'e.route_value_inr_minor', 'e.gross_margin_inr_minor', 'e.route_id', 'e.route_execution_mode', 'e.route_base_minor', 'e.gross_margin_base_minor', 'e.platform_fee_base_minor', 't.client_id', 'o.id as obligation_id'])
+    .select(['e.direction', 'e.fixed_side', 'e.base_minor', 'e.quote_inr_minor', 'e.route_value_inr_minor', 'e.gross_margin_inr_minor', 'e.route_id', 'e.route_execution_mode', 'e.route_base_minor', 'e.gross_margin_base_minor', 'e.platform_fee_base_minor', 'e.network_fee_base_minor', 't.client_id', 'o.id as obligation_id'])
     .where('e.trade_id', '=', requireUuid(tradeId, 'tradeId'))
     .executeTakeFirst();
   if (!row) throw new DomainError('NOT_FOUND', 'trade economics not found');
@@ -191,6 +191,8 @@ export async function tradeEconomics(ex: Executor, tradeId: string): Promise<Tra
       : {}),
     // A desk's deal (migration 0040): the part of that margin that is the platform's fee.
     ...(row.platform_fee_base_minor !== null ? { platformFeeBase: Money.ofMinor(row.platform_fee_base_minor, 'USDT') } : {}),
+    // ADR 0022: the network allowance its escrow carries until the trade's network is settled.
+    ...(row.network_fee_base_minor !== null ? { networkFeeBase: Money.ofMinor(row.network_fee_base_minor, 'USDT') } : {}),
     routeId: row.route_id,
     executionMode: row.route_execution_mode,
     clientId: row.client_id,

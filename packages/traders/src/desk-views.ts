@@ -4,6 +4,7 @@ import type { DeskStatus, DirectionValue, Executor, TraderStatus } from '@inrp2p
 import {
   type StandingIssue, currentDeskPrices, currentFeePolicy, deskOfTrader, freeCapacity, readBlocks, readStanding, switchOnIssues, traderMembership,
 } from '@inrp2p/trader-core';
+import { allowanceOf, currentGasFreeFees, networkFeePolicy } from '@inrp2p/network';
 import { traderNetworkView } from './network.ts';
 import type { P2pStep } from '@inrp2p/settlement';
 import type { OrderStage } from './progress.ts';
@@ -128,6 +129,8 @@ export interface DeskDeal {
   /** What the desk receives (client sells) or delivers (client buys) in USDT, and INRP2P's fee in it. */
   readonly deskUsdt: string;
   readonly fee: string;
+  /** ADR 0022: the network allowance the desk's USDT carries in this deal (settled at cost into its credit); null in TRX. */
+  readonly network: string | null;
   /** ASKING: the client holds the desk's price; IN_PROGRESS: accepted, settling; then COMPLETED or CANCELLED. */
   readonly state: 'ASKING' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
   readonly stage: OrderStage | null;
@@ -157,6 +160,7 @@ interface DealRow {
   quote_rate: bigint | null;
   quote_desk_base: bigint | null;
   quote_fee: bigint | null;
+  quote_network: bigint | null;
   quote_expires_at: Date | null;
   quote_status: string | null;
   trade_ref: string | null;
@@ -179,7 +183,7 @@ async function dealRows(ex: Executor, deskId: string, where: 'OPEN' | 'DONE' | {
     select o.id, o.ref, o.status, o.offered_at, o.completed_at, o.closed_at,
            r.client_id, c.display_name as client_name, r.direction, r.desk_deal_link_id,
            q.base_minor as quote_base, q.quote_inr_minor as quote_inr, q.client_rate_micro as quote_rate,
-           q.route_base_minor as quote_desk_base, q.platform_fee_base_minor as quote_fee, q.expires_at as quote_expires_at, q.status as quote_status,
+           q.route_base_minor as quote_desk_base, q.platform_fee_base_minor as quote_fee, q.network_fee_base_minor as quote_network, q.expires_at as quote_expires_at, q.status as quote_status,
            t.ref as trade_ref, t.lifecycle_state as trade_state, t.opened_at as trade_opened_at, coalesce(t.completed_at, t.cancelled_at, o.completed_at) as finished_at
       from trader_order o
       join trade_request r on r.id = o.trade_request_id
@@ -205,7 +209,7 @@ async function toDeals(ex: Executor, traderId: string, rows: readonly DealRow[])
     return {
       ref: r.ref, tradeRef: r.trade_ref, clientId: r.client_id, clientName: r.client_name, direction: r.direction, via: r.desk_deal_link_id ? 'LINK' : 'PAGE',
       usdt: usdt(r.quote_base ?? 0n), inr: inr(r.quote_inr ?? 0n), rate: clientRate(r.quote_rate ?? 0n),
-      deskUsdt: usdt(r.quote_desk_base ?? 0n), fee: usdt(r.quote_fee ?? 0n),
+      deskUsdt: usdt(r.quote_desk_base ?? 0n), fee: usdt(r.quote_fee ?? 0n), network: r.quote_network === null ? null : usdt(r.quote_network),
       state, stage: s?.stage ?? null, step: s?.p2pStep ?? null, yourMove: s?.stage === 'YOUR_TURN',
       dueBy: state === 'ASKING' ? (r.quote_expires_at?.toISOString() ?? null) : (s?.dueBy ?? null),
       at: (r.trade_opened_at ?? r.offered_at).toISOString(), completedAt: state === 'COMPLETED' || state === 'CANCELLED' ? (r.finished_at ?? r.closed_at)?.toISOString() ?? null : null,
@@ -259,7 +263,11 @@ export interface DeskToday {
   readonly prices: Readonly<Record<DirectionValue, DeskPriceView | null>>;
   /** What the desk can fill now, per client direction: rupees it can pay for USDT, USDT it can deliver. */
   readonly capacity: { readonly SELL_USDT: { readonly available: string; readonly currency: 'INR' } | null; readonly BUY_USDT: { readonly available: string; readonly currency: 'USDT' } | null };
-  readonly network: { readonly available: string; readonly dealsCovered: number | null; readonly short: boolean };
+  /**
+   * What fuels the desk's transfers: its TRX deposit (`BURN`), or nothing at all — each deal carries its own network in
+   * USDT through GasFree (`GASFREE`, ADR 0022).
+   */
+  readonly network: { readonly mode: 'BURN' | 'GASFREE'; readonly available: string; readonly dealsCovered: number | null; readonly short: boolean };
   /** Deals waiting on the desk, the most urgent first; then the rest of what is open. */
   readonly yourMove: readonly DeskDeal[];
   readonly open: readonly DeskDeal[];
@@ -268,6 +276,8 @@ export interface DeskToday {
   readonly openLinks: number;
   /** INRP2P's fee on a deal the desk fills itself, in basis points. */
   readonly feeBps: number;
+  /** ADR 0022: what a deal's USDT side carries for its network now, at GasFree's fees; null in TRX. */
+  readonly networkFee: string | null;
   readonly now: string;
 }
 
@@ -311,15 +321,29 @@ export async function deskToday(ex: Executor, userId: string): Promise<DeskToday
       SELL_USDT: buys ? { available: inr(free(buys)), currency: 'INR' as const } : null,
       BUY_USDT: sells ? { available: usdt(free(sells)), currency: 'USDT' as const } : null,
     },
-    network: { available: network.available, dealsCovered: network.ordersCovered, short: network.short },
+    network: { mode: network.mode, available: network.available, dealsCovered: network.ordersCovered, short: network.short },
     yourMove: deals.filter((d) => d.yourMove).sort(byDue),
     open: deals.filter((d) => !d.yourMove),
     periods: await deskPeriods(ex, desk.id),
     clients: { total: clients.rows[0]!.total, newThisWeek: clients.rows[0]!.recent },
     openLinks: links.rows[0]!.n,
     feeBps: (await currentFeePolicy(ex)).ownDealBps,
+    networkFee: await deskNetworkFee(ex),
     now: now.toISOString(),
   });
+}
+
+/**
+ * What a desk deal's USDT side carries for its network right now (ADR 0022 §2.2), as the next quote would price it at
+ * GasFree's fees. Null when the network is priced in TRX or GasFree's fees were not read lately.
+ */
+export async function deskNetworkFee(ex: Executor): Promise<string | null> {
+  if ((await networkFeePolicy(ex)).resourceMode !== 'GASFREE') return null;
+  try {
+    return usdt(allowanceOf(await currentGasFreeFees(ex)));
+  } catch {
+    return null;
+  }
 }
 
 /** Both tabs of the desk's deals: open (asking and in progress) and done (completed and cancelled), newest first. */
@@ -354,6 +378,7 @@ export async function deskPricing(ex: Executor, userId: string) {
       BUY_USDT: side('SELL_USDT') ? usdt(free(side('SELL_USDT'))) : null,
     },
     feeBps: (await currentFeePolicy(ex)).ownDealBps,
+    networkFee: await deskNetworkFee(ex),
     now: (await nowOf(ex)).toISOString(),
   });
 }

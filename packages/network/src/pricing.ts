@@ -2,6 +2,7 @@ import { DomainError, Money, Rate, formatTrx, inrToUsdt, trxToInrMinor, trxToUsd
 import type { Executor, TxContext } from '@inrp2p/db';
 import { quoteFeeSun, reservePerSendSun, reserveSends } from './estimate.ts';
 import { currentNetworkCosts } from './policy.ts';
+import type { UsdtNetworkTerms } from './gasfree.ts';
 
 /**
  * What a quote leaves the exchange (ADR 0017 §1, FI-90): its gross margin, less the reward the trader is paid on it,
@@ -12,10 +13,11 @@ import { currentNetworkCosts } from './policy.ts';
  */
 export interface NetworkPricing {
   readonly funderTraderId: string | null;
-  readonly snapshotId: string;
-  readonly trxRateId: string;
-  readonly usdtPerTrxMicro: bigint;
-  readonly energyPriceSun: bigint;
+  /** TRX terms only (ADR 0017); null on USDT terms (ADR 0022), which owe nothing to TRX. */
+  readonly snapshotId: string | null;
+  readonly trxRateId: string | null;
+  readonly usdtPerTrxMicro: bigint | null;
+  readonly energyPriceSun: bigint | null;
   readonly sendsPriced: number;
   readonly feeSun: bigint;
   readonly feeInrMinor: bigint;
@@ -28,9 +30,49 @@ export interface NetworkPricing {
   readonly minNetMarginInrMinor: bigint;
   readonly reserveSends: number;
   readonly perSendSun: bigint;
-  readonly reserveSun: bigint;
+  readonly reserveSun: bigint | null;
   /** P2P (ADR 0019): what the quote leaves in USDT — its margin is USDT, the route's trader pays the TRX, no reward is counted. */
   readonly p2p?: { readonly grossMarginBaseMinor: bigint; readonly feeUsdtMinor: bigint; readonly netMarginUsdtMinor: bigint; readonly minNetMarginUsdtMinor: bigint };
+  /** ADR 0022: the network priced in USDT at GasFree's fees — per transfer and per activation, as read. */
+  readonly usdt?: { readonly readingId: string; readonly transferFeeMinor: bigint; readonly activateFeeMinor: bigint };
+}
+
+/**
+ * A P2P quote whose network is priced in USDT (ADR 0022 §2.2, FI-101), from its terms and its economics: the escrow carries
+ * `dealFunded` of the allowance — in a desk's USDT side, or out of INRP2P's own margin — so the platform's net margin is the
+ * gross USDT margin less it, and it must still be the policy's minimum. No trader reward is counted.
+ */
+export function pricingOfUsdtTerms(terms: UsdtNetworkTerms, input: { direction: 'SELL_USDT' | 'BUY_USDT'; clientRateMicro: bigint; grossMarginBaseMinor: bigint; traderOrderId: string }): NetworkPricing {
+  const rate = Rate.ofMicro(input.clientRateMicro, 'CLIENT');
+  const asInr = (usdtMinor: bigint) => {
+    const v = usdtToInr(Money.ofMinor(usdtMinor < 0n ? -usdtMinor : usdtMinor, 'USDT'), rate, 'DOWN').minor;
+    return usdtMinor < 0n ? -v : v;
+  };
+  const net = input.grossMarginBaseMinor - terms.allowanceUsdtMinor;
+  return {
+    funderTraderId: terms.funderTraderId,
+    snapshotId: null,
+    trxRateId: null,
+    usdtPerTrxMicro: null,
+    energyPriceSun: null,
+    sendsPriced: 2,
+    feeSun: 0n,
+    feeInrMinor: usdtToInr(Money.ofMinor(terms.allowanceUsdtMinor, 'USDT'), rate, 'UP').minor,
+    rewardInrMinor: 0n,
+    traderOrderId: input.traderOrderId,
+    rewardBps: 0,
+    grossMarginInrMinor: asInr(input.grossMarginBaseMinor),
+    netMarginInrMinor: asInr(net),
+    minNetMarginInrMinor: terms.minNetMarginInrMinor,
+    reserveSends: 2,
+    perSendSun: 0n,
+    reserveSun: null,
+    p2p: {
+      grossMarginBaseMinor: input.grossMarginBaseMinor, feeUsdtMinor: terms.allowanceUsdtMinor, netMarginUsdtMinor: net,
+      minNetMarginUsdtMinor: inrToUsdt(Money.ofMinor(terms.minNetMarginInrMinor, 'INR'), rate, 'UP').minor,
+    },
+    usdt: { readingId: terms.readingId, transferFeeMinor: terms.transferFeeMinor, activateFeeMinor: terms.activateFeeMinor },
+  };
 }
 
 /**
@@ -165,6 +207,10 @@ export async function recordQuoteNetworkFee(ctx: TxContext, quoteId: string, p: 
       fee_usdt_minor: p.p2p?.feeUsdtMinor ?? null,
       net_margin_usdt_minor: p.p2p?.netMarginUsdtMinor ?? null,
       min_net_margin_usdt_minor: p.p2p?.minNetMarginUsdtMinor ?? null,
+      unit: p.usdt ? 'USDT' : 'TRX',
+      gasfree_fee_reading_id: p.usdt?.readingId ?? null,
+      transfer_fee_usdt_minor: p.usdt?.transferFeeMinor ?? null,
+      activate_fee_usdt_minor: p.usdt?.activateFeeMinor ?? null,
     })
     .execute();
 }
@@ -172,8 +218,9 @@ export async function recordQuoteNetworkFee(ctx: TxContext, quoteId: string, p: 
 export interface QuoteNetworkFee {
   readonly quoteId: string;
   readonly funderTraderId: string | null;
-  readonly snapshotId: string;
-  readonly usdtPerTrxMicro: bigint;
+  /** TRX terms only; null on USDT terms. */
+  readonly snapshotId: string | null;
+  readonly usdtPerTrxMicro: bigint | null;
   readonly feeSun: bigint;
   readonly feeInrMinor: bigint;
   readonly rewardInrMinor: bigint;
@@ -181,10 +228,14 @@ export interface QuoteNetworkFee {
   readonly rewardBps: number | null;
   readonly netMarginInrMinor: bigint;
   readonly reserveSends: number;
-  readonly reserveSun: bigint;
+  readonly reserveSun: bigint | null;
   /** P2P (ADR 0019): the fee and the net margin in USDT; null through the exchange. */
   readonly feeUsdtMinor: bigint | null;
   readonly netMarginUsdtMinor: bigint | null;
+  /** ADR 0022: TRX terms, or USDT terms at GasFree's fees (the allowance is `feeUsdtMinor`). */
+  readonly unit: 'TRX' | 'USDT';
+  readonly transferFeeUsdtMinor: bigint | null;
+  readonly activateFeeUsdtMinor: bigint | null;
 }
 
 export async function quoteNetworkFee(ex: Executor, quoteId: string): Promise<QuoteNetworkFee | null> {
@@ -194,6 +245,7 @@ export async function quoteNetworkFee(ex: Executor, quoteId: string): Promise<Qu
     quoteId: r.quote_id, funderTraderId: r.funder_trader_id, snapshotId: r.snapshot_id, usdtPerTrxMicro: r.usdt_per_trx_micro, feeSun: r.fee_sun,
     feeInrMinor: r.fee_inr_minor, rewardInrMinor: r.reward_inr_minor, traderOrderId: r.trader_order_id, rewardBps: r.reward_bps, netMarginInrMinor: r.net_margin_inr_minor, reserveSends: r.reserve_sends, reserveSun: r.reserve_sun,
     feeUsdtMinor: r.fee_usdt_minor, netMarginUsdtMinor: r.net_margin_usdt_minor,
+    unit: r.unit, transferFeeUsdtMinor: r.transfer_fee_usdt_minor, activateFeeUsdtMinor: r.activate_fee_usdt_minor,
   };
 }
 

@@ -1,7 +1,7 @@
 import { sql } from 'kysely';
 import { Money, formatTrx } from '@inrp2p/kernel';
 import type { Executor, TraderSide } from '@inrp2p/db';
-import { budgetFigures, currentNetworkCosts, networkBudgetWallet, reservePerSendSun, reserveSends, spentByBearer } from '@inrp2p/network';
+import { budgetFigures, currentNetworkCosts, networkBudgetWallet, networkFeePolicy, reservePerSendSun, reserveSends, spentByBearer } from '@inrp2p/network';
 import { traderApplicant } from '@inrp2p/trader-core';
 import { assertTraderSafe } from './views.ts';
 
@@ -27,6 +27,11 @@ export interface TraderNetworkOrder {
 }
 
 export interface TraderNetworkView {
+  /**
+   * How new deals are fuelled (ADR 0022): from this TRX deposit (`BURN`), or by GasFree out of each deal's own USDT
+   * (`GASFREE`) — then nothing is needed here, and TRX left from before can be taken back.
+   */
+  readonly mode: 'BURN' | 'GASFREE';
   readonly balance: string;
   readonly held: string;
   readonly inFlight: string;
@@ -98,7 +103,7 @@ export async function traderNetworkView(ex: Executor, traderId: string): Promise
       orderRef: h.ref,
       side: h.side,
       open: h.status === 'ACTIVE',
-      held: formatTrx(h.amount_sun),
+      held: formatTrx(h.amount_sun ?? 0n),
       spent: formatTrx(spent.total),
       yours: formatTrx(spent.trader),
       repaidTrx: formatTrx(h.reimbursed_sun ?? 0n),
@@ -133,7 +138,9 @@ export async function traderNetworkView(ex: Executor, traderId: string): Promise
     ...withdrawals.rows.map((w) => ({ kind: 'WITHDRAWAL' as const, amount: formatTrx(BigInt(w.amount_sun)), status: w.status, at: (w.closed_at ?? w.requested_at).toISOString(), txHash: w.txid, note: null })),
   ].sort((a, b) => (a.at < b.at ? 1 : -1));
 
+  const mode = (await networkFeePolicy(ex)).resourceMode;
   const view: TraderNetworkView = {
+    mode,
     balance: formatTrx(f.balanceSun),
     held: formatTrx(f.heldSun),
     inFlight: formatTrx(f.inFlightSun),
@@ -141,8 +148,9 @@ export async function traderNetworkView(ex: Executor, traderId: string): Promise
     available: formatTrx(f.availableSun > 0n ? f.availableSun : 0n),
     perOrder,
     perOrderNeed: need > 0n ? formatTrx(need) : null,
-    ordersCovered: need > 0n ? Number.parseInt(((f.availableSun > 0n ? f.availableSun : 0n) / need).toString(), 10) : null,
-    short: perOrder === null || (need > 0n && f.availableSun < need),
+    ordersCovered: mode === 'GASFREE' ? null : need > 0n ? Number.parseInt(((f.availableSun > 0n ? f.availableSun : 0n) / need).toString(), 10) : null,
+    // On GasFree a desk's deals need nothing of this deposit: never short.
+    short: mode !== 'GASFREE' && (perOrder === null || (need > 0n && f.availableSun < need)),
     depositAddress: wallet?.address ?? null,
     registeredWallet: profile.address,
     withdrawal: open

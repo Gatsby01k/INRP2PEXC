@@ -32,6 +32,8 @@ const COMPLETE: NodeJS.ProcessEnv = {
   CLIENT_BASE_URL: 'https://app.inrp2p.com',
   INRP2P_AUDIT_SEAL_BUCKET: 'inrp2p-audit-seals',
   INRP2P_AUDIT_SEAL_RETENTION_DAYS: '3650',
+  // ADR 0022: the energy provider rented transfers are fuelled from.
+  GASFREE_API_KEY: 'gasfree-test-key-0123', GASFREE_API_SECRET: 'gasfree-test-secret-0123456789', // secret-scan:allow — test placeholders
   INRP2P_OBJECT_STORE_REGION: 'ap-south-1',
   INRP2P_RECEIPTS_BUCKET: 'inrp2p-receipts',
 };
@@ -110,5 +112,13 @@ describe('the production configuration contract (E3)', () => {
     const one = productionConfigReport('worker', { ...COMPLETE, INRP2P_TRON_SECONDARY_URL: '', INRP2P_TRON_SECONDARY_GROUP: '', INRP2P_RECEIPTS_BUCKET: '' });
     expect(one.problems).toEqual([]);
     expect(one.warnings.join('\n')).toMatch(/one TRON provider only[\s\S]*receipts are not stored/);
+  });
+});
+
+describe('GasFree in production (ADR 0022)', () => {
+  it('names its absence out loud, and refuses half its credentials', () => {
+    const { GASFREE_API_KEY: _k, GASFREE_API_SECRET: _s, ...none } = COMPLETE;
+    expect(productionConfigReport('worker', none).warnings.join('\n')).toMatch(/no GasFree credentials/);
+    expect(productionConfigReport('worker', { ...none, GASFREE_API_KEY: 'gasfree-test-key-0123' }).problems.join('\n')).toMatch(/GASFREE_API_SECRET/); // secret-scan:allow — test placeholder
   });
 });

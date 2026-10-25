@@ -1,12 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { parseTrx } from '@inrp2p/kernel';
-import { type FakeTronGateway, FakeTronNetwork } from '@inrp2p/adapters/testing';
+import { FakeGasFree, type FakeTronGateway, FakeTronNetwork } from '@inrp2p/adapters/testing';
 import { HdWalletCustodyAdapter, TronSendNetwork } from '@inrp2p/adapters';
 import { HdSigner } from '@inrp2p/adapters/signer';
 import { runAs } from '@inrp2p/identity/testing';
 import { recordCustodyHdAccount } from '@inrp2p/treasury';
-import { claimNetworkDeposit, publishTrxRate } from '@inrp2p/network';
-import { type OnchainDeps, runAutopay, runFeeRefresh, runHoldClosing, runMonitor, runSender, runUnwindClosing } from '@inrp2p/onchain';
+import { claimNetworkDeposit, publishTrxRate, setNetworkFeePolicy } from '@inrp2p/network';
+import { type OnchainDeps, runAutopay, runFeeRefresh, runGasFreeFeeRefresh, runHoldClosing, runMonitor, runSender, runUnwindClosing } from '@inrp2p/onchain';
 import { acceptOrder, assignRequest, submitOrderPayment } from '@inrp2p/traders';
 import { acceptQuote, createQuote, createRequest, sendQuote } from '@inrp2p/quotes';
 import { confirmRouteSettlement } from '@inrp2p/settlement';
@@ -25,14 +25,17 @@ export interface RailsWorld extends TradersWorld {
   readonly rails: OnchainDeps;
   readonly railsDeps: QuoteDeps;
   readonly budgetAddress: string;
+  /** ADR 0022: GasFree on the same fake network — its controller's views and its relayer. */
+  readonly gasFree: FakeGasFree;
 }
 
 /**
  * A traders world running on the exchange's own rails (ADR 0017): deposit addresses derived from the HD account, a
  * TRON network the signer actually signs for (two independent providers), real chain fees, a TRX price, and the
- * budget wallet. Everything about money goes through the real commands and jobs.
+ * budget wallet. Everything about money goes through the real commands and jobs. It fuels transfers by burning TRX
+ * (`BURN`, ADR 0017) unless asked to deal on GasFree (`GASFREE`, ADR 0022): new deal addresses are GasFree accounts that pay their own network in USDT.
  */
-export async function createRailsWorld(label: string, opts: { policy?: OnchainDeps['policy']; usdtPerTrx?: string } = {}): Promise<RailsWorld> {
+export async function createRailsWorld(label: string, opts: { policy?: OnchainDeps['policy']; usdtPerTrx?: string; resourceMode?: 'BURN' | 'GASFREE' } = {}): Promise<RailsWorld> {
   const w = await createTradersWorld(label);
   await configureProgram(w, { reserve: '500', rewardBps: 10, collection: true });
   const signer = HdSigner.fromMnemonic(TEST_MNEMONIC);
@@ -43,14 +46,20 @@ export async function createRailsWorld(label: string, opts: { policy?: OnchainDe
   });
   const net = new FakeTronNetwork(w.chain);
   const gateways = [net.gateway('node-a'), net.gateway('node-b')];
+  const gasFree = new FakeGasFree(net);
   const rails: OnchainDeps = {
-    network: new TronSendNetwork(gateways), signer, chain: w.chain, clock: () => net.headTime,
+    network: new TronSendNetwork(gateways), signer, chain: w.chain, clock: () => net.headTime, gasFree,
     policy: { validitySeconds: 120, expiryMarginSeconds: 6, rebroadcastSeconds: 0, unresolvedAfterMinutes: 30, ...(opts.policy ?? {}) },
   };
   await runFeeRefresh(w.app, rails);
   await runAs(w.app, publishTrxRate(w.finance.actor), w.finance.ref, 'network.publish_trx_rate', { usdtPerTrx: opts.usdtPerTrx ?? '0.300000', source: 'test', confirmLargeChange: true });
+  if (opts.resourceMode === 'GASFREE') {
+    // As in production: GasFree's fees are read from its controller before a person switches deals to it.
+    await runGasFreeFeeRefresh(w.app, rails);
+    await runAs(w.app, setNetworkFeePolicy(w.owner.actor), w.owner.ref, 'settings.network_fees', { resourceMode: 'GASFREE', reason: 'this world deals on GasFree accounts' });
+  }
   return {
-    ...w, net, gateways, signer, custody, rails,
+    ...w, net, gateways, signer, custody, rails, gasFree,
     railsDeps: { ...w.deps, custody },
     traderDeps: { ...w.traderDeps, custody },
     budgetAddress: signer.feeWalletAddress,

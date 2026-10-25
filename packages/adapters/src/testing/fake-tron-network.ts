@@ -264,6 +264,28 @@ export class FakeTronNetwork {
     };
   }
 
+  readonly #views = new Map<string, (parameterHex: string) => bigint>();
+
+  /** A contract's view function on this network (ADR 0022: the fake GasFree controller registers its own). */
+  registerView(contract: string, selector: string, fn: (parameterHex: string) => bigint): void {
+    this.#views.set(`${normalizeTronAddress(contract)}:${selector}`, fn);
+  }
+
+  view(contract: string, selector: string, parameterHex: string): string {
+    const fn = this.#views.get(`${normalizeTronAddress(contract)}:${selector}`);
+    if (!fn) throw new DomainError('CHAIN_PROVIDER_ERROR', `REVERT: no ${selector} at ${contract} (test)`);
+    return fn(parameterHex).toString(16).padStart(64, '0');
+  }
+
+  /**
+   * A contract call mined now (ADR 0022: a GasFree permit the fake relayer executed): what it transferred is already on
+   * the fake chain under `txid`; this makes the transaction itself known, final once solidified.
+   */
+  mineContractCall(txid: string, success: boolean): void {
+    this.#mine([]);
+    this.#mined.set(txid, { txid, block: this.#head, time: this.#time, success, result: success ? 'SUCCESS' : 'REVERT', feeSun: 0n, energyUsed: 0n, energyFeeSun: 0n, netFeeSun: 0n });
+  }
+
   /** One provider's view of this network, with its own faults. */
   gateway(name: string, group = `group-${name}`): FakeTronGateway {
     return new FakeTronGateway(this, name, group);
@@ -341,5 +363,10 @@ export class FakeTronGateway implements TronSendGateway {
   async trxTransfer(txid: string): Promise<TrxTransferAnswer> {
     this.#up();
     return this.#net.trxTransfer(txid);
+  }
+
+  async solidifiedView(contract: string, selector: string, parameterHex: string): Promise<string> {
+    this.#up();
+    return this.#net.view(contract, selector, parameterHex);
   }
 }

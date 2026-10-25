@@ -5,3 +5,4 @@ export * from './rules/trade.ts';
 export * from './rules/movement.ts';
 export * from './rules/adjustment.ts';
 export * from './rules/trader.ts';
+export * from './rules/network.ts';

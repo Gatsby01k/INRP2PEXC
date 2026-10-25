@@ -3,20 +3,20 @@ import path from 'node:path';
 import { rm } from 'node:fs/promises';
 import pg from 'pg';
 import { sql } from 'kysely';
-import { Money, encodeTronAddress, parseTrx } from '@inrp2p/kernel';
+import { Money, encodeTronAddress } from '@inrp2p/kernel';
 import { type Db, createDb, createPool } from '@inrp2p/db';
 import { migrate } from '@inrp2p/db/migrate';
 import { installQueue } from '@inrp2p/outbox';
 import { HdWalletCustodyAdapter, TronSendNetwork } from '@inrp2p/adapters';
 import { HdSigner } from '@inrp2p/adapters/signer';
-import { FakeChainVerifier, FakeTronNetwork } from '@inrp2p/adapters/testing';
+import { FakeChainVerifier, FakeGasFree, FakeTronNetwork } from '@inrp2p/adapters/testing';
 import { executeCommand } from '@inrp2p/commands';
 import type { ClientActor, DomainCommand } from '@inrp2p/identity';
 import { createClientAuth, createOperatorAuth, provisionClientUser } from '@inrp2p/identity';
 import { addBankAccount, addWallet, createClient, linkClientUser, setCanAcceptQuotes, setClientExchangeAccess } from '@inrp2p/clients';
 import { recordCustodyHdAccount } from '@inrp2p/treasury';
-import { claimNetworkDeposit, publishTrxRate } from '@inrp2p/network';
-import { type OnchainDeps, runAutopay, runFeeRefresh, runHoldClosing, runMonitor, runSender } from '@inrp2p/onchain';
+import { publishTrxRate, setNetworkFeePolicy } from '@inrp2p/network';
+import { type OnchainDeps, runAutopay, runFeeRefresh, runGasFreeFeeRefresh, runHoldClosing, runMonitor, runSender } from '@inrp2p/onchain';
 import { runTronConfirm } from '@inrp2p/scanner';
 import { submitTxForVerification } from '@inrp2p/settlement';
 import { applyAsTrader, approveTrader, configureTraderProgram, openDesk, setAvailability, setDeskPrices, setDeskStatus, sharedReserveAddress, updateBlock } from '@inrp2p/traders';
@@ -99,12 +99,16 @@ export async function createDeskWorld(adminUrl: string, port: number): Promise<D
   await run(db, recordCustodyHdAccount(owner.actor, custody), owner.ref, 'custody.record_hd_account', {
     accountXpub: signer.accountXpub, feeWalletAddress: signer.feeWalletAddress, depositPoolAddress: encodeTronAddress(randomBytes(20)),
   });
+  // Deals run on GasFree (ADR 0022): deal addresses are GasFree accounts paying their own network in USDT — nobody holds TRX.
   const net = new FakeTronNetwork(chain);
   const rails: OnchainDeps = {
     network: new TronSendNetwork([net.gateway('node-a'), net.gateway('node-b')]), signer, chain, clock: () => net.headTime,
+    gasFree: new FakeGasFree(net),
     policy: { validitySeconds: 120, expiryMarginSeconds: 6, rebroadcastSeconds: 0, unresolvedAfterMinutes: 30 },
   };
   await runFeeRefresh(db, rails);
+  await runGasFreeFeeRefresh(db, rails);
+  await run(db, setNetworkFeePolicy(owner.actor), owner.ref, 'settings.network_fees', { resourceMode: 'GASFREE' as const, reason: 'deals run on GasFree accounts' });
   await run(db, publishTrxRate(owner.actor), owner.ref, 'network.publish_trx_rate', { usdtPerTrx: '0.300000', source: 'e2e', confirmLargeChange: true });
   const programme = await db.selectFrom('trader_program').select('version').where('id', '=', 1).executeTakeFirstOrThrow();
   await run(db, configureTraderProgram(owner.actor), owner.ref, 'trader_program.configure', {
@@ -136,7 +140,7 @@ export async function createDeskWorld(adminUrl: string, port: number): Promise<D
   const actor: ClientActor = { kind: 'CLIENT', userId, sessionId: session.id };
   const ref = { type: 'USER' as const, id: userId, surface: 'CLIENT' as const, sessionId: session.id };
 
-  // Applied, approved, its Security Reserve and its TRX network deposit sent from its registered wallet, both sides live.
+  // Applied, approved, its Security Reserve sent from its registered wallet, both sides live. No TRX, nothing prepaid.
   await runClient(db, applyAsTrader(actor, { protector }), ref, 'trader.apply', {
     experience: 'BINANCE' as const, telegram: '@rahul_otc', confirmOwnership: true, offersBuy: true, offersSell: true,
     typicalInr: '1000000.00', dailyInr: '5000000.00', typicalUsdt: '10000.000000', dailyUsdt: '50000.000000', bankAccountId: bank.bankAccountId, walletId: wallet.walletId,
@@ -144,10 +148,6 @@ export async function createDeskWorld(adminUrl: string, port: number): Promise<D
   const traderId = (await db.selectFrom('trader_profile').select('id').where('client_id', '=', company.clientId).executeTakeFirstOrThrow()).id;
   await run(db, approveTrader(owner.actor), owner.ref, 'trader.approve', { traderId, requiredReserve: '500' });
   await sendUsdt(deskWalletAddress, (await sharedReserveAddress(db))!.address, '500');
-  const txid = net.externalTrxTransfer({ from: deskWalletAddress, to: signer.feeWalletAddress, amountSun: parseTrx('1000') });
-  const facts = await rails.network.trxTransfer(txid);
-  if (facts.status !== 'FINAL') throw new Error(`the network deposit is not final: ${facts.status}`);
-  await runClient(db, claimNetworkDeposit(actor, facts.transfer), ref, 'network_deposit.claim', { txHash: txid });
   for (const [side, cfg] of [
     ['BUY_USDT', { capacity: '5000000.00', rate: '101.20', minOrder: '1000.00', maxOrder: '2000000.00' }],
     ['SELL_USDT', { capacity: '50000.000000', rate: '102.20', minOrder: '10.000000', maxOrder: '20000.000000' }],

@@ -8,6 +8,7 @@ import { assertPhysicallyAvailable, openExceptionInTx } from '@inrp2p/settlement
 import { latestFeeSnapshot, lockFunder, lockSend, networkAvailable, networkBudgetWallet, networkFeePolicy, planChainSend, sendNetworkUsed, topupFor } from '@inrp2p/network';
 import { observeBalances } from '@inrp2p/scanner';
 import { type OnchainDeps, policyOf, settlementDepsOf, step } from './deps.ts';
+import { prepareGasFree, submitPermit } from './gasfree.ts';
 
 /**
  * The signer's planning and signing half (ADR 0017 §4). For every send that is due it decides, from what the chain says
@@ -24,6 +25,9 @@ export interface SenderReport {
   readonly blocked: number;
   readonly resumed: number;
   readonly waiting: number;
+  /** ADR 0022: sends out of GasFree accounts whose permit was signed this run, and how many GasFree took at once. */
+  readonly permitsSigned: number;
+  readonly permitsSubmitted: number;
   readonly failures: readonly { readonly sendRef: string; readonly code: string; readonly message: string }[];
 }
 
@@ -31,7 +35,7 @@ type SendRow = Awaited<ReturnType<typeof lockSend>>;
 
 export async function runSender(db: Db, deps: OnchainDeps): Promise<SenderReport> {
   const policy = policyOf(deps);
-  const report = { signed: 0, broadcast: 0, topupsPlanned: 0, blocked: 0, resumed: 0, waiting: 0, failures: [] as { sendRef: string; code: string; message: string }[] };
+  const report = { signed: 0, broadcast: 0, topupsPlanned: 0, blocked: 0, resumed: 0, waiting: 0, permitsSigned: 0, permitsSubmitted: 0, failures: [] as { sendRef: string; code: string; message: string }[] };
 
   // A send waiting for its top-up goes on once the top-up is final (or was cancelled: it is decided again).
   const fueled = await sql<{ id: string }>`
@@ -81,7 +85,10 @@ export async function runSender(db: Db, deps: OnchainDeps): Promise<SenderReport
     }
     try {
       const out = send.asset === 'TRX' ? await prepareTrx(db, deps, send) : await prepareUsdt(db, deps, send);
-      if (out.kind === 'SIGNED') {
+      if (out.kind === 'PERMIT') {
+        report.permitsSigned += 1;
+        if (await submitPermit(db, deps, out.permitId)) report.permitsSubmitted += 1;
+      } else if (out.kind === 'SIGNED') {
         report.signed += 1;
         if (await broadcastAttempt(db, deps, out.attemptId)) report.broadcast += 1;
       } else if (out.kind === 'TOPUP') report.topupsPlanned += 1;
@@ -99,7 +106,7 @@ export async function runSender(db: Db, deps: OnchainDeps): Promise<SenderReport
   return report;
 }
 
-type Prepared = { kind: 'SIGNED'; attemptId: string } | { kind: 'TOPUP' } | { kind: 'BLOCKED' } | { kind: 'WAIT' };
+type Prepared = { kind: 'SIGNED'; attemptId: string } | { kind: 'PERMIT'; permitId: string } | { kind: 'TOPUP' } | { kind: 'BLOCKED' } | { kind: 'WAIT' };
 
 /** A USDT transfer: top the address up first if the chain shows it short of TRX, else sign. */
 async function prepareUsdt(db: Db, deps: OnchainDeps, send: SendRow): Promise<Prepared> {
@@ -108,6 +115,11 @@ async function prepareUsdt(db: Db, deps: OnchainDeps, send: SendRow): Promise<Pr
   if (!snapshot) throw new DomainError('NETWORK_FEES_UNKNOWN', 'the chain\'s fees have never been read');
   // A fresh reading of the USDT there (B2), before anything is decided from it.
   await observeBalances(db, { sources: deps.chain.balanceSources(), contract: deps.chain.tokenContract }, { addresses: [send.from_address] });
+  // ADR 0022: a GasFree account sends by permit, its network out of its own USDT — no TRX, no top-up.
+  if (send.fee_cap_usdt_minor !== null) {
+    const out = await prepareGasFree(db, deps, send);
+    return out.kind === 'SIGNED' ? { kind: 'PERMIT', permitId: out.permitId } : out;
+  }
   const account = await deps.network.accountState(send.from_address);
   const estimate = await deps.network.estimateTrc20Energy({ from: send.from_address, contract: deps.chain.tokenContract, to: send.to_address, amountMinor: send.amount_minor });
   // A simulation that cannot run (a provider that does not simulate for an address it has never seen) falls back to the

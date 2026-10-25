@@ -487,6 +487,8 @@ export interface DepositAddressTable {
   source: 'DERIVED' | 'POOL';
   provider: string;
   custody_reference: string;
+  /** ADR 0022: the HD key that owns this address when it is a GasFree account; null for a plain HD address. */
+  owner_address: Generated<string | null>;
   status: DepositAddressStatus;
   cooldown_until: Date | null;
   created_by: string;
@@ -576,6 +578,8 @@ export interface QuoteTable {
   /** Desks (migration 0040): the platform's fee on a desk's deal — the policy's bps and the USDT they come to; null otherwise. */
   platform_fee_bps: number | null;
   platform_fee_base_minor: bigint | null;
+  /** ADR 0022: the USDT of the deal's network allowance its escrow carries (part of the gross USDT margin); null when priced in TRX. */
+  network_fee_base_minor: Generated<bigint | null>;
   valid_for_seconds: number;
   sent_at: Date | null;
   expires_at: Date | null;
@@ -688,6 +692,8 @@ export interface TradeEconomicsTable {
   /** Desks (migration 0040): the platform's fee on a desk's deal, frozen from its quote; null otherwise. */
   platform_fee_bps: number | null;
   platform_fee_base_minor: bigint | null;
+  /** ADR 0022: the network allowance the escrow carries, frozen from its quote. */
+  network_fee_base_minor: Generated<bigint | null>;
   fees_json: Generated<Json>;
   network: 'TRON';
   bank_account_id: string | null;
@@ -734,7 +740,7 @@ export type ExceptionType =
   | 'PARTIAL_INR_PAYOUT' | 'INR_PAYOUT_DELAYED' | 'BANK_TRANSFER_FAILED' | 'CLIENT_BANK_CHANGED'
   | 'ROUTE_CAPACITY_CHANGED' | 'TRADE_CANCELLATION' | 'OPERATOR_MISTAKE' | 'RECONCILIATION_MISMATCH'
   | 'CHAIN_SEND_UNRESOLVED' | 'NETWORK_BUDGET_SHORT' | 'INR_UNEXPECTED_SENDER' | 'P2P_PAYMENT_OVERDUE' | 'P2P_RECEIPT_OVERDUE'
-  | 'P2P_DISPUTE';
+  | 'P2P_DISPUTE' | 'GASFREE_UNAVAILABLE';
 
 export type ExceptionSubjectType = 'TRADE' | 'SETTLEMENT_LEG' | 'FIAT_TRANSFER' | 'CRYPTO_TRANSFER' | 'DEPOSIT_ADDRESS' | 'ROUTE_OBLIGATION' | 'ROUTE_SETTLEMENT' | 'INR_ACCOUNT' | 'CLIENT' | 'CHAIN_SEND';
 export type ExceptionStatus = 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'VOID';
@@ -797,6 +803,8 @@ export interface SettlementLegTable {
   failed_at: Date | null;
   cancelled_at: Date | null;
   failure_reason: string | null;
+  /** ADR 0022: a USDT refund out of a GasFree account — what its transfer leaves for the network, borne by the client. */
+  network_fee_minor: Generated<bigint | null>;
 }
 
 /** A changed payout destination of an open trade (migration 0028, D1). Append-only; the latest APPROVED is in force. */
@@ -875,7 +883,7 @@ export interface TradeFundingTable {
 }
 
 export type FundingSourceKind = 'CLIENT_FUNDS' | 'COUNTERPARTY_FUNDS';
-export type FundingUseKind = 'CLIENT_PAYOUT' | 'REFUND' | 'ROUTE_PAYMENT' | 'ESCROW_RETURN' | 'FEE_SWEEP';
+export type FundingUseKind = 'CLIENT_PAYOUT' | 'REFUND' | 'ROUTE_PAYMENT' | 'ESCROW_RETURN' | 'FEE_SWEEP' | 'NETWORK_FEE';
 export type FundingAllocationStatus = 'ACTIVE' | 'CONSUMED' | 'RELEASED';
 
 /** A confirmed incoming movement of a trade and where it is (view, migration 0025). */
@@ -1509,10 +1517,16 @@ export interface NetworkFeePolicyTable {
   fee_sweep_enabled: Generated<boolean>;
   fee_sweep_min_usdt_minor: Generated<bigint>;
   trx_reclaim_min_sun: Generated<bigint>;
+  /** ADR 0022: what new P2P deals are priced and issued on — TRX deposits, or GasFree accounts paying in USDT. */
+  resource_mode: Generated<NetworkResourceMode>;
+  gasfree_fee_max_age_seconds: Generated<number>;
   reason: string;
   set_by: string;
   set_at: Generated<Date>;
 }
+
+export type NetworkResourceMode = 'BURN' | 'GASFREE';
+export type NetworkUnit = 'TRX' | 'USDT';
 
 export interface NetworkFeeSnapshotTable {
   id: Generated<string>;
@@ -1538,10 +1552,10 @@ export interface NetworkTrxRateTable {
 export interface QuoteNetworkFeeTable {
   quote_id: string;
   funder_trader_id: string | null;
-  snapshot_id: string;
-  trx_rate_id: string;
-  usdt_per_trx_micro: bigint;
-  energy_price_sun: bigint;
+  snapshot_id: string | null;
+  trx_rate_id: string | null;
+  usdt_per_trx_micro: bigint | null;
+  energy_price_sun: bigint | null;
   sends_priced: number;
   fee_sun: bigint;
   fee_inr_minor: bigint;
@@ -1551,12 +1565,17 @@ export interface QuoteNetworkFeeTable {
   reward_inr_minor: bigint;
   net_margin_inr_minor: bigint;
   reserve_sends: number;
-  reserve_sun: bigint;
+  reserve_sun: bigint | null;
   min_net_margin_inr_minor: bigint;
   /** P2P (ADR 0019): the fee, the net margin and the minimum, in USDT; null through the exchange. */
   fee_usdt_minor: bigint | null;
   net_margin_usdt_minor: bigint | null;
   min_net_margin_usdt_minor: bigint | null;
+  /** ADR 0022: terms in USDT — GasFree's fees as read, per transfer and per activation (the allowance is `fee_usdt_minor`). */
+  unit: Generated<NetworkUnit>;
+  gasfree_fee_reading_id: string | null;
+  transfer_fee_usdt_minor: bigint | null;
+  activate_fee_usdt_minor: bigint | null;
   created_at: Generated<Date>;
 }
 
@@ -1583,10 +1602,11 @@ export interface NetworkBudgetHoldTable {
   id: Generated<string>;
   trade_id: string;
   trader_id: string | null;
-  amount_sun: bigint;
+  /** TRX holds (ADR 0017): the worst case of the trade's top-ups. Null on a USDT hold. */
+  amount_sun: bigint | null;
   sends: number;
-  per_send_sun: bigint;
-  snapshot_id: string;
+  per_send_sun: bigint | null;
+  snapshot_id: string | null;
   status: Generated<'ACTIVE' | 'CLOSED'>;
   created_at: Generated<Date>;
   closed_at: Date | null;
@@ -1594,6 +1614,11 @@ export interface NetworkBudgetHoldTable {
   spent_sun: bigint | null;
   reimbursed_sun: bigint | null;
   reimbursed_inr_minor: bigint | null;
+  /** ADR 0022: a USDT hold — the allowance the escrow carries; on closing, what its transfers' network took and what was left. */
+  unit: Generated<NetworkUnit>;
+  deal_funded_usdt_minor: bigint | null;
+  spent_usdt_minor: bigint | null;
+  unused_usdt_minor: bigint | null;
 }
 
 export type NetworkWithdrawalStatus = 'REQUESTED' | 'APPROVED' | 'COMPLETED' | 'REJECTED' | 'CANCELLED';
@@ -1634,8 +1659,10 @@ export interface ChainSendTable {
   to_address: string;
   amount_minor: bigint;
   fee_estimate_sun: Generated<bigint>;
-  /** A USDT send's fixed TRX cap (IX114/IX115); null for a TRX send. */
+  /** A USDT send's fixed TRX cap (IX114/IX115); null for a TRX send and for one from a GasFree account. */
   network_cap_sun: bigint | null;
+  /** ADR 0022: a send from a GasFree account — the most its network may cost, its permits' `maxFee` (IX131). */
+  fee_cap_usdt_minor: Generated<bigint | null>;
   funder_trader_id: string | null;
   bearer: ChainSendBearer;
   status: ChainSendStatus;
@@ -1655,6 +1682,47 @@ export interface ChainSendTable {
 }
 
 export type ChainSendAttemptStatus = 'SIGNED' | 'BROADCAST' | 'CONFIRMED' | 'FAILED' | 'EXPIRED';
+
+/** ADR 0022: one reading of GasFree's fees for USDT, from the controller on chain (micro-USDT). */
+export interface GasFreeFeeReadingTable {
+  id: Generated<string>;
+  controller: string;
+  token: string;
+  transfer_fee_minor: bigint;
+  activate_fee_minor: bigint;
+  observed_at: Generated<Date>;
+  observed_by: string;
+}
+
+export type GasFreePermitStatus = 'SIGNED' | 'SUBMITTED' | 'CONFIRMED' | 'EXPIRED';
+
+/** ADR 0022: one permit the exchange signed for a send from a GasFree account — committed before GasFree sees it. */
+export interface GasFreePermitTable {
+  id: Generated<string>;
+  send_id: string;
+  seq: number;
+  owner_address: string;
+  gasfree_address: string;
+  token: string;
+  service_provider: string;
+  receiver: string;
+  value_minor: bigint;
+  max_fee_minor: bigint;
+  nonce: bigint;
+  deadline: Date;
+  digest_hex: string;
+  signature_hex: string;
+  status: Generated<GasFreePermitStatus>;
+  trace_id: string | null;
+  txid: string | null;
+  activate_fee_minor: bigint | null;
+  fee_minor: bigint | null;
+  last_answer: string | null;
+  submitted_at: Date | null;
+  signed_at: Generated<Date>;
+  decided_at: Date | null;
+  decided_by: string | null;
+}
 
 export interface ChainSendAttemptTable {
   id: Generated<string>;
@@ -1885,6 +1953,8 @@ export interface Database {
   network_deposit_withdrawal: NetworkDepositWithdrawalTable;
   chain_send: ChainSendTable;
   chain_send_attempt: ChainSendAttemptTable;
+  gasfree_fee_reading: GasFreeFeeReadingTable;
+  gasfree_permit: GasFreePermitTable;
   idempotency_key: IdempotencyKeyTable;
   audit_event: AuditEventTable;
   audit_seal: AuditSealTable;

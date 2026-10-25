@@ -804,6 +804,11 @@ it (a new `RECLAIM` entry kind).
 
 ## TD-32 — Network fees are burned, not paid with rented or staked energy
 
+**Closed (ADR 0022, migration 0041, 2026-10-25).** On GasFree nothing is burned: a deal address is a GasFree account and
+each transfer's network is paid in USDT out of it, carried by the deal; nobody holds or prepays TRX. `prepareUsdt` branches
+to `prepareGasFree`; the TRX top-up stays for deals priced in TRX (`BURN`). Tests: `gasfree.int.test.ts`,
+`gasfree.unit.test.ts`.
+
 **Observed (ADR 0017, 2026-10-13).** Every transfer burns TRX for its energy at the chain's price (100 sun per unit
 today): ≈ 6.5 TRX to a wallet that holds USDT, ≈ 13 TRX to one that never did, plus 1.1 TRX to activate each new deal
 address. Staking TRX for energy, or renting energy from a market, costs less per transfer.
@@ -888,3 +893,12 @@ may not depend on.
 
 **Resolution (block 2).** Move the standing read (`readStanding` / `standingIssues`) into `@inrp2p/trader-core` and apply
 it to desk deals, minus the two switches that belong to the INRP2P desk's routing (`OFFLINE`, `ASSIGNMENTS_DISABLED`).
+
+## TD-41 — Trader reserve addresses still need TRX to send
+
+**Observed (ADR 0022, 2026-10-25).** On GasFree, deal addresses pay their own network in USDT; a trader's Security Reserve
+address is still a plain HD address, so returning or applying a reserve burns TRX from the platform's budget. It is rare
+(a trader leaving, or a reserve applied), but it is the one transfer that still needs TRX.
+
+**Resolution (to do).** Issue new reserve addresses as GasFree accounts too, and let the return carry its own network.
+

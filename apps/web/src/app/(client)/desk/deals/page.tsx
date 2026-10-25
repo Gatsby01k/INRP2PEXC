@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 import { deskDealLinks } from '@inrp2p/quotes';
-import { currentFeePolicy, deskDeals, deskPriceViews, deskWorkspace } from '@inrp2p/traders';
+import { currentFeePolicy, deskDeals, deskNetworkFee, deskPriceViews, deskWorkspace } from '@inrp2p/traders';
 import { memberPage } from '../../../../server/client.ts';
 import { DeskHead } from '../_ui/DeskHead.tsx';
 import { DeskStatus } from '../_ui/DeskStatus.tsx';
@@ -31,7 +31,7 @@ export default async function DeskDealsPage({ searchParams }: { searchParams: Pr
         title="Deals"
         status={<DeskStatus status={ws.desk.status} />}
         lede="Every deal your clients made with your desk — from your page and from your links."
-        aside={<NewDealSheet deskName={ws.desk.displayName} feeBps={fee.ownDealBps} prices={prices} status={ws.desk.status} canCommit={ws.canCommit} />}
+        aside={<NewDealSheet deskName={ws.desk.displayName} feeBps={fee.ownDealBps} networkFee={await deskNetworkFee(ctx.db)} prices={prices} status={ws.desk.status} canCommit={ws.canCommit} />}
       />
       <DealsScreen tab={tab} deals={data.deals} periods={data.periods} links={links} now={data.now} canCommit={ws.canCommit} />
     </>

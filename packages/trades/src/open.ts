@@ -28,6 +28,8 @@ export interface AcceptedQuoteTerms {
   /** A desk's deal (migration 0040): the platform's fee — its bps and the USDT it comes to; null otherwise. */
   readonly platformFeeBps?: number | null;
   readonly platformFeeBaseMinor?: bigint | null;
+  /** ADR 0022: the network allowance the escrow carries; null when the trade's network is priced in TRX. */
+  readonly networkFeeBaseMinor?: bigint | null;
 }
 
 export interface OpenedTrade {
@@ -81,6 +83,7 @@ export async function openTradeFromAcceptedQuote(ctx: TxContext, terms: Accepted
       gross_margin_base_minor: terms.grossMarginBaseMinor ?? null,
       platform_fee_bps: terms.platformFeeBps ?? null,
       platform_fee_base_minor: terms.platformFeeBaseMinor ?? null,
+      network_fee_base_minor: terms.networkFeeBaseMinor ?? null,
     })
     .execute();
   await ctx.tx

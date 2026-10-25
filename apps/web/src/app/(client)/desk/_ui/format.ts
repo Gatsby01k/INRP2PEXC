@@ -61,14 +61,19 @@ export function relative(target: number, now: number): string {
 }
 
 /** What a deal at these terms comes to, as the quote will price it — or why it cannot be priced. */
-export function previewDeal(input: { direction: 'SELL_USDT' | 'BUY_USDT'; fixedSide: 'BASE' | 'QUOTE'; amount: string; rate: string; feeBps: number }): DeskEconomics | string | null {
+export function previewDeal(input: {
+  direction: 'SELL_USDT' | 'BUY_USDT'; fixedSide: 'BASE' | 'QUOTE'; amount: string; rate: string; feeBps: number;
+  /** ADR 0022: the most the deal's USDT side carries for its network now (null: priced in TRX). */
+  networkFee?: string | null;
+}): DeskEconomics | string | null {
   if (!input.amount.trim() || !input.rate.trim()) return null;
   try {
     const clientRate = Rate.parse(input.rate.trim(), 'CLIENT');
     if (clientRate.micro <= 0n) return 'Enter a rate above zero.';
+    const network = input.networkFee ? { networkFee: Money.parse(input.networkFee, 'USDT') } : {};
     return input.fixedSide === 'BASE'
-      ? computeDeskEconomics({ direction: input.direction, fixedSide: 'BASE', amount: Money.parse(input.amount.trim(), 'USDT'), clientRate, feeBps: input.feeBps })
-      : computeDeskEconomics({ direction: input.direction, fixedSide: 'QUOTE', amount: Money.parse(input.amount.trim(), 'INR'), clientRate, feeBps: input.feeBps });
+      ? computeDeskEconomics({ direction: input.direction, fixedSide: 'BASE', amount: Money.parse(input.amount.trim(), 'USDT'), clientRate, feeBps: input.feeBps, ...network })
+      : computeDeskEconomics({ direction: input.direction, fixedSide: 'QUOTE', amount: Money.parse(input.amount.trim(), 'INR'), clientRate, feeBps: input.feeBps, ...network });
   } catch (e) {
     if (isDomainError(e)) return e.code === 'INVALID_AMOUNT' ? 'That amount is too small for a deal.' : 'Check the amount and the rate.';
     return 'Check the amount and the rate.';

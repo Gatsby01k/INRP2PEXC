@@ -160,6 +160,15 @@ keep `LEGACY_EXCHANGE_FUNDED` and the rules they were accepted under.
 |---|---|---|---|
 | FI-99 | A desk's deal runs P2P on the desk's own route at the desk's own rate (`route_rate = client_rate`), with one rupee amount; the desk's USDT differs from the client's only by the platform's fee — the fee policy's basis points of the client's USDT, rounded up (`base − fee` to the desk when the client sells, `base + fee` from the desk when it buys) — and that fee is the deal's whole margin, frozen with the quote and the trade and realized at completion as `REVENUE:PLATFORM_FEE`. Its request is placed by an active client of a live desk and filled by that desk alone. The fee policy is append-only and changed by two people; a quote carries the policy in force when it is created. A desk deals only in a trader's full standing and within INRP2P's ceilings on it; a client holds one instant price per desk; a deal link is its first taker's, at its own rate, and becomes one trade at most | `computeDeskEconomics` / `priceDeskDeal`, `quoteDeskDealInTx` (`switchOnIssues`, `freeCapacity`), `requestDeskQuote`, `claimDeskDealLink`, `tradeCompleteJournal`; IX121 (live desk, fixed handle), IX122 (no own trader as client), IX123 (request at a desk), IX124 (desk fills its own request), IX125 (desk quote: own P2P route, rate, policy fee = whole margin), IX126 (deal link: one taker, its own deal and rate, one trade), IX045 (fee frozen into the trade), `fee_policy` append-only + two-person CHECK, one open request per link (unique index) | `desks.int.test.ts` (both directions end to end, fee realized, desk TRX spent and not paid back, raw inserts and updates refused), `economics.unit.test.ts`, `trade.unit.test.ts` |
 
+### Network fees in USDT through GasFree (ADR 0022)
+| ID | Invariant | Enforcement | Test |
+|---|---|---|---|
+| FI-100 | A deal priced in USDT carries its own network — GasFree's activation, payout and sweep at the fees read from the controller on chain — in the desk's USDT side beside the fee, or out of INRP2P's margin on its own deal; its escrow is the GasFree account of a fresh HD key, derived from the key alone; nobody prepays any network. | IX103, IX125, IX045; `usdtNetworkTerms`, `gasFreeAddressOf` | `gasfree.int` (prices a deal…, a client sells…), `gasfree.unit` (mainnet vectors) |
+| FI-101 | Every transfer out of a GasFree account pays its own network out of that account, never above its fee cap (the permit's `maxFee`); the cap is earmarked from the trade's own USDT at the address while the send is live and consumed at what the controller charged once it is confirmed; a refund or a return goes back less its own network. | IX131, IX133, IX106; `earmarkSendNetwork`, `settleSendNetwork` | `gasfree.int` (refunds, returns, what the database refuses) |
+| FI-102 | A permit is committed before GasFree sees it; a retry gives the same permit; never two live for a send or an owner; another is signed only once the first is proved dead on chain (deadline behind every provider's solidified head, nonce unused); a decided permit never changes. | IX131, IX132; `prepareGasFree`, `runPermits` | `gasfree.int` (a permit it holds past its deadline…) |
+| FI-103 | What GasFree charged is read from the transaction itself — its USDT transfer to the provider, agreed by the providers — and booked out of the deal address as network expense (or against the refunded client, or the returning trader); a completed deal's allowance is recovered at cost and the rest is INRP2P's margin. | `settleGasFreeNetworkInTx`, `gasfree:{p}:fee`, `network:{t}:settle` | `gasfree.int`, `ledger trade.unit` |
+| FI-104 | New deals go to GasFree only when a person switches them there and GasFree's fees were read within the hour; switching back is never refused; deals already priced keep their terms and addresses. | `setNetworkFeePolicy` | `gasfree.int` (switching deals to GasFree…) |
+
 ### Traders (`TRADERS.md` §10)
 A trader's order settles through an ordinary `TO_EXCHANGE` route obligation, so FI-60…FI-65 apply to it unchanged. The programme's own invariants (TR-01…TR-11: registered destinations only, held capacity = open orders, one order per request, quote = accepted order, trader-set rates, one subject per delivery address, reserve and rewards in the ledger, locked reserve never withdrawable, trader projections private, business-clock expiry) and their enforcement are listed there.
 
@@ -198,6 +207,9 @@ All entries carry dimensions `trade_id` and, for route accounts, `route_obligati
 | `ASSET:ROUTE_PREFUND:{r}` | asset | Reserved for `PREFUNDED`; unused in V1 |
 | `EXPENSE:FEES` | expense | Explicit fee lines (V1: zero) |
 | `EXPENSE:NETWORK_FEES` (INR) | expense | TRON network fees the exchange's signer burned for trades, paid back to the trader that prefunded them (ADR 0017); TRX itself is kept in `network_budget_entry`, not the ledger |
+| `LIAB:NETWORK_ALLOWANCE` (USDT) | liability | A completed deal's network allowance until its network is settled at cost (ADR 0022); trade dimension, settles to zero per trade |
+| `REVENUE:NETWORK_RECOVERED` (USDT) | revenue | What GasFree charged a completed deal's own transfers, recovered at cost from the allowance the deal carried — the counterpart of the network expense each transfer booked (ADR 0022) |
+| `EXPENSE:NETWORK_FEES` (USDT) | expense | The network of INRP2P's own deals beyond what their allowance carried |
 | `SUSPENSE:UNALLOCATED` | suspense | Funds at an address without an open deposit assignment, or directly at a treasury wallet |
 | `LIAB:TRADER_RESERVE:{t}` (USDT) | liability | A trader's Security Reserve held by the exchange (`TRADERS.md` §8) |
 | `LIAB:TRADER_REWARD_PAYABLE:{t}` (INR) | liability | Rewards accrued on a trader's completed orders, not yet paid |
@@ -211,6 +223,8 @@ All entries carry dimensions `trade_id` and, for route accounts, `route_obligati
 | `trade:{t}:cancel` | Exact reversal of `accept`; allowed only when the trade and its route obligation carry no net confirmed movements (none, or fully refunded/returned) | same |
 | `adj:{id}:cancel` | Exact reversal of a posted adjustment, posted with `trade:{t}:cancel` so a cancelled trade leaves every client, route and margin account at zero | same |
 | `adj:{id}` | Reversal of affected lines + re-posting of corrected lines | same |
+| `gasfree:{p}:fee` (ADR 0022) | Dr EXPENSE:NETWORK_FEES (USDT) — or CLIENT_RECEIVABLE on a refund, ROUTE_RECEIVABLE on a return — / Cr TREASURY_USDT (the deal address's wallet) | `gasfree.int`, `ledger trade.unit` |
+| `network:{t}:settle` (ADR 0022) | Dr NETWORK_ALLOWANCE / Cr NETWORK_RECOVERED (what the deal's transfers cost) / Cr GROSS_MARGIN (USDT; the rest, which pays the sweep) | `gasfree.int`, `ledger trade.unit` |
 
 ### 3.4 Movement journals (by payer → payee)
 | Movement | Evidence | Journal | Satisfies |
@@ -258,6 +272,7 @@ Invariant check at every row: `ledger balance of ROUTE_RECEIVABLE/ROUTE_PAYABLE 
 | Net after rewards and recorded fees | realized gross margin − trader rewards − recorded fees | May be negative and is then shown negative; never hidden by a positive gross |
 | Rewards owed / free margin (now) | `LIAB:TRADER_REWARD_PAYABLE` balance / Σ `inrp2p_inr_account_free_margin` over active accounts | An owed reward stays visible; a payout beyond free margin is refused (FI-82) |
 | Not in the ledger, listed as not deducted | TRX/energy for transfers and the custody provider's fees (platform operating budget); bank charges until recorded | Never paid with client or trader money (ADR 0016 §6) |
+| Network recovered / GasFree charges (ADR 0022) | Credits to `REVENUE:NETWORK_RECOVERED` against Σ `gasfree_permit.fee_minor` of deals' payouts | Pass-through at cost: what a deal carried pays what its transfers cost; refunds and returns are borne by whom they return to |
 
 ## 5. What is deliberately not an invariant in V1
 

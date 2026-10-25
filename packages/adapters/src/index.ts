@@ -17,3 +17,4 @@ export * from './hd-wallet.ts';
 export * from './tron-send.ts';
 export * from './telegram.ts';
 export * from './trx-price.ts';
+export * from './gasfree.ts';

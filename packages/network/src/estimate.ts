@@ -43,6 +43,9 @@ export interface FeePolicy {
   readonly reason: string;
   readonly setBy: string;
   readonly setAt: Date;
+  /** ADR 0022: what new P2P deals are priced and issued on — TRX deposits (`BURN`) or GasFree accounts (`GASFREE`). */
+  readonly resourceMode: 'BURN' | 'GASFREE';
+  readonly gasfreeFeeMaxAgeSeconds: number;
 }
 
 const BPS = 10_000n;

@@ -46,7 +46,7 @@ export function PricesEditor({
   pricing,
   canCommit,
 }: {
-  pricing: { prices: Readonly<Record<Direction, DeskPriceView | null>>; capacity: { SELL_USDT: string | null; BUY_USDT: string | null }; feeBps: number; now: string };
+  pricing: { prices: Readonly<Record<Direction, DeskPriceView | null>>; capacity: { SELL_USDT: string | null; BUY_USDT: string | null }; feeBps: number; networkFee: string | null; now: string };
   canCommit: boolean;
 }) {
   const now = useServerClock(pricing.now, false);
@@ -86,7 +86,7 @@ export function PricesEditor({
   const examples = useMemo(
     () =>
       Object.fromEntries(
-        (['SELL_USDT', 'BUY_USDT'] as const).map((d) => [d, drafts[d].rate ? previewDeal({ direction: d, fixedSide: 'BASE', amount: EXAMPLE, rate: drafts[d].rate, feeBps: pricing.feeBps }) : null]),
+        (['SELL_USDT', 'BUY_USDT'] as const).map((d) => [d, drafts[d].rate ? previewDeal({ direction: d, fixedSide: 'BASE', amount: EXAMPLE, rate: drafts[d].rate, feeBps: pricing.feeBps, networkFee: pricing.networkFee }) : null]),
       ) as Record<Direction, ReturnType<typeof previewDeal>>,
     [drafts, pricing.feeBps],
   );
@@ -136,13 +136,19 @@ export function PricesEditor({
                     <dd>{inr(priced.clientInr.toDecimalString())}</dd>
                   </div>
                   <div className={styles.previewRow}>
-                    <dt>{d === 'SELL_USDT' ? 'You receive' : 'You put in escrow'}</dt>
+                    <dt>{d === 'SELL_USDT' ? (priced.networkFeeBase ? 'You receive at least' : 'You receive') : priced.networkFeeBase ? 'You put in escrow, at most' : 'You put in escrow'}</dt>
                     <dd>{usdt(priced.routeBase.toDecimalString())}</dd>
                   </div>
                   <div className={styles.previewRow} data-quiet="">
                     <dt>INRP2P fee · {percent(pricing.feeBps)}</dt>
                     <dd>{usdt(priced.platformFeeBase.toDecimalString())}</dd>
                   </div>
+                  {priced.networkFeeBase ? (
+                    <div className={styles.previewRow} data-quiet="">
+                      <dt>Network · GasFree, in USDT</dt>
+                      <dd>{usdt(priced.networkFeeBase.toDecimalString())}</dd>
+                    </div>
+                  ) : null}
                 </dl>
               ) : null}
               <p className={shell.muted}>

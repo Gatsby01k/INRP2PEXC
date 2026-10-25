@@ -88,6 +88,8 @@ export interface TronSendGateway {
   broadcastHex(signedHex: string): Promise<BroadcastAnswer>;
   transactionOutcome(txid: string): Promise<TxOutcomeAnswer>;
   trxTransfer(txid: string): Promise<TrxTransferAnswer>;
+  /** A view function's first 32-byte word, read against the solidified state (ADR 0022: GasFree's nonces and fees). */
+  solidifiedView(contract: string, selector: string, parameterHex: string): Promise<string>;
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -240,6 +242,19 @@ export class TronSendNetwork {
       if (a.head.value.timestamp <= expiration + marginMs) return { proved: false, reason: `${a.g.name}'s solidified head is not yet past the expiration` };
     }
     return { proved: true, by: answers.map((a) => a.g.name) };
+  }
+
+  /**
+   * A view of a contract's solidified state, as every provider that answers reports it — the same word from all of them,
+   * or nothing is concluded (ADR 0022: a GasFree owner's nonce, the controller's fees).
+   */
+  async solidifiedView(contract: string, selector: string, parameterHex: string): Promise<bigint> {
+    const answers = await Promise.all(this.gateways.map(async (g) => ({ g, r: await settle(g.solidifiedView(contract, selector, parameterHex)) })));
+    const ok = answers.filter((a): a is { g: TronSendGateway; r: { ok: true; value: string } } => a.r.ok);
+    if (ok.length === 0) throw new DomainError('CHAIN_PROVIDER_ERROR', `no provider answered ${selector} on ${contract}`, { transient: true });
+    const words = new Set(ok.map((a) => a.r.value.toLowerCase()));
+    if (words.size > 1) throw new DomainError('CHAIN_PROVIDER_ERROR', `providers disagree on ${selector} of ${contract}: ${ok.map((a) => `${a.g.name}=${a.r.value}`).join(', ')}`, { transient: true });
+    return BigInt(`0x${[...words][0]}`);
   }
 
   /** What a TRX deposit transferred, final, from every provider that knows it — agreeing, or refused. */

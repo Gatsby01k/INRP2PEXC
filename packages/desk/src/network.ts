@@ -1,7 +1,9 @@
 import { sql } from 'kysely';
 import { Money, formatTrx, trxToInrMinor } from '@inrp2p/kernel';
 import type { Executor } from '@inrp2p/db';
-import { budgetFigures, custodyHdAccount, latestFeeSnapshot, latestTrxRate, listSends, networkBudgetWallet, networkFeePolicy, openWithdrawals, quoteFeeSun, reservePerSendSun } from '@inrp2p/network';
+import {
+  budgetFigures, custodyHdAccount, latestFeeSnapshot, latestGasFreeFees, latestTrxRate, listSends, networkBudgetWallet, networkFeePolicy, openWithdrawals, quoteFeeSun, reservePerSendSun,
+} from '@inrp2p/network';
 
 /**
  * The desk's view of the exchange's own rails (ADR 0017): the TRX budget each funder prefunded and what of it is free,
@@ -44,6 +46,10 @@ export interface NetworkSendRow {
   /** A USDT send's fixed TRX cap and what its top-ups drew on it (null for a TRX send). */
   readonly networkCap: string | null;
   readonly networkUsed: string | null;
+  /** ADR 0022: a send out of a GasFree account — its fee cap and, once confirmed, what the controller charged (USDT). */
+  readonly feeCap: string | null;
+  readonly feeCharged: string | null;
+  readonly permits: readonly { readonly seq: number; readonly status: string; readonly nonce: string; readonly deadline: string; readonly txid: string | null; readonly fee: string | null; readonly lastAnswer: string | null }[];
   readonly updatedAt: string;
   readonly attempts: readonly { readonly seq: number; readonly txid: string; readonly status: string; readonly broadcasts: number; readonly expiration: string; readonly burned: string | null; readonly energy: string | null; readonly result: string | null }[];
 }
@@ -86,6 +92,16 @@ export interface NetworkView {
   readonly sends: readonly NetworkSendRow[];
   readonly trades: readonly TradeNetworkRow[];
   readonly withdrawals: readonly { readonly id: string; readonly ref: string; readonly traderRef: string; readonly amount: string; readonly fee: string; readonly to: string; readonly status: string; readonly requestedAt: string }[];
+  /**
+   * ADR 0022: what new deals are fuelled by, GasFree's fees as last read from its controller, and what its transfers were
+   * charged — by the deals' allowances, by refunded clients, by returning traders.
+   */
+  readonly gasFree: {
+    readonly mode: 'BURN' | 'GASFREE';
+    readonly fees: { readonly transfer: string; readonly activation: string; readonly perDeal: string; readonly observedAt: string; readonly ageSeconds: number; readonly stale: boolean } | null;
+    readonly charged: { readonly deals: string; readonly clients: string; readonly traders: string; readonly transfers: number };
+    readonly livePermits: number;
+  };
 }
 
 const trx = (sun: bigint) => formatTrx(sun);
@@ -132,6 +148,25 @@ export async function networkView(ex: Executor, opts: { tradeLimit?: number; sen
 
   const trades = await tradeNetworkRows(ex, { limit: opts.tradeLimit ?? 50 });
 
+  const fees = await latestGasFreeFees(ex);
+  const charged = await sql<{ deals: string; clients: string; traders: string; n: number; live: number }>`
+    select coalesce(sum(p.fee_minor) filter (where p.status = 'CONFIRMED' and s.purpose not in ('REFUND', 'ESCROW_RETURN')), 0)::text as deals,
+           coalesce(sum(p.fee_minor) filter (where p.status = 'CONFIRMED' and s.purpose = 'REFUND'), 0)::text as clients,
+           coalesce(sum(p.fee_minor) filter (where p.status = 'CONFIRMED' and s.purpose = 'ESCROW_RETURN'), 0)::text as traders,
+           count(*) filter (where p.status = 'CONFIRMED')::int as n,
+           count(*) filter (where p.status in ('SIGNED', 'SUBMITTED'))::int as live
+      from gasfree_permit p join chain_send s on s.id = p.send_id`.execute(ex);
+  const u = (m: bigint) => Money.ofMinor(m, 'USDT').toDecimalString();
+  const gasFree: NetworkView['gasFree'] = {
+    mode: policy.resourceMode,
+    fees: fees ? {
+      transfer: u(fees.transferFeeMinor), activation: u(fees.activateFeeMinor), perDeal: u(fees.activateFeeMinor + 2n * fees.transferFeeMinor),
+      observedAt: fees.observedAt.toISOString(), ageSeconds: fees.ageSeconds, stale: fees.ageSeconds > policy.gasfreeFeeMaxAgeSeconds,
+    } : null,
+    charged: { deals: u(BigInt(charged.rows[0]!.deals)), clients: u(BigInt(charged.rows[0]!.clients)), traders: u(BigInt(charged.rows[0]!.traders)), transfers: charged.rows[0]!.n },
+    livePermits: charged.rows[0]!.live,
+  };
+
   const withdrawals = (await openWithdrawals(ex)).map((w) => ({
     id: w.id, ref: w.ref, traderRef: w.trader_ref, amount: trx(w.amount_sun), fee: trx(w.fee_estimate_sun), to: w.to_address, status: w.status, requestedAt: w.requested_at.toISOString(),
   }));
@@ -152,6 +187,7 @@ export async function networkView(ex: Executor, opts: { tradeLimit?: number; sen
     sends,
     trades,
     withdrawals,
+    gasFree,
   };
 }
 
@@ -168,6 +204,11 @@ async function sendRowsOf(ex: Executor, filter: { tradeId?: string; limit: numbe
     status: s.status, tradeId: s.tradeId, tradeRef: s.tradeId ? (tradeRefs.get(s.tradeId) ?? null) : null, from: s.from, to: s.to, bearer: s.bearer,
     needsApproval: s.needsApproval, approvedBy: s.approvedBy, requestedBy: requestedBy.get(s.id) ?? '', blockedReason: s.blockedReason, lastError: s.lastError, failedAttempts: s.failedAttempts,
     networkCap: s.networkCapSun === null ? null : trx(s.networkCapSun), networkUsed: s.networkUsedSun === null ? null : trx(s.networkUsedSun),
+    feeCap: s.feeCapUsdtMinor === null ? null : Money.ofMinor(s.feeCapUsdtMinor, 'USDT').toDecimalString(),
+    feeCharged: s.feeChargedUsdtMinor === null ? null : Money.ofMinor(s.feeChargedUsdtMinor, 'USDT').toDecimalString(),
+    permits: s.permits.map((p) => ({
+      seq: p.seq, status: p.status, nonce: p.nonce.toString(), deadline: p.deadline.toISOString(), txid: p.txid, fee: p.feeMinor === null ? null : Money.ofMinor(p.feeMinor, 'USDT').toDecimalString(), lastAnswer: p.lastAnswer,
+    })),
     updatedAt: s.updatedAt.toISOString(),
     attempts: s.attempts.map((a) => ({ seq: a.seq, txid: a.txid, status: a.status, broadcasts: a.broadcasts, expiration: a.expiration.toISOString(), burned: a.feeSun === null ? null : trx(a.feeSun), energy: a.energyUsed === null ? null : a.energyUsed.toString(), result: a.result })),
   }));
@@ -232,11 +273,14 @@ export interface DeskTradeNetwork {
    * One without a destination yet needs the client's sending wallet chosen with the approval.
    */
   readonly signerRefunds: readonly { readonly legId: string; readonly destinationSet: boolean }[];
+  /** ADR 0022: a trade priced on GasFree — the allowance its escrow carries and, once settled, what its transfers took of it. */
+  readonly gasFree: { readonly allowance: string; readonly spent: string | null; readonly unused: string | null } | null;
 }
 
 export async function deskTradeNetwork(ex: Executor, tradeId: string, opts: { economics: boolean }): Promise<DeskTradeNetwork | null> {
   const [row] = await tradeNetworkRows(ex, { tradeId, limit: 1 });
   if (!row) return null;
+  const hold = await ex.selectFrom('network_budget_hold').select(['unit', 'deal_funded_usdt_minor', 'spent_usdt_minor', 'unused_usdt_minor']).where('trade_id', '=', tradeId).executeTakeFirst();
   const legs = await sql<{ id: string; destination_set: boolean }>`
     select l.id, l.destination_wallet_id is not null as destination_set from settlement_leg l
       left join deposit_address da on da.id = l.source_deposit_address_id
@@ -250,5 +294,10 @@ export async function deskTradeNetwork(ex: Executor, tradeId: string, opts: { ec
     economics: opts.economics ? { grossMargin: row.grossMargin, reward: row.reward, feeCharged: row.feeCharged, feeChargedTrx: row.feeChargedTrx, spentInr: row.spentInr, netProfit: row.netProfit, netFinal: row.netFinal } : null,
     sends: await sendRowsOf(ex, { tradeId, limit: 20 }),
     signerRefunds: legs.rows.map((l) => ({ legId: l.id, destinationSet: l.destination_set })),
+    gasFree: hold?.unit === 'USDT' ? {
+      allowance: Money.ofMinor(hold.deal_funded_usdt_minor!, 'USDT').toDecimalString(),
+      spent: hold.spent_usdt_minor === null ? null : Money.ofMinor(hold.spent_usdt_minor, 'USDT').toDecimalString(),
+      unused: hold.unused_usdt_minor === null ? null : Money.ofMinor(hold.unused_usdt_minor, 'USDT').toDecimalString(),
+    } : null,
   };
 }

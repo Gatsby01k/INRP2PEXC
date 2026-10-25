@@ -55,9 +55,9 @@ export interface FundingUse {
   readonly chainSendId?: string;
 }
 
-// A fee sweep (block 10) draws on whichever of a completed trade's sources is free at the address: `planFeeSweepInTx`
-// earmarks it source by source, never through `allocateFunding`.
-const SOURCE_FOR: Record<Exclude<FundingUseKind, 'FEE_SWEEP'>, FundingSourceKind> = { CLIENT_PAYOUT: 'COUNTERPARTY_FUNDS', REFUND: 'CLIENT_FUNDS', ROUTE_PAYMENT: 'CLIENT_FUNDS', ESCROW_RETURN: 'COUNTERPARTY_FUNDS' };
+// A fee sweep (block 10) and the network of a GasFree send (ADR 0022) draw on whichever of the trade's sources is free at
+// the address: `planFeeSweepInTx` and `earmarkSendNetwork` earmark them source by source, never through `allocateFunding`.
+const SOURCE_FOR: Record<Exclude<FundingUseKind, 'FEE_SWEEP' | 'NETWORK_FEE'>, FundingSourceKind> = { CLIENT_PAYOUT: 'COUNTERPARTY_FUNDS', REFUND: 'CLIENT_FUNDS', ROUTE_PAYMENT: 'CLIENT_FUNDS', ESCROW_RETURN: 'COUNTERPARTY_FUNDS' };
 const SOURCE_WORDS: Record<FundingSourceKind, string> = { COUNTERPARTY_FUNDS: "the counterparty's", CLIENT_FUNDS: "the client's" };
 
 /**
@@ -72,7 +72,7 @@ const SOURCE_WORDS: Record<FundingSourceKind, string> = { COUNTERPARTY_FUNDS: "t
  */
 export async function allocateFunding(
   ctx: TxContext,
-  input: { tradeId: string; use: FundingUse & { readonly kind: Exclude<FundingUseKind, 'FEE_SWEEP'> }; asset: AssetCode; amount: Money; location: string },
+  input: { tradeId: string; use: FundingUse & { readonly kind: Exclude<FundingUseKind, 'FEE_SWEEP' | 'NETWORK_FEE'> }; asset: AssetCode; amount: Money; location: string },
 ): Promise<{ allocations: readonly { id: string; sourceId: string; amountMinor: bigint }[] }> {
   const { amount, asset, location, use } = input;
   if (amount.currency !== asset || !amount.isPositive()) throw new DomainError('INVALID_AMOUNT', 'an earmark must be a positive amount of the use\'s asset');
@@ -134,6 +134,8 @@ export async function settleFunding(ctx: TxContext, use: FundingUse, outcome: 'C
     .updateTable('funding_allocation')
     .set({ status: outcome, closed_by: ctx.actor.id ?? `SYSTEM:${ctx.commandName}`, closed_at: sql<Date>`inrp2p_now()`, close_reason: reason.slice(0, 500) })
     .where((eb) => (use.legId ? eb('use_leg_id', '=', use.legId) : use.chainSendId ? eb('use_chain_send_id', '=', use.chainSendId) : eb('use_route_settlement_id', '=', use.routeSettlementId!)))
+    // A GasFree send's network is its own earmark (ADR 0022): closed with what the controller charged, never with the send's amount.
+    .where('use_kind', use.kind === 'NETWORK_FEE' ? '=' : '<>', 'NETWORK_FEE')
     .where('status', '=', 'ACTIVE')
     .returning(['id', 'trade_id', 'amount_minor', 'asset'])
     .execute();
@@ -144,6 +146,55 @@ export async function settleFunding(ctx: TxContext, use: FundingUse, outcome: 'C
     });
   }
   return rows.length;
+}
+
+/**
+ * Earmarks the network of a send from a GasFree account (ADR 0022 §2.3): its fee cap, from whichever of its trade's USDT is
+ * free at the address after the send's own amount — the allowance on a payout or a sweep, the rest of the client's or the
+ * trader's own USDT on a refund or a return. Nothing to do for a send that leaves a plain address. The database checks
+ * at commit that a live GasFree send has exactly its cap earmarked (IX133).
+ */
+export async function earmarkSendNetwork(ctx: TxContext, sendId: string, opts: { amountMinor?: bigint } = {}): Promise<void> {
+  const send = await ctx.tx.selectFrom('chain_send').select(['id', 'ref', 'trade_id', 'from_address', 'fee_cap_usdt_minor']).where('id', '=', requireUuid(sendId, 'sendId')).executeTakeFirstOrThrow();
+  if (send.fee_cap_usdt_minor === null) return;
+  const tradeId = requireUuid(send.trade_id, 'tradeId');
+  const location = tronLocation(send.from_address);
+  let left = opts.amountMinor ?? send.fee_cap_usdt_minor;
+  for (const s of await fundingSources(ctx.tx, tradeId, { asset: 'USDT' })) {
+    if (left === 0n) break;
+    if (s.location !== location || s.availableMinor <= 0n) continue;
+    const take = s.availableMinor < left ? s.availableMinor : left;
+    await ctx.tx
+      .insertInto('funding_allocation')
+      .values({
+        trade_id: tradeId, source_kind: s.kind, source_leg_id: s.kind === 'CLIENT_FUNDS' ? s.sourceId : null, source_route_settlement_id: s.kind === 'COUNTERPARTY_FUNDS' ? s.sourceId : null,
+        use_kind: 'NETWORK_FEE', use_chain_send_id: send.id, asset: 'USDT', amount_minor: take, location, created_by: ctx.actor.id ?? `SYSTEM:${ctx.commandName}`,
+      })
+      .execute();
+    left -= take;
+  }
+  if (left !== 0n) {
+    throw new DomainError('FUNDING_INSUFFICIENT', `send ${send.ref}: the trade has ${Money.ofMinor((opts.amountMinor ?? send.fee_cap_usdt_minor) - left, 'USDT').toDecimalString()} USDT free at ${send.from_address} for a network of ${Money.ofMinor(opts.amountMinor ?? send.fee_cap_usdt_minor, 'USDT').toDecimalString()} USDT`);
+  }
+}
+
+/**
+ * Closes a confirmed GasFree send's network earmark at what the controller charged (ADR 0022 §2.5): consumed when that is
+ * the cap; otherwise released, and the charge earmarked and consumed in its place, so the trade's USDT left at the address
+ * is exactly what is still there.
+ */
+export async function settleSendNetwork(ctx: TxContext, sendId: string, chargedMinor: bigint): Promise<void> {
+  const send = await ctx.tx.selectFrom('chain_send').select(['fee_cap_usdt_minor']).where('id', '=', requireUuid(sendId, 'sendId')).executeTakeFirstOrThrow();
+  if (send.fee_cap_usdt_minor === null) return;
+  if (chargedMinor === send.fee_cap_usdt_minor) {
+    await settleFunding(ctx, { kind: 'NETWORK_FEE', chainSendId: sendId }, 'CONSUMED', 'charged its whole cap');
+    return;
+  }
+  await settleFunding(ctx, { kind: 'NETWORK_FEE', chainSendId: sendId }, 'RELEASED', `charged ${Money.ofMinor(chargedMinor, 'USDT').toDecimalString()} USDT of its cap`);
+  if (chargedMinor > 0n) {
+    await earmarkSendNetwork(ctx, sendId, { amountMinor: chargedMinor });
+    await settleFunding(ctx, { kind: 'NETWORK_FEE', chainSendId: sendId }, 'CONSUMED', 'what the controller charged');
+  }
 }
 
 /**

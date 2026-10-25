@@ -8,7 +8,7 @@ import { type TradeRow, assertPayoutsOpen, lockTrade, reloadTrade } from '@inrp2
 import { payoutNeedsSecondPerson } from './approvals.ts';
 import { cancelTradeInTx, createUnwindRefundLegInTx } from './cancel.ts';
 import { openExceptionInTx } from './exceptions.ts';
-import { fundingSources } from './funding.ts';
+import { earmarkSendNetwork, fundingSources } from './funding.ts';
 import { assertNoPayoutUnderway, failPayoutLegInTx, lockLeg } from './legs.ts';
 import { maskedBankDestination } from './movements.ts';
 import {
@@ -233,7 +233,8 @@ export async function planP2pRefundInTx(ctx: TxContext, deps: Pick<SettlementDep
       : 'the USDT came from more than one wallet: refund it by hand');
   }
   const hold = await tradeHold(ctx.tx, trade.id);
-  if (!hold || hold.status !== 'ACTIVE' || !hold.trader_id) throw new DomainError('NETWORK_BUDGET_INSUFFICIENT', 'this trade holds no network budget for the refund');
+  // The refund's network: the trader's TRX deposit (ADR 0017), or, out of a GasFree account, the refunded USDT itself (ADR 0022).
+  if (!hold || hold.status !== 'ACTIVE' || (!hold.trader_id && hold.unit !== 'USDT')) throw new DomainError('NETWORK_BUDGET_INSUFFICIENT', 'this trade holds no network budget for the refund');
 
   const leg = await createUnwindRefundLegInTx(ctx, deps, trade, {
     sourceDepositAddressId: deposit.id, destinationWalletId: wallet.id,
@@ -243,8 +244,9 @@ export async function planP2pRefundInTx(ctx: TxContext, deps: Pick<SettlementDep
   await ctx.tx.updateTable('settlement_leg').set({ status: 'PROCESSING', sent_at: sql<Date>`inrp2p_now()`, sent_by: requestedBy }).where('id', '=', leg.id).execute();
   const send = await planChainSend(ctx, {
     purpose: 'REFUND', asset: 'USDT', tradeId: trade.id, legId: leg.id, fromAddress: from, toAddress: wallet.address, amountMinor: leg.amount.minor,
-    funder: hold.trader_id, bearer: 'TRADER', needsApproval: await payoutNeedsSecondPerson(ctx.tx, { trade_id: trade.id, asset: 'USDT', amount_minor: leg.amount.minor }), requestedBy,
+    funder: hold.trader_id, bearer: hold.unit === 'USDT' ? 'CLIENT' : hold.trader_id ? 'TRADER' : 'PLATFORM', needsApproval: await payoutNeedsSecondPerson(ctx.tx, { trade_id: trade.id, asset: 'USDT', amount_minor: leg.amount.minor }), requestedBy,
   });
+  await earmarkSendNetwork(ctx, send.sendId);
   await ctx.tx.updateTable('p2p_unwind').set({ refund_leg_id: leg.id, waiting_reason: null, updated_at: sql<Date>`inrp2p_now()` }).where('trade_id', '=', trade.id).execute();
   await appendAudit(ctx, { action: 'p2p.refund_planned', entityType: 'trade', entityId: trade.id, after: { leg: leg.ref, send: send.ref, amount: leg.amount, to: wallet.address, reason: unwind.reason } });
   return { sendRef: send.ref };

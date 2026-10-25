@@ -4,3 +4,4 @@ export * from './pricing.ts';
 export * from './budget.ts';
 export * from './sends.ts';
 export * from './reclaim.ts';
+export * from './gasfree.ts';
