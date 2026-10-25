@@ -2,11 +2,11 @@ import { allows, networkView } from '@inrp2p/desk';
 import { notFound } from 'next/navigation';
 import { operatorPage } from '../../../server/operator.ts';
 import { nowOf } from '../_desk/reads.ts';
-import { age, dateTime, plainDecimal } from '../_desk/format.ts';
+import { age, dateTime, plainDecimal, usdt } from '../_desk/format.ts';
 import { Chip, KpiBand, Notice, Page, PageBody, PageHeader, Section } from '../_desk/ui.tsx';
 import { optionalEnv } from '../../../server/env.ts';
 import { trx } from '../_desk/network.ts';
-import { DepositForm, FundersTable, RegisterHdWallet, ResourceModeSwitch, SendsTable, SignerSwitch, TradesNetworkTable, TrxPriceForm, WithdrawalsTable, usdt } from './NetworkPanels.tsx';
+import { DepositForm, FundersTable, RegisterHdWallet, ResourceModeSwitch, SendsTable, SignerSwitch, TradesNetworkTable, TrxPriceForm, WithdrawalsTable } from './NetworkPanels.tsx';
 import d from '../_desk/desk.module.css';
 
 /** A TRX price keeps every digit it was published with, without the padding zeros: "0.329785", "0.30". */
