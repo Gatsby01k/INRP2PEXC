@@ -1,5 +1,6 @@
 import { HERO, OWN_DESK } from '../../../content/site.ts';
 import { appOrigin, onboardingHref } from '../../../server/site.ts';
+import { Halo } from './Halo.tsx';
 import { ArrowIcon, CheckIcon, PointIcon } from './icons.tsx';
 import { QuoteModule } from './QuoteModule.tsx';
 import { RobotStage } from './robot/RobotStage.tsx';
@@ -44,19 +45,8 @@ export function Hero() {
         </ul>
 
         <div className={styles.stage} aria-hidden="true">
-          {/* The robot stands in front of the mark's own orange: a sun, and the mark's three arcs turning round it. */}
-          <div className={styles.halo}>
-            <span className={styles.sun} />
-            <svg className={styles.ring} viewBox="0 0 100 100" fill="none" focusable="false">
-              <circle cx="50" cy="50" r="48" pathLength="360" strokeDasharray="90 30" />
-            </svg>
-            <svg className={styles.orbit} viewBox="0 0 100 100" fill="none" focusable="false">
-              <circle cx="50" cy="50" r="49.4" pathLength="360" strokeDasharray="1 7" />
-              <circle cx="50" cy="0.6" r="1.1" className={styles.node} />
-              <circle cx="7.2" cy="74.7" r="1.1" className={styles.node} />
-              <circle cx="92.8" cy="74.7" r="1.1" className={styles.node} />
-            </svg>
-          </div>
+          {/* The robot stands in front of the mark's own orange: a sun, and the mark's arcs turning round it. */}
+          <Halo />
           <RobotStage />
           {/* A deal, moment by moment, floating beside the robot: each step ticks off in turn. */}
           <div className={styles.deal}>

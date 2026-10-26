@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic';
 
 /**
  * The trader application: six short steps, then the desk reviews it. Open to a person who verified their email
- * through "Become a trader" (their application creates their client) and to an administrator of an existing client.
+ * through "Open your exchange" (their application creates their client) and to an administrator of an existing client.
  */
 export default async function ApplyPage() {
   const ctx = await workspacePage();
@@ -19,7 +19,12 @@ export default async function ApplyPage() {
   if (!options.canApply) redirect('/traders');
   return (
     <>
-      <PageHead icon={<UsersIcon />} eyebrow="Traders" title="Become a trader" lede="Tell INRP2P who you are, what you can provide and how you settle. The desk reviews it before any order is sent to you." />
+      <PageHead
+        icon={<UsersIcon />}
+        eyebrow="Your exchange"
+        title="Open your exchange"
+        lede="Tell INRP2P who you are, what you can provide and how you settle. Once INRP2P approves you, your page, prices and clients open here."
+      />
       <ApplyFlow options={options} />
     </>
   );

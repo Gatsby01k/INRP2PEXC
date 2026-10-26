@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { CLOSING, FAQ, FLOW, HERO, ONBOARDING, OWN_DESK, SITE_PAGES, SITE_PATHS, TRADER_ENTRY, WHY } from '../src/content/site.ts';
+import { CLOSING, FAQ, FLOW, HERO, ONBOARDING, OWN_DESK, SITE_PAGES, SITE_PATHS, TELEGRAM, TRADER_ENTRY, WHY, telegramUrl } from '../src/content/site.ts';
 import { appBaseUrl, deskSendsQuoteWithLink, linkBaseUrl, operatorBaseUrl } from './support.ts';
 import { E2E_PUBLIC_CONTACTS } from './world.ts';
 import { E2E_HEALTH_TOKEN } from '../harness/desk-server.ts';
@@ -64,11 +64,14 @@ test('the home page ends with one call to action, and its footer links only to w
   await expect(page.getByRole('heading', { name: 'A desk, not an order book' })).toHaveCount(0);
 
   // One action at the end, into the client app — not a second pair of Buy and Sell buttons — and beside it the
-  // way in for someone who is not a client yet, and for someone who wants to provide capacity instead.
+  // way in for someone who is not a client yet, for someone who wants to provide capacity instead, and INRP2P on
+  // Telegram: its two channels and the CEO.
   const closing = page.getByRole('region', { name: CLOSING.heading });
   const request = closing.getByRole('link', { name: CLOSING.cta.label });
   await expect(request).toHaveAttribute('href', `${appBaseUrl()}${CLOSING.cta.appPath}`);
-  await expect(closing.getByRole('link')).toHaveCount(3);
+  const telegram = [...TELEGRAM.channels, TELEGRAM.ceo];
+  await expect(closing.getByRole('link')).toHaveCount(3 + telegram.length);
+  for (const t of telegram) await expect(closing.getByRole('link', { name: new RegExp(`@${t.handle}`) })).toHaveAttribute('href', telegramUrl(t.handle));
   await expect(closing.getByRole('link', { name: new RegExp(`^${ONBOARDING.label}`) })).toHaveAttribute('href', onboardingHref());
   await expect(closing.getByRole('link', { name: TRADER_ENTRY.label })).toHaveAttribute('href', `${appBaseUrl()}${TRADER_ENTRY.appPath}`);
 
@@ -83,6 +86,7 @@ test('the home page ends with one call to action, and its footer links only to w
     if (href.startsWith('/#')) await expect(page.locator(href.slice(1)), href).toHaveCount(1);
     else if (href.startsWith('/')) expect(SITE_PATHS, href).toContain(href);
     else if (href.startsWith('mailto:')) expect(configured, href).toContain(href.slice('mailto:'.length).split('?')[0]);
+    else if (href.startsWith('https://t.me/')) expect([...TELEGRAM.channels, TELEGRAM.ceo].map((t) => telegramUrl(t.handle)), href).toContain(href);
     else expect(href.startsWith(appBaseUrl()), href).toBe(true);
   }
   expect(hrefs).toContain(onboardingHref());
@@ -101,8 +105,8 @@ test('a visitor without a client account is offered one way in, wherever the que
   await expect(hero.getByRole('link', { name: HERO.quote.cta })).toHaveAttribute('href', new RegExp(`^${appBaseUrl()}/exchange`));
   // Existing clients go into the workspace from the masthead; the client app asks for a code if it needs one.
   await expect(page.getByRole('banner').getByRole('link', { name: 'Open workspace' })).toHaveAttribute('href', `${appBaseUrl()}/exchange`);
-  // Beside it, the way in for a new trader: the client app's own entry, open to anyone.
-  await expect(page.getByRole('banner').getByRole('link', { name: TRADER_ENTRY.label })).toHaveAttribute('href', `${appBaseUrl()}${TRADER_ENTRY.appPath}`);
+  // Traders have their own door in the masthead: the section about opening an exchange.
+  await expect(page.getByRole('banner').getByRole('link', { name: OWN_DESK.nav })).toHaveAttribute('href', '/#own-desk');
 
   // And on a page a search engine sends someone to, under its actions.
   await page.goto(`${linkBaseUrl()}/usdt-to-inr`);
@@ -173,27 +177,27 @@ test('the way into the workspace keeps the room: the gateway stands where the he
   // Signed out, the workspace's gate sends the visitor to its sign-in: the gateway, on the client host.
   await expect(page).toHaveURL(`${appBaseUrl()}/sign-in`);
   await expect(page).toHaveTitle('Workspace access — INRP2P Exchange');
-  await expect(page.getByRole('heading', { level: 1, name: 'Enter the desk.' })).toBeVisible();
-  await expect(page.getByText('Sign in with your email, or open your account with it. Every trade is priced by the INRP2P desk.')).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'One email. No password.' })).toBeVisible();
+  await expect(page.getByText('We send a code to your email. New here? The same code opens your account.')).toBeVisible();
   near(await box('[data-robot-target="panel"]'), module, 'access surface against the quote module');
   near(await box('img[srcset*="robot-"]'), robot, 'robot against the hero robot');
 
   // Validation is the surface's own, beside the field; the browser's bubble is never used.
   // The field is where the page puts focus on arrival. (Asked of the document rather than with `toBeFocused`,
   // which also wants the window focused — and headless Chromium never focuses one after a cross-origin click.)
-  const email = page.getByLabel('Work email');
+  const email = page.getByLabel('Email', { exact: true });
   await expect.poll(() => email.evaluate((el) => document.activeElement === el)).toBe(true);
   await expect(page.getByRole('button', { name: 'Continue' })).toBeDisabled();
   await email.fill('treasury@acmepay');
   await page.getByRole('button', { name: 'Continue' }).click();
-  await expect(page.getByRole('alert').filter({ hasText: 'Enter your full work email, like name@company.com.' })).toBeVisible();
+  await expect(page.getByRole('alert').filter({ hasText: 'Enter your full email, like name@example.com.' })).toBeVisible();
   await expect(email).toHaveAttribute('aria-invalid', 'true');
   await expect(page.locator('form').first()).toHaveAttribute('novalidate', '');
   await expect(page.getByRole('heading', { name: 'Sign in or open an account.' })).toBeVisible();
 
-  // A new client opens their account right here (D-17); someone who wants to provide capacity is shown the way to
-  // apply; the way back is the home page.
-  await expect(page.getByRole('link', { name: /Become a trader/ })).toHaveAttribute('href', '/become-a-trader');
+  // A new client opens their account right here (D-17); a trader is shown the other door, to their own exchange;
+  // the way back is the home page.
+  await expect(page.getByRole('link', { name: /Open your exchange/ })).toHaveAttribute('href', '/become-a-trader');
   await page.getByRole('banner').getByRole('link', { name: 'Back to exchange' }).click();
   await expect(page.getByRole('heading', { level: 1, name: 'Buy & sell USDT in India' })).toBeVisible();
 });

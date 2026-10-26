@@ -101,10 +101,10 @@ test('a client signs in on their phone: the surface first, no robot, and the cod
   });
   const before = await clientSignInCodeCount(email);
   await page.goto(`${appBaseUrl()}/sign-in`);
-  await expect(page.getByRole('heading', { level: 1, name: 'Enter the desk.' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'One email. No password.' })).toBeVisible();
 
   // The field and its action are in the upper half of the screen, clear of where the keyboard opens.
-  const field = page.getByLabel('Work email');
+  const field = page.getByLabel('Email', { exact: true });
   const continueButton = page.getByRole('button', { name: 'Continue' });
   const height = page.viewportSize()!.height;
   expect((await continueButton.boundingBox())!.y + 52, 'the action above the keyboard').toBeLessThan(height * 0.7);
@@ -113,7 +113,7 @@ test('a client signs in on their phone: the surface first, no robot, and the cod
 
   await field.fill('treasury');
   await continueButton.click();
-  await expect(page.getByRole('alert').filter({ hasText: 'Enter your full work email' })).toBeVisible();
+  await expect(page.getByRole('alert').filter({ hasText: 'Enter your full email' })).toBeVisible();
   await expect(field).toHaveAttribute('aria-invalid', 'true');
 
   await field.fill(email);
@@ -204,13 +204,14 @@ test('the client host refuses what belongs to the desk, and the public host refu
   expect(signIn.status()).toBe(401);
 });
 
-test('a stranger becomes a trader applicant with an email and a code, and gets Traders — never the Exchange', async ({ page }) => {
+test('a stranger opens their exchange with an email and a code, and gets Traders — never the Exchange', async ({ page }) => {
   const email = `new-trader-${Date.now()}@trader.test`;
   // The earlier scenarios spent this address's code allowance on the same IP; real time would have reset it.
   await resetAuthThrottle();
   await page.goto(`${appBaseUrl()}/become-a-trader`);
-  await expect(page.getByRole('heading', { level: 1, name: 'Provide liquidity.' })).toBeVisible();
-  await expect(page.getByRole('link', { name: /Open workspace/ })).toHaveAttribute('href', '/sign-in');
+  await expect(page.getByRole('heading', { level: 1, name: 'Open your exchange.' })).toBeVisible();
+  // The other door, for whoever came to buy or sell USDT.
+  await expect(page.getByRole('link', { name: /Sign in or open an account/ })).toHaveAttribute('href', '/sign-in');
 
   // Nobody provisioned this address: the entry makes the bare identity, and the ordinary code signs it in.
   await page.getByLabel('Email', { exact: true }).fill(email);
@@ -221,7 +222,7 @@ test('a stranger becomes a trader applicant with an email and a code, and gets T
   await expect(page.getByRole('heading', { name: 'Traders', exact: true })).toBeVisible();
   const sections = page.getByRole('navigation', { name: 'Sections' }).getByRole('link');
   await expect(sections).toHaveText(['Open account', 'Traders']);
-  await expect(page.getByRole('link', { name: /Become a trader/ })).toHaveAttribute('href', '/traders/apply');
+  await expect(page.getByRole('link', { name: /Open your exchange/ })).toHaveAttribute('href', '/traders/apply');
 
   // Verifying an email opened no Exchange: its pages send this person to open an account first (D-17).
   for (const path of ['/exchange', '/history', '/destinations']) {
@@ -235,7 +236,7 @@ test('a stranger opens their own account with an email and a code, and is in the
   await resetAuthThrottle();
   await page.goto(`${appBaseUrl()}/sign-in`);
   await expect(page.getByRole('heading', { name: 'Sign in or open an account.' })).toBeVisible();
-  await page.getByLabel('Work email').fill(email);
+  await page.getByLabel('Email', { exact: true }).fill(email);
   await page.getByRole('button', { name: 'Continue' }).click();
   await page.getByLabel('Verification code').fill(await clientSignInCode(email));
 

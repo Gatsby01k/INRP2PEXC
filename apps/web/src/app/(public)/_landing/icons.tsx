@@ -54,6 +54,15 @@ export function RupeeMark({ className }: { className?: string | undefined }) {
   );
 }
 
+/** A paper plane, for Telegram: the same hand as the kit's other glyphs. */
+export function TelegramIcon({ className }: { className?: string | undefined }) {
+  return (
+    <svg className={className} width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+      <path d="M20.5 4.2 3.6 10.8c-.8.3-.8 1.4 0 1.7l4.1 1.4 1.6 5c.2.7 1.1.9 1.6.4l2.4-2.3 4.2 3.1c.6.4 1.4.1 1.5-.6l2.9-14c.2-.9-.6-1.6-1.4-1.3Z M7.7 13.9l9.4-6.1-6.9 7.4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 export function CheckIcon({ className }: { className?: string | undefined }) {
   return (
     <svg className={className} width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true" focusable="false">

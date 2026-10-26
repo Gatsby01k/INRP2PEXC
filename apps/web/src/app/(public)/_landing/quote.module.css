@@ -1,27 +1,165 @@
-/* The quote module. The client app's request form in a marketing frame: the frame gets a little more air and
-   one soft shadow, because it sits over a lit scene; the controls inside are the design system's own. */
+/* The quote module, as a converter. No frame of rules and rows: a white sheet floating over the sun — a soft sliding
+   pill for sell or buy, the two sides of the deal as two warm panels with the amount in the display face and each
+   currency's coin, a round button between them that turns the deal round, the escrow's promise in one line, and
+   one large button. */
 
 .panel {
   position: relative;
   display: grid;
-  gap: var(--space-6);
-  padding: var(--space-6);
-  background: var(--bg-surface);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-surface);
+  gap: var(--space-4);
+  padding: var(--space-4);
+  border-radius: 30px;
+  background: color-mix(in srgb, var(--bg-surface) 94%, transparent);
+  backdrop-filter: blur(18px) saturate(1.4);
+  -webkit-backdrop-filter: blur(18px) saturate(1.4);
   box-shadow:
-    0 1px 0 color-mix(in srgb, var(--text-primary) 4%, transparent),
-    0 28px 64px -32px color-mix(in srgb, var(--text-primary) 30%, transparent);
+    0 0 0 1px color-mix(in srgb, var(--border-default) 70%, transparent),
+    0 2px 4px color-mix(in srgb, var(--text-primary) 4%, transparent),
+    0 40px 80px -36px color-mix(in srgb, var(--text-primary) 38%, transparent);
 }
 
-/* The design system's toggle, stretched to the module's width so the two directions weigh the same. */
+/* Sell or buy: two options on a warm track, the chosen one lifted on a white pill that slides between them. */
 .direction {
   display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 4px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-app);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border-default) 70%, transparent);
 }
 
-.amount {
+.directionOption {
+  position: relative;
+  min-height: 42px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--font-display);
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+  transition: color var(--dur-base) var(--ease);
+}
+
+.directionOption[aria-pressed='true'] {
+  color: var(--text-primary);
+}
+
+.directionOption:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 2px;
+}
+
+.directionPill {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface);
+  box-shadow:
+    0 1px 2px color-mix(in srgb, var(--text-primary) 10%, transparent),
+    0 6px 14px -8px color-mix(in srgb, var(--text-primary) 30%, transparent);
+}
+
+.directionText {
+  position: relative;
+}
+
+/* The two sides of the deal, and the round button between them that turns it round. */
+.sides {
+  position: relative;
   display: grid;
+  gap: 6px;
+}
+
+.side {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-5);
+  border-radius: 22px;
+  background: var(--bg-app);
+  transition: box-shadow var(--dur-base) var(--ease);
+}
+
+.side:focus-within {
+  box-shadow: inset 0 0 0 1.5px var(--brand-primary);
+}
+
+.side.invalid {
+  box-shadow: inset 0 0 0 1.5px var(--status-danger);
+}
+
+.sideLabel {
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-medium);
+  color: var(--text-muted);
+}
+
+.sideRow {
+  display: flex;
+  align-items: center;
   gap: var(--space-3);
+  min-width: 0;
+}
+
+.input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: var(--font-display);
+  font-size: clamp(30px, 8.4vw, 40px);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+}
+
+.input::placeholder {
+  color: var(--text-disabled);
+}
+
+/* The rupee side has no figure — the desk prices it — so it says what the price will be, in the same place. */
+.price {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--font-display);
+  font-size: var(--font-size-heading);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+}
+
+.chip {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 5px 12px 5px 5px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--border-default) 80%, transparent),
+    0 2px 6px -3px color-mix(in srgb, var(--text-primary) 25%, transparent);
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-primary);
+}
+
+.chipNet {
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-medium);
+  color: var(--text-muted);
+}
+
+.error {
+  margin: 0;
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-medium);
+  color: var(--status-danger);
 }
 
 .presets {
@@ -31,68 +169,78 @@
 }
 
 .preset {
-  min-height: 32px;
+  min-height: 30px;
   padding: 0 var(--space-3);
-  border: 1px solid var(--border-default);
+  border: 0;
   border-radius: var(--radius-pill);
-  background: var(--bg-subtle);
+  background: var(--bg-surface);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--border-default) 90%, transparent);
   color: var(--text-secondary);
   font-size: var(--font-size-table);
-  font-weight: var(--font-weight-medium);
+  font-weight: var(--font-weight-semibold);
   cursor: pointer;
   transition:
-    border-color var(--dur-fast) var(--ease),
+    box-shadow var(--dur-fast) var(--ease),
     color var(--dur-fast) var(--ease),
     background-color var(--dur-fast) var(--ease);
 }
 
 .preset:hover {
-  border-color: var(--border-strong);
   color: var(--text-primary);
+  box-shadow: 0 0 0 1px var(--border-strong);
 }
 
-/* Selected by its border and fill; the label stays in the primary text colour, which keeps AA on the soft fill. */
+/* Selected by its fill and ring; the label stays in the primary text colour, which keeps AA on the soft fill. */
 .preset[aria-pressed='true'] {
-  border-color: var(--brand-primary);
   background: var(--brand-soft);
+  box-shadow: 0 0 0 1.5px var(--brand-primary);
   color: var(--text-primary);
 }
 
-/* What the request will say and what happens to it. A trade ticket, not a calculator. */
-.terms {
+.swapButton {
+  position: relative;
+  z-index: 1;
   display: grid;
-  margin: 0;
-  border-top: 1px solid var(--border-default);
+  width: 44px;
+  height: 44px;
+  margin: -25px auto;
+  place-items: center;
+  border: 4px solid var(--bg-surface);
+  border-radius: 50%;
+  background: var(--text-primary);
+  color: var(--bg-surface);
+  cursor: pointer;
+  transition:
+    transform var(--dur-complete) var(--ease),
+    background-color var(--dur-base) var(--ease);
 }
 
-.term {
+.swapButton:hover {
+  background: var(--brand-action);
+  transform: rotate(180deg);
+}
+
+.swapButton:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 2px;
+}
+
+/* The escrow's promise for the direction chosen: one line, with the shield. */
+.promise {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-4);
-  padding: var(--space-3) 0;
-  border-bottom: 1px solid var(--border-default);
-  font-size: var(--font-size-body-sm);
-  line-height: var(--line-height-snug);
-}
-
-.termLabel {
-  position: relative;
-  flex: none;
-  color: var(--text-secondary);
-}
-
-.termValue {
-  position: relative;
+  align-items: center;
+  gap: var(--space-2);
   margin: 0;
-  min-width: 0;
-  color: var(--text-primary);
+  padding: 0 var(--space-2);
+  font-size: var(--font-size-body-sm);
   font-weight: var(--font-weight-medium);
-  text-align: right;
+  line-height: var(--line-height-snug);
+  color: var(--text-primary);
 }
 
-.swap {
-  display: inline-block;
+.promiseIcon {
+  flex: none;
+  color: var(--status-success);
 }
 
 .action {
@@ -105,22 +253,25 @@
   align-items: center;
   justify-content: center;
   gap: var(--space-2);
-  min-height: 52px;
+  min-height: 58px;
   padding: 0 var(--space-6);
-  border-radius: var(--radius-input);
-  background: var(--brand-action);
+  border-radius: 18px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--brand-primary) 70%, var(--brand-action)), var(--brand-action));
   color: var(--text-on-action);
+  font-family: var(--font-display);
   font-size: var(--font-size-body-lg);
-  font-weight: var(--font-weight-medium);
+  font-weight: var(--font-weight-semibold);
   text-decoration: none;
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--text-on-action) 16%, transparent);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--text-on-action) 22%, transparent),
+    0 14px 28px -14px color-mix(in srgb, var(--brand-action) 80%, transparent);
   transition:
-    background-color var(--dur-fast) var(--ease),
+    filter var(--dur-fast) var(--ease),
     transform var(--dur-fast) var(--ease);
 }
 
 .cta:hover {
-  background: var(--brand-action-hover);
+  filter: brightness(1.05);
 }
 
 .cta:active {
@@ -138,9 +289,11 @@
 
 .note {
   margin: 0;
+  padding: 0 var(--space-2);
   font-size: var(--font-size-meta);
   line-height: var(--line-height-normal);
   color: var(--text-muted);
+  text-align: center;
 }
 
 /* The way in for a visitor without a client account: a plain link in the note's own size, clearly second to the
@@ -158,4 +311,15 @@
 
 .onboarding:hover {
   text-decoration-color: var(--brand-action);
+}
+
+/* A phone: the coin chips give the amount their room — the network's name is in the request itself. */
+@media (max-width: 479px) {
+  .chipNet {
+    display: none;
+  }
+
+  .side {
+    padding: var(--space-4);
+  }
 }

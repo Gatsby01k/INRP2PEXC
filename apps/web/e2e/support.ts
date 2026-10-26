@@ -330,7 +330,7 @@ export async function clientSignInCodeCount(email: string): Promise<number> {
 export async function signInAsClient(page: Page, email: string): Promise<void> {
   const before = await clientSignInCodeCount(email);
   await page.goto(`${appBaseUrl()}/sign-in`);
-  await page.getByLabel('Work email').fill(email);
+  await page.getByLabel('Email', { exact: true }).fill(email);
   await page.getByRole('button', { name: 'Continue' }).click();
   await page.getByLabel('Verification code').fill(await clientSignInCode(email, before));
   // Exact: "Exchange" is the workspace's own first heading; the gateway's words contain it elsewhere.

@@ -29,7 +29,7 @@ async function codes(email: string): Promise<string[]> {
 async function enterGateway(page: Page, email: string): Promise<void> {
   const before = (await codes(email)).length;
   // A field typed into before the page hydrates is lost to it: wait until React owns the field, then type.
-  const field = page.getByLabel('Work email');
+  const field = page.getByLabel('Email', { exact: true });
   await expect.poll(() => field.evaluate((el) => Object.keys(el).some((k) => k.startsWith('__react'))), { timeout: 20_000 }).toBe(true);
   await field.fill(email);
   await page.getByRole('button', { name: 'Continue' }).click();

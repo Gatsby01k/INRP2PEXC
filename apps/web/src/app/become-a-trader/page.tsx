@@ -9,10 +9,11 @@ import { WorkspaceGateway } from '../sign-in/WorkspaceGateway.tsx';
 
 export const dynamic = 'force-dynamic';
 
-export const metadata: Metadata = { title: 'Become a trader — INRP2P Exchange' };
+export const metadata: Metadata = { title: 'Open your exchange — INRP2P Exchange' };
 
 /**
- * "Become a trader" — the public way in for someone who wants to provide INR or USDT capacity (docs/TRADERS.md §3).
+ * "Open your exchange" — the public way in for a trader or broker: their own exchange on INRP2P, which starts as a trader
+ * application (docs/TRADERS.md §3).
  *
  * It is the workspace gateway in another state: the same room, the same robot, the same email code. What differs is
  * what the code opens: the trader application, for an address that has no workspace yet, or Traders for one that

@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import Link from 'next/link';
 import { getImageProps } from 'next/image';
 import mark from '../../../../../brand/inrp2p-mark.png';
-import { CLOSING, FOOTER, FOOTER_NOTE, NAV, OWN_DESK, SITE_NAME, SITE_PAGES, TAGLINE, TRADER_ENTRY, WORKSPACE_ENTRY } from '../../content/site.ts';
+import { CLOSING, FOOTER, FOOTER_NOTE, NAV, OWN_DESK, SITE_NAME, SITE_PAGES, TAGLINE, TELEGRAM, TRADER_ENTRY, WORKSPACE_ENTRY, telegramUrl } from '../../content/site.ts';
 import { appOrigin, mailto, onboardingHref, siteContacts } from '../../server/site.ts';
 import styles from './public.module.css';
 
@@ -87,6 +87,8 @@ export function PublicShell({ children, nonce }: { children: ReactNode; nonce?: 
     { label: links.why, href: '/#why' },
     ...(contacts.security ? [{ label: links.securityReport, href: mailto(contacts.security), detail: contacts.security }] : []),
   ];
+  // INRP2P's own Telegram: the channels, and the CEO — each with its handle under it, worth reading before the click.
+  const telegram: FooterLink[] = [...TELEGRAM.channels, TELEGRAM.ceo].map((t) => ({ label: t.label, href: telegramUrl(t.handle), detail: `@${t.handle}` }));
   const onboarding = onboardingHref();
   const contact: FooterLink[] = [
     { label: links.onboarding, href: onboarding },
@@ -117,10 +119,6 @@ export function PublicShell({ children, nonce }: { children: ReactNode; nonce?: 
               <span className={styles.navNew} aria-hidden="true" />
             </Link>
           </nav>
-          {/* The way in for a new trader, beside the way back for everyone who already has a workspace. */}
-          <a className={styles.traderEntry} href={`${app}${TRADER_ENTRY.appPath}`}>
-            {TRADER_ENTRY.label}
-          </a>
           {/* The way into the workspace. `data-robot-target` lets the home page's robot glance at it; the shell
               itself still ships no script. */}
           <a className={styles.entry} href={`${app}${WORKSPACE_ENTRY.appPath}`} data-robot-target="entry">
@@ -148,6 +146,7 @@ export function PublicShell({ children, nonce }: { children: ReactNode; nonce?: 
             <FooterGroup title={groups.product} links={product} />
             <FooterGroup title={groups.pages} links={pages} />
             <FooterGroup title={groups.security} links={security} />
+            <FooterGroup title={groups.telegram} links={telegram} />
             <FooterGroup title={groups.contact} links={contact} />
           </nav>
         </div>

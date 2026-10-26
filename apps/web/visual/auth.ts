@@ -43,7 +43,7 @@ export async function signInClientAndSave(baseURL: string, email: string, sinkFi
     const context = await browser.newContext({ baseURL });
     const page = await context.newPage();
     await page.goto('/sign-in');
-    await page.getByLabel('Work email').fill(email);
+    await page.getByLabel('Email', { exact: true }).fill(email);
     await page.getByRole('button', { name: 'Continue' }).click();
     // A complete code is checked as soon as it is in the field; there is nothing to press after it.
     await page.getByLabel('Verification code').fill(await codeFromSink(sinkFile, email));
@@ -68,7 +68,7 @@ export async function signInTraderAndSave(baseURL: string, email: string, sinkFi
     const context = await browser.newContext({ baseURL });
     const page = await context.newPage();
     await page.goto('/sign-in');
-    await page.getByLabel('Work email').fill(email);
+    await page.getByLabel('Email', { exact: true }).fill(email);
     await page.getByRole('button', { name: 'Continue' }).click();
     await page.getByLabel('Verification code').fill(await codeFromSink(sinkFile, email));
     await expect(page.getByRole('heading', { name: 'Traders', exact: true })).toBeVisible();

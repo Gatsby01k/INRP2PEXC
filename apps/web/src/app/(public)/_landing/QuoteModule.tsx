@@ -1,53 +1,48 @@
 'use client';
 
-import { type FocusEvent, type MouseEvent, type PointerEvent, useEffect, useId, useRef, useState } from 'react';
-import { AnimatePresence, LazyMotion, MotionConfig, domAnimation, m } from 'framer-motion';
+import { type ChangeEvent, type FocusEvent, type MouseEvent, type PointerEvent, useEffect, useId, useRef, useState } from 'react';
+import { LayoutGroup, LazyMotion, MotionConfig, domMax, m } from 'framer-motion';
 import { Money, type Direction } from '@inrp2p/kernel';
-import { DirectionToggle, MoneyInput } from '@inrp2p/ui';
+import { sanitizeAmountInput } from '@inrp2p/ui';
 import { formatUsdtCompact, groupDigits } from '@inrp2p/ui/format';
+import { Coin } from '../../../components/Coin.tsx';
 import { ONBOARDING, type QuoteModuleCopy } from '../../../content/site.ts';
-import { ArrowIcon } from './icons.tsx';
+import { ArrowIcon, PointIcon } from './icons.tsx';
 import { requestHref } from './request.ts';
 import { INITIAL_DIRECTION, robotCues } from './robot/cues.ts';
 import styles from './quote.module.css';
 
 /**
- * The hero's quote module — the client app's own request form (direction, then a USDT amount), shown to a
- * visitor who has not signed in yet.
+ * The hero's quote module, drawn as a converter: what the visitor gives above, what they get below, a button between
+ * them that turns the deal round — the two sides change places — and the escrow's promise for that direction under
+ * them. It is the page's one primary action, and the only place on the page where a direction is chosen.
  *
- * It is the page's one primary action, and the only place on the page where a direction is chosen. It prints no
- * rate and no converted amount: the desk prices a trade, and a figure computed here would be a price nobody
- * offered. What it does print is what the request will say and what happens to it, which is true for every
- * amount. "Get a firm price" opens the client app's Exchange screen with the direction and amount already chosen —
- * or, with no amount yet, keeps the visitor here and asks for one next to the field.
+ * It prints no rate and no converted amount: the desk prices a trade, and a figure computed here would be a price
+ * nobody offered, so the rupee side says what the price will be. "Get a firm price" opens the client app's Exchange
+ * screen with the direction and amount already chosen — or, with no amount yet, keeps the visitor here and asks for
+ * one next to the field.
  */
 
 /** Whole-USDT amounts offered as shortcuts. A typed amount is never rounded towards them. */
 const PRESETS = ['25000', '100000', '500000'] as const;
 const INITIAL_AMOUNT = '100000';
-const EASE = [0.2, 0, 0, 1] as const;
+const SPRING = { type: 'spring', stiffness: 520, damping: 40 } as const;
+const DIRECTIONS: readonly Direction[] = ['SELL_USDT', 'BUY_USDT'];
+const SIDE_LABEL: Record<Direction, string> = { SELL_USDT: 'Sell USDT', BUY_USDT: 'Buy USDT' };
 
-/** A term that changes with the direction: the old words leave upwards as the new ones arrive. */
-function Swap({ text, delay = 0 }: { text: string; delay?: number }) {
+function SwapIcon() {
   return (
-    <AnimatePresence mode="popLayout" initial={false}>
-      <m.span
-        key={text}
-        className={styles.swap}
-        initial={{ opacity: 0, y: 6 }}
-        animate={{ opacity: 1, y: 0, transition: { duration: 0.24, ease: EASE, delay } }}
-        exit={{ opacity: 0, y: -6, transition: { duration: 0.14, ease: EASE } }}
-      >
-        {text}
-      </m.span>
-    </AnimatePresence>
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+      <path d="M8 4v16 M4.5 7.5 8 4l3.5 3.5 M16 20V4 M12.5 16.5 16 20l3.5-3.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   );
 }
-
 
 /** `onboarding` is where a visitor without a client account opens one (server/site.ts `onboardingHref`). */
 export function QuoteModule({ appOrigin, onboarding, copy }: { appOrigin: string; onboarding: string; copy: QuoteModuleCopy }) {
   const titleId = useId();
+  const amountId = useId();
+  const errorId = useId();
   const [direction, setDirection] = useState<Direction>(INITIAL_DIRECTION);
   const [amount, setAmount] = useState<string>(INITIAL_AMOUNT);
 
@@ -77,7 +72,7 @@ export function QuoteModule({ appOrigin, onboarding, copy }: { appOrigin: string
   // A request with no amount is caught here rather than sent on: the visitor stays, the field says why and has
   // the focus, and the robot signals it once. Typing an amount clears it.
   const [missingAmount, setMissingAmount] = useState(false);
-  const amountField = useRef<HTMLDivElement>(null);
+  const input = useRef<HTMLInputElement>(null);
   const hasAmount = (value: string) => /[1-9]/.test(value);
   const request = (e: MouseEvent<HTMLAnchorElement>) => {
     if (hasAmount(amount)) return;
@@ -85,7 +80,7 @@ export function QuoteModule({ appOrigin, onboarding, copy }: { appOrigin: string
     setMissingAmount(true);
     // Heard before the focus moves: focusing the field is not the visitor's first move, and must not greet them.
     robotCues.emit({ kind: 'problem' });
-    amountField.current?.querySelector('input')?.focus();
+    input.current?.focus();
   };
 
   const changeDirection = (next: Direction) => {
@@ -101,15 +96,77 @@ export function QuoteModule({ appOrigin, onboarding, copy }: { appOrigin: string
     const usdt = Number(next.replace(/[^\d.]/g, ''));
     robotCues.emit({ kind: 'value', settled, ...(Number.isFinite(usdt) && usdt > 0 ? { amount: usdt } : {}) });
   };
+  const onInput = (e: ChangeEvent<HTMLInputElement>) => {
+    const next = sanitizeAmountInput(e.target.value, 'USDT');
+    if (next !== null) changeAmount(next);
+  };
+  const [whole = '', fraction] = amount.split('.');
+  const shown = whole ? `${groupDigits(whole)}${fraction !== undefined ? `.${fraction}` : ''}` : '';
 
-  const terms = [
-    { key: 'counter', term: copy.counter[direction], value: copy.counterValue },
-    { key: 'destination', term: copy.destination[direction], value: copy.destinationValue[direction] },
-    { key: 'rate', term: copy.rate, value: copy.rateValue },
-  ];
+  const usdtSide = (
+    <m.div key="usdt" layout transition={SPRING} className={`${styles.side} ${missingAmount ? styles.invalid : ''}`} data-robot-target="amount">
+      <label htmlFor={amountId} className={styles.sideLabel}>
+        {copy.amount[direction]}
+      </label>
+      <div className={styles.sideRow}>
+        <input
+          ref={input}
+          id={amountId}
+          className={`${styles.input} ix-num`}
+          inputMode="decimal"
+          autoComplete="off"
+          spellCheck={false}
+          placeholder="0"
+          value={shown}
+          onChange={onInput}
+          aria-invalid={missingAmount || undefined}
+          aria-describedby={missingAmount ? errorId : undefined}
+        />
+        <span className={styles.chip}>
+          <Coin currency="USDT" size={26} />
+          USDT
+          <span className={styles.chipNet}>TRC20</span>
+        </span>
+      </div>
+      {missingAmount ? (
+        <p id={errorId} className={styles.error} role="alert">
+          {copy.amountRequired}
+        </p>
+      ) : null}
+      <div className={styles.presets} role="group" aria-label={copy.presets}>
+        {PRESETS.map((preset) => (
+          <button
+            key={preset}
+            type="button"
+            className={`${styles.preset} ix-num`}
+            aria-pressed={amount === preset}
+            title={`${groupDigits(preset)} USDT`}
+            onClick={() => changeAmount(preset, true)}
+          >
+            {/* The visible label starts the accessible name ("100k USDT"), as WCAG 2.5.3 asks. */}
+            {formatUsdtCompact(Money.parse(preset, 'USDT'))}
+            <span className="ix-visually-hidden"> USDT</span>
+          </button>
+        ))}
+      </div>
+    </m.div>
+  );
+  const inrSide = (
+    <m.div key="inr" layout transition={SPRING} className={`${styles.side} ${styles.priced}`}>
+      <span className={styles.sideLabel}>{copy.counter[direction]}</span>
+      <div className={styles.sideRow}>
+        <span className={styles.price}>{copy.counterValue}</span>
+        <span className={styles.chip}>
+          <Coin currency="INR" size={26} />
+          INR
+        </span>
+      </div>
+    </m.div>
+  );
+  const selling = direction === 'SELL_USDT';
 
   return (
-    <LazyMotion features={domAnimation} strict>
+    <LazyMotion features={domMax} strict>
       <MotionConfig reducedMotion="user">
         <section
           className={styles.panel}
@@ -122,50 +179,30 @@ export function QuoteModule({ appOrigin, onboarding, copy }: { appOrigin: string
             {copy.title}
           </h2>
 
-          <div className={styles.direction} data-robot-target="toggle">
-            <DirectionToggle value={direction} onChange={changeDirection} />
-          </div>
-
-          <div ref={amountField} className={styles.amount} data-robot-target="amount">
-            <MoneyInput
-              label={copy.amount[direction]}
-              currency="USDT"
-              size="display"
-              suffix="USDT · TRC20"
-              value={amount}
-              onChange={(next) => changeAmount(next)}
-              {...(missingAmount ? { error: copy.amountRequired } : {})}
-            />
-            <div className={styles.presets} role="group" aria-label={copy.presets}>
-              {PRESETS.map((preset) => (
-                <button
-                  key={preset}
-                  type="button"
-                  className={`${styles.preset} ix-num`}
-                  aria-pressed={amount === preset}
-                  title={`${groupDigits(preset)} USDT`}
-                  onClick={() => changeAmount(preset, true)}
-                >
-                  {/* The visible label starts the accessible name ("100k USDT"), as WCAG 2.5.3 asks. */}
-                  {formatUsdtCompact(Money.parse(preset, 'USDT'))}
-                  <span className="ix-visually-hidden"> USDT</span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <dl className={styles.terms}>
-            {terms.map((t, i) => (
-              <div key={t.key} className={styles.term}>
-                <dt className={styles.termLabel}>
-                  <Swap text={t.term} />
-                </dt>
-                <dd className={styles.termValue}>
-                  <Swap text={t.value} delay={0.03 + i * 0.03} />
-                </dd>
-              </div>
+          {/* Sell or buy, said plainly at the top; the pill slides to the side chosen. */}
+          <div className={styles.direction} role="group" aria-label={copy.title} data-robot-target="toggle">
+            {DIRECTIONS.map((d) => (
+              <button key={d} type="button" className={styles.directionOption} aria-pressed={direction === d} onClick={() => changeDirection(d)}>
+                {direction === d ? <m.span layoutId="quote-direction" transition={SPRING} className={styles.directionPill} /> : null}
+                <span className={styles.directionText}>{SIDE_LABEL[d]}</span>
+              </button>
             ))}
-          </dl>
+          </div>
+
+          <LayoutGroup>
+            <div className={styles.sides}>
+              {selling ? usdtSide : inrSide}
+              <button type="button" className={styles.swapButton} aria-label={copy.swap} onClick={() => changeDirection(selling ? 'BUY_USDT' : 'SELL_USDT')}>
+                <SwapIcon />
+              </button>
+              {selling ? inrSide : usdtSide}
+            </div>
+          </LayoutGroup>
+
+          <p className={styles.promise}>
+            <PointIcon name="destination" className={styles.promiseIcon} />
+            <span>{copy.promise[direction]}</span>
+          </p>
 
           <div className={styles.action}>
             <a

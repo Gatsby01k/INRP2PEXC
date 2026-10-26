@@ -1,15 +1,16 @@
 import { getImageProps } from 'next/image';
-import { CLOSING, ONBOARDING, TRADER_ENTRY } from '../../../../content/site.ts';
+import { CLOSING, ONBOARDING, TELEGRAM, TRADER_ENTRY, telegramUrl } from '../../../../content/site.ts';
 import { MarkArt } from '../../../../components/MarkArt.tsx';
 import { appOrigin, onboardingHref, siteContacts } from '../../../../server/site.ts';
-import { ArrowIcon } from '../icons.tsx';
+import { ArrowIcon, TelegramIcon } from '../icons.tsx';
 import wave from '../robot/stills/robot-wave.webp';
 import styles from './closing.module.css';
 
 /**
  * The page's last word, on the mark's orange: one call to action for a client, the robot waving beside it, and under
- * them the two ways in for someone who is not a client yet — opening an account, or applying as a trader. No second
- * pair of Buy and Sell buttons: the direction is chosen in the request itself.
+ * them the two ways in for someone who is not a client yet — opening an account, or applying as a trader — and
+ * INRP2P on Telegram: its two channels and the CEO. No second pair of Buy and Sell buttons: the direction is chosen
+ * in the request itself.
  */
 export function Closing() {
   const { heading, body, cta, newClient } = CLOSING;
@@ -48,6 +49,24 @@ export function Closing() {
             </a>
           </div>
         </div>
+        <nav className={styles.telegram} aria-label={TELEGRAM.title}>
+          <p className={styles.telegramTitle}>{TELEGRAM.title}</p>
+          <ul className={styles.telegramList}>
+            {[...TELEGRAM.channels, TELEGRAM.ceo].map((t) => (
+              <li key={t.handle}>
+                <a className={styles.telegramLink} href={telegramUrl(t.handle)} target="_blank" rel="noopener">
+                  <span className={styles.telegramIcon}>
+                    <TelegramIcon />
+                  </span>
+                  <span className={styles.telegramText}>
+                    <span className={styles.telegramLabel}>{t.label}</span>
+                    <span className={styles.telegramHandle}>@{t.handle}</span>
+                  </span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        </nav>
       </div>
     </section>
   );

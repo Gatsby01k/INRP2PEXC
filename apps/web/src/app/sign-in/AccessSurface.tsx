@@ -19,7 +19,7 @@ interface Problem {
 }
 
 const MESSAGES = {
-  email: 'Enter your full work email, like name@company.com.',
+  email: 'Enter your full email, like name@example.com.',
   unsent: 'We couldn’t send a code just now. Try again in a moment.',
   unchecked: 'We couldn’t check the code just now. Try again in a moment.',
   tooMany: 'Too many attempts. Wait a few minutes, then try again.',
@@ -60,6 +60,19 @@ async function post(path: string, body: unknown): Promise<Response | null> {
   }
 }
 
+/** What each door opens, said in three lines under its action. */
+const CLIENT_PERKS = ['Escrow on every deal', 'One firm price for the whole amount', 'Rupees bank to bank, from your own account'] as const;
+const TRADER_PERKS = ['Your own page and deal links', 'Your prices, your clients', 'INRP2P’s orders come to you too'] as const;
+
+function Tick() {
+  return (
+    <svg className={styles.tick} width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true" focusable="false">
+      <circle cx="8" cy="8" r="8" fill="currentColor" />
+      <path d="M4.8 8.2l2.1 2.1 4.3-4.6" stroke="#fff" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 /**
  * The workspace's access surface: client sign-in (SECURITY §2.2), and since D-17 (2026-10-10) the way a new client
  * opens their own account — the same email and the same code.
@@ -75,7 +88,7 @@ async function post(path: string, body: unknown): Promise<Response | null> {
  * Validation is the surface's own, next to the field it concerns, never the browser's bubble.
  */
 /**
- * `TRADER` is the same surface for "Become a trader": before the first code is sent it asks the server to make sure
+ * `TRADER` is the same surface for "Open your exchange": before the first code is sent it asks the server to make sure
  * the address has a sign-in identity (never more than that — see `startTraderAccessAction`), and once the code is
  * taken it opens Traders, where the application starts. The code, its limits and its refusals are the same.
  */
@@ -260,16 +273,16 @@ export function AccessSurface({ mode = 'SIGN_IN', next }: { mode?: 'SIGN_IN' | '
   const busyLabel = busy === 'verify' ? 'Checking the code' : 'Sending a code';
 
   return (
-    <section className={styles.surface} aria-label={trader ? 'Become a trader' : 'Workspace sign-in'} data-robot-target="panel">
-      <p className={styles.product}>INRP2P Exchange</p>
+    <section className={styles.surface} aria-label={trader ? 'Open your exchange' : 'Workspace sign-in'} data-robot-target="panel">
+      <p className={styles.product}>{trader ? 'Step one of three' : 'INRP2P Exchange'}</p>
 
       <div className={styles.faces} data-robot-target="cta">
         <Face face="EMAIL" stage={stage}>
-          <form className={styles.form} noValidate onSubmit={submitEmail}>
-            <h2 className={styles.heading}>{trader ? 'Become a trader.' : 'Sign in or open an account.'}</h2>
+          <form className={`${styles.form} ${styles.emailForm}`} noValidate onSubmit={submitEmail}>
+            <h2 className={styles.heading}>{trader ? 'Start with your email.' : 'Sign in or open an account.'}</h2>
             <div className={styles.field} data-invalid={emailProblem?.field || undefined}>
               <label htmlFor={ids.email} className={styles.label}>
-                {trader ? 'Email' : 'Work email'}
+                Email
               </label>
               <input
                 id={ids.email}
@@ -282,7 +295,7 @@ export function AccessSurface({ mode = 'SIGN_IN', next }: { mode?: 'SIGN_IN' | '
                 autoCorrect="off"
                 spellCheck={false}
                 enterKeyHint="go"
-                placeholder="you@company.com"
+                placeholder="you@example.com"
                 value={email}
                 onChange={(e) => {
                   setEmail(e.target.value);
@@ -309,28 +322,26 @@ export function AccessSurface({ mode = 'SIGN_IN', next }: { mode?: 'SIGN_IN' | '
               </button>
               <p id={ids.emailNote} className={styles.note}>
                 {trader
-                  ? 'We’ll send a 6-digit code to confirm it. Your application comes next; nothing is traded until the desk approves you.'
-                  : 'We’ll send a 6-digit verification code. New here? The same code opens your account — no waiting for the desk.'}
+                  ? 'We send a 6-digit code. Then you tell us what you can provide; your exchange opens once INRP2P approves you.'
+                  : 'We send a 6-digit code. No password to remember.'}
               </p>
-              <p className={styles.onboarding}>
-                {trader ? (
-                  <>
-                    Already have a workspace?{' '}
-                    <a className={styles.onboardingLink} href="/sign-in">
-                      Open workspace
-                      <Arrow className={styles.onboardingIcon} />
-                    </a>
-                  </>
-                ) : (
-                  <>
-                    Provide INR or USDT capacity?{' '}
-                    <a className={styles.onboardingLink} href="/become-a-trader">
-                      Become a trader
-                      <Arrow className={styles.onboardingIcon} />
-                    </a>
-                  </>
-                )}
-              </p>
+              {/* What the code opens, in three lines. */}
+              <ul className={styles.perks}>
+                {(trader ? TRADER_PERKS : CLIENT_PERKS).map((perk) => (
+                  <li key={perk} className={styles.perk}>
+                    <Tick />
+                    {perk}
+                  </li>
+                ))}
+              </ul>
+              {/* The other door, for whoever came in by the wrong one. */}
+              <a className={styles.door} href={trader ? '/sign-in' : '/become-a-trader'}>
+                <span className={styles.doorText}>
+                  <span className={styles.doorQuestion}>{trader ? 'Here to buy or sell USDT?' : 'Run an exchange or have liquidity?'}</span>
+                  <span className={styles.doorAction}>{trader ? 'Sign in or open an account' : 'Open your exchange'}</span>
+                </span>
+                <Arrow className={styles.doorIcon} />
+              </a>
             </div>
           </form>
         </Face>

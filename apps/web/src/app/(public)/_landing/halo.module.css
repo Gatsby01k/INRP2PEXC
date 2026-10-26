@@ -1,0 +1,97 @@
+/* Behind the robot: the mark's orange as a sun at the height of its head, the mark's three arcs turning slowly
+   round it, and a dotted orbit with the mark's three nodes on it. Square, in the robot stage's own proportions, so it
+   sits behind the head at every size — on the home page and in the workspace gateway alike. */
+.halo {
+  position: absolute;
+  top: -7%;
+  left: 60%;
+  width: 101%;
+  aspect-ratio: 1;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.sun {
+  position: absolute;
+  inset: 6%;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 34% 28%, color-mix(in srgb, #ffffff 34%, var(--brand-primary)) 0%, transparent 46%),
+    radial-gradient(circle at 50% 50%, var(--brand-primary) 0%, var(--brand-primary) 52%, var(--brand-action) 100%);
+  box-shadow:
+    0 40px 90px -30px color-mix(in srgb, var(--brand-primary) 70%, transparent),
+    inset 0 -18px 40px color-mix(in srgb, var(--brand-action) 60%, transparent);
+  animation: sunrise 1100ms var(--ease) 120ms both;
+}
+
+.ring,
+.orbit {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.ring {
+  inset: 7%;
+  width: 86%;
+  height: 86%;
+  stroke: var(--brand-primary);
+  stroke-width: 0.9;
+  stroke-linecap: round;
+  opacity: 0.55;
+  animation:
+    fade 900ms var(--ease) 500ms both,
+    turn 60s linear infinite;
+}
+
+.orbit {
+  stroke: color-mix(in srgb, var(--text-primary) 30%, transparent);
+  stroke-width: 0.35;
+  stroke-linecap: round;
+  animation:
+    fade 900ms var(--ease) 700ms both,
+    turn 120s linear infinite reverse;
+}
+
+.node {
+  fill: var(--brand-primary);
+  stroke: var(--bg-app);
+  stroke-width: 0.6;
+}
+
+@keyframes sunrise {
+  from {
+    opacity: 0;
+    transform: scale(0.86);
+  }
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes turn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ring,
+  .orbit {
+    animation: none;
+  }
+}
+
+/* Below the home page's desktop width the robot stands centred, and so does its sun. */
+@media (max-width: 1199px) {
+  .halo {
+    top: -4%;
+    left: 50%;
+    width: 100%;
+  }
+}
