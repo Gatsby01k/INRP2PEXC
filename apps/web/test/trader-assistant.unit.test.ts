@@ -53,7 +53,9 @@ const home = (over: Partial<TraderHome> = {}): TraderHome => ({
   recentlyCompleted: null,
   earnings: null,
   registered: { bank: 'Kotak Mahindra Bank ••••1234', wallet: 'TAjV…CTnD', walletAddress: 'TAjV000000000000000000000000000CTnD' },
-  proposal: { bank: null, wallet: null },
+  proposal: { bank: null, wallet: null, effectiveAt: null, waitingOn: null },
+  review: null,
+  limits: null,
   openOrders: 0,
   paymentDetailsPublished: true,
   now: '2026-09-27T17:51:00.000Z',
@@ -80,9 +82,17 @@ describe('the trader home robot', () => {
 
   it('an approved trader’s replacement details change nothing it reports: the registered ones still settle', () => {
     for (const state of ['PENDING_REVIEW', 'REJECTED'] as const) {
-      const r = traderHomeAssistant(home({ available: false, proposal: { bank: { label: 'HDFC Bank ••••9876', state, note: null }, wallet: null } }));
+      const r = traderHomeAssistant(home({ available: false, proposal: { bank: { label: 'HDFC Bank ••••9876', state, note: null }, wallet: null, effectiveAt: null, waitingOn: null } }));
       expect(r).toMatchObject({ mood: 'ready', label: 'Offline' });
     }
+  });
+
+  it('under automatic review, names the last step: the reserve from the registered wallet', () => {
+    const last = traderHomeAssistant(home({ state: 'UNDER_REVIEW', application: application(), review: { automatic: true, waitingOn: 'RESERVE', reserveToSend: '500.000000' } }));
+    expect(last).toMatchObject({ mood: 'focused', label: 'Last step' });
+    expect(last.title).toContain('500');
+    const desk = traderHomeAssistant(home({ state: 'UNDER_REVIEW', application: application(), review: { automatic: true, waitingOn: 'DESK', reserveToSend: '0.000000' } }));
+    expect(desk).toMatchObject({ mood: 'waiting', label: 'Under review' });
   });
 
   it('before applying, under review, rejected and paused each say exactly that', () => {

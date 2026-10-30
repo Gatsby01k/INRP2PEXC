@@ -2,8 +2,10 @@ import { sql } from 'kysely';
 import { DomainError, Money, type P2pTiming, requireP2pTiming, requireText, requireUuid } from '@inrp2p/kernel';
 import type { Executor } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
+import { enqueueOutbox } from '@inrp2p/outbox';
 import type { ChainVerifier, CustodyAdapter, FieldProtector } from '@inrp2p/adapters';
 import { type OperatorActor, actorLabel, operatorCommand } from '@inrp2p/identity';
+import { type RiskPolicy, requireRiskPolicy } from './risk.ts';
 
 /**
  * What trader commands need from the outside world: the custody provider that issues a trader's reserve and
@@ -33,6 +35,12 @@ export interface TraderProgram {
   readonly executionMode: 'TO_EXCHANGE' | 'P2P';
   /** ADR 0023: how long each step of a P2P deal may take, by rail. A running deal keeps the timing it opened with. */
   readonly p2pTiming: P2pTiming;
+  /** ADR 0024: applications and settled changes reviewed by the programme's rules; whatever they cannot settle waits for a person. */
+  readonly autoReview: boolean;
+  /** ADR 0024: how far a trader's reserve stretches at each level; null — only the requirement and the desk's ceilings. */
+  readonly riskPolicy: RiskPolicy | null;
+  /** ADR 0024: how long a change of an approved trader's bank account or wallet waits before it can take effect. */
+  readonly settlementChangeHoldHours: number;
   readonly version: number;
   readonly updatedAt: Date;
 }
@@ -48,6 +56,9 @@ export async function traderProgram(ex: Executor): Promise<TraderProgram> {
     collectionAccountId: r.collection_account_id,
     executionMode: r.execution_mode,
     p2pTiming: requireP2pTiming(r.p2p_timing),
+    autoReview: r.auto_review,
+    riskPolicy: r.risk_policy === null ? null : requireRiskPolicy(r.risk_policy),
+    settlementChangeHoldHours: r.settlement_change_hold_hours,
     version: r.version,
     updatedAt: r.updated_at,
   };
@@ -66,6 +77,11 @@ export interface ConfigureProgramPayload {
   readonly executionMode?: 'TO_EXCHANGE' | 'P2P';
   /** ADR 0023: the P2P deal timing — escrow, the time to pay and to confirm by rail, the final period. */
   readonly p2pTiming?: P2pTiming;
+  /** ADR 0024: review applications by rule. Switching it on reviews every application already waiting. */
+  readonly autoReview?: boolean;
+  /** ADR 0024: the reserve-based limits, or null to switch them off. */
+  readonly riskPolicy?: RiskPolicy | null;
+  readonly settlementChangeHoldHours?: number;
   readonly reason: string;
 }
 
@@ -135,6 +151,9 @@ export function configureTraderProgram(actor: OperatorActor) {
       changes.execution_mode = mode;
     }
     if (p.p2pTiming !== undefined) changes.p2p_timing = JSON.stringify(requireP2pTiming(p.p2pTiming));
+    if (p.autoReview !== undefined) changes.auto_review = p.autoReview === true;
+    if (p.riskPolicy !== undefined) changes.risk_policy = p.riskPolicy === null ? null : JSON.stringify(requireRiskPolicy(p.riskPolicy));
+    if (p.settlementChangeHoldHours !== undefined) changes.settlement_change_hold_hours = wholeInRange(p.settlementChangeHoldHours, 'settlementChangeHoldHours', 1, 168);
     const after = await ctx.tx
       .updateTable('trader_program')
       .set({ ...changes, updated_by: actorLabel(ctx), updated_at: sql<Date>`statement_timestamp()`, version: before.version + 1 })
@@ -143,9 +162,13 @@ export function configureTraderProgram(actor: OperatorActor) {
       .executeTakeFirstOrThrow();
     await appendAudit(ctx, {
       action: 'trader_program.configured', entityType: 'trader_program', entityId: null,
-      before: { default_required_reserve_minor: before.default_required_reserve_minor, reward_bps: before.reward_bps, offer_ttl_seconds: before.offer_ttl_seconds, hold_ttl_seconds: before.hold_ttl_seconds, auto_assign: before.auto_assign, collection_account_id: before.collection_account_id, execution_mode: before.execution_mode, p2p_timing: before.p2p_timing, version: before.version },
-      after: { default_required_reserve_minor: after.default_required_reserve_minor, reward_bps: after.reward_bps, offer_ttl_seconds: after.offer_ttl_seconds, hold_ttl_seconds: after.hold_ttl_seconds, auto_assign: after.auto_assign, collection_account_id: after.collection_account_id, execution_mode: after.execution_mode, p2p_timing: after.p2p_timing, version: after.version, reason },
+      before: { default_required_reserve_minor: before.default_required_reserve_minor, reward_bps: before.reward_bps, offer_ttl_seconds: before.offer_ttl_seconds, hold_ttl_seconds: before.hold_ttl_seconds, auto_assign: before.auto_assign, collection_account_id: before.collection_account_id, execution_mode: before.execution_mode, p2p_timing: before.p2p_timing, auto_review: before.auto_review, risk_policy: before.risk_policy, settlement_change_hold_hours: before.settlement_change_hold_hours, version: before.version },
+      after: { default_required_reserve_minor: after.default_required_reserve_minor, reward_bps: after.reward_bps, offer_ttl_seconds: after.offer_ttl_seconds, hold_ttl_seconds: after.hold_ttl_seconds, auto_assign: after.auto_assign, collection_account_id: after.collection_account_id, execution_mode: after.execution_mode, p2p_timing: after.p2p_timing, auto_review: after.auto_review, risk_policy: after.risk_policy, settlement_change_hold_hours: after.settlement_change_hold_hours, version: after.version, reason },
     });
+    // Switched on: the applications already waiting are reviewed by rule now, not when something next happens to them.
+    if (!before.auto_review && after.auto_review) {
+      await enqueueOutbox(ctx, { type: 'trader_program.auto_review_enabled', aggregateType: 'trader_program', payload: {} });
+    }
     return { version: after.version };
   });
 }

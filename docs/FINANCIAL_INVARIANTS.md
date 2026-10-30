@@ -172,6 +172,13 @@ keep `LEGACY_EXCHANGE_FUNDED` and the rules they were accepted under.
 ### Traders (`TRADERS.md` §10)
 A trader's order settles through an ordinary `TO_EXCHANGE` route obligation, so FI-60…FI-65 apply to it unchanged. The programme's own invariants (TR-01…TR-11: registered destinations only, held capacity = open orders, one order per request, quote = accepted order, trader-set rates, one subject per delivery address, reserve and rewards in the ledger, locked reserve never withdrawable, trader projections private, business-clock expiry) and their enforcement are listed there.
 
+### Onboarding by rule and limits from the reserve (ADR 0024)
+| ID | Invariant | Enforcement | Test |
+|---|---|---|---|
+| FI-105 | A trader is approved only with its registered bank account and wallet verified, the wallet sending and receiving, and a Security Reserve set — whoever approves it. By rule, only with the wallet proven by a confirmed USDT transfer from it credited to this trader, the bank holder the applicant on no other client's file and never rejected, the programme's reserve funded, and never an applicant the desk once rejected. | IX138 (`inrp2p_guard_trader_approval`); `reviewVerdict`, `autoReviewTraderInTx` under the trader lock | `trader-auto-review.int` (the programme reviews…, IX138), `auto-review.unit` |
+| FI-106 | A trader's open deals in its own USDT — live offers, holds, started orders whose trade has not finished — never exceed its free reserve × its level's `openX`, nor one deal its free reserve × `dealX`; while engaged, the reserve those open deals need at its level (and at least the requirement) is locked and never withdrawable. | `riskFit` in routing, `trader_order.accept` and `quoteDeskDealInTx` under the trader lock; `reserveFigures` (`backingFor`) behind `trader_reserve.request_withdrawal`; `inrp2p_valid_trader_risk_policy` | `trader-auto-review.int` (a trader deals within…), `desks.int` (nor past what its own reserve allows), `trader-risk.unit` |
+| FI-107 | A change of an approved trader's bank account or wallet is proposed only with a fresh code, is told to every member, takes effect no sooner than the programme's hold and never while an order is accepted or in progress, and can be stopped by any administrator until then; the registered details settle every order meanwhile. | `authorizeClientAdmin` step-up in `trader.propose_settlement_change`; `proposal_effective_at` (cleared with the proposal by `inrp2p_trader_proposal_clock`); `applyDueSettlementChangeInTx` (`assertNoOpenOrders`); `trader.cancel_settlement_change` | `trader-auto-review.int` (a change of where an approved trader is paid…) |
+
 ### Idempotency, audit & recovery
 | ID | Invariant | Enforcement | Test |
 |---|---|---|---|

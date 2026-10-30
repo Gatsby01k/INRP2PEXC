@@ -6,3 +6,4 @@ export * from './desk.ts';
 export * from './eligibility.ts';
 export * from './reserve-figures.ts';
 export * from './standing.ts';
+export * from './risk.ts';

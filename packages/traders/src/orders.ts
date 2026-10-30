@@ -9,7 +9,7 @@ import { publishTraderRate } from '@inrp2p/pricing';
 import { obligationRemaining } from '@inrp2p/settlement';
 import { releaseSubjectAssignment } from '@inrp2p/treasury';
 import { lockTrader, lockTraderOfClient, traderClientCommand, type CloseReason, type OrderRow, closeUnstartedOrder, lockBlock, lockOrder, traderProgram } from '@inrp2p/trader-core';
-import { freeCapacity, standingIssues } from '@inrp2p/trader-core';
+import { freeCapacity, riskFit, standingIssues } from '@inrp2p/trader-core';
 import { directionForSide } from './routing.ts';
 import { readBlocks, readStanding } from '@inrp2p/trader-core';
 
@@ -55,9 +55,14 @@ export function acceptOrder(actor: ClientActor) {
     const now = await businessNow(ctx);
     if (now >= order.offer_expires_at) throw new DomainError('TRADER_ORDER_EXPIRED', 'this offer has expired');
     if (request.status !== 'OPEN' && request.status !== 'QUOTED') throw new DomainError('TRADER_ORDER_NOT_LIVE', 'the other side no longer needs this order');
-    const { standing } = await readStanding(ctx.tx, trader.id);
+    const { standing, reserve } = await readStanding(ctx.tx, trader.id);
     const issues = standingIssues(standing);
     if (issues.length > 0) throw new DomainError('TRADER_NOT_ELIGIBLE', 'you cannot accept orders right now', { issues });
+    // ADR 0024: the offer has counted towards what is open since it was made; it must still fit what the reserve allows.
+    const risk = reserve.limits ? riskFit(reserve.limits, order.base_minor, order.base_minor) : null;
+    if (risk) {
+      throw new DomainError('TRADER_NOT_ELIGIBLE', risk === 'DEAL_ABOVE_LIMIT' ? 'this order is larger than your reserve allows at your level' : 'your open deals and this one are more than your reserve allows at your level', { issues: [risk] });
+    }
 
     const facts = (await readBlocks(ctx.tx, trader.id)).find((b) => b.id === order.block_id)!;
     const block = await lockBlock(ctx, order.block_id);

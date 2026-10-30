@@ -623,3 +623,22 @@ and keeps a person's linked Telegram as Better Auth's account row. Client sessio
    changes the team is asked to connect Telegram or set up an authenticator — in place, in a minute.
 4. **A lost Telegram** is disconnected by the desk after confirming the person: `client_user.reset_mfa` with
    `factor: 'TELEGRAM'` (OWNER or SUPPORT, step-up, a reason). It ends every session of that person.
+
+## 18. Onboarding by rule and limits from the reserve (ADR 0024)
+
+Migration `0044` (schema 44) adds to the programme `auto_review` (**off**), `risk_policy` (**on**, the default levels) and
+`settlement_change_hold_hours` (24); to each trader `approved_at` (filled from the last review of approved and paused
+traders), `auto_review_flags`, `auto_reviewed_at`, `proposal_effective_at`, `proposed_by`; IX138; and the inbox kind
+`TRADER_SETTLEMENT_CHANGE`. No new secret or service.
+
+1. **Release order** (from production at 43): CI green on the commit; stop the worker; a Neon branch `before-44-<date>`;
+   `node scripts/migrate.ts` through the migrator login; Vercel ready on 44; the worker image of the same commit. The
+   worker runs the review (`trader_auto_review` handler) and applies due changes (`trader_orders_sweep`).
+2. **Before switching auto-review on:** the programme's default Security Reserve must be set (an application is never
+   approved by rule without it). Then Traders → Programme → "Approve traders by rule"; every application already waiting
+   is reviewed at once.
+3. **Limits** are on from the release. Check each live trader's "Open of limit" on Traders: a trader whose open deals are
+   already above its new limit keeps them; it receives nothing new until they finish or it deposits more. Change the
+   levels, or switch the limits off, in the same form (⧗).
+4. **A payee change already waiting** at the migration has no hold clock: the desk decides it as before.
+

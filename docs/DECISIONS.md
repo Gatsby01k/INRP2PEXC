@@ -230,3 +230,12 @@ Full record: `docs/adr/0016-counterparty-funded-execution.md`.
 A private chat on every P2P deal (the two sides by role, INRP2P when called), receipts attached but never counted, and
 the buyer's time to pay set by how it pays — UPI 15, IMPS 30, NEFT 60, RTGS 45 minutes, configurable — with a warning and
 a short final period before a cancellation, and no cancellation at all once the payment is filed.
+
+## D-23 — Traders go live by rule, inside limits their own reserve sets — Resolved (owner request, 2026-10-30; ADR 0024)
+
+Applications are reviewed by rule once the desk switches it on: the wallet proven by the reserve sent from it, the bank
+holder the applicant and on no other file, the programme's reserve funded — then approved, with no person; anything else
+waits for a person with its reason. Every trader deals within multiples of its free reserve that grow with completed deals
+and days (New 2×/4×, Proven 5×/15×, Trusted 10×/30× — one deal / all open), fall back after a failed deal, and lock the
+reserve its open deals stand on. A change of an approved trader's bank account or wallet needs a fresh code, waits 24
+hours with every member told and any administrator able to stop it, and then applies by rule between orders.

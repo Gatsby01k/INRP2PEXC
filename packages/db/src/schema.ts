@@ -1192,7 +1192,8 @@ export type NotificationKind =
   | 'DESK_NOTICE'
   | 'DEAL_MESSAGE'
   | 'P2P_PAY_FINAL'
-  | 'P2P_RECEIPT_LATE';
+  | 'P2P_RECEIPT_LATE'
+  | 'TRADER_SETTLEMENT_CHANGE';
 
 export interface ClientNotificationTable {
   id: Generated<string>;
@@ -1345,6 +1346,12 @@ export interface TraderProgramTable {
   execution_mode: Generated<'TO_EXCHANGE' | 'P2P'>;
   /** Migration 0042: how long each step of a P2P deal may take, by rail (`P2pTiming`). */
   p2p_timing: Generated<Json>;
+  /** Migration 0044: applications reviewed by rule, whatever a rule cannot settle left for a person. */
+  auto_review: Generated<boolean>;
+  /** Migration 0044: how far a trader's free reserve stretches at each level (`RiskPolicy`); null switches it off. */
+  risk_policy: Generated<Json | null>;
+  /** Migration 0044: how long a trader's change of bank account or wallet waits before it takes effect. */
+  settlement_change_hold_hours: Generated<number>;
   updated_by: string;
   updated_at: Generated<Date>;
   version: Generated<number>;
@@ -1389,7 +1396,26 @@ export interface TraderProfileTable {
   ownership_confirmed_at: Date | null;
   proposed_bank_account_id: Generated<string | null>;
   proposed_wallet_id: Generated<string | null>;
+  // Migration 0044: when it was first approved, what the programme's rules could not settle, and a proposal's clock.
+  approved_at: Generated<Date | null>;
+  auto_review_flags: Generated<AutoReviewFlag[]>;
+  auto_reviewed_at: Generated<Date | null>;
+  proposal_effective_at: Generated<Date | null>;
+  proposed_by: Generated<string | null>;
 }
+
+/** Migration 0044: why the programme's rules left an application or a change for a person. */
+export type AutoReviewFlag =
+  | 'BANK_NAME_MISMATCH'
+  | 'BANK_ON_FILE_ELSEWHERE'
+  | 'BANK_REJECTED_BEFORE'
+  | 'WALLET_NOT_PROVEN'
+  | 'WALLET_ON_FILE_ELSEWHERE'
+  | 'WALLET_REJECTED_BEFORE'
+  | 'RESERVE_SHORT'
+  | 'NO_DEFAULT_RESERVE'
+  | 'REJECTED_BEFORE'
+  | 'ORDERS_OPEN';
 
 export interface TraderBlockTable {
   id: Generated<string>;

@@ -577,6 +577,17 @@
   grid-column: 1 / -1;
 }
 
+/* ADR 0024: what the reserve allows, set apart from what it holds. */
+.limits {
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--line-soft);
+}
+
+.of {
+  color: var(--text-muted);
+  font-weight: var(--font-weight-medium);
+}
+
 .note {
   margin: 0;
   color: var(--text-muted);

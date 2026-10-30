@@ -80,6 +80,14 @@ public site "Become a trader" ─▶ app host /become-a-trader ─▶ email ─�
    ceilings as before, and — for a client without Exchange access only — grants the applicant `can_accept_quotes`,
    the authority every trader action that binds money checks. Available is never switched on for the trader.
 
+5. **Review by rule** (ADR 0024, `trader_program.auto_review`, switched on by the desk): the programme verifies the
+   wallet once USDT sent from it is credited to the trader's reserve (proof it holds the key), the bank account when its
+   holder is the applicant and it is on no other client's file and was never rejected, and approves when both are
+   verified and the programme's reserve is funded — so a clean applicant is approved the moment its reserve lands, with
+   no person. Whatever a rule does not settle waits for the desk with its reason (`auto_review_flags`); an applicant the
+   desk once rejected is always a person's to approve; a person may decide anything at any time. Approval by rule and by
+   the desk are the same step (`approveTraderInTx`), and IX138 refuses either without verified details and a reserve.
+
 Destination states (`bank_account.status`, `crypto_wallet.status`): `PENDING_REVIEW` (pending review) ─▶ `ACTIVE`
 (verified) ─▶ `ARCHIVED`; `PENDING_REVIEW` ─▶ `REJECTED`; `PENDING_REVIEW` ─▶ `ARCHIVED` when withdrawn or replaced.
 
@@ -100,8 +108,12 @@ client/trader choice.
 
 ### 3.3 Settlement changes by an approved trader (TD-24, closed)
 
-An approved trader's administrator submits a new bank account and/or wallet (`trader.propose_settlement_change`).
-It waits `PENDING_REVIEW` beside the registered pair, which keeps settling every order. The desk approves
+An approved trader's administrator submits a new bank account and/or wallet (`trader.propose_settlement_change`) with a
+fresh authenticator code (ADR 0024; while the application is under review, a fresh email sign-in will do). It waits
+`PENDING_REVIEW` beside the registered pair, which keeps settling every order, for at least the programme's hold
+(`settlement_change_hold_hours`, 24): every member is told at once and any administrator can stop it
+(`trader.cancel_settlement_change`). After the hold, with auto-review on, the trader sweep applies it by the same rules as
+an application's details, between orders only. The desk approves
 (`trader.review_settlement_change` ⧗: verifies it, registers it, moves the trader's routes) or rejects it with a
 note the trader sees. Approval — and the desk's own `trader.set_settlement_details` — is refused while an order is
 accepted or in progress (`TRADER_ORDERS_OPEN`): an order settles with the details it was accepted under.
@@ -223,6 +235,13 @@ Security Reserve never stand in (FI-76). A trader route is always `TO_EXCHANGE`:
   reserve locked until the last open order finishes. The desk sends from custody, records the tx hash (read back
   from the chain), and confirms on finality (⧗), posting Dr `LIAB:TRADER_RESERVE` / Cr `ASSET:TREASURY_USDT` once.
   The desk may reject with a reason; the trader may cancel before it is sent.
+- **Limits from the reserve** (ADR 0024, `trader_program.risk_policy`): a trader's single deal is at most its free reserve
+  × `dealX` and its open deals (live offers, holds, started orders whose trade is not finished — in its own USDT) at most
+  × `openX`, at its level — New 2×/4×, Proven 5×/15× (10 deals, 7 days), Trusted 10×/30× (50 deals, 30 days) — back to New
+  for 30 days after a failed deal (a dispute decided against it, an escrow unwound because it did not pay). Routing,
+  accepting an offer and a desk's own deal all check it (`riskFit`); the desk's ceilings still apply on top. While
+  engaged, **the reserve the open deals need is locked** too (`backingFor`: largest ÷ `dealX`, all ÷ `openX`, at least the
+  requirement), so a trader never withdraws the collateral its running deals were allowed on.
 - **Changing the requirement** (⧗) is audited and notified (`TRADER_RESERVE_ISSUE`); it never edits the trader's
   own terms, and nothing is taken from the reserve automatically.
 - **Applying it to USDT the trader did not deliver** (TD-21, migration 0029): on a started Sell USDT order whose client
@@ -308,6 +327,9 @@ now live in `@inrp2p/trader-core`, where a desk deal checks them.
 | TR-10 | Nothing about the client, the desk's pricing or internals reaches a trader projection | `assertTraderSafe` on every trader view; integration test |
 | TR-11 | Offer and hold expiry use the business clock | `inrp2p_now()` in commands and the sweep |
 | TR-12 | A reserve is applied only to its own trader's undelivered USDT, by two people, within what the order owes and the reserve holds free; it reaches the order as one delivery with one journal. Against INR it is only held: nothing moves or posts, the debt stays open, and a hold never outlives its order | Commands under trader → order → obligation locks; IX094, IX095; posting key unique; sweep ends holds with their order |
+| TR-13 | A trader is approved only with both registered details verified and a reserve set, by a person or by rule; by rule only on facts of record (wallet proven on chain, bank holder the applicant on no other file, reserve funded) and never after a desk rejection | IX138; `reviewVerdict` / `autoReviewTraderInTx` under the trader lock |
+| TR-14 | A trader's deals stay within its free reserve × its level's multiples, and the reserve its open deals need is never withdrawable | `riskFit` (routing, accept, desk deal) under the trader lock; `reserveFigures` (`backingFor`) |
+| TR-15 | A change of where an approved trader is paid needs a fresh code, is told to every member, waits out the hold and never applies while an order is open | step-up in `trader.propose_settlement_change`; `applyDueSettlementChangeInTx`; `inrp2p_trader_proposal_clock` |
 
 Lock order: `trader_profile → trader_order → trader_block` after `acceptance_challenge` (ARCHITECTURE §4).
 

@@ -1,8 +1,8 @@
 import { sql } from 'kysely';
 import { DomainError, Money, type P2pTiming, Rate, requireUuid } from '@inrp2p/kernel';
-import type { DestinationStatus, Executor, P2pExperience, TraderOrderStatus, TraderReserveApplicationStatus, TraderSide, TraderStatus } from '@inrp2p/db';
+import type { AutoReviewFlag, DestinationStatus, Executor, P2pExperience, TraderOrderStatus, TraderReserveApplicationStatus, TraderSide, TraderStatus } from '@inrp2p/db';
 import { type SenderView, fundingSources, obligationRemaining, senderView } from '@inrp2p/settlement';
-import { standingIssues, type StandingIssue } from '@inrp2p/trader-core';
+import { type RiskPolicy, type TierName, standingIssues, type StandingIssue } from '@inrp2p/trader-core';
 import { traderProgram, type TraderProgram } from '@inrp2p/trader-core';
 import { earnings } from './rewards.ts';
 import { sharedReserveAddress } from './reserve.ts';
@@ -27,6 +27,10 @@ export interface DeskProgram {
   readonly executionMode: 'TO_EXCHANGE' | 'P2P';
   /** ADR 0023: how long each step of a P2P deal may take, by rail. */
   readonly p2pTiming: P2pTiming;
+  /** ADR 0024: applications and due changes decided by the programme's rules. */
+  readonly autoReview: boolean;
+  readonly riskPolicy: RiskPolicy | null;
+  readonly settlementChangeHoldHours: number;
   readonly version: number;
 }
 
@@ -39,6 +43,9 @@ const programView = (p: TraderProgram): DeskProgram => ({
   collectionAccountId: p.collectionAccountId,
   executionMode: p.executionMode,
   p2pTiming: p.p2pTiming,
+  autoReview: p.autoReview,
+  riskPolicy: p.riskPolicy,
+  settlementChangeHoldHours: p.settlementChangeHoldHours,
   version: p.version,
 });
 
@@ -64,12 +71,16 @@ export interface DeskTraderRow {
   readonly awaitingReview: number;
   /** The client may use the Exchange too; a self-registered trader's client may not until the desk opens it. */
   readonly exchangeAccess: boolean;
+  /** ADR 0024: what the programme's rules left for a person (empty: nothing, or they have not looked). */
+  readonly autoReviewFlags: readonly AutoReviewFlag[];
+  /** ADR 0024: its level and what is open on it against what its reserve allows; null when the programme sets no limits. */
+  readonly risk: { readonly level: TierName; readonly heldBack: boolean; readonly open: string; readonly maxOpen: string; readonly maxDeal: string; readonly backing: string } | null;
 }
 
 /** Every trader: applications first, then traders with submitted details to review, then the rest by reference. */
 export async function deskTraders(ex: Executor): Promise<{ program: DeskProgram; traders: readonly DeskTraderRow[] }> {
-  const rows = await sql<{ id: string; ref: string; client_id: string; display_name: string; exchange_access: boolean; status: TraderStatus; available: boolean; assignments_enabled: boolean; offers_buy: boolean; offers_sell: boolean; applied_at: Date; open: string; offers: string; completed: string; unresolved: string; awaiting: string }>`
-    select t.id, t.ref, t.client_id, c.display_name, c.exchange_access, t.status, t.available, t.assignments_enabled, t.offers_buy, t.offers_sell, t.applied_at,
+  const rows = await sql<{ id: string; ref: string; client_id: string; display_name: string; exchange_access: boolean; status: TraderStatus; available: boolean; assignments_enabled: boolean; offers_buy: boolean; offers_sell: boolean; applied_at: Date; auto_review_flags: AutoReviewFlag[]; open: string; offers: string; completed: string; unresolved: string; awaiting: string }>`
+    select t.id, t.ref, t.client_id, c.display_name, c.exchange_access, t.status, t.available, t.assignments_enabled, t.offers_buy, t.offers_sell, t.applied_at, t.auto_review_flags,
            ((select count(*) from bank_account b where b.status = 'PENDING_REVIEW' and b.id in (t.bank_account_id, t.proposed_bank_account_id))
             + (select count(*) from crypto_wallet w where w.status = 'PENDING_REVIEW' and w.id in (t.wallet_id, t.proposed_wallet_id)))::text as awaiting,
            (select count(*) from trader_order o where o.trader_id = t.id and o.status in ('ACCEPTED', 'IN_PROGRESS'))::text as open,
@@ -108,6 +119,13 @@ export async function deskTraders(ex: Executor): Promise<{ program: DeskProgram;
       appliedAt: r.applied_at.toISOString(),
       awaitingReview: Number.parseInt(r.awaiting, 10),
       exchangeAccess: r.exchange_access,
+      autoReviewFlags: r.auto_review_flags,
+      risk: reserve.limits && (r.status === 'APPROVED' || r.status === 'PAUSED')
+        ? {
+            level: reserve.limits.tier.name, heldBack: reserve.limits.tier.heldBack, open: usdt(reserve.limits.exposure.totalMinor), maxOpen: usdt(reserve.limits.maxOpenMinor),
+            maxDeal: usdt(reserve.limits.maxDealMinor), backing: usdt(reserve.limits.backingMinor),
+          }
+        : null,
     });
   }
   return { program: programView(program), traders };
@@ -337,8 +355,10 @@ export interface DeskTraderDetail {
     readonly ownershipConfirmedAt: string | null;
     readonly exchangeAccess: boolean;
   };
-  /** A replacement the trader proposed, until the desk decides (TD-24). */
-  readonly proposal: { readonly bank: DeskBankView | null; readonly wallet: DeskWalletView | null };
+  /** A replacement the trader proposed, until the desk decides (TD-24); from when it can take effect (ADR 0024). */
+  readonly proposal: { readonly bank: DeskBankView | null; readonly wallet: DeskWalletView | null; readonly effectiveAt: string | null };
+  /** ADR 0024: when the programme's rules last looked, and what they left for a person. */
+  readonly autoReview: { readonly flags: readonly AutoReviewFlag[]; readonly reviewedAt: string | null; readonly approvedAt: string | null };
   readonly trader: DeskTraderRow & {
     readonly typicalInr: string | null;
     readonly typicalUsdt: string | null;
@@ -495,7 +515,9 @@ export async function deskTrader(ex: Executor, traderId: string): Promise<DeskTr
     proposal: {
       bank: p.proposed_bank_account_id ? await deskBank(ex, p.proposed_bank_account_id) : null,
       wallet: p.proposed_wallet_id ? await deskWallet(ex, p.proposed_wallet_id) : null,
+      effectiveAt: p.proposal_effective_at?.toISOString() ?? null,
     },
+    autoReview: { flags: p.auto_review_flags, reviewedAt: p.auto_reviewed_at?.toISOString() ?? null, approvedAt: p.approved_at?.toISOString() ?? null },
     trader: {
       ...row,
       typicalInr: p.typical_inr_minor === null ? null : inr(p.typical_inr_minor),

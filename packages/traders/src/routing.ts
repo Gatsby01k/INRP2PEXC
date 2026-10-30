@@ -6,7 +6,7 @@ import { type DirectionValue, type FixedSideValue, type TraderSide, type TxConte
 import { appendAudit } from '@inrp2p/audit';
 import { enqueueOutbox } from '@inrp2p/outbox';
 import { type OperatorActor, operatorCommand } from '@inrp2p/identity';
-import { type FitIssue, type StandingIssue, freeCapacity, orderFit, standingIssues } from '@inrp2p/trader-core';
+import { type FitIssue, type RiskIssue, type StandingIssue, freeCapacity, orderFit, riskFit, standingIssues } from '@inrp2p/trader-core';
 import { traderProgram } from '@inrp2p/trader-core';
 import { readBlocks, readStanding } from '@inrp2p/trader-core';
 
@@ -83,7 +83,7 @@ export function sizeOrder(input: { direction: DirectionValue; fixedSide: FixedSi
   return { baseMinor: econ.base.minor, inrMinor: econ.routeInr.minor };
 }
 
-export type Exclusion = StandingIssue | FitIssue | 'NO_SIDE' | 'ALREADY_OFFERED' | 'OWN_REQUEST' | 'NETWORK_DEPOSIT_SHORT' | 'NETWORK_FEES_UNKNOWN' | 'NEEDS_CLIENT_RATE';
+export type Exclusion = StandingIssue | FitIssue | RiskIssue | 'NO_SIDE' | 'ALREADY_OFFERED' | 'OWN_REQUEST' | 'NETWORK_DEPOSIT_SHORT' | 'NETWORK_FEES_UNKNOWN' | 'NEEDS_CLIENT_RATE';
 
 export interface AssignResult {
   readonly orderId: string;
@@ -184,7 +184,7 @@ export async function assignRequestInTx(
       exclude('ALREADY_OFFERED');
       continue;
     }
-    const { standing } = await readStanding(ctx.tx, t.id);
+    const { standing, reserve } = await readStanding(ctx.tx, t.id);
     const issues = standingIssues(standing);
     if (issues.length > 0) {
       exclude(issues[0]!);
@@ -229,6 +229,12 @@ export async function assignRequestInTx(
     const fit = orderFit(block, amount);
     if (fit) {
       exclude(fit);
+      continue;
+    }
+    // ADR 0024: within what the trader's own reserve and record allow — one deal, and everything open with it.
+    const risk = reserve.limits ? riskFit(reserve.limits, sized.baseMinor) : null;
+    if (risk) {
+      exclude(risk);
       continue;
     }
     candidates.push({

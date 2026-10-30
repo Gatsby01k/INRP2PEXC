@@ -1022,6 +1022,9 @@ importers:
       '@inrp2p/ledger':
         specifier: workspace:*
         version: link:../ledger
+      '@inrp2p/outbox':
+        specifier: workspace:*
+        version: link:../outbox
       '@inrp2p/settlement':
         specifier: workspace:*
         version: link:../settlement

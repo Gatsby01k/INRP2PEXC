@@ -12,6 +12,7 @@ import { TextArea } from '../../_desk/fields.tsx';
 import { dateTime, inr, usdt } from '../../_desk/format.ts';
 import { Chip, KeyValues, Notice } from '../../_desk/ui.tsx';
 import type { TraderPerms } from './TraderControls.tsx';
+import { AUTO_FLAG } from '../TraderList.tsx';
 import d from '../../_desk/desk.module.css';
 
 const STATUS: Record<string, { word: string; tone: 'success' | 'warning' | 'muted' | 'danger' }> = {
@@ -125,8 +126,19 @@ export function TraderReview({ detail, perms }: { detail: DeskTraderDetail; perm
       </>
     ) : null;
 
+  const flags = detail.autoReview.flags;
   return (
     <div className={d.stack}>
+      {detail.program.autoReview && (underReview || waitingChange) ? (
+        <Notice icon={flags.length > 0 ? 'flag' : 'shield'}>
+          {flags.length > 0
+            ? `The programme’s rules left this for a person: ${flags.map((f) => AUTO_FLAG[f] ?? f).join('; ')}.`
+            : underReview
+              ? 'The programme’s rules approve this as soon as the trader’s reserve lands from its wallet; nothing is needed from the desk.'
+              : 'The programme’s rules apply this change when its hold ends, between orders; nothing is needed from the desk unless you decide it first.'}
+          {detail.autoReview.reviewedAt ? ` Checked ${dateTime(detail.autoReview.reviewedAt)}.` : ''}
+        </Notice>
+      ) : null}
       <PanelSection title="Applicant">
         <KeyValues
           items={[
@@ -196,7 +208,12 @@ export function TraderReview({ detail, perms }: { detail: DeskTraderDetail; perm
 
       {approved && (proposedBank || proposedWallet) ? (
         <PanelSection title={`Proposed by the trader${waitingChange ? ' · waiting for review' : ''}`}>
-          <Notice>The registered details keep settling every order until a change is approved.</Notice>
+          <Notice>
+            The registered details keep settling every order until a change is approved.
+            {detail.proposal.effectiveAt && waitingChange
+              ? ` Every member was told; it can take effect from ${dateTime(detail.proposal.effectiveAt)}${detail.program.autoReview ? ', when the programme’s rules apply it between orders' : ''}.`
+              : ''}
+          </Notice>
           {proposedBank ? (
             <div className={d.stackTight}>
               <span className={d.fieldLabel}>New bank account</span>

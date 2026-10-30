@@ -125,6 +125,12 @@ async function p2pResolve(db: Db, event: OutboxEvent): Promise<{ clientId: strin
 
 const DESK_ACTIONS = new Set(['SUSPENDED', 'RESUMED', 'PAGE_HIDDEN', 'PAGE_SHOWN', 'RENAMED']);
 
+const SETTLEMENT_CHANGE: Readonly<Record<string, 'PROPOSED' | 'CANCELLED' | 'APPLIED'>> = {
+  'trader.settlement_change_proposed': 'PROPOSED',
+  'trader.settlement_change_cancelled': 'CANCELLED',
+  'trader.settlement_change_applied': 'APPLIED',
+};
+
 async function resolve(db: Db, event: OutboxEvent): Promise<{ clientId: string; kind: NotificationKind; facts: NotificationFacts } | null> {
   const p = (event.payload ?? {}) as Payload;
   if (event.type.startsWith('trader.p2p_')) return p2pResolve(db, event);
@@ -137,6 +143,17 @@ async function resolve(db: Db, event: OutboxEvent): Promise<{ clientId: string; 
     if (!t) return null;
     const reason = str(p.reason);
     return { clientId: t.client_id, kind: 'DESK_NOTICE', facts: { deskAction: action as NonNullable<NotificationFacts['deskAction']>, ...(reason ? { reason } : {}) } };
+  }
+  const change = SETTLEMENT_CHANGE[event.type];
+  if (change) {
+    // ADR 0024: every member of the account hears of a change of where it is paid — the inbox addresses the whole client.
+    const traderId = str(p.traderId);
+    if (!traderId) return null;
+    const t = await db.selectFrom('trader_profile').select('client_id').where('id', '=', traderId).executeTakeFirst();
+    if (!t) return null;
+    const what = p.what === 'BANK' || p.what === 'WALLET' || p.what === 'BOTH' ? p.what : 'BOTH';
+    const at = str(p.effectiveAt);
+    return { clientId: t.client_id, kind: 'TRADER_SETTLEMENT_CHANGE', facts: { settlementChange: { action: change, what, ...(at ? { effectiveAt: new Date(at) } : {}) } } };
   }
   if (event.type === 'desk.payout_actionable') {
     // The other side's funds are confirmed: if a trader's order stands behind this trade, it is now the trader's turn.

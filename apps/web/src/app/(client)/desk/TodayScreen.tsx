@@ -300,6 +300,19 @@ export function TodayScreen({
               </span>
               <span className={styles.figureValue}>{today.capacity.BUY_USDT ? usdtShort(today.capacity.BUY_USDT.available) : 'Not offered'}</span>
             </div>
+            {today.reserveLimits ? (
+              <div className={styles.figure}>
+                <span className={styles.figureLabel}>
+                  <span className={styles.figureIcon} aria-hidden="true">
+                    <VaultIcon />
+                  </span>
+                  Largest deal now
+                </span>
+                <span className={styles.figureValue} title={`Your reserve allows ${today.reserveLimits.maxOpen} USDT open at once; ${today.reserveLimits.open} is open now.`}>
+                  {usdtShort(today.reserveLimits.largestDeal)}
+                </span>
+              </div>
+            ) : null}
             <div className={styles.figure}>
               <span className={styles.figureLabel}>
                 <span className={styles.figureIcon} aria-hidden="true">

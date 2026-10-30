@@ -10,7 +10,8 @@ import { type BlockIssue, type StandingIssue, blockIssues, freeCapacity, standin
 import { type OrderStage, type OrderStep, orderStage, orderSteps, p2pOrderStage, p2pOrderSteps } from './progress.ts';
 import { sharedReserveAddress } from './reserve.ts';
 import { earnings } from './rewards.ts';
-import { readBlocks, readStanding } from '@inrp2p/trader-core';
+import { type RiskLimits, type TierName, readBlocks, readStanding } from '@inrp2p/trader-core';
+import { PERSON_FLAGS } from './auto-review.ts';
 
 /**
  * What a trader sees, and nothing else.
@@ -266,6 +267,44 @@ export interface DestinationView {
 
 export const reviewState = (status: DestinationStatus): ReviewState => (status === 'ACTIVE' ? 'VERIFIED' : status);
 
+/**
+ * ADR 0024: how far the trader's reserve stretches at its level, and what it takes to grow. All in USDT, all from the
+ * books: deposit more and the limits grow at once; complete deals and they grow by level.
+ */
+export interface LimitsView {
+  readonly level: TierName;
+  /** A deal it failed recently holds it at the first level for now. */
+  readonly heldBack: boolean;
+  readonly maxDeal: string;
+  readonly maxOpen: string;
+  /** What is open on it now: offers, holds and deals not yet finished. */
+  readonly open: string;
+  /** What of its reserve backs the open deals — locked while they are. */
+  readonly backing: string;
+  readonly completedDeals: number;
+  /** The next level, and how many more deals and days it asks for. */
+  readonly next: { readonly level: TierName; readonly deals: number; readonly days: number } | null;
+}
+
+export function limitsView(l: RiskLimits): LimitsView {
+  return {
+    level: l.tier.name, heldBack: l.tier.heldBack, maxDeal: usdt(l.maxDealMinor), maxOpen: usdt(l.maxOpenMinor), open: usdt(l.exposure.totalMinor),
+    backing: usdt(l.backingMinor), completedDeals: l.track.completedDeals,
+    next: l.tier.next ? { level: l.tier.next.name, deals: l.tier.next.deals, days: l.tier.next.days } : null,
+  };
+}
+
+/**
+ * ADR 0024: what an application waits for. `RESERVE` — the trader: the reserve, sent from its registered wallet, which
+ * also proves the wallet is its own; the programme approves the moment it lands. `DESK` — a person at INRP2P.
+ */
+export interface ApplicationReview {
+  readonly automatic: boolean;
+  readonly waitingOn: 'RESERVE' | 'DESK';
+  /** USDT still to send for the programme's reserve; null when the programme has none set yet. */
+  readonly reserveToSend: string | null;
+}
+
 export interface TraderHome {
   readonly state: 'NONE' | TraderStatus;
   readonly ref: string | null;
@@ -306,7 +345,18 @@ export interface TraderHome {
    * A replacement bank account or wallet the trader submitted (TD-24): waiting for the desk, or refused with its note.
    * The registered details above keep settling every order until the desk approves it.
    */
-  readonly proposal: { readonly bank: DestinationView | null; readonly wallet: DestinationView | null };
+  readonly proposal: {
+    readonly bank: DestinationView | null;
+    readonly wallet: DestinationView | null;
+    /** ADR 0024: from when it can take effect — every member was told, and an administrator can stop it until then. */
+    readonly effectiveAt: string | null;
+    /** What it waits for once that time has come: open orders to finish, or a person at INRP2P. */
+    readonly waitingOn: 'HOLD' | 'ORDERS' | 'DESK' | null;
+  };
+  /** ADR 0024: the application's own review — null once decided. */
+  readonly review: ApplicationReview | null;
+  /** ADR 0024: the deals the reserve allows at the trader's level; null when the programme sets none. */
+  readonly limits: LimitsView | null;
   /** Orders accepted or in progress — the desk changes settlement details only once there are none. */
   readonly openOrders: number;
   readonly paymentDetailsPublished: boolean;
@@ -400,7 +450,18 @@ async function walletView(ex: Executor, id: string | null): Promise<DestinationV
   return { label: `TRC20 · ${maskWallet(w.address)}`, state: reviewState(w.status), note: w.status === 'REJECTED' ? w.review_note : null };
 }
 
-const NO_PROPOSAL = { bank: null, wallet: null } as const;
+const NO_PROPOSAL = { bank: null, wallet: null, effectiveAt: null, waitingOn: null } as const;
+
+/**
+ * A change still waiting: within its hold; past it, on the trader's open orders or on a person — or, past it with
+ * nothing in the way, on the next minute's sweep, which the trader reads as the hold ending.
+ */
+function proposalWaitingOn(effectiveAt: Date | null, now: Date, automatic: boolean, flags: readonly string[]): 'HOLD' | 'ORDERS' | 'DESK' {
+  if (effectiveAt && effectiveAt > now) return 'HOLD';
+  if (!automatic || !effectiveAt) return 'DESK';
+  if (flags.includes('ORDERS_OPEN')) return 'ORDERS';
+  return flags.some((f) => (PERSON_FLAGS as readonly string[]).includes(f)) ? 'DESK' : 'HOLD';
+}
 
 /**
  * The trader's working screen: standing, capacity, reserve, offers, active orders and earnings — or, before that,
@@ -420,6 +481,7 @@ export async function traderHome(ex: Executor, userId: string): Promise<TraderHo
           't.id', 't.ref', 't.status', 't.available', 't.assignments_enabled', 't.control_note', 't.offers_buy', 't.offers_sell', 't.typical_inr_minor', 't.typical_usdt_minor',
           't.daily_capacity_inr_minor', 't.daily_capacity_usdt_minor', 't.p2p_experience', 't.profile_link', 't.telegram_handle', 't.phone_last4',
           't.applied_at', 't.review_note', 't.bank_account_id', 't.wallet_id', 't.proposed_bank_account_id', 't.proposed_wallet_id',
+          't.auto_review_flags', 't.proposal_effective_at',
           'c.display_name', 'c.type', 'b.bank_name', 'b.account_last4', 'w.address',
         ])
         .where('t.client_id', '=', member.clientId)
@@ -430,6 +492,7 @@ export async function traderHome(ex: Executor, userId: string): Promise<TraderHo
     return traderSafe({
       state: 'NONE' as const, ref: null, ...base, application: null, available: false, controlNote: null, assignmentsEnabled: true, issues: [], blocks: [], reserve: null,
       offers: [], active: [], recentlyCompleted: null, earnings: null, registered: null, proposal: NO_PROPOSAL, openOrders: 0, paymentDetailsPublished: false,
+      review: null, limits: null,
     });
   }
   const bank = bankText(profile.bank_name, profile.account_last4);
@@ -455,16 +518,38 @@ export async function traderHome(ex: Executor, userId: string): Promise<TraderHo
   if (profile.status === 'UNDER_REVIEW' || profile.status === 'REJECTED') {
     // The reserve is shown from the first day: topping it up is not admission to trading (D-17), and money sent
     // during the review stays visible whatever the review decides.
+    const program = await traderProgram(ex);
+    const figures = (await readStanding(ex, profile.id)).reserve;
+    const free = figures.balance.minor - figures.pendingRelease.minor - figures.applying.minor;
+    const required = program.defaultRequiredReserve?.minor ?? null;
+    // The trader's move is the reserve — from its own wallet, which is the proof — unless something only a person can
+    // settle is in the way (or nobody reviews by rule).
+    const personNeeded = !program.autoReview || profile.auto_review_flags.some((f) => PERSON_FLAGS.includes(f) || f === 'REJECTED_BEFORE');
+    const toSend = required === null ? null : required > free ? required - free : 0n;
+    const walletOwed = profile.auto_review_flags.includes('WALLET_NOT_PROVEN') || (toSend !== null && toSend > 0n);
+    const review: ApplicationReview | null = profile.status === 'UNDER_REVIEW'
+      ? { automatic: program.autoReview, waitingOn: !personNeeded && walletOwed ? 'RESERVE' : 'DESK', reserveToSend: toSend === null ? null : usdt(toSend) }
+      : null;
     return traderSafe({
       state: profile.status, ref: profile.ref, ...base, application, available: false, controlNote: null, assignmentsEnabled: profile.assignments_enabled, issues: [], blocks: [],
       reserve: await reserveView(ex, profile.id), offers: [], active: [], recentlyCompleted: null, earnings: null, registered, proposal: NO_PROPOSAL, openOrders: 0, paymentDetailsPublished: false,
+      review, limits: null,
     });
   }
-  const proposal = { bank: await bankView(ex, profile.proposed_bank_account_id), wallet: await walletView(ex, profile.proposed_wallet_id) };
+  const bankProposal = await bankView(ex, profile.proposed_bank_account_id);
+  const walletProposal = await walletView(ex, profile.proposed_wallet_id);
+  const live = [bankProposal, walletProposal].some((d) => d !== null && (d.state === 'PENDING_REVIEW' || d.state === 'VERIFIED'));
 
-  const { standing } = await readStanding(ex, profile.id);
+  const { standing, reserve } = await readStanding(ex, profile.id);
   const blocks = await readBlocks(ex, profile.id);
   const program = await traderProgram(ex);
+  const effectiveAt = live ? profile.proposal_effective_at : null;
+  const proposal = {
+    bank: bankProposal,
+    wallet: walletProposal,
+    effectiveAt: effectiveAt?.toISOString() ?? null,
+    waitingOn: live ? proposalWaitingOn(effectiveAt, now, program.autoReview, profile.auto_review_flags) : null,
+  };
   const orders = await ex
     .selectFrom('trader_order as o')
     .select(ORDER_SELECT)
@@ -523,6 +608,8 @@ export async function traderHome(ex: Executor, userId: string): Promise<TraderHo
     proposal,
     openOrders: summaries.filter((x) => x.status === 'ACCEPTED' || x.status === 'IN_PROGRESS').length,
     paymentDetailsPublished: program.collectionAccountId !== null,
+    review: null,
+    limits: reserve.limits ? limitsView(reserve.limits) : null,
   });
 }
 

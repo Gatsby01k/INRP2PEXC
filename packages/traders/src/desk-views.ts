@@ -2,7 +2,7 @@ import { sql } from 'kysely';
 import { DomainError, Money, Rate, requireText } from '@inrp2p/kernel';
 import type { DeskStatus, DirectionValue, Executor, TraderStatus } from '@inrp2p/db';
 import {
-  type StandingIssue, currentDeskPrices, currentFeePolicy, deskOfTrader, freeCapacity, readBlocks, readStanding, switchOnIssues, traderMembership,
+  type TierName, type StandingIssue, currentDeskPrices, currentFeePolicy, deskOfTrader, freeCapacity, readBlocks, readStanding, switchOnIssues, traderMembership,
 } from '@inrp2p/trader-core';
 import { allowanceOf, currentGasFreeFees, networkFeePolicy } from '@inrp2p/network';
 import { traderNetworkView } from './network.ts';
@@ -268,6 +268,11 @@ export interface DeskToday {
    * USDT through GasFree (`GASFREE`, ADR 0022).
    */
   readonly network: { readonly mode: 'BURN' | 'GASFREE'; readonly available: string; readonly dealsCovered: number | null; readonly short: boolean };
+  /**
+   * ADR 0024: what the desk's own reserve allows at its level — the largest deal it can take now (its own USDT side), what
+   * is open, and the level. Null when the programme sets no reserve-based limits.
+   */
+  readonly reserveLimits: { readonly level: TierName; readonly largestDeal: string; readonly open: string; readonly maxOpen: string } | null;
   /** Deals waiting on the desk, the most urgent first; then the rest of what is open. */
   readonly yourMove: readonly DeskDeal[];
   readonly open: readonly DeskDeal[];
@@ -285,9 +290,12 @@ export interface DeskToday {
 export async function deskToday(ex: Executor, userId: string): Promise<DeskToday> {
   const { desk, traderId } = await ownDesk(ex, userId);
   const now = await nowOf(ex);
-  const { standing } = await readStanding(ex, traderId);
+  const { standing, reserve } = await readStanding(ex, traderId);
   const issues = switchOnIssues(standing);
   const blocks = await readBlocks(ex, traderId);
+  const l = reserve.limits;
+  const room = l ? l.maxOpenMinor - l.exposure.totalMinor : 0n;
+  const largest = l ? (room < l.maxDealMinor ? (room > 0n ? room : 0n) : l.maxDealMinor) : 0n;
   const buys = blocks.find((b) => b.side === 'BUY_USDT');
   const sells = blocks.find((b) => b.side === 'SELL_USDT');
   const free = (b: (typeof blocks)[number] | undefined) => (b && b.status === 'ACTIVE' ? freeCapacity({ ...b, offeredMinor: 0n }) : 0n);
@@ -322,6 +330,7 @@ export async function deskToday(ex: Executor, userId: string): Promise<DeskToday
       BUY_USDT: sells ? { available: usdt(free(sells)), currency: 'USDT' as const } : null,
     },
     network: { mode: network.mode, available: network.available, dealsCovered: network.ordersCovered, short: network.short },
+    reserveLimits: l ? { level: l.tier.name, largestDeal: usdt(largest), open: usdt(l.exposure.totalMinor), maxOpen: usdt(l.maxOpenMinor) } : null,
     yourMove: deals.filter((d) => d.yourMove).sort(byDue),
     open: deals.filter((d) => !d.yourMove),
     periods: await deskPeriods(ex, desk.id),

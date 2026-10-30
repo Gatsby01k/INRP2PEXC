@@ -48,10 +48,20 @@ export function ApplicationStatus({ home }: { home: TraderHome }) {
           <InfoIcon className={shell.infoIcon} />
           <span>{a.reviewNote ? `The desk’s note: ${a.reviewNote}` : 'The desk did not approve this application.'}</span>
         </p>
+      ) : home.review?.automatic && home.review.waitingOn === 'RESERVE' ? (
+        // ADR 0024: the trader's own move — the reserve from its registered wallet proves the wallet and is the collateral.
+        <div className={shell.info} data-tone="brand">
+          <InfoIcon className={shell.infoIcon} />
+          <span>
+            <strong>Last step: send {home.review.reserveToSend && /[1-9]/.test(home.review.reserveToSend) ? usdt(home.review.reserveToSend) : 'your Security Reserve'}</strong> from your
+            registered wallet. You are approved the moment it lands, and it stays yours.{' '}
+            <Link href="/traders/reserve">Reserve address</Link>
+          </span>
+        </div>
       ) : (
         <p className={shell.info}>
           <InfoIcon className={shell.infoIcon} />
-          <span>The desk verifies your bank account and wallet and sets your Security Reserve. You cannot provide liquidity until it approves.</span>
+          <span>INRP2P checks your bank account and wallet and sets your Security Reserve. You cannot provide liquidity until it approves.</span>
         </p>
       )}
       <div className={styles.choices}>

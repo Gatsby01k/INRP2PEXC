@@ -96,7 +96,12 @@ export function traderHomeAssistant(home: TraderHome): AssistantState {
       if (refused) {
         return { mood: 'alert', label: 'Under review', title: `The desk could not verify your ${refused[0]}`, body: `${refused[1].note ? `${refused[1].note}. ` : ''}Submit new details to continue.` };
       }
-      return { mood: 'waiting', label: 'Under review', title: 'Your application is under review', body: 'The desk verifies your bank account and wallet. You will be told here and in Notifications.' };
+      // ADR 0024: the reserve from the trader's own wallet is the last step — the programme approves the moment it lands.
+      if (home.review?.automatic && home.review.waitingOn === 'RESERVE') {
+        const left = home.review.reserveToSend && /[1-9]/.test(home.review.reserveToSend) ? usdt(home.review.reserveToSend) : null;
+        return { mood: 'focused', label: 'Last step', title: left ? `Send ${left} to your Security Reserve` : 'Send your Security Reserve', body: 'From your registered wallet. You are approved the moment it lands — it also proves the wallet is yours.' };
+      }
+      return { mood: 'waiting', label: 'Under review', title: 'Your application is under review', body: 'INRP2P checks your bank account and wallet. You will be told here and in Notifications.' };
     }
     case 'REJECTED':
       return { mood: 'alert', label: 'Not approved', title: 'Your application was not approved', body: home.application?.reviewNote ?? 'You can apply again.' };

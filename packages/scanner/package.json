@@ -17,7 +17,8 @@
     "@inrp2p/settlement": "workspace:*",
     "kysely": "0.29.6",
     "@inrp2p/identity": "workspace:*",
-    "@inrp2p/treasury": "workspace:*"
+    "@inrp2p/treasury": "workspace:*",
+    "@inrp2p/outbox": "workspace:*"
   },
   "devDependencies": {
     "@inrp2p/clients": "workspace:*",

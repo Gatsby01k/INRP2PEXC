@@ -9,7 +9,7 @@ import { enqueueOutbox } from '@inrp2p/outbox';
 import { BANK_ACCOUNT_HMAC_CONTEXT, bankAccountSealContext } from '@inrp2p/clients';
 import { type ClientActor, type DomainCommand, type OperatorActor, actorLabel, operatorCommand, requireConfirmation as requireStepUp } from '@inrp2p/identity';
 import { updateTraderRouteRegistration } from '@inrp2p/routes';
-import { type TraderApplicant, type TraderMember, assertAuthority, lockTrader, lockTraderOfClient, traderApplicant, traderClientCommand } from '@inrp2p/trader-core';
+import { type TraderApplicant, type TraderMember, type TraderRow, assertAuthority, lockTrader, lockTraderOfClient, traderApplicant, traderClientCommand, traderProgram } from '@inrp2p/trader-core';
 import { assertNoOpenOrders, payoutIdentityOf, positiveOrNull, requireVerifiedBank, requireVerifiedWallet } from './profile.ts';
 
 /**
@@ -47,8 +47,8 @@ interface Submitted {
   readonly label: string;
 }
 
-const bankLabel = (bankName: string, digits: string) => `${bankName} ••••${digits}`;
-const walletLabel = (address: string) => `TRC20 ${address.slice(0, 4)}…${address.slice(-4)}`;
+export const bankLabel = (bankName: string, digits: string) => `${bankName} ••••${digits}`;
+export const walletLabel = (address: string) => `TRC20 ${address.slice(0, 4)}…${address.slice(-4)}`;
 
 /**
  * A bank account the client submitted. The same account already on the client's file — verified or still waiting —
@@ -363,7 +363,7 @@ export interface ReviewDestinationPayload {
   readonly note?: string | null;
 }
 
-async function lockDestination(tx: Tx, kind: DestinationKind, id: string) {
+export async function lockDestination(tx: Tx, kind: DestinationKind, id: string) {
   if (kind === 'BANK') {
     const r = await tx.selectFrom('bank_account').select(['id', 'client_id', 'status', 'bank_name', 'account_last4']).where('id', '=', id).forUpdate().executeTakeFirstOrThrow();
     return { id: r.id, clientId: r.client_id, status: r.status, label: bankLabel(r.bank_name, r.account_last4), last4: r.account_last4 };
@@ -372,8 +372,8 @@ async function lockDestination(tx: Tx, kind: DestinationKind, id: string) {
   return { id: r.id, clientId: r.client_id, status: r.status, label: walletLabel(r.address), last4: null };
 }
 
-/** PENDING_REVIEW → ACTIVE (verified) or REJECTED, recorded as the operator's own decision. */
-async function decide(ctx: TxContext, kind: DestinationKind, id: string, decision: 'VERIFY' | 'REJECT', note: string | null): Promise<void> {
+/** PENDING_REVIEW → ACTIVE (verified) or REJECTED, recorded as the decision of whoever runs the command — a person, or the programme's rules. */
+export async function decideDestination(ctx: TxContext, kind: DestinationKind, id: string, decision: 'VERIFY' | 'REJECT', note: string | null): Promise<void> {
   const table = kind === 'BANK' ? 'bank_account' : 'crypto_wallet';
   try {
     if (decision === 'VERIFY') {
@@ -399,7 +399,7 @@ function reviewNote(decision: 'VERIFY' | 'REJECT', note: unknown): string | null
   return decision === 'REJECT' ? requireText(note, 'note', 500) : optionalText(note, 'note', 500);
 }
 
-async function notifyVerified(ctx: TxContext, kind: DestinationKind, d: { id: string; clientId: string; label: string; last4: string | null }): Promise<void> {
+export async function notifyVerified(ctx: TxContext, kind: DestinationKind, d: { id: string; clientId: string; label: string; last4: string | null }): Promise<void> {
   await enqueueOutbox(ctx, {
     type: 'client.destination_added', aggregateType: 'client', aggregateId: d.clientId,
     payload: { clientId: d.clientId, destination: kind === 'BANK' ? 'BANK_ACCOUNT' : 'WALLET', id: d.id, label: d.label, ...(d.last4 ? { last4: d.last4 } : {}) },
@@ -421,12 +421,16 @@ export function reviewTraderDestination(actor: OperatorActor) {
     if (trader.status !== 'UNDER_REVIEW') throw new DomainError('INVALID_TRANSITION', `the trader is ${trader.status}; review a change it submits instead`);
     const d = await lockDestination(ctx.tx, kind, kind === 'BANK' ? trader.bank_account_id : trader.wallet_id);
     if (d.status !== 'PENDING_REVIEW') throw new DomainError('INVALID_TRANSITION', `the ${kind === 'BANK' ? 'bank account' : 'wallet'} is ${d.status === 'ACTIVE' ? 'already verified' : d.status.toLowerCase()}`);
-    await decide(ctx, kind, d.id, decision, note);
+    await decideDestination(ctx, kind, d.id, decision, note);
     await appendAudit(ctx, {
       action: decision === 'VERIFY' ? 'trader.destination_verified' : 'trader.destination_rejected', entityType: 'trader_profile', entityId: trader.id,
       after: { destination: kind, id: d.id, label: d.label, note },
     });
-    if (decision === 'VERIFY') await notifyVerified(ctx, kind, d);
+    if (decision === 'VERIFY') {
+      await notifyVerified(ctx, kind, d);
+      // ADR 0024: what the person settled may be all the programme's rules were waiting for.
+      await enqueueOutbox(ctx, { type: 'trader.destination_reviewed', aggregateType: 'trader_profile', aggregateId: trader.id, payload: { traderId: trader.id, destination: kind } });
+    }
     return { status: decision === 'VERIFY' ? ('ACTIVE' as const) : ('REJECTED' as const) };
   });
 }
@@ -438,12 +442,15 @@ export interface ProposeSettlementPayload {
 }
 
 /**
- * `trader.propose_settlement_change` — the trader's `CLIENT_ADMIN` (TD-24), confirmed again (ADR 0026). A new bank
- * account, a new TRC20 wallet, or both, for the desk to review.
+ * `trader.propose_settlement_change` — the trader's `CLIENT_ADMIN` (TD-24), confirmed again (ADR 0026): by a factor other
+ * than the sign-in — or, while the application is still under review and nothing settles through its details, a recent
+ * sign-in or code. A new bank account, a new TRC20 wallet, or both.
  *
- * - Approved (or paused) trader: the proposal waits beside the registered details, which keep settling every order
- *   until the desk approves the change (`trader.review_settlement_change`). A later proposal replaces an earlier
- *   one still waiting.
+ * - Approved (or paused) trader: the proposal waits beside the registered details, which keep settling every order.
+ *   It takes effect no sooner than the programme's hold (`settlement_change_hold_hours`, ADR 0024): every member of the
+ *   account is told at once, an administrator can stop it (`trader.cancel_settlement_change`), and when the hold is
+ *   over the programme's rules apply it — or the desk decides it (`trader.review_settlement_change`) at any time. A later
+ *   proposal replaces an earlier one still waiting, and starts the hold again.
  * - Application under review: the submitted detail simply replaces the one the application named — nothing about
  *   it was usable yet.
  */
@@ -455,7 +462,7 @@ export function proposeSettlementChange(actor: ClientActor, deps: { protector: F
     if (trader.status === 'REJECTED') throw new DomainError('INVALID_TRANSITION', 'apply again to submit new details');
     // ADR 0026: new details for a working trader are confirmed by a factor other than the sign-in; an application still
     // under review only replaces what nothing settles with yet, so a recent sign-in or code is enough (as D-20).
-    await requireStepUp(ctx.tx, actor.sessionId, trader.status === 'UNDER_REVIEW' ? 'RECENT' : 'INDEPENDENT', 'SETTLEMENT');
+    const confirmedBy = await requireStepUp(ctx.tx, actor.sessionId, trader.status === 'UNDER_REVIEW' ? 'RECENT' : 'INDEPENDENT', 'SETTLEMENT');
     const profile = await ctx.tx.selectFrom('trader_profile').select(['proposed_bank_account_id', 'proposed_wallet_id']).where('id', '=', trader.id).executeTakeFirstOrThrow();
     const bank = p.bank ? await submitBank(ctx, deps.protector, member.clientId, p.bank) : null;
     const wallet = p.wallet ? await submitWallet(ctx, member.clientId, p.wallet) : null;
@@ -464,10 +471,17 @@ export function proposeSettlementChange(actor: ClientActor, deps: { protector: F
       if (bank?.id === trader.bank_account_id) throw new DomainError('TRADER_DESTINATION_INVALID', 'that is already your registered bank account', { field: 'bank' });
       if (wallet?.id === trader.wallet_id) throw new DomainError('TRADER_DESTINATION_INVALID', 'that is already your registered wallet', { field: 'wallet' });
     }
+    const program = await traderProgram(ctx.tx);
     const changes = underReview
       ? { ...(bank ? { bank_account_id: bank.id } : {}), ...(wallet ? { wallet_id: wallet.id } : {}) }
-      : { ...(bank ? { proposed_bank_account_id: bank.id } : {}), ...(wallet ? { proposed_wallet_id: wallet.id } : {}) };
-    await ctx.tx.updateTable('trader_profile').set({ ...changes, updated_at: sql<Date>`inrp2p_now()`, version: trader.version + 1 }).where('id', '=', trader.id).execute();
+      : {
+          ...(bank ? { proposed_bank_account_id: bank.id } : {}),
+          ...(wallet ? { proposed_wallet_id: wallet.id } : {}),
+          proposal_effective_at: sql<Date>`inrp2p_now() + make_interval(hours => ${program.settlementChangeHoldHours})`,
+          proposed_by: member.userId,
+        };
+    const updated = await ctx.tx.updateTable('trader_profile').set({ ...changes, updated_at: sql<Date>`inrp2p_now()`, version: trader.version + 1 }).where('id', '=', trader.id)
+      .returning('proposal_effective_at').executeTakeFirstOrThrow();
     const replaced = (before: string | null, now: Submitted | null) => (now && before && before !== now.id ? before : null);
     const reason = underReview ? 'replaced by the applicant before review' : 'replaced by a newer proposal';
     await withdrawIfPending(ctx, 'BANK', replaced(underReview ? trader.bank_account_id : profile.proposed_bank_account_id, bank), reason);
@@ -478,9 +492,42 @@ export function proposeSettlementChange(actor: ClientActor, deps: { protector: F
         ...(bank ? { bank_account_id: bank.id, bank: bank.label, bank_status: bank.status } : {}),
         ...(wallet ? { wallet_id: wallet.id, wallet: wallet.label, wallet_status: wallet.status } : {}),
         ownership_confirmed: true,
+        confirmed_by: confirmedBy,
+        ...(underReview ? {} : { effective_at: updated.proposal_effective_at }),
       },
     });
-    return { bankStatus: bank?.status ?? null, walletStatus: wallet?.status ?? null };
+    if (underReview) {
+      // ADR 0024: a replaced detail may be what the programme's rules can now settle.
+      await enqueueOutbox(ctx, { type: 'trader.details_resubmitted', aggregateType: 'trader_profile', aggregateId: trader.id, payload: { traderId: trader.id } });
+    } else {
+      await enqueueOutbox(ctx, {
+        type: 'trader.settlement_change_proposed', aggregateType: 'trader_profile', aggregateId: trader.id,
+        payload: { traderId: trader.id, what: bank && wallet ? 'BOTH' : bank ? 'BANK' : 'WALLET', effectiveAt: updated.proposal_effective_at?.toISOString() ?? null },
+      });
+    }
+    return { bankStatus: bank?.status ?? null, walletStatus: wallet?.status ?? null, effectiveAt: updated.proposal_effective_at?.toISOString() ?? null };
+  });
+}
+
+/**
+ * `trader.cancel_settlement_change` — any administrator of the trader's account, without a fresh code: stopping a change
+ * of where the trader is paid must be as quick as possible for the person who did not make it (ADR 0024). What was
+ * submitted for it and never verified is withdrawn; the registered details stay as they are.
+ */
+export function cancelSettlementChange(actor: ClientActor) {
+  return traderClientCommand(actor, 'ADMIN', async (ctx, _p: Record<string, never>, member) => {
+    const trader = await lockTraderOfClient(ctx, member.clientId);
+    const profile = await ctx.tx.selectFrom('trader_profile').select(['proposed_bank_account_id', 'proposed_wallet_id']).where('id', '=', trader.id).executeTakeFirstOrThrow();
+    if (!profile.proposed_bank_account_id && !profile.proposed_wallet_id) throw new DomainError('NOT_FOUND', 'no change of your details is waiting');
+    await ctx.tx.updateTable('trader_profile').set({ proposed_bank_account_id: null, proposed_wallet_id: null, updated_at: sql<Date>`inrp2p_now()`, version: trader.version + 1 }).where('id', '=', trader.id).execute();
+    await withdrawIfPending(ctx, 'BANK', profile.proposed_bank_account_id, 'cancelled by the trader');
+    await withdrawIfPending(ctx, 'WALLET', profile.proposed_wallet_id, 'cancelled by the trader');
+    await appendAudit(ctx, {
+      action: 'trader.settlement_change_cancelled', entityType: 'trader_profile', entityId: trader.id,
+      before: { proposed_bank_account_id: profile.proposed_bank_account_id, proposed_wallet_id: profile.proposed_wallet_id }, after: { cancelled_by: member.userId },
+    });
+    await enqueueOutbox(ctx, { type: 'trader.settlement_change_cancelled', aggregateType: 'trader_profile', aggregateId: trader.id, payload: { traderId: trader.id } });
+    return { cancelled: true as const };
   });
 }
 
@@ -516,37 +563,56 @@ export function reviewSettlementChange(actor: OperatorActor) {
       if (d.status !== 'PENDING_REVIEW' && d.status !== 'ACTIVE') throw new DomainError('INVALID_TRANSITION', `the proposed ${kind === 'BANK' ? 'bank account' : 'wallet'} is ${d.status.toLowerCase()}`);
       // A new detail is rejected for good, and stays named so the trader sees the note; a verified one the client
       // already had stays verified — only the switch is refused.
-      if (d.status === 'PENDING_REVIEW') await decide(ctx, kind, d.id, 'REJECT', note);
+      if (d.status === 'PENDING_REVIEW') await decideDestination(ctx, kind, d.id, 'REJECT', note);
       else await ctx.tx.updateTable('trader_profile').set({ ...clearProposal, updated_at: sql<Date>`inrp2p_now()`, version: trader.version + 1 }).where('id', '=', trader.id).execute();
       await appendAudit(ctx, { action: 'trader.settlement_change_rejected', entityType: 'trader_profile', entityId: trader.id, after: { destination: kind, id: d.id, label: d.label, note } });
       return { status: 'REJECTED' as const };
     }
 
     if (d.status !== 'PENDING_REVIEW' && d.status !== 'ACTIVE') throw new DomainError('INVALID_TRANSITION', `the proposed ${kind === 'BANK' ? 'bank account' : 'wallet'} is ${d.status.toLowerCase()}`);
-    await assertNoOpenOrders(ctx.tx, trader.id);
-    const wasPending = d.status === 'PENDING_REVIEW';
-    if (wasPending) await decide(ctx, kind, d.id, 'VERIFY', note);
-    const next = {
-      bankAccountId: kind === 'BANK' ? d.id : trader.bank_account_id,
-      walletId: kind === 'WALLET' ? d.id : trader.wallet_id,
-    };
-    const bank = await requireVerifiedBank(ctx.tx, trader.client_id, next.bankAccountId);
-    const wallet = await requireVerifiedWallet(ctx.tx, trader.client_id, next.walletId);
-    await ctx.tx
-      .updateTable('trader_profile')
-      .set({ bank_account_id: bank.id, wallet_id: wallet.id, ...clearProposal, updated_at: sql<Date>`inrp2p_now()`, version: trader.version + 1 })
-      .where('id', '=', trader.id)
-      .execute();
-    const reason = note ?? 'trader-proposed change approved';
-    await updateTraderRouteRegistration(ctx, { traderId: trader.id, registeredRouteAddress: wallet.address, registeredPayoutIdentity: payoutIdentityOf(bank), reason });
-    await appendAudit(ctx, {
-      action: 'trader.settlement_details_changed', entityType: 'trader_profile', entityId: trader.id,
-      before: { bank_account_id: trader.bank_account_id, wallet_id: trader.wallet_id },
-      after: { bank_account_id: bank.id, wallet_id: wallet.id, reason, via: 'trader proposal', verified_now: wasPending },
-    });
-    if (wasPending) await notifyVerified(ctx, kind, d);
+    await applySettlementChangeInTx(ctx, trader, kind, d, { note, via: 'DESK' });
     return { status: 'APPROVED' as const };
   });
+}
+
+/**
+ * One proposed destination becomes the registered one, for a trader the caller locked: verified when it was waiting, the
+ * routes moved to it, the proposal for it cleared. Refused while an order is accepted or in progress — those settle with
+ * the details they were accepted under. The desk's decision and the programme's rules after the hold (ADR 0024) both
+ * land here.
+ */
+export async function applySettlementChangeInTx(
+  ctx: TxContext,
+  trader: TraderRow,
+  kind: DestinationKind,
+  d: { id: string; clientId: string; status: string; label: string; last4: string | null },
+  opts: { note: string | null; via: 'DESK' | 'AUTO_REVIEW' },
+): Promise<void> {
+  await assertNoOpenOrders(ctx.tx, trader.id);
+  const wasPending = d.status === 'PENDING_REVIEW';
+  if (wasPending) await decideDestination(ctx, kind, d.id, 'VERIFY', opts.note);
+  const current = await ctx.tx.selectFrom('trader_profile').select(['bank_account_id', 'wallet_id']).where('id', '=', trader.id).executeTakeFirstOrThrow();
+  const next = {
+    bankAccountId: kind === 'BANK' ? d.id : current.bank_account_id,
+    walletId: kind === 'WALLET' ? d.id : current.wallet_id,
+  };
+  const bank = await requireVerifiedBank(ctx.tx, trader.client_id, next.bankAccountId);
+  const wallet = await requireVerifiedWallet(ctx.tx, trader.client_id, next.walletId);
+  const clearProposal = kind === 'BANK' ? { proposed_bank_account_id: null } : { proposed_wallet_id: null };
+  await ctx.tx
+    .updateTable('trader_profile')
+    .set({ bank_account_id: bank.id, wallet_id: wallet.id, ...clearProposal, updated_at: sql<Date>`inrp2p_now()`, version: sql<number>`version + 1` })
+    .where('id', '=', trader.id)
+    .execute();
+  const reason = opts.note ?? (opts.via === 'DESK' ? 'trader-proposed change approved' : 'trader-proposed change applied after the hold');
+  await updateTraderRouteRegistration(ctx, { traderId: trader.id, registeredRouteAddress: wallet.address, registeredPayoutIdentity: payoutIdentityOf(bank), reason });
+  await appendAudit(ctx, {
+    action: 'trader.settlement_details_changed', entityType: 'trader_profile', entityId: trader.id,
+    before: { bank_account_id: current.bank_account_id, wallet_id: current.wallet_id },
+    after: { bank_account_id: bank.id, wallet_id: wallet.id, reason, via: opts.via === 'DESK' ? 'trader proposal' : 'trader proposal, after the hold', verified_now: wasPending },
+  });
+  if (wasPending) await notifyVerified(ctx, kind, d);
+  await enqueueOutbox(ctx, { type: 'trader.settlement_change_applied', aggregateType: 'trader_profile', aggregateId: trader.id, payload: { traderId: trader.id, what: kind, via: opts.via } });
 }
 
 /**

@@ -722,6 +722,22 @@
   color: var(--text-primary);
 }
 
+/* The client's own next move, in the mark's orange: one sentence that unblocks everything after it. */
+.info[data-tone='brand'] {
+  background: color-mix(in srgb, var(--brand-primary) 8%, var(--bg-subtle));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand-primary) 22%, transparent);
+  color: var(--text-primary);
+}
+
+.info[data-tone='brand'] .infoIcon {
+  color: var(--brand-action);
+}
+
+.info a {
+  color: var(--brand-action);
+  font-weight: 600;
+}
+
 /* A link inside a sentence stays in the sentence: no touch-height box of its own. */
 .info .textAction {
   display: inline;
