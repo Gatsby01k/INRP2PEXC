@@ -5,6 +5,7 @@ import type { FiatRail, TraderSide } from '@inrp2p/db';
 import {
   type ApplyPayload, type ProposeSettlementPayload, acceptOrder, applyAsTrader, cancelReserveWithdrawal, confirmOrderPaymentReceived, declineOrder, orderDeliveryAddress, proposeSettlementChange,
   type ClaimedDeposit, claimReserveDeposit, requestReserveWithdrawal, setAvailability, submitOrderPayment, updateBlock, answerOrderDispute, disputeOrderPayment,
+  callOrderSupport, chooseOrderPayMethod, postOrderDealMessage,
 } from '@inrp2p/traders';
 import type { P2pDisputeReason } from '@inrp2p/settlement';
 import { cancelNetworkWithdrawal, claimNetworkDeposit, requestNetworkWithdrawal } from '@inrp2p/network';
@@ -14,6 +15,7 @@ import { hitRateLimit } from '@inrp2p/commands';
 import { type CommandResult, failure } from '../command.ts';
 import { runWorkspaceCommand, workspaceContext } from '../client.ts';
 import { chainForWeb, sendNetworkForWeb } from '../chain.ts';
+import { attachmentOf, formText } from '../deal-files.ts';
 
 /**
  * What a trader can do, as server actions. Each one runs a trader command as the signed-in person: the client comes
@@ -27,7 +29,11 @@ function refresh(): void {
 }
 
 /** Codes whose domain wording is right for a trader and the desk's shared phrasing is not. */
-const TRADER_WORDING: ReadonlySet<string> = new Set(['CAPACITY_INSUFFICIENT', 'INVALID_TRANSITION', 'DISPUTE_EXISTS', 'NOT_THE_PAYEE', 'NOT_THE_PAYER', 'P2P_PAYMENT_WINDOW_CLOSED']);
+const TRADER_WORDING: ReadonlySet<string> = new Set([
+  'CAPACITY_INSUFFICIENT', 'INVALID_TRANSITION', 'DISPUTE_EXISTS', 'NOT_THE_PAYEE', 'NOT_THE_PAYER', 'P2P_PAYMENT_WINDOW_CLOSED',
+  // ADR 0023: the deal's chat and its time to pay.
+  'CHAT_CLOSED', 'FILE_TOO_LARGE', 'FILE_TYPE_NOT_ALLOWED', 'RATE_LIMITED', 'P2P_METHOD_LOCKED', 'P2P_METHOD_TOO_LATE', 'INVALID_ARGUMENT',
+]);
 
 async function run<P, R>(name: string, build: Parameters<typeof runWorkspaceCommand<P, R>>[0], payload: P, key: string): Promise<CommandResult<R>> {
   const out = await runWorkspaceCommand(build, payload, { name, idempotencyKey: key, keepMessages: TRADER_WORDING });
@@ -152,4 +158,36 @@ export async function requestNetworkWithdrawalAction(input: { amount: string }, 
 
 export async function cancelNetworkWithdrawalAction(input: { withdrawalId: string }, key: string): Promise<CommandResult<{ status: 'CANCELLED' }>> {
   return run('network_withdrawal.cancel', (ctx) => cancelNetworkWithdrawal(ctx.actor), input, key);
+}
+
+/**
+ * ADR 0023: a message in a P2P order's chat — words, a file, or the receipt of the trader's own payment (`legRef`). A
+ * form, because a file travels in it; the key comes in it too, one per press.
+ */
+export async function postOrderMessageAction(form: FormData): Promise<CommandResult<{ id: string }>> {
+  let attached;
+  try {
+    attached = await attachmentOf(form);
+  } catch (e) {
+    return failure(e, TRADER_WORDING);
+  }
+  const out = await runWorkspaceCommand((ctx) => postOrderDealMessage(ctx.actor, attached.file), { ref: formText(form, 'ref') ?? '', body: formText(form, 'body'), file: attached.ref, legRef: formText(form, 'legRef') }, {
+    name: 'trader_order.chat', idempotencyKey: formText(form, 'key') ?? '', financial: false, keepMessages: TRADER_WORDING,
+  });
+  if (out.ok) refresh();
+  return out;
+}
+
+/** ADR 0023: INRP2P is asked into the order's chat. */
+export async function callOrderSupportAction(input: { ref: string; note?: string | null }, key: string): Promise<CommandResult<{ ref: string; called: boolean }>> {
+  const out = await runWorkspaceCommand((ctx) => callOrderSupport(ctx.actor), input, { name: 'trader_order.call_support', idempotencyKey: key, financial: false, keepMessages: TRADER_WORDING });
+  if (out.ok) refresh();
+  return out;
+}
+
+/** ADR 0023: how the trader pays the client on a P2P Buy USDT order, and so how long it has. */
+export async function chooseOrderMethodAction(input: { ref: string; method: 'UPI' | 'IMPS' | 'NEFT' | 'RTGS' }, key: string): Promise<CommandResult<{ method: string; dueAt: string; finalUntil: string; changed: boolean }>> {
+  const out = await runWorkspaceCommand((ctx) => chooseOrderPayMethod(ctx.actor), input, { name: 'trader_order.choose_method', idempotencyKey: key, financial: false, keepMessages: TRADER_WORDING });
+  if (out.ok) refresh();
+  return out;
 }

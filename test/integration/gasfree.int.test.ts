@@ -167,7 +167,10 @@ describe('a desk on GasFree', () => {
   it('a buy the client never paid: the desk’s escrow goes back less its return’s own network', async () => {
     const deal = await buyFromDesk('200', { pay: false });
     const before = w.chain.balanceOf(desk.walletAddress);
+    // The client is warned when its time is up, and has the final period before the deal is cancelled (ADR 0023).
     await runP2pDeadlines((await late()).db);
+    expect(await stateOf(deal.tradeId)).toBe('AWAITING_FIRST_LEG');
+    await runP2pDeadlines((await late(37)).db);
     expect(await stateOf(deal.tradeId)).toBe('CANCELLED');
     await railsSettle(w, deal.tradeId);
     const back = (await sends(deal.tradeId)).find((s) => s.purpose === 'ESCROW_RETURN')!;
@@ -186,7 +189,9 @@ describe('a desk on GasFree', () => {
     const quote = await quoteDeal(request.requestId);
     const accepted = await accept(quote.quoteId);
     await settleFirstLeg(w, accepted.tradeId);
-    expect((await runP2pDeadlines((await late()).db)).unwound).toBe(1);
+    // The desk is warned when its time is up, and has the final period before the deal unwinds (ADR 0023).
+    expect((await runP2pDeadlines((await late()).db)).unwound).toBe(0);
+    expect((await runP2pDeadlines((await late(37)).db)).unwound).toBe(1);
     const before = w.chain.balanceOf(w.clientSourceAddress);
     await railsSettle(w, accepted.tradeId);
     expect(await stateOf(accepted.tradeId)).toBe('CANCELLED');

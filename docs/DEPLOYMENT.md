@@ -585,3 +585,19 @@ Deals already accepted keep their terms and addresses.
    through GasFree. If GasFree stops answering, deals wait (RUNBOOKS `gasfree`); the health check
    `gasfree_permits_stuck` says so.
 
+
+## 16. A P2P deal's chat and its time to pay by rail (ADR 0023)
+
+Migration `0042` (schema 42) adds the deal chat (`deal_message`, `deal_file`), the per-deal pay window
+(`p2p_pay_window`) and the programme's `p2p_timing` (UPI 15 / IMPS 30 / NEFT 60 / RTGS 45 minutes to pay, NEFT 180 and
+RTGS 90 to confirm, a 5-minute final period). Deals waiting for their rupees at the migration keep their 30 minutes. No
+new secret, bucket or service: chat files are stored in the database (3 MB each), and server actions accept up to 4 MB.
+
+1. **Release order** (from production at 41): the code on `main` with all CI jobs green; stop the worker; a Neon branch
+   `before-42-<date>`; `node scripts/migrate.ts` through the migrator login; Vercel ready on 42; the worker image of the
+   same commit. The web app and the worker must both be at 42: the worker opens, warns and closes the pay windows, the
+   web app shows them.
+2. **Times** are changed on the desk, Traders → Programme → "P2P deal times" (`traders:configure`, ⧗); a running deal
+   keeps the times it opened with.
+3. **Support calls** arrive on the desk's queue as "Support called to a deal chat" (`P2P_SUPPORT`, a warning, never a
+   hold); INRP2P answers in the deal's chat on the trade's panel and closes the case with "Answered in the deal chat".

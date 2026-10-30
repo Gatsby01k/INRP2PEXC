@@ -101,7 +101,7 @@ export async function answerP2pDisputeInTx(ctx: TxContext, input: { readonly tra
 }
 
 /** A command of a member of the trade's own client, named by the trade's reference. */
-function clientTradeCommand<P extends { tradeRef: string }, R>(actor: ClientActor, handle: (ctx: TxContext, p: P, tradeId: string) => Promise<R>): DomainCommand<P, R> {
+export function clientTradeCommand<P extends { tradeRef: string }, R>(actor: ClientActor, handle: (ctx: TxContext, p: P, tradeId: string) => Promise<R>): DomainCommand<P, R> {
   let tradeId: string | undefined;
   return {
     authorize: async (ctx, p) => {

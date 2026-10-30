@@ -44,6 +44,12 @@ export interface NotificationFacts {
     readonly decision?: 'PAID' | 'NOT_PAID';
     /** A trader's order that is a desk's own deal: it opens in the desk's workspace. */
     readonly deskDeal?: boolean;
+    /** ADR 0023: who wrote in the deal's chat — the other side by its role, or INRP2P. */
+    readonly from?: 'BUYER' | 'SELLER' | 'INRP2P';
+    /** ADR 0023: the end of the buyer's final period to say it paid. */
+    readonly until?: Date;
+    /** ADR 0023: how the rupees were said to be sent. */
+    readonly rail?: string;
   };
   /** A decision of INRP2P's about the trader's desk (block 11). */
   readonly deskAction?: 'SUSPENDED' | 'RESUMED' | 'PAGE_HIDDEN' | 'PAGE_SHOWN' | 'RENAMED';
@@ -169,6 +175,10 @@ export function draftFor(kind: NotificationKind, facts: NotificationFacts): Noti
     case 'P2P_DISPUTE_DECIDED':
     case 'P2P_REFUND':
       return p2pDraft(kind, facts);
+    case 'DEAL_MESSAGE':
+    case 'P2P_PAY_FINAL':
+    case 'P2P_RECEIPT_LATE':
+      return dealDraft(kind, facts);
     default:
       return traderDraft(kind, facts);
   }
@@ -233,6 +243,59 @@ function p2pDraft(kind: 'P2P_DISPUTE_OPENED' | 'P2P_DISPUTE_DECIDED' | 'P2P_REFU
         ? { kind, title: 'Your payment is confirmed', body: `${on}INRP2P confirmed your ${inrAmount} reached the seller. Your USDT is being released to your wallet.`, subjectRef: ref, href }
         : { kind, title: 'Your payment did not arrive', body: `${on}INRP2P found your ${inrAmount} did not reach the seller. The ${trader ? 'deal' : 'trade'} is cancelled and the USDT went back — do not pay again.`, subjectRef: ref, href };
     }
+  }
+}
+
+/** `14:35 IST`: a deadline as an Indian bank customer reads it, whatever the reader's device says. */
+const ist = (d: Date): string => `${new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Kolkata' }).format(d)} IST`;
+
+/**
+ * A P2P deal's chat and its clock (ADR 0023), told to either side: a new message (never its words — those stay in the
+ * chat), the buyer's time to pay running out, and rupees said to be sent that the payee has not confirmed in time.
+ */
+function dealDraft(kind: 'DEAL_MESSAGE' | 'P2P_PAY_FINAL' | 'P2P_RECEIPT_LATE', facts: NotificationFacts): NotificationDraft {
+  const p = facts.p2p ?? { audience: 'CLIENT' as const, payee: false };
+  const trader = p.audience === 'TRADER';
+  const ref = (trader ? facts.orderRef : facts.tradeRef) ?? null;
+  const href = trader ? (ref ? (p.deskDeal ? `/desk/deals/${ref}` : `/traders/orders/${ref}`) : '/traders') : ref ? `/trades/${ref}` : '/trades';
+  const inrAmount = facts.inr ? inr(facts.inr) : 'the rupees';
+  const usdtAmount = facts.base ? usdt(facts.base) : 'the USDT';
+  const on = ref ? `${ref}: ` : '';
+  const deal = trader ? 'deal' : 'trade';
+  const by = p.rail ? ` by ${p.rail}` : '';
+  switch (kind) {
+    case 'DEAL_MESSAGE':
+      return p.from === 'INRP2P'
+        ? { kind, title: 'INRP2P support wrote to you', body: `${on}open the ${deal} to read it and reply.`, subjectRef: ref, href }
+        : { kind, title: `New message from the ${p.from === 'SELLER' ? 'seller' : 'buyer'}`, body: `${on}open the ${deal} to read it and reply.`, subjectRef: ref, href };
+    case 'P2P_PAY_FINAL': {
+      const until = p.until ? ` by ${ist(p.until)}` : ' in the next few minutes';
+      return p.payee
+        ? {
+            kind,
+            title: 'The buyer has not said they paid',
+            body: `${on}the time to pay ${inrAmount} is up. If the buyer does not file their payment${until}, the ${deal} is cancelled and ${trader ? 'your USDT goes back to your registered wallet' : `your ${usdtAmount} goes back to the wallet you sent it from`}.`,
+            subjectRef: ref,
+            href,
+          }
+        : {
+            kind,
+            title: 'Your time to pay is up',
+            body: `${on}if you have sent ${inrAmount}, say so with the bank’s reference${until}. After that the ${deal} is cancelled and the seller’s USDT goes back to them. If you have not paid, do not pay now.`,
+            subjectRef: ref,
+            href,
+          };
+    }
+    default:
+      return p.payee
+        ? { kind, title: 'Has the payment arrived?', body: `${on}the buyer says they sent ${inrAmount}${by}. Check your bank app, then confirm it — or say it has not arrived. INRP2P is following it up.`, subjectRef: ref, href }
+        : {
+            kind,
+            title: 'The seller is still checking your payment',
+            body: `${on}your ${inrAmount}${by} is not confirmed yet. Bank transfers can take longer; INRP2P is checking it with the seller. Nothing is cancelled for a delay — the USDT stays locked for you.`,
+            subjectRef: ref,
+            href,
+          };
   }
 }
 

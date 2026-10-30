@@ -1,0 +1,428 @@
+/* A P2P deal's chat (ADR 0023): beside the deal's card, one thread, the other side by its role. */
+
+.chat {
+  gap: var(--space-4);
+}
+
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.headText {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font-size: var(--font-size-body-lg);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.01em;
+}
+
+.titleIcon {
+  width: 20px;
+  height: 20px;
+  color: var(--brand-action);
+}
+
+.caption {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+}
+
+.supportPill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 6px var(--space-3);
+  border-radius: var(--radius-pill);
+  background: var(--status-warning-soft);
+  color: var(--status-warning);
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-semibold);
+}
+
+.supportPill svg {
+  width: 16px;
+  height: 16px;
+}
+
+.supportPill[data-state='joined'] {
+  background: var(--brand-soft);
+  color: var(--brand-action);
+}
+
+/* ——— Calling support ——— */
+
+.ask {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border-radius: var(--radius-control);
+  background: var(--bg-subtle);
+}
+
+.askField {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.askLabel {
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-semibold);
+}
+
+.askInput,
+.input {
+  width: 100%;
+  border: 0;
+  border-radius: var(--radius-input);
+  background: var(--bg-surface);
+  box-shadow: inset 0 0 0 1px var(--border-control);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-normal);
+  resize: none;
+}
+
+.askInput {
+  padding: var(--space-3);
+}
+
+.askInput:focus-visible,
+.input:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--brand-primary);
+}
+
+.askRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.askHint {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+  line-height: var(--line-height-normal);
+}
+
+/* ——— The thread ——— */
+
+.thread {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  max-height: min(440px, 56vh);
+  min-height: 120px;
+  margin: 0;
+  padding: var(--space-4);
+  border-radius: var(--radius-control);
+  background: var(--bg-subtle);
+  list-style: none;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.thread:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 2px;
+}
+
+.empty {
+  margin: auto 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-normal);
+  text-align: center;
+}
+
+.message {
+  display: grid;
+  justify-items: start;
+  gap: 4px;
+  max-width: min(82%, 520px);
+}
+
+.message[data-from='you'] {
+  align-self: flex-end;
+  justify-items: end;
+}
+
+.who {
+  color: var(--text-muted);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.message[data-from='you'] .who {
+  display: none;
+}
+
+.message[data-from='inrp2p'] .who {
+  color: var(--brand-action);
+}
+
+.bubble {
+  display: grid;
+  gap: var(--space-2);
+  padding: 10px 14px;
+  border-radius: 16px 16px 16px 6px;
+  background: var(--bg-surface);
+  box-shadow: inset 0 0 0 1px var(--border-default);
+  min-width: 0;
+}
+
+.message[data-from='you'] .bubble {
+  border-radius: 16px 16px 6px 16px;
+  background: var(--brand-soft);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand-primary) 22%, transparent);
+}
+
+.message[data-from='inrp2p'] .bubble {
+  box-shadow:
+    inset 3px 0 0 var(--brand-primary),
+    inset 0 0 0 1px var(--border-default);
+}
+
+.text {
+  margin: 0;
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-normal);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.time {
+  color: var(--text-muted);
+  font-size: var(--font-size-micro);
+  font-variant-numeric: tabular-nums;
+}
+
+.receiptTag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-semibold);
+}
+
+.receiptTag svg {
+  width: 16px;
+  height: 16px;
+}
+
+.caution {
+  margin: 0;
+  color: var(--status-warning);
+  font-size: var(--font-size-meta);
+  line-height: var(--line-height-normal);
+}
+
+.image {
+  display: block;
+  overflow: hidden;
+  border-radius: 10px;
+  background: var(--bg-subtle);
+}
+
+.image img {
+  display: block;
+  max-width: min(260px, 100%);
+  max-height: 320px;
+  object-fit: contain;
+}
+
+.document {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: 10px;
+  background: var(--bg-subtle);
+  color: var(--text-primary);
+  font-size: var(--font-size-meta);
+  text-decoration: none;
+}
+
+.document svg {
+  width: 18px;
+  height: 18px;
+  color: var(--brand-action);
+}
+
+.documentName {
+  overflow: hidden;
+  font-weight: var(--font-weight-semibold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.event {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  align-self: center;
+  justify-content: center;
+  gap: var(--space-2);
+  max-width: 100%;
+  padding: 4px var(--space-3);
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface);
+  box-shadow: inset 0 0 0 1px var(--border-default);
+  color: var(--text-secondary);
+  font-size: var(--font-size-meta);
+  text-align: center;
+}
+
+.event time {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.eventIcon {
+  width: 14px;
+  height: 14px;
+  color: var(--brand-action);
+}
+
+/* ——— Writing ——— */
+
+.composer {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.compose {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: var(--space-2);
+  align-items: end;
+}
+
+.input {
+  min-height: var(--touch-min);
+  max-height: 160px;
+  padding: 11px var(--space-4);
+  field-sizing: content;
+}
+
+.iconButton,
+.send {
+  display: grid;
+  place-items: center;
+  width: var(--touch-min);
+  height: var(--touch-min);
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.iconButton {
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.iconButton:hover {
+  background: var(--bg-subtle);
+  color: var(--text-primary);
+}
+
+.iconButton svg,
+.send svg {
+  width: 20px;
+  height: 20px;
+}
+
+.send {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--brand-primary) 55%, var(--brand-action)) 0%, var(--brand-action) 100%);
+  color: var(--text-on-action);
+}
+
+.send:disabled {
+  background: var(--bg-subtle);
+  color: var(--text-disabled);
+  cursor: not-allowed;
+}
+
+.iconButton:focus-visible,
+.send:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 2px;
+}
+
+.attached {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: 10px;
+  background: var(--bg-subtle);
+  font-size: var(--font-size-meta);
+}
+
+.attached[data-tone='warning'] {
+  background: var(--status-warning-soft);
+  color: var(--text-primary);
+}
+
+.attached .iconButton {
+  width: 28px;
+  height: 28px;
+  margin-left: auto;
+}
+
+.attachedIcon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  color: var(--text-secondary);
+}
+
+.attachedName {
+  overflow: hidden;
+  font-weight: var(--font-weight-semibold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachedSize {
+  flex: none;
+  color: var(--text-muted);
+}
+
+.closed {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+}
+
+@media (max-width: 640px) {
+  .thread {
+    margin-inline: calc(var(--space-4) * -1);
+    border-radius: 0;
+    max-height: 60vh;
+  }
+
+  .message {
+    max-width: 88%;
+  }
+}

@@ -158,7 +158,10 @@ export async function orderFacts(ex: Executor, orderId: string): Promise<OrderFa
   };
 }
 
-export type OrderMoment = 'NEW_OFFER' | 'STARTED' | 'YOUR_MOVE' | 'CLIENT_PAID' | 'COMPLETED' | 'CANCELLED' | 'DEADLINE' | 'DISPUTE' | 'DECIDED_PAID' | 'DECIDED_NOT_PAID' | 'TIME_RAN_OUT';
+export type OrderMoment =
+  | 'NEW_OFFER' | 'STARTED' | 'YOUR_MOVE' | 'CLIENT_PAID' | 'COMPLETED' | 'CANCELLED' | 'DEADLINE' | 'DISPUTE' | 'DECIDED_PAID' | 'DECIDED_NOT_PAID' | 'TIME_RAN_OUT'
+  // ADR 0023: the deal's chat and its clock.
+  | 'MESSAGE' | 'SUPPORT_WROTE' | 'FINAL_CALL' | 'RECEIPT_LATE';
 
 /** One alert's words, from the order's facts. `minutesLeft` for a deadline. */
 export function orderAlertText(f: OrderFacts, moment: OrderMoment, minutesLeft?: number): string | null {
@@ -194,6 +197,18 @@ export function orderAlertText(f: OrderFacts, moment: OrderMoment, minutesLeft?:
           : `Cancelled · ${f.ref}\nINRP2P found your ${inr(f.inrMinor)} did not reach ${d.clientName}. Their USDT goes back to them — do not pay again.`;
       case 'TIME_RAN_OUT':
         return `Cancelled · ${f.ref}\nThe time to pay ${d.clientName} ran out. Their USDT goes back to them — do not pay now.`;
+      case 'MESSAGE':
+        return `New message · ${f.ref}\n${d.clientName} wrote in the deal’s chat.`;
+      case 'SUPPORT_WROTE':
+        return `INRP2P support · ${f.ref}\nINRP2P wrote in the deal’s chat.`;
+      case 'FINAL_CALL':
+        return clientSells
+          ? `Time’s up · ${f.ref}\nIf you paid ${d.clientName} ${inr(f.inrMinor)}, file the reference now — in a few minutes the deal is cancelled. Not paid? Don’t pay now.`
+          : `Time’s up · ${f.ref}\n${d.clientName} has not filed their payment. In a few minutes the deal is cancelled and your USDT comes back.`;
+      case 'RECEIPT_LATE':
+        return clientSells
+          ? `Not confirmed yet · ${f.ref}\n${d.clientName} has not confirmed your ${inr(f.inrMinor)}. INRP2P is checking — nothing is cancelled.`
+          : `Check your bank · ${f.ref}\n${d.clientName} says they sent ${inr(f.inrMinor)}. Confirm it, or say it has not arrived.`;
       default:
         return null;
     }
@@ -224,6 +239,18 @@ export function orderAlertText(f: OrderFacts, moment: OrderMoment, minutesLeft?:
         : `Cancelled · ${f.ref}\nINRP2P found your ${inr(f.inrMinor)} did not reach the seller. Their USDT goes back — do not pay again.`;
     case 'TIME_RAN_OUT':
       return `Cancelled · ${f.ref}\nThe time to pay ran out. The seller’s USDT goes back to them — do not pay now.`;
+    case 'MESSAGE':
+      return `New message · ${f.ref}\nThe ${sells ? 'buyer' : 'seller'} wrote in the order’s chat.`;
+    case 'SUPPORT_WROTE':
+      return `INRP2P support · ${f.ref}\nINRP2P wrote in the order’s chat.`;
+    case 'FINAL_CALL':
+      return sells
+        ? `Time’s up · ${f.ref}\nThe buyer has not filed their payment. In a few minutes the order is cancelled and your USDT comes back.`
+        : `Time’s up · ${f.ref}\nIf you paid ${inr(f.inrMinor)}, file the reference now — in a few minutes the order is cancelled. Not paid? Don’t pay now.`;
+    case 'RECEIPT_LATE':
+      return sells
+        ? `Check your bank · ${f.ref}\nThe buyer says they sent ${inr(f.inrMinor)}. Confirm it, or say it has not arrived.`
+        : `Not confirmed yet · ${f.ref}\nThe seller has not confirmed your ${inr(f.inrMinor)}. INRP2P is checking — nothing is cancelled.`;
     default:
       return null;
   }
@@ -251,11 +278,19 @@ function p2pMoment(event: OutboxEvent): OrderMoment | null {
       return p.decision === 'PAID' ? 'DECIDED_PAID' : p.decision === 'NOT_PAID' ? 'DECIDED_NOT_PAID' : null;
     case 'trader.p2p_unwind_started':
       return p.reason === 'PAY_WINDOW_MISSED' ? 'TIME_RAN_OUT' : null;
+    case 'trader.p2p_message_posted':
+      return p.from === 'TRADER' ? null : p.from === 'INRP2P' ? 'SUPPORT_WROTE' : 'MESSAGE';
+    case 'trader.p2p_pay_final_call':
+      return 'FINAL_CALL';
+    case 'trader.p2p_receipt_late':
+      return 'RECEIPT_LATE';
     default:
       return null;
   }
 }
-const P2P_MOMENT_EVENTS: ReadonlySet<string> = new Set(['trader.p2p_dispute_opened', 'trader.p2p_dispute_decided', 'trader.p2p_unwind_started']);
+const P2P_MOMENT_EVENTS: ReadonlySet<string> = new Set([
+  'trader.p2p_dispute_opened', 'trader.p2p_dispute_decided', 'trader.p2p_unwind_started', 'trader.p2p_message_posted', 'trader.p2p_pay_final_call', 'trader.p2p_receipt_late',
+]);
 
 const MOMENTS: Readonly<Record<string, OrderMoment>> = {
   'trader.order_offered': 'NEW_OFFER',
@@ -304,7 +339,10 @@ export function telegramOrderHandler(db: Db, adapter: TelegramAdapter, opts: { l
       if (moment === 'CLIENT_PAID' && !(facts.p2p && facts.side === 'SELL_USDT')) return;
       const body = orderAlertText(facts, moment);
       if (!body) return;
-      const ids = await queueTelegram(db, { clientId: facts.traderClientId, dedupeKey: `${event.type}:${orderId}`, body, buttonUrl: orderAlertUrl(facts, opts.linkBase) });
+      // A chat is told once per few minutes of conversation (the event's bucket), not once per message.
+      const bucket = (event.payload as Record<string, unknown>)?.bucket;
+      const dedupeKey = moment === 'MESSAGE' || moment === 'SUPPORT_WROTE' ? `${event.type}:${orderId}:${typeof bucket === 'string' ? bucket : event.id}` : `${event.type}:${orderId}`;
+      const ids = await queueTelegram(db, { clientId: facts.traderClientId, dedupeKey, body, buttonUrl: orderAlertUrl(facts, opts.linkBase) });
       if (ids.length > 0) await sendTelegramDeliveries(db, adapter, ids);
     },
   };

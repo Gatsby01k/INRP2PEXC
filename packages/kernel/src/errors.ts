@@ -199,7 +199,14 @@ export type DomainErrorCode =
   | 'NOT_DUE'
   | 'SENDER_NOT_SHOWN'
   | 'P2P_PAYMENT_WINDOW_CLOSED'
-  | 'INR_UNEXPECTED_SENDER';
+  | 'INR_UNEXPECTED_SENDER'
+  // ADR 0023: a P2P deal's chat and its time to pay.
+  | 'CHAT_CLOSED'
+  | 'FILE_TOO_LARGE'
+  | 'FILE_TYPE_NOT_ALLOWED'
+  | 'FILE_INTEGRITY'
+  | 'P2P_METHOD_LOCKED'
+  | 'P2P_METHOD_TOO_LATE';
 
 export class DomainError extends Error {
   readonly code: DomainErrorCode;

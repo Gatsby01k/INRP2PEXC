@@ -1,20 +1,26 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { Money, checkUtrShape } from '@inrp2p/kernel';
+import { useState } from 'react';
+import { Money } from '@inrp2p/kernel';
 import type { TraderOrderDetail } from '@inrp2p/traders';
-import { CopyButton, DepositAddress, UTRField, normalizeUtr } from '@inrp2p/ui';
+import { CopyButton, DepositAddress } from '@inrp2p/ui';
 import { formatCountdown, formatIstDateTime } from '@inrp2p/ui/format';
 import { useCommand } from '../../../../../components/useCommand.tsx';
-import { answerOrderDisputeAction, confirmOrderPaymentReceivedAction, disputeOrderPaymentAction, orderDeliveryAddressAction, submitOrderPaymentAction } from '../../../../../server/actions/traders.ts';
+import {
+  answerOrderDisputeAction, callOrderSupportAction, chooseOrderMethodAction, confirmOrderPaymentReceivedAction, disputeOrderPaymentAction, orderDeliveryAddressAction,
+  postOrderMessageAction, submitOrderPaymentAction,
+} from '../../../../../server/actions/traders.ts';
+import { ClaimProof } from '../../../_workspace/ClaimProof.tsx';
+import { DealChat } from '../../../_workspace/DealChat.tsx';
+import { PayInr } from '../../../_workspace/PayInr.tsx';
 import { AddYourSide, DisputeUnderReview, NotArrived } from '../../../_workspace/P2pDispute.tsx';
+import { useServerClock } from '../../../exchange/useServerClock.ts';
 import { ClockIcon, InfoIcon, LockIcon, ShieldIcon } from '../../../_workspace/icons.tsx';
 import { inr, sentence, usdt } from '../../_ui/format.ts';
 import shell from '../../../shell.module.css';
 import styles from '../../traders.module.css';
 
 type Deal = NonNullable<TraderOrderDetail['p2p']>;
-const RAILS = ['IMPS', 'UPI', 'NEFT', 'RTGS'] as const;
 
 /**
  * A P2P order's "what happens now" (ADR 0019), from the trader's side. Selling USDT: put it in the deal's escrow, wait
@@ -26,9 +32,11 @@ export function P2pOrderAction({ detail, canAct }: { detail: TraderOrderDetail; 
   const deal = detail.p2p!;
   const o = detail.order;
   const sells = o.side === 'SELL_USDT';
-  const now = useNow();
+  const now = useServerClock(deal.now, deal.dueBy !== null);
   const remaining = deal.dueBy ? Date.parse(deal.dueBy) - now : null;
   const disputed = deal.dispute?.status === 'OPEN';
+  const final = deal.step === 'PAY' && deal.payWindow?.final === true;
+  const method = deal.payWindow?.method ?? deal.payments.at(-1)?.rail ?? null;
   const yours = !disputed && ((sells && (deal.step === 'ESCROW' || deal.step === 'CONFIRM')) || (!sells && deal.step === 'PAY'));
 
   const title = (() => {
@@ -70,19 +78,41 @@ export function P2pOrderAction({ detail, canAct }: { detail: TraderOrderDetail; 
       case 'PAY':
         return sells ? (
           <p className={styles.note}>
-            Your USDT is locked in escrow. The buyer pays {inr(deal.inr)} straight to {detail.youReceiveAt}; you will be asked to confirm when they say they have paid.
+            {final
+              ? `The buyer’s time to pay is up. If they do not file their payment in the final minutes, the deal is cancelled and your ${usdt(o.usdt)} goes back to your registered wallet.`
+              : `Your USDT is locked in escrow. The buyer pays ${inr(deal.inr)}${method ? ` by ${method}` : ''} straight to ${detail.youReceiveAt}; you will be asked to confirm when they say they have paid.`}
           </p>
         ) : (
-          <PaySeller detail={detail} deal={deal} />
+          <PayInr
+            deal={deal}
+            fromAccounts={null}
+            attachFields={{ ref: detail.order.ref }}
+            choose={(m, key) => chooseOrderMethodAction({ ref: detail.order.ref, method: m }, key)}
+            claim={async (input, key) => {
+              const out = await submitOrderPaymentAction({ ref: detail.order.ref, rail: input.rail, utr: input.utr }, key);
+              return out.ok ? { ok: true, result: { legRef: out.result.settlementRef } } : out;
+            }}
+            attach={postOrderMessageAction}
+          />
         );
       case 'CONFIRM':
         return sells ? (
           <>
+            {deal.receiptLate ? (
+              <p className={shell.info} data-tone="warning" role="status">
+                <ClockIcon className={shell.infoIcon} />
+                <span>Longer than usual{method ? ` for ${method}` : ''}. Check your bank app; if the money is not there, say so below — INRP2P is following it up.</span>
+              </p>
+            ) : null}
             <ConfirmReceived detail={detail} deal={deal} />
             <PayeeNotArrived detail={detail} deal={deal} />
           </>
         ) : (
-          <p className={styles.note}>The seller is checking your payment in their bank app. Once they confirm, INRP2P releases {usdt(o.usdt)} to your registered wallet.</p>
+          <p className={styles.note}>
+            {deal.receiptLate
+              ? `The seller has not confirmed your payment yet. ${method === 'NEFT' || method === 'RTGS' ? `${method} can take longer. ` : ''}INRP2P is checking it with them — nothing is cancelled for a bank’s delay.`
+              : `The seller is checking your payment in their bank app. Once they confirm, INRP2P releases ${usdt(o.usdt)} to your registered wallet.`}
+          </p>
         );
       case 'RELEASE':
         return <p className={styles.note}>{sells ? 'You confirmed the INR. Nothing more to do on this order.' : 'The seller confirmed your payment. INRP2P is sending the USDT from escrow to your registered wallet.'}</p>;
@@ -117,9 +147,9 @@ export function P2pOrderAction({ detail, canAct }: { detail: TraderOrderDetail; 
       <div className={styles.p2pHead}>
         <span className={shell.label}>What happens now</span>
         {remaining !== null ? (
-          <span className={styles.p2pTimer} data-state={remaining <= 0 ? 'over' : remaining <= 5 * 60_000 ? 'soon' : 'calm'} role="timer" aria-live="off">
+          <span className={styles.p2pTimer} data-state={remaining <= 0 ? 'over' : final || remaining <= 5 * 60_000 ? 'soon' : 'calm'} role="timer" aria-live="off">
             <ClockIcon className={styles.p2pTimerIcon} />
-            {remaining <= 0 ? 'Time’s up' : <>{yours ? 'Within' : 'Expected within'} <span className="ix-num">{formatCountdown(remaining)}</span></>}
+            {remaining <= 0 ? 'Time’s up' : <>{final ? 'Final' : yours ? 'Within' : 'Expected within'} <span className="ix-num">{formatCountdown(remaining)}</span></>}
           </span>
         ) : null}
       </div>
@@ -171,86 +201,6 @@ function Escrow({ detail }: { detail: TraderOrderDetail }) {
   );
 }
 
-/** Buying: the seller's own account, straight from the trader's registered one, and the bank's reference back. */
-function PaySeller({ detail, deal }: { detail: TraderOrderDetail; deal: Deal }) {
-  const { run, busy, error, dialog } = useCommand();
-  const [rail, setRail] = useState<(typeof RAILS)[number]>('IMPS');
-  const [utr, setUtr] = useState('');
-  const payee = deal.payTo;
-  if (!payee) return <p className={styles.note}>The seller’s account is being prepared. This page shows it in a moment.</p>;
-  const amount = Money.parse(deal.inr, 'INR').toDecimalString();
-  const submit = () => run(`Send payment reference for ${detail.order.ref}`, (key) => submitOrderPaymentAction({ ref: detail.order.ref, rail, utr: normalizeUtr(utr) }, key));
-  const shape = utr === '' ? null : checkUtrShape(rail, utr);
-  return (
-    <div className={styles.instructions}>
-      <dl className={styles.payTo}>
-        <div>
-          <dt>Amount</dt>
-          <dd>{inr(deal.inr)}</dd>
-          <CopyButton value={amount} label="Copy amount" />
-        </div>
-        <div>
-          <dt>Account name</dt>
-          <dd>{payee.holderName}</dd>
-          <CopyButton value={payee.holderName} label="Copy account name" />
-        </div>
-        <div>
-          <dt>Account number</dt>
-          <dd className="ix-num">{payee.accountNumber}</dd>
-          <CopyButton value={payee.accountNumber} label="Copy account number" />
-        </div>
-        <div>
-          <dt>IFSC</dt>
-          <dd>
-            {payee.ifsc} · {payee.bankName}
-          </dd>
-          <CopyButton value={payee.ifsc} label="Copy IFSC" />
-        </div>
-      </dl>
-      <p className={shell.info}>
-        <ShieldIcon className={shell.infoIcon} />
-        <span>
-          Pay exactly {inr(deal.inr)}, in one payment, from the bank account registered on your trader file. The seller checks who sent it — rupees from another account
-          are returned and never count.
-        </span>
-      </p>
-      <form
-        className={styles.editForm}
-        onSubmit={(e) => {
-          e.preventDefault();
-          void submit();
-        }}
-      >
-        <div className={styles.pair}>
-          <label className={styles.field}>
-            <span className={styles.fieldLabel}>Paid by</span>
-            <select className="ix-input" value={rail} onChange={(e) => setRail(e.target.value as (typeof RAILS)[number])}>
-              {RAILS.map((r) => (
-                <option key={r} value={r}>
-                  {r}
-                </option>
-              ))}
-            </select>
-          </label>
-          <UTRField value={utr} onChange={setUtr} label="Bank reference (UTR)" />
-        </div>
-        {shape && !shape.ok ? <p className={styles.note}>Not a {rail} reference yet: {shape.hint}.</p> : null}
-        <div className={styles.formActions}>
-          <button type="submit" className={shell.action} disabled={busy || shape?.ok !== true}>
-            I have paid
-          </button>
-        </div>
-        {error ? (
-          <p className={shell.error} role="alert">
-            {sentence(error)}
-          </p>
-        ) : null}
-      </form>
-      {dialog}
-    </div>
-  );
-}
-
 /** Selling: the buyer's rupees, as the trader's own bank shows them — and who sent them. */
 function ConfirmReceived({ detail, deal }: { detail: TraderOrderDetail; deal: Deal }) {
   const { run, busy, error, dialog } = useCommand();
@@ -285,6 +235,7 @@ function ConfirmReceived({ detail, deal }: { detail: TraderOrderDetail; deal: De
           </div>
         </dl>
       ) : null}
+      {filed ? <ClaimProof chat={deal.chat} paymentRef={filed.ref} /> : null}
       <p className={shell.info} data-tone="warning">
         <InfoIcon className={shell.infoIcon} />
         <span>
@@ -370,11 +321,14 @@ function PayerSide({ detail, deal }: { detail: TraderOrderDetail; deal: Deal }) 
   );
 }
 
-function useNow(): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const t = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(t);
-  }, []);
-  return now;
+/** The order's chat (ADR 0023): the trader and the other side by its role, INRP2P when called; kept after the order closes. */
+export function P2pOrderChat({ detail }: { detail: TraderOrderDetail }) {
+  return (
+    <DealChat
+      chat={detail.p2p!.chat}
+      fields={{ ref: detail.order.ref }}
+      send={postOrderMessageAction}
+      callSupport={(note, key) => callOrderSupportAction({ ref: detail.order.ref, note }, key)}
+    />
+  );
 }

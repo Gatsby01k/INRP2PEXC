@@ -249,7 +249,10 @@ describe('the time limits: whoever does not act in time, the other side gets its
 
     // Not yet: the client still has its window.
     expect((await runP2pDeadlines(w.app)).cancelled).toBe(0);
-    const out = await runP2pDeadlines((await late()).db);
+    // Its time is up (₹74,550 — UPI's 15 minutes): it is told first, and has the final period to say it paid (ADR 0023).
+    expect(await runP2pDeadlines((await late()).db)).toMatchObject({ warned: 1, cancelled: 0, failures: [] });
+    expect(await stateOf(trade.tradeId)).toBe('AWAITING_FIRST_LEG');
+    const out = await runP2pDeadlines((await late(37)).db);
     expect(out.failures).toEqual([]);
     expect(await stateOf(trade.tradeId)).toBe('CANCELLED');
     const obligation = await w.app.selectFrom('route_obligation').select('status').where('id', '=', trade.routeObligationId).executeTakeFirstOrThrow();
@@ -293,7 +296,9 @@ describe('the time limits: whoever does not act in time, the other side gets its
     const econ = await econOf(trade.tradeId);
     await settleFirstLeg(w, trade.tradeId);
     expect((await runP2pDeadlines(w.app)).unwound).toBe(0);
-    const out = await runP2pDeadlines((await late()).db);
+    // ₹1,03,500 — IMPS's 30 minutes: warned first, then the final period, then the unwind (ADR 0023).
+    expect(await runP2pDeadlines((await late()).db)).toMatchObject({ warned: 1, unwound: 0, failures: [] });
+    const out = await runP2pDeadlines((await late(37)).db);
     expect(out).toMatchObject({ unwound: 1, failures: [] });
     expect(await w.app.selectFrom('p2p_unwind').select(['reason', 'p2p_dispute_id', 'refund_leg_id']).where('trade_id', '=', trade.tradeId).executeTakeFirst())
       .toEqual({ reason: 'PAY_WINDOW_MISSED', p2p_dispute_id: null, refund_leg_id: null });

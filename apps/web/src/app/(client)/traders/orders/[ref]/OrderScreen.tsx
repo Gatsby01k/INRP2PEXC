@@ -15,7 +15,7 @@ import { InfoIcon } from '../../../_workspace/icons.tsx';
 import { Stepper } from '../../../_workspace/Stepper.tsx';
 import { useServerClock } from '../../../exchange/useServerClock.ts';
 import { OfferCard } from '../../_ui/OfferCard.tsx';
-import { P2pOrderAction } from './P2pOrderAction.tsx';
+import { P2pOrderAction, P2pOrderChat } from './P2pOrderAction.tsx';
 import { amountIn, inr, rate, sentence, usdt } from '../../_ui/format.ts';
 import shell from '../../../shell.module.css';
 import styles from '../../traders.module.css';
@@ -252,6 +252,7 @@ export function OrderScreen({ detail, canAct }: { detail: TraderOrderDetail; can
               </section>
             ) : null}
             {detail.p2p && o.status !== 'ACCEPTED' ? <P2pOrderAction detail={detail} canAct={canAct} /> : <NextAction detail={detail} canAct={canAct} />}
+            {detail.p2p && o.status !== 'ACCEPTED' ? <P2pOrderChat detail={detail} /> : null}
           </>
         )}
 

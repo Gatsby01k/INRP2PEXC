@@ -1,5 +1,5 @@
 import { sql } from 'kysely';
-import { DomainError, Money, Rate, requireUuid } from '@inrp2p/kernel';
+import { DomainError, Money, type P2pTiming, Rate, requireUuid } from '@inrp2p/kernel';
 import type { DestinationStatus, Executor, P2pExperience, TraderOrderStatus, TraderReserveApplicationStatus, TraderSide, TraderStatus } from '@inrp2p/db';
 import { type SenderView, fundingSources, obligationRemaining, senderView } from '@inrp2p/settlement';
 import { standingIssues, type StandingIssue } from '@inrp2p/trader-core';
@@ -25,6 +25,8 @@ export interface DeskProgram {
   readonly collectionAccountId: string | null;
   /** ADR 0019: how trader routes settle — through INRP2P's account, or P2P with INRP2P holding the USDT. */
   readonly executionMode: 'TO_EXCHANGE' | 'P2P';
+  /** ADR 0023: how long each step of a P2P deal may take, by rail. */
+  readonly p2pTiming: P2pTiming;
   readonly version: number;
 }
 
@@ -36,6 +38,7 @@ const programView = (p: TraderProgram): DeskProgram => ({
   autoAssign: p.autoAssign,
   collectionAccountId: p.collectionAccountId,
   executionMode: p.executionMode,
+  p2pTiming: p.p2pTiming,
   version: p.version,
 });
 

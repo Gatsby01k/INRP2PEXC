@@ -1,5 +1,5 @@
 import { sql } from 'kysely';
-import { DomainError, Money, requireText, requireUuid } from '@inrp2p/kernel';
+import { DomainError, Money, type P2pTiming, requireP2pTiming, requireText, requireUuid } from '@inrp2p/kernel';
 import type { Executor } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
 import type { ChainVerifier, CustodyAdapter, FieldProtector } from '@inrp2p/adapters';
@@ -31,6 +31,8 @@ export interface TraderProgram {
   readonly collectionAccountId: string | null;
   /** ADR 0019: rupees through the exchange's account (`TO_EXCHANGE`), or straight between client and trader (`P2P`). */
   readonly executionMode: 'TO_EXCHANGE' | 'P2P';
+  /** ADR 0023: how long each step of a P2P deal may take, by rail. A running deal keeps the timing it opened with. */
+  readonly p2pTiming: P2pTiming;
   readonly version: number;
   readonly updatedAt: Date;
 }
@@ -45,6 +47,7 @@ export async function traderProgram(ex: Executor): Promise<TraderProgram> {
     autoAssign: r.auto_assign,
     collectionAccountId: r.collection_account_id,
     executionMode: r.execution_mode,
+    p2pTiming: requireP2pTiming(r.p2p_timing),
     version: r.version,
     updatedAt: r.updated_at,
   };
@@ -61,6 +64,8 @@ export interface ConfigureProgramPayload {
   readonly collectionAccountId?: string | null;
   /** ADR 0019: switches every trader route at once — refused while any trader order or obligation is still live. */
   readonly executionMode?: 'TO_EXCHANGE' | 'P2P';
+  /** ADR 0023: the P2P deal timing — escrow, the time to pay and to confirm by rail, the final period. */
+  readonly p2pTiming?: P2pTiming;
   readonly reason: string;
 }
 
@@ -129,6 +134,7 @@ export function configureTraderProgram(actor: OperatorActor) {
       }
       changes.execution_mode = mode;
     }
+    if (p.p2pTiming !== undefined) changes.p2p_timing = JSON.stringify(requireP2pTiming(p.p2pTiming));
     const after = await ctx.tx
       .updateTable('trader_program')
       .set({ ...changes, updated_by: actorLabel(ctx), updated_at: sql<Date>`statement_timestamp()`, version: before.version + 1 })
@@ -137,8 +143,8 @@ export function configureTraderProgram(actor: OperatorActor) {
       .executeTakeFirstOrThrow();
     await appendAudit(ctx, {
       action: 'trader_program.configured', entityType: 'trader_program', entityId: null,
-      before: { default_required_reserve_minor: before.default_required_reserve_minor, reward_bps: before.reward_bps, offer_ttl_seconds: before.offer_ttl_seconds, hold_ttl_seconds: before.hold_ttl_seconds, auto_assign: before.auto_assign, collection_account_id: before.collection_account_id, execution_mode: before.execution_mode, version: before.version },
-      after: { default_required_reserve_minor: after.default_required_reserve_minor, reward_bps: after.reward_bps, offer_ttl_seconds: after.offer_ttl_seconds, hold_ttl_seconds: after.hold_ttl_seconds, auto_assign: after.auto_assign, collection_account_id: after.collection_account_id, execution_mode: after.execution_mode, version: after.version, reason },
+      before: { default_required_reserve_minor: before.default_required_reserve_minor, reward_bps: before.reward_bps, offer_ttl_seconds: before.offer_ttl_seconds, hold_ttl_seconds: before.hold_ttl_seconds, auto_assign: before.auto_assign, collection_account_id: before.collection_account_id, execution_mode: before.execution_mode, p2p_timing: before.p2p_timing, version: before.version },
+      after: { default_required_reserve_minor: after.default_required_reserve_minor, reward_bps: after.reward_bps, offer_ttl_seconds: after.offer_ttl_seconds, hold_ttl_seconds: after.hold_ttl_seconds, auto_assign: after.auto_assign, collection_account_id: after.collection_account_id, execution_mode: after.execution_mode, p2p_timing: after.p2p_timing, version: after.version, reason },
     });
     return { version: after.version };
   });

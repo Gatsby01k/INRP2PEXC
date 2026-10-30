@@ -555,3 +555,38 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* ── A P2P deal's chat (ADR 0023) ────────────────────────────────────────────────────────────────── */
+
+.chatThread {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-height: 320px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-y: auto;
+}
+
+.chatMessage {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-control);
+  background: var(--bg-subtle);
+  font-size: var(--font-size-meta);
+}
+
+.chatMessage[data-author='inrp2p'] {
+  box-shadow: inset 3px 0 0 var(--brand-primary);
+}
+
+.chatMeta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  color: var(--text-secondary);
+}

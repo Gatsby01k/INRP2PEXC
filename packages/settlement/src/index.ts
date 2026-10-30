@@ -27,3 +27,6 @@ export * from './p2p.ts';
 export * from './disputes.ts';
 export * from './sweeps.ts';
 export * from './gasfree.ts';
+export * from './p2p-timing.ts';
+export * from './chat.ts';
+export * from './deal-commands.ts';

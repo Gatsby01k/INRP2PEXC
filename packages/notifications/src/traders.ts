@@ -1,6 +1,7 @@
 import { Money, Rate } from '@inrp2p/kernel';
 import type { Db, NotificationKind } from '@inrp2p/db';
 import type { OutboxEvent, OutboxHandler } from '@inrp2p/outbox';
+import { chatAlreadyTold } from './handler.ts';
 import { recordNotification } from './inbox.ts';
 import { type NotificationFacts, draftFor } from './messages.ts';
 
@@ -103,10 +104,23 @@ async function p2pResolve(db: Db, event: OutboxEvent): Promise<{ clientId: strin
   } else if (event.type === 'trader.p2p_unwind_started') {
     if (p.reason !== 'PAY_WINDOW_MISSED') return null;
     kind = 'P2P_REFUND';
+  } else if (event.type === 'trader.p2p_message_posted') {
+    // ADR 0023: what the client or INRP2P wrote in the deal's chat — never the trader's own.
+    if (p.from === 'TRADER') return null;
+    kind = 'DEAL_MESSAGE';
+  } else if (event.type === 'trader.p2p_pay_final_call') {
+    kind = 'P2P_PAY_FINAL';
+  } else if (event.type === 'trader.p2p_receipt_late') {
+    kind = 'P2P_RECEIPT_LATE';
   } else return null;
   const resolved = await orderFacts(db, o.id);
   if (!resolved) return null;
-  return { clientId: resolved.clientId, kind, facts: { ...resolved.facts, p2p: { audience: 'TRADER', payee, ...(decision ? { decision } : {}), deskDeal: o.desk_id !== null } } };
+  const extra = {
+    ...(kind === 'DEAL_MESSAGE' ? { from: p.from === 'INRP2P' ? ('INRP2P' as const) : payee ? ('BUYER' as const) : ('SELLER' as const) } : {}),
+    ...(kind === 'P2P_PAY_FINAL' && typeof p.finalUntil === 'string' ? { until: new Date(p.finalUntil) } : {}),
+    ...(kind === 'P2P_RECEIPT_LATE' && typeof p.rail === 'string' ? { rail: p.rail } : {}),
+  };
+  return { clientId: resolved.clientId, kind, facts: { ...resolved.facts, p2p: { audience: 'TRADER', payee, ...(decision ? { decision } : {}), deskDeal: o.desk_id !== null, ...extra } } };
 }
 
 const DESK_ACTIONS = new Set(['SUSPENDED', 'RESUMED', 'PAGE_HIDDEN', 'PAGE_SHOWN', 'RENAMED']);
@@ -162,6 +176,7 @@ export function traderNotificationHandler(db: Db): OutboxHandler {
       const resolved = await resolve(db, event);
       if (!resolved) return;
       const draft = draftFor(resolved.kind, resolved.facts);
+      if (resolved.kind === 'DEAL_MESSAGE' && (await chatAlreadyTold(db, resolved.clientId, draft.subjectRef))) return;
       await recordNotification(db, { ...draft, clientId: resolved.clientId, outboxEventId: event.id });
     },
   };

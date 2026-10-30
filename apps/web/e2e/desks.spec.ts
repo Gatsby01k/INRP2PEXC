@@ -166,13 +166,20 @@ test('the client’s USDT reaches the escrow, the desk pays the rupees, and the 
   await desk.getByRole('link', { name: new RegExp(`Pay ${CLIENT.name}`) }).click();
   await expect(desk.getByText(CLIENT.legalName).first()).toBeVisible();
   await expect(desk.getByText('50200061234570')).toBeVisible();
-  await desk.getByLabel('Bank reference (UTR)').fill('412345678901');
-  await desk.getByRole('button', { name: 'I have paid' }).click();
+  // ₹1,01,800 is over UPI's limit: IMPS is suggested, with its thirty minutes (ADR 0023).
+  await expect(desk.getByRole('radio', { name: /IMPS/ })).toHaveAttribute('aria-checked', 'true');
+  await expect(desk.getByRole('radio', { name: /UPI/ })).toBeDisabled();
+  await desk.getByLabel(/reference \(UTR\)/).fill('412345678901');
+  await desk.getByRole('checkbox', { name: /I sent/ }).check();
+  await desk.getByRole('button', { name: 'I’ve paid' }).click();
   await expect(desk.getByText(/waiting for|checking|confirm/i).first()).toBeVisible();
 
-  // The client's move: the rupees are in, from the desk's own account.
+  // The client's move: the rupees are in, from the desk's own account. It can ask the desk in the deal's chat first.
   await phone.bringToFront();
   await phone.reload();
+  await phone.getByLabel('Message the buyer').fill('Checking my bank app now');
+  await phone.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(phone.getByText('Checking my bank app now')).toBeVisible();
   await phone.getByLabel('Sender’s name, as your bank shows it').fill(DESK.legalName);
   await phone.getByRole('checkbox').check();
   await phone.getByRole('button', { name: 'Release the escrow' }).click();
@@ -236,14 +243,17 @@ test('the same client buys USDT on the desk’s page: the desk funds the escrow,
   await phone.bringToFront();
   await phone.reload();
   await expect(phone.getByText(DESK.legalName).first()).toBeVisible();
+  // ₹51,300 goes by UPI first: a tap opens the UPI app, and its address is the desk's own account (ADR 0023).
+  await expect(phone.getByRole('link', { name: 'Pay in UPI app' })).toHaveAttribute('href', /^upi:\/\/pay\?pa=74130211980057%40kkbk0000123\.ifsc\.npci&.*am=51300\.00/);
   await expect(phone.getByText('74130211980057').first()).toBeVisible();
   await phone.getByLabel(/reference \(UTR\)/).fill('598765432109');
   await phone.getByRole('checkbox').check();
   await phone.getByRole('button', { name: 'I’ve paid' }).click();
 
-  // The desk's move: the rupees are in, from the client's own account.
+  // The desk's move: the rupees are in, from the client's own account. Each deal has its own chat: the last deal's words are not here.
   await desk.bringToFront();
   await desk.reload();
+  await expect(desk.getByText('Checking my bank app now')).toBeHidden();
   await desk.getByLabel('Sender’s name, as your bank shows it').fill(CLIENT.legalName);
   await desk.getByRole('checkbox').check();
   await desk.getByRole('button', { name: 'Release the escrow' }).click();

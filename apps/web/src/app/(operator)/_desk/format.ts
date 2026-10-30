@@ -151,6 +151,7 @@ export const CASE_TITLE: Record<string, string> = {
   P2P_PAYMENT_OVERDUE: 'P2P payment overdue',
   P2P_RECEIPT_OVERDUE: 'P2P receipt overdue',
   P2P_DISPUTE: 'P2P payment disputed',
+  P2P_SUPPORT: 'Support called to a deal chat',
 };
 
 export const caseTitle = (type: string): string => CASE_TITLE[type] ?? titleCase(type);

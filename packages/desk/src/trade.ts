@@ -3,7 +3,7 @@ import { DomainError, Money, requireUuid } from '@inrp2p/kernel';
 import type { DirectionValue, ExecutionMode, Executor } from '@inrp2p/db';
 import { istToday } from '@inrp2p/inr-accounts';
 import { effectiveObligations, legTotals, tradeFundingModel } from '@inrp2p/trades';
-import { type P2pDecisionView, type SenderView, fundingPosition, obligationRemaining, p2pDecisionView, senderView } from '@inrp2p/settlement';
+import { type DeskDealChat, type P2pDecisionView, type SenderView, deskDealChat, fundingPosition, obligationRemaining, p2pDecisionView, senderView } from '@inrp2p/settlement';
 import type { DeskAccess } from './access.ts';
 import { microToDecimal } from './strip.ts';
 import { type DeskTradeNetwork, deskTradeNetwork } from './network.ts';
@@ -200,6 +200,8 @@ export interface DeskTrade {
   readonly collection: { readonly inrAccountId: string; readonly label: string; readonly bankName: string; readonly last4: string; readonly reference: string; readonly payBy: string } | null;
   /** A P2P payment for INRP2P to decide (disputed or unanswered), and a SELL being unwound (ADR 0020 §2.15). */
   readonly p2p: P2pDecisionView | null;
+  /** ADR 0023: a P2P deal's chat between its two sides, and whether one of them called INRP2P in. */
+  readonly chat: DeskDealChat | null;
 }
 
 /**
@@ -263,6 +265,7 @@ export async function deskTrade(ex: Executor, tradeId: string, access: DeskAcces
     network: await deskTradeNetwork(ex, id, { economics: access.economics }),
     collection: row.direction === 'BUY_USDT' ? await collectionOf(ex, id) : null,
     p2p: await p2pDecisionView(ex, id),
+    chat: await deskDealChat(ex, id),
   };
 
   const deposit = await depositFor(ex, id);

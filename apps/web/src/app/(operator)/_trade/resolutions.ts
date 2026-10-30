@@ -247,6 +247,14 @@ export const RESOLUTIONS: Record<ExceptionType, ResolutionChoices> = {
     decidedOnTrade: true,
     financial: 'The payee says the rupees did not arrive. Decide it on the trade (P2P payment) from the payee’s bank: paid releases the escrow; not paid cancels a BUY and returns the trader’s USDT, or unwinds a SELL and returns the client’s.',
   },
+  P2P_SUPPORT: {
+    resolutions: [
+      { value: 'support_answered', label: 'Answered in the deal chat' },
+      { value: 'escalate', label: 'Escalate' },
+    ],
+    voidable: true,
+    financial: null,
+  },
 };
 
 /** The fallback exists so an unknown type is still closable; the test makes sure it is never the live path. */
