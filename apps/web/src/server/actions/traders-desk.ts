@@ -1,6 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
+import type { P2pTiming } from '@inrp2p/kernel';
 import type { FiatRail } from '@inrp2p/db';
 import { revealBankAccount, setClientExchangeAccess } from '@inrp2p/clients';
 import { executeCommand } from '@inrp2p/commands';
@@ -31,7 +32,7 @@ async function run<P, R>(name: string, build: Parameters<typeof runCommand<P, R>
 }
 
 export async function configureProgramAction(
-  input: { expectedVersion: number; defaultRequiredReserve?: string | null; rewardBps?: number | null; offerTtlSeconds?: number; holdTtlSeconds?: number; autoAssign?: boolean; collectionAccountId?: string | null; executionMode?: 'TO_EXCHANGE' | 'P2P'; reason: string },
+  input: { expectedVersion: number; defaultRequiredReserve?: string | null; rewardBps?: number | null; offerTtlSeconds?: number; holdTtlSeconds?: number; autoAssign?: boolean; collectionAccountId?: string | null; executionMode?: 'TO_EXCHANGE' | 'P2P'; p2pTiming?: P2pTiming; reason: string },
   key: string,
 ): Promise<CommandResult<{ version: number }>> {
   return run('trader_program.configure', (ctx) => configureTraderProgram(ctx.actor), input, key);

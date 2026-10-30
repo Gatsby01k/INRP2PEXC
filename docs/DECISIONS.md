@@ -224,3 +224,9 @@ Full record: `docs/adr/0016-counterparty-funded-execution.md`.
 - **Custody trust accepted**: while a deal is open its USDT moves only through GasFree, whose controller is upgradable.
 - Off by default after migration 0041; a person switches deals to GasFree once its fees are read on chain.
 
+
+## D-22 — A P2P deal's chat, and the time to pay by rail — Resolved (owner, 2026-10-30; ADR 0023)
+
+A private chat on every P2P deal (the two sides by role, INRP2P when called), receipts attached but never counted, and
+the buyer's time to pay set by how it pays — UPI 15, IMPS 30, NEFT 60, RTGS 45 minutes, configurable — with a warning and
+a short final period before a cancellation, and no cancellation at all once the payment is filed.

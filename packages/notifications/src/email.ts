@@ -25,6 +25,8 @@ const EMAILED = new Set([
   'TEAM_CHANGED',
   // A trader is often not looking at the product when an order arrives or its turn comes.
   'TRADER_APPROVED', 'TRADER_REJECTED', 'TRADER_PAUSED', 'TRADER_ORDER_NEW', 'TRADER_ACTION_REQUIRED', 'TRADER_ORDER_COMPLETED', 'TRADER_RESERVE_ISSUE',
+  // ADR 0023: a P2P deal's other side or INRP2P wrote (once per conversation), the time to pay ran out, a payment is late.
+  'DEAL_MESSAGE', 'P2P_PAY_FINAL', 'P2P_RECEIPT_LATE',
 ]);
 
 export interface EmailChannelOptions {

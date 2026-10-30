@@ -6,10 +6,11 @@ import { markNotificationsRead } from '@inrp2p/notifications';
 import { quoteIdForRef, requestIdForRef } from '@inrp2p/portal';
 import { acceptQuote, createRequest, rejectQuote, withdrawRequest } from '@inrp2p/quotes';
 import { addBankAccount, addWallet, archiveBankAccount, archiveWallet, setCanAcceptQuotes } from '@inrp2p/clients';
-import { type P2pDisputeReason, answerClientDispute, claimIncomingFiat, confirmClientReceipt, openClientDispute } from '@inrp2p/settlement';
+import { type P2pDisputeReason, answerClientDispute, callClientSupport, chooseClientPayMethod, claimIncomingFiat, confirmClientReceipt, openClientDispute, postClientDealMessage } from '@inrp2p/settlement';
 import { chainForWeb } from '../chain.ts';
 import { type CommandResult, failure } from '../command.ts';
 import { runClientCommand, withClient, withMember } from '../client.ts';
+import { attachmentOf, formText } from '../deal-files.ts';
 
 /**
  * What a client can do, as server actions.
@@ -173,6 +174,42 @@ export async function openDisputeAction(input: { tradeRef: string; reason: P2pDi
 /** The client of a P2P BUY adds its side for INRP2P when the seller says its payment did not arrive. */
 export async function answerDisputeAction(input: { tradeRef: string; note: string }, key: string): Promise<CommandResult<{ ref: string }>> {
   const out = await runClientCommand((ctx) => answerClientDispute(ctx.actor), input, { name: 'escrow_dispute.answer', idempotencyKey: key, keepMessages: DISPUTE_MESSAGES, financial: false });
+  if (out.ok) revalidatePath(`/trades/${encodeURIComponent(input.tradeRef)}`);
+  return out;
+}
+
+/** ADR 0023: the refusals a deal's chat and its time to pay give, worded for the person who pressed. */
+const CHAT_MESSAGES: ReadonlySet<string> = new Set(['CHAT_CLOSED', 'FILE_TOO_LARGE', 'FILE_TYPE_NOT_ALLOWED', 'RATE_LIMITED', 'NOT_THE_PAYER', 'INVALID_TRANSITION', 'P2P_METHOD_LOCKED', 'P2P_METHOD_TOO_LATE', 'INVALID_ARGUMENT']);
+
+/**
+ * `deal_chat.post` — a message in the trade's chat: words, a file, or the receipt of the client's own payment
+ * (`legRef`). A form, because a file travels in it; the key comes in it too, one per press.
+ */
+export async function postDealMessageAction(form: FormData): Promise<CommandResult<{ id: string }>> {
+  const tradeRef = formText(form, 'tradeRef') ?? '';
+  let attached;
+  try {
+    attached = await attachmentOf(form);
+  } catch (e) {
+    return failure(e, CHAT_MESSAGES);
+  }
+  const out = await runClientCommand((ctx) => postClientDealMessage(ctx.actor, attached.file), { tradeRef, body: formText(form, 'body'), file: attached.ref, legRef: formText(form, 'legRef') }, {
+    name: 'deal_chat.post', idempotencyKey: formText(form, 'key') ?? '', financial: false, keepMessages: CHAT_MESSAGES,
+  });
+  if (out.ok) revalidatePath(`/trades/${encodeURIComponent(tradeRef)}`);
+  return out;
+}
+
+/** `deal_chat.call_support` — INRP2P is asked into the trade's chat. */
+export async function callSupportAction(input: { tradeRef: string; note?: string | null }, key: string): Promise<CommandResult<{ ref: string; called: boolean }>> {
+  const out = await runClientCommand((ctx) => callClientSupport(ctx.actor), input, { name: 'deal_chat.call_support', idempotencyKey: key, financial: false, keepMessages: CHAT_MESSAGES });
+  if (out.ok) revalidatePath(`/trades/${encodeURIComponent(input.tradeRef)}`);
+  return out;
+}
+
+/** `escrow_payment.choose_method` — how the client pays the seller, and so how long it has (ADR 0023). */
+export async function choosePayMethodAction(input: { tradeRef: string; method: 'UPI' | 'IMPS' | 'NEFT' | 'RTGS' }, key: string): Promise<CommandResult<{ method: string; dueAt: string; finalUntil: string; changed: boolean }>> {
+  const out = await runClientCommand((ctx) => chooseClientPayMethod(ctx.actor), input, { name: 'escrow_payment.choose_method', idempotencyKey: key, financial: false, keepMessages: CHAT_MESSAGES });
   if (out.ok) revalidatePath(`/trades/${encodeURIComponent(input.tradeRef)}`);
   return out;
 }

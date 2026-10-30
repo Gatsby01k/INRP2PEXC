@@ -114,6 +114,8 @@ export const NON_FINANCIAL_RESOLUTIONS = Object.freeze([
   'accept_sender', 'await_top_up', 'record_recovery_outcome', 'hold_in_suspense', 'attach_evidence_and_void',
   'keep_original', 'reallocate_reservations', 'create_remaining_leg', 'create_replacement_leg',
   'record_correct_route', 'record_route_settlement', 'correct_utr', 'escalate',
+  // ADR 0023: a side called INRP2P into a P2P deal's chat, and was answered there.
+  'support_answered',
 ] as const);
 
 export type ResolutionCommand = (typeof NON_FINANCIAL_RESOLUTIONS)[number] | 'confirm_new_destination' | 'financial_adjustment' | 'refund_and_cancel' | 'cancel_trade' | 'reclassify_payer' | 'refund_excess' | 'adjust_trade_to_received' | 'requote_for_same_client' | 'refund' | 'reallocate' | 'mark_failed' | 'confirm' | 'replenish_pool' | 'p2p_decide';
@@ -209,5 +211,5 @@ export const EXCEPTION_TYPES = Object.freeze([
   'PARTIAL_INR_PAYOUT', 'INR_PAYOUT_DELAYED', 'BANK_TRANSFER_FAILED', 'CLIENT_BANK_CHANGED',
   'ROUTE_CAPACITY_CHANGED', 'TRADE_CANCELLATION', 'OPERATOR_MISTAKE', 'RECONCILIATION_MISMATCH',
   'CHAIN_SEND_UNRESOLVED', 'NETWORK_BUDGET_SHORT', 'INR_UNEXPECTED_SENDER', 'P2P_PAYMENT_OVERDUE', 'P2P_RECEIPT_OVERDUE',
-  'P2P_DISPUTE', 'GASFREE_UNAVAILABLE',
+  'P2P_DISPUTE', 'GASFREE_UNAVAILABLE', 'P2P_SUPPORT',
 ] as const);

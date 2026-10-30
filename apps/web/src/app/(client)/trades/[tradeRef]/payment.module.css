@@ -659,6 +659,11 @@
     grid-column: 1 / -1;
   }
 
+  /* The UPI panel's rows too: the value takes the width, its label above it — never a 70px column on a phone. */
+  .upi .detail {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
   .payments {
     margin-inline: calc(var(--space-4) * -1);
   }

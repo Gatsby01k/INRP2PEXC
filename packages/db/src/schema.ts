@@ -740,7 +740,7 @@ export type ExceptionType =
   | 'PARTIAL_INR_PAYOUT' | 'INR_PAYOUT_DELAYED' | 'BANK_TRANSFER_FAILED' | 'CLIENT_BANK_CHANGED'
   | 'ROUTE_CAPACITY_CHANGED' | 'TRADE_CANCELLATION' | 'OPERATOR_MISTAKE' | 'RECONCILIATION_MISMATCH'
   | 'CHAIN_SEND_UNRESOLVED' | 'NETWORK_BUDGET_SHORT' | 'INR_UNEXPECTED_SENDER' | 'P2P_PAYMENT_OVERDUE' | 'P2P_RECEIPT_OVERDUE'
-  | 'P2P_DISPUTE' | 'GASFREE_UNAVAILABLE';
+  | 'P2P_DISPUTE' | 'GASFREE_UNAVAILABLE' | 'P2P_SUPPORT';
 
 export type ExceptionSubjectType = 'TRADE' | 'SETTLEMENT_LEG' | 'FIAT_TRANSFER' | 'CRYPTO_TRANSFER' | 'DEPOSIT_ADDRESS' | 'ROUTE_OBLIGATION' | 'ROUTE_SETTLEMENT' | 'INR_ACCOUNT' | 'CLIENT' | 'CHAIN_SEND';
 export type ExceptionStatus = 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'VOID';
@@ -1176,7 +1176,10 @@ export type NotificationKind =
   | 'P2P_DISPUTE_OPENED'
   | 'P2P_DISPUTE_DECIDED'
   | 'P2P_REFUND'
-  | 'DESK_NOTICE';
+  | 'DESK_NOTICE'
+  | 'DEAL_MESSAGE'
+  | 'P2P_PAY_FINAL'
+  | 'P2P_RECEIPT_LATE';
 
 export interface ClientNotificationTable {
   id: Generated<string>;
@@ -1327,6 +1330,8 @@ export interface TraderProgramTable {
   collection_account_id: string | null;
   /** ADR 0019: how the programme's routes execute — rupees through the exchange, or P2P between client and trader. */
   execution_mode: Generated<'TO_EXCHANGE' | 'P2P'>;
+  /** Migration 0042: how long each step of a P2P deal may take, by rail (`P2pTiming`). */
+  p2p_timing: Generated<Json>;
   updated_by: string;
   updated_at: Generated<Date>;
   version: Generated<number>;
@@ -1941,6 +1946,50 @@ export interface P2pUnwindTable {
   updated_at: Generated<Date>;
 }
 
+/** Migration 0042: one P2P deal's time to pay, from the escrow being final and the payee's account being shown. */
+export interface P2pPayWindowTable {
+  trade_id: string;
+  opened_at: Date;
+  method: 'IMPS' | 'NEFT' | 'RTGS' | 'UPI';
+  chosen_by: string | null;
+  timing: Json;
+  due_at: Date;
+  final_until: Date;
+  changes: Generated<number>;
+  warned_at: Date | null;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+}
+
+/** Migration 0042: a file attached in a P2P deal's chat — kept private, served only to the deal's people. */
+export interface DealFileTable {
+  id: Generated<string>;
+  trade_id: string;
+  name: string;
+  content_type: 'image/jpeg' | 'image/png' | 'image/webp' | 'application/pdf';
+  byte_size: number;
+  sha256: string;
+  body: Buffer;
+  uploaded_by: string;
+  created_at: Generated<Date>;
+}
+
+export type DealMessageAuthor = 'CLIENT' | 'TRADER' | 'INRP2P';
+export type DealMessageKind = 'TEXT' | 'RECEIPT' | 'SUPPORT_CALLED' | 'SUPPORT_JOINED';
+
+/** Migration 0042: one message of a P2P deal's chat. Append-only. */
+export interface DealMessageTable {
+  id: Generated<string>;
+  trade_id: string;
+  author: DealMessageAuthor;
+  author_user_id: string;
+  kind: Generated<DealMessageKind>;
+  body: string | null;
+  file_id: string | null;
+  settlement_leg_id: string | null;
+  created_at: Generated<Date>;
+}
+
 export interface Database {
   currency: CurrencyTable;
   custody_hd_account: CustodyHdAccountTable;
@@ -2048,4 +2097,7 @@ export interface Database {
   telegram_delivery: TelegramDeliveryTable;
   p2p_dispute: P2pDisputeTable;
   p2p_unwind: P2pUnwindTable;
+  p2p_pay_window: P2pPayWindowTable;
+  deal_file: DealFileTable;
+  deal_message: DealMessageTable;
 }

@@ -4,6 +4,7 @@ import { PanelSection } from '../_desk/ContextPanel.tsx';
 import { Icon } from '../_desk/icons.tsx';
 import { Notice } from '../_desk/ui.tsx';
 import { CaseCard } from './Cases.tsx';
+import { DeskDealChat } from './DealChat.tsx';
 import { ClientFunds, type CollectionAccount } from './ClientFunds.tsx';
 import { Destination } from './Destination.tsx';
 import { TradeNetwork } from './Network.tsx';
@@ -57,6 +58,8 @@ export function TradeWorkspace({
       )}
       {/* A P2P payment waiting for INRP2P's decision leads: nothing else on the deal can move until it is decided. */}
       <P2pPayment trade={trade} perms={perms} />
+      {/* ADR 0023: the deal's own chat — first when a side called support and nobody answered yet. */}
+      <DeskDealChat trade={trade} perms={perms} />
       {focus === 'exception' || trade.hold ? cases : null}
       {trade.lifecycle !== 'COMPLETED' && trade.lifecycle !== 'CANCELLED' ? <Destination trade={trade} perms={perms} /> : null}
       {waitingForClient ? (

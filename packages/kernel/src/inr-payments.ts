@@ -99,6 +99,83 @@ export function upiPayUri(input: { readonly vpa: string; readonly payeeName: str
   return `upi://pay?${params.join('&')}`;
 }
 
+/**
+ * The UPI address of a bank account itself, by NPCI's account-and-IFSC convention: `<account>@<ifsc>.ifsc.npci`.
+ * Every UPI app resolves it to exactly that account — so a payment made by UPI lands in the registered, checked
+ * account, never in whatever a separate UPI ID might point to.
+ */
+export function accountUpiAddress(accountNumber: string, ifsc: string): string {
+  const account = accountNumber.replace(/\s+/g, '');
+  const code = ifsc.trim().toLowerCase();
+  if (!/^[0-9]{9,18}$/.test(account)) throw new DomainError('INVALID_ARGUMENT', 'account number must be 9–18 digits');
+  if (!/^[a-z]{4}0[a-z0-9]{6}$/.test(code)) throw new DomainError('INVALID_ARGUMENT', 'invalid IFSC');
+  return `${account}@${code}.ifsc.npci`;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// IFSC
+// ---------------------------------------------------------------------------------------------------------------
+
+/**
+ * Whether a branch code has RBI's IFSC shape — four letters of the bank, a zero, six characters of the branch — and,
+ * if not, what is wrong with it. Only the shape: whether the branch exists is the bank's to say.
+ */
+export function checkIfsc(raw: string): { readonly ok: true; readonly ifsc: string; readonly bank: string; readonly branch: string } | { readonly ok: false; readonly hint: string } {
+  const ifsc = raw.replace(/\s+/g, '').toUpperCase();
+  if (ifsc.length !== 11) return { ok: false, hint: 'an IFSC is 11 characters, such as HDFC0001234' };
+  if (!/^[A-Z]{4}/.test(ifsc)) return { ok: false, hint: 'an IFSC starts with the bank’s four letters' };
+  if (ifsc[4] !== '0') return { ok: false, hint: 'the fifth character of an IFSC is always the digit 0' };
+  if (!/^[A-Z0-9]{6}$/.test(ifsc.slice(5))) return { ok: false, hint: 'the last six characters of an IFSC are letters and digits' };
+  return { ok: true, ifsc, bank: ifsc.slice(0, 4), branch: ifsc.slice(5) };
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Which rail suits an amount
+// ---------------------------------------------------------------------------------------------------------------
+
+/**
+ * The per-payment limits the networks themselves set, in rupees: NPCI caps a person-to-person UPI payment at ₹1 lakh and
+ * an IMPS payment at ₹5 lakh; RBI starts RTGS at ₹2 lakh; NEFT has no upper limit. A bank may set lower ones — for a new
+ * payee often much lower — which no exchange can see, so these say only what is possible at all.
+ */
+export const RAIL_LIMITS_INR = Object.freeze({ upiMax: 100_000, impsMax: 500_000, rtgsMin: 200_000 });
+
+/** At this many rupees a payer is reminded that its bank may cap a first payment to a new payee. */
+export const NEW_PAYEE_CAUTION_INR = 50_000;
+
+export interface RailOption {
+  readonly rail: InrRail;
+  /** Whether the network takes a payment of this amount at all. */
+  readonly possible: boolean;
+  /** Why not, when it does not. */
+  readonly limit: string | null;
+}
+
+/**
+ * The rails for a payment of `inrMinor` paise, best first: UPI up to ₹1 lakh, IMPS up to ₹5 lakh, RTGS from ₹2 lakh, and
+ * NEFT for any amount — then, last, the ones the networks would refuse, with the limit that rules them out.
+ */
+export function railOptions(inrMinor: bigint): readonly RailOption[] {
+  const rupees = inrMinor / 100n + (inrMinor % 100n > 0n ? 1n : 0n);
+  const upi = rupees <= BigInt(RAIL_LIMITS_INR.upiMax);
+  const imps = rupees <= BigInt(RAIL_LIMITS_INR.impsMax);
+  const rtgs = rupees >= BigInt(RAIL_LIMITS_INR.rtgsMin);
+  const order: InrRail[] = upi ? ['UPI', 'IMPS', 'NEFT', 'RTGS'] : imps ? (rtgs ? ['IMPS', 'RTGS', 'NEFT', 'UPI'] : ['IMPS', 'NEFT', 'RTGS', 'UPI']) : ['RTGS', 'NEFT', 'IMPS', 'UPI'];
+  const possible: Record<InrRail, boolean> = { UPI: upi, IMPS: imps, NEFT: true, RTGS: rtgs };
+  const limit: Record<InrRail, string> = {
+    UPI: 'UPI takes up to ₹1,00,000 in one payment',
+    IMPS: 'IMPS takes up to ₹5,00,000 in one payment',
+    RTGS: 'RTGS starts at ₹2,00,000',
+    NEFT: '',
+  };
+  return [...order.filter((r) => possible[r]), ...order.filter((r) => !possible[r])].map((rail) => ({ rail, possible: possible[rail], limit: possible[rail] ? null : limit[rail] }));
+}
+
+/** The rail a payment of this amount is suggested to go by — the first of `railOptions` (and `inrp2p_p2p_default_rail`). */
+export function suggestedRail(inrMinor: bigint): InrRail {
+  return railOptions(inrMinor)[0]!.rail;
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 // Who paid: matching the sender's name against the account it should have come from
 // ---------------------------------------------------------------------------------------------------------------

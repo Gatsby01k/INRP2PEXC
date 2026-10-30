@@ -12,9 +12,10 @@ import {
   confirmRefundLeg, confirmRouteSettlement, createPayoutLeg, createRefundLeg, failPayoutLeg, openException, recordIncomingFiat,
   recordLegEvidence, recordRouteSettlement, refundAndCancel, rejectAdjustment, requestAdjustment, resolveException, revertFirstLeg, sendPayoutLeg,
   takeException, voidException, approveDestinationChange, cancelDestinationChange, refundExcess, rejectDestinationChange, requestDestinationChange,
-  acceptIncomingSender, checkIncomingSender, decideP2pPayment,
+  acceptIncomingSender, checkIncomingSender, decideP2pPayment, postDeskDealMessage,
 } from '@inrp2p/settlement';
 import { type CommandResult, failure, runCommand, withOperator } from '../command.ts';
+import { attachmentOf, formText } from '../deal-files.ts';
 
 /** Every mutation redraws the desk: the queue, the strip and the panels all read from the same rows. */
 function refresh(): void {
@@ -234,6 +235,24 @@ export async function decideP2pPaymentAction(
   const out = await runCommand((ctx, deps) => decideP2pPayment(ctx.actor, deps), input, { name: 'escrow_payment.decide', idempotencyKey: key });
   if (out.ok) refresh();
   return out as CommandResult<{ decision: 'PAID' | 'NOT_PAID'; legRef: string }>;
+}
+
+/**
+ * ADR 0023: INRP2P writes in a P2P deal's chat — `exception:open`, the permission support acts on a case with. The
+ * first message after a side called support says INRP2P joined. A form, because a file may travel in it.
+ */
+export async function postDeskDealMessageAction(form: FormData): Promise<CommandResult<{ id: string }>> {
+  let attached;
+  try {
+    attached = await attachmentOf(form);
+  } catch (e) {
+    return failure(e);
+  }
+  const out = await runCommand((ctx) => postDeskDealMessage(ctx.actor, attached.file), { tradeId: formText(form, 'tradeId') ?? '', body: formText(form, 'body'), file: attached.ref }, {
+    name: 'deal_chat.post', idempotencyKey: formText(form, 'key') ?? '', financial: false,
+  });
+  if (out.ok) refresh();
+  return out;
 }
 
 export async function resolveExceptionAction(

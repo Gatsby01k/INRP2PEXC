@@ -3,7 +3,11 @@ import type { FiatRail, TxContext } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
 import { enqueueOutbox } from '@inrp2p/outbox';
 import type { ClientActor } from '@inrp2p/identity';
-import { type P2pDisputeReason, answerP2pDisputeInTx, confirmP2pReceiptInTx, fileRoutePayoutInTx, obligationRemaining, openP2pDisputeInTx, recordRouteSettlementInTx } from '@inrp2p/settlement';
+import {
+  type DealAttachment, type DealAttachmentRef, type P2pDisputeReason, answerP2pDisputeInTx, callSupportInTx, choosePayMethodInTx, confirmP2pReceiptInTx, fileRoutePayoutInTx, obligationRemaining,
+  openP2pDisputeInTx, postDealMessageInTx, recordRouteSettlementInTx,
+} from '@inrp2p/settlement';
+import { lockTrade } from '@inrp2p/trades';
 import { allocateObligationDeliveryAddress } from '@inrp2p/treasury';
 import { lockTraderOfClient, traderClientCommand, lockOrder, type TraderDeps, traderProgram } from '@inrp2p/trader-core';
 
@@ -179,5 +183,41 @@ export function answerOrderDispute(actor: ClientActor) {
     const order = await p2pOrderOfClient(ctx, member.clientId, p.ref);
     if (order.side !== 'BUY_USDT') throw new DomainError('NOT_THE_PAYER', 'on a Sell USDT order the client paid you');
     return answerP2pDisputeInTx(ctx, { tradeId: order.trade_id, payer: 'TRADER', userId: actor.userId, note: p.note });
+  });
+}
+
+/**
+ * `trader_order.chat` (ADR 0023) — any person of the trader's account, on a P2P order: a message in the deal's chat —
+ * words, a file, or the receipt of the trader's own payment to the client.
+ */
+export function postOrderDealMessage(actor: ClientActor, file?: DealAttachment) {
+  return traderClientCommand(actor, 'VIEW', async (ctx, p: { ref: string; body?: string | null; file?: DealAttachmentRef | null; legRef?: string | null }, member) => {
+    const order = await p2pOrderOfClient(ctx, member.clientId, p.ref);
+    await lockTrade(ctx.tx, order.trade_id);
+    let legId: string | null = null;
+    if (p.legRef) {
+      const leg = await ctx.tx.selectFrom('settlement_leg').select('id').where('ref', '=', requireText(p.legRef, 'legRef', 40)).where('trade_id', '=', order.trade_id).executeTakeFirst();
+      if (!leg) throw new DomainError('NOT_FOUND', 'payment not found');
+      legId = leg.id;
+    }
+    if (p.file && !file) throw new DomainError('INVALID_ARGUMENT', 'the file did not arrive — attach it again', { field: 'file' });
+    return postDealMessageInTx(ctx, { tradeId: order.trade_id, author: 'TRADER', userId: actor.userId, body: p.body ?? null, file: p.file && file ? { attachment: file, ref: p.file } : null, legId });
+  });
+}
+
+/** `trader_order.call_support` — any person of the trader's account: INRP2P is asked into the deal's chat. */
+export function callOrderSupport(actor: ClientActor) {
+  return traderClientCommand(actor, 'VIEW', async (ctx, p: { ref: string; note?: string | null }, member) => {
+    const order = await p2pOrderOfClient(ctx, member.clientId, p.ref);
+    return callSupportInTx(ctx, { tradeId: order.trade_id, author: 'TRADER', userId: actor.userId, note: p.note ?? null });
+  });
+}
+
+/** `trader_order.choose_method` — a user who can commit, on a P2P Buy USDT order: how it pays the client, and so its time to. */
+export function chooseOrderPayMethod(actor: ClientActor) {
+  return traderClientCommand(actor, 'COMMIT', async (ctx, p: { ref: string; method: string }, member) => {
+    const order = await p2pOrderOfClient(ctx, member.clientId, p.ref);
+    if (order.side !== 'BUY_USDT') throw new DomainError('NOT_THE_PAYER', 'on a Sell USDT order the client pays you');
+    return choosePayMethodInTx(ctx, { tradeId: order.trade_id, payer: 'TRADER', userId: actor.userId, method: p.method });
   });
 }

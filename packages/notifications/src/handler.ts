@@ -1,3 +1,4 @@
+import { sql } from 'kysely';
 import { Money } from '@inrp2p/kernel';
 import type { Db, NotificationKind } from '@inrp2p/db';
 import type { OutboxEvent, OutboxHandler } from '@inrp2p/outbox';
@@ -26,6 +27,9 @@ const HANDLED = new Set([
   'p2p.dispute_opened',
   'p2p.dispute_decided',
   'p2p.unwind_started',
+  'p2p.message_posted',
+  'p2p.pay_final_call',
+  'p2p.receipt_late',
 ]);
 
 type Payload = Record<string, unknown>;
@@ -137,9 +141,30 @@ function p2pKindFor(event: OutboxEvent, direction: NotificationFacts['direction'
       return { kind: 'P2P_DISPUTE_DECIDED', facts: { audience: 'CLIENT', payee, decision: p.decision } };
     case 'p2p.unwind_started':
       return p.reason === 'PAY_WINDOW_MISSED' ? { kind: 'P2P_REFUND', facts: { audience: 'CLIENT', payee: true } } : null;
+    // ADR 0023: the deal's chat and its clock. The client is told of what the other side or INRP2P wrote, never its own.
+    case 'p2p.message_posted':
+      if (p.from === 'CLIENT') return null;
+      return { kind: 'DEAL_MESSAGE', facts: { audience: 'CLIENT', payee, from: p.from === 'INRP2P' ? 'INRP2P' : payee ? 'BUYER' : 'SELLER' } };
+    case 'p2p.pay_final_call':
+      return { kind: 'P2P_PAY_FINAL', facts: { audience: 'CLIENT', payee, ...(typeof p.finalUntil === 'string' ? { until: new Date(p.finalUntil) } : {}) } };
+    case 'p2p.receipt_late':
+      return { kind: 'P2P_RECEIPT_LATE', facts: { audience: 'CLIENT', payee, ...(typeof p.rail === 'string' ? { rail: p.rail } : {}) } };
     default:
       return null;
   }
+}
+
+/**
+ * A conversation is told once, not message by message: while the side still has an unread note of the deal's chat from
+ * the last few minutes, another message adds nothing to it.
+ */
+export async function chatAlreadyTold(db: Db, clientId: string, subjectRef: string | null): Promise<boolean> {
+  if (!subjectRef) return false;
+  const r = await sql<{ told: boolean }>`
+    select exists (select 1 from client_notification
+                    where client_id = ${clientId}::uuid and kind = 'DEAL_MESSAGE' and subject_ref = ${subjectRef} and read_at is null
+                      and created_at > inrp2p_now() - interval '15 minutes') as told`.execute(db);
+  return r.rows[0]!.told;
 }
 
 /**
@@ -165,7 +190,9 @@ export function clientNotificationHandler(db: Db): OutboxHandler {
       if (event.type.startsWith('p2p.')) {
         const p2p = p2pKindFor(event, resolved.facts.direction);
         if (!p2p) return;
-        await recordNotification(db, { ...draftFor(p2p.kind, { ...resolved.facts, p2p: p2p.facts }), clientId: resolved.clientId, outboxEventId: event.id });
+        const draft = draftFor(p2p.kind, { ...resolved.facts, p2p: p2p.facts });
+        if (p2p.kind === 'DEAL_MESSAGE' && (await chatAlreadyTold(db, resolved.clientId, draft.subjectRef))) return;
+        await recordNotification(db, { ...draft, clientId: resolved.clientId, outboxEventId: event.id });
         return;
       }
       const kind = kindFor(event, resolved.facts);

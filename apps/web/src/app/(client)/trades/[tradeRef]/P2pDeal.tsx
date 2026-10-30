@@ -1,23 +1,27 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { type InrRail, Money, checkUtrShape, normalizeUtr, railsForUtr } from '@inrp2p/kernel';
+import { useState } from 'react';
+import { Money } from '@inrp2p/kernel';
 import type { PortalTrade } from '@inrp2p/portal';
 import { CopyButton } from '@inrp2p/ui';
 import { formatCountdown, formatInr, formatIstDateTime, formatUsdtHeadline, maskUtr } from '@inrp2p/ui/format';
 import { useCommand } from '../../../../components/useCommand.tsx';
-import { answerDisputeAction, claimPaymentAction, confirmReceiptAction, openDisputeAction } from '../../../../server/actions/client.ts';
+import {
+  answerDisputeAction, callSupportAction, choosePayMethodAction, claimPaymentAction, confirmReceiptAction, openDisputeAction, postDealMessageAction,
+} from '../../../../server/actions/client.ts';
+import { DealChat } from '../../_workspace/DealChat.tsx';
+import { PayInr } from '../../_workspace/PayInr.tsx';
 import { AddYourSide, DisputeUnderReview, NotArrived } from '../../_workspace/P2pDispute.tsx';
+import { ClaimProof } from '../../_workspace/ClaimProof.tsx';
 import { playSound } from '../../_assistant/sound.ts';
-import { BankIcon, CheckIcon, ClockIcon, InfoIcon, LockIcon, ShieldIcon, UserIcon, WalletIcon } from '../../_workspace/icons.tsx';
+import { useServerClock } from '../../exchange/useServerClock.ts';
+import { CheckIcon, ClockIcon, LockIcon, ShieldIcon, UserIcon, WalletIcon } from '../../_workspace/icons.tsx';
 import shell from '../../shell.module.css';
 import pay from './payment.module.css';
 import styles from './p2p.module.css';
 
 type Deal = NonNullable<PortalTrade['p2p']>;
 type Payment = Deal['payments'][number];
-
-const RAILS: readonly InrRail[] = ['IMPS', 'UPI', 'NEFT', 'RTGS'];
 
 /**
  * A P2P deal (ADR 0019), as its client lives it. The rupees go straight between the client and its counterparty; the
@@ -32,14 +36,16 @@ export function P2pDealCard({ view }: { view: PortalTrade }) {
   const buy = view.trade.direction === 'BUY_USDT';
   const usdt = formatUsdtHeadline(Money.parse(view.trade.base.amount, 'USDT'));
   const inr = formatInr(Money.parse(deal.inr, 'INR'), { fraction: 'always' });
-  const now = useNow();
+  const now = useServerClock(deal.now, deal.dueBy !== null);
   const remaining = deal.dueBy ? Date.parse(deal.dueBy) - now : null;
   const disputed = deal.dispute?.status === 'OPEN';
   const decidedUnpaid = deal.dispute?.status === 'NOT_PAID';
   // A seller's own deposit has its card already (the trade's address); this one starts once the USDT is in.
   if (deal.step === 'DONE' || (deal.step === 'CANCELLED' && !deal.escrowReturn && !deal.unwind && !decidedUnpaid) || (!buy && deal.step === 'ESCROW')) return null;
 
-  const timer = remaining !== null ? <StepTimer remaining={remaining} verb={deal.turn === (buy ? 'BUYER' : 'SELLER') ? 'Within' : 'Expected within'} /> : null;
+  const final = deal.step === 'PAY' && deal.payWindow?.final === true;
+  const timer = remaining !== null ? <StepTimer remaining={remaining} verb={final ? 'Final' : deal.turn === (buy ? 'BUYER' : 'SELLER') ? 'Within' : 'Expected within'} final={final} /> : null;
+  const method = deal.payWindow?.method ?? deal.payments.at(-1)?.rail ?? null;
   const yours = !disputed && ((buy && deal.step === 'PAY') || (!buy && deal.step === 'CONFIRM'));
 
   return (
@@ -64,23 +70,58 @@ export function P2pDealCard({ view }: { view: PortalTrade }) {
           account.
         </p>
       ) : null}
-      {buy && deal.step === 'PAY' ? <PayTheSeller view={view} deal={deal} inr={inr} /> : null}
+      {buy && deal.step === 'PAY' ? (
+        <PayInr
+          deal={deal}
+          fromAccounts={view.payment?.fromAccounts ?? []}
+          attachFields={{ tradeRef: view.trade.ref }}
+          choose={(m, key) => choosePayMethodAction({ tradeRef: view.trade.ref, method: m }, key)}
+          claim={(input, key) => claimPaymentAction({ tradeRef: view.trade.ref, rail: input.rail, utr: input.utr, fromBankAccountId: input.fromBankAccountId ?? '', amount: deal.inr }, key)}
+          attach={postDealMessageAction}
+        />
+      ) : null}
       {buy && deal.step === 'CONFIRM' && disputed ? <BuyerSide view={view} deal={deal} inr={inr} /> : null}
       {buy && deal.step === 'CONFIRM' && !disputed ? (
         <Waiting>
-          <strong>The seller is checking your payment.</strong> Once they confirm it arrived from your account, INRP2P releases your {usdt}. If they do not answer in time,
-          the desk steps in with your bank’s evidence.
+          {deal.receiptLate ? (
+            <>
+              <strong>The seller has not confirmed your payment yet.</strong> {method === 'NEFT' || method === 'RTGS' ? `${method} can take longer. ` : ''}INRP2P is checking it with
+              the seller. Nothing is cancelled for a bank’s delay — your {usdt} stays locked for you.
+            </>
+          ) : (
+            <>
+              <strong>The seller is checking your payment.</strong> Once they confirm it arrived from your account, INRP2P releases your {usdt}.{' '}
+              {method === 'NEFT' ? 'A NEFT payment can take an hour or two to land.' : method === 'RTGS' ? 'An RTGS payment usually lands within half an hour.' : ''}
+            </>
+          )}
         </Waiting>
       ) : null}
 
       {!buy && deal.step === 'PAY' ? (
         <Waiting>
-          <strong>The buyer is paying you {inr}</strong> to {view.destination}. You will be asked to confirm when they say they have paid. Your USDT stays in escrow until
-          you do.
+          {final ? (
+            <>
+              <strong>The buyer’s time to pay is up.</strong> If they do not file their payment in the final minutes, this trade is cancelled and your {usdt} comes back to
+              the wallet you sent it from.
+            </>
+          ) : (
+            <>
+              <strong>The buyer is paying you {inr}</strong>
+              {method ? ` by ${method}` : ''} to {view.destination}. You will be asked to confirm when they say they have paid. Your USDT stays in escrow until you do.
+            </>
+          )}
         </Waiting>
       ) : null}
       {!buy && deal.step === 'CONFIRM' && !disputed ? (
         <>
+          {deal.receiptLate ? (
+            <p className={pay.overdue} role="status">
+              <ClockIcon className={pay.inlineIcon} />
+              <span>
+                <strong>Longer than usual{method ? ` for ${method}` : ''}.</strong> Check your bank app. If the money is not there, say so below — INRP2P is following it up.
+              </span>
+            </p>
+          ) : null}
           <ConfirmReceipt view={view} deal={deal} inr={inr} usdt={usdt} />
           <SellerNotArrived view={view} inr={inr} />
         </>
@@ -117,6 +158,12 @@ export function P2pDealCard({ view }: { view: PortalTrade }) {
       {deal.payments.length > 0 ? <PaymentList payments={deal.payments} buy={buy} /> : null}
     </section>
   );
+}
+
+/** The deal's chat (ADR 0023), under the deal's card: there from the start, and kept after the deal closes. */
+export function P2pDealChat({ view }: { view: PortalTrade }) {
+  const deal = view.p2p!;
+  return <DealChat chat={deal.chat} fields={{ tradeRef: view.trade.ref }} send={postDealMessageAction} callSupport={(note, key) => callSupportAction({ tradeRef: view.trade.ref, note }, key)} />;
 }
 
 function titleOf(deal: Deal, buy: boolean, usdt: string, inr: string): string {
@@ -164,146 +211,6 @@ function EscrowStrip({ deal, buy, usdt }: { deal: Deal; buy: boolean; usdt: stri
   );
 }
 
-/** The buyer's step: the seller's own account, the client's own account, and the bank's reference. */
-function PayTheSeller({ view, deal, inr }: { view: PortalTrade; deal: Deal; inr: string }) {
-  const cmd = useCommand();
-  const accounts = view.payment?.fromAccounts ?? [];
-  const [from, setFrom] = useState<string>(accounts.length === 1 ? accounts[0]!.id : '');
-  const [rail, setRail] = useState<InrRail>('IMPS');
-  const [utr, setUtr] = useState('');
-  const [own, setOwn] = useState(false);
-  const payee = deal.payTo;
-  const shape = utr === '' ? null : checkUtrShape(rail, utr);
-  const otherRail = shape && !shape.ok ? railsForUtr(utr).find((r) => r !== rail) : undefined;
-  const fromAccount = accounts.find((a) => a.id === from) ?? null;
-  const ready = !cmd.busy && fromAccount !== null && shape?.ok === true && own;
-
-  const submit = async () => {
-    if (!fromAccount) return;
-    const out = await cmd.run(`Payment of ${inr} filed`, (key) => claimPaymentAction({ tradeRef: view.trade.ref, rail, utr: normalizeUtr(utr), fromBankAccountId: fromAccount.id, amount: deal.inr }, key));
-    if (out.ok) {
-      playSound('success');
-      setUtr('');
-      setOwn(false);
-    }
-  };
-
-  if (!payee) {
-    return <p className={pay.lead}>The seller’s account is being prepared. This page shows it in a moment.</p>;
-  }
-  return (
-    <>
-      <div className={pay.rule}>
-        <ShieldIcon className={pay.ruleIcon} />
-        <p>
-          <strong>Pay from your own account, to exactly this account.</strong> The seller confirms who sent the money from their bank’s screen — rupees from anyone else are
-          returned and do not count.
-        </p>
-      </div>
-      <ol className={pay.steps}>
-        <li className={pay.step}>
-          <span className={pay.stepNo} aria-hidden="true">
-            1
-          </span>
-          <div className={pay.stepBody}>
-            <h3 className={pay.stepTitle}>Send {inr} to the seller</h3>
-            <div className={pay.bank}>
-              <Detail label="Account name" value={payee.holderName} />
-              <Detail label="Account number" value={payee.accountNumber} mono />
-              <Detail label="IFSC" value={payee.ifsc} mono />
-              <Detail label="Bank" value={payee.bankName} copy={false} />
-              <Detail label="Amount" value={deal.inr} shown={inr} mono />
-              <p className={pay.hint}>
-                <InfoIcon className={pay.inlineIcon} />
-                Exactly {inr}, in one payment. {payee.rails.length > 0 ? `The seller receives ${payee.rails.join(', ')}.` : ''} IMPS and UPI arrive in seconds.
-              </p>
-            </div>
-          </div>
-        </li>
-        <li className={pay.step}>
-          <span className={pay.stepNo} aria-hidden="true">
-            2
-          </span>
-          <div className={pay.stepBody}>
-            <h3 className={pay.stepTitle}>From your account</h3>
-            {accounts.length === 0 ? (
-              <p className={pay.muted}>No bank account of yours is registered yet. Ask the desk to add one in your name before you pay.</p>
-            ) : (
-              <div className={pay.accounts} role="radiogroup" aria-label="Your account">
-                {accounts.map((a) => (
-                  <label key={a.id} className={pay.account} data-selected={from === a.id || undefined}>
-                    <input type="radio" name="from" value={a.id} checked={from === a.id} onChange={() => setFrom(a.id)} className={pay.radio} />
-                    <BankIcon className={pay.accountIcon} />
-                    <span className={pay.accountText}>
-                      <span className={pay.accountBank}>
-                        {a.bankName} <span className="ix-num">••{a.last4}</span>
-                      </span>
-                      <span className={pay.accountHolder}>{a.holderName}</span>
-                    </span>
-                  </label>
-                ))}
-              </div>
-            )}
-          </div>
-        </li>
-        <li className={pay.step}>
-          <span className={pay.stepNo} aria-hidden="true">
-            3
-          </span>
-          <div className={pay.stepBody}>
-            <h3 className={pay.stepTitle}>Tell the seller you paid</h3>
-            <div className={pay.rails} role="radiogroup" aria-label="How you paid">
-              {RAILS.map((r) => (
-                <label key={r} className={pay.railChoice} data-selected={rail === r || undefined}>
-                  <input type="radio" name="rail" value={r} checked={rail === r} onChange={() => setRail(r)} className={pay.radio} />
-                  {r}
-                </label>
-              ))}
-            </div>
-            <label className={pay.field}>
-              <span className={pay.fieldLabel}>{rail} reference (UTR)</span>
-              <input
-                className={`${pay.input} ix-num`}
-                value={utr}
-                onChange={(e) => setUtr(e.target.value.replace(/[^0-9A-Za-z\s]/g, '').toUpperCase())}
-                inputMode={rail === 'UPI' || rail === 'IMPS' ? 'numeric' : 'text'}
-                autoComplete="off"
-                spellCheck={false}
-                maxLength={26}
-                placeholder={rail === 'UPI' || rail === 'IMPS' ? '12 digits' : rail === 'NEFT' ? '16 characters' : '22 characters'}
-                aria-invalid={shape?.ok === false || undefined}
-                aria-describedby="p2p-utr-help"
-              />
-              <span id="p2p-utr-help" className={pay.fieldHelp} data-tone={shape?.ok === false ? 'warning' : undefined} aria-live="polite">
-                {shape?.ok === false ? (otherRail ? `That looks like a ${otherRail} reference — choose ${otherRail}.` : `Not a ${rail} reference yet: ${shape.hint}.`) : shape?.ok ? 'Looks right.' : 'Your bank app shows it once the payment goes through.'}
-              </span>
-            </label>
-            <label className={pay.confirm}>
-              <input type="checkbox" checked={own} onChange={(e) => setOwn(e.target.checked)} disabled={!fromAccount} />
-              <span>
-                I sent {inr} to {payee.holderName} from {fromAccount ? `${fromAccount.bankName} ••${fromAccount.last4}` : 'my account'} — an account in my own name.
-              </span>
-            </label>
-            <div className={pay.submitRow}>
-              <button type="button" className={shell.action} disabled={!ready} aria-busy={cmd.busy || undefined} onClick={() => void submit()}>
-                <CheckIcon className={pay.inlineIcon} />
-                I’ve paid
-              </button>
-              <span className={pay.muted}>The USDT stays locked for you while the seller checks it.</span>
-            </div>
-            {cmd.error ? (
-              <p className={shell.error} role="alert">
-                {cmd.error}
-              </p>
-            ) : null}
-          </div>
-        </li>
-      </ol>
-      {cmd.dialog}
-    </>
-  );
-}
-
 /** The seller's step as a client: did the buyer's rupees arrive — and who does the bank say sent them? */
 function ConfirmReceipt({ view, deal, inr, usdt }: { view: PortalTrade; deal: Deal; inr: string; usdt: string }) {
   const cmd = useCommand();
@@ -333,6 +240,7 @@ function ConfirmReceipt({ view, deal, inr, usdt }: { view: PortalTrade; deal: De
         </span>
         {filed.utr ? <CopyButton value={filed.utr} label="UTR" /> : null}
       </div>
+      <ClaimProof chat={deal.chat} paymentRef={filed.ref} />
       <div className={pay.rule} data-tone="warning">
         <ShieldIcon className={pay.ruleIcon} />
         <p>
@@ -481,32 +389,13 @@ function Waiting({ children }: { children: React.ReactNode }) {
   );
 }
 
-function Detail({ label, value, shown, mono = false, copy = true }: { label: string; value: string; shown?: string; mono?: boolean; copy?: boolean }) {
-  return (
-    <div className={pay.detail}>
-      <span className={pay.detailLabel}>{label}</span>
-      <span className={`${pay.detailValue} ${mono ? 'ix-num' : ''}`}>{shown ?? value}</span>
-      {copy ? <CopyButton value={value} label={label.toLowerCase()} /> : <span />}
-    </div>
-  );
-}
-
-/** Time left for the step: calm until the last five minutes, amber then; never a flashing alarm. */
-function StepTimer({ remaining, verb }: { remaining: number; verb: string }) {
-  const state = remaining <= 0 ? 'over' : remaining <= 5 * 60_000 ? 'soon' : 'calm';
+/** Time left for the step: calm until the last five minutes, amber then (and through a final period); never a flashing alarm. */
+function StepTimer({ remaining, verb, final = false }: { remaining: number; verb: string; final?: boolean }) {
+  const state = remaining <= 0 ? 'over' : final || remaining <= 5 * 60_000 ? 'soon' : 'calm';
   return (
     <span className={pay.timer} data-state={state} role="timer" aria-live="off">
       <ClockIcon className={pay.inlineIcon} />
       {remaining <= 0 ? 'Time’s up' : <>{verb} <span className="ix-num">{formatCountdown(remaining)}</span></>}
     </span>
   );
-}
-
-function useNow(): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const t = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(t);
-  }, []);
-  return useMemo(() => now, [now]);
 }

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { sql } from 'kysely';
-import { DomainError, Money, type InrRail, optionalText, requireOneOf, requireText, requireUtrShape, requireUuid } from '@inrp2p/kernel';
+import { DomainError, Money, type InrRail, accountUpiAddress, checkIfsc, optionalText, railOptions, requireOneOf, requireText, requireUtrShape, requireUuid, upiPayUri } from '@inrp2p/kernel';
 import type { Db, Executor, ExceptionType, SenderVerdict, TxContext } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
 import { bankAccountSealContext } from '@inrp2p/clients';
@@ -16,6 +16,10 @@ import { createPayoutLegInTx, sendPayoutLegInTx } from './legs.ts';
 import { maskedBankDestination, recordFiatTransfer } from './movements.ts';
 import type { SettlementDeps } from './policy.ts';
 import { recordSenderCheckInTx } from './sender.ts';
+import { type DealChatView, dealChatView } from './chat.ts';
+import {
+  type PayWindow, PAY_METHOD_CHANGES, dealNow, isPaying, openPayWindowInTx, p2pPayState, payWindowOf, programP2pTiming, prospectiveWindow, warnPayWindowInTx,
+} from './p2p-timing.ts';
 
 /**
  * P2P escrow (ADR 0019): the rupees of a trade move once, straight between the client's and the trader's own registered
@@ -178,7 +182,7 @@ export async function closeDisputeInTx(ctx: TxContext, d: OpenDispute, out: { re
  * A dispute or an unwind concerns both sides of a deal: one event for the client (`p2p.*`) and one for the trader
  * (`trader.p2p_*`), each told in its own inbox — an inbox takes one message per event.
  */
-export async function tellBothSides(ctx: TxContext, what: 'dispute_opened' | 'dispute_decided' | 'unwind_started', payload: { readonly tradeId: string } & Record<string, unknown>): Promise<void> {
+export async function tellBothSides(ctx: TxContext, what: 'dispute_opened' | 'dispute_decided' | 'unwind_started' | 'pay_final_call' | 'receipt_late', payload: { readonly tradeId: string } & Record<string, unknown>): Promise<void> {
   await enqueueOutbox(ctx, { type: `p2p.${what}`, aggregateType: 'trade', aggregateId: payload.tradeId, payload });
   await enqueueOutbox(ctx, { type: `trader.p2p_${what}`, aggregateType: 'trade', aggregateId: payload.tradeId, payload });
 }
@@ -249,108 +253,141 @@ export async function p2pPayments(ex: Executor, tradeId: string) {
 export const P2P_RAILS = ['IMPS', 'NEFT', 'RTGS', 'UPI'] as const;
 export const requireP2pRail = (rail: unknown): InrRail => requireOneOf(rail, 'rail', P2P_RAILS);
 
-/** ADR 0019 §2.7: how long each side has for its step, in minutes — the same for every deal, so a screen can count it. */
-export const P2P_WINDOW_MINUTES = Object.freeze({ escrow: 30, pay: 30, receipt: 30 });
-
 export interface P2pDeadlinesReport {
   readonly cancelled: number;
   /** SELLs whose trader did not pay in time: the client's USDT goes back. */
   readonly unwound: number;
+  /** Buyers whose time to pay ran out: told once, with the final period to say they paid. */
+  readonly warned: number;
   readonly cases: number;
   readonly failures: readonly { readonly tradeId: string; readonly message: string }[];
 }
 
 /**
- * `p2p_deadlines` (cron, every minute): the time limits of P2P deals (ADR 0019 §2.7), each trade in its own step.
+ * `p2p_deadlines` (cron, every minute): the time limits of P2P deals (ADR 0019 §2.7, ADR 0023), each trade in its own
+ * step, every one decided again under the trade's lock — a payment said to be sent a moment ago wins over its deadline.
  *
- * - A client buying USDT whose trader did not fund the escrow in time, or who did not pay the funded escrow in time
- *   (and never said it paid), is cancelled exactly as the desk would — and whatever the trader delivered goes back to
- *   it (`planEscrowReturnInTx`, through autopay).
- * - A trader that has not paid a client whose USDT is in escrow loses the deal (TD-35): the client's USDT goes back to it
- *   (`startP2pUnwindInTx`; autopay returns it, then the trade is cancelled) and the trader can no longer pay.
- * - A payee that neither confirmed nor disputed a payment it was told of gives the desk a case (`P2P_RECEIPT_OVERDUE`):
- *   INRP2P decides it from the payee's bank, paid or not paid. A late confirmation still counts.
+ * - A client buying USDT whose trader did not fund the escrow in time is cancelled exactly as the desk would.
+ * - A deal whose escrow is final waits for its buyer's rupees for its pay window — its method's time (UPI 15, IMPS 30,
+ *   NEFT 60, RTGS 45 minutes by default) from the escrow being final and the payee's account being shown. When that is
+ *   up and the buyer has not said it paid, it is warned and has the final period; only after that is the deal undone: a
+ *   BUY is cancelled and the trader's USDT goes back to it (`planEscrowReturnInTx`), a SELL unwinds and the client's
+ *   USDT goes back (`startP2pUnwindInTx`, TD-35) — the trader can no longer pay.
+ * - A payee that has neither confirmed nor disputed a payment in its rail's time gives the desk a case
+ *   (`P2P_RECEIPT_OVERDUE`) and both sides are told INRP2P is checking: NEFT and RTGS are given longer. A late
+ *   confirmation still counts.
  *
- * A trade with a payment filed is never cancelled here: that one waits for its payee, or a person.
+ * A deal whose rupees were ever said to be sent is never undone here, and nor is one on hold: that one waits for its
+ * payee, or a person.
  */
-export async function runP2pDeadlines(db: Db, windows: { readonly escrow: number; readonly pay: number; readonly receipt: number } = P2P_WINDOW_MINUTES, limit = 50): Promise<P2pDeadlinesReport> {
+export async function runP2pDeadlines(db: Db, limit = 50): Promise<P2pDeadlinesReport> {
   const failures: { tradeId: string; message: string }[] = [];
   let cancelled = 0;
   let unwound = 0;
+  let warned = 0;
   let cases = 0;
-  const once = async (tradeId: string, name: string, fn: (ctx: TxContext) => Promise<boolean>) => {
+  const once = async <R>(tradeId: string, name: string, fn: (ctx: TxContext) => Promise<R>): Promise<R | null> => {
     const key = randomUUID();
     try {
       const out = await executeCommand(db, { authorize: async () => {}, handle: fn }, { name, actor: { type: 'SYSTEM', id: null, surface: 'SYSTEM' }, payload: { tradeId, run: key }, idempotencyKey: key, financial: true });
       return out.result;
     } catch (e) {
       failures.push({ tradeId, message: e instanceof Error ? e.message : String(e) });
-      return false;
+      return null;
     }
   };
 
-  const unpaid = await sql<{ trade_id: string; funded: boolean }>`
-    select t.id as trade_id, inrp2p_counterparty_delivered(o.id) as funded
+  // A BUY whose trader never put its USDT in escrow.
+  const unfunded = await sql<{ trade_id: string }>`
+    select t.id as trade_id
       from trade t
       join trade_economics e on e.trade_id = t.id
       join route_obligation o on o.trade_id = t.id
      where e.route_execution_mode = 'P2P' and t.direction = 'BUY_USDT' and t.lifecycle_state = 'AWAITING_FIRST_LEG' and not t.hold
-       and not exists (select 1 from settlement_leg l where l.trade_id = t.id and l.side = 'CLIENT_TO_EXCHANGE')
-       and case when inrp2p_counterparty_delivered(o.id)
-                then (select max(s.confirmed_at) from route_settlement s where s.route_obligation_id = o.id and s.flow = 'FROM_ROUTE_TO_EXCHANGE' and s.status = 'CONFIRMED')
-                       + make_interval(mins => ${windows.pay}) < inrp2p_now()
-                else t.opened_at + make_interval(mins => ${windows.escrow}) < inrp2p_now() end
+       and not inrp2p_counterparty_delivered(o.id)
+       and t.opened_at + make_interval(mins => ((select p2p_timing from trader_program where id = 1)->>'escrowMinutes')::integer) < inrp2p_now()
      order by t.opened_at limit ${limit}`.execute(db);
-  for (const u of unpaid.rows) {
-    const done = await once(u.trade_id, 'trade.expire_unpaid_escrow', async (ctx) => {
+  for (const u of unfunded.rows) {
+    const done = await once(u.trade_id, 'trade.expire_unfunded_escrow', async (ctx) => {
       const trade = await lockTrade(ctx.tx, u.trade_id);
-      // Looked at again under the lock: the client may have just said it paid.
-      const legs = await ctx.tx.selectFrom('settlement_leg').select('id').where('trade_id', '=', trade.id).where('side', '=', 'CLIENT_TO_EXCHANGE').executeTakeFirst();
-      if (trade.lifecycle_state !== 'AWAITING_FIRST_LEG' || trade.hold || legs) return false;
-      await cancelTradeInTx(ctx, { trade, reason: u.funded ? 'not paid within the payment window — the trader’s USDT goes back to it' : 'the trader did not fund the escrow in time', expiredUnpaid: true });
+      const s = await p2pPayState(ctx.tx, trade.id);
+      if (!s || trade.lifecycle_state !== 'AWAITING_FIRST_LEG' || trade.hold || s.fundedAt || s.everFiled) return false;
+      await cancelTradeInTx(ctx, { trade, reason: 'the trader did not fund the escrow in time', expiredUnpaid: true });
       return true;
     });
     if (done) cancelled += 1;
   }
 
-  const notPaid = await sql<{ trade_id: string }>`
+  // Deals waiting for their buyer's rupees whose window must open, warn, or end.
+  const paying = await sql<{ trade_id: string }>`
     select t.id as trade_id
       from trade t
       join trade_economics e on e.trade_id = t.id
-     where e.route_execution_mode = 'P2P' and t.direction = 'SELL_USDT' and t.lifecycle_state in ('FIRST_LEG_CONFIRMED', 'SETTLING')
-       and (select max(l.confirmed_at) from settlement_leg l where l.trade_id = t.id and l.side = 'CLIENT_TO_EXCHANGE' and l.status = 'COMPLETED')
-             + make_interval(mins => ${windows.pay}) < inrp2p_now()
-       and not exists (select 1 from settlement_leg l where l.trade_id = t.id and l.side = 'EXCHANGE_TO_CLIENT' and l.status in ('PENDING', 'PROCESSING', 'COMPLETED'))
-       and not exists (select 1 from p2p_unwind u where u.trade_id = t.id)
+      join route_obligation o on o.trade_id = t.id
+      left join p2p_pay_window w on w.trade_id = t.id
+     where e.route_execution_mode = 'P2P' and not t.hold
+       and (w.trade_id is null or (w.warned_at is null and w.due_at <= inrp2p_now()) or w.final_until <= inrp2p_now())
+       and case when t.direction = 'BUY_USDT'
+                then t.lifecycle_state = 'AWAITING_FIRST_LEG' and inrp2p_counterparty_delivered(o.id)
+                     and not exists (select 1 from settlement_leg l where l.trade_id = t.id and l.side = 'CLIENT_TO_EXCHANGE')
+                else t.lifecycle_state in ('FIRST_LEG_CONFIRMED', 'SETTLING')
+                     and exists (select 1 from settlement_leg l where l.trade_id = t.id and l.side = 'CLIENT_TO_EXCHANGE' and l.status = 'COMPLETED')
+                     and not exists (select 1 from settlement_leg l where l.trade_id = t.id and l.side = 'EXCHANGE_TO_CLIENT' and l.status in ('PENDING', 'PROCESSING', 'COMPLETED'))
+                     and not exists (select 1 from p2p_unwind u where u.trade_id = t.id) end
      order by t.opened_at limit ${limit}`.execute(db);
-  for (const n of notPaid.rows) {
-    if (await once(n.trade_id, 'escrow.payment_overdue', async (ctx) => {
-      const trade = await lockTrade(ctx.tx, n.trade_id);
-      // Looked at again under the lock: the trader may have just filed its payment.
-      const filed = await ctx.tx.selectFrom('settlement_leg').select('id').where('trade_id', '=', trade.id).where('side', '=', 'EXCHANGE_TO_CLIENT').where('status', 'in', ['PENDING', 'PROCESSING', 'COMPLETED']).executeTakeFirst();
-      if (filed || trade.lifecycle_state === 'COMPLETED' || trade.lifecycle_state === 'CANCELLED') return false;
-      return startP2pUnwindInTx(ctx, { tradeId: trade.id, reason: 'PAY_WINDOW_MISSED' });
-    })) unwound += 1;
+  for (const p of paying.rows) {
+    const out = await once(p.trade_id, 'escrow.pay_window', async (ctx): Promise<'NONE' | 'WARNED' | 'CANCELLED' | 'UNWOUND'> => {
+      const trade = await lockTrade(ctx.tx, p.trade_id);
+      // Looked at again under the lock: the buyer may have just said it paid.
+      const s = await p2pPayState(ctx.tx, trade.id);
+      if (!s || !isPaying(s) || s.hold || s.everFiled) return 'NONE';
+      const now = await dealNow(ctx.tx);
+      const w = await openPayWindowInTx(ctx, s);
+      if (!w || now < w.dueAt) return 'NONE';
+      if (!w.warnedAt) {
+        const after = await warnPayWindowInTx(ctx, w, now);
+        await tellBothSides(ctx, 'pay_final_call', { tradeId: s.tradeId, clientId: s.clientId, payer: s.buy ? 'CLIENT' : 'TRADER', finalUntil: after.finalUntil.toISOString(), method: after.method });
+        return 'WARNED';
+      }
+      if (now < w.finalUntil) return 'NONE';
+      if (s.buy) {
+        await cancelTradeInTx(ctx, { trade, reason: 'not paid within the payment window — the trader’s USDT goes back to it', expiredUnpaid: true });
+        return 'CANCELLED';
+      }
+      return (await startP2pUnwindInTx(ctx, { tradeId: trade.id, reason: 'PAY_WINDOW_MISSED' })) ? 'UNWOUND' : 'NONE';
+    });
+    if (out === 'WARNED') warned += 1;
+    else if (out === 'CANCELLED') cancelled += 1;
+    else if (out === 'UNWOUND') unwound += 1;
   }
 
-  const unanswered = await sql<{ trade_id: string; leg_id: string; payee: string }>`
-    select l.trade_id, l.id as leg_id, case when l.side = 'CLIENT_TO_EXCHANGE' then 'TRADER' else 'CLIENT' end as payee
+  // Payments said to be sent that their payee has not answered in their rail's time.
+  const unanswered = await sql<{ trade_id: string; leg_id: string; payee: string; rail: string | null; minutes: number }>`
+    select l.trade_id, l.id as leg_id, case when l.side = 'CLIENT_TO_EXCHANGE' then 'TRADER' else 'CLIENT' end as payee, f.rail, x.minutes
       from settlement_leg l
       join trade_economics e on e.trade_id = l.trade_id
+      left join transfer_allocation a on a.settlement_leg_id = l.id and a.voided_at is null and a.fiat_transfer_id is not null
+      left join fiat_transfer f on f.id = a.fiat_transfer_id
+      left join p2p_pay_window w on w.trade_id = l.trade_id
+      cross join lateral (select coalesce((coalesce(w.timing, (select p2p_timing from trader_program where id = 1))->'receipt'->>coalesce(f.rail, 'IMPS'))::integer, 30) as minutes) x
      where e.route_execution_mode = 'P2P' and l.asset = 'INR' and l.status = 'PROCESSING'
        and (l.side = 'CLIENT_TO_EXCHANGE' or (l.side = 'EXCHANGE_TO_CLIENT' and l.payer = 'ROUTE'))
-       and l.created_at + make_interval(mins => ${windows.receipt}) < inrp2p_now()
+       and l.created_at + make_interval(mins => x.minutes) < inrp2p_now()
        and not exists (select 1 from exception_case c where c.type = 'P2P_RECEIPT_OVERDUE' and c.subject_id = l.id and c.status in ('OPEN', 'IN_PROGRESS'))
        -- A payment its payee disputed is INRP2P's already.
        and not exists (select 1 from p2p_dispute d where d.settlement_leg_id = l.id)
      order by l.created_at limit ${limit}`.execute(db);
   for (const r of unanswered.rows) {
     if (await once(r.trade_id, 'escrow.receipt_overdue', async (ctx) => {
-      await lockTrade(ctx.tx, r.trade_id);
-      return (await openExceptionInTx(ctx, { type: 'P2P_RECEIPT_OVERDUE', subjectType: 'SETTLEMENT_LEG', subjectId: r.leg_id, tradeId: r.trade_id, details: { payee: r.payee, windowMinutes: windows.receipt } })).opened;
+      const trade = await lockTrade(ctx.tx, r.trade_id);
+      const before = await ctx.tx.selectFrom('exception_case').select('id').where('type', '=', 'P2P_RECEIPT_OVERDUE').where('subject_id', '=', r.leg_id).executeTakeFirst();
+      const opened = await openExceptionInTx(ctx, { type: 'P2P_RECEIPT_OVERDUE', subjectType: 'SETTLEMENT_LEG', subjectId: r.leg_id, tradeId: r.trade_id, details: { payee: r.payee, rail: r.rail, windowMinutes: r.minutes } });
+      // Both sides hear, once, that INRP2P is checking — and that nothing is cancelled for a bank's delay.
+      if (opened.opened && !before) await tellBothSides(ctx, 'receipt_late', { tradeId: trade.id, clientId: trade.client_id, payee: r.payee, rail: r.rail });
+      return opened.opened;
     })) cases += 1;
   }
-  return { cancelled, unwound, cases, failures };
+  return { cancelled, unwound, warned, cases, failures };
 }
 
 export type P2pStep = 'ESCROW' | 'PAY' | 'CONFIRM' | 'RELEASE' | 'REFUND' | 'DONE' | 'CANCELLED';
@@ -363,6 +400,39 @@ export interface P2pPayee {
   readonly accountNumber: string;
   readonly last4: string;
   readonly rails: readonly string[];
+  /** The account's own UPI address (`<account>@<ifsc>.ifsc.npci`): a UPI payment to it lands in exactly this account. */
+  readonly upiId: string;
+  /** The `upi://pay` link with the exact amount — a QR code on a computer, a tap on a phone; null above UPI's limit. */
+  readonly upiLink: string | null;
+  /** What to put in the payment's remarks, so the payee recognises it on its statement. */
+  readonly remarks: string;
+  /** The IFSC has RBI's shape (four letters, 0, six characters). */
+  readonly ifscValid: boolean;
+}
+
+/** One way to pay, as the buyer chooses it: its time, whether the amount allows it, and whether its time is still open. */
+export interface P2pPayMethod {
+  readonly rail: InrRail;
+  readonly minutes: number;
+  readonly possible: boolean;
+  readonly limit: string | null;
+  /** When this method's time from the escrow ends. */
+  readonly dueAt: string;
+  /** Its time is not over yet, so it can still be chosen. */
+  readonly open: boolean;
+}
+
+/** The buyer's time to pay (ADR 0023): its method and deadline, then the final period, and the methods it could choose. */
+export interface P2pPayWindowView {
+  readonly method: InrRail;
+  /** The buyer chose it; otherwise it is the one the amount suggests. */
+  readonly chosen: boolean;
+  readonly dueAt: string;
+  readonly finalUntil: string;
+  /** The method's time is up: only the final period is left. */
+  readonly final: boolean;
+  readonly changesLeft: number;
+  readonly methods: readonly P2pPayMethod[];
 }
 
 /**
@@ -389,6 +459,14 @@ export interface P2pDeal {
    * CANCELLED). WAITING until its return is under way, SENDING while it is, SENT once it is back.
    */
   readonly unwind: { readonly reason: 'PAY_WINDOW_MISSED' | 'NOT_PAID'; readonly status: 'WAITING' | 'SENDING' | 'SENT'; readonly amount: string } | null;
+  /** Step PAY: the buyer's window — both sides see how the buyer pays and until when. */
+  readonly payWindow: P2pPayWindowView | null;
+  /** Step CONFIRM: the payee's time for this rail is over — INRP2P is checking; nothing is cancelled for it. */
+  readonly receiptLate: boolean;
+  /** The deal's private chat (ADR 0023). */
+  readonly chat: DealChatView;
+  /** The server's clock when this was read: what a countdown counts from. */
+  readonly now: string;
 }
 
 export const P2P_DISPUTE_REASONS = ['NO_CREDIT', 'WRONG_AMOUNT', 'OTHER'] as const;
@@ -422,7 +500,7 @@ export async function p2pDeal(ex: Executor, protector: { open(value: string, con
     .executeTakeFirst();
   if (!t || t.route_execution_mode !== 'P2P') return null;
   const buy = t.direction === 'BUY_USDT';
-  const legs = await ex.selectFrom('settlement_leg').select(['side', 'payer', 'status', 'asset', 'created_at', 'confirmed_at']).where('trade_id', '=', t.id).orderBy('created_at').execute();
+  const legs = await ex.selectFrom('settlement_leg').select(['ref', 'side', 'payer', 'status', 'asset', 'created_at', 'confirmed_at']).where('trade_id', '=', t.id).orderBy('created_at').execute();
   const rupeeLeg = legs.filter((l) => l.asset === 'INR' && (buy ? l.side === 'CLIENT_TO_EXCHANGE' : l.side === 'EXCHANGE_TO_CLIENT' && l.payer === 'ROUTE') && l.status !== 'FAILED' && l.status !== 'CANCELLED').at(-1);
   const funded = buy
     ? (await sql<{ d: boolean; at: Date | null }>`
@@ -433,20 +511,32 @@ export async function p2pDeal(ex: Executor, protector: { open(value: string, con
         return { d: l !== undefined, at: l?.confirmed_at ?? null };
       })();
   const plus = (d: Date | null, minutes: number) => (d ? new Date(d.getTime() + minutes * 60_000).toISOString() : null);
+  const now = await dealNow(ex);
+  const timing = await programP2pTiming(ex);
+  const payments = await p2pPayments(ex, t.id);
 
   let step: P2pStep;
   let dueBy: string | null = null;
+  let window: PayWindow | null = null;
+  let receiptLate = false;
   if (t.lifecycle_state === 'CANCELLED') step = 'CANCELLED';
   else if (t.lifecycle_state === 'COMPLETED') step = 'DONE';
   else if (!funded.d) {
     step = 'ESCROW';
-    dueBy = buy ? plus(t.opened_at, P2P_WINDOW_MINUTES.escrow) : null;
+    dueBy = buy ? plus(t.opened_at, timing.escrowMinutes) : null;
   } else if (!rupeeLeg) {
     step = 'PAY';
-    dueBy = plus(funded.at, P2P_WINDOW_MINUTES.pay);
+    // The window the deadlines opened — or, in the minute before they run, the one they will open.
+    const state = await p2pPayState(ex, t.id);
+    window = (await payWindowOf(ex, t.id)) ?? (state ? prospectiveWindow(state, timing) : null);
+    // A deal whose rupees were once said to be sent (and then not counted) waits for a person, never for a clock.
+    if (window && !state?.everFiled) dueBy = (now < window.dueAt ? window.dueAt : window.finalUntil).toISOString();
   } else if (rupeeLeg.status === 'PROCESSING' || rupeeLeg.status === 'PENDING') {
     step = 'CONFIRM';
-    dueBy = plus(rupeeLeg.created_at, P2P_WINDOW_MINUTES.receipt);
+    const rail = (payments.find((p) => p.ref === rupeeLeg.ref)?.rail ?? 'IMPS') as InrRail;
+    const minutes = ((await payWindowOf(ex, t.id))?.timing ?? timing).receipt[rail];
+    dueBy = plus(rupeeLeg.created_at, minutes);
+    receiptLate = dueBy !== null && Date.parse(dueBy) <= now.getTime();
   } else step = 'RELEASE';
   const disputeRow = await ex.selectFrom('p2p_dispute').select(['ref', 'reason', 'status', 'created_at', 'decided_at', 'payee_note', 'payer_note']).where('trade_id', '=', t.id).orderBy('created_at', 'desc').executeTakeFirst();
   const unwindRow = buy ? undefined : await unwindOf(ex, t.id);
@@ -456,7 +546,12 @@ export async function p2pDeal(ex: Executor, protector: { open(value: string, con
   }
   // The buyer pays, the seller funds the escrow and confirms the rupees; INRP2P releases, refunds, and decides disputes.
   const disputed = disputeRow?.status === 'OPEN';
-  if (disputed) dueBy = null;
+  if (disputed) {
+    dueBy = null;
+    receiptLate = false;
+  }
+  // Late is INRP2P's to check: the payee can still answer, but no clock runs on it any more.
+  if (receiptLate) dueBy = null;
   const turn = disputed || step === 'RELEASE' || step === 'REFUND' ? 'INRP2P' : step === 'ESCROW' || step === 'CONFIRM' ? 'SELLER' : step === 'PAY' ? 'BUYER' : null;
 
   // The viewer that pays is the buyer: the client on a BUY, the trader on a SELL.
@@ -469,9 +564,15 @@ export async function p2pDeal(ex: Executor, protector: { open(value: string, con
     if (accountId) {
       const b = await ex.selectFrom('bank_account').select(['client_id', 'holder_name', 'bank_name', 'ifsc', 'account_number_enc', 'account_last4', 'rail_preferences', 'status']).where('id', '=', accountId).executeTakeFirstOrThrow();
       if (b.status === 'ACTIVE') {
+        const accountNumber = await protector.open(b.account_number_enc, bankAccountSealContext(b.client_id));
+        const upiId = accountUpiAddress(accountNumber, b.ifsc);
+        // The payee recognises the payment by the reference it knows: the trader its order, the client its trade.
+        const remarks = `INRP2P ${buy ? ((await ex.selectFrom('trader_order').select('ref').where('trade_id', '=', t.id).orderBy('offered_at', 'desc').executeTakeFirst())?.ref ?? t.ref) : t.ref}`;
+        const upiPossible = railOptions(t.quote_inr_minor).some((o) => o.rail === 'UPI' && o.possible);
         payTo = {
-          holderName: b.holder_name, bankName: b.bank_name, ifsc: b.ifsc, last4: b.account_last4, rails: b.rail_preferences,
-          accountNumber: await protector.open(b.account_number_enc, bankAccountSealContext(b.client_id)),
+          holderName: b.holder_name, bankName: b.bank_name, ifsc: b.ifsc, last4: b.account_last4, rails: b.rail_preferences, accountNumber, upiId, remarks,
+          upiLink: upiPossible ? upiPayUri({ vpa: upiId, payeeName: b.holder_name, amount: Money.ofMinor(t.quote_inr_minor, 'INR').toDecimalString(), note: remarks }) : null,
+          ifscValid: checkIfsc(b.ifsc).ok,
         };
       }
     }
@@ -509,8 +610,21 @@ export async function p2pDeal(ex: Executor, protector: { open(value: string, con
     };
   }
 
+  let payWindow: P2pPayWindowView | null = null;
+  if (window && step === 'PAY') {
+    const w = window;
+    payWindow = {
+      method: w.method, chosen: w.chosen, dueAt: w.dueAt.toISOString(), finalUntil: w.finalUntil.toISOString(), final: now >= w.dueAt, changesLeft: Math.max(0, PAY_METHOD_CHANGES - w.changes),
+      methods: railOptions(t.quote_inr_minor).map((o) => {
+        const due = new Date(w.openedAt.getTime() + w.timing.pay[o.rail] * 60_000);
+        return { rail: o.rail, minutes: w.timing.pay[o.rail], possible: o.possible, limit: o.limit, dueAt: due.toISOString(), open: due.getTime() > now.getTime() + 60_000 };
+      }),
+    };
+  }
+
   return {
     step, turn, dueBy, inr: Money.ofMinor(t.quote_inr_minor, 'INR').toDecimalString(), escrowFunded: funded.d,
-    payTo, payments: await p2pPayments(ex, t.id), escrowReturn, dispute, unwind,
+    payTo, payments, escrowReturn, dispute, unwind, payWindow, receiptLate,
+    chat: await dealChatView(ex, { tradeId: t.id, viewer: input.viewer }), now: now.toISOString(),
   };
 }

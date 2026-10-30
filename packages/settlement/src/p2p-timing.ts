@@ -1,0 +1,189 @@
+import { sql } from 'kysely';
+import { DomainError, type InrRail, P2P_RAIL_ORDER, type P2pTiming, railOptions, requireOneOf, requireP2pTiming, requireUuid, suggestedRail } from '@inrp2p/kernel';
+import type { Executor, TxContext } from '@inrp2p/db';
+import { appendAudit } from '@inrp2p/audit';
+import { lockTrade } from '@inrp2p/trades';
+
+/** The business clock (`inrp2p_now()`), which every deadline of a deal is judged by. */
+export async function dealNow(ex: Executor): Promise<Date> {
+  return (await sql<{ now: Date }>`select inrp2p_now() as now`.execute(ex)).rows[0]!.now;
+}
+
+/** The programme's timing now. */
+export async function programP2pTiming(ex: Executor): Promise<P2pTiming> {
+  const r = await ex.selectFrom('trader_program').select('p2p_timing').where('id', '=', 1).executeTakeFirstOrThrow();
+  return requireP2pTiming(r.p2p_timing);
+}
+
+/**
+ * Where a P2P deal stands on its rupees, as its deadlines need it: whether the escrow is final and since when, whose
+ * account the rupees go to, and whether a payment was said to be sent.
+ */
+export interface P2pPayState {
+  readonly tradeId: string;
+  readonly ref: string;
+  readonly clientId: string;
+  readonly buy: boolean;
+  readonly lifecycle: string;
+  readonly hold: boolean;
+  readonly inrMinor: bigint;
+  /** When the seller's USDT was final in the escrow; null while it is not. */
+  readonly fundedAt: Date | null;
+  /** The payee's own account, when it is active and can be shown to the buyer. */
+  readonly payeeAccountId: string | null;
+  /** Since when that account could be shown: a payee whose account changed after the escrow shows the new one from then. */
+  readonly payeeReadyAt: Date | null;
+  /** A rupee payment is said to be sent and is not failed or cancelled. */
+  readonly filed: boolean;
+  /** Any rupee payment was ever said to be sent: such a deal is never cancelled for time — a person decides. */
+  readonly everFiled: boolean;
+  readonly unwound: boolean;
+}
+
+export async function p2pPayState(ex: Executor, tradeId: string): Promise<P2pPayState | null> {
+  const t = await ex
+    .selectFrom('trade as t')
+    .innerJoin('trade_economics as e', 'e.trade_id', 't.id')
+    .innerJoin('route_obligation as o', 'o.trade_id', 't.id')
+    .innerJoin('liquidity_route as r', 'r.id', 'o.route_id')
+    .select(['t.id', 't.ref', 't.client_id', 't.direction', 't.lifecycle_state', 't.hold', 'e.route_execution_mode', 'e.quote_inr_minor', 'o.id as obligation_id', 'r.trader_id'])
+    .where('t.id', '=', requireUuid(tradeId, 'tradeId'))
+    .executeTakeFirst();
+  if (!t || t.route_execution_mode !== 'P2P') return null;
+  const buy = t.direction === 'BUY_USDT';
+  const legs = await ex.selectFrom('settlement_leg').select(['side', 'payer', 'status', 'asset', 'confirmed_at']).where('trade_id', '=', t.id).execute();
+  const rupees = legs.filter((l) => l.asset === 'INR' && (buy ? l.side === 'CLIENT_TO_EXCHANGE' : l.side === 'EXCHANGE_TO_CLIENT'));
+  const filed = rupees.some((l) => l.status === 'PENDING' || l.status === 'PROCESSING' || l.status === 'COMPLETED');
+  let fundedAt: Date | null;
+  if (buy) {
+    const r = await sql<{ d: boolean; at: Date | null }>`
+      select inrp2p_counterparty_delivered(${t.obligation_id}::uuid) as d,
+             (select max(confirmed_at) from route_settlement where route_obligation_id = ${t.obligation_id} and flow = 'FROM_ROUTE_TO_EXCHANGE' and status = 'CONFIRMED') as at`.execute(ex);
+    fundedAt = r.rows[0]!.d ? r.rows[0]!.at : null;
+  } else {
+    const confirmed = legs.filter((l) => l.side === 'CLIENT_TO_EXCHANGE' && l.status === 'COMPLETED' && l.confirmed_at).map((l) => l.confirmed_at!.getTime());
+    fundedAt = confirmed.length > 0 ? new Date(Math.max(...confirmed)) : null;
+  }
+  const accountId = buy
+    ? (await ex.selectFrom('trader_profile').select('bank_account_id').where('id', '=', t.trader_id!).executeTakeFirst())?.bank_account_id ?? null
+    : (await sql<{ bank_account_id: string | null }>`select bank_account_id from inrp2p_trade_payout_destination(${t.id}::uuid)`.execute(ex)).rows[0]?.bank_account_id ?? null;
+  const account = accountId ? await ex.selectFrom('bank_account').select(['status', 'created_at']).where('id', '=', accountId).executeTakeFirst() : undefined;
+  const active = account?.status === 'ACTIVE';
+  const unwound = buy ? false : (await ex.selectFrom('p2p_unwind').select('trade_id').where('trade_id', '=', t.id).executeTakeFirst()) !== undefined;
+  return {
+    tradeId: t.id, ref: t.ref, clientId: t.client_id, buy, lifecycle: t.lifecycle_state, hold: t.hold, inrMinor: t.quote_inr_minor, fundedAt,
+    payeeAccountId: active ? accountId : null, payeeReadyAt: active ? account!.created_at : null, filed, everFiled: buy ? rupees.length > 0 : filed, unwound,
+  };
+}
+
+/** The deal waits for its buyer's rupees: the escrow is final, nothing is said to be sent, and the deal is live. */
+export function isPaying(s: P2pPayState): boolean {
+  const live = s.buy ? s.lifecycle === 'AWAITING_FIRST_LEG' : s.lifecycle === 'FIRST_LEG_CONFIRMED' || s.lifecycle === 'SETTLING';
+  return live && s.fundedAt !== null && !s.filed && !s.unwound;
+}
+
+export interface PayWindow {
+  readonly tradeId: string;
+  readonly openedAt: Date;
+  readonly method: InrRail;
+  readonly chosen: boolean;
+  readonly timing: P2pTiming;
+  readonly dueAt: Date;
+  readonly finalUntil: Date;
+  readonly changes: number;
+  readonly warnedAt: Date | null;
+}
+
+/** A buyer changes its method at most this many times: the choice is how it pays, not a way to buy time. */
+export const PAY_METHOD_CHANGES = 3;
+
+export async function payWindowOf(ex: Executor, tradeId: string): Promise<PayWindow | null> {
+  const w = await ex.selectFrom('p2p_pay_window').selectAll().where('trade_id', '=', tradeId).executeTakeFirst();
+  if (!w) return null;
+  return {
+    tradeId: w.trade_id, openedAt: w.opened_at, method: w.method, chosen: w.chosen_by !== null, timing: requireP2pTiming(w.timing), dueAt: w.due_at,
+    finalUntil: w.final_until, changes: w.changes, warnedAt: w.warned_at,
+  };
+}
+
+/**
+ * The window a deal opens, without opening it: what a screen shows in the minute before the deadlines run. It starts
+ * when the buyer could first see where to pay — the escrow final and the payee's account there to show — never earlier,
+ * and the same whenever the deadlines get to it. Null while the payee's account is not ready: no countdown runs then.
+ */
+export function prospectiveWindow(s: P2pPayState, timing: P2pTiming): PayWindow | null {
+  if (!s.fundedAt || !s.payeeAccountId || !s.payeeReadyAt) return null;
+  const openedAt = new Date(Math.max(s.fundedAt.getTime(), s.payeeReadyAt.getTime()));
+  const method = suggestedRail(s.inrMinor);
+  const dueAt = new Date(openedAt.getTime() + timing.pay[method] * 60_000);
+  return { tradeId: s.tradeId, openedAt, method, chosen: false, timing, dueAt, finalUntil: new Date(dueAt.getTime() + timing.finalMinutes * 60_000), changes: 0, warnedAt: null };
+}
+
+/**
+ * Opens the deal's window once (ADR 0023): from the escrow being final, with the method the amount suggests and the
+ * programme's timing as it is now. The caller holds the trade lock; a second call finds the first one's window.
+ */
+export async function openPayWindowInTx(ctx: TxContext, s: P2pPayState): Promise<PayWindow | null> {
+  const existing = await payWindowOf(ctx.tx, s.tradeId);
+  if (existing) return existing;
+  const w = prospectiveWindow(s, await programP2pTiming(ctx.tx));
+  if (!w) return null;
+  await sql`
+    insert into p2p_pay_window (trade_id, opened_at, method, timing, due_at, final_until)
+    values (${s.tradeId}::uuid, ${w.openedAt}::timestamptz, ${w.method}, ${JSON.stringify(w.timing)}::jsonb,
+            ${w.openedAt}::timestamptz + make_interval(mins => ${w.timing.pay[w.method]}),
+            ${w.openedAt}::timestamptz + make_interval(mins => ${w.timing.pay[w.method] + w.timing.finalMinutes}))
+    on conflict (trade_id) do nothing`.execute(ctx.tx);
+  return payWindowOf(ctx.tx, s.tradeId);
+}
+
+/**
+ * The buyer's time is up and it has not said it paid: it is told once, and has the final period — counted from now, so a
+ * deadline run that came late never cuts it short. The caller holds the trade lock.
+ */
+export async function warnPayWindowInTx(ctx: TxContext, w: PayWindow, now: Date): Promise<PayWindow> {
+  await sql`
+    update p2p_pay_window
+       set warned_at = ${now}::timestamptz,
+           final_until = greatest(final_until, ${now}::timestamptz + make_interval(mins => ${w.timing.finalMinutes})),
+           updated_at = ${now}::timestamptz
+     where trade_id = ${w.tradeId}::uuid and warned_at is null`.execute(ctx.tx);
+  return (await payWindowOf(ctx.tx, w.tradeId))!;
+}
+
+export type PayerSide = 'CLIENT' | 'TRADER';
+
+/**
+ * `escrow_payment.choose_method` — the buyer says how it is paying, and its window is that method's time from the escrow being
+ * final. Never longer than the slowest method's, whatever it chooses or how often (at most three times); a method whose
+ * time from the escrow is already over cannot be chosen; and once the rupees are said to be sent, the method is theirs.
+ */
+export async function choosePayMethodInTx(ctx: TxContext, input: { readonly tradeId: string; readonly payer: PayerSide; readonly userId: string; readonly method: unknown }): Promise<{ readonly method: InrRail; readonly dueAt: string; readonly finalUntil: string; readonly changed: boolean }> {
+  await lockTrade(ctx.tx, input.tradeId);
+  const s = await p2pPayState(ctx.tx, input.tradeId);
+  if (!s) throw new DomainError('NOT_FOUND', 'deal not found');
+  if ((s.buy ? 'CLIENT' : 'TRADER') !== input.payer) throw new DomainError('NOT_THE_PAYER', 'only the one who pays the rupees chooses how');
+  if (!isPaying(s)) throw new DomainError('INVALID_TRANSITION', s.filed ? 'your payment is already filed' : 'this deal is not waiting for your payment');
+  const method = requireOneOf(input.method, 'method', P2P_RAIL_ORDER);
+  const option = railOptions(s.inrMinor).find((o) => o.rail === method)!;
+  if (!option.possible) throw new DomainError('INVALID_ARGUMENT', `${option.limit} — choose another way to pay`, { field: 'method' });
+  const now = await dealNow(ctx.tx);
+  const w = await openPayWindowInTx(ctx, s);
+  if (!w) throw new DomainError('INVALID_TRANSITION', 'the seller’s account is not ready yet');
+  if (w.method === method) return { method, dueAt: w.dueAt.toISOString(), finalUntil: w.finalUntil.toISOString(), changed: false };
+  if (w.changes >= PAY_METHOD_CHANGES) throw new DomainError('P2P_METHOD_LOCKED', `the way you pay was changed ${PAY_METHOD_CHANGES} times already — pay by ${w.method}`);
+  const dueAt = new Date(w.openedAt.getTime() + w.timing.pay[method] * 60_000);
+  if (dueAt.getTime() <= now.getTime() + 60_000) {
+    throw new DomainError('P2P_METHOD_TOO_LATE', `${method}’s ${w.timing.pay[method]} minutes from the escrow are over — choose a slower way, or say you paid now`);
+  }
+  await sql`
+    update p2p_pay_window
+       set method = ${method}, chosen_by = ${requireUuid(input.userId, 'userId')}::uuid,
+           due_at = opened_at + make_interval(mins => ${w.timing.pay[method]}),
+           final_until = opened_at + make_interval(mins => ${w.timing.pay[method] + w.timing.finalMinutes}),
+           changes = changes + 1, warned_at = null, updated_at = ${now}::timestamptz
+     where trade_id = ${s.tradeId}::uuid`.execute(ctx.tx);
+  await appendAudit(ctx, { action: 'p2p.pay_method_chosen', entityType: 'trade', entityId: s.tradeId, before: { method: w.method, due_at: w.dueAt.toISOString() }, after: { method, due_at: dueAt.toISOString() } });
+  const after = (await payWindowOf(ctx.tx, s.tradeId))!;
+  return { method, dueAt: after.dueAt.toISOString(), finalUntil: after.finalUntil.toISOString(), changed: true };
+}

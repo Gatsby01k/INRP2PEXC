@@ -10,6 +10,8 @@ const config: NextConfig = {
   ],
   serverExternalPackages: ['pg', 'graphile-worker'],
   typescript: { tsconfigPath: './tsconfig.json' },
+  // ADR 0023: a receipt attached in a deal's chat is up to 3 MB; the command checks the bytes, this only lets them in.
+  experimental: { serverActions: { bodySizeLimit: '4mb' } },
 };
 
 export default config;
