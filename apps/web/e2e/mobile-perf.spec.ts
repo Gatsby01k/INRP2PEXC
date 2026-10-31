@@ -14,7 +14,8 @@ import { appBaseUrl, linkBaseUrl, resetAuthThrottle, signInAsClient, state } fro
  * The budgets are the web's own thresholds where they hold still (LCP 2.5 s and CLS 0.1 "good"), and generous where the
  * machine moves them: blocking time and a tap's answer (under 500 ms, INP's line to "poor") are CPU work, and on CI's
  * runners the same build measured the home page's blocking time anywhere from 388 to 858 ms (87 ms on an M1, whose
- * JavaScript the runners match: the spread is theirs, not the page's). They catch the regressions that cost a visitor
+ * JavaScript the runners match: the spread is theirs, not the page's), so they are judged on the fastest run, the rest
+ * on the median. They catch the regressions that cost a visitor
  * seconds — a page that waits on a far database, a script that blocks the first tap, a request per row — not the
  * milliseconds that move with the machine running the test. The model's own floor is in every number: a cold page pays the handshakes with the edge
  * and the trip to iad1 (370 ms on the 4G profile) before its first byte.
@@ -160,8 +161,10 @@ async function loads(browser: Browser, url: string, opts: { storage?: BrowserCon
     cls: median(xs.map((x) => x.cls)),
     // The worst run's shifts, printed with the numbers: the next reader can see what moved without a trace.
     worst: [...xs].sort((a, b) => b.cls - a.cls)[0]!,
-    tbt: median(xs.map((x) => x.tbt)),
-    interaction: median(xs.map((x) => x.interaction)),
+    // CPU work is judged on the fastest run: a shared machine's neighbours only ever add to it, so the fastest is the
+    // page's own cost, and a regression is in every run.
+    tbt: Math.min(...xs.map((x) => x.tbt)),
+    interaction: Math.min(...xs.map((x) => x.interaction)),
   });
   return { cold: summary(cold), warm: summary(warm) };
 }
@@ -196,7 +199,7 @@ test.afterAll(() => {
 /** One line per page and network in the run's output: the numbers the budgets were held to, for the next reader. */
 function report(name: string, network: string, r: Awaited<ReturnType<typeof loads>>) {
   const line = (k: 'cold' | 'warm') => `${k} ttfb ${r[k].ttfb} lcp ${r[k].lcp} cls ${r[k].cls} (worst ${r[k].worst.cls}) tbt ${r[k].tbt} tap ${r[k].interaction}`;
-  console.log(`mobile-perf ${name} @ ${network} (median of ${RUNS}, CPU ×${CPU_SLOWDOWN}): ${line('cold')} | ${line('warm')}`);
+  console.log(`mobile-perf ${name} @ ${network} (median of ${RUNS}, tbt and tap the fastest, CPU ×${CPU_SLOWDOWN}): ${line('cold')} | ${line('warm')}`);
   for (const k of ['cold', 'warm'] as const) {
     if (r[k].worst.cls >= 0.02) console.log(`mobile-perf ${name} @ ${network} ${k}, worst run's layout shifts:\n  ${r[k].worst.shifts.join('\n  ')}`);
   }
