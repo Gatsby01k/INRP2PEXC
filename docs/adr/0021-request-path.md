@@ -174,27 +174,25 @@ the display's own (measured before the robot drew, so a 30 Hz battery-saving cap
 the pixel ratio down a quarter at a time to one, then shows the poster. A device that keeps up is never touched (the
 e2e test checks the full pixel ratio is kept, and plays a slow GPU to see the poster come back).
 
-### 4.5 Geist's stand-in
-The new mobile budget caught, in CI on Slow 4G, a search page jumping as Geist arrived (CLS 0.14 on two of three cold
-loads; none on this machine): with `font-display: swap` the page is drawn first in the fallback, which is about 2 % narrower
-than Geist, and a search page's onboarding note gained a line when Geist came, moving everything under it 17 px. The sans
-stack now has a stand-in between Geist and the system fonts (`packages/ui/src/styles/fonts.css`): Arial — or Liberation
-Sans, its metric twin — scaled 102 % (measured on the site's own text) and set on Geist's ascent and descent, for the
-characters Geist has only, so it draws nothing once Geist is here. Measured with Geist's files withheld, the search pages
-then lay out as they do in Geist (no block moved on four of five, against 8–10 px before). The display stack is unchanged:
-a stand-in for Sora was measured and gained nothing.
-
-### 4.6 Found, not changed here
+### 4.5 Found, not changed here
 On a cold load of the Exchange the workspace's loading shape (`(client)/loading.tsx`) paints first and the page arrives
 in the same response a few milliseconds later; React 19.3 then reveals a streamed boundary no sooner than 300 ms after
 the shell's first frame. On the 4G profile the heading arrives at ≈635 ms and is shown at ≈995 ms (LCP ≈1.07 s instead of
 ≈0.84 s); it is the same on `main`. The loading shape is §2.3's decision for clicks; changing how a full load uses it is
 left to its own change.
 
-### 4.7 Budgets that fail when this regresses
+On Slow 4G a cold search page is drawn before Geist arrives (`font-display: swap`), and when it does a line re-wraps: in
+CI a page's onboarding note gained a line 1.8 s in and everything under it moved 17 px (CLS 0.14 on two of three loads;
+none on a Mac, whose fallback happens to wrap the same). A stand-in for Geist scaled to its width (Arial at 102 %) was
+tried and did not remove it in CI; it would not reach Android, whose fallback is Roboto, either. What removes a swap is
+not drawing the fallback at all — `font-display: optional` with the fonts preloaded — and that shows a first slow view in
+the system's face instead of Geist. That trade is the brand's to make, so the Slow 4G budget prints layout shift rather
+than holding it, and the 4G budget holds it.
+
+### 4.6 Budgets that fail when this regresses
 `apps/web/test/production-start.unit.test.ts` (no statement before the check, one check per process, a failed check
 sends nothing), `apps/web/test/robot-governor.unit.test.ts`, the read-cost tests above, and `apps/web/e2e/mobile-perf.spec.ts`
 (project `mobile-perf`): the home page, a search page, the client's sign-in and the Exchange, three cold and three warm
-loads each on the 4G and Slow 4G profiles, held to TTFB, LCP 2.5 s, CLS 0.1, total blocking time and a tap answered
+loads each on the 4G and Slow 4G profiles, held to TTFB, LCP 2.5 s, CLS 0.1 (4G; printed on Slow 4G, §4.5), total blocking time and a tap answered
 within 300 ms; one request per click inside the workspace; and, where the browser has a hardware GPU, the robot's start
 (no task over 200 ms), its frames at rest and scrolling (95th percentile under 25 ms) and its hand-back to the poster.

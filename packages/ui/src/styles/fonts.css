@@ -53,21 +53,3 @@
   font-display: swap;
   unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
 }
-
-/* A stand-in for the moment before Geist arrives: the system's Arial (or Liberation Sans, its metric twin), scaled to
-   Geist's width and set on Geist's vertical metrics. With `font-display: swap` a phone on a slow connection draws the
-   page in the fallback first; unmatched, text re-wrapped when Geist arrived and the page jumped under the reader — CI on
-   Slow 4G caught a search page's onboarding note gaining a line as Geist arrived, and everything under it moving down
-   17 px (CLS 0.14). The scale is measured on the site's own text (Geist runs 0.9–2.2 % wider than Arial); the overrides
-   are Geist's ascent and descent (1.005 / 0.295 em) divided by it. With it the search pages lay out in the fallback as
-   they do in Geist (no block moved on four of five, against 8–10 px before). The range is only characters Geist has,
-   so once Geist is here the stand-in draws nothing. Sora's headings were measured too, and gained nothing from one. */
-@font-face {
-  font-family: 'Geist Fallback';
-  src: local('Arial'), local('ArialMT'), local('Liberation Sans'), local('LiberationSans');
-  size-adjust: 102%;
-  ascent-override: 98.53%;
-  descent-override: 28.92%;
-  line-gap-override: 0%;
-  unicode-range: U+0020-007E, U+00A0-00AC, U+00AE-00FF, U+2013-2014, U+2018-201A, U+201C-201E, U+2022, U+2026;
-}

@@ -51,7 +51,7 @@
   --font-weight-regular: 400;
   --font-weight-medium: 500;
   --font-weight-semibold: 600;
-  --font-sans: 'Geist', 'Geist Fallback', 'Helvetica Neue', Arial, sans-serif;
+  --font-sans: 'Geist', 'Helvetica Neue', Arial, sans-serif;
   --font-mono: 'Geist Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
   --font-display: 'Sora', 'Geist', 'Helvetica Neue', Arial, sans-serif;
   --radius-control: 8px;

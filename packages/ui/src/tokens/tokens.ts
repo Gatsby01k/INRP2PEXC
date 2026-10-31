@@ -53,7 +53,7 @@ export const FONT_SIZE = {
 export const LINE_HEIGHT = { tight: '1.1', snug: '1.25', normal: '1.45' } as const;
 export const FONT_WEIGHT = { regular: '400', medium: '500', semibold: '600' } as const;
 export const FONT_FAMILY = {
-  sans: "'Geist', 'Geist Fallback', 'Helvetica Neue', Arial, sans-serif",
+  sans: "'Geist', 'Helvetica Neue', Arial, sans-serif",
   mono: "'Geist Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace",
   /** The brand's display face: page and section titles, and the figures a page is about. Never body text. */
   display: "'Sora', 'Geist', 'Helvetica Neue', Arial, sans-serif",
