@@ -135,7 +135,9 @@ Roles (`deploy/reference/postgres/01-roles.sh` shows the layout): `inrp2p_migrat
 migrations; `inrp2p_app_login` (web) is a member of `inrp2p_app`; `inrp2p_worker_login` of `inrp2p_worker` (which includes
 `inrp2p_app`); `inrp2p_readonly_login` of `inrp2p_readonly`. Every privilege is granted by the migrations; nothing runs as a
 superuser; a process connected as the owner or a superuser refuses to start (`databaseDeploymentProblems`), and the
-database itself recognises the owner (`inrp2p_is_application_session()`, migration 0027).
+database itself recognises the owner (`inrp2p_is_application_session()`, migration 0027). In the web app that check runs
+before the process's first statement rather than at its start, and nothing reaches the database until it has passed: the
+proxy — a process of its own on Vercel, at the edge — never uses the database and so never checks it (ADR 0021 §4).
 
 Pools: the web app holds two pools per instance (application and auth, 10 each by default); the worker one
 (`INRP2P_WORKER_POOL_SIZE`, default 10). Keep instances × pools below `max_connections` with headroom for the migrator

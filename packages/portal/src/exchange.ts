@@ -38,23 +38,25 @@ export interface ExchangeView {
 const SHOWN: readonly string[] = ['OPEN', 'QUOTED', 'DECLINED'];
 
 export async function exchangeView(ex: Executor, clientId: string): Promise<ExchangeView> {
-  const destinations = await clientDestinations(ex, clientId);
-
-  // The latest request of any status, and only then whether it is one to show: filtering first would reach past
-  // a request that was accepted or withdrawn to an older decline, and tell the client about it as if it were news.
-  const latest = await ex
-    .selectFrom('trade_request')
-    .select([
-      'id', 'ref', 'direction', 'fixed_side', 'requested_base_minor', 'requested_quote_minor', 'target_rate_micro',
-      'bank_account_id', 'crypto_wallet_id', 'status', 'status_reason', 'created_at',
-    ])
-    .where('client_id', '=', clientId)
-    // A deal with an independent desk (ADR 0020) has its own page; the Exchange is the INRP2P desk's conversation.
-    .where('desk_id', 'is', null)
-    .orderBy('created_at', 'desc')
-    // Two rows can share a timestamp; the id breaks the tie, so "the latest" is one row and always the same one.
-    .orderBy('id', 'desc')
-    .executeTakeFirst();
+  // The client's destinations, and — read alongside, since neither needs the other — the latest request of any status,
+  // and only then whether it is one to show: filtering first would reach past a request that was accepted or withdrawn
+  // to an older decline, and tell the client about it as if it were news.
+  const [destinations, latest] = await Promise.all([
+    clientDestinations(ex, clientId),
+    ex
+      .selectFrom('trade_request')
+      .select([
+        'id', 'ref', 'direction', 'fixed_side', 'requested_base_minor', 'requested_quote_minor', 'target_rate_micro',
+        'bank_account_id', 'crypto_wallet_id', 'status', 'status_reason', 'created_at',
+      ])
+      .where('client_id', '=', clientId)
+      // A deal with an independent desk (ADR 0020) has its own page; the Exchange is the INRP2P desk's conversation.
+      .where('desk_id', 'is', null)
+      .orderBy('created_at', 'desc')
+      // Two rows can share a timestamp; the id breaks the tie, so "the latest" is one row and always the same one.
+      .orderBy('id', 'desc')
+      .executeTakeFirst(),
+  ]);
   const request = latest && SHOWN.includes(latest.status) ? latest : undefined;
 
   // Likewise the latest quote the client was sent for it, and only then whether it is live or just ran out: an

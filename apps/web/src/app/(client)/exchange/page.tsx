@@ -1,6 +1,6 @@
-import { clientHistory, exchangeView, hasAuthenticator, workspaceAccess } from '@inrp2p/portal';
+import { clientHistory, exchangeView, hasAuthenticator } from '@inrp2p/portal';
 import { businessNow } from '@inrp2p/quotes';
-import { clientPage } from '../../../server/client.ts';
+import { clientPage, workspaceContext } from '../../../server/client.ts';
 import { PageHead } from '../_workspace/PageHead.tsx';
 import { ExchangeScreen, type RequestDraft } from './ExchangeScreen.tsx';
 import { SwapIcon } from '../_workspace/icons.tsx';
@@ -35,7 +35,7 @@ export default async function ExchangePage({ searchParams }: { searchParams: Pro
     searchParams,
     clientHistory(ctx.db, ctx.access.clientId, { limit: 6 }),
     hasAuthenticator(ctx.db, ctx.actor.userId),
-    workspaceAccess(ctx.db, ctx.actor.userId),
+    workspaceContext().then((w) => w.access),
   ]);
   const draft = draftFrom(params);
 

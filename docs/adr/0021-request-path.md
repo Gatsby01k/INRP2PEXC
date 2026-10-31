@@ -99,3 +99,102 @@ page's own (`_desk/reads.ts`); the operator's name comes with the session; Trade
   statements whatever the number of obligations; the queue's and strip's statements in flight together),
   `apps/web/test/proxy.unit.test.ts` (the proxy with no database), `apps/web/e2e/navigation.spec.ts` (a section opens
   with the server's answer held back; a tab keeps the page; one request per click; every section within budget).
+
+## 4. Addendum (2026-10-31): the proxy's own start, the workspace's frame, the public pages, the robot
+
+A production-focused audit of the public site and the client app, after §1–§3. Production was down for the whole audit
+(the Neon project over its quota), so the only production figures are the outage's own; everything else was measured
+against the built app (`next start`, the visual fixture world, `pg_stat_statements`), on a Pixel 7 profile with the CPU
+slowed four times, through a TCP proxy shaped like a phone in India reaching Vercel (`apps/web/e2e/netsim.ts`: two
+last-mile round trips to open a connection, one per request, and the Mumbai → `iad1` round trip for everything the
+edge cannot answer). The proxy is a model, not India; the figures it uses are stated there.
+
+### 4.1 The proxy still reached the database — through its own start
+§2.1 made `proxy.ts` read no database, but Next 16 runs the proxy on the Node.js runtime and registers instrumentation
+there too (`build/templates/middleware.js` → `ensureInstrumentationRegistered` → `register()`). `register()` ran the
+production start-up check, whose database half opened a connection to Neon and sent a statement — from the edge region
+nearest the visitor, on every cold proxy: TCP, the TLS request and handshake, the login and the statement, about seven
+round trips (≈0.6 s from Frankfurt, ≈1.3 s from Mumbai at §1's figures) before the proxy could classify a host. And a
+database the proxy never reads could take every surface down: during the outage every request to `www.inrp2p.com`,
+public pages included, spent 1.85–2.0 s and answered `500 MIDDLEWARE_INVOCATION_FAILED` (measured from Europe, five in a
+row), while `favicon.ico`, which skips the proxy, answered in 0.13 s.
+
+Decision: the check keeps both halves and moves one. The configuration half still runs in `register()`. The database
+half (`databaseStartCheck`) runs before the first statement a process sends: `getRuntime()` gates both pools on it
+(`createDb(pool, { ready })`, Kysely's lazily resolved pool), so nothing — not a session read, not a command — reaches the
+database until it has passed, and a failed check still exits the process before anything of the application's is sent.
+A process that never uses the database (the proxy, a public page) never checks it. A flag set by the proxy's module was
+rejected: `next start` registers instrumentation lazily on the first request, after loading the proxy, so the flag would
+have switched the check off for a whole self-hosted server. Pages that only need host names read `hostConfig()`, not
+the runtime, so the public pages and the sign-in page no longer build pools or Better Auth instances.
+
+### 4.2 The public pages stay rendered per request
+Their HTML carries the per-request CSP nonce, and it has to: Next 16.3 sends a page's data as inline scripts, which a
+strict policy allows only by nonce or hash. A cached page would replay one nonce to everyone (no nonce at all);
+experimental SRI hashes only the external scripts; and a hash of each inline script would have to be in the header
+before the page is rendered. So the HTML is not cached and the CSP is unchanged. What changes is that the public pages
+no longer touch the database anywhere — not in the proxy, not in their function — so a cold start does not wait for
+Neon and a database outage no longer takes the public site down. Their server time is small (TTFB 5–16 ms on loopback);
+the cost a visitor in India pays is the round trip to `iad1` (≈190 ms on every page view). Rendering the public segments
+nearer (a `preferredRegion` of their own, now that they need no database) is a deployment decision left open here.
+
+### 4.3 The client workspace reads once, together
+- Who is asking is one statement (`workspaceAccess`: the user, their membership and its client joined; all unique), and
+  it is read once per request: `clientContext` holds the frame's `workspaceContext` to the Exchange's gate instead of
+  reading it again, and Exchange, Bank & wallets and Account no longer read it a third time for the email.
+- The frame's own reads — inbox, payment hold, the trader's standing with its desk (one join), desks dealt with — go out
+  together (`server/workspace-frame.ts`): one round trip, not five.
+- The Exchange screen reads the destinations (banks and wallets) and the latest request together, and a quote's
+  destination and network fee together.
+
+Measured on the built app: an Exchange load (with the prefetches it triggers) 22–23 → 17–18 statements; a click from
+History to the Exchange 16 → 13. With the database 3 ms away, as `iad1` is from Neon, the Exchange's whole response took
+39 → 29 ms (cold) and 42 → 32 ms (warm); 10 ms away, 121 → 81 ms and 125 → 84 ms — about twelve database round trips in
+a row before, seven and a half after. Budgets: `packages/portal/test/read-cost.int.test.ts`,
+`apps/web/test/workspace-frame.int.test.ts`. No index was added: each of these reads is served by a unique key or an index that
+exists (`client_user_user_id_key`, `client_notification_unread`, `trader_profile_client_id_key`, `desk_trader_id_key`,
+`desk_client_client_idx`, `bank_account_client_idx`, `crypto_wallet_client_idx`, `trade_request_client_idx`,
+`quote_request_idx`, `quote_network_fee_pkey`), and the slowest of the seventeen took 0.31 ms (`pg_stat_statements`):
+the cost was the round trips, not the plans.
+
+### 4.4 The robot starts in steps
+On the phone profile the live robot used to start in one task of 330–338 ms (135 ms on a desktop), at about the moment
+people start to touch the page: the figure's geometry, the renderer, the studio's reflections and the programs, all at
+once. It now starts a step per task — the display's frame rate, the body, the arms, the head, the headset, the renderer
+and reflections, the programs — the same parts in the same order (`figureSteps`; `buildFigure` still builds at once for
+the poster scripts). Measured in a GPU-backed Chromium: the robot's own blocking time 280 → 34–50 ms, its longest task
+330–338 → 84–100 ms (phone profile); 85 → 0 ms with no long task (desktop). The home page's total blocking time 333–353 →
+92 ms (with a GPU), 353 → 265 ms (without one, where the robot stays the poster). Frames at rest and while scrolling held
+16.7 ms at the 95th percentile on this GPU before and after.
+
+The robot also stays the still image on a connection the browser rates 3G or slower (its code is about 150 KB
+compressed), production builds skip three's per-program shader logs (synchronous calls into the GPU process), and a
+device whose GPU cannot keep up hands back to the still image by itself: `governor.ts` watches the robot's frames against
+the display's own (measured before the robot drew, so a 30 Hz battery-saving cap is not mistaken for a slow GPU), steps
+the pixel ratio down a quarter at a time to one, then shows the poster. A device that keeps up is never touched (the
+e2e test checks the full pixel ratio is kept, and plays a slow GPU to see the poster come back).
+
+### 4.5 Found, not changed here
+On a cold load of the Exchange the workspace's loading shape (`(client)/loading.tsx`) paints first and the page arrives
+in the same response a few milliseconds later; React 19.3 then reveals a streamed boundary no sooner than 300 ms after
+the shell's first frame. On the 4G profile the heading arrives at ≈635 ms and is shown at ≈995 ms (LCP ≈1.07 s instead of
+≈0.84 s); it is the same on `main`. The loading shape is §2.3's decision for clicks; changing how a full load uses it is
+left to its own change.
+
+On Slow 4G a cold search page is drawn before Geist arrives (`font-display: swap`), and when it does a line re-wraps: in
+CI a page's onboarding note gained a line 1.8 s in and everything under it moved 17 px (CLS 0.14 on two of three loads;
+none on a Mac, whose fallback happens to wrap the same). A stand-in for Geist scaled to its width (Arial at 102 %) was
+tried and did not remove it in CI; it would not reach Android, whose fallback is Roboto, either. What removes a swap is
+not drawing the fallback at all — `font-display: optional` with the fonts preloaded — and that shows a first slow view in
+the system's face instead of Geist. That trade is the brand's to make, so the Slow 4G budget prints layout shift rather
+than holding it, and the 4G budget holds it.
+
+### 4.6 Budgets that fail when this regresses
+`apps/web/test/production-start.unit.test.ts` (no statement before the check, one check per process, a failed check
+sends nothing), `apps/web/test/robot-governor.unit.test.ts`, the read-cost tests above, and `apps/web/e2e/mobile-perf.spec.ts`
+(project `mobile-perf`; the CPU calibrated per machine to an M1 slowed four times): the home page, a search page, the
+client's sign-in and the Exchange, three cold and three warm loads each on the 4G and Slow 4G profiles, held to TTFB,
+LCP 2.5 s, CLS 0.1 (4G; printed on Slow 4G, §4.5), and — generously, because CI's runners moved the same build's home
+page between 388 and 858 ms of blocking time — total blocking time and a tap answered within 500 ms, both judged on the
+fastest of the runs (a busy machine only adds to them; a regression is in every run); one request per click inside the workspace; and, where the browser has a hardware GPU, the robot's start
+(no task over 200 ms), its frames at rest and scrolling (95th percentile under 25 ms) and its hand-back to the poster.

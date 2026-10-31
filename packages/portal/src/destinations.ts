@@ -51,8 +51,9 @@ export async function clientDestinations(ex: Executor, clientId: string, opts: {
     wallets = wallets.where('status', '=', 'ACTIVE');
   }
 
+  const [bankRows, walletRows] = await Promise.all([banks.execute(), wallets.execute()]);
   return clientSafe({
-    banks: (await banks.execute()).map((b) => ({
+    banks: bankRows.map((b) => ({
       id: b.id,
       bankName: b.bank_name,
       ifsc: b.ifsc,
@@ -62,7 +63,7 @@ export async function clientDestinations(ex: Executor, clientId: string, opts: {
       status: b.status,
       verified: b.verified_at !== null,
     })),
-    wallets: (await wallets.execute()).map((w) => ({
+    wallets: walletRows.map((w) => ({
       id: w.id,
       network: w.network,
       address: w.address,

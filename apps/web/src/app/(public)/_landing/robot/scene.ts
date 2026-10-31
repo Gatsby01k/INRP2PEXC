@@ -2,7 +2,8 @@ import { NeutralToneMapping, PCFShadowMap, PerspectiveCamera, Raycaster, SRGBCol
 import type { Direction } from '@inrp2p/kernel';
 import { type LookAngles, type LookTarget, type Pose, REST_POSE, RobotBehaviour } from './behaviour.ts';
 import { type RobotMood, robotCues } from './cues.ts';
-import { HEAD_CENTRE, buildFigure } from './figure.ts';
+import { type Figure, HEAD_CENTRE, figureSteps } from './figure.ts';
+import { FrameGovernor, displayPeriod } from './governor.ts';
 import { studio } from './studio.ts';
 
 /**
@@ -70,19 +71,40 @@ export interface RobotSceneOptions {
   readonly pose?: Pose;
   /** After the first frames are drawn — called in the same task, so the drawing buffer can still be read. */
   readonly onFirstFrame?: () => void;
-  /** The GPU took the context away; the caller shows the still robot again. */
+  /** The GPU took the context away, or cannot draw the robot in time (`governor.ts`); the caller shows the still robot again. */
   readonly onLost?: () => void;
 }
 
+/**
+ * The robot is assembled in steps, each its own task, so the page can answer a tap between them: a phone used to spend
+ * a third of a second in one task here, at about the moment people start to touch the page. `scheduler.yield` keeps the
+ * robot's place in line where the browser has it.
+ */
+function nextTask(): Promise<void> {
+  const scheduler = (globalThis as { scheduler?: { yield?: () => Promise<void> } }).scheduler;
+  return scheduler?.yield ? scheduler.yield() : new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+/**
+ * Three asks the driver for every program's logs when it first uses it — three synchronous calls into the GPU process
+ * per program. A production build has no use for the logs: its shaders are the ones development, the poster and the
+ * robot's sheet already compiled.
+ */
+const CHECK_SHADER_ERRORS = !(typeof process !== 'undefined' && process.env.NODE_ENV === 'production');
+
 export class RobotScene {
   private readonly options: RobotSceneOptions;
-  private readonly renderer: WebGLRenderer;
   private readonly scene = new Scene();
   private readonly camera = new PerspectiveCamera(CAMERA_FOV, 1, 0.1, 40);
   private readonly timer = new Timer();
-  private readonly figure = buildFigure();
-  private readonly lighting: ReturnType<typeof studio>;
   private readonly behaviour: RobotBehaviour;
+  /** Made by `start`, in turn; until then there is nothing to draw with. */
+  private renderer: WebGLRenderer | null = null;
+  private figure: Figure | null = null;
+  private lighting: ReturnType<typeof studio> | null = null;
+  private resize: ResizeObserver | null = null;
+  private governor: FrameGovernor | null = null;
+  private lastFrame = 0;
   private readonly targets = new Map<LookTarget, Element>();
   /** When each target missing from the page may next be looked for. */
   private readonly missingUntil = new Map<LookTarget, number>();
@@ -90,7 +112,6 @@ export class RobotScene {
   private readonly entryHeld = { pointer: false, focus: false };
   /** Where a mouse last was on screen, and when it got there. */
   private readonly pointer = { x: 0, y: 0, at: Number.NEGATIVE_INFINITY };
-  private readonly resize: ResizeObserver;
   private readonly unsubscribe: () => void;
   private readonly ray = new Raycaster();
   private readonly ndc = new Vector2();
@@ -107,20 +128,6 @@ export class RobotScene {
   constructor(options: RobotSceneOptions) {
     this.options = options;
     const { canvas } = options;
-    this.renderer = new WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    this.renderer.setClearColor(0x000000, 0);
-    this.renderer.outputColorSpace = SRGBColorSpace;
-    // Khronos PBR Neutral keeps the brand orange the orange it was specified as.
-    this.renderer.toneMapping = NeutralToneMapping;
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = PCFShadowMap;
-
-    this.lighting = studio(this.renderer);
-    this.scene.environment = this.lighting.environment;
-    this.scene.environmentIntensity = 0.85;
-    this.scene.add(...this.lighting.lights, this.figure.root);
-
     this.camera.position.copy(CAMERA_POSITION);
     this.camera.lookAt(CAMERA_TARGET);
 
@@ -144,26 +151,81 @@ export class RobotScene {
     if (!options.still) window.addEventListener('pointermove', this.onPointer, { passive: true });
 
     this.timer.connect(document);
+    void this.start();
+  }
+
+  /**
+   * The robot, assembled a step per task: how fast this display draws (before anything of ours does), the figure's
+   * geometry, then the renderer and the studio's reflections, then every program — compiled before the first visible
+   * frame, off the main thread where the driver allows. A dispose between two steps stops it there.
+   */
+  private async start(): Promise<void> {
+    const { canvas, still } = this.options;
+    const period = still ? 0 : await displayPeriod();
+    if (this.disposed) return;
+
+    // The figure's geometry, a part per task.
+    const steps = figureSteps();
+    let step = steps.next();
+    while (!step.done) {
+      await nextTask();
+      if (this.disposed) return;
+      step = steps.next();
+    }
+    const figure = step.value;
+    this.figure = figure;
+    await nextTask();
+    if (this.disposed) return this.release();
+
+    const renderer = new WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'high-performance' });
+    this.renderer = renderer;
+    renderer.debug.checkShaderErrors = CHECK_SHADER_ERRORS;
+    const ratio = Math.min(window.devicePixelRatio, 2);
+    renderer.setPixelRatio(ratio);
+    renderer.setClearColor(0x000000, 0);
+    renderer.outputColorSpace = SRGBColorSpace;
+    // Khronos PBR Neutral keeps the brand orange the orange it was specified as.
+    renderer.toneMapping = NeutralToneMapping;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = PCFShadowMap;
+
+    this.lighting = studio(renderer);
+    this.scene.environment = this.lighting.environment;
+    this.scene.environmentIntensity = 0.85;
+    this.scene.add(...this.lighting.lights, figure.root);
+    if (!still) this.governor = new FrameGovernor({ period, ratio });
+
     this.resize = new ResizeObserver(() => this.fit());
     this.resize.observe(canvas);
     this.fit();
+    await nextTask();
+    if (this.disposed) return this.release();
 
-    // Compile every program before the first visible frame, off the main thread where the driver allows, so
-    // the robot arrives without the page stuttering.
-    this.compiling = this.renderer.compileAsync(this.scene, this.camera).then(
+    this.compiling = renderer.compileAsync(this.scene, this.camera).then(
       () => {
         this.compiling = null;
-        if (this.disposed) return;
+        if (this.disposed) return this.release();
         this.compiled = true;
-        if (options.still || this.active) this.draw(performance.now());
-        if (this.active && !options.still) this.loop();
+        if (still || this.active) this.draw(performance.now());
+        if (this.active && !still) this.loop();
       },
       // A context lost while compiling: the still robot is already on screen, so it simply stays.
       () => {
         this.compiling = null;
-        if (!this.disposed) options.onLost?.();
+        if (this.disposed) return this.release();
+        this.options.onLost?.();
       },
     );
+  }
+
+  /** Whatever `start` had made by now, given back — once nothing is still using it. Safe to call twice. */
+  private release(): void {
+    this.figure?.dispose();
+    this.lighting?.dispose();
+    this.renderer?.dispose();
+    this.figure = null;
+    this.lighting = null;
+    this.renderer = null;
   }
 
   /** Off screen, nothing is drawn and nothing is spent. */
@@ -174,6 +236,8 @@ export class RobotScene {
     if (!active && this.raf !== 0) {
       cancelAnimationFrame(this.raf);
       this.raf = 0;
+      this.lastFrame = 0;
+      this.governor?.pause();
     }
   }
 
@@ -182,7 +246,7 @@ export class RobotScene {
     this.disposed = true;
     if (this.raf !== 0) cancelAnimationFrame(this.raf);
     this.raf = 0;
-    this.resize.disconnect();
+    this.resize?.disconnect();
     this.unsubscribe();
     if (this.entry) {
       for (const type of ENTRY_EVENTS) this.entry.removeEventListener(type, this.onEntry);
@@ -191,14 +255,9 @@ export class RobotScene {
     this.options.canvas.removeEventListener('webglcontextlost', this.onContextLost);
     window.removeEventListener('pointermove', this.onPointer);
     this.timer.dispose();
-    // Programs still compiling belong to the driver until it answers; release them once it has.
-    const release = () => {
-      this.figure.dispose();
-      this.lighting.dispose();
-      this.renderer.dispose();
-    };
-    if (this.compiling) void this.compiling.then(release, release);
-    else release();
+    // Programs still compiling belong to the driver until it answers: the compile's own callback releases them. A
+    // step of `start` still waiting for its task does the same when it wakes.
+    if (!this.compiling && (this.compiled || this.renderer === null)) this.release();
   }
 
   /** Pointer and keyboard count the same; the robot looks while either is on the entry. */
@@ -221,16 +280,34 @@ export class RobotScene {
     this.raf = requestAnimationFrame((now) => {
       this.raf = 0;
       if (!this.active || this.disposed) return;
+      if (!this.govern(now)) return;
       this.draw(now);
       this.loop();
     });
   };
 
+  /** The frame budget (`governor.ts`): false when the robot hands back to the still one. */
+  private govern(now: number): boolean {
+    const interval = this.lastFrame ? now - this.lastFrame : 0;
+    this.lastFrame = now;
+    const verdict = this.governor?.frame(interval);
+    if (verdict?.kind === 'ratio' && this.renderer) {
+      this.renderer.setPixelRatio(verdict.ratio);
+      this.fit();
+    }
+    if (verdict?.kind !== 'still') return true;
+    this.setActive(false);
+    this.options.onLost?.();
+    return false;
+  }
+
   private draw(now: number): void {
+    const { renderer, figure } = this;
+    if (!renderer || !figure) return;
     this.timer.update(now);
     this.canvasRect = null;
-    this.figure.apply(this.options.still ? (this.options.pose ?? REST_POSE) : this.pose());
-    this.renderer.render(this.scene, this.camera);
+    figure.apply(this.options.still ? (this.options.pose ?? REST_POSE) : this.pose());
+    renderer.render(this.scene, this.camera);
     // A live robot is revealed once its motion has started (two frames); a still one as soon as it exists.
     const reveal = this.options.still ? 1 : 2;
     if (this.frame < reveal && ++this.frame === reveal) this.options.onFirstFrame?.();
@@ -290,7 +367,7 @@ export class RobotScene {
 
   private fit(): void {
     const { clientWidth: w, clientHeight: h } = this.options.canvas;
-    if (w === 0 || h === 0) return;
+    if (w === 0 || h === 0 || !this.renderer) return;
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();

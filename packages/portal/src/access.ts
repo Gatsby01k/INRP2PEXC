@@ -33,28 +33,34 @@ export type WorkspaceAccess =
   | { readonly kind: 'NEW'; readonly userId: string; readonly email: string };
 
 export async function workspaceAccess(ex: Executor, userId: string): Promise<WorkspaceAccess> {
-  const user = await ex.selectFrom('auth_user').select(['email', 'kind', 'status']).where('id', '=', userId).executeTakeFirst();
-  if (!user || user.kind !== 'CLIENT' || user.status !== 'ACTIVE') throw new DomainError('FORBIDDEN', 'this account cannot use the workspace');
+  // The user and their membership in one statement: a user has at most one membership and a membership one client
+  // (both unique), so the joins add no rows — they only save the second round trip.
   const row = await ex
-    .selectFrom('client_user as cu')
-    .innerJoin('client as c', 'c.id', 'cu.client_id')
-    .select(['cu.client_id', 'cu.role', 'cu.can_accept_quotes', 'cu.status', 'c.display_name', 'c.status as client_status', 'c.exchange_access'])
-    .where('cu.user_id', '=', userId)
+    .selectFrom('auth_user as u')
+    .leftJoin('client_user as cu', 'cu.user_id', 'u.id')
+    .leftJoin('client as c', 'c.id', 'cu.client_id')
+    .select([
+      'u.email', 'u.kind', 'u.status',
+      'cu.client_id', 'cu.role', 'cu.can_accept_quotes', 'cu.status as member_status',
+      'c.display_name', 'c.status as client_status', 'c.exchange_access',
+    ])
+    .where('u.id', '=', userId)
     .executeTakeFirst();
-  if (!row) return { kind: 'NEW', userId, email: user.email };
-  if (row.status !== 'ACTIVE') throw new DomainError('FORBIDDEN', 'this account is not linked to a client');
+  if (!row || row.kind !== 'CLIENT' || row.status !== 'ACTIVE') throw new DomainError('FORBIDDEN', 'this account cannot use the workspace');
+  if (row.client_id === null) return { kind: 'NEW', userId, email: row.email };
+  if (row.member_status !== 'ACTIVE') throw new DomainError('FORBIDDEN', 'this account is not linked to a client');
   if (row.client_status !== 'ACTIVE') throw new DomainError('FORBIDDEN', 'this client is not active');
   return {
     kind: 'MEMBER',
     userId,
-    email: user.email,
+    email: row.email,
     member: {
       userId,
       clientId: row.client_id,
-      clientName: row.display_name,
-      role: row.role,
-      canAcceptQuotes: row.can_accept_quotes,
-      exchangeAccess: row.exchange_access,
+      clientName: row.display_name!,
+      role: row.role!,
+      canAcceptQuotes: row.can_accept_quotes!,
+      exchangeAccess: row.exchange_access!,
     },
   };
 }
@@ -65,7 +71,11 @@ export async function workspaceAccess(ex: Executor, userId: string): Promise<Wor
  * into a way to Traders rather than an error.
  */
 export async function portalAccess(ex: Executor, userId: string): Promise<PortalAccess> {
-  const access = await workspaceAccess(ex, userId);
+  return exchangeMember(await workspaceAccess(ex, userId));
+}
+
+/** The same gate, over access already read for this request — so a page inside the workspace does not read it twice. */
+export function exchangeMember(access: WorkspaceAccess): PortalAccess {
   if (access.kind !== 'MEMBER') throw new DomainError('EXCHANGE_NOT_ENABLED', 'this account is not linked to a client');
   if (!access.member.exchangeAccess) throw new DomainError('EXCHANGE_NOT_ENABLED', 'the Exchange is not open for this account');
   return access.member;

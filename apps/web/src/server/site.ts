@@ -1,7 +1,7 @@
 import 'server-only';
 import { headers } from 'next/headers';
 import { ONBOARDING } from '../content/site.ts';
-import { getRuntime } from './runtime.ts';
+import { hostConfig } from './hosts.ts';
 import { optionalEnv } from './env.ts';
 
 /**
@@ -14,7 +14,7 @@ import { optionalEnv } from './env.ts';
 export async function publicOrigin(): Promise<string> {
   const configured = optionalEnv('PUBLIC_BASE_URL');
   if (configured) return configured.replace(/\/+$/, '');
-  const host = getRuntime().hosts.publicHost;
+  const host = hostConfig().publicHost;
   // http only for a local harness, which binds a port and has no certificate; a named host is always https.
   const scheme = host.startsWith('127.0.0.1') || host.startsWith('localhost') ? 'http' : 'https';
   return `${scheme}://${host}`;
@@ -24,7 +24,7 @@ export async function publicOrigin(): Promise<string> {
 export function appOrigin(): string {
   const configured = optionalEnv('CLIENT_BASE_URL');
   if (configured) return configured.replace(/\/+$/, '');
-  const host = getRuntime().hosts.appHost;
+  const host = hostConfig().appHost;
   const scheme = host.startsWith('127.0.0.1') || host.startsWith('localhost') ? 'http' : 'https';
   return `${scheme}://${host}`;
 }

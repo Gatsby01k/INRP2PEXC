@@ -6,7 +6,7 @@ import { isDomainError } from '@inrp2p/kernel';
 import type { ActorRef, Db } from '@inrp2p/db';
 import { executeCommand, limitFinancialMutations } from '@inrp2p/commands';
 import { type ClientActor, type ClientSession, type DomainCommand, clientSession } from '@inrp2p/identity';
-import { type PortalAccess, type WorkspaceAccess, portalAccess, workspaceAccess } from '@inrp2p/portal';
+import { type PortalAccess, type WorkspaceAccess, exchangeMember, workspaceAccess } from '@inrp2p/portal';
 import type { QuoteDeps } from '@inrp2p/quotes';
 import { getRuntime } from './runtime.ts';
 import { quoteDepsForWeb } from './quotes.ts';
@@ -36,11 +36,14 @@ const sessionOfRequest = cache(async (): Promise<ClientSession> => {
   return clientSession(rt.clientAuth, rt.appDb, await headers());
 });
 
-/** The client user behind the current request. The client id comes from the membership, never from the URL. */
+/**
+ * The client user behind the current request. The client id comes from the membership, never from the URL. The
+ * membership is the one the workspace frame read for this same request (`workspaceContext`), held to the Exchange's
+ * gate — not read a second time.
+ */
 export const clientContext = cache(async (): Promise<ClientContext> => {
-  const rt = getRuntime();
-  const { actor, stepUpFresh } = await sessionOfRequest();
-  return { actor, db: rt.appDb, access: await portalAccess(rt.appDb, actor.userId), stepUpFresh };
+  const [{ stepUpFresh }, ws] = await Promise.all([sessionOfRequest(), workspaceContext()]);
+  return { actor: ws.actor, db: ws.db, access: exchangeMember(ws.access), stepUpFresh };
 });
 
 const SIGN_IN_CODES = ['UNAUTHENTICATED', 'SESSION_IDLE_TIMEOUT', 'SESSION_SURFACE_MISMATCH'];
