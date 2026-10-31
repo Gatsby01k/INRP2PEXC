@@ -11,10 +11,12 @@ import { appBaseUrl, linkBaseUrl, resetAuthThrottle, signInAsClient, state } fro
  * round trip on to the functions in iad1 for everything the edge cannot answer itself). Each page is loaded cold — a
  * new browser, nothing cached — and then warm, several times, and judged on the median.
  *
- * The budgets are the web's own thresholds where it has them (LCP 2.5 s and CLS 0.1 "good", an interaction answered
- * within 300 ms), and generous where it does not: they catch the regressions that cost a visitor seconds — a page that
- * waits on a far database, a script that blocks the first tap, a request per row — not milliseconds that move with
- * the machine running the test. The model's own floor is in every number: a cold page pays the handshakes with the edge
+ * The budgets are the web's own thresholds where they hold still (LCP 2.5 s and CLS 0.1 "good"), and generous where the
+ * machine moves them: blocking time and a tap's answer (under 500 ms, INP's line to "poor") are CPU work, and on CI's
+ * runners the same build measured the home page's blocking time anywhere from 388 to 858 ms (87 ms on an M1, whose
+ * JavaScript the runners match: the spread is theirs, not the page's). They catch the regressions that cost a visitor
+ * seconds — a page that waits on a far database, a script that blocks the first tap, a request per row — not the
+ * milliseconds that move with the machine running the test. The model's own floor is in every number: a cold page pays the handshakes with the edge
  * and the trip to iad1 (370 ms on the 4G profile) before its first byte.
  */
 test.describe.configure({ mode: 'serial' });
@@ -24,8 +26,8 @@ const RUNS = Number.parseInt(process.env.PERF_RUNS ?? '3', 10);
 /**
  * How much to slow this machine's CPU so it plays the same phone wherever the suite runs. The budgets were set on an
  * Apple M1 slowed four times (Lighthouse's own mobile factor, a mid-range phone), where `benchmark` takes this long; a
- * slower machine — a shared CI runner — is slowed less, as Lighthouse's `benchmarkIndex` would advise, so a blocking-time
- * budget measures the page and not the runner. `PERF_CPU_SLOWDOWN` fixes the factor instead.
+ * slower machine is slowed less, as Lighthouse's `benchmarkIndex` would advise. (CI's runners run it as fast as an M1,
+ * and are slowed four times too.) `PERF_CPU_SLOWDOWN` fixes the factor instead.
  */
 const REFERENCE_BENCHMARK_MS = 28;
 const REFERENCE_SLOWDOWN = 4;
@@ -210,14 +212,14 @@ const PAGES = [
       await page.locator('[data-robot-target="toggle"] button').nth(1).click();
       await page.locator('[data-robot-target="amount"] input').fill('2500');
     },
-    tbt: 800,
+    tbt: 1200,
     networks: ['india-4g', 'india-slow-4g'] as NetworkName[],
   },
   {
     name: 'a search page',
     url: (n: NetworkName) => `${shaped(linkBaseUrl(), n)}/usdt-to-inr`,
     ready: (page: Page) => expect(page.getByRole('heading', { level: 1 })).toBeVisible(),
-    tbt: 400,
+    tbt: 600,
     networks: ['india-4g', 'india-slow-4g'] as NetworkName[],
   },
   {
@@ -225,7 +227,7 @@ const PAGES = [
     url: (n: NetworkName) => `${shaped(appBaseUrl(), n)}/sign-in`,
     ready: (page: Page) => expect(page.getByLabel('Email', { exact: true })).toBeVisible(),
     interact: (page: Page) => page.getByLabel('Email', { exact: true }).fill('someone@example.test'),
-    tbt: 400,
+    tbt: 600,
     networks: ['india-4g'] as NetworkName[],
   },
   {
@@ -238,7 +240,7 @@ const PAGES = [
       await page.locator('button[aria-haspopup="dialog"]').first().click();
       await page.keyboard.press('Escape');
     },
-    tbt: 400,
+    tbt: 600,
     networks: ['india-4g', 'india-slow-4g'] as NetworkName[],
   },
 ];
@@ -267,8 +269,8 @@ for (const p of PAGES) {
       expect(r.warm.cls).toBeLessThan(0.1);
       expect(r.cold.tbt).toBeLessThan(p.tbt);
       if (p.interact) {
-        expect(r.cold.interaction).toBeLessThan(300);
-        expect(r.warm.interaction).toBeLessThan(300);
+        expect(r.cold.interaction).toBeLessThan(500);
+        expect(r.warm.interaction).toBeLessThan(500);
       }
     });
   }
