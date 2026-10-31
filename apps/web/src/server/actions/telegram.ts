@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { telegramFromEnv } from '@inrp2p/adapters';
-import { revokeTelegramLink, startTelegramLink } from '@inrp2p/clients';
+import { enableTelegramAlerts, revokeTelegramLink, startTelegramLink } from '@inrp2p/clients';
 import type { CommandResult } from '../command.ts';
 import { runWorkspaceCommand } from '../client.ts';
 
@@ -29,6 +29,16 @@ export async function startTelegramLinkAction(key: string): Promise<CommandResul
 
 export async function revokeTelegramLinkAction(key: string): Promise<CommandResult<{ revoked: number }>> {
   const out = await runWorkspaceCommand((ctx) => revokeTelegramLink(ctx.actor), {}, { name: 'telegram_link.revoke', idempotencyKey: key, financial: false });
+  if (out.ok) revalidatePath('/', 'layout');
+  return out;
+}
+
+/**
+ * ADR 0026: alerts on, in the Telegram the person linked to sign in with — no code to send, the link already proved the
+ * chat is theirs. Turning them off is `revokeTelegramLinkAction`; the sign-in stays.
+ */
+export async function enableTelegramAlertsAction(key: string): Promise<CommandResult<{ enabled: true }>> {
+  const out = await runWorkspaceCommand((ctx) => enableTelegramAlerts(ctx.actor), {}, { name: 'telegram_link.enable', idempotencyKey: key, financial: false });
   if (out.ok) revalidatePath('/', 'layout');
   return out;
 }

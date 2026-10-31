@@ -64,29 +64,36 @@ export function clientOtpSender(): EmailOtpSender {
   // retried request is the same email — and errors that never carry the code, the address or the key.
   const resend = new ResendEmailClient({ apiKey, from, ...(optionalEnv('RESEND_BASE_URL') ? { baseUrl: optionalEnv('RESEND_BASE_URL')! } : {}) });
   return {
-    send: async ({ email, otp }) => {
+    send: async ({ email, otp, type, purpose }) => {
+      // ADR 0026: a code that confirms a change says what it confirms (a fixed sentence, never anything a page sent).
+      const stepUp = type === 'step-up';
+      const lines = stepUp
+        ? {
+            subject: 'Your INRP2P Exchange confirmation code',
+            label: 'Confirmation code',
+            body: [`Your confirmation code is: ${otp}`, '', `It confirms that you want to ${purpose ?? 'confirm a change in your workspace'}.`, 'This code expires in 5 minutes.', '', 'Never share it. If you did not ask for it, someone may have your session: sign out of devices you do not recognise and contact the desk.'],
+            note: 'This code expires in 5 minutes. Never share it — INRP2P never asks for it. If you did not ask for it, contact the desk.',
+          }
+        : {
+            subject: 'Your INRP2P Exchange sign-in code',
+            label: 'Sign-in code',
+            body: [`Your sign-in code is: ${otp}`, '', 'This code expires in 10 minutes.', '', 'If you did not request this code, you can ignore this email.'],
+            note: 'This code expires in 10 minutes. If you did not request this code, you can ignore this email.',
+          };
       await resend.send(
         {
           to: email,
-          subject: 'Your INRP2P Exchange sign-in code',
-          text: [
-            'INRP2P Exchange',
-            '',
-            `Your sign-in code is: ${otp}`,
-            '',
-            'This code expires in 10 minutes.',
-            '',
-            'If you did not request this code, you can ignore this email.',
-          ].join('\n'),
-          html: signInHtml(otp),
+          subject: lines.subject,
+          text: ['INRP2P Exchange', '', ...lines.body].join('\n'),
+          html: codeHtml(otp, lines.label, lines.note),
         },
-        `client-sign-in/${randomUUID()}`,
+        `client-${stepUp ? 'step-up' : 'sign-in'}/${randomUUID()}`,
       );
     },
   };
 }
 
-function signInHtml(otp: string): string {
+function codeHtml(otp: string, label: string, note: string): string {
   return `
             <!doctype html>
             <html>
@@ -122,7 +129,7 @@ function signInHtml(otp: string): string {
                       color:#6B6F77;
                       margin-bottom:12px;
                     ">
-                      Sign-in code
+                      ${label}
                     </div>
 
                     <div style="
@@ -140,8 +147,7 @@ function signInHtml(otp: string): string {
                       line-height:1.6;
                       color:#6B6F77;
                     ">
-                      This code expires in 10 minutes.
-                      If you did not request this code, you can ignore this email.
+                      ${note}
                     </div>
                   </div>
 

@@ -1,7 +1,8 @@
 import { redirect } from 'next/navigation';
 import { deskToday, deskWorkspace } from '@inrp2p/traders';
-import { telegramLinkOf } from '@inrp2p/clients';
+import { telegramLinkOf, telegramOf } from '@inrp2p/clients';
 import { telegramFromEnv } from '@inrp2p/adapters';
+import { telegramLoginConfigured } from '../../../server/runtime.ts';
 import { memberPage } from '../../../server/client.ts';
 import { publicOrigin } from '../../../server/site.ts';
 import { OpenDesk } from './OpenDesk.tsx';
@@ -21,6 +22,20 @@ export default async function DeskPage() {
   const origin = await publicOrigin();
   const host = origin.replace(/^https?:\/\//, '');
   if (ws.state === 'NO_DESK') return <OpenDesk canAdmin={ws.canAdmin} host={host} clientName={ctx.member.clientName} />;
-  const [today, telegram] = await Promise.all([deskToday(ctx.db, ctx.actor.userId), telegramLinkOf(ctx.db, ctx.actor.userId)]);
-  return <TodayScreen today={today} host={host} canAdmin={ws.canAdmin} canCommit={ws.canCommit} telegram={{ view: telegram, botConfigured: telegramFromEnv() !== null }} />;
+  // ADR 0026: with Log In with Telegram set up, the desk's alerts card is the person's Telegram card (sign-in, codes, alerts).
+  const login = telegramLoginConfigured();
+  const [today, alerts, telegram] = await Promise.all([
+    deskToday(ctx.db, ctx.actor.userId),
+    login ? Promise.resolve(null) : telegramLinkOf(ctx.db, ctx.actor.userId),
+    login ? telegramOf(ctx.db, ctx.actor.userId, true) : Promise.resolve(null),
+  ]);
+  return (
+    <TodayScreen
+      today={today}
+      host={host}
+      canAdmin={ws.canAdmin}
+      canCommit={ws.canCommit}
+      telegram={telegram ? { mode: 'LOGIN', view: telegram } : { mode: 'ALERTS', view: alerts!, botConfigured: telegramFromEnv() !== null }}
+    />
+  );
 }

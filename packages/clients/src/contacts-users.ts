@@ -112,7 +112,7 @@ export function setCanAcceptQuotes(actor: ClientDataActor) {
   return clientDataCommand(
     actor,
     'client_user:grant_accept_quotes',
-    { stepUp: true },
+    { stepUp: true, purpose: 'TEAM' },
     async (ctx, p: { clientUserId: string; canAcceptQuotes: boolean }) => {
       const row = await ctx.tx.selectFrom('client_user').select('client_id').where('id', '=', requireUuid(p.clientUserId, 'clientUserId')).executeTakeFirst();
       if (!row) throw new DomainError('NOT_FOUND', 'client user not found');
@@ -150,15 +150,35 @@ export function setClientUserStatus(actor: OperatorActor) {
  * authenticator is removed (TD-11): the client surface offers no "disable" and no way to show the secret again, so a
  * lost factor is recovered by the desk after confirming who is asking out of band — never by a public bypass. Every
  * session of that user is ended with it; the user signs in again and sets up a new authenticator.
+ *
+ * ADR 0026: a lost Telegram is the same — `factor: 'TELEGRAM'` unlinks it (it can no longer sign the person in or
+ * confirm anything) and stops the alerts it carried. In the workspace it is disconnected only with a step-up by another
+ * factor, so whoever holds just the inbox cannot remove it and link their own.
  */
 export function resetClientMfa(actor: OperatorActor) {
-  return operatorCommand(actor, 'client_user:reset_mfa', async (ctx, p: { clientUserId: string; reason: string }) => {
+  return operatorCommand(actor, 'client_user:reset_mfa', async (ctx, p: { clientUserId: string; reason: string; factor?: 'TOTP' | 'TELEGRAM' }) => {
     const reason = requireText(p.reason, 'reason', 500);
     if (reason.length < 10) throw new DomainError('INVALID_ARGUMENT', 'say how the person was verified (at least 10 characters)');
+    const factor = p.factor ?? 'TOTP';
+    if (factor !== 'TOTP' && factor !== 'TELEGRAM') throw new DomainError('INVALID_ARGUMENT', 'reset the authenticator or the Telegram', { field: 'factor' });
     const member = await ctx.tx.selectFrom('client_user').select(['id', 'user_id', 'client_id']).where('id', '=', requireUuid(p.clientUserId, 'clientUserId')).forUpdate().executeTakeFirst();
     if (!member) throw new DomainError('NOT_FOUND', 'client user not found');
     const user = await ctx.tx.selectFrom('auth_user').select(['kind', 'two_factor_enabled']).where('id', '=', member.user_id).executeTakeFirstOrThrow();
     if (user.kind !== 'CLIENT') throw new DomainError('INVALID_ARGUMENT', 'not a client user');
+    if (factor === 'TELEGRAM') {
+      const removed = await ctx.tx.deleteFrom('auth_account').where('user_id', '=', member.user_id).where('provider_id', '=', 'telegram').returning('account_id').execute();
+      const alerts = removed.length
+        ? await ctx.tx.updateTable('telegram_link').set({ status: 'REVOKED', revoked_at: sql<Date>`inrp2p_now()`, revoke_reason: 'Telegram reset by the desk' })
+            .where('client_user_id', '=', member.id).where('status', '=', 'ACTIVE').where('chat_id', 'in', removed.map((r) => BigInt(r.account_id))).executeTakeFirst()
+        : null;
+      const sessions = await ctx.tx.deleteFrom('auth_session').where('user_id', '=', member.user_id).executeTakeFirst();
+      await appendAudit(ctx, {
+        action: 'client_user.telegram_reset', entityType: 'client_user', entityId: member.id,
+        before: { telegram_linked: removed.length > 0 },
+        after: { telegram_linked: false, alerts_stopped: (alerts?.numUpdatedRows ?? 0n).toString(), sessions_ended: sessions.numDeletedRows.toString(), reason },
+      });
+      return { reset: true as const, sessionsEnded: sessions.numDeletedRows.toString() };
+    }
     // Better Auth's own table, outside the domain schema type.
     const factors = await sql`delete from auth_two_factor where user_id = ${member.user_id}`.execute(ctx.tx);
     await ctx.tx.updateTable('auth_user').set({ two_factor_enabled: false, updated_at: sql`statement_timestamp()` }).where('id', '=', member.user_id).execute();

@@ -71,7 +71,7 @@ export function OpenDesk({ canAdmin, host, clientName }: { canAdmin: boolean; ho
                 </span>
                 <span>
                   <p className={styles.pointTitle}>Your team</p>
-                  <p className={styles.pointBody}>Invite the people who work your deals; each change of who can act is confirmed with your authenticator.</p>
+                  <p className={styles.pointBody}>Invite the people who work your deals; each change of who can act is confirmed with a code.</p>
                 </span>
               </li>
             </ul>

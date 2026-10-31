@@ -5,10 +5,10 @@ import { redirect } from 'next/navigation';
 import { isDomainError } from '@inrp2p/kernel';
 import type { ActorRef, Db } from '@inrp2p/db';
 import { executeCommand, limitFinancialMutations } from '@inrp2p/commands';
-import { type ClientActor, type ClientSession, type DomainCommand, clientSession } from '@inrp2p/identity';
+import { type ClientActor, type ClientSession, type DomainCommand, clientSession, sessionFactors } from '@inrp2p/identity';
 import { type PortalAccess, type WorkspaceAccess, exchangeMember, workspaceAccess } from '@inrp2p/portal';
 import type { QuoteDeps } from '@inrp2p/quotes';
-import { getRuntime } from './runtime.ts';
+import { getRuntime, telegramLoginConfigured } from './runtime.ts';
 import { quoteDepsForWeb } from './quotes.ts';
 import { failure, type CommandResult } from './command.ts';
 import { RETURN_PATH_HEADER, safeReturnPath } from './surface.ts';
@@ -84,12 +84,14 @@ export interface WorkspaceContext {
   readonly actor: ClientActor;
   readonly db: Db;
   readonly access: WorkspaceAccess;
+  /** How this session was opened (ADR 0026): what may confirm a change is anything but this. */
+  readonly signInMethod: 'EMAIL' | 'TELEGRAM';
 }
 
 export const workspaceContext = cache(async (): Promise<WorkspaceContext> => {
   const rt = getRuntime();
-  const { actor } = await sessionOfRequest();
-  return { actor, db: rt.appDb, access: await workspaceAccess(rt.appDb, actor.userId) };
+  const { actor, signInMethod } = await sessionOfRequest();
+  return { actor, db: rt.appDb, access: await workspaceAccess(rt.appDb, actor.userId), signInMethod };
 });
 
 export async function workspacePage(): Promise<WorkspaceContext> {
@@ -100,6 +102,30 @@ export async function workspacePage(): Promise<WorkspaceContext> {
     throw e;
   }
 }
+
+/**
+ * What protects this person's changes (ADR 0026), for the pages that make them: whether something other than the
+ * factor this session was opened with can confirm a change here and now, and which second factors they have or could
+ * add. The server decides again on every change; this only lets a page offer the right step first.
+ */
+export interface Protection {
+  readonly canConfirm: boolean;
+  readonly signInMethod: 'EMAIL' | 'TELEGRAM';
+  readonly authenticator: boolean;
+  /** LINKED, or OFFER when Log In with Telegram is set up and this person has not linked one yet. */
+  readonly telegram: 'LINKED' | 'OFFER' | 'NONE';
+}
+
+export const protectionOfRequest = cache(async (): Promise<Protection> => {
+  const { actor } = await sessionOfRequest();
+  const f = await sessionFactors(getRuntime().appDb, actor.sessionId);
+  return {
+    canConfirm: f.independent.length > 0,
+    signInMethod: f.signInMethod,
+    authenticator: f.available.includes('TOTP'),
+    telegram: f.available.includes('TELEGRAM') ? 'LINKED' : telegramLoginConfigured() ? 'OFFER' : 'NONE',
+  };
+});
 
 /** A member of a client, with or without the Exchange — notifications and a working trader's pages. */
 export async function memberPage(): Promise<WorkspaceContext & { readonly member: PortalAccess }> {

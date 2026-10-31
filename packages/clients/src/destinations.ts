@@ -83,7 +83,7 @@ export function addBankAccount(actor: ClientDataActor, protector: FieldProtector
  * that captured the old id can detect the change (CLIENT_BANK_CHANGED in later phases).
  */
 export function archiveBankAccount(actor: ClientDataActor) {
-  return clientDataCommand(actor, 'client_bank:add', { stepUp: true }, async (ctx, p: { bankAccountId: string; reason: string }) => clientOfBankAccount(ctx, p.bankAccountId), async (ctx, p, clientId) => {
+  return clientDataCommand(actor, 'client_bank:add', { stepUp: true, purpose: 'DESTINATION' }, async (ctx, p: { bankAccountId: string; reason: string }) => clientOfBankAccount(ctx, p.bankAccountId), async (ctx, p, clientId) => {
     const reason = requireText(p.reason, 'reason', 500);
     const before = await ctx.tx.selectFrom('bank_account').select(['id', 'status', 'account_last4', 'bank_name']).where('id', '=', p.bankAccountId).forUpdate().executeTakeFirstOrThrow();
     if (before.status !== 'ACTIVE') throw new DomainError('INVALID_TRANSITION', 'bank account is already archived');
@@ -158,7 +158,7 @@ export function addWallet(actor: ClientDataActor) {
 
 /** `client_wallet.archive` — operator `client_wallet:manage` (⧗) or CLIENT_ADMIN with fresh TOTP. */
 export function archiveWallet(actor: ClientDataActor) {
-  return clientDataCommand(actor, 'client_wallet:manage', { stepUp: true }, async (ctx, p: { walletId: string; reason: string }) => clientOfWallet(ctx, p.walletId), async (ctx, p, clientId) => {
+  return clientDataCommand(actor, 'client_wallet:manage', { stepUp: true, purpose: 'DESTINATION' }, async (ctx, p: { walletId: string; reason: string }) => clientOfWallet(ctx, p.walletId), async (ctx, p, clientId) => {
     const reason = requireText(p.reason, 'reason', 500);
     const before = await ctx.tx.selectFrom('crypto_wallet').select(['id', 'status']).where('id', '=', p.walletId).forUpdate().executeTakeFirstOrThrow();
     if (before.status !== 'ACTIVE') throw new DomainError('INVALID_TRANSITION', 'wallet is already archived');

@@ -117,9 +117,10 @@ export async function markNotificationsReadAction(ids: readonly string[]): Promi
 
 /**
  * Destinations and quote authority, changed by the client's own administrator (TD-11, D-08). Each is a sensitive
- * client-admin action: the command itself refuses anyone but an active CLIENT_ADMIN of this client, without an
- * authenticator (`MFA_ENROLLMENT_REQUIRED`), or without a step-up in the last ten minutes (`STEP_UP_REQUIRED`, which
- * the page answers with the authenticator dialog and the same key). The client id comes from the membership.
+ * client-admin action: the command itself refuses anyone but an active CLIENT_ADMIN of this client, without a second
+ * factor (`MFA_ENROLLMENT_REQUIRED`), or without a step-up by a factor other than their sign-in in the last ten minutes
+ * (`STEP_UP_REQUIRED` with the factors that would do, which the page offers, then sends the same key). The client id
+ * comes from the membership.
  */
 function refreshDestinations(): void {
   revalidatePath('/destinations');

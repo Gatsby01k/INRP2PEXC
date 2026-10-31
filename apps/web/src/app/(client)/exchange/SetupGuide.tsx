@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { RobotFigure } from '../_assistant/RobotFigure.tsx';
 import { BankIcon, CheckIcon, WalletIcon } from '../_workspace/icons.tsx';
-import { SecureAccount } from '../_workspace/SecureAccount.tsx';
+import { SecondFactor } from '../_workspace/SecondFactor.tsx';
 import { Sheet } from '../_workspace/Sheet.tsx';
 import { AddDestination, type DestinationKind } from '../destinations/AddDestination.tsx';
 import type { Who } from './RequestForm.tsx';
@@ -15,8 +15,9 @@ type Status = 'done' | 'current' | 'next';
 
 /**
  * A new client's first visit: the robot welcomes them, and the two things that stand between them and a first
- * quote are laid out as steps they can take from here — an authenticator, then somewhere to be paid. Each opens in a
- * sheet over the page and comes back to it. Once there is somewhere to pay them, this is gone for good.
+ * quote are laid out as steps they can take from here — a second way to confirm changes (Telegram or an authenticator,
+ * ADR 0026), then somewhere to be paid. Each opens in a sheet over the page and comes back to it. Once there is
+ * somewhere to pay them, this is gone for good.
  *
  * Someone who cannot add destinations (not an administrator) is told who can, and nothing is offered that the
  * server would refuse.
@@ -26,8 +27,8 @@ export function SetupGuide({ who }: { who: Who }) {
   const [securing, setSecuring] = useState(false);
   const [adding, setAdding] = useState<DestinationKind | null>(null);
   const [kind, setKind] = useState<DestinationKind>('bank');
-  const secure: Status = who.hasAuthenticator ? 'done' : 'current';
-  const destination: Status = who.hasAuthenticator || !who.isAdmin ? 'current' : 'next';
+  const secure: Status = who.protection.canConfirm ? 'done' : 'current';
+  const destination: Status = who.protection.canConfirm || !who.isAdmin ? 'current' : 'next';
 
   const add = (k: DestinationKind) => {
     setKind(k);
@@ -52,8 +53,8 @@ export function SetupGuide({ who }: { who: Who }) {
             <Step
               n={1}
               status={secure}
-              title="Turn on your authenticator"
-              body="A code from your phone confirms every change to where you are paid."
+              title="Protect where you are paid"
+              body="Connect Telegram or an authenticator app: it confirms every later change to where you are paid."
               action={
                 secure === 'done' ? null : (
                   <button type="button" className={shell.action} data-size="sm" data-tone="ink" onClick={() => setSecuring(true)}>
@@ -88,9 +89,11 @@ export function SetupGuide({ who }: { who: Who }) {
         </ol>
       </div>
 
-      <Sheet open={securing} onClose={() => setSecuring(false)} eyebrow="Getting started" title="Turn on your authenticator" description="Six-digit codes from your phone confirm the changes that matter.">
-        <SecureAccount
+      <Sheet open={securing} onClose={() => setSecuring(false)} eyebrow="Getting started" title="A second way to confirm" description="Your Telegram or an authenticator app confirms the changes that matter.">
+        <SecondFactor
+          protection={who.protection}
           email={who.email}
+          returnTo="/exchange"
           onDone={() => {
             setSecuring(false);
             router.refresh();
@@ -101,7 +104,7 @@ export function SetupGuide({ who }: { who: Who }) {
         open={adding !== null}
         kind={adding ?? kind}
         onClose={() => setAdding(null)}
-        hasAuthenticator={who.hasAuthenticator}
+        protection={who.protection}
         email={who.email}
         holderName={who.clientName}
         next="exchange"

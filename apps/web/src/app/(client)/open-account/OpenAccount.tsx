@@ -25,7 +25,8 @@ const KINDS: readonly { value: EntityType; label: string; detail: string; Icon: 
 /**
  * The account a new client opens for themselves (D-17): whether it is a person or a company, and its name. The server
  * makes the signed-in person its administrator, able to accept quotes. The two things a client needs before a first
- * trade — an authenticator, then somewhere to be paid — follow on the Exchange, where a guide waits for them.
+ * trade — a second way to confirm (Telegram or an authenticator, ADR 0026), then somewhere to be paid — follow on the
+ * Exchange, where a guide waits for them.
  */
 export function OpenAccount({ email, invites = [], next }: { email: string; invites?: readonly MyInviteRow[]; next?: string }) {
   const router = useRouter();
@@ -119,8 +120,8 @@ export function OpenAccount({ email, invites = [], next }: { email: string; invi
                 <LockIcon />
               </span>
               <span>
-                <strong>Turn on an authenticator</strong>
-                <span>It confirms every change to where you are paid.</span>
+                <strong>Connect Telegram or an authenticator</strong>
+                <span>It confirms every later change to where you are paid.</span>
               </span>
             </li>
             <li>

@@ -10,6 +10,8 @@ interface SessionCheckRow {
   session_id: string;
   user_id: string;
   surface: Surface;
+  /** EMAIL or TELEGRAM on the client surface (a session from before migration 0043 reads EMAIL); PASSWORD on the desk. */
+  sign_in_method: 'EMAIL' | 'TELEGRAM' | 'PASSWORD';
   kind: Surface;
   status: 'ACTIVE' | 'DISABLED';
   two_factor_enabled: boolean | null;
@@ -32,14 +34,17 @@ async function checkSession(appDb: Db, sessionId: string, surface: Surface): Pro
   const idleSeconds = SESSION_POLICY[surface].idleSeconds;
   const operator = surface === 'OPERATOR';
   const r = await sql<SessionCheckRow>`
-    select s.id as session_id, s.user_id, s.surface, u.kind, u.status, u.two_factor_enabled,
+    select s.id as session_id, s.user_id, s.surface, coalesce(s.sign_in_method, 'EMAIL') as sign_in_method, u.kind, u.status, u.two_factor_enabled,
            s.expires_at <= statement_timestamp() as expired,
            coalesce(a.last_activity_at, s.created_at) <= statement_timestamp() - make_interval(secs => ${idleSeconds}) as idle,
            a.last_activity_at is null
              or a.last_activity_at <= statement_timestamp() - make_interval(secs => ${ACTIVITY_WRITE_INTERVAL_SECONDS}) as touch_due,
-           exists (select 1 from step_up_verification v where v.session_id = s.id) as mfa_verified,
+           exists (select 1 from step_up_verification v where v.session_id = s.id and v.method = 'TOTP') as mfa_verified,
+           -- ADR 0026: a step-up counts only by a factor other than the one the session was opened with.
            exists (select 1 from step_up_verification v
-                    where v.session_id = s.id and v.verified_at > statement_timestamp() - make_interval(secs => ${STEP_UP_MAX_AGE_SECONDS})) as step_up_fresh,
+                    where v.session_id = s.id and v.method <> coalesce(s.sign_in_method, 'EMAIL')
+                      and (v.method <> 'TOTP' or u.two_factor_enabled is true)
+                      and v.verified_at > statement_timestamp() - make_interval(secs => ${STEP_UP_MAX_AGE_SECONDS})) as step_up_fresh,
            case when ${operator} then array(select r.role_code::text from operator_user_role r where r.user_id = s.user_id order by r.role_code)
                 else '{}'::text[] end as roles,
            case when ${operator} then array(select g.permission_code::text from operator_permission_grant g where g.user_id = s.user_id order by g.permission_code)
@@ -121,8 +126,10 @@ export interface ClientActor {
 
 export interface ClientSession {
   readonly actor: ClientActor;
-  /** This session verified TOTP inside the step-up window (SECURITY §2.2), read in the same statement. */
+  /** This session was confirmed by a factor other than its sign-in within the step-up window (ADR 0026), read in the same statement. */
   readonly stepUpFresh: boolean;
+  /** How this session was opened: a code to the email, or Telegram. */
+  readonly signInMethod: 'EMAIL' | 'TELEGRAM';
 }
 
 export async function clientSession(auth: ClientAuth, appDb: Db, headers: Headers): Promise<ClientSession> {
@@ -131,7 +138,11 @@ export async function clientSession(auth: ClientAuth, appDb: Db, headers: Header
   const row = await checkSession(appDb, result.session.id, 'CLIENT');
   await refuseUnlessLive(appDb, row, 'CLIENT');
   if (row.touch_due) await touch(appDb, row.session_id);
-  return { actor: { kind: 'CLIENT', userId: row.user_id, sessionId: row.session_id }, stepUpFresh: row.step_up_fresh };
+  return {
+    actor: { kind: 'CLIENT', userId: row.user_id, sessionId: row.session_id },
+    stepUpFresh: row.step_up_fresh,
+    signInMethod: row.sign_in_method === 'TELEGRAM' ? 'TELEGRAM' : 'EMAIL',
+  };
 }
 
 export async function requireClientSession(auth: ClientAuth, appDb: Db, headers: Headers): Promise<ClientActor> {

@@ -1,15 +1,17 @@
 import { DomainError } from '@inrp2p/kernel';
 import type { Executor, TxContext } from '@inrp2p/db';
-import { sql } from 'kysely';
-import { type AuthorizationDecision, CLIENT_MFA_ENROLMENT_MAX_SESSION_AGE_SECONDS, type ClientActor, type DomainCommand, type OperatorActor, type Permission, authorizeOperator, hasFreshStepUp } from '@inrp2p/identity';
+import { type AuthorizationDecision, type ClientActor, type Confirmation, type DomainCommand, type OperatorActor, type Permission, type StepUpPurpose, authorizeOperator, requireConfirmation } from '@inrp2p/identity';
 
 /** A mutation on a client's own data may come from the desk or from that client's admin (SECURITY §2.2, D-08). */
 export type ClientDataActor = OperatorActor | ClientActor;
 
 export interface ClientAdminCheck {
   readonly clientUserId: string;
-  /** What confirmed the person for this action: a fresh TOTP, a sign-in by email code minutes ago, or nothing asked. */
-  readonly confirmedBy: 'TOTP' | 'EMAIL_SIGN_IN' | 'NONE';
+  /**
+   * What confirmed the person for this action (ADR 0026): a fresh step-up by a factor other than their sign-in (TOTP,
+   * EMAIL, TELEGRAM), a sign-in or code minutes ago for a first destination, or nothing asked.
+   */
+  readonly confirmedBy: Confirmation | 'NONE';
 }
 
 /** The kinds of destination a client adds: where it is paid rupees, and where it sends or receives USDT. */
@@ -18,12 +20,14 @@ export type DestinationKind = 'BANK_ACCOUNT' | 'WALLET';
 export interface ClientAdminStepUp {
   readonly stepUp: boolean;
   /**
-   * ADR 0020: the client's first destination of this kind may be confirmed by a sign-in with a code from its own email
-   * in the last ten minutes, instead of an authenticator — a client who came through a desk's page or link can then set
-   * up where it is paid without installing an app first. Any further one, and every archive, still needs the
-   * authenticator: what replaces where a client is paid is never confirmed by email alone.
+   * ADR 0020: the client's first destination of this kind may be confirmed by a sign-in, or a code, in the last ten
+   * minutes — a client who came through a desk's page or link sets up where it is paid without a second factor first.
+   * Any further one, and every archive, needs a step-up by a factor other than the sign-in (ADR 0026): what replaces
+   * where a client is paid is never confirmed by the one factor that opened the session.
    */
   readonly firstDestination?: DestinationKind;
+  /** What the confirmation is for, said in the code's message. */
+  readonly purpose?: StepUpPurpose;
 }
 
 async function hasLiveDestination(ex: Executor, clientId: string, kind: DestinationKind): Promise<boolean> {
@@ -32,20 +36,12 @@ async function hasLiveDestination(ex: Executor, clientId: string, kind: Destinat
   return r !== undefined;
 }
 
-/** True when this session was opened — by an email code, the only way a client signs in (D-08) — within `maxAgeSeconds`. */
-async function signedInWithin(ex: Executor, sessionId: string, maxAgeSeconds: number): Promise<boolean> {
-  const r = await sql<{ fresh: boolean }>`
-    select exists (select 1 from auth_session where id = ${sessionId} and expires_at > statement_timestamp()
-                    and created_at > statement_timestamp() - make_interval(secs => ${maxAgeSeconds})) as fresh`.execute(ex);
-  return r.rows[0]!.fresh;
-}
-
-/** Client-side authorization: active CLIENT_ADMIN of this client, optionally with a fresh TOTP step-up. */
+/** Client-side authorization: active CLIENT_ADMIN of this client, optionally confirmed again (ADR 0026, `requireConfirmation`). */
 export async function authorizeClientAdmin(ex: Executor, actor: ClientActor, clientId: string, opts: ClientAdminStepUp): Promise<ClientAdminCheck> {
   const row = await ex
     .selectFrom('client_user as cu')
     .innerJoin('auth_user as u', 'u.id', 'cu.user_id')
-    .select(['cu.id', 'cu.role', 'cu.status', 'u.status as user_status', 'u.kind', 'u.two_factor_enabled'])
+    .select(['cu.id', 'cu.role', 'cu.status', 'u.status as user_status', 'u.kind'])
     .where('cu.user_id', '=', actor.userId)
     .where('cu.client_id', '=', clientId)
     .executeTakeFirst();
@@ -53,18 +49,12 @@ export async function authorizeClientAdmin(ex: Executor, actor: ClientActor, cli
     throw new DomainError('FORBIDDEN', 'requires an active CLIENT_ADMIN of this client');
   }
   if (!opts.stepUp) return { clientUserId: row.id, confirmedBy: 'NONE' };
-  // Sensitive client-admin actions (SECURITY §2.2): TOTP must be enrolled, then verified within the step-up window.
-  if (row.two_factor_enabled && (await hasFreshStepUp(ex, actor.sessionId))) return { clientUserId: row.id, confirmedBy: 'TOTP' };
   if (opts.firstDestination) {
     // Two first destinations cannot both pass at once: the client row serializes them.
     await ex.selectFrom('client').select('id').where('id', '=', clientId).forUpdate().executeTakeFirstOrThrow();
-    if (!(await hasLiveDestination(ex, clientId, opts.firstDestination))) {
-      if (await signedInWithin(ex, actor.sessionId, CLIENT_MFA_ENROLMENT_MAX_SESSION_AGE_SECONDS)) return { clientUserId: row.id, confirmedBy: 'EMAIL_SIGN_IN' };
-      throw new DomainError('STEP_UP_REQUIRED', 'confirm it is you with a fresh code from your email', { via: 'EMAIL' });
-    }
+    if (!(await hasLiveDestination(ex, clientId, opts.firstDestination))) return { clientUserId: row.id, confirmedBy: await requireConfirmation(ex, actor.sessionId, 'RECENT', 'DESTINATION') };
   }
-  if (!row.two_factor_enabled) throw new DomainError('MFA_ENROLLMENT_REQUIRED', 'client admin must enroll TOTP before this action');
-  throw new DomainError('STEP_UP_REQUIRED', 'client admin must verify TOTP within the step-up window');
+  return { clientUserId: row.id, confirmedBy: await requireConfirmation(ex, actor.sessionId, 'INDEPENDENT', opts.purpose ?? (opts.firstDestination ? 'DESTINATION' : 'CHANGE')) };
 }
 
 /**

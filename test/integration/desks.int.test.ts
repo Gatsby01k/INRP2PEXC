@@ -539,10 +539,13 @@ describe('a new client sets up where it is paid', () => {
     await expect(runAs(w.app, archiveBankAccount(meera.actor), meera.ref as never, 'client_bank.archive', { bankAccountId: added.bankAccountId, reason: 'test' })).rejects.toMatchObject({ code: 'MFA_ENROLLMENT_REQUIRED' });
   });
 
-  it('asks for a fresh email code when the sign-in is older than ten minutes', async () => {
+  it('asks for a fresh code when the sign-in is older than ten minutes — and a code to the email is then enough', async () => {
     const late = await freshClient('Late Traders');
     await sql`update auth_session set created_at = statement_timestamp() - interval '11 minutes' where id = ${late.sessionId}`.execute(w.t.owner);
-    await expect(bank(late)).rejects.toMatchObject({ code: 'STEP_UP_REQUIRED', details: { via: 'EMAIL' } });
+    await expect(bank(late)).rejects.toMatchObject({ code: 'STEP_UP_REQUIRED', details: { factors: ['EMAIL'], requirement: 'RECENT', purpose: 'DESTINATION' } });
+    // ADR 0026: the first destination asks only for something recent — a code to the email now, not a new sign-in.
+    await sql`insert into step_up_verification (user_id, session_id, method) values (${late.actor.userId}, ${late.sessionId}, 'EMAIL')`.execute(w.t.owner);
+    await expect(bank(late)).resolves.toBeTruthy();
   });
 });
 

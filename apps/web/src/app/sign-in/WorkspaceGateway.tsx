@@ -1,7 +1,7 @@
 import { getImageProps } from 'next/image';
 import mark from '../../../../../brand/inrp2p-mark.png';
 import { Halo } from '../(public)/_landing/Halo.tsx';
-import { AccessSurface } from './AccessSurface.tsx';
+import { AccessSurface, type TelegramOffer } from './AccessSurface.tsx';
 import { GatewayRobot } from './GatewayRobot.tsx';
 import styles from './gateway.module.css';
 
@@ -40,7 +40,7 @@ const COPY = {
   },
 } as const;
 
-export function WorkspaceGateway({ home, mode = 'SIGN_IN', next }: { home: string; mode?: 'SIGN_IN' | 'TRADER'; next?: string }) {
+export function WorkspaceGateway({ home, mode = 'SIGN_IN', next, telegram = null }: { home: string; mode?: 'SIGN_IN' | 'TRADER'; next?: string; telegram?: TelegramOffer | null }) {
   const copy = COPY[mode];
   const { props: markProps } = getImageProps({ src: mark, alt: '', width: 32, height: 32 });
   return (
@@ -74,7 +74,7 @@ export function WorkspaceGateway({ home, mode = 'SIGN_IN', next }: { home: strin
           </div>
 
           <div className={styles.access}>
-            <AccessSurface mode={mode} {...(next ? { next } : {})} />
+            <AccessSurface mode={mode} {...(next ? { next } : {})} telegram={telegram} />
           </div>
         </div>
       </main>

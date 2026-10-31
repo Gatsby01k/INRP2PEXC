@@ -206,6 +206,19 @@ export interface AuthSessionTable {
   user_agent: string | null;
   user_id: string;
   surface: 'OPERATOR' | 'CLIENT';
+  /** Migration 0043: how the session was opened. Null on a session opened before it (EMAIL on the client, PASSWORD on the desk). */
+  sign_in_method: 'EMAIL' | 'TELEGRAM' | 'PASSWORD' | null;
+}
+
+/** Better Auth's linked identities. INRP2P reads only the Telegram ones (migration 0043); operators' passwords stay Better Auth's. */
+export interface AuthAccountTable {
+  id: Generated<string>;
+  account_id: string;
+  provider_id: string;
+  user_id: string;
+  telegram_username: string | null;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
 }
 
 export interface OperatorUserRoleTable {
@@ -226,7 +239,7 @@ export interface StepUpVerificationTable {
   id: Generated<string>;
   user_id: string;
   session_id: string;
-  method: 'TOTP';
+  method: 'TOTP' | 'EMAIL' | 'TELEGRAM';
   verified_at: Generated<Date>;
   ip_hash: string | null;
 }
@@ -2021,6 +2034,7 @@ export interface Database {
   outbox_delivery: OutboxDeliveryTable;
   auth_user: AuthUserTable;
   auth_session: AuthSessionTable;
+  auth_account: AuthAccountTable;
   operator_user_role: OperatorUserRoleTable;
   operator_permission_grant: OperatorPermissionGrantTable;
   step_up_verification: StepUpVerificationTable;

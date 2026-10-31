@@ -90,7 +90,8 @@ export default async function ClientLayout({ children }: { children: ReactNode }
     ...entries.map((e) => ({ href: e.href, label: e.label, group: 'Go to' })),
     ...(ownDesk ? DESK_SECTIONS.map((e) => ({ href: e.href, label: e.label, group: 'Your desk', hint: ownDesk.displayName })) : []),
     ...(member ? [{ href: '/notifications', label: 'Notifications', group: 'Account', ...(unread > 0 ? { hint: `${unread} unread` } : {}) }] : []),
-    ...(member ? [{ href: '/account', label: 'Account & security', group: 'Account' }] : []),
+    // ADR 0026: everyone who can sign in has Account & security — how they sign in and confirm is theirs, client or not.
+    { href: '/account', label: 'Account & security', group: 'Account' },
     ...(member && desks ? [{ href: '/account/team', label: 'Team', group: 'Account' }] : []),
   ];
 
@@ -122,7 +123,7 @@ export default async function ClientLayout({ children }: { children: ReactNode }
             {member ? (
               <NotificationsLink unread={unread} className={styles.iconButton} iconClassName={styles.toolIcon} badgeClassName={styles.unread} />
             ) : null}
-            <AccountMenu name={name} email={ctx.access.email} role={member ? (ROLE[member.role] ?? 'Viewer') : null} hasAccount={member !== null} />
+            <AccountMenu name={name} email={ctx.access.email} role={member ? (ROLE[member.role] ?? 'Viewer') : null} hasAccount />
           </div>
         </div>
       </header>

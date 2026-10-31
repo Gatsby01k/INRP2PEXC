@@ -7,7 +7,7 @@ import type { FieldProtector } from '@inrp2p/adapters';
 import { appendAudit } from '@inrp2p/audit';
 import { enqueueOutbox } from '@inrp2p/outbox';
 import { BANK_ACCOUNT_HMAC_CONTEXT, bankAccountSealContext } from '@inrp2p/clients';
-import { type ClientActor, type DomainCommand, type OperatorActor, actorLabel, operatorCommand } from '@inrp2p/identity';
+import { type ClientActor, type DomainCommand, type OperatorActor, actorLabel, operatorCommand, requireConfirmation as requireStepUp } from '@inrp2p/identity';
 import { updateTraderRouteRegistration } from '@inrp2p/routes';
 import { type TraderApplicant, type TraderMember, assertAuthority, lockTrader, lockTraderOfClient, traderApplicant, traderClientCommand } from '@inrp2p/trader-core';
 import { assertNoOpenOrders, payoutIdentityOf, positiveOrNull, requireVerifiedBank, requireVerifiedWallet } from './profile.ts';
@@ -438,8 +438,8 @@ export interface ProposeSettlementPayload {
 }
 
 /**
- * `trader.propose_settlement_change` — the trader's `CLIENT_ADMIN` (TD-24). A new bank account, a new TRC20 wallet, or
- * both, for the desk to review.
+ * `trader.propose_settlement_change` — the trader's `CLIENT_ADMIN` (TD-24), confirmed again (ADR 0026). A new bank
+ * account, a new TRC20 wallet, or both, for the desk to review.
  *
  * - Approved (or paused) trader: the proposal waits beside the registered details, which keep settling every order
  *   until the desk approves the change (`trader.review_settlement_change`). A later proposal replaces an earlier
@@ -453,6 +453,9 @@ export function proposeSettlementChange(actor: ClientActor, deps: { protector: F
     requireConfirmation(p.confirmOwnership);
     const trader = await lockTraderOfClient(ctx, member.clientId);
     if (trader.status === 'REJECTED') throw new DomainError('INVALID_TRANSITION', 'apply again to submit new details');
+    // ADR 0026: new details for a working trader are confirmed by a factor other than the sign-in; an application still
+    // under review only replaces what nothing settles with yet, so a recent sign-in or code is enough (as D-20).
+    await requireStepUp(ctx.tx, actor.sessionId, trader.status === 'UNDER_REVIEW' ? 'RECENT' : 'INDEPENDENT', 'SETTLEMENT');
     const profile = await ctx.tx.selectFrom('trader_profile').select(['proposed_bank_account_id', 'proposed_wallet_id']).where('id', '=', trader.id).executeTakeFirstOrThrow();
     const bank = p.bank ? await submitBank(ctx, deps.protector, member.clientId, p.bank) : null;
     const wallet = p.wallet ? await submitWallet(ctx, member.clientId, p.wallet) : null;

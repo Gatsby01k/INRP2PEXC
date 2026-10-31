@@ -10,7 +10,54 @@ import { CODE_LENGTH, CODE_MINUTES, RESEND_AFTER_SECONDS, clock, looksLikeEmail,
 import styles from './gateway.module.css';
 
 type Stage = 'EMAIL' | 'CODE';
-type Busy = 'send' | 'resend' | 'verify' | null;
+type Busy = 'send' | 'resend' | 'verify' | 'telegram' | null;
+
+/**
+ * Log In with Telegram, when the server has it set up (ADR 0026): `preferred` when this device signed in with Telegram
+ * last, so it is offered first; `error` when Telegram sent the person back here without a session.
+ */
+export interface TelegramOffer {
+  readonly preferred: boolean;
+  readonly error?: string;
+}
+
+/** The address this device last signed in with, offered again so a returning person only presses Continue. */
+const REMEMBERED_EMAIL = 'inrp2p.sign-in.email';
+
+function rememberedEmail(): string {
+  try {
+    return window.localStorage.getItem(REMEMBERED_EMAIL) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+function rememberEmail(email: string): void {
+  try {
+    window.localStorage.setItem(REMEMBERED_EMAIL, email);
+  } catch {
+    // Private mode or storage blocked: the person types it next time.
+  }
+}
+
+/** What Telegram's answer means to the person, in words. Anything not named here is "didn't finish". */
+function telegramMessage(error: string): string {
+  if (error === 'signup_disabled' || error === 'account_not_linked') {
+    return 'This Telegram isn’t connected to an INRP2P account yet. Sign in with your email, then connect Telegram in Account & security.';
+  }
+  if (error === 'access_denied') return 'Telegram sign-in was cancelled. Try again, or use your email.';
+  return 'Telegram sign-in didn’t finish. Try again, or use your email.';
+}
+
+/** Telegram's paper plane in its disc, drawn in the button's own colour. */
+function TelegramGlyph({ className }: { className?: string | undefined }) {
+  return (
+    <svg className={className} width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true" focusable="false">
+      <circle cx="10" cy="10" r="9" fill="currentColor" opacity="0.14" />
+      <path d="M14.6 6.1 4.9 9.8c-.5.2-.5.9 0 1l2.3.8 1 3c.1.4.6.5.9.2l1.4-1.3 2.4 1.8c.4.3.9.1 1-.4l1.6-7.9c.1-.6-.4-1.1-.9-.9Zm-2.1 2.1-3.9 3.6-.2 1.6-.6-2 4.4-3.4c.2-.1.4.1.3.2Z" fill="currentColor" />
+    </svg>
+  );
+}
 
 /** Something the visitor has to act on. `field` when it is about what they typed, so the field shows it too. */
 interface Problem {
@@ -92,8 +139,11 @@ function Tick() {
  * the address has a sign-in identity (never more than that — see `startTraderAccessAction`), and once the code is
  * taken it opens Traders, where the application starts. The code, its limits and its refusals are the same.
  */
-export function AccessSurface({ mode = 'SIGN_IN', next }: { mode?: 'SIGN_IN' | 'TRADER'; next?: string }) {
+export function AccessSurface({ mode = 'SIGN_IN', next, telegram = null }: { mode?: 'SIGN_IN' | 'TRADER'; next?: string; telegram?: TelegramOffer | null }) {
   const trader = mode === 'TRADER';
+  // A new trader starts with their email; a returning one signs in on the workspace's door, where Telegram is offered.
+  const offerTelegram = !trader && telegram !== null;
+  const telegramFirst = offerTelegram && telegram.preferred;
   const router = useRouter();
   const id = useId();
   const ids = {
@@ -103,6 +153,7 @@ export function AccessSurface({ mode = 'SIGN_IN', next }: { mode?: 'SIGN_IN' | '
     code: `${id}-code`,
     codeMessage: `${id}-code-message`,
     sentTo: `${id}-sent-to`,
+    telegramMessage: `${id}-telegram-message`,
   };
   const [stage, setStage] = useState<Stage>('EMAIL');
   const [email, setEmail] = useState('');
@@ -111,6 +162,7 @@ export function AccessSurface({ mode = 'SIGN_IN', next }: { mode?: 'SIGN_IN' | '
   const [codeProblem, setCodeProblem] = useState<Problem | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState<Busy>(null);
+  const [telegramProblem, setTelegramProblem] = useState<string | null>(telegram?.error ? telegramMessage(telegram.error) : null);
   const [resendAt, setResendAt] = useState(0);
   const [now, setNow] = useState(0);
   const emailInput = useRef<HTMLInputElement>(null);
@@ -140,7 +192,10 @@ export function AccessSurface({ mode = 'SIGN_IN', next }: { mode?: 'SIGN_IN' | '
   useEffect(() => {
     if (!arrived.current) {
       arrived.current = true;
-      if (!window.matchMedia('(pointer: coarse)').matches) emailInput.current?.focus();
+      // The address this device signed in with last is offered again; Telegram first for whoever used it last.
+      const known = rememberedEmail();
+      if (known) setEmail((typed) => typed || known);
+      if (!telegramFirst && !window.matchMedia('(pointer: coarse)').matches) emailInput.current?.focus();
       return;
     }
     (stage === 'CODE' ? codeInput : emailInput).current?.focus();
@@ -218,6 +273,7 @@ export function AccessSurface({ mode = 'SIGN_IN', next }: { mode?: 'SIGN_IN' | '
     const res = await post('/sign-in/email-otp', { email: address, otp });
     robotCues.emit({ kind: 'wait', on: false });
     if (res?.ok) {
+      rememberEmail(address);
       robotCues.emit({ kind: 'submitted' });
       // Still busy: the surface stays as it is until the workspace replaces it. The server routes by what the
       // account is: a client with the Exchange lands there, someone new on opening their account, a trader in Traders.
@@ -234,6 +290,57 @@ export function AccessSurface({ mode = 'SIGN_IN', next }: { mode?: 'SIGN_IN' | '
     // Selected, so the next digit typed starts the code again rather than joining the refused one.
     codeInput.current?.select();
   };
+
+  // Telegram's own sign-in: Better Auth makes the request (its state and PKCE), Telegram asks the person to confirm, and
+  // the callback lands them where they were going — or back here with what went wrong. The surface stays busy meanwhile.
+  const startTelegram = async () => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setBusy('telegram');
+    setTelegramProblem(null);
+    robotCues.emit({ kind: 'wait', on: true });
+    const back = `/sign-in${next ? `?${new URLSearchParams({ next }).toString()}` : ''}`;
+    const res = await post('/sign-in/social', { provider: 'telegram', callbackURL: next ?? '/exchange', errorCallbackURL: back, disableRedirect: true });
+    const json = (await res?.json().catch(() => null)) as { url?: unknown } | null;
+    if (res?.ok && typeof json?.url === 'string') {
+      window.location.assign(json.url);
+      return;
+    }
+    inFlight.current = false;
+    setBusy(null);
+    robotCues.emit({ kind: 'wait', on: false });
+    robotCues.emit({ kind: 'problem' });
+    setTelegramProblem(res?.status === 429 ? MESSAGES.tooMany : 'Telegram isn’t answering just now. Try again, or use your email.');
+  };
+
+  const telegramButton = offerTelegram ? (
+    <div className={styles.telegramBlock}>
+      <button
+        type="button"
+        className={telegramFirst ? styles.action : styles.telegram}
+        disabled={busy !== null}
+        aria-busy={busy === 'telegram' || undefined}
+        aria-describedby={telegramProblem ? ids.telegramMessage : undefined}
+        onClick={() => void startTelegram()}
+        {...(telegramFirst ? actionHandlers : {})}
+      >
+        {busy === 'telegram' ? (
+          <span className={styles.actionIcon} aria-hidden="true">
+            <ArcLoader size="sm" tone="inherit" label="" />
+          </span>
+        ) : (
+          <TelegramGlyph className={styles.telegramGlyph} />
+        )}
+        <span>Continue with Telegram</span>
+        {telegramFirst ? <span className={styles.lastUsed}>Last used</span> : null}
+      </button>
+      {telegramProblem ? (
+        <p id={ids.telegramMessage} className={styles.message} role="alert">
+          {telegramProblem}
+        </p>
+      ) : null}
+    </div>
+  ) : null;
 
   const submitEmail = (e: FormEvent) => {
     e.preventDefault();
@@ -270,7 +377,7 @@ export function AccessSurface({ mode = 'SIGN_IN', next }: { mode?: 'SIGN_IN' | '
     setNotice(null);
   };
 
-  const busyLabel = busy === 'verify' ? 'Checking the code' : 'Sending a code';
+  const busyLabel = busy === 'verify' ? 'Checking the code' : busy === 'telegram' ? 'Opening Telegram' : 'Sending a code';
 
   return (
     <section className={styles.surface} aria-label={trader ? 'Open your exchange' : 'Workspace sign-in'} data-robot-target="panel">
@@ -280,6 +387,12 @@ export function AccessSurface({ mode = 'SIGN_IN', next }: { mode?: 'SIGN_IN' | '
         <Face face="EMAIL" stage={stage}>
           <form className={`${styles.form} ${styles.emailForm}`} noValidate onSubmit={submitEmail}>
             <h2 className={styles.heading}>{trader ? 'Start with your email.' : 'Sign in or open an account.'}</h2>
+            {telegramFirst ? (
+              <>
+                {telegramButton}
+                <p className={styles.or}>or use your email</p>
+              </>
+            ) : null}
             <div className={styles.field} data-invalid={emailProblem?.field || undefined}>
               <label htmlFor={ids.email} className={styles.label}>
                 Email
@@ -310,7 +423,14 @@ export function AccessSurface({ mode = 'SIGN_IN', next }: { mode?: 'SIGN_IN' | '
               </p>
             </div>
             <div className={styles.lower}>
-              <button type="submit" className={styles.action} disabled={address === '' || busy !== null} aria-busy={busy === 'send' || undefined} {...actionHandlers}>
+              <button
+                type="submit"
+                className={styles.action}
+                data-tone={telegramFirst ? 'quiet' : undefined}
+                disabled={address === '' || busy !== null}
+                aria-busy={busy === 'send' || undefined}
+                {...(telegramFirst ? {} : actionHandlers)}
+              >
                 <span>Continue</span>
                 {busy === 'send' ? (
                   <span className={styles.actionIcon} aria-hidden="true">
@@ -325,15 +445,23 @@ export function AccessSurface({ mode = 'SIGN_IN', next }: { mode?: 'SIGN_IN' | '
                   ? 'We send a 6-digit code. Then you tell us what you can provide; your exchange opens once INRP2P approves you.'
                   : 'We send a 6-digit code. No password to remember.'}
               </p>
-              {/* What the code opens, in three lines. */}
-              <ul className={styles.perks}>
-                {(trader ? TRADER_PERKS : CLIENT_PERKS).map((perk) => (
-                  <li key={perk} className={styles.perk}>
-                    <Tick />
-                    {perk}
-                  </li>
-                ))}
-              </ul>
+              {/* The other way in, where Telegram is set up; otherwise what the code opens, in three lines. */}
+              {offerTelegram && !telegramFirst ? (
+                <>
+                  <p className={styles.or}>or</p>
+                  {telegramButton}
+                </>
+              ) : null}
+              {offerTelegram ? null : (
+                <ul className={styles.perks}>
+                  {(trader ? TRADER_PERKS : CLIENT_PERKS).map((perk) => (
+                    <li key={perk} className={styles.perk}>
+                      <Tick />
+                      {perk}
+                    </li>
+                  ))}
+                </ul>
+              )}
               {/* The other door, for whoever came in by the wrong one. */}
               <a className={styles.door} href={trader ? '/sign-in' : '/become-a-trader'}>
                 <span className={styles.doorText}>

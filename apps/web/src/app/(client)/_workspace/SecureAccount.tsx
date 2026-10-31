@@ -2,19 +2,15 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { ArcLoader, CopyButton, OtpInput, QrCode } from '@inrp2p/ui';
+import { type ConfirmFactor, ConfirmPanel, confirmFactorsOf } from '../../../components/ConfirmIdentity.tsx';
 import { readTotpUri } from '../../../components/TotpEnrolment.tsx';
 import { CheckIcon, DownloadIcon, LockIcon, PhoneIcon } from './icons.tsx';
 import shell from '../shell.module.css';
 import styles from './secure.module.css';
 
-type Stage = 'intro' | 'reauth' | 'scan' | 'codes' | 'verify';
+type Stage = 'intro' | 'confirm' | 'scan' | 'codes' | 'verify';
 
 const groups = (s: string) => s.replace(/\s+/g, '').match(/.{1,4}/g)?.join(' ') ?? s;
-
-const maskEmail = (email: string) => {
-  const [local = '', domain = ''] = email.split('@');
-  return domain ? `${local.slice(0, 1)}•••@${domain}` : email;
-};
 
 async function post(path: string, body: unknown): Promise<Response | null> {
   try {
@@ -28,10 +24,11 @@ async function post(path: string, body: unknown): Promise<Response | null> {
  * Setting up the client's authenticator — the factor that confirms every change to where they are paid (TD-11,
  * SECURITY §2.2) — as three short steps: scan the key into an app, keep the recovery codes, prove it works.
  *
- * Better Auth only lets a recent sign-in start this (ten minutes, `CLIENT_MFA_ENROLMENT_MAX_SESSION_AGE_SECONDS`).
- * When the session is older the client is not sent away to sign in again: a fresh code goes to their own email and
- * is confirmed here, which is the same sign-in, without leaving the task. Nothing is enrolled until the app's code is
- * accepted, and that acceptance is also this session's step-up — so the change that follows asks for nothing more.
+ * Setting one up is a change of how the person confirms (ADR 0026): with Telegram connected, Better Auth asks first for
+ * a code from the factor they did not sign in with; with the email alone, for a sign-in or code in the last ten minutes.
+ * Either way the person is not sent away: the confirmation is asked for here, then the set-up goes on. Nothing is
+ * enrolled until the app's code is accepted, and that acceptance is also this session's step-up — so the change that
+ * follows asks for nothing more.
  */
 export function SecureAccount({ email, onDone, autoStart = false, embedded = false }: { email: string; onDone: () => void; autoStart?: boolean; embedded?: boolean }) {
   const [stage, setStage] = useState<Stage>('intro');
@@ -40,53 +37,35 @@ export function SecureAccount({ email, onDone, autoStart = false, embedded = fal
   const [setup, setSetup] = useState<{ totpURI: string; backupCodes: string[] } | null>(null);
   const [saved, setSaved] = useState(false);
   const [code, setCode] = useState('');
-  const [emailCode, setEmailCode] = useState('');
-  const [resendAt, setResendAt] = useState(0);
-  const [now, setNow] = useState(() => Date.now());
+  const [confirmWith, setConfirmWith] = useState<ConfirmFactor[] | null>(null);
   const started = useRef(false);
+
+  /** Asks Better Auth for a new authenticator. A refusal that names factors is a confirmation to give first. */
+  const enable = async (): Promise<'OK' | 'CONFIRM' | 'FAILED'> => {
+    const res = await post('/two-factor/enable', {});
+    const json = (await res?.json().catch(() => null)) as { totpURI?: string; backupCodes?: string[] } & Record<string, unknown> | null;
+    if (res?.ok && json?.totpURI && json.backupCodes) {
+      setSetup({ totpURI: json.totpURI, backupCodes: json.backupCodes });
+      setStage('scan');
+      return 'OK';
+    }
+    const factors = confirmFactorsOf(json ?? undefined);
+    if (res?.status === 403 && factors && factors.length > 0) {
+      setConfirmWith(factors);
+      setStage('confirm');
+      return 'CONFIRM';
+    }
+    return 'FAILED';
+  };
 
   const begin = async () => {
     setBusy(true);
     setError(null);
     try {
-      const res = await post('/two-factor/enable', {});
-      const json = (await res?.json().catch(() => null)) as { totpURI?: string; backupCodes?: string[] } | null;
-      if (res?.ok && json?.totpURI && json.backupCodes) {
-        setSetup({ totpURI: json.totpURI, backupCodes: json.backupCodes });
-        setStage('scan');
-        return;
-      }
-      if (res?.status === 403 || res?.status === 401) {
-        await sendEmailCode();
-        setStage('reauth');
-        return;
-      }
-      setError('The authenticator could not be set up just now. Try again in a moment.');
+      if ((await enable()) === 'FAILED') setError('The authenticator could not be set up just now. Try again in a moment.');
     } finally {
       setBusy(false);
     }
-  };
-
-  const sendEmailCode = async () => {
-    const res = await post('/email-otp/send-verification-otp', { email, type: 'sign-in' });
-    setResendAt(Date.now() + 30_000);
-    if (!res?.ok) setError('We could not send a code just now. Try again in a moment.');
-  };
-
-  const confirmIdentity = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await post('/sign-in/email-otp', { email, otp: emailCode });
-      if (!res?.ok) {
-        setError('That code was not accepted. Check the latest email and try again.');
-        return;
-      }
-      setEmailCode('');
-    } finally {
-      setBusy(false);
-    }
-    await begin();
   };
 
   const verify = async () => {
@@ -111,12 +90,6 @@ export function SecureAccount({ email, onDone, autoStart = false, embedded = fal
     }
   }, [autoStart]);
 
-  useEffect(() => {
-    if (stage !== 'reauth') return;
-    const t = window.setInterval(() => setNow(Date.now()), 500);
-    return () => window.clearInterval(t);
-  }, [stage]);
-
   const download = () => {
     if (!setup) return;
     const text = `INRP2P Exchange — authenticator recovery codes\n${email}\n\nEach code works once.\n\n${setup.backupCodes.join('\n')}\n`;
@@ -138,8 +111,8 @@ export function SecureAccount({ email, onDone, autoStart = false, embedded = fal
         </span>
         <h3 className={styles.title}>Protect where you are paid</h3>
         <p className={styles.text}>
-          An authenticator app on your phone gives a six-digit code. You enter one whenever a bank account or wallet is added or archived, or someone’s authority to accept
-          quotes changes — so a stolen password alone can never redirect your money.
+          An authenticator app on your phone gives a six-digit code that confirms a new bank account or wallet, a withdrawal, or a change to who may act for your
+          account — without waiting for an email or a message. Someone who gets into your inbox alone can never redirect your money.
         </p>
         <ul className={styles.points}>
           <li>
@@ -162,36 +135,24 @@ export function SecureAccount({ email, onDone, autoStart = false, embedded = fal
     );
   }
 
-  if (stage === 'reauth') {
-    const wait = Math.ceil((resendAt - now) / 1000);
+  if (stage === 'confirm' && confirmWith) {
     return (
-      <form
-        className={styles.stack}
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (emailCode.length === 6) void confirmIdentity();
-        }}
-      >
+      <div className={styles.stack}>
         <div>
           <h3 className={styles.title}>First, confirm it’s you</h3>
-          <p className={styles.text}>
-            Setting up an authenticator needs a fresh sign-in. We sent a code to <strong>{maskEmail(email)}</strong>.
-          </p>
+          <p className={styles.text}>Setting up an authenticator changes how you confirm what matters, so it is confirmed first.</p>
         </div>
-        <OtpInput label="Code from your email" value={emailCode} onChange={setEmailCode} invalid={Boolean(error)} autoFocus />
-        {error ? (
-          <p className={shell.error} role="alert">
-            {error}
-          </p>
-        ) : null}
-        <button type="submit" className={`${shell.action} ${shell.wide}`} data-tone="ink" disabled={busy || emailCode.length !== 6} aria-busy={busy || undefined}>
-          {busy ? <ArcLoader size="sm" label="Working" tone="inherit" /> : null}
-          Confirm and continue
-        </button>
-        <button type="button" className={shell.textAction} disabled={wait > 0} onClick={() => void sendEmailCode()}>
-          {wait > 0 ? `Send another code in ${wait}s` : 'Send another code'}
-        </button>
-      </form>
+        <ConfirmPanel
+          embedded
+          factors={confirmWith}
+          purpose="SECURITY"
+          summary="Set up an authenticator"
+          onVerified={async () => {
+            const out = await enable();
+            return out === 'OK' ? null : out === 'CONFIRM' ? 'That did not confirm it. Try again.' : 'The authenticator could not be set up just now. Try again in a moment.';
+          }}
+        />
+      </div>
     );
   }
 

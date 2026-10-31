@@ -22,10 +22,13 @@ const sentence = (m: string) => {
 
 function refusal(error: string | null): React.ReactNode {
   if (!error) return null;
-  if (/authenticator first|enroll/i.test(error)) {
+  if (/authenticator first|enroll|connect telegram/i.test(error)) {
     return (
       <p className={shell.error} role="alert">
-        Set up your authenticator first — it confirms every change to who can act for your account. <Link className={shell.textAction} href="/account">Account & security</Link>
+        Connect Telegram or set up an authenticator first — it confirms every change to who can act for your account.{' '}
+        <Link className={shell.textAction} href="/account#sign-in">
+          Account & security
+        </Link>
       </p>
     );
   }
@@ -79,7 +82,7 @@ function MemberMenu({ member, busy, onRole, onRemove }: { member: TeamMemberRow;
 
 /**
  * The people who can act for the account, and the invitations still waiting. An administrator invites by email, changes
- * a role and removes someone — each confirmed with their authenticator; nobody changes or removes themselves.
+ * a role and removes someone — each confirmed by a factor other than their sign-in (ADR 0026); nobody changes or removes themselves.
  */
 export function TeamScreen({ members, invites, isAdmin, clientName }: { members: readonly TeamMemberRow[]; invites: readonly TeamInviteRow[]; isAdmin: boolean; clientName: string }) {
   const [inviting, setInviting] = useState(false);
@@ -190,7 +193,7 @@ export function TeamScreen({ members, invites, isAdmin, clientName }: { members:
         </dl>
         <p className={shell.info}>
           <ShieldIcon className={shell.infoIcon} />
-          <span>Every change to who can act for {clientName} is confirmed with an administrator’s authenticator, and the whole team is told by email.</span>
+          <span>Every change to who can act for {clientName} is confirmed by an administrator a second time, and the whole team is told by email.</span>
         </p>
       </section>
 

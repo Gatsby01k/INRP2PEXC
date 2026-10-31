@@ -106,6 +106,7 @@ never activates a development default, a sink or a fake. Secrets come from the s
 | `INRP2P_KEK_PREVIOUS` | ✔ | ✔ | | during a key rotation |
 | `AWS_ROLE_ARN`, `AWS_REGION` | ✔ (Vercel) | | | the role assumed through Vercel's OIDC federation (§10); a worker on ECS uses its task role and sets neither. A long-term `AWS_ACCESS_KEY_ID` (`AKIA…`) is refused |
 | `RESEND_API_KEY`, `RESEND_FROM` | ✔ | ✔ | key ✔ | TD-04 |
+| `TELEGRAM_LOGIN_CLIENT_ID`, `TELEGRAM_LOGIN_CLIENT_SECRET` | ✔ | | secret ✔ | optional (ADR 0026): Log In with Telegram, from @BotFather → the alerts bot → Login Widget; needs `TELEGRAM_BOT_TOKEN`/`_USERNAME` too |
 | `INRP2P_TRON_PRIMARY_URL`/`_GROUP`/`_NAME`/`_KEY`, `INRP2P_TRON_SECONDARY_*`, `INRP2P_USDT_CONTRACT` | ✔ | ✔ | keys ✔ | two groups for large amounts (D-05) |
 | `INRP2P_TRON_MONITORING` | | ✔ | | never `disabled` in production |
 | `INRP2P_CUSTODY_PROVIDER`, `INRP2P_CUSTODY_CAPABILITY` | ✔ | | | `POOL` (D-02, the default) or `DERIVED` (ADR 0017: the exchange's own HD wallet; provider `hd-wallet`) |
@@ -603,3 +604,22 @@ new secret, bucket or service: chat files are stored in the database (3 MB each)
    keeps the times it opened with.
 3. **Support calls** arrive on the desk's queue as "Support called to a deal chat" (`P2P_SUPPORT`, a warning, never a
    hold); INRP2P answers in the deal's chat on the trade's panel and closes the case with "Answered in the deal chat".
+
+## 17. Sign in with email or Telegram, confirm with another factor (ADR 0026)
+
+Migration `0043` (schema 43) records how each session was opened, lets a step-up be a code to the email or to Telegram,
+and keeps a person's linked Telegram as Better Auth's account row. Client sessions now last 30 days (7 without use).
+
+1. **Release order** (from production at 42): the code on `main` with all CI jobs green; a Neon branch
+   `before-43-<date>`; `node scripts/migrate.ts` through the migrator login; Vercel ready on 43; the worker image of the
+   same commit (it checks the schema version too). Sessions opened before 43 keep working and read as opened by email.
+2. **Log In with Telegram (optional, recommended).** In @BotFather open the alerts bot (`TELEGRAM_BOT_USERNAME`) → *Login
+   Widget*: add the allowed URLs `https://<APP_HOST>` and `https://<APP_HOST>/api/auth/callback/telegram` (exactly
+   `CLIENT_BASE_URL` + that path), keep the signing algorithm RS256, and copy the Client ID and Client Secret into the web
+   app's `TELEGRAM_LOGIN_CLIENT_ID` and `TELEGRAM_LOGIN_CLIENT_SECRET` (the secret is a secret). Redeploy. "Continue with
+   Telegram" then appears on the client sign-in, and "Connect Telegram" in Account & security. Without them, sign-in and
+   confirmation are the email code and the authenticator, and Telegram alerts link by their `/start` code as before.
+3. **Nothing to tell clients first.** A client with only their email who next adds a second bank account, withdraws, or
+   changes the team is asked to connect Telegram or set up an authenticator — in place, in a minute.
+4. **A lost Telegram** is disconnected by the desk after confirming the person: `client_user.reset_mfa` with
+   `factor: 'TELEGRAM'` (OWNER or SUPPORT, step-up, a reason). It ends every session of that person.

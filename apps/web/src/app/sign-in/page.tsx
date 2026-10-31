@@ -1,8 +1,10 @@
 import type { Metadata } from 'next';
-import { headers } from 'next/headers';
+import { cookies, headers } from 'next/headers';
+import { LAST_SIGN_IN_COOKIE } from '@inrp2p/identity/session-cookie';
 import { getImageProps } from 'next/image';
 import mark from '../../../../../brand/inrp2p-mark.png';
 import { hostConfig } from '../../server/hosts.ts';
+import { telegramLoginConfigured } from '../../server/runtime.ts';
 import { publicOrigin } from '../../server/site.ts';
 import { safeReturnPath, surfaceForHost } from '../../server/surface.ts';
 import { SignInForm } from './SignInForm.tsx';
@@ -28,12 +30,23 @@ export async function generateMetadata(): Promise<Metadata> {
  * arrives in from the home page's "Open workspace"; the desk's is one card on the brand's paper — the mark, the name,
  * the form. Neither says anything about the business before a session exists.
  */
-export default async function SignInPage({ searchParams }: { searchParams: Promise<{ next?: string | string[] }> }) {
+export default async function SignInPage({ searchParams }: { searchParams: Promise<{ next?: string | string[]; error?: string | string[] }> }) {
   if (await isClientHost()) {
     // The way back is the public site's; the way in for someone new is this page itself (D-17). Signed in, the person
     // goes on to where they were headed — a desk's page or a deal link — when the proxy remembered it.
-    const next = safeReturnPath((await searchParams).next);
-    return <WorkspaceGateway home={await publicOrigin()} {...(next ? { next } : {})} />;
+    const params = await searchParams;
+    const next = safeReturnPath(params.next);
+    // ADR 0026: Telegram when it is set up, offered first to whoever signed in with it last on this device; and what
+    // Telegram answered when it sent the person back here (`?error=`), as a word the page knows.
+    const last = (await cookies()).get(LAST_SIGN_IN_COOKIE)?.value;
+    const telegramError = typeof params.error === 'string' && /^[a-z_]{1,64}$/.test(params.error) ? params.error : undefined;
+    return (
+      <WorkspaceGateway
+        home={await publicOrigin()}
+        {...(next ? { next } : {})}
+        telegram={telegramLoginConfigured() ? { preferred: last === 'telegram', ...(telegramError ? { error: telegramError } : {}) } : null}
+      />
+    );
   }
 
   const { props: markProps } = getImageProps({ src: mark, alt: '', width: 44, height: 44 });

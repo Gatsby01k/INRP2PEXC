@@ -8,8 +8,9 @@ import { setCanAcceptQuotesAction } from '../../../server/actions/client.ts';
 import { Switch } from '../_workspace/Field.tsx';
 import { CheckIcon, LockIcon, ShieldIcon, SignOutIcon, UsersIcon } from '../_workspace/icons.tsx';
 import { SecureAccount } from '../_workspace/SecureAccount.tsx';
+import { TelegramCard } from '../_workspace/TelegramCard.tsx';
 import { TelegramConnect } from '../_workspace/TelegramConnect.tsx';
-import type { TelegramLinkView } from '@inrp2p/clients';
+import type { TelegramLinkView, TelegramView } from '@inrp2p/clients';
 import { Sheet } from '../_workspace/Sheet.tsx';
 import shell from '../shell.module.css';
 import styles from './account.module.css';
@@ -17,28 +18,41 @@ import styles from './account.module.css';
 const ROLE: Record<string, string> = { CLIENT_ADMIN: 'Administrator', CLIENT_TRADER: 'Trader', CLIENT_VIEWER: 'Viewer' };
 
 /**
- * The signed-in person and their account, in three parts: who they are, how their sign-in and changes are protected,
- * and — for an administrator — the people on the account and which of them may commit to a quote. Removing or
- * replacing an authenticator is the desk's to do after confirming who is asking, so it is offered nowhere here.
+ * The person's Telegram on this page: the full card when Log In with Telegram is set up (sign-in, codes, alerts —
+ * ADR 0026), the alerts card alone when only the bot is, nothing when neither is.
+ */
+export type AccountTelegram =
+  | { readonly mode: 'LOGIN'; readonly view: TelegramView; readonly outcome?: { readonly state: 'linked' | 'failed'; readonly error: string | null } }
+  | { readonly mode: 'ALERTS'; readonly view: TelegramLinkView }
+  | null;
+
+/**
+ * The signed-in person and their account, in three parts: who they are, how they sign in and confirm what matters, and
+ * — for an administrator of an account with the Exchange — the people on it and which of them may commit to a quote.
+ * Removing or replacing an authenticator is the desk's to do after confirming who is asking, so it is offered nowhere here.
  */
 export function AccountScreen({
-  clientName,
+  name,
   email,
   role,
   canAccept,
   hasAuthenticator,
+  signInMethod,
   people,
   isAdmin,
   telegram,
 }: {
-  clientName: string;
+  name: string;
   email: string;
-  role: string;
-  canAccept: boolean;
+  /** Null for someone with no client yet. */
+  role: string | null;
+  /** Null without the Exchange: there are no quotes to accept. */
+  canAccept: boolean | null;
   hasAuthenticator: boolean;
+  signInMethod: 'EMAIL' | 'TELEGRAM';
   people: readonly ClientPerson[];
   isAdmin: boolean;
-  telegram: { view: TelegramLinkView; botConfigured: boolean };
+  telegram: AccountTelegram;
 }) {
   const router = useRouter();
   const [securing, setSecuring] = useState(false);
@@ -60,12 +74,13 @@ export function AccountScreen({
       <main className={shell.main}>
         <section className={`${shell.card} ${styles.profile}`} aria-label="Your account">
           <span className={styles.avatar} aria-hidden="true">
-            {clientName.trim().charAt(0).toUpperCase()}
+            {name.trim().charAt(0).toUpperCase()}
           </span>
           <div className={styles.profileText}>
-            <h2 className={styles.profileName}>{clientName}</h2>
+            <h2 className={styles.profileName}>{name}</h2>
             <p className={styles.profileMeta}>
-              {email} · {ROLE[role] ?? 'Viewer'}
+              {email}
+              {role ? ` · ${ROLE[role] ?? 'Viewer'}` : ''}
             </p>
           </div>
           <button type="button" className={shell.secondaryAction} data-size="sm" onClick={() => void signOut()} disabled={leaving}>
@@ -74,55 +89,67 @@ export function AccountScreen({
           </button>
         </section>
 
-        <section className={shell.card} aria-labelledby="security-title">
+        <section className={shell.card} aria-labelledby="security-title" id="sign-in">
           <h2 id="security-title" className={shell.cardTitle}>
             Sign-in and security
           </h2>
+          <p className={styles.securityNote}>
+            You stay signed in on this device for up to 30 days. A new bank account or wallet, a withdrawal, new settlement details and who may act for your account are
+            confirmed with a code from somewhere other than where you signed in.
+          </p>
           <ul className={styles.items}>
             <li className={styles.item}>
               <span className={styles.itemIcon} data-tone="ok" aria-hidden="true">
                 <CheckIcon />
               </span>
               <span className={styles.itemText}>
-                <span className={styles.itemTitle}>Email code</span>
-                <span className={styles.itemDetail}>You sign in with a one-time code sent to {email}.</span>
+                <span className={styles.itemTitle}>
+                  Email code {signInMethod === 'EMAIL' ? <span className={styles.state} data-on="">This session</span> : null}
+                </span>
+                <span className={styles.itemDetail}>A one-time code sent to {email} signs you in and can confirm changes.</span>
               </span>
             </li>
             <li className={styles.item}>
-              <span className={styles.itemIcon} data-tone={hasAuthenticator ? 'ok' : 'warn'} aria-hidden="true">
+              <span className={styles.itemIcon} data-tone={hasAuthenticator ? 'ok' : 'neutral'} aria-hidden="true">
                 {hasAuthenticator ? <ShieldIcon /> : <LockIcon />}
               </span>
               <span className={styles.itemText}>
                 <span className={styles.itemTitle}>
-                  Authenticator app <span className={styles.state} data-on={hasAuthenticator || undefined}>{hasAuthenticator ? 'On' : 'Off'}</span>
+                  Authenticator app <span className={styles.state} data-on={hasAuthenticator || undefined}>{hasAuthenticator ? 'On' : 'Optional'}</span>
                 </span>
                 <span className={styles.itemDetail}>
                   {hasAuthenticator
-                    ? 'Confirms changes to your bank accounts, wallets and who may accept quotes. Lost your phone? Use a recovery code, or ask the desk to reset it after they confirm it is you.'
-                    : 'Needed to add or archive bank accounts and wallets, and to change who may accept quotes.'}
+                    ? 'Confirms changes with a code from your phone. Lost it? Use a recovery code, or ask the desk to reset it after they confirm it is you.'
+                    : 'Another way to confirm changes, without waiting for an email or a message.'}
                 </span>
               </span>
               {hasAuthenticator ? null : (
-                <button type="button" className={shell.action} data-size="sm" data-tone="ink" onClick={() => setSecuring(true)}>
+                <button type="button" className={shell.secondaryAction} data-size="sm" onClick={() => setSecuring(true)}>
                   Set up
                 </button>
               )}
             </li>
-            <li className={styles.item}>
-              <span className={styles.itemIcon} data-tone={canAccept ? 'ok' : 'neutral'} aria-hidden="true">
-                <CheckIcon />
-              </span>
-              <span className={styles.itemText}>
-                <span className={styles.itemTitle}>Quotes</span>
-                <span className={styles.itemDetail}>
-                  {canAccept ? 'You can accept firm quotes for this account.' : 'You can see quotes. Someone with acceptance rights on this account accepts them.'}
+            {canAccept === null ? null : (
+              <li className={styles.item}>
+                <span className={styles.itemIcon} data-tone={canAccept ? 'ok' : 'neutral'} aria-hidden="true">
+                  <CheckIcon />
                 </span>
-              </span>
-            </li>
+                <span className={styles.itemText}>
+                  <span className={styles.itemTitle}>Quotes</span>
+                  <span className={styles.itemDetail}>
+                    {canAccept ? 'You can accept firm quotes for this account.' : 'You can see quotes. Someone with acceptance rights on this account accepts them.'}
+                  </span>
+                </span>
+              </li>
+            )}
           </ul>
         </section>
 
-        <TelegramConnect view={telegram.view} botConfigured={telegram.botConfigured} />
+        {telegram?.mode === 'LOGIN' ? (
+          <TelegramCard view={telegram.view} returnTo="/account" outcome={telegram.outcome} title={signInMethod === 'TELEGRAM' && telegram.view.login ? 'Telegram · this session' : 'Telegram'} />
+        ) : telegram?.mode === 'ALERTS' ? (
+          <TelegramConnect view={telegram.view} botConfigured />
+        ) : null}
 
         {isAdmin ? (
           <section className={shell.card} aria-labelledby="team-title">
@@ -131,7 +158,7 @@ export function AccountScreen({
                 <h2 id="team-title" className={shell.cardTitle}>
                   Who may accept quotes
                 </h2>
-                <p className={styles.teamNote}>Accepting a quote commits {clientName} to the trade. Each change is confirmed with your authenticator.</p>
+                <p className={styles.teamNote}>Accepting a quote commits {name} to the trade. Each change is confirmed with a code.</p>
               </div>
               <UsersIcon className={styles.teamIcon} />
             </div>
@@ -162,7 +189,7 @@ export function AccountScreen({
             </ul>
             {cmd.error ? (
               <p className={shell.error} role="alert">
-                {cmd.error === 'MFA_ENROLLMENT_REQUIRED' ? 'Set up your authenticator first.' : cmd.error}
+                {cmd.error}
               </p>
             ) : null}
           </section>

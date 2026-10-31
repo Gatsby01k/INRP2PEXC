@@ -56,7 +56,7 @@ function teamAdminCommand<P, R>(actor: ClientActor, stepUp: boolean, handle: (ct
       if (ctx.actor.surface !== 'CLIENT') throw new DomainError('SESSION_SURFACE_MISMATCH');
       const member = await ctx.tx.selectFrom('client_user').select('client_id').where('user_id', '=', requireUuid(actor.userId, 'userId')).executeTakeFirst();
       if (!member) throw new DomainError('FORBIDDEN', 'this account is not linked to a client');
-      admin = { clientId: member.client_id, ...(await authorizeClientAdmin(ctx.tx, actor, member.client_id, { stepUp })) };
+      admin = { clientId: member.client_id, ...(await authorizeClientAdmin(ctx.tx, actor, member.client_id, { stepUp, purpose: 'TEAM' })) };
     },
     handle: async (ctx, payload) => {
       if (!admin) throw new Error('team command executed without authorization');

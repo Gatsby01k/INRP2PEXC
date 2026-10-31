@@ -1,5 +1,6 @@
 'use client';
 
+import type { Protection } from '../../../server/client.ts';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { ClientLinkState } from '@inrp2p/quotes';
@@ -35,7 +36,7 @@ export function LinkTakeScreen({
   banks: readonly PickOption[];
   wallets: readonly PickOption[];
   anyWallet: boolean;
-  who: { readonly canAccept: boolean; readonly isAdmin: boolean; readonly hasAuthenticator: boolean; readonly email: string; readonly clientName: string };
+  who: { readonly canAccept: boolean; readonly isAdmin: boolean; readonly protection: Protection; readonly email: string; readonly clientName: string };
   now: string;
 }) {
   const router = useRouter();
@@ -126,7 +127,7 @@ export function LinkTakeScreen({
         open={adding}
         kind={sells ? 'bank' : 'wallet'}
         onClose={() => setAdding(false)}
-        hasAuthenticator={who.hasAuthenticator}
+        protection={who.protection}
         email={who.email}
         holderName={who.clientName}
         firstOfKind={sells ? banks.length === 0 : !anyWallet}

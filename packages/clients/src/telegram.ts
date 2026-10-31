@@ -9,7 +9,11 @@ import { type ClientActor, type DomainCommand, actorLabel } from '@inrp2p/identi
  * A person's Telegram chat for alerts (docs/adr/0020-desks.md §2.14). The workspace hands out a one-time code — only its
  * hash is kept, valid fifteen minutes — and the person sends it to the bot from the chat they want alerts in
  * (`t.me/<bot>?start=<code>` does it in one tap). The bot's webhook links that chat to that person; `/stop` in the chat,
- * or disconnecting in the workspace, ends it. A chat never authenticates anyone and can do nothing but receive alerts.
+ * or disconnecting in the workspace, ends it. An alerts chat never authenticates anyone and can do nothing but receive alerts.
+ *
+ * ADR 0026: a person who links their Telegram to sign in with (Account & security) gets their alerts there too, with no
+ * code to send — Telegram's own sign-in has already said whose chat it is. Turning alerts off leaves the sign-in alone;
+ * disconnecting the Telegram stops both.
  */
 
 export const TELEGRAM_CODE_MINUTES = 15;
@@ -141,12 +145,99 @@ export function revokeTelegramLink(actor: ClientActor) {
   });
 }
 
+/**
+ * `telegram_link.connect` — a person linked their Telegram (the client auth's `onLinked`): their alerts go to that chat,
+ * unless they already have a chat for alerts. Someone with no client yet has no alerts to send; nothing happens.
+ */
+export function connectTelegramAlerts() {
+  return botCommand(async (ctx, p: { userId: string; chatId: string; username?: string | null }) => {
+    if (!/^[1-9]\d{0,19}$/.test(p.chatId)) throw new DomainError('INVALID_ARGUMENT', 'chatId must be a Telegram user id', { field: 'chatId' });
+    const member = await ctx.tx
+      .selectFrom('client_user as cu')
+      .innerJoin('auth_user as u', 'u.id', 'cu.user_id')
+      .select(['cu.id', 'cu.status', 'u.status as user_status'])
+      .where('cu.user_id', '=', requireUuid(p.userId, 'userId'))
+      .forUpdate('cu')
+      .executeTakeFirst();
+    if (!member || member.status !== 'ACTIVE' || member.user_status !== 'ACTIVE') return { connected: false as const };
+    const active = await ctx.tx.selectFrom('telegram_link').select('id').where('client_user_id', '=', member.id).where('status', '=', 'ACTIVE').executeTakeFirst();
+    if (active) return { connected: false as const };
+    await revokeWhere(ctx, { clientUserId: member.id, status: 'PENDING' }, 'replaced by the linked Telegram');
+    const row = await ctx.tx
+      .insertInto('telegram_link')
+      .values({ client_user_id: member.id, status: 'ACTIVE', chat_id: BigInt(p.chatId), username: optionalText(p.username, 'username', 64), linked_at: sql<Date>`inrp2p_now()` })
+      .returning('id')
+      .executeTakeFirstOrThrow();
+    await appendAudit(ctx, { action: 'telegram_link.linked', entityType: 'telegram_link', entityId: row.id, after: { status: 'ACTIVE', via: 'TELEGRAM_SIGN_IN' } });
+    return { connected: true as const };
+  });
+}
+
+/** `telegram_link.disconnect` — the person's Telegram was unlinked: alerts stop going to that chat. */
+export function disconnectTelegramAlerts() {
+  return botCommand(async (ctx, p: { userId: string; chatId: string }) => {
+    if (!/^[1-9]\d{0,19}$/.test(p.chatId)) throw new DomainError('INVALID_ARGUMENT', 'chatId must be a Telegram user id', { field: 'chatId' });
+    const member = await ctx.tx.selectFrom('client_user').select('id').where('user_id', '=', requireUuid(p.userId, 'userId')).executeTakeFirst();
+    if (!member) return { stopped: 0 };
+    const ids = (
+      await ctx.tx
+        .updateTable('telegram_link')
+        .set({ status: 'REVOKED', revoked_at: sql<Date>`inrp2p_now()`, revoke_reason: 'Telegram disconnected' })
+        .where('client_user_id', '=', member.id)
+        .where('status', '=', 'ACTIVE')
+        .where('chat_id', '=', BigInt(p.chatId))
+        .returning('id')
+        .execute()
+    ).map((r) => r.id);
+    for (const id of ids) await appendAudit(ctx, { action: 'telegram_link.revoked', entityType: 'telegram_link', entityId: id, before: { status: 'ACTIVE' }, after: { status: 'REVOKED', by: 'TELEGRAM_DISCONNECTED' } });
+    return { stopped: ids.length };
+  });
+}
+
+/**
+ * `telegram_link.enable` — the person turns their alerts on in the Telegram they linked to sign in with. No code: the
+ * link already proved the chat is theirs.
+ */
+export function enableTelegramAlerts(actor: ClientActor) {
+  return personCommand(actor, async (ctx, _p: Record<string, never>, member) => {
+    const login = await ctx.tx.selectFrom('auth_account').select(['account_id', 'telegram_username']).where('user_id', '=', actor.userId).where('provider_id', '=', 'telegram').executeTakeFirst();
+    if (!login) throw new DomainError('TELEGRAM_NOT_LINKED', 'connect your Telegram first');
+    await revokeWhere(ctx, { clientUserId: member.id, status: 'PENDING' }, 'replaced by the linked Telegram');
+    const replaced = await revokeWhere(ctx, { clientUserId: member.id, status: 'ACTIVE' }, 'replaced by the linked Telegram');
+    const row = await ctx.tx
+      .insertInto('telegram_link')
+      .values({ client_user_id: member.id, status: 'ACTIVE', chat_id: BigInt(login.account_id), username: login.telegram_username, linked_at: sql<Date>`inrp2p_now()` })
+      .returning('id')
+      .executeTakeFirstOrThrow();
+    await appendAudit(ctx, { action: 'telegram_link.linked', entityType: 'telegram_link', entityId: row.id, after: { status: 'ACTIVE', via: 'TELEGRAM_SIGN_IN', replaced } });
+    return { enabled: true as const };
+  });
+}
+
 export interface TelegramLinkView {
   readonly status: 'ACTIVE' | 'PENDING' | null;
   readonly username: string | null;
   readonly linkedAt: string | null;
   /** Until when a waiting code can be sent to the bot. */
   readonly codeExpiresAt: string | null;
+}
+
+/**
+ * The person's Telegram (ADR 0026): the one linked to sign in and confirm with, if any, and — for a member of a client —
+ * where their alerts go.
+ */
+export interface TelegramView {
+  readonly login: { readonly accountId: string; readonly username: string | null; readonly linkedAt: string } | null;
+  /** Null for someone with no client yet: they have no alerts. */
+  readonly alerts: TelegramLinkView | null;
+}
+
+export async function telegramOf(ex: Executor, userId: string, member: boolean): Promise<TelegramView> {
+  const [login, alerts] = await Promise.all([
+    ex.selectFrom('auth_account').select(['id', 'telegram_username', 'created_at']).where('user_id', '=', requireUuid(userId, 'userId')).where('provider_id', '=', 'telegram').executeTakeFirst(),
+    member ? telegramLinkOf(ex, userId) : Promise.resolve(null),
+  ]);
+  return { login: login ? { accountId: login.id, username: login.telegram_username, linkedAt: login.created_at.toISOString() } : null, alerts };
 }
 
 /** The signed-in person's chat: linked (and as whom), a code waiting, or nothing. */

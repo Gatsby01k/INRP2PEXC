@@ -11,9 +11,9 @@ import { getRuntime } from '../../../server/runtime.ts';
 import { appOrigin } from '../../../server/site.ts';
 import { surfaceForHost } from '../../../server/surface.ts';
 import { clientLinkState } from '@inrp2p/quotes';
-import { clientDestinations, hasAuthenticator } from '@inrp2p/portal';
+import { clientDestinations } from '@inrp2p/portal';
 import { redirect } from 'next/navigation';
-import { workspacePage } from '../../../server/client.ts';
+import { workspacePage, protectionOfRequest } from '../../../server/client.ts';
 import { DealLinkScreen } from './DealLinkScreen.tsx';
 import { LinkTakeScreen } from './LinkTakeScreen.tsx';
 import styles from '../../public-desk/storefront.module.css';
@@ -78,9 +78,9 @@ async function ClientLinkPage({ token }: { token: string }) {
   const state = await clientLinkState(ctx.db, member.clientId, token);
   if (!state) notFound();
   if (state.tradeRef) redirect(`/trades/${state.tradeRef}`);
-  const [destinations, authenticator, now] = await Promise.all([
+  const [destinations, protection, now] = await Promise.all([
     clientDestinations(ctx.db, member.clientId),
-    hasAuthenticator(ctx.db, ctx.actor.userId),
+    protectionOfRequest(),
     sql<{ now: Date }>`select inrp2p_now() as now`.execute(ctx.db).then((r) => r.rows[0]!.now),
   ]);
   const banks = destinations.banks.filter((b) => b.status === 'ACTIVE').map((b) => ({ id: b.id, name: `${b.bankName} •••• ${b.last4}`, meta: b.holderName }));
@@ -110,7 +110,7 @@ async function ClientLinkPage({ token }: { token: string }) {
         banks={banks}
         wallets={wallets}
         anyWallet={destinations.wallets.some((w) => w.status === 'ACTIVE' || w.status === 'PENDING_REVIEW')}
-        who={{ canAccept: member.canAcceptQuotes, isAdmin: member.role === 'CLIENT_ADMIN', hasAuthenticator: authenticator, email: ctx.access.email, clientName: member.clientName }}
+        who={{ canAccept: member.canAcceptQuotes, isAdmin: member.role === 'CLIENT_ADMIN', protection, email: ctx.access.email, clientName: member.clientName }}
         now={now.toISOString()}
       />
     </div>

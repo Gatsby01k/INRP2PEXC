@@ -8,8 +8,9 @@ import { testFieldProtector } from '@inrp2p/adapters/testing';
 import type { ClientActor } from '@inrp2p/identity';
 import { createTestClientLogin, createTestOperator, runAs, type TestOperator } from '@inrp2p/identity/testing';
 import {
-  addBankAccount, addContact, addWallet, archiveBankAccount, archiveContact, archiveWallet, createClient, isActiveBankAccountOfClient,
-  linkClientUser, listAuthorizedAcceptors, listBankAccounts, resetClientMfa, revealBankAccount, setCanAcceptQuotes, setClientStatus, setClientUserStatus, updateClient,
+  addBankAccount, addContact, addWallet, archiveBankAccount, archiveContact, archiveWallet, connectTelegramAlerts, createClient, disconnectTelegramAlerts, enableTelegramAlerts,
+  isActiveBankAccountOfClient, linkClientUser, listAuthorizedAcceptors, listBankAccounts, resetClientMfa, revealBankAccount, revokeTelegramLink, setCanAcceptQuotes, setClientStatus,
+  setClientUserStatus, telegramOf, updateClient,
 } from '../src/index.ts';
 
 let t: TestDatabase;
@@ -322,3 +323,89 @@ describe('a lost client authenticator (TD-11)', () => {
   });
 });
 
+
+describe('ADR 0026: what confirms a client admin’s change', () => {
+  /** A client admin signed in by `method`, with a Telegram linked or not, and a step-up of `stepUp` (if any) just now. */
+  async function admin(c: { clientId: string }, opts: { method: 'EMAIL' | 'TELEGRAM'; telegram?: boolean; stepUp?: 'EMAIL' | 'TELEGRAM' | 'TOTP' }) {
+    const login = await createTestClientLogin(t.owner);
+    await runAs(t.app, linkClientUser(dealer.actor), dealer.ref, 'client_user.link', { clientId: c.clientId, userId: login.userId, role: 'CLIENT_ADMIN' as const });
+    const telegramId = String(100_000_000 + Math.floor(Math.random() * 800_000_000));
+    if (opts.telegram || opts.method === 'TELEGRAM') {
+      await sql`insert into auth_account (account_id, provider_id, user_id, telegram_username) values (${telegramId}, 'telegram', ${login.userId}, 'priya_s')`.execute(t.owner);
+    }
+    if (opts.stepUp === 'TOTP') await t.owner.updateTable('auth_user').set({ two_factor_enabled: true }).where('id', '=', login.userId).execute();
+    await sql`update auth_session set sign_in_method = ${opts.method} where id = ${login.sessionId}`.execute(t.owner);
+    if (opts.stepUp) await sql`insert into step_up_verification (user_id, session_id, method) values (${login.userId}, ${login.sessionId}, ${opts.stepUp})`.execute(t.owner);
+    const actor: ClientActor = { kind: 'CLIENT', userId: login.userId, sessionId: login.sessionId };
+    return { actor, ref: login.ref, userId: login.userId, telegramId };
+  }
+  const addSecond = async (c: { clientId: string }, a: Awaited<ReturnType<typeof admin>>, n: string) =>
+    runAs(t.app, addBankAccount(a.actor, protector), a.ref, 'client_bank.add', bank(c.clientId, n));
+
+  it('signed in by email: a Telegram code confirms a new bank account; a code to the same email does not', async () => {
+    const c = await newClient('Telegram Confirms');
+    await runAs(t.app, addBankAccount(owner.actor, protector), owner.ref, 'client_bank.add', bank(c.clientId));
+    const byEmail = await admin(c, { method: 'EMAIL', telegram: true, stepUp: 'EMAIL' });
+    await expect(addSecond(c, byEmail, '223344556677')).rejects.toMatchObject({ code: 'STEP_UP_REQUIRED', details: { factors: ['TELEGRAM'], purpose: 'DESTINATION' } });
+    const byTelegram = await admin(c, { method: 'EMAIL', telegram: true, stepUp: 'TELEGRAM' });
+    const added = await addSecond(c, byTelegram, '334455667788');
+    expect((await audits(added.bankAccountId)).at(-1)!.after).toMatchObject({ confirmed_by: 'TELEGRAM' });
+  });
+
+  it('signed in with Telegram: the email confirms; Telegram itself does not', async () => {
+    const c = await newClient('Email Confirms');
+    await runAs(t.app, addBankAccount(owner.actor, protector), owner.ref, 'client_bank.add', bank(c.clientId));
+    const same = await admin(c, { method: 'TELEGRAM', stepUp: 'TELEGRAM' });
+    await expect(addSecond(c, same, '445566778899')).rejects.toMatchObject({ code: 'STEP_UP_REQUIRED', details: { factors: ['EMAIL'] } });
+    const other = await admin(c, { method: 'TELEGRAM', stepUp: 'EMAIL' });
+    const added = await addSecond(c, other, '556677889900');
+    expect((await audits(added.bankAccountId)).at(-1)!.after).toMatchObject({ confirmed_by: 'EMAIL' });
+    // Who may accept quotes is confirmed the same way.
+    const person = await createTestClientLogin(t.owner);
+    const linked = await runAs(t.app, linkClientUser(dealer.actor), dealer.ref, 'client_user.link', { clientId: c.clientId, userId: person.userId, role: 'CLIENT_TRADER' as const });
+    await expect(runAs(t.app, setCanAcceptQuotes(same.actor), same.ref, 'client_user.set_can_accept_quotes', { clientUserId: linked.clientUserId, canAcceptQuotes: true }))
+      .rejects.toMatchObject({ code: 'STEP_UP_REQUIRED', details: { purpose: 'TEAM' } });
+    await expect(runAs(t.app, setCanAcceptQuotes(other.actor), other.ref, 'client_user.set_can_accept_quotes', { clientUserId: linked.clientUserId, canAcceptQuotes: true })).resolves.toBeTruthy();
+  });
+
+  it('a step-up by a factor the person no longer has confirms nothing', async () => {
+    const c = await newClient('Unlinked Since');
+    await runAs(t.app, addBankAccount(owner.actor, protector), owner.ref, 'client_bank.add', bank(c.clientId));
+    const a = await admin(c, { method: 'EMAIL', telegram: true, stepUp: 'TELEGRAM' });
+    await sql`delete from auth_account where user_id = ${a.userId}`.execute(t.owner);
+    await expect(addSecond(c, a, '667788990011')).rejects.toMatchObject({ code: 'MFA_ENROLLMENT_REQUIRED' });
+  });
+
+  it('the desk disconnects a lost Telegram after verifying the person, which stops its alerts and ends every session', async () => {
+    const c = await newClient('Lost Telegram');
+    const a = await admin(c, { method: 'TELEGRAM' });
+    const member = await t.app.selectFrom('client_user').select('id').where('user_id', '=', a.userId).executeTakeFirstOrThrow();
+    await runAs(t.app, connectTelegramAlerts(), { type: 'SYSTEM', id: null, surface: 'SYSTEM' }, 'telegram_link.connect', { userId: a.userId, chatId: a.telegramId, username: 'priya_s' }, null);
+    expect((await telegramOf(t.app, a.userId, true)).alerts).toMatchObject({ status: 'ACTIVE', username: 'priya_s' });
+
+    await expect(runAs(t.app, resetClientMfa(dealer.actor), dealer.ref, 'client_user.reset_mfa', { clientUserId: member.id, reason: 'verified on a call to the number on file', factor: 'TELEGRAM' as const }))
+      .rejects.toMatchObject({ code: 'FORBIDDEN' });
+    const out = await runAs(t.app, resetClientMfa(support.actor), support.ref, 'client_user.reset_mfa', { clientUserId: member.id, reason: 'verified on a call to the number on file', factor: 'TELEGRAM' as const });
+    expect(out).toMatchObject({ reset: true, sessionsEnded: '1' });
+    expect(await telegramOf(t.app, a.userId, true)).toMatchObject({ login: null, alerts: { status: null } });
+    expect((await audits(member.id)).at(-1)).toMatchObject({ action: 'client_user.telegram_reset', actor_id: support.ref.id });
+  });
+
+  it('alerts follow the linked Telegram: on when linked, off and on again without a code, off when it is disconnected', async () => {
+    const c = await newClient('Alerts Follow');
+    const a = await admin(c, { method: 'EMAIL', telegram: true });
+    const SYSTEM = { type: 'SYSTEM' as const, id: null, surface: 'SYSTEM' as const };
+    expect(await runAs(t.app, connectTelegramAlerts(), SYSTEM, 'telegram_link.connect', { userId: a.userId, chatId: a.telegramId, username: 'priya_s' }, null)).toEqual({ connected: true });
+    // Already on: a second link changes nothing.
+    expect(await runAs(t.app, connectTelegramAlerts(), SYSTEM, 'telegram_link.connect', { userId: a.userId, chatId: a.telegramId }, null)).toEqual({ connected: false });
+    await runAs(t.app, revokeTelegramLink(a.actor), a.ref, 'telegram_link.revoke', {}, null);
+    expect((await telegramOf(t.app, a.userId, true)).alerts?.status).toBeNull();
+    await runAs(t.app, enableTelegramAlerts(a.actor), a.ref, 'telegram_link.enable', {}, null);
+    const on = await t.app.selectFrom('telegram_link').select(['chat_id', 'status']).where('status', '=', 'ACTIVE').where('client_user_id', 'in', t.app.selectFrom('client_user').select('id').where('user_id', '=', a.userId)).execute();
+    expect(on).toEqual([{ chat_id: BigInt(a.telegramId), status: 'ACTIVE' }]);
+    expect(await runAs(t.app, disconnectTelegramAlerts(), SYSTEM, 'telegram_link.disconnect', { userId: a.userId, chatId: a.telegramId }, null)).toEqual({ stopped: 1 });
+    // Someone with no Telegram linked has nothing to turn on.
+    const plain = await admin(c, { method: 'EMAIL' });
+    await expect(runAs(t.app, enableTelegramAlerts(plain.actor), plain.ref, 'telegram_link.enable', {}, null)).rejects.toMatchObject({ code: 'TELEGRAM_NOT_LINKED' });
+  });
+});

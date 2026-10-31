@@ -183,3 +183,17 @@
     justify-self: start;
   }
 }
+
+/* ADR 0026: how long a session lasts and what is confirmed again, said once above the ways in. */
+.securityNote {
+  margin: calc(var(--space-2) * -1) 0 var(--space-4);
+  max-width: 64ch;
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-normal);
+  color: var(--text-secondary);
+}
+
+.itemIcon[data-tone='neutral'] {
+  background: var(--bg-subtle);
+  color: var(--text-secondary);
+}
