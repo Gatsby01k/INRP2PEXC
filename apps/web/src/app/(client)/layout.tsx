@@ -9,6 +9,7 @@ import { AccountMenu } from './_workspace/AccountMenu.tsx';
 import { CommandMenu, type CommandEntry } from './_workspace/CommandMenu.tsx';
 import { MailIcon } from './_workspace/icons.tsx';
 import { NotificationsLink } from './_workspace/NotificationsLink.tsx';
+import { PAGE_HEAD_ID } from './_workspace/PageHead.tsx';
 import { ClientNav, type ClientNavEntry } from './Nav.tsx';
 import styles from './shell.module.css';
 
@@ -95,6 +96,13 @@ export default async function ClientLayout({ children }: { children: ReactNode }
 
   return (
     <div className={styles.shell}>
+      {/* A full load draws the page itself, never its loading shape first (ADR 0021 §4.5). On a phone the stylesheets
+          land after the page's HTML; at that moment the browser would draw the frame and the loading shape, and React
+          then holds the page, already read, 300 ms behind that first frame. This asks the browser to draw nothing until
+          the page's heading has been read, so its first frame is the page. React lifts it into the document's head, the
+          only place that can hold a first paint: on a click it lands in a page already drawn and does nothing, and the
+          shape opens the section at once (§2.3). A browser that does not know `expect` draws as before. */}
+      <link rel="expect" href={`#${PAGE_HEAD_ID}`} blocking="render" />
       {/* The page's backdrop: light from above, a fine grid fading into the paper, one warm glow of the mark's orange
           drifting slowly, and a grain — the room the work sits in. */}
       <div className={styles.backdrop} aria-hidden="true">
