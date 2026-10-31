@@ -1,7 +1,7 @@
-import { clientPeople, hasAuthenticator, workspaceAccess } from '@inrp2p/portal';
+import { clientPeople, hasAuthenticator } from '@inrp2p/portal';
 import { telegramLinkOf } from '@inrp2p/clients';
 import { telegramFromEnv } from '@inrp2p/adapters';
-import { clientPage } from '../../../server/client.ts';
+import { clientPage, workspaceContext } from '../../../server/client.ts';
 import { PageHead } from '../_workspace/PageHead.tsx';
 import { AccountScreen } from './AccountScreen.tsx';
 import { ShieldIcon } from '../_workspace/icons.tsx';
@@ -17,7 +17,7 @@ export default async function AccountPage() {
   const ctx = await clientPage();
   const isAdmin = ctx.access.role === 'CLIENT_ADMIN';
   const [who, authenticator, people, telegram] = await Promise.all([
-    workspaceAccess(ctx.db, ctx.actor.userId),
+    workspaceContext().then((w) => w.access),
     hasAuthenticator(ctx.db, ctx.actor.userId),
     isAdmin ? clientPeople(ctx.db, ctx.access.clientId) : Promise.resolve([]),
     telegramLinkOf(ctx.db, ctx.actor.userId),

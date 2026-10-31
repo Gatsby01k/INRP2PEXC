@@ -1,5 +1,5 @@
-import { clientDestinations, hasAuthenticator, workspaceAccess } from '@inrp2p/portal';
-import { clientPage } from '../../../server/client.ts';
+import { clientDestinations, hasAuthenticator } from '@inrp2p/portal';
+import { clientPage, workspaceContext } from '../../../server/client.ts';
 import { PageHead } from '../_workspace/PageHead.tsx';
 import { DestinationsScreen } from './DestinationsScreen.tsx';
 import { BankIcon } from '../_workspace/icons.tsx';
@@ -18,7 +18,7 @@ export default async function DestinationsPage() {
   const [destinations, authenticator, who] = await Promise.all([
     clientDestinations(ctx.db, ctx.access.clientId, { includeArchived: true }),
     hasAuthenticator(ctx.db, ctx.actor.userId),
-    workspaceAccess(ctx.db, ctx.actor.userId),
+    workspaceContext().then((w) => w.access),
   ]);
 
   return (

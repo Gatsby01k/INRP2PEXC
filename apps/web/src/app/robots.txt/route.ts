@@ -1,5 +1,5 @@
 import { headers } from 'next/headers';
-import { getRuntime } from '../../server/runtime.ts';
+import { hostConfig } from '../../server/hosts.ts';
 import { publicOrigin } from '../../server/site.ts';
 import { surfaceForHost } from '../../server/surface.ts';
 
@@ -17,7 +17,7 @@ export const dynamic = 'force-dynamic';
  * the client host without a client session; this only stops a well-behaved crawler wasting its time and ours.
  */
 export async function GET() {
-  const surface = surfaceForHost((await headers()).get('host'), getRuntime().hosts);
+  const surface = surfaceForHost((await headers()).get('host'), hostConfig());
   if (surface !== 'PUBLIC') {
     return new Response('User-agent: *\nDisallow: /\n', {
       headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' },

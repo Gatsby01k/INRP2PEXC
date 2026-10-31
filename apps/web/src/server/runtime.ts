@@ -4,6 +4,7 @@ import { createClientAuth, createOperatorAuth, type ClientAuth, type OperatorAut
 import { envFlag, optionalEnv, requiredEnv as required } from './env.ts';
 import { clientOtpSender } from './client-otp.ts';
 import { hostConfig } from './hosts.ts';
+import { databaseStartCheck } from './production-start.ts';
 import type { HostConfig } from './surface.ts';
 
 /**
@@ -29,12 +30,18 @@ interface Runtime {
 
 let runtime: Runtime | undefined;
 
-/** Lazily constructed server runtime (pools and Better Auth instances). */
+/**
+ * Lazily constructed server runtime (pools and Better Auth instances). In production, neither pool sends a statement
+ * before the start-up check has passed on the database (`databaseStartCheck`). Something that only needs the host
+ * names asks `hostConfig()`, not this.
+ */
 export function getRuntime(): Runtime {
   if (runtime) return runtime;
   const databaseUrl = required('DATABASE_URL');
-  const appDb = createDb(createPool({ connectionString: databaseUrl, applicationName: 'inrp2p-web', int8: 'bigint' }));
-  const authDb = createDb(createPool({ connectionString: databaseUrl, applicationName: 'inrp2p-web-auth', int8: 'number' }));
+  const appPool = createPool({ connectionString: databaseUrl, applicationName: 'inrp2p-web', int8: 'bigint' });
+  const ready = databaseStartCheck(appPool);
+  const appDb = createDb(appPool, ready ? { ready } : {});
+  const authDb = createDb(createPool({ connectionString: databaseUrl, applicationName: 'inrp2p-web-auth', int8: 'number' }), ready ? { ready } : {});
   const hosts = hostConfig();
   const secure = useSecureCookies();
   const operatorAuth = createOperatorAuth({
@@ -57,10 +64,10 @@ export function getRuntime(): Runtime {
  * is opened by whoever holds it, and the page it opens must not sit on an origin that carries a client's cookie.
  */
 export function quoteLinkBase(): string {
-  return optionalEnv('CLIENT_LINK_BASE') ?? `https://${getRuntime().hosts.publicHost}`;
+  return optionalEnv('CLIENT_LINK_BASE') ?? `https://${hostConfig().publicHost}`;
 }
 
 /** The origin the client product is served from, used where an email needs an absolute link back into it. */
 export function clientBase(): string {
-  return optionalEnv('CLIENT_BASE_URL') ?? `https://${getRuntime().hosts.appHost}`;
+  return optionalEnv('CLIENT_BASE_URL') ?? `https://${hostConfig().appHost}`;
 }

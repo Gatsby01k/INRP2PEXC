@@ -1,11 +1,10 @@
 import type { ReactNode } from 'react';
 import Link from 'next/link';
 import { getImageProps } from 'next/image';
-import { unreadCount } from '@inrp2p/notifications';
-import { payoutsHeld } from '@inrp2p/trades';
 import mark from '../../../../../brand/inrp2p-mark.png';
 import { workspacePage } from '../../server/client.ts';
 import { mailto, siteContacts } from '../../server/site.ts';
+import { workspaceFrame } from '../../server/workspace-frame.ts';
 import { AccountMenu } from './_workspace/AccountMenu.tsx';
 import { CommandMenu, type CommandEntry } from './_workspace/CommandMenu.tsx';
 import { MailIcon } from './_workspace/icons.tsx';
@@ -72,21 +71,14 @@ const DESK_STATE: Record<string, { label: string; tone: 'live' | 'paused' | 'neu
 export default async function ClientLayout({ children }: { children: ReactNode }) {
   const ctx = await workspacePage();
   const member = ctx.access.kind === 'MEMBER' ? ctx.access.member : null;
-  const unread = member ? await unreadCount(ctx.db, member.clientId) : 0;
-  // After a database recovery the workspace may ask for a payment that was already made; it says so, in plain words
-  // and without the internals, until the desk has reconciled (migration 0034, RUNBOOKS `restore-fence`).
-  const { held } = await payoutsHeld(ctx.db);
+  // What the frame shows besides the person, read together (one round trip, not five).
+  const { unread, held, trader, dealsWithDesks } = await workspaceFrame(ctx.db, member);
   const { props: markProps } = getImageProps({ src: mark, alt: '', width: 32, height: 32 });
   const { desk } = siteContacts();
   // A trader runs a desk: approved or paused, or already with one open.
-  const trader = member
-    ? await ctx.db.selectFrom('trader_profile').select(['id', 'status']).where('client_id', '=', member.clientId).executeTakeFirst()
-    : undefined;
-  const desks = trader !== undefined && (trader.status === 'APPROVED' || trader.status === 'PAUSED');
-  const ownDesk = desks && trader ? await ctx.db.selectFrom('desk').select(['display_name', 'status']).where('trader_id', '=', trader.id).executeTakeFirst() : undefined;
+  const desks = trader !== null && (trader.status === 'APPROVED' || trader.status === 'PAUSED');
+  const ownDesk = desks ? (trader.desk ?? undefined) : undefined;
   const home = member?.exchangeAccess ? '/exchange' : desks ? '/desk' : member ? '/traders' : '/open-account';
-  // A client that deals with independent desks (ADR 0020) finds them beside the Exchange.
-  const dealsWithDesks = member ? Boolean(await ctx.db.selectFrom('desk_client').select('id').where('client_id', '=', member.clientId).limit(1).executeTakeFirst()) : false;
   const base = member?.exchangeAccess ? ENTRIES : member ? TRADER_ENTRIES : NEW_ENTRIES;
   const withDesks = dealsWithDesks && member?.exchangeAccess ? [base[0]!, DESKS, ...base.slice(1)] : base;
   const entries = desks ? withDesk(withDesks) : withDesks;
@@ -95,7 +87,7 @@ export default async function ClientLayout({ children }: { children: ReactNode }
 
   const commands: CommandEntry[] = [
     ...entries.map((e) => ({ href: e.href, label: e.label, group: 'Go to' })),
-    ...(ownDesk ? DESK_SECTIONS.map((e) => ({ href: e.href, label: e.label, group: 'Your desk', hint: ownDesk.display_name })) : []),
+    ...(ownDesk ? DESK_SECTIONS.map((e) => ({ href: e.href, label: e.label, group: 'Your desk', hint: ownDesk.displayName })) : []),
     ...(member ? [{ href: '/notifications', label: 'Notifications', group: 'Account', ...(unread > 0 ? { hint: `${unread} unread` } : {}) }] : []),
     ...(member ? [{ href: '/account', label: 'Account & security', group: 'Account' }] : []),
     ...(member && desks ? [{ href: '/account/team', label: 'Team', group: 'Account' }] : []),
@@ -145,7 +137,7 @@ export default async function ClientLayout({ children }: { children: ReactNode }
             {deskState && ownDesk ? (
               <span className={styles.deskState} data-tone={deskState.tone}>
                 <span className={styles.deskStateDot} />
-                {ownDesk.display_name} · {deskState.label}
+                {ownDesk.displayName} · {deskState.label}
               </span>
             ) : null}
           </span>
