@@ -242,8 +242,9 @@ sends nothing), `apps/web/test/robot-governor.unit.test.ts`, the read-cost tests
 (project `mobile-perf`; the CPU calibrated per machine to an M1 slowed four times): the home page, a search page, the
 client's sign-in and the Exchange, three cold and three warm loads each on the 4G and Slow 4G profiles, held to TTFB,
 LCP 2.5 s, CLS 0.1 (4G; printed on Slow 4G, §4.5), and — generously, because CI's runners moved the same build's home
-page between 388 and 858 ms of blocking time — total blocking time and a tap answered within 500 ms; the Exchange's
-heading shown within 200 ms of reaching the document, cold and warm (React's hold is 300 ms: §4.5's follow-up), the hold's
-link in the head and its target in the page; one request per click inside the workspace, and a click that draws the
-section's shape within 500 ms with the server's answer held back; and, where the browser has a hardware GPU, the robot's start
+page between 388 and 858 ms of blocking time — total blocking time and a tap answered within 500 ms, both judged on the
+fastest of the runs (a busy machine only adds to them; a regression is in every run); the Exchange's heading shown within
+200 ms of reaching the document, cold and warm (React's hold is 300 ms: §4.5's follow-up), the hold's link in the head
+and its target in the page; one request per click inside the workspace, and a click that draws the section's shape
+within 500 ms with the server's answer held back; and, where the browser has a hardware GPU, the robot's start
 (no task over 200 ms), its frames at rest and scrolling (95th percentile under 25 ms) and its hand-back to the poster.
