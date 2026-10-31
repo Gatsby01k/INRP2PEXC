@@ -5,8 +5,9 @@ import { appBaseUrl, linkBaseUrl, resetAuthThrottle, signInAsClient, state } fro
 
 /**
  * A phone in India (performance and interaction). The pages a stranger and a client reach first — the home page, a
- * search page, the client's sign-in, the Exchange — loaded on a mid-range phone (Pixel 7, CPU slowed four times) over
- * the network a phone in India has to this product on Vercel (`netsim.ts`: the last mile to the Mumbai edge, and the
+ * search page, the client's sign-in, the Exchange — loaded on a mid-range phone (Pixel 7, its CPU slowed to the same
+ * phone on whatever machine runs this: `CPU_SLOWDOWN`) over the network a phone in India has to this product on Vercel
+ * (`netsim.ts`: the last mile to the Mumbai edge, and the
  * round trip on to the functions in iad1 for everything the edge cannot answer itself). Each page is loaded cold — a
  * new browser, nothing cached — and then warm, several times, and judged on the median.
  *
@@ -19,7 +20,40 @@ import { appBaseUrl, linkBaseUrl, resetAuthThrottle, signInAsClient, state } fro
 test.describe.configure({ mode: 'serial' });
 
 const RUNS = Number.parseInt(process.env.PERF_RUNS ?? '3', 10);
-const CPU_SLOWDOWN = Number.parseFloat(process.env.PERF_CPU_SLOWDOWN ?? '4');
+
+/**
+ * How much to slow this machine's CPU so it plays the same phone wherever the suite runs. The budgets were set on an
+ * Apple M1 slowed four times (Lighthouse's own mobile factor, a mid-range phone), where `benchmark` takes this long; a
+ * slower machine — a shared CI runner — is slowed less, as Lighthouse's `benchmarkIndex` would advise, so a blocking-time
+ * budget measures the page and not the runner. `PERF_CPU_SLOWDOWN` fixes the factor instead.
+ */
+const REFERENCE_BENCHMARK_MS = 28;
+const REFERENCE_SLOWDOWN = 4;
+let CPU_SLOWDOWN = REFERENCE_SLOWDOWN;
+
+/** A fixed piece of page work — build, sort and lay out rows — timed unthrottled: the median of seven. */
+async function benchmark(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const runs: number[] = [];
+    for (let r = 0; r < 7; r++) {
+      const t = performance.now();
+      const rows: { id: number; label: string }[] = [];
+      for (let i = 0; i < 60000; i++) rows.push({ id: i, label: `row-${(i * 2654435761) % 1000003}` });
+      rows.sort((a, b) => (a.label < b.label ? -1 : a.label > b.label ? 1 : 0));
+      const el = document.createElement('div');
+      for (let i = 0; i < 1500; i++) {
+        const span = document.createElement('span');
+        span.textContent = rows[i]!.label;
+        el.append(span);
+      }
+      document.body.append(el);
+      void el.offsetHeight;
+      el.remove();
+      runs.push(performance.now() - t);
+    }
+    return runs.sort((a, b) => a - b)[3]!;
+  });
+}
 const PORTS = surfacePorts(Number.parseInt(process.env.E2E_PORT ?? '3210', 10));
 /** Each network's proxies listen this far above the servers' own ports (same number of digits: `netsim.ts`). */
 const OFFSET: Record<NetworkName, number> = { 'india-4g': 1000, 'india-slow-4g': 2000 };
@@ -134,6 +168,15 @@ const stops: (() => void)[] = [];
 let client: NonNullable<BrowserContextOptions['storageState']>;
 
 test.beforeAll(async ({ browser }) => {
+  {
+    const context = await browser.newContext({ ...devices['Pixel 7'] });
+    const page = await context.newPage();
+    const ms = await benchmark(page);
+    await context.close();
+    const fixed = process.env.PERF_CPU_SLOWDOWN;
+    CPU_SLOWDOWN = fixed ? Number.parseFloat(fixed) : Math.min(8, Math.max(1, Math.round(((REFERENCE_SLOWDOWN * REFERENCE_BENCHMARK_MS) / ms) * 4) / 4));
+    console.log(`mobile-perf: this machine runs the benchmark in ${ms.toFixed(1)} ms (reference ${REFERENCE_BENCHMARK_MS} ms), so its CPU is slowed ×${CPU_SLOWDOWN}`);
+  }
   for (const network of Object.keys(NETWORKS) as NetworkName[]) {
     for (const port of [PORTS.app, PORTS.public]) stops.push(await shapedProxy(port + OFFSET[network], port, NETWORKS[network]));
   }

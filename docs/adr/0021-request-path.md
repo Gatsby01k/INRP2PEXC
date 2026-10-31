@@ -192,7 +192,8 @@ than holding it, and the 4G budget holds it.
 ### 4.6 Budgets that fail when this regresses
 `apps/web/test/production-start.unit.test.ts` (no statement before the check, one check per process, a failed check
 sends nothing), `apps/web/test/robot-governor.unit.test.ts`, the read-cost tests above, and `apps/web/e2e/mobile-perf.spec.ts`
-(project `mobile-perf`): the home page, a search page, the client's sign-in and the Exchange, three cold and three warm
+(project `mobile-perf`; the CPU calibrated per machine to an M1 slowed four times, so a shared CI runner plays the same
+phone): the home page, a search page, the client's sign-in and the Exchange, three cold and three warm
 loads each on the 4G and Slow 4G profiles, held to TTFB, LCP 2.5 s, CLS 0.1 (4G; printed on Slow 4G, §4.5), total blocking time and a tap answered
 within 300 ms; one request per click inside the workspace; and, where the browser has a hardware GPU, the robot's start
 (no task over 200 ms), its frames at rest and scrolling (95th percentile under 25 ms) and its hand-back to the poster.
