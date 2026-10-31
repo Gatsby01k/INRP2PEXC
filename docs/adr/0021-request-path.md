@@ -179,7 +179,7 @@ On a cold load of the Exchange the workspace's loading shape (`(client)/loading.
 in the same response a few milliseconds later; React 19.3 then reveals a streamed boundary no sooner than 300 ms after
 the shell's first frame. On the 4G profile the heading arrives at ≈635 ms and is shown at ≈995 ms (LCP ≈1.07 s instead of
 ≈0.84 s); it is the same on `main`. The loading shape is §2.3's decision for clicks; changing how a full load uses it is
-left to its own change.
+left to its own change (made in the follow-up at the end of this section).
 
 On Slow 4G a cold search page is drawn before Geist arrives (`font-display: swap`), and when it does a line re-wraps: in
 CI a page's onboarding note gained a line 1.8 s in and everything under it moved 17 px (CLS 0.14 on two of three loads;
@@ -189,11 +189,61 @@ not drawing the fallback at all — `font-display: optional` with the fonts prel
 the system's face instead of Geist. That trade is the brand's to make, so the Slow 4G budget prints layout shift rather
 than holding it, and the 4G budget holds it.
 
+#### Follow-up (2026-10-31): a full load draws the page
+Traced on the 4G profile: the Exchange's whole HTML — frame, loading shape and page — is in the browser by ≈390 ms; its
+six stylesheets arrive at ≈640 ms. The parser stops at its first inline script until they land, and when they do the
+browser draws a frame first (the frame and the shape) and reads on after it. React's shell script marks that frame
+(`$RT`), so when the page's reveal (`$RC`) runs at ≈705 ms it is held to ≈1000 ms. On a warm load the stylesheets are
+cached, the parser reaches `$RC` before any frame, and the page is shown at once: the hold was a cold load's alone.
+
+Decision: the workspace's layout puts `<link rel="expect" href="#page-head" blocking="render">` in the document's head,
+and `PageHead`, which every workspace page opens with (the desk's `DeskHead` is one), carries that id. Chrome draws
+nothing until the heading has been read; the parser then runs on through the page to `$RC` in the same breath, so the
+first frame is the page — no loading shape, no hold. Clicks are untouched: a link holds rendering only while the
+document's own head is being read, so on a client navigation it does nothing, and the shape opens the section on the
+click (§2.3). Browsers without `expect` (Safari, Firefox) draw as before. Every workspace page reads only the database,
+in parallel with the layout, so its heading follows the frame by a few database round trips, never a call elsewhere.
+
+Measured with the probe behind `mobile-perf` (Exchange, Pixel 7, CPU ×4, medians of 5 loads, 8 for the chosen one):
+
+| | 4G cold: heading shown / LCP | 4G warm LCP | Slow 4G cold: heading shown / LCP | Slow 4G warm LCP | HTML |
+| --- | --- | --- | --- | --- | --- |
+| before | 999 / 1084 ms | 344 ms | 1592 / 1820 ms | 444 ms | 8.4 KB |
+| `experimental.inlineCss` | 565 / 752 ms | 504 ms | 1035 / 1592 ms | 816 ms | 110 KB |
+| `expect` until the document ends | 704 / 872 ms | 496 ms | 1333 / 1832 ms | 608 ms | 8.4 KB |
+| **`expect` until the page's heading** | **703 / 880 ms** | **352 ms** | **1335 / 1832 ms** | **456 ms** | 8.4 KB |
+
+The suite itself, before → after (medians of 3, CPU ×4): the Exchange's cold LCP 1100 → 856 ms on 4G and 1852 → 1828 ms on
+Slow 4G, its heading shown 300 → 47 ms and 301 → 48 ms after reaching the document; warm LCP 352 → 348 and 472 → 464 ms.
+A click from History to the Exchange drew the shape 85–96 ms after the click and the page 427–441 ms after it, before
+and after (554 → 555 ms to the heading, as the suite times it). In 31 of 32 loads `$RC` ran before the first frame; the other was a warm load where a cached script ran in the
+middle of the page, which was then held as before — never later than before.
+
+Rejected:
+- `experimental.inlineCss`: no stylesheet to wait for, so no hold, but the Exchange's stylesheets are 51 KB compressed
+  and Next inlines them twice (in `<style>` and again in the page's data): every document grows from 8.4 to 110 KB,
+  cached stylesheets or not, and warm loads lose 160 ms on 4G and 370 ms on Slow 4G. It applies to every page.
+- Holding the first paint until the document ends (an id no element has): the same on a cold load, but on a warm load
+  the document ends only after the cached scripts it starts have run (hydration), and the first frame moved from 344 to
+  496 ms.
+- Moving the loading boundary: whichever boundary the page streams into, React writes the page outside the shell (it is
+  over the 12.8 KB React inlines) and reveals it with `$RC`, so the frame the stylesheets' arrival draws comes first.
+- Clearing React's `$RT` from a script of our own: it works, but it edits React's private runtime and still shows the
+  shape for a frame.
+
+What is left: on a cold load the LCP is now the page's lede, recorded when Geist arrives — the fonts are requested only
+once the first frame lays out text (≈780–870 ms on 4G, ≈1.8 s on Slow 4G), so on Slow 4G the heading shows 260 ms sooner
+but LCP did not move. Preloading the fonts would start them with the stylesheets; it is the same trade as the swap
+above, so it stays with that decision.
+
 ### 4.6 Budgets that fail when this regresses
 `apps/web/test/production-start.unit.test.ts` (no statement before the check, one check per process, a failed check
 sends nothing), `apps/web/test/robot-governor.unit.test.ts`, the read-cost tests above, and `apps/web/e2e/mobile-perf.spec.ts`
 (project `mobile-perf`; the CPU calibrated per machine to an M1 slowed four times): the home page, a search page, the
 client's sign-in and the Exchange, three cold and three warm loads each on the 4G and Slow 4G profiles, held to TTFB,
 LCP 2.5 s, CLS 0.1 (4G; printed on Slow 4G, §4.5), and — generously, because CI's runners moved the same build's home
-page between 388 and 858 ms of blocking time — total blocking time and a tap answered within 500 ms; one request per click inside the workspace; and, where the browser has a hardware GPU, the robot's start
+page between 388 and 858 ms of blocking time — total blocking time and a tap answered within 500 ms; the Exchange's
+heading shown within 200 ms of reaching the document, cold and warm (React's hold is 300 ms: §4.5's follow-up), the hold's
+link in the head and its target in the page; one request per click inside the workspace, and a click that draws the
+section's shape within 500 ms with the server's answer held back; and, where the browser has a hardware GPU, the robot's start
 (no task over 200 ms), its frames at rest and scrolling (95th percentile under 25 ms) and its hand-back to the poster.

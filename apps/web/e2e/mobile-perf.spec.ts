@@ -75,14 +75,30 @@ interface Load {
   readonly tbt: number;
   /** The slowest answer to the page's interaction, ms (Event Timing, as INP measures it). */
   readonly interaction: number;
+  /** From the page's heading reaching the document to its first frame on screen, ms. */
+  readonly shown: number;
 }
 
-/** Collected in the page from its first byte: largest paint, layout shifts, long tasks, interactions. */
+/** Collected in the page from its first byte: largest paint, layout shifts, long tasks, interactions, the heading shown. */
 function observe() {
-  type Perf = { lcp: number; cls: number; shifts: string[]; long: number[]; events: number[] };
+  type Perf = { lcp: number; cls: number; shifts: string[]; long: number[]; events: number[]; shown: number };
   const w = window as unknown as { __perf: Perf };
-  const p: Perf = { lcp: 0, cls: 0, shifts: [], long: [], events: [] };
+  const p: Perf = { lcp: 0, cls: 0, shifts: [], long: [], events: [], shown: -1 };
   w.__perf = p;
+  // A page that streams into the workspace's frame reaches the document hidden and is shown at the next frame — unless a
+  // frame has already drawn its loading shape, when React holds it back 300 ms behind that frame (ADR 0021 §4.5).
+  let arrived = 0;
+  const arrival = new MutationObserver(() => {
+    if (!document.querySelector('h1')) return;
+    arrived = performance.now();
+    arrival.disconnect();
+  });
+  arrival.observe(document, { childList: true, subtree: true });
+  const frame = (now: number) => {
+    if (arrived && document.querySelector('h1')?.checkVisibility()) p.shown = now - arrived;
+    else requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
   const on = (type: string, fn: (e: PerformanceEntry & Record<string, unknown>) => void, extra: Record<string, unknown> = {}) => {
     try {
       new PerformanceObserver((l) => l.getEntries().forEach((e) => fn(e as PerformanceEntry & Record<string, unknown>))).observe({ type, buffered: true, ...extra });
@@ -110,7 +126,7 @@ function observe() {
 
 async function measure(page: Page): Promise<Load> {
   return page.evaluate(() => {
-    const p = (window as unknown as { __perf: { lcp: number; cls: number; shifts: string[]; long: number[]; events: number[] } }).__perf;
+    const p = (window as unknown as { __perf: { lcp: number; cls: number; shifts: string[]; long: number[]; events: number[]; shown: number } }).__perf;
     const nav = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming;
     return {
       ttfb: Math.round(nav.responseStart),
@@ -119,6 +135,7 @@ async function measure(page: Page): Promise<Load> {
       shifts: p.shifts,
       tbt: Math.round(p.long.reduce((s, d) => s + Math.max(0, d - 50), 0)),
       interaction: Math.round(Math.max(0, ...p.events)),
+      shown: Math.round(p.shown),
     };
   });
 }
@@ -162,6 +179,7 @@ async function loads(browser: Browser, url: string, opts: { storage?: BrowserCon
     worst: [...xs].sort((a, b) => b.cls - a.cls)[0]!,
     tbt: median(xs.map((x) => x.tbt)),
     interaction: median(xs.map((x) => x.interaction)),
+    shown: median(xs.map((x) => x.shown)),
   });
   return { cold: summary(cold), warm: summary(warm) };
 }
@@ -194,8 +212,9 @@ test.afterAll(() => {
 });
 
 /** One line per page and network in the run's output: the numbers the budgets were held to, for the next reader. */
-function report(name: string, network: string, r: Awaited<ReturnType<typeof loads>>) {
-  const line = (k: 'cold' | 'warm') => `${k} ttfb ${r[k].ttfb} lcp ${r[k].lcp} cls ${r[k].cls} (worst ${r[k].worst.cls}) tbt ${r[k].tbt} tap ${r[k].interaction}`;
+function report(name: string, network: string, r: Awaited<ReturnType<typeof loads>>, streamed = false) {
+  const line = (k: 'cold' | 'warm') =>
+    `${k} ttfb ${r[k].ttfb} lcp ${r[k].lcp} cls ${r[k].cls} (worst ${r[k].worst.cls}) tbt ${r[k].tbt} tap ${r[k].interaction}${streamed ? ` heading shown +${r[k].shown}` : ''}`;
   console.log(`mobile-perf ${name} @ ${network} (median of ${RUNS}, CPU ×${CPU_SLOWDOWN}): ${line('cold')} | ${line('warm')}`);
   for (const k of ['cold', 'warm'] as const) {
     if (r[k].worst.cls >= 0.02) console.log(`mobile-perf ${name} @ ${network} ${k}, worst run's layout shifts:\n  ${r[k].worst.shifts.join('\n  ')}`);
@@ -235,6 +254,8 @@ const PAGES = [
     url: (n: NetworkName) => `${shaped(appBaseUrl(), n)}/exchange`,
     signedIn: true,
     ready: (page: Page) => expect(page.getByRole('heading', { name: 'Exchange', exact: true })).toBeVisible(),
+    // The page streams into the workspace's frame: once it has arrived it is shown, not held behind the loading shape.
+    streamed: true,
     // Search (⌘K): the workspace's own control, opened and closed.
     interact: async (page: Page) => {
       await page.locator('button[aria-haspopup="dialog"]').first().click();
@@ -250,7 +271,7 @@ for (const p of PAGES) {
     test(`${p.name} on ${network}: cold and warm loads within budget`, async ({ browser }) => {
       test.slow();
       const r = await loads(browser, p.url(network), { ...(p.signedIn ? { storage: client } : {}), ready: p.ready, ...(p.interact ? { interact: p.interact } : {}) });
-      report(p.name, network, r);
+      report(p.name, network, r, p.streamed);
       const slow = network === 'india-slow-4g';
       // First byte: the model's floor (370 ms cold, 250 ms warm on 4G; 640 / 340 on Slow 4G) plus the server's work.
       expect(r.cold.ttfb).toBeLessThan(slow ? 1300 : 1000);
@@ -268,6 +289,12 @@ for (const p of PAGES) {
       }
       expect(r.warm.cls).toBeLessThan(0.1);
       expect(r.cold.tbt).toBeLessThan(p.tbt);
+      // A page that has arrived is shown the frame after, on a full load as on a warm one: on a cold load it used to be
+      // held 300 ms behind the loading shape the stylesheets' arrival had drawn (ADR 0021 §4.5).
+      if (p.streamed) {
+        expect(r.cold.shown).toBeLessThan(200);
+        expect(r.warm.shown).toBeLessThan(200);
+      }
       if (p.interact) {
         expect(r.cold.interaction).toBeLessThan(500);
         expect(r.warm.interaction).toBeLessThan(500);
@@ -298,6 +325,47 @@ test('inside the workspace a section is one request per click, on India 4G', asy
   console.log(`mobile-perf History → Exchange @ india-4g (CPU ×${CPU_SLOWDOWN}): click to heading ${times.join(', ')} ms`);
   // One trip to iad1 (250 ms on this profile) and the server's work, and React's reveal of the page.
   expect(median(times)).toBeLessThan(2000);
+});
+
+/**
+ * What a full load holds back, a click does not (ADR 0021 §2.3, §4.5). A full load asks the browser, from the document's
+ * head, to draw nothing until the page's heading has been read, so its first frame is the page; a click inside the
+ * workspace still draws the section's loading shape on the click and the page arrives into it — checked with the
+ * server's answer held back, as the desk's own navigation test does.
+ */
+test('a full load draws the page; a click draws the section at once, before the server answers', async ({ browser }) => {
+  const context = await browser.newContext({ ...devices['Pixel 7'], storageState: client });
+  const page = await context.newPage();
+  // Holding the first paint changes nothing React sees: the page hydrates without a complaint.
+  const errors: string[] = [];
+  page.on('console', (m) => {
+    if (m.type() === 'error') errors.push(m.text());
+  });
+  page.on('pageerror', (e) => errors.push(e.message));
+  const html = await (await context.request.get(`${appBaseUrl()}/exchange`)).text();
+  const [head = '', body = ''] = html.split('<body');
+  expect(head).toMatch(/<link rel="expect" href="#page-head" blocking="render"\/>/);
+  expect(body).toContain('id="page-head"');
+
+  await page.goto(`${appBaseUrl()}/history`);
+  await page.waitForLoadState('networkidle');
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => (release = resolve));
+  await page.route(/\/exchange\?_rsc=/, async (route) => {
+    if (route.request().headers()['rsc'] && !route.request().headers()['next-router-prefetch']) await held;
+    await route.continue();
+  });
+  const clicked = Date.now();
+  await page.getByRole('navigation', { name: 'Sections' }).getByRole('link', { name: 'Exchange' }).click();
+  await expect(page.getByLabel('Loading')).toBeVisible();
+  // The server has not been asked yet (the request is held): what the client saw came from the click alone.
+  expect(Date.now() - clicked).toBeLessThan(500);
+  await expect(page.getByRole('heading', { name: 'Exchange', exact: true })).toHaveCount(0);
+  release();
+  await expect(page.getByRole('heading', { name: 'Exchange', exact: true })).toBeVisible();
+  await expect(page.getByLabel('Loading')).toHaveCount(0);
+  expect(errors).toEqual([]);
+  await context.close();
 });
 
 /**
