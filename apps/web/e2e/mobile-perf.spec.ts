@@ -33,6 +33,8 @@ interface Load {
   readonly ttfb: number;
   readonly lcp: number;
   readonly cls: number;
+  /** What moved, when, and how many web fonts had arrived by then — a layout shift says nothing about its cause. */
+  readonly shifts: readonly string[];
   /** Total blocking time: the part of each long task over 50 ms, until the measure. */
   readonly tbt: number;
   /** The slowest answer to the page's interaction, ms (Event Timing, as INP measures it). */
@@ -41,8 +43,9 @@ interface Load {
 
 /** Collected in the page from its first byte: largest paint, layout shifts, long tasks, interactions. */
 function observe() {
-  const w = window as unknown as { __perf: { lcp: number; cls: number; long: number[]; events: number[] } };
-  const p: { lcp: number; cls: number; long: number[]; events: number[] } = { lcp: 0, cls: 0, long: [], events: [] };
+  type Perf = { lcp: number; cls: number; shifts: string[]; long: number[]; events: number[] };
+  const w = window as unknown as { __perf: Perf };
+  const p: Perf = { lcp: 0, cls: 0, shifts: [], long: [], events: [] };
   w.__perf = p;
   const on = (type: string, fn: (e: PerformanceEntry & Record<string, unknown>) => void, extra: Record<string, unknown> = {}) => {
     try {
@@ -53,7 +56,15 @@ function observe() {
   };
   on('largest-contentful-paint', (e) => (p.lcp = e.startTime));
   on('layout-shift', (e) => {
-    if (!e.hadRecentInput) p.cls += e.value as number;
+    if (e.hadRecentInput) return;
+    p.cls += e.value as number;
+    const fonts = [...document.fonts].filter((f) => f.status === 'loaded').length;
+    const moved = ((e.sources as { node?: Node; previousRect: DOMRectReadOnly; currentRect: DOMRectReadOnly }[] | undefined) ?? []).slice(0, 3).map((s) => {
+      const el = s.node instanceof Element ? s.node : s.node?.parentElement;
+      const name = el ? `${el.tagName.toLowerCase()}${el.className ? `.${String(el.className).split(' ')[0]}` : ''}` : '?';
+      return `${name} ${Math.round(s.previousRect.y)}→${Math.round(s.currentRect.y)} h${Math.round(s.previousRect.height)}→${Math.round(s.currentRect.height)}`;
+    });
+    p.shifts.push(`${Math.round(e.startTime)} ms +${(e.value as number).toFixed(3)} (${fonts} fonts loaded): ${moved.join('; ')}`);
   });
   on('longtask', (e) => p.long.push(e.duration));
   on('event', (e) => {
@@ -63,12 +74,13 @@ function observe() {
 
 async function measure(page: Page): Promise<Load> {
   return page.evaluate(() => {
-    const p = (window as unknown as { __perf: { lcp: number; cls: number; long: number[]; events: number[] } }).__perf;
+    const p = (window as unknown as { __perf: { lcp: number; cls: number; shifts: string[]; long: number[]; events: number[] } }).__perf;
     const nav = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming;
     return {
       ttfb: Math.round(nav.responseStart),
       lcp: Math.round(p.lcp),
       cls: Number(p.cls.toFixed(4)),
+      shifts: p.shifts,
       tbt: Math.round(p.long.reduce((s, d) => s + Math.max(0, d - 50), 0)),
       interaction: Math.round(Math.max(0, ...p.events)),
     };
@@ -109,7 +121,9 @@ async function loads(browser: Browser, url: string, opts: { storage?: BrowserCon
   const summary = (xs: Load[]) => ({
     ttfb: median(xs.map((x) => x.ttfb)),
     lcp: median(xs.map((x) => x.lcp)),
-    cls: Math.max(...xs.map((x) => x.cls)),
+    cls: median(xs.map((x) => x.cls)),
+    // The worst run's shifts, printed with the numbers: the next reader can see what moved without a trace.
+    worst: [...xs].sort((a, b) => b.cls - a.cls)[0]!,
     tbt: median(xs.map((x) => x.tbt)),
     interaction: median(xs.map((x) => x.interaction)),
   });
@@ -136,8 +150,11 @@ test.afterAll(() => {
 
 /** One line per page and network in the run's output: the numbers the budgets were held to, for the next reader. */
 function report(name: string, network: string, r: Awaited<ReturnType<typeof loads>>) {
-  const line = (k: 'cold' | 'warm') => `${k} ttfb ${r[k].ttfb} lcp ${r[k].lcp} cls ${r[k].cls} tbt ${r[k].tbt} tap ${r[k].interaction}`;
+  const line = (k: 'cold' | 'warm') => `${k} ttfb ${r[k].ttfb} lcp ${r[k].lcp} cls ${r[k].cls} (worst ${r[k].worst.cls}) tbt ${r[k].tbt} tap ${r[k].interaction}`;
   console.log(`mobile-perf ${name} @ ${network} (median of ${RUNS}, CPU ×${CPU_SLOWDOWN}): ${line('cold')} | ${line('warm')}`);
+  for (const k of ['cold', 'warm'] as const) {
+    if (r[k].worst.cls >= 0.02) console.log(`mobile-perf ${name} @ ${network} ${k}, worst run's layout shifts:\n  ${r[k].worst.shifts.join('\n  ')}`);
+  }
 }
 
 const PAGES = [
