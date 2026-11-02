@@ -2,7 +2,8 @@
 
 import { useState } from 'react';
 import type { Protection } from '../../../server/client.ts';
-import { ConfirmDialog, ConfirmPanel, type ConfirmFactor } from '../../../components/ConfirmIdentity.tsx';
+import { ConfirmDialog, ConfirmPanel } from '../../../components/Confirm.tsx';
+import type { ConfirmFactor } from '../../../components/confirm-factors.ts';
 import { PhoneIcon, PlaneIcon } from './icons.tsx';
 import { SecureAccount } from './SecureAccount.tsx';
 import { startTelegramLink } from './telegram-link.ts';
@@ -64,9 +65,11 @@ export function SecondFactor({ protection, email, returnTo, onDone, embedded = f
         <PhoneIcon className={shell.actionIcon} />
         Use an authenticator app instead
       </button>
-      <ConfirmDialog open={confirm !== null} onCancel={() => setConfirm(null)}>
-        {confirm ? <ConfirmPanel factors={confirm} purpose="SECURITY" summary="Connect your Telegram" onCancel={() => setConfirm(null)} onVerified={connect} /> : null}
-      </ConfirmDialog>
+      {confirm ? (
+        <ConfirmDialog open onCancel={() => setConfirm(null)}>
+          <ConfirmPanel factors={confirm} purpose="SECURITY" summary="Connect your Telegram" onCancel={() => setConfirm(null)} onVerified={connect} />
+        </ConfirmDialog>
+      ) : null}
     </div>
   );
 }

@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { ArcLoader, CopyButton, OtpInput, QrCode } from '@inrp2p/ui';
-import { type ConfirmFactor, ConfirmPanel, confirmFactorsOf } from '../../../components/ConfirmIdentity.tsx';
+import { ConfirmPanel } from '../../../components/Confirm.tsx';
+import { type ConfirmFactor, confirmFactorsOf } from '../../../components/confirm-factors.ts';
 import { readTotpUri } from '../../../components/TotpEnrolment.tsx';
 import { CheckIcon, DownloadIcon, LockIcon, PhoneIcon } from './icons.tsx';
 import shell from '../shell.module.css';

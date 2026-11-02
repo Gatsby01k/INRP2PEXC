@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { TelegramView } from '@inrp2p/clients';
-import { type ConfirmFactor, type ConfirmPurpose, ConfirmDialog, ConfirmPanel, SecondFactorNeeded } from '../../../components/ConfirmIdentity.tsx';
+import { ConfirmDialog, ConfirmPanel, SecondFactorNeeded } from '../../../components/Confirm.tsx';
+import type { ConfirmFactor, ConfirmPurpose } from '../../../components/confirm-factors.ts';
 import { useCommand } from '../../../components/useCommand.tsx';
 import { enableTelegramAlertsAction, revokeTelegramLinkAction } from '../../../server/actions/telegram.ts';
 import { Switch } from './Field.tsx';
@@ -139,8 +140,8 @@ export function TelegramCard({
         </div>
       ) : null}
       {alerts.dialog}
-      <ConfirmDialog open={confirm !== null} onCancel={() => setConfirm(null)}>
-        {confirm ? (
+      {confirm ? (
+        <ConfirmDialog open onCancel={() => setConfirm(null)}>
           <ConfirmPanel
             factors={confirm.factors}
             purpose={confirm.purpose}
@@ -151,11 +152,13 @@ export function TelegramCard({
               return follow(await then(), then);
             }}
           />
-        ) : null}
-      </ConfirmDialog>
-      <ConfirmDialog open={needsFactor} onCancel={() => setNeedsFactor(false)}>
-        <SecondFactorNeeded summary={linked ? `Disconnect ${who}` : 'Connect your Telegram'} onCancel={() => setNeedsFactor(false)} />
-      </ConfirmDialog>
+        </ConfirmDialog>
+      ) : null}
+      {needsFactor ? (
+        <ConfirmDialog open onCancel={() => setNeedsFactor(false)}>
+          <SecondFactorNeeded summary={linked ? `Disconnect ${who}` : 'Connect your Telegram'} onCancel={() => setNeedsFactor(false)} />
+        </ConfirmDialog>
+      ) : null}
     </section>
   );
 }

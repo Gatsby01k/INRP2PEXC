@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { ConfirmPanel, SecondFactorNeeded } from '../../../components/ConfirmIdentity.tsx';
+import { ConfirmPanel, SecondFactorNeeded } from '../../../components/Confirm.tsx';
 import { archiveBankAccountAction, archiveWalletAction } from '../../../server/actions/client.ts';
 import { Sheet } from '../_workspace/Sheet.tsx';
 import { useGuarded } from '../_workspace/useGuarded.ts';

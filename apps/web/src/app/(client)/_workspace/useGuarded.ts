@@ -2,14 +2,12 @@
 
 import { useCallback, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { type ConfirmFactor, type ConfirmPurpose, confirmFactorsOf } from '../../../components/ConfirmIdentity.tsx';
+import { type ConfirmFactor, type ConfirmPurpose, confirmFactorsOf, confirmPurposeOf } from '../../../components/confirm-factors.ts';
 import { newIntentKey } from '../../../components/useCommand.tsx';
 
 export type GuardedOutcome =
   | { readonly ok: true; readonly result: unknown }
   | { readonly ok: false; readonly code: string; readonly message: string; readonly stepUp?: true; readonly details?: Record<string, unknown> };
-
-const PURPOSES: readonly ConfirmPurpose[] = ['DESTINATION', 'WITHDRAWAL', 'SETTLEMENT', 'TEAM', 'SECURITY', 'CHANGE'];
 
 /**
  * One sensitive change, asked for once: a single idempotency key for the intent, and — when the command answers that it
@@ -34,7 +32,7 @@ export function useGuarded(send: (key: string) => Promise<GuardedOutcome>) {
     }
     const factors = confirmFactorsOf(out.details);
     if (out.stepUp && factors && factors.length > 0) {
-      setConfirmWith({ factors, purpose: (PURPOSES as readonly unknown[]).includes(out.details?.purpose) ? (out.details!.purpose as ConfirmPurpose) : 'CHANGE' });
+      setConfirmWith({ factors, purpose: confirmPurposeOf(out.details) });
       return false;
     }
     if (out.code === 'MFA_ENROLLMENT_REQUIRED') {

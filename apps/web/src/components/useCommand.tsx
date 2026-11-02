@@ -3,7 +3,8 @@
 import { useCallback, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { StepUpDialog } from '@inrp2p/ui';
-import { type ConfirmFactor, type ConfirmPurpose, ConfirmDialog, ConfirmPanel, SecondFactorNeeded, confirmFactorsOf } from './ConfirmIdentity.tsx';
+import { ConfirmDialog, ConfirmPanel, SecondFactorNeeded } from './Confirm.tsx';
+import { type ConfirmFactor, type ConfirmPurpose, confirmFactorsOf, confirmPurposeOf } from './confirm-factors.ts';
 
 /**
  * Tells the desk shell a command went through, so it can say so. A plain DOM event: the hook stays usable on any
@@ -102,7 +103,7 @@ export function useCommand(): CommandState & {
           setSummary(actionSummary);
           setCode('');
           setStepUpError(undefined);
-          setConfirmWith(factors && factors.length > 0 ? { factors, purpose: purposeOf(out.details) } : null);
+          setConfirmWith(factors && factors.length > 0 ? { factors, purpose: confirmPurposeOf(out.details) } : null);
           setOpen(true);
         });
       }
@@ -189,9 +190,12 @@ export function useCommand(): CommandState & {
     dialog: (
       <>
         {confirmWith ? (
-          <ConfirmDialog open={open} onCancel={cancel}>
-            <ConfirmPanel factors={confirmWith.factors} purpose={confirmWith.purpose} summary={summary} onVerified={retry} onCancel={cancel} />
-          </ConfirmDialog>
+          // Mounted only while asked for: the sheet's code and styles load then, not with the page.
+          open ? (
+            <ConfirmDialog open onCancel={cancel}>
+              <ConfirmPanel factors={confirmWith.factors} purpose={confirmWith.purpose} summary={summary} onVerified={retry} onCancel={cancel} />
+            </ConfirmDialog>
+          ) : null
         ) : (
           <StepUpDialog
             open={open}
@@ -204,14 +208,13 @@ export function useCommand(): CommandState & {
             {...(stepUpError ? { error: stepUpError } : {})}
           />
         )}
-        <ConfirmDialog open={needsFactor} onCancel={() => setNeedsFactor(false)}>
-          <SecondFactorNeeded summary={summary} onCancel={() => setNeedsFactor(false)} />
-        </ConfirmDialog>
+        {needsFactor ? (
+          <ConfirmDialog open onCancel={() => setNeedsFactor(false)}>
+            <SecondFactorNeeded summary={summary} onCancel={() => setNeedsFactor(false)} />
+          </ConfirmDialog>
+        ) : null}
       </>
     ),
   };
 }
 
-const PURPOSES: readonly ConfirmPurpose[] = ['DESTINATION', 'WITHDRAWAL', 'SETTLEMENT', 'TEAM', 'SECURITY', 'CHANGE'];
-const purposeOf = (details: Record<string, unknown> | undefined): ConfirmPurpose =>
-  (PURPOSES as readonly unknown[]).includes(details?.purpose) ? (details!.purpose as ConfirmPurpose) : 'CHANGE';

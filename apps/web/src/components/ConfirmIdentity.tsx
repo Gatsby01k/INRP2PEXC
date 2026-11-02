@@ -3,6 +3,7 @@
 import { type ReactNode, useCallback, useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ArcLoader, OtpInput } from '@inrp2p/ui';
+import type { ConfirmFactor, ConfirmPurpose } from './confirm-factors.ts';
 import styles from './confirm.module.css';
 
 /**
@@ -15,20 +16,9 @@ import styles from './confirm.module.css';
  * Quick on a phone: the factor the person used last is chosen first, its code is sent the moment the panel opens, and a
  * full code is checked as soon as it is typed or pasted.
  */
-export type ConfirmFactor = 'TELEGRAM' | 'EMAIL' | 'TOTP';
-export type ConfirmPurpose = 'DESTINATION' | 'WITHDRAWAL' | 'SETTLEMENT' | 'TEAM' | 'SECURITY' | 'CHANGE';
-
-const FACTORS: readonly ConfirmFactor[] = ['TELEGRAM', 'EMAIL', 'TOTP'];
 const NAME: Record<ConfirmFactor, string> = { TELEGRAM: 'Telegram', EMAIL: 'Email', TOTP: 'Authenticator' };
 const PREFERRED = 'inrp2p.confirm.factor';
 const RESEND_AFTER_MS = 30_000;
-
-/** The factors a refusal named, in the server's order — or null when it named none (an operator's TOTP step-up). */
-export function confirmFactorsOf(details: Record<string, unknown> | undefined): ConfirmFactor[] | null {
-  const raw = details?.factors;
-  if (!Array.isArray(raw)) return null;
-  return raw.filter((f): f is ConfirmFactor => (FACTORS as readonly unknown[]).includes(f));
-}
 
 function preferred(factors: readonly ConfirmFactor[]): ConfirmFactor {
   try {

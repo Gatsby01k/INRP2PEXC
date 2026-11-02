@@ -1,6 +1,6 @@
 'use client';
 
-import { type ConfirmFactor, type ConfirmPurpose, confirmFactorsOf } from '../../../components/ConfirmIdentity.tsx';
+import { type ConfirmFactor, type ConfirmPurpose, confirmFactorsOf } from '../../../components/confirm-factors.ts';
 
 /**
  * Linking or disconnecting the person's Telegram (ADR 0026), through Better Auth's own endpoints. Either is a change of
