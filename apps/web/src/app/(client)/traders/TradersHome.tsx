@@ -15,6 +15,7 @@ import { BlockCard } from './_ui/BlockCard.tsx';
 import { EarningsCard } from './_ui/EarningsCard.tsx';
 import { NetworkCard } from './_ui/NetworkCard.tsx';
 import { OfferCard } from './_ui/OfferCard.tsx';
+import { PriceAskCard } from './_ui/PriceAskCard.tsx';
 import { Onboarding } from './_ui/Onboarding.tsx';
 import { ReserveCard } from './_ui/ReserveCard.tsx';
 import { SettlementCard } from './_ui/SettlementCard.tsx';
@@ -33,7 +34,7 @@ const LIVE_POLL_MS = 8_000;
 export function TradersHome({ home, network }: { home: TraderHome; network: TraderNetworkView | null }) {
   const router = useRouter();
   const working = home.state === 'APPROVED' || home.state === 'PAUSED';
-  const now = useServerClock(home.now, home.offers.length > 0);
+  const now = useServerClock(home.now, home.offers.length > 0 || home.priceAsks.length > 0);
 
   // New offers and moving orders appear without a reload, while the page is being looked at.
   useEffect(() => {
@@ -68,6 +69,9 @@ export function TradersHome({ home, network }: { home: TraderHome; network: Trad
                 canAct={home.canAct}
                 receiveAt={o.side === 'BUY_USDT' ? `Your registered wallet · TRC20 ${home.registered!.wallet}` : `Your registered account · ${home.registered!.bank}`}
               />
+            ))}
+            {home.priceAsks.map((a) => (
+              <PriceAskCard key={a.ref} ask={a} now={now} canAct={home.canAct} />
             ))}
             <ActiveOrders orders={home.active} />
             {home.blocks.length > 0 ? (

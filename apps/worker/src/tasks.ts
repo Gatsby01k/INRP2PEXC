@@ -7,11 +7,11 @@ import { executeCommand } from '@inrp2p/commands';
 import type { TxContext } from '@inrp2p/db';
 import { releasePastDayReservations } from '@inrp2p/inr-accounts';
 import { releaseCooledDownAddresses } from '@inrp2p/treasury';
-import { type QuotePolicy, expireQuote, runExpirySweep } from '@inrp2p/quotes';
+import { type QuotePolicy, expireQuote, runExpirySweep, runMarketReferenceRefresh, runRfqSweep } from '@inrp2p/quotes';
 import { expireUnpaidTrades, runP2pDeadlines, runReconciliation, runSettlementSla } from '@inrp2p/settlement';
 import { type ScannerDeps, observeBalances, runChainBackfill, runOrphanSweep, runTronConfirm, runTronScan } from '@inrp2p/scanner';
 import { ordersDueSoon, runTraderSweep } from '@inrp2p/traders';
-import { type TelegramAdapter, marketTrxPriceSources, readTrxPrice } from '@inrp2p/adapters';
+import { type TelegramAdapter, marketTrxPriceSources, marketUsdtInrSources, readTrxPrice, readUsdtInrReference } from '@inrp2p/adapters';
 import { orderAlertText, orderAlertUrl, orderFacts, queueTelegram, sendTelegramDeliveries } from '@inrp2p/notifications';
 import { type WorkerBeat, recordWorkerBeat } from '@inrp2p/trades';
 import { type ReceiptObjectStore, type ReceiptPdfPrinter, receiptsNotStored, storeReceiptObjects } from '@inrp2p/reporting';
@@ -205,6 +205,18 @@ export function buildTaskList(
     if (out.skipped) helpers.logger.warn(`trx_rate_refresh: ${out.skipped}`);
     else helpers.logger.info(`trx_rate_refresh: ${out.usdtPerTrxMicro} micro-USDT per TRX`);
   };
+  // ADR 0025: the USDT/INR market reference automatic prices are bounded by, from two public Indian books that must agree.
+  // Without a fresh one nothing is priced automatically (requests wait for a person), so a failed read is only a warning.
+  const referenceRateRefresh: Task = async (_payload, helpers) => {
+    const out = await runMarketReferenceRefresh(db, () => readUsdtInrReference(marketUsdtInrSources()));
+    for (const s of out.skipped) helpers.logger.warn(`reference_rate_refresh: ${s}`);
+    if (out.recorded.length > 0) helpers.logger.info(`reference_rate_refresh: ${out.source}`);
+  };
+  // ADR 0025: price requests to several traders whose time is up (or whose traders all bid) are awarded or closed.
+  const rfqSweep: Task = async (_payload, helpers) => {
+    const out = await runRfqSweep(db);
+    if (out.AWARDED + out.NO_PRICE + out.CANCELLED > 0) helpers.logger.info(`rfq_sweep: ${JSON.stringify(out)}`);
+  };
   // ADR 0020 §2.14: a trader's P2P step due within ten minutes  // ADR 0020 §2.14: a trader's P2P step due within ten minutes is told once to its linked chats. Each order is its own
   // attempt: one that cannot be sent now is tried again on the next minute, under the same key, and sent once.
   const telegramDeadlines: Task = async (_payload, helpers) => {
@@ -231,6 +243,8 @@ export function buildTaskList(
     network_fee_refresh: networkFeeRefresh,
     gasfree_fee_refresh: gasfreeFeeRefresh,
     trx_rate_refresh: trxRateRefresh,
+    reference_rate_refresh: referenceRateRefresh,
+    rfq_sweep: rfqSweep,
     outbox_dispatch: outboxDispatch,
     audit_seal: auditSeal,
     capacity_day_rollover: capacityDayRollover,
@@ -309,6 +323,8 @@ export const CRONTAB = [
   '*/10 * * * * network_fee_refresh ?max=3&jobKey=network_fee_refresh',
   '*/10 * * * * gasfree_fee_refresh ?max=3&jobKey=gasfree_fee_refresh',
   '23 * * * * trx_rate_refresh ?max=3&jobKey=trx_rate_refresh',
+  '*/5 * * * * reference_rate_refresh ?max=2&jobKey=reference_rate_refresh',
+  '* * * * * rfq_sweep ?max=1&jobKey=rfq_sweep',
   '* * * * * telegram_deadlines ?max=1&jobKey=telegram_deadlines',
 ].join('\n');
 

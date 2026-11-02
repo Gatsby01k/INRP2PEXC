@@ -272,6 +272,15 @@ page), `desk_deal_link.create` / `.revoke` / `.claim` (`@inrp2p/quotes`); read m
 `deskDealLinkView`, `deskDealLinks`; `desk_client.update` (block, limit, note) and `deskClients` (`@inrp2p/quotes`). Standing (`readStanding`, `standingIssues`, `switchOnIssues`) and the reserve figures
 now live in `@inrp2p/trader-core`, where a desk deal checks them.
 
+## 8c. Firm offers and price requests (ADR 0025)
+
+A side's offer can be made **firm** for 1 hour to 7 days (`trader.update_block` `firmHours`): INRP2P then fills orders at
+its rate, within its order size and capacity, without asking — the order is opened and accepted at once when a client
+accepts an automatic price built on it. A side names the INR rails it pays or is paid by (`rails`). An amount no firm offer
+covers can be put to a few traders as a **price request** (`rfq`): the trader sees the side, the amount and when it closes,
+and bids one rate (`rfq.bid`, `priceAsksFor`); the best price becomes the client's firm price and only then holds capacity.
+The choice weighs the trader's completion record (`traderRecords`, `completionPpm`).
+
 ## 9. Rewards
 
 - Model: `reward_bps` of the order's INR value (programme default, optional per-trader override), 0–500 bps,

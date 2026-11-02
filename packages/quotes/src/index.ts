@@ -14,3 +14,4 @@ export * from './desk-links.ts';
 export * from './desk-clients.ts';
 export * from './desk-client-views.ts';
 export * from './desk-ops.ts';
+export * from './auto-quotes.ts';

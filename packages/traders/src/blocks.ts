@@ -1,6 +1,6 @@
 import { sql } from 'kysely';
 import { DomainError, Money, Rate, requireOneOf } from '@inrp2p/kernel';
-import type { TraderSide } from '@inrp2p/db';
+import type { InrRailValue, TraderSide } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
 import type { ClientActor } from '@inrp2p/identity';
 import { publishTraderRate } from '@inrp2p/pricing';
@@ -54,7 +54,16 @@ export interface UpdateBlockPayload {
   readonly minOrder?: string;
   readonly maxOrder?: string;
   readonly status?: 'ACTIVE' | 'PAUSED';
+  /**
+   * ADR 0025: make this side's offer firm for this many hours (1–168) from now — INRP2P then fills orders at its rate,
+   * within its limits, without asking — or 0 to stop. Omitted leaves it as it is.
+   */
+  readonly firmHours?: number;
+  /** The INR rails this side pays or is paid by; at least one. */
+  readonly rails?: readonly InrRailValue[];
 }
+
+const RAILS: readonly InrRailValue[] = ['UPI', 'IMPS', 'NEFT', 'RTGS'];
 
 /**
  * `trader.update_block` — a user who can commit. The trader's own terms for one side: how much it can provide,
@@ -112,21 +121,41 @@ export function updateBlock(actor: ClientActor) {
     if (status === 'ACTIVE' && (nextRate === null || minOrder === null || maxOrder === null)) {
       throw new DomainError('TRADER_BLOCK_INCOMPLETE', 'set a rate and an order size before making this side active');
     }
+    // A firm offer stands only on an active side with its rate and order size; pausing the side ends it.
+    let firm: { until: ReturnType<typeof sql<Date>> | Date | null; by: string | null } = { until: block.instant_until, by: block.instant_set_by };
+    if (p.firmHours !== undefined) {
+      if (typeof p.firmHours !== 'number' || !Number.isInteger(p.firmHours) || p.firmHours < 0 || p.firmHours > 168) {
+        throw new DomainError('INVALID_ARGUMENT', 'a firm offer lasts a whole number of hours, at most 168', { field: 'firmHours' });
+      }
+      firm = p.firmHours === 0 ? { until: null, by: null } : { until: sql<Date>`inrp2p_now() + make_interval(hours => ${p.firmHours})`, by: member.userId };
+    }
+    if (status === 'PAUSED') firm = { until: null, by: null };
+    if (firm.until !== null && (status !== 'ACTIVE' || nextRate === null || minOrder === null || maxOrder === null)) {
+      throw new DomainError('TRADER_BLOCK_INCOMPLETE', 'a firm offer needs this side active, with a rate and an order size');
+    }
+    const rails = p.rails === undefined ? block.rails : [...new Set(p.rails)];
+    if (rails.length === 0 || rails.some((r) => !RAILS.includes(r))) throw new DomainError('INVALID_ARGUMENT', 'choose at least one of UPI, IMPS, NEFT and RTGS', { field: 'rails' });
 
     const after = await ctx.tx
       .updateTable('trader_block')
-      .set({ capacity_minor: capacity, min_order_minor: minOrder, max_order_minor: maxOrder, rate_micro: nextRate, status, updated_at: sql<Date>`inrp2p_now()`, version: block.version + 1 })
+      .set({
+        capacity_minor: capacity, min_order_minor: minOrder, max_order_minor: maxOrder, rate_micro: nextRate, status, instant_until: firm.until, instant_set_by: firm.by, rails,
+        updated_at: sql<Date>`inrp2p_now()`, version: block.version + 1,
+      })
       .where('id', '=', block.id)
-      .returning(['capacity_minor', 'rate_micro', 'min_order_minor', 'max_order_minor', 'status', 'version'])
+      .returning(['capacity_minor', 'rate_micro', 'min_order_minor', 'max_order_minor', 'status', 'version', 'instant_until', 'rails'])
       .executeTakeFirstOrThrow();
     if (rateChanged && rate) {
       await publishTraderRate(ctx, { routeId: block.route_id, direction: side === 'BUY_USDT' ? 'SELL_USDT' : 'BUY_USDT', rate });
     }
     await appendAudit(ctx, {
       action: 'trader.block_updated', entityType: 'trader_block', entityId: block.id,
-      before: { capacity_minor: block.capacity_minor, rate_micro: block.rate_micro, min_order_minor: block.min_order_minor, max_order_minor: block.max_order_minor, status: block.status, version: block.version },
+      before: {
+        capacity_minor: block.capacity_minor, rate_micro: block.rate_micro, min_order_minor: block.min_order_minor, max_order_minor: block.max_order_minor, status: block.status, version: block.version,
+        instant_until: block.instant_until, rails: block.rails,
+      },
       after: { ...after, offers_withdrawn: withdrawn },
     });
-    return { version: after.version, offersWithdrawn: withdrawn };
+    return { version: after.version, offersWithdrawn: withdrawn, firmUntil: after.instant_until ? after.instant_until.toISOString() : null };
   });
 }

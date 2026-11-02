@@ -1,6 +1,6 @@
 import { sql } from 'kysely';
 import { DomainError, Money, Rate, requireText } from '@inrp2p/kernel';
-import type { DestinationStatus, Executor, P2pExperience, TraderOrderStatus, TraderSide, TraderStatus } from '@inrp2p/db';
+import type { DestinationStatus, Executor, InrRailValue, P2pExperience, TraderOrderStatus, TraderSide, TraderStatus } from '@inrp2p/db';
 import type { FieldProtector } from '@inrp2p/adapters';
 import { inrAccountSealContext } from '@inrp2p/inr-accounts';
 import { type P2pDeal, obligationRemaining, p2pDeal } from '@inrp2p/settlement';
@@ -10,6 +10,7 @@ import { type BlockIssue, type StandingIssue, blockIssues, freeCapacity, standin
 import { type OrderStage, type OrderStep, orderStage, orderSteps, p2pOrderStage, p2pOrderSteps } from './progress.ts';
 import { sharedReserveAddress } from './reserve.ts';
 import { earnings } from './rewards.ts';
+import { type PriceAskView, priceAsksFor } from './rfq.ts';
 import { readBlocks, readStanding } from '@inrp2p/trader-core';
 
 /**
@@ -211,6 +212,10 @@ export interface BlockView {
   readonly limitMaxCapacity: string | null;
   readonly issues: readonly BlockIssue[];
   readonly version: number;
+  /** ADR 0025: until when this side's offer is firm — INRP2P fills orders at its rate within its limits without asking — or null. */
+  readonly firmUntil: string | null;
+  /** The INR rails this side pays or is paid by. */
+  readonly rails: readonly InrRailValue[];
 }
 
 export interface ReserveView {
@@ -298,6 +303,8 @@ export interface TraderHome {
   readonly blocks: readonly BlockView[];
   readonly reserve: ReserveView | null;
   readonly offers: readonly OrderSummary[];
+  /** ADR 0025: the prices this trader was asked for (price requests to several traders) that are still open. */
+  readonly priceAsks: readonly PriceAskView[];
   readonly active: readonly OrderSummary[];
   readonly recentlyCompleted: OrderSummary | null;
   readonly earnings: EarningsView | null;
@@ -429,7 +436,7 @@ export async function traderHome(ex: Executor, userId: string): Promise<TraderHo
   if (!profile) {
     return traderSafe({
       state: 'NONE' as const, ref: null, ...base, application: null, available: false, controlNote: null, assignmentsEnabled: true, issues: [], blocks: [], reserve: null,
-      offers: [], active: [], recentlyCompleted: null, earnings: null, registered: null, proposal: NO_PROPOSAL, openOrders: 0, paymentDetailsPublished: false,
+      offers: [], priceAsks: [], active: [], recentlyCompleted: null, earnings: null, registered: null, proposal: NO_PROPOSAL, openOrders: 0, paymentDetailsPublished: false,
     });
   }
   const bank = bankText(profile.bank_name, profile.account_last4);
@@ -457,7 +464,7 @@ export async function traderHome(ex: Executor, userId: string): Promise<TraderHo
     // during the review stays visible whatever the review decides.
     return traderSafe({
       state: profile.status, ref: profile.ref, ...base, application, available: false, controlNote: null, assignmentsEnabled: profile.assignments_enabled, issues: [], blocks: [],
-      reserve: await reserveView(ex, profile.id), offers: [], active: [], recentlyCompleted: null, earnings: null, registered, proposal: NO_PROPOSAL, openOrders: 0, paymentDetailsPublished: false,
+      reserve: await reserveView(ex, profile.id), offers: [], priceAsks: [], active: [], recentlyCompleted: null, earnings: null, registered, proposal: NO_PROPOSAL, openOrders: 0, paymentDetailsPublished: false,
     });
   }
   const proposal = { bank: await bankView(ex, profile.proposed_bank_account_id), wallet: await walletView(ex, profile.proposed_wallet_id) };
@@ -502,10 +509,13 @@ export async function traderHome(ex: Executor, userId: string): Promise<TraderHo
         limitMaxCapacity: fmt(b.operatorMaxCapacityMinor),
         issues: blockIssues({ ...b, offeredMinor: 0n }),
         version: b.version,
+        firmUntil: b.firm && b.instantUntil ? b.instantUntil.toISOString() : null,
+        rails: b.rails,
       };
     }),
     reserve: await reserveView(ex, profile.id),
     offers: summaries.filter((s) => s.status === 'OFFERED' && Date.parse(s.offerExpiresAt) > now.getTime()),
+    priceAsks: await priceAsksFor(ex, profile.id),
     active: summaries.filter((s) => s.status === 'ACCEPTED' || s.status === 'IN_PROGRESS'),
     recentlyCompleted: summaries.find((s) => s.status === 'COMPLETED') ?? null,
     earnings: {

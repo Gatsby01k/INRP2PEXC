@@ -310,7 +310,7 @@ export async function rerouteRequestInTx(ctx: TxContext, requestId: string): Pro
   const request = await ctx.tx.selectFrom('trade_request').select(['status', 'desk_id']).where('id', '=', requireUuid(requestId, 'requestId')).executeTakeFirst();
   if (!request || (request.status !== 'OPEN' && request.status !== 'QUOTED') || request.desk_id) return null;
   const live = await ctx.tx.selectFrom('trader_order').select('id').where('trade_request_id', '=', requestId).where('status', 'in', ['OFFERED', 'ACCEPTED', 'IN_PROGRESS', 'COMPLETED']).executeTakeFirst();
-  if (live) return null;
+  if (live || (await withTraders(ctx, requestId))) return null;
   const last = await ctx.tx.selectFrom('trader_order').select(['planned_client_rate_micro']).where('trade_request_id', '=', requestId).orderBy('offered_at', 'desc').executeTakeFirst();
   const out = await assignRequestInTx(ctx, { requestId, plannedClientRateMicro: last?.planned_client_rate_micro ?? null, offeredBy: `SYSTEM:${ctx.commandName}` });
   return 'assigned' in out ? out.assigned : null;
@@ -327,7 +327,12 @@ export async function autoAssignInTx(ctx: TxContext, requestId: string): Promise
   const request = await ctx.tx.selectFrom('trade_request').select(['status', 'fixed_side', 'desk_id']).where('id', '=', requireUuid(requestId, 'requestId')).executeTakeFirst();
   if (!request || request.status !== 'OPEN' || request.fixed_side !== 'BASE' || request.desk_id) return null;
   const live = await ctx.tx.selectFrom('trader_order').select('id').where('trade_request_id', '=', requestId).executeTakeFirst();
-  if (live) return null;
+  if (live || (await withTraders(ctx, requestId))) return null;
   const out = await assignRequestInTx(ctx, { requestId, plannedClientRateMicro: null, offeredBy: `SYSTEM:${ctx.commandName}` });
   return 'assigned' in out ? out.assigned : null;
+}
+
+/** A request put to several traders (ADR 0025) is theirs until the price request closes: nobody else is offered it meanwhile. */
+async function withTraders(ctx: TxContext, requestId: string): Promise<boolean> {
+  return (await ctx.tx.selectFrom('rfq').select('id').where('trade_request_id', '=', requestId).where('status', '=', 'OPEN').executeTakeFirst()) !== undefined;
 }

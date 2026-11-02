@@ -601,3 +601,19 @@ new secret, bucket or service: chat files are stored in the database (3 MB each)
    keeps the times it opened with.
 3. **Support calls** arrive on the desk's queue as "Support called to a deal chat" (`P2P_SUPPORT`, a warning, never a
    hold); INRP2P answers in the deal's chat on the trade's panel and closes the case with "Answered in the deal chat".
+
+## 18. Automatic prices (ADR 0025)
+
+Migration `0043` (schema 43) adds `pricing_policy` (seeded **off**), the traders' firm offers and rails on `trader_block`,
+`auto_quote`, `rfq`, `rfq_invite`, `rfq_bid` and the inbox kind `TRADER_PRICE_REQUEST`. No new secret or service: the worker
+reads two public order books (WazirX, CoinDCX) with no key.
+
+1. **Release order** (from production at 42): all CI jobs green; stop the worker; a Neon branch `before-43-<date>`;
+   `node --env-file=$HOME/.config/inrp2p/neon-production.env scripts/migrate.ts`; Vercel ready on 43; the worker image of
+   the same commit (it runs `reference_rate_refresh` every five minutes and `rfq_sweep` every minute). Migration 0043 must
+   not collide with another 0043 already applied — renumber before release if one landed first.
+2. **Before switching on**: the worker has published both references (Rates → Automatic prices shows their age); traders
+   have made at least one side firm (Traders → their side → Instant orders); `network_fee_policy` and GasFree fees are fresh.
+3. **Switch on** on Rates → Automatic prices (`pricing:configure`, ⧗, with the reason). Price requests are a second switch.
+   Switching off is never refused: requests then wait for a person.
+

@@ -1,6 +1,6 @@
 import { DomainError } from '@inrp2p/kernel';
 import type { Executor } from '@inrp2p/db';
-import { type ClientQuoteView, toClientQuoteView } from '@inrp2p/quotes';
+import { type ClientQuoteView, automaticPricingOf, toClientQuoteView } from '@inrp2p/quotes';
 import { clientSafe } from './access.ts';
 import { type ClientDestinations, clientDestinations } from './destinations.ts';
 
@@ -22,6 +22,9 @@ export interface OpenRequest {
   readonly status: 'OPEN' | 'QUOTED' | 'DECLINED' | 'EXPIRED' | 'WITHDRAWN';
   readonly statusReason: string | null;
   readonly createdAt: string;
+  /** ADR 0025: when the best price for this amount is being gathered, until when; and whether the client can ask for a new price itself. */
+  readonly gatheringUntil: string | null;
+  readonly canReprice: boolean;
 }
 
 export interface ExchangeView {
@@ -72,6 +75,7 @@ export async function exchangeView(ex: Executor, clientId: string): Promise<Exch
   const quoteRow = latestQuote && (latestQuote.status === 'SENT' || latestQuote.status === 'EXPIRED') ? latestQuote : undefined;
 
   const quote = quoteRow ? await toClientQuoteView(ex, quoteRow.id) : null;
+  const automatic = request && request.status === 'OPEN' ? await automaticPricingOf(ex, request.id) : { rfqClosesAt: null, canReprice: false };
 
   // An accepted request became a trade: the one its accepted quote opened.
   const openTrade =
@@ -99,6 +103,8 @@ export async function exchangeView(ex: Executor, clientId: string): Promise<Exch
           status: request.status as OpenRequest['status'],
           statusReason: request.status_reason,
           createdAt: request.created_at.toISOString(),
+          gatheringUntil: automatic.rfqClosesAt,
+          canReprice: automatic.canReprice,
         }
       : null,
     quote,

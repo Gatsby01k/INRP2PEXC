@@ -53,6 +53,8 @@ export interface NotificationFacts {
   };
   /** A decision of INRP2P's about the trader's desk (block 11). */
   readonly deskAction?: 'SUSPENDED' | 'RESUMED' | 'PAGE_HIDDEN' | 'PAGE_SHOWN' | 'RENAMED';
+  /** ADR 0025: a price the trader is asked for — the amount as asked and how long it has to answer. */
+  readonly priceAsk?: { readonly ref: string; readonly amount: string; readonly currency: 'USDT' | 'INR'; readonly closesAt: Date };
 }
 
 /** Thousands grouped the international way (D-11) — `10,200,000` — whatever the reader's locale. */
@@ -384,6 +386,18 @@ function traderDraft(kind: NotificationKind, facts: NotificationFacts): Notifica
       };
       const [title, body] = said[facts.deskAction ?? 'SUSPENDED'];
       return { kind, title, body: short(body, 400), subjectRef: null, href: '/desk' };
+    }
+    case 'TRADER_PRICE_REQUEST': {
+      const ask = facts.priceAsk;
+      const amount = ask ? (ask.currency === 'USDT' ? usdt(ask.amount) : `USDT for ${inr(ask.amount)}`) : 'USDT';
+      const until = ask ? ` before ${ask.closesAt.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false })} IST` : '';
+      return {
+        kind,
+        title: 'Your price is asked for',
+        body: `${sideWords(facts.side)} ${amount}: name your rate on Traders${until}. The best price gets the order.`,
+        subjectRef: ask?.ref ?? null,
+        href: '/traders',
+      };
     }
     case 'TRADER_RESERVE_ISSUE':
       return {

@@ -35,10 +35,16 @@ export async function currentPricingPolicy(ex: Executor): Promise<PricingPolicy>
   };
 }
 
-/** The market reference of a direction when it is fresh enough for the policy to price on; null otherwise. */
+/**
+ * The market reference of a direction when it is fresh enough for the policy to price on; null otherwise. Its age is
+ * judged by the business clock (`inrp2p_now()`), the clock every quote's validity and every deadline is judged by.
+ */
 export async function freshReference(ex: Executor, direction: DirectionValue, policy: Pick<PricingPolicy, 'referenceMaxAgeSeconds'>): Promise<ReferenceRateSnapshot | null> {
   const ref = await currentReferenceRate(ex, direction);
-  return ref && ref.ageSeconds <= policy.referenceMaxAgeSeconds ? ref : null;
+  if (!ref) return null;
+  const r = await sql<{ age: string }>`select floor(extract(epoch from (inrp2p_now() - ${ref.effectiveAt}::timestamptz)))::bigint::text as age`.execute(ex);
+  const ageSeconds = Number.parseInt(r.rows[0]!.age, 10);
+  return ageSeconds >= 0 && ageSeconds <= policy.referenceMaxAgeSeconds ? { ...ref, ageSeconds } : null;
 }
 
 export interface SetPricingPolicyPayload {

@@ -230,3 +230,12 @@ Full record: `docs/adr/0016-counterparty-funded-execution.md`.
 A private chat on every P2P deal (the two sides by role, INRP2P when called), receipts attached but never counted, and
 the buyer's time to pay set by how it pays — UPI 15, IMPS 30, NEFT 60, RTGS 45 minutes, configurable — with a warning and
 a short final period before a cancellation, and no cancellation at all once the payment is filed.
+
+## D-24 — Automatic prices and the choice of trader on the INRP2P exchange — Resolved (owner, 2026-10-31; ADR 0025)
+
+A client gets a firm 60-second price the moment it asks: the price and the trader with the highest expected net margin —
+acceptance learned from INRP2P's own quotes × the trader's completion record × the kernel's USDT margin — never worse than
+the market reference (two Indian books agreeing), never below the minimum net margin. Traders make a side's offer firm to be
+priced on without being asked; amounts no firm offer covers go to several traders as a price request. Off until the owner
+switches it on; desks and their fees unchanged; anything that cannot be priced honestly waits for a person.
+
