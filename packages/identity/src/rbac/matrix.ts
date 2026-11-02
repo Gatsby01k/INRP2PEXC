@@ -23,6 +23,8 @@ export const PERMISSION_MATRIX = Object.freeze({
   'desk:view': r(A, A, A, A, A, A),
   'economics:view': r(A, A, D, A, D, D),
   'rates:update_route': r(A, A, D, D, D, D),
+  // ADR 0025: switching the exchange's automatic prices on or off and setting their guard-rails.
+  'pricing:configure': r(S, D, D, D, D, D),
   'request:create': r(A, A, D, D, A, D),
   'request:decline': r(A, A, D, D, D, D),
   'request:withdraw': r(A, A, D, D, D, D),

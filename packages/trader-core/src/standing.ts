@@ -1,5 +1,5 @@
 import { sql } from 'kysely';
-import type { Executor, TraderSide } from '@inrp2p/db';
+import type { Executor, InrRailValue, TraderSide } from '@inrp2p/db';
 import type { BlockFacts, TraderStanding } from './eligibility.ts';
 import { type ReserveFigures, reserveFigures, reserveFunded } from './reserve-figures.ts';
 
@@ -35,6 +35,15 @@ export interface BlockRead extends BlockFacts {
   readonly id: string;
   readonly routeId: string;
   readonly version: number;
+  /**
+   * ADR 0025: the trader's firm offer — until when INRP2P may fill orders at this side's rate within its limits without
+   * asking, and whose commitment that is. `firm` is whether it still stands now (business clock).
+   */
+  readonly instantUntil: Date | null;
+  readonly instantSetBy: string | null;
+  readonly firm: boolean;
+  /** The INR rails this side pays or is paid by. */
+  readonly rails: readonly InrRailValue[];
 }
 
 /** A trader's blocks with the operator's ceilings folded in, and what open offers already promise. */
@@ -43,9 +52,11 @@ export async function readBlocks(ex: Executor, traderId: string): Promise<BlockR
     id: string; route_id: string; side: TraderSide; status: 'ACTIVE' | 'PAUSED'; rate_micro: string | null; capacity_minor: string; reserved_minor: string;
     min_order_minor: string | null; max_order_minor: string | null; version: number; offered: string;
     max_order_inr_minor: string | null; max_order_usdt_minor: string | null; max_capacity_inr_minor: string | null; max_capacity_usdt_minor: string | null;
+    instant_until: Date | null; instant_set_by: string | null; firm: boolean; rails: InrRailValue[];
   }>`
     select b.id, b.route_id, b.side, b.status, b.rate_micro::text, b.capacity_minor::text, b.reserved_minor::text,
-           b.min_order_minor::text, b.max_order_minor::text, b.version,
+           b.min_order_minor::text, b.max_order_minor::text, b.version, b.instant_until, b.instant_set_by,
+           coalesce(b.instant_until > inrp2p_now(), false) as firm, b.rails,
            (select coalesce(sum(o.capacity_minor), 0) from trader_order o
              where o.block_id = b.id and o.status = 'OFFERED' and o.offer_expires_at > inrp2p_now())::text as offered,
            t.max_order_inr_minor::text, t.max_order_usdt_minor::text, t.max_capacity_inr_minor::text, t.max_capacity_usdt_minor::text
@@ -69,6 +80,10 @@ export async function readBlocks(ex: Executor, traderId: string): Promise<BlockR
       operatorMaxOrderMinor: big(inr ? b.max_order_inr_minor : b.max_order_usdt_minor),
       operatorMaxCapacityMinor: big(inr ? b.max_capacity_inr_minor : b.max_capacity_usdt_minor),
       version: b.version,
+      instantUntil: b.instant_until,
+      instantSetBy: b.instant_set_by,
+      firm: b.firm,
+      rails: b.rails,
     };
   });
 }

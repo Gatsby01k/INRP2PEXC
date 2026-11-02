@@ -23,6 +23,8 @@ export const LOCK_ORDER = [
   'trade_request',
   'quote',
   'acceptance_challenge',
+  // A price request to several traders (migration 0043): after its client's request, before the traders it is put to.
+  'rfq',
   // Traders (migration 0022): a trader's profile (availability, reserve), then its order, then the block whose
   // capacity the order holds. Taken after a request and its quote, before the trade the order starts.
   'trader_profile',
