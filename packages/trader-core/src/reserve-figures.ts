@@ -2,6 +2,7 @@ import { sql } from 'kysely';
 import { Money, requireUuid } from '@inrp2p/kernel';
 import type { Executor } from '@inrp2p/db';
 import { Accounts, accountBalance } from '@inrp2p/ledger';
+import { type RiskLimits, limitsOf, readExposure, readTrackRecord, riskPolicyOf } from './risk.ts';
 
 /**
  * A trader's Security Reserve as figures (docs/TRADERS.md §8), all read from the ledger and the open withdrawals and
@@ -19,6 +20,11 @@ export interface ReserveFigures {
   /** True while the reserve is locked because the trader is online or has an order open. */
   readonly engaged: boolean;
   readonly openOrders: number;
+  /**
+   * ADR 0024: the deals this reserve allows at the trader's level, and what of it backs the deals open now. Null when
+   * the programme has no risk policy — then only the requirement is locked.
+   */
+  readonly limits: RiskLimits | null;
 }
 
 export async function reserveBalance(ex: Executor, traderId: string): Promise<Money<'USDT'>> {
@@ -42,7 +48,13 @@ export async function reserveFigures(ex: Executor, traderId: string): Promise<Re
   const required = profile.required_reserve_minor;
   const engaged = profile.available || openOrders > 0;
   const free = balance.minor - withdrawing - applying;
-  const locked = engaged && required !== null ? (free < required ? (free > 0n ? free : 0n) : required) : 0n;
+  const policy = await riskPolicyOf(ex);
+  const limits = policy ? limitsOf(policy, await readTrackRecord(ex, id, policy), free, await readExposure(ex, id)) : null;
+  // While engaged the requirement is locked, and — ADR 0024 — whatever more of the reserve the open deals need at this
+  // level: a trader can never withdraw the collateral its running deals were allowed on.
+  const floor = required ?? 0n;
+  const need = limits && limits.backingMinor > floor ? limits.backingMinor : floor;
+  const locked = engaged && (required !== null || need > 0n) ? (free < need ? (free > 0n ? free : 0n) : need) : 0n;
   const available = free - locked;
   const shortfall = required !== null && free < required ? required - free : 0n;
   return {
@@ -55,6 +67,7 @@ export async function reserveFigures(ex: Executor, traderId: string): Promise<Re
     shortfall: Money.ofMinor(shortfall, 'USDT'),
     engaged,
     openOrders,
+    limits,
   };
 }
 

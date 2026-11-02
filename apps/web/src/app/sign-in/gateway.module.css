@@ -741,3 +741,107 @@
     white-space: nowrap;
   }
 }
+
+/* ——— The other way in: Telegram (ADR 0026) ——— */
+
+/* A hairline either side of a word, between the two ways in. */
+.or {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0;
+  font-size: var(--font-size-meta);
+  color: var(--text-muted);
+}
+
+.or::before,
+.or::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: color-mix(in srgb, var(--border-default) 80%, transparent);
+}
+
+.telegramBlock {
+  display: grid;
+  gap: var(--space-2);
+}
+
+/* The second way in, quieter than the first: the paper of the door tile, a hairline, the brand's type. */
+.telegram,
+.action[data-tone='quiet'] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: 52px;
+  padding: 0 var(--space-5);
+  border: 0;
+  border-radius: 18px;
+  background: var(--bg-app);
+  color: var(--text-primary);
+  font-family: var(--font-display);
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-semibold);
+  box-shadow: inset 0 0 0 1px var(--border-default);
+  cursor: pointer;
+  transition:
+    box-shadow var(--dur-base) var(--ease),
+    transform var(--dur-fast) var(--ease);
+}
+
+.telegram:not(:disabled):active {
+  transform: translateY(1px);
+}
+
+.telegram:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.telegram[aria-busy='true']:disabled {
+  opacity: 1;
+  cursor: progress;
+}
+
+.telegram:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 2px;
+}
+
+@media (hover: hover) {
+  .telegram:not(:disabled):hover,
+  .action[data-tone='quiet']:not(:disabled):hover {
+    filter: none;
+    box-shadow: inset 0 0 0 1px var(--border-strong);
+  }
+}
+
+.telegramGlyph {
+  flex: none;
+  width: 20px;
+  height: 20px;
+}
+
+/* On the first way in when this device used it last: a small tab on the button's top edge, so the label stays on one line. */
+.telegramBlock .action {
+  position: relative;
+  white-space: nowrap;
+}
+
+.lastUsed {
+  position: absolute;
+  top: -9px;
+  right: 14px;
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--brand-action) 35%, transparent);
+  color: var(--brand-action);
+  font-family: inherit;
+  font-size: var(--font-size-micro, 11px);
+  font-weight: var(--font-weight-semibold);
+  line-height: 16px;
+  letter-spacing: 0.01em;
+}

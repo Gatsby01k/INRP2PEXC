@@ -7,7 +7,7 @@ import type { ClientActor, DomainCommand } from '@inrp2p/identity';
 import { publishTraderRate } from '@inrp2p/pricing';
 import {
   attachDeskClientInTx, closeUnstartedOrder, currentDeskPrices, currentFeePolicy, deskByHandle, deskById, deskClient, freeCapacity, lockBlock, lockTrader,
-  priceDeskDeal, readBlocks, readOrder, readStanding, switchOnIssues, traderProgram,
+  priceDeskDeal, readBlocks, readOrder, readStanding, riskFit, switchOnIssues, traderProgram,
 } from '@inrp2p/trader-core';
 import {
   type UsdtNetworkTerms, assertProfitable, currentNetworkCosts, networkAvailable, networkFeePolicy, priceNetworkP2p, pricingOfUsdtTerms, recordQuoteNetworkFee, reservePerSendSun,
@@ -164,6 +164,12 @@ export async function quoteLockedDeskDealInTx(ctx: TxContext, deps: Pick<QuoteDe
     if (old.status !== 'OPEN' && old.status !== 'QUOTED') continue;
     await closeRequest(ctx.tx, id, 'WITHDRAWN', 'replaced by a new price', old.version);
     await appendAudit(ctx, { action: 'request.withdrawn', entityType: 'trade_request', entityId: id, before: { status: old.status }, after: { status: 'WITHDRAWN', reason: 'replaced by a new price', by: 'CLIENT' } });
+  }
+
+  // ADR 0024: within what the desk's own reserve and record allow, counting what the client asked before as given back.
+  const { reserve } = await readStanding(ctx.tx, trader.id);
+  if (reserve.limits && riskFit(reserve.limits, econ.routeBase.minor)) {
+    throw new DomainError('INVALID_AMOUNT', 'this deal is larger than this desk can take right now');
   }
 
   // The quote can be accepted until `expiresAt`; the desk's capacity is held until a minute after that.

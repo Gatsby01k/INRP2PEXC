@@ -1,5 +1,6 @@
 'use client';
 
+import type { Protection } from '../../../server/client.ts';
 import { type FocusEvent, type PointerEvent, useEffect, useId, useRef, useState } from 'react';
 import Link from 'next/link';
 import type { ExchangeView } from '@inrp2p/portal';
@@ -34,7 +35,8 @@ const sanitizeRate = (raw: string): string | null => {
 
 export interface Who {
   readonly isAdmin: boolean;
-  readonly hasAuthenticator: boolean;
+  /** What protects this person's changes (ADR 0026). */
+  readonly protection: Protection;
   readonly email: string;
   readonly clientName: string;
 }
@@ -351,7 +353,7 @@ export function RequestForm({ view, draft, who }: { view: ExchangeView; draft?: 
         open={adding}
         kind={sell ? 'bank' : 'wallet'}
         onClose={() => setAdding(false)}
-        hasAuthenticator={who.hasAuthenticator}
+        protection={who.protection}
         email={who.email}
         holderName={who.clientName}
         next="exchange"

@@ -4,7 +4,7 @@ import type { Executor, TraderSide } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
 import { enqueueOutbox } from '@inrp2p/outbox';
 import type { ClientActor } from '@inrp2p/identity';
-import { freeCapacity, lockTraderOfClient, readBlocks, readStanding, standingIssues, traderClientCommand } from '@inrp2p/trader-core';
+import { freeCapacity, lockTraderOfClient, readBlocks, readStanding, riskFit, standingIssues, traderClientCommand } from '@inrp2p/trader-core';
 
 /**
  * A trader's side of a price request (ADR 0025): INRP2P asks a few traders for their rate on one amount no firm offer
@@ -50,7 +50,7 @@ export async function priceAsksFor(ex: Executor, traderId: string): Promise<Pric
  * `rfq.bid` — a user who can commit for the trader, while the price request is open. The rate is for the whole amount and
  * firm until the request is awarded; bidding again replaces the earlier bid. The trader must be in standing, and the amount
  * must fit INRP2P's ceiling on one order and what its side has free now — capacity is held only if the bid wins, and checked
- * again then. The database refuses a bid after the request closes (IX139).
+ * again then. The database refuses a bid after the request closes (IX141).
  */
 export function bidOnRfq(actor: ClientActor) {
   return traderClientCommand(actor, 'COMMIT', async (ctx, p: { ref: string; rate: string }, member) => {
@@ -66,7 +66,7 @@ export function bidOnRfq(actor: ClientActor) {
     if (!ask) throw new DomainError('NOT_FOUND', 'price request not found');
     const now = (await sql<{ now: Date }>`select inrp2p_now() as now`.execute(ctx.tx)).rows[0]!.now;
     if (ask.status !== 'OPEN' || now >= ask.closes_at || ask.request_status !== 'OPEN') throw new DomainError('INVALID_TRANSITION', 'this price request has closed');
-    const { standing } = await readStanding(ctx.tx, trader.id);
+    const { standing, reserve } = await readStanding(ctx.tx, trader.id);
     const issues = standingIssues(standing);
     if (issues.length > 0) throw new DomainError('TRADER_NOT_ELIGIBLE', 'you cannot take orders right now', { issues });
     const rate = Rate.parse(p.rate, 'ROUTE');
@@ -85,6 +85,11 @@ export function bidOnRfq(actor: ClientActor) {
     const fmt = (m: bigint) => Money.ofMinor(m, currency).toDecimalString();
     if (block.operatorMaxOrderMinor !== null && holds > block.operatorMaxOrderMinor) {
       throw new DomainError('TRADER_LIMIT_EXCEEDED', `INRP2P limits one order to ${fmt(block.operatorMaxOrderMinor)} ${currency}`);
+    }
+    // ADR 0024: the trader's own USDT in the deal — at most the client's when it buys USDT — within what its reserve allows.
+    const ownUsdt = buying ? (ask.fixed_side === 'BASE' ? base! : divRound(inr! * 10_000_000_000n, rate.micro, 'DOWN')) : holds;
+    if (reserve.limits && riskFit(reserve.limits, ownUsdt)) {
+      throw new DomainError('TRADER_LIMIT_EXCEEDED', `your Security Reserve allows deals up to ${Money.ofMinor(reserve.limits.maxDealMinor, 'USDT').toDecimalString()} USDT with what you have open now`);
     }
     const free = freeCapacity(block);
     if (holds > free) throw new DomainError('CAPACITY_INSUFFICIENT', `this needs ${fmt(holds)} ${currency} and your side has ${fmt(free)} available: raise its capacity to bid`, { available: fmt(free) });

@@ -5,6 +5,7 @@ import { executeCommand } from '@inrp2p/commands';
 import type { OutboxHandler } from '@inrp2p/outbox';
 import { dueOrders, endHoldInTx, expireOfferInTx, orderOfTrade, reconcileOrderInTx } from './orders.ts';
 import { autoAssignInTx, rerouteRequestInTx } from './routing.ts';
+import { applicationsUnderReview, applyDueSettlementChangeInTx, autoReviewTraderInTx, dueSettlementChanges } from './auto-review.ts';
 
 const SYSTEM = { type: 'SYSTEM' as const, id: null, surface: 'SYSTEM' as const };
 
@@ -29,6 +30,8 @@ export interface SweepReport {
   readonly delivered: number;
   readonly completed: number;
   readonly cancelled: number;
+  /** ADR 0024: changes of a trader's details applied after their hold. */
+  readonly changesApplied: number;
   readonly failures: readonly SweepFailure[];
 }
 
@@ -43,7 +46,7 @@ export interface SweepReport {
 export async function runTraderSweep(db: Db): Promise<SweepReport> {
   const due = await dueOrders(db);
   const failures: SweepFailure[] = [];
-  const report = { offersExpired: 0, holdsEnded: 0, holdsWaitingOnQuote: 0, delivered: 0, completed: 0, cancelled: 0, failures };
+  const report = { offersExpired: 0, holdsEnded: 0, holdsWaitingOnQuote: 0, delivered: 0, completed: 0, cancelled: 0, changesApplied: 0, failures };
   const guarded = async <R>(name: string, orderId: string, fn: (ctx: TxContext) => Promise<R>): Promise<R | null> => {
     try {
       return await step(db, name, { orderId }, fn);
@@ -66,6 +69,11 @@ export async function runTraderSweep(db: Db): Promise<SweepReport> {
     else if (out === 'CANCELLED') report.cancelled += 1;
     else if (out === 'DELIVERED') report.delivered += 1;
   }
+  // ADR 0024: a change of a trader's bank account or wallet whose hold is over (the query is one indexed read when none is).
+  for (const id of await dueSettlementChanges(db)) {
+    const out = await guarded('trader.apply_settlement_change', id, (ctx) => applyDueSettlementChangeInTx(ctx, id));
+    if (out?.outcome === 'APPLIED') report.changesApplied += 1;
+  }
   return report;
 }
 
@@ -75,6 +83,29 @@ export function reconcileOrderNow(db: Db, orderId: string) {
 }
 
 const REROUTE_ON = new Set(['trader.order_declined', 'trader.order_expired', 'trader.order_withdrawn']);
+
+/** ADR 0024: what may have changed the facts an application is reviewed on. */
+const REVIEW_ON = new Set(['trader.applied', 'trader.reserve_credited', 'trader.destination_reviewed', 'trader.details_resubmitted']);
+
+/**
+ * The programme's own review (ADR 0024), run when something an application is decided on may have changed: it was
+ * submitted or resubmitted, USDT from the trader's wallet was credited to its reserve, or a person verified one of its
+ * details — and for every application waiting when auto-review is switched on. Each is one keyed step, so a redelivered
+ * event reviews nothing twice, and a review that finds nothing to do writes nothing.
+ */
+export function traderReviewHandler(db: Db): OutboxHandler {
+  return {
+    name: 'trader_auto_review',
+    handles: (type) => REVIEW_ON.has(type) || type === 'trader_program.auto_review_enabled',
+    run: async (event) => {
+      const p = (event.payload ?? {}) as { traderId?: unknown };
+      const ids = event.type === 'trader_program.auto_review_enabled' ? await applicationsUnderReview(db) : typeof p.traderId === 'string' ? [p.traderId] : [];
+      for (const traderId of ids) {
+        await step(db, 'trader.auto_review', { traderId, event: event.id }, (ctx) => autoReviewTraderInTx(ctx, traderId), `auto_review:${event.id}:${traderId}`);
+      }
+    },
+  };
+}
 
 /**
  * The trader programme's reactions to events:

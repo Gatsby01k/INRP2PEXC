@@ -53,6 +53,8 @@ export interface NotificationFacts {
   };
   /** A decision of INRP2P's about the trader's desk (block 11). */
   readonly deskAction?: 'SUSPENDED' | 'RESUMED' | 'PAGE_HIDDEN' | 'PAGE_SHOWN' | 'RENAMED';
+  /** ADR 0024: a change of where the trader is paid — asked for (and when it can take effect), stopped, or made. */
+  readonly settlementChange?: { readonly action: 'PROPOSED' | 'CANCELLED' | 'APPLIED'; readonly what: 'BANK' | 'WALLET' | 'BOTH'; readonly effectiveAt?: Date };
   /** ADR 0025: a price the trader is asked for — the amount as asked and how long it has to answer. */
   readonly priceAsk?: { readonly ref: string; readonly amount: string; readonly currency: 'USDT' | 'INR'; readonly closesAt: Date };
 }
@@ -398,6 +400,23 @@ function traderDraft(kind: NotificationKind, facts: NotificationFacts): Notifica
         subjectRef: ask?.ref ?? null,
         href: '/traders',
       };
+    }
+    case 'TRADER_SETTLEMENT_CHANGE': {
+      const c = facts.settlementChange ?? { action: 'PROPOSED' as const, what: 'BOTH' as const };
+      const what = c.what === 'BANK' ? 'bank account' : c.what === 'WALLET' ? 'wallet' : 'bank account and wallet';
+      const when = c.effectiveAt
+        ? `${new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', timeZone: 'Asia/Kolkata' }).format(c.effectiveAt)}, ${ist(c.effectiveAt)}`
+        : null;
+      const said: Record<typeof c.action, [string, string]> = {
+        PROPOSED: [
+          `A new ${what} was submitted for your trader account`,
+          `It can take effect from ${when ?? 'the end of the waiting period'}; until then your registered details keep settling every order. If this was not you, stop it on Traders → Settlement details now.`,
+        ],
+        CANCELLED: [`The change of your ${what} was stopped`, 'Your registered details stay as they are.'],
+        APPLIED: [`Your new ${what} is now registered`, 'New orders settle with it; orders already finished are unchanged.'],
+      };
+      const [title, body] = said[c.action];
+      return { kind, title, body: short(body, 400), subjectRef: null, href: '/traders/settlement' };
     }
     case 'TRADER_RESERVE_ISSUE':
       return {

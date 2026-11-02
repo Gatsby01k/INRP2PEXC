@@ -18,6 +18,23 @@ const ISSUE: Record<string, string> = {
   OFFLINE: 'offline',
 };
 
+/** ADR 0024: why the programme's rules left an application or a change for a person, in the desk's words. */
+export const AUTO_FLAG: Record<string, string> = {
+  BANK_NAME_MISMATCH: 'bank holder is not the applicant',
+  BANK_ON_FILE_ELSEWHERE: 'bank account on another client’s file',
+  BANK_REJECTED_BEFORE: 'bank account rejected before',
+  WALLET_NOT_PROVEN: 'no USDT from the wallet yet',
+  WALLET_ON_FILE_ELSEWHERE: 'wallet on another client’s file',
+  WALLET_REJECTED_BEFORE: 'wallet rejected before',
+  RESERVE_SHORT: 'reserve not funded yet',
+  NO_DEFAULT_RESERVE: 'programme reserve not set',
+  REJECTED_BEFORE: 'rejected before: a person decides',
+  ORDERS_OPEN: 'waits for open orders',
+};
+
+/** Flags a person must act on; the rest are the trader's own move. */
+const DESK_FLAGS = new Set(['BANK_NAME_MISMATCH', 'BANK_ON_FILE_ELSEWHERE', 'BANK_REJECTED_BEFORE', 'WALLET_ON_FILE_ELSEWHERE', 'WALLET_REJECTED_BEFORE', 'REJECTED_BEFORE', 'NO_DEFAULT_RESERVE']);
+
 export function StatusChip({ t }: { t: Pick<DeskTraderRow, 'status' | 'available'> }) {
   if (t.status === 'APPROVED') return t.available ? <Chip tone="success" glyph="done">Online</Chip> : <Chip glyph="pending">Offline</Chip>;
   if (t.status === 'UNDER_REVIEW') return <Chip tone="brand" glyph="partial">Under review</Chip>;
@@ -65,6 +82,25 @@ export function TraderList({ traders }: { traders: readonly DeskTraderRow[] }) {
       ),
     },
     { key: 'open', header: 'Open', align: 'right', render: (t) => <Cell main={t.openOrders} {...(t.offers > 0 ? { sub: `${t.offers} offered` } : {})} /> },
+    {
+      key: 'limit',
+      header: 'Open of limit',
+      render: (t) =>
+        t.risk ? (
+          <span className={d.stackTight} style={{ gap: 3, width: 150 }}>
+            <span className={d.num}>
+              {usdt(t.risk.open, { unit: false })}
+              <span className={d.muted}> of {usdt(t.risk.maxOpen)}</span>
+            </span>
+            <span className={d.muted}>
+              {t.risk.level.toLowerCase()}
+              {t.risk.heldBack ? ' · held back' : ''} · deal ≤ {usdt(t.risk.maxDeal, { unit: false })}
+            </span>
+          </span>
+        ) : (
+          <span className={d.muted}>—</span>
+        ),
+    },
     { key: 'unresolved', header: 'Unresolved', align: 'right', render: (t) => (t.unresolved > 0 ? <strong className={d.negative}>{t.unresolved}</strong> : 0) },
     { key: 'completed', header: 'Completed', align: 'right', render: (t) => t.completedOrders },
     {
@@ -73,12 +109,17 @@ export function TraderList({ traders }: { traders: readonly DeskTraderRow[] }) {
       render: (t) => (
         <span className={d.row}>
           {t.awaitingReview > 0 ? <Chip tone="warning">{t.awaitingReview === 1 ? '1 detail' : `${t.awaitingReview} details`} to verify</Chip> : null}
+          {t.autoReviewFlags.map((f) => (
+            <Chip key={f} tone={DESK_FLAGS.has(f) ? 'warning' : 'muted'}>
+              {AUTO_FLAG[f] ?? f}
+            </Chip>
+          ))}
           {t.issues.map((i) => (
             <Chip key={i} tone="muted">
               {ISSUE[i] ?? i}
             </Chip>
           ))}
-          {t.awaitingReview === 0 && t.issues.length === 0 ? <span className={d.muted}>—</span> : null}
+          {t.awaitingReview === 0 && t.issues.length === 0 && t.autoReviewFlags.length === 0 ? <span className={d.muted}>—</span> : null}
         </span>
       ),
     },

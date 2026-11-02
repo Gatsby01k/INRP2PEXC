@@ -1,15 +1,15 @@
 import type { ReactNode } from 'react';
 import Link from 'next/link';
 import { getImageProps } from 'next/image';
-import { unreadCount } from '@inrp2p/notifications';
-import { payoutsHeld } from '@inrp2p/trades';
 import mark from '../../../../../brand/inrp2p-mark.png';
 import { workspacePage } from '../../server/client.ts';
 import { mailto, siteContacts } from '../../server/site.ts';
+import { workspaceFrame } from '../../server/workspace-frame.ts';
 import { AccountMenu } from './_workspace/AccountMenu.tsx';
 import { CommandMenu, type CommandEntry } from './_workspace/CommandMenu.tsx';
 import { MailIcon } from './_workspace/icons.tsx';
 import { NotificationsLink } from './_workspace/NotificationsLink.tsx';
+import { PAGE_HEAD_ID } from './_workspace/PageHead.tsx';
 import { ClientNav, type ClientNavEntry } from './Nav.tsx';
 import styles from './shell.module.css';
 
@@ -72,21 +72,14 @@ const DESK_STATE: Record<string, { label: string; tone: 'live' | 'paused' | 'neu
 export default async function ClientLayout({ children }: { children: ReactNode }) {
   const ctx = await workspacePage();
   const member = ctx.access.kind === 'MEMBER' ? ctx.access.member : null;
-  const unread = member ? await unreadCount(ctx.db, member.clientId) : 0;
-  // After a database recovery the workspace may ask for a payment that was already made; it says so, in plain words
-  // and without the internals, until the desk has reconciled (migration 0034, RUNBOOKS `restore-fence`).
-  const { held } = await payoutsHeld(ctx.db);
+  // What the frame shows besides the person, read together (one round trip, not five).
+  const { unread, held, trader, dealsWithDesks } = await workspaceFrame(ctx.db, member);
   const { props: markProps } = getImageProps({ src: mark, alt: '', width: 32, height: 32 });
   const { desk } = siteContacts();
   // A trader runs a desk: approved or paused, or already with one open.
-  const trader = member
-    ? await ctx.db.selectFrom('trader_profile').select(['id', 'status']).where('client_id', '=', member.clientId).executeTakeFirst()
-    : undefined;
-  const desks = trader !== undefined && (trader.status === 'APPROVED' || trader.status === 'PAUSED');
-  const ownDesk = desks && trader ? await ctx.db.selectFrom('desk').select(['display_name', 'status']).where('trader_id', '=', trader.id).executeTakeFirst() : undefined;
+  const desks = trader !== null && (trader.status === 'APPROVED' || trader.status === 'PAUSED');
+  const ownDesk = desks ? (trader.desk ?? undefined) : undefined;
   const home = member?.exchangeAccess ? '/exchange' : desks ? '/desk' : member ? '/traders' : '/open-account';
-  // A client that deals with independent desks (ADR 0020) finds them beside the Exchange.
-  const dealsWithDesks = member ? Boolean(await ctx.db.selectFrom('desk_client').select('id').where('client_id', '=', member.clientId).limit(1).executeTakeFirst()) : false;
   const base = member?.exchangeAccess ? ENTRIES : member ? TRADER_ENTRIES : NEW_ENTRIES;
   const withDesks = dealsWithDesks && member?.exchangeAccess ? [base[0]!, DESKS, ...base.slice(1)] : base;
   const entries = desks ? withDesk(withDesks) : withDesks;
@@ -95,14 +88,22 @@ export default async function ClientLayout({ children }: { children: ReactNode }
 
   const commands: CommandEntry[] = [
     ...entries.map((e) => ({ href: e.href, label: e.label, group: 'Go to' })),
-    ...(ownDesk ? DESK_SECTIONS.map((e) => ({ href: e.href, label: e.label, group: 'Your desk', hint: ownDesk.display_name })) : []),
+    ...(ownDesk ? DESK_SECTIONS.map((e) => ({ href: e.href, label: e.label, group: 'Your desk', hint: ownDesk.displayName })) : []),
     ...(member ? [{ href: '/notifications', label: 'Notifications', group: 'Account', ...(unread > 0 ? { hint: `${unread} unread` } : {}) }] : []),
-    ...(member ? [{ href: '/account', label: 'Account & security', group: 'Account' }] : []),
+    // ADR 0026: everyone who can sign in has Account & security — how they sign in and confirm is theirs, client or not.
+    { href: '/account', label: 'Account & security', group: 'Account' },
     ...(member && desks ? [{ href: '/account/team', label: 'Team', group: 'Account' }] : []),
   ];
 
   return (
     <div className={styles.shell}>
+      {/* A full load draws the page itself, never its loading shape first (ADR 0021 §4.5). On a phone the stylesheets
+          land after the page's HTML; at that moment the browser would draw the frame and the loading shape, and React
+          then holds the page, already read, 300 ms behind that first frame. This asks the browser to draw nothing until
+          the page's heading has been read, so its first frame is the page. React lifts it into the document's head, the
+          only place that can hold a first paint: on a click it lands in a page already drawn and does nothing, and the
+          shape opens the section at once (§2.3). A browser that does not know `expect` draws as before. */}
+      <link rel="expect" href={`#${PAGE_HEAD_ID}`} blocking="render" />
       {/* The page's backdrop: light from above, a fine grid fading into the paper, one warm glow of the mark's orange
           drifting slowly, and a grain — the room the work sits in. */}
       <div className={styles.backdrop} aria-hidden="true">
@@ -122,7 +123,7 @@ export default async function ClientLayout({ children }: { children: ReactNode }
             {member ? (
               <NotificationsLink unread={unread} className={styles.iconButton} iconClassName={styles.toolIcon} badgeClassName={styles.unread} />
             ) : null}
-            <AccountMenu name={name} email={ctx.access.email} role={member ? (ROLE[member.role] ?? 'Viewer') : null} hasAccount={member !== null} />
+            <AccountMenu name={name} email={ctx.access.email} role={member ? (ROLE[member.role] ?? 'Viewer') : null} hasAccount />
           </div>
         </div>
       </header>
@@ -145,7 +146,7 @@ export default async function ClientLayout({ children }: { children: ReactNode }
             {deskState && ownDesk ? (
               <span className={styles.deskState} data-tone={deskState.tone}>
                 <span className={styles.deskStateDot} />
-                {ownDesk.display_name} · {deskState.label}
+                {ownDesk.displayName} · {deskState.label}
               </span>
             ) : null}
           </span>

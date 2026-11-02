@@ -59,6 +59,11 @@ export async function toClientQuoteView(ex: Executor, quoteId: string): Promise<
     .where('id', '=', quoteId)
     .executeTakeFirst();
   if (!q || q.status === 'DRAFT') throw new DomainError('NOT_FOUND', 'quote not found');
+  // The destination's mask and the network fee need only the quote, not each other.
+  const [destination, fee] = await Promise.all([
+    maskedDestination(ex, q),
+    ex.selectFrom('quote_network_fee').select('fee_inr_minor').where('quote_id', '=', quoteId).executeTakeFirst(),
+  ]);
   const view: ClientQuoteView = {
     ref: q.ref,
     direction: q.direction,
@@ -66,12 +71,11 @@ export async function toClientQuoteView(ex: Executor, quoteId: string): Promise<
     inr: Money.ofMinor(q.quote_inr_minor, 'INR').toJSON(),
     clientRate: Rate.ofMicro(q.client_rate_micro, 'CLIENT').toDecimalString(),
     network: q.network,
-    destination: await maskedDestination(ex, q),
+    destination,
     sentAt: q.sent_at ? q.sent_at.toISOString() : null,
     expiresAt: q.expires_at ? q.expires_at.toISOString() : null,
     status: q.status as Exclude<QuoteStatus, 'DRAFT'>,
-    networkFeeIncluded: await ex.selectFrom('quote_network_fee').select('fee_inr_minor').where('quote_id', '=', quoteId).executeTakeFirst()
-      .then((f) => (f ? Money.ofMinor(f.fee_inr_minor, 'INR').toJSON() : null)),
+    networkFeeIncluded: fee ? Money.ofMinor(fee.fee_inr_minor, 'INR').toJSON() : null,
   };
   return view;
 }

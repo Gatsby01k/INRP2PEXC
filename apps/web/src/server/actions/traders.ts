@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import type { FiatRail, TraderSide } from '@inrp2p/db';
 import {
-  type ApplyPayload, type ProposeSettlementPayload, acceptOrder, applyAsTrader, cancelReserveWithdrawal, confirmOrderPaymentReceived, declineOrder, orderDeliveryAddress, proposeSettlementChange,
+  type ApplyPayload, type ProposeSettlementPayload, acceptOrder, applyAsTrader, cancelReserveWithdrawal, cancelSettlementChange, confirmOrderPaymentReceived, declineOrder, orderDeliveryAddress, proposeSettlementChange,
   type ClaimedDeposit, claimReserveDeposit, requestReserveWithdrawal, setAvailability, submitOrderPayment, updateBlock, answerOrderDispute, disputeOrderPayment,
   callOrderSupport, chooseOrderPayMethod, postOrderDealMessage, bidOnRfq,
 } from '@inrp2p/traders';
@@ -48,9 +48,17 @@ export async function applyAsTraderAction(input: ApplyPayload, key: string): Pro
   return run('trader.apply', (_ctx, deps) => applyAsTrader(_ctx.actor, { protector: deps.protector }), input, key);
 }
 
-/** A new bank account or wallet for the desk to review; the registered one keeps working until it approves (TD-24). */
-export async function proposeSettlementChangeAction(input: ProposeSettlementPayload, key: string): Promise<CommandResult<{ bankStatus: string | null; walletStatus: string | null }>> {
+/**
+ * A new bank account or wallet (TD-24), confirmed with a fresh code: the registered one keeps working through the
+ * programme's hold, every member is told, and it then takes effect (ADR 0024).
+ */
+export async function proposeSettlementChangeAction(input: ProposeSettlementPayload, key: string): Promise<CommandResult<{ bankStatus: string | null; walletStatus: string | null; effectiveAt: string | null }>> {
   return run('trader.propose_settlement_change', (ctx, deps) => proposeSettlementChange(ctx.actor, { protector: deps.protector }), input, key);
+}
+
+/** Stops a change of where the trader is paid before it takes effect — any administrator, no code needed (ADR 0024). */
+export async function cancelSettlementChangeAction(key: string): Promise<CommandResult<{ cancelled: true }>> {
+  return run('trader.cancel_settlement_change', (ctx) => cancelSettlementChange(ctx.actor), {}, key);
 }
 
 /** Switching on or off. No sound, no notification: the trader did it and is looking at it. */

@@ -1,4 +1,4 @@
--- 0043 Automatic pricing of the INRP2P exchange (docs/adr/0025-automatic-pricing.md).
+-- 0045 Automatic pricing of the INRP2P exchange (docs/adr/0025-automatic-pricing.md).
 --
 -- A client of the INRP2P exchange types an amount and sees a firm price at once; accepting it starts the deal with the
 -- trader the system chose. Nobody at INRP2P sets the rate. The deal runs P2P exactly as before (ADR 0019): rupees straight
@@ -12,13 +12,13 @@
 --    by. An offer whose time has passed is not firm any more.
 -- 3. `auto_quote`: the decision behind each automatic quote — the market reference it was bounded by, where the price sat
 --    against it, the offers it chose among, what it expected and what it leaves. Written once with the quote, never
---    changed; it is also what later prices learn from (IX137).
+--    changed; it is also what later prices learn from (IX139).
 -- 4. `rfq`, `rfq_invite`, `rfq_bid`: a price request to several traders for one client's request, a bid per trader, the
---    best one awarded. The client never sees who was asked (IX138, IX139).
--- 5. `trader_block` firm window (IX140): a firm offer starts in the future and lasts at most seven days, and only a trader's
+--    best one awarded. The client never sees who was asked (IX140, IX141).
+-- 5. `trader_block` firm window (IX142): a firm offer starts in the future and lasts at most seven days, and only a trader's
 --    member commits it.
 -- 6. Inbox kind `TRADER_PRICE_REQUEST`.
--- Error codes IX137–IX140 belong to this migration.
+-- Error codes IX139–IX142 belong to this migration.
 
 -- 1. The pricing policy ------------------------------------------------------------------------------------------------
 
@@ -60,19 +60,19 @@ CREATE TRIGGER trader_block_immutable BEFORE UPDATE ON trader_block
   FOR EACH ROW EXECUTE FUNCTION inrp2p_guard_immutable_columns(
     'capacity_minor', 'reserved_minor', 'rate_micro', 'min_order_minor', 'max_order_minor', 'status', 'updated_at', 'version', 'instant_until', 'instant_set_by', 'rails');
 
--- IX140: a firm offer is committed by the trader's own member, starts in the future and lasts at most seven days.
+-- IX142: a firm offer is committed by the trader's own member, starts in the future and lasts at most seven days.
 CREATE FUNCTION inrp2p_guard_trader_block_instant() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
   IF NEW.instant_until IS NOT NULL AND (NEW.instant_until IS DISTINCT FROM OLD.instant_until OR NEW.instant_set_by IS DISTINCT FROM OLD.instant_set_by) THEN
     IF NEW.instant_until <= inrp2p_now() OR NEW.instant_until > inrp2p_now() + interval '7 days' THEN
-      RAISE EXCEPTION 'a firm offer lasts from now to at most seven days ahead' USING ERRCODE = 'IX140';
+      RAISE EXCEPTION 'a firm offer lasts from now to at most seven days ahead' USING ERRCODE = 'IX142';
     END IF;
     IF NOT EXISTS (
       SELECT 1 FROM trader_profile t JOIN client_user cu ON cu.client_id = t.client_id
       WHERE t.id = NEW.trader_id AND cu.user_id = NEW.instant_set_by AND cu.status = 'ACTIVE'
     ) THEN
-      RAISE EXCEPTION 'a firm offer is committed by a member of the trader' USING ERRCODE = 'IX140';
+      RAISE EXCEPTION 'a firm offer is committed by a member of the trader' USING ERRCODE = 'IX142';
     END IF;
   END IF;
   RETURN NEW;
@@ -107,7 +107,7 @@ CREATE TRIGGER rfq_immutable BEFORE UPDATE ON rfq
 CREATE TRIGGER rfq_no_delete BEFORE DELETE OR TRUNCATE ON rfq
   FOR EACH STATEMENT EXECUTE FUNCTION inrp2p_reject_mutation();
 
--- IX138: a price request is the INRP2P exchange's (never a desk's), for an open request of the same direction.
+-- IX140: a price request is the INRP2P exchange's (never a desk's), for an open request of the same direction.
 CREATE FUNCTION inrp2p_guard_rfq() RETURNS trigger
 LANGUAGE plpgsql AS $$
 DECLARE
@@ -115,7 +115,7 @@ DECLARE
 BEGIN
   SELECT * INTO r FROM trade_request WHERE id = NEW.trade_request_id;
   IF r.desk_id IS NOT NULL OR r.status <> 'OPEN' OR r.direction <> NEW.direction THEN
-    RAISE EXCEPTION 'a price request is for an open request of the INRP2P exchange, in its direction' USING ERRCODE = 'IX138';
+    RAISE EXCEPTION 'a price request is for an open request of the INRP2P exchange, in its direction' USING ERRCODE = 'IX140';
   END IF;
   RETURN NEW;
 END
@@ -152,7 +152,7 @@ CREATE TRIGGER rfq_bid_immutable BEFORE UPDATE ON rfq_bid
 CREATE TRIGGER rfq_bid_no_delete BEFORE DELETE OR TRUNCATE ON rfq_bid
   FOR EACH STATEMENT EXECUTE FUNCTION inrp2p_reject_mutation();
 
--- IX139: a bid is placed by a member of the invited trader, while the request is open and before it closes (database
+-- IX141: a bid is placed by a member of the invited trader, while the request is open and before it closes (database
 -- time) — never after, so a late price can never win.
 CREATE FUNCTION inrp2p_guard_rfq_bid() RETURNS trigger
 LANGUAGE plpgsql AS $$
@@ -161,16 +161,16 @@ DECLARE
 BEGIN
   SELECT * INTO q FROM rfq WHERE id = NEW.rfq_id;
   IF q.status <> 'OPEN' OR inrp2p_now() >= q.closes_at THEN
-    RAISE EXCEPTION 'price request % is closed', q.ref USING ERRCODE = 'IX139';
+    RAISE EXCEPTION 'price request % is closed', q.ref USING ERRCODE = 'IX141';
   END IF;
   IF NEW.status <> 'LIVE' THEN
-    RAISE EXCEPTION 'a bid is placed live' USING ERRCODE = 'IX139';
+    RAISE EXCEPTION 'a bid is placed live' USING ERRCODE = 'IX141';
   END IF;
   IF NOT EXISTS (
     SELECT 1 FROM trader_profile t JOIN client_user cu ON cu.client_id = t.client_id
     WHERE t.id = NEW.trader_id AND cu.user_id = NEW.placed_by AND cu.status = 'ACTIVE'
   ) THEN
-    RAISE EXCEPTION 'a bid is placed by a member of the trader' USING ERRCODE = 'IX139';
+    RAISE EXCEPTION 'a bid is placed by a member of the trader' USING ERRCODE = 'IX141';
   END IF;
   RETURN NEW;
 END
@@ -209,7 +209,7 @@ CREATE INDEX auto_quote_learning_idx ON auto_quote (direction, created_at);
 CREATE TRIGGER auto_quote_append_only BEFORE UPDATE OR DELETE OR TRUNCATE ON auto_quote
   FOR EACH STATEMENT EXECUTE FUNCTION inrp2p_reject_mutation();
 
--- IX137: an automatic quote is a quote of the INRP2P exchange on a trader's P2P route, priced against the trader's accepted
+-- IX139: an automatic quote is a quote of the INRP2P exchange on a trader's P2P route, priced against the trader's accepted
 -- order at its own rate and snapshot; what it leaves is its frozen network terms' net margin, at least the minimum and
 -- never negative; its price is no worse for the client than the market reference moved by the policy's premium, and its
 -- position against that reference is what the record says. It is written before the quote is sent, and only then.
@@ -226,47 +226,47 @@ DECLARE
 BEGIN
   SELECT * INTO q FROM quote WHERE id = NEW.quote_id;
   IF q.status <> 'DRAFT' OR q.trade_request_id <> NEW.trade_request_id OR q.direction <> NEW.direction OR q.valid_for_seconds <> 60 THEN
-    RAISE EXCEPTION 'an automatic quote is recorded with its own unsent 60-second quote' USING ERRCODE = 'IX137';
+    RAISE EXCEPTION 'an automatic quote is recorded with its own unsent 60-second quote' USING ERRCODE = 'IX139';
   END IF;
   IF (SELECT desk_id FROM trade_request WHERE id = q.trade_request_id) IS NOT NULL THEN
-    RAISE EXCEPTION 'a desk prices its own deals: quote % is not the INRP2P exchange''s', q.ref USING ERRCODE = 'IX137';
+    RAISE EXCEPTION 'a desk prices its own deals: quote % is not the INRP2P exchange''s', q.ref USING ERRCODE = 'IX139';
   END IF;
   IF NOT EXISTS (SELECT 1 FROM liquidity_route WHERE id = q.route_id AND trader_id IS NOT NULL AND execution_mode = 'P2P') THEN
-    RAISE EXCEPTION 'an automatic quote runs on a trader''s P2P route' USING ERRCODE = 'IX137';
+    RAISE EXCEPTION 'an automatic quote runs on a trader''s P2P route' USING ERRCODE = 'IX139';
   END IF;
   SELECT * INTO o FROM trader_order WHERE id = NEW.trader_order_id;
   IF o.status <> 'ACCEPTED' OR o.trade_request_id <> q.trade_request_id OR o.route_id <> q.route_id
      OR o.rate_micro <> q.route_rate_micro OR o.route_rate_snapshot_id <> q.route_rate_snapshot_id OR o.planned_client_rate_micro <> q.client_rate_micro THEN
-    RAISE EXCEPTION 'automatic quote % is not priced on its trader''s accepted order', q.ref USING ERRCODE = 'IX137';
+    RAISE EXCEPTION 'automatic quote % is not priced on its trader''s accepted order', q.ref USING ERRCODE = 'IX139';
   END IF;
   SELECT * INTO nf FROM quote_network_fee WHERE quote_id = q.id;
   IF NOT FOUND OR nf.net_margin_usdt_minor IS DISTINCT FROM NEW.net_margin_usdt_minor OR nf.min_net_margin_usdt_minor IS DISTINCT FROM NEW.min_net_margin_usdt_minor
      OR nf.funder_trader_id IS NOT NULL AND nf.unit = 'USDT' THEN
-    RAISE EXCEPTION 'automatic quote % leaves what its frozen network terms say, carried by INRP2P', q.ref USING ERRCODE = 'IX137';
+    RAISE EXCEPTION 'automatic quote % leaves what its frozen network terms say, carried by INRP2P', q.ref USING ERRCODE = 'IX139';
   END IF;
   SELECT rate_micro INTO ref_rate FROM rate_snapshot WHERE id = NEW.reference_snapshot_id AND kind = 'REFERENCE' AND direction = q.direction;
   IF ref_rate IS NULL OR ref_rate <> NEW.reference_rate_micro THEN
-    RAISE EXCEPTION 'automatic quote % names a market reference of its direction', q.ref USING ERRCODE = 'IX137';
+    RAISE EXCEPTION 'automatic quote % names a market reference of its direction', q.ref USING ERRCODE = 'IX139';
   END IF;
   SELECT * INTO p FROM pricing_policy WHERE id = NEW.policy_id;
   IF q.direction = 'BUY_USDT' THEN
     bound := (ref_rate * (10000 + p.max_premium_bps)) / 10000;
     pos := floor(((q.client_rate_micro - ref_rate) * 10000)::numeric / ref_rate);
     IF NEW.cap_rate_micro > bound OR q.client_rate_micro > NEW.cap_rate_micro THEN
-      RAISE EXCEPTION 'automatic quote % asks more than the market reference allows', q.ref USING ERRCODE = 'IX137';
+      RAISE EXCEPTION 'automatic quote % asks more than the market reference allows', q.ref USING ERRCODE = 'IX139';
     END IF;
   ELSE
     bound := (ref_rate * (10000 - p.max_premium_bps) + 9999) / 10000;
     pos := floor(((ref_rate - q.client_rate_micro) * 10000)::numeric / ref_rate);
     IF NEW.cap_rate_micro < bound OR q.client_rate_micro < NEW.cap_rate_micro THEN
-      RAISE EXCEPTION 'automatic quote % pays less than the market reference allows', q.ref USING ERRCODE = 'IX137';
+      RAISE EXCEPTION 'automatic quote % pays less than the market reference allows', q.ref USING ERRCODE = 'IX139';
     END IF;
   END IF;
   IF pos <> NEW.position_bps THEN
-    RAISE EXCEPTION 'automatic quote % sits at % bps from the reference, not %', q.ref, pos, NEW.position_bps USING ERRCODE = 'IX137';
+    RAISE EXCEPTION 'automatic quote % sits at % bps from the reference, not %', q.ref, pos, NEW.position_bps USING ERRCODE = 'IX139';
   END IF;
   IF NEW.rfq_id IS NOT NULL AND (SELECT trade_request_id FROM rfq WHERE id = NEW.rfq_id) <> q.trade_request_id THEN
-    RAISE EXCEPTION 'automatic quote % names another request''s price request', q.ref USING ERRCODE = 'IX137';
+    RAISE EXCEPTION 'automatic quote % names another request''s price request', q.ref USING ERRCODE = 'IX139';
   END IF;
   RETURN NEW;
 END
@@ -282,7 +282,7 @@ ALTER TABLE client_notification ADD CONSTRAINT client_notification_kind_check CH
   'TRADER_APPROVED', 'TRADER_REJECTED', 'TRADER_PAUSED', 'TRADER_RESUMED', 'TRADER_ORDER_NEW', 'TRADER_ORDER_ACCEPTED',
   'TRADER_ACTION_REQUIRED', 'TRADER_PAYMENT_CONFIRMED', 'TRADER_ORDER_COMPLETED', 'TRADER_ORDER_CLOSED', 'TRADER_RESERVE_ISSUE',
   'PAYMENT_RETURNED', 'TEAM_CHANGED', 'P2P_DISPUTE_OPENED', 'P2P_DISPUTE_DECIDED', 'P2P_REFUND', 'DESK_NOTICE',
-  'DEAL_MESSAGE', 'P2P_PAY_FINAL', 'P2P_RECEIPT_LATE', 'TRADER_PRICE_REQUEST'));
+  'DEAL_MESSAGE', 'P2P_PAY_FINAL', 'P2P_RECEIPT_LATE', 'TRADER_SETTLEMENT_CHANGE', 'TRADER_PRICE_REQUEST'));
 
 
 -- Grants -------------------------------------------------------------------------------------------------------------

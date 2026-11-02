@@ -18,4 +18,5 @@ export * from './jobs.ts';
 export * from './desk-views.ts';
 export * from './alerts.ts';
 export * from './desk-ops-views.ts';
+export * from './auto-review.ts';
 export * from './rfq.ts';

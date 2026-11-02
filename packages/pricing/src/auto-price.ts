@@ -47,6 +47,11 @@ export interface PricedOffer {
   readonly freeMinor: bigint;
   /** That a deal given to this trader completes, in parts per million. */
   readonly completionPpm: bigint;
+  /**
+   * ADR 0024: the most of its own USDT this trader may put into one more deal — the lower of its level's largest deal and
+   * what its open deals leave of its limit, both from its free reserve. Absent when no limits apply.
+   */
+  readonly maxBaseMinor?: bigint | null;
 }
 
 export interface Tally {
@@ -123,7 +128,7 @@ export function positionBps(direction: Direction, clientRateMicro: bigint, refer
 
 /**
  * The worst price the client may be given: the reference moved by the policy's premium, onto the grid on the client's
- * side (a buyer's cap rounded down, a seller's up) — never past what the database allows (IX137).
+ * side (a buyer's cap rounded down, a seller's up) — never past what the database allows (IX139).
  */
 export function capRate(direction: Direction, referenceMicro: bigint, maxPremiumBps: number): bigint {
   const prem = BigInt(maxPremiumBps);
@@ -208,8 +213,11 @@ function score(direction: Direction, fixedSide: FixedSide, amountMinor: bigint, 
 /** What a trader's capacity holds for the deal: the rupees it pays when it buys USDT, the USDT it delivers when it sells. */
 const capacityOf = (direction: Direction, s: Scored): bigint => (direction === 'SELL_USDT' ? s.inrMinor : s.routeBaseMinor);
 
-const fits = (offer: PricedOffer, amount: bigint): boolean =>
-  (offer.minMinor === null || amount >= offer.minMinor) && (offer.maxMinor === null || amount <= offer.maxMinor) && amount <= offer.freeMinor;
+const fits = (offer: PricedOffer, direction: Direction, s: Scored): boolean => {
+  const amount = capacityOf(direction, s);
+  return (offer.minMinor === null || amount >= offer.minMinor) && (offer.maxMinor === null || amount <= offer.maxMinor) && amount <= offer.freeMinor
+    && (offer.maxBaseMinor === undefined || offer.maxBaseMinor === null || s.routeBaseMinor <= offer.maxBaseMinor);
+};
 
 /** The policy's rupee minimum in USDT at a price's own rate, rounded up (as `priceNetworkP2p` and IX103 value it). */
 const minNetAt = (minNetInrMinor: bigint, clientRateMicro: bigint): bigint => inrToUsdt(Money.ofMinor(minNetInrMinor, 'INR'), Rate.ofMicro(clientRateMicro, 'CLIENT'), 'UP').minor;
@@ -252,7 +260,7 @@ export function choosePrice(input: PricingInput): PricingOutcome {
     const pos = positionBps(direction, c, referenceMicro);
     for (const offer of offers) {
       const s = score(direction, fixedSide, amountMinor, c, offer.rateMicro);
-      if (!s || !fits(offer, capacityOf(direction, s))) continue;
+      if (!s || !fits(offer, direction, s)) continue;
       const net = s.grossMinor - input.networkAllowanceMinor;
       if (net < minNet || net < 0n) continue;
       viable.add(offer.id);
@@ -285,5 +293,5 @@ export function choosePrice(input: PricingInput): PricingOutcome {
 /** Whether an offer takes this amount at its own rate, whatever the client's price — to tell "nobody can" from "nobody can here". */
 function sizeAtAll(input: PricingInput, offer: PricedOffer): boolean {
   const s = score(input.direction, input.fixedSide, input.amountMinor, offer.rateMicro, offer.rateMicro);
-  return s !== null && fits(offer, capacityOf(input.direction, s));
+  return s !== null && fits(offer, input.direction, s);
 }

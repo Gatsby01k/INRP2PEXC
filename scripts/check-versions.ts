@@ -14,6 +14,8 @@ export const MATRIX: Record<string, string> = {
   'react-dom': '19.3.0',
   'better-auth': '1.7.5',
   '@better-auth/utils': '0.4.2',
+  // ADR 0026: verifies Telegram's sign-in ID tokens. The same copy Better Auth itself depends on.
+  jose: '6.2.12',
   kysely: '0.29.6',
   pg: '8.23.0',
   'graphile-worker': '0.18.0',

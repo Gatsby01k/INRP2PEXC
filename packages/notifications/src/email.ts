@@ -26,7 +26,11 @@ const EMAILED = new Set([
   // A trader is often not looking at the product when an order arrives or its turn comes.
   'TRADER_APPROVED', 'TRADER_REJECTED', 'TRADER_PAUSED', 'TRADER_ORDER_NEW', 'TRADER_ACTION_REQUIRED', 'TRADER_ORDER_COMPLETED', 'TRADER_RESERVE_ISSUE',
   // ADR 0023: a P2P deal's other side or INRP2P wrote (once per conversation), the time to pay ran out, a payment is late.
-  'DEAL_MESSAGE', 'P2P_PAY_FINAL', 'P2P_RECEIPT_LATE', 'TRADER_PRICE_REQUEST',
+  'DEAL_MESSAGE', 'P2P_PAY_FINAL', 'P2P_RECEIPT_LATE',
+  // ADR 0024: where a trader is paid is about to change — the one message someone who took over a session must not hide.
+  'TRADER_SETTLEMENT_CHANGE',
+  // ADR 0025: a trader's price is asked for; the request closes in minutes.
+  'TRADER_PRICE_REQUEST',
 ]);
 
 export interface EmailChannelOptions {

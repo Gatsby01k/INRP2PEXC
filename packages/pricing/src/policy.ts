@@ -9,7 +9,7 @@ import { type ReferenceRateSnapshot, currentReferenceRate, recordReferenceRate }
  * The pricing policy of the INRP2P exchange (ADR 0025): whether its clients get a firm price at once, and the guard-rails
  * of the automatic choice. None of it is a mark-up — the price comes from the traders' rates, the deal's costs and what
  * clients accepted; the policy only says how fresh the market reference must be, how far past it a price may go, how
- * acceptance is counted, and how price requests run. Append-only: its latest row is the policy (migration 0043).
+ * acceptance is counted, and how price requests run. Append-only: its latest row is the policy (migration 0045).
  */
 export interface PricingPolicy {
   readonly id: string;

@@ -425,9 +425,10 @@ export async function seedVisual(adminUrl: string): Promise<VisualState> {
   await run(world, approveTrader(owner.actor), owner.ref, 'trader.approve', { traderId, requiredReserve: '500' });
   // Its network deposit (ADR 0017): TRX from its registered wallet, enough for its orders' transfers.
   await fundBudget(world, { traderId, amountSun: 250_000_000n, from: konkanWalletAddress });
-  // The one reserve address every trader sends to (D-17); the trader's registered wallet is what makes it its own.
+  // The one reserve address every trader sends to (D-17); the trader's registered wallet is what makes it its own. A new
+  // trader's deals stretch to twice its free reserve (ADR 0024): 6,000 USDT carries Bharat's 10,000 USDT sale.
   const reserve = (await sharedReserveAddress(world))!;
-  chain.chain.add({ from: konkanWalletAddress, to: reserve.address, amountMinor: Money.parse('800', 'USDT').minor });
+  chain.chain.add({ from: konkanWalletAddress, to: reserve.address, amountMinor: Money.parse('6000', 'USDT').minor });
   chain.chain.solidifyAll();
   await runTronScan(world, chain.deps);
   await runTronConfirm(world, chain.deps);

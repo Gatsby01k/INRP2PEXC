@@ -8,3 +8,6 @@ export * from './auth/guard.ts';
 export * from './auth/session-cookie.ts';
 export * from './auth/users.ts';
 export * from './auth/schema-mapping.ts';
+export * from './auth/factors.ts';
+export * from './auth/telegram.ts';
+export * from './auth/step-up-codes.ts';

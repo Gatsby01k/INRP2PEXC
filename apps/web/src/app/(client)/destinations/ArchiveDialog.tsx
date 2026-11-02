@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { OtpInput } from '@inrp2p/ui';
+import { ConfirmPanel, SecondFactorNeeded } from '../../../components/Confirm.tsx';
 import { archiveBankAccountAction, archiveWalletAction } from '../../../server/actions/client.ts';
 import { Sheet } from '../_workspace/Sheet.tsx';
 import { useGuarded } from '../_workspace/useGuarded.ts';
@@ -20,12 +20,11 @@ const REASONS = ['No longer used', 'Account closed', 'Details changed'] as const
 /**
  * Archiving a destination: one decision, said plainly — nothing is paid to it again, and it cannot be brought back
  * (S8: destinations are archived, never edited; a changed account is a new one). The reason is for the record and the
- * desk; the authenticator confirms it, in the same card.
+ * desk; a code from another factor than the sign-in confirms it, in the same card (ADR 0026).
  */
 export function ArchiveDialog({ target, onClose }: { target: ArchiveTarget | null; onClose: () => void }) {
   const [reason, setReason] = useState<string>(REASONS[0]);
   const [other, setOther] = useState('');
-  const [code, setCode] = useState('');
   const text = reason === 'Other' ? other.trim() : reason;
   const guarded = useGuarded((key) =>
     target!.kind === 'bank'
@@ -38,7 +37,6 @@ export function ArchiveDialog({ target, onClose }: { target: ArchiveTarget | nul
     if (!target) return;
     setReason(REASONS[0]);
     setOther('');
-    setCode('');
     reset();
     // A new target is a new decision: its own reason, its own key.
   }, [target, reset]);
@@ -56,26 +54,41 @@ export function ArchiveDialog({ target, onClose }: { target: ArchiveTarget | nul
           : 'Nothing will be sent to this wallet again. It stays in your list as archived; to use it again, add it as a new wallet.'
       }
       footer={
-        <>
-          <button type="button" className={shell.secondaryAction} onClick={onClose} disabled={guarded.busy}>
-            Keep it
-          </button>
-          <button
-            type="button"
-            className={styles.dangerAction}
-            disabled={guarded.busy || text.length < 3 || (guarded.needsCode && code.length !== 6)}
-            onClick={async () => {
-              if (await (guarded.needsCode ? guarded.confirm(code) : guarded.run())) onClose();
-            }}
-          >
-            {guarded.needsCode ? 'Confirm and archive' : 'Archive'}
-          </button>
-        </>
+        guarded.confirmWith || guarded.needsFactor ? undefined : (
+          <>
+            <button type="button" className={shell.secondaryAction} onClick={onClose} disabled={guarded.busy}>
+              Keep it
+            </button>
+            <button
+              type="button"
+              className={styles.dangerAction}
+              disabled={guarded.busy || text.length < 3}
+              onClick={async () => {
+                if (await guarded.run()) onClose();
+              }}
+            >
+              Archive
+            </button>
+          </>
+        )
       }
     >
       <div className={styles.archiveBody}>
-        {guarded.needsCode ? (
-          <OtpInput label="Authenticator code" value={code} onChange={setCode} invalid={Boolean(guarded.error)} autoFocus />
+        {guarded.confirmWith ? (
+          <ConfirmPanel
+            embedded
+            factors={guarded.confirmWith.factors}
+            purpose={guarded.confirmWith.purpose}
+            summary={target ? `Archive ${target.name}` : 'Archive'}
+            onCancel={onClose}
+            onVerified={async () => {
+              const problem = await guarded.retry();
+              if (!problem) onClose();
+              return problem;
+            }}
+          />
+        ) : guarded.needsFactor ? (
+          <SecondFactorNeeded summary={target ? `Archive ${target.name}` : 'Archive'} onCancel={onClose} />
         ) : (
           <fieldset className={styles.reasons}>
             <legend className={styles.reasonsLegend}>Why? The desk sees this.</legend>

@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import type { DestinationView, TraderHome } from '@inrp2p/traders';
-import { ArrowIcon } from '../../_workspace/icons.tsx';
+import { formatIstDateTime } from '@inrp2p/ui/format';
+import { ArrowIcon, InfoIcon } from '../../_workspace/icons.tsx';
+import { StopChange } from './StopChange.tsx';
 import { ReviewPill } from './ReviewPill.tsx';
 import shell from '../../shell.module.css';
 import styles from '../traders.module.css';
@@ -24,7 +26,9 @@ function Row({ title, label, state, note, detail }: { title: string; label: stri
  */
 export function SettlementCard({ home }: { home: TraderHome }) {
   const r = home.registered!;
-  const { bank, wallet } = home.proposal;
+  const { bank, wallet, effectiveAt, waitingOn } = home.proposal;
+  const pending = waitingOn !== null;
+  const when = effectiveAt ? formatIstDateTime(new Date(effectiveAt)) : null;
   return (
     <section className={shell.card} aria-labelledby="registered-title">
       <div className={shell.cardHead}>
@@ -38,11 +42,25 @@ export function SettlementCard({ home }: { home: TraderHome }) {
         <Row title="TRC20 wallet" label={`TRC20 · ${r.wallet}`} state="VERIFIED" detail={r.walletAddress} />
         {wallet ? <Row title="New TRC20 wallet" label={wallet.label} state={wallet.state} note={wallet.note} /> : null}
       </div>
-      <p className={styles.note}>
-        You settle only through verified details. A new bank account or wallet is reviewed by the desk; your current details keep working until it approves the change, and orders in progress
-        finish with the details they were accepted under.
-      </p>
-      {home.canApply ? (
+      {pending ? (
+        <p className={shell.info} data-tone="warning">
+          <InfoIcon className={shell.infoIcon} />
+          <span>
+            {waitingOn === 'HOLD' && when
+              ? `The new details take effect from ${when}. Everyone on your account was told; if this was not you, stop it now.`
+              : waitingOn === 'ORDERS'
+                ? 'The new details take effect as soon as your orders in progress finish — they settle with the details they were accepted under.'
+                : 'INRP2P is checking the new details before they take effect.'}
+          </span>
+        </p>
+      ) : (
+        <p className={styles.note}>
+          You settle only through verified details. A new bank account or wallet takes effect after a safety wait, everyone on your account is told, and orders in progress finish with
+          the details they were accepted under.
+        </p>
+      )}
+      {pending && home.canApply ? <StopChange /> : null}
+      {home.canApply && !pending ? (
         <div>
           <Link className={shell.textAction} href="/traders/settlement">
             Submit a new bank account or wallet

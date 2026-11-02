@@ -22,6 +22,7 @@ Status: Phase 2 (no new external dependencies; six new workspace packages: adapt
 | server-only | 0.0.1 | apps/web |
 | better-auth | 1.7.5 | packages/identity, apps/web |
 | @better-auth/utils | 0.4.2 | identity tests (TOTP generation); equals better-auth's own dependency |
+| jose | 6.2.12 | packages/identity: verifies Telegram's sign-in ID tokens (ADR 0026); the same copy better-auth itself depends on |
 | kysely | 0.29.6 | db and all domain packages |
 | pg | 8.23.0 | db, outbox, worker |
 | graphile-worker | 0.18.0 | outbox, apps/worker |

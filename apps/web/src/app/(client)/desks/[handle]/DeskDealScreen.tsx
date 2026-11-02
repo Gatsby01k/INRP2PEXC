@@ -1,5 +1,6 @@
 'use client';
 
+import type { Protection } from '../../../../server/client.ts';
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -39,7 +40,7 @@ export interface DeskDealProps {
   readonly banks: readonly PickOption[];
   readonly wallets: readonly PickOption[];
   readonly anyWallet: boolean;
-  readonly who: { readonly canAccept: boolean; readonly isAdmin: boolean; readonly hasAuthenticator: boolean; readonly email: string; readonly clientName: string };
+  readonly who: { readonly canAccept: boolean; readonly isAdmin: boolean; readonly protection: Protection; readonly email: string; readonly clientName: string };
   readonly start: { readonly direction: Side | null; readonly fixed: 'BASE' | 'QUOTE'; readonly amount: string };
   readonly now: string;
 }
@@ -235,7 +236,7 @@ export function DeskDealScreen(props: DeskDealProps) {
         open={adding}
         kind={sells ? 'bank' : 'wallet'}
         onClose={() => setAdding(false)}
-        hasAuthenticator={who.hasAuthenticator}
+        protection={who.protection}
         email={who.email}
         holderName={who.clientName}
         firstOfKind={sells ? props.banks.length === 0 : !props.anyWallet}

@@ -12,7 +12,8 @@ import {
   publishTraderRate, recordMarketReference, sizeBand,
 } from '@inrp2p/pricing';
 import {
-  type BlockRead, closeOrdersForRequests, completionPpm, effectiveMaxOrder, freeCapacity, lockBlock, readBlocks, readStanding, standingIssues, traderProgram, traderRecords,
+  type BlockRead, type RiskLimits, closeOrdersForRequests, completionPpm, effectiveMaxOrder, freeCapacity, lockBlock, readBlocks, readStanding, riskFit, standingIssues, traderProgram,
+  traderRecords,
 } from '@inrp2p/trader-core';
 import {
   type UsdtNetworkTerms, assertProfitable, currentNetworkCosts, networkAvailable, networkFeePolicy, priceNetworkP2p, pricingOfUsdtTerms, recordQuoteNetworkFee, reservePerSendSun,
@@ -32,7 +33,7 @@ import { businessNow } from './security.ts';
  * A firm price is, in one transaction: the chosen trader's order opened and accepted on its own firm offer (or its winning
  * bid), its capacity held until the quote can no longer be accepted and a minute more; the trader's rate published as the
  * route's snapshot; the quote at the chosen client price with its frozen network terms; the decision recorded beside it
- * (`auto_quote`, IX137); the quote sent for `AUTO_QUOTE_SECONDS`. The client then accepts it like any quote (`quote.accept`),
+ * (`auto_quote`, IX139); the quote sent for `AUTO_QUOTE_SECONDS`. The client then accepts it like any quote (`quote.accept`),
  * which opens the trade and starts the order — nothing about the price, the trader or the economics changes after that.
  *
  * Nobody holds capacity twice: every trader a price could go to is locked before any order is touched (lock order:
@@ -103,7 +104,17 @@ interface Candidate {
   readonly traderId: string;
   readonly ref: string;
   readonly block: BlockRead;
+  /** ADR 0024: the most of its own USDT the trader's reserve lets it put into one more deal; null when no limits apply. */
+  readonly roomMinor: bigint | null;
 }
+
+/** What a trader's limits leave for one more deal, in its own USDT: the lower of its largest deal and its open room. */
+const roomOf = (limits: RiskLimits | null): bigint | null => {
+  if (!limits) return null;
+  const open = limits.maxOpenMinor - limits.exposure.totalMinor;
+  const room = open < limits.maxDealMinor ? open : limits.maxDealMinor;
+  return room > 0n ? room : 0n;
+};
 
 /**
  * Traders in standing whose side fills this request on a P2P route, pay or are paid by a rail this amount can travel on,
@@ -118,15 +129,17 @@ async function candidates(ctx: TxContext, request: RequestRow, network: NetworkM
   const out: Candidate[] = [];
   for (const t of traders) {
     if (t.client_id === request.client_id) continue;
-    const { standing } = await readStanding(ctx.tx, t.id);
+    const { standing, reserve } = await readStanding(ctx.tx, t.id);
     if (standingIssues(standing).length > 0) continue;
+    const roomMinor = roomOf(reserve.limits);
+    if (roomMinor === 0n) continue;
     const block = (await readBlocks(ctx.tx, t.id)).find((b) => b.side === side);
     if (!block || block.status !== 'ACTIVE') continue;
     const route = await ctx.tx.selectFrom('liquidity_route').select(['execution_mode', 'status']).where('id', '=', block.routeId).executeTakeFirstOrThrow();
     if (route.execution_mode !== 'P2P' || route.status !== 'ACTIVE') continue;
     if (!block.rails.some((r) => possibleRails.has(r))) continue;
     if (network.mode === 'BURN' && (await networkAvailable(ctx.tx, t.id)) < network.needSun) continue;
-    out.push({ traderId: t.id, ref: t.ref, block });
+    out.push({ traderId: t.id, ref: t.ref, block, roomMinor });
   }
   return out;
 }
@@ -206,6 +219,9 @@ async function placeQuote(ctx: TxContext, p: Placement): Promise<Extract<AutoOut
     .where('block_id', '=', block.id).where('status', '=', 'OFFERED').where('id', '<>', order.id).where('offer_expires_at', '>', sql<Date>`inrp2p_now()`).executeTakeFirst();
   const free = freeCapacity({ ...facts, capacityMinor: block.capacity_minor, reservedMinor: block.reserved_minor, offeredMinor: BigInt(offered?.n ?? '0') });
   if (choice.capacityMinor > free) throw new DomainError('CAPACITY_INSUFFICIENT', 'the chosen trader no longer has that much available');
+  // ADR 0024: the trader's own USDT in the deal stays within what its reserve allows, counted under its lock.
+  const { reserve } = await readStanding(ctx.tx, p.traderId);
+  if (reserve.limits && riskFit(reserve.limits, econ.routeBase.minor)) throw new DomainError('TRADER_LIMIT_EXCEEDED', 'the chosen trader’s reserve does not cover this deal');
   await ctx.tx.updateTable('trader_block').set({ reserved_minor: block.reserved_minor + choice.capacityMinor, updated_at: sql<Date>`inrp2p_now()`, version: block.version + 1 }).where('id', '=', block.id).execute();
   const snapshot = await publishTraderRate(ctx, { routeId: p.routeId, direction: request.direction, rate: Rate.ofMicro(rateMicro, 'ROUTE') });
   await ctx.tx.updateTable('trader_order')
@@ -269,7 +285,9 @@ async function placeQuote(ctx: TxContext, p: Placement): Promise<Extract<AutoOut
 function firmOffer(c: Candidate, completion: bigint): PricedOffer | null {
   const b = c.block;
   if (!b.firm || !b.instantSetBy || b.rateMicro === null || b.minOrderMinor === null || b.maxOrderMinor === null) return null;
-  return { id: c.traderId, ref: c.ref, rateMicro: b.rateMicro, minMinor: b.minOrderMinor, maxMinor: effectiveMaxOrder(b), freeMinor: freeCapacity(b), completionPpm: completion };
+  return {
+    id: c.traderId, ref: c.ref, rateMicro: b.rateMicro, minMinor: b.minOrderMinor, maxMinor: effectiveMaxOrder(b), freeMinor: freeCapacity(b), completionPpm: completion, maxBaseMinor: c.roomMinor,
+  };
 }
 
 /**
@@ -415,7 +433,10 @@ export async function awardRfqInTx(ctx: TxContext, rfqId: string): Promise<Award
     const c = able.get(bid.trader_id);
     const blockId = invited.find((i) => i.trader_id === bid.trader_id)?.block_id;
     if (!c || c.block.id !== blockId) continue;
-    offers.push({ id: c.traderId, ref: c.ref, rateMicro: bid.rate_micro, minMinor: null, maxMinor: c.block.operatorMaxOrderMinor, freeMinor: freeCapacity(c.block), completionPpm: completion(c.traderId) });
+    offers.push({
+      id: c.traderId, ref: c.ref, rateMicro: bid.rate_micro, minMinor: null, maxMinor: c.block.operatorMaxOrderMinor, freeMinor: freeCapacity(c.block), completionPpm: completion(c.traderId),
+      maxBaseMinor: c.roomMinor,
+    });
   }
   const outcome = await price(ctx, pc, offers);
   if (outcome.kind !== 'PRICED') return noPrice(ctx, rfq.id, request, outcome.reason === 'NO_OFFER' ? 'no bid can take the amount' : 'no bid prices within the market');

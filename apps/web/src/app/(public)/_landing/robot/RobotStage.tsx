@@ -20,14 +20,18 @@ const POSTER_SIZES = '(max-width: 1199px) min(calc(100vw - 32px), 256px), min(ma
  * Whether this device should run the live robot or keep the still one it is already showing.
  *
  * The still robot is the same figure in the same pose, so nobody is shown less of the brand — only less motion.
- * It is kept for anyone who asked for reduced motion or for less data, for small devices, and for any browser
- * that can only draw WebGL in software: there, a moving robot would cost the page its responsiveness, which is
- * a bad trade on a page whose whole job is to take a quote request.
+ * It is kept for anyone who asked for reduced motion or for less data, for a connection the browser rates 3G or
+ * slower (the live robot's code is about 150 KB compressed, fetched after the page — on such a link it would arrive long
+ * after the visitor has moved on, and compete with what they did next), for small devices, and for any browser that
+ * can only draw WebGL in software: there, a moving robot would cost the page its responsiveness, which is a bad trade
+ * on a page whose whole job is to take a quote request. A device whose GPU turns out too slow once the robot is
+ * drawing hands back to the still robot by itself (`governor.ts`).
  */
 export function liveRobotAllowed(): boolean {
   if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return false;
-  const nav = navigator as Navigator & { connection?: { saveData?: boolean }; deviceMemory?: number };
+  const nav = navigator as Navigator & { connection?: { saveData?: boolean; effectiveType?: string }; deviceMemory?: number };
   if (nav.connection?.saveData) return false;
+  if (/^(slow-2g|2g|3g)$/.test(nav.connection?.effectiveType ?? '')) return false;
   if (nav.deviceMemory !== undefined && nav.deviceMemory < 4) return false;
   if (nav.hardwareConcurrency < 4) return false;
   const probe = document.createElement('canvas');

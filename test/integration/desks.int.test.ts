@@ -17,7 +17,7 @@ import { createTestClientLogin } from '@inrp2p/identity/testing';
 import { encodeTronAddress } from '@inrp2p/kernel';
 import { randomBytes } from 'node:crypto';
 import { claimIncomingFiat, confirmClientReceipt } from '@inrp2p/settlement';
-import { attachDeskClientInTx, configureTraderProgram, currentDeskPrices, currentFeePolicy, deskOfTrader } from '@inrp2p/trader-core';
+import { DEFAULT_RISK_POLICY, type RiskPolicy, attachDeskClientInTx, configureTraderProgram, currentDeskPrices, currentFeePolicy, deskOfTrader, readStanding } from '@inrp2p/trader-core';
 import { assertDeskSafe, feePolicyView, liveDeskHandles, openDisputes, opsDesk, opsDesks, ordersDueSoon, assignRequest, confirmOrderPaymentReceived, deskDeal, deskDeals, deskPage, deskToday, deskWorkspace, openDesk, orderDeliveryAddress, previewDeskDeal, setDeskPrices, setDeskStatus, submitOrderPayment, updateDesk } from '@inrp2p/traders';
 import { CLIENT_SENDER, balanceOf, settleFirstLeg } from '../../packages/settlement/test/world.ts';
 import { type TraderSetup, confirmOnChain, sendUsdt, traderClient, utr } from './traders-world.ts';
@@ -54,7 +54,7 @@ const deskClientOf = (clientId: string) => w.app.selectFrom('desk_client').selec
 beforeAll(async () => {
   w = await createRailsWorld('desks');
   const program = await w.app.selectFrom('trader_program').select('version').where('id', '=', 1).executeTakeFirstOrThrow();
-  await runAs(w.app, configureTraderProgram(w.finance.actor), w.finance.ref, 'trader_program.configure', { expectedVersion: program.version, executionMode: 'P2P' as const, reason: 'desks deal P2P' });
+  await runAs(w.app, configureTraderProgram(w.finance.actor), w.finance.ref, 'trader_program.configure', { expectedVersion: program.version, executionMode: 'P2P' as const, riskPolicy: null, reason: 'desks deal P2P' });
   desk = await railsTrader(w, 'Rahul OTC', {
     buy: { capacity: '50000000', rate: '101.20', min: '100', max: '20000000' },
     sell: { capacity: '500000', rate: '101.80', min: '10', max: '200000' },
@@ -351,6 +351,28 @@ describe('a desk deals only in a trader’s full standing (TD-38)', () => {
     expect(await bharatQuote('SELL_USDT', '1000')).toMatchObject({ deskBase: '997.500000' });
     await w.t.owner.updateTable('trader_profile').set({ available: true }).where('id', '=', desk.traderId).execute();
   });
+
+  it('nor past what its own reserve allows at its level (ADR 0024)', async () => {
+    const set = async (riskPolicy: RiskPolicy | null) => {
+      const program = await w.app.selectFrom('trader_program').select('version').where('id', '=', 1).executeTakeFirstOrThrow();
+      await runAs(w.app, configureTraderProgram(w.finance.actor), w.finance.ref, 'trader_program.configure', { expectedVersion: program.version, riskPolicy, reason: 'reserve-based limits' });
+    };
+    const wide = { minDeals: 0, minDays: 0, dealX: 2, openX: 100 };
+    try {
+      // 500 USDT free at the first level: one deal of up to 1,000 USDT of the desk's own, whatever else is open.
+      await set({ cleanDays: 30, tiers: [wide, { ...wide, minDeals: 10 }, { ...wide, minDeals: 50 }] });
+      expect((await readStanding(w.app, desk.traderId)).reserve.limits).toMatchObject({ tier: { name: 'NEW' }, maxDealMinor: usdt('1000') });
+      await expect(bharatQuote('SELL_USDT', '1010')).rejects.toMatchObject({ code: 'INVALID_AMOUNT', message: 'this deal is larger than this desk can take right now' });
+      expect(await bharatQuote('SELL_USDT', '1000')).toMatchObject({ deskBase: '997.500000' });
+      // And what is open together: the deals this file left open already take the desk past four times its reserve.
+      await set(DEFAULT_RISK_POLICY);
+      const { reserve } = await readStanding(w.app, desk.traderId);
+      expect(reserve.limits!.exposure.totalMinor).toBeGreaterThan(reserve.limits!.maxOpenMinor);
+      await expect(bharatQuote('SELL_USDT', '100')).rejects.toMatchObject({ code: 'INVALID_AMOUNT', message: 'this deal is larger than this desk can take right now' });
+    } finally {
+      await set(null);
+    }
+  });
 });
 
 describe('a deal link', () => {
@@ -539,10 +561,13 @@ describe('a new client sets up where it is paid', () => {
     await expect(runAs(w.app, archiveBankAccount(meera.actor), meera.ref as never, 'client_bank.archive', { bankAccountId: added.bankAccountId, reason: 'test' })).rejects.toMatchObject({ code: 'MFA_ENROLLMENT_REQUIRED' });
   });
 
-  it('asks for a fresh email code when the sign-in is older than ten minutes', async () => {
+  it('asks for a fresh code when the sign-in is older than ten minutes — and a code to the email is then enough', async () => {
     const late = await freshClient('Late Traders');
     await sql`update auth_session set created_at = statement_timestamp() - interval '11 minutes' where id = ${late.sessionId}`.execute(w.t.owner);
-    await expect(bank(late)).rejects.toMatchObject({ code: 'STEP_UP_REQUIRED', details: { via: 'EMAIL' } });
+    await expect(bank(late)).rejects.toMatchObject({ code: 'STEP_UP_REQUIRED', details: { factors: ['EMAIL'], requirement: 'RECENT', purpose: 'DESTINATION' } });
+    // ADR 0026: the first destination asks only for something recent — a code to the email now, not a new sign-in.
+    await sql`insert into step_up_verification (user_id, session_id, method) values (${late.actor.userId}, ${late.sessionId}, 'EMAIL')`.execute(w.t.owner);
+    await expect(bank(late)).resolves.toBeTruthy();
   });
 });
 

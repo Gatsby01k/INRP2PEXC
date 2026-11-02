@@ -46,7 +46,7 @@ beforeAll(async () => {
   // Reclaims wait for an idle address in production; here, the moment it is free.
   w = await createRailsWorld('fee-sweep', { policy: { reclaimIdleMinutes: 0 } });
   const program = await w.app.selectFrom('trader_program').select('version').where('id', '=', 1).executeTakeFirstOrThrow();
-  await runAs(w.app, configureTraderProgram(w.finance.actor), w.finance.ref, 'trader_program.configure', { expectedVersion: program.version, executionMode: 'P2P' as const, reason: 'no INR account: P2P escrow' });
+  await runAs(w.app, configureTraderProgram(w.finance.actor), w.finance.ref, 'trader_program.configure', { expectedVersion: program.version, executionMode: 'P2P' as const, riskPolicy: null, reason: 'no INR account: P2P escrow' });
   trader = await railsTrader(w, 'INR Provider', { buy: { capacity: '50000000', rate: '104.70', min: '100', max: '20000000' } }, '1000');
   revenueAddress = encodeTronAddress(randomBytes(20));
 });

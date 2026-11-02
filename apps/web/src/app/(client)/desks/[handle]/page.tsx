@@ -1,8 +1,8 @@
 import { notFound, redirect } from 'next/navigation';
-import { clientDestinations, hasAuthenticator } from '@inrp2p/portal';
+import { clientDestinations } from '@inrp2p/portal';
 import { businessNow, clientDeskState } from '@inrp2p/quotes';
 import { deskByHandle, deskPage } from '@inrp2p/traders';
-import { workspacePage } from '../../../../server/client.ts';
+import { workspacePage, protectionOfRequest } from '../../../../server/client.ts';
 import { PageHead } from '../../_workspace/PageHead.tsx';
 import { DeskStatus } from '../../desk/_ui/DeskStatus.tsx';
 import { DeskDealScreen } from './DeskDealScreen.tsx';
@@ -36,10 +36,10 @@ export default async function ClientDeskPage({ params, searchParams }: { params:
   const member = ctx.access.member;
   const [page, desk] = await Promise.all([deskPage(ctx.db, handle), deskByHandle(ctx.db, handle)]);
   if (!page || !desk) notFound();
-  const [state, destinations, authenticator, now] = await Promise.all([
+  const [state, destinations, protection, now] = await Promise.all([
     clientDeskState(ctx.db, member.clientId, desk.id),
     clientDestinations(ctx.db, member.clientId),
-    hasAuthenticator(ctx.db, ctx.actor.userId),
+    protectionOfRequest(),
     businessNow(ctx.db),
   ]);
   const live = (s: string) => s === 'ACTIVE' || s === 'PENDING_REVIEW';
@@ -60,7 +60,7 @@ export default async function ClientDeskPage({ params, searchParams }: { params:
         banks={banks}
         wallets={wallets}
         anyWallet={destinations.wallets.some((w) => live(w.status))}
-        who={{ canAccept: member.canAcceptQuotes, isAdmin: member.role === 'CLIENT_ADMIN', hasAuthenticator: authenticator, email: ctx.access.email, clientName: member.clientName }}
+        who={{ canAccept: member.canAcceptQuotes, isAdmin: member.role === 'CLIENT_ADMIN', protection, email: ctx.access.email, clientName: member.clientName }}
         start={startFrom(query)}
         now={now.toISOString()}
       />

@@ -13,7 +13,8 @@
     "@inrp2p/db": "workspace:*",
     "@inrp2p/audit": "workspace:*",
     "better-auth": "1.7.5",
-    "kysely": "0.29.6"
+    "kysely": "0.29.6",
+    "jose": "6.2.12"
   },
   "devDependencies": {
     "@better-auth/utils": "0.4.2",

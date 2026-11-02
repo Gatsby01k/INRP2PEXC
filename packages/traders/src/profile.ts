@@ -1,11 +1,11 @@
 import { sql } from 'kysely';
 import { DomainError, Money, requireText, requireUuid } from '@inrp2p/kernel';
-import type { Tx, TxContext } from '@inrp2p/db';
+import type { TraderSide, Tx, TxContext } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
 import { enqueueOutbox } from '@inrp2p/outbox';
 import { type OperatorActor, actorLabel, operatorCommand } from '@inrp2p/identity';
 import { createTraderRoute, updateTraderRouteRegistration } from '@inrp2p/routes';
-import { lockTrader, parseRewardBps, traderProgram, withdrawOffers } from '@inrp2p/trader-core';
+import { type TraderRow, lockTrader, parseRewardBps, traderProgram, withdrawOffers } from '@inrp2p/trader-core';
 
 export interface RegisteredDestinations {
   readonly bank: { id: string; bankName: string; last4: string; holderName: string };
@@ -113,51 +113,72 @@ export function approveTrader(actor: OperatorActor) {
   return operatorCommand(actor, 'traders:configure', async (ctx, p: ApprovePayload) => {
     const trader = await lockTrader(ctx, p.traderId);
     if (trader.status !== 'UNDER_REVIEW') throw new DomainError('INVALID_TRANSITION', `the trader is ${trader.status}`);
-    const profile = await ctx.tx.selectFrom('trader_profile').selectAll().where('id', '=', trader.id).executeTakeFirstOrThrow();
     const program = await traderProgram(ctx.tx);
     const reserve = p.requiredReserve ? Money.parse(p.requiredReserve, 'USDT') : program.defaultRequiredReserve;
-    if (!reserve || !reserve.isPositive()) throw new DomainError('TRADER_RESERVE_NOT_SET', 'set the Security Reserve for this trader, or a programme default, before approving');
-    const unverified = await pendingRegistered(ctx.tx, profile.bank_account_id, profile.wallet_id);
-    if (unverified.length > 0) throw new DomainError('TRADER_DESTINATION_UNVERIFIED', `verify the submitted ${unverified.join(' and ')} before approving`);
-    const destinations = await requireRegisteredDestinations(ctx.tx, trader.client_id, { bankAccountId: profile.bank_account_id, walletId: profile.wallet_id });
     const note = typeof p.note === 'string' && p.note.trim() ? p.note.trim().slice(0, 500) : null;
-
-    const payoutIdentity = payoutIdentityOf(destinations.bank);
-    const sides = [...(profile.offers_buy ? (['BUY_USDT'] as const) : []), ...(profile.offers_sell ? (['SELL_USDT'] as const) : [])];
-    for (const side of sides) {
-      const existing = await ctx.tx.selectFrom('trader_block').select('id').where('trader_id', '=', trader.id).where('side', '=', side).executeTakeFirst();
-      if (existing) continue;
-      const route = await createTraderRoute(ctx, {
-        traderId: trader.id,
-        name: `Trader ${trader.ref} · ${side === 'BUY_USDT' ? 'Buy USDT' : 'Sell USDT'}`,
-        // A trader buying USDT is the other side of a client selling it, and the other way round.
-        direction: side === 'BUY_USDT' ? 'SELL_USDT' : 'BUY_USDT',
-        registeredRouteAddress: destinations.wallet.address,
-        registeredPayoutIdentity: payoutIdentity,
-      });
-      await ctx.tx.insertInto('trader_block').values({ trader_id: trader.id, side, route_id: route.routeId }).execute();
-    }
-    const after = await ctx.tx
-      .updateTable('trader_profile')
-      .set({
-        status: 'APPROVED',
-        required_reserve_minor: reserve.minor,
-        reward_bps: parseRewardBps(p.rewardBps),
-        ...limitColumns(p),
-        reviewed_by: actorLabel(ctx),
-        reviewed_at: sql<Date>`inrp2p_now()`,
-        review_note: note,
-        updated_at: sql<Date>`inrp2p_now()`,
-        version: trader.version + 1,
-      })
-      .where('id', '=', trader.id)
-      .returning(['required_reserve_minor', 'reward_bps', 'max_order_inr_minor', 'max_order_usdt_minor', 'max_capacity_inr_minor', 'max_capacity_usdt_minor'])
-      .executeTakeFirstOrThrow();
-    await appendAudit(ctx, { action: 'trader.approved', entityType: 'trader_profile', entityId: trader.id, before: { status: trader.status }, after: { status: 'APPROVED', sides, note, ...after } });
-    await grantTraderCommitment(ctx, trader.client_id, profile.applied_by);
-    await enqueueOutbox(ctx, { type: 'trader.approved', aggregateType: 'trader_profile', aggregateId: trader.id, payload: { traderId: trader.id, clientId: trader.client_id } });
-    return { status: 'APPROVED' as const, sides };
+    return approveTraderInTx(ctx, trader, { reserve, rewardBps: parseRewardBps(p.rewardBps), limits: p, note, via: 'DESK' });
   });
+}
+
+export interface ApproveInput {
+  readonly reserve: Money<'USDT'> | null;
+  readonly rewardBps: number | null;
+  readonly limits: LimitsPayload;
+  readonly note: string | null;
+  /** A person on the desk, or the programme's own rules (ADR 0024) — the same checks either way, and IX138 beneath. */
+  readonly via: 'DESK' | 'AUTO_REVIEW';
+}
+
+/**
+ * The approval itself, for a trader the caller locked UNDER_REVIEW: the bank account and wallet verified, the reserve
+ * fixed, a route and a paused block per side, and — for a client without the Exchange — the applicant's authority to
+ * commit. The trader starts offline.
+ */
+export async function approveTraderInTx(ctx: TxContext, trader: TraderRow, input: ApproveInput): Promise<{ status: 'APPROVED'; sides: TraderSide[] }> {
+  const reserve = input.reserve;
+  if (!reserve || !reserve.isPositive()) throw new DomainError('TRADER_RESERVE_NOT_SET', 'set the Security Reserve for this trader, or a programme default, before approving');
+  const profile = await ctx.tx.selectFrom('trader_profile').selectAll().where('id', '=', trader.id).executeTakeFirstOrThrow();
+  const unverified = await pendingRegistered(ctx.tx, profile.bank_account_id, profile.wallet_id);
+  if (unverified.length > 0) throw new DomainError('TRADER_DESTINATION_UNVERIFIED', `verify the submitted ${unverified.join(' and ')} before approving`);
+  const destinations = await requireRegisteredDestinations(ctx.tx, trader.client_id, { bankAccountId: profile.bank_account_id, walletId: profile.wallet_id });
+
+  const payoutIdentity = payoutIdentityOf(destinations.bank);
+  const sides: TraderSide[] = [...(profile.offers_buy ? (['BUY_USDT'] as const) : []), ...(profile.offers_sell ? (['SELL_USDT'] as const) : [])];
+  for (const side of sides) {
+    const existing = await ctx.tx.selectFrom('trader_block').select('id').where('trader_id', '=', trader.id).where('side', '=', side).executeTakeFirst();
+    if (existing) continue;
+    const route = await createTraderRoute(ctx, {
+      traderId: trader.id,
+      name: `Trader ${trader.ref} · ${side === 'BUY_USDT' ? 'Buy USDT' : 'Sell USDT'}`,
+      // A trader buying USDT is the other side of a client selling it, and the other way round.
+      direction: side === 'BUY_USDT' ? 'SELL_USDT' : 'BUY_USDT',
+      registeredRouteAddress: destinations.wallet.address,
+      registeredPayoutIdentity: payoutIdentity,
+    });
+    await ctx.tx.insertInto('trader_block').values({ trader_id: trader.id, side, route_id: route.routeId }).execute();
+  }
+  const after = await ctx.tx
+    .updateTable('trader_profile')
+    .set({
+      status: 'APPROVED',
+      required_reserve_minor: reserve.minor,
+      reward_bps: input.rewardBps,
+      ...limitColumns(input.limits),
+      reviewed_by: actorLabel(ctx),
+      reviewed_at: sql<Date>`inrp2p_now()`,
+      review_note: input.note,
+      approved_at: sql<Date>`coalesce(approved_at, inrp2p_now())`,
+      auto_review_flags: [],
+      updated_at: sql<Date>`inrp2p_now()`,
+      version: sql<number>`version + 1`,
+    })
+    .where('id', '=', trader.id)
+    .returning(['required_reserve_minor', 'reward_bps', 'max_order_inr_minor', 'max_order_usdt_minor', 'max_capacity_inr_minor', 'max_capacity_usdt_minor'])
+    .executeTakeFirstOrThrow();
+  await appendAudit(ctx, { action: 'trader.approved', entityType: 'trader_profile', entityId: trader.id, before: { status: trader.status }, after: { status: 'APPROVED', sides, note: input.note, via: input.via, ...after } });
+  await grantTraderCommitment(ctx, trader.client_id, profile.applied_by);
+  await enqueueOutbox(ctx, { type: 'trader.approved', aggregateType: 'trader_profile', aggregateId: trader.id, payload: { traderId: trader.id, clientId: trader.client_id, via: input.via } });
+  return { status: 'APPROVED' as const, sides };
 }
 
 /** `trader.reject` — `traders:configure` (⧗), with a note the applicant sees. They may apply again. */

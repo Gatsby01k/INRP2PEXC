@@ -3,7 +3,7 @@ import { DomainError, Money, requireText, requireUuid } from '@inrp2p/kernel';
 import type { Executor, TxContext } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
 import { enqueueOutbox } from '@inrp2p/outbox';
-import { type ClientActor, type OperatorActor, actorLabel, operatorCommand } from '@inrp2p/identity';
+import { type ClientActor, type OperatorActor, actorLabel, operatorCommand, requireConfirmation } from '@inrp2p/identity';
 import { lockMovement, postMovement, recordClientDeposit, recordCryptoTransfer, reserveSenderOf, verifyCryptoTransfer } from '@inrp2p/settlement';
 import { lockTrader, lockTraderOfClient, reserveFigures, traderClientCommand, type TraderDeps } from '@inrp2p/trader-core';
 
@@ -116,7 +116,8 @@ function depositStatus(state: string): ClaimedDeposit['status'] {
 }
 
 /**
- * `trader_reserve.request_withdrawal` — the account's administrator or a user who can commit. At most what is available now (never the locked
+ * `trader_reserve.request_withdrawal` — the account's administrator or a user who can commit, confirmed again by another factor than the
+ * one they signed in with (ADR 0026). At most what is available now (never the locked
  * part, never what is already on its way), to the trader's registered wallet as it is at this moment. One open
  * withdrawal at a time. The amount is held at once, so it cannot also be counted towards switching on.
  */
@@ -127,6 +128,8 @@ export function requestReserveWithdrawal(actor: ClientActor) {
     if (!member.canCommit && member.role !== 'CLIENT_ADMIN') throw new DomainError('TRADER_ACTION_NOT_PERMITTED', 'this needs your account administrator, or someone who can accept quotes for your account');
     const amount = Money.parse(p.amount, 'USDT');
     if (!amount.isPositive()) throw new DomainError('INVALID_AMOUNT', 'enter an amount to withdraw');
+    // ADR 0026: USDT leaves the platform only after a step-up by a factor other than the one that opened this session.
+    await requireConfirmation(ctx.tx, actor.sessionId, 'INDEPENDENT', 'WITHDRAWAL');
     const trader = await lockTraderOfClient(ctx, member.clientId);
     const open = await ctx.tx.selectFrom('trader_reserve_withdrawal').select('ref').where('trader_id', '=', trader.id).where('status', 'in', ['REQUESTED', 'SENT']).executeTakeFirst();
     if (open) throw new DomainError('TRADER_WITHDRAWAL_OPEN', `withdrawal ${open.ref} is already on its way`);

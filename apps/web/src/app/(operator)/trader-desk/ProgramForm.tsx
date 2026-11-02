@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { plainDecimal } from '../_desk/format.ts';
+import { DEFAULT_RISK_POLICY, type RiskPolicy, TIER_NAMES } from '@inrp2p/kernel';
 import type { DeskProgram } from '@inrp2p/traders';
 import { Button, StepUpMark } from '@inrp2p/ui';
 import { configureProgramAction } from '../../../server/actions/traders-desk.ts';
@@ -12,6 +13,9 @@ import d from '../_desk/desk.module.css';
 
 const RAILS = ['UPI', 'IMPS', 'NEFT', 'RTGS'] as const;
 type Rail = (typeof RAILS)[number];
+const TIER_LABEL = { NEW: 'New', PROVEN: 'Proven', TRUSTED: 'Trusted' } as const;
+type TierField = 'minDeals' | 'minDays' | 'dealX' | 'openX';
+const tierText = (p: RiskPolicy) => p.tiers.map((t) => ({ minDeals: String(t.minDeals), minDays: String(t.minDays), dealX: String(t.dealX), openX: String(t.openX) }));
 
 /**
  * The programme settings (`traders:configure`, ⧗). Nothing here has a default that stands in for a decision: the
@@ -32,8 +36,20 @@ export function ProgramForm({ program, accounts, canConfigure }: { program: Desk
     pay: Object.fromEntries(RAILS.map((r) => [r, String(program.p2pTiming.pay[r])])) as Record<Rail, string>,
     receipt: Object.fromEntries(RAILS.map((r) => [r, String(program.p2pTiming.receipt[r])])) as Record<Rail, string>,
   }));
+  const [autoReview, setAutoReview] = useState(program.autoReview);
+  const [holdHours, setHoldHours] = useState(String(program.settlementChangeHoldHours));
+  const [limitsOn, setLimitsOn] = useState(program.riskPolicy !== null);
+  const [tiers, setTiers] = useState(() => tierText(program.riskPolicy ?? DEFAULT_RISK_POLICY));
+  const [cleanDays, setCleanDays] = useState(String((program.riskPolicy ?? DEFAULT_RISK_POLICY).cleanDays));
   const [reason, setReason] = useState('');
   const minutes = (v: string) => Number.parseInt(v, 10);
+  const setTier = (i: number, f: TierField, v: string) => setTiers((all) => all.map((t, j) => (j === i ? { ...t, [f]: v } : t)));
+  const riskPolicy = (): RiskPolicy | null => {
+    if (!limitsOn) return null;
+    const n = (v: string) => Number(v.trim());
+    const [a, b, c] = tiers.map((t) => ({ minDeals: n(t.minDeals), minDays: n(t.minDays), dealX: n(t.dealX), openX: n(t.openX) }));
+    return { cleanDays: n(cleanDays), tiers: [a!, b!, c!] };
+  };
 
   const save = () =>
     cmd.run('Save trader programme', (key) =>
@@ -53,6 +69,9 @@ export function ProgramForm({ program, accounts, canConfigure }: { program: Desk
             pay: { UPI: minutes(timing.pay.UPI), IMPS: minutes(timing.pay.IMPS), NEFT: minutes(timing.pay.NEFT), RTGS: minutes(timing.pay.RTGS) },
             receipt: { UPI: minutes(timing.receipt.UPI), IMPS: minutes(timing.receipt.IMPS), NEFT: minutes(timing.receipt.NEFT), RTGS: minutes(timing.receipt.RTGS) },
           },
+          autoReview,
+          settlementChangeHoldHours: Number.parseInt(holdHours, 10),
+          riskPolicy: riskPolicy(),
           reason,
         },
         key,
@@ -73,6 +92,13 @@ export function ProgramForm({ program, accounts, canConfigure }: { program: Desk
         <TextField label="Reward (bps of the order’s INR)" value={reward} onChange={setReward} placeholder="No reward" disabled={!canConfigure} hint="Fixed when an order starts; paid when it completes." />
         <TextField label="Offer time (s)" value={offer} onChange={setOffer} disabled={!canConfigure} hint="How long a trader has to take an offer." />
         <TextField label="Hold time (s)" value={hold} onChange={setHold} disabled={!canConfigure} hint="How long an accepted order holds the request." />
+        <TextField
+          label="New bank or wallet waits (h)"
+          value={holdHours}
+          onChange={setHoldHours}
+          disabled={!canConfigure}
+          hint="Every member is told and can stop it; then it applies by rule, between orders."
+        />
         <SelectField
           label="How traders settle"
           value={mode}
@@ -93,6 +119,43 @@ export function ProgramForm({ program, accounts, canConfigure }: { program: Desk
         />
       </div>
       <Checkbox label="Route new USDT-fixed requests to a trader automatically" checked={auto} onChange={setAuto} disabled={!canConfigure} />
+      <Checkbox
+        label="Approve traders by rule: wallet proven by the reserve sent from it, bank holder is the applicant and on no other file, reserve funded — anything else waits here"
+        checked={autoReview}
+        onChange={setAutoReview}
+        disabled={!canConfigure}
+      />
+      <fieldset className={d.stackTight} disabled={!canConfigure} aria-label="Reserve-based limits">
+        <legend className={d.fieldLabel}>Limits from the trader’s own reserve · multiples of its free reserve, in USDT · the desk’s ceilings still apply</legend>
+        <Checkbox label="Limit each trader’s deals by its reserve and record" checked={limitsOn} onChange={setLimitsOn} disabled={!canConfigure} />
+        {limitsOn ? (
+          <div className={d.stackTight} role="table" aria-label="Levels">
+            {TIER_NAMES.map((name, i) => (
+              <div key={name} role="row" style={{ display: 'grid', gridTemplateColumns: '88px repeat(4, minmax(0, 1fr))', gap: 'var(--space-3)', alignItems: 'end' }}>
+                <span role="rowheader" className={d.fieldLabel} style={{ paddingBottom: 10 }}>
+                  {TIER_LABEL[name]}
+                </span>
+                <TextField label="One deal ×" value={tiers[i]!.dealX} onChange={(v) => setTier(i, 'dealX', v)} />
+                <TextField label="Open deals ×" value={tiers[i]!.openX} onChange={(v) => setTier(i, 'openX', v)} />
+                {i === 0 ? (
+                  <>
+                    <TextField label="After deals" value="0" onChange={() => undefined} disabled />
+                    <TextField label="After days" value="0" onChange={() => undefined} disabled />
+                  </>
+                ) : (
+                  <>
+                    <TextField label="After deals" value={tiers[i]!.minDeals} onChange={(v) => setTier(i, 'minDeals', v)} />
+                    <TextField label="After days" value={tiers[i]!.minDays} onChange={(v) => setTier(i, 'minDays', v)} />
+                  </>
+                )}
+              </div>
+            ))}
+            <div className={d.formGrid} style={{ alignItems: 'start', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))' }}>
+              <TextField label="Back to New after a failed deal (days)" value={cleanDays} onChange={setCleanDays} hint="A dispute lost, or an escrow unwound because it did not pay." />
+            </div>
+          </div>
+        ) : null}
+      </fieldset>
       <fieldset className={d.stackTight} disabled={!canConfigure} aria-label="P2P deal times">
         <legend className={d.fieldLabel}>P2P deal times (minutes) · a running deal keeps the times it opened with</legend>
         <div className={d.formGrid} style={{ alignItems: 'start' }}>

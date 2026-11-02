@@ -30,7 +30,7 @@ const dbCode = (p: Promise<unknown>) => p.then(() => null, (e) => pgErrorCode(e)
 type Person = { actor: Parameters<typeof requestInstantQuote>[0]; ref: Parameters<typeof runAs>[2] };
 const ask = (direction: 'SELL_USDT' | 'BUY_USDT', amount: string, who: Person & { walletId?: string; bankAccountId?: string } = { ...w.acceptor, walletId: w.walletId, bankAccountId: w.bankAccountId }, db = w.app) =>
   runAs(db, requestInstantQuote(who.actor, w.railsDeps), who.ref, 'request.instant_quote', {
-    direction, fixedSide: 'BASE' as const, amount, ...(direction === 'SELL_USDT' ? { bankAccountId: who.bankAccountId } : { walletId: who.walletId }),
+    direction, fixedSide: 'BASE' as const, amount, ...(direction === 'SELL_USDT' ? { bankAccountId: who.bankAccountId ?? null } : { walletId: who.walletId ?? null }),
   });
 const accept = (quoteId: string) => runAs(w.app, acceptQuote(w.acceptor.actor, w.railsDeps), w.acceptor.ref, 'quote.accept', { quoteId });
 const policy = async (change: Record<string, unknown>) =>
@@ -186,6 +186,26 @@ describe('holding liquidity', () => {
   });
 });
 
+describe('a trader’s own reserve (ADR 0024)', () => {
+  it('never lets a trader into a deal its reserve does not cover: priced within it, no price past it', async () => {
+    const setRisk = async (riskPolicy: unknown) => {
+      const program = await w.app.selectFrom('trader_program').select('version').where('id', '=', 1).executeTakeFirstOrThrow();
+      await runAs(w.app, configureTraderProgram(w.finance.actor), w.finance.ref, 'trader_program.configure', { expectedVersion: program.version, riskPolicy: riskPolicy as null, reason: 'reserve-based limits' });
+    };
+    const wide = { minDeals: 0, minDays: 0, dealX: 2, openX: 100 };
+    try {
+      // 500 USDT of reserve at the first level: one deal of at most 1,000 USDT of the trader's own.
+      await setRisk({ cleanDays: 30, tiers: [wide, { ...wide, minDeals: 10 }, { ...wide, minDeals: 50 }] });
+      const within = quoted(await ask('BUY_USDT', '900'));
+      expect((await quoteOf(within.quoteId)).route_base_minor!).toBeLessThanOrEqual(usdt('1000'));
+      const past = await ask('BUY_USDT', '1500');
+      expect(past.outcome).toEqual({ kind: 'MANUAL', reason: 'NO_OFFER' });
+    } finally {
+      await setRisk(null);
+    }
+  });
+});
+
 describe('what is never priced automatically', () => {
   it('nothing competitive: when no firm offer beats the market, the request waits for a person', async () => {
     await books('101.00', '100.50');
@@ -249,12 +269,12 @@ describe('what the database refuses', () => {
   it('a decision recorded for a quote already sent, a bid after its request closed, a firm offer of more than seven days', async () => {
     // A decision is written with its own quote before it is sent — never afterwards, never twice, never another one.
     const one = await w.app.selectFrom('auto_quote').selectAll().limit(1).executeTakeFirstOrThrow();
-    expect(await dbCode(w.app.insertInto('auto_quote').values({ ...one, position_bps: one.position_bps + 1 }).execute())).toBe('IX137');
+    expect(await dbCode(w.app.insertInto('auto_quote').values({ ...one, position_bps: one.position_bps + 1 }).execute())).toBe('IX139');
     const closed = await w.app.selectFrom('rfq').select(['id']).where('status', '<>', 'OPEN').limit(1).executeTakeFirstOrThrow();
     const invite = await w.app.selectFrom('rfq_invite').select('trader_id').where('rfq_id', '=', closed.id).limit(1).executeTakeFirstOrThrow();
     const placer = [a, b, c].find((t) => t.traderId === invite.trader_id)!;
-    expect(await dbCode(w.app.insertInto('rfq_bid').values({ rfq_id: closed.id, trader_id: invite.trader_id, rate_micro: r('100'), placed_by: placer.admin.userId }).execute())).toBe('IX139');
-    expect(await dbCode(sql`update trader_block set instant_until = inrp2p_now() + interval '8 days', instant_set_by = ${a.admin.userId} where trader_id = ${a.traderId} and side = 'SELL_USDT'`.execute(w.app))).toBe('IX140');
+    expect(await dbCode(w.app.insertInto('rfq_bid').values({ rfq_id: closed.id, trader_id: invite.trader_id, rate_micro: r('100'), placed_by: placer.admin.userId }).execute())).toBe('IX141');
+    expect(await dbCode(sql`update trader_block set instant_until = inrp2p_now() + interval '8 days', instant_set_by = ${a.admin.userId} where trader_id = ${a.traderId} and side = 'SELL_USDT'`.execute(w.app))).toBe('IX142');
     expect(await dbCode(sql`update auto_quote set position_bps = 1`.execute(w.app))).not.toBeNull();
   });
 });

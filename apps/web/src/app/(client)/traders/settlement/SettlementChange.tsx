@@ -16,10 +16,17 @@ import shell from '../../shell.module.css';
 import styles from '../traders.module.css';
 
 /**
- * The form behind "Submit a new bank account or wallet". It sends the details to `trader.propose_settlement_change`
- * and nothing else: the desk decides, and the current details stay in force until it does.
+ * The form behind "Submit a new bank account or wallet" (`trader.propose_settlement_change`). Where a trader is paid is
+ * changed only by someone who confirms it is them now (ADR 0026: a factor other than the sign-in — the command asks, and
+ * `useCommand` offers the factors in place). Once approved, the new details wait out the programme's hold (ADR 0024),
+ * every member is told, and the current details keep settling every order until then.
  */
-export function SettlementChange({ working, current, openOrders }: { working: boolean; current: { bank: string | null; wallet: string | null }; openOrders: number }) {
+export function SettlementChange({ working, current, openOrders, holdHours }: {
+  working: boolean;
+  current: { bank: string | null; wallet: string | null };
+  openOrders: number;
+  holdHours: number;
+}) {
   const router = useRouter();
   const { run, busy, error, dialog } = useCommand();
   const [changeBank, setChangeBank] = useState(false);
@@ -36,11 +43,12 @@ export function SettlementChange({ working, current, openOrders }: { working: bo
     if (out.ok) router.push('/traders');
   };
 
+  const hold = holdHours === 1 ? '1 hour' : `${holdHours} hours`;
   const assistant: AssistantState = {
     mood: 'ready',
     label: 'Settlement details',
     title: working ? 'Your current details keep working' : 'Replace a detail in your application',
-    body: working ? 'The desk reviews what you submit. Nothing changes until it approves, and never on an order in progress.' : 'The desk reviews it before anything settles through it.',
+    body: working ? `Everyone on your account is told at once and can stop it. It takes effect after ${hold}, between orders.` : 'It is checked before anything settles through it.',
   };
 
   return (
@@ -75,8 +83,8 @@ export function SettlementChange({ working, current, openOrders }: { working: bo
             <p className={shell.info}>
               <InfoIcon className={shell.infoIcon} />
               <span>
-                Pending review until the desk approves. Orders keep settling through your current details
-                {openOrders > 0 ? `, and the ${openOrders === 1 ? 'order' : `${openOrders} orders`} in progress finish with them` : ''}.
+                For your safety it takes effect after {hold}: everyone on your account is told at once and any administrator can stop it. Until then orders keep settling through your
+                current details{openOrders > 0 ? `, and the ${openOrders === 1 ? 'order' : `${openOrders} orders`} in progress finish with them` : ''}.
               </span>
             </p>
           ) : null}
@@ -85,7 +93,7 @@ export function SettlementChange({ working, current, openOrders }: { working: bo
               Cancel
             </Link>
             <button type="submit" className={shell.action} disabled={!ready || busy} aria-busy={busy || undefined}>
-              Submit for review
+              {working ? 'Confirm and submit' : 'Submit for review'}
               <ArrowIcon className={shell.actionIcon} />
             </button>
           </div>

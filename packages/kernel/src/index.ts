@@ -14,3 +14,4 @@ export * from './trx.ts';
 export * from './inr-payments.ts';
 export * from './desk-handle.ts';
 export * from './p2p-timing.ts';
+export * from './trader-risk.ts';

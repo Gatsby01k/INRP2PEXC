@@ -4,7 +4,8 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { DeskToday } from '@inrp2p/traders';
-import type { TelegramLinkView } from '@inrp2p/clients';
+import type { TelegramLinkView, TelegramView } from '@inrp2p/clients';
+import { TelegramCard } from '../_workspace/TelegramCard.tsx';
 import { TelegramConnect } from '../_workspace/TelegramConnect.tsx';
 import { CopyButton } from '@inrp2p/ui';
 import { ArrowIcon, BankIcon, BoltIcon, ChartIcon, CheckIcon, DealsIcon, GaugeIcon, InfoIcon, TrendIcon, VaultIcon, WalletIcon } from '../_workspace/icons.tsx';
@@ -61,7 +62,7 @@ export function TodayScreen({
   host: string;
   canAdmin: boolean;
   canCommit: boolean;
-  telegram: { view: TelegramLinkView; botConfigured: boolean };
+  telegram: { mode: 'LOGIN'; view: TelegramView } | { mode: 'ALERTS'; view: TelegramLinkView; botConfigured: boolean };
 }) {
   const router = useRouter();
   const now = useServerClock(today.now, false);
@@ -299,6 +300,19 @@ export function TodayScreen({
               </span>
               <span className={styles.figureValue}>{today.capacity.BUY_USDT ? usdtShort(today.capacity.BUY_USDT.available) : 'Not offered'}</span>
             </div>
+            {today.reserveLimits ? (
+              <div className={styles.figure}>
+                <span className={styles.figureLabel}>
+                  <span className={styles.figureIcon} aria-hidden="true">
+                    <VaultIcon />
+                  </span>
+                  Largest deal now
+                </span>
+                <span className={styles.figureValue} title={`Your reserve allows ${today.reserveLimits.maxOpen} USDT open at once; ${today.reserveLimits.open} is open now.`}>
+                  {usdtShort(today.reserveLimits.largestDeal)}
+                </span>
+              </div>
+            ) : null}
             <div className={styles.figure}>
               <span className={styles.figureLabel}>
                 <span className={styles.figureIcon} aria-hidden="true">
@@ -323,7 +337,11 @@ export function TodayScreen({
           ) : null}
         </section>
 
-        <TelegramConnect view={telegram.view} botConfigured={telegram.botConfigured} title="Deal alerts in Telegram" />
+        {telegram.mode === 'LOGIN' ? (
+          <TelegramCard view={telegram.view} returnTo="/desk" title="Deal alerts in Telegram" />
+        ) : (
+          <TelegramConnect view={telegram.view} botConfigured={telegram.botConfigured} title="Deal alerts in Telegram" />
+        )}
 
         <section className={shell.card} aria-labelledby="open-title">
           <div className={shell.cardHead}>

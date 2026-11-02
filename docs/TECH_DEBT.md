@@ -33,6 +33,7 @@ Non-blocking items accepted at phase review. Each entry names the phase that mus
 | TD-27 | The release images are about 1.8 GB each: the production-dependency prune does not take effect | Production hardening E3 (2026-10-06) | Image pull time or registry cost matters (a first deployment does not need it) | Open |
 | TD-28 | A deposit at the shared reserve address that no trader can be credited with automatically has no desk resolution in the product | D-17 (2026-10-10) | The first such deposit (a trader sending from an unregistered wallet, or two traders with one wallet on file) | Open — the money is safe in suspense with a case |
 | TD-29 | The public site still says the desk onboards clients, although clients now open their own accounts | D-17 (2026-10-10) | Before the self sign-up is announced | Closed (2026-10-12) — "Open an account" leads to the workspace gateway everywhere the question comes up |
+| TD-42 | A reserve withdrawal still needs a person to send it from custody, record it and confirm it | ADR 0024 (2026-10-30) | Traders withdrawing often enough for the desk to notice | Open — the owner decides whether the reserve moves to signer-held GasFree accounts (TD-41) |
 
 ## TD-01 — Better Auth schema warning for `auth_rate_limit.last_request`
 
@@ -901,6 +902,18 @@ address is still a plain HD address, so returning or applying a reserve burns TR
 (a trader leaving, or a reserve applied), but it is the one transfer that still needs TRX.
 
 **Resolution (to do).** Issue new reserve addresses as GasFree accounts too, and let the return carry its own network.
+
+## TD-42 — A reserve withdrawal still needs a person
+
+**Observed (ADR 0024, 2026-10-30).** Onboarding, approval, limits and changes of settlement details now run by rule; a
+reserve withdrawal does not. The trader asks for it within `available` (which, since ADR 0024, also keeps the reserve its
+open deals stand on); a person sends the USDT from custody, records the hash and confirms it on finality — three steps,
+because the shared reserve address is a watched wallet whose key the application does not hold.
+
+**Resolution (to do, owner).** Hold new reserves at GasFree accounts of the HD signer (TD-41) and let the signer send a
+withdrawal within `available` to the registered wallet like an escrow return, its network paid in USDT out of it, with a
+second person above the approval threshold. It moves the reserve from a watched wallet into the signer's custody, which is
+the owner's decision; the same signer would then return an unattributable deposit (TD-28) to its sender.
 
 ## TD-43 — Automatic prices: what is not built yet
 

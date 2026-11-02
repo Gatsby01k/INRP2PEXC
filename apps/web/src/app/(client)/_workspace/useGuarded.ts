@@ -2,6 +2,7 @@
 
 import { useCallback, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { type ConfirmFactor, type ConfirmPurpose, confirmFactorsOf, confirmPurposeOf } from '../../../components/confirm-factors.ts';
 import { newIntentKey } from '../../../components/useCommand.tsx';
 
 export type GuardedOutcome =
@@ -9,30 +10,36 @@ export type GuardedOutcome =
   | { readonly ok: false; readonly code: string; readonly message: string; readonly stepUp?: true; readonly details?: Record<string, unknown> };
 
 /**
- * One sensitive change, asked for once: a single idempotency key for the intent, and — when the command answers that
- * the authenticator is needed — a code asked for in place, after which the very same intent is sent again. The
- * component draws the code field (`needsCode`); this keeps the key, the retry and the refusals straight.
+ * One sensitive change, asked for once: a single idempotency key for the intent, and — when the command answers that it
+ * must be confirmed — the factors that would confirm it (ADR 0026), after which the very same intent is sent again. The
+ * component draws the confirmation (`confirmWith`, `ConfirmPanel`); this keeps the key, the retry and the refusals straight.
  */
 export function useGuarded(send: (key: string) => Promise<GuardedOutcome>) {
   const router = useRouter();
   const key = useRef<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [needsCode, setNeedsCode] = useState(false);
+  const [confirmWith, setConfirmWith] = useState<{ factors: ConfirmFactor[]; purpose: ConfirmPurpose } | null>(null);
+  const [needsFactor, setNeedsFactor] = useState(false);
   const [done, setDone] = useState(false);
 
   const settle = (out: GuardedOutcome): boolean => {
     if (out.ok) {
-      setNeedsCode(false);
+      setConfirmWith(null);
       setDone(true);
       router.refresh();
       return true;
     }
-    if (out.stepUp) {
-      setNeedsCode(true);
+    const factors = confirmFactorsOf(out.details);
+    if (out.stepUp && factors && factors.length > 0) {
+      setConfirmWith({ factors, purpose: confirmPurposeOf(out.details) });
       return false;
     }
-    setError(out.code === 'MFA_ENROLLMENT_REQUIRED' ? 'Set up an authenticator first — Account & security.' : out.message || 'That could not be done. Try again.');
+    if (out.code === 'MFA_ENROLLMENT_REQUIRED') {
+      setNeedsFactor(true);
+      return false;
+    }
+    setError(out.message || 'That could not be done. Try again.');
     return false;
   };
 
@@ -50,30 +57,26 @@ export function useGuarded(send: (key: string) => Promise<GuardedOutcome>) {
     }
   };
 
-  const confirm = async (code: string): Promise<boolean> => {
-    setBusy(true);
-    setError(null);
+  /** A code was accepted: the same intent again. Returns what the confirmation panel should say if it still did not go. */
+  const retry = async (): Promise<string | null> => {
     try {
-      const res = await fetch('/api/auth/two-factor/verify-totp', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code }) }).catch(() => null);
-      if (!res?.ok) {
-        setError('That code was not accepted. Enter the one your app shows now.');
-        return false;
-      }
-      return settle(await send(key.current ?? newIntentKey()));
+      const out = await send(key.current ?? newIntentKey());
+      if (!out.ok && out.stepUp) return 'That confirmed something else. Try again.';
+      if (!out.ok) return out.message || 'That could not be done. Try again.';
+      settle(out);
+      return null;
     } catch {
-      setError('The connection dropped before an answer came. Try again — it will not happen twice.');
-      return false;
-    } finally {
-      setBusy(false);
+      return 'The connection dropped before an answer came. Try again — it will not happen twice.';
     }
   };
 
   const reset = useCallback(() => {
     key.current = null;
     setError(null);
-    setNeedsCode(false);
+    setConfirmWith(null);
+    setNeedsFactor(false);
     setDone(false);
   }, []);
 
-  return { busy, error, needsCode, done, run, confirm, reset };
+  return { busy, error, confirmWith, needsFactor, done, run, retry, reset };
 }

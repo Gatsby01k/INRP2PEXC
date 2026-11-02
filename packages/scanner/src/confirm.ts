@@ -3,6 +3,7 @@ import { Money } from '@inrp2p/kernel';
 import type { Db, TxContext } from '@inrp2p/db';
 import { lockTrade } from '@inrp2p/trades';
 import { appendAudit } from '@inrp2p/audit';
+import { enqueueOutbox } from '@inrp2p/outbox';
 import { confirmClientLegInTx, confirmRouteSettlementInTx, lockObligation, openExceptionInTx, postMovement, revertClientLegInTx, verifyCryptoTransfer } from '@inrp2p/settlement';
 import { type ScannerDeps, scannerPolicyOf } from './policy.ts';
 import { systemStep } from './system.ts';
@@ -189,6 +190,9 @@ async function verifyOne(ctx: TxContext, deps: ScannerDeps, candidate: Candidate
       purpose: 'TRADER_RESERVE',
     });
     await appendAudit(ctx, { action: 'trader_reserve.credited', entityType: 'trader_profile', entityId: transfer.payer_id, after: { transfer_id: transfer.id, amount: Money.ofMinor(transfer.amount_minor, 'USDT') } });
+    // ADR 0024: USDT from the trader's own wallet proves it holds the key, and may complete its reserve — what an
+    // application waiting for the programme's rules may need.
+    await enqueueOutbox(ctx, { type: 'trader.reserve_credited', aggregateType: 'trader_profile', aggregateId: transfer.payer_id, payload: { traderId: transfer.payer_id, transferId: transfer.id } });
     return { outcome: 'RESERVE_CREDITED', caseOpened: false };
   }
 

@@ -83,7 +83,7 @@ export function TradersHome({ home, network }: { home: TraderHome; network: Trad
             ) : null}
             <div className={styles.split}>
               {home.earnings ? <EarningsCard earnings={home.earnings} /> : null}
-              {home.reserve ? <ReserveCard reserve={home.reserve} /> : null}
+              {home.reserve ? <ReserveCard reserve={home.reserve} limits={home.limits} /> : null}
             </div>
             {network && !network.short ? <NetworkCard network={network} /> : null}
             {home.registered ? <SettlementCard home={home} /> : null}

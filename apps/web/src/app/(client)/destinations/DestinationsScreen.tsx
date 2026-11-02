@@ -7,7 +7,8 @@ import { CopyButton } from '@inrp2p/ui';
 import { shortenAddress } from '@inrp2p/ui/format';
 import { readiness } from '../_assistant/model.ts';
 import { ArchiveIcon, BankIcon, CheckIcon, ChevronDownIcon, LockIcon, PlusIcon, ShieldIcon, WalletIcon } from '../_workspace/icons.tsx';
-import { SecureAccount } from '../_workspace/SecureAccount.tsx';
+import { SecondFactor } from '../_workspace/SecondFactor.tsx';
+import type { Protection } from '../../../server/client.ts';
 import { Sheet } from '../_workspace/Sheet.tsx';
 import { AddDestination, type DestinationKind } from './AddDestination.tsx';
 import { ArchiveDialog, type ArchiveTarget } from './ArchiveDialog.tsx';
@@ -29,8 +30,8 @@ const live = (s: ClientWallet['status']) => s === 'ACTIVE' || s === 'PENDING_REV
  * Bank & wallets: where this client's money is allowed to go, and so which directions they can trade.
  *
  * What it answers first is the question a client actually has — can I sell, can I buy, and where will the money
- * land — and the lists follow. An administrator changes them here, each change confirmed with their authenticator
- * (TD-11, D-08); anyone else sees them and is told who can. Archived rows are kept, folded away — destinations are
+ * land — and the lists follow. An administrator changes them here, each change confirmed by a factor other than the
+ * one they signed in with (ADR 0026, D-08); anyone else sees them and is told who can. Archived rows are kept, folded away — destinations are
  * archived, never edited (S8), so the archived ones are how a client recognises an account they used to be paid
  * into. The account number a client gave is never shown back: the server seals it and keeps the last four (D-09).
  */
@@ -39,13 +40,13 @@ export function DestinationsScreen({
   clientName,
   email,
   isAdmin,
-  hasAuthenticator,
+  protection,
 }: {
   destinations: ClientDestinations;
   clientName: string;
   email: string;
   isAdmin: boolean;
-  hasAuthenticator: boolean;
+  protection: Protection;
 }) {
   const router = useRouter();
   const [adding, setAdding] = useState<DestinationKind | null>(null);
@@ -160,23 +161,23 @@ export function DestinationsScreen({
       </main>
 
       <aside className={shell.aside}>
-        <section className={styles.security} data-on={hasAuthenticator || undefined} aria-labelledby="security-title">
+        <section className={styles.security} data-on={protection.canConfirm || undefined} aria-labelledby="security-title">
           <span className={styles.securityIcon} aria-hidden="true">
-            {hasAuthenticator ? <ShieldIcon /> : <LockIcon />}
+            {protection.canConfirm ? <ShieldIcon /> : <LockIcon />}
           </span>
           <div className={styles.securityText}>
             <h2 id="security-title" className={styles.asideTitle}>
-              {hasAuthenticator ? 'Authenticator on' : 'Authenticator off'}
+              {protection.canConfirm ? 'Changes are protected' : 'Add a second way to confirm'}
             </h2>
             <p className={styles.asideBody}>
-              {hasAuthenticator
-                ? 'Every change on this page is confirmed with a code from your phone.'
+              {protection.canConfirm
+                ? `Every change on this page is confirmed with a code from ${confirmWords(protection)}.`
                 : isAdmin
-                  ? 'Set one up to add or archive accounts. It takes about a minute.'
-                  : 'An authenticator protects your sign-in and the changes you can make.'}
+                  ? 'Connect Telegram or an authenticator app to add or archive accounts. It takes a minute.'
+                  : 'A second way to confirm protects the changes you can make.'}
             </p>
           </div>
-          {hasAuthenticator ? null : (
+          {protection.canConfirm ? null : (
             <button type="button" className={shell.action} data-size="sm" data-tone="ink" onClick={() => setSecuring(true)}>
               Set up
             </button>
@@ -198,7 +199,7 @@ export function DestinationsScreen({
             </li>
             <li>
               <CheckIcon />
-              <span>Every addition or archive needs an administrator’s authenticator, and every administrator is told.</span>
+              <span>Every addition or archive is confirmed by an administrator a second time — never with only what they signed in with — and every administrator is told.</span>
             </li>
           </ul>
         </section>
@@ -208,15 +209,17 @@ export function DestinationsScreen({
         open={adding !== null}
         kind={adding ?? lastKind}
         onClose={() => setAdding(null)}
-        hasAuthenticator={hasAuthenticator}
+        protection={protection}
         email={email}
         holderName={clientName}
         firstOfKind={(adding ?? lastKind) === 'bank' ? banks.length === 0 : wallets.length === 0}
       />
       <ArchiveDialog target={archiving} onClose={() => setArchiving(null)} />
-      <Sheet open={securing} onClose={() => setSecuring(false)} eyebrow="Account & security" title="Set up your authenticator" description="Six-digit codes from your phone confirm the changes that matter.">
-        <SecureAccount
+      <Sheet open={securing} onClose={() => setSecuring(false)} eyebrow="Account & security" title="A second way to confirm" description="Your Telegram or an authenticator app confirms the changes that matter.">
+        <SecondFactor
+          protection={protection}
           email={email}
+          returnTo="/destinations"
           onDone={() => {
             setSecuring(false);
             router.refresh();
@@ -225,6 +228,16 @@ export function DestinationsScreen({
       </Sheet>
     </>
   );
+}
+
+/** Where this session's confirmation codes can come from, in words: everything but the factor it was opened with. */
+function confirmWords(p: Protection): string {
+  const ways = [
+    ...(p.telegram === 'LINKED' && p.signInMethod !== 'TELEGRAM' ? ['your Telegram'] : []),
+    ...(p.signInMethod !== 'EMAIL' ? ['your email'] : []),
+    ...(p.authenticator ? ['your authenticator'] : []),
+  ];
+  return ways.length > 1 ? `${ways.slice(0, -1).join(', ')} or ${ways.at(-1)}` : (ways[0] ?? 'a second factor');
 }
 
 function Readiness({ title, ready, detail }: { title: string; ready: boolean; detail: string }) {

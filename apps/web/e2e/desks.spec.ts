@@ -183,6 +183,8 @@ test('the client’s USDT reaches the escrow, the desk pays the rupees, and the 
   await phone.getByLabel('Sender’s name, as your bank shows it').fill(DESK.legalName);
   await phone.getByRole('checkbox').check();
   await phone.getByRole('button', { name: 'Release the escrow' }).click();
+  // The release recorded before the worker turns: a click returns before its server action does.
+  await expect(phone.getByRole('button', { name: 'Release the escrow' })).toBeHidden();
 
   // The worker's signer pays the desk from the escrow; the fee stays at the deal's address.
   const before = w.chain.balanceOf(w.deskWalletAddress);
@@ -257,6 +259,7 @@ test('the same client buys USDT on the desk’s page: the desk funds the escrow,
   await desk.getByLabel('Sender’s name, as your bank shows it').fill(CLIENT.legalName);
   await desk.getByRole('checkbox').check();
   await desk.getByRole('button', { name: 'Release the escrow' }).click();
+  await expect(desk.getByRole('button', { name: 'Release the escrow' })).toBeHidden();
 
   expect(await w.settle(trade.id)).toBe('COMPLETED');
   expect(w.chain.balanceOf(wallet)).toBe(500_000_000n);

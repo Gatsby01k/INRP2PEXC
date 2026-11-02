@@ -7,3 +7,4 @@ export * from './eligibility.ts';
 export * from './reserve-figures.ts';
 export * from './standing.ts';
 export * from './reliability.ts';
+export * from './risk.ts';

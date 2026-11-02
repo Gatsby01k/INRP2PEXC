@@ -121,6 +121,24 @@ describe('the Security Reserve', () => {
     expect(stranger.detected.exceptionId).toBeTruthy();
   });
 
+  it('ADR 0026: USDT leaves only after a step-up by another factor than the sign-in — a code to the same email is not one', async () => {
+    const t = await w.app.selectFrom('trader_profile as p').innerJoin('client as c', 'c.id', 'p.client_id').select(['p.id', 'p.client_id']).where('c.display_name', '=', 'Reserve Holder').executeTakeFirstOrThrow();
+    const admin = await w.app.selectFrom('client_user').select('user_id').where('client_id', '=', t.client_id).where('role', '=', 'CLIENT_ADMIN').executeTakeFirstOrThrow();
+    // A second device, signed in by email a while ago: the session alone, and then a code to that same email.
+    const session = await w.t.owner
+      .insertInto('auth_session')
+      .values({ expires_at: new Date(Date.now() + 3_600_000), token: randomUUID(), created_at: new Date(Date.now() - 3_600_000), updated_at: new Date(), user_id: admin.user_id, surface: 'CLIENT', sign_in_method: 'EMAIL' })
+      .returning('id')
+      .executeTakeFirstOrThrow();
+    const actor = { kind: 'CLIENT' as const, userId: admin.user_id, sessionId: session.id };
+    const ref = { type: 'USER' as const, id: admin.user_id, surface: 'CLIENT' as const, sessionId: session.id };
+    const withdraw = () => runAs(w.app, requestReserveWithdrawal(actor), ref, 'trader_reserve.request_withdrawal', { amount: '1' });
+    await expect(withdraw()).rejects.toMatchObject({ code: 'STEP_UP_REQUIRED', details: { purpose: 'WITHDRAWAL' } });
+    await sql`insert into step_up_verification (user_id, session_id, method) values (${admin.user_id}, ${session.id}, 'EMAIL')`.execute(w.t.owner);
+    await expect(withdraw()).rejects.toMatchObject({ code: 'STEP_UP_REQUIRED' });
+    expect(await w.app.selectFrom('trader_reserve_withdrawal').select('id').where('trader_id', '=', t.id).execute()).toEqual([]);
+  });
+
   it('never releases the locked part; a withdrawal is read from the chain, confirmed on finality and posted once', async () => {
     const t = await w.app.selectFrom('trader_profile as p').innerJoin('client as c', 'c.id', 'p.client_id').select(['p.id', 'p.client_id']).where('c.display_name', '=', 'Reserve Holder').executeTakeFirstOrThrow();
     const admin = await w.app.selectFrom('client_user').select('user_id').where('client_id', '=', t.client_id).where('role', '=', 'CLIENT_ADMIN').executeTakeFirstOrThrow();

@@ -61,6 +61,18 @@ export interface Figure {
 }
 
 export function buildFigure(): Figure {
+  const steps = figureSteps();
+  let step = steps.next();
+  while (!step.done) step = steps.next();
+  return step.value;
+}
+
+/**
+ * The same figure, built in steps: it pauses after the body, the arms and the head, so the live robot can hand the
+ * main thread back to the page between them (`scene.ts`). The parts are the same and made in the same order either way;
+ * `buildFigure` simply runs every step at once.
+ */
+export function* figureSteps(): Generator<void, Figure, void> {
   const head = headMaterial(VISOR, -0.2);
   const visor = visorMaterial();
   const torso = torsoMaterial(new Vector3(0, MARK_Y - TORSO_Y, 0.206));
@@ -117,6 +129,7 @@ export function buildFigure(): Figure {
     mesh(keep(turned([[0.206, -0.07], [0.206, 0.006], [0.198, 0.016], [0.184, 0.016], [0.176, 0.004], [0.176, -0.07]], 0.003, 96)), graphite),
   );
   chest.add(mark);
+  yield;
 
   // Shoulders: a graphite socket in each side of the body, and an arm hung from it, close in and just clear of the
   // shell, a little behind the chest's front.
@@ -136,6 +149,8 @@ export function buildFigure(): Figure {
     chest.add(arm);
     armPivots.push({ group: arm, side });
   }
+
+  yield;
 
   // Neck: carries a third of every look, arriving a moment after the head.
   const neck = new Group();
@@ -175,6 +190,7 @@ export function buildFigure(): Figure {
   const lift = (r: number) => (0.011 + 0.014 * (1 - r * r)) * (1 - smooth(0.93, 1, r)) + 0.002;
   skull.add(mesh(keep(frontPanel(HEAD, VISOR, lift, 56, 256)), visor.material, false));
   skull.add(mesh(keep(frontBead(HEAD, VISOR, 0.0135, 0.004, 320)), graphite, false));
+  yield;
 
   // The headset: an ear cup either side — graphite collar, orange cup, a ring of light around a ceramic cap —
   // and a slim band over the crown between them.

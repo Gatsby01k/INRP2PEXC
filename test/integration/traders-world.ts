@@ -9,7 +9,7 @@ import { acceptQuote, createQuote, createRequest, sendQuote } from '@inrp2p/quot
 import { submitTxForVerification } from '@inrp2p/settlement';
 import { runTronConfirm } from '@inrp2p/scanner';
 import {
-  type ApplyPayload, type TraderDeps, acceptOrder, applyAsTrader, approveTrader, assignRequest, configureTraderProgram, setAvailability, sharedReserveAddress, updateBlock,
+  type ApplyPayload, type RiskPolicy, type TraderDeps, acceptOrder, applyAsTrader, approveTrader, assignRequest, configureTraderProgram, setAvailability, sharedReserveAddress, updateBlock,
 } from '@inrp2p/traders';
 import { createWorld, type World } from '../../packages/settlement/test/world.ts';
 import { fundBudget } from '@inrp2p/network/testing';
@@ -73,10 +73,16 @@ export async function traderClient(w: World, name: string, walletPurpose: 'BOTH'
   };
 }
 
-export async function configureProgram(w: TradersWorld, input: { reserve?: string | null; rewardBps?: number | null; collection?: boolean }): Promise<void> {
+/**
+ * The programme a test runs under. The reserve-based limits (ADR 0024) are off unless the test names a policy: a suite
+ * about something else deals amounts a 500 USDT reserve would not allow, and the limits have their own suite.
+ */
+export async function configureProgram(w: TradersWorld, input: { reserve?: string | null; rewardBps?: number | null; collection?: boolean; riskPolicy?: RiskPolicy | null; autoReview?: boolean }): Promise<void> {
   const current = await w.app.selectFrom('trader_program').select('version').where('id', '=', 1).executeTakeFirstOrThrow();
   await runAs(w.app, configureTraderProgram(w.finance.actor), w.finance.ref, 'trader_program.configure', {
     expectedVersion: current.version,
+    riskPolicy: input.riskPolicy ?? null,
+    ...(input.autoReview !== undefined ? { autoReview: input.autoReview } : {}),
     ...(input.reserve !== undefined ? { defaultRequiredReserve: input.reserve } : {}),
     ...(input.rewardBps !== undefined ? { rewardBps: input.rewardBps } : {}),
     ...(input.collection ? { collectionAccountId: w.collectionAccountId } : {}),

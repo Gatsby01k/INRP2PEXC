@@ -14,3 +14,6 @@ import { SESSION_POLICY, type Surface } from './policy.ts';
 export function carriesSessionCookie(headers: Headers, surface: Surface): boolean {
   return getSessionCookie(headers, { cookiePrefix: SESSION_POLICY[surface].cookiePrefix }) !== null;
 }
+
+/** How this device last signed in on the client surface — read by the sign-in page to offer that first (ADR 0026). */
+export { LAST_SIGN_IN_COOKIE } from './policy.ts';

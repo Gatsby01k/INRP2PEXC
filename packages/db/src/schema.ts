@@ -206,6 +206,19 @@ export interface AuthSessionTable {
   user_agent: string | null;
   user_id: string;
   surface: 'OPERATOR' | 'CLIENT';
+  /** Migration 0043: how the session was opened. Null on a session opened before it (EMAIL on the client, PASSWORD on the desk). */
+  sign_in_method: 'EMAIL' | 'TELEGRAM' | 'PASSWORD' | null;
+}
+
+/** Better Auth's linked identities. INRP2P reads only the Telegram ones (migration 0043); operators' passwords stay Better Auth's. */
+export interface AuthAccountTable {
+  id: Generated<string>;
+  account_id: string;
+  provider_id: string;
+  user_id: string;
+  telegram_username: string | null;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
 }
 
 export interface OperatorUserRoleTable {
@@ -226,7 +239,7 @@ export interface StepUpVerificationTable {
   id: Generated<string>;
   user_id: string;
   session_id: string;
-  method: 'TOTP';
+  method: 'TOTP' | 'EMAIL' | 'TELEGRAM';
   verified_at: Generated<Date>;
   ip_hash: string | null;
 }
@@ -1180,6 +1193,7 @@ export type NotificationKind =
   | 'DEAL_MESSAGE'
   | 'P2P_PAY_FINAL'
   | 'P2P_RECEIPT_LATE'
+  | 'TRADER_SETTLEMENT_CHANGE'
   | 'TRADER_PRICE_REQUEST';
 
 export interface ClientNotificationTable {
@@ -1333,6 +1347,12 @@ export interface TraderProgramTable {
   execution_mode: Generated<'TO_EXCHANGE' | 'P2P'>;
   /** Migration 0042: how long each step of a P2P deal may take, by rail (`P2pTiming`). */
   p2p_timing: Generated<Json>;
+  /** Migration 0044: applications reviewed by rule, whatever a rule cannot settle left for a person. */
+  auto_review: Generated<boolean>;
+  /** Migration 0044: how far a trader's free reserve stretches at each level (`RiskPolicy`); null switches it off. */
+  risk_policy: Generated<Json | null>;
+  /** Migration 0044: how long a trader's change of bank account or wallet waits before it takes effect. */
+  settlement_change_hold_hours: Generated<number>;
   updated_by: string;
   updated_at: Generated<Date>;
   version: Generated<number>;
@@ -1377,7 +1397,26 @@ export interface TraderProfileTable {
   ownership_confirmed_at: Date | null;
   proposed_bank_account_id: Generated<string | null>;
   proposed_wallet_id: Generated<string | null>;
+  // Migration 0044: when it was first approved, what the programme's rules could not settle, and a proposal's clock.
+  approved_at: Generated<Date | null>;
+  auto_review_flags: Generated<AutoReviewFlag[]>;
+  auto_reviewed_at: Generated<Date | null>;
+  proposal_effective_at: Generated<Date | null>;
+  proposed_by: Generated<string | null>;
 }
+
+/** Migration 0044: why the programme's rules left an application or a change for a person. */
+export type AutoReviewFlag =
+  | 'BANK_NAME_MISMATCH'
+  | 'BANK_ON_FILE_ELSEWHERE'
+  | 'BANK_REJECTED_BEFORE'
+  | 'WALLET_NOT_PROVEN'
+  | 'WALLET_ON_FILE_ELSEWHERE'
+  | 'WALLET_REJECTED_BEFORE'
+  | 'RESERVE_SHORT'
+  | 'NO_DEFAULT_RESERVE'
+  | 'REJECTED_BEFORE'
+  | 'ORDERS_OPEN';
 
 export interface TraderBlockTable {
   id: Generated<string>;
@@ -1393,10 +1432,10 @@ export interface TraderBlockTable {
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
   version: Generated<number>;
-  /** Migration 0043: until when INRP2P may fill orders at this side's rate without asking (a firm offer), and whose commitment it is. */
+  /** Migration 0045: until when INRP2P may fill orders at this side's rate without asking (a firm offer), and whose commitment it is. */
   instant_until: Date | null;
   instant_set_by: string | null;
-  /** Migration 0043: the INR rails this side pays or is paid by. */
+  /** Migration 0045: the INR rails this side pays or is paid by. */
   rails: Generated<InrRailValue[]>;
 }
 
@@ -1998,7 +2037,7 @@ export interface DealMessageTable {
 
 export type InrRailValue = 'UPI' | 'IMPS' | 'NEFT' | 'RTGS';
 
-/** Migration 0043 (ADR 0025): whether the INRP2P exchange prices automatically, and the guard-rails of the choice. Append-only. */
+/** Migration 0045 (ADR 0025): whether the INRP2P exchange prices automatically, and the guard-rails of the choice. Append-only. */
 export interface PricingPolicyTable {
   id: Generated<string>;
   auto_quote: boolean;
@@ -2014,7 +2053,7 @@ export interface PricingPolicyTable {
   set_at: Generated<Date>;
 }
 
-/** Migration 0043: the decision behind one automatic quote — written once with it (IX137). */
+/** Migration 0045: the decision behind one automatic quote — written once with it (IX139). */
 export interface AutoQuoteTable {
   quote_id: string;
   trade_request_id: string;
@@ -2038,7 +2077,7 @@ export interface AutoQuoteTable {
 
 export type RfqStatus = 'OPEN' | 'AWARDED' | 'NO_PRICE' | 'CANCELLED';
 
-/** Migration 0043: a price request to several traders for one request of the INRP2P exchange (IX138). */
+/** Migration 0045: a price request to several traders for one request of the INRP2P exchange (IX140). */
 export interface RfqTable {
   id: Generated<string>;
   ref: Generated<string>;
@@ -2059,7 +2098,7 @@ export interface RfqInviteTable {
   invited_at: Generated<Date>;
 }
 
-/** Migration 0043: one trader's firm rate for a price request (IX139). */
+/** Migration 0045: one trader's firm rate for a price request (IX141). */
 export interface RfqBidTable {
   id: Generated<string>;
   rfq_id: string;
@@ -2101,6 +2140,7 @@ export interface Database {
   outbox_delivery: OutboxDeliveryTable;
   auth_user: AuthUserTable;
   auth_session: AuthSessionTable;
+  auth_account: AuthAccountTable;
   operator_user_role: OperatorUserRoleTable;
   operator_permission_grant: OperatorPermissionGrantTable;
   step_up_verification: StepUpVerificationTable;

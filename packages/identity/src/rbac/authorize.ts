@@ -29,13 +29,19 @@ export async function loadOperatorGrants(ex: Executor, userId: string): Promise<
   };
 }
 
-/** True when this session has a TOTP verification younger than the step-up window (DB time). */
+/**
+ * True when this session has a step-up younger than the step-up window (DB time) by a factor other than the one it was
+ * signed in with (ADR 0026). On the desk that is always the authenticator; for a client, a code to the email does not
+ * confirm a session the email opened, nor Telegram one Telegram opened.
+ */
 export async function hasFreshStepUp(ex: Executor, sessionId: string, maxAgeSeconds = STEP_UP_MAX_AGE_SECONDS): Promise<boolean> {
   const r = await sql<{ fresh: boolean }>`
     select exists (
-      select 1 from step_up_verification
-      where session_id = ${sessionId}
-        and verified_at > statement_timestamp() - make_interval(secs => ${maxAgeSeconds})
+      select 1 from step_up_verification v
+      join auth_session s on s.id = v.session_id
+      where v.session_id = ${sessionId}
+        and v.method <> coalesce(s.sign_in_method, 'EMAIL')
+        and v.verified_at > statement_timestamp() - make_interval(secs => ${maxAgeSeconds})
     ) as fresh`.execute(ex);
   return r.rows[0]!.fresh;
 }

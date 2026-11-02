@@ -7,9 +7,9 @@ import type { CommandResult } from '../command.ts';
 import { runWorkspaceCommand } from '../client.ts';
 
 /**
- * A client's team (docs/adr/0020-desks.md §2.11), as server actions. Changing who can act for the client asks for the
- * administrator's authenticator: the command answers `STEP_UP_REQUIRED` and the screen asks for a code, then sends the
- * same intent again. Accepting an invitation is the invited person's own, signed in with the address it names.
+ * A client's team (docs/adr/0020-desks.md §2.11), as server actions. Changing who can act for the client is confirmed by
+ * the administrator a second time (ADR 0026): the command answers `STEP_UP_REQUIRED` with the factors that would do, the
+ * screen asks for a code, then sends the same intent again. Accepting an invitation is the invited person's own, signed in with the address it names.
  */
 function refresh(): void {
   revalidatePath('/', 'layout');

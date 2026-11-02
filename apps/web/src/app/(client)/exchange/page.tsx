@@ -1,6 +1,6 @@
-import { clientHistory, exchangeView, hasAuthenticator, workspaceAccess } from '@inrp2p/portal';
+import { clientHistory, exchangeView } from '@inrp2p/portal';
 import { businessNow } from '@inrp2p/quotes';
-import { clientPage } from '../../../server/client.ts';
+import { clientPage, workspaceContext, protectionOfRequest } from '../../../server/client.ts';
 import { PageHead } from '../_workspace/PageHead.tsx';
 import { ExchangeScreen, type RequestDraft } from './ExchangeScreen.tsx';
 import { SwapIcon } from '../_workspace/icons.tsx';
@@ -29,13 +29,13 @@ function draftFrom(params: { direction?: string | string[]; amount?: string | st
  */
 export default async function ExchangePage({ searchParams }: { searchParams: Promise<{ direction?: string | string[]; amount?: string | string[] }> }) {
   const ctx = await clientPage();
-  const [view, now, params, recent, authenticator, who] = await Promise.all([
+  const [view, now, params, recent, protection, who] = await Promise.all([
     exchangeView(ctx.db, ctx.access.clientId),
     businessNow(ctx.db),
     searchParams,
     clientHistory(ctx.db, ctx.access.clientId, { limit: 6 }),
-    hasAuthenticator(ctx.db, ctx.actor.userId),
-    workspaceAccess(ctx.db, ctx.actor.userId),
+    protectionOfRequest(),
+    workspaceContext().then((w) => w.access),
   ]);
   const draft = draftFrom(params);
 
@@ -47,7 +47,7 @@ export default async function ExchangePage({ searchParams }: { searchParams: Pro
         canAccept={ctx.access.canAcceptQuotes}
         serverTime={now.toISOString()}
         recent={recent}
-        who={{ isAdmin: ctx.access.role === 'CLIENT_ADMIN', hasAuthenticator: authenticator, email: who.email, clientName: ctx.access.clientName }}
+        who={{ isAdmin: ctx.access.role === 'CLIENT_ADMIN', protection, email: who.email, clientName: ctx.access.clientName }}
         {...(draft ? { draft } : {})}
       />
     </>

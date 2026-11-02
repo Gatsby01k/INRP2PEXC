@@ -3,7 +3,7 @@ import { DomainError, Money, formatTrx, normalizeTronAddress, parseTrx, requireT
 import type { Executor, TxContext } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
 import { enqueueOutbox } from '@inrp2p/outbox';
-import { type ClientActor, type OperatorActor, operatorCommand } from '@inrp2p/identity';
+import { type ClientActor, type OperatorActor, operatorCommand, requireConfirmation } from '@inrp2p/identity';
 import { postJournal, traderNetworkReimbursementJournal } from '@inrp2p/ledger';
 import type { TrxTransferFacts } from '@inrp2p/adapters';
 import { lockTrader, traderClientCommand } from '@inrp2p/trader-core';
@@ -304,6 +304,8 @@ export function requestNetworkWithdrawal(actor: ClientActor) {
     const trader = await lockTrader(ctx, traderRow.id);
     const amount = parseTrx(p.amount);
     if (amount <= 0n) throw new DomainError('INVALID_AMOUNT', 'a withdrawal must be positive');
+    // ADR 0026: what leaves the platform is confirmed again, by a factor other than the one that opened this session.
+    await requireConfirmation(ctx.tx, actor.sessionId, 'INDEPENDENT', 'WITHDRAWAL');
     const open = await ctx.tx.selectFrom('network_deposit_withdrawal').select('ref').where('trader_id', '=', trader.id).where('status', 'in', ['REQUESTED', 'APPROVED']).executeTakeFirst();
     if (open) throw new DomainError('NETWORK_WITHDRAWAL_OPEN', `withdrawal ${open.ref} is still open`);
     const wallet = await ctx.tx.selectFrom('crypto_wallet').select(['address', 'status']).where('id', '=', trader.wallet_id).executeTakeFirstOrThrow();

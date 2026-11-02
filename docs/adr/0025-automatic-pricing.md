@@ -1,9 +1,8 @@
 # ADR 0025 — Automatic prices and the choice of trader on the INRP2P exchange
 
 Status: **Accepted** — owner request of 2026-10-31. Builds on ADR 0019 (P2P escrow), ADR 0020 (desks), ADR 0022
-(GasFree). Migration `0043`, schema 43. Nothing of the escrow, the ledger, GasFree, the desks or their 0.25% / 0.6% fee
-changes. (ADR 0024 and migration 0043 are also used by the unmerged `claude/onboarding-risk` and PR #21: whichever lands
-second renumbers its migration.)
+(GasFree). Migration `0045`, schema 45. Nothing of the escrow, the ledger, GasFree, the desks or their 0.25% / 0.6% fee
+changes.
 
 ## 1. Context
 
@@ -42,18 +41,20 @@ elasticity, mark-up or market figure is assumed (`@inrp2p/pricing` `choosePrice`
 
 ### 2.2 Firm offers
 A trader makes a side's offer **firm** for 1 hour to 7 days (`trader.update_block` `firmHours`; `instant_until`,
-`instant_set_by` — the member whose commitment it is; IX140): INRP2P then opens and accepts orders at its rate, within its
+`instant_set_by` — the member whose commitment it is; IX142): INRP2P then opens and accepts orders at its rate, within its
 own order size and capacity and INRP2P's ceilings, without asking it each time — as a desk's live price already does
 (ADR 0020). Pausing the side or going offline ends it; the trader's standing (approved, reserve funded, destinations
-active, online, assignments on) is checked under its lock. A side also names the INR **rails** it pays or is paid by; a
-trader is only priced on for amounts some of its rails can carry.
+active, online, assignments on) is checked under its lock, and so are the limits its own reserve sets at its level (ADR
+0024): the trader's USDT in the deal never exceeds its largest deal nor what its open deals leave of its limit — weighed in
+the choice and checked again under the lock (`riskFit`), as routing, acceptance and desk deals do. A side also names the
+INR **rails** it pays or is paid by; a trader is only priced on for amounts some of its rails can carry.
 
 ### 2.3 The firm price
 One transaction (`autoPriceLockedInTx`): every trader a price could go to — and every trader whose order closes because
 the client asked again — is locked first (request → quote → traders → orders → blocks), so nothing can hold capacity twice;
 the chosen trader's order is opened, its capacity checked again under the block's lock and held until a minute after the
 quote can no longer be accepted; the trader's rate is published as the route's snapshot; the quote is created at the chosen
-client price with its frozen network terms, the decision recorded (`auto_quote`, IX137) and the quote sent for **60
+client price with its frozen network terms, the decision recorded (`auto_quote`, IX139) and the quote sent for **60
 seconds**. Acceptance is the ordinary `quote.accept`: it opens the trade and starts the order. Nothing about the price, the
 trader or the economics changes after that (FI-03, IX045, IX073, IX075).
 
@@ -63,8 +64,8 @@ step. A price that ran out is asked for again in one tap (`request.reprice`).
 ### 2.4 Larger amounts: a price request to several traders
 When no firm offer takes the amount and price requests are on (`pricing_policy.rfq`), the request is put to up to
 `rfq_max_traders` traders in standing whose side is active and whose INRP2P ceilings allow it, the likeliest to complete
-first, for `rfq_window_seconds` (`rfq`, `rfq_invite`, IX138). Each sees the side, the amount and when it closes — never who
-asks — and bids one rate for the whole amount (`rfq.bid`; a new bid replaces the old one; none after it closes, IX139).
+first, for `rfq_window_seconds` (`rfq`, `rfq_invite`, IX140). Each sees the side, the amount and when it closes — never who
+asks — and bids one rate for the whole amount (`rfq.bid`; a new bid replaces the old one; none after it closes, IX141).
 When every trader asked has bid, or the time is up, the bids are priced exactly as firm offers (INRP2P's ceilings and free
 capacity, the market bound, the minimum net margin), and the best becomes the client's 60-second firm price; the others
 lose. No bid that prices honestly — the request goes to a person. The client is told only that the best price for its
