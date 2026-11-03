@@ -306,7 +306,7 @@ describe('P&L, reconciliation and SLA (FI-43, FI-44, FI-64)', () => {
     const trade = await exchangeTrade({ baseUsdt: '100' });
     const leg = await payoutLeg(trade.tradeId, '10200.00', { confirm: false });
     expect(await routeObligationMismatches(w.app)).toEqual([]);
-    expect(await runReconciliation(w.t.worker)).toEqual({ routeMismatches: 0, currencyImbalances: [] });
+    expect(await runReconciliation(w.t.worker)).toEqual({ routeMismatches: 0, currencyImbalances: [], failures: [] });
 
     await sql`update settlement_leg set sent_at = inrp2p_now() - interval '4 hours' where id = ${leg.legId}`.execute(w.t.owner);
     const swept = await runSettlementSla(w.t.worker, { payoutMinutes: 120, obligationHours: 48 });

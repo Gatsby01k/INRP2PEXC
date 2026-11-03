@@ -17,7 +17,11 @@ function systemCommand<R>(db: Db, name: string, fn: Parameters<typeof executeCom
 export interface ReconciliationReport {
   readonly routeMismatches: number;
   readonly currencyImbalances: readonly string[];
+  /** Cases that could not be opened this run: each is tried again next run, never in front of the others. */
+  readonly failures: readonly { readonly subjectId: string; readonly message: string }[];
 }
+
+const failureOf = (subjectId: string, e: unknown) => ({ subjectId, message: (e instanceof Error ? e.message : String(e)).slice(0, 300) });
 
 /**
  * Nightly reconciliation (FI-44, FI-64): the ledger must balance globally per currency, and every open route
@@ -26,24 +30,30 @@ export interface ReconciliationReport {
 export async function runReconciliation(db: Db): Promise<ReconciliationReport> {
   const imbalance = await globalImbalance(db);
   const mismatches = await routeObligationMismatches(db);
-  if (mismatches.length) {
-    await systemCommand(db, 'reconcile.route_obligations', async (ctx) => {
-      for (const m of mismatches) {
+  // One case per step: an obligation whose case cannot be opened never keeps the others from theirs.
+  const failures: { subjectId: string; message: string }[] = [];
+  for (const m of mismatches) {
+    try {
+      await systemCommand(db, 'reconcile.route_obligation', async (ctx) => {
         const o = await ctx.tx.selectFrom('route_obligation').select('trade_id').where('id', '=', m.routeObligationId).executeTakeFirst();
         if (o?.trade_id) await lockTrade(ctx.tx, o.trade_id);
         await openExceptionInTx(ctx, {
           type: 'RECONCILIATION_MISMATCH', subjectType: 'ROUTE_OBLIGATION', subjectId: m.routeObligationId, tradeId: o?.trade_id ?? null,
           details: { side: m.side, remaining: m.remaining, ledger: m.ledger },
         });
-      }
-      return mismatches.length;
-    });
+      });
+    } catch (e) {
+      failures.push(failureOf(m.routeObligationId, e));
+    }
   }
-  return { routeMismatches: mismatches.length, currencyImbalances: imbalance.map((i) => `${i.currency}:${i.net}`) };
+  return { routeMismatches: mismatches.length, currencyImbalances: imbalance.map((i) => `${i.currency}:${i.net}`), failures };
 }
 
 /** SLA sweep: payouts that have been in flight too long, and route obligations older than the route's SLA. */
-export async function runSettlementSla(db: Db, opts: { payoutMinutes?: number; obligationHours?: number } = {}): Promise<{ delayedPayouts: number; overdueObligations: number }> {
+export async function runSettlementSla(
+  db: Db,
+  opts: { payoutMinutes?: number; obligationHours?: number } = {},
+): Promise<{ delayedPayouts: number; overdueObligations: number; failures: readonly { readonly subjectId: string; readonly message: string }[] }> {
   const payoutMinutes = opts.payoutMinutes ?? 120;
   const obligationHours = opts.obligationHours ?? 48;
   const legs = await sql<{ id: string; trade_id: string }>`
@@ -58,18 +68,27 @@ export async function runSettlementSla(db: Db, opts: { payoutMinutes?: number; o
       and o.opened_at <= inrp2p_now() - make_interval(hours => ${obligationHours})
       and not exists (select 1 from exception_case e where e.type = 'ROUTE_OBLIGATION_OVERDUE' and e.subject_id = o.id and e.status in ('OPEN', 'IN_PROGRESS'))
     order by o.opened_at limit 200`.execute(db);
-  if (legs.rows.length === 0 && obligations.rows.length === 0) return { delayedPayouts: 0, overdueObligations: 0 };
-
-  await systemCommand(db, 'settlement.sla_sweep', async (ctx) => {
-    for (const l of legs.rows) {
-      await lockTrade(ctx.tx, l.trade_id);
-      await openExceptionInTx(ctx, { type: 'INR_PAYOUT_DELAYED', subjectType: 'SETTLEMENT_LEG', subjectId: l.id, tradeId: l.trade_id, details: { sla_minutes: payoutMinutes } });
+  // One case per step, each under its own trade's lock: one that cannot be opened never keeps the others from theirs.
+  const failures: { subjectId: string; message: string }[] = [];
+  for (const l of legs.rows) {
+    try {
+      await systemCommand(db, 'settlement.sla_payout', async (ctx) => {
+        await lockTrade(ctx.tx, l.trade_id);
+        await openExceptionInTx(ctx, { type: 'INR_PAYOUT_DELAYED', subjectType: 'SETTLEMENT_LEG', subjectId: l.id, tradeId: l.trade_id, details: { sla_minutes: payoutMinutes } });
+      });
+    } catch (e) {
+      failures.push(failureOf(l.id, e));
     }
-    for (const o of obligations.rows) {
-      if (o.trade_id) await lockTrade(ctx.tx, o.trade_id);
-      await openExceptionInTx(ctx, { type: 'ROUTE_OBLIGATION_OVERDUE', subjectType: 'ROUTE_OBLIGATION', subjectId: o.id, tradeId: o.trade_id, details: { sla_hours: obligationHours } });
+  }
+  for (const o of obligations.rows) {
+    try {
+      await systemCommand(db, 'settlement.sla_obligation', async (ctx) => {
+        if (o.trade_id) await lockTrade(ctx.tx, o.trade_id);
+        await openExceptionInTx(ctx, { type: 'ROUTE_OBLIGATION_OVERDUE', subjectType: 'ROUTE_OBLIGATION', subjectId: o.id, tradeId: o.trade_id, details: { sla_hours: obligationHours } });
+      });
+    } catch (e) {
+      failures.push(failureOf(o.id, e));
     }
-    return legs.rows.length + obligations.rows.length;
-  });
-  return { delayedPayouts: legs.rows.length, overdueObligations: obligations.rows.length };
+  }
+  return { delayedPayouts: legs.rows.length, overdueObligations: obligations.rows.length, failures };
 }

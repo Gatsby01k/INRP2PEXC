@@ -76,12 +76,14 @@ export function buildTaskList(
     await runExpirySweep(db, opts.policy ? { policy: opts.policy } : {});
   };
   // FI-44 / FI-64: the ledger balances globally and every open obligation matches its ledger lines.
-  const reconcile: Task = async () => {
-    await runReconciliation(db);
+  const reconcile: Task = async (_payload, helpers) => {
+    const out = await runReconciliation(db);
+    for (const f of out.failures) helpers.logger.error(`reconcile: case for ${f.subjectId} not opened: ${f.message}`);
   };
   // SLA sweep: payouts in flight too long and route obligations past their SLA become desk cases.
-  const settlementSla: Task = async () => {
-    await runSettlementSla(db);
+  const settlementSla: Task = async (_payload, helpers) => {
+    const out = await runSettlementSla(db);
+    for (const f of out.failures) helpers.logger.error(`settlement_sla: case for ${f.subjectId} not opened: ${f.message}`);
   };
   // ADR 0018: a BUY whose client neither paid nor said so within the payment window is cancelled, as the desk would.
   const inrPaymentExpiry: Task = async (_payload, helpers) => {
