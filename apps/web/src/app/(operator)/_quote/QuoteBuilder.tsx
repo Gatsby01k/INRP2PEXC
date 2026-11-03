@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Money, Rate, computeTradeEconomics, formatTrx, trxToInrMinor } from '@inrp2p/kernel';
+import { Money, Rate, computeTradeEconomics, formatTrx, trxToInrMinor, usdtToInr } from '@inrp2p/kernel';
 import type { DeskRequest, QuoteRouteOption } from '@inrp2p/desk';
 import { Button, CopyButton } from '@inrp2p/ui';
 import { createAndSendQuoteAction, declineRequestAction, withdrawRequestAction } from '../../../server/actions/desk.ts';
@@ -50,7 +50,7 @@ export function QuoteBuilder({ request, perms, linkBase, autoFocus = false }: { 
   const traderLive = request.trader?.live;
   const traderOption: QuoteRouteOption | null =
     traderLive && traderLive.status === 'ACCEPTED' && request.trader?.liveRouteId
-      ? { routeId: request.trader.liveRouteId, name: `Trader ${request.trader.liveTraderRef ?? ''} (accepted)`, executionMode: 'TO_EXCHANGE', rate: traderLive.rate, publishedAt: traderLive.startedAt, stale: false }
+      ? { routeId: request.trader.liveRouteId, name: `Trader ${request.trader.liveTraderRef ?? ''} (accepted)`, executionMode: request.trader.liveRouteP2p ? 'P2P' : 'TO_EXCHANGE', rate: traderLive.rate, publishedAt: traderLive.startedAt, stale: false }
       : null;
   const routes = [...(traderOption ? [traderOption] : []), ...(request.routes ?? [])];
   const usable = routes.filter((r) => r.rate !== null);
@@ -78,16 +78,35 @@ export function QuoteBuilder({ request, perms, linkBase, autoFocus = false }: { 
     }
   }, [clientRate, route?.rate, request.amount, request.direction, request.fixedSide]);
 
-  // ADR 0017 §1: the client's rate also pays the trader's reward and the network fee of the trade's transfer, valued at
-  // this rate with the kernel's own function — the command refuses a quote that leaves less than the minimum.
+  // What the client's rate must also pay, as the command prices it — the command refuses a quote that leaves less than
+  // the minimum. A P2P deal (ADR 0019) counts no reward: on GasFree (ADR 0022) its network is the USDT the deal carries
+  // out of INRP2P's margin; on TRX its trader's deposit pays it. Any other route pays the trader's reward and the TRX of
+  // its transfer (ADR 0017 §1), valued at this rate with the kernel's own function.
+  const p2p = route?.executionMode === 'P2P';
+  const network = request.network ?? null;
   const net = useMemo(() => {
-    if (!preview || !request.network) return null;
-    const fee = trxToInrMinor(BigInt(request.network.feeSun), BigInt(request.network.usdtPerTrxMicro), Rate.parse(clientRate, 'CLIENT').micro, 'UP');
-    const reward = traderOption !== null && routeId === traderOption.routeId && request.network.liveRewardMinor !== null ? BigInt(request.network.liveRewardMinor) : 0n;
+    if (!preview || !network) return null;
+    const rate = Rate.parse(clientRate, 'CLIENT');
+    let fee: bigint;
+    let feeLabel: string;
+    if (p2p && network.resourceMode === 'GASFREE') {
+      if (network.gasFreeAllowanceUsdtMinor === null) return null;
+      const allowance = Money.ofMinor(BigInt(network.gasFreeAllowanceUsdtMinor), 'USDT');
+      fee = usdtToInr(allowance, rate, 'UP').minor;
+      feeLabel = `${allowance.toDecimalString().replace(/\.?0+$/, '')} USDT, GasFree`;
+    } else if (p2p) {
+      fee = 0n;
+      feeLabel = 'the trader’s TRX deposit';
+    } else {
+      if (!network.trx) return null;
+      fee = trxToInrMinor(BigInt(network.trx.feeSun), BigInt(network.trx.usdtPerTrxMicro), rate.micro, 'UP');
+      feeLabel = `${formatTrx(BigInt(network.trx.feeSun)).replace(/\.?0+$/, '')} TRX`;
+    }
+    const reward = !p2p && traderOption !== null && routeId === traderOption.routeId && network.liveRewardMinor !== null ? BigInt(network.liveRewardMinor) : 0n;
     const netMinor = preview.grossMargin.minor - reward - fee;
-    const min = BigInt(request.network.minNetMarginMinor);
-    return { fee, reward, netMinor, min, short: min - netMinor };
-  }, [preview, request.network, clientRate, traderOption, routeId]);
+    const min = BigInt(network.minNetMarginMinor);
+    return { fee, feeLabel, reward, netMinor, min, short: min - netMinor };
+  }, [preview, network, p2p, clientRate, traderOption, routeId]);
   const negative = preview?.grossMargin.isNegative() ?? false;
   const unprofitable = net !== null && net.netMinor < net.min;
   const counter = request.targetRate !== null && preview !== null && Rate.parse(clientRate, 'CLIENT').micro !== Rate.parse(request.targetRate, 'CLIENT').micro;
@@ -199,13 +218,13 @@ export function QuoteBuilder({ request, perms, linkBase, autoFocus = false }: { 
                 <span className={t.econValue}>{inr(preview.grossMargin.toDecimalString(), { sign: true })}</span>
                 <span className={t.econSub}>computed, not typed</span>
               </div>
-              {net && request.network ? (
+              {net ? (
                 <>
                   <div className={t.econItem}>
                     <span className={t.econLabel}>Reward + network</span>
                     <span className={t.econValue}>{inr(Money.ofMinor(-(net.reward + net.fee), 'INR').toDecimalString(), { sign: true })}</span>
                     <span className={t.econSub}>
-                      {net.reward > 0n ? `reward ${inr(Money.ofMinor(net.reward, 'INR').toDecimalString())} · ` : ''}network {inr(Money.ofMinor(net.fee, 'INR').toDecimalString())} ({formatTrx(BigInt(request.network.feeSun)).replace(/\.?0+$/, '')} TRX)
+                      {net.reward > 0n ? `reward ${inr(Money.ofMinor(net.reward, 'INR').toDecimalString())} · ` : ''}network {inr(Money.ofMinor(net.fee, 'INR').toDecimalString())} ({net.feeLabel})
                     </span>
                   </div>
                   <div className={t.econItem} data-kind="margin" {...(unprofitable ? { 'data-negative': '' } : {})}>
@@ -220,9 +239,11 @@ export function QuoteBuilder({ request, perms, linkBase, autoFocus = false }: { 
             <Notice>Enter a client rate to see what the client gets and what the desk makes.</Notice>
           )}
 
-          {preview && !request.network ? (
+          {preview && !net ? (
             <Notice tone="danger" role="alert">
-              The exchange has no current TRON fee figures or TRX price, so no quote can carry its network fee. Publish the TRX price on Network; the worker refreshes fees every 10 minutes.
+              {p2p && network?.resourceMode === 'GASFREE'
+                ? 'GasFree’s fees were not read within the hour, so no P2P quote can carry its network. The worker reads them every 10 minutes (RUNBOOKS gasfree).'
+                : 'The exchange has no current TRON fee figures or TRX price, so no quote can carry its network fee. Publish the TRX price on Network; the worker refreshes fees every 10 minutes.'}
             </Notice>
           ) : unprofitable && net ? (
             <div className={d.guard} data-tone="danger">

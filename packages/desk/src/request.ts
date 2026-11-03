@@ -1,7 +1,7 @@
 import { DomainError, Money, requireUuid } from '@inrp2p/kernel';
 import type { DirectionValue, Executor, FixedSideValue } from '@inrp2p/db';
 import { currentRouteRate } from '@inrp2p/pricing';
-import { currentNetworkCosts, quoteFeeSun } from '@inrp2p/network';
+import { currentNetworkCosts, networkFeePolicy, quoteFeeSun, usdtNetworkTerms } from '@inrp2p/network';
 import { type DeskOrderRow, orderRewardTerms, requestTraderOrders } from '@inrp2p/traders';
 import type { DeskAccess } from './access.ts';
 import { microToDecimal } from './strip.ts';
@@ -41,15 +41,24 @@ export interface DeskRequest {
     readonly live: DeskOrderRow | null;
     readonly liveTraderRef: string | null;
     readonly liveRouteId: string | null;
+    /** The live order's route settles P2P (ADR 0019): the trader's own deal, no reward, its network not the desk's TRX. */
+    readonly liveRouteP2p: boolean;
     readonly history: readonly (DeskOrderRow & { readonly traderRef: string })[];
   };
   /**
-   * What a quote's price must also carry (ADR 0017 §1): the network fee of its transfer in TRX and the TRX price it is
-   * valued at, the minimum net margin, and the live trader order's reward. The builder values the fee at the rate being
-   * typed with the kernel's own function, as the command does. Null while the exchange has no current fee figures:
-   * no quote can be sent then.
+   * What a quote's price must also carry: the minimum net margin, the live trader order's reward, and its network —
+   * in TRX for a transfer still paid in TRX (`trx`, ADR 0017 §1: the fee and the TRX price it is valued at, null while
+   * either is not current), or on GasFree (ADR 0022) the USDT a P2P deal carries out of INRP2P's margin
+   * (`gasFreeAllowanceUsdtMinor`, null when its fees are not current). The builder values them at the rate being typed
+   * with the kernel's own functions, as the command does.
    */
-  readonly network?: { readonly feeSun: string; readonly usdtPerTrxMicro: string; readonly minNetMarginMinor: string; readonly liveRewardMinor: string | null } | null;
+  readonly network?: {
+    readonly trx: { readonly feeSun: string; readonly usdtPerTrxMicro: string } | null;
+    readonly gasFreeAllowanceUsdtMinor: string | null;
+    readonly resourceMode: 'BURN' | 'GASFREE';
+    readonly minNetMarginMinor: string;
+    readonly liveRewardMinor: string | null;
+  } | null;
 }
 
 /**
@@ -113,14 +122,28 @@ export async function deskRequest(ex: Executor, requestId: string, access: DeskA
   }
   const trader = await requestTraderOrders(ex, row.id);
   const liveRoute = trader.live ? await ex.selectFrom('trader_order').select('route_id').where('id', '=', trader.live.orderId).executeTakeFirst() : undefined;
-  let network: DeskRequest['network'] = null;
+  const fees = await networkFeePolicy(ex);
+  const unknown = (e: unknown) => e instanceof DomainError && e.code === 'NETWORK_FEES_UNKNOWN';
+  let trx: NonNullable<DeskRequest['network']>['trx'] = null;
   try {
     const { policy, snapshot, rate } = await currentNetworkCosts(ex);
-    const reward = trader.live && trader.live.status === 'ACCEPTED' ? (await orderRewardTerms(ex, trader.live.orderId)).rewardMinor : null;
-    network = { feeSun: quoteFeeSun(snapshot, policy).toString(), usdtPerTrxMicro: rate.usdtPerTrxMicro.toString(), minNetMarginMinor: policy.minNetMarginInrMinor.toString(), liveRewardMinor: reward === null ? null : reward.toString() };
+    trx = { feeSun: quoteFeeSun(snapshot, policy).toString(), usdtPerTrxMicro: rate.usdtPerTrxMicro.toString() };
   } catch (e) {
-    if (!(e instanceof DomainError) || e.code !== 'NETWORK_FEES_UNKNOWN') throw e;
+    if (!unknown(e)) throw e;
   }
+  let gasFreeAllowance: string | null = null;
+  if (fees.resourceMode === 'GASFREE') {
+    try {
+      gasFreeAllowance = (await usdtNetworkTerms(ex, { funderTraderId: null })).allowanceUsdtMinor.toString();
+    } catch (e) {
+      if (!unknown(e)) throw e;
+    }
+  }
+  const reward = trader.live && trader.live.status === 'ACCEPTED' ? (await orderRewardTerms(ex, trader.live.orderId)).rewardMinor : null;
+  const network: DeskRequest['network'] = {
+    trx, gasFreeAllowanceUsdtMinor: gasFreeAllowance, resourceMode: fees.resourceMode, minNetMarginMinor: fees.minNetMarginInrMinor.toString(), liveRewardMinor: reward === null ? null : reward.toString(),
+  };
+  const liveRouteMode = liveRoute ? (await ex.selectFrom('liquidity_route').select('execution_mode').where('id', '=', liveRoute.route_id).executeTakeFirst())?.execution_mode : undefined;
   return {
     ...base,
     network,
@@ -129,6 +152,7 @@ export async function deskRequest(ex: Executor, requestId: string, access: DeskA
       live: trader.live,
       liveTraderRef: trader.live ? (trader.traderRefs[trader.live.orderId] ?? null) : null,
       liveRouteId: liveRoute?.route_id ?? null,
+      liveRouteP2p: liveRouteMode === 'P2P',
       history: trader.history.map((h) => ({ ...h, traderRef: trader.traderRefs[h.orderId] ?? '' })),
     },
   };

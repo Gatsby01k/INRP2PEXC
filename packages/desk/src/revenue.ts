@@ -51,7 +51,8 @@ export interface RevenueReport {
     readonly reclaimedToTradersTrx: string;
     readonly platformAvailableTrx: string;
   };
-  readonly policy: { readonly enabled: boolean; readonly minUsdt: string; readonly reclaimMinTrx: string };
+  /** `gasFree`: deals pay their network in USDT through GasFree (ADR 0022) — a sweep is a permit, nothing of it is TRX. */
+  readonly policy: { readonly enabled: boolean; readonly minUsdt: string; readonly reclaimMinTrx: string; readonly gasFree: boolean };
   readonly sweeps: readonly RevenueSweep[];
   readonly desks: readonly RevenueDesk[];
 }
@@ -137,7 +138,7 @@ export async function revenueReport(ex: Executor, period: PnlPeriod): Promise<Re
       sweepCostTrx: formatTrx(BigInt(trx.rows[0]!.cost)), reclaimedTrx: formatTrx(BigInt(trx.rows[0]!.reclaimed)),
       reclaimedToTradersTrx: formatTrx(BigInt(trx.rows[0]!.traders)), platformAvailableTrx: formatTrx(platform.availableSun > 0n ? platform.availableSun : 0n),
     },
-    policy: { enabled: fees.feeSweepEnabled, minUsdt: usdt(fees.feeSweepMinUsdtMinor), reclaimMinTrx: formatTrx(fees.trxReclaimMinSun) },
+    policy: { enabled: fees.feeSweepEnabled, minUsdt: usdt(fees.feeSweepMinUsdtMinor), reclaimMinTrx: formatTrx(fees.trxReclaimMinSun), gasFree: fees.resourceMode === 'GASFREE' },
     sweeps: sweeps.rows.map((s) => ({
       ref: s.ref, address: s.from_address, amount: usdt(s.amount_minor), status: s.status, blockedReason: s.blocked_reason, txid: s.txid,
       at: s.created_at.toISOString(), closedAt: s.closed_at?.toISOString() ?? null,

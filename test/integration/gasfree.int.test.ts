@@ -9,9 +9,10 @@ import { gasFreeAddressOf } from '@inrp2p/adapters';
 import { globalImbalance } from '@inrp2p/ledger';
 import { setNetworkFeePolicy } from '@inrp2p/network';
 import { acceptQuote, createRequest, quoteDeskDealInTx } from '@inrp2p/quotes';
+import { runGasFreeFeeRefresh } from '@inrp2p/onchain';
 import { claimIncomingFiat, confirmClientReceipt, raiseChainSendCap, runP2pDeadlines } from '@inrp2p/settlement';
 import { attachDeskClientInTx, configureTraderProgram } from '@inrp2p/trader-core';
-import { confirmOrderPaymentReceived, openDesk, orderDeliveryAddress, setDeskPrices, setDeskStatus, submitOrderPayment } from '@inrp2p/traders';
+import { assignRequest, confirmOrderPaymentReceived, openDesk, orderDeliveryAddress, setDeskPrices, setDeskStatus, submitOrderPayment } from '@inrp2p/traders';
 import { registerTreasuryWallet } from '@inrp2p/treasury';
 import { CLIENT_SENDER, balanceOf, settleFirstLeg } from '../../packages/settlement/test/world.ts';
 import { confirmOnChain, sendUsdt, utr } from './traders-world.ts';
@@ -297,5 +298,23 @@ describe('what the database refuses', () => {
       await clock.set(null);
     }
     await set({ resourceMode: 'GASFREE' });
+  });
+});
+
+describe('on GasFree, TRX does not decide anything', () => {
+  it('routes a P2P request to a trader while the TRX price and the chain’s TRX fees are stale — they price nothing here', async () => {
+    // Three days and an hour on: the TRX price and the chain's fee reading are past their limits; GasFree's fees, read
+    // again now, are current.
+    const clock = await w.t.pinnedClock();
+    await clock.set(new Date(Date.now() + (72 + 1) * 3600_000));
+    await runGasFreeFeeRefresh(clock.db, w.rails);
+    const request = await runAs(clock.db, createRequest(w.dealer.actor, {}), w.dealer.ref, 'request.create', {
+      clientId: w.clientId, direction: 'SELL_USDT' as const, fixedSide: 'BASE' as const, amount: '200', bankAccountId: w.bankAccountId,
+    });
+    const assigned = await runAs(clock.db, assignRequest(w.dealer.actor), w.dealer.ref, 'trader_order.assign', { requestId: request.requestId, plannedClientRate: '100.500000' });
+    expect(assigned).toMatchObject({ ref: expect.stringMatching(/^TO-/) });
+    const order = await w.app.selectFrom('trader_order').select(['trader_id', 'status']).where('ref', '=', (assigned as { ref: string }).ref).executeTakeFirstOrThrow();
+    expect(order).toMatchObject({ trader_id: desk.traderId, status: 'OFFERED' });
+    await clock.set(null);
   });
 });

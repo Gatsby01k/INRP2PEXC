@@ -114,9 +114,12 @@ export function RevenueScreen({ report, addresses, perms }: { report: RevenueRep
 
       <Section
         title="Sweeping"
-        hint={report.policy.enabled ? `An address no deal uses is swept once it holds ${usdt(report.policy.minUsdt)} of earnings, with the platform’s TRX.` : 'Off: earnings stay at their deal addresses.'}
+        hint={report.policy.enabled
+          ? `An address no deal uses is swept once it holds ${usdt(report.policy.minUsdt)} of earnings${report.policy.gasFree ? ', by a GasFree permit whose fee comes out of what it holds.' : ', with the platform’s TRX.'}`
+          : 'Off: earnings stay at their deal addresses.'}
         actions={perms.policy ? <SweepPolicy policy={report.policy} /> : null}
       >
+        {report.policy.gasFree ? null : (
         <KpiBand
           label="What sweeping costs"
           items={[
@@ -128,6 +131,7 @@ export function RevenueScreen({ report, addresses, perms }: { report: RevenueRep
             },
           ]}
         />
+        )}
         {addresses.length === 0 ? (
           <Empty title="Nothing at the deal addresses" body="No completed deal has left earnings to sweep." />
         ) : (
@@ -201,7 +205,7 @@ function SweepPolicy({ policy }: { policy: RevenueReport['policy'] }) {
           <span className={r.policyForm}>
             <Checkbox checked={enabled} onChange={setEnabled} label="Sweep earnings automatically" />
             <TextField label="Sweep an address from (USDT)" value={min} onChange={setMin} mono maxLength={12} />
-            <TextField label="Reclaim TRX from (TRX)" value={reclaim} onChange={setReclaim} mono maxLength={8} />
+            {policy.gasFree ? null : <TextField label="Reclaim TRX from (TRX)" value={reclaim} onChange={setReclaim} mono maxLength={8} />}
           </span>
         }
         reasonLabel="Why"

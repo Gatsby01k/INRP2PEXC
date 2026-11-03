@@ -285,7 +285,7 @@ export const HEALTH_CHECKS: readonly HealthCheckDefinition[] = Object.freeze([
     alarm: 237_600,
     unit: 'seconds',
     runbook: 'network-fees-stale',
-    why: 'Every quote carries the network fee of its transfer, valued at the TRX price the desk publishes (ADR 0017). After 72 hours without a new price no quote is sent at all; this wakes someone six hours before.',
+    why: 'A quote paid in TRX carries its transfer’s fee at the TRX price the desk publishes (ADR 0017); 72 hours without a new price stops such quotes. Not checked on GasFree.',
     group: 'money',
   },
   {
@@ -505,8 +505,10 @@ export async function systemHealth(ex: Executor): Promise<SystemHealth> {
                    then 1 else 0 end
          from (select resource_mode, gasfree_fee_max_age_seconds from network_fee_policy order by set_at desc, id desc limit 1) p)::text as gasfree_fees_stale,
       (select count(*) from gasfree_permit where status in ('SIGNED', 'SUBMITTED') and signed_at < inrp2p_now() - make_interval(mins => 30))::text as gasfree_permits_stuck,
-      -- Only once the exchange's own rails exist: before that no quote depends on a TRX price.
+      -- Only once the exchange's own rails exist, and only while deals pay their network in TRX: before the rails, and on
+      -- GasFree (ADR 0022), no quote depends on a TRX price.
       (case when exists (select 1 from custody_hd_account)
+             and (select resource_mode from network_fee_policy order by set_at desc, id desc limit 1) is distinct from 'GASFREE'
             then coalesce((select extract(epoch from (inrp2p_now() - max(effective_at)))::bigint from network_trx_rate), 999999)
             else 0 end)::text as trx_price_age_seconds,
       inrp2p_now() as checked_at`.execute(ex);
