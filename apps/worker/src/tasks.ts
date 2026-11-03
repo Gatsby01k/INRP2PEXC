@@ -214,10 +214,11 @@ export function buildTaskList(
   };
   // ADR 0025: price requests to several traders whose time is up (or whose traders all bid) are awarded or closed.
   const rfqSweep: Task = async (_payload, helpers) => {
-    const out = await runRfqSweep(db);
+    const { failures, ...out } = await runRfqSweep(db);
+    for (const f of failures) helpers.logger.error(`rfq_sweep: ${f.rfqId} not awarded: ${f.code}: ${f.message}`);
     if (out.AWARDED + out.NO_PRICE + out.CANCELLED > 0) helpers.logger.info(`rfq_sweep: ${JSON.stringify(out)}`);
   };
-  // ADR 0020 §2.14: a trader's P2P step due within ten minutes  // ADR 0020 §2.14: a trader's P2P step due within ten minutes is told once to its linked chats. Each order is its own
+  // ADR 0020 §2.14: a trader's P2P step due within ten minutes is told once to its linked chats. Each order is its own
   // attempt: one that cannot be sent now is tried again on the next minute, under the same key, and sent once.
   const telegramDeadlines: Task = async (_payload, helpers) => {
     const telegram = opts.telegram;
