@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { RESERVED_DESK_HANDLES } from '@inrp2p/kernel';
-import { DESK_PAGE_PREFIX, PUBLIC_HOME_PATH, deskHandleOfPath, gateFor, isDeskPagePath, safeReturnPath, surfaceForHost } from '../src/server/surface.ts';
+import { DESK_PAGE_PREFIX, MARKET_RATE_PATH, PUBLIC_HOME_PATH, deskHandleOfPath, gateFor, isDeskPagePath, safeReturnPath, surfaceForHost } from '../src/server/surface.ts';
 import { SITE_PATHS } from '../src/content/site.ts';
 
 const hosts = { deskHost: 'desk.inrp2p.com', appHost: 'app.inrp2p.com', publicHost: 'inrp2p.com' };
@@ -54,6 +54,13 @@ describe('proxy gating', () => {
     }
     expect(gateFor('PUBLIC', '/become-a-trader')).toBe('CLIENT_SESSION');
     expect(gateFor('OPERATOR', '/become-a-trader')).toBe('OPERATOR_SESSION');
+  });
+
+  it('publishes the market rate the home page estimates with on the public host only (ADR 0025)', () => {
+    expect(gateFor('PUBLIC', MARKET_RATE_PATH)).toBe('PUBLIC');
+    expect(gateFor('CLIENT', MARKET_RATE_PATH)).toBe('CLIENT_SESSION');
+    expect(gateFor('OPERATOR', MARKET_RATE_PATH)).toBe('OPERATOR_SESSION');
+    expect(gateFor('PUBLIC', `${MARKET_RATE_PATH}/x`)).toBe('CLIENT_SESSION');
   });
 
   it('publishes the quote link on the public host (D-01)', () => {

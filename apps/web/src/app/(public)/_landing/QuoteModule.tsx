@@ -9,6 +9,8 @@ import { Coin } from '../../../components/Coin.tsx';
 import { ONBOARDING, type QuoteModuleCopy } from '../../../content/site.ts';
 import { ArrowIcon, PointIcon } from './icons.tsx';
 import { requestHref } from './request.ts';
+import { marketEstimate } from './estimate.ts';
+import { MARKET_RATE_PATH } from '../../../server/surface.ts';
 import { INITIAL_DIRECTION, robotCues } from './robot/cues.ts';
 import styles from './quote.module.css';
 
@@ -17,10 +19,11 @@ import styles from './quote.module.css';
  * them that turns the deal round — the two sides change places — and the escrow's promise for that direction under
  * them. It is the page's one primary action, and the only place on the page where a direction is chosen.
  *
- * It prints no rate and no converted amount: the desk prices a trade, and a figure computed here would be a price
- * nobody offered, so the rupee side says what the price will be. "Get a firm price" opens the client app's Exchange
- * screen with the direction and amount already chosen — or, with no amount yet, keeps the visitor here and asks for
- * one next to the field.
+ * The rupee side is an estimate at the market's own rate (ADR 0025's reference, read after the page is shown and cached at
+ * the edge), marked as one and named as the market's — never a price INRP2P offers: that is the firm price the next
+ * step gives. Without a fresh market rate it says what the price will be instead. "Get a firm price" opens the client
+ * app's Exchange screen with the direction and amount already chosen — or, with no amount yet, keeps the visitor here
+ * and asks for one next to the field.
  */
 
 /** Whole-USDT amounts offered as shortcuts. A typed amount is never rounded towards them. */
@@ -45,6 +48,22 @@ export function QuoteModule({ appOrigin, onboarding, copy }: { appOrigin: string
   const errorId = useId();
   const [direction, setDirection] = useState<Direction>(INITIAL_DIRECTION);
   const [amount, setAmount] = useState<string>(INITIAL_AMOUNT);
+
+  // The market's rate, once the page is shown: the HTML reads no database, and a missing or stale rate leaves the words.
+  const [market, setMarket] = useState<Record<Direction, string | null> | null>(null);
+  useEffect(() => {
+    let live = true;
+    fetch(MARKET_RATE_PATH, { headers: { accept: 'application/json' } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((rates: Record<Direction, string | null> | null) => {
+        if (live && rates) setMarket(rates);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, []);
+  const estimate = marketEstimate(amount, market?.[direction] ?? null);
 
   // The robot hears about real changes to the request and nothing else: a value, a direction, and whether the
   // visitor is on the call to action (hovered or focused — pointer and keyboard count the same). Browsing the
@@ -155,7 +174,16 @@ export function QuoteModule({ appOrigin, onboarding, copy }: { appOrigin: string
     <m.div key="inr" layout transition={SPRING} className={`${styles.side} ${styles.priced}`}>
       <span className={styles.sideLabel}>{copy.counter[direction]}</span>
       <div className={styles.sideRow}>
-        <span className={styles.price}>{copy.counterValue}</span>
+        <span className={styles.priceBox} aria-live="polite">
+          {estimate ? (
+            <>
+              <span className={`${styles.estimate} ix-num`}>≈ ₹{estimate.rupees}</span>
+              <span className={styles.estimateNote}>{copy.market.replace('{rate}', estimate.rate)}</span>
+            </>
+          ) : (
+            <span className={styles.price}>{copy.counterValue}</span>
+          )}
+        </span>
         <span className={styles.chip}>
           <Coin currency="INR" size={26} />
           INR

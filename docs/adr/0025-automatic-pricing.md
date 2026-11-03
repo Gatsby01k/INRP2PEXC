@@ -99,3 +99,7 @@ fresh reference in both directions. Prices already given keep the policy they we
   `@inrp2p/adapters` (`usdt-inr-price.ts`), worker `reference_rate_refresh` and `rfq_sweep`, handler `rfq_award`; web: the
   Exchange's instant price and "Get a new price", the trader's firm-offer switch and price-request card, the operator's
   Automatic prices panel on Rates.
+- The public site shows the reference too: `GET /api/market-rate` (public host only, cached at the edge for five minutes)
+  answers each direction's rate while it is fresh enough to price on, and nothing else (`publicMarketRates`); the landing
+  converter turns it into "≈ ₹…" at the market's rate, worded as the market's rate and not a price. Without a fresh
+  reference it says what the price will be, as before.

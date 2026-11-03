@@ -47,6 +47,23 @@ export async function freshReference(ex: Executor, direction: DirectionValue, po
   return ageSeconds >= 0 && ageSeconds <= policy.referenceMaxAgeSeconds ? { ...ref, ageSeconds } : null;
 }
 
+/**
+ * The market reference as the public site may show it: the rate of each direction while it is fresh enough for the policy
+ * to price on, and nothing else — no source, no time, no figure of INRP2P's own. It is the market's rate, not a price: the
+ * page says so, and a client's firm price still comes from a quote.
+ */
+export interface PublicMarketRates {
+  readonly SELL_USDT: string | null;
+  readonly BUY_USDT: string | null;
+}
+
+export async function publicMarketRates(ex: Executor): Promise<PublicMarketRates> {
+  const policy = await currentPricingPolicy(ex);
+  const sell = await freshReference(ex, 'SELL_USDT', policy);
+  const buy = await freshReference(ex, 'BUY_USDT', policy);
+  return { SELL_USDT: sell?.rate.toDecimalString() ?? null, BUY_USDT: buy?.rate.toDecimalString() ?? null };
+}
+
 export interface SetPricingPolicyPayload {
   /** The policy the person was looking at: a change made meanwhile is not overwritten. */
   readonly expectedPolicyId: string;

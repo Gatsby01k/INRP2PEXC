@@ -3,7 +3,7 @@ import { sql } from 'kysely';
 import { Money, Rate, computeP2pEconomics } from '@inrp2p/kernel';
 import { pgErrorCode } from '@inrp2p/db';
 import { runAs } from '@inrp2p/identity/testing';
-import { currentPricingPolicy, setPricingPolicy } from '@inrp2p/pricing';
+import { currentPricingPolicy, publicMarketRates, setPricingPolicy } from '@inrp2p/pricing';
 import { acceptQuote, expireQuote, repriceRequest, requestInstantQuote, runMarketReferenceRefresh, runRfqSweep } from '@inrp2p/quotes';
 import { configureTraderProgram } from '@inrp2p/trader-core';
 import { bidOnRfq, priceAsksFor, updateBlock } from '@inrp2p/traders';
@@ -74,11 +74,21 @@ describe('automatic prices are a person’s decision', () => {
   });
 
   it('cannot be switched on blind — not without a fresh market reference for both directions', async () => {
+    // The public site's converter has nothing to estimate with either.
+    expect(await publicMarketRates(w.app)).toEqual({ SELL_USDT: null, BUY_USDT: null });
     await expect(policy({ autoQuote: true })).rejects.toMatchObject({ code: 'MARKET_REFERENCE_STALE' });
     const read = await books('101.00', '102.00');
     expect(read.recorded.sort()).toEqual(['BUY_USDT', 'SELL_USDT']);
     await policy({ autoQuote: true });
     expect((await currentPricingPolicy(w.app)).autoQuote).toBe(true);
+  });
+
+  it('gives the public site the market’s rate of each direction while it is fresh, and nothing once it is not', async () => {
+    expect(await publicMarketRates(w.app)).toEqual({ SELL_USDT: '101.000000', BUY_USDT: '102.000000' });
+    const clock = await w.t.pinnedClock();
+    await clock.set(new Date(Date.now() + ((await currentPricingPolicy(w.app)).referenceMaxAgeSeconds + 60) * 1000));
+    expect(await publicMarketRates(clock.db)).toEqual({ SELL_USDT: null, BUY_USDT: null });
+    await clock.set(null);
   });
 });
 

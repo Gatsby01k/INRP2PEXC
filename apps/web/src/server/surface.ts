@@ -44,6 +44,9 @@ export const isQuoteLinkPath = (path: string): boolean => path === '/q' || path.
 /** Where Telegram delivers the bot's updates, on the public host; the route checks Telegram's secret itself. */
 export const TELEGRAM_WEBHOOK_PATH = '/api/telegram/webhook';
 
+/** The market's USDT/INR rate the home page's converter estimates with (ADR 0025's reference), cached at the edge. */
+export const MARKET_RATE_PATH = '/api/market-rate';
+
 /** A desk's deal link (ADR 0020 §2.9): like the quote link, opening it authorizes nothing. */
 export const isDealLinkPath = (path: string): boolean => path === '/d' || path.startsWith('/d/');
 
@@ -130,7 +133,7 @@ export function gateFor(surface: Surface, pathname: string): Gate {
   // Auth endpoints are not served here at all, and any other path is refused rather than rendered — a page that
   // needs a session has no business on a host that never receives one.
   // The Telegram bot's webhook authenticates itself with the secret Telegram sends (ADR 0020 §2.14).
-  if (path === TELEGRAM_WEBHOOK_PATH) return 'PUBLIC';
+  if (path === TELEGRAM_WEBHOOK_PATH || path === MARKET_RATE_PATH) return 'PUBLIC';
   return isQuoteLinkPath(path) || isDealLinkPath(path) || isPublicSitePath(path) || deskHandleOfPath(path) !== null || isDeskPagePath(path) ? 'PUBLIC' : 'CLIENT_SESSION';
 }
 

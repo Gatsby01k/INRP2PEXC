@@ -98,9 +98,11 @@ export interface QuoteModuleCopy {
   readonly title: string;
   /** The USDT side: what the visitor types. */
   readonly amount: Record<Direction, string>;
-  /** The rupee side: priced by the desk, so it says what the price will be rather than a figure. */
+  /** The rupee side: an estimate at the market's rate when there is one (ADR 0025), else what the price will be. */
   readonly counter: Record<Direction, string>;
   readonly counterValue: string;
+  /** Under the estimate: whose rate it is, and that the firm price comes next. `{rate}` is the market's rate. */
+  readonly market: string;
   /** The button between the two sides that turns the deal round. */
   readonly swap: string;
   /** One line under the two sides: what the escrow does for this direction. */
@@ -137,6 +139,7 @@ export const HERO: HeroCopy = {
     amount: { SELL_USDT: 'You sell', BUY_USDT: 'You buy' },
     counter: { SELL_USDT: 'You receive', BUY_USDT: 'You pay' },
     counterValue: 'One firm price for the whole amount',
+    market: 'At today’s market rate of ₹{rate} — your firm price is the next step',
     swap: 'Switch between selling and buying',
     promise: {
       SELL_USDT: 'Your USDT waits in escrow until the rupees are in your bank',
