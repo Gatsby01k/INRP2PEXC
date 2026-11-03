@@ -61,9 +61,6 @@ ALTER TABLE trader_program ADD COLUMN settlement_change_hold_hours integer NOT N
 -- 1, 3, 4. The trader ------------------------------------------------------------------------------------------------
 
 ALTER TABLE trader_profile ADD COLUMN approved_at timestamptz;
--- Every approved or paused trader was approved at its last review (pausing never touches the review fields).
-UPDATE trader_profile SET approved_at = reviewed_at WHERE status IN ('APPROVED', 'PAUSED');
-ALTER TABLE trader_profile ADD CONSTRAINT trader_profile_approved_at CHECK (status NOT IN ('APPROVED', 'PAUSED') OR approved_at IS NOT NULL);
 
 ALTER TABLE trader_profile ADD COLUMN auto_review_flags text[] NOT NULL DEFAULT '{}'
   CHECK (auto_review_flags <@ ARRAY[
@@ -120,6 +117,11 @@ CREATE TRIGGER trader_profile_immutable BEFORE UPDATE ON trader_profile
     'p2p_experience', 'profile_link', 'telegram_handle', 'phone_enc', 'phone_last4', 'daily_capacity_inr_minor',
     'daily_capacity_usdt_minor', 'ownership_confirmed_at', 'proposed_bank_account_id', 'proposed_wallet_id',
     'approved_at', 'auto_review_flags', 'auto_reviewed_at', 'proposal_effective_at', 'proposed_by');
+
+-- Every approved or paused trader was approved at its last review (pausing never touches the review fields) — filled
+-- once the guard above lets `approved_at` change, then required.
+UPDATE trader_profile SET approved_at = coalesce(reviewed_at, applied_at) WHERE status IN ('APPROVED', 'PAUSED');
+ALTER TABLE trader_profile ADD CONSTRAINT trader_profile_approved_at CHECK (status NOT IN ('APPROVED', 'PAUSED') OR approved_at IS NOT NULL);
 
 -- The sweep finds due changes without reading every trader.
 CREATE INDEX trader_profile_proposal_due_idx ON trader_profile (proposal_effective_at) WHERE proposal_effective_at IS NOT NULL;
