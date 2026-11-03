@@ -239,3 +239,12 @@ waits for a person with its reason. Every trader deals within multiples of its f
 and days (New 2×/4×, Proven 5×/15×, Trusted 10×/30× — one deal / all open), fall back after a failed deal, and lock the
 reserve its open deals stand on. A change of an approved trader's bank account or wallet needs a fresh code, waits 24
 hours with every member told and any administrator able to stop it, and then applies by rule between orders.
+
+## D-24 — Automatic prices and the choice of trader on the INRP2P exchange — Resolved (owner, 2026-10-31; ADR 0025)
+
+A client gets a firm 60-second price the moment it asks: the price and the trader with the highest expected net margin —
+acceptance learned from INRP2P's own quotes × the trader's completion record × the kernel's USDT margin — never worse than
+the market reference (two Indian books agreeing), never below the minimum net margin. Traders make a side's offer firm to be
+priced on without being asked; amounts no firm offer covers go to several traders as a price request. Off until the owner
+switches it on; desks and their fees unchanged; anything that cannot be priced honestly waits for a person.
+

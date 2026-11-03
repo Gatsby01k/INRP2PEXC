@@ -7,7 +7,7 @@ import { ArcLoader } from '@inrp2p/ui';
 import { formatIstTime, formatRate } from '@inrp2p/ui/format';
 import { robotCues } from '../../(public)/_landing/robot/cues.ts';
 import { useCommand } from '../../../components/useCommand.tsx';
-import { withdrawRequestAction } from '../../../server/actions/client.ts';
+import { repriceAction, withdrawRequestAction } from '../../../server/actions/client.ts';
 import { at } from '../_assistant/model.ts';
 import { InfoIcon } from '../_workspace/icons.tsx';
 import { legAmount } from './amounts.ts';
@@ -32,6 +32,12 @@ export function PricingCard({ view }: { view: ExchangeView }) {
     if (!out.ok) robotCues.emit({ kind: 'problem' });
     setWithdrawing(false);
   };
+  // ADR 0025: a price that ran out is asked for again in one tap, at the market as it is now.
+  const reprice = async () => {
+    const out = await run('Get a new price', (key) => repriceAction({ requestRef: request.ref }, key));
+    if (!out.ok) robotCues.emit({ kind: 'problem' });
+  };
+  const gathering = request.gatheringUntil !== null;
 
   return (
     <>
@@ -52,19 +58,31 @@ export function PricingCard({ view }: { view: ExchangeView }) {
             <InfoIcon className={shell.infoIcon} />
             <span>
               Quote {expired.ref} at {formatRate(Rate.parse(expired.clientRate, 'CLIENT'))}
-              {expired.expiresAt ? ` ran out at ${formatIstTime(new Date(expired.expiresAt))}` : ' ran out'} before it was accepted. The desk has been told and may send a new
-              one here.
+              {expired.expiresAt ? ` ran out at ${formatIstTime(new Date(expired.expiresAt))}` : ' ran out'} before it was accepted.
+              {request.canReprice ? ' Get a new price at the market as it is now.' : ' The desk has been told and may send a new one here.'}
             </span>
           </p>
         ) : null}
 
         <div className={styles.pricing} role="status">
-          <ArcLoader size="md" label="The desk is pricing this request" />
+          <ArcLoader size="md" label={gathering ? 'Getting the best price for this amount' : 'The desk is pricing this request'} />
           <span className={styles.pricingText}>
-            <span className={styles.pricingTitle}>The desk is pricing your request</span>
-            <span className={styles.pricingBody}>Your firm quote appears right here the moment it is sent — no need to reload.</span>
+            <span className={styles.pricingTitle}>{gathering ? 'Getting the best price for this amount' : 'The desk is pricing your request'}</span>
+            <span className={styles.pricingBody}>
+              {gathering
+                ? `A larger amount takes a moment longer: your firm price appears right here by ${formatIstTime(new Date(request.gatheringUntil!))} — no need to reload.`
+                : 'Your firm quote appears right here the moment it is sent — no need to reload.'}
+            </span>
           </span>
         </div>
+        {request.canReprice && expired ? (
+          <div>
+            <button type="button" className={shell.action} onClick={() => void reprice()} disabled={busy}>
+              {busy ? <ArcLoader size="sm" label="Getting a new price" tone="inherit" /> : null}
+              Get a new price
+            </button>
+          </div>
+        ) : null}
 
         <div className={styles.legs} data-robot-target="amount">
           {LEGS[request.direction].map((leg) => (

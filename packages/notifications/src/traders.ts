@@ -144,6 +144,35 @@ async function resolve(db: Db, event: OutboxEvent): Promise<{ clientId: string; 
     const reason = str(p.reason);
     return { clientId: t.client_id, kind: 'DESK_NOTICE', facts: { deskAction: action as NonNullable<NotificationFacts['deskAction']>, ...(reason ? { reason } : {}) } };
   }
+  if (event.type === 'trader.rfq_opened') {
+    // ADR 0025: a price request put to this trader — its side, the amount and its time; never who asks.
+    const rfqId = str(p.rfqId);
+    const traderId = str(p.traderId);
+    if (!rfqId || !traderId) return null;
+    const row = await db
+      .selectFrom('rfq as q')
+      .innerJoin('trade_request as r', 'r.id', 'q.trade_request_id')
+      .innerJoin('rfq_invite as i', (j) => j.onRef('i.rfq_id', '=', 'q.id').on('i.trader_id', '=', traderId))
+      .innerJoin('trader_profile as t', 't.id', 'i.trader_id')
+      .select(['q.ref', 'q.direction', 'q.closes_at', 'r.fixed_side', 'r.requested_base_minor', 'r.requested_quote_minor', 't.client_id'])
+      .where('q.id', '=', rfqId)
+      .executeTakeFirst();
+    if (!row) return null;
+    const usdtFixed = row.fixed_side === 'BASE';
+    return {
+      clientId: row.client_id,
+      kind: 'TRADER_PRICE_REQUEST',
+      facts: {
+        side: row.direction === 'SELL_USDT' ? 'BUY_USDT' : 'SELL_USDT',
+        priceAsk: {
+          ref: row.ref,
+          amount: usdtFixed ? Money.ofMinor(row.requested_base_minor!, 'USDT').toDecimalString() : Money.ofMinor(row.requested_quote_minor!, 'INR').toDecimalString(),
+          currency: usdtFixed ? 'USDT' : 'INR',
+          closesAt: row.closes_at,
+        },
+      },
+    };
+  }
   const change = SETTLEMENT_CHANGE[event.type];
   if (change) {
     // ADR 0024: every member of the account hears of a change of where it is paid — the inbox addresses the whole client.

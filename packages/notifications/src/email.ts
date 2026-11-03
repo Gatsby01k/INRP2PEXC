@@ -29,6 +29,8 @@ const EMAILED = new Set([
   'DEAL_MESSAGE', 'P2P_PAY_FINAL', 'P2P_RECEIPT_LATE',
   // ADR 0024: where a trader is paid is about to change — the one message someone who took over a session must not hide.
   'TRADER_SETTLEMENT_CHANGE',
+  // ADR 0025: a trader's price is asked for; the request closes in minutes.
+  'TRADER_PRICE_REQUEST',
 ]);
 
 export interface EmailChannelOptions {

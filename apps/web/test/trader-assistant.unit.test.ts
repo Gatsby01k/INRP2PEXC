@@ -45,10 +45,11 @@ const home = (over: Partial<TraderHome> = {}): TraderHome => ({
   issues: [],
   blocks: [{
     side: 'BUY_USDT', currency: 'INR', status: 'ACTIVE', capacity: '600000.00', held: '0.00', available: '600000.00', rate: '104.700000', minOrder: '50000.00', maxOrder: '300000.00',
-    limitMaxOrder: null, limitMaxCapacity: null, issues: [], version: 2,
+    limitMaxOrder: null, limitMaxCapacity: null, issues: [], version: 2, firmUntil: null, rails: ['UPI', 'IMPS', 'NEFT', 'RTGS'],
   }],
   reserve,
   offers: [],
+  priceAsks: [],
   active: [],
   recentlyCompleted: null,
   earnings: null,

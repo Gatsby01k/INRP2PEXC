@@ -5,7 +5,7 @@ import type { FiatRail, TraderSide } from '@inrp2p/db';
 import {
   type ApplyPayload, type ProposeSettlementPayload, acceptOrder, applyAsTrader, cancelReserveWithdrawal, cancelSettlementChange, confirmOrderPaymentReceived, declineOrder, orderDeliveryAddress, proposeSettlementChange,
   type ClaimedDeposit, claimReserveDeposit, requestReserveWithdrawal, setAvailability, submitOrderPayment, updateBlock, answerOrderDispute, disputeOrderPayment,
-  callOrderSupport, chooseOrderPayMethod, postOrderDealMessage,
+  callOrderSupport, chooseOrderPayMethod, postOrderDealMessage, bidOnRfq,
 } from '@inrp2p/traders';
 import type { P2pDisputeReason } from '@inrp2p/settlement';
 import { cancelNetworkWithdrawal, claimNetworkDeposit, requestNetworkWithdrawal } from '@inrp2p/network';
@@ -33,6 +33,8 @@ const TRADER_WORDING: ReadonlySet<string> = new Set([
   'CAPACITY_INSUFFICIENT', 'INVALID_TRANSITION', 'DISPUTE_EXISTS', 'NOT_THE_PAYEE', 'NOT_THE_PAYER', 'P2P_PAYMENT_WINDOW_CLOSED',
   // ADR 0023: the deal's chat and its time to pay.
   'CHAT_CLOSED', 'FILE_TOO_LARGE', 'FILE_TYPE_NOT_ALLOWED', 'RATE_LIMITED', 'P2P_METHOD_LOCKED', 'P2P_METHOD_TOO_LATE', 'INVALID_ARGUMENT',
+  // ADR 0025: a firm offer and a price request's bid.
+  'TRADER_BLOCK_INCOMPLETE', 'TRADER_LIMIT_EXCEEDED', 'TRADER_NOT_ELIGIBLE',
 ]);
 
 async function run<P, R>(name: string, build: Parameters<typeof runWorkspaceCommand<P, R>>[0], payload: P, key: string): Promise<CommandResult<R>> {
@@ -65,10 +67,18 @@ export async function setAvailabilityAction(input: { available: boolean }, key: 
 }
 
 export async function updateBlockAction(
-  input: { side: TraderSide; expectedVersion: number; capacity?: string; rate?: string; minOrder?: string; maxOrder?: string; status?: 'ACTIVE' | 'PAUSED' },
+  input: {
+    side: TraderSide; expectedVersion: number; capacity?: string; rate?: string; minOrder?: string; maxOrder?: string; status?: 'ACTIVE' | 'PAUSED';
+    firmHours?: number; rails?: readonly ('UPI' | 'IMPS' | 'NEFT' | 'RTGS')[];
+  },
   key: string,
-): Promise<CommandResult<{ version: number; offersWithdrawn: number }>> {
+): Promise<CommandResult<{ version: number; offersWithdrawn: number; firmUntil: string | null }>> {
   return run('trader.update_block', (ctx) => updateBlock(ctx.actor), input, key);
+}
+
+/** ADR 0025: the trader's rate for a price request put to it — firm until the request is awarded. */
+export async function bidOnRfqAction(input: { ref: string; rate: string }, key: string): Promise<CommandResult<{ ref: string; rate: string; replaced: boolean }>> {
+  return run('rfq.bid', (ctx) => bidOnRfq(ctx.actor), input, key);
 }
 
 export async function acceptOrderAction(input: { ref: string }, key: string): Promise<CommandResult<{ holdUntil: string }>> {

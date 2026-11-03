@@ -4,7 +4,7 @@ import { createDb, createPool, databaseDeploymentProblems } from '@inrp2p/db';
 import { gasFreeFromEnv, isNotificationProviderConfigured, isProduction, notificationAdapterFromEnv, productionConfigReport, telegramFromEnv } from '@inrp2p/adapters';
 import { acknowledgedSignalHandler, clientNotificationEmailHandler, clientNotificationHandler, teamInviteEmailHandler, telegramOrderHandler, traderNotificationHandler } from '@inrp2p/notifications';
 import { traderReviewHandler, traderRoutingHandler } from '@inrp2p/traders';
-import { acceptanceCodeHandler } from '@inrp2p/quotes';
+import { acceptanceCodeHandler, rfqAwardHandler } from '@inrp2p/quotes';
 import { receiptHandler } from '@inrp2p/reporting';
 import { destinationArchivedHandler } from '@inrp2p/settlement';
 import { CRONTAB, buildTaskList, onchainWakeup, quoteExpiryScheduler, recordHeartbeat } from './tasks.ts';
@@ -158,7 +158,7 @@ const runner = await run({
   concurrency: 5,
   noHandleSignals: false,
   pollInterval: 2000,
-  taskList: buildTaskList(db, [quoteExpiryScheduler(db), acceptanceCodeHandler(db, { protector }, notifications), teamInviteEmailHandler(db, notifications, { linkBase: process.env.CLIENT_BASE_URL }), clientNotificationHandler(db), traderNotificationHandler(db), traderRoutingHandler(db), traderReviewHandler(db), receiptHandler(db, receipts), destinationArchivedHandler(db), acknowledgedSignalHandler(), onchainWakeup(db), ...emailChannel, ...telegramChannel], {
+  taskList: buildTaskList(db, [quoteExpiryScheduler(db), acceptanceCodeHandler(db, { protector }, notifications), teamInviteEmailHandler(db, notifications, { linkBase: process.env.CLIENT_BASE_URL }), clientNotificationHandler(db), traderNotificationHandler(db), traderRoutingHandler(db), traderReviewHandler(db), rfqAwardHandler(db), receiptHandler(db, receipts), destinationArchivedHandler(db), acknowledgedSignalHandler(), onchainWakeup(db), ...emailChannel, ...telegramChannel], {
     monitoring,
     ...(monitoring.config ? { scanner: monitoring.config } : {}),
     ...(receipts ? { receipts } : {}),

@@ -1193,7 +1193,8 @@ export type NotificationKind =
   | 'DEAL_MESSAGE'
   | 'P2P_PAY_FINAL'
   | 'P2P_RECEIPT_LATE'
-  | 'TRADER_SETTLEMENT_CHANGE';
+  | 'TRADER_SETTLEMENT_CHANGE'
+  | 'TRADER_PRICE_REQUEST';
 
 export interface ClientNotificationTable {
   id: Generated<string>;
@@ -1431,6 +1432,11 @@ export interface TraderBlockTable {
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
   version: Generated<number>;
+  /** Migration 0045: until when INRP2P may fill orders at this side's rate without asking (a firm offer), and whose commitment it is. */
+  instant_until: Date | null;
+  instant_set_by: string | null;
+  /** Migration 0045: the INR rails this side pays or is paid by. */
+  rails: Generated<InrRailValue[]>;
 }
 
 export interface TraderOrderTable {
@@ -2029,6 +2035,80 @@ export interface DealMessageTable {
   created_at: Generated<Date>;
 }
 
+export type InrRailValue = 'UPI' | 'IMPS' | 'NEFT' | 'RTGS';
+
+/** Migration 0045 (ADR 0025): whether the INRP2P exchange prices automatically, and the guard-rails of the choice. Append-only. */
+export interface PricingPolicyTable {
+  id: Generated<string>;
+  auto_quote: boolean;
+  rfq: boolean;
+  reference_max_age_seconds: number;
+  max_premium_bps: number;
+  bin_bps: number;
+  learning_days: number;
+  rfq_window_seconds: number;
+  rfq_max_traders: number;
+  reason: string;
+  set_by: string;
+  set_at: Generated<Date>;
+}
+
+/** Migration 0045: the decision behind one automatic quote — written once with it (IX139). */
+export interface AutoQuoteTable {
+  quote_id: string;
+  trade_request_id: string;
+  trader_order_id: string;
+  policy_id: string;
+  source: 'INSTANT' | 'RFQ';
+  rfq_id: string | null;
+  direction: DirectionValue;
+  size_band: number;
+  reference_snapshot_id: string;
+  reference_rate_micro: bigint;
+  position_bps: number;
+  cap_rate_micro: bigint;
+  offers: number;
+  completion_ppm: number;
+  acceptance_ppm: number;
+  net_margin_usdt_minor: bigint;
+  min_net_margin_usdt_minor: bigint;
+  created_at: Generated<Date>;
+}
+
+export type RfqStatus = 'OPEN' | 'AWARDED' | 'NO_PRICE' | 'CANCELLED';
+
+/** Migration 0045: a price request to several traders for one request of the INRP2P exchange (IX140). */
+export interface RfqTable {
+  id: Generated<string>;
+  ref: Generated<string>;
+  trade_request_id: string;
+  policy_id: string;
+  direction: DirectionValue;
+  status: Generated<RfqStatus>;
+  opened_at: Generated<Date>;
+  closes_at: Date;
+  closed_at: Date | null;
+  close_note: string | null;
+}
+
+export interface RfqInviteTable {
+  rfq_id: string;
+  trader_id: string;
+  block_id: string;
+  invited_at: Generated<Date>;
+}
+
+/** Migration 0045: one trader's firm rate for a price request (IX141). */
+export interface RfqBidTable {
+  id: Generated<string>;
+  rfq_id: string;
+  trader_id: string;
+  rate_micro: bigint;
+  placed_by: string;
+  placed_at: Generated<Date>;
+  status: Generated<'LIVE' | 'REPLACED' | 'WON' | 'LOST'>;
+}
+
 export interface Database {
   currency: CurrencyTable;
   custody_hd_account: CustodyHdAccountTable;
@@ -2140,4 +2220,9 @@ export interface Database {
   p2p_pay_window: P2pPayWindowTable;
   deal_file: DealFileTable;
   deal_message: DealMessageTable;
+  pricing_policy: PricingPolicyTable;
+  auto_quote: AutoQuoteTable;
+  rfq: RfqTable;
+  rfq_invite: RfqInviteTable;
+  rfq_bid: RfqBidTable;
 }

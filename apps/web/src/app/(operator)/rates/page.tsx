@@ -1,7 +1,8 @@
-import { deskStrip, payoutAccounts, rateHistory, routePositions } from '@inrp2p/desk';
+import { autoPricingView, deskStrip, payoutAccounts, rateHistory, routePositions } from '@inrp2p/desk';
 import { can, operatorPage } from '../../../server/operator.ts';
 import { dateTime, pair, rate, rateDelta } from '../_desk/format.ts';
 import { Notice, Page, PageBody, PageHeader, Section } from '../_desk/ui.tsx';
+import { AutoPricing } from './AutoPricing.tsx';
 import { HistoryTable } from './HistoryTable.tsx';
 import { Positions } from './Positions.tsx';
 import { RateBoard } from './RateBoard.tsx';
@@ -17,11 +18,12 @@ export default async function RatesPage() {
   const ctx = await operatorPage();
   const economics = ctx.access.economics;
   const showPositions = ctx.access.routePositions;
-  const [strip, history, positions, accounts] = await Promise.all([
+  const [strip, history, positions, accounts, auto] = await Promise.all([
     deskStrip(ctx.db, ctx.access),
     economics ? rateHistory(ctx.db, { limit: 30 }) : Promise.resolve([]),
     showPositions ? routePositions(ctx.db, { status: 'OPEN' }) : Promise.resolve([]),
     payoutAccounts(ctx.db),
+    economics ? autoPricingView(ctx.db) : Promise.resolve(null),
   ]);
   const routeCount = new Set((strip.routes ?? []).map((r) => r.routeId)).size;
 
@@ -33,6 +35,11 @@ export default async function RatesPage() {
           <Notice icon="lock">Route rates, their history and route positions are economics. Your role does not include economics:view.</Notice>
         ) : (
           <>
+            {auto ? (
+              <Section id="automatic-prices" title="Automatic prices" hint="Clients get a firm price at once from the traders’ firm offers, bounded by the market and the minimum net margin (ADR 0025).">
+                <AutoPricing view={auto} canSet={can(ctx, 'pricing:configure')} />
+              </Section>
+            ) : null}
             <RateBoard routes={strip.routes ?? []} history={history} canPublish={can(ctx, 'rates:update_route')} />
             <Section title="Recent rate changes" count={history.length} hint="Every published route rate, newest first, with the rate it replaced." flush>
               <HistoryTable

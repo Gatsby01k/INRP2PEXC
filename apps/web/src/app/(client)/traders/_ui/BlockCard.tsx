@@ -1,6 +1,7 @@
 'use client';
 
 import { useId, useState } from 'react';
+import { formatIstTime } from '@inrp2p/ui/format';
 import type { BlockView } from '@inrp2p/traders';
 import { sanitizeAmountInput } from '@inrp2p/ui';
 import { useCommand } from '../../../../components/useCommand.tsx';
@@ -13,6 +14,12 @@ const MEANING = {
   BUY_USDT: 'You have INR and buy USDT. INRP2P sends you orders from clients selling USDT.',
   SELL_USDT: 'You have USDT and sell it for INR. INRP2P sends you orders from clients buying USDT.',
 } as const;
+
+const RAILS = ['UPI', 'IMPS', 'NEFT', 'RTGS'] as const;
+type Rail = (typeof RAILS)[number];
+/** How long a firm offer stands: the trader re-confirms it after that. */
+const FIRM_CHOICES = [1, 4, 8, 24, 72, 168] as const;
+const firmLabel = (h: number) => (h < 24 ? `${h} hour${h === 1 ? '' : 's'}` : h === 24 ? '1 day' : `${h / 24} days`);
 
 const ISSUE_TEXT: Record<string, string> = {
   BLOCK_PAUSED: 'Paused — no orders on this side.',
@@ -58,6 +65,9 @@ export function BlockCard({ block, canAct }: { block: BlockView; canAct: boolean
   const [minOrder, setMin] = useState(block.minOrder ?? '');
   const [maxOrder, setMax] = useState(block.maxOrder ?? '');
   const [active, setActive] = useState(block.status === 'ACTIVE');
+  // 0 keeps the offer as it stands; a number of hours (re)starts it from now; -1 ends it.
+  const [firm, setFirm] = useState<number>(0);
+  const [rails, setRails] = useState<readonly Rail[]>(block.rails);
   const titleId = useId();
   const ids = { capacity: useId(), rate: useId(), min: useId(), max: useId() };
   const buy = block.side === 'BUY_USDT';
@@ -70,6 +80,8 @@ export function BlockCard({ block, canAct }: { block: BlockView; canAct: boolean
     setMin(block.minOrder ?? '');
     setMax(block.maxOrder ?? '');
     setActive(block.status === 'ACTIVE');
+    setFirm(0);
+    setRails(block.rails);
     clearError();
   };
   const save = async () => {
@@ -83,6 +95,8 @@ export function BlockCard({ block, canAct }: { block: BlockView; canAct: boolean
           ...(minOrder ? { minOrder } : {}),
           ...(maxOrder ? { maxOrder } : {}),
           status: active ? 'ACTIVE' : 'PAUSED',
+          ...(firm !== 0 ? { firmHours: firm < 0 ? 0 : firm } : {}),
+          rails,
         },
         key,
       ),
@@ -129,6 +143,34 @@ export function BlockCard({ block, canAct }: { block: BlockView; canAct: boolean
             <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
             Take orders on this side
           </label>
+          <fieldset className={styles.field}>
+            <legend className={styles.fieldLabel}>{buy ? 'You pay clients by' : 'Clients pay you by'}</legend>
+            <span className={styles.pair}>
+              {RAILS.map((r) => (
+                <label key={r} className={styles.check}>
+                  <input
+                    type="checkbox"
+                    checked={rails.includes(r)}
+                    onChange={(e) => setRails(e.target.checked ? [...rails, r] : rails.filter((x) => x !== r))}
+                  />
+                  {r}
+                </label>
+              ))}
+            </span>
+          </fieldset>
+          <label className={styles.field}>
+            <span className={styles.fieldLabel}>Instant orders</span>
+            <select className={styles.input} value={firm} onChange={(e) => setFirm(Number.parseInt(e.target.value, 10))} disabled={!active}>
+              <option value={0}>{block.firmUntil ? `Keep — on until ${formatIstTime(new Date(block.firmUntil))}` : 'Off — accept each order yourself'}</option>
+              {FIRM_CHOICES.map((h) => (
+                <option key={h} value={h}>
+                  On for {firmLabel(h)}
+                </option>
+              ))}
+              {block.firmUntil ? <option value={-1}>Turn off</option> : null}
+            </select>
+            <span className={styles.fieldHint}>On, INRP2P fills orders at your rate within your order size and capacity straight away, without asking you each time.</span>
+          </label>
           <div className={styles.formActions}>
             <button type="submit" className={shell.secondaryAction} disabled={busy}>
               Save
@@ -162,6 +204,10 @@ export function BlockCard({ block, canAct }: { block: BlockView; canAct: boolean
             <div>
               <dt>Your rate</dt>
               <dd>{block.rate ? rate(block.rate) : 'Not set'}</dd>
+            </div>
+            <div>
+              <dt>Instant orders</dt>
+              <dd>{block.firmUntil ? `On until ${formatIstTime(new Date(block.firmUntil))}` : 'Off'}</dd>
             </div>
             <div>
               <dt>Per order</dt>

@@ -104,6 +104,7 @@ Legend: ✔ allowed · ⧗ allowed with step-up MFA · ✱ requires second appro
 | `desk:view` | ✔ | ✔ | ✔ | ✔ | ✔ | ✔ |
 | `economics:view` (route rate, margin) | ✔ | ✔ | — | ✔ | — | — (grantable) |
 | `rates:update_route` | ✔ | ✔ | — | — | — | — |
+| `pricing:configure` | ⧗ | — | — | — | — | — |
 | `request:create` / `request:decline` | ✔ | ✔ | — | — | create only | — |
 | `request:withdraw` (withdraw a request on behalf of the client) | ✔ | ✔ | — | — | — | — |
 | `quote:create` / `quote:send` / `quote:cancel` | ✔ | ✔ | — | — | — | — |

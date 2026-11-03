@@ -28,6 +28,8 @@ const both: ClientDestinations = { banks: [bank], wallets: [wallet] };
 const none: ClientDestinations = { banks: [], wallets: [] };
 
 const request = {
+  gatheringUntil: null,
+  canReprice: false,
   ref: 'RQ-260919-0007',
   direction: 'SELL_USDT' as const,
   fixedSide: 'BASE' as const,

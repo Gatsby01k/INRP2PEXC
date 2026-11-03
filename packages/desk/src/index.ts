@@ -13,3 +13,4 @@ export * from './record.ts';
 export * from './operations.ts';
 export * from './network.ts';
 export * from './revenue.ts';
+export * from './auto-pricing.ts';

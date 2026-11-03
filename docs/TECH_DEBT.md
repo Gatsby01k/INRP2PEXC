@@ -915,3 +915,13 @@ withdrawal within `available` to the registered wallet like an escrow return, it
 second person above the approval threshold. It moves the reserve from a watched wallet into the signer's custody, which is
 the owner's decision; the same signer would then return an unattributable deposit (TD-28) to its sender.
 
+## TD-43 — Automatic prices: what is not built yet
+
+**Observed (ADR 0025, 2026-11-02).**
+- A price request reaches traders by inbox and email only; Telegram alerts are order-based and do not carry it yet.
+- A trader's rails decide whether it is priced on, but the deal's pay window (ADR 0023) still offers the buyer every rail.
+- Acceptance is learned per direction and size band only; time of day and the client are not strata.
+
+**Resolution (to do).** A Telegram moment for `trader.rfq_opened`; limit `escrow_payment.choose_method` to the trader's rails;
+more strata once there is evidence enough to fill them.
+
