@@ -285,7 +285,7 @@ export const HEALTH_CHECKS: readonly HealthCheckDefinition[] = Object.freeze([
     alarm: 237_600,
     unit: 'seconds',
     runbook: 'network-fees-stale',
-    why: 'While deals pay their network in TRX, every quote carries the fee of its transfer, valued at the TRX price the desk publishes (ADR 0017). After 72 hours without a new price no quote is sent at all; this wakes someone six hours before. On GasFree it is not checked: no deal is priced in TRX.',
+    why: 'A quote paid in TRX carries its transfer’s fee at the TRX price the desk publishes (ADR 0017); 72 hours without a new price stops such quotes. Not checked on GasFree.',
     group: 'money',
   },
   {
