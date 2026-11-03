@@ -187,15 +187,15 @@
 
 /* ——— The access surface: the quote module's frame, width and material ——— */
 
-/* At the quote module's height on a desktop (529px, its content being fixed), in its glass sheet and its radius, so
-   the frame the visitor just saw there is the frame they see here. Inside, the action settles to the bottom, where
-   the module's is. */
+/* At the quote module's height on a desktop (549px, its content being fixed: the rupee box keeps the market estimate's
+   height whether one is shown or not), in its glass sheet and its radius, so the frame the visitor just saw there is
+   the frame they see here. Inside, the action settles to the bottom, where the module's is. */
 .surface {
   position: relative;
   display: grid;
   grid-template-rows: auto 1fr;
   gap: var(--space-4);
-  min-height: 529px;
+  min-height: 549px;
   padding: var(--space-6);
   border-radius: 30px;
   background: color-mix(in srgb, var(--bg-surface) 94%, transparent);
