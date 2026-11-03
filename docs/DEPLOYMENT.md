@@ -496,9 +496,12 @@ For a desk with no Indian bank account: the rupees go straight between client an
 5. **The client rate on assignment.** A P2P order is sized at the client rate the desk will quote: *Assign* asks for it,
    and the quote must use exactly that rate.
 
-The worker's `escrow_deadlines` job (every minute) cancels a BUY whose escrow was not funded or not paid in 30 minutes —
-the trader's USDT then goes back by the signer — and gives the desk a case for a late payment or a late confirmation
-(RUNBOOKS `p2p-escrow`). It needs nothing configured; the signer must be switched on for escrow returns to be sent.
+The worker's `escrow_deadlines` job (every minute) cancels a deal whose seller did not fund the escrow in 30 minutes
+(the trader of a BUY, the client of a SELL) or a BUY not paid in time — the trader's USDT then goes back by the signer —
+and gives the desk a case for a late payment or a late confirmation (RUNBOOKS `p2p-escrow`). An unfunded escrow is
+cancelled only once the deposit scanner has completed a read of the whole chain 5 minutes past its deadline and nothing
+is on its way into it, so it does nothing while chain monitoring is down. It needs nothing configured; the signer must
+be switched on for escrow returns to be sent.
 
 ## 14. Desks (ADR 0020)
 

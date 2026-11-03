@@ -1095,6 +1095,10 @@ sees. Nobody may be left holding both — and nobody may be left holding neither
    delivered goes back to its registered wallet by the signer (`ESCROW_RETURN`, Network page), paid by the trader's
    deposit; a return over the approval threshold waits for a second person there. A client who paid after the cancel is
    told to ask the trader to return the rupees — the escrow is already back with the trader.
+4. *A SELL nobody funded.* `escrow_deadlines` cancels a client's SELL whose USDT did not arrive in 30 minutes (5 more for
+   a last-minute transfer to be seen, and only after the scanner has read the chain since). USDT that lands afterwards —
+   or a trader's delivery still on its way when a deal is cancelled — becomes a `FUNDS_AFTER_TRADE_CLOSED` case and is
+   parked in suspense once final: refund it to the wallet it came from, as for any late deposit.
 
 **What never to do.** Do not confirm a payment because the payer insists, nor release an escrow on a screenshot: only the
 payee's bank — its own screen, or a statement — shows who sent what. Do not move an escrow to another trade.
