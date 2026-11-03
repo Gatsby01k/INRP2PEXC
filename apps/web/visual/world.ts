@@ -142,6 +142,8 @@ const WALL_CLOCK_COLUMNS: readonly { table: string; columns: readonly string[] }
   { table: 'liquidity_route', columns: ['created_at'] },
   { table: 'inr_settlement_account', columns: ['created_at'] },
   { table: 'trader_program', columns: ['updated_at'] },
+  // ADR 0025: the policy the migration seeds says when it was set, and the Rates page prints it.
+  { table: 'pricing_policy', columns: ['set_at'] },
   // A trader's page shows its decisions (audit events, timed by the wall clock on purpose: an audit time is real) and
   // when its bank account and wallet were submitted (TD-23).
   { table: 'audit_event', columns: ['at'] },

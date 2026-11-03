@@ -1575,10 +1575,14 @@
   font-weight: var(--font-weight-semibold);
 }
 
-/* What the desk can fill: three figures across on a wide page. */
+/* What the desk can fill: one row across on a wide page — three figures, or four with the reserve's largest deal. */
 @media (min-width: 900px) {
   .stack:has(> .figure) {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .stack:has(> .figure:nth-child(4)) {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 

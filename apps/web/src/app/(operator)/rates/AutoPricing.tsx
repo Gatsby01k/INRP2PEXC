@@ -83,7 +83,7 @@ export function AutoPricing({ view, canSet }: { view: AutoPricingView; canSet: b
         <div>
           <dt>Last 24 hours</dt>
           <dd>
-            {view.lastDay.quoted} priced · {view.lastDay.accepted} accepted · {usdt(view.lastDay.acceptedNetUsdt)} USDT net · {view.lastDay.fromRfq} from price requests ·{' '}
+            {view.lastDay.quoted} priced · {view.lastDay.accepted} accepted · {usdt(view.lastDay.acceptedNetUsdt)} net · {view.lastDay.fromRfq} from price requests ·{' '}
             {view.lastDay.leftForDesk} left for a person
           </dd>
         </div>
