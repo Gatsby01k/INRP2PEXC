@@ -9,6 +9,8 @@ export interface OrphanReport {
   readonly examined: number;
   readonly orphaned: number;
   readonly legsReverted: number;
+  /** Transfers that could not be looked at this run; each is tried again next run, never in front of the others. */
+  readonly failures: readonly { readonly transferId: string; readonly message: string }[];
 }
 
 interface Aged {
@@ -33,41 +35,46 @@ export async function runOrphanSweep(db: Db, deps: ScannerDeps): Promise<OrphanR
     limit ${policy.confirmBatch}`.execute(db);
 
   const report = { examined: 0, orphaned: 0, legsReverted: 0 };
+  const failures: { transferId: string; message: string }[] = [];
   for (const row of aged.rows) {
     report.examined += 1;
-    // Gone means gone everywhere: every configured provider answered, and every one of them no longer knows the
-    // transaction. An unreachable provider, a provider that still has it, or one that says it failed is not an
-    // orphan — and a single provider's word is never enough to strip a client's deposit from its trade.
-    const answer = await deps.chain.verifyTransfer('TRON', row.tx_hash, row.log_index);
-    if (answer.status !== 'NOT_FOUND' || answer.unavailable.length > 0 || answer.absentBy.length < deps.chain.providers.length) continue;
-    const step = await systemStep(
-      db,
-      'chain.transfer_orphaned',
-      { transferId: row.id },
-      async (ctx) => {
-        const allocation = await ctx.tx
-          .selectFrom('transfer_allocation')
-          .select('settlement_leg_id')
-          .where('crypto_transfer_id', '=', row.id)
-          .where('dimension', '=', 'CLIENT')
-          .where('voided_at', 'is', null)
-          .executeTakeFirst();
-        const leg = allocation?.settlement_leg_id
-          ? await ctx.tx.selectFrom('settlement_leg').select(['id', 'trade_id', 'side', 'status']).where('id', '=', allocation.settlement_leg_id).executeTakeFirst()
-          : undefined;
-        if (leg) await lockTrade(ctx.tx, leg.trade_id);
-        const marked = await markCryptoOrphaned(ctx, row.id, 'the providers no longer report this transfer');
-        let reverted = false;
-        if (marked.orphaned && leg && leg.side === 'CLIENT_TO_EXCHANGE' && leg.status === 'PROCESSING') {
-          await revertClientLegInTx(ctx, leg.id, 'the transfer was orphaned by a chain reorganization');
-          reverted = true;
-        }
-        return { orphaned: marked.orphaned, reverted };
-      },
-      { financial: true },
-    );
-    if (step.result.orphaned) report.orphaned += 1;
-    if (step.result.reverted) report.legsReverted += 1;
+    try {
+      // Gone means gone everywhere: every configured provider answered, and every one of them no longer knows the
+      // transaction. An unreachable provider, a provider that still has it, or one that says it failed is not an
+      // orphan — and a single provider's word is never enough to strip a client's deposit from its trade.
+      const answer = await deps.chain.verifyTransfer('TRON', row.tx_hash, row.log_index);
+      if (answer.status !== 'NOT_FOUND' || answer.unavailable.length > 0 || answer.absentBy.length < deps.chain.providers.length) continue;
+      const step = await systemStep(
+        db,
+        'chain.transfer_orphaned',
+        { transferId: row.id },
+        async (ctx) => {
+          const allocation = await ctx.tx
+            .selectFrom('transfer_allocation')
+            .select('settlement_leg_id')
+            .where('crypto_transfer_id', '=', row.id)
+            .where('dimension', '=', 'CLIENT')
+            .where('voided_at', 'is', null)
+            .executeTakeFirst();
+          const leg = allocation?.settlement_leg_id
+            ? await ctx.tx.selectFrom('settlement_leg').select(['id', 'trade_id', 'side', 'status']).where('id', '=', allocation.settlement_leg_id).executeTakeFirst()
+            : undefined;
+          if (leg) await lockTrade(ctx.tx, leg.trade_id);
+          const marked = await markCryptoOrphaned(ctx, row.id, 'the providers no longer report this transfer');
+          let reverted = false;
+          if (marked.orphaned && leg && leg.side === 'CLIENT_TO_EXCHANGE' && leg.status === 'PROCESSING') {
+            await revertClientLegInTx(ctx, leg.id, 'the transfer was orphaned by a chain reorganization');
+            reverted = true;
+          }
+          return { orphaned: marked.orphaned, reverted };
+        },
+        { financial: true },
+      );
+      if (step.result.orphaned) report.orphaned += 1;
+      if (step.result.reverted) report.legsReverted += 1;
+    } catch (e) {
+      failures.push({ transferId: row.id, message: (e instanceof Error ? e.message : String(e)).slice(0, 300) });
+    }
   }
-  return report;
+  return { ...report, failures };
 }
