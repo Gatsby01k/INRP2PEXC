@@ -78,7 +78,14 @@ trader confirms a client's rupees with `trader_order.confirm_received` (a user w
 ### 2.7 Time limits (`escrow_deadlines`, every minute)
 - Client buys: the trader has 30 minutes from the trade's opening to fund the escrow; then the client has 30 minutes from
   the escrow being final to pay (or say it paid). Either missed, the trade is cancelled — never one with a payment filed.
-- Client sells: the client has the quote's deposit window; then the trader has 30 minutes to pay, or the deal unwinds:
+- Client sells: the client has the same 30 minutes (`escrowMinutes`) from the trade's opening to send its USDT, shown on
+  its deposit card; missed, the trade is cancelled — the price was firm for that window, not for ever, and the trader's
+  capacity comes back. Either seller's escrow deadline is enforced only once no transfer into the escrow is seen (final or
+  not), 5 minutes have passed beyond it, and the deposit scanner has since read the whole chain up to its head — a
+  transfer sent in the last minute is seen first. USDT that lands after a cancellation becomes a `FUNDS_AFTER_TRADE_CLOSED`
+  case and goes back; a cancellation (by the system or the desk) also turns a trader's delivery seen but not yet final
+  into such a case, so its confirmation never meets a cancelled obligation.
+- Client sells, escrow funded: the trader has 30 minutes to pay, or the deal unwinds:
   the client's USDT goes back to the wallet it came from, by the signer, and the trader can no longer pay (ADR 0020
   §2.15, TD-35 — before it, a case for the desk and a refund by hand).
 - Receipt: the payee has 30 minutes to confirm, or the desk gets a case (§2.6).

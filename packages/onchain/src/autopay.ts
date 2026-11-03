@@ -222,7 +222,18 @@ async function runFeeSweeps(db: Db, deps: OnchainDeps, report: { sweepsPlanned: 
  * Ends every unwound P2P deal whose client's USDT is back (TD-35): the trade is cancelled, each in its own step. Run after
  * the monitor settled what the chain made final, before the holds close.
  */
-export async function runUnwindClosing(db: Db): Promise<{ cancelled: number }> {
+/** A trade a closing pass could not finish this time: tried again next cycle, and never in front of the others. */
+export interface ClosingFailure {
+  readonly tradeId: string;
+  readonly code: string;
+  readonly message: string;
+}
+
+const failureOf = (tradeId: string, e: unknown): ClosingFailure => ({
+  tradeId, code: isDomainError(e) ? e.code : (pgErrorCode(e) ?? 'UNEXPECTED'), message: (e instanceof Error ? e.message : String(e)).slice(0, 500),
+});
+
+export async function runUnwindClosing(db: Db): Promise<{ cancelled: number; failures: readonly ClosingFailure[] }> {
   const done = await sql<{ trade_id: string }>`
     select u.trade_id from p2p_unwind u
       join trade t on t.id = u.trade_id
@@ -230,10 +241,15 @@ export async function runUnwindClosing(db: Db): Promise<{ cancelled: number }> {
      where t.lifecycle_state not in ('COMPLETED', 'CANCELLED')
      order by u.created_at limit 100`.execute(db);
   let cancelled = 0;
+  const failures: ClosingFailure[] = [];
   for (const u of done.rows) {
-    if (await step(db, 'autopay.escrow_unwound', { tradeId: u.trade_id }, (ctx) => finishP2pUnwindInTx(ctx, u.trade_id))) cancelled += 1;
+    try {
+      if (await step(db, 'autopay.escrow_unwound', { tradeId: u.trade_id }, (ctx) => finishP2pUnwindInTx(ctx, u.trade_id))) cancelled += 1;
+    } catch (e) {
+      failures.push(failureOf(u.trade_id, e));
+    }
   }
-  return { cancelled };
+  return { cancelled, failures };
 }
 
 /**
@@ -241,7 +257,7 @@ export async function runUnwindClosing(db: Db): Promise<{ cancelled: number }> {
  * obligation over), no send of it still open. What it did not spend is free again; a trader is owed what it fronted
  * and does not bear (`closeNetworkHold`).
  */
-export async function runHoldClosing(db: Db): Promise<{ closed: number }> {
+export async function runHoldClosing(db: Db): Promise<{ closed: number; failures: readonly ClosingFailure[] }> {
   const done = await sql<{ trade_id: string }>`
     select h.trade_id from network_budget_hold h
       join trade t on t.id = h.trade_id
@@ -253,11 +269,16 @@ export async function runHoldClosing(db: Db): Promise<{ closed: number }> {
        and not exists (select 1 from chain_send s where s.trade_id = t.id and s.status not in ('CONFIRMED', 'CANCELLED'))
      order by h.created_at limit 200`.execute(db);
   let closed = 0;
+  const failures: ClosingFailure[] = [];
   for (const h of done.rows) {
-    const out = await step(db, 'network.close_hold', { tradeId: h.trade_id }, (ctx) => closeNetworkHold(ctx, h.trade_id, 'the trade is finished and nothing more is sent'));
-    if (out.closed) closed += 1;
+    try {
+      const out = await step(db, 'network.close_hold', { tradeId: h.trade_id }, (ctx) => closeNetworkHold(ctx, h.trade_id, 'the trade is finished and nothing more is sent'));
+      if (out.closed) closed += 1;
+    } catch (e) {
+      failures.push(failureOf(h.trade_id, e));
+    }
   }
-  return { closed };
+  return { closed, failures };
 }
 
 /** `network_fee_refresh`: what the chain charges now, read from the providers and recorded. */

@@ -12,7 +12,7 @@ import { type Step, at, tradeAssistant } from '../../_assistant/model.ts';
 import { ArrowIcon, CheckIcon, ClockIcon, DownloadIcon, InfoIcon, PauseIcon, ReceiptIcon } from '../../_workspace/icons.tsx';
 import { SuccessMark } from '../../_workspace/SuccessMark.tsx';
 import { InrPayment } from './InrPayment.tsx';
-import { P2pDealCard, P2pDealChat } from './P2pDeal.tsx';
+import { DepositTimer, P2pDealCard, P2pDealChat } from './P2pDeal.tsx';
 import { MarkArt } from '../../../../components/MarkArt.tsx';
 import shell from '../../shell.module.css';
 import { Amount } from '../../../../components/Amount.tsx';
@@ -113,6 +113,7 @@ function p2pHeadline(deal: NonNullable<PortalTrade['p2p']>, sell: boolean, usdt:
     };
   }
   if (sell) {
+    if (deal.step === 'ESCROW') return { title: `Send your ${usdt} to the escrow`, body: `Once it is locked there, the buyer pays you ${inr} straight to your account. Nothing leaves the escrow until you confirm the rupees arrived.` };
     if (deal.step === 'PAY') return { title: `The buyer is paying you ${inr}`, body: 'Your USDT is locked in INRP2P’s escrow. It is released only when you confirm the money is in your account.' };
     if (deal.step === 'CONFIRM') return { title: `Check your bank for ${inr}`, body: 'The buyer says they paid. Confirm it once you see the credit — that releases the escrow.' };
     if (deal.step === 'RELEASE') return { title: 'Done on your side', body: 'You confirmed the INR; INRP2P is releasing the escrow to the buyer.' };
@@ -278,9 +279,10 @@ export function TradeScreen({ view, justOpened = false }: { view: PortalTrade; j
               </h2>
               <p className={styles.actionText}>
                 {p2p
-                  ? 'This address is the deal’s escrow: INRP2P holds your USDT there and releases it to the buyer only after you confirm their INR reached your account.'
+                  ? 'This address is the deal’s escrow: INRP2P holds your USDT there and releases it to the buyer only after you confirm their INR reached your account. The rate holds while you send — if nothing arrives in time, the deal is cancelled.'
                   : 'Scan the code or copy the address into your wallet. The transfer is picked up on-chain the moment it lands — there is nothing to tell the desk.'}
               </p>
+              {p2p ? <DepositTimer deal={p2p} /> : null}
             </div>
             <DepositAddress
               address={trade.depositInstructions.address}

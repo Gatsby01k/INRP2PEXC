@@ -63,6 +63,26 @@ async function releaseCommitments(ctx: TxContext, trade: TradeRow, reason: strin
     }
     await appendAudit(ctx, { action: 'leg.failed', entityType: 'settlement_leg', entityId: leg.id, before: { status: 'PROCESSING' }, after: { status: 'FAILED', reason: 'trade cancelled before confirmation' } });
   }
+  // The same for the route's USDT seen on its way to the order's address but not final yet (a P2P escrow delivery the
+  // scanner recorded): its claim fails and its allocation is voided, so the chain's confirmation can never try to settle
+  // a cancelled obligation. The USDT is not forgotten — a case now, suspense once final, and back to the trader.
+  const delivering = await ctx.tx.selectFrom('route_settlement').select(['id', 'ref', 'crypto_transfer_id', 'amount_minor'])
+    .where('route_obligation_id', '=', obligation.id).where('obligation_side', '=', 'ROUTE_DELIVERS').where('transfer_kind', '=', 'CRYPTO').where('status', '=', 'RECORDED')
+    .orderBy('id').forUpdate().execute();
+  for (const d of delivering) {
+    await ctx.tx.updateTable('route_settlement').set({ status: 'FAILED', failed_at: sql<Date>`inrp2p_now()`, failure_reason: `trade cancelled before the delivery was final: ${reason}`.slice(0, 500) }).where('id', '=', d.id).execute();
+    await ctx.tx
+      .updateTable('transfer_allocation')
+      .set({ voided_at: sql<Date>`inrp2p_now()`, voided_by: ctx.actor.id ?? `SYSTEM:${ctx.commandName}`, void_reason: `trade cancelled: ${reason}`.slice(0, 500) })
+      .where('route_settlement_id', '=', d.id)
+      .where('voided_at', 'is', null)
+      .execute();
+    await openExceptionInTx(ctx, {
+      type: 'FUNDS_AFTER_TRADE_CLOSED', subjectType: 'CRYPTO_TRANSFER', subjectId: d.crypto_transfer_id!, tradeId: null,
+      details: { reason: 'TRADE_CANCELLED_BEFORE_DELIVERY_FINAL', previous_trade_id: trade.id, route_obligation_id: obligation.id, amount: Money.ofMinor(d.amount_minor, 'USDT').toDecimalString(), route_settlement_ref: d.ref },
+    });
+    await appendAudit(ctx, { action: 'route_settlement.failed', entityType: 'route_settlement', entityId: d.id, before: { status: 'RECORDED' }, after: { status: 'FAILED', reason: 'trade cancelled before the delivery was final' } });
+  }
   const pending = await ctx.tx.selectFrom('settlement_leg').select('id').where('trade_id', '=', trade.id).where('status', '=', 'PENDING').orderBy('id').execute();
   for (const l of pending) {
     const leg = await lockLeg(ctx, l.id);

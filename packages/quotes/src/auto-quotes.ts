@@ -23,7 +23,7 @@ import { lockRow } from './actors.ts';
 import { memberClientCommand } from './desk-deals.ts';
 import type { QuoteDeps } from './policy.ts';
 import { type CreateRequestPayload, cancelSentQuoteOfRequest, closeRequest, openRequestInTx } from './requests.ts';
-import { businessNow } from './security.ts';
+import { businessNow, hitRateLimit } from './security.ts';
 
 /**
  * Automatic prices of the INRP2P exchange (docs/adr/0025-automatic-pricing.md): a client asks, and in the same step gets a
@@ -199,6 +199,11 @@ async function placeQuote(ctx: TxContext, p: Placement): Promise<Extract<AutoOut
   const rateMicro = choice.offer.rateMicro;
   const econ = choice.econ;
 
+  // ADR 0024: the trader's own USDT in the deal stays within what its reserve allows, counted under its lock — before the
+  // order exists, since an open order is part of the exposure the limits are read with.
+  const { reserve } = await readStanding(ctx.tx, p.traderId);
+  if (reserve.limits && riskFit(reserve.limits, econ.routeBase.minor)) throw new DomainError('TRADER_LIMIT_EXCEEDED', 'the chosen trader’s reserve does not cover this deal');
+
   // A new order locks nothing that exists; its block is locked next, after any order this transaction closed.
   const order = await ctx.tx.insertInto('trader_order')
     .values({
@@ -219,9 +224,6 @@ async function placeQuote(ctx: TxContext, p: Placement): Promise<Extract<AutoOut
     .where('block_id', '=', block.id).where('status', '=', 'OFFERED').where('id', '<>', order.id).where('offer_expires_at', '>', sql<Date>`inrp2p_now()`).executeTakeFirst();
   const free = freeCapacity({ ...facts, capacityMinor: block.capacity_minor, reservedMinor: block.reserved_minor, offeredMinor: BigInt(offered?.n ?? '0') });
   if (choice.capacityMinor > free) throw new DomainError('CAPACITY_INSUFFICIENT', 'the chosen trader no longer has that much available');
-  // ADR 0024: the trader's own USDT in the deal stays within what its reserve allows, counted under its lock.
-  const { reserve } = await readStanding(ctx.tx, p.traderId);
-  if (reserve.limits && riskFit(reserve.limits, econ.routeBase.minor)) throw new DomainError('TRADER_LIMIT_EXCEEDED', 'the chosen trader’s reserve does not cover this deal');
   await ctx.tx.updateTable('trader_block').set({ reserved_minor: block.reserved_minor + choice.capacityMinor, updated_at: sql<Date>`inrp2p_now()`, version: block.version + 1 }).where('id', '=', block.id).execute();
   const snapshot = await publishTraderRate(ctx, { routeId: p.routeId, direction: request.direction, rate: Rate.ofMicro(rateMicro, 'ROUTE') });
   await ctx.tx.updateTable('trader_order')
@@ -367,9 +369,13 @@ async function openRfqInTx(ctx: TxContext, pc: PriceContext, traders: readonly (
   const approx = request.fixed_side === 'QUOTE'
     ? (sell ? amount : (amount * 10_000_000_000n) / reference.rate.micro)
     : (sell ? (amount * reference.rate.micro) / 10_000_000_000n : amount);
+  // ADR 0024: and the USDT of its own the deal would take, at the market reference, within what its reserve leaves — a
+  // trader who could not bid is not asked, and does not take the place of one who could.
+  const ownUsdt = request.fixed_side === 'BASE' ? amount : (amount * 10_000_000_000n) / reference.rate.micro;
   const invitees = traders
     .filter((t) => t.block.operatorMaxOrderMinor === null || approx <= t.block.operatorMaxOrderMinor)
     .filter((t) => t.block.operatorMaxCapacityMinor === null || approx <= t.block.operatorMaxCapacityMinor)
+    .filter((t) => t.roomMinor === null || ownUsdt <= t.roomMinor)
     .sort((a, b) => (a.completionPpm !== b.completionPpm ? (b.completionPpm > a.completionPpm ? 1 : -1) : a.ref < b.ref ? -1 : a.ref > b.ref ? 1 : 0))
     .slice(0, policy.rfqMaxTraders);
   if (invitees.length === 0) return null;
@@ -475,8 +481,34 @@ async function awardStep(db: Db, rfqId: string, key: string): Promise<AwardResul
   return out.result;
 }
 
-/** `rfq_sweep` (cron, every minute): every price request that is due — or whose request went away — is closed, each in its own step. */
-export async function runRfqSweep(db: Db, limit = 50): Promise<Record<AwardResult, number>> {
+/**
+ * A price request the award refused outright (the winner's side changed under it, say) goes to a person rather than being
+ * tried again every minute in front of the others.
+ */
+async function giveUpStep(db: Db, rfqId: string, reason: string): Promise<void> {
+  const key = randomUUID();
+  await executeCommand(db, {
+    authorize: async () => {},
+    handle: async (ctx) => {
+      const head = await ctx.tx.selectFrom('rfq').select(['trade_request_id']).where('id', '=', rfqId).executeTakeFirstOrThrow();
+      await lockRow(ctx.tx, 'trade_request', 'trade_request', head.trade_request_id);
+      assertLockOrder(ctx.tx, 'rfq');
+      const rfq = await ctx.tx.selectFrom('rfq').select(['id', 'status']).where('id', '=', rfqId).forUpdate().executeTakeFirstOrThrow();
+      if (rfq.status !== 'OPEN') return;
+      await noPrice(ctx, rfq.id, await readRequest(ctx, head.trade_request_id), `could not be awarded: ${reason}`);
+    },
+  }, { name: 'rfq.give_up', actor: SYSTEM, payload: { rfqId, run: key }, idempotencyKey: key, financial: true });
+}
+
+export interface RfqSweepReport extends Record<AwardResult, number> {
+  readonly failures: readonly { readonly rfqId: string; readonly code: string; readonly message: string }[];
+}
+
+/**
+ * `rfq_sweep` (cron, every minute): every price request that is due — or whose request went away — is closed, each in its
+ * own step; one that fails never holds up the rest.
+ */
+export async function runRfqSweep(db: Db, limit = 50): Promise<RfqSweepReport> {
   const due = await sql<{ id: string }>`
     select q.id from rfq q join trade_request r on r.id = q.trade_request_id
      where q.status = 'OPEN'
@@ -485,8 +517,20 @@ export async function runRfqSweep(db: Db, limit = 50): Promise<Record<AwardResul
                              and not exists (select 1 from rfq_bid b where b.rfq_id = q.id and b.trader_id = i.trader_id and b.status = 'LIVE')))
      order by q.closes_at limit ${limit}`.execute(db);
   const report: Record<AwardResult, number> = { NOT_DUE: 0, AWARDED: 0, NO_PRICE: 0, CANCELLED: 0, CLOSED: 0 };
-  for (const { id } of due.rows) report[await awardStep(db, id, randomUUID())] += 1;
-  return report;
+  const failures: { rfqId: string; code: string; message: string }[] = [];
+  for (const { id } of due.rows) {
+    try {
+      report[await awardStep(db, id, randomUUID())] += 1;
+    } catch (e) {
+      const message = (e instanceof Error ? e.message : String(e)).slice(0, 300);
+      failures.push({ rfqId: id, code: e instanceof DomainError ? e.code : 'UNEXPECTED', message });
+      // A refusal is the same next minute; anything else (the database, a conflict) may pass and is simply tried again.
+      if (e instanceof DomainError) {
+        await giveUpStep(db, id, `${e.code}: ${message}`).then(() => { report.NO_PRICE += 1; }, () => undefined);
+      }
+    }
+  }
+  return { ...report, failures };
 }
 
 /**
@@ -515,6 +559,20 @@ export function rfqAwardHandler(db: Db): OutboxHandler {
 }
 
 // ---- the client's side ------------------------------------------------------------------------------------------------
+
+/**
+ * Prices one client may ask for in `PRICE_REQUEST_WINDOW_SECONDS`, firm or not. Each automatic price locks every trader it
+ * could go to and holds one trader's capacity, and each one left to lapse counts in what prices are learnt from: a client
+ * asking in a loop would slow every other client's price and teach the pricing its own refusals. A person comparing
+ * amounts asks a few times a minute at most.
+ */
+export const PRICE_REQUESTS_PER_WINDOW = 30;
+export const PRICE_REQUEST_WINDOW_SECONDS = 600;
+
+/** Counts a price request of the client against its window — in its own transaction, before the request runs. */
+export async function limitPriceRequests(db: Db, clientId: string): Promise<void> {
+  await hitRateLimit(db, { bucket: 'price_request_client', subject: requireUuid(clientId, 'clientId'), limit: PRICE_REQUESTS_PER_WINDOW, windowSeconds: PRICE_REQUEST_WINDOW_SECONDS });
+}
 
 export type InstantQuotePayload = Omit<CreateRequestPayload, 'clientId' | 'deskId'>;
 

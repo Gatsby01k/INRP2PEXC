@@ -267,7 +267,11 @@ export interface P2pDeadlinesReport {
  * `p2p_deadlines` (cron, every minute): the time limits of P2P deals (ADR 0019 §2.7, ADR 0023), each trade in its own
  * step, every one decided again under the trade's lock — a payment said to be sent a moment ago wins over its deadline.
  *
- * - A client buying USDT whose trader did not fund the escrow in time is cancelled exactly as the desk would.
+ * - A deal whose seller did not fund the escrow in time is cancelled exactly as the desk would: a client buying USDT whose
+ *   trader's USDT never came, a client selling USDT that never sent its own — its price was firm for the deposit window,
+ *   not for ever, and the trader's capacity comes back. Never while a transfer into the escrow is already seen, final or
+ *   not, and never before the deposit scanner has read the whole chain a few minutes past the deadline: a transfer sent
+ *   in the last minute is seen first. One that lands after all becomes a case (FUNDS_AFTER_TRADE_CLOSED) and goes back.
  * - A deal whose escrow is final waits for its buyer's rupees for its pay window — its method's time (UPI 15, IMPS 30,
  *   NEFT 60, RTGS 45 minutes by default) from the escrow being final and the payee's account being shown. When that is
  *   up and the buyer has not said it paid, it is warned and has the final period; only after that is the deal undone: a
@@ -297,22 +301,33 @@ export async function runP2pDeadlines(db: Db, limit = 50): Promise<P2pDeadlinesR
     }
   };
 
-  // A BUY whose trader never put its USDT in escrow.
+  // A deal whose seller never put its USDT in escrow: the trader of a BUY, the client of a SELL.
   const unfunded = await sql<{ trade_id: string }>`
     select t.id as trade_id
       from trade t
       join trade_economics e on e.trade_id = t.id
       join route_obligation o on o.trade_id = t.id
-     where e.route_execution_mode = 'P2P' and t.direction = 'BUY_USDT' and t.lifecycle_state = 'AWAITING_FIRST_LEG' and not t.hold
-       and not inrp2p_counterparty_delivered(o.id)
-       and t.opened_at + make_interval(mins => ((select p2p_timing from trader_program where id = 1)->>'escrowMinutes')::integer) < inrp2p_now()
+     where e.route_execution_mode = 'P2P' and t.lifecycle_state = 'AWAITING_FIRST_LEG' and not t.hold
+       and case when t.direction = 'BUY_USDT'
+                then not inrp2p_counterparty_delivered(o.id)
+                     and not exists (select 1 from route_settlement s where s.route_obligation_id = o.id and s.obligation_side = 'ROUTE_DELIVERS' and s.status = 'RECORDED')
+                else not exists (select 1 from settlement_leg l where l.trade_id = t.id and l.side = 'CLIENT_TO_EXCHANGE') end
+       and t.opened_at + make_interval(mins => ((select p2p_timing from trader_program where id = 1)->>'escrowMinutes')::integer + ${ESCROW_SEEN_GRACE_MINUTES}) < inrp2p_now()
+       and exists (select 1 from chain_cursor c
+                    where c.network = 'TRON' and c.last_complete and c.last_window_to is not null and c.last_scanned_block >= c.last_window_to
+                      and c.last_run_at >= t.opened_at + make_interval(mins => ((select p2p_timing from trader_program where id = 1)->>'escrowMinutes')::integer + ${ESCROW_SEEN_GRACE_MINUTES}))
      order by t.opened_at limit ${limit}`.execute(db);
   for (const u of unfunded.rows) {
     const done = await once(u.trade_id, 'trade.expire_unfunded_escrow', async (ctx) => {
       const trade = await lockTrade(ctx.tx, u.trade_id);
       const s = await p2pPayState(ctx.tx, trade.id);
       if (!s || trade.lifecycle_state !== 'AWAITING_FIRST_LEG' || trade.hold || s.fundedAt || s.everFiled) return false;
-      await cancelTradeInTx(ctx, { trade, reason: 'the trader did not fund the escrow in time', expiredUnpaid: true });
+      // Looked at again under the lock: a transfer into the escrow seen a moment ago keeps the deal.
+      if (await escrowTransferSeen(ctx.tx, trade.id, s.buy)) return false;
+      await cancelTradeInTx(ctx, {
+        trade, expiredUnpaid: true,
+        reason: s.buy ? 'the trader did not fund the escrow in time' : 'your USDT did not arrive within the deposit window — if you sent it after all, it is returned to you',
+      });
       return true;
     });
     if (done) cancelled += 1;
@@ -388,6 +403,21 @@ export async function runP2pDeadlines(db: Db, limit = 50): Promise<P2pDeadlinesR
     })) cases += 1;
   }
   return { cancelled, unwound, warned, cases, failures };
+}
+
+/**
+ * Minutes past the escrow deadline before a deal is undone for want of the seller's USDT: a transfer sent in the last
+ * minute must have time to be seen by the deposit scanner.
+ */
+export const ESCROW_SEEN_GRACE_MINUTES = 5;
+
+/** A transfer into the deal's escrow the chain already shows, final or not: the client's deposit, or the trader's delivery. */
+async function escrowTransferSeen(ex: Executor, tradeId: string, buy: boolean): Promise<boolean> {
+  if (!buy) return (await ex.selectFrom('settlement_leg').select('id').where('trade_id', '=', tradeId).where('side', '=', 'CLIENT_TO_EXCHANGE').executeTakeFirst()) !== undefined;
+  const r = await sql<{ id: string }>`
+    select s.id from route_settlement s join route_obligation o on o.id = s.route_obligation_id
+     where o.trade_id = ${tradeId} and s.obligation_side = 'ROUTE_DELIVERS' and s.status in ('RECORDED', 'CONFIRMED') limit 1`.execute(ex);
+  return r.rows.length > 0;
 }
 
 export type P2pStep = 'ESCROW' | 'PAY' | 'CONFIRM' | 'RELEASE' | 'REFUND' | 'DONE' | 'CANCELLED';
@@ -522,8 +552,9 @@ export async function p2pDeal(ex: Executor, protector: { open(value: string, con
   if (t.lifecycle_state === 'CANCELLED') step = 'CANCELLED';
   else if (t.lifecycle_state === 'COMPLETED') step = 'DONE';
   else if (!funded.d) {
+    // The seller's time to fund the escrow: the trader's USDT of a BUY, the client's own of a SELL.
     step = 'ESCROW';
-    dueBy = buy ? plus(t.opened_at, timing.escrowMinutes) : null;
+    dueBy = plus(t.opened_at, timing.escrowMinutes);
   } else if (!rupeeLeg) {
     step = 'PAY';
     // The window the deadlines opened — or, in the minute before they run, the one they will open.

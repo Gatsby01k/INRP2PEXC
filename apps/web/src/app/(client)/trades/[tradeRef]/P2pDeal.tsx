@@ -389,6 +389,16 @@ function Waiting({ children }: { children: React.ReactNode }) {
   );
 }
 
+/**
+ * A seller's own deposit into the escrow (a client selling USDT): its time, on the deposit card. The price holds for this
+ * window, not for ever — after it the deal is cancelled, and USDT that still arrives goes back.
+ */
+export function DepositTimer({ deal }: { deal: Deal }) {
+  const now = useServerClock(deal.now, deal.dueBy !== null);
+  if (deal.step !== 'ESCROW' || !deal.dueBy) return null;
+  return <StepTimer remaining={Date.parse(deal.dueBy) - now} verb="Send within" />;
+}
+
 /** Time left for the step: calm until the last five minutes, amber then (and through a final period); never a flashing alarm. */
 function StepTimer({ remaining, verb, final = false }: { remaining: number; verb: string; final?: boolean }) {
   const state = remaining <= 0 ? 'over' : final || remaining <= 5 * 60_000 ? 'soon' : 'calm';

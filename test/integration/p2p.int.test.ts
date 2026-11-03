@@ -4,7 +4,7 @@ import { runAs } from '@inrp2p/identity/testing';
 import { globalImbalance } from '@inrp2p/ledger';
 import { budgetFigures } from '@inrp2p/network';
 import { configureTraderProgram } from '@inrp2p/trader-core';
-import { answerClientDispute, claimIncomingFiat, confirmClientReceipt, decideP2pPayment, openClientDispute, p2pDeal, p2pDecisionView, p2pPayments, resolveException, runP2pDeadlines } from '@inrp2p/settlement';
+import { answerClientDispute, cancelTrade, claimIncomingFiat, confirmClientReceipt, decideP2pPayment, openClientDispute, p2pDeal, p2pDecisionView, p2pPayments, resolveException, runP2pDeadlines } from '@inrp2p/settlement';
 import { answerOrderDispute, confirmOrderPaymentReceived, disputeOrderPayment, orderDeliveryAddress, runTraderSweep, submitOrderPayment } from '@inrp2p/traders';
 import { CLIENT_SENDER, balanceOf, settleFirstLeg } from '../../packages/settlement/test/world.ts';
 import { confirmOnChain, sendUsdt, utr } from './traders-world.ts';
@@ -88,7 +88,8 @@ describe('a P2P route', () => {
     expect(fee.net_margin_usdt_minor).toBe(econ.gross_margin_base_minor);
     const { runP2pDeadlines: deadlines } = await import('@inrp2p/settlement');
     const clock = await w.t.pinnedClock();
-    await clock.set(new Date(Date.now() + 31 * 60_000));
+    await clock.set(new Date(Date.now() + 36 * 60_000));
+    await chainReadAt(36);
     await deadlines(clock.db);
     expect(await stateOf(trade.tradeId)).toBe('CANCELLED');
   });
@@ -232,6 +233,13 @@ describe('a client sells USDT: the client’s USDT into escrow, the trader’s r
   });
 });
 
+/** The deposit scanner read the whole chain, up to its head, `minutes` from now: a transfer sent before then is seen. */
+async function chainReadAt(minutes: number) {
+  const at = new Date(Date.now() + minutes * 60_000);
+  await w.t.owner.insertInto('chain_cursor').values({ network: 'TRON', scanner: 'tron_deposits', last_scanned_block: 1n, last_window_to: 1n, last_complete: true, last_run_at: at })
+    .onConflict((oc) => oc.columns(['network', 'scanner']).doUpdateSet({ last_window_to: 1n, last_complete: true, last_run_at: at })).execute();
+}
+
 describe('the time limits: whoever does not act in time, the other side gets its money back', () => {
   const late = async (minutes = 31) => {
     const clock = await w.t.pinnedClock();
@@ -283,7 +291,13 @@ describe('the time limits: whoever does not act in time, the other side gets its
 
   it('cancels a BUY whose trader never funded the escrow, with nothing to send back', async () => {
     const trade = await p2pTrade(usdtTrader, { direction: 'BUY_USDT', amount: '1000', clientRate: '106.500000' });
-    await runP2pDeadlines((await late()).db);
+    // Its 30 minutes are up, and the few after them for a last-minute transfer to be seen: until the chain was read
+    // since, nothing.
+    await chainReadAt(0);
+    await runP2pDeadlines((await late(36)).db);
+    expect(await stateOf(trade.tradeId)).toBe('AWAITING_FIRST_LEG');
+    await chainReadAt(36);
+    await runP2pDeadlines((await late(36)).db);
     expect(await stateOf(trade.tradeId)).toBe('CANCELLED');
     const told = await w.app.selectFrom('outbox_event').select('payload').where('aggregate_id', '=', trade.tradeId).where('type', '=', 'client.trade_cancelled').executeTakeFirstOrThrow();
     expect(told.payload).toMatchObject({ reason: 'the trader did not fund the escrow in time' });
@@ -469,5 +483,103 @@ describe('a seller whose rupees did not arrive says so at once, and INRP2P decid
     await railsSettle(w, trade.tradeId);
     expect(await stateOf(trade.tradeId)).toBe('COMPLETED');
     expect(await globalImbalance(w.app)).toEqual([]);
+  });
+});
+
+describe('the escrow’s own deadline: the seller’s USDT in time, and a transfer on its way is never overtaken', () => {
+  const late = async (minutes = 31) => {
+    const clock = await w.t.pinnedClock();
+    await clock.set(new Date(Date.now() + minutes * 60_000));
+    return clock;
+  };
+
+  it('never cancels a BUY whose trader’s USDT is already on its way to the escrow when the time runs out', async () => {
+    const trade = await p2pTrade(usdtTrader, { direction: 'BUY_USDT', amount: '300', clientRate: '106.500000' });
+    const order = await orderOf(trade.orderId);
+    const { address } = await runAs(w.app, orderDeliveryAddress(usdtTrader.admin.actor, w.traderDeps), usdtTrader.admin.ref, 'trader_order.delivery_address', { ref: trade.orderRef });
+    // Sent in the last minute: the chain shows it, it is not final yet — and the chain was read since.
+    await sendUsdt(w, usdtTrader.walletAddress, address, Money.ofMinor(order.base_minor, 'USDT').toDecimalString());
+    await chainReadAt(40);
+    expect(await runP2pDeadlines((await late(40)).db)).toMatchObject({ failures: [] });
+    expect(await stateOf(trade.tradeId)).toBe('AWAITING_FIRST_LEG');
+    await confirmOnChain(w);
+    expect(await p2pDeal(w.app, null, { tradeId: trade.tradeId, viewer: 'CLIENT' })).toMatchObject({ step: 'PAY', escrowFunded: true });
+  });
+
+  it('a desk that cancels a BUY while the trader’s USDT is still on its way: the transfer becomes a case, and every other deposit still confirms', async () => {
+    const trade = await p2pTrade(usdtTrader, { direction: 'BUY_USDT', amount: '310', clientRate: '106.500000' });
+    const order = await orderOf(trade.orderId);
+    const { address } = await runAs(w.app, orderDeliveryAddress(usdtTrader.admin.actor, w.traderDeps), usdtTrader.admin.ref, 'trader_order.delivery_address', { ref: trade.orderRef });
+    const { detected } = await sendUsdt(w, usdtTrader.walletAddress, address, Money.ofMinor(order.base_minor, 'USDT').toDecimalString());
+    await runAs(w.app, cancelTrade(w.dealer.actor), w.dealer.ref, 'trade.cancel', { tradeId: trade.tradeId, reason: 'the client asked to stop' });
+    expect(await stateOf(trade.tradeId)).toBe('CANCELLED');
+    const claim = await w.app.selectFrom('route_settlement').select(['status']).where('crypto_transfer_id', '=', detected.transferId).executeTakeFirstOrThrow();
+    expect(claim.status).toBe('FAILED');
+    const kase = await w.app.selectFrom('exception_case').select(['type', 'status']).where('subject_id', '=', detected.transferId).executeTakeFirstOrThrow();
+    expect(kase).toEqual({ type: 'FUNDS_AFTER_TRADE_CLOSED', status: 'OPEN' });
+    // Final on chain: nobody's obligation any more, so it is parked in suspense — and a deposit behind it confirms too.
+    const other = await p2pTrade(inrTrader, { direction: 'SELL_USDT', amount: '120', clientRate: '103.500000' });
+    const deposit = await w.app.selectFrom('deposit_assignment as a').innerJoin('deposit_address as d', 'd.id', 'a.deposit_address_id').select('d.address').where('a.trade_id', '=', other.tradeId).executeTakeFirstOrThrow();
+    await sendUsdt(w, w.clientSourceAddress, deposit.address, '120');
+    const out = await confirmOnChain(w);
+    expect(out.failures).toEqual([]);
+    expect(out.suspense).toBeGreaterThanOrEqual(1);
+    expect(await stateOf(other.tradeId)).toBe('FIRST_LEG_CONFIRMED');
+    expect(await globalImbalance(w.app)).toEqual([]);
+  });
+
+  it('cancels a SELL whose client never sent its USDT: the price was firm for the deposit window, not for ever', async () => {
+    const trade = await p2pTrade(inrTrader, { direction: 'SELL_USDT', amount: '250', clientRate: '103.500000' });
+    // The client sees the deadline on its deposit.
+    const deal = await p2pDeal(w.app, null, { tradeId: trade.tradeId, viewer: 'CLIENT' });
+    expect(deal).toMatchObject({ step: 'ESCROW', turn: 'SELLER' });
+    const opened = (await w.app.selectFrom('trade').select('opened_at').where('id', '=', trade.tradeId).executeTakeFirstOrThrow()).opened_at;
+    expect(Date.parse(deal!.dueBy!)).toBe(opened.getTime() + 30 * 60_000);
+    // Inside the window, and in the minutes after it a transfer sent at the last moment needs to be seen: nothing.
+    await chainReadAt(33);
+    await runP2pDeadlines((await late(33)).db);
+    expect(await stateOf(trade.tradeId)).toBe('AWAITING_FIRST_LEG');
+    // Past that, but the chain has not been read since: a deposit could be there unseen — nothing either.
+    await chainReadAt(33);
+    const past = await late(42);
+    await runP2pDeadlines(past.db);
+    expect(await stateOf(trade.tradeId)).toBe('AWAITING_FIRST_LEG');
+    // The deposit scanner has read the chain since: no deposit — the deal ends, the trader's capacity comes back.
+    await chainReadAt(41);
+    expect(await runP2pDeadlines(past.db)).toMatchObject({ failures: [] });
+    expect(await stateOf(trade.tradeId)).toBe('CANCELLED');
+    const told = await w.app.selectFrom('outbox_event').select('payload').where('aggregate_id', '=', trade.tradeId).where('type', '=', 'client.trade_cancelled').executeTakeFirstOrThrow();
+    expect(told.payload).toMatchObject({ expiredUnpaid: true, reason: expect.stringContaining('USDT did not arrive') });
+    await runTraderSweep(w.app);
+    expect((await orderOf(trade.orderId)).status).toBe('CANCELLED');
+    expect(await globalImbalance(w.app)).toEqual([]);
+  });
+
+  it('keeps a SELL whose client’s deposit the chain already shows, final or not', async () => {
+    const trade = await p2pTrade(inrTrader, { direction: 'SELL_USDT', amount: '260', clientRate: '103.500000' });
+    const deposit = await w.app.selectFrom('deposit_assignment as a').innerJoin('deposit_address as d', 'd.id', 'a.deposit_address_id').select('d.address').where('a.trade_id', '=', trade.tradeId).executeTakeFirstOrThrow();
+    await sendUsdt(w, w.clientSourceAddress, deposit.address, '260');
+    expect((await runP2pDeadlines((await late(62)).db)).failures).toEqual([]);
+    expect(await stateOf(trade.tradeId)).toBe('FIRST_LEG_DETECTED');
+  });
+
+  it('takes the rupees as one payment of the whole amount, from either side — never a part the escrow would wait on', async () => {
+    const sell = await p2pTrade(inrTrader, { direction: 'SELL_USDT', amount: '150', clientRate: '103.500000' });
+    await settleFirstLeg(w, sell.tradeId);
+    const traderPays = (amount?: string) => runAs(w.app, submitOrderPayment(inrTrader.admin.actor, w.traderDeps), inrTrader.admin.ref, 'trader_order.submit_payment', { ref: sell.orderRef, rail: 'IMPS' as const, utr: utr(), ...(amount ? { amount } : {}) });
+    await expect(traderPays('10000.00')).rejects.toMatchObject({ code: 'INVALID_AMOUNT' });
+    expect(await p2pDeal(w.app, null, { tradeId: sell.tradeId, viewer: 'CLIENT' })).toMatchObject({ step: 'PAY' });
+    await traderPays();
+
+    const buy = await p2pTrade(usdtTrader, { direction: 'BUY_USDT', amount: '160', clientRate: '106.500000' });
+    const order = await orderOf(buy.orderId);
+    const { address } = await runAs(w.app, orderDeliveryAddress(usdtTrader.admin.actor, w.traderDeps), usdtTrader.admin.ref, 'trader_order.delivery_address', { ref: buy.orderRef });
+    await sendUsdt(w, usdtTrader.walletAddress, address, Money.ofMinor(order.base_minor, 'USDT').toDecimalString());
+    await confirmOnChain(w);
+    const buyRef = await refOf(buy.tradeId);
+    const clientPays = (amount?: string) => runAs(w.app, claimIncomingFiat(w.acceptor.actor), w.acceptor.ref, 'fiat_in.claim', { tradeRef: buyRef, rail: 'IMPS' as const, utr: utr(), fromBankAccountId: w.bankAccountId, ...(amount ? { amount } : {}) });
+    await expect(clientPays('1000.00')).rejects.toMatchObject({ code: 'INVALID_AMOUNT' });
+    await clientPays();
+    expect(await p2pDeal(w.app, null, { tradeId: buy.tradeId, viewer: 'CLIENT' })).toMatchObject({ step: 'CONFIRM' });
   });
 });

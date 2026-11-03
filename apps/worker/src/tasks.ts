@@ -99,7 +99,7 @@ export function buildTaskList(
   // fails these jobs loudly instead of returning quietly and looking healthy.
   const chain = opts.scanner;
   const state = opts.monitoring?.state ?? (chain ? 'READY' : 'DISABLED');
-  const chainJob = (run: (deps: ScannerDeps) => Promise<unknown>): Task => async () => {
+  const chainJob = (run: (deps: ScannerDeps, helpers: Parameters<Task>[1]) => Promise<unknown>): Task => async (_payload, helpers) => {
     if (state === 'DISABLED') return;
     if (!chain || state === 'UNCONFIGURED') {
       throw new DomainError(
@@ -107,12 +107,15 @@ export function buildTaskList(
         `TRON monitoring is enabled but not usable (${state}): ${(opts.monitoring?.reasons ?? ['no provider configuration']).join('; ')}`,
       );
     }
-    await run(chain);
+    await run(chain, helpers);
   };
   // DEGRADED (a single independent source) still scans and still confirms below the D-05 threshold; what it
   // cannot do is confirm a large amount, and `verifyCryptoTransfer` refuses that on its own.
   const tronScan = chainJob((deps) => runTronScan(db, deps));
-  const tronConfirm = chainJob((deps) => runTronConfirm(db, deps));
+  const tronConfirm = chainJob(async (deps, helpers) => {
+    const out = await runTronConfirm(db, deps);
+    for (const f of out.failures) helpers.logger.error(`tron_confirm: transfer ${f.transferId} not settled: ${f.code}: ${f.message}`);
+  });
   const tronOrphanSweep = chainJob((deps) => runOrphanSweep(db, deps));
   // TD-06: one bounded slice of a requested historical backfill per run; nothing to do is the common case.
   const tronBackfill = chainJob((deps) => runChainBackfill(db, deps));
@@ -174,8 +177,8 @@ export function buildTaskList(
     for (const f of sender.failures) helpers.logger.error(`onchain_cycle: send ${f.sendRef} (${f.code}): ${f.message}`);
     const monitor = await runMonitor(db, rails);
     for (const f of monitor.failures) helpers.logger.error(`onchain_cycle: transaction ${f.txid} (${f.code}): ${f.message}`);
-    await runUnwindClosing(db);
-    await runHoldClosing(db);
+    for (const f of (await runUnwindClosing(db)).failures) helpers.logger.error(`onchain_cycle: unwind of trade ${f.tradeId} not finished (${f.code}): ${f.message}`);
+    for (const f of (await runHoldClosing(db)).failures) helpers.logger.error(`onchain_cycle: network hold of trade ${f.tradeId} not closed (${f.code}): ${f.message}`);
     for (const f of monitor.permits.failures) helpers.logger.warn(`onchain_cycle: GasFree permit ${f.permitId}: ${f.code} ${f.message}`);
     // ADR 0022: permits signed, given to GasFree, confirmed or proved dead keep the cycle hot like transactions do.
     const permits = sender.permitsSigned + monitor.permits.submitted + monitor.permits.confirmed + monitor.permits.pending + monitor.permits.expired;
@@ -214,10 +217,11 @@ export function buildTaskList(
   };
   // ADR 0025: price requests to several traders whose time is up (or whose traders all bid) are awarded or closed.
   const rfqSweep: Task = async (_payload, helpers) => {
-    const out = await runRfqSweep(db);
+    const { failures, ...out } = await runRfqSweep(db);
+    for (const f of failures) helpers.logger.error(`rfq_sweep: ${f.rfqId} not awarded: ${f.code}: ${f.message}`);
     if (out.AWARDED + out.NO_PRICE + out.CANCELLED > 0) helpers.logger.info(`rfq_sweep: ${JSON.stringify(out)}`);
   };
-  // ADR 0020 §2.14: a trader's P2P step due within ten minutes  // ADR 0020 §2.14: a trader's P2P step due within ten minutes is told once to its linked chats. Each order is its own
+  // ADR 0020 §2.14: a trader's P2P step due within ten minutes is told once to its linked chats. Each order is its own
   // attempt: one that cannot be sent now is tried again on the next minute, under the same key, and sent once.
   const telegramDeadlines: Task = async (_payload, helpers) => {
     const telegram = opts.telegram;

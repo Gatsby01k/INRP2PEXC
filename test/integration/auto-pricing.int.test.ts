@@ -297,3 +297,80 @@ describe('a market nobody confirmed lately', () => {
     expect(out.outcome).toEqual({ kind: 'MANUAL', reason: 'NO_MARKET' });
   });
 });
+
+describe('a trader with a deal already open (ADR 0024)', () => {
+  it('counts the deal being priced once: a second deal that fits beside the first is priced, one past the room is not', async () => {
+    const setRisk = async (riskPolicy: unknown) => {
+      const program = await w.app.selectFrom('trader_program').select('version').where('id', '=', 1).executeTakeFirstOrThrow();
+      await runAs(w.app, configureTraderProgram(w.finance.actor), w.finance.ref, 'trader_program.configure', { expectedVersion: program.version, riskPolicy: riskPolicy as null, reason: 'reserve-based limits' });
+    };
+    // Delta sells cheaper than anyone firm and has nothing open: every price below goes to it while its reserve allows.
+    const d = await railsTrader(w, 'Delta', { sell: { capacity: '500000', rate: '100.95', min: '10', max: '20000' } }, '0');
+    await firm(d, 'SELL_USDT');
+    await books('101.00', '102.00');
+    // 500 USDT of reserve: one deal of at most 1,000 USDT of Delta's own, 1,500 USDT open at once.
+    const level = { minDeals: 0, minDays: 0, dealX: 2, openX: 3 };
+    try {
+      await setRisk({ cleanDays: 30, tiers: [level, { ...level, minDeals: 10 }, { ...level, minDeals: 50 }] });
+      const first = quoted(await ask('BUY_USDT', '600'));
+      expect(traderOfOrder(await orderOfQuote(first.quoteId))).toBe(d.traderId);
+      await accept(first.quoteId);
+      const open = (await quoteOf(first.quoteId)).route_base_minor!;
+
+      // About 606 USDT open and about 606 more: 1,212 of 1,500 — it fits, and is priced on Delta's offer.
+      const second = quoted(await ask('BUY_USDT', '600'));
+      const secondOrder = await orderOfQuote(second.quoteId);
+      expect(traderOfOrder(secondOrder)).toBe(d.traderId);
+      expect(open + secondOrder.base_minor).toBeLessThanOrEqual(usdt('1500'));
+      await accept(second.quoteId);
+
+      // A third beside both would pass 1,500: Delta is never asked to fill it, whoever else may.
+      const third = await ask('BUY_USDT', '600');
+      expect(await w.app.selectFrom('trader_order').select('id').where('trade_request_id', '=', third.requestId).where('trader_id', '=', d.traderId).execute()).toEqual([]);
+      const invited = await w.app.selectFrom('rfq_invite as i').innerJoin('rfq as q', 'q.id', 'i.rfq_id').select('i.trader_id').where('q.trade_request_id', '=', third.requestId).execute();
+      expect(invited.map((i) => i.trader_id)).not.toContain(d.traderId);
+    } finally {
+      await setRisk(null);
+      await firm(d, 'SELL_USDT', { status: 'PAUSED' });
+    }
+  });
+});
+
+describe('the price request sweep', () => {
+  it('one request that cannot be awarded never holds up the others: they are awarded, it is tried again', async () => {
+    await books('101.00', '102.00');
+    const [one, two] = [await traderClient(w, 'Third Buyer'), await traderClient(w, 'Fourth Buyer')];
+    const x = await ask('BUY_USDT', '70000', { ...one.admin, walletId: one.walletId });
+    const y = await ask('BUY_USDT', '70000', { ...two.admin, walletId: two.walletId });
+    expect([x.outcome.kind, y.outcome.kind]).toEqual(['RFQ', 'RFQ']);
+    const rfqOf = (requestId: string) => w.app.selectFrom('rfq').selectAll().where('trade_request_id', '=', requestId).executeTakeFirstOrThrow();
+    const [rx, ry] = [await rfqOf(x.requestId), await rfqOf(y.requestId)];
+    for (const rfq of [rx, ry]) await runAs(w.app, bidOnRfq(b.admin.actor), b.admin.ref, 'rfq.bid', { ref: rfq.ref, rate: '101.10' });
+    // The first one's award fails in the database, whatever the reason; it closes first, so it would stand in front.
+    await sql.raw(`create function test_refuse_award() returns trigger language plpgsql as $$ begin
+      if new.trade_request_id = '${x.requestId}' then raise exception 'refused for this test'; end if; return new; end $$;
+      create trigger test_refuse_award before insert on auto_quote for each row execute function test_refuse_award()`).execute(w.t.owner);
+    try {
+      const clock = await w.t.pinnedClock();
+      await clock.set(new Date(Math.max(rx.closes_at.getTime(), ry.closes_at.getTime()) + 1_000));
+      const out = await runRfqSweep(clock.db);
+      await clock.set(null);
+      expect(out).toMatchObject({ AWARDED: 1 });
+      expect(out.failures.map((f) => f.rfqId)).toEqual([rx.id]);
+      expect((await rfqOf(y.requestId)).status).toBe('AWARDED');
+      expect((await rfqOf(x.requestId)).status).toBe('OPEN');
+    } finally {
+      await sql.raw('drop trigger test_refuse_award on auto_quote; drop function test_refuse_award()').execute(w.t.owner);
+    }
+  });
+});
+
+describe('a client asking for prices in a loop', () => {
+  it('is stopped after its window’s share, and nobody else is', async () => {
+    const { limitPriceRequests, PRICE_REQUESTS_PER_WINDOW } = await import('@inrp2p/quotes');
+    const other = await traderClient(w, 'Fifth Buyer');
+    for (let i = 0; i < PRICE_REQUESTS_PER_WINDOW; i++) await limitPriceRequests(w.app, w.clientId);
+    await expect(limitPriceRequests(w.app, w.clientId)).rejects.toMatchObject({ code: 'RATE_LIMITED' });
+    await expect(limitPriceRequests(w.app, other.clientId)).resolves.toBeUndefined();
+  });
+});

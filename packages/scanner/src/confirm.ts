@@ -1,6 +1,6 @@
 import { sql } from 'kysely';
-import { Money } from '@inrp2p/kernel';
-import type { Db, TxContext } from '@inrp2p/db';
+import { Money, isDomainError } from '@inrp2p/kernel';
+import { type Db, type TxContext, pgErrorCode } from '@inrp2p/db';
 import { lockTrade } from '@inrp2p/trades';
 import { appendAudit } from '@inrp2p/audit';
 import { enqueueOutbox } from '@inrp2p/outbox';
@@ -35,6 +35,8 @@ export interface ConfirmReport {
   readonly failed: number;
   readonly pending: number;
   readonly notFinalCases: number;
+  /** Transfers whose step failed this run; each is tried again next run, and never holds up the others. */
+  readonly failures: readonly { readonly transferId: string; readonly code: string; readonly message: string }[];
 }
 
 interface Candidate {
@@ -58,16 +60,32 @@ export async function runTronConfirm(db: Db, deps: ScannerDeps): Promise<Confirm
     limit ${policy.confirmBatch}`.execute(db);
 
   const report = { examined: 0, clientLegsConfirmed: 0, routeSettled: 0, reserveCredited: 0, verified: 0, suspense: 0, failed: 0, pending: 0, notFinalCases: 0 };
+  const failures: { transferId: string; code: string; message: string }[] = [];
   for (const candidate of candidates.rows) {
     report.examined += 1;
-    const step = await systemStep(
-      db,
-      'chain.transfer_verify',
-      { transferId: candidate.id },
-      (ctx) => verifyOne(ctx, deps, candidate),
-      { financial: true },
-    );
-    const outcome = step.result;
+    let outcome: Awaited<ReturnType<typeof verifyOne>>;
+    try {
+      outcome = (await systemStep(
+        db,
+        'chain.transfer_verify',
+        { transferId: candidate.id },
+        (ctx) => verifyOne(ctx, deps, candidate),
+        { financial: true },
+      )).result;
+    } catch (e) {
+      // One transfer that cannot be settled — whatever the reason — never stops every other deposit from confirming.
+      // It is tried again next run; once it has waited too long the desk has it as a case, with the reason.
+      const code = isDomainError(e) ? e.code : (pgErrorCode(e) ?? 'UNEXPECTED');
+      const message = (e instanceof Error ? e.message : String(e)).slice(0, 300);
+      failures.push({ transferId: candidate.id, code, message });
+      if (candidate.aged) {
+        await systemStep(db, 'chain.transfer_verify_failed', { transferId: candidate.id }, async (ctx) => {
+          const opened = await openExceptionInTx(ctx, { type: 'TX_NOT_FINAL', subjectType: 'CRYPTO_TRANSFER', subjectId: candidate.id, tradeId: null, details: { code: 'CONFIRMATION_FAILED', reason: `${code}: ${message}` } });
+          if (opened.opened) report.notFinalCases += 1;
+        }).catch(() => undefined);
+      }
+      continue;
+    }
     if (outcome.outcome === 'CLIENT_LEG_CONFIRMED') report.clientLegsConfirmed += 1;
     else if (outcome.outcome === 'ROUTE_SETTLED') report.routeSettled += 1;
     else if (outcome.outcome === 'RESERVE_CREDITED') report.reserveCredited += 1;
@@ -77,7 +95,7 @@ export async function runTronConfirm(db: Db, deps: ScannerDeps): Promise<Confirm
     else if (outcome.outcome === 'PENDING') report.pending += 1;
     if (outcome.caseOpened) report.notFinalCases += 1;
   }
-  return report;
+  return { ...report, failures };
 }
 
 async function verifyOne(ctx: TxContext, deps: ScannerDeps, candidate: Candidate): Promise<{ outcome: ConfirmOutcome; caseOpened: boolean }> {
