@@ -1,6 +1,6 @@
 import { assertNewBusinessOpen, newBusinessState } from '@inrp2p/trades';
 import { sql } from 'kysely';
-import { currentNetworkCosts, networkAvailable, reservePerSendSun, reserveSends } from '@inrp2p/network';
+import { currentNetworkCosts, networkAvailable, networkFeePolicy, reservePerSendSun, reserveSends } from '@inrp2p/network';
 import { DomainError, Money, Rate, computeP2pEconomics, computeTradeEconomics, requireUuid } from '@inrp2p/kernel';
 import { type DirectionValue, type FixedSideValue, type TraderSide, type TxContext, assertLockOrder } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
@@ -162,11 +162,11 @@ export async function assignRequestInTx(
   // them from acceptance. A trader that could not cover one more order is not offered one.
   let networkNeed: bigint | null = null;
   let p2pNetworkNeed: bigint | null = null;
-  // ADR 0022: on GasFree, INRP2P's own P2P deal carries its network out of its margin — its executor needs no deposit.
-  let rented = false;
+  // ADR 0022: on GasFree, INRP2P's own P2P deal carries its network out of its margin — its executor needs no deposit,
+  // and the TRX price and the chain's TRX fees price nothing of it: only a route paid in TRX waits on them.
+  const rented = (await networkFeePolicy(ctx.tx)).resourceMode === 'GASFREE';
   try {
     const costs = await currentNetworkCosts(ctx.tx);
-    rented = costs.policy.resourceMode === 'GASFREE';
     const perSend = reservePerSendSun(costs.snapshot, costs.policy);
     networkNeed = perSend * BigInt(reserveSends(request.direction, costs.policy));
     // A P2P deal holds its transfer and a return of the escrow, whichever direction (`priceNetworkP2p`).
@@ -190,22 +190,24 @@ export async function assignRequestInTx(
       exclude(issues[0]!);
       continue;
     }
-    if (networkNeed === null) {
-      exclude('NETWORK_FEES_UNKNOWN');
-      continue;
-    }
     const block = (await readBlocks(ctx.tx, t.id)).find((b) => b.side === side);
     if (!block) {
       exclude('NO_SIDE');
       continue;
     }
     // A P2P route's transfers are paid from its trader's network deposit like any trader route's (migration 0040: the
-    // platform has no TRX budget for P2P deals); its order is sized at the client rate the desk names, because the rupees
-    // are one amount for both of them (ADR 0019).
+    // platform has no TRX budget for P2P deals) — unless they go through GasFree; its order is sized at the client rate
+    // the desk names, because the rupees are one amount for both of them (ADR 0019).
     const p2p = (await ctx.tx.selectFrom('liquidity_route').select('execution_mode').where('id', '=', block.routeId).executeTakeFirstOrThrow()).execution_mode === 'P2P';
-    if (!(p2p && rented) && (await networkAvailable(ctx.tx, t.id)) < (p2p ? p2pNetworkNeed! : networkNeed)) {
-      exclude('NETWORK_DEPOSIT_SHORT');
-      continue;
+    if (!(p2p && rented)) {
+      if (networkNeed === null) {
+        exclude('NETWORK_FEES_UNKNOWN');
+        continue;
+      }
+      if ((await networkAvailable(ctx.tx, t.id)) < (p2p ? p2pNetworkNeed! : networkNeed)) {
+        exclude('NETWORK_DEPOSIT_SHORT');
+        continue;
+      }
     }
     if (block.rateMicro === null) {
       exclude('NO_RATE');

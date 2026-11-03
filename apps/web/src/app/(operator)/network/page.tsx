@@ -37,6 +37,10 @@ export default async function NetworkPage() {
   const feesStale = !view.fees || view.fees.ageSeconds > 3600;
   const priceStale = !view.trxRate || view.trxRate.ageSeconds > 86_400;
   const mismatch = view.budgetWallet?.difference && view.budgetWallet.difference.startsWith('-') && view.budgetWallet.difference !== '-0.000000';
+  // ADR 0022: on GasFree every deal pays its network in USDT out of its own escrow. What only the TRX mode needs — TRX
+  // deposits and their funders, the TRX price, top-ups, the TRX economics of each trade — is not shown; switching back
+  // to TRX brings it back.
+  const trxMode = view.gasFree.mode !== 'GASFREE';
 
   return (
     <Page>
@@ -71,6 +75,7 @@ export default async function NetworkPage() {
             <strong>GasFree’s fees are not current.</strong> No deal can be priced on GasFree until the worker reads them again (RUNBOOKS gasfree).
           </Notice>
         ) : null}
+        {trxMode ? (
         <KpiBand
           label="Network budget"
           items={[
@@ -85,6 +90,7 @@ export default async function NetworkPage() {
             { key: 'r', label: 'TRX price', value: view.trxRate ? `${plainPrice(view.trxRate.usdtPerTrx)} USDT` : '—', sub: view.trxRate ? `${age(view.trxRate.effectiveAt, nowMs)} old · ${view.trxRate.source}` : 'publish one below', ...(priceStale ? { tone: 'warning' as const } : {}) },
           ]}
         />
+        ) : null}
 
         {!view.hdAccount && allows(ctx.actor, 'custody:configure') ? (
           <Section title="Register the exchange’s HD wallet" hint="Once, before the first trade on the exchange’s own rails: run scripts/custody-seed.ts new (RUNBOOKS custody-seed), put the sealed seed in the worker’s secret and the account key in the web app’s environment, then register the two addresses it printed.">
@@ -97,21 +103,25 @@ export default async function NetworkPage() {
             <strong>The signer is stopped.</strong> Nothing new is signed; transactions already on chain are still followed to their end. {view.policy.reason}
           </Notice>
         ) : null}
-        {feesStale || priceStale ? (
+        {trxMode && (feesStale || priceStale) ? (
           <Notice tone="warning" icon="exceptions">
             <strong>{!view.fees ? 'The chain’s fees have never been read.' : priceStale ? 'The TRX price is missing or old.' : 'The chain’s fees were read over an hour ago.'}</strong> No quote is sent and no trade accepted while what a transfer costs cannot be stated.
           </Notice>
         ) : null}
-        {mismatch ? (
+        {trxMode && mismatch ? (
           <Notice tone="danger" icon="exceptions" role="alert">
             <strong>The budget wallet holds {trx(view.budgetWallet!.onChainTrx!)} on chain; the records say {trx(view.budgetWallet!.recordedTrx)}.</strong> Top-ups beyond what the chain shows are refused until this is understood.
           </Notice>
         ) : null}
 
-        <Section title="Sends" count={live.length} hint="Every transfer the signer makes, with its transactions and the TRX it may draw. A send is signed once and its bytes are stored before broadcast; another is signed only after the chain proves the first can never land. A transfer that would draw more TRX than its cap waits for a person." flush>
+        <Section title="Sends" count={live.length} hint={trxMode
+            ? 'Every transfer the signer makes, with its transactions and the TRX it may draw. A send is signed once and its bytes are stored before broadcast; another is signed only after the chain proves the first can never land. A transfer that would draw more TRX than its cap waits for a person.'
+            : 'Every transfer the signer makes out of a deal’s escrow, by a GasFree permit whose fee comes out of the deal’s own USDT. A permit is signed once and stored before GasFree sees it; another is signed only after the chain proves the first can never land. A fee above its cap waits for a person.'} flush>
           <SendsTable sends={view.sends} canApprove={allows(ctx.actor, 'chain_send:approve')} canCancel={allows(ctx.actor, 'chain_send:cancel')} canManage={allows(ctx.actor, 'network:manage')} me={ctx.actor.userId} />
         </Section>
 
+        {trxMode ? (
+        <>
         <Section title="Funders" count={view.funders.length} hint="TRX is prefunded: a trader’s deposit pays the transfers of its orders and is paid back in INR with its rewards when the client paid for them; the platform budget only desk routes and its own mistakes." flush>
           <FundersTable funders={view.funders} />
         </Section>
@@ -119,6 +129,8 @@ export default async function NetworkPage() {
         <Section title="Trades" hint="What the client’s price carried for the network against what the transfers actually burned, and what each trade leaves after the trader’s reward." flush>
           <TradesNetworkTable trades={view.trades} />
         </Section>
+        </>
+        ) : null}
 
         {view.withdrawals.length > 0 ? (
           <Section title="Withdrawals" count={view.withdrawals.length} flush>
@@ -126,7 +138,7 @@ export default async function NetworkPage() {
           </Section>
         ) : null}
 
-        {allows(ctx.actor, 'network:manage') ? (
+        {trxMode && allows(ctx.actor, 'network:manage') ? (
           <>
             <Section title="TRX price" hint="What one TRX is worth in USDT. Quotes price the network fee with it; a trader is paid back at the price its trade was quoted with.">
               <TrxPriceForm current={view.trxRate?.usdtPerTrx ?? null} />
@@ -137,7 +149,7 @@ export default async function NetworkPage() {
           </>
         ) : null}
 
-        {view.budgetWallet ? (
+        {trxMode && view.budgetWallet ? (
           <p className={d.meta}>
             Budget wallet on chain: {view.budgetWallet.onChainTrx ? trx(view.budgetWallet.onChainTrx) : 'not read yet'}
             {view.budgetWallet.observedAt ? ` (${dateTime(view.budgetWallet.observedAt)})` : ''} · records {trx(view.budgetWallet.recordedTrx)} · policy set {dateTime(view.policy.setAt)} <Chip tone="neutral">min net {view.policy.minNetMargin} INR</Chip>
