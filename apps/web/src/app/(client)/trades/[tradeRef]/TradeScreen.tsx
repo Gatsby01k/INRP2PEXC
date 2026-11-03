@@ -113,6 +113,7 @@ function p2pHeadline(deal: NonNullable<PortalTrade['p2p']>, sell: boolean, usdt:
     };
   }
   if (sell) {
+    if (deal.step === 'ESCROW') return { title: `Send your ${usdt} to the escrow`, body: `Once it is locked there, the buyer pays you ${inr} straight to your account. Nothing leaves the escrow until you confirm the rupees arrived.` };
     if (deal.step === 'PAY') return { title: `The buyer is paying you ${inr}`, body: 'Your USDT is locked in INRP2P’s escrow. It is released only when you confirm the money is in your account.' };
     if (deal.step === 'CONFIRM') return { title: `Check your bank for ${inr}`, body: 'The buyer says they paid. Confirm it once you see the credit — that releases the escrow.' };
     if (deal.step === 'RELEASE') return { title: 'Done on your side', body: 'You confirmed the INR; INRP2P is releasing the escrow to the buyer.' };
