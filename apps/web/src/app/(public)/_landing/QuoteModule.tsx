@@ -1,6 +1,6 @@
 'use client';
 
-import { type ChangeEvent, type FocusEvent, type MouseEvent, type PointerEvent, useEffect, useId, useRef, useState } from 'react';
+import { type CSSProperties, type ChangeEvent, type FocusEvent, type MouseEvent, type PointerEvent, useEffect, useId, useRef, useState } from 'react';
 import { LayoutGroup, LazyMotion, MotionConfig, domMax, m } from 'framer-motion';
 import { Money, type Direction } from '@inrp2p/kernel';
 import { sanitizeAmountInput } from '@inrp2p/ui';
@@ -177,7 +177,9 @@ export function QuoteModule({ appOrigin, onboarding, copy }: { appOrigin: string
         <span className={styles.priceBox} aria-live="polite">
           {estimate ? (
             <>
-              <span className={`${styles.estimate} ix-num`}>≈ ₹{estimate.rupees}</span>
+              <span className={`${styles.estimate} ix-num`} style={{ '--chars': estimate.rupees.length + 3 } as CSSProperties}>
+                ≈ ₹{estimate.rupees}
+              </span>
               <span className={styles.estimateNote}>{copy.market.replace('{rate}', estimate.rate)}</span>
             </>
           ) : (
