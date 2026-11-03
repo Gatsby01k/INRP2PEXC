@@ -562,4 +562,24 @@ describe('the escrow’s own deadline: the seller’s USDT in time, and a transf
     expect((await runP2pDeadlines((await late(62)).db)).failures).toEqual([]);
     expect(await stateOf(trade.tradeId)).toBe('FIRST_LEG_DETECTED');
   });
+
+  it('takes the rupees as one payment of the whole amount, from either side — never a part the escrow would wait on', async () => {
+    const sell = await p2pTrade(inrTrader, { direction: 'SELL_USDT', amount: '150', clientRate: '103.500000' });
+    await settleFirstLeg(w, sell.tradeId);
+    const traderPays = (amount?: string) => runAs(w.app, submitOrderPayment(inrTrader.admin.actor, w.traderDeps), inrTrader.admin.ref, 'trader_order.submit_payment', { ref: sell.orderRef, rail: 'IMPS' as const, utr: utr(), ...(amount ? { amount } : {}) });
+    await expect(traderPays('10000.00')).rejects.toMatchObject({ code: 'INVALID_AMOUNT' });
+    expect(await p2pDeal(w.app, null, { tradeId: sell.tradeId, viewer: 'CLIENT' })).toMatchObject({ step: 'PAY' });
+    await traderPays();
+
+    const buy = await p2pTrade(usdtTrader, { direction: 'BUY_USDT', amount: '160', clientRate: '106.500000' });
+    const order = await orderOf(buy.orderId);
+    const { address } = await runAs(w.app, orderDeliveryAddress(usdtTrader.admin.actor, w.traderDeps), usdtTrader.admin.ref, 'trader_order.delivery_address', { ref: buy.orderRef });
+    await sendUsdt(w, usdtTrader.walletAddress, address, Money.ofMinor(order.base_minor, 'USDT').toDecimalString());
+    await confirmOnChain(w);
+    const buyRef = await refOf(buy.tradeId);
+    const clientPays = (amount?: string) => runAs(w.app, claimIncomingFiat(w.acceptor.actor), w.acceptor.ref, 'fiat_in.claim', { tradeRef: buyRef, rail: 'IMPS' as const, utr: utr(), fromBankAccountId: w.bankAccountId, ...(amount ? { amount } : {}) });
+    await expect(clientPays('1000.00')).rejects.toMatchObject({ code: 'INVALID_AMOUNT' });
+    await clientPays();
+    expect(await p2pDeal(w.app, null, { tradeId: buy.tradeId, viewer: 'CLIENT' })).toMatchObject({ step: 'CONFIRM' });
+  });
 });

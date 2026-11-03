@@ -56,6 +56,8 @@ export function submitOrderPayment(actor: ClientActor, deps: Pick<TraderDeps, 'c
       if (pending) throw new DomainError('INVALID_TRANSITION', 'your last payment is still waiting for the client to confirm it');
       const rail = requireOneOf(p.rail, 'rail', ['IMPS', 'NEFT', 'RTGS', 'UPI'] as const);
       const amount = p.amount ? Money.parse(p.amount, 'INR') : owed;
+      // ADR 0019: one payment of the whole amount — the client's confirmation of it is what releases the escrow.
+      if (amount.minor !== owed.minor) throw new DomainError('INVALID_AMOUNT', `pay the client the whole ${owed.toDecimalString()} INR in one payment`);
       const filed = await fileRoutePayoutInTx(ctx, {}, { tradeId: order.trade_id, rail, utr: p.utr, amount, payerBankAccountId: profile.bank_account_id });
       await appendAudit(ctx, { action: 'trader_order.payment_submitted', entityType: 'trader_order', entityId: order.id, after: { leg_ref: filed.legRef, amount, p2p: true } });
       await enqueueOutbox(ctx, { type: 'trader.payment_submitted', aggregateType: 'trader_order', aggregateId: order.id, payload: { orderId: order.id, legRef: filed.legRef } });

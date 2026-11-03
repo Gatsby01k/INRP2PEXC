@@ -67,6 +67,9 @@ export function claimIncomingFiat(actor: ClientActor): DomainCommand<{ tradeRef:
       if (owed <= 0n) throw new DomainError('NOTHING_OWED', 'your payment for this trade is already with the desk');
       const amount = p.amount ? Money.parse(p.amount, 'INR') : Money.ofMinor(owed, 'INR');
       if (amount.minor > owed) throw new DomainError('INVALID_AMOUNT', `that is more than the ${Money.ofMinor(owed, 'INR').toDecimalString()} INR still due`);
+      // ADR 0019: a P2P deal's rupees are one payment of the whole amount — its steps, its deadlines and the escrow's
+      // release all follow that one payment; a part of it would leave the deal waiting on nothing.
+      if (to.kind === 'ROUTE' && amount.minor !== owed) throw new DomainError('INVALID_AMOUNT', `pay the whole ${Money.ofMinor(owed, 'INR').toDecimalString()} INR in one payment`);
 
       const recorded = await recordClientInrInTx(ctx, trade, {
         rail, utr, amount, to, payerBankAccountId: requireUuid(p.fromBankAccountId, 'fromBankAccountId'), filedBy: 'CLIENT',
