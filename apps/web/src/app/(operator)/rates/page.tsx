@@ -40,7 +40,7 @@ export default async function RatesPage() {
                 <AutoPricing view={auto} canSet={can(ctx, 'pricing:configure')} />
               </Section>
             ) : null}
-            <RateBoard routes={strip.routes ?? []} history={history} canPublish={can(ctx, 'rates:update_route')} />
+            <RateBoard routes={strip.routes ?? []} history={history} canPublish={can(ctx, 'rates:update_route')} canConfigure={can(ctx, 'routes:configure')} />
             <Section title="Recent rate changes" count={history.length} hint="Every published route rate, newest first, with the rate it replaced." flush>
               <HistoryTable
                 rows={history.map((h) => ({

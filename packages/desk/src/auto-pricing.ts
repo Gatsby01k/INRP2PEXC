@@ -57,10 +57,12 @@ export async function autoPricingView(ex: Executor): Promise<AutoPricingView> {
            (select count(*) from rfq where opened_at >= inrp2p_now() - interval '1 day' and status = 'NO_PRICE')::int as rfq_no_price,
            (select count(*) from audit_event where action = 'quote.auto_price_skipped' and at >= inrp2p_now() - interval '1 day')::int as skipped`.execute(ex);
   const d = day.rows[0]!;
+  // Who set the policy, as a person reads it: the operator's name or email; a system actor as it is written.
+  const setter = await ex.selectFrom('auth_user').select(['name', 'email']).where('id', '=', policy.setBy).executeTakeFirst().catch(() => undefined);
   return {
     policy: {
       id: policy.id, autoQuote: policy.autoQuote, rfq: policy.rfq, referenceMaxAgeSeconds: policy.referenceMaxAgeSeconds, maxPremiumBps: policy.maxPremiumBps, binBps: policy.binBps,
-      learningDays: policy.learningDays, rfqWindowSeconds: policy.rfqWindowSeconds, rfqMaxTraders: policy.rfqMaxTraders, setBy: policy.setBy, setAt: policy.setAt.toISOString(), reason: policy.reason,
+      learningDays: policy.learningDays, rfqWindowSeconds: policy.rfqWindowSeconds, rfqMaxTraders: policy.rfqMaxTraders, setBy: setter ? (setter.name || setter.email) : policy.setBy, setAt: policy.setAt.toISOString(), reason: policy.reason,
     },
     references,
     lastDay: {

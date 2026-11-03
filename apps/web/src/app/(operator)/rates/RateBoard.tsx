@@ -5,6 +5,8 @@ import { Rate } from '@inrp2p/kernel';
 import type { RateHistoryRow, StripRoute } from '@inrp2p/desk';
 import { Button } from '@inrp2p/ui';
 import { publishRouteRateAction } from '../../../server/actions/desk.ts';
+import { setRouteStatusAction } from '../../../server/actions/pricing.ts';
+import { GuardedAction } from '../_desk/GuardedAction.tsx';
 import { useCommand } from '../../../components/useCommand.tsx';
 import { Ago, useDeskNow } from '../_desk/clock.tsx';
 import { RateField } from '../_desk/fields.tsx';
@@ -23,7 +25,7 @@ const CONFIRM_MOVE_BPS = 200n;
  * command (`rates.publish_route`); a large move is not refused — markets move — but it is shown as a percentage and
  * needs a second press, because a slipped digit would otherwise price every quote that follows.
  */
-export function RateBoard({ routes, history, canPublish }: { routes: readonly StripRoute[]; history: readonly RateHistoryRow[]; canPublish: boolean }) {
+export function RateBoard({ routes, history, canPublish, canConfigure = false }: { routes: readonly StripRoute[]; history: readonly RateHistoryRow[]; canPublish: boolean; canConfigure?: boolean }) {
   const byRoute = new Map<string, { name: string; mode: StripRoute['executionMode']; available: string; sides: StripRoute[] }>();
   for (const x of routes) {
     const e = byRoute.get(x.routeId) ?? { name: x.routeName, mode: x.executionMode, available: x.availableUsdt, sides: [] };
@@ -42,7 +44,10 @@ export function RateBoard({ routes, history, canPublish }: { routes: readonly St
                 {route.mode === 'DIRECT_TO_CLIENT' ? 'Pays clients directly' : 'Settles with the exchange'} · takes up to {usdt(route.available)}
               </span>
             </div>
-            <Chip tone={route.mode === 'DIRECT_TO_CLIENT' ? 'brand' : 'neutral'}>{route.mode === 'DIRECT_TO_CLIENT' ? 'Direct to client' : 'To exchange'}</Chip>
+            <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
+              <Chip tone={route.mode === 'DIRECT_TO_CLIENT' ? 'brand' : 'neutral'}>{route.mode === 'DIRECT_TO_CLIENT' ? 'Direct to client' : 'To exchange'}</Chip>
+              {canConfigure ? <RetireRoute routeId={id} name={route.name} /> : null}
+            </span>
           </header>
           <div className={r.sides}>
             {(['SELL_USDT', 'BUY_USDT'] as const).map((dir) => {
@@ -152,5 +157,26 @@ function RateSide({ side, previous, canPublish }: { side: StripRoute; previous: 
       ) : null}
       {cmd.dialog}
     </div>
+  );
+}
+
+/** Takes a desk route out of quoting for good: it disappears from this board and from the quote builder; its history stays. */
+function RetireRoute({ routeId, name }: { routeId: string; name: string }) {
+  const cmd = useCommand();
+  return (
+    <>
+      <GuardedAction
+        label="Retire"
+        trigger="ghost"
+        tone="danger"
+        stepUp
+        reasonLabel="Why"
+        minReason={5}
+        consequence={<>{name} stops quoting for good: no new quote can use it. Its past rates and trades stay on record. A retired route cannot be brought back.</>}
+        busy={cmd.busy}
+        onConfirm={async (reason) => (await cmd.run(`Retire ${name}`, (k) => setRouteStatusAction({ routeId, status: 'RETIRED', reason }, k))).ok}
+      />
+      {cmd.dialog}
+    </>
   );
 }
