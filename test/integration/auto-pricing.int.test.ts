@@ -364,3 +364,13 @@ describe('the price request sweep', () => {
     }
   });
 });
+
+describe('a client asking for prices in a loop', () => {
+  it('is stopped after its window’s share, and nobody else is', async () => {
+    const { limitPriceRequests, PRICE_REQUESTS_PER_WINDOW } = await import('@inrp2p/quotes');
+    const other = await traderClient(w, 'Fifth Buyer');
+    for (let i = 0; i < PRICE_REQUESTS_PER_WINDOW; i++) await limitPriceRequests(w.app, w.clientId);
+    await expect(limitPriceRequests(w.app, w.clientId)).rejects.toMatchObject({ code: 'RATE_LIMITED' });
+    await expect(limitPriceRequests(w.app, other.clientId)).resolves.toBeUndefined();
+  });
+});

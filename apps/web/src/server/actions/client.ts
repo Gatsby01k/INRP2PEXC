@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache';
 import type { DirectionValue } from '@inrp2p/db';
 import { markNotificationsRead } from '@inrp2p/notifications';
 import { quoteIdForRef, requestIdForRef } from '@inrp2p/portal';
-import { type AutoOutcome, acceptQuote, rejectQuote, repriceRequest, requestInstantQuote, withdrawRequest } from '@inrp2p/quotes';
+import { type AutoOutcome, acceptQuote, limitPriceRequests, rejectQuote, repriceRequest, requestInstantQuote, withdrawRequest } from '@inrp2p/quotes';
 import { addBankAccount, addWallet, archiveBankAccount, archiveWallet, setCanAcceptQuotes } from '@inrp2p/clients';
 import { type P2pDisputeReason, answerClientDispute, callClientSupport, chooseClientPayMethod, claimIncomingFiat, confirmClientReceipt, openClientDispute, postClientDealMessage } from '@inrp2p/settlement';
 import { chainForWeb } from '../chain.ts';
@@ -32,6 +32,8 @@ export async function requestQuoteAction(
   input: { direction: DirectionValue; fixedSide: 'BASE' | 'QUOTE'; amount: string; targetRate?: string | null; bankAccountId?: string | null; walletId?: string | null },
   key: string,
 ): Promise<CommandResult<{ ref: string; outcome: AutoOutcome['kind'] }>> {
+  const gate = await withClient((ctx) => limitPriceRequests(ctx.db, ctx.access.clientId));
+  if (!gate.ok) return gate;
   const result = await runClientCommand((ctx, deps) => requestInstantQuote(ctx.actor, deps), input, { name: 'request.instant_quote', idempotencyKey: key });
   if (result.ok) refresh();
   return result.ok ? { ok: true, result: { ref: result.result.ref, outcome: result.result.outcome.kind } } : result;
@@ -39,7 +41,10 @@ export async function requestQuoteAction(
 
 /** A new automatic price on the client's open request, after the last one ran out. */
 export async function repriceAction(input: { requestRef: string }, key: string): Promise<CommandResult<{ outcome: AutoOutcome['kind'] }>> {
-  const id = await withClient(async (ctx) => requestIdForRef(ctx.db, ctx.access.clientId, input.requestRef));
+  const id = await withClient(async (ctx) => {
+    await limitPriceRequests(ctx.db, ctx.access.clientId);
+    return requestIdForRef(ctx.db, ctx.access.clientId, input.requestRef);
+  });
   if (!id.ok) return id;
   const out = await runClientCommand((ctx) => repriceRequest(ctx.actor), { requestId: id.result }, { name: 'request.reprice', idempotencyKey: key });
   if (out.ok) refresh();

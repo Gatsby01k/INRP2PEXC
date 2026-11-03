@@ -23,7 +23,7 @@ import { lockRow } from './actors.ts';
 import { memberClientCommand } from './desk-deals.ts';
 import type { QuoteDeps } from './policy.ts';
 import { type CreateRequestPayload, cancelSentQuoteOfRequest, closeRequest, openRequestInTx } from './requests.ts';
-import { businessNow } from './security.ts';
+import { businessNow, hitRateLimit } from './security.ts';
 
 /**
  * Automatic prices of the INRP2P exchange (docs/adr/0025-automatic-pricing.md): a client asks, and in the same step gets a
@@ -559,6 +559,20 @@ export function rfqAwardHandler(db: Db): OutboxHandler {
 }
 
 // ---- the client's side ------------------------------------------------------------------------------------------------
+
+/**
+ * Prices one client may ask for in `PRICE_REQUEST_WINDOW_SECONDS`, firm or not. Each automatic price locks every trader it
+ * could go to and holds one trader's capacity, and each one left to lapse counts in what prices are learnt from: a client
+ * asking in a loop would slow every other client's price and teach the pricing its own refusals. A person comparing
+ * amounts asks a few times a minute at most.
+ */
+export const PRICE_REQUESTS_PER_WINDOW = 30;
+export const PRICE_REQUEST_WINDOW_SECONDS = 600;
+
+/** Counts a price request of the client against its window — in its own transaction, before the request runs. */
+export async function limitPriceRequests(db: Db, clientId: string): Promise<void> {
+  await hitRateLimit(db, { bucket: 'price_request_client', subject: requireUuid(clientId, 'clientId'), limit: PRICE_REQUESTS_PER_WINDOW, windowSeconds: PRICE_REQUEST_WINDOW_SECONDS });
+}
 
 export type InstantQuotePayload = Omit<CreateRequestPayload, 'clientId' | 'deskId'>;
 
