@@ -20,8 +20,12 @@ import { CLIENT_AUTH_SECRET, OPERATOR_AUTH_SECRET, VISUAL_CUSTODY_PROVIDER, VISU
  * fails one run in three teaches people to re-run it rather than read it. The tighter budget belongs on the
  * page with a clock running on it; this one exists to catch a regression, not to chase a point.
  *
- * Both are measured against the **built** pages on a real device profile, not asserted in a review.
+ * Both are measured against the **built** pages on a real device profile, not asserted in a review — three times each,
+ * in a fresh browser every time, and judged on the median (as Lighthouse CI does): one run on a busy shared runner
+ * moved the home page between 82 and 86 against its 85, and the gate said red for days on a page nobody had touched. A
+ * run Lighthouse could not measure at all (no score, its `runtimeError` printed) is left out rather than read as 0.
  */
+const RUNS = Number.parseInt(process.env.LIGHTHOUSE_RUNS ?? '3', 10);
 interface Target {
   readonly name: string;
   readonly path: (linkToken: string) => string;
@@ -99,52 +103,73 @@ const stop = await startDesk({
 });
 
 const failures: string[] = [];
+const median = (xs: readonly number[]): number => {
+  const sorted = [...xs].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 1 ? sorted[mid]! : Math.round((sorted[mid - 1]! + sorted[mid]!) / 2);
+};
 try {
   for (const target of TARGETS) {
-    // A browser per target. Two runs sharing one Chrome share its memory pressure and its caches, and the
-    // second page's number stops being comparable with the first's — which is the only thing these numbers are
-    // for.
-    const chrome = await launchChrome();
-    try {
-      const url = `${deskBaseUrl(ports.public)}${target.path(state.client.linkToken)}`;
-      console.log(`\n${target.name} — ${url}`);
-      // Lighthouse's own mobile defaults: a mid-tier phone, throttled network and CPU. Changing them would make
-      // the number easier and meaningless.
-      const run = await lighthouse(url, {
-        port: chrome.port,
-        output: 'json',
-        logLevel: 'error',
-        formFactor: 'mobile',
-        screenEmulation: { mobile: true, width: 412, height: 823, deviceScaleFactor: 1.75, disabled: false },
-      });
-      if (!run) throw new Error('lighthouse returned no result');
-      const categories = run.lhr.categories;
-      const targetFailures: string[] = [];
-      for (const [id, category] of Object.entries(categories)) {
-        const score = Math.round((category.score ?? 0) * 100);
-        const threshold = target.thresholds[id];
-        const verdict =
-          threshold === undefined
-            ? target.reportedOnly.includes(id)
-              ? 'reported only'
-              : 'not gated'
+    const url = `${deskBaseUrl(ports.public)}${target.path(state.client.linkToken)}`;
+    console.log(`\n${target.name} — ${url}`);
+    const scores = new Map<string, { title: string; values: number[] }>();
+    let last: Awaited<ReturnType<typeof lighthouse>> | undefined;
+    for (let i = 1; i <= RUNS; i++) {
+      // A browser per run. Two runs sharing one Chrome share its memory pressure and its caches, and the second
+      // number stops being comparable with the first — which is the only thing these numbers are for.
+      const chrome = await launchChrome();
+      try {
+        // Lighthouse's own mobile defaults: a mid-tier phone, throttled network and CPU. Changing them would make
+        // the number easier and meaningless.
+        const run = await lighthouse(url, {
+          port: chrome.port,
+          output: 'json',
+          logLevel: 'error',
+          formFactor: 'mobile',
+          screenEmulation: { mobile: true, width: 412, height: 823, deviceScaleFactor: 1.75, disabled: false },
+        });
+        if (!run) throw new Error('lighthouse returned no result');
+        last = run;
+        if (run.lhr.runtimeError) console.log(`  run ${i}: not measured — ${run.lhr.runtimeError.code}: ${run.lhr.runtimeError.message}`);
+        const line: string[] = [];
+        for (const [id, category] of Object.entries(run.lhr.categories)) {
+          const entry = scores.get(id) ?? { title: category.title, values: [] };
+          if (category.score !== null) entry.values.push(Math.round(category.score * 100));
+          scores.set(id, entry);
+          line.push(`${category.title} ${category.score === null ? '—' : Math.round(category.score * 100)}`);
+        }
+        console.log(`  run ${i}: ${line.join(' · ')}`);
+      } finally {
+        chrome.kill();
+      }
+    }
+    const targetFailures: string[] = [];
+    for (const [id, { title, values }] of scores) {
+      const threshold = target.thresholds[id];
+      const score = values.length ? median(values) : null;
+      const verdict =
+        threshold === undefined
+          ? target.reportedOnly.includes(id)
+            ? 'reported only'
+            : 'not gated'
+          : score === null
+            ? 'NOT MEASURED'
             : score >= threshold
               ? 'ok'
               : `BELOW ${threshold}`;
-        console.log(`  ${category.title.padEnd(16)} ${String(score).padStart(3)}  ${verdict}`);
-        if (threshold !== undefined && score < threshold) targetFailures.push(`${target.name}: ${category.title} ${score} < ${threshold}`);
-      }
-      if (targetFailures.length) {
-        // The failing audits are what a person needs to act on, so print them rather than only the score.
-        const worst = Object.values(run.lhr.audits)
-          .filter((a) => a.score !== null && a.score < 0.9 && a.scoreDisplayMode !== 'informative')
-          .slice(0, 8)
-          .map((a) => `  ${a.title}: ${a.displayValue ?? ''}`);
-        console.error(`\n${target.name} mobile budget not met at ${url}\n${targetFailures.map((f) => `  ${f}`).join('\n')}\n${worst.join('\n')}`);
-        failures.push(...targetFailures);
-      }
-    } finally {
-      chrome.kill();
+      console.log(`  ${title.padEnd(16)} ${String(score ?? '—').padStart(3)}  ${verdict}  (median of ${values.length})`);
+      if (threshold !== undefined && (score === null || score < threshold)) targetFailures.push(`${target.name}: ${title} ${score ?? 'not measured'} < ${threshold}`);
+    }
+    if (targetFailures.length) {
+      // The failing audits are what a person needs to act on, so print them rather than only the score.
+      const worst = last
+        ? Object.values(last.lhr.audits)
+            .filter((a) => a.score !== null && a.score < 0.9 && a.scoreDisplayMode !== 'informative')
+            .slice(0, 8)
+            .map((a) => `  ${a.title}: ${a.displayValue ?? ''}`)
+        : [];
+      console.error(`\n${target.name} mobile budget not met at ${url}\n${targetFailures.map((f) => `  ${f}`).join('\n')}\n${worst.join('\n')}`);
+      failures.push(...targetFailures);
     }
   }
 } finally {
