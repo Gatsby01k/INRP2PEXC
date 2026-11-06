@@ -162,6 +162,8 @@ export interface DeskTrade {
   readonly clientRate?: string;
   readonly routeRate?: string;
   readonly expectedMargin?: string;
+  /** What the deal leaves INRP2P in USDT (a P2P deal's margin less the network it carries); null off P2P. */
+  readonly expectedMarginUsdt?: string | null;
   readonly executionMode?: ExecutionMode;
   readonly payout: { readonly amount: string; readonly currency: 'INR' | 'USDT' };
   readonly paid: string;
@@ -217,7 +219,7 @@ export async function deskTrade(ex: Executor, tradeId: string, access: DeskAcces
     .innerJoin('trade_economics as e', 'e.trade_id', 't.id')
     .select([
       't.id', 't.ref', 't.client_id', 'c.display_name as client_name', 't.direction', 't.lifecycle_state', 't.hold', 't.opened_at',
-      'e.base_minor', 'e.quote_inr_minor', 'e.client_rate_micro', 'e.route_rate_micro', 'e.gross_margin_inr_minor',
+      'e.base_minor', 'e.quote_inr_minor', 'e.client_rate_micro', 'e.route_rate_micro', 'e.gross_margin_inr_minor', 'e.gross_margin_base_minor', 'e.network_fee_base_minor',
       'e.route_id', 'e.route_execution_mode',
     ])
     .where('t.id', '=', id)
@@ -282,6 +284,7 @@ export async function deskTrade(ex: Executor, tradeId: string, access: DeskAcces
         clientRate: microToDecimal(row.client_rate_micro),
         routeRate: microToDecimal(row.route_rate_micro),
         expectedMargin: Money.ofMinor(row.gross_margin_inr_minor, 'INR').toDecimalString(),
+        expectedMarginUsdt: row.gross_margin_base_minor === null ? null : Money.ofMinor(row.gross_margin_base_minor - (row.network_fee_base_minor ?? 0n), 'USDT').toDecimalString(),
         executionMode: row.route_execution_mode,
       }
     : {};

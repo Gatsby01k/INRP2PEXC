@@ -22,6 +22,8 @@ export interface ClientBookRow {
   /** Economics-gated (`economics:view`): the client rate of the latest trade, and the margin its completed trades made. */
   readonly lastRate?: string | null;
   readonly marginGenerated?: string;
+  /** What its completed P2P deals earned INRP2P, in USDT. */
+  readonly marginGeneratedUsdt?: string;
 }
 
 /** The dealer's book: who the clients are and how much of the desk's attention they currently hold. */
@@ -30,13 +32,14 @@ export async function clientBook(ex: Executor, opts: { search?: string; limit?: 
   const rows = await sql<{
     id: string; ref: string; name: string; status: 'ACTIVE' | 'SUSPENDED'; kyc_status: string; typical_direction: DirectionValue | null;
     typical_size_usdt_minor: bigint | null; open_trades: string; completed_trades: string; completed_volume: string; last_activity: Date | null;
-    margin: string; last_rate_micro: bigint | null;
+    margin: string; margin_usdt: string; last_rate_micro: bigint | null;
   }>`
     select c.id, c.ref, c.display_name as name, c.status, c.kyc_status, c.typical_direction, c.typical_size_usdt_minor,
            count(t.id) filter (where t.lifecycle_state not in ('COMPLETED', 'CANCELLED'))::text as open_trades,
            count(t.id) filter (where t.lifecycle_state = 'COMPLETED')::text as completed_trades,
            coalesce(sum(e.base_minor) filter (where t.lifecycle_state = 'COMPLETED'), 0)::text as completed_volume,
            coalesce(sum(e.gross_margin_inr_minor) filter (where t.lifecycle_state = 'COMPLETED'), 0)::text as margin,
+           coalesce(sum((e.gross_margin_base_minor - coalesce(e.network_fee_base_minor, 0))) filter (where t.lifecycle_state = 'COMPLETED'), 0)::text as margin_usdt,
            (select e2.client_rate_micro from trade t2 join trade_economics e2 on e2.trade_id = t2.id
              where t2.client_id = c.id order by t2.opened_at desc limit 1) as last_rate_micro,
            max(t.opened_at) as last_activity
@@ -66,6 +69,7 @@ export async function clientBook(ex: Executor, opts: { search?: string; limit?: 
       ...row,
       lastRate: r.last_rate_micro === null ? null : microToDecimal(r.last_rate_micro),
       marginGenerated: Money.ofMinor(BigInt(r.margin), 'INR').toDecimalString(),
+      marginGeneratedUsdt: Money.ofMinor(BigInt(r.margin_usdt), 'USDT').toDecimalString(),
     };
   });
 }
@@ -108,6 +112,8 @@ export interface ClientDetail {
     readonly completedVolume: string;
     /** Economics-gated. */
     readonly marginGenerated?: string;
+  /** What its completed P2P deals earned INRP2P, in USDT. */
+  readonly marginGeneratedUsdt?: string;
   };
   /** CRM contacts, only when the caller asked for them (the page asks with `client:manage`). */
   readonly contacts?: readonly ClientContact[];
@@ -126,6 +132,7 @@ export interface ClientDetail {
     readonly hold: boolean;
     readonly clientRate?: string;
     readonly margin?: string;
+    readonly marginUsdt?: string | null;
   }[];
 }
 
@@ -142,11 +149,12 @@ export async function clientDetail(ex: Executor, clientId: string, access: DeskA
     .where('id', '=', id)
     .executeTakeFirst();
   if (!client) throw new DomainError('NOT_FOUND', 'client not found');
-  const totals = await sql<{ open_trades: string; completed_trades: string; completed_volume: string; margin: string }>`
+  const totals = await sql<{ open_trades: string; completed_trades: string; completed_volume: string; margin: string; margin_usdt: string }>`
     select count(*) filter (where t.lifecycle_state not in ('COMPLETED', 'CANCELLED'))::text as open_trades,
            count(*) filter (where t.lifecycle_state = 'COMPLETED')::text as completed_trades,
            coalesce(sum(e.base_minor) filter (where t.lifecycle_state = 'COMPLETED'), 0)::text as completed_volume,
-           coalesce(sum(e.gross_margin_inr_minor) filter (where t.lifecycle_state = 'COMPLETED'), 0)::text as margin
+           coalesce(sum(e.gross_margin_inr_minor) filter (where t.lifecycle_state = 'COMPLETED'), 0)::text as margin,
+           coalesce(sum((e.gross_margin_base_minor - coalesce(e.network_fee_base_minor, 0))) filter (where t.lifecycle_state = 'COMPLETED'), 0)::text as margin_usdt
     from trade t join trade_economics e on e.trade_id = t.id
     where t.client_id = ${id}`.execute(ex);
   const tot = totals.rows[0]!;
@@ -174,9 +182,9 @@ export async function clientDetail(ex: Executor, clientId: string, access: DeskA
 
   const trades = await sql<{
     id: string; ref: string; direction: DirectionValue; base_minor: bigint; quote_inr_minor: bigint;
-    lifecycle_state: string; opened_at: Date; client_rate_micro: bigint; hold: boolean; gross_margin_inr_minor: bigint;
+    lifecycle_state: string; opened_at: Date; client_rate_micro: bigint; hold: boolean; gross_margin_inr_minor: bigint; margin_usdt_minor: bigint | null;
   }>`
-    select t.id, t.ref, t.direction, e.base_minor, e.quote_inr_minor, t.lifecycle_state, t.opened_at, e.client_rate_micro, t.hold, e.gross_margin_inr_minor
+    select t.id, t.ref, t.direction, e.base_minor, e.quote_inr_minor, t.lifecycle_state, t.opened_at, e.client_rate_micro, t.hold, e.gross_margin_inr_minor, (e.gross_margin_base_minor - coalesce(e.network_fee_base_minor, 0)) as margin_usdt_minor
     from trade t join trade_economics e on e.trade_id = t.id
     where t.client_id = ${id}
     order by t.opened_at desc
@@ -197,7 +205,7 @@ export async function clientDetail(ex: Executor, clientId: string, access: DeskA
       openTrades: Number.parseInt(tot.open_trades, 10),
       completedTrades: Number.parseInt(tot.completed_trades, 10),
       completedVolume: Money.ofMinor(BigInt(tot.completed_volume), 'USDT').toDecimalString(),
-      ...(access.economics ? { marginGenerated: Money.ofMinor(BigInt(tot.margin), 'INR').toDecimalString() } : {}),
+      ...(access.economics ? { marginGenerated: Money.ofMinor(BigInt(tot.margin), 'INR').toDecimalString(), marginGeneratedUsdt: Money.ofMinor(BigInt(tot.margin_usdt), 'USDT').toDecimalString() } : {}),
     },
     ...(contacts
       ? {
@@ -241,7 +249,7 @@ export async function clientDetail(ex: Executor, clientId: string, access: DeskA
       lifecycle: t.lifecycle_state,
       openedAt: t.opened_at.toISOString(),
       hold: t.hold,
-      ...(access.economics ? { clientRate: microToDecimal(t.client_rate_micro), margin: Money.ofMinor(t.gross_margin_inr_minor, 'INR').toDecimalString() } : {}),
+      ...(access.economics ? { clientRate: microToDecimal(t.client_rate_micro), margin: Money.ofMinor(t.gross_margin_inr_minor, 'INR').toDecimalString(), marginUsdt: t.margin_usdt_minor === null ? null : Money.ofMinor(t.margin_usdt_minor, 'USDT').toDecimalString() } : {}),
     })),
   };
 }

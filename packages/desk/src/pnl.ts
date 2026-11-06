@@ -22,6 +22,8 @@ export interface PnlRow {
   readonly clientRate: string;
   readonly routeRate: string;
   readonly margin: string;
+  /** What the deal leaves INRP2P in USDT (a P2P deal's margin less the network it carries); null off P2P. */
+  readonly marginUsdt: string | null;
   /** The reward frozen on the trader order behind the trade, if one is (TRADERS §9); `0.00` otherwise. */
   readonly reward: string;
   /** Gross margin less that reward: what the trade leaves before costs the ledger does not carry. May be negative. */
@@ -38,6 +40,8 @@ export interface PnlRow {
  * parses what it needs back into `Money`, which is where the currency is re-asserted.
  */
 export interface PnlPageSummary {
+  readonly realizedMarginUsdt: string;
+  readonly openExpectedMarginUsdt: string;
   readonly realizedGrossMargin: string;
   readonly completedVolume: string;
   readonly completedTrades: number;
@@ -60,7 +64,7 @@ export interface PnlPage {
    * must agree; the screen shows both because a P&L that only ever reported its own arithmetic could not tell
    * anyone it had drifted (FI-44).
    */
-  readonly ledgerCheck: { readonly ledger: string; readonly trades: string; readonly agrees: boolean };
+  readonly ledgerCheck: { readonly ledger: string; readonly trades: string; readonly ledgerUsdt: string; readonly tradesUsdt: string; readonly agrees: boolean };
 }
 
 export async function pnlPage(ex: Executor, period: PnlPeriod): Promise<PnlPage> {
@@ -69,10 +73,11 @@ export async function pnlPage(ex: Executor, period: PnlPeriod): Promise<PnlPage>
   const rows = await sql<{
     ref: string; display_name: string; direction: 'SELL_USDT' | 'BUY_USDT'; lifecycle_state: string;
     base_minor: bigint; quote_inr_minor: bigint; client_rate_micro: bigint; route_rate_micro: bigint;
-    gross_margin_inr_minor: bigint; reward_minor: string; at: Date; kind: 'realized' | 'expected';
+    gross_margin_inr_minor: bigint; margin_usdt_minor: bigint | null; reward_minor: string; at: Date; kind: 'realized' | 'expected';
   }>`
     select t.ref, c.display_name, t.direction, t.lifecycle_state,
            e.base_minor, e.quote_inr_minor, e.client_rate_micro, e.route_rate_micro, e.gross_margin_inr_minor,
+           (e.gross_margin_base_minor - coalesce(e.network_fee_base_minor, 0)) as margin_usdt_minor,
            coalesce((select o.reward_inr_minor from trader_order o where o.trade_id = t.id and o.status in ('IN_PROGRESS', 'COMPLETED')), 0)::text as reward_minor,
            coalesce(t.completed_at, t.opened_at) as at,
            case when t.lifecycle_state = 'COMPLETED' then 'realized' else 'expected' end as kind
@@ -87,11 +92,15 @@ export async function pnlPage(ex: Executor, period: PnlPeriod): Promise<PnlPage>
 
   // The completed trades' own margin, summed the long way. `pnlSummary` reads the ledger; if these disagree,
   // something posted a journal the trades do not explain, or completed a trade without posting one.
-  const completed = rows.rows.filter((r) => r.kind === 'realized').reduce((sum, r) => sum + r.gross_margin_inr_minor, 0n);
+  const realizedRows = rows.rows.filter((r) => r.kind === 'realized');
+  const completed = realizedRows.reduce((sum, r) => sum + r.gross_margin_inr_minor, 0n);
+  const completedUsdt = realizedRows.reduce((sum, r) => sum + (r.margin_usdt_minor ?? 0n), 0n);
 
   return {
     period,
     summary: {
+      realizedMarginUsdt: summary.realizedMarginUsdt.toDecimalString(),
+      openExpectedMarginUsdt: summary.openExpectedMarginUsdt.toDecimalString(),
       realizedGrossMargin: summary.realizedGrossMargin.toDecimalString(),
       completedVolume: summary.completedVolume.toDecimalString(),
       completedTrades: summary.completedTrades,
@@ -113,6 +122,7 @@ export async function pnlPage(ex: Executor, period: PnlPeriod): Promise<PnlPage>
       clientRate: Rate.ofMicro(r.client_rate_micro, 'CLIENT').toDecimalString(),
       routeRate: Rate.ofMicro(r.route_rate_micro, 'ROUTE').toDecimalString(),
       margin: Money.ofMinor(r.gross_margin_inr_minor, 'INR').toDecimalString(),
+      marginUsdt: r.margin_usdt_minor === null ? null : Money.ofMinor(r.margin_usdt_minor, 'USDT').toDecimalString(),
       reward: Money.ofMinor(BigInt(r.reward_minor), 'INR').toDecimalString(),
       net: Money.ofMinor(r.gross_margin_inr_minor - BigInt(r.reward_minor), 'INR').toDecimalString(),
       kind: r.kind,
@@ -121,7 +131,9 @@ export async function pnlPage(ex: Executor, period: PnlPeriod): Promise<PnlPage>
     ledgerCheck: {
       ledger: summary.realizedGrossMargin.toDecimalString(),
       trades: Money.ofMinor(completed, 'INR').toDecimalString(),
-      agrees: summary.realizedGrossMargin.minor === completed,
+      ledgerUsdt: summary.realizedMarginUsdt.toDecimalString(),
+      tradesUsdt: Money.ofMinor(completedUsdt, 'USDT').toDecimalString(),
+      agrees: summary.realizedGrossMargin.minor === completed && summary.realizedMarginUsdt.minor === completedUsdt,
     },
   };
 }

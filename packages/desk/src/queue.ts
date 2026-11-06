@@ -31,6 +31,8 @@ export interface QueueRow {
   readonly clientRate?: string | null;
   readonly routeRate?: string | null;
   readonly margin?: string | null;
+  /** What the deal leaves INRP2P in USDT (a P2P deal's margin less the network it carries); null off P2P. */
+  readonly marginUsdt?: string | null;
   /** Short status phrase, already domain-accurate ("USDT confirmed", "Short by 50 USDT", "Short by ₹60"). */
   readonly status: string;
   readonly action: QueueAction;
@@ -67,6 +69,7 @@ interface RawRow {
   client_rate_micro: bigint | null;
   route_rate_micro: bigint | null;
   margin_minor: bigint | null;
+  margin_usdt_minor: bigint | null;
   lifecycle: string | null;
   hold: boolean;
   since: Date;
@@ -100,7 +103,7 @@ export async function deskQueue(ex: Executor, access: DeskAccess, opts: { limitP
     sql<RawRow>`
     select 'REQUEST' as kind, r.id, r.ref, r.client_id, c.display_name as client_name, r.direction,
            r.requested_base_minor as base_minor, r.requested_quote_minor as quote_minor,
-           r.target_rate_micro as client_rate_micro, null::bigint as route_rate_micro, null::bigint as margin_minor,
+           r.target_rate_micro as client_rate_micro, null::bigint as route_rate_micro, null::bigint as margin_minor, null::bigint as margin_usdt_minor,
            null::text as lifecycle, false as hold, r.created_at as since,
            0 as legs_processing, 0 as legs_pending, 0 as legs_with_evidence,
            0::bigint as paid_minor, 0::bigint as committed_minor, null::bigint as payout_minor,
@@ -114,7 +117,7 @@ export async function deskQueue(ex: Executor, access: DeskAccess, opts: { limitP
     sql<RawRow>`
     select 'QUOTE' as kind, q.id, q.ref, q.client_id, c.display_name as client_name, q.direction,
            q.base_minor, q.quote_inr_minor as quote_minor, q.client_rate_micro, q.route_rate_micro,
-           q.gross_margin_inr_minor as margin_minor,
+           q.gross_margin_inr_minor as margin_minor, (q.gross_margin_base_minor - coalesce(q.network_fee_base_minor, 0)) as margin_usdt_minor,
            null::text as lifecycle, false as hold, q.sent_at as since,
            0 as legs_processing, 0 as legs_pending, 0 as legs_with_evidence,
            0::bigint as paid_minor, 0::bigint as committed_minor, null::bigint as payout_minor,
@@ -128,7 +131,7 @@ export async function deskQueue(ex: Executor, access: DeskAccess, opts: { limitP
     sql<RawRow>`
     select 'TRADE' as kind, t.id, t.ref, t.client_id, c.display_name as client_name, t.direction,
            e.base_minor, e.quote_inr_minor as quote_minor, e.client_rate_micro, e.route_rate_micro,
-           e.gross_margin_inr_minor as margin_minor,
+           e.gross_margin_inr_minor as margin_minor, (e.gross_margin_base_minor - coalesce(e.network_fee_base_minor, 0)) as margin_usdt_minor,
            t.lifecycle_state as lifecycle, t.hold, t.opened_at as since,
            (select count(*) from settlement_leg l where l.trade_id = t.id and l.side = 'EXCHANGE_TO_CLIENT' and l.status = 'PROCESSING')::int as legs_processing,
            (select count(*) from settlement_leg l where l.trade_id = t.id and l.side = 'EXCHANGE_TO_CLIENT' and l.status = 'PENDING')::int as legs_pending,
@@ -327,5 +330,6 @@ function view(r: RawRow, access: DeskAccess, status: string, action: QueueAction
     clientRate: r.client_rate_micro === null ? null : microToDecimal(r.client_rate_micro),
     routeRate: r.route_rate_micro === null ? null : microToDecimal(r.route_rate_micro),
     margin: r.margin_minor === null ? null : Money.ofMinor(r.margin_minor, 'INR').toDecimalString(),
+    marginUsdt: r.margin_usdt_minor === null ? null : Money.ofMinor(r.margin_usdt_minor, 'USDT').toDecimalString(),
   };
 }

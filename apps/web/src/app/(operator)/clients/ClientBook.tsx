@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import type { ClientBookRow } from '@inrp2p/desk';
 import { Ago } from '../_desk/clock.tsx';
 import { Cell, type Column, DataTable } from '../_desk/DataTable.tsx';
-import { inr, rate, titleCase, usdt, usdtCompact } from '../_desk/format.ts';
+import { marginText, rate, titleCase, usdt, usdtCompact } from '../_desk/format.ts';
 import { Chip, Empty } from '../_desk/ui.tsx';
 import d from '../_desk/desk.module.css';
 
@@ -53,7 +53,7 @@ export function ClientBook({ rows, economics, canRequest }: { rows: readonly Cli
     ...(economics
       ? ([
           { key: 'rate', header: 'Last rate', align: 'right', render: (c: ClientBookRow) => (c.lastRate ? rate(c.lastRate) : '—') },
-          { key: 'margin', header: 'Margin made', align: 'right', render: (c: ClientBookRow) => (c.marginGenerated ? <span className={d.positive}>{inr(c.marginGenerated, { sign: true })}</span> : '—') },
+          { key: 'margin', header: 'Margin made', align: 'right', render: (c: ClientBookRow) => (c.marginGenerated ? <span className={d.positive}>{marginText(c.marginGenerated, /[1-9]/.test(c.marginGeneratedUsdt ?? '') ? c.marginGeneratedUsdt : null)}</span> : '—') },
         ] as Column<ClientBookRow>[])
       : []),
     { key: 'last', header: 'Last trade', align: 'right', render: (c) => (c.lastActivityAt ? <Ago at={c.lastActivityAt} /> : <span className={d.muted}>never</span>) },

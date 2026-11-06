@@ -5,7 +5,7 @@ import { useCallback, useState, useTransition } from 'react';
 import type { QueueAction, QueueGroup, QueueGroupKey, QueueRow } from '@inrp2p/desk';
 import { Age, Countdown } from './_desk/clock.tsx';
 import { Cell, type Column, DataTable } from './_desk/DataTable.tsx';
-import { inr, inrCompact, isNegative, rate, share, usdt, usdtCompact } from './_desk/format.ts';
+import { inr, inrCompact, marginNegative, marginText, rate, share, usdt, usdtCompact } from './_desk/format.ts';
 import { Empty, Meter, Side } from './_desk/ui.tsx';
 import { GROUP_TITLE } from './_desk/queue-labels.ts';
 import q from './queue.module.css';
@@ -60,9 +60,9 @@ export function DeskQueue({ groups, economics, selected, view, compact = false }
 
   const amount = (r: QueueRow) => <Cell main={r.baseUsdt ? usdt(r.baseUsdt) : r.quoteInr ? inr(r.quoteInr) : '—'} {...(r.baseUsdt && r.quoteInr ? { sub: inr(r.quoteInr) } : {})} />;
   const margin = (r: QueueRow) =>
-    r.margin ? (
-      <span className={q.margin} {...(isNegative(r.margin, 'INR') ? { 'data-negative': '' } : {})}>
-        {inr(r.margin, { sign: true })}
+    r.margin || r.marginUsdt ? (
+      <span className={q.margin} {...(marginNegative(r.margin, r.marginUsdt) ? { 'data-negative': '' } : {})}>
+        {marginText(r.margin, r.marginUsdt)}
       </span>
     ) : (
       '—'

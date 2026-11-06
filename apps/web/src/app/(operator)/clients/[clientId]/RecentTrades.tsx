@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { ClientDetail } from '@inrp2p/desk';
 import { Cell, type Column, DataTable } from '../../_desk/DataTable.tsx';
-import { dateTime, inr, rate, usdt } from '../../_desk/format.ts';
+import { dateTime, inr, marginText, rate, usdt } from '../../_desk/format.ts';
 import { Empty, LifecycleChip, Side } from '../../_desk/ui.tsx';
 import d from '../../_desk/desk.module.css';
 
@@ -19,7 +19,7 @@ export function RecentTrades({ trades, canRepeat }: { trades: readonly Row[]; ca
     ...(trades.some((t) => t.clientRate)
       ? ([
           { key: 'rate', header: 'Rate', align: 'right', render: (t: Row) => (t.clientRate ? rate(t.clientRate) : '—') },
-          { key: 'margin', header: 'Margin', align: 'right', render: (t: Row) => (t.margin ? <span className={t.lifecycle === 'COMPLETED' ? d.positive : d.secondary}>{inr(t.margin, { sign: true })}</span> : '—') },
+          { key: 'margin', header: 'Margin', align: 'right', render: (t: Row) => (t.margin || t.marginUsdt ? <span className={t.lifecycle === 'COMPLETED' ? d.positive : d.secondary}>{marginText(t.margin, t.marginUsdt)}</span> : '—') },
         ] as Column<Row>[])
       : []),
     { key: 'state', header: 'Status', render: (t) => <LifecycleChip state={t.lifecycle} hold={t.hold} /> },

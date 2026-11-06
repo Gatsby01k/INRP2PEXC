@@ -18,6 +18,8 @@ export interface OrderRow {
   readonly completedAt: string | null;
   readonly clientRate?: string;
   readonly margin?: string;
+  /** What the deal leaves INRP2P in USDT (a P2P deal's margin less the network it carries); null off P2P. */
+  readonly marginUsdt?: string | null;
 }
 
 export interface OrderFilter {
@@ -33,11 +35,11 @@ export async function listOrders(ex: Executor, access: DeskAccess, filter: Order
   const rows = await sql<{
     id: string; ref: string; client_id: string; client_name: string; direction: DirectionValue;
     base_minor: bigint; quote_inr_minor: bigint; lifecycle_state: string; hold: boolean;
-    opened_at: Date; completed_at: Date | null; client_rate_micro: bigint; gross_margin_inr_minor: bigint;
+    opened_at: Date; completed_at: Date | null; client_rate_micro: bigint; gross_margin_inr_minor: bigint; margin_usdt_minor: bigint | null;
   }>`
     select t.id, t.ref, t.client_id, c.display_name as client_name, t.direction,
            e.base_minor, e.quote_inr_minor, t.lifecycle_state, t.hold, t.opened_at, t.completed_at,
-           e.client_rate_micro, e.gross_margin_inr_minor
+           e.client_rate_micro, e.gross_margin_inr_minor, (e.gross_margin_base_minor - coalesce(e.network_fee_base_minor, 0)) as margin_usdt_minor
     from trade t
     join client c on c.id = t.client_id
     join trade_economics e on e.trade_id = t.id
@@ -65,11 +67,11 @@ export async function searchOrders(ex: Executor, access: DeskAccess, term: strin
   const rows = await sql<{
     id: string; ref: string; client_id: string; client_name: string; direction: DirectionValue;
     base_minor: bigint; quote_inr_minor: bigint; lifecycle_state: string; hold: boolean;
-    opened_at: Date; completed_at: Date | null; client_rate_micro: bigint; gross_margin_inr_minor: bigint;
+    opened_at: Date; completed_at: Date | null; client_rate_micro: bigint; gross_margin_inr_minor: bigint; margin_usdt_minor: bigint | null;
   }>`
     select distinct t.id, t.ref, t.client_id, c.display_name as client_name, t.direction,
            e.base_minor, e.quote_inr_minor, t.lifecycle_state, t.hold, t.opened_at, t.completed_at,
-           e.client_rate_micro, e.gross_margin_inr_minor
+           e.client_rate_micro, e.gross_margin_inr_minor, (e.gross_margin_base_minor - coalesce(e.network_fee_base_minor, 0)) as margin_usdt_minor
     from trade t
     join client c on c.id = t.client_id
     join trade_economics e on e.trade_id = t.id
@@ -90,7 +92,7 @@ function toOrder(
   r: {
     id: string; ref: string; client_id: string; client_name: string; direction: DirectionValue;
     base_minor: bigint; quote_inr_minor: bigint; lifecycle_state: string; hold: boolean;
-    opened_at: Date; completed_at: Date | null; client_rate_micro: bigint; gross_margin_inr_minor: bigint;
+    opened_at: Date; completed_at: Date | null; client_rate_micro: bigint; gross_margin_inr_minor: bigint; margin_usdt_minor: bigint | null;
   },
   access: DeskAccess,
 ): OrderRow {
@@ -108,7 +110,7 @@ function toOrder(
     completedAt: r.completed_at ? r.completed_at.toISOString() : null,
   };
   if (!access.economics) return row;
-  return { ...row, clientRate: microToDecimal(r.client_rate_micro), margin: Money.ofMinor(r.gross_margin_inr_minor, 'INR').toDecimalString() };
+  return { ...row, clientRate: microToDecimal(r.client_rate_micro), margin: Money.ofMinor(r.gross_margin_inr_minor, 'INR').toDecimalString(), marginUsdt: r.margin_usdt_minor === null ? null : Money.ofMinor(r.margin_usdt_minor, 'USDT').toDecimalString() };
 }
 
 /** How many trades each Orders tab holds, so the tabs can say so before they are opened. */

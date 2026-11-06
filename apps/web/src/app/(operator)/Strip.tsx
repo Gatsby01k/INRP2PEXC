@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import type { DeskStrip } from '@inrp2p/desk';
 import { MarkArt } from '../../components/MarkArt.tsx';
-import { inr, isPositive, usdtSummary } from './_desk/format.ts';
+import { isPositive, usdtSummary } from './_desk/format.ts';
 import { KpiBand, type KpiItem } from './_desk/ui.tsx';
 import d from './_desk/desk.module.css';
 import q from './queue.module.css';
@@ -22,7 +22,6 @@ export interface StripFocus {
  */
 export function Strip({ strip, focus }: { strip: DeskStrip; focus: StripFocus }) {
   const items: KpiItem[] = [
-    { key: 'usdt', label: 'USDT free', value: <span title="Treasury less what is reserved for open trades">{usdtSummary(strip.usdtAvailable)}</span>, sub: 'less reserved', href: '/usdt' },
     {
       key: 'open',
       label: 'Open trades',
@@ -30,15 +29,15 @@ export function Strip({ strip, focus }: { strip: DeskStrip; focus: StripFocus })
       sub: strip.tradesOnHold > 0 ? <span className={d.negative}>{strip.tradesOnHold} on hold</span> : 'none on hold',
       href: '/orders',
     },
-    ...(strip.realizedMarginToday !== undefined
+    ...(strip.realizedMarginTodayUsdt !== undefined
       ? [
           {
             key: 'margin',
-            label: 'Margin today',
-            value: <span title="Gross margin realized in the ledger today (IST)">{inr(strip.realizedMarginToday, { sign: isPositive(strip.realizedMarginToday, 'INR') })}</span>,
+            label: 'Earned today',
+            value: <span title="INRP2P’s margin and fees realized in the ledger today (IST)">{usdtSummary(strip.realizedMarginTodayUsdt)}</span>,
             sub: 'realized',
             href: '/pnl',
-            ...(isPositive(strip.realizedMarginToday, 'INR') ? { tone: 'success' as const } : {}),
+            ...(isPositive(strip.realizedMarginTodayUsdt, 'USDT') ? { tone: 'success' as const } : {}),
           },
         ]
       : []),

@@ -36,21 +36,18 @@ async function payoutLeg(tradeId: string, amount: string, opts: { confirm?: bool
 }
 
 describe('the operational strip', () => {
-  it('reports today’s INR capacity, treasury, open trades and the route rates a dealer prices against', async () => {
+  it('reports the trades in flight and what the day earned', async () => {
     const strip = await deskStrip(w.app, FULL_ACCESS);
-    expect(Money.parse(strip.inrAvailableToday, 'INR').isPositive()).toBe(true);
     expect(strip.istDay).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    expect(strip.routes?.some((r) => r.direction === 'SELL_USDT' && r.rate !== null)).toBe(true);
-    expect(strip.realizedMarginToday).toBeDefined();
+    expect(strip.realizedMarginTodayUsdt).toBeDefined();
     expect(strip.openTrades).toBeGreaterThanOrEqual(0);
   });
 
-  it('omits the route rates and the margin entirely for an operator without economics:view', async () => {
+  it('omits what the day earned entirely for an operator without pnl:view', async () => {
     const strip = await deskStrip(w.app, NO_ECONOMICS);
     // Field absence, not blanking: there is nothing in the payload to leak (SECURITY §5).
-    expect('routes' in strip).toBe(false);
-    expect('realizedMarginToday' in strip).toBe(false);
-    expect(strip.inrAvailableToday).toBeDefined();
+    expect('realizedMarginTodayUsdt' in strip).toBe(false);
+    expect(strip.openTrades).toBeGreaterThanOrEqual(0);
   });
 
   it('derives view access from the operator’s own roles', async () => {

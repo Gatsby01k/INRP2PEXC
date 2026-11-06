@@ -79,12 +79,12 @@ describe('the desk queue and its strip', () => {
     expect(peak).toBe(3);
   });
 
-  it('the strip is six statements for a dealer, in two rounds — the IST day and what does not depend on it, then the rest', async () => {
+  it('the strip is three statements for a dealer, in two rounds — the IST day and the trades in flight, then what the day earned', async () => {
     await deskStrip(counted.db, FULL_ACCESS);
     counted.reset();
     const { result, peak } = await peakInFlight(() => deskStrip(counted.db, FULL_ACCESS));
-    expect(result.routes).toBeDefined();
-    expect(counted.statements).toHaveLength(6);
-    expect(peak).toBe(4);
+    expect(result.realizedMarginTodayUsdt).toBeDefined();
+    expect(counted.statements).toHaveLength(3);
+    expect(peak).toBe(2);
   });
 });

@@ -9,6 +9,13 @@ export interface PnlPeriod {
 }
 
 export interface PnlSummary {
+  /**
+   * What INRP2P earned in the period on P2P deals, whose rupees are one amount and whose margin is USDT (ADR 0019, 0020):
+   * the ledger's credits to its own margin and to its fee on desks' deals. The network a deal carries is not earnings.
+   */
+  readonly realizedMarginUsdt: Money<'USDT'>;
+  /** What open P2P deals would earn if they all settled as agreed: a forecast, never added to the realized figure. */
+  readonly openExpectedMarginUsdt: Money<'USDT'>;
   readonly realizedGrossMargin: Money<'INR'>;
   readonly completedVolume: Money<'USDT'>;
   readonly completedTrades: number;
@@ -47,8 +54,17 @@ export async function pnlSummary(ex: Executor, period: PnlPeriod): Promise<PnlSu
     from trade t join trade_economics e on e.trade_id = t.id
     where t.lifecycle_state = 'COMPLETED'
       and (t.completed_at AT TIME ZONE 'Asia/Kolkata')::date between ${period.from}::date and ${period.to}::date`.execute(ex);
-  const open = await sql<{ margin: string; trades: string }>`
-    select coalesce(sum(e.gross_margin_inr_minor), 0)::text as margin, count(*)::text as trades
+  const realizedUsdt = await sql<{ net: string }>`
+    select coalesce(sum(case e.direction when 'CR' then e.amount_minor else -e.amount_minor end), 0)::text as net
+    from ledger_entry e
+    join ledger_account a on a.id = e.account_id
+    join ledger_journal j on j.id = e.journal_id
+    where a.code in ('REVENUE:GROSS_MARGIN', 'REVENUE:PLATFORM_FEE') and a.currency = 'USDT'
+      and (j.posted_at AT TIME ZONE 'Asia/Kolkata')::date between ${period.from}::date and ${period.to}::date`.execute(ex);
+  const open = await sql<{ margin: string; margin_usdt: string; trades: string }>`
+    select coalesce(sum(e.gross_margin_inr_minor), 0)::text as margin,
+           coalesce(sum(e.gross_margin_base_minor - coalesce(e.network_fee_base_minor, 0)), 0)::text as margin_usdt,
+           count(*)::text as trades
     from trade t join trade_economics e on e.trade_id = t.id
     where t.lifecycle_state not in ('COMPLETED', 'CANCELLED')`.execute(ex);
   // What the period cost, from the ledger: rewards recognised and fee lines recorded. Costs the ledger does not carry
@@ -69,6 +85,8 @@ export async function pnlSummary(ex: Executor, period: PnlPeriod): Promise<PnlSu
   const rewards = BigInt(costs.rows[0]!.rewards);
   const fees = BigInt(costs.rows[0]!.fees);
   return {
+    realizedMarginUsdt: Money.ofMinor(BigInt(realizedUsdt.rows[0]!.net), 'USDT'),
+    openExpectedMarginUsdt: Money.ofMinor(BigInt(open.rows[0]!.margin_usdt), 'USDT'),
     realizedGrossMargin: Money.ofMinor(gross, 'INR'),
     completedVolume: Money.ofMinor(BigInt(completed.rows[0]!.volume), 'USDT'),
     completedTrades: Number.parseInt(completed.rows[0]!.trades, 10),
