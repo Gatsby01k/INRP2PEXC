@@ -1,21 +1,20 @@
-import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from 'kysely';
 import { isDomainError } from '@inrp2p/kernel';
 import { runAs } from '@inrp2p/identity/testing';
-import { confirmPayout, createPayoutLeg, recordLegEvidence, sendPayoutLeg } from '../src/index.ts';
-import { type World, createWorld, deliverCounterparty, newUtr, openTrade, settleFirstLeg } from './world.ts';
+import { confirmClientReceipt } from '../src/index.ts';
+import { type World, createWorld, openTrade, payClient, settleFirstLeg } from './world.ts';
 
 /**
- * The load test the launch checklist asks for: **quote accept and payout confirm, under contention**
+ * The load test the launch checklist asks for: **quote accept and a deal's confirmation, under contention**
  * (IMPLEMENTATION_PLAN Phase 9).
  *
  * It is a test rather than a script because the interesting part is not the throughput — this product will
  * never be busy in the way a public exchange is busy. The interesting part is what concurrency does to the
- * invariants: acceptance allocates a deposit address from a shared pool and posts a journal; payout confirm
- * takes capacity from one account-day row that every other payout wants at the same moment. Those are the two
- * places where a race would cost real money, so the load runs them against each other and then checks that
- * nothing moved that should not have.
+ * invariants: acceptance allocates a deposit address from a shared pool, holds its trader's capacity and posts a
+ * journal; every deal of a trader wants that trader's row at the same moment. Those are the places where a race
+ * would cost real money, so the load runs them against each other and then checks that nothing moved that should
+ * not have.
  *
  * Volume is an environment variable, with a small default so CI exercises the path on every run:
  *
@@ -28,13 +27,12 @@ const WORKERS = Number.parseInt(process.env.LOAD_WORKERS ?? '6', 10);
 const PER_WORKER = Number.parseInt(process.env.LOAD_TRADES_PER_WORKER ?? '3', 10);
 const TOTAL = WORKERS * PER_WORKER;
 
-/** One trade: 1,000 USDT at ₹90, against the world's own ₹92.50 route rate. */
+/** One deal: 1,000 USDT at ₹102, against the world's trader at ₹103. */
 const BASE_USDT = '1000';
-const CLIENT_RATE = '90.000000';
-const PAYOUT_INR = '90000.00';
+const CLIENT_RATE = '102.000000';
 
 let w: World;
-const accepted: { tradeId: string; tradeRef: string }[] = [];
+const accepted: Awaited<ReturnType<typeof openTrade>>[] = [];
 const timings = new Map<string, number[]>();
 
 async function timed<T>(label: string, fn: () => Promise<T>): Promise<T> {
@@ -68,22 +66,16 @@ async function inParallel<T>(count: number, fn: (index: number) => Promise<T>): 
 }
 
 beforeAll(async () => {
-  // Capacity for every payout this run will make, and then some: the point is to contend for the row, not to
-  // measure what happens when the desk runs out of money (which has its own tests).
-  w = await createWorld('load', { capacityInr: '5000000000.00', depositPoolSize: Math.max(64, TOTAL + 8) });
-  // The route's execution mode is set once, here, rather than by whichever lane gets there first: configuring a
-  // route takes its version, so six lanes asking for the same change would just make five of them wrong. This
-  // is setup, not the thing being measured.
+  w = await createWorld('load', { depositPoolSize: Math.max(64, TOTAL + 8) });
+  // The trader comes with the first deal, here, rather than with whichever lane gets there first.
   await openTrade(w, { baseUsdt: BASE_USDT, clientRate: CLIENT_RATE });
 }, 180_000);
 afterAll(async () => w.close());
 
 describe(`accepting ${TOTAL} quotes on ${WORKERS} lanes`, () => {
   it('opens every trade exactly once, with a deposit address of its own', async () => {
-    const opened = await inParallel(TOTAL, async () =>
-      timed('quote.accept', () => openTrade(w, { baseUsdt: BASE_USDT, clientRate: CLIENT_RATE })),
-    );
-    accepted.push(...opened.map((o) => ({ tradeId: o.tradeId, tradeRef: o.tradeRef })));
+    const opened = await inParallel(TOTAL, async () => timed('quote.accept', () => openTrade(w, { baseUsdt: BASE_USDT, clientRate: CLIENT_RATE })));
+    accepted.push(...opened);
     expect(new Set(accepted.map((t) => t.tradeId)).size).toBe(TOTAL);
     expect(new Set(accepted.map((t) => t.tradeRef)).size).toBe(TOTAL);
 
@@ -96,108 +88,58 @@ describe(`accepting ${TOTAL} quotes on ${WORKERS} lanes`, () => {
   }, 600_000);
 });
 
-describe(`settling ${TOTAL} trades on ${WORKERS} lanes`, () => {
-  it('pays each one once, against a single account-day row every lane is competing for', async () => {
-    await inParallel(accepted.length, async (i) => timed('first_leg', () => settleFirstLeg(w, accepted[i]!.tradeId)));
-    // D-16: each client is paid with what its counterparty delivered, so the counterparty delivers first.
-    await inParallel(accepted.length, async (i) => timed('counterparty_delivery', () => deliverCounterparty(w, accepted[i]!.tradeId)));
-
-    await inParallel(accepted.length, async (i) => {
-      const tradeId = accepted[i]!.tradeId;
-      const leg = await timed('payout_leg.create', async () =>
-        runAs(w.app, createPayoutLeg(w.settlementOp.actor, {}), w.settlementOp.ref, 'payout_leg.create', {
-          tradeId, amount: PAYOUT_INR, payer: 'EXCHANGE_ACCOUNT' as const, inrAccountId: w.inrAccountId,
-        }),
-      );
-      await runAs(w.app, sendPayoutLeg(w.settlementOp.actor), w.settlementOp.ref, 'payout_leg.send', { legId: leg.legId });
-      await runAs(w.app, recordLegEvidence(w.settlementOp.actor, w.settlementDeps), w.settlementOp.ref, 'payout_leg.record_evidence', {
-        legId: leg.legId, rail: 'IMPS' as const, utr: newUtr('LOAD'),
-      });
-      await timed('payout.confirm', () => confirmPayout(w.app, w.settlementOp.actor, w.settlementDeps, { legId: leg.legId, idempotencyKey: randomUUID() }));
+describe(`settling ${TOTAL} deals on ${WORKERS} lanes`, () => {
+  it('pays each one once, while every lane competes for the same trader', async () => {
+    await inParallel(TOTAL, async (i) => {
+      const trade = accepted[i]!;
+      await timed('first_leg', () => settleFirstLeg(w, trade.tradeId));
+      await timed('deal.confirm', () => payClient(w, trade));
     });
-
-    const states = await sql<{ lifecycle_state: string; n: string }>`
-      select lifecycle_state, count(*)::text as n from trade
-      where id in (${sql.join(accepted.map((t) => sql`${t.tradeId}`))}) group by lifecycle_state`.execute(w.app);
-    expect(states.rows).toEqual([{ lifecycle_state: 'COMPLETED', n: String(TOTAL) }]);
-  }, 900_000);
+    const states = await w.app.selectFrom('trade').select('lifecycle_state').where('id', 'in', accepted.map((t) => t.tradeId)).execute();
+    expect(states.every((t) => t.lifecycle_state === 'COMPLETED')).toBe(true);
+  }, 600_000);
 
   it('confirms once when two lanes confirm the same payment at the same moment', async () => {
-    // The race a retry actually causes: the operator's browser resends, or two tabs are open. One idempotency
-    // key means one payment; two keys against one leg means the second is refused by the leg's own state.
     const trade = await openTrade(w, { baseUsdt: BASE_USDT, clientRate: CLIENT_RATE });
     await settleFirstLeg(w, trade.tradeId);
-    await deliverCounterparty(w, trade.tradeId);
-    const leg = await runAs(w.app, createPayoutLeg(w.settlementOp.actor, {}), w.settlementOp.ref, 'payout_leg.create', {
-      tradeId: trade.tradeId, amount: PAYOUT_INR, payer: 'EXCHANGE_ACCOUNT' as const, inrAccountId: w.inrAccountId,
-    });
-    await runAs(w.app, sendPayoutLeg(w.settlementOp.actor), w.settlementOp.ref, 'payout_leg.send', { legId: leg.legId });
-    await runAs(w.app, recordLegEvidence(w.settlementOp.actor, w.settlementDeps), w.settlementOp.ref, 'payout_leg.record_evidence', {
-      legId: leg.legId, rail: 'IMPS' as const, utr: newUtr('RACE'),
-    });
-
-    const sameKey = randomUUID();
-    const outcomes = await Promise.allSettled([
-      confirmPayout(w.app, w.settlementOp.actor, w.settlementDeps, { legId: leg.legId, idempotencyKey: sameKey }),
-      confirmPayout(w.app, w.settlementOp.actor, w.settlementDeps, { legId: leg.legId, idempotencyKey: sameKey }),
-      confirmPayout(w.app, w.settlementOp.actor, w.settlementDeps, { legId: leg.legId, idempotencyKey: randomUUID() }),
-    ]);
-    // Whatever each caller was told, the money moved once: one journal for that confirmation, and one only.
-    for (const outcome of outcomes) {
-      if (outcome.status === 'rejected') expect(isDomainError(outcome.reason)).toBe(true);
-    }
+    const paid = await payClient(w, trade, { confirm: false });
+    const confirm = () => runAs(w.app, confirmClientReceipt(w.acceptor.actor, w.settlementDeps), w.acceptor.ref, 'payout.confirm_received', { tradeRef: trade.tradeRef, legRef: paid.legRef, senderName: 'Konkan Desk LLP' });
+    const results = await Promise.allSettled([confirm(), confirm()]);
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    const refused = results.find((r) => r.status === 'rejected') as PromiseRejectedResult;
+    expect(isDomainError(refused.reason)).toBe(true);
     const journals = await sql<{ n: string }>`
-      select count(*)::text as n from ledger_journal j
-      join ledger_entry e on e.journal_id = j.id
-      where e.trade_id = ${trade.tradeId} and j.posting_key like 'fiat:%:confirm'`.execute(w.app);
-    expect(Number(journals.rows[0]!.n)).toBeGreaterThan(0);
-    const confirmed = await sql<{ n: string }>`
-      select count(*)::text as n from settlement_leg
-      where trade_id = ${trade.tradeId} and side = 'EXCHANGE_TO_CLIENT' and status = 'COMPLETED'`.execute(w.app);
-    expect(confirmed.rows[0]!.n).toBe('1');
-  }, 300_000);
+      select count(*)::text as n from ledger_journal where trade_id = ${trade.tradeId} and posting_key like 'fiat:%'`.execute(w.app);
+    expect(journals.rows[0]!.n).toBe('1');
+  }, 120_000);
 });
 
 describe('what the load did to the books', () => {
   it('left the ledger balanced and every trade within its obligation', async () => {
     expect(await w.app.selectFrom('ledger_global_imbalance').selectAll().execute()).toEqual([]);
-
-    const unbalanced = await sql<{ posting_key: string }>`
-      select j.posting_key from ledger_journal j
-      join ledger_entry e on e.journal_id = j.id
-      group by j.posting_key, e.currency
-      having sum(case e.direction when 'DR' then e.amount_minor else -e.amount_minor end) <> 0`.execute(w.app);
-    expect(unbalanced.rows).toEqual([]);
-
     const over = await sql<{ id: string }>`
       select t.id from trade t
-      where coalesce((select sum(amount_minor) from settlement_leg
-                      where trade_id = t.id and side = 'EXCHANGE_TO_CLIENT' and status in ('PENDING','PROCESSING','COMPLETED')), 0)
+      where (select coalesce(sum(l.amount_minor), 0) from settlement_leg l where l.trade_id = t.id and l.side = 'EXCHANGE_TO_CLIENT' and l.status = 'COMPLETED')
             > inrp2p_trade_payout_obligation(t.id)`.execute(w.app);
     expect(over.rows).toEqual([]);
   });
 
-  it('never let the shared account-day go over its capacity', async () => {
-    // Every payout in this run drew on one account on one day. If the capacity check is not taken under a lock,
-    // this is the row that goes negative.
-    const days = await sql<{ day: string; over: boolean; matches: boolean }>`
-      select d.day::text as day,
-             (d.used_minor + d.reserved_minor > d.capacity_minor) as over,
-             (d.reserved_minor = coalesce((select sum(amount_minor - consumed_minor) from capacity_reservation r
-                                           where r.account_id = d.account_id and r.day = d.day and r.status = 'ACTIVE'), 0)) as matches
-      from inr_account_day d`.execute(w.app);
-    expect(days.rows.length).toBeGreaterThan(0);
-    for (const d of days.rows) expect({ day: d.day, over: d.over, matches: d.matches }).toEqual({ day: d.day, over: false, matches: true });
+  it('never held more of its trader’s capacity than its open orders', async () => {
+    const blocks = await sql<{ reserved: string; open: string }>`
+      select b.reserved_minor::text as reserved,
+             coalesce((select sum(o.capacity_minor) from trader_order o where o.trader_id = b.trader_id and o.side = b.side and o.status in ('ACCEPTED', 'IN_PROGRESS')), 0)::text as open
+      from trader_block b`.execute(w.app);
+    for (const b of blocks.rows) expect(b.reserved).toBe(b.open);
   });
 
   it('gave every payment its own bank reference', async () => {
-    const duplicates = await sql<{ utr: string }>`
-      select utr from fiat_transfer group by utr, rail having count(*) > 1`.execute(w.app);
+    const duplicates = await sql<{ utr: string; n: string }>`
+      select f.utr, count(*)::text as n from fiat_transfer f group by f.utr having count(*) > 1`.execute(w.app);
     expect(duplicates.rows).toEqual([]);
   });
 
   it('reports what it measured', () => {
-    const report = ['quote.accept', 'first_leg', 'payout_leg.create', 'payout.confirm'].map((label) => ({ step: label, ...summary(label) }));
+    const report = ['quote.accept', 'first_leg', 'deal.confirm'].map((label) => ({ step: label, ...summary(label) }));
     // The numbers are the deliverable of a load run, so they are printed rather than only asserted.
     console.table(report);
     for (const row of report) expect(row.n).toBeGreaterThan(0);

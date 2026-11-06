@@ -160,3 +160,42 @@ describe('a replay is authorized again (C2)', () => {
   });
 });
 
+describe('two commands wanting the same rows (ARCHITECTURE §4)', () => {
+  it('a deadlock runs the command again from nothing; any other failure is the command’s answer', async () => {
+    let runs = 0;
+    const out = await executeCommand(t.app, {
+      authorize: async () => {},
+      handle: async (ctx) => {
+        runs += 1;
+        await enqueueOutbox(ctx, { type: 'test.retried', payload: { run: runs } });
+        if (runs === 1) throw Object.assign(new Error('deadlock detected'), { code: '40P01' });
+        return { runs };
+      },
+    }, { name: 'test.deadlock_retry', actor, payload: {}, idempotencyKey: randomUUID(), financial: true });
+    expect(out.result).toEqual({ runs: 2 });
+    // The first attempt left nothing: one event, from the run that committed.
+    const events = await t.app.selectFrom('outbox_event').select('payload').where('type', '=', 'test.retried').execute();
+    expect(events.map((e) => e.payload)).toEqual([{ run: 2 }]);
+
+    let refused = 0;
+    await expect(executeCommand(t.app, { authorize: async () => {}, handle: async () => { refused += 1; throw new DomainError('INVALID_ARGUMENT', 'no'); } }, { name: 'test.no_retry', actor, payload: {}, financial: false })).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' });
+    expect(refused).toBe(1);
+    // Nor does it go on for ever.
+    let stuck = 0;
+    await expect(executeCommand(t.app, { authorize: async () => {}, handle: async () => { stuck += 1; throw Object.assign(new Error('deadlock detected'), { code: '40P01' }); } }, { name: 'test.stuck', actor, payload: {}, financial: false })).rejects.toThrow('deadlock');
+    expect(stuck).toBe(3);
+  });
+
+  it('wakes the dispatcher only as the transaction’s last statement, so the one job row is never held across a lock', async () => {
+    const order: string[] = [];
+    await executeCommand(t.app, {
+      authorize: async () => {},
+      handle: async (ctx) => {
+        await enqueueOutbox(ctx, { type: 'test.ordered', payload: {} });
+        order.push(ctx.atEnd?.has('outbox_dispatch') ? 'deferred' : 'immediate');
+        return null;
+      },
+    }, { name: 'test.ordered', actor, payload: {}, financial: false });
+    expect(order).toEqual(['deferred']);
+  });
+});
