@@ -146,7 +146,8 @@ export async function networkView(ex: Executor, opts: { tradeLimit?: number; sen
 
   const sends = await sendRowsOf(ex, { limit: opts.sendLimit ?? 60 });
 
-  const trades = await tradeNetworkRows(ex, { limit: opts.tradeLimit ?? 50 });
+  // The table of what TRX cost each trade; a deal on GasFree states its own in USDT, on its page.
+  const trades = await tradeNetworkRows(ex, { limit: opts.tradeLimit ?? 50, trxOnly: true });
 
   const fees = await latestGasFreeFees(ex);
   const charged = await sql<{ deals: string; clients: string; traders: string; n: number; live: number }>`
@@ -218,9 +219,9 @@ async function sendRowsOf(ex: Executor, filter: { tradeId?: string; limit: numbe
  * Each trade's network economics. What the network cost the exchange is what its transfers burned less the part a
  * trader bears (a return its own failure caused): that part is the trader's, not a cost of the trade.
  */
-async function tradeNetworkRows(ex: Executor, filter: { tradeId?: string; limit: number }): Promise<TradeNetworkRow[]> {
+async function tradeNetworkRows(ex: Executor, filter: { tradeId?: string; limit: number; trxOnly?: boolean }): Promise<TradeNetworkRow[]> {
   const rows = await sql<{
-    id: string; ref: string; direction: 'SELL_USDT' | 'BUY_USDT'; lifecycle_state: string; gross: bigint; reward: bigint; fee_inr: bigint; fee_sun: bigint; usdt_per_trx: bigint;
+    id: string; ref: string; direction: 'SELL_USDT' | 'BUY_USDT'; lifecycle_state: string; gross: bigint; reward: bigint; fee_inr: bigint; fee_sun: bigint; usdt_per_trx: bigint | null;
     client_rate: bigint; funder: string | null; trader_ref: string | null; hold_amount: bigint | null; hold_status: 'ACTIVE' | 'CLOSED' | null; reimbursed: bigint | null; spent: string; trader_borne: string;
   }>`
     select t.id, t.ref, t.direction, t.lifecycle_state, q.gross_margin_inr_minor as gross, f.reward_inr_minor as reward, f.fee_inr_minor as fee_inr, f.fee_sun,
@@ -237,12 +238,14 @@ async function tradeNetworkRows(ex: Executor, filter: { tradeId?: string; limit:
       join quote_network_fee f on f.quote_id = q.id
       left join trader_profile tp on tp.id = f.funder_trader_id
       left join network_budget_hold h on h.trade_id = t.id
-     where ${filter.tradeId ?? null}::uuid is null or t.id = ${filter.tradeId ?? null}::uuid
+     where (${filter.tradeId ?? null}::uuid is null or t.id = ${filter.tradeId ?? null}::uuid)
+       and (${filter.trxOnly ?? false}::boolean is false or f.unit = 'TRX')
      order by t.opened_at desc limit ${filter.limit}`.execute(ex);
   return rows.rows.map((r) => {
     const spent = BigInt(r.spent);
     const traderBorne = BigInt(r.trader_borne);
-    const costInr = trxToInrMinor(spent - traderBorne, r.usdt_per_trx, r.client_rate, 'UP');
+    // Terms in USDT (ADR 0022) freeze no TRX price and burn no TRX: there is nothing to convert.
+    const costInr = r.usdt_per_trx === null ? 0n : trxToInrMinor(spent - traderBorne, r.usdt_per_trx, r.client_rate, 'UP');
     return {
       tradeId: r.id, ref: r.ref, direction: r.direction, lifecycle: r.lifecycle_state, funder: r.trader_ref ?? 'Platform',
       grossMargin: Money.ofMinor(r.gross, 'INR').toDecimalString(), reward: Money.ofMinor(r.reward, 'INR').toDecimalString(),

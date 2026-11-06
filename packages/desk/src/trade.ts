@@ -200,6 +200,8 @@ export interface DeskTrade {
   readonly network: DeskTradeNetwork | null;
   /** ADR 0018 — a BUY's payment instructions as the client saw them: the account to pay, the reference, the deadline. */
   readonly collection: { readonly inrAccountId: string; readonly label: string; readonly bankName: string; readonly last4: string; readonly reference: string; readonly payBy: string } | null;
+  /** The deal settles P2P (ADR 0019): its USDT in escrow, its rupees straight between client and trader. */
+  readonly settlesP2p: boolean;
   /** A P2P payment for INRP2P to decide (disputed or unanswered), and a SELL being unwound (ADR 0020 §2.15). */
   readonly p2p: P2pDecisionView | null;
   /** ADR 0023: a P2P deal's chat between its two sides, and whether one of them called INRP2P in. */
@@ -266,6 +268,7 @@ export async function deskTrade(ex: Executor, tradeId: string, access: DeskAcces
     },
     network: await deskTradeNetwork(ex, id, { economics: access.economics }),
     collection: row.direction === 'BUY_USDT' ? await collectionOf(ex, id) : null,
+    settlesP2p: row.route_execution_mode === 'P2P',
     p2p: await p2pDecisionView(ex, id),
     chat: await deskDealChat(ex, id),
   };

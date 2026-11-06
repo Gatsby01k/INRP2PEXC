@@ -7,7 +7,7 @@ import { istToday } from './pnl.ts';
 export interface DeskStrip {
   readonly openTrades: number;
   readonly tradesOnHold: number;
-  /** What INRP2P earned today in USDT, from the ledger: its margin and its fees on P2P deals. Absent without `pnl:view`. */
+  /** What INRP2P earned today in USDT, from the ledger, as `pnlSummary` counts it. Absent without `pnl:view`. */
   readonly realizedMarginTodayUsdt?: string;
   readonly istDay: string;
 }
@@ -37,7 +37,7 @@ export async function deskStrip(ex: Executor, access: DeskAccess): Promise<DeskS
     from ledger_entry e
     join ledger_account a on a.id = e.account_id
     join ledger_journal j on j.id = e.journal_id
-    where a.code in ('REVENUE:GROSS_MARGIN', 'REVENUE:PLATFORM_FEE') and a.currency = 'USDT' and (j.posted_at at time zone 'Asia/Kolkata')::date = ${day}::date`.execute(ex);
+    where a.code in ('REVENUE:GROSS_MARGIN', 'REVENUE:PLATFORM_FEE', 'REVENUE:NETWORK_RECOVERED', 'EXPENSE:NETWORK_FEES') and a.currency = 'USDT' and (j.posted_at at time zone 'Asia/Kolkata')::date = ${day}::date`.execute(ex);
   return { ...strip, realizedMarginTodayUsdt: Money.ofMinor(BigInt(margin.rows[0]!.net), 'USDT').toDecimalString() };
 }
 

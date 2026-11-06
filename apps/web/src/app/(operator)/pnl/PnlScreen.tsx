@@ -104,7 +104,7 @@ export function PnlScreen({ view, canExport }: { view: PnlPage; canExport: boole
         <KpiBand
           label="Realized in the period"
           items={[
-            { key: 'r', label: 'Earned', value: signedUsdt(s.realizedMarginUsdt), sub: 'margin and desks’ fees, from the ledger', size: 'lg', ...(isNegative(s.realizedMarginUsdt, 'USDT') ? { tone: 'danger' as const } : {}) },
+            { key: 'r', label: 'Earned', value: signedUsdt(s.realizedMarginUsdt), sub: 'margin and desks’ fees, less the network, from the ledger', size: 'lg', ...(isNegative(s.realizedMarginUsdt, 'USDT') ? { tone: 'danger' as const } : {}) },
             { key: 'v', label: 'Completed volume', value: usdt(s.completedVolume), sub: `${s.completedTrades} trade${s.completedTrades === 1 ? '' : 's'}` },
             { key: 'a', label: 'Earned on volume', value: earnedShare(s.realizedMarginUsdt, s.completedVolume), sub: 'realized ÷ completed volume' },
             { key: 'c', label: 'Completed trades', value: String(s.completedTrades) },
@@ -118,16 +118,16 @@ export function PnlScreen({ view, canExport }: { view: PnlPage; canExport: boole
           </dd>
         </dl>
       </div>
-      <Notice>The network each deal carries is not counted as earned: it pays GasFree, at cost, out of the deal’s own USDT.</Notice>
+      <Notice>A deal’s network pays GasFree at cost, out of the USDT it carries. What is left of that counts as earned until the deal’s address is swept, which it pays for.</Notice>
 
       <div data-testid="ledger-check" role="status">
         {view.ledgerCheck.agrees ? (
           <Notice tone="success" icon="check">
-            Ledger and trades agree on what was earned: {signedUsdt(view.ledgerCheck.ledgerUsdt)}.
+            Ledger and trades agree on what completed deals posted: {signedUsdt(view.ledgerCheck.ledgerUsdt)}.
           </Notice>
         ) : (
           <Notice tone="danger" icon="exceptions">
-            <strong>What was earned does not reconcile:</strong> the ledger has {signedUsdt(view.ledgerCheck.ledgerUsdt)}, the completed trades sum to {signedUsdt(view.ledgerCheck.tradesUsdt)}. Treat
+            <strong>Completed deals do not reconcile:</strong> the ledger has {signedUsdt(view.ledgerCheck.ledgerUsdt)}, the completed trades sum to {signedUsdt(view.ledgerCheck.tradesUsdt)}. Treat
             this page as unreliable until it is explained.
           </Notice>
         )}

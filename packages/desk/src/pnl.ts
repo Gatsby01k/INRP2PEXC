@@ -131,9 +131,9 @@ export async function pnlPage(ex: Executor, period: PnlPeriod): Promise<PnlPage>
     ledgerCheck: {
       ledger: summary.realizedGrossMargin.toDecimalString(),
       trades: Money.ofMinor(completed, 'INR').toDecimalString(),
-      ledgerUsdt: summary.realizedMarginUsdt.toDecimalString(),
+      ledgerUsdt: summary.completionMarginUsdt.toDecimalString(),
       tradesUsdt: Money.ofMinor(completedUsdt, 'USDT').toDecimalString(),
-      agrees: summary.realizedGrossMargin.minor === completed && summary.realizedMarginUsdt.minor === completedUsdt,
+      agrees: summary.realizedGrossMargin.minor === completed && summary.completionMarginUsdt.minor === completedUsdt,
     },
   };
 }

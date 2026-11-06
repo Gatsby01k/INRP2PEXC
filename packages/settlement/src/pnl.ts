@@ -11,9 +11,12 @@ export interface PnlPeriod {
 export interface PnlSummary {
   /**
    * What INRP2P earned in the period on P2P deals, whose rupees are one amount and whose margin is USDT (ADR 0019, 0020):
-   * the ledger's credits to its own margin and to its fee on desks' deals. The network a deal carries is not earnings.
+   * from the ledger, its own margin and its fee on desks' deals, less what the network cost beyond what the deals carried
+   * for it. What a deal carried and its transfers did not use counts until the sweep it pays for (ADR 0022 §2.5).
    */
   readonly realizedMarginUsdt: Money<'USDT'>;
+  /** The margin completed deals posted when they completed: what the deals' own frozen figures must add up to (FI-44). */
+  readonly completionMarginUsdt: Money<'USDT'>;
   /** What open P2P deals would earn if they all settled as agreed: a forecast, never added to the realized figure. */
   readonly openExpectedMarginUsdt: Money<'USDT'>;
   readonly realizedGrossMargin: Money<'INR'>;
@@ -54,12 +57,14 @@ export async function pnlSummary(ex: Executor, period: PnlPeriod): Promise<PnlSu
     from trade t join trade_economics e on e.trade_id = t.id
     where t.lifecycle_state = 'COMPLETED'
       and (t.completed_at AT TIME ZONE 'Asia/Kolkata')::date between ${period.from}::date and ${period.to}::date`.execute(ex);
-  const realizedUsdt = await sql<{ net: string }>`
-    select coalesce(sum(case e.direction when 'CR' then e.amount_minor else -e.amount_minor end), 0)::text as net
+  const realizedUsdt = await sql<{ net: string; completion: string }>`
+    select coalesce(sum(case e.direction when 'CR' then e.amount_minor else -e.amount_minor end), 0)::text as net,
+           coalesce(sum(case e.direction when 'CR' then e.amount_minor else -e.amount_minor end)
+                    filter (where a.code in ('REVENUE:GROSS_MARGIN', 'REVENUE:PLATFORM_FEE') and j.posting_key like 'trade:%:complete'), 0)::text as completion
     from ledger_entry e
     join ledger_account a on a.id = e.account_id
     join ledger_journal j on j.id = e.journal_id
-    where a.code in ('REVENUE:GROSS_MARGIN', 'REVENUE:PLATFORM_FEE') and a.currency = 'USDT'
+    where a.code in ('REVENUE:GROSS_MARGIN', 'REVENUE:PLATFORM_FEE', 'REVENUE:NETWORK_RECOVERED', 'EXPENSE:NETWORK_FEES') and a.currency = 'USDT'
       and (j.posted_at AT TIME ZONE 'Asia/Kolkata')::date between ${period.from}::date and ${period.to}::date`.execute(ex);
   const open = await sql<{ margin: string; margin_usdt: string; trades: string }>`
     select coalesce(sum(e.gross_margin_inr_minor), 0)::text as margin,
@@ -86,6 +91,7 @@ export async function pnlSummary(ex: Executor, period: PnlPeriod): Promise<PnlSu
   const fees = BigInt(costs.rows[0]!.fees);
   return {
     realizedMarginUsdt: Money.ofMinor(BigInt(realizedUsdt.rows[0]!.net), 'USDT'),
+    completionMarginUsdt: Money.ofMinor(BigInt(realizedUsdt.rows[0]!.completion), 'USDT'),
     openExpectedMarginUsdt: Money.ofMinor(BigInt(open.rows[0]!.margin_usdt), 'USDT'),
     realizedGrossMargin: Money.ofMinor(gross, 'INR'),
     completedVolume: Money.ofMinor(BigInt(completed.rows[0]!.volume), 'USDT'),

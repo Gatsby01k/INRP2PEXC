@@ -53,7 +53,8 @@ export function Closeout({ trade, perms, refundAccounts }: { trade: DeskTrade; p
 
   return (
     <PanelSection title="Cancel or refund" testId="closeout">
-      <ExcessRefund trade={trade} perms={perms} refundAccounts={refundAccounts} />
+      {/* A P2P deal's rupees never pass through INRP2P: only USDT over what was owed can be returned from here. */}
+      {trade.settlesP2p && inAsset === 'INR' ? null : <ExcessRefund trade={trade} perms={perms} refundAccounts={refundAccounts} />}
       {!received.isPositive() ? (
         beforeFunds ? (
           perms.cancelTrade ? (

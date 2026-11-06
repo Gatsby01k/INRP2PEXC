@@ -19,9 +19,9 @@ import { publishTrxRate, setNetworkFeePolicy } from '@inrp2p/network';
 import { type OnchainDeps, runAutopay, runFeeRefresh, runGasFreeFeeRefresh, runHoldClosing, runMonitor, runSender } from '@inrp2p/onchain';
 import { runTronConfirm } from '@inrp2p/scanner';
 import { submitTxForVerification } from '@inrp2p/settlement';
-import { applyAsTrader, approveTrader, configureTraderProgram, openDesk, setAvailability, setDeskPrices, setDeskStatus, sharedReserveAddress, updateBlock } from '@inrp2p/traders';
+import { acceptOrder, applyAsTrader, approveTrader, configureTraderProgram, openDesk, setAvailability, setDeskPrices, setDeskStatus, sharedReserveAddress, updateBlock } from '@inrp2p/traders';
 import { deskBaseUrl, startDesk, surfacePorts } from '../harness/desk-server.ts';
-import { CLIENT_AUTH_SECRET, E2E_FIELD_KEYS, OPERATOR_AUTH_SECRET, e2eFieldProtector, operator, run } from './world.ts';
+import { CLIENT_AUTH_SECRET, E2E_FIELD_KEYS, OPERATOR_AUTH_SECRET, OPERATOR_PASSWORD, e2eFieldProtector, operator, run } from './world.ts';
 
 /**
  * The world of a desk (ADR 0020), end to end on the exchange's own rails: deal addresses derived from an HD account, a
@@ -51,6 +51,11 @@ export const DESK = {
 export interface DeskWorld {
   readonly db: Db;
   readonly chain: FakeChainVerifier;
+  readonly deskUrl: string;
+  /** INRP2P's own operator, as the desk's sign-in asks for them. */
+  readonly operator: { readonly email: string; readonly password: string; readonly totpSecret: string };
+  /** The trader takes an order offered to it, as it would on its own screen. */
+  acceptOrder(orderRef: string): Promise<void>;
   readonly appUrl: string;
   readonly linkUrl: string;
   readonly deskWalletAddress: string;
@@ -171,13 +176,18 @@ export async function createDeskWorld(adminUrl: string, port: number): Promise<D
 
   const ports = surfacePorts(port);
   const stopServer = await startDesk({
-    port, databaseUrl, operatorAuthSecret: OPERATOR_AUTH_SECRET, clientAuthSecret: CLIENT_AUTH_SECRET, surfaces: ['app', 'public'],
+    port, databaseUrl, operatorAuthSecret: OPERATOR_AUTH_SECRET, clientAuthSecret: CLIENT_AUTH_SECRET, surfaces: ['desk', 'app', 'public'],
     fieldKeys: E2E_FIELD_KEYS, custodyProvider: custody.provider, custodyCapability: 'DERIVED', custodyXpub: signer.accountXpub,
     clientOtpSinkFile: DESKS_OTP_SINK, label: 'e2e-desks',
   });
 
   return {
     db, chain, deskWalletAddress, sendUsdt,
+    deskUrl: deskBaseUrl(ports.desk),
+    operator: { email: owner.email, password: OPERATOR_PASSWORD, totpSecret: owner.totpSecret },
+    async acceptOrder(orderRef) {
+      await runClient(db, acceptOrder(actor), ref, 'trader_order.accept', { ref: orderRef });
+    },
     appUrl: deskBaseUrl(ports.app),
     linkUrl: deskBaseUrl(ports.public),
     async settle(tradeId) {

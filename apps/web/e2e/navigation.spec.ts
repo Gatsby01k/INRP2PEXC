@@ -11,7 +11,7 @@ import { signIn, state } from './support.ts';
  *    catches the regressions that cost seconds (a check that reaches a far database, a read per row), not milliseconds.
  */
 
-const SECTIONS: readonly string[] = ['Exceptions', 'Orders', 'Rates', 'INR accounts', 'USDT treasury', 'Network budget', 'Traders', 'Desks', 'Clients', 'P&L', 'Revenue', 'System health', 'Desk'];
+const SECTIONS: readonly string[] = ['Exceptions', 'Orders', 'Rates', 'USDT treasury', 'Network budget', 'Traders', 'Desks', 'Clients', 'P&L', 'Revenue', 'System health', 'Desk'];
 
 /**
  * A click to content, at most. React holds a revealed page back until the loading shape has been on screen for

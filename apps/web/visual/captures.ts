@@ -20,12 +20,10 @@ export const CAPTURES = [
   'operator-orders',
   'operator-trade-record',
   'operator-rates',
-  'operator-inr',
   'operator-usdt',
   'operator-clients',
-  // Phase 8 finance outputs: the P&L screen, and the statement reconciliation panel on the INR screen.
+  // Phase 8 finance outputs: the P&L screen.
   'operator-pnl',
-  'operator-statement',
   'operator-command-bar',
   'operator-step-up',
   'operator-system',
