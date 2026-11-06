@@ -3,11 +3,10 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from 'kysely';
 import { pgErrorCode } from '@inrp2p/db';
 import { runAs } from '@inrp2p/identity/testing';
-import { confirmPayout, createPayoutLeg, recordLegEvidence, sendPayoutLeg } from '@inrp2p/settlement';
 import {
   type ReceiptObjectStore, type ReceiptPdfPrinter, getReceipt, issueReceipt, readStoredReceipt, receiptHandler, receiptsNotStored, regenerateReceipt, storeReceiptObjects,
 } from '../src/index.ts';
-import { type World, createWorld, ensureCounterpartyFunds, newUtr, openTrade, settleFirstLeg } from '../../settlement/test/world.ts';
+import { type World, createWorld, openTrade, payClient, settleFirstLeg } from '../../settlement/test/world.ts';
 import { type LocalS3, startLocalS3 } from '../../../test/minio.ts';
 
 /**
@@ -26,11 +25,7 @@ const printer: ReceiptPdfPrinter = {
 async function completedTrade(): Promise<{ tradeId: string; tradeRef: string }> {
   const trade = await openTrade(w, { baseUsdt: '100', clientRate: '90.000000' });
   await settleFirstLeg(w, trade.tradeId);
-  await ensureCounterpartyFunds(w, trade.tradeId);
-  const leg = await runAs(w.app, createPayoutLeg(w.settlementOp.actor, {}), w.settlementOp.ref, 'payout_leg.create', { tradeId: trade.tradeId, amount: '9000.00', payer: 'EXCHANGE_ACCOUNT' as const, inrAccountId: w.inrAccountId });
-  await runAs(w.app, sendPayoutLeg(w.settlementOp.actor), w.settlementOp.ref, 'payout_leg.send', { legId: leg.legId });
-  await runAs(w.app, recordLegEvidence(w.settlementOp.actor, w.settlementDeps), w.settlementOp.ref, 'payout_leg.record_evidence', { legId: leg.legId, rail: 'IMPS' as const, utr: newUtr() });
-  await confirmPayout(w.app, w.settlementOp.actor, w.settlementDeps, { legId: leg.legId, idempotencyKey: randomUUID() });
+  await payClient(w, trade);
   return trade;
 }
 

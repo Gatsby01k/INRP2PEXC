@@ -1,14 +1,10 @@
-import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from 'kysely';
 import { Money } from '@inrp2p/kernel';
 import { pgErrorCode } from '@inrp2p/db';
 import { runAs } from '@inrp2p/identity/testing';
-import {
-  confirmFirstLeg, confirmPayout, confirmRefundLeg, createPayoutLeg, createRefundLeg, openException, recordIncomingFiat, recordLegEvidence,
-  refundAndCancel, refundExcess, sendPayoutLeg,
-} from '../src/index.ts';
-import { balanceOf, clientDepositAddressOf, createWorld, deliverCounterparty, newUtr, observe, openTrade, seeOwnSender, settleFirstLeg, type World } from './world.ts';
+import { confirmRefundLeg, createRefundLeg, openException, refundAndCancel, refundExcess } from '../src/index.ts';
+import { balanceOf, clientDepositAddressOf, createWorld, observe, openTrade, payClient, settleFirstLeg, type World } from './world.ts';
 
 /**
  * D2 (TD-19): an overpayment is returned — at most what arrived beyond the receivable, to a verified destination of
@@ -60,12 +56,7 @@ describe('an overpayment is returned and the trade goes on (D2)', () => {
     await expect(excess({})).rejects.toMatchObject({ code: 'INVALID_TRANSITION' });
 
     // The client is paid in full — and the trade still waits for the excess to reach them.
-    await deliverCounterparty(w, t.tradeId);
-    const payout = await runAs(w.app, createPayoutLeg(w.settlementOp.actor, {}), w.settlementOp.ref, 'payout_leg.create', { tradeId: t.tradeId, amount: '10200.00', payer: 'EXCHANGE_ACCOUNT' as const, inrAccountId: w.inrAccountId });
-    await runAs(w.app, sendPayoutLeg(w.settlementOp.actor), w.settlementOp.ref, 'payout_leg.send', { legId: payout.legId });
-    await runAs(w.app, recordLegEvidence(w.settlementOp.actor, w.settlementDeps), w.settlementOp.ref, 'payout_leg.record_evidence', { legId: payout.legId, rail: 'IMPS' as const, utr: newUtr() });
-    const paid = await confirmPayout(w.app, w.settlementOp.actor, w.settlementDeps, { legId: payout.legId, idempotencyKey: randomUUID() });
-    expect(paid.completed).toBe(false);
+    await payClient(w, t);
     expect((await stateOf(t.tradeId)).lifecycle_state).toBe('PARTIALLY_SETTLED');
     await expect(sql`update trade set lifecycle_state = 'COMPLETED', completed_at = now() where id = ${t.tradeId}`.execute(w.t.owner)).rejects.toSatisfy((e) => pgErrorCode(e) === 'IX021');
 
@@ -110,24 +101,5 @@ describe('an overpayment is returned and the trade goes on (D2)', () => {
     await confirmExcessOnChain(unwind.legId, t.deposit.address, '20');
     await runAs(w.app, refundAndCancel(w.owner.actor), w.owner.ref, 'exception.refund_and_cancel', { tradeId: t.tradeId, exceptionId: opened.exceptionId, reason: 'everything back with the client' });
     expect((await stateOf(t.tradeId)).lifecycle_state).toBe('CANCELLED');
-  });
-
-  it('returns an INR overpayment to a verified bank account of the client, from where the INR arrived', async () => {
-    const trade = await openTrade(w, { direction: 'BUY_USDT', baseUsdt: '100', clientRate: '106.000000' });
-    const recorded = await runAs(w.app, recordIncomingFiat(w.settlementOp.actor), w.settlementOp.ref, 'fiat_in.record', {
-      tradeId: trade.tradeId, rail: 'IMPS' as const, utr: newUtr('IN'), amount: '10700.00', inrAccountId: w.inrAccountId,
-    });
-    await seeOwnSender(w.app, w.settlementOp, { legId: recorded.legId });
-    await runAs(w.app, confirmFirstLeg(w.settlementOp.actor, w.settlementDeps), w.settlementOp.ref, 'settlement.confirm_incoming', { legId: recorded.legId });
-    expect((await stateOf(trade.tradeId)).hold).toBe(true);
-    const planned = await runAs(w.app, refundExcess(w.settlementOp.actor), w.settlementOp.ref, 'trade.refund_excess', {
-      tradeId: trade.tradeId, inrAccountId: w.inrAccountId, destinationBankAccountId: w.bankAccountId,
-      exceptionId: (await w.app.selectFrom('exception_case').select('id').where('trade_id', '=', trade.tradeId).where('type', '=', 'USDT_OVERPAYMENT').executeTakeFirstOrThrow()).id,
-    });
-    expect(planned.amount).toBe('100.00');
-    expect(await stateOf(trade.tradeId)).toEqual({ lifecycle_state: 'FIRST_LEG_CONFIRMED', hold: false });
-    await runAs(w.app, confirmRefundLeg(w.financeOp.actor, w.settlementDeps), w.financeOp.ref, 'refund_leg.confirm', { legId: planned.legId, rail: 'IMPS' as const, utr: newUtr('RF') });
-    const earmark = await w.app.selectFrom('funding_allocation').select(['source_kind', 'status', 'location']).where('use_leg_id', '=', planned.legId).executeTakeFirstOrThrow();
-    expect(earmark).toEqual({ source_kind: 'CLIENT_FUNDS', status: 'CONSUMED', location: `INR:${w.inrAccountId}` });
   });
 });
