@@ -182,7 +182,9 @@ async function loads(browser: Browser, url: string, opts: { storage?: BrowserCon
     // page's own cost, and a regression is in every run.
     tbt: Math.min(...xs.map((x) => x.tbt)),
     interaction: Math.min(...xs.map((x) => x.interaction)),
-    shown: median(xs.map((x) => x.shown)),
+    // The fastest run that measured it, as with tbt and tap: a page held behind its loading shape is held on every run, a
+    // busy runner only delays some. A run that never showed the heading reads -1 and does not count as fast.
+    shown: Math.min(...xs.map((x) => x.shown).filter((v) => v >= 0)),
   });
   return { cold: summary(cold), warm: summary(warm) };
 }
@@ -218,7 +220,7 @@ test.afterAll(() => {
 function report(name: string, network: string, r: Awaited<ReturnType<typeof loads>>, streamed = false) {
   const line = (k: 'cold' | 'warm') =>
     `${k} ttfb ${r[k].ttfb} lcp ${r[k].lcp} cls ${r[k].cls} (worst ${r[k].worst.cls}) tbt ${r[k].tbt} tap ${r[k].interaction}${streamed ? ` heading shown +${r[k].shown}` : ''}`;
-  console.log(`mobile-perf ${name} @ ${network} (median of ${RUNS}, tbt and tap the fastest, CPU ×${CPU_SLOWDOWN}): ${line('cold')} | ${line('warm')}`);
+  console.log(`mobile-perf ${name} @ ${network} (median of ${RUNS}, tbt, tap and shown the fastest, CPU ×${CPU_SLOWDOWN}): ${line('cold')} | ${line('warm')}`);
   for (const k of ['cold', 'warm'] as const) {
     if (r[k].worst.cls >= 0.02) console.log(`mobile-perf ${name} @ ${network} ${k}, worst run's layout shifts:\n  ${r[k].worst.shifts.join('\n  ')}`);
   }
