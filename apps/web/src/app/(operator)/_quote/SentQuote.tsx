@@ -9,7 +9,7 @@ import { useCommand } from '../../../components/useCommand.tsx';
 import { Age, Countdown, useDeskNow } from '../_desk/clock.tsx';
 import { PanelSection } from '../_desk/ContextPanel.tsx';
 import { GuardedAction } from '../_desk/GuardedAction.tsx';
-import { dateTime, inr, rate, usdt } from '../_desk/format.ts';
+import { dateTime, inr, marginText, rate, usdt } from '../_desk/format.ts';
 import { Chip, KeyValues, Notice } from '../_desk/ui.tsx';
 import d from '../_desk/desk.module.css';
 import t from '../_trade/trade.module.css';
@@ -49,7 +49,7 @@ export function SentQuote({ quote, canCancel, canLink, linkBase }: { quote: Desk
             { label: sell ? 'Pays INR to' : 'Sends USDT to', value: <span className={d.mono}>{quote.destination}</span> },
             { label: 'Request', value: quote.requestRef },
             ...(quote.routeName && quote.routeRate ? [{ label: 'Route', value: `${quote.routeName} · ${rate(quote.routeRate)}` }] : []),
-            ...(quote.margin ? [{ label: 'Expected margin', value: <span className={d.positive}>{inr(quote.margin, { sign: true })}</span> }] : []),
+            ...(quote.margin || quote.marginUsdt ? [{ label: 'Expected margin', value: <span className={d.positive}>{marginText(quote.margin, quote.marginUsdt)}</span> }] : []),
           ]}
         />
         {quote.tradeRef ? (

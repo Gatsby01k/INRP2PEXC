@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation';
 import { isDomainError } from '@inrp2p/kernel';
 import { type ClientDetail, clientDetail } from '@inrp2p/desk';
 import { can, operatorPage } from '../../../../server/operator.ts';
-import { inr, titleCase, usdt, usdtCompact } from '../../_desk/format.ts';
+import { marginText, titleCase, usdt, usdtCompact } from '../../_desk/format.ts';
 import { Chip, Columns, KeyValues, KpiBand, Notice, Page, PageBody, PageHeader, Section, Stack } from '../../_desk/ui.tsx';
 import { BankAccounts } from './BankAccounts.tsx';
 import { NewRequest } from './NewRequest.tsx';
@@ -52,7 +52,7 @@ export default async function ClientPage({ params, searchParams }: { params: Pro
           items={[
             { key: 'v', label: 'Completed volume', value: usdt(client.stats.completedVolume), sub: `${client.stats.completedTrades} completed trade${client.stats.completedTrades === 1 ? '' : 's'}` },
             { key: 'o', label: 'Open trades', value: String(client.stats.openTrades), sub: client.stats.openTrades > 0 ? 'in flight now' : 'nothing in flight' },
-            ...(client.stats.marginGenerated !== undefined ? [{ key: 'm', label: 'Margin made', value: inr(client.stats.marginGenerated, { sign: true }), sub: 'realized, completed trades', ...(/[1-9]/.test(client.stats.marginGenerated) && !client.stats.marginGenerated.startsWith('-') ? { tone: 'success' as const } : {}) }] : []),
+            ...(client.stats.marginGenerated !== undefined ? [{ key: 'm', label: 'Margin made', value: marginText(client.stats.marginGenerated, /[1-9]/.test(client.stats.marginGeneratedUsdt ?? '') ? client.stats.marginGeneratedUsdt : null), sub: 'realized, completed trades', ...(/[1-9]/.test(`${client.stats.marginGenerated}${client.stats.marginGeneratedUsdt ?? ''}`) && !client.stats.marginGenerated.startsWith('-') && !(client.stats.marginGeneratedUsdt ?? '').startsWith('-') ? { tone: 'success' as const } : {}) }] : []),
             {
               key: 't',
               label: 'Typical',

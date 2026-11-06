@@ -488,6 +488,8 @@ export interface DeskQuote {
   readonly routeName?: string;
   readonly routeRate?: string;
   readonly margin?: string;
+  /** What the deal would leave INRP2P in USDT (a P2P deal's margin less the network it carries); null off P2P. */
+  readonly marginUsdt?: string | null;
 }
 
 /**
@@ -498,13 +500,13 @@ export async function deskQuote(ex: Executor, quoteId: string, access: DeskAcces
   const id = requireUuid(quoteId, 'quoteId');
   const r = await sql<{
     id: string; ref: string; trade_request_id: string; request_ref: string; status: DeskQuote['status']; client_id: string; client_name: string;
-    direction: DirectionValue; base_minor: bigint; quote_inr_minor: bigint; client_rate_micro: bigint; route_rate_micro: bigint; gross_margin_inr_minor: bigint;
+    direction: DirectionValue; base_minor: bigint; quote_inr_minor: bigint; client_rate_micro: bigint; route_rate_micro: bigint; gross_margin_inr_minor: bigint; margin_usdt_minor: bigint | null;
     route_name: string; sent_at: Date | null; sent_by: string | null; sent_label: string | null; expires_at: Date | null;
     bank_name: string | null; ifsc: string | null; account_last4: string | null; wallet_address: string | null; wallet_label: string | null;
     link_created_at: Date | null; open_count: number | null; first_opened_at: Date | null; revoked_at: Date | null; trade_ref: string | null;
   }>`
     select q.id, q.ref, q.trade_request_id, r.ref as request_ref, q.status, q.client_id, c.display_name as client_name, q.direction,
-           q.base_minor, q.quote_inr_minor, q.client_rate_micro, q.route_rate_micro, q.gross_margin_inr_minor, rt.name as route_name,
+           q.base_minor, q.quote_inr_minor, q.client_rate_micro, q.route_rate_micro, q.gross_margin_inr_minor, (q.gross_margin_base_minor - coalesce(q.network_fee_base_minor, 0)) as margin_usdt_minor, rt.name as route_name,
            q.sent_at, q.sent_by, coalesce(u.name, u.email) as sent_label, q.expires_at,
            b.bank_name, b.ifsc, b.account_last4, w.address as wallet_address, w.label as wallet_label,
            l.created_at as link_created_at, l.open_count, l.first_opened_at, l.revoked_at,
@@ -542,7 +544,7 @@ export async function deskQuote(ex: Executor, quoteId: string, access: DeskAcces
     tradeRef: q.trade_ref,
   };
   if (!access.economics) return base;
-  return { ...base, routeName: q.route_name, routeRate: microToDecimal(q.route_rate_micro), margin: Money.ofMinor(q.gross_margin_inr_minor, 'INR').toDecimalString() };
+  return { ...base, routeName: q.route_name, routeRate: microToDecimal(q.route_rate_micro), margin: Money.ofMinor(q.gross_margin_inr_minor, 'INR').toDecimalString(), marginUsdt: q.margin_usdt_minor === null ? null : Money.ofMinor(q.margin_usdt_minor, 'USDT').toDecimalString() };
 }
 
 /* ------------------------------------------------------------------ *

@@ -43,6 +43,18 @@ export const usdtSummary = (amount: string): string => {
   return abs.minor >= 1_000_000_000_000n ? `${formatUsdtCompact(m)} USDT` : usdt(amount);
 };
 
+/** USDT with its sign always shown: what a deal earned, or took. */
+export const signedUsdt = (amount: string): string => `${Money.parse(amount, 'USDT').isPositive() ? '+' : ''}${usdt(amount)}`;
+
+/**
+ * What a deal leaves INRP2P. A P2P deal's rupees are one amount, so its margin is USDT (ADR 0019) and its INR figure is
+ * always zero; only a deal priced before that has an INR one.
+ */
+export const marginText = (inrMargin: string | null | undefined, usdtMargin: string | null | undefined): string =>
+  usdtMargin !== null && usdtMargin !== undefined ? signedUsdt(usdtMargin) : inr(inrMargin ?? '0.00', { sign: true });
+export const marginNegative = (inrMargin: string | null | undefined, usdtMargin: string | null | undefined): boolean =>
+  usdtMargin !== null && usdtMargin !== undefined ? isNegative(usdtMargin, 'USDT') : isNegative(inrMargin ?? '0.00', 'INR');
+
 export const money = (amount: string, asset: Asset, opts: { exact?: boolean } = {}): string => (asset === 'INR' ? inr(amount) : usdt(amount, opts));
 
 export const inrCompact = (amount: string): string => formatInrCompact(Money.parse(amount, 'INR'));

@@ -45,7 +45,7 @@ function requirePeriod(period: ExportPeriod): ExportPeriod {
 
 const TRADE_COLUMNS = [
   'trade_ref', 'client', 'direction', 'status', 'opened_at', 'completed_at', 'usdt', 'inr', 'client_rate',
-  'route_rate', 'gross_margin_inr', 'realized',
+  'route_rate', 'gross_margin_inr', 'margin_usdt', 'realized',
 ] as const;
 
 /**
@@ -57,10 +57,11 @@ export async function exportTrades(ex: Executor, period: ExportPeriod): Promise<
   const p = requirePeriod(period);
   const rows = await sql<{
     ref: string; display_name: string; direction: string; lifecycle_state: string; opened_at: Date; completed_at: Date | null;
-    base_minor: bigint; quote_inr_minor: bigint; client_rate_micro: bigint; route_rate_micro: bigint; gross_margin_inr_minor: bigint;
+    base_minor: bigint; quote_inr_minor: bigint; client_rate_micro: bigint; route_rate_micro: bigint; gross_margin_inr_minor: bigint; margin_usdt_minor: bigint | null;
   }>`
     select t.ref, c.display_name, t.direction, t.lifecycle_state, t.opened_at, t.completed_at,
-           e.base_minor, e.quote_inr_minor, e.client_rate_micro, e.route_rate_micro, e.gross_margin_inr_minor
+           e.base_minor, e.quote_inr_minor, e.client_rate_micro, e.route_rate_micro, e.gross_margin_inr_minor,
+           (e.gross_margin_base_minor - coalesce(e.network_fee_base_minor, 0)) as margin_usdt_minor
     from trade t
     join trade_economics e on e.trade_id = t.id
     join client c on c.id = t.client_id
@@ -81,6 +82,7 @@ export async function exportTrades(ex: Executor, period: ExportPeriod): Promise<
       Rate.ofMicro(r.client_rate_micro, 'CLIENT').toDecimalString(),
       Rate.ofMicro(r.route_rate_micro, 'ROUTE').toDecimalString(),
       Money.ofMinor(r.gross_margin_inr_minor, 'INR').toDecimalString(),
+      r.margin_usdt_minor === null ? '' : Money.ofMinor(r.margin_usdt_minor, 'USDT').toDecimalString(),
       r.lifecycle_state === 'COMPLETED' ? 'realized' : 'expected',
     ]),
   );

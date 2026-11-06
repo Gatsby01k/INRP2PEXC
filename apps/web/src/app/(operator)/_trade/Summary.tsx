@@ -1,7 +1,7 @@
 import { Money } from '@inrp2p/kernel';
 import type { DeskTrade } from '@inrp2p/desk';
 import { StatusGlyph } from '@inrp2p/ui';
-import { inr, inrCompact, money, payoutAsset, rate, rateDelta, receivableAsset, share, sub, time, usdt, usdtCompact } from '../_desk/format.ts';
+import { inr, inrCompact, marginNegative, marginText, money, payoutAsset, rate, rateDelta, receivableAsset, share, sub, time, usdt, usdtCompact } from '../_desk/format.ts';
 import { Meter } from '../_desk/ui.tsx';
 import t from './trade.module.css';
 
@@ -35,7 +35,7 @@ export function Headline({ trade, large = false, field = false }: { trade: DeskT
 export function Economics({ trade, realized, compact = false }: { trade: DeskTrade; realized: boolean; compact?: boolean }) {
   if (!trade.clientRate || !trade.routeRate || trade.expectedMargin === undefined) return null;
   const spread = rateDelta(trade.routeRate, trade.clientRate);
-  const negative = Money.parse(trade.expectedMargin, 'INR').isNegative();
+  const negative = marginNegative(trade.expectedMargin, trade.expectedMarginUsdt);
   return (
     <div className={t.econ} aria-label="Trade economics" {...(compact ? { 'data-compact': '' } : {})}>
       <div className={t.econItem}>
@@ -44,9 +44,9 @@ export function Economics({ trade, realized, compact = false }: { trade: DeskTra
         <span className={t.econSub}>frozen at acceptance</span>
       </div>
       <div className={t.econItem} data-kind="route">
-        <span className={t.econLabel}>Route rate</span>
+        <span className={t.econLabel}>{trade.executionMode === 'P2P' ? 'Trader’s rate' : 'Route rate'}</span>
         <span className={t.econValue}>{rate(trade.routeRate)}</span>
-        <span className={t.econSub}>{trade.payoutOptions.routeName ?? 'route'}{trade.executionMode === 'DIRECT_TO_CLIENT' ? ' · direct' : ''}</span>
+        <span className={t.econSub}>{trade.payoutOptions.routeName ?? (trade.executionMode === 'P2P' ? 'trader' : 'route')}{trade.executionMode === 'DIRECT_TO_CLIENT' ? ' · direct' : ''}</span>
       </div>
       <div className={t.econItem}>
         <span className={t.econLabel}>Spread</span>
@@ -55,7 +55,7 @@ export function Economics({ trade, realized, compact = false }: { trade: DeskTra
       </div>
       <div className={t.econItem} data-kind="margin" {...(negative ? { 'data-negative': '' } : {})}>
         <span className={t.econLabel}>{realized ? 'Gross margin' : 'Expected margin'}</span>
-        <span className={t.econValue}>{inr(trade.expectedMargin, { sign: true })}</span>
+        <span className={t.econValue}>{marginText(trade.expectedMargin, trade.expectedMarginUsdt)}</span>
         <span className={t.econSub}>{realized ? 'realized in the ledger' : 'not yet realized'}</span>
       </div>
     </div>

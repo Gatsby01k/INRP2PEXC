@@ -71,24 +71,10 @@ test('trade record', async ({ page }) => {
   await capture(page, 'operator-trade-record');
 });
 
-test('rates and route positions', async ({ page }) => {
+test('rates: how clients are priced automatically', async ({ page }) => {
   await page.goto('/rates');
-  await expect(page.getByTestId('route-positions')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Automatic prices' })).toBeVisible();
   await capture(page, 'operator-rates');
-});
-
-test('inr accounts', async ({ page }) => {
-  await page.goto('/inr');
-  await expect(page.getByRole('heading', { name: 'INR accounts', exact: true })).toBeVisible();
-  await capture(page, 'operator-inr');
-});
-
-test('inr: bank statement reconciliation', async ({ page }) => {
-  await page.goto('/inr');
-  const panel = page.getByTestId('statement-import');
-  await expect(panel).toBeVisible();
-  await expect(panel.getByRole('table')).toBeVisible();
-  await capture(page, 'operator-statement', panel);
 });
 
 test('p&l: realized against expected, and the ledger check', async ({ page }) => {

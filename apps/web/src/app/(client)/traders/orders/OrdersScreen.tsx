@@ -83,7 +83,7 @@ export function OrdersScreen({ rows, open, counts, tab }: { rows: readonly Order
                     ) : (
                       <span className={styles.cell}>
                         <span className={styles.cellMain}>{formatIstDateTime(new Date(o.startedAt ?? o.offeredAt))}</span>
-                        <span className={styles.cellSub}>{o.reward && o.status === 'COMPLETED' ? `Earned ${inr(o.reward)}` : o.status === 'COMPLETED' ? 'No reward' : (o.closeNote ?? '')}</span>
+                        <span className={styles.cellSub}>{o.closeNote ?? ''}</span>
                       </span>
                     )}
                     <span className={styles.cellEnd}>

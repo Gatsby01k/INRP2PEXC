@@ -5,8 +5,7 @@ import type { DeskTraderDetail } from '@inrp2p/traders';
 import { Button, StepUpMark } from '@inrp2p/ui';
 import { useCommand } from '../../../../components/useCommand.tsx';
 import {
-  approveTraderAction, pauseTraderAction, rejectTraderAction, resumeTraderAction, setAssignmentsAction, setLimitsAction, setRequiredReserveAction, setRewardAction,
-  setSettlementDetailsAction,
+  approveTraderAction, pauseTraderAction, rejectTraderAction, resumeTraderAction, setAssignmentsAction, setLimitsAction, setRequiredReserveAction, setSettlementDetailsAction,
 } from '../../../../server/actions/traders-desk.ts';
 import { GuardedAction } from '../../_desk/GuardedAction.tsx';
 import { SelectField, TextArea, TextField } from '../../_desk/fields.tsx';
@@ -40,7 +39,6 @@ export function TraderControls({ detail, perms }: { detail: DeskTraderDetail; pe
   const cmd = useCommand();
   const t = detail.trader;
   const [reserve, setReserve] = useState(plainDecimal(detail.reserve.required ?? detail.program.defaultRequiredReserve));
-  const [reward, setReward] = useState(t.rewardBps === null ? '' : String(t.rewardBps));
   const [maxOrderInr, setMaxOrderInr] = useState(plainDecimal(t.limits.maxOrderInr));
   const [maxOrderUsdt, setMaxOrderUsdt] = useState(plainDecimal(t.limits.maxOrderUsdt));
   const [maxCapInr, setMaxCapInr] = useState(plainDecimal(t.limits.maxCapacityInr));
@@ -93,7 +91,6 @@ export function TraderControls({ detail, perms }: { detail: DeskTraderDetail; pe
           <>
             <div className={d.formGrid}>
               <TextField label="Security Reserve (USDT)" value={reserve} onChange={setReserve} placeholder="Required" hint="The programme default unless changed." />
-              <TextField label="Reward (basis points)" value={reward} onChange={setReward} placeholder="Follow the programme" />
             </div>
             {limitFields}
             {detailsVerified ? null : <Notice tone="warning">Verify the submitted bank account and wallet first — approval waits for both.</Notice>}
@@ -105,7 +102,7 @@ export function TraderControls({ detail, perms }: { detail: DeskTraderDetail; pe
                 disabled={cmd.busy || blank(reserve) === null || !detailsVerified}
                 onClick={() =>
                   cmd.run(`Approve ${t.ref}`, (key) =>
-                    approveTraderAction({ traderId: t.traderId, requiredReserve: blank(reserve), rewardBps: reward.trim() === '' ? null : Number.parseInt(reward, 10), ...limits, note: blank(reason) }, key),
+                    approveTraderAction({ traderId: t.traderId, requiredReserve: blank(reserve), ...limits, note: blank(reason) }, key),
                   )
                 }
               >
@@ -166,7 +163,6 @@ export function TraderControls({ detail, perms }: { detail: DeskTraderDetail; pe
           </div>
           <div className={d.formGrid}>
             <TextField label="Required Security Reserve (USDT)" value={reserve} onChange={setReserve} />
-            <TextField label="Reward (basis points)" value={reward} onChange={setReward} placeholder="Follow the programme" />
           </div>
           <div className={d.actions}>
             <Button
@@ -176,14 +172,6 @@ export function TraderControls({ detail, perms }: { detail: DeskTraderDetail; pe
               onClick={() => cmd.run(`Change reserve for ${t.ref}`, (key) => setRequiredReserveAction({ traderId: t.traderId, requiredReserve: reserve.trim(), reason }, key))}
             >
               Save reserve
-            </Button>
-            <Button
-              size="sm"
-              shortcut={step}
-              disabled={cmd.busy || !hasReason}
-              onClick={() => cmd.run(`Change reward for ${t.ref}`, (key) => setRewardAction({ traderId: t.traderId, rewardBps: reward.trim() === '' ? null : Number.parseInt(reward, 10), reason }, key))}
-            >
-              Save reward
             </Button>
           </div>
           {!hasReason ? <p className={d.fieldHint}>Write the reason under Controls first; it is kept with the change.</p> : null}

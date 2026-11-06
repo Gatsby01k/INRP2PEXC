@@ -1,15 +1,12 @@
 'use client';
 
 import { useState } from 'react';
-import { Money } from '@inrp2p/kernel';
-import type { PayoutAccountOption } from '@inrp2p/desk';
 import type { DeskTraderDetail } from '@inrp2p/traders';
-import { Button, StepUpMark, UTRField, normalizeUtr } from '@inrp2p/ui';
-import { maskUtr, shortenHash } from '@inrp2p/ui/format';
+import { Button, StepUpMark } from '@inrp2p/ui';
+import { shortenHash } from '@inrp2p/ui/format';
 import { useCommand } from '../../../../components/useCommand.tsx';
 import {
-  approveReserveApplicationAction, cancelReserveApplicationAction, confirmRewardPayoutAction, confirmWithdrawalAction, endReserveApplicationAction, failRewardPayoutAction,
-  recordReserveApplicationSentAction, recordRewardPayoutAction, recordWithdrawalSentAction, rejectReserveApplicationAction, rejectWithdrawalAction, requestReserveApplicationAction,
+  approveReserveApplicationAction, cancelReserveApplicationAction, confirmWithdrawalAction, endReserveApplicationAction, recordReserveApplicationSentAction, recordWithdrawalSentAction, rejectReserveApplicationAction, rejectWithdrawalAction, requestReserveApplicationAction,
 } from '../../../../server/actions/traders-desk.ts';
 import { GuardedAction } from '../../_desk/GuardedAction.tsx';
 import { AmountField, SelectField, TextArea, TextField } from '../../_desk/fields.tsx';
@@ -21,12 +18,10 @@ import t from '../../_trade/trade.module.css';
 
 /**
  * The trader's money with INRP2P that is not an order: its Security Reserve (deposits are credited by the chain;
- * withdrawals are sent by the desk and confirmed on finality) and its rewards (accrued by the ledger on completed
- * orders, paid by the desk from an exchange account). Each record and confirm is its own audited command.
+ * withdrawals are sent by the desk and confirmed on finality). Each record and confirm is its own audited command.
  */
-export function TraderMoney({ detail, accounts, perms }: { detail: DeskTraderDetail; accounts: readonly PayoutAccountOption[]; perms: TraderPerms }) {
+export function TraderMoney({ detail, perms }: { detail: DeskTraderDetail; perms: TraderPerms }) {
   const r = detail.reserve;
-  const e = detail.earnings;
   return (
     <>
       <Section title="Security Reserve" hint="Deposits are credited by the chain; withdrawals are sent by the desk and confirmed on finality.">
@@ -54,7 +49,6 @@ export function TraderMoney({ detail, accounts, perms }: { detail: DeskTraderDet
         )}
       </Section>
       <ReserveApplications detail={detail} perms={perms} />
-      <Rewards detail={detail} accounts={accounts} perms={perms} earnings={e} />
     </>
   );
 }
@@ -294,100 +288,5 @@ function Withdrawal({ w, perms }: { w: DeskTraderDetail['withdrawals'][number]; 
       ) : null}
       {cmd.dialog}
     </li>
-  );
-}
-
-function Rewards({ detail, accounts, perms, earnings: e }: { detail: DeskTraderDetail; accounts: readonly PayoutAccountOption[]; perms: TraderPerms; earnings: DeskTraderDetail['earnings'] }) {
-  const cmd = useCommand();
-  const [payAmount, setPayAmount] = useState('');
-  // A reward is paid only out of realized margin at the paying account (D4): the account with the most free goes first.
-  const marginOf = (accountId: string) => detail.rewardMargins.find((m) => m.accountId === accountId)?.freeMargin ?? '0.00';
-  const minorOf = (accountId: string) => Money.parse(marginOf(accountId), 'INR').minor;
-  const ranked = [...accounts].sort((x, y) => (minorOf(y.accountId) > minorOf(x.accountId) ? 1 : minorOf(y.accountId) < minorOf(x.accountId) ? -1 : 0));
-  const [payAccount, setPayAccount] = useState(ranked[0]?.accountId ?? '');
-  const [payUtr, setPayUtr] = useState('');
-  const step = <StepUpMark label="needs your authenticator code" />;
-  return (
-    <Section title="Rewards" hint="Accrued by the ledger on completed orders; paid by the desk to the registered account.">
-      <KeyValues
-        split
-        items={[
-          { label: 'Rate', value: e.rewardBps === null ? 'no reward' : `${e.rewardBps} bps` },
-          { label: 'Accrued, unpaid', value: inr(e.available), strong: true },
-          { label: 'Being paid', value: inr(e.payingOut) },
-          { label: 'Pending (open orders)', value: inr(e.pending) },
-          { label: 'Paid out', value: inr(e.paidOut) },
-          { label: 'Completed volume', value: `${usdt(e.completedUsdt)} · ${inr(e.completedInr)}` },
-        ]}
-      />
-      {detail.payouts.length > 0 ? (
-        <ul className={t.legs}>
-          {detail.payouts.map((p) => (
-            <li key={p.payoutId} className={t.leg} {...(p.status === 'RECORDED' ? { 'data-attention': '' } : {})}>
-              <div className={t.legHead}>
-                <span className={t.legAmount}>{inr(p.amount)}</span>
-                <Chip tone={p.status === 'CONFIRMED' ? 'success' : p.status === 'FAILED' ? 'danger' : 'warning'}>{p.status.toLowerCase()}</Chip>
-              </div>
-              <div className={t.legMeta}>
-                <span>{p.ref}</span>
-                <span>{dateTime(p.recordedAt)}</span>
-                <span className={d.mono}>UTR {maskUtr(p.utr)}</span>
-              </div>
-              {p.status === 'RECORDED' && perms.confirm ? (
-                <div className={d.actions}>
-                  <Button intent="primary" size="sm" shortcut={step} disabled={cmd.busy} onClick={() => cmd.run(`Confirm ${p.ref}`, (key) => confirmRewardPayoutAction({ payoutId: p.payoutId }, key))}>
-                    Confirm
-                  </Button>
-                  <GuardedAction
-                    label="Failed"
-                    trigger="ghost"
-                    tone="danger"
-                    stepUp
-                    busy={cmd.busy}
-                    consequence="Records that the payment did not leave the account; the reward goes back to unpaid."
-                    onConfirm={async () => (await cmd.run(`Mark ${p.ref} failed`, (key) => failRewardPayoutAction({ payoutId: p.payoutId, reason: 'the payment did not leave the account' }, key))).ok}
-                  />
-                </div>
-              ) : null}
-            </li>
-          ))}
-        </ul>
-      ) : null}
-      {perms.record && /[1-9]/.test(e.available) ? (
-        <div className={d.guard}>
-          <p className={d.guardTitle}>Record a reward payout to the registered account</p>
-          <div className={d.formGrid}>
-            <AmountField label="Pay" currency="INR" value={payAmount} onChange={setPayAmount} hint={`Leave empty to pay all ${inr(e.available)}`} />
-            <SelectField
-              label="From"
-              value={payAccount}
-              onChange={setPayAccount}
-              options={ranked.map((a) => ({ value: a.accountId, label: `${a.bankName} ••••${a.last4} · ${inr(marginOf(a.accountId))} margin free · ${inr(a.availableToday)} today` }))}
-              hint="Rewards are paid only out of margin the account's finished trades left there — never a client's or a trader's money."
-            />
-          </div>
-          <UTRField value={payUtr} onChange={setPayUtr} />
-          <div className={d.actions}>
-            <Button
-              size="sm"
-              disabled={cmd.busy || payAccount === '' || normalizeUtr(payUtr).length < 6}
-              onClick={() =>
-                cmd.run(`Record reward payout to ${detail.trader.ref}`, (key) =>
-                  recordRewardPayoutAction({ traderId: detail.trader.traderId, amount: payAmount.trim() || e.available, inrAccountId: payAccount, rail: 'IMPS', utr: normalizeUtr(payUtr) }, key),
-                )
-              }
-            >
-              Record payout
-            </Button>
-          </div>
-        </div>
-      ) : null}
-      {cmd.error ? (
-        <p className={d.errorLine} role="alert">
-          {cmd.error}
-        </p>
-      ) : null}
-      {cmd.dialog}
-    </Section>
   );
 }

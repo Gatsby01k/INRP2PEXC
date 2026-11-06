@@ -1,18 +1,18 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Money, Rate, computeTradeEconomics, formatTrx, trxToInrMinor, usdtToInr } from '@inrp2p/kernel';
-import type { DeskRequest, QuoteRouteOption } from '@inrp2p/desk';
+import { Money, Rate, computeP2pEconomics, inrToUsdt } from '@inrp2p/kernel';
+import type { DeskRequest } from '@inrp2p/desk';
 import { Button, CopyButton } from '@inrp2p/ui';
 import { createAndSendQuoteAction, declineRequestAction, withdrawRequestAction } from '../../../server/actions/desk.ts';
 import { assignRequestAction } from '../../../server/actions/traders-desk.ts';
 import { useCommand } from '../../../components/useCommand.tsx';
 import { useHotkey } from '../../../components/useHotkey.ts';
-import { Age, Ago } from '../_desk/clock.tsx';
+import { Age } from '../_desk/clock.tsx';
 import { PanelSection } from '../_desk/ContextPanel.tsx';
 import { GuardedAction } from '../_desk/GuardedAction.tsx';
-import { Checkbox, Choices, RateField } from '../_desk/fields.tsx';
-import { inr, money, rate, rateDelta, time, usdt } from '../_desk/format.ts';
+import { Checkbox, RateField } from '../_desk/fields.tsx';
+import { inr, money, rate, rateDelta, signedUsdt, time, usdt } from '../_desk/format.ts';
 import { Icon } from '../_desk/icons.tsx';
 import { Chip, KeyValues, Kbd, Notice } from '../_desk/ui.tsx';
 import d from '../_desk/desk.module.css';
@@ -34,28 +34,27 @@ const EXCLUSION_TEXT: Record<string, string> = {
   DESTINATIONS_INACTIVE: 'settlement details inactive', ASSIGNMENTS_DISABLED: 'assignments off', NO_SIDE: 'side not offered', NO_RATE: 'no rate',
   NO_LIMITS: 'no order size', BLOCK_PAUSED: 'side paused', NO_CAPACITY: 'no capacity', BELOW_MINIMUM: 'below their minimum', ABOVE_MAXIMUM: 'above their maximum',
   NOT_ENOUGH_CAPACITY: 'not enough capacity', ALREADY_OFFERED: 'already declined or let lapse', OWN_REQUEST: 'own request',
-  NETWORK_DEPOSIT_SHORT: 'network deposit short of TRX', NETWORK_FEES_UNKNOWN: 'network fees not current', NEEDS_CLIENT_RATE: 'P2P: name the client rate first',
+  NETWORK_DEPOSIT_SHORT: 'network deposit short of TRX', NETWORK_FEES_UNKNOWN: 'network fees not current', NEEDS_CLIENT_RATE: 'name the client’s rate first',
 };
 
 /**
- * The quote builder (UX_FLOWS F4). The dealer picks the route and sets the client rate; the INR and the margin are
- * **computed**, never typed, with the same kernel function the command uses — so what the builder previews is what
- * the quote will say (FI-02, FI-03). A rate other than the client's target is a counter, and says so. Sending is
- * one intent — create and send, with the link when asked for — reached by the button or by Q.
+ * The quote builder (UX_FLOWS F4), for a P2P deal (ADR 0019): the dealer sets the client's rate, routes the request to a
+ * trader at that rate, and once the trader has accepted sends the quote. The rupees are one amount for client and trader,
+ * so what INRP2P earns is USDT — computed, never typed, with the same kernel function the command uses, so what the builder
+ * previews is what the quote will say (FI-02, FI-03). A rate other than the client's target is a counter, and says so.
+ * Sending is one intent — create and send, with the link when asked for — reached by the button or by Q.
  */
 export function QuoteBuilder({ request, perms, linkBase, autoFocus = false }: { request: DeskRequest; perms: QuotePerms; linkBase: string; autoFocus?: boolean }) {
   const cmd = useCommand();
   const scope = useRef<HTMLDivElement>(null);
   const rateInput = useRef<HTMLInputElement>(null);
   const traderLive = request.trader?.live;
-  const traderOption: QuoteRouteOption | null =
-    traderLive && traderLive.status === 'ACCEPTED' && request.trader?.liveRouteId
-      ? { routeId: request.trader.liveRouteId, name: `Trader ${request.trader.liveTraderRef ?? ''} (accepted)`, executionMode: request.trader.liveRouteP2p ? 'P2P' : 'TO_EXCHANGE', rate: traderLive.rate, publishedAt: traderLive.startedAt, stale: false }
-      : null;
-  const routes = [...(traderOption ? [traderOption] : []), ...(request.routes ?? [])];
-  const usable = routes.filter((r) => r.rate !== null);
-  const [routeId, setRouteId] = useState(usable[0]?.routeId ?? '');
-  const [clientRate, setClientRate] = useState(request.targetRate ? trimRate(request.targetRate) : '');
+  // The trader who accepted, on its route: the only place a quote can go. The server holds it to exactly that order.
+  const route = traderLive && traderLive.status === 'ACCEPTED' && request.trader?.liveRouteId
+    ? { routeId: request.trader.liveRouteId, name: `Trader ${request.trader.liveTraderRef ?? ''}`, rate: traderLive.rate }
+    : null;
+  const planned = request.trader?.livePlannedClientRate ?? null;
+  const [clientRate, setClientRate] = useState(planned ? trimRate(planned) : request.targetRate ? trimRate(request.targetRate) : '');
   const [withLink, setWithLink] = useState(true);
   const [link, setLink] = useState<string | null>(null);
   const open = request.status === 'OPEN';
@@ -63,67 +62,54 @@ export function QuoteBuilder({ request, perms, linkBase, autoFocus = false }: { 
   useEffect(() => {
     if (autoFocus) rateInput.current?.focus();
   }, [autoFocus]);
+  // A P2P order is sized at the client's rate: once a trader holds one, the rate is the order's (the server refuses another).
+  useEffect(() => {
+    if (planned) setClientRate(trimRate(planned));
+  }, [planned]);
 
-  const route = routes.find((r) => r.routeId === routeId);
   const preview = useMemo(() => {
-    if (!route?.rate || clientRate === '' || clientRate.endsWith('.')) return null;
+    if (!route || clientRate === '' || clientRate.endsWith('.')) return null;
     try {
       const c = Rate.parse(clientRate, 'CLIENT');
       const r = Rate.parse(route.rate, 'ROUTE');
       return request.fixedSide === 'BASE'
-        ? computeTradeEconomics({ direction: request.direction, fixedSide: 'BASE', amount: Money.parse(request.amount, 'USDT'), clientRate: c, routeRate: r })
-        : computeTradeEconomics({ direction: request.direction, fixedSide: 'QUOTE', amount: Money.parse(request.amount, 'INR'), clientRate: c, routeRate: r });
+        ? computeP2pEconomics({ direction: request.direction, fixedSide: 'BASE', amount: Money.parse(request.amount, 'USDT'), clientRate: c, routeRate: r })
+        : computeP2pEconomics({ direction: request.direction, fixedSide: 'QUOTE', amount: Money.parse(request.amount, 'INR'), clientRate: c, routeRate: r });
     } catch {
       return null;
     }
   }, [clientRate, route?.rate, request.amount, request.direction, request.fixedSide]);
 
-  // What the client's rate must also pay, as the command prices it — the command refuses a quote that leaves less than
-  // the minimum. A P2P deal (ADR 0019) counts no reward: on GasFree (ADR 0022) its network is the USDT the deal carries
-  // out of INRP2P's margin; on TRX its trader's deposit pays it. Any other route pays the trader's reward and the TRX of
-  // its transfer (ADR 0017 §1), valued at this rate with the kernel's own function.
-  const p2p = route?.executionMode === 'P2P';
+  // What the deal must also carry, as the command prices it: on GasFree its network comes out of INRP2P's margin (ADR 0022);
+  // on TRX the trader's deposit pays it. What is left must reach the minimum net margin, or the command refuses the quote.
   const network = request.network ?? null;
   const net = useMemo(() => {
     if (!preview || !network) return null;
-    const rate = Rate.parse(clientRate, 'CLIENT');
-    let fee: bigint;
-    let feeLabel: string;
-    if (p2p && network.resourceMode === 'GASFREE') {
-      if (network.gasFreeAllowanceUsdtMinor === null) return null;
-      const allowance = Money.ofMinor(BigInt(network.gasFreeAllowanceUsdtMinor), 'USDT');
-      fee = usdtToInr(allowance, rate, 'UP').minor;
-      feeLabel = `${allowance.toDecimalString().replace(/\.?0+$/, '')} USDT, GasFree`;
-    } else if (p2p) {
-      fee = 0n;
-      feeLabel = 'the trader’s TRX deposit';
-    } else {
-      if (!network.trx) return null;
-      fee = trxToInrMinor(BigInt(network.trx.feeSun), BigInt(network.trx.usdtPerTrxMicro), rate.micro, 'UP');
-      feeLabel = `${formatTrx(BigInt(network.trx.feeSun)).replace(/\.?0+$/, '')} TRX`;
-    }
-    const reward = !p2p && traderOption !== null && routeId === traderOption.routeId && network.liveRewardMinor !== null ? BigInt(network.liveRewardMinor) : 0n;
-    const netMinor = preview.grossMargin.minor - reward - fee;
-    const min = BigInt(network.minNetMarginMinor);
-    return { fee, feeLabel, reward, netMinor, min, short: min - netMinor };
-  }, [preview, network, p2p, clientRate, traderOption, routeId]);
-  const negative = preview?.grossMargin.isNegative() ?? false;
-  const unprofitable = net !== null && net.netMinor < net.min;
+    const gasFree = network.resourceMode === 'GASFREE';
+    if (gasFree && network.gasFreeAllowanceUsdtMinor === null) return null;
+    const fee = gasFree ? Money.ofMinor(BigInt(network.gasFreeAllowanceUsdtMinor!), 'USDT') : Money.zero('USDT');
+    const feeLabel = gasFree ? 'GasFree, out of the margin' : 'paid by the trader’s TRX deposit';
+    const netMargin = preview.grossMarginBase.sub(fee);
+    const min = inrToUsdt(Money.ofMinor(BigInt(network.minNetMarginMinor), 'INR'), Rate.parse(clientRate, 'CLIENT'), 'UP');
+    return { fee, feeLabel, netMargin, min, short: min.sub(netMargin) };
+  }, [preview, network, clientRate]);
+  const negative = preview?.grossMarginBase.isNegative() ?? false;
+  const unprofitable = net !== null && net.netMargin.minor < net.min.minor;
   const counter = request.targetRate !== null && preview !== null && Rate.parse(clientRate, 'CLIENT').micro !== Rate.parse(request.targetRate, 'CLIENT').micro;
-  const ready = open && Boolean(preview) && net !== null && !unprofitable && !cmd.busy;
+  const ready = open && route !== null && Boolean(preview) && net !== null && !unprofitable && !cmd.busy;
 
   const sendQuote = useCallback(() => {
     void cmd
       .run(`Send ${counter ? 'counter ' : ''}quote to ${request.clientName}`, (key) =>
         createAndSendQuoteAction(
-          { requestId: request.requestId, routeId, clientRate, validitySeconds: withLink ? LINK_VALIDITY : IN_APP_VALIDITY, withLink },
+          { requestId: request.requestId, routeId: route!.routeId, clientRate, validitySeconds: withLink ? LINK_VALIDITY : IN_APP_VALIDITY, withLink },
           key,
         ),
       )
       .then((r) => {
         if (r.ok) setLink(r.result.link);
       });
-  }, [cmd, counter, request.clientName, request.requestId, routeId, clientRate, withLink]);
+  }, [cmd, counter, request.clientName, request.requestId, route?.routeId, clientRate, withLink]);
   const send = ready ? sendQuote : null;
   useHotkey(scope, 'q', send);
 
@@ -137,36 +123,8 @@ export function QuoteBuilder({ request, perms, linkBase, autoFocus = false }: { 
         <Notice>Quoting needs the dealer role.</Notice>
       ) : !request.routes ? (
         <Notice>Pricing needs economics:view.</Notice>
-      ) : usable.length === 0 ? (
-        <Notice tone="danger" role="alert">
-          No route has a published rate for {sell ? 'USDT → INR' : 'INR → USDT'}. Publish one on Rates before quoting.
-        </Notice>
       ) : open ? (
         <PanelSection title="Price" aside={counter && request.targetRate ? <Chip tone="brand">Counter to {rate(request.targetRate)}</Chip> : undefined}>
-          <Choices<string>
-            legend="Route"
-            value={routeId}
-            onChange={setRouteId}
-            choices={usable.map((r) => ({
-              value: r.routeId,
-              title: r.name,
-              aside: <span className={d.num}>{rate(r.rate!)}</span>,
-              description: (
-                <>
-                  {r.executionMode === 'DIRECT_TO_CLIENT' ? 'Pays the client directly' : 'Settles to the exchange'}
-                  {r.publishedAt ? (
-                    <>
-                      {' · published '}
-                      <Ago at={r.publishedAt} />
-                    </>
-                  ) : null}
-                  {r.stale ? ' · stale' : ''}
-                </>
-              ),
-            }))}
-          />
-          {route?.stale ? <Notice tone="warning">That route rate is older than the quoting policy allows; the quote will be refused until a fresh one is published.</Notice> : null}
-
           <RateField
             label="Client rate (INR per USDT)"
             value={clientRate}
@@ -196,7 +154,7 @@ export function QuoteBuilder({ request, perms, linkBase, autoFocus = false }: { 
             </div>
           ) : null}
 
-          {preview && route?.rate ? (
+          {preview && route ? (
             <div className={t.econ} aria-label="Quote economics" data-testid="quote-economics" data-compact="">
               <div className={t.econItem}>
                 <span className={t.econLabel}>Client {sell ? 'receives' : 'pays'}</span>
@@ -204,7 +162,7 @@ export function QuoteBuilder({ request, perms, linkBase, autoFocus = false }: { 
                 <span className={t.econSub}>{usdt(preview.base.toDecimalString())}</span>
               </div>
               <div className={t.econItem} data-kind="route">
-                <span className={t.econLabel}>Route rate</span>
+                <span className={t.econLabel}>Trader’s rate</span>
                 <span className={t.econValue}>{rate(route.rate)}</span>
                 <span className={t.econSub}>{route.name}</span>
               </div>
@@ -215,41 +173,39 @@ export function QuoteBuilder({ request, perms, linkBase, autoFocus = false }: { 
               </div>
               <div className={t.econItem} {...(negative ? { 'data-negative': '' } : {})}>
                 <span className={t.econLabel}>Gross margin</span>
-                <span className={t.econValue}>{inr(preview.grossMargin.toDecimalString(), { sign: true })}</span>
+                <span className={t.econValue}>{signedUsdt(preview.grossMarginBase.toDecimalString())}</span>
                 <span className={t.econSub}>computed, not typed</span>
               </div>
               {net ? (
                 <>
                   <div className={t.econItem}>
-                    <span className={t.econLabel}>Reward + network</span>
-                    <span className={t.econValue}>{inr(Money.ofMinor(-(net.reward + net.fee), 'INR').toDecimalString(), { sign: true })}</span>
-                    <span className={t.econSub}>
-                      {net.reward > 0n ? `reward ${inr(Money.ofMinor(net.reward, 'INR').toDecimalString())} · ` : ''}network {inr(Money.ofMinor(net.fee, 'INR').toDecimalString())} ({net.feeLabel})
-                    </span>
+                    <span className={t.econLabel}>Network</span>
+                    <span className={t.econValue}>{signedUsdt(net.fee.negate().toDecimalString())}</span>
+                    <span className={t.econSub}>{net.feeLabel}</span>
                   </div>
                   <div className={t.econItem} data-kind="margin" {...(unprofitable ? { 'data-negative': '' } : {})}>
                     <span className={t.econLabel}>Net margin</span>
-                    <span className={t.econValue}>{inr(Money.ofMinor(net.netMinor, 'INR').toDecimalString(), { sign: true })}</span>
-                    <span className={t.econSub}>minimum {inr(Money.ofMinor(net.min, 'INR').toDecimalString())}</span>
+                    <span className={t.econValue}>{signedUsdt(net.netMargin.toDecimalString())}</span>
+                    <span className={t.econSub}>minimum {usdt(net.min.toDecimalString())}</span>
                   </div>
                 </>
               ) : null}
             </div>
+          ) : route ? (
+            <Notice>Enter a client rate to see what the client gets and what INRP2P earns.</Notice>
           ) : (
-            <Notice>Enter a client rate to see what the client gets and what the desk makes.</Notice>
+            <Notice>Set the client’s rate, then route the request to a trader below. The quote goes out once a trader accepts.</Notice>
           )}
 
           {preview && !net ? (
             <Notice tone="danger" role="alert">
-              {p2p && network?.resourceMode === 'GASFREE'
-                ? 'GasFree’s fees were not read within the hour, so no P2P quote can carry its network. The worker reads them every 10 minutes (RUNBOOKS gasfree).'
-                : 'The exchange has no current TRON fee figures or TRX price, so no quote can carry its network fee. Publish the TRX price on Network; the worker refreshes fees every 10 minutes.'}
+              GasFree’s fees were not read within the hour, so no quote can carry its network. The worker reads them every 10 minutes (RUNBOOKS gasfree).
             </Notice>
           ) : unprofitable && net ? (
             <div className={d.guard} data-tone="danger">
-              <p className={d.guardTitle}>This rate does not pay for the trade</p>
+              <p className={d.guardTitle}>This rate does not pay for the deal</p>
               <p className={d.guardBody}>
-                After the {net.reward > 0n ? 'trader’s reward and the ' : ''}network fee it leaves {inr(Money.ofMinor(net.netMinor, 'INR').toDecimalString())}, {inr(Money.ofMinor(net.short, 'INR').toDecimalString())} short of the minimum. Move the rate {sell ? 'down' : 'up'}: the network fee and the reward are inside the client’s price, never added on top.
+                After the network it leaves {usdt(net.netMargin.toDecimalString())}, {usdt(net.short.toDecimalString())} short of the minimum. Move the rate {sell ? 'down' : 'up'}: the network is inside the client’s price, never added on top.
               </p>
             </div>
           ) : null}
@@ -343,7 +299,7 @@ function TraderSection({ request, canAssign, plannedRate }: { request: DeskReque
   const assign = async () => {
     setMiss(null);
     const out = await cmd.run(`Route ${request.ref} to a trader`, (key) =>
-      assignRequestAction({ requestId: request.requestId, ...(request.fixedSide === 'QUOTE' || plannedRate !== '' ? { plannedClientRate: plannedRate } : {}) }, key),
+      assignRequestAction({ requestId: request.requestId, plannedClientRate: plannedRate }, key),
     );
     if (!out.ok && out.code === 'TRADER_NONE_ELIGIBLE') {
       const excluded = (out.details?.excluded ?? {}) as Record<string, number>;
@@ -373,18 +329,14 @@ function TraderSection({ request, canAssign, plannedRate }: { request: DeskReque
           ) : null}
           {canAssign ? (
             <div className={d.actions}>
-              <Button size="sm" disabled={cmd.busy || (request.fixedSide === 'QUOTE' && plannedRate === '')} onClick={() => void assign()}>
+              <Button size="sm" disabled={cmd.busy || plannedRate === ''} onClick={() => void assign()}>
                 Route to a trader
               </Button>
             </div>
           ) : (
             <Notice>Routing to a trader needs traders:assign.</Notice>
           )}
-          {request.fixedSide === 'QUOTE' ? (
-            <p className={d.fieldHint}>An INR-fixed request is sized at the client rate above; the trader’s order is quoted at that same rate.</p>
-          ) : (
-            <p className={d.fieldHint}>A P2P trader’s order is sized at the client rate above — the rupees are one amount for both — so set it before assigning.</p>
-          )}
+          <p className={d.fieldHint}>The trader’s order is sized at the client’s rate above — the rupees are one amount for both — so set it first.</p>
         </>
       )}
       {miss ? <Notice tone="warning">{miss}</Notice> : null}

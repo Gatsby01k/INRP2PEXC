@@ -8,6 +8,7 @@ import { DeskDealChat } from './DealChat.tsx';
 import { ClientFunds, type CollectionAccount } from './ClientFunds.tsx';
 import { Destination } from './Destination.tsx';
 import { TradeNetwork } from './Network.tsx';
+import { P2pMoney } from './P2pMoney.tsx';
 import { P2pPayment } from './P2pPayment.tsx';
 import { Payouts } from './Payouts.tsx';
 import { Economics, Headline, Stages } from './Summary.tsx';
@@ -62,7 +63,9 @@ export function TradeWorkspace({
       <DeskDealChat trade={trade} perms={perms} />
       {focus === 'exception' || trade.hold ? cases : null}
       {trade.lifecycle !== 'COMPLETED' && trade.lifecycle !== 'CANCELLED' ? <Destination trade={trade} perms={perms} /> : null}
-      {waitingForClient ? (
+      {trade.settlesP2p ? (
+        <P2pMoney trade={trade} />
+      ) : waitingForClient ? (
         <>
           {funds}
           {payouts}

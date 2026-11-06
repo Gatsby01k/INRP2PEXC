@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Money, parseTrx } from '@inrp2p/kernel';
+import { FULL_ACCESS, deskStrip, deskTrade, istToday, listOrders, pnlPage } from '@inrp2p/desk';
 import { runAs } from '@inrp2p/identity/testing';
 import { globalImbalance } from '@inrp2p/ledger';
 import { budgetFigures } from '@inrp2p/network';
@@ -581,5 +582,45 @@ describe('the escrow’s own deadline: the seller’s USDT in time, and a transf
     await expect(clientPays('1000.00')).rejects.toMatchObject({ code: 'INVALID_AMOUNT' });
     await clientPays();
     expect(await p2pDeal(w.app, null, { tradeId: buy.tradeId, viewer: 'CLIENT' })).toMatchObject({ step: 'CONFIRM' });
+  });
+});
+
+describe('what the desk sees a P2P deal earned', () => {
+  it('is its USDT margin — on the P&L, the strip, Orders, the client and the deal; its rupees are one amount and earn nothing', async () => {
+    const today = await istToday(w.app);
+    const before = await pnlPage(w.app, { from: today, to: today });
+    const stripBefore = await deskStrip(w.app, FULL_ACCESS);
+
+    const trade = await p2pTrade(inrTrader, { direction: 'SELL_USDT', amount: '500', clientRate: '103.500000' });
+    const econ = await econOf(trade.tradeId);
+    const margin = econ.gross_margin_base_minor!;
+    expect(margin).toBeGreaterThan(0n);
+    expect(econ.gross_margin_inr_minor).toBe(0n);
+
+    // Open: expected, never realized.
+    const open = await pnlPage(w.app, { from: today, to: today });
+    expect(Money.parse(open.summary.openExpectedMarginUsdt, 'USDT').minor - Money.parse(before.summary.openExpectedMarginUsdt, 'USDT').minor).toBe(margin);
+    expect(open.summary.realizedMarginUsdt).toBe(before.summary.realizedMarginUsdt);
+
+    await settleFirstLeg(w, trade.tradeId);
+    const paid = await runAs(w.app, submitOrderPayment(inrTrader.admin.actor, w.traderDeps), inrTrader.admin.ref, 'trader_order.submit_payment', { ref: trade.orderRef, rail: 'IMPS' as const, utr: utr() });
+    const profile = await w.app.selectFrom('trader_profile').select('bank_account_id').where('id', '=', inrTrader.traderId).executeTakeFirstOrThrow();
+    await runAs(w.app, confirmClientReceipt(w.acceptor.actor, w.settlementDeps), w.acceptor.ref, 'payout.confirm_received', { tradeRef: await refOf(trade.tradeId), legRef: paid.settlementRef, senderName: await traderHolder(profile.bank_account_id!) });
+    await railsSettle(w, trade.tradeId);
+    expect(await stateOf(trade.tradeId)).toBe('COMPLETED');
+
+    const after = await pnlPage(w.app, { from: today, to: today });
+    expect(Money.parse(after.summary.realizedMarginUsdt, 'USDT').minor - Money.parse(before.summary.realizedMarginUsdt, 'USDT').minor).toBe(margin);
+    expect(after.ledgerCheck.agrees).toBe(true);
+    const ref = await refOf(trade.tradeId);
+    expect(after.rows.find((r) => r.tradeRef === ref)).toMatchObject({ kind: 'realized', marginUsdt: Money.ofMinor(margin, 'USDT').toDecimalString() });
+
+    const strip = await deskStrip(w.app, FULL_ACCESS);
+    expect(Money.parse(strip.realizedMarginTodayUsdt!, 'USDT').minor - Money.parse(stripBefore.realizedMarginTodayUsdt!, 'USDT').minor).toBe(margin);
+
+    const orders = await listOrders(w.app, FULL_ACCESS, { state: 'COMPLETED' });
+    expect(orders.find((o) => o.ref === ref)).toMatchObject({ marginUsdt: Money.ofMinor(margin, 'USDT').toDecimalString() });
+    const deal = await deskTrade(w.app, trade.tradeId, FULL_ACCESS);
+    expect(deal.expectedMarginUsdt).toBe(Money.ofMinor(margin, 'USDT').toDecimalString());
   });
 });

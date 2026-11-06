@@ -23,13 +23,13 @@ const capturedInSpec = [...SPEC.matchAll(/\bcapture\(page,\s*'([^']+)'/g)].map((
 
 describe('capture manifest', () => {
   it('names every validation state of both products', () => {
-    expect(CAPTURES).toHaveLength(53);
-    expect(new Set(CAPTURES).size).toBe(53);
+    expect(CAPTURES).toHaveLength(51);
+    expect(new Set(CAPTURES).size).toBe(51);
     expect(CAPTURE_FILES).toEqual(CAPTURES.map((n) => `${n}.png`));
-    // Sixteen desk pages, two Traders pages and three of Desks and Revenue (ADR 0020) on the desk; nine client pages (a BUY awaiting its rupees, ADR 0018; a P2P
+    // Fourteen desk pages, two Traders pages and three of Desks and Revenue (ADR 0020) on the desk; nine client pages (a BUY awaiting its rupees, ADR 0018; a P2P
     // buyer paying the seller, ADR 0019), seven Traders pages (TD-23; a P2P sell with its USDT in escrow) and eight of a
     // trader's own desk (ADR 0020: seven pages, and Today on a phone), and two of a client dealing with that desk.
-    expect(CAPTURES.filter((n) => n.startsWith('operator-'))).toHaveLength(21);
+    expect(CAPTURES.filter((n) => n.startsWith('operator-'))).toHaveLength(19);
     expect(CAPTURES.filter((n) => n.startsWith('client-'))).toHaveLength(26);
     // The quote link's two states and a desk's deal link; two pages of the public site and a desk's own page.
     expect(CAPTURES.filter((n) => n.startsWith('link-'))).toHaveLength(3);

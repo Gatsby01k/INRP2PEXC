@@ -219,16 +219,6 @@ export const HEALTH_CHECKS: readonly HealthCheckDefinition[] = Object.freeze([
     group: 'infrastructure',
   },
   {
-    id: 'inr_capacity_available',
-    title: 'INR capacity left across active settlement accounts today',
-    warn: 2_000_000,
-    alarm: 500_000,
-    unit: 'inr',
-    runbook: 'capacity-emergency',
-    why: 'Capacity is the desk’s promise about what it can pay today. This is the one check where a **low** number is the problem.',
-    group: 'money',
-  },
-  {
     id: 'deposit_pool_free',
     title: 'Deposit addresses available to assign',
     warn: 10,
@@ -355,7 +345,7 @@ export interface SystemHealth {
 }
 
 /** A low number is the problem for capacity, the address pool and liquidity; for everything else a high one is. */
-const LOWER_IS_WORSE = new Set(['inr_capacity_available', 'deposit_pool_free', 'traders_ready_sell_usdt', 'traders_ready_buy_usdt']);
+const LOWER_IS_WORSE = new Set(['deposit_pool_free', 'traders_ready_sell_usdt', 'traders_ready_buy_usdt']);
 export const isLowerWorse = (id: string): boolean => LOWER_IS_WORSE.has(id);
 
 export function stateOf(definition: HealthCheckDefinition, value: number): HealthState {
@@ -401,7 +391,6 @@ export async function systemHealth(ex: Executor): Promise<SystemHealth> {
     db_connections_percent: string;
     traders_ready_sell_usdt: string;
     traders_ready_buy_usdt: string;
-    inr_capacity_available: string;
     deposit_pool_free: string;
     chain_sends_stuck: string;
     fee_sweeps_waiting: string;
@@ -481,13 +470,6 @@ export async function systemHealth(ex: Executor): Promise<SystemHealth> {
          join crypto_wallet cw on cw.id = t.wallet_id and cw.status = 'ACTIVE'
         where t.status = 'APPROVED' and t.available and t.assignments_enabled and t.required_reserve_minor is not null
           and inrp2p_trader_reserve_free(t.id, null) >= t.required_reserve_minor)::text as traders_ready_buy_usdt,
-      -- Whole rupees, divided in SQL on the bigint: no money is ever converted to a JavaScript number, and
-      -- integer division rounds *down*, so this check understates what is available rather than overstating it.
-      coalesce((select sum(greatest(coalesce(d.capacity_minor, a.default_daily_capacity_minor) - coalesce(d.used_minor, 0) - coalesce(d.reserved_minor, 0), 0)) / 100
-                from inr_settlement_account a
-                left join inr_account_day d on d.account_id = a.id
-                     and d.day = (inrp2p_now() at time zone 'Asia/Kolkata')::date
-                where a.status = 'ACTIVE'), 0)::text as inr_capacity_available,
       -- With the HD wallet recorded (ADR 0017) addresses are derived per trade: the pool is not a limit.
       (case when exists (select 1 from custody_hd_account) then 999999
             else (select count(*) from deposit_address where status = 'AVAILABLE') end)::text as deposit_pool_free,
@@ -542,7 +524,6 @@ export async function systemHealth(ex: Executor): Promise<SystemHealth> {
     db_connections_percent: int(row.db_connections_percent),
     traders_ready_sell_usdt: int(row.traders_ready_sell_usdt),
     traders_ready_buy_usdt: int(row.traders_ready_buy_usdt),
-    inr_capacity_available: int(row.inr_capacity_available),
     deposit_pool_free: int(row.deposit_pool_free),
     chain_sends_stuck: int(row.chain_sends_stuck),
     fee_sweeps_waiting: int(row.fee_sweeps_waiting),

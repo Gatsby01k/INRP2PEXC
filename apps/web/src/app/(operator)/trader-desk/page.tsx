@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation';
-import { collectionAccounts, deskTraders } from '@inrp2p/traders';
+import { deskTraders } from '@inrp2p/traders';
 import { can, operatorPage } from '../../../server/operator.ts';
 import { KpiBand, Page, PageBody, PageHeader, Section } from '../_desk/ui.tsx';
 import { ProgramForm } from './ProgramForm.tsx';
@@ -15,7 +15,7 @@ export const dynamic = 'force-dynamic';
 export default async function TradersDeskPage() {
   const ctx = await operatorPage();
   if (!can(ctx, 'traders:view')) notFound();
-  const [{ program, traders }, accounts] = await Promise.all([deskTraders(ctx.db), collectionAccounts(ctx.db)]);
+  const { program, traders } = await deskTraders(ctx.db);
   const review = traders.filter((t) => t.status === 'UNDER_REVIEW').length;
   const changes = traders.filter((t) => t.status !== 'UNDER_REVIEW' && t.awaitingReview > 0).length;
   const online = traders.filter((t) => t.status === 'APPROVED' && t.available).length;
@@ -34,14 +34,14 @@ export default async function TradersDeskPage() {
             { key: 'o', label: 'Online now', value: `${online} of ${approved}`, sub: 'approved traders taking work' },
             { key: 'n', label: 'Open orders', value: String(open), sub: 'accepted or in progress' },
             { key: 'u', label: 'Unresolved', value: String(unresolved), sub: 'orders that need the desk', ...(unresolved > 0 ? { tone: 'danger' as const } : {}) },
-            { key: 'w', label: 'Reward', value: program.rewardBps === null ? 'none' : `${program.rewardBps} bps`, sub: program.autoAssign ? 'auto-assign on' : 'assigned by the desk' },
+            { key: 'w', label: 'Requests', value: program.autoAssign ? 'routed' : 'by hand', sub: program.autoAssign ? 'to a trader, automatically' : 'assigned by the desk' },
           ]}
         />
         <Section title="Traders" count={traders.length} flush>
           <TraderList traders={traders} />
         </Section>
-        <Section title="Programme" hint="The defaults every approval starts from. Nothing here stands in for a decision: a reserve or reward stays unset until someone sets it.">
-          <ProgramForm program={program} accounts={accounts} canConfigure={can(ctx, 'traders:configure')} />
+        <Section title="Programme" hint="The defaults every approval starts from. Nothing here stands in for a decision: a reserve stays unset until someone sets it.">
+          <ProgramForm program={program} canConfigure={can(ctx, 'traders:configure')} />
         </Section>
       </PageBody>
     </Page>

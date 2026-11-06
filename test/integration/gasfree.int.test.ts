@@ -6,6 +6,7 @@ import { pgErrorCode } from '@inrp2p/db';
 import { executeCommand } from '@inrp2p/commands';
 import { runAs } from '@inrp2p/identity/testing';
 import { gasFreeAddressOf } from '@inrp2p/adapters';
+import { FULL_ACCESS, deskTrade, deskTradeRecord, networkView } from '@inrp2p/desk';
 import { globalImbalance } from '@inrp2p/ledger';
 import { setNetworkFeePolicy } from '@inrp2p/network';
 import { acceptQuote, createRequest, quoteDeskDealInTx } from '@inrp2p/quotes';
@@ -151,6 +152,14 @@ describe('a desk on GasFree', () => {
     expect(w.chain.balanceOf(deposit.address)).toBe(0n);
     expect(w.gasFree.taken.filter((p) => p.user === deposit.owner_address)).toHaveLength(2);
     expect(await globalImbalance(w.app)).toEqual([]);
+
+    // The operator's pages read such a deal: it froze no TRX price, so nothing there may convert TRX.
+    const seen = await deskTrade(w.app, deal.tradeId, FULL_ACCESS);
+    expect(seen.network?.gasFree).toMatchObject({ allowance: '4.500000', spent: '3.000000', unused: '1.500000' });
+    expect(seen.settlesP2p).toBe(true);
+    await expect(deskTradeRecord(w.app, deal.tradeId, FULL_ACCESS)).resolves.toBeTruthy();
+    // The table of what TRX cost each trade leaves it out; the rest of the page still reads.
+    expect((await networkView(w.app)).trades.map((t) => t.tradeId)).not.toContain(deal.tradeId);
   });
 
   it('a client buys: the desk funds the escrow with the allowance in it, and the client receives exactly its USDT', async () => {

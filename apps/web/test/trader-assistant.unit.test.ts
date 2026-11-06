@@ -125,12 +125,11 @@ describe('the trader home robot', () => {
       .toMatchObject({ label: 'Your turn' });
   });
 
-  it('a payment being checked is verifying; a finished order with nothing open is success, with the reward only when real', () => {
+  it('a payment being checked is verifying; a finished order with nothing open is success', () => {
     expect(traderHomeAssistant(home({ active: [order({ ref: 'TO-2', stage: 'CHECKING_YOURS' })] }))).toMatchObject({ mood: 'verifying', title: 'Checking your payment' });
-    const done = traderHomeAssistant(home({ recentlyCompleted: order({ ref: 'TO-1', stage: 'COMPLETED', reward: '157.05' }) }));
+    const done = traderHomeAssistant(home({ recentlyCompleted: order({ ref: 'TO-1', stage: 'COMPLETED' }) }));
     expect(done).toMatchObject({ mood: 'success', title: 'TO-1 completed' });
-    expect(done.body).toContain('₹157.05');
-    expect(traderHomeAssistant(home({ recentlyCompleted: order({ ref: 'TO-1', stage: 'COMPLETED' }) })).body).not.toMatch(/reward/i);
+    expect(done.body).not.toMatch(/reward/i);
   });
 
   it('offline and online without an active side are ready, and say what to do', () => {

@@ -1,8 +1,7 @@
 import Link from 'next/link';
-import type { DeskStrip, StripRoute } from '@inrp2p/desk';
+import type { DeskStrip } from '@inrp2p/desk';
 import { MarkArt } from '../../components/MarkArt.tsx';
-import { Age } from './_desk/clock.tsx';
-import { ROUTE_RATE_STALE_SECONDS, inr, inrCompact, isPositive, rate, usdtSummary } from './_desk/format.ts';
+import { isPositive, usdtSummary } from './_desk/format.ts';
 import { KpiBand, type KpiItem } from './_desk/ui.tsx';
 import d from './_desk/desk.module.css';
 import q from './queue.module.css';
@@ -16,40 +15,13 @@ export interface StripFocus {
 
 /**
  * The operational strip (UX_FLOWS W5). First the one figure that says how much is the desk's to move — on the
- * mark's orange, the page's one brand moment, turning to ink when the queue is clear — then the route rates (each
- * desk route, both directions, how old each rate is), then the INR the desk can still pay today, the USDT it can
- * deliver, the trades in flight and today's realized margin. Compact forms are used because it is a summary; every
- * screen where the exact figure is the evidence shows it in full (DECISIONS D-11).
+ * mark's orange, the page's one brand moment, turning to ink when the queue is clear — then the USDT the exchange
+ * holds free, the trades in flight and today's realized margin. Every P2P deal is priced by its trader (ADR 0019), so
+ * there are no desk route rates to show. Compact forms are used because it is a summary; every screen where the exact
+ * figure is the evidence shows it in full (DECISIONS D-11).
  */
-export function Strip({ strip, now, focus }: { strip: DeskStrip; now: string; focus: StripFocus }) {
-  const nowMs = new Date(now).getTime();
-  const routes = new Map<string, { name: string; sell?: StripRoute; buy?: StripRoute }>();
-  for (const r of strip.routes ?? []) {
-    const entry = routes.get(r.routeId) ?? { name: r.routeName };
-    if (r.direction === 'SELL_USDT') entry.sell = r;
-    else entry.buy = r;
-    routes.set(r.routeId, entry);
-  }
-  const stale = (r?: StripRoute) => !r?.publishedAt || nowMs - new Date(r.publishedAt).getTime() > ROUTE_RATE_STALE_SECONDS * 1000;
-  const cell = (r?: StripRoute) =>
-    r?.rate ? (
-      <span className={q.rateCell} {...(stale(r) ? { 'data-stale': '' } : {})}>
-        <span className={q.rateValue}>{rate(r.rate)}</span>
-        <span className={q.rateAge}>
-          {stale(r) ? 'stale · ' : ''}
-          <Age at={r.publishedAt!} short />
-        </span>
-      </span>
-    ) : (
-      <span className={q.rateCell} data-stale="">
-        <span className={q.rateValue}>—</span>
-        <span className={q.rateAge}>no rate</span>
-      </span>
-    );
-
+export function Strip({ strip, focus }: { strip: DeskStrip; focus: StripFocus }) {
   const items: KpiItem[] = [
-    { key: 'inr', label: 'INR payable', value: <span title={`${inr(strip.inrAvailableToday)} across the settlement accounts today`}>{inrCompact(strip.inrAvailableToday)}</span>, sub: 'today', href: '/inr' },
-    { key: 'usdt', label: 'USDT free', value: <span title="Treasury less what is reserved for open trades">{usdtSummary(strip.usdtAvailable)}</span>, sub: 'less reserved', href: '/usdt' },
     {
       key: 'open',
       label: 'Open trades',
@@ -57,15 +29,15 @@ export function Strip({ strip, now, focus }: { strip: DeskStrip; now: string; fo
       sub: strip.tradesOnHold > 0 ? <span className={d.negative}>{strip.tradesOnHold} on hold</span> : 'none on hold',
       href: '/orders',
     },
-    ...(strip.realizedMarginToday !== undefined
+    ...(strip.realizedMarginTodayUsdt !== undefined
       ? [
           {
             key: 'margin',
-            label: 'Margin today',
-            value: <span title="Gross margin realized in the ledger today (IST)">{inr(strip.realizedMarginToday, { sign: isPositive(strip.realizedMarginToday, 'INR') })}</span>,
+            label: 'Earned today',
+            value: <span title="INRP2P’s margin and fees realized in the ledger today (IST)">{usdtSummary(strip.realizedMarginTodayUsdt)}</span>,
             sub: 'realized',
             href: '/pnl',
-            ...(isPositive(strip.realizedMarginToday, 'INR') ? { tone: 'success' as const } : {}),
+            ...(isPositive(strip.realizedMarginTodayUsdt, 'USDT') ? { tone: 'success' as const } : {}),
           },
         ]
       : []),
@@ -93,28 +65,6 @@ export function Strip({ strip, now, focus }: { strip: DeskStrip; now: string; fo
           {total === 0 && focus.settling === 0 ? <span className={q.focusPart}>new work appears here</span> : null}
         </span>
       </Link>
-      {routes.size > 0 ? (
-        <Link href="/rates" className={q.rates} aria-label="Route rates">
-          <table className={q.ratesTable}>
-            <thead>
-              <tr>
-                <th scope="col">Route rates</th>
-                <th scope="col">USDT → INR</th>
-                <th scope="col">INR → USDT</th>
-              </tr>
-            </thead>
-            <tbody>
-              {[...routes.entries()].map(([id, r]) => (
-                <tr key={id}>
-                  <th scope="row">{r.name}</th>
-                  <td>{cell(r.sell)}</td>
-                  <td>{cell(r.buy)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Link>
-      ) : null}
       <div className={q.stripKpis}>
         <KpiBand items={items} label="Money available and work in flight" />
       </div>

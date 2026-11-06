@@ -94,7 +94,7 @@ recorded a reference.
 
 1. The trade's settlement panel: which leg, which account, which reference, and what the bank said.
 2. Whether the failure is per-transfer (a wrong beneficiary detail) or per-account (the bank rejecting
-   everything — then this is `capacity-emergency` territory as well).
+   everything).
 3. The client's registered destination: has it been archived or changed since the trade was accepted? A trade
    pays where it agreed to pay, and a change opens `CLIENT_BANK_CHANGED` rather than silently moving the money.
 
@@ -357,28 +357,6 @@ is a reviewed change, never an edit of the recorded one.
 
 **What never to do.** Do not type the words into a website, a chat, a password manager synced to a cloud, or the
 command line as an argument; do not give the web app the seed or a key that can decrypt it.
-
----
-
-## capacity-emergency — the desk cannot pay today
-
-**What you were told.** `inr_capacity_available` has fallen to the alarm threshold, or payouts are being
-refused with `CAPACITY_INSUFFICIENT`.
-
-**What to check first.**
-
-1. The INR screen: which accounts are active, what today's capacity is, and how much is used versus reserved.
-2. Whether reservations are stale — a reservation belongs to a leg that was created and never sent.
-3. Whether an account is `PAUSED` or `UNAVAILABLE` for a reason someone already knows.
-
-**What to do.** Capacity is a statement about what the bank will actually move today, so the fix is a real one:
-confirm with the bank what is available, then set today's capacity on the desk with a reason (step-up, audited).
-If the money genuinely is not there, the honest answer is to stop quoting: a quote the desk cannot settle is
-worse than no quote. Cancel or decline what cannot be paid rather than accepting and holding.
-
-**What never to do.** Do not raise capacity to clear a queue on the expectation that funds will arrive. Capacity
-is the number the whole settlement path trusts; raising it on a hope is how a client is told their money is on
-its way when it is not.
 
 ---
 

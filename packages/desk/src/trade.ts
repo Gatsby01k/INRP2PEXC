@@ -162,6 +162,8 @@ export interface DeskTrade {
   readonly clientRate?: string;
   readonly routeRate?: string;
   readonly expectedMargin?: string;
+  /** What the deal leaves INRP2P in USDT (a P2P deal's margin less the network it carries); null off P2P. */
+  readonly expectedMarginUsdt?: string | null;
   readonly executionMode?: ExecutionMode;
   readonly payout: { readonly amount: string; readonly currency: 'INR' | 'USDT' };
   readonly paid: string;
@@ -198,6 +200,8 @@ export interface DeskTrade {
   readonly network: DeskTradeNetwork | null;
   /** ADR 0018 — a BUY's payment instructions as the client saw them: the account to pay, the reference, the deadline. */
   readonly collection: { readonly inrAccountId: string; readonly label: string; readonly bankName: string; readonly last4: string; readonly reference: string; readonly payBy: string } | null;
+  /** The deal settles P2P (ADR 0019): its USDT in escrow, its rupees straight between client and trader. */
+  readonly settlesP2p: boolean;
   /** A P2P payment for INRP2P to decide (disputed or unanswered), and a SELL being unwound (ADR 0020 §2.15). */
   readonly p2p: P2pDecisionView | null;
   /** ADR 0023: a P2P deal's chat between its two sides, and whether one of them called INRP2P in. */
@@ -217,7 +221,7 @@ export async function deskTrade(ex: Executor, tradeId: string, access: DeskAcces
     .innerJoin('trade_economics as e', 'e.trade_id', 't.id')
     .select([
       't.id', 't.ref', 't.client_id', 'c.display_name as client_name', 't.direction', 't.lifecycle_state', 't.hold', 't.opened_at',
-      'e.base_minor', 'e.quote_inr_minor', 'e.client_rate_micro', 'e.route_rate_micro', 'e.gross_margin_inr_minor',
+      'e.base_minor', 'e.quote_inr_minor', 'e.client_rate_micro', 'e.route_rate_micro', 'e.gross_margin_inr_minor', 'e.gross_margin_base_minor', 'e.network_fee_base_minor',
       'e.route_id', 'e.route_execution_mode',
     ])
     .where('t.id', '=', id)
@@ -264,6 +268,7 @@ export async function deskTrade(ex: Executor, tradeId: string, access: DeskAcces
     },
     network: await deskTradeNetwork(ex, id, { economics: access.economics }),
     collection: row.direction === 'BUY_USDT' ? await collectionOf(ex, id) : null,
+    settlesP2p: row.route_execution_mode === 'P2P',
     p2p: await p2pDecisionView(ex, id),
     chat: await deskDealChat(ex, id),
   };
@@ -282,6 +287,7 @@ export async function deskTrade(ex: Executor, tradeId: string, access: DeskAcces
         clientRate: microToDecimal(row.client_rate_micro),
         routeRate: microToDecimal(row.route_rate_micro),
         expectedMargin: Money.ofMinor(row.gross_margin_inr_minor, 'INR').toDecimalString(),
+        expectedMarginUsdt: row.gross_margin_base_minor === null ? null : Money.ofMinor(row.gross_margin_base_minor - (row.network_fee_base_minor ?? 0n), 'USDT').toDecimalString(),
         executionMode: row.route_execution_mode,
       }
     : {};

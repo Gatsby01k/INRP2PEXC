@@ -74,7 +74,6 @@ export function OfferCard({
           <dt>Your rate</dt>
           <dd>
             {rate(order.rate)}
-            {order.reward ? <span className={styles.sub}>Reward on completion {inr(order.reward)}</span> : null}
           </dd>
         </div>
       </dl>

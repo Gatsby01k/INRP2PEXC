@@ -179,7 +179,7 @@ describe('the import itself', () => {
 describe('the nightly job still says the ledger balances', () => {
   it('finds nothing to report when it does', async () => {
     await resolveAll();
-    expect(await runReconciliation(w.t.worker)).toEqual({ routeMismatches: 0, currencyImbalances: [] });
+    expect(await runReconciliation(w.t.worker)).toEqual({ routeMismatches: 0, currencyImbalances: [], failures: [] });
   });
 });
 

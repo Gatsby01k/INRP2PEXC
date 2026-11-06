@@ -32,8 +32,6 @@ describe('the health snapshot', () => {
     expect(byId.get('ledger_imbalance')!.value).toBe(0);
     expect(byId.get('ledger_imbalance')!.state).toBe('ok');
     expect(byId.get('blocking_exceptions')!.value).toBe(0);
-    // Capacity is read from today's row and reported in whole rupees.
-    expect(byId.get('inr_capacity_available')!.value).toBeGreaterThan(0);
     expect(byId.get('deposit_pool_free')!.value).toBeGreaterThan(0);
   });
 

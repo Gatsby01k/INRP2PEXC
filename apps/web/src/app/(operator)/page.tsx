@@ -4,7 +4,7 @@ import { collectionAccounts } from '@inrp2p/traders';
 import { optionalEnv } from '../../server/env.ts';
 import { can, operatorPage } from '../../server/operator.ts';
 import { ContextPanel } from './_desk/ContextPanel.tsx';
-import { nowOf, queueOf } from './_desk/reads.ts';
+import { queueOf } from './_desk/reads.ts';
 import { LiveRefresh } from './_desk/Keyboard.tsx';
 import { dateTime, money, pair, side } from './_desk/format.ts';
 import { Chip, LifecycleChip, LinkTabs, Page, PageHeader, Side } from './_desk/ui.tsx';
@@ -53,10 +53,9 @@ export default async function DeskPage({ searchParams }: { searchParams: Promise
 
   // The panel is server-rendered in the same request as the queue, so it can never show a different trade. Its read
   // starts with the queue's rather than after it: a selected row costs one round trip more, not one more page load.
-  const [strip, groups, now, trade, request, quote] = await Promise.all([
+  const [strip, groups, trade, request, quote] = await Promise.all([
     deskStrip(ctx.db, ctx.access),
     queueOf(ctx),
-    nowOf(ctx),
     selected?.kind === 'trade' ? orNull(deskTrade(ctx.db, selected.id, ctx.access)) : null,
     selected?.kind === 'request' ? orNull(deskRequest(ctx.db, selected.id, ctx.access)) : null,
     selected?.kind === 'quote' ? orNull(deskQuote(ctx.db, selected.id, ctx.access)) : null,
@@ -107,7 +106,7 @@ export default async function DeskPage({ searchParams }: { searchParams: Promise
       />
       <LiveRefresh seconds={20} />
       <div className={q.strip}>
-        <Strip strip={strip} now={now} focus={{ act: count('needs_action'), blocked: count('exception'), settling: count('settlement') }} />
+        <Strip strip={strip} focus={{ act: count('needs_action'), blocked: count('exception'), settling: count('settlement') }} />
       </div>
       <div className={q.split} {...(hasPanel ? { 'data-panel': '' } : {})}>
         <div className={q.list}>

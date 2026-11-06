@@ -128,7 +128,7 @@ export function traderHomeAssistant(home: TraderHome): AssistantState {
   if (first) return first.s;
   if (home.recentlyCompleted) {
     const r = home.recentlyCompleted;
-    return { mood: 'success', label: 'Completed', title: `${r.ref} completed`, body: `Order completed. Nothing is held for it any more.${r.reward ? ` Reward earned: ${inr(r.reward)}.` : ''}` };
+    return { mood: 'success', label: 'Completed', title: `${r.ref} completed`, body: 'Order completed. Nothing is held for it any more.' };
   }
   if (!home.available) return { mood: 'ready', label: 'Offline', title: 'You’re offline', body: 'No new orders are assigned. Switch on when you are ready.' };
   if (!home.blocks.some((b) => b.status === 'ACTIVE')) {
@@ -142,7 +142,7 @@ export function traderOrderAssistant(detail: TraderOrderDetail): AssistantState 
   const live = orderState(o);
   if (live) return live;
   if (o.status === 'COMPLETED') {
-    return { mood: 'success', label: 'Completed', title: `${o.ref} completed`, body: `Order completed. Nothing is held for it any more.${o.reward ? ` Reward earned: ${inr(o.reward)}.` : ''}` };
+    return { mood: 'success', label: 'Completed', title: `${o.ref} completed`, body: 'Order completed. Nothing is held for it any more.' };
   }
   return { mood: 'ready', label: STATUS_WORDS[o.status] ?? 'Closed', title: `${o.ref} is closed`, body: o.closeNote ?? 'Nothing is held for it any more.' };
 }

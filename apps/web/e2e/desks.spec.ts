@@ -3,6 +3,8 @@ import { readFile } from 'node:fs/promises';
 import { type Browser, type BrowserContext, type Page, devices, expect, test } from '@playwright/test';
 import { Money, encodeTronAddress } from '@inrp2p/kernel';
 import { DESK, DESKS_OTP_SINK, type DeskWorld, createDeskWorld } from './desk-world.ts';
+import { pressUntilFocused } from './support.ts';
+import { totpFor } from './world.ts';
 
 /**
  * A desk's deals, both ways, from both screens (ADR 0020, stage 1's release). A trader runs its own exchange: it sends a
@@ -277,4 +279,85 @@ test('the desk sees both deals done, and its turnover and INRP2P’s fees from t
   await expect(kpi('Deals completed')).toContainText('2');
   await expect(kpi('Volume')).toContainText('1,500');
   await expect(kpi('INRP2P fees')).toContainText('3.75');
+});
+
+/** INRP2P's own operator, on the desk: the same sign-in as anyone's — password, then authenticator. */
+async function signInOperator(page: Page): Promise<void> {
+  await page.goto(`${w.deskUrl}/sign-in`);
+  await page.getByLabel('Work email').fill(w.operator.email);
+  await page.getByLabel('Password').fill(w.operator.password);
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await page.getByLabel('Authenticator code').fill(await totpFor(w.operator.totpSecret));
+  await page.getByRole('button', { name: 'Verify and open the desk' }).click();
+  await expect(page.getByRole('heading', { name: 'Desk', exact: true })).toBeVisible();
+}
+
+let operatorPage: Page;
+
+test('INRP2P’s desk sees what both deals earned — in USDT, from the ledger — and nothing of a bank account it does not have', async ({ browser }) => {
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  contexts.push(context);
+  operatorPage = await context.newPage();
+  await signInOperator(operatorPage);
+  const nav = operatorPage.getByRole('navigation').first();
+  await expect(nav.getByRole('link', { name: 'INR accounts' })).toHaveCount(0);
+  await expect(operatorPage.getByText('Route rates')).toHaveCount(0);
+  // 0.25% of 1,000 USDT and of 500, and what each deal carried for its network and has not used: 1.50 USDT, for its sweep.
+  await expect(operatorPage.getByText('Earned today')).toBeVisible();
+  await expect(operatorPage.locator('div', { has: operatorPage.getByText('Earned today', { exact: true }) }).last()).toContainText('6.75 USDT');
+
+  await operatorPage.goto(`${w.deskUrl}/pnl`);
+  await expect(operatorPage.getByTestId('ledger-check')).toContainText('Ledger and trades agree on what completed deals posted: +3.75 USDT');
+  const done = await w.db.selectFrom('trade').select('ref').where('lifecycle_state', '=', 'COMPLETED').execute();
+  for (const t of done) await expect(operatorPage.getByRole('link', { name: t.ref })).toBeVisible();
+
+  // A deal's record: its escrow and its rupees as they stood, and nothing for the desk to move.
+  await operatorPage.goto(`${w.deskUrl}/orders/${done[0]!.ref}`);
+  await expect(operatorPage.getByTestId('p2p-escrow')).toBeVisible();
+  await expect(operatorPage.getByTestId('p2p-rupees')).toBeVisible();
+  await expect(operatorPage.getByRole('button', { name: /Reserve & create leg|Create leg|Mark sent/ })).toHaveCount(0);
+});
+
+test('a person prices a request by keyboard alone: the rate, a trader, then the quote; the client sends its USDT within its time', async () => {
+  const page = operatorPage;
+  await page.bringToFront();
+  const client = await w.db.selectFrom('client').select(['id']).where('legal_name', '=', CLIENT.legalName).executeTakeFirstOrThrow();
+  await page.goto(`${w.deskUrl}/clients/${client.id}`);
+  await pressUntilFocused(page, page.getByTestId('new-request').getByLabel('Amount (USDT)'));
+  await page.keyboard.type('1000');
+  await pressUntilFocused(page, page.getByRole('button', { name: 'Create request and quote' }));
+  await page.keyboard.press('Enter');
+
+  // Nothing can be quoted before a trader holds the order; the rate comes first, because the order is sized at it.
+  const quote = page.getByTestId('quote-panel');
+  await expect(quote).toBeVisible();
+  await expect(quote.getByText('then route the request to a trader')).toBeVisible();
+  await pressUntilFocused(page, quote.getByLabel('Client rate (INR per USDT)'));
+  await page.keyboard.type('100.20');
+  await pressUntilFocused(page, quote.getByRole('button', { name: 'Route to a trader' }));
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('trader-section')).toContainText('offered — waiting for the trader');
+
+  const order = await w.db.selectFrom('trader_order').select('ref').where('status', '=', 'OFFERED').executeTakeFirstOrThrow();
+  await w.acceptOrder(order.ref);
+  await page.reload();
+
+  // The trader's rate is ₹101.20 and the client's ₹100.20: about 9.88 USDT of margin, 4.50 of it GasFree's. The rate is
+  // the order's now, already in the field; computed by the function the command uses, not typed.
+  const economics = page.getByTestId('quote-economics');
+  await expect(economics).toContainText('Trader’s rate');
+  await expect(economics).toContainText('Net margin');
+  await expect(economics).toContainText('−4.50 USDT');
+  await expect(economics).toContainText(/\+5\.\d+ USDT/);
+  await pressUntilFocused(page, quote.getByLabel('Client rate (INR per USDT)'));
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('q');
+  await expect(page.getByTestId('quote-link')).toBeVisible();
+
+  await phone.bringToFront();
+  await phone.goto(`${w.appUrl}/exchange`);
+  await phone.getByRole('button', { name: /^Accept/ }).click();
+  await expect(phone).toHaveURL(/\/trades\/IX-/);
+  await tradeOnPhone('SELL_USDT');
+  await expect(phone.getByRole('timer').filter({ hasText: 'Send within' })).toBeVisible();
 });

@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import type { OrderRow } from '@inrp2p/desk';
 import { Ago } from '../_desk/clock.tsx';
 import { Cell, type Column, DataTable } from '../_desk/DataTable.tsx';
-import { dateTime, inr, isNegative, rate, usdt } from '../_desk/format.ts';
+import { dateTime, inr, marginNegative, marginText, rate, usdt } from '../_desk/format.ts';
 import { Empty, LifecycleChip, Side } from '../_desk/ui.tsx';
 import d from '../_desk/desk.module.css';
 
@@ -50,9 +50,9 @@ export function OrdersTable({ rows, economics, selected }: { rows: readonly Orde
             header: 'Margin',
             align: 'right',
             render: (r: OrderRow) =>
-              r.margin ? (
-                <span className={isNegative(r.margin, 'INR') ? d.negative : r.lifecycle === 'COMPLETED' ? d.positive : d.secondary} title={r.lifecycle === 'COMPLETED' ? 'Realized' : 'Expected'}>
-                  {inr(r.margin, { sign: true })}
+              r.margin || r.marginUsdt ? (
+                <span className={marginNegative(r.margin, r.marginUsdt) ? d.negative : r.lifecycle === 'COMPLETED' ? d.positive : d.secondary} title={r.lifecycle === 'COMPLETED' ? 'Realized' : 'Expected'}>
+                  {marginText(r.margin, r.marginUsdt)}
                 </span>
               ) : (
                 '—'
