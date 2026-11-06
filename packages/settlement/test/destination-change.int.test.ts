@@ -28,7 +28,7 @@ async function newBankAccount(clientId = w.clientId): Promise<string> {
 
 /** A funded SELL trade, paying an account of its own, whose route delivered. */
 async function tradeWithArchivedDestination(baseUsdt = '1000') {
-  const trade = await openTrade(w, { executionMode: 'TO_EXCHANGE', baseUsdt, clientRate: '102.000000', routeRate: '104.200000', bankAccountId: await newBankAccount() });
+  const trade = await openTrade(w, { baseUsdt, clientRate: '102.000000', bankAccountId: await newBankAccount() });
   await settleFirstLeg(w, trade.tradeId);
   await deliverCounterparty(w, trade.tradeId);
   const old = (await w.app.selectFrom('trade_economics').select('bank_account_id').where('trade_id', '=', trade.tradeId).executeTakeFirstOrThrow()).bank_account_id!;

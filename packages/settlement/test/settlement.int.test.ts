@@ -22,7 +22,7 @@ afterAll(async () => w.close());
  * has delivered its INR to the payout account (D-16: the exchange pays the client only with that money).
  */
 async function exchangeTrade(opts: { baseUsdt?: string; clientRate?: string; routeRate?: string; deliver?: boolean } = {}) {
-  const trade = await openTrade(w, { executionMode: 'TO_EXCHANGE', baseUsdt: opts.baseUsdt ?? '1000', clientRate: opts.clientRate ?? '102.000000', routeRate: opts.routeRate ?? '104.200000' });
+  const trade = await openTrade(w, { baseUsdt: opts.baseUsdt ?? '1000', clientRate: opts.clientRate ?? '102.000000', routeRate: opts.routeRate ?? '104.200000' });
   await settleFirstLeg(w, trade.tradeId);
   if (opts.deliver !== false) await deliverCounterparty(w, trade.tradeId);
   return trade;
@@ -104,7 +104,7 @@ describe('client settlement in several legs (T5–T8)', () => {
   });
 
   it('a BUY trade pays the client the USDT its counterparty delivered, and reserves none of the treasury (D-16)', async () => {
-    const trade = await openTrade(w, { direction: 'BUY_USDT', executionMode: 'TO_EXCHANGE', baseUsdt: '500', clientRate: '106.000000', routeRate: '104.200000' });
+    const trade = await openTrade(w, { direction: 'BUY_USDT', baseUsdt: '500', clientRate: '106.000000' });
     expect(await w.app.selectFrom('treasury_reservation').select('id').where('trade_id', '=', trade.tradeId).execute()).toEqual([]);
     await settleFirstLeg(w, trade.tradeId);
     // The client paid; the counterparty has not: no USDT can be paid out yet.
@@ -128,7 +128,7 @@ describe('client settlement in several legs (T5–T8)', () => {
   });
 
   it('an unsolidified or failed transfer never confirms a payout (FI-24)', async () => {
-    const trade = await openTrade(w, { direction: 'BUY_USDT', executionMode: 'TO_EXCHANGE', baseUsdt: '10', clientRate: '106.000000' });
+    const trade = await openTrade(w, { direction: 'BUY_USDT', baseUsdt: '10', clientRate: '106.000000' });
     await settleFirstLeg(w, trade.tradeId);
     await deliverCounterparty(w, trade.tradeId);
     const leg = await runAs(w.app, createPayoutLeg(w.settlementOp.actor, {}), w.settlementOp.ref, 'payout_leg.create', { tradeId: trade.tradeId, amount: '10', payer: 'EXCHANGE_ACCOUNT' as const, treasuryWalletId: w.treasuryWalletId });
@@ -147,7 +147,7 @@ describe('client settlement in several legs (T5–T8)', () => {
 
 describe('recording and confirming a client\u2019s incoming INR (T2, T4)', () => {
   it('recording needs settlement:record_incoming without step-up; confirming needs settlement:confirm_incoming', async () => {
-    const trade = await openTrade(w, { direction: 'BUY_USDT', executionMode: 'TO_EXCHANGE', baseUsdt: '10', clientRate: '106.000000' });
+    const trade = await openTrade(w, { direction: 'BUY_USDT', baseUsdt: '10', clientRate: '106.000000' });
     const payload = { tradeId: trade.tradeId, rail: 'IMPS' as const, utr: newUtr('IN'), amount: '1060.00', inrAccountId: w.inrAccountId };
     // Only OWNER and SETTLEMENT_OPERATOR may record an incoming reference.
     await expect(runAs(w.app, recordIncomingFiat(w.dealer.actor), w.dealer.ref, 'fiat_in.record', payload)).rejects.toMatchObject({ code: 'FORBIDDEN' });
@@ -169,7 +169,7 @@ describe('recording and confirming a client\u2019s incoming INR (T2, T4)', () =>
 
 describe('cancellation and refunds (T9, T10)', () => {
   it('exit: cancelling releases capacity, the deposit address and the route obligation, and reverses the accept journal', async () => {
-    const trade = await openTrade(w, { executionMode: 'DIRECT_TO_CLIENT', baseUsdt: '1000', clientRate: '102.000000', routeRate: '104.200000' });
+    const trade = await openTrade(w, { baseUsdt: '1000', clientRate: '102.000000' });
     const assignment = await w.app.selectFrom('deposit_assignment').select(['deposit_address_id']).where('trade_id', '=', trade.tradeId).executeTakeFirstOrThrow();
     await runAs(w.app, cancelTrade(w.dealer.actor), w.dealer.ref, 'trade.cancel', { tradeId: trade.tradeId, reason: 'client asked to stand down before sending' });
 
@@ -280,7 +280,7 @@ describe('P&L, reconciliation and SLA (FI-43, FI-44, FI-64)', () => {
   it('exit: P&L counts realized margin of completed trades only', async () => {
     const pnlWorld = await createWorld('settlement_pnl', { capacityInr: '500000000.00' });
     try {
-      const completed = await openTrade(pnlWorld, { executionMode: 'TO_EXCHANGE', baseUsdt: '1000', clientRate: '102.000000', routeRate: '104.200000' });
+      const completed = await openTrade(pnlWorld, { baseUsdt: '1000', clientRate: '102.000000' });
       await settleFirstLeg(pnlWorld, completed.tradeId);
       await deliverCounterparty(pnlWorld, completed.tradeId);
       const leg = await runAs(pnlWorld.app, createPayoutLeg(pnlWorld.settlementOp.actor, {}), pnlWorld.settlementOp.ref, 'payout_leg.create', { tradeId: completed.tradeId, amount: '102000.00', payer: 'EXCHANGE_ACCOUNT' as const, inrAccountId: pnlWorld.inrAccountId });
@@ -288,7 +288,7 @@ describe('P&L, reconciliation and SLA (FI-43, FI-44, FI-64)', () => {
       await runAs(pnlWorld.app, recordLegEvidence(pnlWorld.settlementOp.actor, pnlWorld.settlementDeps), pnlWorld.settlementOp.ref, 'payout_leg.record_evidence', { legId: leg.legId, rail: 'IMPS' as const, utr: newUtr() });
       await confirmPayout(pnlWorld.app, pnlWorld.settlementOp.actor, pnlWorld.settlementDeps, { legId: leg.legId, idempotencyKey: randomUUID() });
       // A second, unfinished trade contributes nothing to realized margin.
-      const open = await openTrade(pnlWorld, { executionMode: 'TO_EXCHANGE', baseUsdt: '2000', clientRate: '102.000000', routeRate: '104.200000' });
+      const open = await openTrade(pnlWorld, { baseUsdt: '2000', clientRate: '102.000000' });
       await settleFirstLeg(pnlWorld, open.tradeId);
 
       const today = (await sql<{ d: string }>`select to_char(inrp2p_now() at time zone 'Asia/Kolkata', 'YYYY-MM-DD') as d`.execute(pnlWorld.app)).rows[0]!.d;

@@ -26,7 +26,7 @@ beforeAll(async () => {
   w = await createWorld('desk_pnl', { capacityInr: '500000000.00' });
   day = await istToday(w.app);
 
-  const done = await openTrade(w, { baseUsdt: '1000', clientRate: '90.000000', routeRate: '92.500000', executionMode: 'TO_EXCHANGE' });
+  const done = await openTrade(w, { baseUsdt: '1000', clientRate: '90.000000' });
   completedRef = done.tradeRef;
   await settleFirstLeg(w, done.tradeId);
   await ensureCounterpartyFunds(w, done.tradeId);
@@ -39,7 +39,7 @@ beforeAll(async () => {
   });
   await confirmPayout(w.app, w.settlementOp.actor, w.settlementDeps, { legId: leg.legId, idempotencyKey: randomUUID() });
 
-  const pending = await openTrade(w, { baseUsdt: '500', clientRate: '90.000000', routeRate: '92.500000', executionMode: 'TO_EXCHANGE' });
+  const pending = await openTrade(w, { baseUsdt: '500', clientRate: '90.000000' });
   openRef = pending.tradeRef;
 
   const revenue = await sql<{ net: string }>`

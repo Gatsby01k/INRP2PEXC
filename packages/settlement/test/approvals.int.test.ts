@@ -19,7 +19,7 @@ beforeAll(async () => { w = await createWorld('payout_approvals', { capacityInr:
 afterAll(async () => w.close());
 
 async function fundedSellTrade(baseUsdt: string) {
-  const trade = await openTrade(w, { executionMode: 'TO_EXCHANGE', baseUsdt, clientRate: '102.000000', routeRate: '104.200000' });
+  const trade = await openTrade(w, { baseUsdt, clientRate: '102.000000' });
   await settleFirstLeg(w, trade.tradeId);
   await deliverCounterparty(w, trade.tradeId);
   return trade;
@@ -76,7 +76,7 @@ describe('a large payout is confirmed by a second person (C1)', () => {
   it('a USDT payout is measured in INR at its trade’s frozen client rate', async () => {
     const hot = await w.app.selectFrom('treasury_wallet').select('address').where('id', '=', w.treasuryWalletId).executeTakeFirstOrThrow();
     const usdtLeg = async (baseUsdt: string) => {
-      const trade = await openTrade(w, { direction: 'BUY_USDT', executionMode: 'TO_EXCHANGE', baseUsdt, clientRate: '106.000000', routeRate: '104.200000' });
+      const trade = await openTrade(w, { direction: 'BUY_USDT', baseUsdt, clientRate: '106.000000' });
       await settleFirstLeg(w, trade.tradeId);
       await deliverCounterparty(w, trade.tradeId);
       const leg = await runAs(w.app, createPayoutLeg(w.settlementOp.actor, {}), w.settlementOp.ref, 'payout_leg.create', { tradeId: trade.tradeId, amount: baseUsdt, payer: 'EXCHANGE_ACCOUNT' as const, treasuryWalletId: w.treasuryWalletId });

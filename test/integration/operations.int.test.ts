@@ -32,7 +32,7 @@ describe('the database a process is given (E3)', () => {
 describe('pausing new business (E3)', () => {
   it('stops new requests, quotes and acceptances — in the commands and the database — and never what is started', async () => {
     // Started before the pause: a trade that has its client funds, and a quote already sent.
-    const started = await openTrade(w, { baseUsdt: '100', clientRate: '90.000000', routeRate: '92.500000', executionMode: 'TO_EXCHANGE' });
+    const started = await openTrade(w, { baseUsdt: '100', clientRate: '90.000000' });
     await settleFirstLeg(w, started.tradeId);
     const request = await runAs(w.app, createRequest(w.dealer.actor, {}), w.dealer.ref, 'request.create', { clientId: w.clientId, direction: 'SELL_USDT' as const, fixedSide: 'BASE' as const, amount: '50', bankAccountId: w.bankAccountId });
     const sent = await runAs(w.app, createQuote(w.dealer.actor, {}), w.dealer.ref, 'quote.create', { requestId: request.requestId, routeId: w.routeId, clientRate: '90.000000', validitySeconds: 300 });

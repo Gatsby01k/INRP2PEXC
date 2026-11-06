@@ -29,7 +29,7 @@ const openCasesOf = (tradeId: string) =>
   w.app.selectFrom('exception_case').select(['id', 'type', 'subject_type']).where('trade_id', '=', tradeId).where('status', 'in', ['OPEN', 'IN_PROGRESS']).orderBy('opened_at').execute();
 
 /** A SELL trade settled to the exchange (client ₹102.00, route ₹104.20). */
-const sellTrade = (baseUsdt: string) => openTrade(w, { executionMode: 'TO_EXCHANGE', baseUsdt, clientRate: '102.000000', routeRate: '104.200000' });
+const sellTrade = (baseUsdt: string) => openTrade(w, { baseUsdt, clientRate: '102.000000' });
 
 async function depositTo(tradeId: string, amountUsdt: string, from = w.clientSourceAddress) {
   const a = await w.app.selectFrom('deposit_assignment as a').innerJoin('deposit_address as d', 'd.id', 'a.deposit_address_id').select('d.address').where('a.trade_id', '=', tradeId).executeTakeFirstOrThrow();
@@ -207,7 +207,7 @@ describe('cancellation leaves nothing behind (T9, FI-12)', () => {
 
 describe('payout evidence must be what the chain says it is (FI-24)', () => {
   it('refuses a USDT payout whose on-chain sender is not the recorded sender', async () => {
-    const trade = await openTrade(w, { direction: 'BUY_USDT', executionMode: 'TO_EXCHANGE', baseUsdt: '50', clientRate: '106.000000', routeRate: '104.200000' });
+    const trade = await openTrade(w, { direction: 'BUY_USDT', baseUsdt: '50', clientRate: '106.000000' });
     await settleFirstLeg(w, trade.tradeId);
     await deliverCounterparty(w, trade.tradeId);
     const leg = await runAs(w.app, createPayoutLeg(w.settlementOp.actor, {}), w.settlementOp.ref, 'payout_leg.create', { tradeId: trade.tradeId, amount: '50', payer: 'EXCHANGE_ACCOUNT' as const, treasuryWalletId: w.treasuryWalletId });
@@ -227,7 +227,7 @@ describe('payout evidence must be what the chain says it is (FI-24)', () => {
   });
 
   it('finds the payment by its facts, not at log 0, and refuses a transaction that pays it twice', async () => {
-    const trade = await openTrade(w, { direction: 'BUY_USDT', executionMode: 'TO_EXCHANGE', baseUsdt: '40', clientRate: '106.000000', routeRate: '104.200000' });
+    const trade = await openTrade(w, { direction: 'BUY_USDT', baseUsdt: '40', clientRate: '106.000000' });
     await settleFirstLeg(w, trade.tradeId);
     await deliverCounterparty(w, trade.tradeId);
     const leg = await runAs(w.app, createPayoutLeg(w.settlementOp.actor, {}), w.settlementOp.ref, 'payout_leg.create', { tradeId: trade.tradeId, amount: '40', payer: 'EXCHANGE_ACCOUNT' as const, treasuryWalletId: w.treasuryWalletId });
@@ -246,7 +246,7 @@ describe('payout evidence must be what the chain says it is (FI-24)', () => {
     expect(done.completed).toBe(true);
 
     // The same payment twice in one transaction: the operator has to say which one this leg is.
-    const twice = await openTrade(w, { direction: 'BUY_USDT', executionMode: 'TO_EXCHANGE', baseUsdt: '30', clientRate: '106.000000', routeRate: '104.200000' });
+    const twice = await openTrade(w, { direction: 'BUY_USDT', baseUsdt: '30', clientRate: '106.000000' });
     await settleFirstLeg(w, twice.tradeId);
     await deliverCounterparty(w, twice.tradeId);
     const leg2 = await runAs(w.app, createPayoutLeg(w.settlementOp.actor, {}), w.settlementOp.ref, 'payout_leg.create', { tradeId: twice.tradeId, amount: '30', payer: 'EXCHANGE_ACCOUNT' as const, treasuryWalletId: w.treasuryWalletId });
@@ -277,7 +277,7 @@ describe('the bank statement check covers every movement on the account (SECURIT
   const casesOn = (transferId: string) => s.app.selectFrom('exception_case').select(sql<string>`details ->> 'reason'`.as('reason')).where('subject_id', '=', transferId).execute();
 
   it('matches a reference the operator typed in lower case', async () => {
-    const trade = await openTrade(s, { executionMode: 'TO_EXCHANGE', baseUsdt: '100', clientRate: '102.000000', routeRate: '104.200000' });
+    const trade = await openTrade(s, { baseUsdt: '100', clientRate: '102.000000' });
     await settleFirstLeg(s, trade.tradeId);
     await deliverCounterparty(s, trade.tradeId);
     const leg = await runAs(s.app, createPayoutLeg(s.settlementOp.actor, {}), s.settlementOp.ref, 'payout_leg.create', { tradeId: trade.tradeId, amount: '10200.00', payer: 'EXCHANGE_ACCOUNT' as const, inrAccountId: s.inrAccountId });
@@ -293,7 +293,7 @@ describe('the bank statement check covers every movement on the account (SECURIT
   });
 
   it('flags confirmed incoming client INR that the bank never received', async () => {
-    const trade = await openTrade(s, { direction: 'BUY_USDT', executionMode: 'TO_EXCHANGE', baseUsdt: '10', clientRate: '106.000000', routeRate: '104.200000' });
+    const trade = await openTrade(s, { direction: 'BUY_USDT', baseUsdt: '10', clientRate: '106.000000' });
     const first = await settleFirstLeg(s, trade.tradeId);
     await importLines([{ reference: newUtr('FEE'), amount: '11.80', direction: 'DEBIT' }]);
     expect((await casesOn(first.transferId)).map((c) => c.reason)).toEqual(['NOT_IN_STATEMENT']);
@@ -347,7 +347,7 @@ describe('a trade never pays out and refunds at once (FI-25)', () => {
 
 describe('a client may pay the INR of a BUY in more than one transfer (T2)', () => {
   it('two references recorded before either is confirmed make the trade payable once both are confirmed', async () => {
-    const trade = await openTrade(w, { direction: 'BUY_USDT', executionMode: 'TO_EXCHANGE', baseUsdt: '10', clientRate: '106.000000', routeRate: '104.200000' });
+    const trade = await openTrade(w, { direction: 'BUY_USDT', baseUsdt: '10', clientRate: '106.000000' });
     const record = (amount: string) => runAs(w.app, recordIncomingFiat(w.settlementOp.actor), w.settlementOp.ref, 'fiat_in.record', {
       tradeId: trade.tradeId, rail: 'IMPS' as const, utr: newUtr('IN'), amount, inrAccountId: w.inrAccountId,
     });
@@ -367,8 +367,8 @@ describe('a destination archived under an open trade opens CLIENT_BANK_CHANGED (
   afterAll(async () => d.close());
 
   it('puts the open trade on hold with a case, once, and leaves a closed trade alone', async () => {
-    const open = await openTrade(d, { executionMode: 'TO_EXCHANGE', baseUsdt: '10', clientRate: '102.000000', routeRate: '104.200000' });
-    const closed = await openTrade(d, { executionMode: 'TO_EXCHANGE', baseUsdt: '10', clientRate: '102.000000', routeRate: '104.200000' });
+    const open = await openTrade(d, { baseUsdt: '10', clientRate: '102.000000' });
+    const closed = await openTrade(d, { baseUsdt: '10', clientRate: '102.000000' });
     await runAs(d.app, cancelTrade(d.dealer.actor), d.dealer.ref, 'trade.cancel', { tradeId: closed.tradeId, reason: 'client withdrew before sending' });
     await runAs(d.app, archiveBankAccount(d.owner.actor), d.owner.ref, 'client_bank.archive', { bankAccountId: d.bankAccountId, reason: 'client closed this account' });
 
@@ -441,7 +441,7 @@ describe('refunds never exceed the client funds they return (FI-25, IX025)', () 
 });
 
 describe('a BUY trade is not cancelled around a recorded, unconfirmed INR payment', () => {
-  const buyTrade = () => openTrade(w, { direction: 'BUY_USDT', executionMode: 'TO_EXCHANGE', baseUsdt: '10', clientRate: '106.000000', routeRate: '104.200000' });
+  const buyTrade = () => openTrade(w, { direction: 'BUY_USDT', baseUsdt: '10', clientRate: '106.000000' });
   const recordInr = (tradeId: string, amount: string) =>
     runAs(w.app, recordIncomingFiat(w.settlementOp.actor), w.settlementOp.ref, 'fiat_in.record', { tradeId, rail: 'IMPS' as const, utr: newUtr('IN'), amount, inrAccountId: w.inrAccountId });
 
@@ -499,11 +499,11 @@ describe('a statement reference shared across rails is never matched by guess (S
     (await r.app.selectFrom('exception_case').select(sql<string>`details ->> 'reason'`.as('reason')).where('subject_id', '=', transferId).execute()).map((c) => c.reason);
 
   it('matches only the transfer that account, reference, direction and amount single out; otherwise it is ambiguous and reviewed', async () => {
-    const t1 = await openTrade(r, { executionMode: 'TO_EXCHANGE', baseUsdt: '100', clientRate: '102.000000', routeRate: '104.200000' });
+    const t1 = await openTrade(r, { baseUsdt: '100', clientRate: '102.000000' });
     await settleFirstLeg(r, t1.tradeId);
     // The counterparty's INR arrives on the account the client is paid from (D-16).
     await deliverCounterparty(r, t1.tradeId);
-    const t2 = await openTrade(r, { executionMode: 'TO_EXCHANGE', baseUsdt: '100', clientRate: '102.000000', routeRate: '104.200000' });
+    const t2 = await openTrade(r, { baseUsdt: '100', clientRate: '102.000000' });
     await settleFirstLeg(r, t2.tradeId);
     await deliverCounterparty(r, t2.tradeId);
     const x = newUtr('XR');
@@ -532,7 +532,7 @@ describe('a statement reference shared across rails is never matched by guess (S
   });
 
   it('a statement that shows a payment the desk recorded as not received goes to review, not to a match', async () => {
-    const trade = await openTrade(r, { direction: 'BUY_USDT', executionMode: 'TO_EXCHANGE', baseUsdt: '10', clientRate: '106.000000', routeRate: '104.200000' });
+    const trade = await openTrade(r, { direction: 'BUY_USDT', baseUsdt: '10', clientRate: '106.000000' });
     const utr = newUtr('NR');
     const recorded = await runAs(r.app, recordIncomingFiat(r.settlementOp.actor), r.settlementOp.ref, 'fiat_in.record', {
       tradeId: trade.tradeId, rail: 'IMPS' as const, utr, amount: '1060.00', inrAccountId: r.inrAccountId,

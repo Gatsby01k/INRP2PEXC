@@ -34,7 +34,7 @@ let quoteToken = '';
 beforeAll(async () => {
   w = await createWorld('portal_leakage', { capacityInr: '500000000.00' });
 
-  const trade = await openTrade(w, { baseUsdt: BASE_USDT, clientRate: CLIENT_RATE, routeRate: ROUTE_RATE, executionMode: 'TO_EXCHANGE' });
+  const trade = await openTrade(w, { baseUsdt: BASE_USDT, clientRate: CLIENT_RATE, routeRate: ROUTE_RATE });
   tradeRef = trade.tradeRef;
   await settleFirstLeg(w, trade.tradeId);
   await payLeg(trade.tradeId, '50000.00');

@@ -401,36 +401,6 @@ export interface RateHistoryRow {
   readonly byLabel: string;
 }
 
-/**
- * The desk's own route rates as they were published, newest first. A route rate is economics, so the page only
- * asks for this with `economics:view` — the same gate the strip applies to the current rate.
- */
-export async function rateHistory(ex: Executor, opts: { limit?: number } = {}): Promise<readonly RateHistoryRow[]> {
-  const rows = await sql<{
-    id: string; route_id: string; route_name: string; direction: DirectionValue; rate_micro: bigint; previous_micro: bigint | null;
-    effective_at: Date; created_by: string; by_label: string | null;
-  }>`
-    select s.id, s.route_id, r.name as route_name, s.direction, s.rate_micro,
-           lag(s.rate_micro) over (partition by s.route_id, s.direction order by s.effective_at, s.id) as previous_micro,
-           s.effective_at, s.created_by, coalesce(u.name, u.email) as by_label
-    from rate_snapshot s
-    join liquidity_route r on r.id = s.route_id
-    left join auth_user u on u.id::text = s.created_by
-    where s.kind = 'ROUTE' and r.trader_id is null
-    order by s.effective_at desc, s.id desc
-    limit ${opts.limit ?? 40}`.execute(ex);
-  return rows.rows.map((r) => ({
-    id: r.id,
-    routeId: r.route_id,
-    routeName: r.route_name,
-    direction: r.direction,
-    rate: microToDecimal(BigInt(r.rate_micro)),
-    previous: r.previous_micro === null ? null : microToDecimal(BigInt(r.previous_micro)),
-    effectiveAt: r.effective_at.toISOString(),
-    byLabel: label(r.created_by, r.by_label) ?? 'an operator',
-  }));
-}
-
 /* ------------------------------------------------------------------ *
  * References the command palette resolves                              *
  * ------------------------------------------------------------------ */

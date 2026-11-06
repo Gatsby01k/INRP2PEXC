@@ -57,7 +57,7 @@ describe('what a client is told', () => {
   });
 
   it('follows one trade from open to settled, and says "complete" only when it is', async () => {
-    const trade = await openTrade(w, { baseUsdt: '100', clientRate: '90.000000', routeRate: '92.500000', executionMode: 'TO_EXCHANGE' });
+    const trade = await openTrade(w, { baseUsdt: '100', clientRate: '90.000000' });
     await deliver();
     const opened = (await inbox()).find((n) => n.subjectRef === trade.tradeRef && n.kind === 'TRADE_OPENED');
     expect(opened?.body).toContain('100 USDT');

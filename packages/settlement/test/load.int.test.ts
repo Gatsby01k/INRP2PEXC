@@ -74,14 +74,14 @@ beforeAll(async () => {
   // The route's execution mode is set once, here, rather than by whichever lane gets there first: configuring a
   // route takes its version, so six lanes asking for the same change would just make five of them wrong. This
   // is setup, not the thing being measured.
-  await openTrade(w, { baseUsdt: BASE_USDT, clientRate: CLIENT_RATE, executionMode: 'TO_EXCHANGE' });
+  await openTrade(w, { baseUsdt: BASE_USDT, clientRate: CLIENT_RATE });
 }, 180_000);
 afterAll(async () => w.close());
 
 describe(`accepting ${TOTAL} quotes on ${WORKERS} lanes`, () => {
   it('opens every trade exactly once, with a deposit address of its own', async () => {
     const opened = await inParallel(TOTAL, async () =>
-      timed('quote.accept', () => openTrade(w, { baseUsdt: BASE_USDT, clientRate: CLIENT_RATE, executionMode: 'TO_EXCHANGE' })),
+      timed('quote.accept', () => openTrade(w, { baseUsdt: BASE_USDT, clientRate: CLIENT_RATE })),
     );
     accepted.push(...opened.map((o) => ({ tradeId: o.tradeId, tradeRef: o.tradeRef })));
     expect(new Set(accepted.map((t) => t.tradeId)).size).toBe(TOTAL);
@@ -125,7 +125,7 @@ describe(`settling ${TOTAL} trades on ${WORKERS} lanes`, () => {
   it('confirms once when two lanes confirm the same payment at the same moment', async () => {
     // The race a retry actually causes: the operator's browser resends, or two tabs are open. One idempotency
     // key means one payment; two keys against one leg means the second is refused by the leg's own state.
-    const trade = await openTrade(w, { baseUsdt: BASE_USDT, clientRate: CLIENT_RATE, executionMode: 'TO_EXCHANGE' });
+    const trade = await openTrade(w, { baseUsdt: BASE_USDT, clientRate: CLIENT_RATE });
     await settleFirstLeg(w, trade.tradeId);
     await deliverCounterparty(w, trade.tradeId);
     const leg = await runAs(w.app, createPayoutLeg(w.settlementOp.actor, {}), w.settlementOp.ref, 'payout_leg.create', {

@@ -9,10 +9,6 @@ export type QueueGroupKey = 'needs_action' | 'exception' | 'settlement' | 'waiti
 /** What the row's next action is. The page turns this into a button and a keyboard shortcut. */
 export type QueueAction =
   | 'QUOTE'
-  | 'CREATE_PAYOUT'
-  | 'CONFIRM_INCOMING'
-  | 'RECORD_EVIDENCE'
-  | 'CONFIRM_PAYOUT'
   | 'RESOLVE_EXCEPTION'
   | 'COPY_LINK'
   | 'NONE';
@@ -73,11 +69,6 @@ interface RawRow {
   lifecycle: string | null;
   hold: boolean;
   since: Date;
-  /** Payout legs in flight on this trade. */
-  legs_processing: number;
-  legs_pending: number;
-  /** Whether a payout leg in flight already carries its evidence. */
-  legs_with_evidence: number;
   paid_minor: bigint;
   committed_minor: bigint;
   payout_minor: bigint | null;
@@ -85,8 +76,6 @@ interface RawRow {
   case_detail: string | null;
   expires_at: Date | null;
   has_link: boolean;
-  /** P2P (ADR 0019): the rupees go between client and trader, never through INRP2P — there is no payout to make. */
-  p2p?: boolean;
 }
 
 /**
@@ -105,7 +94,6 @@ export async function deskQueue(ex: Executor, access: DeskAccess, opts: { limitP
            r.requested_base_minor as base_minor, r.requested_quote_minor as quote_minor,
            r.target_rate_micro as client_rate_micro, null::bigint as route_rate_micro, null::bigint as margin_minor, null::bigint as margin_usdt_minor,
            null::text as lifecycle, false as hold, r.created_at as since,
-           0 as legs_processing, 0 as legs_pending, 0 as legs_with_evidence,
            0::bigint as paid_minor, 0::bigint as committed_minor, null::bigint as payout_minor,
            null::text as blocking_case, null::text as case_detail, null::timestamptz as expires_at, false as has_link
     from trade_request r join client c on c.id = r.client_id
@@ -119,7 +107,6 @@ export async function deskQueue(ex: Executor, access: DeskAccess, opts: { limitP
            q.base_minor, q.quote_inr_minor as quote_minor, q.client_rate_micro, q.route_rate_micro,
            q.gross_margin_inr_minor as margin_minor, (q.gross_margin_base_minor - coalesce(q.network_fee_base_minor, 0)) as margin_usdt_minor,
            null::text as lifecycle, false as hold, q.sent_at as since,
-           0 as legs_processing, 0 as legs_pending, 0 as legs_with_evidence,
            0::bigint as paid_minor, 0::bigint as committed_minor, null::bigint as payout_minor,
            null::text as blocking_case, null::text as case_detail, q.expires_at,
            exists (select 1 from quote_link l where l.quote_id = q.id and l.revoked_at is null) as has_link
@@ -133,11 +120,6 @@ export async function deskQueue(ex: Executor, access: DeskAccess, opts: { limitP
            e.base_minor, e.quote_inr_minor as quote_minor, e.client_rate_micro, e.route_rate_micro,
            e.gross_margin_inr_minor as margin_minor, (e.gross_margin_base_minor - coalesce(e.network_fee_base_minor, 0)) as margin_usdt_minor,
            t.lifecycle_state as lifecycle, t.hold, t.opened_at as since,
-           (select count(*) from settlement_leg l where l.trade_id = t.id and l.side = 'EXCHANGE_TO_CLIENT' and l.status = 'PROCESSING')::int as legs_processing,
-           (select count(*) from settlement_leg l where l.trade_id = t.id and l.side = 'EXCHANGE_TO_CLIENT' and l.status = 'PENDING')::int as legs_pending,
-           (select count(*) from settlement_leg l
-              join transfer_allocation a on a.settlement_leg_id = l.id and a.voided_at is null
-             where l.trade_id = t.id and l.side = 'EXCHANGE_TO_CLIENT' and l.status = 'PROCESSING')::int as legs_with_evidence,
            coalesce((select sum(l.amount_minor) from settlement_leg l
                       where l.trade_id = t.id and l.side = 'EXCHANGE_TO_CLIENT' and l.status = 'COMPLETED'), 0)::bigint as paid_minor,
            coalesce((select sum(l.amount_minor) from settlement_leg l
@@ -149,8 +131,7 @@ export async function deskQueue(ex: Executor, access: DeskAccess, opts: { limitP
            (select x.details::text from exception_case x
              where x.trade_id = t.id and x.status in ('OPEN', 'IN_PROGRESS') and x.severity = 'BLOCKING'
              order by x.opened_at limit 1) as case_detail,
-           null::timestamptz as expires_at, false as has_link,
-           e.route_execution_mode = 'P2P' as p2p
+           null::timestamptz as expires_at, false as has_link
     from trade t
     join client c on c.id = t.client_id
     join trade_economics e on e.trade_id = t.id
@@ -187,40 +168,14 @@ function classifyTrade(r: RawRow): { group: QueueGroupKey; status: string; actio
     return { group: 'exception', status: exceptionLabel(r), action: 'RESOLVE_EXCEPTION' };
   }
   const sell = r.direction === 'SELL_USDT';
-  if (r.p2p) return classifyP2p(r.lifecycle, sell);
-  switch (r.lifecycle) {
-    case 'AWAITING_FIRST_LEG':
-      return { group: 'waiting_client', status: sell ? 'Awaiting USDT' : 'Awaiting INR', action: 'NONE' };
-    case 'FIRST_LEG_DETECTED':
-      // SELL: the chain is still working. BUY: a human claimed an INR reference and must confirm it.
-      return sell
-        ? { group: 'processing', status: 'USDT detected · awaiting solidification', action: 'NONE' }
-        : { group: 'needs_action', status: 'INR claimed', action: 'CONFIRM_INCOMING' };
-    case 'FIRST_LEG_CONFIRMED':
-      return { group: 'needs_action', status: sell ? 'USDT confirmed' : 'INR confirmed', action: 'CREATE_PAYOUT' };
-    case 'SETTLING':
-    case 'PARTIALLY_SETTLED': {
-      if (r.legs_processing > 0) {
-        return r.legs_with_evidence >= r.legs_processing
-          ? { group: 'settlement', status: 'Payout in flight', action: 'CONFIRM_PAYOUT' }
-          : { group: 'settlement', status: 'Payout sent · needs reference', action: 'RECORD_EVIDENCE' };
-      }
-      if (r.legs_pending > 0) return { group: 'settlement', status: 'Payout leg pending', action: 'RECORD_EVIDENCE' };
-      const remaining = (r.payout_minor ?? 0n) - r.committed_minor;
-      return remaining > 0n
-        ? { group: 'needs_action', status: 'Payout remaining', action: 'CREATE_PAYOUT' }
-        : { group: 'processing', status: 'Settling', action: 'NONE' };
-    }
-    default:
-      return { group: 'processing', status: r.lifecycle ?? 'Open', action: 'NONE' };
-  }
+  return classifyDeal(r.lifecycle, sell);
 }
 
 /**
- * A P2P trade (ADR 0019): the rupees go between the client and the trader, and the one who received them confirms —
+ * A deal (ADR 0019): the rupees go between the client and the trader, and the one who received them confirms —
  * INRP2P makes no payout and confirms no credit. It waits on whoever's move it is, until a case brings it back here.
  */
-function classifyP2p(lifecycle: string | null, sell: boolean): { group: QueueGroupKey; status: string; action: QueueAction } {
+function classifyDeal(lifecycle: string | null, sell: boolean): { group: QueueGroupKey; status: string; action: QueueAction } {
   switch (lifecycle) {
     case 'AWAITING_FIRST_LEG':
       return { group: 'waiting_client', status: sell ? 'Awaiting USDT into escrow' : 'Awaiting the escrow and the INR', action: 'NONE' };

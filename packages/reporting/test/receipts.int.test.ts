@@ -26,7 +26,7 @@ let tradeRef = '';
 
 beforeAll(async () => {
   w = await createWorld('receipts', { capacityInr: '500000000.00' });
-  const trade = await openTrade(w, { baseUsdt: '1000', clientRate: CLIENT_RATE, routeRate: ROUTE_RATE, executionMode: 'TO_EXCHANGE' });
+  const trade = await openTrade(w, { baseUsdt: '1000', clientRate: CLIENT_RATE, routeRate: ROUTE_RATE });
   tradeId = trade.tradeId;
   tradeRef = trade.tradeRef;
   await settleFirstLeg(w, tradeId);
@@ -71,7 +71,7 @@ describe('the snapshot', () => {
   });
 
   it('refuses to describe a trade that has not finished', async () => {
-    const open = await openTrade(w, { baseUsdt: '10', clientRate: CLIENT_RATE, routeRate: ROUTE_RATE, executionMode: 'TO_EXCHANGE' });
+    const open = await openTrade(w, { baseUsdt: '10', clientRate: CLIENT_RATE, routeRate: ROUTE_RATE });
     await expect(buildReceiptSnapshot(w.app, open.tradeId)).rejects.toMatchObject({ code: 'INVALID_TRANSITION' });
   });
 });
@@ -93,7 +93,7 @@ describe('issuing', () => {
   });
 
   it('is what the outbox handler does with `receipt.generate`', async () => {
-    const other = await openTrade(w, { baseUsdt: '20', clientRate: CLIENT_RATE, routeRate: ROUTE_RATE, executionMode: 'TO_EXCHANGE' });
+    const other = await openTrade(w, { baseUsdt: '20', clientRate: CLIENT_RATE, routeRate: ROUTE_RATE });
     await settleFirstLeg(w, other.tradeId);
     await ensureCounterpartyFunds(w, other.tradeId);
     const leg = await runAs(w.app, createPayoutLeg(w.settlementOp.actor, {}), w.settlementOp.ref, 'payout_leg.create', {
@@ -256,7 +256,7 @@ describe('an adjusted trade is receipted at what actually changed hands (FI-12)'
 
   it('writing off an unpaid remainder receipts the INR the client received, not the INR it was quoted', async () => {
     const w = a;
-    const trade = await openTrade(w, { baseUsdt: '100', clientRate: CLIENT_RATE, routeRate: ROUTE_RATE, executionMode: 'TO_EXCHANGE' });
+    const trade = await openTrade(w, { baseUsdt: '100', clientRate: CLIENT_RATE, routeRate: ROUTE_RATE });
     await settleFirstLeg(w, trade.tradeId);
     await ensureCounterpartyFunds(w, trade.tradeId);
     const leg = await runAs(w.app, createPayoutLeg(w.settlementOp.actor, {}), w.settlementOp.ref, 'payout_leg.create', {

@@ -32,7 +32,7 @@ async function freshWallet(): Promise<{ id: string; address: string }> {
 
 /** A BUY trade whose client paid and whose counterparty delivered `amount` USDT to `wallet`, with its payout planned from there. */
 async function plannedPayout(wallet: { id: string }, amount: string): Promise<{ tradeId: string; legId: string }> {
-  const trade = await openTrade(w, { direction: 'BUY_USDT', executionMode: 'TO_EXCHANGE', baseUsdt: amount, clientRate: '106.000000', routeRate: '104.200000' });
+  const trade = await openTrade(w, { direction: 'BUY_USDT', baseUsdt: amount, clientRate: '106.000000' });
   await settleFirstLeg(w, trade.tradeId);
   await deliverCounterparty(w, trade.tradeId, { treasuryWalletId: wallet.id });
   const leg = await runAs(w.app, createPayoutLeg(w.settlementOp.actor, {}), w.settlementOp.ref, 'payout_leg.create', { tradeId: trade.tradeId, amount, payer: 'EXCHANGE_ACCOUNT' as const, treasuryWalletId: wallet.id });
@@ -170,7 +170,7 @@ describe('a deposit address holding a trade’s money stays out of the pool (IX0
   it('the cooldown job passes over it, releases the others, and releases it once the money has left', async () => {
     // A SELL trade completes when the client is paid (FI-62); the client's USDT can still be at its deposit address,
     // owed to the counterparty that delivered the INR.
-    const trade = await openTrade(w, { executionMode: 'TO_EXCHANGE', baseUsdt: '100', clientRate: '102.000000', routeRate: '104.200000' });
+    const trade = await openTrade(w, { baseUsdt: '100', clientRate: '102.000000' });
     await settleFirstLeg(w, trade.tradeId);
     await deliverCounterparty(w, trade.tradeId);
     const leg = await runAs(w.app, createPayoutLeg(w.settlementOp.actor, {}), w.settlementOp.ref, 'payout_leg.create', { tradeId: trade.tradeId, amount: '10200.00', payer: 'EXCHANGE_ACCOUNT' as const, inrAccountId: w.inrAccountId });
@@ -181,7 +181,7 @@ describe('a deposit address holding a trade’s money stays out of the pool (IX0
     const held = await clientDepositAddressOf(w, trade.tradeId);
 
     // An address with nothing in it, cancelled before any money arrived.
-    const idle = await openTrade(w, { executionMode: 'TO_EXCHANGE', baseUsdt: '50' });
+    const idle = await openTrade(w, { baseUsdt: '50' });
     const idleAddress = await clientDepositAddressOf(w, idle.tradeId);
     await runAs(w.app, cancelTrade(w.dealer.actor), w.dealer.ref, 'trade.cancel', { tradeId: idle.tradeId, reason: 'client stood down before sending' });
 

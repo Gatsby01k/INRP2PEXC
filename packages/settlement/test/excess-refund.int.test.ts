@@ -26,7 +26,7 @@ const usdt = (v: string) => Money.parse(v, 'USDT').minor;
 const stateOf = async (tradeId: string) => (await w.app.selectFrom('trade').select(['lifecycle_state', 'hold']).where('id', '=', tradeId).executeTakeFirstOrThrow());
 
 async function overpaidSell(base = '100', sent = '105') {
-  const trade = await openTrade(w, { executionMode: 'TO_EXCHANGE', baseUsdt: base, clientRate: '102.000000', routeRate: '104.200000' });
+  const trade = await openTrade(w, { baseUsdt: base, clientRate: '102.000000' });
   await settleFirstLeg(w, trade.tradeId, { amountUsdt: sent });
   const overpayment = await w.app.selectFrom('exception_case').select('id').where('trade_id', '=', trade.tradeId).where('type', '=', 'USDT_OVERPAYMENT').executeTakeFirstOrThrow();
   const deposit = await clientDepositAddressOf(w, trade.tradeId);
@@ -89,7 +89,7 @@ describe('an overpayment is returned and the trade goes on (D2)', () => {
     await expect(sql`insert into settlement_leg (trade_id, seq, ref, side, asset, amount_minor, payer, treasury_wallet_id, refund_kind, created_by)
                      values (${t.tradeId}, 96, 'y', 'REFUND_TO_CLIENT', 'USDT', ${usdt('1')}, 'EXCHANGE_ACCOUNT', ${w.treasuryWalletId}, 'EXCESS', 'old-app')`.execute(w.t.owner))
       .rejects.toSatisfy((e) => pgErrorCode(e) === '23514'); // an excess refund names where it goes
-    const exact = await openTrade(w, { executionMode: 'TO_EXCHANGE', baseUsdt: '10', clientRate: '102.000000', routeRate: '104.200000' });
+    const exact = await openTrade(w, { baseUsdt: '10', clientRate: '102.000000' });
     await settleFirstLeg(w, exact.tradeId);
     await expect(runAs(w.app, refundExcess(w.settlementOp.actor), w.settlementOp.ref, 'trade.refund_excess', { tradeId: exact.tradeId, sourceDepositAddressId: (await clientDepositAddressOf(w, exact.tradeId)).id, destinationWalletId: sourceWalletId }))
       .rejects.toMatchObject({ code: 'INVALID_TRANSITION' });
@@ -113,7 +113,7 @@ describe('an overpayment is returned and the trade goes on (D2)', () => {
   });
 
   it('returns an INR overpayment to a verified bank account of the client, from where the INR arrived', async () => {
-    const trade = await openTrade(w, { direction: 'BUY_USDT', executionMode: 'TO_EXCHANGE', baseUsdt: '100', clientRate: '106.000000', routeRate: '104.200000' });
+    const trade = await openTrade(w, { direction: 'BUY_USDT', baseUsdt: '100', clientRate: '106.000000' });
     const recorded = await runAs(w.app, recordIncomingFiat(w.settlementOp.actor), w.settlementOp.ref, 'fiat_in.record', {
       tradeId: trade.tradeId, rail: 'IMPS' as const, utr: newUtr('IN'), amount: '10700.00', inrAccountId: w.inrAccountId,
     });

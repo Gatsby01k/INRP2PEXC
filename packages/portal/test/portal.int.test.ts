@@ -87,7 +87,7 @@ describe('the exchange screen', () => {
       clientId: w.clientId, direction: 'SELL_USDT' as const, fixedSide: 'BASE' as const, amount: '12', bankAccountId: w.bankAccountId,
     });
     await runAs(w.app, declineRequest(w.dealer.actor), w.dealer.ref, 'request.decline', { requestId: declined.requestId, reason: 'Too small' });
-    const trade = await openTrade(w, { baseUsdt: '30', clientRate: '90.000000', routeRate: '92.500000', executionMode: 'TO_EXCHANGE' });
+    const trade = await openTrade(w, { baseUsdt: '30', clientRate: '90.000000' });
 
     const view = await exchangeView(w.app, w.clientId);
     expect(view.request).toBeNull();
@@ -99,7 +99,7 @@ describe('the exchange screen', () => {
 
 describe('one trade, as its client sees it', () => {
   it('walks the four stages as the money actually moves', async () => {
-    const trade = await openTrade(w, { baseUsdt: '1000', clientRate: '90.000000', routeRate: '92.500000', executionMode: 'TO_EXCHANGE' });
+    const trade = await openTrade(w, { baseUsdt: '1000', clientRate: '90.000000' });
 
     const awaiting = await portalTrade(w.app, w.clientId, trade.tradeRef);
     expect(awaiting.trade.status).toBe('AWAITING_FIRST_LEG');
@@ -130,7 +130,7 @@ describe('one trade, as its client sees it', () => {
   });
 
   it('walks a BUY the same way: the INR the client pays is their leg, confirmed by the desk', async () => {
-    const trade = await openTrade(w, { direction: 'BUY_USDT', baseUsdt: '100', clientRate: '106.000000', routeRate: '104.000000', executionMode: 'TO_EXCHANGE' });
+    const trade = await openTrade(w, { direction: 'BUY_USDT', baseUsdt: '100', clientRate: '106.000000' });
 
     const awaiting = await portalTrade(w.app, w.clientId, trade.tradeRef);
     expect(awaiting.trade.direction).toBe('BUY_USDT');
@@ -152,12 +152,12 @@ describe('one trade, as its client sees it', () => {
   });
 
   it('never tells one client about another client’s trade', async () => {
-    const trade = await openTrade(w, { baseUsdt: '10', clientRate: '90.000000', routeRate: '92.500000', executionMode: 'TO_EXCHANGE' });
+    const trade = await openTrade(w, { baseUsdt: '10', clientRate: '90.000000' });
     await expect(portalTrade(w.app, randomUUID(), trade.tradeRef)).rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
 
   it('says a trade is on hold without explaining the desk’s problem to the client', async () => {
-    const trade = await openTrade(w, { baseUsdt: '20', clientRate: '90.000000', routeRate: '92.500000', executionMode: 'TO_EXCHANGE' });
+    const trade = await openTrade(w, { baseUsdt: '20', clientRate: '90.000000' });
     await settleFirstLeg(w, trade.tradeId, { amountUsdt: '19' });
     const held = await portalTrade(w.app, w.clientId, trade.tradeRef);
     expect(held.onHold).toBe(true);

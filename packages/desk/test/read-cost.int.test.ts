@@ -16,7 +16,7 @@ beforeAll(async () => {
 });
 afterAll(async () => w.close());
 
-const PROFITABLE = { baseUsdt: '1000', clientRate: '102.000000', routeRate: '104.200000', executionMode: 'TO_EXCHANGE' } as const;
+const PROFITABLE = { baseUsdt: '1000', clientRate: '102.000000' } as const;
 
 describe('route positions (Rates)', () => {
   it('read in three statements however many obligations are open — never three per obligation', async () => {

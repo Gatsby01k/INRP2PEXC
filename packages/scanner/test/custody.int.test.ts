@@ -53,8 +53,8 @@ describe('custody_observe', () => {
   });
 
   it('reads the deposit addresses that hold a trade’s money, and not the idle ones', async () => {
-    const trade = await openTrade(w, { executionMode: 'TO_EXCHANGE', baseUsdt: '25', clientRate: '102.000000', routeRate: '104.200000' });
-    const idle = await openTrade(w, { executionMode: 'TO_EXCHANGE', baseUsdt: '25', clientRate: '102.000000' });
+    const trade = await openTrade(w, { baseUsdt: '25', clientRate: '102.000000' });
+    const idle = await openTrade(w, { baseUsdt: '25', clientRate: '102.000000' });
     const deposit = async (tradeId: string) => (await w.app.selectFrom('deposit_assignment as a').innerJoin('deposit_address as d', 'd.id', 'a.deposit_address_id').select('d.address').where('a.trade_id', '=', tradeId).executeTakeFirstOrThrow()).address;
     expect(await addressesToObserve(w.app)).not.toContain(await deposit(trade.tradeId));
     await settleFirstLeg(w, trade.tradeId);

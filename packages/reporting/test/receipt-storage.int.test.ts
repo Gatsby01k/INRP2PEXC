@@ -24,7 +24,7 @@ const printer: ReceiptPdfPrinter = {
 };
 
 async function completedTrade(): Promise<{ tradeId: string; tradeRef: string }> {
-  const trade = await openTrade(w, { baseUsdt: '100', clientRate: '90.000000', routeRate: '92.500000', executionMode: 'TO_EXCHANGE' });
+  const trade = await openTrade(w, { baseUsdt: '100', clientRate: '90.000000' });
   await settleFirstLeg(w, trade.tradeId);
   await ensureCounterpartyFunds(w, trade.tradeId);
   const leg = await runAs(w.app, createPayoutLeg(w.settlementOp.actor, {}), w.settlementOp.ref, 'payout_leg.create', { tradeId: trade.tradeId, amount: '9000.00', payer: 'EXCHANGE_ACCOUNT' as const, inrAccountId: w.inrAccountId });

@@ -43,7 +43,7 @@ const decide = (who: TestOperator, liftId: string, approve: boolean) =>
 const resume = () => runAs(w.app, setNewBusiness(w.financeOp.actor), w.financeOp.ref, 'settings.resume_new_business', { paused: false, reason: 'reconciled after the restore drill' });
 
 async function fundedSellTrade(baseUsdt: string) {
-  const trade = await openTrade(w, { executionMode: 'TO_EXCHANGE', baseUsdt, clientRate: '102.000000', routeRate: '104.200000' });
+  const trade = await openTrade(w, { baseUsdt, clientRate: '102.000000' });
   await settleFirstLeg(w, trade.tradeId);
   await deliverCounterparty(w, trade.tradeId);
   return trade;
