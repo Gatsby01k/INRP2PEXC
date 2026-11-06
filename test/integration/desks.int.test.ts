@@ -54,7 +54,7 @@ const deskClientOf = (clientId: string) => w.app.selectFrom('desk_client').selec
 beforeAll(async () => {
   w = await createRailsWorld('desks');
   const program = await w.app.selectFrom('trader_program').select('version').where('id', '=', 1).executeTakeFirstOrThrow();
-  await runAs(w.app, configureTraderProgram(w.finance.actor), w.finance.ref, 'trader_program.configure', { expectedVersion: program.version, executionMode: 'P2P' as const, riskPolicy: null, reason: 'desks deal P2P' });
+  await runAs(w.app, configureTraderProgram(w.finance.actor), w.finance.ref, 'trader_program.configure', { expectedVersion: program.version, riskPolicy: null, reason: 'desks deal P2P' });
   desk = await railsTrader(w, 'Rahul OTC', {
     buy: { capacity: '50000000', rate: '101.20', min: '100', max: '20000000' },
     sell: { capacity: '500000', rate: '101.80', min: '10', max: '200000' },
@@ -184,7 +184,7 @@ describe('a client sells USDT to the desk at its live price', () => {
     await settleFirstLeg(w, accepted.tradeId);
     const deposit = await w.app.selectFrom('deposit_assignment as a').innerJoin('deposit_address as d', 'd.id', 'a.deposit_address_id').select('d.address').where('a.trade_id', '=', accepted.tradeId).executeTakeFirstOrThrow();
     const orderRef = await orderRefOf(quote.orderId);
-    const paid = await runAs(w.app, submitOrderPayment(desk.admin.actor, w.traderDeps), desk.admin.ref, 'trader_order.submit_payment', { ref: orderRef, rail: 'IMPS' as const, utr: utr() });
+    const paid = await runAs(w.app, submitOrderPayment(desk.admin.actor), desk.admin.ref, 'trader_order.submit_payment', { ref: orderRef, rail: 'IMPS' as const, utr: utr() });
     const holder = (await w.app.selectFrom('bank_account').select('holder_name').where('id', '=', desk.bankAccountId).executeTakeFirstOrThrow()).holder_name;
     expect(await runAs(w.app, confirmClientReceipt(w.acceptor.actor, w.settlementDeps), w.acceptor.ref, 'payout.confirm_received', { tradeRef: await refOf(accepted.tradeId), legRef: paid.settlementRef, senderName: holder }))
       .toMatchObject({ verdict: 'MATCH', confirmed: true });

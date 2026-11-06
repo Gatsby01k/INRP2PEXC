@@ -248,3 +248,6 @@ the market reference (two Indian books agreeing), never below the minimum net ma
 priced on without being asked; amounts no firm offer covers go to several traders as a price request. Off until the owner
 switches it on; desks and their fees unchanged; anything that cannot be priced honestly waits for a person.
 
+## D-25 — P2P only: the old settlement models are removed — Resolved (owner, 2026-11-05; ADR 0027)
+
+INR accounts, payments through the exchange, operator-recorded payouts, direct payouts and trader rewards are deleted. TRX mode stays as the fallback for GasFree. Their tables go with a later migration.

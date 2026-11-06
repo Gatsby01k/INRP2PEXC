@@ -29,8 +29,8 @@ import { CLIENT_AUTH_SECRET, E2E_FIELD_KEYS, OPERATOR_AUTH_SECRET, OPERATOR_PASS
  * test worker, because the chain is: what the browser does lands in the database, what the chain does happens here,
  * and the signer that releases each escrow runs here too — exactly the split between the web app and the worker.
  *
- * Its own database and its own server: the main run's world settles through a custody provider's pool (D-02); a desk's
- * deals settle P2P through the HD wallet, and a server is configured for one or the other.
+ * Its own database and its own server: the main run's world takes deposits on a custody provider's pool (D-02); a desk's
+ * deals run on the HD wallet, and a server is configured for one or the other.
  */
 export const DESKS_DB = 'inrp2p_e2e_desks';
 export const DESKS_OTP_SINK = path.join(import.meta.dirname, '.desks-otp.jsonl');
@@ -117,7 +117,7 @@ export async function createDeskWorld(adminUrl: string, port: number): Promise<D
   await run(db, publishTrxRate(owner.actor), owner.ref, 'network.publish_trx_rate', { usdtPerTrx: '0.300000', source: 'e2e', confirmLargeChange: true });
   const programme = await db.selectFrom('trader_program').select('version').where('id', '=', 1).executeTakeFirstOrThrow();
   await run(db, configureTraderProgram(owner.actor), owner.ref, 'trader_program.configure', {
-    expectedVersion: programme.version, defaultRequiredReserve: '500', executionMode: 'P2P' as const, reason: 'desks deal P2P',
+    expectedVersion: programme.version, defaultRequiredReserve: '500', reason: 'desks deal P2P',
   });
 
   const sendUsdt = async (from: string, to: string, amount: string) => {

@@ -6,7 +6,7 @@ import { UnconfiguredNotificationAdapter, isNotificationProviderConfigured } fro
 import { dispatchOutbox } from '@inrp2p/outbox';
 import { createQuote, createRequest, sendQuote } from '@inrp2p/quotes';
 import { EMAIL_STALE_AFTER_HOURS, acknowledgedSignalHandler, clientInbox, clientNotificationEmailHandler, clientNotificationHandler, emailDeliveryId } from '../src/index.ts';
-import { type World, createWorld } from '../../settlement/test/world.ts';
+import { type World, createWorld, routeToTrader } from '../../settlement/test/world.ts';
 
 /**
  * The email channel carries the inbox's own words, once, to the people the desk actually knows.
@@ -18,7 +18,7 @@ let w: World;
 let mailbox: FakeNotificationAdapter;
 
 beforeAll(async () => {
-  w = await createWorld('client_email', { capacityInr: '500000000.00' });
+  w = await createWorld('client_email');
   mailbox = new FakeNotificationAdapter();
 });
 afterAll(async () => w.close());
@@ -40,7 +40,7 @@ async function sendAQuote(amount: string) {
     clientId: w.clientId, direction: 'SELL_USDT' as const, fixedSide: 'BASE' as const, amount, bankAccountId: w.bankAccountId,
   });
   const quote = await runAs(w.app, createQuote(w.dealer.actor, {}), w.dealer.ref, 'quote.create', {
-    requestId: request.requestId, routeId: w.routeId, clientRate: '90.000000', validitySeconds: 300,
+    requestId: request.requestId, routeId: (await routeToTrader(w, request.requestId, '90.000000')).routeId, clientRate: '90.000000', validitySeconds: 300,
   });
   await runAs(w.app, sendQuote(w.dealer.actor, {}), w.dealer.ref, 'quote.send', { quoteId: quote.quoteId });
   return quote.quoteId;

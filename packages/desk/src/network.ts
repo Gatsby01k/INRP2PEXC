@@ -1,5 +1,5 @@
 import { sql } from 'kysely';
-import { Money, formatTrx, trxToInrMinor } from '@inrp2p/kernel';
+import { Money, formatTrx } from '@inrp2p/kernel';
 import type { Executor } from '@inrp2p/db';
 import {
   budgetFigures, custodyHdAccount, latestFeeSnapshot, latestGasFreeFees, latestTrxRate, listSends, networkBudgetWallet, networkFeePolicy, openWithdrawals, quoteFeeSun, reservePerSendSun,
@@ -7,9 +7,8 @@ import {
 
 /**
  * The desk's view of the exchange's own rails (ADR 0017): the TRX budget each funder prefunded and what of it is free,
- * what the chain charges and what a TRX is worth, every send in flight with its transactions, the trades' network
- * economics — the fee priced in, what the network actually cost, what the trader is paid back and what is left — and
- * the budget wallet as the chain sees it against what the records say it holds.
+ * what the chain charges and what a TRX is worth, every send in flight with its transactions, what each trade's transfers
+ * held and burned — a deal's TRX is its trader's cost, never in its price and never INRP2P's — and the budget wallet as the chain sees it against what the records say it holds.
  */
 export interface FunderRow {
   readonly funder: 'PLATFORM' | string;
@@ -60,25 +59,11 @@ export interface TradeNetworkRow {
   readonly direction: 'SELL_USDT' | 'BUY_USDT';
   readonly lifecycle: string;
   readonly funder: string;
-  readonly grossMargin: string;
-  readonly reward: string;
-  /** The network fee inside the client's price (INR) and the TRX it priced. */
-  readonly feeCharged: string;
-  readonly feeChargedTrx: string;
   readonly heldTrx: string;
-  /** TRX the trade's transfers actually cost the funder (top-ups and their fees), and its INR value at the quote's price. */
+  /** TRX the trade's transfers actually cost the funder (top-ups and their fees). */
   readonly spentTrx: string;
   /** Of that, what a trader bears (a return its own failure caused): not a cost of the trade. */
   readonly traderBorneTrx: string;
-  /** What the network cost the exchange, in INR at the quote's TRX price and rate. */
-  readonly spentInr: string;
-  readonly reimbursed: string | null;
-  /**
-   * What the trade leaves: gross margin less the reward less the network — what its transfers actually cost once its
-   * hold is closed (`netFinal`), and until then the fee its price carried (or the cost so far, if that is already more).
-   */
-  readonly netProfit: string;
-  readonly netFinal: boolean;
   readonly holdStatus: 'ACTIVE' | 'CLOSED' | 'NONE';
 }
 
@@ -215,18 +200,13 @@ async function sendRowsOf(ex: Executor, filter: { tradeId?: string; limit: numbe
   }));
 }
 
-/**
- * Each trade's network economics. What the network cost the exchange is what its transfers burned less the part a
- * trader bears (a return its own failure caused): that part is the trader's, not a cost of the trade.
- */
+/** What each trade's transfers held and burned, and the part a trader bears because its own failure caused it. */
 async function tradeNetworkRows(ex: Executor, filter: { tradeId?: string; limit: number; trxOnly?: boolean }): Promise<TradeNetworkRow[]> {
   const rows = await sql<{
-    id: string; ref: string; direction: 'SELL_USDT' | 'BUY_USDT'; lifecycle_state: string; gross: bigint; reward: bigint; fee_inr: bigint; fee_sun: bigint; usdt_per_trx: bigint | null;
-    client_rate: bigint; funder: string | null; trader_ref: string | null; hold_amount: bigint | null; hold_status: 'ACTIVE' | 'CLOSED' | null; reimbursed: bigint | null; spent: string; trader_borne: string;
+    id: string; ref: string; direction: 'SELL_USDT' | 'BUY_USDT'; lifecycle_state: string; funder: string | null; trader_ref: string | null; hold_amount: bigint | null; hold_status: 'ACTIVE' | 'CLOSED' | null; spent: string; trader_borne: string;
   }>`
-    select t.id, t.ref, t.direction, t.lifecycle_state, q.gross_margin_inr_minor as gross, f.reward_inr_minor as reward, f.fee_inr_minor as fee_inr, f.fee_sun,
-           f.usdt_per_trx_micro as usdt_per_trx, q.client_rate_micro as client_rate, f.funder_trader_id as funder, tp.ref as trader_ref,
-           h.amount_sun as hold_amount, h.status as hold_status, h.reimbursed_inr_minor as reimbursed,
+    select t.id, t.ref, t.direction, t.lifecycle_state, f.funder_trader_id as funder, tp.ref as trader_ref,
+           h.amount_sun as hold_amount, h.status as hold_status,
            coalesce((select -sum(e.amount_sun) from network_budget_entry e where e.kind = 'SPENT' and e.trade_id = t.id), 0)::text as spent,
            coalesce((select -sum(e.amount_sun) from network_budget_entry e
                        join chain_send_attempt a on a.id = e.chain_send_attempt_id
@@ -241,25 +221,14 @@ async function tradeNetworkRows(ex: Executor, filter: { tradeId?: string; limit:
      where (${filter.tradeId ?? null}::uuid is null or t.id = ${filter.tradeId ?? null}::uuid)
        and (${filter.trxOnly ?? false}::boolean is false or f.unit = 'TRX')
      order by t.opened_at desc limit ${filter.limit}`.execute(ex);
-  return rows.rows.map((r) => {
-    const spent = BigInt(r.spent);
-    const traderBorne = BigInt(r.trader_borne);
-    // Terms in USDT (ADR 0022) freeze no TRX price and burn no TRX: there is nothing to convert.
-    const costInr = r.usdt_per_trx === null ? 0n : trxToInrMinor(spent - traderBorne, r.usdt_per_trx, r.client_rate, 'UP');
-    return {
-      tradeId: r.id, ref: r.ref, direction: r.direction, lifecycle: r.lifecycle_state, funder: r.trader_ref ?? 'Platform',
-      grossMargin: Money.ofMinor(r.gross, 'INR').toDecimalString(), reward: Money.ofMinor(r.reward, 'INR').toDecimalString(),
-      feeCharged: Money.ofMinor(r.fee_inr, 'INR').toDecimalString(), feeChargedTrx: trx(r.fee_sun), heldTrx: r.hold_amount === null ? '0.000000' : trx(r.hold_amount),
-      spentTrx: trx(spent), traderBorneTrx: trx(traderBorne), spentInr: Money.ofMinor(costInr, 'INR').toDecimalString(),
-      reimbursed: r.reimbursed === null ? null : Money.ofMinor(r.reimbursed, 'INR').toDecimalString(),
-      netProfit: Money.ofMinor(r.gross - r.reward - (r.hold_status === 'CLOSED' || costInr > r.fee_inr ? costInr : r.fee_inr), 'INR').toDecimalString(),
-      netFinal: r.hold_status === 'CLOSED',
-      holdStatus: r.hold_status ?? 'NONE',
-    };
-  });
+  return rows.rows.map((r) => ({
+    tradeId: r.id, ref: r.ref, direction: r.direction, lifecycle: r.lifecycle_state, funder: r.trader_ref ?? 'Platform',
+    heldTrx: r.hold_amount === null ? '0.000000' : trx(r.hold_amount), spentTrx: trx(BigInt(r.spent)), traderBorneTrx: trx(BigInt(r.trader_borne)),
+    holdStatus: r.hold_status ?? 'NONE',
+  }));
 }
 
-/** One trade's network side, for its workspace: the economics (economics viewers only), its sends, and which refunds the signer can send. */
+/** One trade's network side, for its workspace: what it holds and burned, its sends, and which refunds the signer can send. */
 export interface DeskTradeNetwork {
   readonly funder: string;
   readonly holdStatus: 'ACTIVE' | 'CLOSED' | 'NONE';
@@ -268,8 +237,6 @@ export interface DeskTradeNetwork {
   readonly committedTrx: string;
   readonly spentTrx: string;
   readonly traderBorneTrx: string;
-  readonly reimbursed: string | null;
-  readonly economics: Pick<TradeNetworkRow, 'grossMargin' | 'reward' | 'feeCharged' | 'feeChargedTrx' | 'spentInr' | 'netProfit' | 'netFinal'> | null;
   readonly sends: readonly NetworkSendRow[];
   /**
    * USDT refunds waiting for a second person whose money sits at an address the signer holds: approving one sends it.
@@ -280,7 +247,7 @@ export interface DeskTradeNetwork {
   readonly gasFree: { readonly allowance: string; readonly spent: string | null; readonly unused: string | null } | null;
 }
 
-export async function deskTradeNetwork(ex: Executor, tradeId: string, opts: { economics: boolean }): Promise<DeskTradeNetwork | null> {
+export async function deskTradeNetwork(ex: Executor, tradeId: string): Promise<DeskTradeNetwork | null> {
   const [row] = await tradeNetworkRows(ex, { tradeId, limit: 1 });
   if (!row) return null;
   const hold = await ex.selectFrom('network_budget_hold').select(['unit', 'deal_funded_usdt_minor', 'spent_usdt_minor', 'unused_usdt_minor']).where('trade_id', '=', tradeId).executeTakeFirst();
@@ -293,8 +260,7 @@ export async function deskTradeNetwork(ex: Executor, tradeId: string, opts: { ec
             or exists (select 1 from custody_hd_account h where h.fee_wallet_address = tw.address))`.execute(ex);
   return {
     funder: row.funder, holdStatus: row.holdStatus, heldTrx: row.heldTrx, spentTrx: row.spentTrx,
-    committedTrx: trx(BigInt((await sql<{ c: string }>`select inrp2p_trade_network_committed(${tradeId}::uuid, null)::text as c`.execute(ex)).rows[0]!.c)), traderBorneTrx: row.traderBorneTrx, reimbursed: row.reimbursed,
-    economics: opts.economics ? { grossMargin: row.grossMargin, reward: row.reward, feeCharged: row.feeCharged, feeChargedTrx: row.feeChargedTrx, spentInr: row.spentInr, netProfit: row.netProfit, netFinal: row.netFinal } : null,
+    committedTrx: trx(BigInt((await sql<{ c: string }>`select inrp2p_trade_network_committed(${tradeId}::uuid, null)::text as c`.execute(ex)).rows[0]!.c)), traderBorneTrx: row.traderBorneTrx,
     sends: await sendRowsOf(ex, { tradeId, limit: 20 }),
     signerRefunds: legs.rows.map((l) => ({ legId: l.id, destinationSet: l.destination_set })),
     gasFree: hold?.unit === 'USDT' ? {

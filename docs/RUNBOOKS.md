@@ -85,34 +85,22 @@ the chain, and the one thing this system must never do is pay out against money 
 
 ---
 
-## failed-bank-transfer — an INR payout failed at the bank
+## failed-bank-transfer — a client's rupees did not arrive, or its account changed
 
-**What you were told.** A payout leg is `FAILED`, or a client says the money never arrived after the desk
-recorded a reference.
+**What you were told.** A client says the trader's rupees never arrived, or a client's registered bank account was
+archived or changed while a deal was open (`CLIENT_BANK_CHANGED`).
 
-**What to check first.**
+**What to check first.** The trade's **P2P payment**: the UTR the trader filed, its time, the account it was declared from,
+what each side wrote. A deal's rupees go straight between the two of them: INRP2P's desk never pays them, so there is
+nothing to re-send. A payment that did not arrive is a dispute: see `p2p-escrow`.
 
-1. The trade's settlement panel: which leg, which account, which reference, and what the bank said.
-2. Whether the failure is per-transfer (a wrong beneficiary detail) or per-account (the bank rejecting
-   everything).
-3. The client's registered destination: has it been archived or changed since the trade was accepted? A trade
-   pays where it agreed to pay, and a change opens `CLIENT_BANK_CHANGED` rather than silently moving the money.
+**What to do about a changed account.** A deal pays where it agreed to pay. The client's new account is first added and
+verified as usual; then, on the trade's **Destination** panel, one person asks — with why and how the client confirmed
+it — and someone else with the owner or finance role approves it, each with an authenticator code. Approval answers the
+case and tells the client. It is refused while a payment to the old account is unresolved: settle that first.
 
-**What to do.** Mark the leg failed on the desk if the bank has confirmed it will not settle — that releases the
-capacity it reserved — and then create a replacement leg for the same amount. The trade stays open and its
-obligation is unchanged: a failed payout is not a smaller debt. If the destination itself is wrong, resolve the
-`CLIENT_BANK_CHANGED` case first (it opens by itself when the client archives the destination). To pay the new
-account, the client's new destination is first added and verified as usual (their administrator with an
-authenticator code, or the desk with them); then, on the trade's **Destination** panel, one person asks — with why
-and how the client confirmed it — and someone else with the owner or finance role approves it, each with an
-authenticator code. Approval cancels any payout still only planned to the old account (its capacity is released),
-answers the case, and tells the client; the desk then plans the payout again. It is refused while a payout sent to
-the old account is unresolved: confirm it or mark it failed first.
-
-**What never to do.** Do not create the replacement leg before the original is marked failed. For a few
-minutes the trade would have two live legs for one obligation, and if the first one settles after all, the
-client is paid twice. Do not change a trade's destination on a phone call alone: the request records how the
-client confirmed it, and a change nobody can show the client asked for is the destination-swap attack (SECURITY S8).
+**What never to do.** Do not change a trade's destination on a phone call alone: the request records how the client
+confirmed it, and a change nobody can show the client asked for is the destination-swap attack (SECURITY S8).
 
 ---
 
@@ -130,12 +118,11 @@ client confirmed it, and a change nobody can show the client asked for is the de
 
 * **The same payment recorded twice.** Void the duplicate case; the first record stands. Nothing moved twice.
 * **Two payments, one reference mistyped.** Correct the reference on the wrong one through the desk's own
-  correction (step-up, audited — `correct_utr`). The reference on a payment is what the bank's statement will
-  be reconciled against, so it has to match the bank, not our expectation.
+  correction (step-up, audited — `correct_utr`). The reference on a payment is what the payee checks in its bank, so
+  it has to match the bank, not our expectation.
 
 **What never to do.** Do not update `fiat_transfer.utr` directly. The uniqueness constraint and the audit trail
-are the only things making the bank statement import meaningful, and an edited reference quietly breaks the one
-control that catches a payment the bank never made.
+are what catch a payment the bank never made, and an edited reference quietly breaks them.
 
 ---
 
@@ -385,34 +372,26 @@ only thing standing between an unexplained state and a payout.
 
 ---
 
-## route-settlement-overdue — a route has not settled with us
+## route-settlement-overdue — a trader has not delivered its side
 
 **What you were told.** `overdue_route_obligations` above its threshold.
 
-**What to check first.** The Rates screen's route positions: which obligation, which direction, how much is
-outstanding and since when. Then whether the route says it has paid — a settlement recorded but not confirmed
-sits in a different state from one that never happened.
+**What to check first.** The trade: which order, which side, how much and since when. Then whether the trader says it has
+paid — a payment filed but not confirmed sits in a different state from one that never happened.
 
-**What to do.** Record the settlement when it arrives, with its own reference, through the desk. Since D-16 the
-client is paid with the counterparty's money, so an undelivered route side means the client is **waiting for
-liquidity**: chase it now, and note it on the obligation so the next person does not repeat the chase.
+**What to do.** A deal's timers chase the trader and open `P2P_PAYMENT_OVERDUE` or `P2P_RECEIPT_OVERDUE` on their own
+(`p2p-escrow`). Beyond that:
 
-* A trader's **USDT** (its Sell USDT order) that is not coming: on the trader's desk page, **Reserve applied to
-  orders → Apply the reserve to an order** (finance or owner, with the reason); someone else approves. Approval
-  shows the order's delivery address. Have custody send exactly that amount from the trader's reserve address (or a
-  treasury wallet) to it, then record the hash — or let the scanner see it. On finality it is the trader's delivery:
-  pay the client from that address, then pay the trader its INR as for any order.
-* A trader's **INR** (its Buy USDT order): the reserve is USDT and no conversion terms exist (TD-21, owner), so it is
-  only **held** — the same request and approval, with the USDT amount to keep back named; the trader cannot withdraw
-  it, nothing moves, the INR debt stays open. Then wait, or unwind the client trade (refund the client's USDT and
-  cancel) with the client's agreement; the hold ends with the order, or release it with the reason when the trader
-  pays.
-* A desk route late on an exchange-delivers side it already received: a commercial conversation.
+* A trader's **USDT** that never reached the escrow (a client buying): nothing was at risk, because the client pays only
+  once the escrow is funded. The deal cancels on its timer.
+* A trader's **rupees** it does not pay (a client selling, its USDT in escrow): the reserve is USDT and no conversion terms
+  exist (TD-21, owner), so it is only **held** — on the trader's desk page, **Reserve held → Hold the reserve** (finance or
+  owner, with the USDT amount and the reason); someone else approves. The trader cannot withdraw it, nothing moves, the
+  debt stays open. Then wait, or decide the payment not paid: the client's USDT goes back. The hold ends with the order, or
+  release it with the reason when the trader pays.
 
-**What never to do.** Do not pay a client from anything but the trade's own counterparty funds — not the treasury,
-not another trade's money, not a reserve that was not applied through the two-person path. Do not apply a reserve
-to cover a different trader, a fee, a penalty or an INR shortfall: those are owner decisions, not desk ones. And
-never have custody send a reserve before the application is approved — the scanner will not recognise it.
+**What never to do.** Do not pay anyone from anything but the deal's own escrow — not the treasury, not another trade's
+money, not a reserve. A reserve never covers a different trader, a fee or a penalty: those are owner decisions.
 
 ---
 
@@ -462,11 +441,10 @@ monitoring off to make a worker start: a worker that cannot see deposits must no
 **What you were told.** `reconciliation_mismatches` above zero: open `RECONCILIATION_MISMATCH`,
 `ROUTE_SETTLEMENT_MISMATCH`, `ROUTE_DIRECT_PAYOUT_MISMATCH`, `DUPLICATE_UTR` or `DUPLICATE_TX_HASH` cases.
 
-**What to check first.** The exceptions queue, filtered to those types. Each case says which movement and why: a
-statement line with another amount, a confirmed payment the statement does not show, money the chain moved for a leg
-given up on, a route movement that does not fit its obligation, the same reference twice.
+**What to check first.** The exceptions queue, filtered to those types. Each case says which movement and why: money the
+chain moved for a leg given up on, a movement that does not fit its obligation, the same reference twice.
 
-**What to do.** Establish the fact from outside the system — the bank statement, the chain explorer, the
+**What to do.** Establish the fact from outside the system — the chain explorer, the payee's bank screen, the
 counterparty's own record — and resolve the case with the command it offers, which posts or corrects through the
 ledger. A payment the bank never made is a fake-UTR case: the trade stays on hold until it is explained.
 
@@ -529,19 +507,19 @@ them, and money that has arrived would sit unrecorded.
 
 ---
 
-## payout-ambiguous — a payout may or may not have left
+## payout-ambiguous — a USDT transfer may or may not have left
 
-**What you were told.** A bank portal timed out after "submit", a custody transfer shows no hash, a client says
-nothing arrived after the desk recorded a reference, or a restore put the database behind what the bank or the chain did.
+**What you were told.** A signer's transfer shows no final answer, a client says nothing arrived after a deal showed a hash,
+or a restore put the database behind what the chain did.
 
-**What to check first.** The outside record only: the bank statement or portal history for the account and amount; the
-chain explorer for the source address. Until one of them answers, the payout is neither sent nor failed.
+**What to check first.** The chain explorer for the source address, and **Network → Sends**. Until the chain answers, the
+transfer is neither sent nor failed (`chain-send-stuck`).
 
-**What to do.** If it left: record its UTR or transaction hash and confirm it (a second person above ₹2,500,000). If it
-did not: mark the leg failed (or cancel it if it was never sent) and only then create the replacement.
+**What to do.** The signer settles what the chain confirms on its own. Above ₹2,500,000 a transfer waits for a second person
+*before* it is signed, on **Network → Sends**, and needs nothing after.
 
-**What never to do.** Never create a second payout while the first is unresolved; never mark a leg failed because the
-desk cannot see it — absence of evidence is not evidence of absence. This is how clients get paid twice.
+**What never to do.** Never start a second transfer while the first is unresolved; absence of evidence is not evidence of
+absence. This is how clients get paid twice.
 
 ---
 
@@ -550,11 +528,10 @@ desk cannot see it — absence of evidence is not evidence of absence. This is h
 **Order.** 1. Pause new business. 2. Bring the database back (backup-restore-drill / point-in-time recovery) and start
 web and worker with the same release; they refuse a schema that does not match. Outgoing payments are held on the
 recovered database from its first moment (`restore-fence`); where the platform hides the database's identity, raise the
-fence by hand before anyone opens the desk. 3. Before anything moves money, reconcile against the outside world: bank
-statements for every exchange account since the recovery point, the chain for every exchange address (the scanner
+fence by hand before anyone opens the desk. 3. Before anything moves money, reconcile against the outside world: the chain for every exchange address (the scanner
 re-reads from its cursor; use chain-backfill for a gap), and the audit-seal archive (`audit-archive-mismatch`: seals up
 to the recovery point must match it). 4. Record what happened outside the restored database as new facts —
-evidence of payments, confirmations, failures, statement imports — never by editing rows. 5. Lift the fence (two
+evidence of payments, confirmations and failures — never by editing rows. 5. Lift the fence (two
 people), then resume new business.
 
 **Never.** Never re-send a payout the restored database thinks is pending without checking the bank or the chain
@@ -575,11 +552,9 @@ them not to send a payment twice.
 
 **What to check first.** System health → Outgoing payments: the fence, its reason, and **"records are known whole
 until"** — the last heartbeat before the change. That moment, not the restore target, is where reconciliation starts.
-Then, from that moment to now: every exchange account's bank statement (import it: statement lines match the payouts
-they belong to), the chain for every exchange address (the scanner re-reads from its restored cursor; `chain-backfill`
-for a gap), the custody provider's outgoing history, and every route's settlement messages. The panel counts what to
-check: payout legs waiting to be sent, legs sent and not confirmed, reserve applications approved, reserve withdrawals
-requested, route obligations open, and the exchange signer's open transfers with their undecided transactions. For the
+Then, from that moment to now: the chain for every exchange address (the scanner re-reads from its restored cursor; `chain-backfill`
+for a gap), the custody provider's outgoing history, and what each side of an open deal says it paid. The panel counts what to
+check: payments filed and not confirmed, reserve withdrawals requested, route obligations open, and the exchange signer's open transfers with their undecided transactions. For the
 signer, look up on the chain every transfer from the budget wallet and every deal address since that moment: a
 transaction signed after the records were last whole is not in the restored database, and may have landed. While the
 fence is up the signer plans, signs and broadcasts nothing — TRX top-ups and withdrawals included; a transaction it
@@ -974,53 +949,36 @@ the restore fence on a drill's recovered copy and then point anything at it that
 
 ## inr-unexpected-sender — rupees came from someone other than the payer
 
-**What you were told.** A case *Rupees from someone else* (`INR_UNEXPECTED_SENDER`) on a trade, and the trade on hold.
-A bank statement, or a person checking the credit, showed a remitter who is not the holder of the client's (or the
-trader's) registered account — a relative, a friend, a business, a stranger (ADR 0018).
+**What you were told.** A case *Rupees from someone else* (`INR_UNEXPECTED_SENDER`) on a trade, and the trade on hold. The
+payee, or a person checking the credit, named a remitter who is not the holder of the payer's registered account — a
+relative, a friend, a business, a stranger.
 
-**Why it matters.** This is how scam money reaches a P2P desk. If it counts, the victim's complaint (1930 / NCCRP) puts
-a lien on every account it touched — the exchange's collection account first, and every trade with it.
+**Why it matters.** This is how scam money reaches a P2P desk. If it counts, the victim's complaint (1930 / NCCRP) puts a
+lien on the payee's account, and on every deal with it.
 
 **What to do.**
-1. Look at the credit in the collection account: the remitter's name, account or UPI ID, and the amount.
-2. If the check itself was wrong — you mistyped the name — check the sender again with what the bank shows
-   (*Check sender* on the payment). A statement that showed someone else cannot be outvoted.
-3. Otherwise send the rupees back to the account they came from — **never to the client, never to another account** —
-   with a remark naming the UTR, and keep the bank's confirmation.
-4. Mark the payment *Not received* ("returned to the sender: UTR …"), and resolve the case with *Record that it went back
-   to the sender*, naming the return's UTR. The trade then waits for a payment from the client's own account, or is
-   cancelled.
-5. A client who keeps paying from other accounts is a compliance question: escalate.
+1. Ask the payee for the credit as its bank shows it: the remitter's name, account or UPI ID, and the amount.
+2. If the name was simply mistyped, the payee confirms again with what the bank shows. A credit that showed someone else
+   cannot be outvoted.
+3. Otherwise the payee sends the rupees back to the account they came from — **never to anyone else** — with a remark
+   naming the UTR, and keeps the bank's confirmation.
+4. Decide the payment not paid (`p2p-escrow`) and resolve the case with *Record that it went back to the sender*, naming the
+   return's UTR.
+5. A payer who keeps paying from other accounts is a compliance question: escalate.
 
-**What never to do.** Do not accept a stranger as "the client's family", re-assign the rupees to another trade or
-client, or ask the client to send the difference: the money is not theirs to use.
+**What never to do.** Do not accept a stranger as "the client's family" or re-assign the rupees to another trade or client.
 
 ---
 
 ## inr-sender-partial — the sender only partly matches
 
-**What you were told.** A client's payment shows *Partial match* and cannot be confirmed: the credit showed too little to
-be sure (an initial and a surname, a company's first word) or the right name from an account the client never
+**What you were told.** A payee confirmed a payment and it shows *Partial match*, so the escrow stays locked: its bank showed
+too little to be sure (an initial and a surname, a company's first word) or the right name from an account the payer never
 registered.
 
-**What to do.** Open the credit in the bank. If its account number's last digits are the client's registered account,
-check the sender again with them (*Check sender* → account) — matching digits settle it. If the bank shows the full name
-of the holder, check again with it. Accept it as the client's own (*Accept as the client's own*, authenticator) only for
-what you saw is the client's own account, saying what you saw; a relative's account is a stranger's (see
-`inr-unexpected-sender`).
-
----
-
-## inr-payment-window — a BUY was cancelled because it was not paid in time
-
-**What you were told.** A client says it paid, and its trade shows *Cancelled — not paid within the payment window*. The
-worker cancels a BUY 30 minutes after acceptance when no payment was filed (`inr_payment_expiry`).
-
-**What to do.** Find the credit in the collection account. If it arrived, it shows on the next statement import as a
-line the desk did not record; return it to the account it came from (a client's own account) and record the return in
-the case, or — if the client still wants to trade — quote again and ask them to pay the new trade with its new
-reference. Never move a payment from a cancelled trade to a new one by hand.
-
+**What to do.** Ask the payee what its bank shows. If the payee can read the full name, or the account's last digits match
+the registered account, it confirms again with them — matching digits settle it. Otherwise decide it on the trade's **P2P
+payment** panel with what you saw (authenticator); a relative's account is a stranger's (see `inr-unexpected-sender`).
 
 ---
 

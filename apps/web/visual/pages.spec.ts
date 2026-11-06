@@ -28,21 +28,9 @@ test('desk: operational strip and grouped queue', async ({ page }) => {
 
 test('desk: trade context panel', async ({ page }) => {
   const s = state();
-  await openPanel(page, `trade:${s.trades.awaitingPayout}`, 'payout');
+  await openPanel(page, `trade:${s.trades.awaitingConfirmation}`, 'payout');
   await expect(page.getByTestId('trade-panel')).toBeVisible();
   await capture(page, 'operator-trade-panel');
-});
-
-test('desk: payout panel on a direct route, with the payer selector', async ({ page }) => {
-  const s = state();
-  await openPanel(page, `trade:${s.trades.directRoute}`, 'payout');
-  const panel = page.getByTestId('trade-panel');
-  await expect(panel).toBeVisible();
-  // The payer selector: the exchange's account or the route paying the client directly. Which account the exchange
-  // would pay from is offered only once the counterparty has delivered (D-16), and on this trade it has not.
-  await expect(panel.getByRole('radiogroup', { name: 'Paid by' })).toBeVisible();
-  await expect(panel.getByRole('radio', { name: /Route pays directly/ })).toBeVisible();
-  await capture(page, 'operator-payout-direct-route');
 });
 
 test('desk: blocking exception', async ({ page }) => {
@@ -151,12 +139,12 @@ test('command bar', async ({ page }) => {
 });
 
 test('step-up dialog', async ({ page }) => {
-  const s = state();
   await expireStepUp();
-  await openPanel(page, `trade:${s.trades.awaitingPayout}`, 'payout');
-  const legs = page.getByTestId('legs');
-  await expect(legs).toBeVisible();
-  await legs.getByRole('button', { name: /^Confirm/ }).last().click();
+  await page.goto(`/clients/${state().clients.acme}`);
+  const row = page.locator('dd').filter({ hasText: '••••8219' });
+  await row.getByRole('button', { name: 'Archive' }).click();
+  await page.getByLabel('Why ••••8219 is archived').fill('The client closed this account');
+  await page.getByRole('button', { name: /Archive this account/ }).click();
   const dialog = page.getByRole('dialog', { name: 'Verify to continue' });
   await expect(dialog).toBeVisible();
   await capture(page, 'operator-step-up', dialog);

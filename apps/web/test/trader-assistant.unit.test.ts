@@ -21,7 +21,6 @@ const order = (over: Partial<OrderSummary> & Pick<OrderSummary, 'ref' | 'stage'>
   completedAt: null,
   closedAt: null,
   closeNote: null,
-  reward: null,
   youOwe: null,
   p2pStep: null,
   dueBy: null,
@@ -58,7 +57,6 @@ const home = (over: Partial<TraderHome> = {}): TraderHome => ({
   review: null,
   limits: null,
   openOrders: 0,
-  paymentDetailsPublished: true,
   now: '2026-09-27T17:51:00.000Z',
   ...over,
 });
@@ -175,8 +173,7 @@ describe('trader notifications', () => {
     expect(draftFor('TRADER_ACTION_REQUIRED', { orderRef: 'TO-1', side: 'SELL_USDT', inr: '52600', base: '500' }).title).toBe('Send your USDT for TO-1');
   });
 
-  it('a completed order mentions a reward only when there is one', () => {
-    expect(draftFor('TRADER_ORDER_COMPLETED', { orderRef: 'TO-1', reward: '157.05' }).body).toBe('Settled in full. Reward earned: ₹157.05.');
+  it('a completed order says so, and nothing about a reward', () => {
     expect(draftFor('TRADER_ORDER_COMPLETED', { orderRef: 'TO-1' }).body).toBe('Settled in full.');
   });
 

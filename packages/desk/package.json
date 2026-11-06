@@ -11,7 +11,6 @@
     "@inrp2p/db": "workspace:*",
     "@inrp2p/identity": "workspace:*",
     "@inrp2p/clients": "workspace:*",
-    "@inrp2p/inr-accounts": "workspace:*",
     "@inrp2p/routes": "workspace:*",
     "@inrp2p/pricing": "workspace:*",
     "@inrp2p/treasury": "workspace:*",

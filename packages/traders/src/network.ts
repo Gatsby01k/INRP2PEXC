@@ -1,5 +1,5 @@
 import { sql } from 'kysely';
-import { Money, formatTrx } from '@inrp2p/kernel';
+import { formatTrx } from '@inrp2p/kernel';
 import type { Executor, TraderSide } from '@inrp2p/db';
 import { budgetFigures, currentNetworkCosts, networkBudgetWallet, networkFeePolicy, reservePerSendSun, reserveSends, spentByBearer } from '@inrp2p/network';
 import { traderApplicant } from '@inrp2p/trader-core';
@@ -20,9 +20,6 @@ export interface TraderNetworkOrder {
   readonly spent: string;
   /** Of that, the part the trader bears (a return of the counterparty's USDT its own failure caused). */
   readonly yours: string;
-  /** TRX paid back, and its INR value added to the trader's rewards. */
-  readonly repaidTrx: string;
-  readonly repaidInr: string;
   readonly at: string;
 }
 
@@ -53,7 +50,6 @@ export interface TraderNetworkView {
   readonly registeredWallet: string;
   readonly withdrawal: { readonly id: string; readonly ref: string; readonly amount: string; readonly fee: string; readonly status: 'REQUESTED' | 'APPROVED'; readonly askedAt: string } | null;
   readonly orders: readonly TraderNetworkOrder[];
-  readonly repaidInrTotal: string;
   readonly history: readonly { readonly kind: 'DEPOSIT' | 'WITHDRAWAL' | 'ADJUSTMENT'; readonly amount: string; readonly status: string; readonly at: string; readonly txHash: string | null; readonly note: string | null }[];
 }
 
@@ -91,7 +87,7 @@ export async function traderNetworkView(ex: Executor, traderId: string): Promise
   const holds = await ex
     .selectFrom('network_budget_hold as h')
     .innerJoin('trader_order as o', (j) => j.onRef('o.trade_id', '=', 'h.trade_id').onRef('o.trader_id', '=', 'h.trader_id'))
-    .select(['h.trade_id', 'h.amount_sun', 'h.status', 'h.reimbursed_sun', 'h.reimbursed_inr_minor', 'h.created_at', 'h.closed_at', 'o.ref', 'o.side'])
+    .select(['h.trade_id', 'h.amount_sun', 'h.status', 'h.created_at', 'h.closed_at', 'o.ref', 'o.side'])
     .where('h.trader_id', '=', traderId)
     .orderBy('h.created_at', 'desc')
     .limit(20)
@@ -106,14 +102,9 @@ export async function traderNetworkView(ex: Executor, traderId: string): Promise
       held: formatTrx(h.amount_sun ?? 0n),
       spent: formatTrx(spent.total),
       yours: formatTrx(spent.trader),
-      repaidTrx: formatTrx(h.reimbursed_sun ?? 0n),
-      repaidInr: Money.ofMinor(h.reimbursed_inr_minor ?? 0n, 'INR').toDecimalString(),
       at: (h.closed_at ?? h.created_at).toISOString(),
     });
   }
-  const repaid = await sql<{ total: string }>`
-    select coalesce(sum(reimbursed_inr_minor), 0)::text as total from network_budget_hold where trader_id = ${traderId} and status = 'CLOSED'`.execute(ex);
-
   const entries = await ex
     .selectFrom('network_budget_entry')
     .select(['kind', 'amount_sun', 'tx_hash', 'note', 'created_at'])
@@ -157,7 +148,6 @@ export async function traderNetworkView(ex: Executor, traderId: string): Promise
       ? { id: open.id, ref: open.ref, amount: formatTrx(open.amount_sun), fee: formatTrx(open.fee_estimate_sun), status: open.status as 'REQUESTED' | 'APPROVED', askedAt: open.requested_at.toISOString() }
       : null,
     orders,
-    repaidInrTotal: Money.ofMinor(BigInt(repaid.rows[0]!.total), 'INR').toDecimalString(),
     history,
   };
   assertTraderSafe(view);

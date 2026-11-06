@@ -1,5 +1,7 @@
 # INRP2P Exchange — Domain Model
 
+> **Since ADR 0027 every deal is P2P.** What this document says about INR accounts, capacity, statements, rewards and the old payer and flow meanings is history: where they disagree, `adr/0027-p2p-only.md` wins.
+
 Status: Phase 0, revision 3 (`DECISIONS.md` Revision 3).
 Conventions: ids are UUIDv7 (time-ordered) unless noted; human references (`IX-260916-1842`) are separate unique columns. All timestamps `timestamptz` (UTC stored, IST displayed). Money/rate columns follow `FINANCIAL_INVARIANTS.md §1`. `created_at`, `created_by` on every table; mutable tables also carry `version` (optimistic check) in addition to row locks.
 

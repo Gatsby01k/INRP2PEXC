@@ -181,17 +181,6 @@ export async function lockSend(ctx: TxContext, sendId: string) {
   return row;
 }
 
-/** The send paying a leg, if the signer pays it (any state but cancelled). */
-export async function sendOfLeg(ex: Executor, legId: string) {
-  return ex.selectFrom('chain_send').selectAll().where('settlement_leg_id', '=', legId).where('status', '<>', 'CANCELLED').executeTakeFirst();
-}
-
-/** The live route payment of an obligation, if one is planned or under way. */
-export async function liveRoutePaymentOf(ex: Executor, routeObligationId: string) {
-  return ex.selectFrom('chain_send').selectAll().where('route_obligation_id', '=', routeObligationId).where('purpose', '=', 'ROUTE_PAYMENT')
-    .where('status', 'not in', ['CONFIRMED', 'CANCELLED']).executeTakeFirst();
-}
-
 /**
  * `chain_send.approve` — `chain_send:approve` (⧗✱): the second person a send above the payout threshold needs, never
  * the one who asked for it (SECURITY §4, C1). A refund send is approved through `refund:approve` when it is planned.

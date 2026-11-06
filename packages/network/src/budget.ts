@@ -1,13 +1,12 @@
 import { sql } from 'kysely';
-import { DomainError, Money, formatTrx, normalizeTronAddress, parseTrx, requireText, requireUuid, trxToInrMinor } from '@inrp2p/kernel';
+import { DomainError, formatTrx, normalizeTronAddress, parseTrx, requireText, requireUuid } from '@inrp2p/kernel';
 import type { Executor, TxContext } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
 import { enqueueOutbox } from '@inrp2p/outbox';
 import { type ClientActor, type OperatorActor, operatorCommand, requireConfirmation } from '@inrp2p/identity';
-import { postJournal, traderNetworkReimbursementJournal } from '@inrp2p/ledger';
 import type { TrxTransferFacts } from '@inrp2p/adapters';
 import { lockTrader, traderClientCommand } from '@inrp2p/trader-core';
-import { type QuoteNetworkFee, tradeNetworkFee } from './pricing.ts';
+import { type QuoteNetworkFee } from './pricing.ts';
 import { closeUsdtNetworkHold, holdUsdtNetwork } from './gasfree.ts';
 
 /**
@@ -150,46 +149,28 @@ export async function spentByBearer(ex: Executor, tradeId: string): Promise<{ cl
 }
 
 /**
- * Closes a finished trade's hold: what it did not spend is free again, and — through the exchange — a trader that paid for
- * transfers it does not bear is owed their value in INR, at the TRX price and rate its trade was quoted with (rounded
- * down: the exchange pays). It is accrued with the trader's rewards (`network_fee:{trade}:reimburse`, Dr
- * EXPENSE:NETWORK_FEES / Cr LIAB:TRADER_REWARD_PAYABLE) and paid like them, only out of realized margin (FI-82). A P2P
- * trader bears all of its deal's transfers. The caller has checked that no transfer of the trade can still happen.
+ * Closes a finished trade's hold: what it did not spend is free again. A trader's transfers are its own cost, priced into
+ * its rate (migration 0040): nothing is paid back. The caller has checked that no transfer of the trade can still happen.
  */
-export async function closeNetworkHold(ctx: TxContext, tradeId: string, reason: string): Promise<{ closed: boolean; spentSun: bigint; reimbursedSun: bigint; reimbursedInrMinor: bigint }> {
+export async function closeNetworkHold(ctx: TxContext, tradeId: string, reason: string): Promise<{ closed: boolean; spentSun: bigint }> {
   const hold = await ctx.tx.selectFrom('network_budget_hold').selectAll().where('trade_id', '=', tradeId).forUpdate().executeTakeFirst();
-  if (!hold || hold.status !== 'ACTIVE') return { closed: false, spentSun: 0n, reimbursedSun: 0n, reimbursedInrMinor: 0n };
+  if (!hold || hold.status !== 'ACTIVE') return { closed: false, spentSun: 0n };
   // ADR 0022: a USDT hold is settled at what GasFree charged, in USDT.
   if (hold.unit === 'USDT') {
     const out = await closeUsdtNetworkHold(ctx, tradeId, reason);
-    return { closed: out.closed, spentSun: 0n, reimbursedSun: 0n, reimbursedInrMinor: 0n };
+    return { closed: out.closed, spentSun: 0n };
   }
   const spent = await spentByBearer(ctx.tx, tradeId);
-  let reimbursedSun = 0n;
-  let reimbursedInr = 0n;
-  // A P2P deal's transfers are its trader's own cost, priced into its rate (migration 0040): nothing is paid back — no rupee
-  // passes the exchange to pay it with, and the platform has no TRX budget of its own to carry it.
-  const mode = (await ctx.tx.selectFrom('trade_economics').select('route_execution_mode').where('trade_id', '=', tradeId).executeTakeFirst())?.route_execution_mode;
-  if (hold.trader_id && mode !== 'P2P') {
-    reimbursedSun = spent.client + spent.platform;
-    const terms = await tradeNetworkFee(ctx.tx, tradeId);
-    if (terms?.usdtPerTrxMicro && reimbursedSun > 0n) {
-      reimbursedInr = trxToInrMinor(reimbursedSun, terms.usdtPerTrxMicro, terms.clientRateMicro, 'DOWN');
-      if (reimbursedInr > 0n) {
-        await postJournal(ctx, traderNetworkReimbursementJournal({ tradeId, traderId: hold.trader_id, amount: Money.ofMinor(reimbursedInr, 'INR') }));
-      }
-    }
-  }
   await ctx.tx
     .updateTable('network_budget_hold')
-    .set({ status: 'CLOSED', closed_at: sql<Date>`inrp2p_now()`, close_reason: reason.slice(0, 500), spent_sun: spent.total, reimbursed_sun: reimbursedSun, reimbursed_inr_minor: reimbursedInr })
+    .set({ status: 'CLOSED', closed_at: sql<Date>`inrp2p_now()`, close_reason: reason.slice(0, 500), spent_sun: spent.total, reimbursed_sun: 0n, reimbursed_inr_minor: 0n })
     .where('id', '=', hold.id)
     .execute();
   await appendAudit(ctx, {
     action: 'network.budget_released', entityType: 'trade', entityId: tradeId,
-    after: { funder: hold.trader_id ?? 'PLATFORM', held_trx: formatTrx(hold.amount_sun!), spent_trx: formatTrx(spent.total), reimbursed_trx: formatTrx(reimbursedSun), reimbursed_inr: Money.ofMinor(reimbursedInr, 'INR'), reason },
+    after: { funder: hold.trader_id ?? 'PLATFORM', held_trx: formatTrx(hold.amount_sun!), spent_trx: formatTrx(spent.total) },
   });
-  return { closed: true, spentSun: spent.total, reimbursedSun, reimbursedInrMinor: reimbursedInr };
+  return { closed: true, spentSun: spent.total };
 }
 
 // ---- deposits ------------------------------------------------------------------------------------------------
@@ -271,23 +252,6 @@ export function recordNetworkDeposit(actor: OperatorActor, facts: TrxTransferFac
     if (owner) await lockTrader(ctx, owner);
     const out = await creditDeposit(ctx, { funder: p.platform ? null : owner, facts, note: requireText(p.note ?? (p.platform ? 'platform top-up' : 'recorded by the desk'), 'note', 500) });
     return { credited: out.credited, funder: p.platform ? 'PLATFORM' : owner, amount: formatTrx(facts.amountSun) };
-  });
-}
-
-/** The entry an operator writes to correct a budget, with the reason. Never touches a trade's spend. */
-export function adjustNetworkBudget(actor: OperatorActor) {
-  return operatorCommand(actor, 'network:manage', async (ctx, p: { traderId?: string | null; amount: string; negative?: boolean; reason: string; key: string }) => {
-    const funder = p.traderId ? requireUuid(p.traderId, 'traderId') : null;
-    const magnitude = parseTrx(p.amount);
-    if (magnitude === 0n) throw new DomainError('INVALID_AMOUNT', 'an adjustment moves something');
-    const reason = requireText(p.reason, 'reason', 500);
-    if (!/^[0-9a-z-]{8,64}$/.test(p.key)) throw new DomainError('INVALID_ARGUMENT', 'key: 8–64 lowercase letters, digits or dashes');
-    await lockFunder(ctx, funder);
-    const amount = p.negative ? -magnitude : magnitude;
-    if (amount < 0n && (await networkAvailable(ctx.tx, funder)) + amount < 0n) throw short(funder, await networkAvailable(ctx.tx, funder), magnitude);
-    await ctx.tx.insertInto('network_budget_entry').values({ trader_id: funder, kind: 'ADJUSTMENT', amount_sun: amount, posting_key: `adjustment:${p.key}`, note: reason, created_by: ctx.actor.id ?? 'SYSTEM' }).execute();
-    await appendAudit(ctx, { action: 'network.budget_adjusted', entityType: 'network_budget_entry', entityId: null, after: { funder: funder ?? 'PLATFORM', amount_trx: formatTrx(amount), reason } });
-    return { adjusted: formatTrx(amount) };
   });
 }
 

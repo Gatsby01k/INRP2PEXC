@@ -11,7 +11,6 @@ import { appendAudit } from '@inrp2p/audit';
  * A place is `INR:{inr_account_id}` or `TRON:{address}`. Allocations are earmarks over money the ledger already
  * recorded; they post no journal (FI-27).
  */
-export const inrLocation = (inrAccountId: string): string => `INR:${requireUuid(inrAccountId, 'inrAccountId')}`;
 export const tronLocation = (address: string): string => `TRON:${address}`;
 
 export interface FundingSourceRow {
@@ -199,7 +198,7 @@ export async function settleSendNetwork(ctx: TxContext, sendId: string, chargedM
 
 /**
  * FI-77, delivery versus payment: the exchange hands client funds to the counterparty only once the counterparty
- * delivered — the whole route side of a TO_EXCHANGE obligation, or the client's payout of a DIRECT_TO_CLIENT one.
+ * delivered — its whole side of the deal.
  * The database applies the same rule (IX087); this says so before anything is written.
  */
 export async function assertCounterpartyDelivered(ex: Executor, obligationId: string): Promise<void> {

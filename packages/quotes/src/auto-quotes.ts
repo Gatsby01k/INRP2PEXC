@@ -49,7 +49,7 @@ const HOLD_GRACE_SECONDS = 60;
 const SYSTEM_PRICER = 'SYSTEM:auto_price';
 
 /** Why a request was left for a person rather than priced automatically. */
-export type ManualReason = 'OFF' | 'NOT_P2P' | 'NO_MARKET' | 'NETWORK_UNKNOWN' | 'NO_OFFER' | 'NOT_COMPETITIVE';
+export type ManualReason = 'OFF' | 'NO_MARKET' | 'NETWORK_UNKNOWN' | 'NO_OFFER' | 'NOT_COMPETITIVE';
 
 export type AutoOutcome =
   | { readonly kind: 'QUOTED'; readonly quoteId: string; readonly ref: string; readonly clientRate: string; readonly base: string; readonly clientInr: string; readonly expiresAt: string }
@@ -308,7 +308,6 @@ export async function autoPriceLockedInTx(ctx: TxContext, input: { requestId: st
   let reference: ReferenceRateSnapshot | null = null;
   let network: NetworkMode | null = null;
   if (!policy.autoQuote) manual = 'OFF';
-  else if ((await traderProgram(ctx.tx)).executionMode !== 'P2P') manual = 'NOT_P2P';
   else if (!(reference = await freshReference(ctx.tx, request.direction, policy))) manual = 'NO_MARKET';
   else if (!(network = await networkMode(ctx))) manual = 'NETWORK_UNKNOWN';
   const peek = manual ? [] : await candidates(ctx, request, network!, reference!);
@@ -467,11 +466,6 @@ async function closeRfq(ctx: TxContext, rfqId: string, status: 'AWARDED' | 'NO_P
   if (winnerBidId) await ctx.tx.updateTable('rfq_bid').set({ status: 'WON' }).where('id', '=', winnerBidId).execute();
   const lost = await ctx.tx.updateTable('rfq_bid').set({ status: 'LOST' }).where('rfq_id', '=', rfqId).where('status', '=', 'LIVE').returning(['trader_id']).execute();
   await appendAudit(ctx, { action: `rfq.${status.toLowerCase()}`, entityType: 'rfq', entityId: rfqId, after: { status, note, winning_bid_id: winnerBidId, lost: lost.map((l) => l.trader_id) } });
-}
-
-/** Whether a request has a price request still open — routing and the desk's own assignment leave it alone meanwhile. */
-export async function hasOpenRfq(ctx: TxContext, requestId: string): Promise<boolean> {
-  return (await ctx.tx.selectFrom('rfq').select('id').where('trade_request_id', '=', requestId).where('status', '=', 'OPEN').executeTakeFirst()) !== undefined;
 }
 
 const SYSTEM = { type: 'SYSTEM' as const, id: null, surface: 'SYSTEM' as const };

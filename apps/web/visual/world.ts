@@ -15,18 +15,15 @@ import { executeCommand } from '@inrp2p/commands';
 import type { ClientActor, DomainCommand, OperatorActor, OperatorRole } from '@inrp2p/identity';
 import { createClientAuth, createOperatorAuth, provisionClientUser, provisionOperator } from '@inrp2p/identity';
 import { addBankAccount, addWallet, createClient, linkClientUser, setCanAcceptQuotes, setClientExchangeAccess } from '@inrp2p/clients';
-import { createInrAccount, createSettlementEntity, setDayCapacity, setInrAccountCollectionDetails } from '@inrp2p/inr-accounts';
-import { configureRoute, createRoute } from '@inrp2p/routes';
-import { publishRouteRate } from '@inrp2p/pricing';
 import { acceptQuote, claimDeskDealLink, createDeskDealLink, createQuote, createQuoteLink, createRequest, requestDeskQuote, sendQuote } from '@inrp2p/quotes';
 import { fundBudget, seedNetworkCosts } from '@inrp2p/network/testing';
-import { confirmPayout, confirmRouteSettlement, createPayoutLeg, importBankStatement, recordLegEvidence, recordRouteSettlement, sendPayoutLeg } from '@inrp2p/settlement';
+import { confirmClientReceipt } from '@inrp2p/settlement';
 import { acknowledgedSignalHandler, clientNotificationHandler, traderNotificationHandler } from '@inrp2p/notifications';
 import { receiptHandler } from '@inrp2p/reporting';
 import { runTronConfirm, runTronScan } from '@inrp2p/scanner';
 import { importPoolAddresses, recordCustodyCapability, registerTreasuryWallet } from '@inrp2p/treasury';
 import {
-  acceptOrder, applyAsTrader, approveTrader, assignRequest, configureTraderProgram, openDesk, orderDeliveryAddress, setAvailability, setDeskPrices, setDeskStatus, sharedReserveAddress, updateBlock,
+  acceptOrder, applyAsTrader, approveTrader, assignRequest, configureTraderProgram, openDesk, orderDeliveryAddress, setAvailability, setDeskPrices, setDeskStatus, sharedReserveAddress, submitOrderPayment, updateBlock,
 } from '@inrp2p/traders';
 
 /**
@@ -84,11 +81,10 @@ export interface VisualState {
   /** Trade ids by the state each one is parked in, so a spec names the state rather than an id. */
   readonly trades: {
     readonly completed: string;
-    readonly awaitingPayout: string;
-    readonly directRoute: string;
+    readonly awaitingConfirmation: string;
     readonly shortPaid: string;
   };
-  readonly tradeRefs: { readonly completed: string; readonly awaitingPayout: string; readonly awaitingDeposit: string; readonly awaitingInr: string; readonly p2pBuy: string };
+  readonly tradeRefs: { readonly completed: string; readonly awaitingConfirmation: string; readonly awaitingDeposit: string; readonly awaitingEscrow: string; readonly p2pBuy: string };
   readonly openRequestId: string;
   /** The client product's own fixture: one signed-in person, one live quote, one link to it. */
   readonly client: { readonly email: string; readonly quoteRef: string; readonly linkToken: string };
@@ -140,7 +136,6 @@ const WALL_CLOCK_COLUMNS: readonly { table: string; columns: readonly string[] }
   { table: 'deposit_assignment', columns: ['assigned_at'] },
   { table: 'treasury_wallet', columns: ['observed_at', 'created_at'] },
   { table: 'liquidity_route', columns: ['created_at'] },
-  { table: 'inr_settlement_account', columns: ['created_at'] },
   { table: 'trader_program', columns: ['updated_at'] },
   // ADR 0025: the policy the migration seeds says when it was set, and the Rates page prints it.
   { table: 'pricing_policy', columns: ['set_at'] },
@@ -149,6 +144,8 @@ const WALL_CLOCK_COLUMNS: readonly { table: string; columns: readonly string[] }
   { table: 'audit_event', columns: ['at'] },
   { table: 'bank_account', columns: ['created_at'] },
   { table: 'crypto_wallet', columns: ['created_at'] },
+  // The ledger posts by the wall clock; P&L and the desk's strip read a business day from it.
+  { table: 'ledger_journal', columns: ['posted_at'] },
   // A team member is shown "since" the day they joined (ADR 0020 team page).
   { table: 'client_user', columns: ['created_at'] },
 ];
@@ -162,11 +159,6 @@ async function pinWallClockColumns(db: Db): Promise<void> {
       const set = columns.map((c) => `${c} = '${FROZEN_NOW}'::timestamptz`).join(', ');
       await sql.raw(`update ${table} set ${set} where ${columns[0]} is not null`).execute(db);
     }
-    // A BUY's payment reference is random by design (`paymentReference`), and it is inside the UPI code the client
-    // scans: numbered here by trade, it is the same on every run, and so is the code.
-    await sql`update trade_collection c set reference = 'P' || lpad(x.n::text, 7, '0')
-      from (select c2.trade_id, row_number() over (order by t.ref) as n from trade_collection c2 join trade t on t.id = c2.trade_id) x
-      where x.trade_id = c.trade_id`.execute(db);
   } finally {
     await sql`set session_replication_role = origin`.execute(db);
   }
@@ -211,8 +203,6 @@ export async function seedVisual(adminUrl: string): Promise<VisualState> {
 
   const auth = createOperatorAuth({ authDb, appDb: world, secret: OPERATOR_AUTH_SECRET, baseURL: SEED_ORIGIN, rateLimit: { enabled: false }, useSecureCookies: false });
   const owner = await operator(auth, world, 'owner@inrp2p.test', ['OWNER']);
-  // Above ₹2,500,000 a payout is confirmed by someone other than its sender (SECURITY §4, C1).
-  const settler = await operator(auth, world, 'settlement@inrp2p.test', ['SETTLEMENT_OPERATOR']);
   const protector = visualFieldProtector();
 
   // ── Clients ────────────────────────────────────────────────────────────────────────────────────────────
@@ -255,44 +245,11 @@ export async function seedVisual(adminUrl: string): Promise<VisualState> {
   const acmeAcceptor = await acceptor(world, clientAuth, owner, acme.clientId, 'treasury@acmepay.test', 'Acme treasury');
   const bharatAcceptor = await acceptor(world, clientAuth, owner, bharat.clientId, 'ops@bharatdigital.test', 'Bharat ops');
 
-  // ── Routes ─────────────────────────────────────────────────────────────────────────────────────────────
-  const mumbai = await run(world, createRoute(owner.actor), owner.ref, 'routes.create', {
-    name: 'Mumbai OTC', direction: 'BOTH' as const, executionMode: 'DIRECT_TO_CLIENT' as const,
-    registeredRouteAddress: address('mumbai-route'), availableBaseUsdt: '5000000',
-  });
-  await run(world, configureRoute(owner.actor), owner.ref, 'routes.configure', {
-    routeId: mumbai.routeId, expectedVersion: 1, executionMode: 'TO_EXCHANGE' as const, reason: 'the provider settles into our own account',
-  });
-  await run(world, publishRouteRate(owner.actor), owner.ref, 'rates.publish_route', { routeId: mumbai.routeId, direction: 'SELL_USDT' as const, rate: '104.200000' });
-  await run(world, publishRouteRate(owner.actor), owner.ref, 'rates.publish_route', { routeId: mumbai.routeId, direction: 'BUY_USDT' as const, rate: '100.000000' });
-
-  // A second route that pays the client directly (D-14), so the payout panel shows the payer selector.
-  const chennai = await run(world, createRoute(owner.actor), owner.ref, 'routes.create', {
-    name: 'Chennai Direct', direction: 'BOTH' as const, executionMode: 'DIRECT_TO_CLIENT' as const,
-    registeredRouteAddress: address('chennai-route'), availableBaseUsdt: '3000000',
-  });
-  await run(world, publishRouteRate(owner.actor), owner.ref, 'rates.publish_route', { routeId: chennai.routeId, direction: 'SELL_USDT' as const, rate: '104.000000' });
-  await run(world, publishRouteRate(owner.actor), owner.ref, 'rates.publish_route', { routeId: chennai.routeId, direction: 'BUY_USDT' as const, rate: '100.500000' });
-
-  // What a transfer costs on TRON (ADR 0017), at today's real prices — 100 sun of energy, a TRX at 0.30 USDT — and TRX
-  // in the platform budget, so every quote carries its network fee and every acceptance holds its TRX.
+  // What a transfer costs on TRON (ADR 0017), at today's real prices — 100 sun of energy, a TRX at 0.30 USDT — so every
+  // quote carries its network fee.
   await seedNetworkCosts(world, { usdtPerTrxMicro: 300_000n });
-  await fundBudget(world, { traderId: null, amountSun: 1_000_000_000_000n, from: address('platform-trx') });
 
-  // ── The exchange's own money ────────────────────────────────────────────────────────────────────────────
-  const entity = await run(world, createSettlementEntity(owner.actor), owner.ref, 'settlement_entity.create', {
-    legalName: 'INRP2P Settlement Private Limited', shortName: 'INRP2P',
-  });
-  const account = await run(world, createInrAccount(owner.actor, protector), owner.ref, 'inr_account.create', {
-    entityId: entity.entityId, label: 'Company A', bankName: 'ICICI Bank', ifsc: 'ICIC0001234', accountNumber: '000405001234',
-    rails: ['IMPS', 'NEFT', 'RTGS'] as const, direction: 'BOTH' as const, defaultDailyCapacity: '50000000.00',
-  });
-  await run(world, setDayCapacity(owner.actor), owner.ref, 'capacity.set_day', { accountId: account.accountId, capacity: '50000000.00', reason: 'visual fixture' });
-  // ADR 0018: what a client paying a BUY sees — the payee and the account's UPI ID, so its trade shows a UPI code.
-  await run(world, setInrAccountCollectionDetails(owner.actor), owner.ref, 'inr_account.set_collection_details', {
-    accountId: account.accountId, upiVpa: 'inrp2p.collect@icici', beneficiaryName: 'INRP2P Settlement Pvt Ltd',
-  });
-
+  // ── The exchange's deposit pool ─────────────────────────────────────────────────────────────────────────
   const custody = new FakeCustodyAdapter({ provider: VISUAL_CUSTODY_PROVIDER, capability: 'POOL', poolSize: 24, seed: 'visual' });
   const poolWallet = await run(world, registerTreasuryWallet(owner.actor), owner.ref, 'treasury.register_wallet', {
     network: 'TRON' as const, address: address('deposit-pool'), label: 'Deposit pool', role: 'DEPOSIT_POOL' as const,
@@ -309,108 +266,24 @@ export async function seedVisual(adminUrl: string): Promise<VisualState> {
   // the **business** clock, which is frozen here, so a snapshot stamped with real time would read as stale.
   await pinWallClockColumns(world);
 
-  // ── Trades, one per state the desk has to show ──────────────────────────────────────────────────────────
   const chain = chainDeps('visual');
 
-  // 1. Completed: the launch scenario, so Orders has a finished trade and the strip a realized margin. The route
-  //    delivers its INR first; the client is paid with it and nothing else (D-16). Both legs are above the approval
-  //    threshold, so the owner sends them and the settlement operator confirms them (C1).
-  const completed = await trade(world, owner, {
-    clientId: acme.clientId, acceptor: acmeAcceptor, routeId: mumbai.routeId, bankAccountId: acmeBank.bankAccountId,
-    amount: '100000', clientRate: '102.000000', chain,
-  });
-  await routeDelivers(world, owner, chain, { tradeId: completed.tradeId, amount: '10420000.00', inrAccountId: account.accountId, utr: 'IXVISROUTE000' });
-  for (const amount of ['6000000.00', '4200000.00']) {
-    const leg = await run(world, createPayoutLeg(owner.actor, {}), owner.ref, 'payout_leg.create', {
-      tradeId: completed.tradeId, amount, payer: 'EXCHANGE_ACCOUNT' as const, inrAccountId: account.accountId,
-    });
-    await run(world, sendPayoutLeg(owner.actor), owner.ref, 'payout_leg.send', { legId: leg.legId });
-    await run(world, recordLegEvidence(owner.actor, chain.deps), owner.ref, 'payout_leg.record_evidence', {
-      legId: leg.legId, rail: 'IMPS' as const, utr: `IXVIS${amount.slice(0, 7).replace('.', '')}`,
-    });
-    await confirmPayout(world, settler.actor, chain.deps, { legId: leg.legId, idempotencyKey: randomUUID() });
-  }
-
-  // 2. Awaiting payout, with a leg already sent and referenced — the payout panel with work in flight, and the
-  //    ⧗ confirm the step-up capture needs.
-  const awaiting = await trade(world, owner, {
-    clientId: acme.clientId, acceptor: acmeAcceptor, routeId: mumbai.routeId, bankAccountId: acmeBank.bankAccountId,
-    amount: '25000', clientRate: '102.000000', chain,
-  });
-  await routeDelivers(world, owner, chain, { tradeId: awaiting.tradeId, amount: '1000000.00', inrAccountId: account.accountId, utr: 'IXVISROUTE002' });
-  const inFlight = await run(world, createPayoutLeg(owner.actor, {}), owner.ref, 'payout_leg.create', {
-    tradeId: awaiting.tradeId, amount: '1000000.00', payer: 'EXCHANGE_ACCOUNT' as const, inrAccountId: account.accountId,
-  });
-  await run(world, sendPayoutLeg(owner.actor), owner.ref, 'payout_leg.send', { legId: inFlight.legId });
-  await run(world, recordLegEvidence(owner.actor, chain.deps), owner.ref, 'payout_leg.record_evidence', {
-    legId: inFlight.legId, rail: 'IMPS' as const, utr: 'IXVIS1000000',
-  });
-
-  // 3. A trade on the direct route, so the payout panel offers the route as a payer and Rates shows the
-  //    read-only allocation that confirming a direct leg already made (FI-64).
-  const direct = await trade(world, owner, {
-    clientId: bharat.clientId, acceptor: bharatAcceptor, routeId: chennai.routeId, bankAccountId: bharatBank.bankAccountId,
-    amount: '40000', clientRate: '103.000000', chain,
-  });
-  const directLeg = await run(world, createPayoutLeg(owner.actor, {}), owner.ref, 'payout_leg.create', {
-    tradeId: direct.tradeId, amount: '2000000.00', payer: 'ROUTE' as const,
-  });
-  await run(world, sendPayoutLeg(owner.actor), owner.ref, 'payout_leg.send', { legId: directLeg.legId });
-  await run(world, recordLegEvidence(owner.actor, chain.deps), owner.ref, 'payout_leg.record_evidence', {
-    legId: directLeg.legId, rail: 'IMPS' as const, utr: 'IXVISDIRECT01',
-  });
-  await confirmPayout(world, owner.actor, chain.deps, { legId: directLeg.legId, idempotencyKey: randomUUID() });
-
-  // 4. A short payment: the chain delivered less than the trade expects, which the domain turns into a blocking
-  //    exception. Nothing is faked — the scanner and the confirmation open the case themselves.
-  const short = await trade(world, owner, {
-    clientId: acme.clientId, acceptor: acmeAcceptor, routeId: mumbai.routeId, bankAccountId: acmeBank.bankAccountId,
-    amount: '10000', clientRate: '102.000000', chain, deposit: '9950',
-  });
-
-  // 5. A request nobody has priced yet — the queue's "needs action" group and the quote builder.
-  const openRequest = await run(world, createRequest(owner.actor, {}), owner.ref, 'request.create', {
-    clientId: coastal.clientId, direction: 'BUY_USDT' as const, fixedSide: 'QUOTE' as const, amount: '2500000.00',
-    targetRate: '100.400000', walletId: coastalWallet.walletId,
-  });
-
-  // A route settlement recorded but not yet confirmed, so Rates shows the confirm the obligation is waiting on: the
-  //    rest of what the route owes on the trade awaiting payout.
-  await routeDelivers(world, owner, chain, { tradeId: awaiting.tradeId, amount: '1605000.00', inrAccountId: account.accountId, utr: 'IXVISROUTE001', confirm: false });
-
-  // ── The client product's own states ────────────────────────────────────────────────────────────────────
-  // 6. A trade the client has accepted and not yet funded: the deposit instructions, which is the one screen a
-  //    client is looking at while they move money.
-  const awaitingDeposit = await trade(world, owner, {
-    clientId: acme.clientId, acceptor: acmeAcceptor, routeId: mumbai.routeId, bankAccountId: acmeBank.bankAccountId,
-    amount: '5000', clientRate: '102.000000', chain, skipDeposit: true,
-  });
-
-  // 6b. A BUY the client has accepted and not yet paid (ADR 0018): where to pay, the UPI code, the trade's reference,
-  //     the time left, and the "I've paid" form — the screen a client has open while their payment app is.
-  const awaitingInr = await buyTrade(world, owner, {
-    clientId: acme.clientId, acceptor: acmeAcceptor, routeId: mumbai.routeId, walletId: acmeWallet.walletId, amount: '500', clientRate: '101.500000',
-  });
-
-  // ── Traders (TD-23, ADR 0019) ──────────────────────────────────────────────────────────────────────────
-  // 7. The programme settles P2P: Konkan Liquidity trades with its own INR and USDT, applied, approved, its Security
-  //     Reserve funded on chain from its registered wallet, both blocks live. Bharat sells 10,000 USDT through the
-  //     desk, which routes the request to Konkan at the client rate it quotes; Konkan accepts, the client accepts and
-  //     its USDT arrives in escrow — so the order waits on Konkan paying Bharat's own account. And Acme buys 2,000
-  //     USDT from Konkan: Konkan's USDT is in escrow, and Acme's screen shows the seller's account to pay.
+  // ── The trader every deal here is with (TD-23, ADR 0019) ───────────────────────────────────────────────
+  // Konkan Liquidity trades with its own INR and USDT: applied, approved, its Security Reserve funded on chain from its
+  // registered wallet, both blocks live.
   const programme = await world.selectFrom('trader_program').select('version').where('id', '=', 1).executeTakeFirstOrThrow();
   await run(world, configureTraderProgram(owner.actor), owner.ref, 'trader_program.configure', {
-    expectedVersion: programme.version, defaultRequiredReserve: '500', rewardBps: 10, collectionAccountId: account.accountId, executionMode: 'P2P' as const, reason: 'the visual fixture programme',
+    expectedVersion: programme.version, defaultRequiredReserve: '500', reason: 'the visual fixture programme',
   });
   const konkan = await run(world, createClient(owner.actor), owner.ref, 'client.create', {
-    legalName: 'Konkan Liquidity LLP', displayName: 'Konkan Liquidity', type: 'COMPANY' as const, typicalDirection: 'BUY_USDT' as const,
+    legalName: KONKAN_HOLDER, displayName: 'Konkan Liquidity', type: 'COMPANY' as const, typicalDirection: 'BUY_USDT' as const,
   });
   // It provides liquidity only: no Exchange, so its workspace is Traders alone — the shell a trader actually sees.
   await run(world, setClientExchangeAccess(owner.actor), owner.ref, 'client.set_exchange_access', {
     clientId: konkan.clientId, exchangeAccess: false, reason: 'provides liquidity only, through the trader programme',
   });
   const konkanBank = await run(world, addBankAccount(owner.actor, protector), owner.ref, 'client_bank.add', {
-    clientId: konkan.clientId, holderName: 'Konkan Liquidity LLP', bankName: 'Kotak Mahindra Bank', ifsc: 'KKBK0000123',
+    clientId: konkan.clientId, holderName: KONKAN_HOLDER, bankName: 'Kotak Mahindra Bank', ifsc: 'KKBK0000123',
     accountNumber: '74130211980057', railPreferences: ['IMPS', 'NEFT'] as const,
   });
   const konkanWalletAddress = address('konkan-wallet');
@@ -421,56 +294,97 @@ export async function seedVisual(adminUrl: string): Promise<VisualState> {
   const traderDeps = { custody, protector, chain: chain.deps.chain };
   await runClient(world, applyAsTrader(konkanDesk.actor, traderDeps), konkanDesk.ref, 'trader.apply', {
     experience: 'BINANCE' as const, telegram: '@konkan_desk', confirmOwnership: true, offersBuy: true, offersSell: true,
-    typicalInr: '1020000.00', dailyInr: '2000000.00', typicalUsdt: '2000.000000', dailyUsdt: '20000.000000', bankAccountId: konkanBank.bankAccountId, walletId: konkanWallet.walletId,
+    typicalInr: '1020000.00', dailyInr: '20000000.00', typicalUsdt: '2000.000000', dailyUsdt: '200000.000000', bankAccountId: konkanBank.bankAccountId, walletId: konkanWallet.walletId,
   });
   const traderId = (await world.selectFrom('trader_profile').select('id').where('client_id', '=', konkan.clientId).executeTakeFirstOrThrow()).id;
   await run(world, approveTrader(owner.actor), owner.ref, 'trader.approve', { traderId, requiredReserve: '500' });
   // Its network deposit (ADR 0017): TRX from its registered wallet, enough for its orders' transfers.
-  await fundBudget(world, { traderId, amountSun: 250_000_000n, from: konkanWalletAddress });
+  await fundBudget(world, { traderId, amountSun: 1_000_000_000n, from: konkanWalletAddress });
   // The one reserve address every trader sends to (D-17); the trader's registered wallet is what makes it its own. A new
-  // trader's deals stretch to twice its free reserve (ADR 0024): 6,000 USDT carries Bharat's 10,000 USDT sale.
+  // trader's deals stretch to twice its free reserve (ADR 0024): 30,000 USDT carries everything open here.
   const reserve = (await sharedReserveAddress(world))!;
-  chain.chain.add({ from: konkanWalletAddress, to: reserve.address, amountMinor: Money.parse('6000', 'USDT').minor });
+  chain.chain.add({ from: konkanWalletAddress, to: reserve.address, amountMinor: Money.parse('30000', 'USDT').minor });
   chain.chain.solidifyAll();
   await runTronScan(world, chain.deps);
   await runTronConfirm(world, chain.deps);
   const buyBlock = await world.selectFrom('trader_block').select('version').where('trader_id', '=', traderId).where('side', '=', 'BUY_USDT').executeTakeFirstOrThrow();
   await runClient(world, updateBlock(konkanDesk.actor), konkanDesk.ref, 'trader.update_block', {
-    side: 'BUY_USDT' as const, expectedVersion: buyBlock.version, capacity: '2000000.00', rate: '104.80', minOrder: '50000.00', maxOrder: '1500000.00', status: 'ACTIVE' as const,
+    side: 'BUY_USDT' as const, expectedVersion: buyBlock.version, capacity: '20000000.00', rate: '104.80', minOrder: '50000.00', maxOrder: '1500000.00', status: 'ACTIVE' as const,
   });
   const sellBlock = await world.selectFrom('trader_block').select('version').where('trader_id', '=', traderId).where('side', '=', 'SELL_USDT').executeTakeFirstOrThrow();
   await runClient(world, updateBlock(konkanDesk.actor), konkanDesk.ref, 'trader.update_block', {
     side: 'SELL_USDT' as const, expectedVersion: sellBlock.version, capacity: '20000.000000', rate: '105.20', minOrder: '100.000000', maxOrder: '10000.000000', status: 'ACTIVE' as const,
   });
   await runClient(world, setAvailability(konkanDesk.actor), konkanDesk.ref, 'trader.set_availability', { available: true });
-  const traderRequest = await run(world, createRequest(owner.actor, {}), owner.ref, 'request.create', {
-    clientId: bharat.clientId, direction: 'SELL_USDT' as const, fixedSide: 'BASE' as const, amount: '10000',
-    targetRate: '102.000000', bankAccountId: bharatBank.bankAccountId,
+
+  /** The desk routes a request to Konkan at the client rate it will quote, and Konkan takes it. */
+  const viaKonkan: Router = async (requestId, clientRate) => {
+    const order = await run(world, assignRequest(owner.actor), owner.ref, 'trader_order.assign', { requestId, plannedClientRate: clientRate });
+    await runClient(world, acceptOrder(konkanDesk.actor), konkanDesk.ref, 'trader_order.accept', { ref: order.ref });
+    const { route_id: routeId } = await world.selectFrom('trader_order').select('route_id').where('id', '=', order.orderId).executeTakeFirstOrThrow();
+    return { routeId, orderRef: order.ref };
+  };
+  const konkanPays = async (orderRef: string, utr: string) => (await runClient(world, submitOrderPayment(konkanDesk.actor), konkanDesk.ref, 'trader_order.submit_payment', { ref: orderRef, rail: 'IMPS' as const, utr })).settlementRef;
+
+  // ── Trades, one per state the desk has to show ──────────────────────────────────────────────────────────
+  // 1. Completed: the client's USDT in escrow, Konkan's rupees straight to the client, and the client's word on them.
+  const completed = await trade(world, owner, {
+    clientId: acme.clientId, acceptor: acmeAcceptor, route: viaKonkan, bankAccountId: acmeBank.bankAccountId,
+    amount: '12000', clientRate: '102.000000', chain,
   });
-  const assigned = await run(world, assignRequest(owner.actor), owner.ref, 'trader_order.assign', { requestId: traderRequest.requestId, plannedClientRate: '102.000000' });
-  await runClient(world, acceptOrder(konkanDesk.actor), konkanDesk.ref, 'trader_order.accept', { ref: assigned.ref });
-  const traderRoute = (await world.selectFrom('trader_order').select('route_id').where('id', '=', assigned.orderId).executeTakeFirstOrThrow()).route_id;
-  await trade(world, owner, {
-    clientId: bharat.clientId, acceptor: bharatAcceptor, routeId: traderRoute, bankAccountId: bharatBank.bankAccountId,
-    amount: '10000', clientRate: '102.000000', chain, requestId: traderRequest.requestId,
+  const completedPayment = await konkanPays(completed.orderRef, '610000000001');
+  const acmeSession = await clientSession(world, acmeAcceptor.userId);
+  const completedRef = (await world.selectFrom('trade').select('ref').where('id', '=', completed.tradeId).executeTakeFirstOrThrow()).ref;
+  await runClient(world, confirmClientReceipt(acmeSession.actor, chain.deps), acmeSession.ref, 'payout.confirm_received', { tradeRef: completedRef, legRef: completedPayment, senderName: KONKAN_HOLDER });
+
+  // 2. Konkan says it paid and the client has not confirmed yet: the turn that releases the escrow.
+  const awaiting = await trade(world, owner, {
+    clientId: acme.clientId, acceptor: acmeAcceptor, route: viaKonkan, bankAccountId: acmeBank.bankAccountId,
+    amount: '8000', clientRate: '102.000000', chain,
   });
-  // Acme buys 2,000 USDT from Konkan, P2P: the order is sized at the client rate, Konkan's USDT reaches the order's
-  // escrow from its registered wallet, and Acme is shown Konkan's account.
-  const p2pRequest = await run(world, createRequest(owner.actor, {}), owner.ref, 'request.create', {
-    clientId: acme.clientId, direction: 'BUY_USDT' as const, fixedSide: 'BASE' as const, amount: '2000', targetRate: '106.500000', walletId: acmeWallet.walletId,
+  await konkanPays(awaiting.orderRef, '610000000002');
+
+  // 3. A short payment: the chain delivered less than the trade expects, which the domain turns into a blocking
+  //    exception. Nothing is faked — the scanner and the confirmation open the case themselves.
+  const short = await trade(world, owner, {
+    clientId: acme.clientId, acceptor: acmeAcceptor, route: viaKonkan, bankAccountId: acmeBank.bankAccountId,
+    amount: '10000', clientRate: '102.000000', chain, deposit: '9950',
   });
-  const sellOrder = await run(world, assignRequest(owner.actor), owner.ref, 'trader_order.assign', { requestId: p2pRequest.requestId, plannedClientRate: '106.500000' });
-  await runClient(world, acceptOrder(konkanDesk.actor), konkanDesk.ref, 'trader_order.accept', { ref: sellOrder.ref });
-  const sellRoute = (await world.selectFrom('trader_order').select('route_id').where('id', '=', sellOrder.orderId).executeTakeFirstOrThrow()).route_id;
-  const p2pBuy = await buyTrade(world, owner, { clientId: acme.clientId, acceptor: acmeAcceptor, routeId: sellRoute, walletId: acmeWallet.walletId, amount: '2000', clientRate: '106.500000', requestId: p2pRequest.requestId });
-  const escrow = await runClient(world, orderDeliveryAddress(konkanDesk.actor, { custody }), konkanDesk.ref, 'trader_order.delivery_address', { ref: sellOrder.ref });
+
+  // 4. A request nobody has priced yet — the queue's "needs action" group and the quote builder.
+  const openRequest = await run(world, createRequest(owner.actor, {}), owner.ref, 'request.create', {
+    clientId: coastal.clientId, direction: 'BUY_USDT' as const, fixedSide: 'QUOTE' as const, amount: '2500000.00',
+    targetRate: '106.500000', walletId: coastalWallet.walletId,
+  });
+
+  // ── The client product's own states ────────────────────────────────────────────────────────────────────
+  // 5. A trade the client has accepted and not yet funded: the deposit instructions, which is the one screen a client is
+  //    looking at while they move money.
+  const awaitingDeposit = await trade(world, owner, {
+    clientId: acme.clientId, acceptor: acmeAcceptor, route: viaKonkan, bankAccountId: acmeBank.bankAccountId,
+    amount: '5000', clientRate: '102.000000', chain, skipDeposit: true,
+  });
+
+  // 6. A BUY the client has accepted, the seller's USDT not yet in escrow: nothing for the client to pay yet.
+  const awaitingEscrow = await buyTrade(world, owner, {
+    clientId: acme.clientId, acceptor: acmeAcceptor, route: viaKonkan, walletId: acmeWallet.walletId, amount: '500', clientRate: '106.500000',
+  });
+
+  // 7. Bharat sells 10,000 USDT, its USDT in escrow, so the order waits on Konkan paying Bharat's own account. And Acme buys
+  //    2,000 USDT: Konkan's USDT reaches the order's escrow from its registered wallet, and Acme is shown Konkan's account.
+  const bharatSale = await trade(world, owner, {
+    clientId: bharat.clientId, acceptor: bharatAcceptor, route: viaKonkan, bankAccountId: bharatBank.bankAccountId,
+    amount: '10000', clientRate: '102.000000', chain,
+  });
+  const p2pBuy = await buyTrade(world, owner, { clientId: acme.clientId, acceptor: acmeAcceptor, route: viaKonkan, walletId: acmeWallet.walletId, amount: '2000', clientRate: '106.500000' });
+  const escrow = await runClient(world, orderDeliveryAddress(konkanDesk.actor, { custody }), konkanDesk.ref, 'trader_order.delivery_address', { ref: p2pBuy.orderRef });
   chain.chain.add({ from: konkanWalletAddress, to: escrow.address, amountMinor: Money.parse(escrow.amount, 'USDT').minor });
   chain.chain.solidifyAll();
   await runTronScan(world, chain.deps);
   await runTronConfirm(world, chain.deps);
 
   // ── A desk (ADR 0020) ──────────────────────────────────────────────────────────────────────────────────────
-  // 7b. Konkan runs its own exchange on INRP2P: its page at /konkan, live prices on both sides, an operator on its team.
+  // 8. Konkan runs its own exchange on INRP2P: its page at /konkan, live prices on both sides, an operator on its team.
   //     Meera Textiles — a new client — sells 1,500 USDT from the page, its USDT already in the deal's escrow, so the
   //     desk owes it rupees. Acme takes a link to buy 800 USDT: the desk owes its USDT to the escrow. Bharat holds the
   //     page's price for 2,000 USDT; and one link is still waiting for its client.
@@ -512,7 +426,6 @@ export async function seedVisual(adminUrl: string): Promise<VisualState> {
   await runClient(world, createDeskDealLink(konkanDesk.actor, (t) => { dealToken = t; }), konkanDesk.ref, 'desk_deal_link.create', {
     direction: 'BUY_USDT' as const, fixedSide: 'BASE' as const, amount: '800', rate: '105.300000', validMinutes: 1440, note: 'Acme treasury, WhatsApp',
   });
-  const acmeSession = await clientSession(world, acmeAcceptor.userId);
   const linkQuote = await runClient(world, claimDeskDealLink(acmeSession.actor, deskQuoteDeps), acmeSession.ref, 'desk_deal_link.claim', { token: dealToken, walletId: acmeWallet.walletId });
   await runClient(world, acceptQuote(acmeSession.actor, deskQuoteDeps), acmeSession.ref, 'quote.accept', { quoteId: linkQuote.quoteId });
   let openLinkToken = '';
@@ -527,50 +440,25 @@ export async function seedVisual(adminUrl: string): Promise<VisualState> {
   const payDealRef = await orderRefOf(meeraQuote.orderId);
   const escrowDealRef = await orderRefOf(linkQuote.orderId);
 
-  // 7c. A live quote with a shareable link, so Exchange counts one down and the public link page has one to show.
+  // 9. A live quote with a shareable link, so Exchange counts one down and the public link page has one to show.
   //    The business clock is frozen, so this quote is permanently 180 s from expiry — which is the point. It is
   //    Acme's latest request on the Exchange, so it comes after the P2P buy above: Exchange shows the client's last
   //    request, and that one became a trade.
   const pendingRequest = await run(world, createRequest(owner.actor, {}), owner.ref, 'request.create', {
-    clientId: acme.clientId, direction: 'SELL_USDT' as const, fixedSide: 'BASE' as const, amount: '100000',
+    clientId: acme.clientId, direction: 'SELL_USDT' as const, fixedSide: 'BASE' as const, amount: '10000',
     targetRate: '102.000000', bankAccountId: acmeBank.bankAccountId,
   });
   const pendingQuote = await run(world, createQuote(owner.actor, {}), owner.ref, 'quote.create', {
-    requestId: pendingRequest.requestId, routeId: mumbai.routeId, clientRate: '102.000000', validitySeconds: 180,
+    requestId: pendingRequest.requestId, routeId: (await viaKonkan(pendingRequest.requestId, '102.000000')).routeId, clientRate: '102.000000', validitySeconds: 180,
   });
   await run(world, sendQuote(owner.actor, {}), owner.ref, 'quote.send', { quoteId: pendingQuote.quoteId });
   let linkToken = '';
   await run(world, createQuoteLink(owner.actor, {}, (t) => { linkToken = t; }), owner.ref, 'quote_link.create', { quoteId: pendingQuote.quoteId });
   const pendingQuoteRef = (await world.selectFrom('quote').select('ref').where('id', '=', pendingQuote.quoteId).executeTakeFirstOrThrow()).ref;
 
-  // 8. The inbox, filled the way production fills it: by running the outbox over the events these commands
+  // 10. The inbox, filled the way production fills it: by running the outbox over the events these commands
   //    already enqueued. Nothing writes a notification directly.
   await dispatchOutbox(world, [clientNotificationHandler(world), traderNotificationHandler(world), receiptHandler(world), acknowledgedSignalHandler()], { batchSize: 500 });
-
-  // 8b. A bank statement, reconciled. Its lines are the payments the desk actually confirmed on this account —
-  //     the payouts that left it and, since D-16, the routes' INR that arrived in it to pay them — so the import
-  //     matches everything and opens no case: the quiet outcome, which is the one a baseline should show. The extra
-  //     line is a bank charge this system never made: `UNRECORDED`, and deliberately not a case, because a real
-  //     statement is full of them.
-  const confirmedLines = await sql<{ utr: string; amount_minor: bigint; outgoing: boolean }>`
-    select f.utr, f.amount_minor, (f.payer_type = 'EXCHANGE_ACCOUNT' and f.payer_id = ${account.accountId}) as outgoing
-    from fiat_transfer f
-    where f.status = 'CONFIRMED'
-      and ((f.payer_type = 'EXCHANGE_ACCOUNT' and f.payer_id = ${account.accountId}) or (f.payee_type = 'EXCHANGE_ACCOUNT' and f.payee_id = ${account.accountId}))
-    order by f.utr`.execute(world);
-  const statementLines = [
-    ...confirmedLines.rows.map((r) => ({
-      valueDate: FROZEN_IST_DAY, direction: r.outgoing ? ('DEBIT' as const) : ('CREDIT' as const),
-      amount: Money.ofMinor(r.amount_minor, 'INR').toDecimalString(), reference: r.utr, description: r.outgoing ? 'NEFT OUTWARD' : 'NEFT INWARD',
-    })),
-    { valueDate: FROZEN_IST_DAY, direction: 'DEBIT' as const, amount: '236.00', reference: 'BANKCHG0919', description: 'MONTHLY CHARGES' },
-  ];
-  await run(world, importBankStatement(owner.actor), owner.ref, 'statement.import', {
-    inrAccountId: account.accountId, periodFrom: FROZEN_IST_DAY, periodTo: FROZEN_IST_DAY,
-    filename: 'hdfc-20260919.csv',
-    sha256: createHash('sha256').update(JSON.stringify(statementLines)).digest('hex'),
-    lines: statementLines,
-  });
 
   // The scanner's own state, written directly: only the chain would otherwise supply it, and the USDT screen
   // shows it so an operator can tell "quiet" from "broken".
@@ -589,11 +477,11 @@ export async function seedVisual(adminUrl: string): Promise<VisualState> {
     databaseUrl,
     owner: { email: owner.email, password: OPERATOR_PASSWORD, totpSecret: owner.totpSecret },
     clients: { acme: acme.clientId, bharat: bharat.clientId },
-    trades: { completed: completed.tradeId, awaitingPayout: awaiting.tradeId, directRoute: direct.tradeId, shortPaid: short.tradeId },
-    tradeRefs: { completed: refOf(completed.tradeId), awaitingPayout: refOf(awaiting.tradeId), awaitingDeposit: refOf(awaitingDeposit.tradeId), awaitingInr: refOf(awaitingInr.tradeId), p2pBuy: refOf(p2pBuy.tradeId) },
+    trades: { completed: completed.tradeId, awaitingConfirmation: awaiting.tradeId, shortPaid: short.tradeId },
+    tradeRefs: { completed: completedRef, awaitingConfirmation: refOf(awaiting.tradeId), awaitingDeposit: refOf(awaitingDeposit.tradeId), awaitingEscrow: refOf(awaitingEscrow.tradeId), p2pBuy: refOf(p2pBuy.tradeId) },
     openRequestId: openRequest.requestId,
     client: { email: 'treasury@acmepay.test', quoteRef: pendingQuoteRef, linkToken },
-    trader: { email: konkanDesk.email, traderId, orderRef: assigned.ref, sellOrderRef: sellOrder.ref },
+    trader: { email: konkanDesk.email, traderId, orderRef: bharatSale.orderRef, sellOrderRef: p2pBuy.orderRef },
     desk: { handle: 'konkan', payDealRef, escrowDealRef, openLinkToken },
   };
   writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
@@ -602,40 +490,50 @@ export async function seedVisual(adminUrl: string): Promise<VisualState> {
   return state;
 }
 
-/** Request → quote → the client's own acceptance → the chain's delivery, exactly as the product does it. */
-/** A BUY accepted by the client in the app, through the same acceptance a client's session makes. */
+/** How the bank shows Konkan's account as a sender. */
+const KONKAN_HOLDER = 'Konkan Liquidity LLP';
+
+/** Routes a request to a trader that takes it, at the client rate the desk will quote: what a quote is then made on. */
+type Router = (requestId: string, clientRate: string) => Promise<{ routeId: string; orderRef: string }>;
+
+/** A client's own acceptance, through the same command a client's session makes. */
+async function clientAccepts(db: Db, userId: string, quoteId: string): Promise<string> {
+  const session = await clientSession(db, userId);
+  const custody = new FakeCustodyAdapter({ provider: VISUAL_CUSTODY_PROVIDER, capability: 'POOL', poolSize: 24, seed: 'visual' });
+  const accepted = await runClient(db, acceptQuote(session.actor, { custody, protector: visualFieldProtector() }), session.ref, 'quote.accept', { quoteId });
+  return accepted.tradeId;
+}
+
+/** Request → the trader → quote → the client's own acceptance, exactly as the product does it. */
+async function quoteAndAccept(
+  db: Db, owner: Awaited<ReturnType<typeof operator>>, requestId: string, input: { acceptor: { userId: string }; route: Router; clientRate: string },
+): Promise<{ tradeId: string; orderRef: string }> {
+  const { routeId, orderRef } = await input.route(requestId, input.clientRate);
+  const quote = await run(db, createQuote(owner.actor, {}), owner.ref, 'quote.create', { requestId, routeId, clientRate: input.clientRate, validitySeconds: 180 });
+  await run(db, sendQuote(owner.actor, {}), owner.ref, 'quote.send', { quoteId: quote.quoteId });
+  return { tradeId: await clientAccepts(db, input.acceptor.userId, quote.quoteId), orderRef };
+}
+
+/** A client buying USDT, accepted: the seller's USDT is the next thing to happen. */
 async function buyTrade(
   db: Db,
   owner: Awaited<ReturnType<typeof operator>>,
-  input: { clientId: string; acceptor: { userId: string }; routeId: string; walletId: string; amount: string; clientRate: string; requestId?: string },
-): Promise<{ tradeId: string }> {
-  const request = input.requestId
-    ? { requestId: input.requestId }
-    : await run(db, createRequest(owner.actor, {}), owner.ref, 'request.create', {
-        clientId: input.clientId, direction: 'BUY_USDT' as const, fixedSide: 'BASE' as const, amount: input.amount, targetRate: input.clientRate, walletId: input.walletId,
-      });
-  const quote = await run(db, createQuote(owner.actor, {}), owner.ref, 'quote.create', { requestId: request.requestId, routeId: input.routeId, clientRate: input.clientRate, validitySeconds: 180 });
-  await run(db, sendQuote(owner.actor, {}), owner.ref, 'quote.send', { quoteId: quote.quoteId });
-  const session = await db
-    .insertInto('auth_session')
-    .values({ expires_at: new Date(Date.now() + 3_600_000), token: randomUUID(), created_at: new Date(), updated_at: new Date(), user_id: input.acceptor.userId, surface: 'CLIENT' })
-    .returning('id')
-    .executeTakeFirstOrThrow();
-  const accepted = await executeCommand(
-    db,
-    acceptQuote({ kind: 'CLIENT', userId: input.acceptor.userId, sessionId: session.id }, { custody: new FakeCustodyAdapter({ provider: VISUAL_CUSTODY_PROVIDER, capability: 'POOL', poolSize: 24, seed: 'visual' }), protector: visualFieldProtector() }),
-    { name: 'quote.accept', actor: { type: 'USER', id: input.acceptor.userId, surface: 'CLIENT', sessionId: session.id }, payload: { quoteId: quote.quoteId }, idempotencyKey: randomUUID(), financial: true },
-  );
-  return { tradeId: (accepted.result as { tradeId: string }).tradeId };
+  input: { clientId: string; acceptor: { userId: string }; route: Router; walletId: string; amount: string; clientRate: string },
+): Promise<{ tradeId: string; orderRef: string }> {
+  const request = await run(db, createRequest(owner.actor, {}), owner.ref, 'request.create', {
+    clientId: input.clientId, direction: 'BUY_USDT' as const, fixedSide: 'BASE' as const, amount: input.amount, targetRate: input.clientRate, walletId: input.walletId,
+  });
+  return quoteAndAccept(db, owner, request.requestId, input);
 }
 
+/** A client selling USDT, accepted, and — unless it is left waiting — its USDT delivered on the chain. */
 async function trade(
   db: Db,
   owner: Awaited<ReturnType<typeof operator>>,
   input: {
     clientId: string;
     acceptor: { userId: string };
-    routeId: string;
+    route: Router;
     bankAccountId: string;
     amount: string;
     clientRate: string;
@@ -644,77 +542,26 @@ async function trade(
     deposit?: string;
     /** Leave the trade waiting for its USDT, which is the first thing a client's own trade screen shows. */
     skipDeposit?: boolean;
-    /** A request already made — one the desk routed to a trader, whose route the quote is then made on. */
-    requestId?: string;
   },
-): Promise<{ tradeId: string }> {
-  const request = input.requestId
-    ? { requestId: input.requestId }
-    : await run(db, createRequest(owner.actor, {}), owner.ref, 'request.create', {
-        clientId: input.clientId, direction: 'SELL_USDT' as const, fixedSide: 'BASE' as const, amount: input.amount,
-        targetRate: input.clientRate, bankAccountId: input.bankAccountId,
-      });
-  const quote = await run(db, createQuote(owner.actor, {}), owner.ref, 'quote.create', {
-    requestId: request.requestId, routeId: input.routeId, clientRate: input.clientRate, validitySeconds: 180,
+): Promise<{ tradeId: string; orderRef: string }> {
+  const request = await run(db, createRequest(owner.actor, {}), owner.ref, 'request.create', {
+    clientId: input.clientId, direction: 'SELL_USDT' as const, fixedSide: 'BASE' as const, amount: input.amount,
+    targetRate: input.clientRate, bankAccountId: input.bankAccountId,
   });
-  await run(db, sendQuote(owner.actor, {}), owner.ref, 'quote.send', { quoteId: quote.quoteId });
-
-  const session = await db
-    .insertInto('auth_session')
-    .values({ expires_at: new Date(Date.now() + 3_600_000), token: randomUUID(), created_at: new Date(), updated_at: new Date(), user_id: input.acceptor.userId, surface: 'CLIENT' })
-    .returning('id')
-    .executeTakeFirstOrThrow();
-  const clientActor: ClientActor = { kind: 'CLIENT', userId: input.acceptor.userId, sessionId: session.id };
-  const accepted = await executeCommand(
-    db,
-    acceptQuote(clientActor, { custody: new FakeCustodyAdapter({ provider: VISUAL_CUSTODY_PROVIDER, capability: 'POOL', poolSize: 24, seed: 'visual' }), protector: visualFieldProtector() }),
-    {
-      name: 'quote.accept',
-      actor: { type: 'USER', id: input.acceptor.userId, surface: 'CLIENT', sessionId: session.id },
-      payload: { quoteId: quote.quoteId },
-      idempotencyKey: randomUUID(),
-      financial: true,
-    },
-  );
-  const { tradeId } = accepted.result as { tradeId: string };
-
-  if (input.skipDeposit) return { tradeId };
+  const accepted = await quoteAndAccept(db, owner, request.requestId, input);
+  if (input.skipDeposit) return accepted;
 
   const deposit = await db
     .selectFrom('deposit_assignment as a')
     .innerJoin('deposit_address as d', 'd.id', 'a.deposit_address_id')
     .select('d.address')
-    .where('a.trade_id', '=', tradeId)
+    .where('a.trade_id', '=', accepted.tradeId)
     .executeTakeFirstOrThrow();
   input.chain.chain.add({ to: deposit.address, amountMinor: Money.parse(input.deposit ?? input.amount, 'USDT').minor });
   input.chain.chain.solidifyAll();
   await runTronScan(db, input.chain.deps);
   await runTronConfirm(db, input.chain.deps);
-  return { tradeId };
-}
-
-/**
- * The trade's route delivers INR into the exchange's account, recorded against its obligation and — unless
- * `confirm: false` — confirmed against the bank: the only money a TO_EXCHANGE trade's client is ever paid with.
- */
-async function routeDelivers(
-  db: Db,
-  owner: Awaited<ReturnType<typeof operator>>,
-  chain: ReturnType<typeof chainDeps>,
-  input: { tradeId: string; amount: string; inrAccountId: string; utr: string; confirm?: boolean },
-): Promise<void> {
-  const recorded = await run(db, recordRouteSettlement(owner.actor, chain.deps), owner.ref, 'route_settlement.record', {
-    routeObligationId: await obligationOf(db, input.tradeId), flow: 'FROM_ROUTE_TO_EXCHANGE' as const,
-    amount: input.amount, rail: 'IMPS' as const, utr: input.utr, inrAccountId: input.inrAccountId,
-  });
-  if (input.confirm !== false) {
-    await run(db, confirmRouteSettlement(owner.actor, chain.deps), owner.ref, 'route_settlement.confirm', { routeSettlementId: recorded.routeSettlementId });
-  }
-}
-
-async function obligationOf(db: Db, tradeId: string): Promise<string> {
-  const r = await db.selectFrom('route_obligation').select('id').where('trade_id', '=', tradeId).executeTakeFirstOrThrow();
-  return r.id;
+  return accepted;
 }
 
 /** A client user allowed to accept their own quotes (D-01). */
@@ -746,13 +593,14 @@ async function clientPerson(db: Db, clientAuth: ReturnType<typeof createClientAu
   return { userId, email, actor, ref: { type: 'USER' as const, id: userId, surface: 'CLIENT' as const, sessionId: session.id } };
 }
 
-/** A client session for a person the seed already made, for the commands they take themselves. */
+/** A client session for a person the seed already made, verified a moment ago, for the commands they take themselves. */
 async function clientSession(db: Db, userId: string) {
   const session = await db
     .insertInto('auth_session')
     .values({ expires_at: new Date(Date.now() + 3_600_000), token: randomUUID(), created_at: new Date(), updated_at: new Date(), user_id: userId, surface: 'CLIENT' })
     .returning('id')
     .executeTakeFirstOrThrow();
+  await sql`insert into step_up_verification (user_id, session_id, method, verified_at) values (${userId}, ${session.id}, 'TOTP', statement_timestamp())`.execute(db);
   const actor: ClientActor = { kind: 'CLIENT', userId, sessionId: session.id };
   return { actor, ref: { type: 'USER' as const, id: userId, surface: 'CLIENT' as const, sessionId: session.id } };
 }

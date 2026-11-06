@@ -4,7 +4,6 @@ import type { TxContext } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
 import { enqueueOutbox } from '@inrp2p/outbox';
 import { type OperatorActor, assertSecondApprover, operatorCommand } from '@inrp2p/identity';
-import { releaseReservation } from '@inrp2p/inr-accounts';
 import { lockTrade } from '@inrp2p/trades';
 import { resolveExceptionInTx } from './exceptions.ts';
 import { settleFunding } from './funding.ts';
@@ -101,7 +100,7 @@ export function requestDestinationChange(actor: OperatorActor) {
 /**
  * `trade.approve_destination_change` — `trade:approve_destination_change` (⧗✱), by someone other than the requester.
  * Refused while a payout to the old destination is in flight; a payout still only planned to it is cancelled here,
- * on the record (its capacity and earmark released), and the desk plans it again to the new destination.
+ * on the record (its earmark released), and the desk plans it again to the new destination.
  */
 export function approveDestinationChange(actor: OperatorActor) {
   return operatorCommand(actor, 'trade:approve_destination_change', async (ctx, p: { requestId: string; note?: string | null }, decision) => {
@@ -115,7 +114,6 @@ export function approveDestinationChange(actor: OperatorActor) {
     for (const l of planned) {
       const leg = await lockLeg(ctx, l.id);
       await ctx.tx.updateTable('settlement_leg').set({ status: 'CANCELLED', cancelled_at: sql<Date>`inrp2p_now()` }).where('id', '=', leg.id).execute();
-      if (leg.capacity_reservation_id) await releaseReservation(ctx, leg.capacity_reservation_id, 'LEG_CANCELLED');
       await settleFunding(ctx, { kind: 'CLIENT_PAYOUT', legId: leg.id }, 'RELEASED', `destination changed (${change.ref})`);
       await appendAudit(ctx, { action: 'leg.cancelled', entityType: 'settlement_leg', entityId: leg.id, before: { status: 'PENDING' }, after: { status: 'CANCELLED', reason: `destination changed (${change.ref})` } });
     }

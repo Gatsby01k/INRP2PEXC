@@ -1,5 +1,5 @@
 import { sql } from 'kysely';
-import { DomainError, Money, type P2pTiming, requireP2pTiming, requireText, requireUuid } from '@inrp2p/kernel';
+import { DomainError, Money, type P2pTiming, requireP2pTiming, requireText } from '@inrp2p/kernel';
 import type { Executor } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
 import { enqueueOutbox } from '@inrp2p/outbox';
@@ -9,8 +9,8 @@ import { type RiskPolicy, requireRiskPolicy } from './risk.ts';
 
 /**
  * What trader commands need from the outside world: the custody provider that issues a trader's reserve and
- * delivery addresses (D-02), the field protector that opens the exchange's own collection account number for
- * payment instructions, and the chain verifier that confirms USDT movements (FI-24).
+ * delivery addresses (D-02), the field protector that seals a trader's bank details, and the chain verifier that
+ * confirms USDT movements (FI-24).
  */
 export interface TraderDeps {
   readonly custody: CustodyAdapter;
@@ -20,19 +20,14 @@ export interface TraderDeps {
 
 /**
  * The trader programme's settings, as the operator last set them. Nothing here has a default that stands in for a
- * decision: the Security Reserve amount and the reward rate are absent until an operator sets them, and the
- * product says so rather than inventing a number.
+ * decision: the Security Reserve amount is absent until an operator sets it, and the product says so rather than
+ * inventing a number. Traders deal P2P (ADR 0019): a client's rupees go straight to and from its trader.
  */
 export interface TraderProgram {
   readonly defaultRequiredReserve: Money<'USDT'> | null;
-  /** Basis points of an order's INR value, paid on completion. Null: INRP2P pays no reward. */
-  readonly rewardBps: number | null;
   readonly offerTtlSeconds: number;
   readonly holdTtlSeconds: number;
   readonly autoAssign: boolean;
-  readonly collectionAccountId: string | null;
-  /** ADR 0019: rupees through the exchange's account (`TO_EXCHANGE`), or straight between client and trader (`P2P`). */
-  readonly executionMode: 'TO_EXCHANGE' | 'P2P';
   /** ADR 0023: how long each step of a P2P deal may take, by rail. A running deal keeps the timing it opened with. */
   readonly p2pTiming: P2pTiming;
   /** ADR 0024: applications and settled changes reviewed by the programme's rules; whatever they cannot settle waits for a person. */
@@ -49,12 +44,9 @@ export async function traderProgram(ex: Executor): Promise<TraderProgram> {
   const r = await ex.selectFrom('trader_program').selectAll().where('id', '=', 1).executeTakeFirstOrThrow();
   return {
     defaultRequiredReserve: r.default_required_reserve_minor === null ? null : Money.ofMinor(r.default_required_reserve_minor, 'USDT'),
-    rewardBps: r.reward_bps,
     offerTtlSeconds: r.offer_ttl_seconds,
     holdTtlSeconds: r.hold_ttl_seconds,
     autoAssign: r.auto_assign,
-    collectionAccountId: r.collection_account_id,
-    executionMode: r.execution_mode,
     p2pTiming: requireP2pTiming(r.p2p_timing),
     autoReview: r.auto_review,
     riskPolicy: r.risk_policy === null ? null : requireRiskPolicy(r.risk_policy),
@@ -68,13 +60,9 @@ export interface ConfigureProgramPayload {
   readonly expectedVersion: number;
   /** Decimal USDT, or null to leave the reserve unset. */
   readonly defaultRequiredReserve?: string | null;
-  readonly rewardBps?: number | null;
   readonly offerTtlSeconds?: number;
   readonly holdTtlSeconds?: number;
   readonly autoAssign?: boolean;
-  readonly collectionAccountId?: string | null;
-  /** ADR 0019: switches every trader route at once — refused while any trader order or obligation is still live. */
-  readonly executionMode?: 'TO_EXCHANGE' | 'P2P';
   /** ADR 0023: the P2P deal timing — escrow, the time to pay and to confirm by rail, the final period. */
   readonly p2pTiming?: P2pTiming;
   /** ADR 0024: review applications by rule. Switching it on reviews every application already waiting. */
@@ -92,15 +80,9 @@ const wholeInRange = (value: unknown, field: string, min: number, max: number): 
   return value;
 };
 
-/** A reward rate in basis points (0–500), or null for none. */
-export function parseRewardBps(value: unknown): number | null {
-  if (value === null || value === undefined) return null;
-  return wholeInRange(value, 'rewardBps', 0, 500);
-}
-
 /**
  * `trader_program.configure` — `traders:configure` (⧗). One audited change to the programme; orders already in
- * flight keep the terms they were given (their reward is frozen when they start).
+ * flight keep the terms they were given.
  */
 export function configureTraderProgram(actor: OperatorActor) {
   return operatorCommand(actor, 'traders:configure', async (ctx, p: ConfigureProgramPayload) => {
@@ -116,40 +98,9 @@ export function configureTraderProgram(actor: OperatorActor) {
         changes.default_required_reserve_minor = reserve.minor;
       }
     }
-    if (p.rewardBps !== undefined) changes.reward_bps = parseRewardBps(p.rewardBps);
     if (p.offerTtlSeconds !== undefined) changes.offer_ttl_seconds = wholeInRange(p.offerTtlSeconds, 'offerTtlSeconds', 30, 900);
     if (p.holdTtlSeconds !== undefined) changes.hold_ttl_seconds = wholeInRange(p.holdTtlSeconds, 'holdTtlSeconds', 60, 900);
     if (p.autoAssign !== undefined) changes.auto_assign = Boolean(p.autoAssign);
-    if (p.collectionAccountId !== undefined) {
-      if (p.collectionAccountId === null || p.collectionAccountId === '') changes.collection_account_id = null;
-      else {
-        const accountId = requireUuid(p.collectionAccountId, 'collectionAccountId');
-        const account = await ctx.tx.selectFrom('inr_settlement_account').select(['status', 'direction']).where('id', '=', accountId).executeTakeFirst();
-        if (!account) throw new DomainError('NOT_FOUND', 'INR account not found');
-        if (account.status !== 'ACTIVE') throw new DomainError('ACCOUNT_NOT_ACTIVE', 'traders pay into an ACTIVE account');
-        // D-16: a client selling USDT is paid with the trader's INR from the account it arrived in, so the account
-        // traders pay into must also pay out. A collection-only account would leave every such trade unpayable.
-        if (account.direction !== 'BOTH') {
-          throw new DomainError('INVALID_ARGUMENT', 'traders pay into an account that both collects and pays out: the client is paid from where the trader\'s INR arrived (D-16)');
-        }
-        changes.collection_account_id = accountId;
-      }
-    }
-    if (p.executionMode !== undefined && p.executionMode !== before.execution_mode) {
-      const mode = p.executionMode === 'P2P' ? 'P2P' : p.executionMode === 'TO_EXCHANGE' ? 'TO_EXCHANGE' : null;
-      if (!mode) throw new DomainError('INVALID_ARGUMENT', 'executionMode must be TO_EXCHANGE or P2P');
-      // A route changes how it executes only between deals: an order or obligation in flight keeps the terms it began with.
-      const live = await sql<{ n: number }>`
-        select (select count(*) from trader_order where status in ('OFFERED', 'ACCEPTED', 'IN_PROGRESS'))::int
-             + (select count(*) from route_obligation o join liquidity_route r on r.id = o.route_id where r.trader_id is not null and o.status in ('OPEN', 'PARTIALLY_SETTLED'))::int as n`.execute(ctx.tx);
-      if (live.rows[0]!.n > 0) throw new DomainError('INVALID_TRANSITION', 'trader orders or obligations are still open: switch how traders settle once they are finished');
-      const routes = await ctx.tx.selectFrom('liquidity_route').select(['id', 'version', 'execution_mode']).where('trader_id', 'is not', null).orderBy('id').forUpdate().execute();
-      for (const r of routes) {
-        await ctx.tx.updateTable('liquidity_route').set({ execution_mode: mode, version: r.version + 1, updated_at: sql<Date>`statement_timestamp()` }).where('id', '=', r.id).execute();
-        await appendAudit(ctx, { action: 'routes.execution_mode_changed', entityType: 'liquidity_route', entityId: r.id, before: { execution_mode: r.execution_mode }, after: { execution_mode: mode, reason } });
-      }
-      changes.execution_mode = mode;
-    }
     if (p.p2pTiming !== undefined) changes.p2p_timing = JSON.stringify(requireP2pTiming(p.p2pTiming));
     if (p.autoReview !== undefined) changes.auto_review = p.autoReview === true;
     if (p.riskPolicy !== undefined) changes.risk_policy = p.riskPolicy === null ? null : JSON.stringify(requireRiskPolicy(p.riskPolicy));
@@ -162,8 +113,8 @@ export function configureTraderProgram(actor: OperatorActor) {
       .executeTakeFirstOrThrow();
     await appendAudit(ctx, {
       action: 'trader_program.configured', entityType: 'trader_program', entityId: null,
-      before: { default_required_reserve_minor: before.default_required_reserve_minor, reward_bps: before.reward_bps, offer_ttl_seconds: before.offer_ttl_seconds, hold_ttl_seconds: before.hold_ttl_seconds, auto_assign: before.auto_assign, collection_account_id: before.collection_account_id, execution_mode: before.execution_mode, p2p_timing: before.p2p_timing, auto_review: before.auto_review, risk_policy: before.risk_policy, settlement_change_hold_hours: before.settlement_change_hold_hours, version: before.version },
-      after: { default_required_reserve_minor: after.default_required_reserve_minor, reward_bps: after.reward_bps, offer_ttl_seconds: after.offer_ttl_seconds, hold_ttl_seconds: after.hold_ttl_seconds, auto_assign: after.auto_assign, collection_account_id: after.collection_account_id, execution_mode: after.execution_mode, p2p_timing: after.p2p_timing, auto_review: after.auto_review, risk_policy: after.risk_policy, settlement_change_hold_hours: after.settlement_change_hold_hours, version: after.version, reason },
+      before: { default_required_reserve_minor: before.default_required_reserve_minor, offer_ttl_seconds: before.offer_ttl_seconds, hold_ttl_seconds: before.hold_ttl_seconds, auto_assign: before.auto_assign, p2p_timing: before.p2p_timing, auto_review: before.auto_review, risk_policy: before.risk_policy, settlement_change_hold_hours: before.settlement_change_hold_hours, version: before.version },
+      after: { default_required_reserve_minor: after.default_required_reserve_minor, offer_ttl_seconds: after.offer_ttl_seconds, hold_ttl_seconds: after.hold_ttl_seconds, auto_assign: after.auto_assign, p2p_timing: after.p2p_timing, auto_review: after.auto_review, risk_policy: after.risk_policy, settlement_change_hold_hours: after.settlement_change_hold_hours, version: after.version, reason },
     });
     // Switched on: the applications already waiting are reviewed by rule now, not when something next happens to them.
     if (!before.auto_review && after.auto_review) {

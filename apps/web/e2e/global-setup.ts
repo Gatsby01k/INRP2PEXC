@@ -19,7 +19,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   const ports = surfacePorts(port);
   await rm(OTP_SINK_FILE, { force: true });
   const state = await seedE2E(adminUrl);
-  console.log(`e2e: seeded ${state.databaseUrl} (client ${state.clientName}, operator ${state.owner.email})`);
+  console.log(`e2e: seeded ${state.databaseUrl} (operator ${state.owner.email})`);
   const stop = await startDesk({
     port,
     databaseUrl: state.databaseUrl,

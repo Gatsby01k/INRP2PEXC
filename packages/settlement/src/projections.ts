@@ -58,23 +58,3 @@ export async function getClientSettlementView(ex: Executor, tradeId: string, cli
     })),
   };
 }
-
-/** Operator-side settlement summary of a trade, including the route side (never shown to a client). */
-export async function getDeskSettlementView(ex: Executor, tradeId: string) {
-  const { payout, receivable } = await effectiveObligations(ex, tradeId);
-  const totals = await legTotals(ex, tradeId);
-  const legs = await ex
-    .selectFrom('settlement_leg')
-    .select(['id', 'ref', 'side', 'asset', 'amount_minor', 'status', 'payer', 'route_id', 'inr_account_id', 'confirmed_at'])
-    .where('trade_id', '=', requireUuid(tradeId, 'tradeId'))
-    .orderBy('seq')
-    .execute();
-  return {
-    payoutObligation: payout,
-    receivableObligation: receivable,
-    paid: Money.ofMinor(totals.paid, payout.currency),
-    received: Money.ofMinor(totals.received, receivable.currency),
-    committed: Money.ofMinor(totals.committed, payout.currency),
-    legs,
-  };
-}

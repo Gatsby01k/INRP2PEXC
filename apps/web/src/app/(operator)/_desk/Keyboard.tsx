@@ -137,8 +137,6 @@ function ShortcutSheet({ groups, onClose }: { groups: readonly NavGroup[]; onClo
             />
             <Row label="Open the row" keys={<Kbd>Enter</Kbd>} />
             <Row label="Quote a request" keys={<Kbd>Q</Kbd>} />
-            <Row label="Payout / confirm client funds" keys={<Kbd>P</Kbd>} />
-            <Row label="Record or confirm a reference" keys={<Kbd>U</Kbd>} />
             <Row label="Resolve an exception" keys={<Kbd>E</Kbd>} />
           </div>
           <div className={c.helpGroup}>

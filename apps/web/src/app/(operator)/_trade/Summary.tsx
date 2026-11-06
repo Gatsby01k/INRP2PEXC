@@ -1,8 +1,7 @@
 import { Money } from '@inrp2p/kernel';
 import type { DeskTrade } from '@inrp2p/desk';
 import { StatusGlyph } from '@inrp2p/ui';
-import { inr, inrCompact, marginNegative, marginText, money, payoutAsset, rate, rateDelta, receivableAsset, share, sub, time, usdt, usdtCompact } from '../_desk/format.ts';
-import { Meter } from '../_desk/ui.tsx';
+import { inr, inrCompact, marginNegative, marginText, payoutAsset, rate, rateDelta, receivableAsset, time, usdt, usdtCompact } from '../_desk/format.ts';
 import t from './trade.module.css';
 
 /**
@@ -29,7 +28,7 @@ export function Headline({ trade, large = false, field = false }: { trade: DeskT
 }
 
 /**
- * Client rate, route rate, spread and margin — kept visibly apart so a route rate can never be read as a price
+ * Client rate, the trader's rate, spread and margin — kept visibly apart so the trader's rate can never be read as a price
  * (brief, "Margin visualization"). Only rendered with `economics:view`; the read model omits the fields otherwise.
  */
 export function Economics({ trade, realized, compact = false }: { trade: DeskTrade; realized: boolean; compact?: boolean }) {
@@ -44,9 +43,9 @@ export function Economics({ trade, realized, compact = false }: { trade: DeskTra
         <span className={t.econSub}>frozen at acceptance</span>
       </div>
       <div className={t.econItem} data-kind="route">
-        <span className={t.econLabel}>{trade.executionMode === 'P2P' ? 'Trader’s rate' : 'Route rate'}</span>
+        <span className={t.econLabel}>Trader’s rate</span>
         <span className={t.econValue}>{rate(trade.routeRate)}</span>
-        <span className={t.econSub}>{trade.payoutOptions.routeName ?? (trade.executionMode === 'P2P' ? 'trader' : 'route')}{trade.executionMode === 'DIRECT_TO_CLIENT' ? ' · direct' : ''}</span>
+        <span className={t.econSub}>{trade.payoutOptions.routeName ?? 'trader'}</span>
       </div>
       <div className={t.econItem}>
         <span className={t.econLabel}>Spread</span>
@@ -108,43 +107,5 @@ export function Stages({ trade }: { trade: DeskTrade }) {
         </li>
       ))}
     </ol>
-  );
-}
-
-/**
- * Obligation · confirmed · in flight · unallocated, with one bar (UX_FLOWS W6). "Unallocated" is what a new leg
- * may still be created for (FI-20); the command checks it again inside its transaction.
- */
-export function SettlementFigures({ trade }: { trade: DeskTrade }) {
-  const asset = trade.payoutOptions.asset;
-  const inFlight = sub(trade.committed, trade.paid, asset);
-  return (
-    <div className={t.progress}>
-      <div className={t.progressFigures}>
-        <div className={t.figure} data-tone="strong">
-          <span className={t.figureLabel}>Obligation</span>
-          <span className={t.figureValue}>{money(trade.payout.amount, asset)}</span>
-        </div>
-        <div className={t.figure} data-tone="success">
-          <span className={t.figureLabel}>Confirmed</span>
-          <span className={t.figureValue}>{money(trade.paid, asset)}</span>
-        </div>
-        <div className={t.figure}>
-          <span className={t.figureLabel}>In flight</span>
-          <span className={t.figureValue}>{money(inFlight, asset)}</span>
-        </div>
-        <div className={t.figure}>
-          <span className={t.figureLabel}>Unallocated</span>
-          <span className={t.figureValue}>{money(trade.unallocated, asset)}</span>
-        </div>
-      </div>
-      <Meter
-        label={`${money(trade.paid, asset)} of ${money(trade.payout.amount, asset)} confirmed, ${money(inFlight, asset)} in flight`}
-        parts={[
-          { value: share(trade.paid, trade.payout.amount, asset), tone: 'success' },
-          { value: share(inFlight, trade.payout.amount, asset), tone: 'flight' },
-        ]}
-      />
-    </div>
   );
 }

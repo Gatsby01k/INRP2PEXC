@@ -4,7 +4,6 @@ export * from './queue.ts';
 export * from './trade.ts';
 export * from './request.ts';
 export * from './orders.ts';
-export * from './positions.ts';
 export * from './treasury.ts';
 export * from './clients.ts';
 export * from './pnl.ts';

@@ -13,7 +13,7 @@ beforeAll(async () => { w = await createChainWorld('scanner_audit', { depositPoo
 afterAll(async () => w.close());
 
 const usdt = (decimal: string) => Money.parse(decimal, 'USDT').minor;
-const sellTrade = (baseUsdt: string) => openTrade(w, { baseUsdt, clientRate: '102.000000', routeRate: '104.200000' });
+const sellTrade = (baseUsdt: string) => openTrade(w, { baseUsdt, clientRate: '102.000000' });
 
 describe('deposits that outlive their trade are parked, not lost (T9)', () => {
   it('a deposit detected before the trade was cancelled confirms into suspense with a case', async () => {

@@ -38,7 +38,7 @@ export default async function NetworkPage() {
   const priceStale = !view.trxRate || view.trxRate.ageSeconds > 86_400;
   const mismatch = view.budgetWallet?.difference && view.budgetWallet.difference.startsWith('-') && view.budgetWallet.difference !== '-0.000000';
   // ADR 0022: on GasFree every deal pays its network in USDT out of its own escrow. What only the TRX mode needs — TRX
-  // deposits and their funders, the TRX price, top-ups, the TRX economics of each trade — is not shown; switching back
+  // deposits and their funders, the TRX price, top-ups, what each trade burned — is not shown; switching back
   // to TRX brings it back.
   const trxMode = view.gasFree.mode !== 'GASFREE';
 
@@ -80,7 +80,7 @@ export default async function NetworkPage() {
           label="Network budget"
           items={[
             { key: 't', label: 'Traders’ deposits free', value: trx(fmt(sum('available'))), sub: `${trx(fmt(sum('held')))} held for open trades`, size: 'lg' },
-            { key: 'p', label: 'Platform budget free', value: trx(platform.available), sub: 'desk routes and the platform’s own mistakes', ...(platform.available.startsWith('-') ? { tone: 'danger' as const } : {}) },
+            { key: 'p', label: 'Platform budget free', value: trx(platform.available), sub: 'the platform’s own mistakes', ...(platform.available.startsWith('-') ? { tone: 'danger' as const } : {}) },
             { key: 's', label: 'Sends in flight', value: String(live.length), sub: `${waiting} need approval · ${blocked} blocked`, ...(blocked > 0 ? { tone: 'danger' as const } : waiting > 0 ? { tone: 'warning' as const } : {}) },
             {
               key: 'f', label: 'One transfer costs', value: view.fees ? trx(view.fees.perSendQuotedTrx) : '—',
@@ -122,11 +122,11 @@ export default async function NetworkPage() {
 
         {trxMode ? (
         <>
-        <Section title="Funders" count={view.funders.length} hint="TRX is prefunded: a trader’s deposit pays the transfers of its orders and is paid back in INR with its rewards when the client paid for them; the platform budget only desk routes and its own mistakes." flush>
+        <Section title="Funders" count={view.funders.length} hint="TRX is prefunded: a trader’s deposit pays the transfers of its orders; the platform budget only its own mistakes." flush>
           <FundersTable funders={view.funders} />
         </Section>
 
-        <Section title="Trades" hint="What the client’s price carried for the network against what the transfers actually burned, and what each trade leaves after the trader’s reward." flush>
+        <Section title="Trades" hint="What each trade’s transfers held and burned: the TRX of its trader’s deposit." flush>
           <TradesNetworkTable trades={view.trades} />
         </Section>
         </>
@@ -140,7 +140,7 @@ export default async function NetworkPage() {
 
         {trxMode && allows(ctx.actor, 'network:manage') ? (
           <>
-            <Section title="TRX price" hint="What one TRX is worth in USDT. Quotes price the network fee with it; a trader is paid back at the price its trade was quoted with.">
+            <Section title="TRX price" hint="What one TRX is worth in USDT. Quotes price the network fee with it.">
               <TrxPriceForm current={view.trxRate?.usdtPerTrx ?? null} />
             </Section>
             <Section title="Record a TRX deposit" hint={view.budgetWallet ? `A transfer into ${view.budgetWallet.address}. From a trader’s registered wallet it is that trader’s deposit; otherwise only the platform’s own top-up, said explicitly.` : 'No budget wallet is registered.'}>

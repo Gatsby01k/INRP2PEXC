@@ -2,7 +2,7 @@ import { sql } from 'kysely';
 import { DomainError, Rate, requireOneOf, requireUuid } from '@inrp2p/kernel';
 import type { DirectionValue, Executor, Tx, TxContext } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
-import { type OperatorActor, actorLabel, operatorCommand } from '@inrp2p/identity';
+import { actorLabel } from '@inrp2p/identity';
 import { requireUsableRoute } from '@inrp2p/routes';
 
 const DIRECTIONS = ['SELL_USDT', 'BUY_USDT'] as const;
@@ -36,32 +36,6 @@ async function seriesHead(tx: Tx, kind: 'ROUTE' | 'REFERENCE', routeId: string |
   let q = tx.selectFrom('rate_snapshot').select(['id', 'rate_micro']).where('kind', '=', kind).where('direction', '=', direction);
   q = routeId ? q.where('route_id', '=', routeId) : q.where('route_id', 'is', null);
   return q.orderBy('effective_at', 'desc').orderBy('id', 'desc').limit(1).executeTakeFirst();
-}
-
-/**
- * `rates.publish_route_rate` — `rates:update_route`. Appends a new ROUTE snapshot (FI-11): existing quotes and trades
- * keep the snapshot they copied. The route must be ACTIVE, PER_TRADE and serve the direction.
- */
-export function publishRouteRate(actor: OperatorActor) {
-  return operatorCommand(actor, 'rates:update_route', async (ctx, p: { routeId: string; direction: DirectionValue; rate: string }) => {
-    const direction = requireOneOf(p.direction, 'direction', DIRECTIONS);
-    const rate = Rate.parse(p.rate, 'ROUTE');
-    const route = await requireUsableRoute(ctx.tx, p.routeId, direction);
-    if (route.traderId) throw new DomainError('TRADER_ROUTE_MANAGED', 'the rate of a trader route is set by the trader');
-    await lockSeries(ctx.tx, `ROUTE:${route.id}:${direction}`);
-    const head = await seriesHead(ctx.tx, 'ROUTE', route.id, direction);
-    const row = await ctx.tx
-      .insertInto('rate_snapshot')
-      .values({ kind: 'ROUTE', route_id: route.id, direction, rate_micro: rate.micro, source: 'OPERATOR', supersedes_id: head?.id ?? null, created_by: actorLabel(ctx) })
-      .returning(['id', 'effective_at'])
-      .executeTakeFirstOrThrow();
-    await appendAudit(ctx, {
-      action: 'rate.changed', entityType: 'rate_snapshot', entityId: row.id,
-      before: head ? { snapshot_id: head.id, rate: Rate.ofMicro(head.rate_micro, 'ROUTE') } : null,
-      after: { kind: 'ROUTE', route_id: route.id, direction, rate, source: 'OPERATOR' },
-    });
-    return { snapshotId: row.id, supersedesId: head?.id ?? null };
-  });
 }
 
 /**
@@ -114,13 +88,6 @@ export async function recordReferenceRate(ctx: TxContext, input: { direction: Di
     .executeTakeFirstOrThrow();
   await appendAudit(ctx, { action: 'rate.reference_recorded', entityType: 'rate_snapshot', entityId: row.id, after: { direction, rate: input.rate, source: input.source } });
   return { snapshotId: row.id };
-}
-
-/** `rates.record_reference_rate` — `rates:update_route`; operator-entered reference rate. */
-export function recordReferenceRateCommand(actor: OperatorActor) {
-  return operatorCommand(actor, 'rates:update_route', async (ctx, p: { direction: DirectionValue; rate: string }) =>
-    recordReferenceRate(ctx, { direction: p.direction, rate: Rate.parse(p.rate, 'REFERENCE'), source: 'OPERATOR' }),
-  );
 }
 
 interface SnapshotRow {

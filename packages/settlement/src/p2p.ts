@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { sql } from 'kysely';
-import { DomainError, Money, type InrRail, accountUpiAddress, checkIfsc, optionalText, railOptions, requireOneOf, requireText, requireUtrShape, requireUuid, upiPayUri } from '@inrp2p/kernel';
+import { DomainError, Money, type InrRail, accountUpiAddress, checkIfsc, optionalText, railOptions, requireText, requireUtrShape, requireUuid, upiPayUri } from '@inrp2p/kernel';
 import type { Db, Executor, ExceptionType, SenderVerdict, TxContext } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
 import { bankAccountSealContext } from '@inrp2p/clients';
@@ -251,8 +251,6 @@ export async function p2pPayments(ex: Executor, tradeId: string) {
 }
 
 export const P2P_RAILS = ['IMPS', 'NEFT', 'RTGS', 'UPI'] as const;
-export const requireP2pRail = (rail: unknown): InrRail => requireOneOf(rail, 'rail', P2P_RAILS);
-
 export interface P2pDeadlinesReport {
   readonly cancelled: number;
   /** SELLs whose trader did not pay in time: the client's USDT goes back. */

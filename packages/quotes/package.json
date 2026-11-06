@@ -25,6 +25,5 @@
     "@inrp2p/network": "workspace:*"
   },
   "devDependencies": {
-    "@inrp2p/inr-accounts": "workspace:*"
   }
 }

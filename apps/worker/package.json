@@ -11,7 +11,6 @@
     "@inrp2p/audit": "workspace:*",
     "@inrp2p/commands": "workspace:*",
     "@inrp2p/db": "workspace:*",
-    "@inrp2p/inr-accounts": "workspace:*",
     "@inrp2p/kernel": "workspace:*",
     "@inrp2p/notifications": "workspace:*",
     "@inrp2p/onchain": "workspace:*",

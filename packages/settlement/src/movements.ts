@@ -61,12 +61,6 @@ export async function recordFiatTransfer(ctx: TxContext, input: RecordFiatInput)
   }
 }
 
-export async function loadFiatTransfer(ex: Executor, transferId: string) {
-  const row = await ex.selectFrom('fiat_transfer').selectAll().where('id', '=', requireUuid(transferId, 'transferId')).executeTakeFirst();
-  if (!row) throw new DomainError('NOT_FOUND', 'fiat transfer not found');
-  return row;
-}
-
 /** Locks a movement row (global lock order: after legs and route settlements, before accounts and wallets). */
 export async function lockMovement(ctx: TxContext, kind: 'FIAT' | 'CRYPTO', id: string): Promise<void> {
   const { assertLockOrder } = await import('@inrp2p/db');
@@ -74,10 +68,6 @@ export async function lockMovement(ctx: TxContext, kind: 'FIAT' | 'CRYPTO', id: 
   const table = kind === 'FIAT' ? sql.table('fiat_transfer') : sql.table('crypto_transfer');
   const r = await sql`select 1 from ${table} where id = ${id} for update`.execute(ctx.tx);
   if (r.rows.length === 0) throw new DomainError('NOT_FOUND', 'movement not found');
-}
-
-export async function markFiatConfirmed(ctx: TxContext, transferId: string): Promise<void> {
-  await ctx.tx.updateTable('fiat_transfer').set({ status: 'CONFIRMED', confirmed_at: sql<Date>`inrp2p_now()` }).where('id', '=', transferId).where('status', '=', 'RECORDED').execute();
 }
 
 export async function markFiatFailed(ctx: TxContext, transferId: string, reason: string): Promise<void> {
@@ -295,7 +285,7 @@ export interface PostMovementInput {
   readonly from: MovementParty;
   readonly to: MovementParty;
   readonly tradeId?: string | null;
-  readonly purpose: 'CLIENT_FIRST_LEG' | 'CLIENT_PAYOUT' | 'ROUTE_SETTLEMENT' | 'REFUND' | 'UNALLOCATED' | 'TRADER_RESERVE' | 'TRADER_REWARD_PAYOUT' | 'TRADER_RESERVE_APPLIED' | 'ESCROW_RETURN' | 'FEE_SWEEP';
+  readonly purpose: 'CLIENT_FIRST_LEG' | 'CLIENT_PAYOUT' | 'ROUTE_SETTLEMENT' | 'REFUND' | 'UNALLOCATED' | 'TRADER_RESERVE' | 'TRADER_RESERVE_APPLIED' | 'ESCROW_RETURN' | 'FEE_SWEEP';
   /** `TRADER_RESERVE_APPLIED` only: the exchange wallets custody moved the reserve between. */
   readonly custody?: { readonly fromWalletId: string; readonly toWalletId: string } | null;
 }

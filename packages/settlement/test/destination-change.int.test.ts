@@ -5,17 +5,16 @@ import { pgErrorCode } from '@inrp2p/db';
 import { runAs, type TestOperator } from '@inrp2p/identity/testing';
 import { addBankAccount, archiveBankAccount, createClient } from '@inrp2p/clients';
 import {
-  approveDestinationChange, cancelDestinationChange, confirmPayout, createPayoutLeg, failPayoutLeg, openDestinationChangedCases, recordLegEvidence,
-  rejectDestinationChange, requestDestinationChange, resolveException, sendPayoutLeg, tradePayoutDestination,
+  approveDestinationChange, cancelDestinationChange, openDestinationChangedCases, rejectDestinationChange, requestDestinationChange, resolveException, tradePayoutDestination,
 } from '../src/index.ts';
-import { createStaleSettlementOperator, createWorld, deliverCounterparty, newUtr, openTrade, settleFirstLeg, type World } from './world.ts';
+import { createStaleSettlementOperator, createWorld, openTrade, payClient, settleFirstLeg, type World } from './world.ts';
 
 /**
  * D1 (TD-18): an open trade whose client replaced their bank account pays the new one — on the record, with two
  * people, to a verified account of the same client — instead of being unwound. `trade_economics` never changes.
  */
 let w: World;
-beforeAll(async () => { w = await createWorld('destination_change', { capacityInr: '500000000.00' }); });
+beforeAll(async () => { w = await createWorld('destination_change'); });
 afterAll(async () => w.close());
 
 let accountSeq = 7_700_000_000;
@@ -26,11 +25,10 @@ async function newBankAccount(clientId = w.clientId): Promise<string> {
   return r.bankAccountId;
 }
 
-/** A funded SELL trade, paying an account of its own, whose route delivered. */
+/** A funded SELL trade, paying an account of its own. */
 async function tradeWithArchivedDestination(baseUsdt = '1000') {
-  const trade = await openTrade(w, { executionMode: 'TO_EXCHANGE', baseUsdt, clientRate: '102.000000', routeRate: '104.200000', bankAccountId: await newBankAccount() });
+  const trade = await openTrade(w, { baseUsdt, clientRate: '102.000000', bankAccountId: await newBankAccount() });
   await settleFirstLeg(w, trade.tradeId);
-  await deliverCounterparty(w, trade.tradeId);
   const old = (await w.app.selectFrom('trade_economics').select('bank_account_id').where('trade_id', '=', trade.tradeId).executeTakeFirstOrThrow()).bank_account_id!;
   return { ...trade, old };
 }
@@ -81,37 +79,22 @@ describe('a changed destination for an open trade (D1)', () => {
     const told = await w.app.selectFrom('outbox_event').select('type').where('aggregate_id', '=', t.tradeId).where('type', '=', 'client.trade_destination_changed').execute();
     expect(told).toHaveLength(1);
 
-    // The payout goes to the new account — and the database would refuse one to the old account.
-    const leg = await runAs(w.app, createPayoutLeg(w.settlementOp.actor, {}), w.settlementOp.ref, 'payout_leg.create', { tradeId: t.tradeId, amount: '102000.00', payer: 'EXCHANGE_ACCOUNT' as const, inrAccountId: w.inrAccountId });
-    expect((await w.app.selectFrom('settlement_leg').select('destination_bank_account_id').where('id', '=', leg.legId).executeTakeFirstOrThrow()).destination_bank_account_id).toBe(fresh);
-    await expect(sql`insert into settlement_leg (trade_id, seq, ref, side, asset, amount_minor, payer, inr_account_id, destination_bank_account_id, created_by)
-                     values (${t.tradeId}, 91, 'x', 'EXCHANGE_TO_CLIENT', 'INR', 100, 'EXCHANGE_ACCOUNT', ${w.inrAccountId}, ${t.old}, 'old-app')`.execute(w.t.owner))
+    // The trader pays the new account — and the database would refuse a payment to the old one.
+    await expect(sql`insert into settlement_leg (trade_id, seq, ref, side, asset, amount_minor, payer, route_id, destination_bank_account_id, created_by)
+                     values (${t.tradeId}, 91, 'x', 'EXCHANGE_TO_CLIENT', 'INR', 100, 'ROUTE', (select route_id from trade_economics where trade_id = ${t.tradeId}), ${t.old}, 'old-app')`.execute(w.t.owner))
       .rejects.toSatisfy((e) => pgErrorCode(e) === 'IX092');
-    await runAs(w.app, sendPayoutLeg(w.settlementOp.actor), w.settlementOp.ref, 'payout_leg.send', { legId: leg.legId });
-    await runAs(w.app, recordLegEvidence(w.settlementOp.actor, w.settlementDeps), w.settlementOp.ref, 'payout_leg.record_evidence', { legId: leg.legId, rail: 'IMPS' as const, utr: newUtr() });
-    const paid = await confirmPayout(w.app, w.settlementOp2.actor, w.settlementDeps, { legId: leg.legId, idempotencyKey: randomUUID() });
-    expect(paid.completed).toBe(true);
+    const paid = await payClient(w, t);
+    expect((await w.app.selectFrom('settlement_leg').select('destination_bank_account_id').where('ref', '=', paid.legRef).executeTakeFirstOrThrow()).destination_bank_account_id).toBe(fresh);
+    expect((await w.app.selectFrom('trade').select('lifecycle_state').where('id', '=', t.tradeId).executeTakeFirstOrThrow()).lifecycle_state).toBe('COMPLETED');
   });
 
-  it('cancels a payout only planned to the old account, and waits while one was already sent to it', async () => {
+  it('waits while the trader’s payment to the old account is unanswered', async () => {
     const t = await tradeWithArchivedDestination('500');
-    const planned = await runAs(w.app, createPayoutLeg(w.settlementOp.actor, {}), w.settlementOp.ref, 'payout_leg.create', { tradeId: t.tradeId, amount: '20000.00', payer: 'EXCHANGE_ACCOUNT' as const, inrAccountId: w.inrAccountId });
-    const sent = await runAs(w.app, createPayoutLeg(w.settlementOp.actor, {}), w.settlementOp.ref, 'payout_leg.create', { tradeId: t.tradeId, amount: '10000.00', payer: 'EXCHANGE_ACCOUNT' as const, inrAccountId: w.inrAccountId });
-    await runAs(w.app, sendPayoutLeg(w.settlementOp.actor), w.settlementOp.ref, 'payout_leg.send', { legId: sent.legId });
+    await payClient(w, t, { confirm: false });
     await archive(t.old);
     const fresh = await newBankAccount();
     const asked = await request(w.settlementOp, t.tradeId, fresh);
     await expect(approve(w.financeOp2, asked.requestId)).rejects.toMatchObject({ code: 'PAYOUT_IN_FLIGHT' });
-    // The bank returned the payout to the closed account: it failed, so nothing reached anybody.
-    await runAs(w.app, failPayoutLeg(w.settlementOp.actor), w.settlementOp.ref, 'payout_leg.fail', { legId: sent.legId, reason: 'returned by the bank: account closed' });
-    const done = await approve(w.financeOp2, asked.requestId);
-    expect(done.legsCancelled).toBe(1);
-    const leg = await w.app.selectFrom('settlement_leg').select(['status', 'capacity_reservation_id']).where('id', '=', planned.legId).executeTakeFirstOrThrow();
-    expect(leg.status).toBe('CANCELLED');
-    const reservation = await w.app.selectFrom('capacity_reservation').select('status').where('id', '=', leg.capacity_reservation_id!).executeTakeFirstOrThrow();
-    expect(reservation.status).toBe('RELEASED');
-    const earmarks = await w.app.selectFrom('funding_allocation').select('status').where('use_leg_id', '=', planned.legId).execute();
-    expect(earmarks.map((e) => e.status)).toEqual(['RELEASED']);
   });
 
   it('is declined by someone else or withdrawn by the requester, and the database holds the rules', async () => {

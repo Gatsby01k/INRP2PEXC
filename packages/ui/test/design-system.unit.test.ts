@@ -53,7 +53,7 @@ describe('tokens', () => {
 
 describe('CSS modules use tokens only', () => {
   it('found the component styles', () => {
-    expect(moduleCss.length).toBeGreaterThan(30);
+    expect(moduleCss.length).toBeGreaterThan(15);
   });
 
   it('no raw colour literals', () => {

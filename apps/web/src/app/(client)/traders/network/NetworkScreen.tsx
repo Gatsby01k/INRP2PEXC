@@ -33,8 +33,7 @@ function orderOutcome(o: TraderNetworkView['orders'][number]): string {
 /**
  * The network deposit (ADR 0017 §2): the TRX the exchange's signer burns to send USDT for this trader's orders — top-ups
  * of each deal address, never anyone else's money and never the Security Reserve. Every order holds its worst case from
- * acceptance; what its transfers actually burn is spent; what the client's price already covered is paid back in INR
- * nowhere: a P2P deal's network is the trader's cost. Adding TRX is a transfer from the registered wallet to the budget wallet; taking it back is
+ * acceptance; what its transfers actually burn is spent: a deal's network is the trader's cost. Adding TRX is a transfer from the registered wallet to the budget wallet; taking it back is
  * a request the desk approves, to the same wallet, never more than is free.
  */
 export function NetworkScreen({ network: n, canAct }: { network: TraderNetworkView; canAct: boolean }) {
@@ -89,7 +88,7 @@ export function NetworkScreen({ network: n, canAct }: { network: TraderNetworkVi
           ) : (
           <p className={styles.note}>
             Sending USDT on TRON burns TRX. For your orders it comes from this deposit, not from your Security Reserve or anyone else’s money: each order holds
-            {n.perOrder ? <> up to <span className="ix-num">{trx(n.perOrder.BUY_USDT)}</span> (Buy USDT: paying you, or returning the client’s USDT) or <span className="ix-num">{trx(n.perOrder.SELL_USDT)}</span> (Sell USDT)</> : ' its worst case'} until it finishes, and the rest is free again. The network fee is in the client’s price, so what you spend for it is paid back in INR with your rewards. A return caused by your side not being completed is yours.
+            {n.perOrder ? <> up to <span className="ix-num">{trx(n.perOrder.BUY_USDT)}</span> (Buy USDT: paying you, or returning the client’s USDT) or <span className="ix-num">{trx(n.perOrder.SELL_USDT)}</span> (Sell USDT)</> : ' its worst case'} until it finishes, and the rest is free again. What your transfers burn is your cost of the deal. A return caused by your side not being completed is yours.
           </p>
           )}
         </section>

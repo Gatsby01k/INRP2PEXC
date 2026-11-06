@@ -7,7 +7,7 @@ import {
   cancelQuote, createQuote, createQuoteLink, createRequest, declineRequest, dueQuoteIds, expireQuote, revokeQuoteLink,
   sendQuote, viewQuoteForClient, viewQuoteLink, withdrawRequest, assertClientSafe, FORBIDDEN_CLIENT_KEY,
 } from '../src/index.ts';
-import { createScenario, ipHash, type Scenario } from './scenario.ts';
+import { createScenario, ipHash, routeToTrader, type Scenario } from './scenario.ts';
 
 let s: Scenario;
 beforeAll(async () => { s = await createScenario('quotes_requests'); });
@@ -16,8 +16,10 @@ afterAll(async () => s.close());
 const sellRequest = (extra: Record<string, unknown> = {}) =>
   runAs(s.app, createRequest(s.acceptor.actor, {}), s.acceptor.ref, 'request.create', { clientId: s.clientId, direction: 'SELL_USDT' as const, fixedSide: 'BASE' as const, amount: '10000', bankAccountId: s.bankAccountId, ...extra });
 
-const quoteFor = (requestId: string, extra: Record<string, unknown> = {}) =>
-  runAs(s.app, createQuote(s.dealer.actor, {}), s.dealer.ref, 'quote.create', { requestId, routeId: s.routeId, clientRate: '92.000000', validitySeconds: 300, ...extra });
+const quoteFor = async (requestId: string, extra: Record<string, unknown> = {}) => {
+  const clientRate = '102.000000';
+  return runAs(s.app, createQuote(s.dealer.actor, {}), s.dealer.ref, 'quote.create', { requestId, routeId: (await routeToTrader(s, requestId, clientRate)).routeId, clientRate, validitySeconds: 300, ...extra });
+};
 
 async function sendWithLink(quoteId: string, withLink = true): Promise<{ token: string | null; result: Awaited<ReturnType<ReturnType<typeof sendQuote>['handle']>> }> {
   let token: string | null = null;
@@ -74,22 +76,22 @@ describe('quotes (STATE_MACHINES §2, FI-02..FI-06)', () => {
   it('computes economics from the current route snapshot and stores a derived margin', async () => {
     const r = await sellRequest();
     const q = await quoteFor(r.requestId);
-    expect(q).toMatchObject({ base: '10000.000000', clientInr: '920000.00', grossMarginInr: '5000.00' });
+    // The rupees are one amount between the client and its trader; what the exchange keeps is USDT (ADR 0019).
+    expect(q).toMatchObject({ base: '10000.000000', clientInr: '1020000.00', grossMarginInr: '0.00' });
     const row = await s.app.selectFrom('quote').selectAll().where('id', '=', q.quoteId).executeTakeFirstOrThrow();
     expect(row.status).toBe('DRAFT');
-    expect(row.route_value_inr_minor - row.quote_inr_minor).toBe(row.gross_margin_inr_minor);
+    expect(row.route_value_inr_minor).toBe(row.quote_inr_minor);
+    expect(row.base_minor - row.route_base_minor!).toBe(row.gross_margin_base_minor);
+    expect(row.gross_margin_base_minor!).toBeGreaterThan(0n);
     await expect(sql`update quote set quote_inr_minor = 1 where id = ${q.quoteId}`.execute(s.t.owner)).rejects.toSatisfy((e) => pgErrorCode(e) === 'IX041');
   });
 
-  it('a quote that would lose money is never created, whatever the reason given (ADR 0017: unprofitable deals are not accepted)', async () => {
+  it('a quote that would lose money is never created (ADR 0017: unprofitable deals are not accepted)', async () => {
     const r = await sellRequest();
-    await expect(quoteFor(r.requestId, { clientRate: '93.000000' })).rejects.toMatchObject({ code: 'QUOTE_UNPROFITABLE' });
-    const refused = await quoteFor(r.requestId, { clientRate: '93.000000', negativeMarginReason: 'relationship trade approved by the desk head' }).catch((e) => e);
-    expect(refused).toMatchObject({ code: 'QUOTE_UNPROFITABLE' });
-    // The dealer is told the client rate that pays for the route, the network fee and the minimum margin.
-    expect(refused.details.breakEvenClientRate).toBe('92.499998');
+    // Past the trader's own rate: the client would be paid more rupees than the USDT is worth to its trader.
+    const { routeId } = await routeToTrader(s, r.requestId, '103.500000');
+    await expect(runAs(s.app, createQuote(s.dealer.actor, {}), s.dealer.ref, 'quote.create', { requestId: r.requestId, routeId, clientRate: '103.500000', validitySeconds: 300 })).rejects.toMatchObject({ code: 'QUOTE_UNPROFITABLE' });
     expect(await s.app.selectFrom('quote').select('id').where('trade_request_id', '=', r.requestId).execute()).toEqual([]);
-    void sendQuote;
   });
 
   it('validity bounds hold, a link needs at least 120 s and only one quote of a request is SENT', async () => {
@@ -105,7 +107,7 @@ describe('quotes (STATE_MACHINES §2, FI-02..FI-06)', () => {
 
     const first = await quoteFor(r.requestId);
     await sendWithLink(first.quoteId, false);
-    const second = await quoteFor(r.requestId, { clientRate: '92.100000' });
+    const second = await quoteFor(r.requestId);
     const sent = await sendWithLink(second.quoteId, false);
     expect(sent.result.supersededQuoteId).toBe(first.quoteId);
     expect((await s.app.selectFrom('quote').select(['status', 'cancel_reason']).where('id', '=', first.quoteId).executeTakeFirstOrThrow())).toEqual({ status: 'CANCELLED', cancel_reason: 'SUPERSEDED' });
@@ -145,7 +147,7 @@ describe('shareable links (SECURITY §2.3, S2)', () => {
     const { quoteId, token } = await linkedQuote();
     const before = await s.app.selectFrom('quote').selectAll().where('id', '=', quoteId).executeTakeFirstOrThrow();
     const view = await viewQuoteLink(s.app, {}, { token, ipHash: ipHash('198.51.100.7') });
-    expect(view.quote).toMatchObject({ direction: 'SELL_USDT', network: 'TRON', status: 'SENT', clientRate: '92.000000' });
+    expect(view.quote).toMatchObject({ direction: 'SELL_USDT', network: 'TRON', status: 'SENT', clientRate: '102.000000' });
     expect(view.quote.destination).toMatch(/HDFC Bank •••• 8219/);
     expect(view.recipients.map((x) => x.destination)).toEqual([expect.stringMatching(/^.•••@/)]);
     expect(view.codeRequired).toBe(true);

@@ -169,7 +169,7 @@ export async function autoReviewTraderInTx(ctx: TxContext, traderId: string): Pr
     return { outcome: 'WAITING', flags: verdict.flags };
   }
   await approveTraderInTx(ctx, trader, {
-    reserve: program.defaultRequiredReserve, rewardBps: null, limits: {}, via: 'AUTO_REVIEW',
+    reserve: program.defaultRequiredReserve, limits: {}, via: 'AUTO_REVIEW',
     note: `${CHECKED}: wallet proven on chain, bank account consistent, Security Reserve funded`,
   });
   return { outcome: 'APPROVED', flags: [] };

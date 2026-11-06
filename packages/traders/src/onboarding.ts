@@ -1,7 +1,5 @@
 import { sql } from 'kysely';
-import {
-  DomainError, Money, last4, normalizeIfsc, normalizeIndianAccountNumber, normalizePhone, optionalText, parseTronAddress, requireOneOf, requireText, requireUuid,
-} from '@inrp2p/kernel';
+import { DomainError, last4, normalizeIfsc, normalizeIndianAccountNumber, normalizePhone, optionalText, parseTronAddress, requireOneOf, requireText, requireUuid } from '@inrp2p/kernel';
 import { type P2pExperience, type Rail, type Tx, type TxContext, isUniqueViolation } from '@inrp2p/db';
 import type { FieldProtector } from '@inrp2p/adapters';
 import { appendAudit } from '@inrp2p/audit';
@@ -630,6 +628,3 @@ export function revealTraderPhone(actor: OperatorActor, protector: FieldProtecto
     return { phone };
   });
 }
-
-/** Typical order sizes shown back in decimal form. */
-export const minorToDecimal = (minor: bigint | null, currency: 'INR' | 'USDT'): string | null => (minor === null ? null : Money.ofMinor(minor, currency).toDecimalString());

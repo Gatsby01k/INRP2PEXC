@@ -13,10 +13,12 @@ import { advanceTrade } from './progress.ts';
 export interface RequestAdjustmentPayload {
   readonly tradeId: string;
   readonly type: AdjustmentType;
-  /** Signed decimal deltas on the frozen terms; the margin delta is derived, never supplied (FI-02). */
+  /**
+   * Signed decimal deltas on the frozen terms (FI-02). A deal's rupees are one amount between the client and its trader
+   * (ADR 0019), so a change to them moves both sides alike and the margin — USDT — stays as it was.
+   */
   readonly deltaBaseUsdt?: string;
   readonly deltaClientInr?: string;
-  readonly deltaRouteInr?: string;
   readonly reason: string;
   readonly evidenceNote?: string | null;
   readonly exceptionId?: string | null;
@@ -102,9 +104,9 @@ export function requestAdjustment(actor: OperatorActor) {
     if (reason.length < 10) throw new DomainError('INVALID_ARGUMENT', 'an adjustment reason must explain what happened');
     const deltaBase = signedMinor(p.deltaBaseUsdt, 'USDT');
     const deltaClient = signedMinor(p.deltaClientInr, 'INR');
-    const deltaRoute = signedMinor(p.deltaRouteInr, 'INR');
-    const deltaMargin = econ.direction === 'SELL_USDT' ? deltaRoute - deltaClient : deltaClient - deltaRoute;
-    if (deltaBase === 0n && deltaClient === 0n && deltaRoute === 0n) throw new DomainError('INVALID_AMOUNT', 'an adjustment must change something');
+    const deltaRoute = deltaClient;
+    const deltaMargin = 0n;
+    if (deltaBase === 0n && deltaClient === 0n) throw new DomainError('INVALID_AMOUNT', 'an adjustment must change something');
     // Early answer for the requester; approval checks again under its locks, against whatever happened since.
     const obligation = await ctx.tx.selectFrom('route_obligation').select(['id', 'status']).where('id', '=', econ.routeObligationId).executeTakeFirstOrThrow();
     await assertAdjustmentFits(ctx.tx, trade, econ.direction, obligation, { base: deltaBase, client: deltaClient, route: deltaRoute });

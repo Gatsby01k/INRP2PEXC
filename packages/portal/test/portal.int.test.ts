@@ -3,27 +3,14 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Money } from '@inrp2p/kernel';
 import { runAs } from '@inrp2p/identity/testing';
 import { createQuote, createRequest, declineRequest, sendQuote } from '@inrp2p/quotes';
-import { confirmPayout, createPayoutLeg, recordLegEvidence, sendPayoutLeg } from '@inrp2p/settlement';
 import { clientDestinations, clientHistory, exchangeView, historyCounts, portalAccess, portalTrade } from '../src/index.ts';
-import { type World, createWorld, deliverCounterparty, newUtr, openTrade, settleFirstLeg, ensureCounterpartyFunds } from '../../settlement/test/world.ts';
+import { type World, clientPaysTrader, createWorld, openTrade, payClient, routeToTrader, settleFirstLeg } from '../../settlement/test/world.ts';
 
 let w: World;
 beforeAll(async () => {
-  w = await createWorld('portal_views', { capacityInr: '500000000.00' });
+  w = await createWorld('portal_views');
 });
 afterAll(async () => w.close());
-
-async function payLeg(tradeId: string, amount: string) {
-  await ensureCounterpartyFunds(w, tradeId);
-  const leg = await runAs(w.app, createPayoutLeg(w.settlementOp.actor, {}), w.settlementOp.ref, 'payout_leg.create', {
-    tradeId, amount, payer: 'EXCHANGE_ACCOUNT' as const, inrAccountId: w.inrAccountId,
-  });
-  await runAs(w.app, sendPayoutLeg(w.settlementOp.actor), w.settlementOp.ref, 'payout_leg.send', { legId: leg.legId });
-  const utr = newUtr();
-  await runAs(w.app, recordLegEvidence(w.settlementOp.actor, w.settlementDeps), w.settlementOp.ref, 'payout_leg.record_evidence', { legId: leg.legId, rail: 'IMPS' as const, utr });
-  await confirmPayout(w.app, w.settlementOp.actor, w.settlementDeps, { legId: leg.legId, idempotencyKey: randomUUID() });
-  return { ...leg, utr };
-}
 
 describe('who is asking', () => {
   it('resolves the client from the session, never from the request', async () => {
@@ -63,7 +50,7 @@ describe('the exchange screen', () => {
     expect(pricing.quote).toBeNull();
 
     const quote = await runAs(w.app, createQuote(w.dealer.actor, {}), w.dealer.ref, 'quote.create', {
-      requestId: request.requestId, routeId: w.routeId, clientRate: '90.000000', validitySeconds: 120,
+      requestId: request.requestId, routeId: (await routeToTrader(w, request.requestId, '90.000000')).routeId, clientRate: '90.000000', validitySeconds: 120,
     });
     await runAs(w.app, sendQuote(w.dealer.actor, {}), w.dealer.ref, 'quote.send', { quoteId: quote.quoteId });
 
@@ -87,7 +74,7 @@ describe('the exchange screen', () => {
       clientId: w.clientId, direction: 'SELL_USDT' as const, fixedSide: 'BASE' as const, amount: '12', bankAccountId: w.bankAccountId,
     });
     await runAs(w.app, declineRequest(w.dealer.actor), w.dealer.ref, 'request.decline', { requestId: declined.requestId, reason: 'Too small' });
-    const trade = await openTrade(w, { baseUsdt: '30', clientRate: '90.000000', routeRate: '92.500000', executionMode: 'TO_EXCHANGE' });
+    const trade = await openTrade(w, { baseUsdt: '30', clientRate: '90.000000' });
 
     const view = await exchangeView(w.app, w.clientId);
     expect(view.request).toBeNull();
@@ -99,7 +86,7 @@ describe('the exchange screen', () => {
 
 describe('one trade, as its client sees it', () => {
   it('walks the four stages as the money actually moves', async () => {
-    const trade = await openTrade(w, { baseUsdt: '1000', clientRate: '90.000000', routeRate: '92.500000', executionMode: 'TO_EXCHANGE' });
+    const trade = await openTrade(w, { baseUsdt: '1000', clientRate: '90.000000' });
 
     const awaiting = await portalTrade(w.app, w.clientId, trade.tradeRef);
     expect(awaiting.trade.status).toBe('AWAITING_FIRST_LEG');
@@ -114,14 +101,15 @@ describe('one trade, as its client sees it', () => {
     expect(funded.incoming).toMatchObject({ state: 'CONFIRMED', amount: '1000.000000' });
     expect(funded.incoming?.txHash).toMatch(/^[0-9a-f]{64}$/i);
 
-    const first = await payLeg(trade.tradeId, '50000.00');
-    const partly = await portalTrade(w.app, w.clientId, trade.tradeRef);
-    expect(partly.settlement.paid.amount).toBe('50000.00');
-    expect(partly.settlement.remaining.amount).toBe('40000.00');
-    expect(partly.settlement.payments.map((p) => p.reference)).toContain(first.utr);
-    expect(partly.stages[2]!.detail).toBe('paying out');
+    const paid = await payClient(w, trade, { confirm: false });
+    const sent = await portalTrade(w.app, w.clientId, trade.tradeRef);
+    expect(sent.settlement.paid.amount).toBe('0.00');
+    expect(sent.settlement.remaining.amount).toBe('90000.00');
+    expect(sent.settlement.payments.map((p) => p.reference)).toContain(paid.utr);
+    expect(sent.stages[2]!.detail).toBe('a payment is on its way');
 
-    await payLeg(trade.tradeId, '40000.00');
+    const { confirmClientReceipt } = await import('@inrp2p/settlement');
+    await runAs(w.app, confirmClientReceipt(w.acceptor.actor, w.settlementDeps), w.acceptor.ref, 'payout.confirm_received', { tradeRef: trade.tradeRef, legRef: paid.legRef, senderName: 'Konkan Desk LLP' });
     const done = await portalTrade(w.app, w.clientId, trade.tradeRef);
     expect(done.trade.status).toBe('COMPLETED');
     expect(done.stages.map((s) => s.status)).toEqual(['done', 'done', 'done', 'done']);
@@ -129,8 +117,8 @@ describe('one trade, as its client sees it', () => {
     expect(Money.parse(done.settlement.remaining.amount, 'INR').isZero()).toBe(true);
   });
 
-  it('walks a BUY the same way: the INR the client pays is their leg, confirmed by the desk', async () => {
-    const trade = await openTrade(w, { direction: 'BUY_USDT', baseUsdt: '100', clientRate: '106.000000', routeRate: '104.000000', executionMode: 'TO_EXCHANGE' });
+  it('walks a BUY the same way: the INR the client pays is their leg, confirmed by their trader', async () => {
+    const trade = await openTrade(w, { direction: 'BUY_USDT', baseUsdt: '100', clientRate: '106.000000' });
 
     const awaiting = await portalTrade(w.app, w.clientId, trade.tradeRef);
     expect(awaiting.trade.direction).toBe('BUY_USDT');
@@ -138,26 +126,21 @@ describe('one trade, as its client sees it', () => {
     expect(awaiting.stages[1]!.detail).toBe('waiting for your INR');
     expect(awaiting.trade.depositInstructions).toBeNull();
 
-    await settleFirstLeg(w, trade.tradeId);
+    await clientPaysTrader(w, trade);
     const funded = await portalTrade(w.app, w.clientId, trade.tradeRef);
     expect(funded.trade.status).toBe('FIRST_LEG_CONFIRMED');
     expect(funded.stages.map((s) => s.status)).toEqual(['done', 'done', 'current', 'pending']);
-    // D-16: the client's USDT comes from the counterparty, and it has not delivered yet. No amount is shown.
-    expect(funded.stages[2]!.detail).toBe('waiting for liquidity');
+    expect(funded.stages[2]!.detail).toBe('preparing your payment');
     expect(funded.incoming).toBeNull();
-
-    await deliverCounterparty(w, trade.tradeId);
-    const ready = await portalTrade(w.app, w.clientId, trade.tradeRef);
-    expect(ready.stages[2]!.detail).toBe('preparing your payment');
   });
 
   it('never tells one client about another client’s trade', async () => {
-    const trade = await openTrade(w, { baseUsdt: '10', clientRate: '90.000000', routeRate: '92.500000', executionMode: 'TO_EXCHANGE' });
+    const trade = await openTrade(w, { baseUsdt: '10', clientRate: '90.000000' });
     await expect(portalTrade(w.app, randomUUID(), trade.tradeRef)).rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
 
   it('says a trade is on hold without explaining the desk’s problem to the client', async () => {
-    const trade = await openTrade(w, { baseUsdt: '20', clientRate: '90.000000', routeRate: '92.500000', executionMode: 'TO_EXCHANGE' });
+    const trade = await openTrade(w, { baseUsdt: '20', clientRate: '90.000000' });
     await settleFirstLeg(w, trade.tradeId, { amountUsdt: '19' });
     const held = await portalTrade(w.app, w.clientId, trade.tradeRef);
     expect(held.onHold).toBe(true);

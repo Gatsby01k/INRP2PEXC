@@ -28,7 +28,7 @@ const SHARED = 'TJNzB4sUGBo8fv7UdeeKQKQUffpfLSXbPP';
 let w: TradersWorld;
 beforeAll(async () => {
   w = await createTradersWorld('self_service');
-  await configureProgram(w, { reserve: '500', rewardBps: 10, collection: true });
+  await configureProgram(w, { reserve: '500' });
 });
 afterAll(async () => w.close());
 

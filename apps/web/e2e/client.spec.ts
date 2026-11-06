@@ -11,8 +11,6 @@ import {
   clientSignInCode,
   clientSignInCodeCount,
   clientSendsUsdt,
-  deskPaysOut,
-  routeDelivers,
   deliverNotifications,
   deskSendsQuoteWithLink,
   linkBaseUrl,
@@ -21,6 +19,7 @@ import {
   state,
   tradeIdForRef,
   tradeState,
+  traderPaysClient,
 } from './support.ts';
 
 /**
@@ -155,14 +154,18 @@ test('the client follows that trade to completion on their phone', async ({ page
   await clientSendsUsdt(tradeId, '1000');
   await page.reload();
   await expect(page.getByText('Confirmed')).toBeVisible();
-  await routeDelivers(tradeId);
 
-  await deskPaysOut(tradeId, '60000.00');
+  // The trader's rupees come straight to the client's bank; the client's word on them is what releases the USDT.
+  await traderPaysClient(tradeId);
   await page.reload();
-  await expect(page.getByText('₹40,000', { exact: false }).first()).toBeVisible();
-
-  await deskPaysOut(tradeId, '40000.00');
-  expect(await tradeState(tradeId)).toBe('COMPLETED');
+  await expect(page.getByRole('heading', { name: /^Did .* arrive\?/ }).first()).toBeVisible();
+  await expect(page.getByText('₹100,000', { exact: false }).first()).toBeVisible();
+  const release = page.getByRole('button', { name: 'Release the escrow' });
+  await expect(release, 'nothing releases before the client has looked at the bank').toBeDisabled();
+  await page.getByLabel('Sender’s name, as your bank shows it').fill(s.trader.holderName);
+  await page.getByRole('checkbox', { name: /credited to/ }).check();
+  await release.click();
+  await expect.poll(() => tradeState(tradeId)).toBe('COMPLETED');
   await page.reload();
   await expect(page.getByText('Completed', { exact: false }).first()).toBeVisible();
 });
@@ -183,15 +186,14 @@ test('the client sees it in their history and their inbox, and nothing of the de
  * What a client page may not say.
  *
  * Asserted against what the page **shows**, not its HTML: a framework's own payload is full of words like
- * "parallelRouterKey", and a check that trips over those would be abandoned within a week. The figures are the
- * sharper half — the seeded route rate and the route's name are facts about how the desk sourced the other side
- * of the trade, and a client must never be able to read either one off their own screen (SECURITY §5).
+ * "parallelRouterKey", and a check that trips over those would be abandoned within a week. The sharper half is the
+ * figure: the rate the trader deals at is a fact about how the desk sourced the other side of the trade, and a client
+ * must never be able to read it off their own screen (SECURITY §5).
  */
 async function assertNothingOfTheDesk(page: Page): Promise<void> {
   const shown = await page.locator('body').innerText();
   expect(shown, 'desk vocabulary on a client screen').not.toMatch(/\b(route|margin|spread|provider|custody|dealer|obligation|liquidity|suspense)\b/i);
-  expect(shown, 'the route rate on a client screen').not.toMatch(/104[.,]2/);
-  expect(shown, 'the route name on a client screen').not.toMatch(/Mumbai OTC/i);
+  expect(shown, "the trader's rate on a client screen").not.toMatch(/104[.,]2/);
 }
 
 test('the client host refuses what belongs to the desk, and the public host refuses the client product', async ({ page }) => {

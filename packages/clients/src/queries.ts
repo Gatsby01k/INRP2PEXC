@@ -29,18 +29,6 @@ export async function isActiveBankAccountOfClient(ex: Executor, clientId: string
   return Boolean(r);
 }
 
-export async function isActiveWalletOfClient(ex: Executor, clientId: string, walletId: string, purpose: 'SOURCE' | 'DESTINATION'): Promise<boolean> {
-  const r = await ex
-    .selectFrom('crypto_wallet')
-    .select('id')
-    .where('id', '=', walletId)
-    .where('client_id', '=', clientId)
-    .where('status', '=', 'ACTIVE')
-    .where('purpose', 'in', [purpose, 'BOTH'])
-    .executeTakeFirst();
-  return Boolean(r);
-}
-
 /**
  * Authorized quote acceptors of a client (D-01): active client users with `can_accept_quotes`, active login
  * and an email verified by Better Auth. Emails are returned masked only.

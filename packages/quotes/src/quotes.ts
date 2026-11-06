@@ -1,14 +1,14 @@
 import { assertNewBusinessOpen } from '@inrp2p/trades';
 import { sql } from 'kysely';
-import { DomainError, Money, Rate, computeP2pEconomics, computeTradeEconomics, requireOneOf, requireText, requireUuid } from '@inrp2p/kernel';
+import { DomainError, Money, Rate, computeP2pEconomics, requireOneOf, requireText, requireUuid } from '@inrp2p/kernel';
 import type { TxContext } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
 import { enqueueOutbox } from '@inrp2p/outbox';
 import { type OperatorActor, authorizeOperator, operatorCommand } from '@inrp2p/identity';
 import { requireUsableRoute } from '@inrp2p/routes';
-import { requireCurrentRouteRate, routeRateSnapshot } from '@inrp2p/pricing';
-import { orderRewardTerms, requireOrderForQuote } from '@inrp2p/trader-core';
-import { assertProfitable, networkFeePolicy, priceNetwork, priceNetworkP2p, pricingOfUsdtTerms, quoteNetworkFee, recordQuoteNetworkFee, usdtNetworkTerms } from '@inrp2p/network';
+import { routeRateSnapshot } from '@inrp2p/pricing';
+import { requireOrderForQuote } from '@inrp2p/trader-core';
+import { assertProfitable, networkFeePolicy, priceNetworkP2p, pricingOfUsdtTerms, quoteNetworkFee, recordQuoteNetworkFee, usdtNetworkTerms } from '@inrp2p/network';
 import { type QuoteDeps, policyOf } from './policy.ts';
 import { lockRow } from './actors.ts';
 import { closePendingChallenges } from './challenges.ts';
@@ -48,10 +48,9 @@ export function createQuote(actor: OperatorActor, deps: Pick<QuoteDeps, 'policy'
     if (client.status !== 'ACTIVE') throw new DomainError('CLIENT_NOT_ACTIVE', 'client is suspended');
 
     const route = await requireUsableRoute(ctx.tx, requireUuid(p.routeId, 'routeId'), request.direction);
-    // A trader's route prices only the order its trader accepted, on the snapshot that acceptance published
-    // (docs/TRADERS.md); a desk route prices on its current snapshot.
-    const traderOrder = route.traderId ? await requireOrderForQuote(ctx, { requestId: request.id, routeId: route.id }) : null;
-    const snapshot = traderOrder ? await routeRateSnapshot(ctx.tx, traderOrder.snapshotId) : await requireCurrentRouteRate(ctx.tx, route.id, request.direction);
+    // A quote prices the order its trader accepted, on the snapshot that acceptance published (docs/TRADERS.md).
+    const traderOrder = await requireOrderForQuote(ctx, { requestId: request.id, routeId: route.id });
+    const snapshot = await routeRateSnapshot(ctx.tx, traderOrder.snapshotId);
     const clientRate = Rate.parse(p.clientRate, 'CLIENT');
     const fixedSide = p.fixedSide ? requireOneOf(p.fixedSide, 'fixedSide', ['BASE', 'QUOTE'] as const) : request.fixed_side;
     // The requested amount is in the request's own fixed side; quoting the other side needs its own amount.
@@ -61,41 +60,28 @@ export function createQuote(actor: OperatorActor, deps: Pick<QuoteDeps, 'policy'
     const amount = p.amount !== undefined
       ? (fixedSide === 'BASE' ? Money.parse(p.amount, 'USDT') : Money.parse(p.amount, 'INR'))
       : (request.fixed_side === 'BASE' ? Money.ofMinor(request.requested_base_minor!, 'USDT') : Money.ofMinor(request.requested_quote_minor!, 'INR'));
-    // ADR 0019: on a P2P route the rupees are one amount between client and trader, and the exchange keeps USDT.
-    const p2p = route.executionMode === 'P2P';
+    // ADR 0019: the rupees are one amount between client and trader, and the exchange keeps USDT.
     const econInput = fixedSide === 'BASE'
       ? { direction: request.direction, fixedSide: 'BASE' as const, amount: amount as Money<'USDT'>, clientRate, routeRate: snapshot.rate }
       : { direction: request.direction, fixedSide: 'QUOTE' as const, amount: amount as Money<'INR'>, clientRate, routeRate: snapshot.rate };
-    const econ = p2p ? computeP2pEconomics(econInput) : computeTradeEconomics(econInput);
+    const econ = computeP2pEconomics(econInput);
     const orderBase = econ.routeBase ?? econ.base;
-    if (traderOrder && (orderBase.minor !== traderOrder.baseMinor || econ.routeInr.minor !== traderOrder.inrMinor)) {
-      throw new DomainError('TRADER_ORDER_MISMATCH', p2p
-        ? `the trader accepted ${Money.ofMinor(traderOrder.inrMinor, 'INR').toDecimalString()} INR for ${Money.ofMinor(traderOrder.baseMinor, 'USDT').toDecimalString()} USDT on ${traderOrder.ref}; quote at the client rate it was sized at`
-        : `the trader accepted ${Money.ofMinor(traderOrder.baseMinor, 'USDT').toDecimalString()} USDT on ${traderOrder.ref}; quote exactly that`, {
+    if (orderBase.minor !== traderOrder.baseMinor || econ.routeInr.minor !== traderOrder.inrMinor) {
+      throw new DomainError('TRADER_ORDER_MISMATCH', `the trader accepted ${Money.ofMinor(traderOrder.inrMinor, 'INR').toDecimalString()} INR for ${Money.ofMinor(traderOrder.baseMinor, 'USDT').toDecimalString()} USDT on ${traderOrder.ref}; quote at the client rate it was sized at`, {
         base: Money.ofMinor(traderOrder.baseMinor, 'USDT').toDecimalString(),
         ...(traderOrder.plannedClientRateMicro !== null ? { plannedClientRate: Rate.ofMicro(traderOrder.plannedClientRateMicro, 'CLIENT').toDecimalString() } : {}),
       });
     }
-    // ADR 0017 §1: the client's rate must also pay the trader's reward and the network fee of the trade's transfer, and
-    // leave the minimum net margin. A quote that would not is never created; the dealer is told the rate that would do.
-    // ADR 0019: a P2P quote keeps USDT and counts no reward; its trader's network deposit pays the TRX (migration 0040) — or,
-    // priced in USDT (ADR 0022), INRP2P's own deal carries its network out of its own margin and the executor pays nothing.
-    let network;
-    if (p2p) {
-      if (!traderOrder || !econ.grossMarginBase) throw new DomainError('INVALID_ARGUMENT', 'a P2P quote prices a trader order');
-      network = (await networkFeePolicy(ctx.tx)).resourceMode === 'GASFREE'
-        ? pricingOfUsdtTerms(await usdtNetworkTerms(ctx.tx, { funderTraderId: null }), {
-          direction: request.direction, clientRateMicro: clientRate.micro, grossMarginBaseMinor: econ.grossMarginBase.minor, traderOrderId: traderOrder.orderId,
-        })
-        : await priceNetworkP2p(ctx.tx, { direction: request.direction, clientRateMicro: clientRate.micro, grossMarginBaseMinor: econ.grossMarginBase.minor, traderOrderId: traderOrder.orderId });
-      assertProfitable(network);
-    } else {
-      const reward = traderOrder ? await orderRewardTerms(ctx.tx, traderOrder.orderId) : null;
-      network = await priceNetwork(ctx.tx, {
-        direction: request.direction, clientRateMicro: clientRate.micro, grossMarginInrMinor: econ.grossMargin.minor, reward, funderTraderId: route.traderId,
-      });
-      assertProfitable(network, { breakEvenClientRate: breakEvenClientRate(request.direction, econ.base.minor, econ.routeInr.minor, network.rewardInrMinor + network.feeInrMinor + network.minNetMarginInrMinor) });
-    }
+    // ADR 0019: a quote keeps USDT. The trader's network deposit pays the TRX (migration 0040) — or, priced in USDT
+    // (ADR 0022), INRP2P's own deal carries its network out of its own margin and the executor pays nothing. A quote that
+    // would not leave the minimum net margin is never created.
+    if (!econ.grossMarginBase) throw new DomainError('INVALID_ARGUMENT', 'a quote prices a trader order');
+    const network = (await networkFeePolicy(ctx.tx)).resourceMode === 'GASFREE'
+      ? pricingOfUsdtTerms(await usdtNetworkTerms(ctx.tx, { funderTraderId: null }), {
+        direction: request.direction, clientRateMicro: clientRate.micro, grossMarginBaseMinor: econ.grossMarginBase.minor, traderOrderId: traderOrder.orderId,
+      })
+      : await priceNetworkP2p(ctx.tx, { direction: request.direction, clientRateMicro: clientRate.micro, grossMarginBaseMinor: econ.grossMarginBase.minor, traderOrderId: traderOrder.orderId });
+    assertProfitable(network);
     // A quote that loses money never gets this far (the minimum net margin is never negative); the reason a negative
     // gross margin once needed is kept for the record of any quote that had one.
     const negativeReason = econ.grossMargin.isNegative() ? requireText(p.negativeMarginReason, 'negativeMarginReason', 500) : null;
@@ -118,7 +104,7 @@ export function createQuote(actor: OperatorActor, deps: Pick<QuoteDeps, 'policy'
         gross_margin_inr_minor: econ.grossMargin.minor,
         route_base_minor: econ.routeBase?.minor ?? null,
         gross_margin_base_minor: econ.grossMarginBase?.minor ?? null,
-        network_fee_base_minor: network.usdt ? network.p2p!.feeUsdtMinor : null,
+        network_fee_base_minor: network.usdt ? network.p2p.feeUsdtMinor : null,
         network: request.network,
         bank_account_id: request.bank_account_id,
         crypto_wallet_id: request.crypto_wallet_id,
@@ -138,7 +124,7 @@ export function createQuote(actor: OperatorActor, deps: Pick<QuoteDeps, 'policy'
       after: {
         ref: row.ref, request_id: request.id, direction: request.direction, base: econ.base, client_inr: econ.clientInr, client_rate: clientRate, route_id: route.id, route_rate_snapshot_id: snapshot.id,
         gross_margin: econ.grossMargin, is_counter: isCounter, valid_for_seconds: validity,
-        reward: Money.ofMinor(network.rewardInrMinor, 'INR'), network_fee: Money.ofMinor(network.feeInrMinor, 'INR'), net_margin: Money.ofMinor(network.netMarginInrMinor, 'INR'),
+        network_fee: Money.ofMinor(network.feeInrMinor, 'INR'), net_margin: Money.ofMinor(network.netMarginInrMinor, 'INR'),
       },
     });
     return {
@@ -147,7 +133,6 @@ export function createQuote(actor: OperatorActor, deps: Pick<QuoteDeps, 'policy'
       base: econ.base.toDecimalString(),
       clientInr: econ.clientInr.toDecimalString(),
       grossMarginInr: econ.grossMargin.toDecimalString(),
-      rewardInr: Money.ofMinor(network.rewardInrMinor, 'INR').toDecimalString(),
       networkFeeInr: Money.ofMinor(network.feeInrMinor, 'INR').toDecimalString(),
       netMarginInr: Money.ofMinor(network.netMarginInrMinor, 'INR').toDecimalString(),
       isCounter,
@@ -202,9 +187,9 @@ export function sendQuote(actor: OperatorActor, deps: Pick<QuoteDeps, 'policy'>,
     const ageSeconds = (BigInt(now.getTime()) - BigInt(snapshot.effective_at.getTime())) / 1000n;
     if (ageSeconds > BigInt(policy.maxSnapshotAgeSeconds)) throw new DomainError('ROUTE_RATE_STALE', `route snapshot is ${ageSeconds}s old; refresh the rate`);
     const route = await requireUsableRoute(ctx.tx, quote.route_id, quote.direction);
-    if (route.traderId) await requireOrderForQuote(ctx, { requestId: request.id, routeId: route.id });
-
+    // The quote this one replaces first, then the order behind them: the global lock order has quotes before orders.
     const superseded = await cancelSentQuoteOfRequest(ctx, request.id, 'SUPERSEDED');
+    await requireOrderForQuote(ctx, { requestId: request.id, routeId: route.id });
     const expiresAt = new Date(now.getTime() + quote.valid_for_seconds * 1000);
     await ctx.tx
       .updateTable('quote')
@@ -304,21 +289,4 @@ export async function reopenRequest(ctx: TxContext, requestId: string): Promise<
   if (otherSent) return;
   await ctx.tx.updateTable('trade_request').set({ status: 'OPEN', last_activity_at: sql<Date>`inrp2p_now()`, version: r.version + 1 }).where('id', '=', requestId).execute();
   await enqueueOutbox(ctx, { type: 'desk.request_needs_action', aggregateType: 'trade_request', aggregateId: requestId, payload: { requestId } });
-}
-
-/**
- * The client rate at which a quote would leave exactly `needInrMinor` beyond the route's value — the rate a dealer can
- * quote at most (a client selling USDT) or at least (a client buying it). Rounded so that quoting it is never a loss.
- */
-export function breakEvenClientRate(direction: 'SELL_USDT' | 'BUY_USDT', baseMinor: bigint, routeInrMinor: bigint, needInrMinor: bigint): string | null {
-  if (baseMinor <= 0n) return null;
-  // inr_minor = base_minor × rate_micro / 10¹⁰ (FINANCIAL_INVARIANTS §1.2) ⇒ rate_micro = inr_minor × 10¹⁰ / base_minor.
-  const scale = 10_000_000_000n;
-  if (direction === 'SELL_USDT') {
-    const room = routeInrMinor - needInrMinor;
-    if (room <= 0n) return null;
-    return Rate.ofMicro((room * scale) / baseMinor || 1n, 'CLIENT').toDecimalString();
-  }
-  const total = routeInrMinor + needInrMinor;
-  return Rate.ofMicro((total * scale + baseMinor - 1n) / baseMinor, 'CLIENT').toDecimalString();
 }

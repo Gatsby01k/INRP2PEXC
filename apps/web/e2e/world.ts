@@ -5,19 +5,19 @@ import pg from 'pg';
 import { sql } from 'kysely';
 import { base32 } from '@better-auth/utils/base32';
 import { createOTP } from '@better-auth/utils/otp';
-import { encodeTronAddress } from '@inrp2p/kernel';
+import { Money, encodeTronAddress } from '@inrp2p/kernel';
 import { type Db, createDb, createPool } from '@inrp2p/db';
 import { migrate } from '@inrp2p/db/migrate';
 import { installQueue } from '@inrp2p/outbox';
 import { type FieldProtector, LocalKeyEncryptionKey, createFieldProtector } from '@inrp2p/adapters';
-import { FakeCustodyAdapter } from '@inrp2p/adapters/testing';
+import { FakeChainVerifier, FakeCustodyAdapter } from '@inrp2p/adapters/testing';
 import { executeCommand } from '@inrp2p/commands';
 import type { DomainCommand } from '@inrp2p/identity';
-import { type OperatorActor, type OperatorRole, createClientAuth, createOperatorAuth, provisionClientUser, provisionOperator } from '@inrp2p/identity';
+import { type ClientActor, type OperatorActor, type OperatorRole, createClientAuth, createOperatorAuth, provisionClientUser, provisionOperator } from '@inrp2p/identity';
 import { addBankAccount, addWallet, createClient, linkClientUser, setCanAcceptQuotes } from '@inrp2p/clients';
-import { createInrAccount, createSettlementEntity, setDayCapacity } from '@inrp2p/inr-accounts';
-import { configureRoute, createRoute } from '@inrp2p/routes';
-import { publishRouteRate } from '@inrp2p/pricing';
+import { runTronConfirm } from '@inrp2p/scanner';
+import { submitTxForVerification } from '@inrp2p/settlement';
+import { applyAsTrader, approveTrader, configureTraderProgram, setAvailability, sharedReserveAddress, updateBlock } from '@inrp2p/traders';
 import { importPoolAddresses, recordCustodyCapability, registerTreasuryWallet } from '@inrp2p/treasury';
 import { fundBudget, seedNetworkCosts } from '@inrp2p/network/testing';
 
@@ -81,20 +81,22 @@ export interface E2EOperator {
   readonly roles: readonly OperatorRole[];
 }
 
+/** The trader the world's client deals with; the run plays its part with the real commands. */
+export interface E2ETrader {
+  readonly traderId: string;
+  readonly userId: string;
+  /** How the bank shows the trader's account as a sender. */
+  readonly holderName: string;
+}
+
 export interface E2EState {
   readonly databaseUrl: string;
   readonly owner: E2EOperator;
-  readonly settlementOperator: E2EOperator;
   readonly clientId: string;
-  readonly clientName: string;
   readonly bankAccountId: string;
-  readonly walletId: string;
-  readonly routeId: string;
-  readonly inrAccountId: string;
+  readonly trader: E2ETrader;
   readonly acceptorUserId: string;
-  readonly acceptorClientUserId: string;
   readonly acceptorEmail: string;
-  readonly hotWalletId: string;
 }
 
 function withDatabase(url: string, db: string): string {
@@ -110,11 +112,22 @@ export async function run<P, R>(db: Db, def: DomainCommand<P, R>, ref: ReturnTyp
   return out.result;
 }
 
+/** A client person acting from a server-side session, verified a moment ago: what a trader's own commands run as. */
+export async function asClient<P, R>(db: Db, userId: string, def: (actor: ClientActor) => DomainCommand<P, R>, name: string, payload: P): Promise<R> {
+  const session = await db.insertInto('auth_session')
+    .values({ expires_at: new Date(Date.now() + 3_600_000), token: randomUUID(), created_at: new Date(), updated_at: new Date(), user_id: userId, surface: 'CLIENT' })
+    .returning('id').executeTakeFirstOrThrow();
+  await sql`insert into step_up_verification (user_id, session_id, method, verified_at) values (${userId}, ${session.id}, 'TOTP', statement_timestamp())`.execute(db);
+  const out = await executeCommand(db, def({ kind: 'CLIENT', userId, sessionId: session.id }), {
+    name, actor: { type: 'USER', id: userId, surface: 'CLIENT', sessionId: session.id }, payload, idempotencyKey: randomUUID(), financial: true,
+  });
+  return out.result;
+}
+
 /**
  * Builds the world the end-to-end run needs, using the same domain commands an operator would: a desk account
- * with real TOTP enrolment, a client with a destination and an authorized acceptor, a route with a published
- * rate, an INR account with capacity, and a treasury with a deposit pool. Nothing is written directly except
- * the observed treasury balance, which only the chain would otherwise supply.
+ * with real TOTP enrolment, a client with a destination and an authorized acceptor, a trader for it to deal with, and
+ * a treasury with a deposit pool. Nothing is written directly except what only the chain would otherwise supply.
  */
 export async function seedE2E(adminUrl: string): Promise<E2EState> {
   const admin = new pg.Client({ connectionString: adminUrl });
@@ -151,7 +164,7 @@ export async function seedE2E(adminUrl: string): Promise<E2EState> {
     clientId: client.clientId, holderName: 'Acme Pay Private Limited', bankName: 'HDFC Bank', ifsc: 'HDFC0001234',
     accountNumber: '50100123458219', railPreferences: ['IMPS', 'NEFT'] as const,
   });
-  const wallet = await run(db, addWallet(owner.actor), owner.ref, 'client_wallet.add', {
+  await run(db, addWallet(owner.actor), owner.ref, 'client_wallet.add', {
     clientId: client.clientId, network: 'TRON' as const, address: encodeTronAddress(randomBytes(20)), purpose: 'DESTINATION' as const, label: 'Acme wallet',
   });
 
@@ -164,36 +177,16 @@ export async function seedE2E(adminUrl: string): Promise<E2EState> {
   const linked = await run(db, linkClientUser(owner.actor), owner.ref, 'client_user.link', { clientId: client.clientId, userId: acceptorUserId, role: 'CLIENT_ADMIN' as const });
   await run(db, setCanAcceptQuotes(owner.actor), owner.ref, 'client_user.set_accept_quotes', { clientUserId: linked.clientUserId, canAcceptQuotes: true });
 
-  // The demo scenario's route settles to the exchange: it delivers its INR to the exchange's account, and the desk
-  // pays the client from there — with that money and nothing else (D-16).
-  const route = await run(db, createRoute(owner.actor), owner.ref, 'routes.create', {
-    name: 'Mumbai OTC', direction: 'BOTH' as const, executionMode: 'DIRECT_TO_CLIENT' as const,
-    registeredRouteAddress: encodeTronAddress(randomBytes(20)), availableBaseUsdt: '5000000',
-  });
-  await run(db, configureRoute(owner.actor), owner.ref, 'routes.configure', {
-    routeId: route.routeId, expectedVersion: 1, executionMode: 'TO_EXCHANGE' as const, reason: 'the provider settles into our own account',
-  });
-  await run(db, publishRouteRate(owner.actor), owner.ref, 'rates.publish_route', { routeId: route.routeId, direction: 'SELL_USDT' as const, rate: '104.200000' });
-  await run(db, publishRouteRate(owner.actor), owner.ref, 'rates.publish_route', { routeId: route.routeId, direction: 'BUY_USDT' as const, rate: '100.000000' });
-  // What a transfer costs on TRON and TRX in the platform budget (ADR 0017), as the worker and the desk would have them:
-  // every quote carries its network fee, and every acceptance holds its TRX.
+  // What a transfer costs on TRON (ADR 0017): every quote carries its network fee.
   await seedNetworkCosts(db);
-  await fundBudget(db, { traderId: null, amountSun: 1_000_000_000_000n, from: encodeTronAddress(randomBytes(20)) });
 
-  const entity = await run(db, createSettlementEntity(owner.actor), owner.ref, 'settlement_entity.create', {
-    legalName: 'INRP2P Settlement Private Limited', shortName: 'INRP2P',
-  });
-  const account = await run(db, createInrAccount(owner.actor, protector), owner.ref, 'inr_account.create', {
-    entityId: entity.entityId, label: 'Company A', bankName: 'ICICI Bank', ifsc: 'ICIC0001234', accountNumber: '000405001234',
-    rails: ['IMPS', 'NEFT', 'RTGS'] as const, direction: 'BOTH' as const, defaultDailyCapacity: '50000000.00',
-  });
-  await run(db, setDayCapacity(owner.actor), owner.ref, 'capacity.set_day', { accountId: account.accountId, capacity: '50000000.00', reason: 'end-to-end run' });
+  const trader = await seedTrader(db, clientAuth, owner, settlementOperator, protector);
 
   const custody = new FakeCustodyAdapter({ provider: E2E_CUSTODY_PROVIDER, capability: 'POOL', poolSize: 20, seed: 'e2e' });
   const poolWallet = await run(db, registerTreasuryWallet(owner.actor), owner.ref, 'treasury.register_wallet', {
     network: 'TRON' as const, address: encodeTronAddress(randomBytes(20)), label: 'Deposit pool', role: 'DEPOSIT_POOL' as const,
   });
-  const hot = await run(db, registerTreasuryWallet(owner.actor), owner.ref, 'treasury.register_wallet', {
+  await run(db, registerTreasuryWallet(owner.actor), owner.ref, 'treasury.register_wallet', {
     network: 'TRON' as const, address: encodeTronAddress(randomBytes(20)), label: 'Hot wallet', role: 'HOT' as const,
   });
   await run(db, recordCustodyCapability(owner.actor), owner.ref, 'custody.record_capability', {
@@ -204,22 +197,59 @@ export async function seedE2E(adminUrl: string): Promise<E2EState> {
   const state: E2EState = {
     databaseUrl,
     owner: { email: owner.email, password: OPERATOR_PASSWORD, totpSecret: owner.totpSecret, roles: ['OWNER'] },
-    settlementOperator: { email: settlementOperator.email, password: OPERATOR_PASSWORD, totpSecret: settlementOperator.totpSecret, roles: ['SETTLEMENT_OPERATOR'] },
     clientId: client.clientId,
-    clientName: 'Acme Pay',
     bankAccountId: bank.bankAccountId,
-    walletId: wallet.walletId,
-    routeId: route.routeId,
-    inrAccountId: account.accountId,
+    trader,
     acceptorUserId,
-    acceptorClientUserId: linked.clientUserId,
     acceptorEmail: ACCEPTOR_EMAIL,
-    hotWalletId: hot.walletId,
   };
   writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
   await db.destroy();
   await authDb.destroy();
   return state;
+}
+
+/** The rates the world's trader deals at; a client's screen never shows either. */
+const TRADER_BUYS_AT = '104.20';
+const TRADER_SELLS_AT = '105.20';
+const TRADER_NAME = 'Mumbai OTC LLP';
+
+/** A trader: its company, bank account and wallet, a real application, its Security Reserve read from the chain, both sides live. */
+async function seedTrader(
+  db: Db, clientAuth: ReturnType<typeof createClientAuth>, owner: Awaited<ReturnType<typeof operator>>, settler: Awaited<ReturnType<typeof operator>>, protector: FieldProtector,
+): Promise<E2ETrader> {
+  const programme = await db.selectFrom('trader_program').select('version').where('id', '=', 1).executeTakeFirstOrThrow();
+  await run(db, configureTraderProgram(owner.actor), owner.ref, 'trader_program.configure', { expectedVersion: programme.version, riskPolicy: null, reason: 'end-to-end run' });
+  const company = await run(db, createClient(owner.actor), owner.ref, 'client.create', { legalName: TRADER_NAME, displayName: 'Mumbai OTC', type: 'COMPANY' as const, typicalDirection: 'BUY_USDT' as const });
+  const bank = await run(db, addBankAccount(owner.actor, protector), owner.ref, 'client_bank.add', {
+    clientId: company.clientId, holderName: TRADER_NAME, bankName: 'Kotak Mahindra Bank', ifsc: 'KKBK0000123', accountNumber: '74130211980057', railPreferences: ['IMPS', 'NEFT'] as const,
+  });
+  const address = encodeTronAddress(randomBytes(20));
+  const wallet = await run(db, addWallet(owner.actor), owner.ref, 'client_wallet.add', { clientId: company.clientId, network: 'TRON' as const, address, purpose: 'BOTH' as const, label: 'Trader wallet' });
+  const userId = await provisionClientUser(clientAuth, { email: 'desk@mumbaiotc.test', name: 'Mumbai OTC' });
+  await sql`update auth_user set email_verified = true where id = ${userId}`.execute(db);
+  const linked = await run(db, linkClientUser(owner.actor), owner.ref, 'client_user.link', { clientId: company.clientId, userId, role: 'CLIENT_ADMIN' as const });
+  await run(db, setCanAcceptQuotes(owner.actor), owner.ref, 'client_user.set_accept_quotes', { clientUserId: linked.clientUserId, canAcceptQuotes: true });
+  await asClient(db, userId, (actor) => applyAsTrader(actor, { protector }), 'trader.apply', {
+    experience: 'BINANCE' as const, telegram: '@mumbai_otc', confirmOwnership: true, offersBuy: true, offersSell: true,
+    typicalInr: '1000000.00', dailyInr: '50000000.00', typicalUsdt: '10000.000000', dailyUsdt: '500000.000000', bankAccountId: bank.bankAccountId, walletId: wallet.walletId,
+  });
+  const traderId = (await db.selectFrom('trader_profile').select('id').where('client_id', '=', company.clientId).executeTakeFirstOrThrow()).id;
+  await run(db, approveTrader(owner.actor), owner.ref, 'trader.approve', { traderId, requiredReserve: '500' });
+  await fundBudget(db, { traderId, amountSun: 1_000_000_000_000n, from: address });
+  const chain = new FakeChainVerifier();
+  const receipt = chain.add({ from: address, to: (await sharedReserveAddress(db))!.address, amountMinor: Money.parse('500', 'USDT').minor });
+  await run(db, submitTxForVerification(settler.actor, { chain }), settler.ref, 'crypto.submit_tx_for_verification', { txHash: receipt.txHash, logIndex: receipt.logIndex });
+  await runTronConfirm(db, { chain, providers: [] });
+  for (const [side, cfg] of [
+    ['BUY_USDT', { capacity: '50000000.00', rate: TRADER_BUYS_AT, minOrder: '1000.00', maxOrder: '20000000.00' }],
+    ['SELL_USDT', { capacity: '500000.000000', rate: TRADER_SELLS_AT, minOrder: '10.000000', maxOrder: '200000.000000' }],
+  ] as const) {
+    const block = await db.selectFrom('trader_block').select('version').where('trader_id', '=', traderId).where('side', '=', side).executeTakeFirstOrThrow();
+    await asClient(db, userId, (actor) => updateBlock(actor), 'trader.update_block', { side, expectedVersion: block.version, ...cfg, status: 'ACTIVE' as const });
+  }
+  await asClient(db, userId, (actor) => setAvailability(actor), 'trader.set_availability', { available: true });
+  return { traderId, userId, holderName: TRADER_NAME };
 }
 
 /** Creates an operator, completes real TOTP enrolment, and opens a server-side session for the seeding commands. */

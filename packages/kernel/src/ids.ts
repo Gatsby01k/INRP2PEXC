@@ -13,11 +13,6 @@ export function isUuid(value: string): boolean {
   return UUID_RE.test(value);
 }
 
-export function asId<T extends string>(value: string, _kind: T): Id<T> {
-  if (!isUuid(value)) throw new TypeError(`Invalid id: ${value}`);
-  return value as Id<T>;
-}
-
 let lastMs = 0n;
 let seq = 0n;
 

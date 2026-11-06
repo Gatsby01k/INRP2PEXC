@@ -1,16 +1,11 @@
-import { randomUUID } from 'node:crypto';
 import { sql } from 'kysely';
 import { DomainError, Money, requireUuid } from '@inrp2p/kernel';
-import type { Db, TxContext } from '@inrp2p/db';
+import type { TxContext } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
 import { enqueueOutbox } from '@inrp2p/outbox';
-import { executeCommand } from '@inrp2p/commands';
 import type { MovementParty } from '@inrp2p/ledger';
-import { type OperatorActor, operatorCommand } from '@inrp2p/identity';
-import { consumeTreasuryReservation } from '@inrp2p/treasury';
 import { payoutNeedsSecondPerson } from './approvals.ts';
 import { effectiveObligations, legTotals, lockTrade, receivedNetOfReturnedExcess, tradeEconomics, transitionTrade } from '@inrp2p/trades';
-import { openExceptionInTx } from './exceptions.ts';
 import { assertNoRefundUnderway, lockLeg } from './legs.ts';
 import { lockMovement, postMovement, verifyCryptoTransfer } from './movements.ts';
 import { allocateToObligation, lockObligation, obligationOfTrade, obligationRemaining } from './obligations.ts';
@@ -29,22 +24,14 @@ export interface ConfirmPayoutResult {
 }
 
 /**
- * `payout_leg.confirm` (T6/T7, STATE_MACHINES §4) — `settlement:confirm_payout` (⧗).
+ * `payout_leg.confirm` (T6/T7, STATE_MACHINES §4). One transaction, **exactly one journal** — the movement's (FI-27).
+ * The trader's rupees paid to the client also become a `DIRECT_TO_CLIENT` route settlement allocated to the trade's route
+ * obligation, so the client payable and the route receivable both fall by the one real payment (D-14, FI-28); if the
+ * route side does not fit, the whole thing fails.
  *
- * One command, one transaction, **exactly one journal** — the movement's (FI-27). For a route-paid direct payout
- * the same movement additionally becomes a `DIRECT_TO_CLIENT` route settlement allocated to the trade's route
- * obligation, so the client payable and the route receivable both fall by the one real payment (D-14, FI-28).
- * If the route side does not fit, the whole command fails: no leg completion without the route allocation.
- */
-export function confirmPayoutLeg(actor: OperatorActor, deps: SettlementDeps) {
-  return operatorCommand(actor, 'settlement:confirm_payout', (ctx, p: { legId: string }) => confirmPayoutLegInTx(ctx, deps, p.legId));
-}
-
-/**
- * The confirmation itself. An operator reaches it through `settlement:confirm_payout` (⧗); the exchange's signer
- * reaches it as the system for a USDT payout it sent, once the chain made the transfer final (ADR 0017) — then the
- * two people C1 asks for above the threshold are the one who sent it and the one who approved the send before it was
- * signed (IX090 restated in migration 0037).
+ * The exchange's signer reaches it as the system for a USDT payout it sent, once the chain made the transfer final
+ * (ADR 0017) — then the two people C1 asks for above the threshold are the one who sent it and the one who approved the
+ * send before it was signed (IX090 restated in migration 0037).
  */
 export async function confirmPayoutLegInTx(ctx: TxContext, deps: SettlementDeps, legId: string): Promise<ConfirmPayoutResult> {
     const p = { legId };
@@ -91,7 +78,7 @@ export async function confirmPayoutLegInTx(ctx: TxContext, deps: SettlementDeps,
 
     // The route side is checked before anything is written, so a mismatch leaves no trace to undo.
     if (obligation) {
-      if ((obligation.execution_mode !== 'DIRECT_TO_CLIENT' && obligation.execution_mode !== 'P2P') || obligation.route_id !== leg.route_id) {
+      if (obligation.route_id !== leg.route_id) {
         throw new DomainError('ROUTE_DIRECT_PAYOUT_MISMATCH', 'this trade’s route does not pay the client directly', { legId: leg.id, tradeId: trade.id });
       }
       const remaining = await obligationRemaining(ctx.tx, obligation.id);
@@ -117,9 +104,7 @@ export async function confirmPayoutLegInTx(ctx: TxContext, deps: SettlementDeps,
     const from: MovementParty =
       leg.payer === 'ROUTE'
         ? { kind: 'ROUTE', routeId: leg.route_id!, routeObligationId: obligation!.id }
-        : leg.asset === 'INR'
-          ? { kind: 'EXCHANGE_ACCOUNT', inrAccountId: leg.inr_account_id! }
-          : { kind: 'EXCHANGE_TREASURY', walletId: leg.treasury_wallet_id! };
+        : { kind: 'EXCHANGE_TREASURY', walletId: leg.treasury_wallet_id! };
     await postMovement(ctx, {
       kind: allocation.transfer_kind,
       movementId,
@@ -132,10 +117,8 @@ export async function confirmPayoutLegInTx(ctx: TxContext, deps: SettlementDeps,
 
     await ctx.tx.updateTable('settlement_leg').set({ status: 'COMPLETED', confirmed_at: sql<Date>`inrp2p_now()`, confirmed_by: confirmedBy }).where('id', '=', leg.id).execute();
     if (leg.payer === 'EXCHANGE_ACCOUNT') {
-      // A counterparty-funded payout consumes the counterparty's money it was earmarked against (D-16). A legacy trade
-      // still consumes the treasury reservation it was accepted with (FI-33); a counterparty-funded one has none.
+      // A payout consumes the counterparty's money it was earmarked against (D-16).
       await settleFunding(ctx, { kind: 'CLIENT_PAYOUT', legId: leg.id }, 'CONSUMED', `payout ${leg.ref} confirmed`);
-      if (leg.asset === 'USDT') await consumeTreasuryReservation(ctx, { tradeId: trade.id, amount: amount as Money<'USDT'> });
     }
 
     let routeSettlementId: string | null = null;
@@ -205,43 +188,4 @@ export async function confirmPayoutLegInTx(ctx: TxContext, deps: SettlementDeps,
       routeSettlementId,
       completed,
     };
-}
-
-/**
- * Runs `payout_leg.confirm` and, when the route side does not fit, records the mismatch for FINANCE in its own
- * transaction — the confirm itself rolled back, so no leg, allocation or journal exists (exit test 6).
- */
-export async function confirmPayout(
-  db: Db,
-  actor: OperatorActor,
-  deps: SettlementDeps,
-  input: { legId: string; idempotencyKey: string },
-): Promise<ConfirmPayoutResult> {
-  try {
-    const out = await executeCommand(db, confirmPayoutLeg(actor, deps), {
-      name: 'payout_leg.confirm',
-      actor: { type: 'USER', id: actor.userId, surface: 'OPERATOR', sessionId: actor.sessionId },
-      payload: { legId: input.legId },
-      idempotencyKey: input.idempotencyKey,
-      financial: true,
-    });
-    return out.result;
-  } catch (e) {
-    if (e instanceof DomainError && e.code === 'ROUTE_DIRECT_PAYOUT_MISMATCH') {
-      const details = (e.details ?? {}) as { legId?: string; tradeId?: string };
-      if (details.legId && details.tradeId) {
-        await executeCommand(db, {
-          authorize: async () => {},
-          handle: async (ctx) => {
-            await lockTrade(ctx.tx, details.tradeId!);
-            return openExceptionInTx(ctx, {
-              type: 'ROUTE_DIRECT_PAYOUT_MISMATCH', subjectType: 'SETTLEMENT_LEG', subjectId: details.legId!, tradeId: details.tradeId!,
-              detectedBy: 'SYSTEM', details: { message: e.message, ...details },
-            });
-          },
-        }, { name: 'exception.route_direct_payout_mismatch', actor: { type: 'SYSTEM', id: null, surface: 'SYSTEM' }, payload: { legId: details.legId }, idempotencyKey: randomUUID(), financial: false });
-      }
-    }
-    throw e;
-  }
 }

@@ -1,8 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { countingDb } from '@inrp2p/db/testing';
-import { obligationRemaining } from '@inrp2p/settlement';
-import { FULL_ACCESS, deskQueue, deskStrip, routePositions } from '../src/index.ts';
-import { type World, createWorld, openTrade } from '../../settlement/test/world.ts';
+import { FULL_ACCESS, deskQueue, deskStrip } from '../src/index.ts';
+import { type World, createWorld } from '../../settlement/test/world.ts';
 
 /**
  * What the desk's busiest reads cost (performance budget), counted in statements — the round trips a page waits for.
@@ -11,39 +10,11 @@ import { type World, createWorld, openTrade } from '../../settlement/test/world.
 let w: World;
 let counted: ReturnType<typeof countingDb>;
 beforeAll(async () => {
-  w = await createWorld('desk_read_cost', { capacityInr: '500000000.00' });
+  w = await createWorld('desk_read_cost');
   counted = countingDb(w.t.appPool);
 });
 afterAll(async () => w.close());
 
-const PROFITABLE = { baseUsdt: '1000', clientRate: '102.000000', routeRate: '104.200000', executionMode: 'TO_EXCHANGE' } as const;
-
-describe('route positions (Rates)', () => {
-  it('read in three statements however many obligations are open — never three per obligation', async () => {
-    await openTrade(w, PROFITABLE);
-    counted.reset();
-    const one = await routePositions(counted.db, { status: 'OPEN' });
-    const forOne = counted.statements.length;
-
-    for (let i = 0; i < 6; i++) await openTrade(w, { ...PROFITABLE, baseUsdt: String(1000 + 10 * i) });
-    counted.reset();
-    const many = await routePositions(counted.db, { status: 'OPEN' });
-
-    expect(many.length).toBeGreaterThanOrEqual(one.length + 6);
-    expect(forOne).toBe(3);
-    expect(counted.statements).toHaveLength(3);
-  });
-
-  it('shows what each side still owes exactly as the commands measure it (one formula, FI-64)', async () => {
-    const positions = await routePositions(w.app, { status: 'ALL' });
-    expect(positions.length).toBeGreaterThan(0);
-    for (const p of positions) {
-      const remaining = await obligationRemaining(w.app, p.obligationId);
-      expect(p.routeDeliversRemaining).toEqual(remaining.routeDelivers.toJSON());
-      expect(p.exchangeDeliversRemaining).toEqual(remaining.exchangeDelivers.toJSON());
-    }
-  });
-});
 
 /**
  * The most statements one read had in flight at once, measured on the pool: a read that waits for one answer before it

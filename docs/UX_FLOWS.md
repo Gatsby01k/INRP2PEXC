@@ -1,5 +1,7 @@
 # INRP2P Exchange — UX Flows, Navigation, Components, Wireframes
 
+> **Since ADR 0027 every deal is P2P.** What this document says about INR accounts, the payer selector and direct payouts is history: where they disagree, `adr/0027-p2p-only.md` wins.
+
 Status: Phase 0, revision 3 (`DECISIONS.md` Revision 3). Visual authority: `docs/source/DESIGN_SYSTEM_BRIEF.md`. This file adds structure, flows and wireframes; it does not restyle the brief.
 
 All examples use realistic values: 100,000 USDT · ₹10,200,000 · ₹104.20 · ₹102.00 · ₹220,000.

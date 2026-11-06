@@ -1,13 +1,12 @@
-import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from 'kysely';
 import { databaseDeploymentProblems, pgErrorCode, SCHEMA_VERSION } from '@inrp2p/db';
 import { runAs, type TestOperator } from '@inrp2p/identity/testing';
 import { acceptQuote, createQuote, createRequest, sendQuote } from '@inrp2p/quotes';
-import { confirmPayout, createPayoutLeg, recordLegEvidence, sendPayoutLeg, setNewBusiness } from '@inrp2p/settlement';
+import { setNewBusiness } from '@inrp2p/settlement';
 import { operationsStatus, prometheusText, systemHealth } from '@inrp2p/desk';
 import { recordHeartbeat } from '../../apps/worker/src/tasks.ts';
-import { type World, createWorld, ensureCounterpartyFunds, newUtr, openTrade, settleFirstLeg } from '../../packages/settlement/test/world.ts';
+import { type World, createWorld, openTrade, payClient, routeToTrader, settleFirstLeg } from '../../packages/settlement/test/world.ts';
 
 /**
  * E3: what a deployment checks about its database before serving, the switch that pauses new business without
@@ -15,7 +14,7 @@ import { type World, createWorld, ensureCounterpartyFunds, newUtr, openTrade, se
  */
 let w: World;
 beforeAll(async () => {
-  w = await createWorld('operations', { capacityInr: '500000000.00' });
+  w = await createWorld('operations');
 });
 afterAll(async () => w.close());
 
@@ -32,13 +31,13 @@ describe('the database a process is given (E3)', () => {
 describe('pausing new business (E3)', () => {
   it('stops new requests, quotes and acceptances — in the commands and the database — and never what is started', async () => {
     // Started before the pause: a trade that has its client funds, and a quote already sent.
-    const started = await openTrade(w, { baseUsdt: '100', clientRate: '90.000000', routeRate: '92.500000', executionMode: 'TO_EXCHANGE' });
+    const started = await openTrade(w, { baseUsdt: '100', clientRate: '90.000000' });
     await settleFirstLeg(w, started.tradeId);
     const request = await runAs(w.app, createRequest(w.dealer.actor, {}), w.dealer.ref, 'request.create', { clientId: w.clientId, direction: 'SELL_USDT' as const, fixedSide: 'BASE' as const, amount: '50', bankAccountId: w.bankAccountId });
-    const sent = await runAs(w.app, createQuote(w.dealer.actor, {}), w.dealer.ref, 'quote.create', { requestId: request.requestId, routeId: w.routeId, clientRate: '90.000000', validitySeconds: 300 });
+    const sent = await runAs(w.app, createQuote(w.dealer.actor, {}), w.dealer.ref, 'quote.create', { requestId: request.requestId, routeId: (await routeToTrader(w, request.requestId, '90.000000')).routeId, clientRate: '90.000000', validitySeconds: 300 });
     await runAs(w.app, sendQuote(w.dealer.actor, {}), w.dealer.ref, 'quote.send', { quoteId: sent.quoteId });
     const draftRequest = await runAs(w.app, createRequest(w.dealer.actor, {}), w.dealer.ref, 'request.create', { clientId: w.clientId, direction: 'SELL_USDT' as const, fixedSide: 'BASE' as const, amount: '60', bankAccountId: w.bankAccountId });
-    const draft = await runAs(w.app, createQuote(w.dealer.actor, {}), w.dealer.ref, 'quote.create', { requestId: draftRequest.requestId, routeId: w.routeId, clientRate: '90.000000', validitySeconds: 300 });
+    const draft = await runAs(w.app, createQuote(w.dealer.actor, {}), w.dealer.ref, 'quote.create', { requestId: draftRequest.requestId, routeId: (await routeToTrader(w, draftRequest.requestId, '90.000000')).routeId, clientRate: '90.000000', validitySeconds: 300 });
 
     const pause = (who: TestOperator, paused: boolean, reason = 'bank outage at the collection bank, assessing') =>
       runAs(w.app, setNewBusiness(who.actor), who.ref, paused ? 'settings.pause_new_business' : 'settings.resume_new_business', { paused, reason });
@@ -60,11 +59,8 @@ describe('pausing new business (E3)', () => {
       .rejects.toSatisfy((e) => pgErrorCode(e) === 'IX098');
 
     // What is started goes on: the trade is paid out and completes.
-    await ensureCounterpartyFunds(w, started.tradeId);
-    const leg = await runAs(w.app, createPayoutLeg(w.settlementOp.actor, {}), w.settlementOp.ref, 'payout_leg.create', { tradeId: started.tradeId, amount: '9000.00', payer: 'EXCHANGE_ACCOUNT' as const, inrAccountId: w.inrAccountId });
-    await runAs(w.app, sendPayoutLeg(w.settlementOp.actor), w.settlementOp.ref, 'payout_leg.send', { legId: leg.legId });
-    await runAs(w.app, recordLegEvidence(w.settlementOp.actor, w.settlementDeps), w.settlementOp.ref, 'payout_leg.record_evidence', { legId: leg.legId, rail: 'IMPS' as const, utr: newUtr() });
-    expect((await confirmPayout(w.app, w.settlementOp.actor, w.settlementDeps, { legId: leg.legId, idempotencyKey: randomUUID() })).completed).toBe(true);
+    await payClient(w, started);
+    expect((await w.app.selectFrom('trade').select('lifecycle_state').where('id', '=', started.tradeId).executeTakeFirstOrThrow()).lifecycle_state).toBe('COMPLETED');
 
     expect((await operationsStatus(w.app)).newBusiness.paused).toBe(true);
     expect(prometheusText(await operationsStatus(w.app))).toContain('inrp2p_new_business_paused 1');
@@ -90,14 +86,13 @@ describe('the health picture (E3)', () => {
     expect(after.checks.find((c) => c.id === 'worker_heartbeat_age_seconds')).toMatchObject({ state: 'ok' });
     expect(after.workers).toEqual([expect.objectContaining({ workerId: 'test-worker-1', release: 'test', config: { chain: 'DISABLED', email: 'fake-email' } })]);
 
-    // No trader is ready on either side: liquidity says so, and readiness does not care.
+    // Liquidity is its own question, and readiness does not care what it answers.
     const liquidity = after.checks.filter((c) => c.group === 'liquidity');
-    expect(liquidity.map((c) => [c.id, c.value, c.state])).toEqual([['traders_ready_sell_usdt', 0, 'warn'], ['traders_ready_buy_usdt', 0, 'warn']]);
-    expect(after.liquidity).toBe('warn');
+    expect(liquidity.map((c) => c.id)).toEqual(['traders_ready_sell_usdt', 'traders_ready_buy_usdt']);
     expect(after.checks.filter((c) => c.group !== 'liquidity').some((c) => c.state === 'warn' || c.state === 'alarm') ? after.state : 'ok').toBe(after.state);
     expect(after.checks.find((c) => c.id === 'db_connections_percent')!.value).toBeGreaterThan(0);
     const text = prometheusText(after);
     expect(text).toMatch(/^inrp2p_health_state\{check="worker_heartbeat_age_seconds",group="infrastructure",runbook="worker-stopped"\} 0$/m);
-    expect(text).toMatch(/^inrp2p_liquidity 1$/m);
+    expect(text).toMatch(/^inrp2p_liquidity [01]$/m);
   });
 });

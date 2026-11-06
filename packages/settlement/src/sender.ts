@@ -1,9 +1,8 @@
 import { sql } from 'kysely';
-import { DomainError, type NameMatchPair, judgeSender, normalizeVpa, optionalText, requireText, requireUuid } from '@inrp2p/kernel';
+import { DomainError, type NameMatchPair, judgeSender, normalizeVpa, optionalText, requireUuid } from '@inrp2p/kernel';
 import type { Executor, SenderVerdict, TxContext } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
 import { enqueueOutbox } from '@inrp2p/outbox';
-import { type DomainCommand, type OperatorActor, type Permission, authorizeOperator } from '@inrp2p/identity';
 import { lockTrade } from '@inrp2p/trades';
 import { openExceptionInTx } from './exceptions.ts';
 import { lockMovement } from './movements.ts';
@@ -93,8 +92,8 @@ export function judgeAgainst(accounts: readonly ExpectedAccount[], seen: SeenSen
 export async function recordSenderCheckInTx(
   ctx: TxContext,
   input: {
-    readonly transferId: string; readonly via: 'STATEMENT' | 'DESK' | 'PAYEE'; readonly seen: SeenSender; readonly statementLineId?: string | null; readonly narration?: string | null;
-    /** The caller already holds the trade and the payment in the global lock order (the statement import, a claim). */
+    readonly transferId: string; readonly via: 'DESK' | 'PAYEE'; readonly seen: SeenSender; readonly narration?: string | null;
+    /** The caller already holds the trade and the payment in the global lock order (a claim). */
     readonly locked?: boolean;
   },
 ): Promise<{ readonly verdict: SenderVerdict; readonly checkId: string; readonly exceptionId: string | null }> {
@@ -106,7 +105,7 @@ export async function recordSenderCheckInTx(
   }
   const t = await transferForCheck(ctx.tx, input.transferId);
   if (!t.needsCheck) throw new DomainError('INVALID_ARGUMENT', 'this payment is not one whose sender is checked');
-  if (input.via !== 'STATEMENT' && t.status !== 'RECORDED') throw new DomainError('INVALID_TRANSITION', `the payment is ${t.status.toLowerCase()}; its sender is no longer decided by hand`);
+  if (t.status !== 'RECORDED') throw new DomainError('INVALID_TRANSITION', `the payment is ${t.status.toLowerCase()}; its sender is no longer decided by hand`);
   const seen: SeenSender = { name: optionalText(input.seen.name, 'senderName', 140), account: optionalText(input.seen.account, 'senderAccount', 80) };
   const judged = judgeAgainst(await expectedAccounts(ctx.tx, t), seen);
   const row = await ctx.tx
@@ -119,7 +118,7 @@ export async function recordSenderCheckInTx(
       expected_bank_account_id: judged.account?.bankAccountId ?? null,
       verdict: judged.verdict,
       detail: JSON.stringify({ pairs: judged.pairs, account: judged.accountSeen, narration: input.narration ?? null }),
-      statement_line_id: input.statementLineId ?? null,
+      statement_line_id: null,
       checked_by: ctx.actor.id ?? `SYSTEM:${ctx.commandName}`,
     })
     .returning('id')
@@ -132,7 +131,7 @@ export async function recordSenderCheckInTx(
   if (judged.verdict === 'MISMATCH') {
     const opened = await openExceptionInTx(ctx, {
       type: 'INR_UNEXPECTED_SENDER', subjectType: 'FIAT_TRANSFER', subjectId: t.id, tradeId,
-      details: { seen_name: seen.name, seen_account: seen.account, via: input.via, confirmed_already: t.status === 'CONFIRMED', payer: t.payerType },
+      details: { seen_name: seen.name, seen_account: seen.account, via: input.via, payer: t.payerType },
     });
     exceptionId = opened.exceptionId;
     if (opened.opened && tradeId && t.payerType === 'CLIENT') {
@@ -182,66 +181,6 @@ export async function assertSenderVerified(ex: Executor, transferId: string): Pr
     MISMATCH: 'it came from someone other than the payer — it is returned, never counted',
   };
   throw new DomainError('INR_SENDER_NOT_VERIFIED', `this payment cannot count yet: ${why[verdict] ?? verdict}`, { verdict });
-}
-
-/**
- * The person who checks a payment's sender is the one who would confirm it: a client's rupees are the settlement
- * desk's (`settlement:record_incoming` to check, `settlement:confirm_incoming` ⧗ to accept), a trader's are finance's
- * (`route_settlement:record`, `route_settlement:confirm` ⧗).
- */
-function senderCommand<P extends { transferId: string }, R>(actor: OperatorActor, step: 'check' | 'accept', handle: (ctx: TxContext, p: P) => Promise<R>): DomainCommand<P, R> {
-  let authorized = false;
-  return {
-    authorize: async (ctx, p) => {
-      const t = await ctx.tx.selectFrom('fiat_transfer').select('payer_type').where('id', '=', requireUuid(p.transferId, 'transferId')).executeTakeFirst();
-      if (!t) throw new DomainError('NOT_FOUND', 'payment not found');
-      const route = t.payer_type === 'ROUTE';
-      const permission: Permission = step === 'check' ? (route ? 'route_settlement:record' : 'settlement:record_incoming') : route ? 'route_settlement:confirm' : 'settlement:confirm_incoming';
-      await authorizeOperator(ctx.tx, actor, permission);
-      authorized = true;
-    },
-    handle: async (ctx, p) => {
-      if (!authorized) throw new Error('sender command executed without authorization');
-      return handle(ctx, p);
-    },
-  };
-}
-
-/**
- * `fiat_in.check_sender`. What the desk sees on the credit in the bank: the remitter's name and, where shown, the
- * sending account or UPI ID. Judged against the declared account at once.
- */
-export function checkIncomingSender(actor: OperatorActor) {
-  return senderCommand(actor, 'check', async (ctx, p: { transferId: string; senderName: string; senderAccount?: string | null }) => {
-    const name = requireText(p.senderName, 'senderName', 140);
-    const out = await recordSenderCheckInTx(ctx, { transferId: p.transferId, via: 'DESK', seen: { name, account: p.senderAccount ?? null } });
-    return { verdict: out.verdict, exceptionId: out.exceptionId };
-  });
-}
-
-/**
- * `fiat_in.accept_sender` — `settlement:confirm_incoming` or `route_settlement:confirm` (⧗). A person accepts a partial match as the payer's own —
- * the account's digits matched on the bank's own screen, say — with the reason. Never a stranger (IX119).
- */
-export function acceptIncomingSender(actor: OperatorActor) {
-  return senderCommand(actor, 'accept', async (ctx, p: { transferId: string; reason: string }) => {
-    const reason = requireText(p.reason, 'reason', 500);
-    const tradeId = await tradeOfTransfer(ctx.tx, requireUuid(p.transferId, 'transferId'));
-    if (tradeId) await lockTrade(ctx.tx, tradeId);
-    await lockMovement(ctx, 'FIAT', p.transferId);
-    const t = await transferForCheck(ctx.tx, p.transferId);
-    if (!t.needsCheck) throw new DomainError('INVALID_ARGUMENT', 'this payment is not one whose sender is checked');
-    if (t.status !== 'RECORDED') throw new DomainError('INVALID_TRANSITION', `the payment is ${t.status.toLowerCase()}`);
-    const verdict = await senderVerdict(ctx.tx, t.id);
-    if (verdict !== 'PARTIAL') throw new DomainError('INVALID_TRANSITION', verdict === 'MISMATCH' ? 'a payment from someone else is returned, never accepted' : `only a partial match can be accepted (it is ${verdict.toLowerCase().replace('_', ' ')})`);
-    const last = await ctx.tx.selectFrom('fiat_sender_check').select(['expected_bank_account_id']).where('fiat_transfer_id', '=', t.id).orderBy('checked_at', 'desc').orderBy('id', 'desc').executeTakeFirstOrThrow();
-    await ctx.tx
-      .insertInto('fiat_sender_check')
-      .values({ fiat_transfer_id: t.id, via: 'DESK', verdict: 'ACCEPTED', expected_bank_account_id: last.expected_bank_account_id, reason, checked_by: ctx.actor.id ?? 'SYSTEM' })
-      .execute();
-    await appendAudit(ctx, { action: 'fiat.sender_accepted', entityType: 'fiat_transfer', entityId: t.id, before: { verdict }, after: { verdict: 'ACCEPTED', reason } });
-    return { verdict: 'ACCEPTED' as const };
-  });
 }
 
 export interface SenderView {

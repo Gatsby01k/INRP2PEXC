@@ -33,7 +33,6 @@ export interface NotificationFacts {
   readonly orderRef?: string;
   readonly side?: 'BUY_USDT' | 'SELL_USDT';
   readonly rate?: string;
-  readonly reward?: string;
   /** Team messages: what changed, and the role it concerns. Never the person's address — the Team screen shows who. */
   readonly teamChange?: 'JOINED' | 'ROLE_CHANGED' | 'REMOVED';
   readonly teamRole?: 'ADMIN' | 'OPERATOR';
@@ -365,7 +364,7 @@ function traderDraft(kind: NotificationKind, facts: NotificationFacts): Notifica
       return {
         kind,
         title: ref ? `Order ${ref} completed` : 'Order completed',
-        body: `Settled in full.${facts.reward ? ` Reward earned: ${inr(facts.reward)}.` : ''}`,
+        body: 'Settled in full.',
         subjectRef: ref,
         href: orderHref(facts),
       };

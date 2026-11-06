@@ -5,10 +5,9 @@ import { dispatchOutbox, type OutboxHandler } from '@inrp2p/outbox';
 import { randomUUID } from 'node:crypto';
 import { executeCommand } from '@inrp2p/commands';
 import type { TxContext } from '@inrp2p/db';
-import { releasePastDayReservations } from '@inrp2p/inr-accounts';
 import { releaseCooledDownAddresses } from '@inrp2p/treasury';
 import { type QuotePolicy, expireQuote, runExpirySweep, runMarketReferenceRefresh, runRfqSweep } from '@inrp2p/quotes';
-import { expireUnpaidTrades, runP2pDeadlines, runReconciliation, runSettlementSla } from '@inrp2p/settlement';
+import { runP2pDeadlines, runReconciliation, runSettlementSla } from '@inrp2p/settlement';
 import { type ScannerDeps, observeBalances, runChainBackfill, runOrphanSweep, runTronConfirm, runTronScan } from '@inrp2p/scanner';
 import { ordersDueSoon, runTraderSweep } from '@inrp2p/traders';
 import { type TelegramAdapter, marketTrxPriceSources, marketUsdtInrSources, readTrxPrice, readUsdtInrReference } from '@inrp2p/adapters';
@@ -57,9 +56,6 @@ export function buildTaskList(
     await sealAudit(db);
   };
   // STATE_MACHINES §6: reservations of past IST days are released, never carried into today.
-  const capacityDayRollover: Task = async () => {
-    await systemCommand(db, 'capacity.day_rollover', (ctx) => releasePastDayReservations(ctx));
-  };
   // STATE_MACHINES §11: cooled-down POOL addresses return to AVAILABLE, DERIVED addresses retire.
   const depositCooldownRelease: Task = async () => {
     await systemCommand(db, 'deposit_address.cooldown_release', (ctx) => releaseCooledDownAddresses(ctx));
@@ -86,10 +82,6 @@ export function buildTaskList(
     for (const f of out.failures) helpers.logger.error(`settlement_sla: case for ${f.subjectId} not opened: ${f.message}`);
   };
   // ADR 0018: a BUY whose client neither paid nor said so within the payment window is cancelled, as the desk would.
-  const inrPaymentExpiry: Task = async (_payload, helpers) => {
-    const out = await expireUnpaidTrades(db);
-    for (const f of out.failures) helpers.logger.error(`inr_payment_expiry: trade ${f.tradeId} not cancelled: ${f.message}`);
-  };
   // ADR 0019 §2.7: the time limits of P2P deals — unpaid BUYs cancelled (the trader's escrow then goes back), SELLs their
   // trader did not pay unwound (the client's USDT goes back, TD-35), unanswered payments handed to the desk.
   const escrowDeadlines: Task = async (_payload, helpers) => {
@@ -253,13 +245,11 @@ export function buildTaskList(
     rfq_sweep: rfqSweep,
     outbox_dispatch: outboxDispatch,
     audit_seal: auditSeal,
-    capacity_day_rollover: capacityDayRollover,
     deposit_address_cooldown_release: depositCooldownRelease,
     quote_expire: quoteExpire,
     quote_expiry_sweep: quoteExpirySweep,
     settlement_reconcile: reconcile,
     settlement_sla: settlementSla,
-    inr_payment_expiry: inrPaymentExpiry,
     escrow_deadlines: escrowDeadlines,
     tron_scan: tronScan,
     tron_confirm: tronConfirm,
@@ -309,11 +299,9 @@ export function quoteExpiryScheduler(db: Db): OutboxHandler {
 export const CRONTAB = [
   '* * * * * outbox_dispatch ?max=1&jobKey=outbox_dispatch',
   '7 * * * * audit_seal ?max=3&jobKey=audit_seal',
-  '*/5 * * * * capacity_day_rollover ?max=3&jobKey=capacity_day_rollover',
   '*/10 * * * * deposit_address_cooldown_release ?max=3&jobKey=deposit_address_cooldown_release',
   '* * * * * quote_expiry_sweep ?max=1&jobKey=quote_expiry_sweep',
   '*/15 * * * * settlement_sla ?max=2&jobKey=settlement_sla',
-  '* * * * * inr_payment_expiry ?max=1&jobKey=inr_payment_expiry',
   '* * * * * escrow_deadlines ?max=1&jobKey=escrow_deadlines',
   '23 1 * * * settlement_reconcile ?max=2&jobKey=settlement_reconcile',
   '* * * * * tron_scan ?max=1&jobKey=tron_scan',

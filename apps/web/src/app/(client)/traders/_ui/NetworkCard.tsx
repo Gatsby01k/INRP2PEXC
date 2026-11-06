@@ -6,7 +6,7 @@ import styles from '../traders.module.css';
 
 /**
  * The network deposit in brief: the TRX that pays TRON for the USDT the exchange sends on this trader's orders. Its own
- * money, apart from the Security Reserve; what the client's price already paid for comes back with the rewards.
+ * money, apart from the Security Reserve.
  */
 export function NetworkCard({ network }: { network: TraderNetworkView }) {
   // ADR 0022: on GasFree each deal pays its own network in USDT — nothing to keep here.

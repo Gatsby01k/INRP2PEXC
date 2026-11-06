@@ -3,15 +3,13 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from 'kysely';
 import { pgErrorCode } from '@inrp2p/db';
 import { runAs, type TestOperator } from '@inrp2p/identity/testing';
-import {
-  confirmPayout, createPayoutLeg, decideRestoreFenceLift, raiseRestoreFence, recordLegEvidence, requestRestoreFenceLift, sendPayoutLeg, setNewBusiness,
-} from '@inrp2p/settlement';
-import { approveReserveApplication, requestReserveApplication } from '@inrp2p/traders';
+import { executeCommand } from '@inrp2p/commands';
+import { confirmClientReceipt, createPayoutLegInTx, decideRestoreFenceLift, raiseRestoreFence, requestRestoreFenceLift, sendPayoutLegInTx, setNewBusiness } from '@inrp2p/settlement';
 import { newBusinessState, payoutsHeld, restoreFenceState } from '@inrp2p/trades';
 import { operationsStatus, prometheusText } from '@inrp2p/desk';
 import { recordHeartbeat } from '../../apps/worker/src/tasks.ts';
-import { deliverCounterparty, newUtr, openTrade, settleFirstLeg } from '../../packages/settlement/test/world.ts';
-import { type TraderSetup, type TradersWorld, clientRequest, configureProgram, createTradersWorld, liveTrader, traderClient, tradeThroughTrader } from './traders-world.ts';
+import { clientPaysTrader, observe, openTrade, payClient, scenarioTrader, settleFirstLeg } from '../../packages/settlement/test/world.ts';
+import { type TradersWorld, configureProgram, createTradersWorld } from './traders-world.ts';
 
 /**
  * E4 — a restore must not cause a second payout. A database that is not the one the workers last wrote to (recovered to
@@ -21,33 +19,28 @@ import { type TraderSetup, type TradersWorld, clientRequest, configureProgram, c
  * approved it (IX101). Recording what already happened is never held: it is what closes an obligation.
  */
 let w: TradersWorld;
-let seller: TraderSetup;
 beforeAll(async () => {
   w = await createTradersWorld('restore_fence');
-  await configureProgram(w, { reserve: '500', rewardBps: 10, collection: true });
-  seller = await traderClient(w, 'Fence Seller');
-  await liveTrader(w, seller, { sell: { capacity: '5000', rate: '105.20', min: '100', max: '2500' }, reserve: '800' });
+  await configureProgram(w, { reserve: '500' });
+  await scenarioTrader(w);
 }, 300_000);
 afterAll(async () => w.close());
 
 const beat = (workerId = 'worker-a') => recordHeartbeat(w.t.worker, { workerId, startedAt: new Date(), release: 'test', config: { chain: 'test' } });
 /** What a database restored onto another cluster looks like from inside: every heartbeat it holds was written elsewhere. */
 const restoredElsewhere = () => sql`update worker_heartbeat set db_identity = jsonb_build_object('cluster', '7000000000000000001', 'timeline', 1)`.execute(w.t.worker);
-const send = (legId: string, who: TestOperator = w.settlementOp) => runAs(w.app, sendPayoutLeg(who.actor), who.ref, 'payout_leg.send', { legId });
-const planLeg = async (tradeId: string, amount: string) =>
-  runAs(w.app, createPayoutLeg(w.settlementOp.actor, {}), w.settlementOp.ref, 'payout_leg.create', { tradeId, amount, payer: 'EXCHANGE_ACCOUNT' as const, inrAccountId: w.inrAccountId });
+const SYSTEM = { type: 'SYSTEM' as const, id: null, surface: 'SYSTEM' as const };
+const system = <R>(name: string, handle: Parameters<typeof executeCommand<Record<string, unknown>, R>>[1]['handle']) =>
+  executeCommand(w.app, { authorize: async () => {}, handle }, { name, actor: SYSTEM, payload: {}, idempotencyKey: randomUUID(), financial: true }).then((o) => o.result);
+/** What the signer's driver does with a purchase's USDT: a payout out of the escrow, sent as the system. */
+const send = (legId: string) => system('payout_leg.send', (ctx) => sendPayoutLegInTx(ctx, {}, legId));
+const planLeg = (tradeId: string, amount: string, sourceDepositAddressId: string) =>
+  system('payout_leg.create', (ctx) => createPayoutLegInTx(ctx, {}, { tradeId, amount, payer: 'EXCHANGE_ACCOUNT', sourceDepositAddressId }));
 const raise = (who: TestOperator, reason: string) => runAs(w.app, raiseRestoreFence(who.actor), who.ref, 'operations.raise_restore_fence', { reason });
 const askToLift = (who: TestOperator, reconciliation: string) => runAs(w.app, requestRestoreFenceLift(who.actor), who.ref, 'operations.request_restore_fence_lift', { reconciliation });
 const decide = (who: TestOperator, liftId: string, approve: boolean) =>
   runAs(w.app, decideRestoreFenceLift(who.actor), who.ref, approve ? 'operations.approve_restore_fence_lift' : 'operations.decline_restore_fence_lift', { liftId, approve, note: approve ? 'checked the statements' : 'not yet' });
 const resume = () => runAs(w.app, setNewBusiness(w.financeOp.actor), w.financeOp.ref, 'settings.resume_new_business', { paused: false, reason: 'reconciled after the restore drill' });
-
-async function fundedSellTrade(baseUsdt: string) {
-  const trade = await openTrade(w, { executionMode: 'TO_EXCHANGE', baseUsdt, clientRate: '102.000000', routeRate: '104.200000' });
-  await settleFirstLeg(w, trade.tradeId);
-  await deliverCounterparty(w, trade.tradeId);
-  return trade;
-}
 
 describe('the database names where it is (E4)', () => {
   it('tells the application its cluster and timeline, and holds nothing while it is the one the workers last wrote to', async () => {
@@ -64,16 +57,15 @@ describe('the database names where it is (E4)', () => {
 
 describe('after the database changed underneath (E4)', () => {
   it('holds every step that authorises money out from that moment, records what already happened, and the worker fences it', async () => {
-    // Before the change: a payout already sent, one only planned, and a reserve application waiting for approval.
-    const trade = await fundedSellTrade('1000');
-    const sent = await planLeg(trade.tradeId, '20000.00');
-    await send(sent.legId);
-    const planned = await planLeg(trade.tradeId, '30000.00');
-    const order = await tradeThroughTrader(w, seller, { requestId: await clientRequest(w, 'BUY_USDT', '500'), clientRate: '106.000000' });
-    await settleFirstLeg(w, order.tradeId);
-    const application = await runAs(w.app, requestReserveApplication(w.financeOp.actor), w.financeOp.ref, 'trader_reserve.request_application', {
-      orderId: order.orderId, reason: 'the trader stopped answering and its USDT did not arrive',
-    });
+    // Before the change: a trader's payment already filed, and a purchase's USDT planned out of its escrow.
+    const sale = await openTrade(w, { baseUsdt: '1000', clientRate: '102.000000' });
+    await settleFirstLeg(w, sale.tradeId);
+    const filed = await payClient(w, sale, { confirm: false });
+    const purchase = await openTrade(w, { direction: 'BUY_USDT', baseUsdt: '300', clientRate: '106.000000' });
+    await clientPaysTrader(w, purchase);
+    const escrow = await w.app.selectFrom('deposit_assignment as a').innerJoin('deposit_address as d', 'd.id', 'a.deposit_address_id').select(['d.id', 'd.address']).where('a.route_obligation_id', '=', purchase.routeObligationId).executeTakeFirstOrThrow();
+    const planned = await planLeg(purchase.tradeId, '300', escrow.id);
+    await observe(w, escrow.address);
 
     await restoredElsewhere();
     // Held at once, before any worker has noticed: the change is in the database, not in a process.
@@ -82,12 +74,9 @@ describe('after the database changed underneath (E4)', () => {
     await expect(send(planned.legId)).rejects.toMatchObject({ code: 'PAYOUTS_HELD' });
     await expect(sql`update settlement_leg set status = 'PROCESSING', sent_at = now(), sent_by = ${w.settlementOp.ref.id} where id = ${planned.legId}`.execute(w.app))
       .rejects.toSatisfy((e) => pgErrorCode(e) === 'IX100');
-    await expect(runAs(w.app, approveReserveApplication(w.financeOp2.actor, w.traderDeps), w.financeOp2.ref, 'trader_reserve.approve_application', { applicationId: application.applicationId }))
-      .rejects.toMatchObject({ code: 'PAYOUTS_HELD' });
-    // What already happened is recorded as usual: the payout sent before the change gets its UTR and is confirmed.
-    await runAs(w.app, recordLegEvidence(w.settlementOp.actor, w.settlementDeps), w.settlementOp.ref, 'payout_leg.record_evidence', { legId: sent.legId, rail: 'IMPS' as const, utr: newUtr() });
-    await confirmPayout(w.app, w.settlementOp2.actor, w.settlementDeps, { legId: sent.legId, idempotencyKey: randomUUID() });
-    expect((await w.app.selectFrom('settlement_leg').select('status').where('id', '=', sent.legId).executeTakeFirstOrThrow()).status).toBe('COMPLETED');
+    // What already happened is recorded as usual: the rupees the trader paid before the change, confirmed by the client.
+    await runAs(w.app, confirmClientReceipt(w.acceptor.actor, w.settlementDeps), w.acceptor.ref, 'payout.confirm_received', { tradeRef: sale.tradeRef, legRef: filed.legRef, senderName: 'Konkan Desk LLP' });
+    expect((await w.app.selectFrom('settlement_leg').select('status').where('ref', '=', filed.legRef).executeTakeFirstOrThrow()).status).toBe('COMPLETED');
 
     // The worker's next beat raises the fence, pauses new business with it, and says so on the record — once.
     const raised = await beat();
@@ -126,8 +115,8 @@ describe('after the database changed underneath (E4)', () => {
     // The same change is not held again: the fence named it, and the next heartbeat records it as the database's own.
     expect(await beat()).toEqual({ raised: null });
     expect(await payoutsHeld(w.app)).toEqual({ held: false, ref: null });
+    await observe(w, escrow.address);
     await send(planned.legId);
-    await runAs(w.app, approveReserveApplication(w.financeOp2.actor, w.traderDeps), w.financeOp2.ref, 'trader_reserve.approve_application', { applicationId: application.applicationId });
     // New business is its own decision.
     expect((await newBusinessState(w.app)).paused).toBe(true);
     await resume();

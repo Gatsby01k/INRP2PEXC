@@ -22,7 +22,6 @@
   },
   "devDependencies": {
     "@inrp2p/clients": "workspace:*",
-    "@inrp2p/inr-accounts": "workspace:*",
     "@inrp2p/pricing": "workspace:*",
     "@inrp2p/quotes": "workspace:*",
     "@inrp2p/routes": "workspace:*"
