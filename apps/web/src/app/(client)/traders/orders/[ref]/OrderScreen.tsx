@@ -191,7 +191,7 @@ function NextAction({ detail, canAct }: { detail: TraderOrderDetail; canAct: boo
       case 'CHECKING_INRP2P':
         return <p className={styles.note}>INRP2P’s payment to you is recorded and being confirmed.</p>;
       case 'COMPLETED':
-        return <p className={styles.note}>Settled in full on both sides.{o.reward ? ` Reward earned: ${inr(o.reward)}.` : ''}</p>;
+        return <p className={styles.note}>Settled in full on both sides.</p>;
       default:
         return <p className={styles.note}>{o.closeNote ?? 'Nothing is held for this order.'}</p>;
     }
@@ -294,10 +294,6 @@ export function OrderScreen({ detail, canAct }: { detail: TraderOrderDetail; can
                   <dd>{formatIstDateTime(new Date(o.startedAt))}</dd>
                 </div>
               ) : null}
-              <div>
-                <dt>Reward</dt>
-                <dd>{o.reward ? `${inr(o.reward)} on completion` : 'None on this order'}</dd>
-              </div>
             </dl>
           </div>
         </section>

@@ -1,8 +1,7 @@
 import { DomainError, Money, requireUuid } from '@inrp2p/kernel';
 import type { DirectionValue, Executor, FixedSideValue } from '@inrp2p/db';
-import { currentRouteRate } from '@inrp2p/pricing';
-import { currentNetworkCosts, networkFeePolicy, quoteFeeSun, usdtNetworkTerms } from '@inrp2p/network';
-import { type DeskOrderRow, orderRewardTerms, requestTraderOrders } from '@inrp2p/traders';
+import { networkFeePolicy, usdtNetworkTerms } from '@inrp2p/network';
+import { type DeskOrderRow, requestTraderOrders } from '@inrp2p/traders';
 import type { DeskAccess } from './access.ts';
 import { microToDecimal } from './strip.ts';
 
@@ -41,24 +40,16 @@ export interface DeskRequest {
     readonly live: DeskOrderRow | null;
     readonly liveTraderRef: string | null;
     readonly liveRouteId: string | null;
-    /** The live order's route settles P2P (ADR 0019): the trader's own deal, no reward, its network not the desk's TRX. */
-    readonly liveRouteP2p: boolean;
+    /** The client rate the live order was sized at: a P2P quote must use exactly it. */
+    readonly livePlannedClientRate: string | null;
     readonly history: readonly (DeskOrderRow & { readonly traderRef: string })[];
   };
   /**
-   * What a quote's price must also carry: the minimum net margin, the live trader order's reward, and its network —
-   * in TRX for a transfer still paid in TRX (`trx`, ADR 0017 §1: the fee and the TRX price it is valued at, null while
-   * either is not current), or on GasFree (ADR 0022) the USDT a P2P deal carries out of INRP2P's margin
-   * (`gasFreeAllowanceUsdtMinor`, null when its fees are not current). The builder values them at the rate being typed
-   * with the kernel's own functions, as the command does.
+   * What a quote's price must also carry: the minimum net margin and, on GasFree (ADR 0022), the USDT a P2P deal carries for
+   * its network out of INRP2P's margin — null when GasFree's fees are not current. On TRX the trader's deposit pays it.
+   * The builder values them at the rate being typed with the kernel's own functions, as the command does.
    */
-  readonly network?: {
-    readonly trx: { readonly feeSun: string; readonly usdtPerTrxMicro: string } | null;
-    readonly gasFreeAllowanceUsdtMinor: string | null;
-    readonly resourceMode: 'BURN' | 'GASFREE';
-    readonly minNetMarginMinor: string;
-    readonly liveRewardMinor: string | null;
-  } | null;
+  readonly network?: { readonly gasFreeAllowanceUsdtMinor: string | null; readonly resourceMode: 'BURN' | 'GASFREE'; readonly minNetMarginMinor: string } | null;
 }
 
 /**
@@ -66,7 +57,7 @@ export interface DeskRequest {
  * the desk can price against right now. The panel computes the INR and the margin from these with the kernel's
  * own economics, so the preview and the command agree by construction (FI-02).
  */
-export async function deskRequest(ex: Executor, requestId: string, access: DeskAccess, opts: { maxRateAgeSeconds?: number } = {}): Promise<DeskRequest> {
+export async function deskRequest(ex: Executor, requestId: string, access: DeskAccess): Promise<DeskRequest> {
   const id = requireUuid(requestId, 'requestId');
   const row = await ex
     .selectFrom('trade_request as r')
@@ -105,54 +96,27 @@ export async function deskRequest(ex: Executor, requestId: string, access: DeskA
   };
   if (!access.economics) return base;
 
-  const maxAge = (opts.maxRateAgeSeconds ?? 15 * 60) * 1000;
-  // Desk routes only: a trader's route is quoted through its accepted order (below), never picked by hand.
-  const routes = await ex.selectFrom('liquidity_route').select(['id', 'name', 'execution_mode']).where('status', '=', 'ACTIVE').where('trader_id', 'is', null).orderBy('name').execute();
-  const options: QuoteRouteOption[] = [];
-  for (const r of routes) {
-    const snapshot = await currentRouteRate(ex, r.id, row.direction);
-    options.push({
-      routeId: r.id,
-      name: r.name,
-      executionMode: r.execution_mode,
-      rate: snapshot ? snapshot.rate.toDecimalString() : null,
-      publishedAt: snapshot ? snapshot.effectiveAt.toISOString() : null,
-      stale: snapshot ? Date.now() - snapshot.effectiveAt.getTime() > maxAge : true,
-    });
-  }
   const trader = await requestTraderOrders(ex, row.id);
-  const liveRoute = trader.live ? await ex.selectFrom('trader_order').select('route_id').where('id', '=', trader.live.orderId).executeTakeFirst() : undefined;
+  const liveRoute = trader.live ? await ex.selectFrom('trader_order').select(['route_id', 'planned_client_rate_micro']).where('id', '=', trader.live.orderId).executeTakeFirst() : undefined;
   const fees = await networkFeePolicy(ex);
-  const unknown = (e: unknown) => e instanceof DomainError && e.code === 'NETWORK_FEES_UNKNOWN';
-  let trx: NonNullable<DeskRequest['network']>['trx'] = null;
-  try {
-    const { policy, snapshot, rate } = await currentNetworkCosts(ex);
-    trx = { feeSun: quoteFeeSun(snapshot, policy).toString(), usdtPerTrxMicro: rate.usdtPerTrxMicro.toString() };
-  } catch (e) {
-    if (!unknown(e)) throw e;
-  }
   let gasFreeAllowance: string | null = null;
   if (fees.resourceMode === 'GASFREE') {
     try {
       gasFreeAllowance = (await usdtNetworkTerms(ex, { funderTraderId: null })).allowanceUsdtMinor.toString();
     } catch (e) {
-      if (!unknown(e)) throw e;
+      if (!(e instanceof DomainError && e.code === 'NETWORK_FEES_UNKNOWN')) throw e;
     }
   }
-  const reward = trader.live && trader.live.status === 'ACCEPTED' ? (await orderRewardTerms(ex, trader.live.orderId)).rewardMinor : null;
-  const network: DeskRequest['network'] = {
-    trx, gasFreeAllowanceUsdtMinor: gasFreeAllowance, resourceMode: fees.resourceMode, minNetMarginMinor: fees.minNetMarginInrMinor.toString(), liveRewardMinor: reward === null ? null : reward.toString(),
-  };
-  const liveRouteMode = liveRoute ? (await ex.selectFrom('liquidity_route').select('execution_mode').where('id', '=', liveRoute.route_id).executeTakeFirst())?.execution_mode : undefined;
+  const network: DeskRequest['network'] = { gasFreeAllowanceUsdtMinor: gasFreeAllowance, resourceMode: fees.resourceMode, minNetMarginMinor: fees.minNetMarginInrMinor.toString() };
   return {
     ...base,
     network,
-    routes: options,
+    routes: [],
     trader: {
       live: trader.live,
       liveTraderRef: trader.live ? (trader.traderRefs[trader.live.orderId] ?? null) : null,
       liveRouteId: liveRoute?.route_id ?? null,
-      liveRouteP2p: liveRouteMode === 'P2P',
+      livePlannedClientRate: liveRoute?.planned_client_rate_micro ? microToDecimal(liveRoute.planned_client_rate_micro) : null,
       history: trader.history.map((h) => ({ ...h, traderRef: trader.traderRefs[h.orderId] ?? '' })),
     },
   };

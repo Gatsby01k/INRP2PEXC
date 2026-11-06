@@ -10,7 +10,7 @@ import { cancelNetworkWithdrawalAction, claimNetworkDepositAction, requestNetwor
 import { AssistantPanel } from '../../_assistant/AssistantPanel.tsx';
 import type { AssistantState } from '../../_assistant/model.ts';
 import { InfoIcon } from '../../_workspace/icons.tsx';
-import { inr, isZero, sentence, sideTitle, trx } from '../_ui/format.ts';
+import { isZero, sentence, sideTitle, trx } from '../_ui/format.ts';
 import shell from '../../shell.module.css';
 import styles from '../traders.module.css';
 
@@ -27,14 +27,14 @@ function orderOutcome(o: TraderNetworkView['orders'][number]): string {
   if (o.open) return `${trx(o.held)} held until it finishes`;
   if (isZero(o.spent)) return 'Nothing spent; the hold is free again';
   if (!isZero(o.yours)) return `${trx(o.spent)} spent · ${trx(o.yours)} yours: the USDT went back because your side was not completed`;
-  return `${trx(o.spent)} spent · paid back ${inr(o.repaidInr)} with your rewards`;
+  return `${trx(o.spent)} spent`;
 }
 
 /**
  * The network deposit (ADR 0017 §2): the TRX the exchange's signer burns to send USDT for this trader's orders — top-ups
  * of each deal address, never anyone else's money and never the Security Reserve. Every order holds its worst case from
  * acceptance; what its transfers actually burn is spent; what the client's price already covered is paid back in INR
- * with the trader's rewards. Adding TRX is a transfer from the registered wallet to the budget wallet; taking it back is
+ * nowhere: a P2P deal's network is the trader's cost. Adding TRX is a transfer from the registered wallet to the budget wallet; taking it back is
  * a request the desk approves, to the same wallet, never more than is free.
  */
 export function NetworkScreen({ network: n, canAct }: { network: TraderNetworkView; canAct: boolean }) {
@@ -79,11 +79,6 @@ export function NetworkScreen({ network: n, canAct }: { network: TraderNetworkVi
               <dt>Balance</dt>
               <dd>{trx(n.balance)}</dd>
               <span className={styles.figureNote}>deposited, less spent and withdrawn</span>
-            </div>
-            <div className={styles.figure}>
-              <dt>Paid back with rewards</dt>
-              <dd>{inr(n.repaidInrTotal)}</dd>
-              <span className={styles.figureNote}>what client prices covered, in INR</span>
             </div>
           </dl>
           {n.mode === 'GASFREE' ? (

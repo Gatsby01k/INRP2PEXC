@@ -1,6 +1,5 @@
 import { notFound } from 'next/navigation';
 import { isDomainError } from '@inrp2p/kernel';
-import { payoutAccounts } from '@inrp2p/desk';
 import { type DeskTraderDetail, deskTrader } from '@inrp2p/traders';
 import { can, operatorPage } from '../../../../server/operator.ts';
 import { dateTime, inr, titleCase, usdt } from '../../_desk/format.ts';
@@ -17,7 +16,7 @@ export const dynamic = 'force-dynamic';
 /** Audit actions in the words the desk uses: `trader.destination_verified` → "Destination verified". */
 const decisionTitle = (action: string): string => titleCase(action.replace(/^trader(_\w+)?\./, ''));
 
-/** One trader: the decision controls, its registered details, its reserve and rewards, its orders — and the record. */
+/** One trader: the decision controls, its registered details, its reserve, its orders — and the record. */
 export default async function TraderDeskPage({ params }: { params: Promise<{ traderId: string }> }) {
   const ctx = await operatorPage();
   if (!can(ctx, 'traders:view')) notFound();
@@ -29,7 +28,6 @@ export default async function TraderDeskPage({ params }: { params: Promise<{ tra
     if (isDomainError(e) && (e.code === 'NOT_FOUND' || e.code === 'INVALID_ARGUMENT')) notFound();
     throw e;
   }
-  const accounts = await payoutAccounts(ctx.db);
   const t = detail.trader;
   const perms = {
     configure: can(ctx, 'traders:configure'),
@@ -82,12 +80,11 @@ export default async function TraderDeskPage({ params }: { params: Promise<{ tra
             { key: 'o', label: 'Open orders', value: String(t.openOrders), sub: t.offers > 0 ? `${t.offers} waiting for an answer` : 'no offer waiting' },
             { key: 'u', label: 'Unresolved', value: String(t.unresolved), sub: t.unresolved > 0 ? 'owed and not yet settled' : 'nothing owed', ...(t.unresolved > 0 ? { tone: 'warning' as const } : {}) },
             { key: 'c', label: 'Completed orders', value: String(t.completedOrders), sub: `${usdt(detail.earnings.completedUsdt)}` },
-            { key: 'e', label: 'Rewards unpaid', value: inr(detail.earnings.available), sub: detail.earnings.rewardBps === null ? 'no reward' : `${detail.earnings.rewardBps} bps` },
           ]}
         />
         {underReview ? (
           // An application: the only work is the review. Verify each submitted detail, then decide — orders, reserve
-          // and rewards have nothing to show until the trader is approved.
+          // have nothing to show until the trader is approved.
           <Columns>
             <Stack>
               <Section title="Application" hint="Verify the bank account and the wallet one at a time; the decision beside this waits for both.">
@@ -101,9 +98,9 @@ export default async function TraderDeskPage({ params }: { params: Promise<{ tra
           <Columns>
             <Stack>
               <Section title="Orders" count={detail.orders.length}>
-                <TraderOrders detail={detail} accounts={accounts} perms={perms} />
+                <TraderOrders detail={detail} perms={perms} />
               </Section>
-              <TraderMoney detail={detail} accounts={accounts} perms={perms} />
+              <TraderMoney detail={detail} perms={perms} />
               {decisions}
             </Stack>
             <Stack>

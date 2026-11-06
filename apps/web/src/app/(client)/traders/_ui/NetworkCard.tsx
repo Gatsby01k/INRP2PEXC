@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import type { TraderNetworkView } from '@inrp2p/traders';
-import { inr, isZero, trx } from './format.ts';
+import { isZero, trx } from './format.ts';
 import shell from '../../shell.module.css';
 import styles from '../traders.module.css';
 
@@ -44,10 +44,6 @@ export function NetworkCard({ network }: { network: TraderNetworkView }) {
           <dt>Held for open orders</dt>
           <dd>{trx(network.held)}</dd>
         </div>
-        <div>
-          <dt>Paid back with rewards</dt>
-          <dd>{inr(network.repaidInrTotal)}</dd>
-        </div>
       </dl>
       <p className={styles.note}>
         {network.short
@@ -56,7 +52,7 @@ export function NetworkCard({ network }: { network: TraderNetworkView }) {
             : 'Network fees are being updated; new orders resume shortly.'
           : network.ordersCovered !== null && !isZero(network.available)
             ? `Enough TRX for ${network.ordersCovered} more ${network.ordersCovered === 1 ? 'order' : 'orders'} at today’s network fees.`
-            : 'TRX that pays TRON for the USDT sent on your orders. What the client’s price covers is paid back to you.'}
+            : 'TRX that pays TRON for the USDT sent on your orders.'}
       </p>
     </section>
   );

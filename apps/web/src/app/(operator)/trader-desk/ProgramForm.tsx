@@ -7,7 +7,7 @@ import type { DeskProgram } from '@inrp2p/traders';
 import { Button, StepUpMark } from '@inrp2p/ui';
 import { configureProgramAction } from '../../../server/actions/traders-desk.ts';
 import { useCommand } from '../../../components/useCommand.tsx';
-import { Checkbox, SelectField, TextArea, TextField } from '../_desk/fields.tsx';
+import { Checkbox, TextArea, TextField } from '../_desk/fields.tsx';
 import { Notice } from '../_desk/ui.tsx';
 import d from '../_desk/desk.module.css';
 
@@ -19,17 +19,14 @@ const tierText = (p: RiskPolicy) => p.tiers.map((t) => ({ minDeals: String(t.min
 
 /**
  * The programme settings (`traders:configure`, ⧗). Nothing here has a default that stands in for a decision: the
- * Security Reserve and the reward stay unset until someone sets them, and every change is audited with its reason.
+ * Security Reserve stays unset until someone sets it, and every change is audited with its reason.
  */
-export function ProgramForm({ program, accounts, canConfigure }: { program: DeskProgram; accounts: readonly { accountId: string; label: string; bankName: string; last4: string }[]; canConfigure: boolean }) {
+export function ProgramForm({ program, canConfigure }: { program: DeskProgram; canConfigure: boolean }) {
   const cmd = useCommand();
   const [reserve, setReserve] = useState(plainDecimal(program.defaultRequiredReserve));
-  const [reward, setReward] = useState(program.rewardBps === null ? '' : String(program.rewardBps));
   const [offer, setOffer] = useState(String(program.offerTtlSeconds));
   const [hold, setHold] = useState(String(program.holdTtlSeconds));
   const [auto, setAuto] = useState(program.autoAssign);
-  const [collection, setCollection] = useState(program.collectionAccountId ?? '');
-  const [mode, setMode] = useState<'TO_EXCHANGE' | 'P2P'>(program.executionMode);
   const [timing, setTiming] = useState(() => ({
     escrowMinutes: String(program.p2pTiming.escrowMinutes),
     finalMinutes: String(program.p2pTiming.finalMinutes),
@@ -57,12 +54,11 @@ export function ProgramForm({ program, accounts, canConfigure }: { program: Desk
         {
           expectedVersion: program.version,
           defaultRequiredReserve: reserve.trim() === '' ? null : reserve.trim(),
-          rewardBps: reward.trim() === '' ? null : Number.parseInt(reward, 10),
           offerTtlSeconds: Number.parseInt(offer, 10),
           holdTtlSeconds: Number.parseInt(hold, 10),
           autoAssign: auto,
-          collectionAccountId: collection === '' ? null : collection,
-          executionMode: mode,
+          // Traders settle P2P, and nothing else: there is no INR account for rupees to go through (ADR 0019).
+          executionMode: 'P2P',
           p2pTiming: {
             escrowMinutes: minutes(timing.escrowMinutes),
             finalMinutes: minutes(timing.finalMinutes),
@@ -89,7 +85,6 @@ export function ProgramForm({ program, accounts, canConfigure }: { program: Desk
     >
       <div className={d.formGrid} style={{ alignItems: 'start' }}>
         <TextField label="Default Security Reserve (USDT)" value={reserve} onChange={setReserve} placeholder="Not set" disabled={!canConfigure} hint="Offered at approval; each trader’s own can differ." />
-        <TextField label="Reward (bps of the order’s INR)" value={reward} onChange={setReward} placeholder="No reward" disabled={!canConfigure} hint="Fixed when an order starts; paid when it completes." />
         <TextField label="Offer time (s)" value={offer} onChange={setOffer} disabled={!canConfigure} hint="How long a trader has to take an offer." />
         <TextField label="Hold time (s)" value={hold} onChange={setHold} disabled={!canConfigure} hint="How long an accepted order holds the request." />
         <TextField
@@ -98,24 +93,6 @@ export function ProgramForm({ program, accounts, canConfigure }: { program: Desk
           onChange={setHoldHours}
           disabled={!canConfigure}
           hint="Every member is told and can stop it; then it applies by rule, between orders."
-        />
-        <SelectField
-          label="How traders settle"
-          value={mode}
-          onChange={(v) => setMode(v === 'P2P' ? 'P2P' : 'TO_EXCHANGE')}
-          disabled={!canConfigure}
-          hint={mode === 'P2P' ? 'Rupees go straight between client and trader; INRP2P holds the USDT in escrow.' : 'Rupees go through INRP2P’s own bank account.'}
-          options={[
-            { value: 'P2P', label: 'P2P — INRP2P holds the USDT' },
-            { value: 'TO_EXCHANGE', label: 'Through INRP2P’s account' },
-          ]}
-        />
-        <SelectField
-          label="Traders pay INR into"
-          value={collection}
-          onChange={setCollection}
-          disabled={!canConfigure}
-          options={[{ value: '', label: 'Not set' }, ...accounts.map((a) => ({ value: a.accountId, label: `${a.bankName} ••••${a.last4} · ${a.label}` }))]}
         />
       </div>
       <Checkbox label="Route new USDT-fixed requests to a trader automatically" checked={auto} onChange={setAuto} disabled={!canConfigure} />
