@@ -240,7 +240,7 @@ describe('an adjusted trade is receipted at what actually changed hands (FI-12)'
     const trade = await openTrade(w, { baseUsdt: '100', clientRate: CLIENT_RATE });
     await settleFirstLeg(w, trade.tradeId);
     const requested = await runAs(w.app, requestAdjustment(w.financeOp.actor), w.financeOp.ref, 'adjustment.request', {
-      tradeId: trade.tradeId, type: 'WRITE_OFF' as const, deltaClientInr: '-100.00', deltaRouteInr: '-100.00', reason: 'client agreed to settle the last ₹100 as a fee',
+      tradeId: trade.tradeId, type: 'WRITE_OFF' as const, deltaClientInr: '-100.00', reason: 'client agreed to settle the last ₹100 as a fee',
     });
     await runAs(w.app, approveAdjustment(w.financeOp2.actor), w.financeOp2.ref, 'adjustment.approve', { adjustmentId: requested.adjustmentId });
     await payClient(w, trade);

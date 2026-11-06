@@ -180,7 +180,7 @@ export async function voidExceptionAction(input: { exceptionId: string; reason: 
 export async function requestAdjustmentAction(
   input: {
     tradeId: string; type: 'AMOUNT_CORRECTION' | 'RATE_CORRECTION' | 'FEE' | 'WRITE_OFF' | 'REFUND';
-    deltaBaseUsdt?: string; deltaClientInr?: string; deltaRouteInr?: string; reason: string; exceptionId?: string | null;
+    deltaBaseUsdt?: string; deltaClientInr?: string; reason: string; exceptionId?: string | null;
   },
   key: string,
 ): Promise<CommandResult<unknown>> {

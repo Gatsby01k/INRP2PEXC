@@ -1,174 +1,30 @@
-import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from 'kysely';
 import { Money } from '@inrp2p/kernel';
 import { pgErrorCode } from '@inrp2p/db';
 import { runAs } from '@inrp2p/identity/testing';
-import { getAccountDay } from '@inrp2p/inr-accounts';
 import { effectiveObligations } from '@inrp2p/trades';
 import {
-  approveAdjustment, cancelTrade, confirmFirstLeg, confirmPayout, confirmRefundLeg, createPayoutLeg, createRefundLeg, effectiveTerms,
-  failPayoutLeg, obligationRemaining, openException, pnlSummary, recordIncomingFiat, recordLegEvidence, refundAndCancel,
-  rejectAdjustment, requestAdjustment, resolveException, routeObligationMismatches, runReconciliation, runSettlementSla, sendPayoutLeg,
+  approveAdjustment, cancelTrade, confirmRefundLeg, createRefundLeg, effectiveTerms, openException, pnlSummary, refundAndCancel, rejectAdjustment, requestAdjustment,
+  routeObligationMismatches, runReconciliation, runSettlementSla,
 } from '../src/index.ts';
-import { balanceOf, clientDepositAddressOf, createStaleSettlementOperator, createWorld, deliverCounterparty, newUtr, observe, openTrade, seeOwnSender, settleFirstLeg, type World } from './world.ts';
+import { balanceOf, clientDepositAddressOf, createWorld, observe, openTrade, payClient, settleFirstLeg, type World } from './world.ts';
 
 let w: World;
-beforeAll(async () => { w = await createWorld('settlement_core'); });
+beforeAll(async () => { w = await createWorld('settlement'); });
 afterAll(async () => w.close());
 
-/**
- * A SELL trade on a TO_EXCHANGE route whose client has funded it and — unless `deliver: false` — whose counterparty
- * has delivered its INR to the payout account (D-16: the exchange pays the client only with that money).
- */
-async function exchangeTrade(opts: { baseUsdt?: string; clientRate?: string; routeRate?: string; deliver?: boolean } = {}) {
-  const trade = await openTrade(w, { baseUsdt: opts.baseUsdt ?? '1000', clientRate: opts.clientRate ?? '102.000000', routeRate: opts.routeRate ?? '104.200000' });
+const fundedSale = async (baseUsdt: string) => {
+  const trade = await openTrade(w, { baseUsdt, clientRate: '102.000000' });
   await settleFirstLeg(w, trade.tradeId);
-  if (opts.deliver !== false) await deliverCounterparty(w, trade.tradeId);
   return trade;
-}
-
-async function payoutLeg(tradeId: string, amount: string, opts: { confirm?: boolean; utr?: string } = {}) {
-  const leg = await runAs(w.app, createPayoutLeg(w.settlementOp.actor, {}), w.settlementOp.ref, 'payout_leg.create', { tradeId, amount, payer: 'EXCHANGE_ACCOUNT' as const, inrAccountId: w.inrAccountId });
-  await runAs(w.app, sendPayoutLeg(w.settlementOp.actor), w.settlementOp.ref, 'payout_leg.send', { legId: leg.legId });
-  const utr = opts.utr ?? newUtr();
-  await runAs(w.app, recordLegEvidence(w.settlementOp.actor, w.settlementDeps), w.settlementOp.ref, 'payout_leg.record_evidence', { legId: leg.legId, rail: 'IMPS' as const, utr });
-  if (opts.confirm !== false) await confirmPayout(w.app, w.settlementOp.actor, w.settlementDeps, { legId: leg.legId, idempotencyKey: randomUUID() });
-  return { ...leg, utr };
-}
-
-describe('client settlement in several legs (T5–T8)', () => {
-  it('settles in three legs: SETTLING, PARTIALLY_SETTLED, then COMPLETED', async () => {
-    const trade = await exchangeTrade({ baseUsdt: '1000' }); // client is owed ₹102,000.00
-    await payoutLeg(trade.tradeId, '50000.00');
-    expect((await w.app.selectFrom('trade').select('lifecycle_state').where('id', '=', trade.tradeId).executeTakeFirstOrThrow()).lifecycle_state).toBe('PARTIALLY_SETTLED');
-    await payoutLeg(trade.tradeId, '50000.00');
-    const mid = await w.app.selectFrom('trade').select('lifecycle_state').where('id', '=', trade.tradeId).executeTakeFirstOrThrow();
-    expect(mid.lifecycle_state).toBe('PARTIALLY_SETTLED');
-    const last = await payoutLeg(trade.tradeId, '2000.00');
-    expect(last.remainingAfter).toBe('0.00');
-    const done = await w.app.selectFrom('trade').select(['lifecycle_state', 'completed_at']).where('id', '=', trade.tradeId).executeTakeFirstOrThrow();
-    expect(done.lifecycle_state).toBe('COMPLETED');
-    expect(done.completed_at).not.toBeNull();
-    const transitions = await w.app.selectFrom('trade_transition').select('to_state').where('trade_id', '=', trade.tradeId).orderBy('id').execute();
-    expect(transitions.map((t) => t.to_state)).toEqual(['AWAITING_FIRST_LEG', 'FIRST_LEG_DETECTED', 'FIRST_LEG_CONFIRMED', 'SETTLING', 'PARTIALLY_SETTLED', 'COMPLETED']);
-  });
-
-  it('exit: FI-62 — a trade completes on its client obligations while its route obligation is still open', async () => {
-    const trade = await exchangeTrade({ baseUsdt: '1000' });
-    await payoutLeg(trade.tradeId, '102000.00');
-    expect((await w.app.selectFrom('trade').select('lifecycle_state').where('id', '=', trade.tradeId).executeTakeFirstOrThrow()).lifecycle_state).toBe('COMPLETED');
-    // The counterparty delivered first (D-16); what the exchange owes it — the client's USDT — is still to be sent.
-    const obligation = await w.app.selectFrom('route_obligation').select('status').where('id', '=', trade.routeObligationId).executeTakeFirstOrThrow();
-    expect(obligation.status).toBe('PARTIALLY_SETTLED');
-    const remaining = await obligationRemaining(w.app, trade.routeObligationId);
-    expect(remaining.routeDelivers.toDecimalString()).toBe('0.00');
-    expect(remaining.exchangeDelivers.toDecimalString()).toBe('1000.000000');
-  });
-
-  it('exit: over-allocation is blocked, including when two operators create legs concurrently', async () => {
-    const trade = await exchangeTrade({ baseUsdt: '1000' });
-    await expect(runAs(w.app, createPayoutLeg(w.settlementOp.actor, {}), w.settlementOp.ref, 'payout_leg.create', { tradeId: trade.tradeId, amount: '102000.01', payer: 'EXCHANGE_ACCOUNT' as const, inrAccountId: w.inrAccountId }))
-      .rejects.toMatchObject({ code: 'OVER_ALLOCATION' });
-
-    const race = await exchangeTrade({ baseUsdt: '1000' });
-    const attempt = (op: World['settlementOp']) =>
-      runAs(w.app, createPayoutLeg(op.actor, {}), op.ref, 'payout_leg.create', { tradeId: race.tradeId, amount: '60000.00', payer: 'EXCHANGE_ACCOUNT' as const, inrAccountId: w.inrAccountId });
-    const results = await Promise.allSettled([attempt(w.settlementOp), attempt(w.settlementOp2)]);
-    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
-    const legs = await w.app.selectFrom('settlement_leg').select('amount_minor').where('trade_id', '=', race.tradeId).where('side', '=', 'EXCHANGE_TO_CLIENT').execute();
-    expect(legs.reduce((a, l) => a + l.amount_minor, 0n)).toBeLessThanOrEqual(Money.parse('102000.00', 'INR').minor);
-  });
-
-  it('exit: a failed leg returns its capacity and a replacement leg reserves again', async () => {
-    const trade = await exchangeTrade({ baseUsdt: '1000' });
-    const before = await getAccountDay(w.app, w.inrAccountId);
-    const leg = await payoutLeg(trade.tradeId, '102000.00', { confirm: false });
-    const sent = await getAccountDay(w.app, w.inrAccountId);
-    expect(sent.used.minor - before.used.minor).toBe(Money.parse('102000.00', 'INR').minor);
-
-    await runAs(w.app, failPayoutLeg(w.settlementOp.actor), w.settlementOp.ref, 'payout_leg.fail', { legId: leg.legId, reason: 'beneficiary bank rejected the credit' });
-    const failed = await getAccountDay(w.app, w.inrAccountId);
-    expect(failed.used.minor).toBe(before.used.minor);
-    expect(failed.remaining.minor).toBe(before.remaining.minor);
-    const movement = await w.app.selectFrom('fiat_transfer').select('status').where('utr', '=', leg.utr).executeTakeFirstOrThrow();
-    expect(movement.status).toBe('FAILED');
-
-    // The exception blocks further payouts until it is resolved, then a replacement leg completes the trade.
-    const exception = await w.app.selectFrom('exception_case').select(['id', 'type']).where('subject_id', '=', leg.legId).executeTakeFirstOrThrow();
-    await expect(payoutLeg(trade.tradeId, '102000.00')).rejects.toMatchObject({ code: 'TRADE_ON_HOLD' });
-    await runAs(w.app, resolveException(w.settlementOp.actor), w.settlementOp.ref, 'exception.resolve', { exceptionId: exception.id, resolution: 'create_replacement_leg' as const, notes: 'client confirmed new IFSC; replacement leg created' });
-    expect((await w.app.selectFrom('trade').select('hold').where('id', '=', trade.tradeId).executeTakeFirstOrThrow()).hold).toBe(false);
-    await payoutLeg(trade.tradeId, '102000.00');
-    expect((await w.app.selectFrom('trade').select('lifecycle_state').where('id', '=', trade.tradeId).executeTakeFirstOrThrow()).lifecycle_state).toBe('COMPLETED');
-  });
-
-  it('a BUY trade pays the client the USDT its counterparty delivered, and reserves none of the treasury (D-16)', async () => {
-    const trade = await openTrade(w, { direction: 'BUY_USDT', baseUsdt: '500', clientRate: '106.000000' });
-    expect(await w.app.selectFrom('treasury_reservation').select('id').where('trade_id', '=', trade.tradeId).execute()).toEqual([]);
-    await settleFirstLeg(w, trade.tradeId);
-    // The client paid; the counterparty has not: no USDT can be paid out yet.
-    await expect(runAs(w.app, createPayoutLeg(w.settlementOp.actor, {}), w.settlementOp.ref, 'payout_leg.create', { tradeId: trade.tradeId, amount: '500', payer: 'EXCHANGE_ACCOUNT' as const, treasuryWalletId: w.treasuryWalletId }))
-      .rejects.toMatchObject({ code: 'FUNDING_NOT_CONFIRMED' });
-    await deliverCounterparty(w, trade.tradeId);
-    const leg = await runAs(w.app, createPayoutLeg(w.settlementOp.actor, {}), w.settlementOp.ref, 'payout_leg.create', { tradeId: trade.tradeId, amount: '500', payer: 'EXCHANGE_ACCOUNT' as const, treasuryWalletId: w.treasuryWalletId });
-    const wallet = await w.app.selectFrom('treasury_wallet').select('address').where('id', '=', w.treasuryWalletId).executeTakeFirstOrThrow();
-    // B2: the USDT leaves only after a fresh reading shows it at the wallet.
-    await expect(runAs(w.app, sendPayoutLeg(w.settlementOp.actor), w.settlementOp.ref, 'payout_leg.send', { legId: leg.legId })).rejects.toMatchObject({ code: 'CUSTODY_OBSERVATION_STALE' });
-    await observe(w, wallet.address);
-    await runAs(w.app, sendPayoutLeg(w.settlementOp.actor), w.settlementOp.ref, 'payout_leg.send', { legId: leg.legId });
-    const clientWallet = await w.app.selectFrom('crypto_wallet').select('address').where('id', '=', w.walletId).executeTakeFirstOrThrow();
-    const receipt = w.chain.add({ from: wallet.address, to: clientWallet.address, amountMinor: Money.parse('500', 'USDT').minor });
-    await runAs(w.app, recordLegEvidence(w.settlementOp.actor, w.settlementDeps), w.settlementOp.ref, 'payout_leg.record_evidence', { legId: leg.legId, txHash: receipt.txHash, logIndex: receipt.logIndex, fromAddress: wallet.address });
-    const result = await confirmPayout(w.app, w.settlementOp.actor, w.settlementDeps, { legId: leg.legId, idempotencyKey: randomUUID() });
-    expect(result.completed).toBe(true);
-    const earmarks = await w.app.selectFrom('funding_allocation').select(['use_kind', 'source_kind', 'status', 'amount_minor']).where('use_leg_id', '=', leg.legId).execute();
-    expect(earmarks).toEqual([{ use_kind: 'CLIENT_PAYOUT', source_kind: 'COUNTERPARTY_FUNDS', status: 'CONSUMED', amount_minor: Money.parse('500', 'USDT').minor }]);
-    expect(await balanceOf(w.app, 'LIAB:CLIENT_PAYABLE', 'USDT', { tradeId: trade.tradeId })).toBe(0n);
-  });
-
-  it('an unsolidified or failed transfer never confirms a payout (FI-24)', async () => {
-    const trade = await openTrade(w, { direction: 'BUY_USDT', baseUsdt: '10', clientRate: '106.000000' });
-    await settleFirstLeg(w, trade.tradeId);
-    await deliverCounterparty(w, trade.tradeId);
-    const leg = await runAs(w.app, createPayoutLeg(w.settlementOp.actor, {}), w.settlementOp.ref, 'payout_leg.create', { tradeId: trade.tradeId, amount: '10', payer: 'EXCHANGE_ACCOUNT' as const, treasuryWalletId: w.treasuryWalletId });
-    const wallet = await w.app.selectFrom('treasury_wallet').select('address').where('id', '=', w.treasuryWalletId).executeTakeFirstOrThrow();
-    await observe(w, wallet.address);
-    await runAs(w.app, sendPayoutLeg(w.settlementOp.actor), w.settlementOp.ref, 'payout_leg.send', { legId: leg.legId });
-    const clientWallet = await w.app.selectFrom('crypto_wallet').select('address').where('id', '=', w.walletId).executeTakeFirstOrThrow();
-    const pending = w.chain.add({ from: wallet.address, to: clientWallet.address, amountMinor: Money.parse('10', 'USDT').minor, solidified: false });
-    await runAs(w.app, recordLegEvidence(w.settlementOp.actor, w.settlementDeps), w.settlementOp.ref, 'payout_leg.record_evidence', { legId: leg.legId, txHash: pending.txHash, logIndex: pending.logIndex, fromAddress: wallet.address });
-    await expect(confirmPayout(w.app, w.settlementOp.actor, w.settlementDeps, { legId: leg.legId, idempotencyKey: randomUUID() })).rejects.toMatchObject({ code: 'TRANSFER_NOT_CONFIRMED' });
-    w.chain.solidifyAll();
-    const ok = await confirmPayout(w.app, w.settlementOp.actor, w.settlementDeps, { legId: leg.legId, idempotencyKey: randomUUID() });
-    expect(ok.completed).toBe(true);
-  });
-});
-
-describe('recording and confirming a client\u2019s incoming INR (T2, T4)', () => {
-  it('recording needs settlement:record_incoming without step-up; confirming needs settlement:confirm_incoming', async () => {
-    const trade = await openTrade(w, { direction: 'BUY_USDT', baseUsdt: '10', clientRate: '106.000000' });
-    const payload = { tradeId: trade.tradeId, rail: 'IMPS' as const, utr: newUtr('IN'), amount: '1060.00', inrAccountId: w.inrAccountId };
-    // Only OWNER and SETTLEMENT_OPERATOR may record an incoming reference.
-    await expect(runAs(w.app, recordIncomingFiat(w.dealer.actor), w.dealer.ref, 'fiat_in.record', payload)).rejects.toMatchObject({ code: 'FORBIDDEN' });
-    await expect(runAs(w.app, recordIncomingFiat(w.financeOp.actor), w.financeOp.ref, 'fiat_in.record', payload)).rejects.toMatchObject({ code: 'FORBIDDEN' });
-
-    // Recording asserts nothing about the money, so it needs no step-up: a stale operator session is enough.
-    const staleOp = await createStaleSettlementOperator(w);
-    const recorded = await runAs(w.app, recordIncomingFiat(staleOp.actor), staleOp.ref, 'fiat_in.record', payload);
-    expect((await w.app.selectFrom('trade').select('lifecycle_state').where('id', '=', trade.tradeId).executeTakeFirstOrThrow()).lifecycle_state).toBe('FIRST_LEG_DETECTED');
-
-    // Confirming it does assert that, and keeps its step-up.
-    await expect(runAs(w.app, confirmFirstLeg(staleOp.actor, w.settlementDeps), staleOp.ref, 'settlement.confirm_incoming', { legId: recorded.legId }))
-      .rejects.toMatchObject({ code: 'STEP_UP_REQUIRED' });
-    await seeOwnSender(w.app, w.settlementOp, { legId: recorded.legId });
-    await runAs(w.app, confirmFirstLeg(w.settlementOp.actor, w.settlementDeps), w.settlementOp.ref, 'settlement.confirm_incoming', { legId: recorded.legId });
-    expect((await w.app.selectFrom('trade').select('lifecycle_state').where('id', '=', trade.tradeId).executeTakeFirstOrThrow()).lifecycle_state).toBe('FIRST_LEG_CONFIRMED');
-  });
-});
+};
+const netPerCurrency = async (tradeId: string) => (await sql<{ currency: string; net: string }>`
+  select currency, sum(case direction when 'DR' then amount_minor else -amount_minor end)::text as net
+  from ledger_entry where trade_id = ${tradeId} group by currency`.execute(w.app)).rows;
 
 describe('cancellation and refunds (T9, T10)', () => {
-  it('exit: cancelling releases capacity, the deposit address and the route obligation, and reverses the accept journal', async () => {
+  it('exit: cancelling releases the deposit address and the route obligation, and reverses the accept journal', async () => {
     const trade = await openTrade(w, { baseUsdt: '1000', clientRate: '102.000000' });
     const assignment = await w.app.selectFrom('deposit_assignment').select(['deposit_address_id']).where('trade_id', '=', trade.tradeId).executeTakeFirstOrThrow();
     await runAs(w.app, cancelTrade(w.dealer.actor), w.dealer.ref, 'trade.cancel', { tradeId: trade.tradeId, reason: 'client asked to stand down before sending' });
@@ -176,19 +32,14 @@ describe('cancellation and refunds (T9, T10)', () => {
     const row = await w.app.selectFrom('trade').select(['lifecycle_state', 'cancelled_at']).where('id', '=', trade.tradeId).executeTakeFirstOrThrow();
     expect(row.lifecycle_state).toBe('CANCELLED');
     expect((await w.app.selectFrom('route_obligation').select('status').where('id', '=', trade.routeObligationId).executeTakeFirstOrThrow()).status).toBe('CANCELLED');
-    const address = await w.app.selectFrom('deposit_address').select('status').where('id', '=', assignment.deposit_address_id).executeTakeFirstOrThrow();
-    expect(address.status).toBe('COOLDOWN');
+    expect((await w.app.selectFrom('deposit_address').select('status').where('id', '=', assignment.deposit_address_id).executeTakeFirstOrThrow()).status).toBe('COOLDOWN');
     const journals = await w.app.selectFrom('ledger_journal').select('posting_key').where('trade_id', '=', trade.tradeId).orderBy('posted_at').execute();
     expect(journals.map((j) => j.posting_key)).toEqual([`trade:${trade.tradeId}:accept`, `trade:${trade.tradeId}:cancel`]);
-    const perCurrency = await sql<{ currency: string; net: string }>`
-      select currency, sum(case direction when 'DR' then amount_minor else -amount_minor end)::text as net
-      from ledger_entry where trade_id = ${trade.tradeId} group by currency`.execute(w.app);
-    for (const r of perCurrency.rows) expect({ c: r.currency, net: r.net }).toEqual({ c: r.currency, net: '0' });
+    for (const r of await netPerCurrency(trade.tradeId)) expect({ c: r.currency, net: r.net }).toEqual({ c: r.currency, net: '0' });
   });
 
   it('a trade with confirmed client funds cannot be cancelled — it needs a refund first (T10)', async () => {
-    // The counterparty never delivered: the client's own USDT, still at its deposit address, goes back from there.
-    const trade = await exchangeTrade({ baseUsdt: '100', deliver: false });
+    const trade = await fundedSale('100');
     const deposit = await clientDepositAddressOf(w, trade.tradeId);
     await expect(runAs(w.app, cancelTrade(w.dealer.actor), w.dealer.ref, 'trade.cancel', { tradeId: trade.tradeId, reason: 'client changed their mind' }))
       .rejects.toMatchObject({ code: 'FUNDS_ALREADY_RECEIVED' });
@@ -196,10 +47,8 @@ describe('cancellation and refunds (T9, T10)', () => {
     const opened = await runAs(w.app, openException(w.dealer.actor), w.dealer.ref, 'exception.open', {
       type: 'TRADE_CANCELLATION' as const, subjectType: 'TRADE' as const, subjectId: trade.tradeId, tradeId: trade.tradeId, notes: 'client asked to unwind after paying',
     });
-    // A SELL client sent USDT, so the refund goes back in USDT — from where it is (D-16), never from the treasury.
-    // Creating a refund needs `settlement:create_payout`; approving it needs `refund:approve` from someone else.
-    await expect(runAs(w.app, createRefundLeg(w.owner.actor), w.owner.ref, 'refund_leg.create', { tradeId: trade.tradeId, treasuryWalletId: w.treasuryWalletId }))
-      .rejects.toMatchObject({ code: 'FUNDING_LOCATION_MISMATCH' });
+    // The client's USDT goes back from where it is (D-16). Creating a refund needs `settlement:create_payout`; approving
+    // it needs `refund:approve` from someone else.
     await observe(w, deposit.address);
     const refund = await runAs(w.app, createRefundLeg(w.owner.actor), w.owner.ref, 'refund_leg.create', { tradeId: trade.tradeId, sourceDepositAddressId: deposit.id });
     expect(refund.amount).toBe('100.000000');
@@ -209,25 +58,27 @@ describe('cancellation and refunds (T9, T10)', () => {
     await expect(runAs(w.app, confirmRefundLeg(w.settlementOp.actor, w.settlementDeps), w.settlementOp.ref, 'refund_leg.confirm', { legId: refund.legId, txHash: back.txHash, logIndex: back.logIndex }))
       .rejects.toMatchObject({ code: 'FORBIDDEN' });
     await runAs(w.app, confirmRefundLeg(w.financeOp.actor, w.settlementDeps), w.financeOp.ref, 'refund_leg.confirm', { legId: refund.legId, txHash: back.txHash, logIndex: back.logIndex });
-    await runAs(w.app, refundAndCancel(w.owner.actor), w.owner.ref, 'exception.refund_and_cancel', { tradeId: trade.tradeId, exceptionId: opened.exceptionId, reason: 'refunded in full and cancelled' });
+    await runAs(w.app, refundAndCancel(w.owner.actor), w.owner.ref, 'exception.refund_and_cancel', { tradeId: trade.tradeId, exceptionId: opened.exceptionId, reason: 'refunded and closed' });
 
     expect((await w.app.selectFrom('trade').select('lifecycle_state').where('id', '=', trade.tradeId).executeTakeFirstOrThrow()).lifecycle_state).toBe('CANCELLED');
     expect((await w.app.selectFrom('exception_case').select('status').where('id', '=', opened.exceptionId).executeTakeFirstOrThrow()).status).toBe('RESOLVED');
-    const perCurrency = await sql<{ currency: string; net: string }>`
-      select currency, sum(case direction when 'DR' then amount_minor else -amount_minor end)::text as net
-      from ledger_entry where trade_id = ${trade.tradeId} group by currency`.execute(w.app);
-    for (const r of perCurrency.rows) expect({ c: r.currency, net: r.net }).toEqual({ c: r.currency, net: '0' });
+    for (const r of await netPerCurrency(trade.tradeId)) expect({ c: r.currency, net: r.net }).toEqual({ c: r.currency, net: '0' });
     expect(await balanceOf(w.app, 'ASSET:CLIENT_RECEIVABLE', 'USDT', { tradeId: trade.tradeId })).toBe(0n);
+  });
+
+  it('a client’s rupees are not refunded from here: they went straight to its trader', async () => {
+    const trade = await openTrade(w, { direction: 'BUY_USDT', baseUsdt: '10' });
+    await expect(runAs(w.app, createRefundLeg(w.owner.actor), w.owner.ref, 'refund_leg.create', { tradeId: trade.tradeId, sourceDepositAddressId: trade.tradeId }))
+      .rejects.toMatchObject({ code: 'INVALID_ARGUMENT' });
   });
 });
 
 describe('financial adjustments (FI-12, FI-43)', () => {
-  it('exit: an adjustment leaves the original economics untouched and posts a compensating journal', async () => {
-    const trade = await exchangeTrade({ baseUsdt: '1000' });
+  it('exit: an adjustment leaves the frozen terms untouched, posts its journal, and moves both sides of the rupees alike', async () => {
+    const trade = await fundedSale('1000');
     const before = await w.app.selectFrom('trade_economics').selectAll().where('trade_id', '=', trade.tradeId).executeTakeFirstOrThrow();
     const requested = await runAs(w.app, requestAdjustment(w.financeOp.actor), w.financeOp.ref, 'adjustment.request', {
-      tradeId: trade.tradeId, type: 'AMOUNT_CORRECTION' as const, deltaClientInr: '-2000.00', deltaRouteInr: '0.00',
-      reason: 'client short-paid by ₹2,000 and the desk agreed to settle the smaller amount',
+      tradeId: trade.tradeId, type: 'AMOUNT_CORRECTION' as const, deltaClientInr: '-2000.00', reason: 'the client agreed to settle ₹2,000 less with its trader',
     });
     // The requester cannot approve their own adjustment, and a DEALER has no approval permission at all.
     await expect(runAs(w.app, approveAdjustment(w.financeOp.actor), w.financeOp.ref, 'adjustment.approve', { adjustmentId: requested.adjustmentId }))
@@ -236,29 +87,25 @@ describe('financial adjustments (FI-12, FI-43)', () => {
       .rejects.toMatchObject({ code: 'FORBIDDEN' });
     await runAs(w.app, approveAdjustment(w.financeOp2.actor), w.financeOp2.ref, 'adjustment.approve', { adjustmentId: requested.adjustmentId });
 
-    const after = await w.app.selectFrom('trade_economics').selectAll().where('trade_id', '=', trade.tradeId).executeTakeFirstOrThrow();
-    expect(after).toEqual(before);
-    const effective = await effectiveObligations(w.app, trade.tradeId);
-    expect(effective.payout.toDecimalString()).toBe('100000.00');
-    const journal = await w.app.selectFrom('ledger_journal').select('posting_key').where('posting_key', '=', `adj:${requested.adjustmentId}`).executeTakeFirstOrThrow();
-    expect(journal.posting_key).toBe(`adj:${requested.adjustmentId}`);
+    expect(await w.app.selectFrom('trade_economics').selectAll().where('trade_id', '=', trade.tradeId).executeTakeFirstOrThrow()).toEqual(before);
+    expect((await effectiveObligations(w.app, trade.tradeId)).payout.toDecimalString()).toBe('100000.00');
+    expect(await w.app.selectFrom('ledger_journal').select('posting_key').where('posting_key', '=', `adj:${requested.adjustmentId}`).executeTakeFirstOrThrow()).toBeTruthy();
     expect(await balanceOf(w.app, 'LIAB:CLIENT_PAYABLE', 'INR', { tradeId: trade.tradeId })).toBe(-Money.parse('100000.00', 'INR').minor);
-    // The margin grew by the amount the client no longer receives, and is still deferred until completion.
-    // Accept deferred ₹2,200; the ₹2,000 the client no longer receives becomes margin, still deferred.
-    expect(await balanceOf(w.app, 'LIAB:DEFERRED_MARGIN', 'INR', { tradeId: trade.tradeId })).toBe(-Money.parse('4200.00', 'INR').minor);
+    // No rupee is INRP2P's: none is deferred or realized as margin, before or after the deal completes.
+    expect(await balanceOf(w.app, 'LIAB:DEFERRED_MARGIN', 'INR', { tradeId: trade.tradeId })).toBe(0n);
 
-    await payoutLeg(trade.tradeId, '100000.00');
+    // The trader owes the corrected amount, and paying it completes the deal.
+    await payClient(w, trade);
     expect((await w.app.selectFrom('trade').select('lifecycle_state').where('id', '=', trade.tradeId).executeTakeFirstOrThrow()).lifecycle_state).toBe('COMPLETED');
-    const terms = await effectiveTerms(w.app, trade.tradeId);
-    expect(terms.clientInr.toDecimalString()).toBe('100000.00');
-    expect(terms.grossMargin.toDecimalString()).toBe('4200.00');
-    expect(await balanceOf(w.app, 'REVENUE:GROSS_MARGIN', 'INR', { tradeId: trade.tradeId })).toBe(-Money.parse('4200.00', 'INR').minor);
+    expect((await effectiveTerms(w.app, trade.tradeId)).clientInr.toDecimalString()).toBe('100000.00');
+    expect(await balanceOf(w.app, 'REVENUE:GROSS_MARGIN', 'INR', { tradeId: trade.tradeId })).toBe(0n);
+    expect(await balanceOf(w.app, 'LIAB:DEFERRED_MARGIN', 'USDT', { tradeId: trade.tradeId })).toBe(0n);
   });
 
   it('a rejected adjustment posts nothing and cannot be approved afterwards', async () => {
-    const trade = await exchangeTrade({ baseUsdt: '100' });
+    const trade = await fundedSale('100');
     const requested = await runAs(w.app, requestAdjustment(w.dealer.actor), w.dealer.ref, 'adjustment.request', {
-      tradeId: trade.tradeId, type: 'WRITE_OFF' as const, deltaClientInr: '-100.00', deltaRouteInr: '0.00', reason: 'desk proposed a goodwill write-off of ₹100',
+      tradeId: trade.tradeId, type: 'WRITE_OFF' as const, deltaClientInr: '-100.00', reason: 'desk proposed a goodwill write-off of ₹100',
     });
     await runAs(w.app, rejectAdjustment(w.financeOp.actor), w.financeOp.ref, 'adjustment.reject', { adjustmentId: requested.adjustmentId, reason: 'not supported by evidence' });
     expect(await w.app.selectFrom('ledger_journal').select('id').where('posting_key', '=', `adj:${requested.adjustmentId}`).execute()).toEqual([]);
@@ -268,10 +115,10 @@ describe('financial adjustments (FI-12, FI-43)', () => {
   });
 
   it('an adjustment cannot shrink the obligation below what is already committed', async () => {
-    const trade = await exchangeTrade({ baseUsdt: '100' });
-    await payoutLeg(trade.tradeId, '10200.00');
+    const trade = await fundedSale('100');
+    await payClient(w, trade, { confirm: false });
     await expect(runAs(w.app, requestAdjustment(w.dealer.actor), w.dealer.ref, 'adjustment.request', {
-      tradeId: trade.tradeId, type: 'AMOUNT_CORRECTION' as const, deltaClientInr: '-200.00', deltaRouteInr: '0.00', reason: 'attempt to shrink a settled trade below what was paid',
+      tradeId: trade.tradeId, type: 'AMOUNT_CORRECTION' as const, deltaClientInr: '-200.00', reason: 'attempt to shrink a settled trade below what it paid',
     })).rejects.toMatchObject({ code: 'INVALID_AMOUNT' });
   });
 });
@@ -282,46 +129,45 @@ describe('P&L, reconciliation and SLA (FI-43, FI-44, FI-64)', () => {
     try {
       const completed = await openTrade(pnlWorld, { baseUsdt: '1000', clientRate: '102.000000' });
       await settleFirstLeg(pnlWorld, completed.tradeId);
-      await deliverCounterparty(pnlWorld, completed.tradeId);
-      const leg = await runAs(pnlWorld.app, createPayoutLeg(pnlWorld.settlementOp.actor, {}), pnlWorld.settlementOp.ref, 'payout_leg.create', { tradeId: completed.tradeId, amount: '102000.00', payer: 'EXCHANGE_ACCOUNT' as const, inrAccountId: pnlWorld.inrAccountId });
-      await runAs(pnlWorld.app, sendPayoutLeg(pnlWorld.settlementOp.actor), pnlWorld.settlementOp.ref, 'payout_leg.send', { legId: leg.legId });
-      await runAs(pnlWorld.app, recordLegEvidence(pnlWorld.settlementOp.actor, pnlWorld.settlementDeps), pnlWorld.settlementOp.ref, 'payout_leg.record_evidence', { legId: leg.legId, rail: 'IMPS' as const, utr: newUtr() });
-      await confirmPayout(pnlWorld.app, pnlWorld.settlementOp.actor, pnlWorld.settlementDeps, { legId: leg.legId, idempotencyKey: randomUUID() });
+      await payClient(pnlWorld, completed);
       // A second, unfinished trade contributes nothing to realized margin.
       const open = await openTrade(pnlWorld, { baseUsdt: '2000', clientRate: '102.000000' });
       await settleFirstLeg(pnlWorld, open.tradeId);
 
       const today = (await sql<{ d: string }>`select to_char(inrp2p_now() at time zone 'Asia/Kolkata', 'YYYY-MM-DD') as d`.execute(pnlWorld.app)).rows[0]!.d;
       const pnl = await pnlSummary(pnlWorld.app, { from: today, to: today });
-      expect(pnl.realizedGrossMargin.toDecimalString()).toBe('2200.00');
+      const margin = (await pnlWorld.app.selectFrom('trade_economics').select('gross_margin_base_minor').where('trade_id', '=', completed.tradeId).executeTakeFirstOrThrow()).gross_margin_base_minor!;
+      expect(pnl.completionMarginUsdt.minor).toBe(margin);
       expect(pnl.completedVolume.toDecimalString()).toBe('1000.000000');
       expect(pnl.completedTrades).toBe(1);
-      expect(pnl.openExpectedMargin.toDecimalString()).toBe('4400.00');
+      expect(pnl.openTrades).toBe(1);
+      expect(pnl.openExpectedMarginUsdt.isPositive()).toBe(true);
     } finally {
       await pnlWorld.close();
     }
   });
 
   it('reconciliation finds no mismatch, and the SLA sweep opens cases for stale payouts', async () => {
-    const trade = await exchangeTrade({ baseUsdt: '100' });
-    const leg = await payoutLeg(trade.tradeId, '10200.00', { confirm: false });
+    const trade = await fundedSale('100');
+    const { legRef } = await payClient(w, trade, { confirm: false });
+    const leg = await w.app.selectFrom('settlement_leg').select('id').where('ref', '=', legRef).executeTakeFirstOrThrow();
     expect(await routeObligationMismatches(w.app)).toEqual([]);
     expect(await runReconciliation(w.t.worker)).toEqual({ routeMismatches: 0, currencyImbalances: [], failures: [] });
 
-    await sql`update settlement_leg set sent_at = inrp2p_now() - interval '4 hours' where id = ${leg.legId}`.execute(w.t.owner);
+    await sql`update settlement_leg set sent_at = inrp2p_now() - interval '4 hours' where id = ${leg.id}`.execute(w.t.owner);
     const swept = await runSettlementSla(w.t.worker, { payoutMinutes: 120, obligationHours: 48 });
     expect(swept.delayedPayouts).toBeGreaterThanOrEqual(1);
-    const opened = await w.app.selectFrom('exception_case').select(['type', 'severity', 'status']).where('subject_id', '=', leg.legId).executeTakeFirstOrThrow();
+    const opened = await w.app.selectFrom('exception_case').select(['type', 'severity', 'status']).where('subject_id', '=', leg.id).executeTakeFirstOrThrow();
     expect(opened).toMatchObject({ type: 'INR_PAYOUT_DELAYED', severity: 'WARNING', status: 'OPEN' });
     // A warning does not put the trade on hold.
     expect((await w.app.selectFrom('trade').select('hold').where('id', '=', trade.tradeId).executeTakeFirstOrThrow()).hold).toBe(false);
     // Running it again does not duplicate the case.
     await runSettlementSla(w.t.worker, { payoutMinutes: 120, obligationHours: 48 });
-    expect(await w.app.selectFrom('exception_case').select('id').where('subject_id', '=', leg.legId).execute()).toHaveLength(1);
+    expect(await w.app.selectFrom('exception_case').select('id').where('subject_id', '=', leg.id).execute()).toHaveLength(1);
   });
 
   it('the ledger is append-only and no journal can be unbalanced (FI-40, FI-41)', async () => {
-    const trade = await exchangeTrade({ baseUsdt: '100' });
+    const trade = await fundedSale('100');
     const journal = await w.app.selectFrom('ledger_journal').select('id').where('posting_key', '=', `trade:${trade.tradeId}:accept`).executeTakeFirstOrThrow();
     await expect(sql`update ledger_entry set amount_minor = 1 where journal_id = ${journal.id}`.execute(w.t.owner)).rejects.toSatisfy((e) => pgErrorCode(e) === 'IX001');
     await expect(sql`delete from ledger_journal where id = ${journal.id}`.execute(w.t.owner)).rejects.toSatisfy((e) => pgErrorCode(e) === 'IX001');
