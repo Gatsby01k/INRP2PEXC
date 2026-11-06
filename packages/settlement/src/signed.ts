@@ -135,6 +135,9 @@ export async function settleSignedSendInTx(ctx: TxContext, deps: SettlementDeps,
     .execute();
 
   if (send.purpose === 'CLIENT_PAYOUT') {
+    // The chain made it final, so the send is done before its leg: above the threshold the rule that lets the system
+    // confirm a leg reads a CONFIRMED send that a person approved (IX090).
+    await ctx.tx.updateTable('chain_send').set({ status: 'CONFIRMED', closed_at: sql<Date>`inrp2p_now()`, updated_at: sql<Date>`inrp2p_now()` }).where('id', '=', send.id).execute();
     return { purpose: 'CLIENT_PAYOUT', payout: await confirmPayoutLegInTx(ctx, deps, leg.id) };
   }
 

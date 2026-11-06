@@ -8,7 +8,7 @@ import { runAs } from '@inrp2p/identity/testing';
 import { gasFreeAddressOf } from '@inrp2p/adapters';
 import { FULL_ACCESS, deskTrade, deskTradeRecord, networkView } from '@inrp2p/desk';
 import { globalImbalance } from '@inrp2p/ledger';
-import { setNetworkFeePolicy } from '@inrp2p/network';
+import { approveChainSend, setNetworkFeePolicy } from '@inrp2p/network';
 import { acceptQuote, createRequest, quoteDeskDealInTx } from '@inrp2p/quotes';
 import { runGasFreeFeeRefresh } from '@inrp2p/onchain';
 import { claimIncomingFiat, confirmClientReceipt, raiseChainSendCap, runP2pDeadlines } from '@inrp2p/settlement';
@@ -213,6 +213,22 @@ describe('a desk on GasFree', () => {
     // The client receivable is closed by the refund and its network together.
     expect(await balanceOf(w.app, 'ASSET:CLIENT_RECEIVABLE', 'USDT', { tradeId: accepted.tradeId })).toBe(0n);
     expect(await globalImbalance(w.app)).toEqual([]);
+  });
+});
+
+describe('a payout above the second-person threshold (C1)', () => {
+  it('waits for a person before its permit is signed; once the chain has it, the deal completes', async () => {
+    // ₹2,562,500 at ₹102.50.
+    const deal = await buyFromDesk('25000', { pay: true });
+    await railsTurn(w);
+    const payoutOf = async () => w.app.selectFrom('chain_send').selectAll().where('trade_id', '=', deal.tradeId).where('purpose', '=', 'CLIENT_PAYOUT').executeTakeFirstOrThrow();
+    const waiting = await payoutOf();
+    expect(waiting).toMatchObject({ status: 'AWAITING_APPROVAL', needs_approval: true });
+    expect(await permitsOf(waiting.id)).toEqual([]);
+    await runAs(w.app, approveChainSend(w.finance.actor), w.finance.ref, 'chain_send.approve', { sendId: waiting.id });
+    await railsSettle(w, deal.tradeId);
+    expect(await payoutOf()).toMatchObject({ status: 'CONFIRMED', approved_by: w.finance.ref.id });
+    expect(await stateOf(deal.tradeId)).toBe('COMPLETED');
   });
 });
 
