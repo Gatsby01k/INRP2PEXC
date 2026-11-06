@@ -13,7 +13,7 @@ import {
 } from '@inrp2p/settlement';
 import { orderDeliveryAddress, releaseOrder, runTraderSweep } from '@inrp2p/traders';
 import { runFeeRefresh, runSender, runTrxRateRefresh } from '@inrp2p/onchain';
-import { decideNetworkWithdrawal, requestNetworkWithdrawal } from '@inrp2p/network';
+import { approveChainSend, decideNetworkWithdrawal, requestNetworkWithdrawal } from '@inrp2p/network';
 import { payoutsHeld } from '@inrp2p/trades';
 import { deskTradeNetwork } from '@inrp2p/desk';
 import { balanceOf, newUtr, observe, settleFirstLeg, seeOwnSender } from '../../packages/settlement/test/world.ts';
@@ -180,6 +180,23 @@ describe('a client buys USDT; the exchange pays the client from the trader’s U
     expect(hold.status).toBe('CLOSED');
     expect(hold.reimbursed_sun).toBe(hold.spent_sun);
     expect(await balanceOf(w.app, `ASSET:INR_SETTLEMENT:${w.inrAccountId}`, 'INR', { tradeId: trade.tradeId })).toBe(inr('53500.00') - inr('52600.00'));
+    expect(await globalImbalance(w.app)).toEqual([]);
+  });
+
+  it('above the second-person threshold it waits for a person, then pays and completes (C1, IX090)', async () => {
+    const trade = await fundedBuy('25000', '107.000000'); // ₹2,675,000
+    await railsTurn(w);
+    const payout = async () => (await sends(trade.tradeId)).find((s) => s.purpose === 'CLIENT_PAYOUT')!;
+    expect(await payout()).toMatchObject({ status: 'AWAITING_APPROVAL', needs_approval: true, approved_by: null });
+    expect(await attemptsOf((await payout()).id)).toEqual([]);
+
+    await runAs(w.app, approveChainSend(w.finance.actor), w.finance.ref, 'chain_send.approve', { sendId: (await payout()).id });
+    await railsSettle(w, trade.tradeId);
+    expect(await payout()).toMatchObject({ status: 'CONFIRMED', approved_by: w.finance.ref.id });
+    const leg = await w.app.selectFrom('settlement_leg').select(['status', 'confirmed_by']).where('trade_id', '=', trade.tradeId).where('side', '=', 'EXCHANGE_TO_CLIENT').executeTakeFirstOrThrow();
+    expect(leg.status).toBe('COMPLETED');
+    expect(leg.confirmed_by).toMatch(/^SYSTEM:/);
+    expect(await stateOf(trade.tradeId)).toBe('COMPLETED');
     expect(await globalImbalance(w.app)).toEqual([]);
   });
 });
