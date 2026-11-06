@@ -1,14 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Money, checkUtrShape } from '@inrp2p/kernel';
 import type { PaymentRow, TraderOrderDetail } from '@inrp2p/traders';
-import { CopyButton, DepositAddress, UTRField, normalizeUtr } from '@inrp2p/ui';
 import { formatIstDateTime } from '@inrp2p/ui/format';
-import { useCommand } from '../../../../../components/useCommand.tsx';
-import { orderDeliveryAddressAction, submitOrderPaymentAction } from '../../../../../server/actions/traders.ts';
 import { AssistantPanel } from '../../../_assistant/AssistantPanel.tsx';
 import { traderOrderAssistant } from '../../../_assistant/traders.ts';
 import { InfoIcon } from '../../../_workspace/icons.tsx';
@@ -16,7 +12,7 @@ import { Stepper } from '../../../_workspace/Stepper.tsx';
 import { useServerClock } from '../../../exchange/useServerClock.ts';
 import { OfferCard } from '../../_ui/OfferCard.tsx';
 import { P2pOrderAction, P2pOrderChat } from './P2pOrderAction.tsx';
-import { amountIn, inr, rate, sentence, usdt } from '../../_ui/format.ts';
+import { amountIn, inr, rate, usdt } from '../../_ui/format.ts';
 import shell from '../../../shell.module.css';
 import styles from '../../traders.module.css';
 

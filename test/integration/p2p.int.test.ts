@@ -40,7 +40,7 @@ async function p2pTrade(trader: typeof inrTrader, input: { direction: 'SELL_USDT
 beforeAll(async () => {
   w = await createRailsWorld('p2p');
   const program = await w.app.selectFrom('trader_program').select('version').where('id', '=', 1).executeTakeFirstOrThrow();
-  await runAs(w.app, configureTraderProgram(w.finance.actor), w.finance.ref, 'trader_program.configure', { expectedVersion: program.version, executionMode: 'P2P' as const, riskPolicy: null, reason: 'no INR account: P2P escrow' });
+  await runAs(w.app, configureTraderProgram(w.finance.actor), w.finance.ref, 'trader_program.configure', { expectedVersion: program.version, riskPolicy: null, reason: 'no INR account: P2P escrow' });
   // Each trader prefunds the network of its own deals; the platform's budget stays empty.
   inrTrader = await railsTrader(w, 'INR Provider', { buy: { capacity: '50000000', rate: '104.70', min: '100', max: '20000000' } }, '1000');
   usdtTrader = await railsTrader(w, 'USDT Provider', { sell: { capacity: '500000', rate: '105.20', min: '10', max: '200000' } }, '1000');

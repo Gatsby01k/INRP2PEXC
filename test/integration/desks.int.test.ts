@@ -54,7 +54,7 @@ const deskClientOf = (clientId: string) => w.app.selectFrom('desk_client').selec
 beforeAll(async () => {
   w = await createRailsWorld('desks');
   const program = await w.app.selectFrom('trader_program').select('version').where('id', '=', 1).executeTakeFirstOrThrow();
-  await runAs(w.app, configureTraderProgram(w.finance.actor), w.finance.ref, 'trader_program.configure', { expectedVersion: program.version, executionMode: 'P2P' as const, riskPolicy: null, reason: 'desks deal P2P' });
+  await runAs(w.app, configureTraderProgram(w.finance.actor), w.finance.ref, 'trader_program.configure', { expectedVersion: program.version, riskPolicy: null, reason: 'desks deal P2P' });
   desk = await railsTrader(w, 'Rahul OTC', {
     buy: { capacity: '50000000', rate: '101.20', min: '100', max: '20000000' },
     sell: { capacity: '500000', rate: '101.80', min: '10', max: '200000' },

@@ -56,7 +56,7 @@ function quoted<T extends { outcome: { kind: string } }>(out: T): Extract<T['out
 beforeAll(async () => {
   w = await createRailsWorld('auto-pricing', { resourceMode: 'GASFREE' });
   const program = await w.app.selectFrom('trader_program').select('version').where('id', '=', 1).executeTakeFirstOrThrow();
-  await runAs(w.app, configureTraderProgram(w.finance.actor), w.finance.ref, 'trader_program.configure', { expectedVersion: program.version, executionMode: 'P2P' as const, reason: 'no INR account: P2P escrow' });
+  await runAs(w.app, configureTraderProgram(w.finance.actor), w.finance.ref, 'trader_program.configure', { expectedVersion: program.version, reason: 'no INR account: P2P escrow' });
   a = await railsTrader(w, 'Alpha', { buy: { capacity: '50000000', rate: '101.80', min: '100', max: '2000000' }, sell: { capacity: '500000', rate: '101.20', min: '10', max: '20000' } }, '0');
   b = await railsTrader(w, 'Bravo', { buy: { capacity: '50000000', rate: '101.60', min: '100', max: '2000000' }, sell: { capacity: '500000', rate: '101.50', min: '10', max: '20000' } }, '0');
   // Charlie's rates are better still, but it accepts each order itself: it is never priced on without asking.
