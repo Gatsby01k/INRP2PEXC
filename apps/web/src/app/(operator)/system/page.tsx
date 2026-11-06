@@ -28,7 +28,6 @@ export default async function SystemPage() {
   const warnings = health.checks.filter((c) => c.state === 'warn');
   const tone = health.state === 'ok' ? 'success' : health.state === 'warn' ? 'warning' : 'danger';
   const find = (id: string) => health.checks.find((c) => c.id === id);
-  const capacity = find('inr_capacity_available');
   const scanner = find('scanner_lag_seconds');
   const blocking = find('blocking_exceptions');
   const sell = find('traders_ready_sell_usdt');
@@ -51,7 +50,6 @@ export default async function SystemPage() {
           items={[
             { key: 'a', label: 'In alarm', value: String(alarms.length), sub: alarms.length ? alarms.map((c) => c.runbook).join(' · ') : 'nothing to wake anyone for', ...(alarms.length ? { tone: 'danger' as const } : {}) },
             { key: 'w', label: 'Worth a look', value: String(warnings.length), sub: warnings.length ? warnings.map((c) => c.runbook).join(' · ') : 'no warnings', ...(warnings.length ? { tone: 'warning' as const } : {}) },
-            ...(capacity ? [{ key: 'c', label: 'INR capacity left today', value: reading(capacity, capacity.value), href: '/inr', ...(capacity.state !== 'ok' ? { tone: capacity.state === 'alarm' ? ('danger' as const) : ('warning' as const) } : {}) }] : []),
             ...(scanner ? [{ key: 's', label: 'Scanner last ran', value: `${reading(scanner, scanner.value)} ago`, href: '/usdt', ...(scanner.state !== 'ok' ? { tone: scanner.state === 'alarm' ? ('danger' as const) : ('warning' as const) } : {}) }] : []),
             ...(blocking ? [{ key: 'b', label: 'Trades on hold', value: String(blocking.value), href: '/exceptions', ...(blocking.state !== 'ok' ? { tone: blocking.state === 'alarm' ? ('danger' as const) : ('warning' as const) } : {}) }] : []),
             ...(sell && buy

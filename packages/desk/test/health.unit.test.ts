@@ -64,11 +64,11 @@ describe('the thresholds', () => {
   });
 
   it('reads a falling signal the other way, which is the one that gets written backwards', () => {
-    const capacity = HEALTH_CHECKS.find((c) => c.id === 'inr_capacity_available')!;
-    expect(stateOf(capacity, capacity.warn + 1)).toBe('ok');
-    expect(stateOf(capacity, capacity.warn)).toBe('warn');
-    expect(stateOf(capacity, capacity.alarm)).toBe('alarm');
-    expect(stateOf(capacity, 0)).toBe('alarm');
+    const pool = HEALTH_CHECKS.find((c) => c.id === 'deposit_pool_free')!;
+    expect(stateOf(pool, pool.warn + 1)).toBe('ok');
+    expect(stateOf(pool, pool.warn)).toBe('warn');
+    expect(stateOf(pool, pool.alarm)).toBe('alarm');
+    expect(stateOf(pool, 0)).toBe('alarm');
   });
 
   it('treats a single imbalanced ledger row as an alarm', () => {

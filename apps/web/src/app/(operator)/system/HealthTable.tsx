@@ -16,7 +16,6 @@ const WHERE: Record<string, { href: string; label: string }> = {
   blocking_exceptions: { href: '/exceptions', label: 'Exceptions' },
   reconciliation_mismatches: { href: '/exceptions', label: 'Exceptions' },
   overdue_route_obligations: { href: '/rates#positions', label: 'Rates · route positions' },
-  inr_capacity_available: { href: '/inr', label: 'INR accounts' },
   deposit_pool_free: { href: '/usdt', label: 'USDT treasury' },
   trader_orders_overdue: { href: '/trader-desk', label: 'Traders' },
   traders_ready_sell_usdt: { href: '/trader-desk', label: 'Traders' },
