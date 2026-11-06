@@ -7,7 +7,7 @@ import { revealBankAccount, setClientExchangeAccess } from '@inrp2p/clients';
 import { executeCommand } from '@inrp2p/commands';
 import {
   approveReserveApplication, approveTrader, assignRequest, cancelReserveApplication, configureTraderProgram, confirmReserveWithdrawal,
-  endReserveApplication, pauseTrader, reconcileOrderNow, recordReserveApplicationSent, recordReserveWithdrawalSent,
+  endReserveApplication, pauseTrader, reconcileOrderNow, recordReserveWithdrawalSent,
   rejectReserveApplication, rejectReserveWithdrawal, rejectTrader, releaseOrder, requestReserveApplication, resumeTrader, revealTraderPhone, reviewSettlementChange,
   reviewTraderDestination, setTraderAssignments, setTraderLimits, setTraderRequiredReserve, setTraderSettlementDetails,
 } from '@inrp2p/traders';
@@ -127,7 +127,7 @@ export async function requestReserveApplicationAction(input: { orderId: string; 
 
 /** … approved by another, which holds the amount and issues the order's delivery address if needed. */
 export async function approveReserveApplicationAction(input: { applicationId: string; note?: string | null }, key: string): Promise<CommandResult<unknown>> {
-  return run('trader_reserve.approve_application', (ctx) => approveReserveApplication(ctx.actor, { custody: custodyForWeb() }), input, key);
+  return run('trader_reserve.approve_application', (ctx) => approveReserveApplication(ctx.actor), input, key);
 }
 
 export async function rejectReserveApplicationAction(input: { applicationId: string; note: string }, key: string): Promise<CommandResult<unknown>> {
@@ -140,11 +140,6 @@ export async function cancelReserveApplicationAction(input: { applicationId: str
 
 export async function endReserveApplicationAction(input: { applicationId: string; reason: string }, key: string): Promise<CommandResult<unknown>> {
   return run('trader_reserve.end_application', (ctx) => endReserveApplication(ctx.actor), input, key);
-}
-
-/** Custody moved it; the transaction is read back from the chain and becomes the order's delivery. */
-export async function recordReserveApplicationSentAction(input: { applicationId: string; txHash: string; logIndex?: number }, key: string): Promise<CommandResult<unknown>> {
-  return run('trader_reserve.record_application_sent', (ctx, deps) => recordReserveApplicationSent(ctx.actor, { chain: deps.chain }), input, key);
 }
 
 /**

@@ -6,19 +6,10 @@ import { pgErrorCode } from '@inrp2p/db';
 import { runAs } from '@inrp2p/identity/testing';
 import { dispatchOutbox } from '@inrp2p/outbox';
 import { acknowledgedSignalHandler, clientNotificationHandler, traderNotificationHandler } from '@inrp2p/notifications';
-import { publishRouteRate } from '@inrp2p/pricing';
-import { acceptQuote, createQuote, declineRequest, sendQuote } from '@inrp2p/quotes';
-import { confirmPayout, confirmRouteSettlement, createPayoutLeg, recordLegEvidence, recordRouteSettlement, sendPayoutLeg } from '@inrp2p/settlement';
-import { globalImbalance, routeObligationBalances } from '@inrp2p/ledger';
-import {
-  acceptOrder, approveTrader, assignRequest, confirmRewardPayout, confirmReserveWithdrawal, declineOrder, deskTrader, orderDeliveryAddress,
-  pauseTrader, reconcileOrderNow, recordReserveWithdrawalSent, recordRewardPayout, rejectTrader, requestReserveWithdrawal, reserveFigures, resumeTrader,
-  runTraderSweep, setAvailability, setTraderLimits, setTraderRequiredReserve, submitOrderPayment, traderHome, traderOrderDetail, sharedReserveAddress, traderRoutingHandler, updateBlock,
-} from '@inrp2p/traders';
-import { clientDepositAddressOf, settleFirstLeg, seeOwnSender } from '../../packages/settlement/test/world.ts';
-import {
-  type TradersWorld, applyAs, clientRequest, configureProgram, confirmOnChain, createTradersWorld, liveTrader, sendUsdt, traderClient, traderIdOf, tradeThroughTrader, utr,
-} from './traders-world.ts';
+import { createQuote, declineRequest, sendQuote } from '@inrp2p/quotes';
+import { globalImbalance } from '@inrp2p/ledger';
+import { acceptOrder, approveTrader, assignRequest, confirmReserveWithdrawal, declineOrder, deskTrader, pauseTrader, recordReserveWithdrawalSent, rejectTrader, requestReserveWithdrawal, reserveFigures, resumeTrader, runTraderSweep, setAvailability, setTraderLimits, setTraderRequiredReserve, traderHome, sharedReserveAddress, traderRoutingHandler, updateBlock } from '@inrp2p/traders';
+import { type TradersWorld, applyAs, clientRequest, configureProgram, confirmOnChain, createTradersWorld, liveTrader, sendUsdt, traderClient, traderIdOf } from './traders-world.ts';
 
 let w: TradersWorld;
 beforeAll(async () => {
@@ -65,7 +56,7 @@ describe('applying and approval', () => {
     const approved = await runAs(w.app, approveTrader(w.finance.actor), w.finance.ref, 'trader.approve', { traderId });
     expect(approved.sides).toEqual(['BUY_USDT']);
     const route = await w.app.selectFrom('liquidity_route').selectAll().where('trader_id', '=', traderId).executeTakeFirstOrThrow();
-    expect(route).toMatchObject({ execution_mode: 'TO_EXCHANGE', direction: 'SELL_USDT', registered_route_address: t.walletAddress });
+    expect(route).toMatchObject({ execution_mode: 'P2P', direction: 'SELL_USDT', registered_route_address: t.walletAddress });
     const profile = await w.app.selectFrom('trader_profile').select(['status', 'required_reserve_minor', 'available']).where('id', '=', traderId).executeTakeFirstOrThrow();
     expect(profile).toEqual({ status: 'APPROVED', required_reserve_minor: 500_000_000n, available: false });
     await dispatch();
@@ -164,167 +155,6 @@ describe('the Security Reserve', () => {
   });
 });
 
-describe('a Buy USDT order, end to end', () => {
-  it('is routed privately, holds capacity once accepted, is quoted exactly as accepted, and settles through the route obligation', async () => {
-    const t = await traderClient(w, 'Buyer One');
-    const live = await liveTrader(w, t, { buy: { capacity: '500000', rate: '104.70', min: '50000', max: '300000' } });
-    // The desk cannot publish a rate over a trader's own.
-    await expect(runAs(w.app, publishRouteRate(w.dealer.actor), w.dealer.ref, 'rates.publish_route', { routeId: live.buyRouteId!, direction: 'SELL_USDT' as const, rate: '110.000000' }))
-      .rejects.toMatchObject({ code: 'TRADER_ROUTE_MANAGED' });
-    await expect(sql`insert into rate_snapshot (kind, route_id, direction, rate_micro, source, created_by) values ('ROUTE', ${live.buyRouteId}, 'SELL_USDT', 110000000, 'OPERATOR', 'x')`.execute(w.t.owner))
-      .rejects.toSatisfy((e) => pgErrorCode(e) === 'IX076');
-
-    const requestId = await clientRequest(w, 'SELL_USDT', '1000');
-    // No quote on a trader route before the trader accepted (command and database both refuse).
-    await expect(runAs(w.app, createQuote(w.dealer.actor, {}), w.dealer.ref, 'quote.create', { requestId, routeId: live.buyRouteId!, clientRate: '104.200000', validitySeconds: 300 }))
-      .rejects.toMatchObject({ code: 'TRADER_ORDER_REQUIRED' });
-
-    const assigned = await runAs(w.app, assignRequest(w.dealer.actor), w.dealer.ref, 'trader_order.assign', { requestId });
-    expect({ inr: assigned.inr, base: assigned.base, rate: assigned.rate }).toEqual({ inr: '104700.00', base: '1000.000000', rate: '104.700000' });
-    await expect(runAs(w.app, assignRequest(w.dealer.actor), w.dealer.ref, 'trader_order.assign', { requestId })).rejects.toMatchObject({ code: 'TRADER_ORDER_NOT_LIVE' });
-    await dispatch();
-    expect(await inbox(t.clientId)).toContain('TRADER_ORDER_NEW');
-
-    await expect(runAs(w.app, acceptOrder(t.member.actor), t.member.ref, 'trader_order.accept', { ref: assigned.ref })).rejects.toMatchObject({ code: 'TRADER_ACTION_NOT_PERMITTED' });
-    await runAs(w.app, acceptOrder(t.admin.actor), t.admin.ref, 'trader_order.accept', { ref: assigned.ref });
-    const held = await w.app.selectFrom('trader_block').select(['capacity_minor', 'reserved_minor']).where('trader_id', '=', live.traderId).where('side', '=', 'BUY_USDT').executeTakeFirstOrThrow();
-    expect(held).toEqual({ capacity_minor: 50_000_000n, reserved_minor: 10_470_000n });
-
-    const quoteOther = await clientRequest(w, 'SELL_USDT', '900');
-    await expect(runAs(w.app, createQuote(w.dealer.actor, {}), w.dealer.ref, 'quote.create', { requestId: quoteOther, routeId: live.buyRouteId!, clientRate: '104.200000', validitySeconds: 300 }))
-      .rejects.toMatchObject({ code: 'TRADER_ORDER_REQUIRED' });
-
-    const order = await w.app.selectFrom('trader_order').select(['route_id']).where('id', '=', assigned.orderId).executeTakeFirstOrThrow();
-    const quote = await runAs(w.app, createQuote(w.dealer.actor, {}), w.dealer.ref, 'quote.create', { requestId, routeId: order.route_id, clientRate: '104.200000', validitySeconds: 300 });
-    await runAs(w.app, sendQuote(w.dealer.actor, {}), w.dealer.ref, 'quote.send', { quoteId: quote.quoteId });
-    const accepted = await runAs(w.app, acceptQuote(w.acceptor.actor, w.deps), w.acceptor.ref, 'quote.accept', { quoteId: quote.quoteId });
-    const started = await w.app.selectFrom('trader_order').selectAll().where('id', '=', assigned.orderId).executeTakeFirstOrThrow();
-    expect(started).toMatchObject({ status: 'IN_PROGRESS', trade_id: accepted.tradeId, reward_bps: 10, reward_inr_minor: 10_470n });
-    const obligation = await w.app.selectFrom('route_obligation').selectAll().where('trade_id', '=', accepted.tradeId).executeTakeFirstOrThrow();
-    expect(obligation).toMatchObject({ route_id: order.route_id, execution_mode: 'TO_EXCHANGE', route_delivers_minor: 10_470_000n, exchange_delivers_minor: 1_000_000_000n });
-
-    // The trader moves money only once the client's USDT is confirmed.
-    await expect(runAs(w.app, submitOrderPayment(t.admin.actor), t.admin.ref, 'trader_order.submit_payment', { ref: assigned.ref, rail: 'IMPS' as const, utr: utr() }))
-      .rejects.toMatchObject({ code: 'TRADER_ACTION_NOT_DUE' });
-    await settleFirstLeg(w, accepted.tradeId);
-    await dispatch();
-    expect(await inbox(t.clientId)).toContain('TRADER_ACTION_REQUIRED');
-
-    const detailDue = await traderOrderDetail(w.app, t.admin.userId, assigned.ref, w.traderDeps.protector);
-    expect(detailDue.order.stage).toBe('YOUR_TURN');
-    expect(detailDue.payTo).toMatchObject({ beneficiary: 'INRP2P Collections Private Limited', ifsc: 'UTIB0000456', accountNumber: '918020045510099', narration: assigned.ref });
-    expect(detailDue.youOwe).toBe('104700.00');
-
-    const reference = utr();
-    const claim = await runAs(w.app, submitOrderPayment(t.admin.actor), t.admin.ref, 'trader_order.submit_payment', { ref: assigned.ref, rail: 'IMPS' as const, utr: reference });
-    await expect(runAs(w.app, submitOrderPayment(t.admin.actor), t.admin.ref, 'trader_order.submit_payment', { ref: assigned.ref, rail: 'IMPS' as const, utr: utr() }))
-      .rejects.toMatchObject({ code: 'INVALID_TRANSITION' });
-    expect((await traderOrderDetail(w.app, t.admin.userId, assigned.ref, w.traderDeps.protector)).order.stage).toBe('CHECKING_YOURS');
-    const recorded = await w.app.selectFrom('route_settlement').select(['id', 'status', 'flow']).where('ref', '=', claim.settlementRef).executeTakeFirstOrThrow();
-    expect(recorded).toMatchObject({ status: 'RECORDED', flow: 'FROM_ROUTE_TO_EXCHANGE' });
-    await seeOwnSender(w.app, w.finance, { routeSettlementId: recorded.id });
-    await runAs(w.app, confirmRouteSettlement(w.finance.actor, w.settlementDeps), w.finance.ref, 'route_settlement.confirm', { routeSettlementId: recorded.id });
-    expect(await reconcileOrderNow(w.app, assigned.orderId)).toBe('DELIVERED');
-    expect((await traderOrderDetail(w.app, t.admin.userId, assigned.ref, w.traderDeps.protector)).order.stage).toBe('INRP2P_SENDING');
-
-    // The exchange sends the trader the client's USDT — from the deposit address it arrived at, never from the
-    // treasury (D-16) — to the trader's registered wallet, and the chain confirms it.
-    const deposit = await clientDepositAddressOf(w, accepted.tradeId);
-    const fromTreasury = w.chain.add({ from: w.hotAddress, to: t.walletAddress, amountMinor: 1_000_000_000n });
-    await expect(runAs(w.app, recordRouteSettlement(w.finance.actor, w.settlementDeps), w.finance.ref, 'route_settlement.record', {
-      routeObligationId: obligation.id, flow: 'TO_ROUTE' as const, amount: '1000', txHash: fromTreasury.txHash, logIndex: 0, treasuryWalletId: w.treasuryWalletId,
-    })).rejects.toMatchObject({ code: 'FUNDING_LOCATION_MISMATCH' });
-    const sent = w.chain.add({ from: deposit.address, to: t.walletAddress, amountMinor: 1_000_000_000n });
-    const toTrader = await runAs(w.app, recordRouteSettlement(w.finance.actor, w.settlementDeps), w.finance.ref, 'route_settlement.record', {
-      routeObligationId: obligation.id, flow: 'TO_ROUTE' as const, amount: '1000', txHash: sent.txHash, logIndex: 0, sourceDepositAddressId: deposit.id,
-    });
-    await confirmOnChain(w);
-    expect((await w.app.selectFrom('route_settlement').select('status').where('id', '=', toTrader.routeSettlementId).executeTakeFirstOrThrow()).status).toBe('RECORDED');
-    await seeOwnSender(w.app, w.finance, { routeSettlementId: toTrader.routeSettlementId });
-    await runAs(w.app, confirmRouteSettlement(w.finance.actor, w.settlementDeps), w.finance.ref, 'route_settlement.confirm', { routeSettlementId: toTrader.routeSettlementId });
-    const sweep = await runTraderSweep(w.app);
-    expect(sweep.completed).toBe(1);
-
-    const done = await w.app.selectFrom('trader_order').select(['status', 'completed_at']).where('id', '=', assigned.orderId).executeTakeFirstOrThrow();
-    expect(done.status).toBe('COMPLETED');
-    const block = await w.app.selectFrom('trader_block').select(['capacity_minor', 'reserved_minor']).where('trader_id', '=', live.traderId).where('side', '=', 'BUY_USDT').executeTakeFirstOrThrow();
-    expect(block).toEqual({ capacity_minor: 50_000_000n - 10_470_000n, reserved_minor: 0n });
-    expect(await routeObligationBalances(w.app, obligation.id)).toEqual([]);
-    expect(await globalImbalance(w.app)).toEqual([]);
-    const accrual = await w.app.selectFrom('ledger_journal').select('posting_key').where('posting_key', '=', `trader_reward:${assigned.orderId}:accrue`).execute();
-    expect(accrual).toHaveLength(1);
-    expect(await runTraderSweep(w.app)).toMatchObject({ completed: 0 });
-
-    const home = await traderHome(w.app, t.admin.userId);
-    expect(home.earnings).toMatchObject({ available: '104.70', today: '104.70', completedOrders: 1, completedUsdt: '1000.000000', completedInr: '104700.00' });
-    // Nothing about the client on the other side reaches the trader.
-    const serialized = JSON.stringify([home, await traderOrderDetail(w.app, t.admin.userId, assigned.ref, w.traderDeps.protector)]);
-    expect(serialized).not.toMatch(/Acme|104\.2|IX-/);
-    await dispatch();
-    expect(await inbox(t.clientId)).toEqual(expect.arrayContaining(['TRADER_ORDER_ACCEPTED', 'TRADER_PAYMENT_CONFIRMED', 'TRADER_ORDER_COMPLETED']));
-
-    // The reward is paid from an exchange account against the accrued payable, once, after a step-up confirm — and only
-    // out of realized margin (D4): while the client is unpaid, the trader's INR at the collection account is principal.
-    const reward = (amount: string, inrAccountId: string) =>
-      runAs(w.app, recordRewardPayout(w.finance.actor), w.finance.ref, 'trader_reward.record_payout', { traderId: live.traderId, amount, inrAccountId, rail: 'IMPS' as const, utr: utr('RWD') });
-    await expect(reward('104.71', w.collectionAccountId)).rejects.toMatchObject({ code: 'TRADER_REWARD_EXCEEDS_PAYABLE' });
-    await expect(reward('104.70', w.collectionAccountId)).rejects.toMatchObject({ code: 'TRADER_REWARD_NOT_COVERED', details: { freeMargin: '0.00' } });
-    const clientLeg = await runAs(w.app, createPayoutLeg(w.settlementOp.actor, {}), w.settlementOp.ref, 'payout_leg.create', { tradeId: accepted.tradeId, amount: '104200.00', payer: 'EXCHANGE_ACCOUNT' as const, inrAccountId: w.collectionAccountId });
-    await runAs(w.app, sendPayoutLeg(w.settlementOp.actor), w.settlementOp.ref, 'payout_leg.send', { legId: clientLeg.legId });
-    await runAs(w.app, recordLegEvidence(w.settlementOp.actor, w.settlementDeps), w.settlementOp.ref, 'payout_leg.record_evidence', { legId: clientLeg.legId, rail: 'IMPS' as const, utr: utr('PO') });
-    expect((await confirmPayout(w.app, w.settlementOp.actor, w.settlementDeps, { legId: clientLeg.legId, idempotencyKey: randomUUID() })).completed).toBe(true);
-    // ₹500 of margin is now realized at the collection account — and none at an account the trade never touched.
-    await expect(reward('104.70', w.inrAccountId)).rejects.toMatchObject({ code: 'TRADER_REWARD_NOT_COVERED' });
-    const payout = await reward('104.70', w.collectionAccountId);
-    await runAs(w.app, confirmRewardPayout(w.finance.actor), w.finance.ref, 'trader_reward.confirm_payout', { payoutId: payout.payoutId });
-    expect((await traderHome(w.app, t.admin.userId)).earnings).toMatchObject({ available: '0.00', paidOut: '104.70' });
-    expect(await globalImbalance(w.app)).toEqual([]);
-  });
-});
-
-describe('a Sell USDT order, end to end', () => {
-  it('takes the trader’s USDT at the order’s own address, settled on chain finality, then pays its INR', async () => {
-    const t = await traderClient(w, 'Seller One');
-    const live = await liveTrader(w, t, { sell: { capacity: '5000', rate: '105.20', min: '100', max: '2500' } });
-    const requestId = await clientRequest(w, 'BUY_USDT', '500');
-    const trade = await tradeThroughTrader(w, t, { requestId, clientRate: '106.000000' });
-    await expect(runAs(w.app, orderDeliveryAddress(t.admin.actor, w.traderDeps), t.admin.ref, 'trader_order.delivery_address', { ref: trade.orderRef })).rejects.toMatchObject({ code: 'TRADER_ACTION_NOT_DUE' });
-    await settleFirstLeg(w, trade.tradeId);
-    const { address, amount } = await runAs(w.app, orderDeliveryAddress(t.admin.actor, w.traderDeps), t.admin.ref, 'trader_order.delivery_address', { ref: trade.orderRef });
-    expect(amount).toBe('500.000000');
-
-    // A stranger's USDT at the order address is not the trader's delivery.
-    const stray = await sendUsdt(w, w.clientSourceAddress, address, '5');
-    expect(stray.detected.exceptionId).toBeTruthy();
-    expect((await traderOrderDetail(w.app, t.admin.userId, trade.orderRef, w.traderDeps.protector)).order.stage).toBe('REVIEW');
-
-    await sendUsdt(w, t.walletAddress, address, '500');
-    const confirmed = await confirmOnChain(w);
-    expect(confirmed.routeSettled).toBe(1);
-    expect(await reconcileOrderNow(w.app, trade.orderId)).toBe('DELIVERED');
-
-    // INRP2P pays the trader its INR from an exchange account, against daily capacity, confirmed by a person.
-    const owed = await w.app.selectFrom('route_obligation').select('exchange_delivers_minor').where('id', '=', trade.routeObligationId).executeTakeFirstOrThrow();
-    expect(owed.exchange_delivers_minor).toBe(5_260_000n);
-    const toTrader = await runAs(w.app, recordRouteSettlement(w.finance.actor, w.settlementDeps), w.finance.ref, 'route_settlement.record', {
-      routeObligationId: trade.routeObligationId, flow: 'TO_ROUTE' as const, amount: '52600.00', rail: 'IMPS' as const, utr: utr('OUT'), inrAccountId: w.inrAccountId,
-    });
-    await seeOwnSender(w.app, w.finance, { routeSettlementId: toTrader.routeSettlementId });
-    await runAs(w.app, confirmRouteSettlement(w.finance.actor, w.settlementDeps), w.finance.ref, 'route_settlement.confirm', { routeSettlementId: toTrader.routeSettlementId });
-    expect(await reconcileOrderNow(w.app, trade.orderId)).toBe('COMPLETED');
-    const assignment = await w.app
-      .selectFrom('deposit_assignment as a')
-      .innerJoin('deposit_address as d', 'd.id', 'a.deposit_address_id')
-      .select(['a.release_reason', 'd.status'])
-      .where('a.route_obligation_id', '=', trade.routeObligationId)
-      .executeTakeFirstOrThrow();
-    expect(assignment).toEqual({ release_reason: 'OBLIGATION_SETTLED', status: 'COOLDOWN' });
-    const block = await w.app.selectFrom('trader_block').select(['capacity_minor', 'reserved_minor']).where('trader_id', '=', live.traderId).executeTakeFirstOrThrow();
-    expect(block).toEqual({ capacity_minor: 4_500_000_000n, reserved_minor: 0n });
-    expect(await globalImbalance(w.app)).toEqual([]);
-  });
-});
-
 describe('routing', () => {
   it('ranks by rate, re-routes a decline to the next trader, and never offers a trader its own request', async () => {
     const low = await traderClient(w, 'Rate Low');
@@ -332,7 +162,7 @@ describe('routing', () => {
     const lowLive = await liveTrader(w, low, { buy: { capacity: '1000000', rate: '104.10', min: '1000', max: '500000' } });
     const highLive = await liveTrader(w, high, { buy: { capacity: '1000000', rate: '104.90', min: '1000', max: '500000' } });
     const requestId = await clientRequest(w, 'SELL_USDT', '100');
-    const first = await runAs(w.app, assignRequest(w.dealer.actor), w.dealer.ref, 'trader_order.assign', { requestId });
+    const first = await runAs(w.app, assignRequest(w.dealer.actor), w.dealer.ref, 'trader_order.assign', { requestId, plannedClientRate: '100.000000' });
     const firstTrader = await w.app.selectFrom('trader_order').select('trader_id').where('id', '=', first.orderId).executeTakeFirstOrThrow();
     expect(firstTrader.trader_id).toBe(highLive.traderId);
     await runAs(w.app, declineOrder(high.admin.actor), high.admin.ref, 'trader_order.decline', { ref: first.ref, reason: 'Bank cut-off' });
@@ -347,7 +177,7 @@ describe('routing', () => {
     const t = await traderClient(w, 'Goes Offline');
     await liveTrader(w, t, { buy: { capacity: '1000000', rate: '120.00', min: '1', max: '1000000' } });
     const requestId = await clientRequest(w, 'SELL_USDT', '10');
-    const offered = await runAs(w.app, assignRequest(w.dealer.actor), w.dealer.ref, 'trader_order.assign', { requestId });
+    const offered = await runAs(w.app, assignRequest(w.dealer.actor), w.dealer.ref, 'trader_order.assign', { requestId, plannedClientRate: '100.000000' });
     await runAs(w.app, setAvailability(t.admin.actor), t.admin.ref, 'trader.set_availability', { available: false });
     expect((await w.app.selectFrom('trader_order').select('status').where('id', '=', offered.orderId).executeTakeFirstOrThrow()).status).toBe('WITHDRAWN');
     await dispatch();
@@ -365,9 +195,9 @@ describe('routing', () => {
     const t = await traderClient(w, 'Held Then Freed');
     const live = await liveTrader(w, t, { buy: { capacity: '1000000', rate: '130.00', min: '1', max: '1000000' } });
     const requestId = await clientRequest(w, 'SELL_USDT', '20');
-    const offered = await runAs(w.app, assignRequest(w.dealer.actor), w.dealer.ref, 'trader_order.assign', { requestId });
+    const offered = await runAs(w.app, assignRequest(w.dealer.actor), w.dealer.ref, 'trader_order.assign', { requestId, plannedClientRate: '100.000000' });
     await runAs(w.app, acceptOrder(t.admin.actor), t.admin.ref, 'trader_order.accept', { ref: offered.ref });
-    expect((await w.app.selectFrom('trader_block').select('reserved_minor').where('trader_id', '=', live.traderId).executeTakeFirstOrThrow()).reserved_minor).toBe(260_000n);
+    expect((await w.app.selectFrom('trader_block').select('reserved_minor').where('trader_id', '=', live.traderId).executeTakeFirstOrThrow()).reserved_minor).toBe(200_000n);
     await runAs(w.app, declineRequest(w.dealer.actor), w.dealer.ref, 'request.decline', { requestId, reason: 'client withdrew by phone' });
     expect((await w.app.selectFrom('trader_order').select('status').where('id', '=', offered.orderId).executeTakeFirstOrThrow()).status).toBe('RELEASED');
     expect((await w.app.selectFrom('trader_block').select('reserved_minor').where('trader_id', '=', live.traderId).executeTakeFirstOrThrow()).reserved_minor).toBe(0n);
@@ -377,7 +207,7 @@ describe('routing', () => {
     const t = await traderClient(w, 'Hold Ends');
     const live = await liveTrader(w, t, { buy: { capacity: '1000000', rate: '140.00', min: '1', max: '1000000' } });
     const requestId = await clientRequest(w, 'SELL_USDT', '30');
-    const offered = await runAs(w.app, assignRequest(w.dealer.actor), w.dealer.ref, 'trader_order.assign', { requestId });
+    const offered = await runAs(w.app, assignRequest(w.dealer.actor), w.dealer.ref, 'trader_order.assign', { requestId, plannedClientRate: '139.000000' });
     await runAs(w.app, acceptOrder(t.admin.actor), t.admin.ref, 'trader_order.accept', { ref: offered.ref });
     const order = await w.app.selectFrom('trader_order').select(['hold_until', 'route_id']).where('id', '=', offered.orderId).executeTakeFirstOrThrow();
     const quote = await runAs(w.app, createQuote(w.dealer.actor, {}), w.dealer.ref, 'quote.create', { requestId, routeId: order.route_id, clientRate: '139.000000', validitySeconds: 1800 });
@@ -397,7 +227,7 @@ describe('operator controls', () => {
     const t = await traderClient(w, 'Controlled');
     const live = await liveTrader(w, t, { buy: { capacity: '1000000', rate: '150.00', min: '1', max: '1000000' } });
     const requestId = await clientRequest(w, 'SELL_USDT', '40');
-    const offered = await runAs(w.app, assignRequest(w.dealer.actor), w.dealer.ref, 'trader_order.assign', { requestId });
+    const offered = await runAs(w.app, assignRequest(w.dealer.actor), w.dealer.ref, 'trader_order.assign', { requestId, plannedClientRate: '100.000000' });
     await runAs(w.app, pauseTrader(w.dealer.actor), w.dealer.ref, 'trader.pause', { traderId: live.traderId, reason: 'Bank statement review' });
     expect((await w.app.selectFrom('trader_order').select('status').where('id', '=', offered.orderId).executeTakeFirstOrThrow()).status).toBe('WITHDRAWN');
     const home = await traderHome(w.app, t.admin.userId);

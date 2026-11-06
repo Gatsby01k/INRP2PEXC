@@ -6,7 +6,7 @@ import { Button, StepUpMark } from '@inrp2p/ui';
 import { shortenHash } from '@inrp2p/ui/format';
 import { useCommand } from '../../../../components/useCommand.tsx';
 import {
-  approveReserveApplicationAction, cancelReserveApplicationAction, confirmWithdrawalAction, endReserveApplicationAction, recordReserveApplicationSentAction, recordWithdrawalSentAction, rejectReserveApplicationAction, rejectWithdrawalAction, requestReserveApplicationAction,
+  approveReserveApplicationAction, cancelReserveApplicationAction, confirmWithdrawalAction, endReserveApplicationAction, recordWithdrawalSentAction, rejectReserveApplicationAction, rejectWithdrawalAction, requestReserveApplicationAction,
 } from '../../../../server/actions/traders-desk.ts';
 import { GuardedAction } from '../../_desk/GuardedAction.tsx';
 import { AmountField, SelectField, TextArea, TextField } from '../../_desk/fields.tsx';
@@ -78,7 +78,7 @@ function ReserveApplications({ detail, perms }: { detail: DeskTraderDetail; perm
   const [reason, setReason] = useState('');
   const step = <StepUpMark label="needs your authenticator code" />;
   const order = orders.find((o) => o.orderId === orderId);
-  const holding = order?.kind === 'HOLD';
+  const holding = true;
   if (detail.applications.length === 0 && (orders.length === 0 || !perms.applyReserve)) return null;
   return (
     <Section title="Reserve applied or held" count={detail.applications.length} hint="Only for the trader’s own undelivered orders; asked by one person, approved by another.">
@@ -156,15 +156,6 @@ function Application({ a, perms, reserveAddress }: { a: DeskTraderDetail['applic
       </div>
       <Notice>{a.reason}</Notice>
       {a.closeReason && a.status !== 'COMPLETED' ? <Notice>{a.closeReason}</Notice> : null}
-      {a.status === 'APPROVED' && a.kind === 'APPLY' && a.deliveryAddress ? (
-        <KeyValues
-          items={[
-            { label: 'Custody sends', value: usdt(a.amount, { exact: true }), strong: true },
-            { label: 'From', value: <span className={d.mono}>{reserveAddress ?? 'the reserve address'} (or a treasury wallet)</span> },
-            { label: 'To the order’s address', value: <span className={d.mono}>{a.deliveryAddress}</span> },
-          ]}
-        />
-      ) : null}
       {a.status === 'REQUESTED' ? (
         mine ? (
           <div className={d.actions}>
@@ -199,16 +190,6 @@ function Application({ a, perms, reserveAddress }: { a: DeskTraderDetail['applic
       ) : null}
       {a.status === 'APPROVED' ? (
         <div className={d.stackTight}>
-          {perms.record && a.kind === 'APPLY' ? (
-            <>
-              <TextField label="Transaction hash (custody sent it)" value={tx} onChange={setTx} mono />
-              <div className={d.actions}>
-                <Button size="sm" disabled={cmd.busy || tx.trim().length < 10} onClick={() => cmd.run(`Record ${a.ref} as sent`, (key) => recordReserveApplicationSentAction({ applicationId: a.applicationId, txHash: tx.trim() }, key))}>
-                  Record sent
-                </Button>
-              </div>
-            </>
-          ) : null}
           {perms.approveReserve ? (
             <div className={d.actions}>
               <GuardedAction

@@ -370,10 +370,9 @@ export interface DeskTraderDetail {
   /** The reserve applied to USDT the trader's own orders did not deliver (TD-21), newest first. */
   readonly applications: readonly DeskReserveApplication[];
   /**
-   * Started orders whose trader side is due and not delivered or on its way: a Sell USDT order's USDT, where the reserve
-   * may be applied, or a Buy USDT order's INR, against which it may only be held.
+   * Started orders whose rupees are due and not paid: the reserve may be held against them.
    */
-  readonly applicableOrders: readonly { orderId: string; ref: string; kind: 'APPLY' | 'HOLD'; owed: string; owedAsset: 'USDT' | 'INR' }[];
+  readonly applicableOrders: readonly { orderId: string; ref: string; kind: 'HOLD'; owed: string; owedAsset: 'INR' }[];
   readonly earnings: { readonly completedUsdt: string; readonly completedInr: string };
   readonly orders: readonly DeskOrderRow[];
   readonly decisions: readonly { at: string; action: string; actor: string | null; detail: string }[];
@@ -458,7 +457,7 @@ export async function deskTrader(ex: Executor, traderId: string): Promise<DeskTr
   const applicable = await sql<{ id: string; ref: string; side: TraderSide; owed: string }>`
     select o.id, o.ref, o.side, inrp2p_route_delivery_open(o.route_obligation_id)::text as owed
       from trader_order o join trade t on t.id = o.trade_id
-     where o.trader_id = ${id} and o.status = 'IN_PROGRESS'
+     where o.trader_id = ${id} and o.status = 'IN_PROGRESS' and o.side = 'BUY_USDT'
        and t.lifecycle_state in ('FIRST_LEG_CONFIRMED', 'SETTLING', 'PARTIALLY_SETTLED')
        and inrp2p_route_delivery_open(o.route_obligation_id) > 0
        and not exists (select 1 from trader_reserve_application a where a.trader_order_id = o.id and a.status in ('REQUESTED', 'APPROVED', 'SENT'))
@@ -540,10 +539,7 @@ export async function deskTrader(ex: Executor, traderId: string): Promise<DeskTr
       requestedByLabel: a.requested_by_label ?? 'an operator', requestedAt: a.requested_at.toISOString(), decidedByLabel: a.decided_by_label, closeReason: a.close_reason,
       deliveryAddress: a.delivery_address, txHash: a.tx_hash,
     })),
-    applicableOrders: applicable.rows.map((o) => {
-      const usdtSide = o.side === 'SELL_USDT';
-      return { orderId: o.id, ref: o.ref, kind: usdtSide ? ('APPLY' as const) : ('HOLD' as const), owed: usdtSide ? usdt(BigInt(o.owed)) : inr(BigInt(o.owed)), owedAsset: usdtSide ? ('USDT' as const) : ('INR' as const) };
-    }),
+    applicableOrders: applicable.rows.map((o) => ({ orderId: o.id, ref: o.ref, kind: 'HOLD' as const, owed: inr(BigInt(o.owed)), owedAsset: 'INR' as const })),
     earnings: { completedUsdt: e.completedUsdt, completedInr: e.completedInr },
     orders: await deskOrderRows(ex, { traderId: id }, 100),
     decisions: decisions.map((d) => ({ at: d.at.toISOString(), action: d.action, actor: d.actor_id, detail: summarizeAudit(d.after) })),

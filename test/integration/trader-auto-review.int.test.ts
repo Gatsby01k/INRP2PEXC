@@ -227,7 +227,7 @@ describe('a trader deals within what its reserve and record allow', () => {
   });
   const offer = async (amount: string) => {
     const requestId = await clientRequest(w, 'BUY_USDT', amount);
-    return runAs(w.app, assignRequest(w.dealer.actor), w.dealer.ref, 'trader_order.assign', { requestId });
+    return runAs(w.app, assignRequest(w.dealer.actor), w.dealer.ref, 'trader_order.assign', { requestId, plannedClientRate: '97.000000' });
   };
   const accept = (ref: string) => runAs(w.app, acceptOrder(t.admin.actor), t.admin.ref, 'trader_order.accept', { ref });
 
