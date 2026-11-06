@@ -8,7 +8,7 @@ import { createTestClientLogin, createTestOperator, runAs, type TestOperator } f
 import { addBankAccount, addWallet, createClient, linkClientUser, setCanAcceptQuotes } from '@inrp2p/clients';
 import { runTronConfirm } from '@inrp2p/scanner';
 import { submitTxForVerification } from '@inrp2p/settlement';
-import { acceptOrder, applyAsTrader, approveTrader, assignRequest, setAvailability, sharedReserveAddress, updateBlock } from '@inrp2p/traders';
+import { acceptOrder, applyAsTrader, approveTrader, assignRequest, configureTraderProgram, setAvailability, sharedReserveAddress, updateBlock } from '@inrp2p/traders';
 import { importPoolAddresses, recordCustodyCapability, registerTreasuryWallet } from '@inrp2p/treasury';
 import { fundBudget, seedNetworkCosts } from '@inrp2p/network/testing';
 import type { QuoteDeps } from '../src/index.ts';
@@ -140,6 +140,9 @@ export function scenarioTrader(s: Scenario): Promise<ScenarioTrader> {
 }
 
 async function makeTrader(s: Scenario): Promise<ScenarioTrader> {
+  // The reserve-based limits (ADR 0024) have their own suite; a world about something else deals any amount.
+  const program = await s.app.selectFrom('trader_program').select('version').where('id', '=', 1).executeTakeFirstOrThrow();
+  await runAs(s.app, configureTraderProgram(s.finance.actor), s.finance.ref, 'trader_program.configure', { expectedVersion: program.version, riskPolicy: null, reason: 'test programme' });
   const holderName = 'Konkan Desk LLP';
   const client = await runAs(s.app, createClient(s.dealer.actor), s.dealer.ref, 'client.create', { legalName: holderName, displayName: 'Konkan Desk', type: 'COMPANY' as const, typicalDirection: 'SELL_USDT' as const });
   const bank = await runAs(s.app, addBankAccount(s.owner.actor, s.deps.protector), s.owner.ref, 'client_bank.add', {
@@ -164,7 +167,7 @@ async function makeTrader(s: Scenario): Promise<ScenarioTrader> {
   await runTronConfirm(s.app, { chain: s.chain, providers: [] });
   for (const [side, capacity, rate] of [['BUY_USDT', '1000000000', TRADER_BUYS_AT], ['SELL_USDT', '10000000', TRADER_SELLS_AT]] as const) {
     const block = await s.app.selectFrom('trader_block').select('version').where('trader_id', '=', profile.id).where('side', '=', side).executeTakeFirstOrThrow();
-    await runAs(s.app, updateBlock(admin.actor), admin.ref, 'trader.update_block', { side, expectedVersion: block.version, capacity, rate, minOrder: '1', maxOrder: capacity });
+    await runAs(s.app, updateBlock(admin.actor), admin.ref, 'trader.update_block', { side, expectedVersion: block.version, capacity, rate, minOrder: '1', maxOrder: capacity, status: 'ACTIVE' as const });
   }
   await runAs(s.app, setAvailability(admin.actor), admin.ref, 'trader.set_availability', { available: true });
   return { traderId: profile.id, clientId: client.clientId, bankAccountId: bank.bankAccountId, walletId: wallet.walletId, walletAddress, admin, holderName };
@@ -176,6 +179,8 @@ async function makeTrader(s: Scenario): Promise<ScenarioTrader> {
  */
 export async function routeToTrader(s: Scenario, requestId: string, clientRate: string): Promise<{ routeId: string; orderId: string; orderRef: string }> {
   const trader = await scenarioTrader(s);
+  const held = await s.app.selectFrom('trader_order').select(['id', 'ref', 'route_id']).where('trade_request_id', '=', requestId).where('status', '=', 'ACCEPTED').executeTakeFirst();
+  if (held) return { routeId: held.route_id, orderId: held.id, orderRef: held.ref };
   const assigned = await runAs(s.app, assignRequest(s.dealer.actor), s.dealer.ref, 'trader_order.assign', { requestId, plannedClientRate: clientRate });
   await runAs(s.app, acceptOrder(trader.admin.actor), trader.admin.ref, 'trader_order.accept', { ref: assigned.ref });
   const order = await s.app.selectFrom('trader_order').select(['id', 'route_id']).where('ref', '=', assigned.ref).executeTakeFirstOrThrow();

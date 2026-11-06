@@ -5,7 +5,7 @@ import { NotificationDeliveryError, type OtpEmail } from '@inrp2p/adapters';
 import { dispatchOutbox } from '@inrp2p/outbox';
 import { runAs } from '@inrp2p/identity/testing';
 import { acceptanceCodeHandler, createQuote, createRequest, deliverAcceptanceCode, requestLinkOtp, sendQuote } from '../src/index.ts';
-import { createScenario, ipHash, type Scenario } from './scenario.ts';
+import { createScenario, ipHash, routeToTrader, type Scenario } from './scenario.ts';
 
 /**
  * E1 (TD-04): an acceptance code is sent once, only while its challenge is open and unexpired, and a provider that
@@ -19,7 +19,8 @@ afterAll(async () => s.close());
 
 async function linkedQuote(): Promise<string> {
   const r = await runAs(s.app, createRequest(s.dealer.actor, {}), s.dealer.ref, 'request.create', { clientId: s.clientId, direction: 'SELL_USDT' as const, fixedSide: 'BASE' as const, amount: '1000', bankAccountId: s.bankAccountId });
-  const q = await runAs(s.app, createQuote(s.dealer.actor, {}), s.dealer.ref, 'quote.create', { requestId: r.requestId, routeId: s.routeId, clientRate: '92.000000', validitySeconds: 300 });
+  const { routeId } = await routeToTrader(s, r.requestId, '102.000000');
+  const q = await runAs(s.app, createQuote(s.dealer.actor, {}), s.dealer.ref, 'quote.create', { requestId: r.requestId, routeId, clientRate: '102.000000', validitySeconds: 300 });
   let token: string | null = null;
   await runAs(s.app, sendQuote(s.dealer.actor, {}, (x) => { token = x; }), s.dealer.ref, 'quote.send', { quoteId: q.quoteId, withLink: true });
   return token!;

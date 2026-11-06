@@ -6,12 +6,12 @@ import { FakeNotificationAdapter } from '@inrp2p/adapters/testing';
 import { dispatchOutbox, type OutboxHandler } from '@inrp2p/outbox';
 import { archiveBankAccount } from '@inrp2p/clients';
 import { runAs } from '@inrp2p/identity/testing';
-import { publishRouteRate } from '@inrp2p/pricing';
 import {
   acceptQuote, acceptQuoteViaLink, acceptanceCodeHandler, assertClientSafe, createQuote, createRequest, deliverAcceptanceCode, rejectQuote,
   rejectQuoteViaLink, requestLinkOtp, sendQuote, viewQuoteLink,
 } from '../src/index.ts';
-import { createScenario, ipHash, useExchangeExecution, type ClientPerson, type Scenario } from './scenario.ts';
+import { updateBlock } from '@inrp2p/traders';
+import { TRADER_BUYS_AT, createScenario, ipHash, routeToTrader, scenarioTrader, type ClientPerson, type Scenario } from './scenario.ts';
 
 let s: Scenario;
 let mail: FakeNotificationAdapter;
@@ -41,9 +41,9 @@ async function liveQuote(opts: { direction?: 'SELL_USDT' | 'BUY_USDT'; validityS
     clientId: sc.clientId, direction, fixedSide: 'BASE' as const, amount: '1000',
     ...(direction === 'SELL_USDT' ? { bankAccountId: sc.bankAccountId } : { walletId: sc.walletId }),
   });
-  const q = await runAs(sc.app, createQuote(sc.dealer.actor, {}), sc.dealer.ref, 'quote.create', {
-    requestId: r.requestId, routeId: sc.routeId, clientRate: opts.clientRate ?? (direction === 'SELL_USDT' ? '92.000000' : '94.000000'), validitySeconds: opts.validitySeconds ?? 300,
-  });
+  const clientRate = opts.clientRate ?? (direction === 'SELL_USDT' ? '102.000000' : '106.000000');
+  const { routeId } = await routeToTrader(sc, r.requestId, clientRate);
+  const q = await runAs(sc.app, createQuote(sc.dealer.actor, {}), sc.dealer.ref, 'quote.create', { requestId: r.requestId, routeId, clientRate, validitySeconds: opts.validitySeconds ?? 300 });
   let token: string | null = null;
   await runAs(sc.app, sendQuote(sc.dealer.actor, {}, (x) => { token = x; }), sc.dealer.ref, 'quote.send', { quoteId: q.quoteId, withLink: true });
   return { requestId: r.requestId, quoteId: q.quoteId, token: token! };
@@ -234,7 +234,8 @@ describe('quote decisions (STATE_MACHINES §2, FI-04..FI-07)', () => {
 
   it('exit: a superseded, cancelled or rejected quote can never be accepted', async () => {
     const link = await liveQuote();
-    const replacement = await runAs(s.app, createQuote(s.dealer.actor, {}), s.dealer.ref, 'quote.create', { requestId: link.requestId, routeId: s.routeId, clientRate: '92.250000', validitySeconds: 300 });
+    const { routeId } = await routeToTrader(s, link.requestId, '102.000000');
+    const replacement = await runAs(s.app, createQuote(s.dealer.actor, {}), s.dealer.ref, 'quote.create', { requestId: link.requestId, routeId, clientRate: '102.000000', validitySeconds: 300 });
     await runAs(s.app, sendQuote(s.dealer.actor, {}), s.dealer.ref, 'quote.send', { quoteId: replacement.quoteId });
     await expect(accept(s.app, link.quoteId)).rejects.toMatchObject({ code: 'QUOTE_NOT_SENT' });
 
@@ -288,8 +289,8 @@ describe('trade opening (T1, FI-03, FI-33, D-02)', () => {
     expect({ base: econ.base_minor, inr: econ.quote_inr_minor, rate: econ.client_rate_micro, route: econ.route_value_inr_minor, margin: econ.gross_margin_inr_minor })
       .toEqual({ base: quote.base_minor, inr: quote.quote_inr_minor, rate: quote.client_rate_micro, route: quote.route_value_inr_minor, margin: quote.gross_margin_inr_minor });
     const obligation = await s.app.selectFrom('route_obligation').selectAll().where('trade_id', '=', result.tradeId).executeTakeFirstOrThrow();
-    // SELL: the exchange delivers the client's USDT to the route, the route delivers the route INR value.
-    expect(obligation).toMatchObject({ status: 'OPEN', direction: 'SELL_USDT', exchange_delivers_asset: 'USDT', exchange_delivers_minor: econ.base_minor, route_delivers_asset: 'INR', route_delivers_minor: econ.route_value_inr_minor, execution_mode: 'DIRECT_TO_CLIENT' });
+    // SELL: the escrow delivers the trader its USDT, the trader delivers the client its rupees (ADR 0019).
+    expect(obligation).toMatchObject({ status: 'OPEN', direction: 'SELL_USDT', exchange_delivers_asset: 'USDT', exchange_delivers_minor: econ.route_base_minor, route_delivers_asset: 'INR', route_delivers_minor: econ.route_value_inr_minor, execution_mode: 'P2P' });
 
     const entries = await s.app
       .selectFrom('ledger_entry as e')
@@ -315,20 +316,25 @@ describe('trade opening (T1, FI-03, FI-33, D-02)', () => {
     const link = await liveQuote();
     const result = await runAs(s.app, acceptQuote(s.acceptor.actor, s.deps), s.acceptor.ref, 'quote.accept', { quoteId: link.quoteId });
     const before = await s.app.selectFrom('trade_economics').selectAll().where('trade_id', '=', result.tradeId).executeTakeFirstOrThrow();
-    await runAs(s.app, publishRouteRate(s.dealer.actor), s.dealer.ref, 'rates.publish_route', { routeId: s.routeId, direction: 'SELL_USDT' as const, rate: '80.000000' });
+    const setRate = async (rate: string) => {
+      const trader = await scenarioTrader(s);
+      const block = await s.app.selectFrom('trader_block').select(['version', 'capacity_minor']).where('trader_id', '=', trader.traderId).where('side', '=', 'BUY_USDT').executeTakeFirstOrThrow();
+      await runAs(s.app, updateBlock(trader.admin.actor), trader.admin.ref, 'trader.update_block', { side: 'BUY_USDT' as const, expectedVersion: block.version, capacity: '1000000000', rate, minOrder: '1', maxOrder: '1000000000', status: 'ACTIVE' as const });
+    };
+    await setRate('95.000000');
     const after = await s.app.selectFrom('trade_economics').selectAll().where('trade_id', '=', result.tradeId).executeTakeFirstOrThrow();
     expect(after).toEqual(before);
-    await runAs(s.app, publishRouteRate(s.dealer.actor), s.dealer.ref, 'rates.publish_route', { routeId: s.routeId, direction: 'SELL_USDT' as const, rate: '92.500000' });
+    await setRate(TRADER_BUYS_AT);
   });
 
-  it('a BUY trade on a TO_EXCHANGE route is accepted with no platform USDT and reserves none (D-16, FI-71)', async () => {
+  it('a BUY deal is accepted with no platform USDT and reserves none (D-16, FI-71)', async () => {
     const buy = await createScenario('quotes_buy_exchange');
     try {
-      await useExchangeExecution(buy);
       // The exchange's own wallets hold nothing at all.
       expect(await buy.app.selectFrom('treasury_wallet').select('observed_balance_minor').where('observed_balance_minor', '>', 0n).execute()).toEqual([]);
       const r = await runAs(buy.app, createRequest(buy.dealer.actor, {}), buy.dealer.ref, 'request.create', { clientId: buy.clientId, direction: 'BUY_USDT' as const, fixedSide: 'BASE' as const, amount: '1000', walletId: buy.walletId });
-      const q = await runAs(buy.app, createQuote(buy.dealer.actor, {}), buy.dealer.ref, 'quote.create', { requestId: r.requestId, routeId: buy.routeId, clientRate: '94.000000', validitySeconds: 300 });
+      const { routeId } = await routeToTrader(buy, r.requestId, '106.000000');
+      const q = await runAs(buy.app, createQuote(buy.dealer.actor, {}), buy.dealer.ref, 'quote.create', { requestId: r.requestId, routeId, clientRate: '106.000000', validitySeconds: 300 });
       await runAs(buy.app, sendQuote(buy.dealer.actor, {}), buy.dealer.ref, 'quote.send', { quoteId: q.quoteId });
       const accepted = await runAs(buy.app, acceptQuote(buy.acceptor.actor, buy.deps), buy.acceptor.ref, 'quote.accept', { quoteId: q.quoteId });
       expect(await buy.app.selectFrom('treasury_reservation').select('id').where('trade_id', '=', accepted.tradeId).execute()).toEqual([]);
@@ -339,7 +345,7 @@ describe('trade opening (T1, FI-03, FI-33, D-02)', () => {
         .rejects.toSatisfy((e) => pgErrorCode(e) === 'IX083');
       // …and it never makes a legacy trade again (IX082), not even through a privileged connection.
       await expect(sql`insert into trade_funding (trade_id, model) values (${accepted.tradeId}, 'LEGACY_EXCHANGE_FUNDED')`.execute(buy.t.owner)).rejects.toSatisfy((e) => pgErrorCode(e) === 'IX082' || pgErrorCode(e) === '23505');
-      // BUY has no deposit address: the client receives USDT, it does not send any.
+      // A client buying sends no USDT, so no deposit address is its own: the trader's escrow is the order's.
       expect(await buy.app.selectFrom('deposit_assignment').select('id').where('trade_id', '=', accepted.tradeId).execute()).toEqual([]);
       expect(accepted.trade.depositInstructions).toBeNull();
     } finally {

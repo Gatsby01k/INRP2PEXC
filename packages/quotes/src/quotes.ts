@@ -187,9 +187,9 @@ export function sendQuote(actor: OperatorActor, deps: Pick<QuoteDeps, 'policy'>,
     const ageSeconds = (BigInt(now.getTime()) - BigInt(snapshot.effective_at.getTime())) / 1000n;
     if (ageSeconds > BigInt(policy.maxSnapshotAgeSeconds)) throw new DomainError('ROUTE_RATE_STALE', `route snapshot is ${ageSeconds}s old; refresh the rate`);
     const route = await requireUsableRoute(ctx.tx, quote.route_id, quote.direction);
-    if (route.traderId) await requireOrderForQuote(ctx, { requestId: request.id, routeId: route.id });
-
+    // The quote this one replaces first, then the order behind them: the global lock order has quotes before orders.
     const superseded = await cancelSentQuoteOfRequest(ctx, request.id, 'SUPERSEDED');
+    await requireOrderForQuote(ctx, { requestId: request.id, routeId: route.id });
     const expiresAt = new Date(now.getTime() + quote.valid_for_seconds * 1000);
     await ctx.tx
       .updateTable('quote')
@@ -289,21 +289,4 @@ export async function reopenRequest(ctx: TxContext, requestId: string): Promise<
   if (otherSent) return;
   await ctx.tx.updateTable('trade_request').set({ status: 'OPEN', last_activity_at: sql<Date>`inrp2p_now()`, version: r.version + 1 }).where('id', '=', requestId).execute();
   await enqueueOutbox(ctx, { type: 'desk.request_needs_action', aggregateType: 'trade_request', aggregateId: requestId, payload: { requestId } });
-}
-
-/**
- * The client rate at which a quote would leave exactly `needInrMinor` beyond the route's value — the rate a dealer can
- * quote at most (a client selling USDT) or at least (a client buying it). Rounded so that quoting it is never a loss.
- */
-export function breakEvenClientRate(direction: 'SELL_USDT' | 'BUY_USDT', baseMinor: bigint, routeInrMinor: bigint, needInrMinor: bigint): string | null {
-  if (baseMinor <= 0n) return null;
-  // inr_minor = base_minor × rate_micro / 10¹⁰ (FINANCIAL_INVARIANTS §1.2) ⇒ rate_micro = inr_minor × 10¹⁰ / base_minor.
-  const scale = 10_000_000_000n;
-  if (direction === 'SELL_USDT') {
-    const room = routeInrMinor - needInrMinor;
-    if (room <= 0n) return null;
-    return Rate.ofMicro((room * scale) / baseMinor || 1n, 'CLIENT').toDecimalString();
-  }
-  const total = routeInrMinor + needInrMinor;
-  return Rate.ofMicro((total * scale + baseMinor - 1n) / baseMinor, 'CLIENT').toDecimalString();
 }
