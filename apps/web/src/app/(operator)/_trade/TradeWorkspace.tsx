@@ -5,36 +5,30 @@ import { Icon } from '../_desk/icons.tsx';
 import { Notice } from '../_desk/ui.tsx';
 import { CaseCard } from './Cases.tsx';
 import { DeskDealChat } from './DealChat.tsx';
-import { ClientFunds, type CollectionAccount } from './ClientFunds.tsx';
 import { Destination } from './Destination.tsx';
 import { TradeNetwork } from './Network.tsx';
 import { P2pMoney } from './P2pMoney.tsx';
 import { P2pPayment } from './P2pPayment.tsx';
-import { Payouts } from './Payouts.tsx';
 import { Economics, Headline, Stages } from './Summary.tsx';
 import type { TradePerms } from './types.ts';
 import d from '../_desk/desk.module.css';
 
 /**
- * One trade, worked from the desk's side panel: what was agreed, how far it has got, and the blocks that move it —
- * ordered by what the trade needs next. A trade on hold leads with its case (nothing else can move until it is
- * resolved); one waiting for the client leads with the client's funds; one being paid leads with the payout.
+ * One deal, from the desk's side panel: what was agreed, how far it has got, and what INRP2P can still do about it. A
+ * deal moves by its client, its trader and the chain; a person steps in on a dispute, a case or a refund.
  */
 export function TradeWorkspace({
   trade,
   perms,
   focus,
-  collectionAccounts,
   record,
 }: {
   trade: DeskTrade;
   perms: TradePerms;
   focus?: string;
-  collectionAccounts: readonly CollectionAccount[];
   /** On the full record the headline is in the page header; in the panel it leads. */
   record?: boolean;
 }) {
-  const waitingForClient = trade.lifecycle === 'AWAITING_FIRST_LEG' || trade.lifecycle === 'FIRST_LEG_DETECTED';
   const cases =
     trade.cases.length > 0 ? (
       <PanelSection title="Exceptions" aside={`${trade.cases.length} open`} testId="exceptions">
@@ -45,8 +39,6 @@ export function TradeWorkspace({
         </div>
       </PanelSection>
     ) : null;
-  const funds = <ClientFunds trade={trade} perms={perms} collectionAccounts={collectionAccounts} />;
-  const payouts = <Payouts trade={trade} perms={perms} {...(focus ? { focus } : {})} />;
 
   return (
     <div className={d.stack} data-testid="trade-workspace">
@@ -63,19 +55,7 @@ export function TradeWorkspace({
       <DeskDealChat trade={trade} perms={perms} />
       {focus === 'exception' || trade.hold ? cases : null}
       {trade.lifecycle !== 'COMPLETED' && trade.lifecycle !== 'CANCELLED' ? <Destination trade={trade} perms={perms} /> : null}
-      {trade.settlesP2p ? (
-        <P2pMoney trade={trade} />
-      ) : waitingForClient ? (
-        <>
-          {funds}
-          {payouts}
-        </>
-      ) : (
-        <>
-          {payouts}
-          {funds}
-        </>
-      )}
+      <P2pMoney trade={trade} />
       <TradeNetwork trade={trade} perms={perms} />
       {focus === 'exception' || trade.hold ? null : cases}
       {record ? null : (

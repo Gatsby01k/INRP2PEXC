@@ -1,15 +1,14 @@
 import { DomainError, Money, Rate, formatTrx, inrToUsdt, trxToInrMinor, trxToUsdtMinor, usdtToInr } from '@inrp2p/kernel';
 import type { Executor, TxContext } from '@inrp2p/db';
-import { quoteFeeSun, reservePerSendSun, reserveSends } from './estimate.ts';
+import { quoteFeeSun, reservePerSendSun } from './estimate.ts';
 import { currentNetworkCosts } from './policy.ts';
 import type { UsdtNetworkTerms } from './gasfree.ts';
 
 /**
- * What a quote leaves the exchange (ADR 0017 §1, FI-90): its gross margin, less the reward the trader is paid on it,
- * less the network fee of its transfer — the TRX the exchange's signer will burn, valued at the quote's own rate. The
- * client's price is the client rate; the network fee and the reward are inside it, never added on top, so what the
- * client pays and what it receives are exactly the quoted amounts. A quote that does not leave at least the policy's
- * minimum net margin is never sent, and so never accepted.
+ * What a quote leaves the exchange (ADR 0017 §1, ADR 0019, FI-90): the USDT between the client's amount and its trader's,
+ * less the network its escrow carries. The client's price is the client rate; the network is inside it, never added on
+ * top, so what the client pays and what it receives are exactly the quoted amounts. A quote that does not leave at least
+ * the policy's minimum net margin is never sent, and so never accepted.
  */
 export interface NetworkPricing {
   readonly funderTraderId: string | null;
@@ -21,18 +20,16 @@ export interface NetworkPricing {
   readonly sendsPriced: number;
   readonly feeSun: bigint;
   readonly feeInrMinor: bigint;
-  readonly rewardInrMinor: bigint;
-  /** The trader order whose reward is counted, and its basis points — frozen with the quote (IX113). */
-  readonly traderOrderId: string | null;
-  readonly rewardBps: number | null;
+  /** The trader order the quote prices — frozen with it (IX113). */
+  readonly traderOrderId: string;
   readonly grossMarginInrMinor: bigint;
   readonly netMarginInrMinor: bigint;
   readonly minNetMarginInrMinor: bigint;
   readonly reserveSends: number;
   readonly perSendSun: bigint;
   readonly reserveSun: bigint | null;
-  /** P2P (ADR 0019): what the quote leaves in USDT — its margin is USDT, the route's trader pays the TRX, no reward is counted. */
-  readonly p2p?: { readonly grossMarginBaseMinor: bigint; readonly feeUsdtMinor: bigint; readonly netMarginUsdtMinor: bigint; readonly minNetMarginUsdtMinor: bigint };
+  /** What the quote leaves in USDT — its margin is USDT (ADR 0019). */
+  readonly p2p: { readonly grossMarginBaseMinor: bigint; readonly feeUsdtMinor: bigint; readonly netMarginUsdtMinor: bigint; readonly minNetMarginUsdtMinor: bigint };
   /** ADR 0022: the network priced in USDT at GasFree's fees — per transfer and per activation, as read. */
   readonly usdt?: { readonly readingId: string; readonly transferFeeMinor: bigint; readonly activateFeeMinor: bigint };
 }
@@ -40,7 +37,7 @@ export interface NetworkPricing {
 /**
  * A P2P quote whose network is priced in USDT (ADR 0022 §2.2, FI-101), from its terms and its economics: the escrow carries
  * `dealFunded` of the allowance — in a desk's USDT side, or out of INRP2P's own margin — so the platform's net margin is the
- * gross USDT margin less it, and it must still be the policy's minimum. No trader reward is counted.
+ * gross USDT margin less it, and it must still be the policy's minimum.
  */
 export function pricingOfUsdtTerms(terms: UsdtNetworkTerms, input: { direction: 'SELL_USDT' | 'BUY_USDT'; clientRateMicro: bigint; grossMarginBaseMinor: bigint; traderOrderId: string }): NetworkPricing {
   const rate = Rate.ofMicro(input.clientRateMicro, 'CLIENT');
@@ -58,9 +55,7 @@ export function pricingOfUsdtTerms(terms: UsdtNetworkTerms, input: { direction: 
     sendsPriced: 2,
     feeSun: 0n,
     feeInrMinor: usdtToInr(Money.ofMinor(terms.allowanceUsdtMinor, 'USDT'), rate, 'UP').minor,
-    rewardInrMinor: 0n,
     traderOrderId: input.traderOrderId,
-    rewardBps: 0,
     grossMarginInrMinor: asInr(input.grossMarginBaseMinor),
     netMarginInrMinor: asInr(net),
     minNetMarginInrMinor: terms.minNetMarginInrMinor,
@@ -80,7 +75,7 @@ export function pricingOfUsdtTerms(terms: UsdtNetworkTerms, input: { direction: 
  * USDT — the USDT between the client's amount and the trader's. The transfers out of the escrow are funded by the route's
  * trader from its network deposit and nothing is paid back: the platform has no TRX budget for P2P deals, so the network
  * fee is the trader's cost, priced into its own rate, and the platform's net margin is its USDT margin itself. The fee is
- * still estimated and frozen with the quote, so the trader's deposit is known to cover it. No trader reward is counted.
+ * still estimated and frozen with the quote, so the trader's deposit is known to cover it.
  * The minimum net margin is the policy's rupee minimum, valued in USDT at the client's rate (rounded up). The hold covers
  * the transfer and a return of the escrow (whoever funded it), whichever direction.
  */
@@ -112,9 +107,7 @@ export async function priceNetworkP2p(
     sendsPriced: 1,
     feeSun,
     feeInrMinor,
-    rewardInrMinor: 0n,
     traderOrderId: input.traderOrderId,
-    rewardBps: 0,
     grossMarginInrMinor: asInr(input.grossMarginBaseMinor),
     netMarginInrMinor: asInr(netMarginUsdtMinor),
     minNetMarginInrMinor: policy.minNetMarginInrMinor,
@@ -125,61 +118,15 @@ export async function priceNetworkP2p(
   };
 }
 
-export async function priceNetwork(
-  ex: Executor,
-  input: {
-    direction: 'SELL_USDT' | 'BUY_USDT'; clientRateMicro: bigint; grossMarginInrMinor: bigint; funderTraderId: string | null;
-    reward: { readonly orderId: string; readonly bps: number | null; readonly rewardMinor: bigint } | null;
-  },
-): Promise<NetworkPricing> {
-  const { policy, snapshot, rate } = await currentNetworkCosts(ex);
-  const feeSun = quoteFeeSun(snapshot, policy);
-  // What the client is charged rounds up (FINANCIAL_INVARIANTS §1.2): the exchange never under-collects the fee.
-  const feeInrMinor = trxToInrMinor(feeSun, rate.usdtPerTrxMicro, input.clientRateMicro, 'UP');
-  const sends = reserveSends(input.direction, policy);
-  const perSend = reservePerSendSun(snapshot, policy);
-  return {
-    funderTraderId: input.funderTraderId,
-    snapshotId: snapshot.id,
-    trxRateId: rate.id,
-    usdtPerTrxMicro: rate.usdtPerTrxMicro,
-    energyPriceSun: snapshot.energyPriceSun,
-    sendsPriced: 1,
-    feeSun,
-    feeInrMinor,
-    rewardInrMinor: input.reward?.rewardMinor ?? 0n,
-    traderOrderId: input.reward?.orderId ?? null,
-    rewardBps: input.reward?.bps ?? null,
-    grossMarginInrMinor: input.grossMarginInrMinor,
-    netMarginInrMinor: input.grossMarginInrMinor - (input.reward?.rewardMinor ?? 0n) - feeInrMinor,
-    minNetMarginInrMinor: policy.minNetMarginInrMinor,
-    reserveSends: sends,
-    perSendSun: perSend,
-    reserveSun: perSend * BigInt(sends),
-  };
-}
-
 /** Refuses a quote that would not leave the minimum net margin, saying what it would leave and why. */
 export function assertProfitable(p: NetworkPricing, extra: Record<string, unknown> = {}): void {
-  if (p.p2p) {
-    if (p.p2p.netMarginUsdtMinor >= p.p2p.minNetMarginUsdtMinor) return;
-    throw new DomainError('QUOTE_UNPROFITABLE', `this quote would leave ${Money.ofMinor(p.p2p.netMarginUsdtMinor, 'USDT').toDecimalString()} USDT; the minimum is ${Money.ofMinor(p.p2p.minNetMarginUsdtMinor, 'USDT').toDecimalString()}`, {
-      grossMarginUsdt: Money.ofMinor(p.p2p.grossMarginBaseMinor, 'USDT').toDecimalString(),
-      networkFeeUsdt: Money.ofMinor(p.p2p.feeUsdtMinor, 'USDT').toDecimalString(),
-      networkFeeTrx: formatTrx(p.feeSun),
-      netMarginUsdt: Money.ofMinor(p.p2p.netMarginUsdtMinor, 'USDT').toDecimalString(),
-      minNetMarginUsdt: Money.ofMinor(p.p2p.minNetMarginUsdtMinor, 'USDT').toDecimalString(),
-      ...extra,
-    });
-  }
-  if (p.netMarginInrMinor >= p.minNetMarginInrMinor) return;
-  throw new DomainError('QUOTE_UNPROFITABLE', `this quote would leave ${Money.ofMinor(p.netMarginInrMinor, 'INR').toDecimalString()} INR after the trader's reward and the network fee; the minimum is ${Money.ofMinor(p.minNetMarginInrMinor, 'INR').toDecimalString()}`, {
-    grossMargin: Money.ofMinor(p.grossMarginInrMinor, 'INR').toDecimalString(),
-    reward: Money.ofMinor(p.rewardInrMinor, 'INR').toDecimalString(),
-    networkFee: Money.ofMinor(p.feeInrMinor, 'INR').toDecimalString(),
+  if (p.p2p.netMarginUsdtMinor >= p.p2p.minNetMarginUsdtMinor) return;
+  throw new DomainError('QUOTE_UNPROFITABLE', `this quote would leave ${Money.ofMinor(p.p2p.netMarginUsdtMinor, 'USDT').toDecimalString()} USDT; the minimum is ${Money.ofMinor(p.p2p.minNetMarginUsdtMinor, 'USDT').toDecimalString()}`, {
+    grossMarginUsdt: Money.ofMinor(p.p2p.grossMarginBaseMinor, 'USDT').toDecimalString(),
+    networkFeeUsdt: Money.ofMinor(p.p2p.feeUsdtMinor, 'USDT').toDecimalString(),
     networkFeeTrx: formatTrx(p.feeSun),
-    netMargin: Money.ofMinor(p.netMarginInrMinor, 'INR').toDecimalString(),
-    minNetMargin: Money.ofMinor(p.minNetMarginInrMinor, 'INR').toDecimalString(),
+    netMarginUsdt: Money.ofMinor(p.p2p.netMarginUsdtMinor, 'USDT').toDecimalString(),
+    minNetMarginUsdt: Money.ofMinor(p.p2p.minNetMarginUsdtMinor, 'USDT').toDecimalString(),
     ...extra,
   });
 }
@@ -198,15 +145,15 @@ export async function recordQuoteNetworkFee(ctx: TxContext, quoteId: string, p: 
       fee_sun: p.feeSun,
       fee_inr_minor: p.feeInrMinor,
       trader_order_id: p.traderOrderId,
-      reward_bps: p.rewardBps,
-      reward_inr_minor: p.rewardInrMinor,
+      reward_bps: 0,
+      reward_inr_minor: 0n,
       net_margin_inr_minor: p.netMarginInrMinor,
       reserve_sends: p.reserveSends,
       reserve_sun: p.reserveSun,
       min_net_margin_inr_minor: p.minNetMarginInrMinor,
-      fee_usdt_minor: p.p2p?.feeUsdtMinor ?? null,
-      net_margin_usdt_minor: p.p2p?.netMarginUsdtMinor ?? null,
-      min_net_margin_usdt_minor: p.p2p?.minNetMarginUsdtMinor ?? null,
+      fee_usdt_minor: p.p2p.feeUsdtMinor,
+      net_margin_usdt_minor: p.p2p.netMarginUsdtMinor,
+      min_net_margin_usdt_minor: p.p2p.minNetMarginUsdtMinor,
       unit: p.usdt ? 'USDT' : 'TRX',
       gasfree_fee_reading_id: p.usdt?.readingId ?? null,
       transfer_fee_usdt_minor: p.usdt?.transferFeeMinor ?? null,
@@ -223,13 +170,11 @@ export interface QuoteNetworkFee {
   readonly usdtPerTrxMicro: bigint | null;
   readonly feeSun: bigint;
   readonly feeInrMinor: bigint;
-  readonly rewardInrMinor: bigint;
   readonly traderOrderId: string | null;
-  readonly rewardBps: number | null;
   readonly netMarginInrMinor: bigint;
   readonly reserveSends: number;
   readonly reserveSun: bigint | null;
-  /** P2P (ADR 0019): the fee and the net margin in USDT; null through the exchange. */
+  /** The fee and the net margin in USDT (ADR 0019). */
   readonly feeUsdtMinor: bigint | null;
   readonly netMarginUsdtMinor: bigint | null;
   /** ADR 0022: TRX terms, or USDT terms at GasFree's fees (the allowance is `feeUsdtMinor`). */
@@ -243,7 +188,7 @@ export async function quoteNetworkFee(ex: Executor, quoteId: string): Promise<Qu
   if (!r) return null;
   return {
     quoteId: r.quote_id, funderTraderId: r.funder_trader_id, snapshotId: r.snapshot_id, usdtPerTrxMicro: r.usdt_per_trx_micro, feeSun: r.fee_sun,
-    feeInrMinor: r.fee_inr_minor, rewardInrMinor: r.reward_inr_minor, traderOrderId: r.trader_order_id, rewardBps: r.reward_bps, netMarginInrMinor: r.net_margin_inr_minor, reserveSends: r.reserve_sends, reserveSun: r.reserve_sun,
+    feeInrMinor: r.fee_inr_minor, traderOrderId: r.trader_order_id, netMarginInrMinor: r.net_margin_inr_minor, reserveSends: r.reserve_sends, reserveSun: r.reserve_sun,
     feeUsdtMinor: r.fee_usdt_minor, netMarginUsdtMinor: r.net_margin_usdt_minor,
     unit: r.unit, transferFeeUsdtMinor: r.transfer_fee_usdt_minor, activateFeeUsdtMinor: r.activate_fee_usdt_minor,
   };

@@ -31,7 +31,6 @@ import {
 import { appendAuditDirect } from '@inrp2p/audit';
 import { BANK_ACCOUNT_HMAC_CONTEXT, bankAccountSealContext, contactPhoneSealContext } from '@inrp2p/clients';
 import { type Db, SCHEMA_VERSION, createDb, createPool } from '@inrp2p/db';
-import { INR_ACCOUNT_HMAC_CONTEXT, inrAccountSealContext } from '@inrp2p/inr-accounts';
 import { otpSealContext } from '@inrp2p/quotes';
 import { traderPhoneSealContext } from '@inrp2p/traders';
 
@@ -51,7 +50,7 @@ export interface SealedField {
 /** Every `inrp2p_sealed` column of the schema. A column the database has and this list lacks stops the tool. */
 export const SEALED_FIELDS: readonly SealedField[] = [
   { table: 'bank_account', column: 'account_number_enc', with: ['client_id'], context: (r) => bankAccountSealContext(String(r.client_id)), hmac: { column: 'account_hmac', context: BANK_ACCOUNT_HMAC_CONTEXT } },
-  { table: 'inr_settlement_account', column: 'account_number_enc', with: ['entity_id'], context: (r) => inrAccountSealContext(String(r.entity_id)), hmac: { column: 'account_hmac', context: INR_ACCOUNT_HMAC_CONTEXT } },
+  { table: 'inr_settlement_account', column: 'account_number_enc', with: ['entity_id'], context: (r) => `inr_settlement_account.account_number:${String(r.entity_id)}`, hmac: { column: 'account_hmac', context: 'inr_settlement_account.account_number' } },
   { table: 'client_contact', column: 'phone_enc', with: ['client_id'], context: (r) => contactPhoneSealContext(String(r.client_id), 'phone') },
   { table: 'client_contact', column: 'whatsapp_enc', with: ['client_id'], context: (r) => contactPhoneSealContext(String(r.client_id), 'whatsapp') },
   { table: 'trader_profile', column: 'phone_enc', with: ['client_id'], context: (r) => traderPhoneSealContext(String(r.client_id)) },

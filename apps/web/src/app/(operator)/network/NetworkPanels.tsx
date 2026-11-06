@@ -194,7 +194,6 @@ export function TradesNetworkTable({ trades }: { trades: readonly TradeNetworkRo
   const columns: Column<TradeNetworkRow>[] = [
     { key: 'ref', header: 'Trade', render: (t) => <Cell main={<Link href={`/orders/${encodeURIComponent(t.ref)}`} className={d.link}>{t.ref}</Link>} sub={`${t.direction === 'SELL_USDT' ? 'Client sells' : 'Client buys'} · ${t.lifecycle.toLowerCase().replace(/_/g, ' ')}`} /> },
     { key: 'gross', header: 'Gross margin', align: 'right', render: (t) => inr(t.grossMargin) },
-    { key: 'reward', header: 'Trader reward', align: 'right', render: (t) => inr(t.reward) },
     { key: 'fee', header: 'Network fee in price', align: 'right', render: (t) => <Cell main={inr(t.feeCharged)} sub={trx(t.feeChargedTrx)} /> },
     { key: 'spent', header: 'Network cost', align: 'right', render: (t) => <Cell main={inr(t.spentInr)} sub={`${trx(t.spentTrx)} of ${trx(t.heldTrx)} held`} /> },
     {

@@ -90,7 +90,7 @@ export async function declineOrderAction(input: { ref: string; reason?: string |
 }
 
 export async function submitOrderPaymentAction(input: { ref: string; rail: FiatRail; utr: string; amount?: string }, key: string): Promise<CommandResult<{ settlementRef: string }>> {
-  return run('trader_order.submit_payment', (ctx) => submitOrderPayment(ctx.actor, { chain: chainForWeb() }), input, key);
+  return run('trader_order.submit_payment', (ctx) => submitOrderPayment(ctx.actor), input, key);
 }
 
 /**

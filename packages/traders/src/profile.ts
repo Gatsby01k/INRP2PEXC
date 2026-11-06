@@ -5,7 +5,7 @@ import { appendAudit } from '@inrp2p/audit';
 import { enqueueOutbox } from '@inrp2p/outbox';
 import { type OperatorActor, actorLabel, operatorCommand } from '@inrp2p/identity';
 import { createTraderRoute, updateTraderRouteRegistration } from '@inrp2p/routes';
-import { type TraderRow, lockTrader, parseRewardBps, traderProgram, withdrawOffers } from '@inrp2p/trader-core';
+import { type TraderRow, lockTrader, traderProgram, withdrawOffers } from '@inrp2p/trader-core';
 
 export interface RegisteredDestinations {
   readonly bank: { id: string; bankName: string; last4: string; holderName: string };
@@ -95,8 +95,6 @@ export interface ApprovePayload extends LimitsPayload {
   readonly traderId: string;
   /** Decimal USDT. Omitted: the programme's default — and approval is refused when neither is set. */
   readonly requiredReserve?: string | null;
-  /** Reward override for this trader in basis points; omitted or null follows the programme. */
-  readonly rewardBps?: number | null;
   readonly note?: string | null;
 }
 
@@ -116,13 +114,12 @@ export function approveTrader(actor: OperatorActor) {
     const program = await traderProgram(ctx.tx);
     const reserve = p.requiredReserve ? Money.parse(p.requiredReserve, 'USDT') : program.defaultRequiredReserve;
     const note = typeof p.note === 'string' && p.note.trim() ? p.note.trim().slice(0, 500) : null;
-    return approveTraderInTx(ctx, trader, { reserve, rewardBps: parseRewardBps(p.rewardBps), limits: p, note, via: 'DESK' });
+    return approveTraderInTx(ctx, trader, { reserve, limits: p, note, via: 'DESK' });
   });
 }
 
 export interface ApproveInput {
   readonly reserve: Money<'USDT'> | null;
-  readonly rewardBps: number | null;
   readonly limits: LimitsPayload;
   readonly note: string | null;
   /** A person on the desk, or the programme's own rules (ADR 0024) — the same checks either way, and IX138 beneath. */
@@ -162,7 +159,6 @@ export async function approveTraderInTx(ctx: TxContext, trader: TraderRow, input
     .set({
       status: 'APPROVED',
       required_reserve_minor: reserve.minor,
-      reward_bps: input.rewardBps,
       ...limitColumns(input.limits),
       reviewed_by: actorLabel(ctx),
       reviewed_at: sql<Date>`inrp2p_now()`,
@@ -173,7 +169,7 @@ export async function approveTraderInTx(ctx: TxContext, trader: TraderRow, input
       version: sql<number>`version + 1`,
     })
     .where('id', '=', trader.id)
-    .returning(['required_reserve_minor', 'reward_bps', 'max_order_inr_minor', 'max_order_usdt_minor', 'max_capacity_inr_minor', 'max_capacity_usdt_minor'])
+    .returning(['required_reserve_minor', 'max_order_inr_minor', 'max_order_usdt_minor', 'max_capacity_inr_minor', 'max_capacity_usdt_minor'])
     .executeTakeFirstOrThrow();
   await appendAudit(ctx, { action: 'trader.approved', entityType: 'trader_profile', entityId: trader.id, before: { status: trader.status }, after: { status: 'APPROVED', sides, note: input.note, via: input.via, ...after } });
   await grantTraderCommitment(ctx, trader.client_id, profile.applied_by);
@@ -300,19 +296,6 @@ export function setTraderRequiredReserve(actor: OperatorActor) {
       after: { required_reserve: required, reason },
     });
     await enqueueOutbox(ctx, { type: 'trader.reserve_issue', aggregateType: 'trader_profile', aggregateId: trader.id, payload: { traderId: trader.id, reason: 'REQUIREMENT_CHANGED', amount: required.toDecimalString() } });
-    return { changed: true };
-  });
-}
-
-/** `trader.set_reward` — `traders:configure` (⧗). Applies to orders that start afterwards; running ones keep theirs. */
-export function setTraderReward(actor: OperatorActor) {
-  return operatorCommand(actor, 'traders:configure', async (ctx, p: { traderId: string; rewardBps: number | null; reason: string }) => {
-    const reason = requireText(p.reason, 'reason', 500);
-    const bps = parseRewardBps(p.rewardBps);
-    const trader = await lockTrader(ctx, p.traderId);
-    const before = await ctx.tx.selectFrom('trader_profile').select('reward_bps').where('id', '=', trader.id).executeTakeFirstOrThrow();
-    await ctx.tx.updateTable('trader_profile').set({ reward_bps: bps, updated_at: sql<Date>`inrp2p_now()`, version: trader.version + 1 }).where('id', '=', trader.id).execute();
-    await appendAudit(ctx, { action: 'trader.reward_changed', entityType: 'trader_profile', entityId: trader.id, before: { reward_bps: before.reward_bps }, after: { reward_bps: bps, reason } });
     return { changed: true };
   });
 }

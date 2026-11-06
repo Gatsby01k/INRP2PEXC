@@ -1,7 +1,6 @@
 import { sql } from 'kysely';
 import { DomainError, Money, requireUuid } from '@inrp2p/kernel';
 import type { DirectionValue, ExecutionMode, Executor } from '@inrp2p/db';
-import { istToday } from '@inrp2p/inr-accounts';
 import { effectiveObligations, legTotals, tradeFundingModel } from '@inrp2p/trades';
 import { type DeskDealChat, type P2pDecisionView, type SenderView, deskDealChat, fundingPosition, obligationRemaining, p2pDecisionView, senderView } from '@inrp2p/settlement';
 import type { DeskAccess } from './access.ts';
@@ -17,8 +16,6 @@ export interface DeskLeg {
   readonly amount: string;
   readonly status: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
   readonly payer: 'CLIENT' | 'EXCHANGE_ACCOUNT' | 'ROUTE';
-  /** Where an exchange-paid INR leg draws from, for the panel's account line. */
-  readonly accountLabel: string | null;
   readonly routeName: string | null;
   /** A USDT leg's sending address — its deposit address when it passes money through, else its treasury wallet. */
   readonly walletAddress: string | null;
@@ -87,32 +84,13 @@ export interface DeskCase {
   readonly takenByLabel: string | null;
 }
 
-export interface PayoutAccountOption {
-  readonly accountId: string;
-  readonly label: string;
-  readonly bankName: string;
-  readonly last4: string;
-  /** Today's capacity − used − reserved, in decimal INR (FI-30). */
-  readonly availableToday: string;
-  readonly capacityToday: string;
-  readonly rails: readonly string[];
-}
-
-export interface TreasuryWalletOption {
-  readonly walletId: string;
-  readonly label: string;
-  readonly address: string;
-  readonly available: string;
-}
-
-/** One place a trade's money is (D-16): a bank account or a TRON address, and what may still leave from it. */
+/** One place a trade's money is (D-16): a TRON address, and what may still leave from it. A trader's rupees are never here. */
 export interface FundingPlace {
   readonly kind: 'CLIENT_FUNDS' | 'COUNTERPARTY_FUNDS';
   readonly asset: 'INR' | 'USDT';
-  /** `INR:{accountId}` or `TRON:{address}`. */
+  /** `TRON:{address}`. */
   readonly location: string;
   readonly label: string;
-  readonly inrAccountId: string | null;
   readonly treasuryWalletId: string | null;
   readonly depositAddressId: string | null;
   readonly address: string | null;
@@ -158,13 +136,12 @@ export interface DeskTrade {
   readonly openedAt: string;
   readonly base: string;
   readonly quoteInr: string;
-  /** Economics-gated: client rate, route rate, expected margin and the execution mode. */
+  /** Economics-gated: client rate, the trader's rate and expected margin. */
   readonly clientRate?: string;
   readonly routeRate?: string;
   readonly expectedMargin?: string;
-  /** What the deal leaves INRP2P in USDT (a P2P deal's margin less the network it carries); null off P2P. */
+  /** What the deal leaves INRP2P in USDT (its margin less the network it carries). */
   readonly expectedMarginUsdt?: string | null;
-  readonly executionMode?: ExecutionMode;
   readonly payout: { readonly amount: string; readonly currency: 'INR' | 'USDT' };
   readonly paid: string;
   readonly committed: string;
@@ -186,22 +163,11 @@ export interface DeskTrade {
   readonly destination: { readonly id: string; readonly label: string } | null;
   readonly destinationChanges: readonly DeskDestinationChange[];
   /** The client's verified destinations the desk may choose from: payout accounts or wallets, and sending wallets for a refund. */
-  readonly destinationOptions: { readonly payout: readonly DestinationOption[]; readonly refundWallets: readonly DestinationOption[]; readonly refundBanks: readonly DestinationOption[] };
-  /** What a payout leg could be funded from right now. */
-  readonly payoutOptions: {
-    readonly asset: 'INR' | 'USDT';
-    readonly accounts: readonly PayoutAccountOption[];
-    readonly wallets: readonly TreasuryWalletOption[];
-    /** True when this trade's route pays the client directly (D-14, FI-65). */
-    readonly routeDirectAvailable: boolean;
-    readonly routeName: string | null;
-  };
+  readonly destinationOptions: { readonly payout: readonly DestinationOption[]; readonly refundWallets: readonly DestinationOption[] };
+  /** What the deal pays out, and its trader. */
+  readonly payoutOptions: { readonly asset: 'INR' | 'USDT'; readonly routeName: string | null };
   /** The exchange's own rails for this trade (ADR 0017): its TRX budget, network cost and signer sends; null for a trade priced before them. */
   readonly network: DeskTradeNetwork | null;
-  /** ADR 0018 — a BUY's payment instructions as the client saw them: the account to pay, the reference, the deadline. */
-  readonly collection: { readonly inrAccountId: string; readonly label: string; readonly bankName: string; readonly last4: string; readonly reference: string; readonly payBy: string } | null;
-  /** The deal settles P2P (ADR 0019): its USDT in escrow, its rupees straight between client and trader. */
-  readonly settlesP2p: boolean;
   /** A P2P payment for INRP2P to decide (disputed or unanswered), and a SELL being unwound (ADR 0020 §2.15). */
   readonly p2p: P2pDecisionView | null;
   /** ADR 0023: a P2P deal's chat between its two sides, and whether one of them called INRP2P in. */
@@ -222,7 +188,7 @@ export async function deskTrade(ex: Executor, tradeId: string, access: DeskAcces
     .select([
       't.id', 't.ref', 't.client_id', 'c.display_name as client_name', 't.direction', 't.lifecycle_state', 't.hold', 't.opened_at',
       'e.base_minor', 'e.quote_inr_minor', 'e.client_rate_micro', 'e.route_rate_micro', 'e.gross_margin_inr_minor', 'e.gross_margin_base_minor', 'e.network_fee_base_minor',
-      'e.route_id', 'e.route_execution_mode',
+      'e.route_id',
     ])
     .where('t.id', '=', id)
     .executeTakeFirst();
@@ -259,16 +225,8 @@ export async function deskTrade(ex: Executor, tradeId: string, access: DeskAcces
     receipt: receipt !== undefined,
     funding,
     ...(await destinationOf(ex, id, row.client_id, payoutAsset)),
-    payoutOptions: {
-      asset: payoutAsset,
-      accounts: payoutAsset === 'INR' ? await payoutAccounts(ex) : [],
-      wallets: payoutAsset === 'USDT' ? await treasuryWallets(ex) : [],
-      routeDirectAvailable: row.route_execution_mode === 'DIRECT_TO_CLIENT',
-      routeName: null,
-    },
+    payoutOptions: { asset: payoutAsset, routeName: null },
     network: await deskTradeNetwork(ex, id, { economics: access.economics }),
-    collection: row.direction === 'BUY_USDT' ? await collectionOf(ex, id) : null,
-    settlesP2p: row.route_execution_mode === 'P2P',
     p2p: await p2pDecisionView(ex, id),
     chat: await deskDealChat(ex, id),
   };
@@ -288,40 +246,28 @@ export async function deskTrade(ex: Executor, tradeId: string, access: DeskAcces
         routeRate: microToDecimal(row.route_rate_micro),
         expectedMargin: Money.ofMinor(row.gross_margin_inr_minor, 'INR').toDecimalString(),
         expectedMarginUsdt: row.gross_margin_base_minor === null ? null : Money.ofMinor(row.gross_margin_base_minor - (row.network_fee_base_minor ?? 0n), 'USDT').toDecimalString(),
-        executionMode: row.route_execution_mode,
       }
     : {};
   const route = access.routePositions ? await routeSideOf(ex, id) : undefined;
   return { ...withDeposit, ...economics, ...(route ? { route } : {}) };
 }
 
-async function collectionOf(ex: Executor, tradeId: string): Promise<DeskTrade['collection']> {
-  const c = await ex
-    .selectFrom('trade_collection as c')
-    .innerJoin('inr_settlement_account as a', 'a.id', 'c.inr_account_id')
-    .select(['c.inr_account_id', 'a.label', 'a.bank_name', 'a.account_last4', 'c.reference', 'c.pay_by'])
-    .where('c.trade_id', '=', tradeId)
-    .executeTakeFirst();
-  return c ? { inrAccountId: c.inr_account_id, label: c.label, bankName: c.bank_name, last4: c.account_last4, reference: c.reference, payBy: c.pay_by.toISOString() } : null;
-}
-
 async function deskLegs(ex: Executor, tradeId: string): Promise<DeskLeg[]> {
   const rows = await sql<{
     id: string; ref: string; side: DeskLeg['side']; asset: 'INR' | 'USDT'; amount_minor: bigint; status: DeskLeg['status'];
-    payer: DeskLeg['payer']; account_label: string | null; route_name: string | null; wallet_address: string | null; utr: string | null; tx_hash: string | null;
+    payer: DeskLeg['payer']; route_name: string | null; wallet_address: string | null; utr: string | null; tx_hash: string | null;
     created_at: Date; sent_at: Date | null; confirmed_at: Date | null; failed_at: Date | null; cancelled_at: Date | null; failure_reason: string | null;
     created_by: string; created_by_label: string | null; sent_by: string | null; sent_by_label: string | null; needs_second: boolean | null;
     refund_kind: 'UNWIND' | 'EXCESS' | null; fiat_id: string | null; filed_by: 'DESK' | 'CLIENT' | 'TRADER' | null;
   }>`
     select l.id, l.ref, l.side, l.asset, l.amount_minor, l.status, l.payer,
-           a.label as account_label, r.name as route_name, coalesce(da.address, tw.address) as wallet_address, f.utr, c.tx_hash,
+           r.name as route_name, coalesce(da.address, tw.address) as wallet_address, f.utr, c.tx_hash,
            l.created_at, l.sent_at, l.confirmed_at, l.failed_at, l.cancelled_at, l.failure_reason,
            l.created_by, coalesce(u.name, u.email) as created_by_label,
            l.sent_by, coalesce(su.name, su.email) as sent_by_label, l.refund_kind,
            case when l.side = 'CLIENT_TO_EXCHANGE' and l.asset = 'INR' then coalesce(f.id, fv.id) end as fiat_id, coalesce(f.filed_by, fv.filed_by) as filed_by,
            case when l.side = 'EXCHANGE_TO_CLIENT' then inrp2p_payout_needs_second_person(l.trade_id, l.asset, l.amount_minor) end as needs_second
     from settlement_leg l
-    left join inr_settlement_account a on a.id = l.inr_account_id
     left join liquidity_route r on r.id = l.route_id
     left join treasury_wallet tw on tw.id = l.treasury_wallet_id
     left join deposit_address da on da.id = l.source_deposit_address_id
@@ -350,7 +296,6 @@ async function deskLegs(ex: Executor, tradeId: string): Promise<DeskLeg[]> {
     amount: Money.ofMinor(r.amount_minor, r.asset).toDecimalString(),
     status: r.status,
     payer: r.payer,
-    accountLabel: r.account_label,
     routeName: r.route_name,
     walletAddress: r.wallet_address,
     reference: r.utr ?? r.tx_hash ?? null,
@@ -411,8 +356,7 @@ async function depositFor(ex: Executor, tradeId: string): Promise<DeskTrade['dep
 
 /**
  * The trade's funding, place by place: confirmed client and counterparty money (the `funding_source` view) less what
- * is planned out of it (ACTIVE earmarks) and what has left (CONSUMED). Legacy trades have no places — the treasury
- * paid them, as it always did.
+ * is planned out of it (ACTIVE earmarks) and what has left (CONSUMED).
  */
 export async function tradeFunding(ex: Executor, tradeId: string, opts: { unallocatedMinor: bigint; routePositions: boolean }): Promise<TradeFunding> {
   const model = await tradeFundingModel(ex, tradeId);
@@ -451,17 +395,12 @@ export async function tradeFunding(ex: Executor, tradeId: string, opts: { unallo
   return { model, places, counterparty };
 }
 
-async function placeOf(ex: Executor, location: string): Promise<Pick<FundingPlace, 'label' | 'inrAccountId' | 'treasuryWalletId' | 'depositAddressId' | 'address'>> {
-  if (location.startsWith('INR:')) {
-    const id = location.slice(4);
-    const a = await ex.selectFrom('inr_settlement_account').select(['label', 'bank_name', 'account_last4']).where('id', '=', id).executeTakeFirst();
-    return { label: a ? `${a.label} · ${a.bank_name} ••${a.account_last4}` : 'INR account', inrAccountId: id, treasuryWalletId: null, depositAddressId: null, address: null };
-  }
+async function placeOf(ex: Executor, location: string): Promise<Pick<FundingPlace, 'label' | 'treasuryWalletId' | 'depositAddressId' | 'address'>> {
   const address = location.slice(5);
   const wallet = await ex.selectFrom('treasury_wallet').select(['id', 'label']).where('network', '=', 'TRON').where('address', '=', address).executeTakeFirst();
-  if (wallet) return { label: wallet.label, inrAccountId: null, treasuryWalletId: wallet.id, depositAddressId: null, address };
+  if (wallet) return { label: wallet.label, treasuryWalletId: wallet.id, depositAddressId: null, address };
   const deposit = await ex.selectFrom('deposit_address').select('id').where('network', '=', 'TRON').where('address', '=', address).executeTakeFirst();
-  return { label: 'Deposit address', inrAccountId: null, treasuryWalletId: null, depositAddressId: deposit?.id ?? null, address };
+  return { label: 'Deposit address', treasuryWalletId: null, depositAddressId: deposit?.id ?? null, address };
 }
 
 const bankLabel = (b: { bank_name: string; account_last4: string }) => `${b.bank_name} ••••${b.account_last4}`;
@@ -505,7 +444,6 @@ async function destinationOf(ex: Executor, tradeId: string, clientId: string, pa
         ? banks.filter((b) => b.status === 'ACTIVE' && b.id !== destinationId).map((b) => ({ id: b.id, label: bankLabel(b) }))
         : wallets.filter((w) => w.status === 'ACTIVE' && w.id !== destinationId && (w.purpose === 'DESTINATION' || w.purpose === 'BOTH')).map((w) => ({ id: w.id, label: walletLabel(w) })),
       refundWallets: wallets.filter((w) => w.status === 'ACTIVE' && (w.purpose === 'SOURCE' || w.purpose === 'BOTH')).map((w) => ({ id: w.id, label: walletLabel(w) })),
-      refundBanks: banks.filter((b) => b.status === 'ACTIVE').map((b) => ({ id: b.id, label: bankLabel(b) })),
     },
   };
 }
@@ -539,52 +477,4 @@ async function routeSideOf(ex: Executor, tradeId: string): Promise<RouteSide | u
     exchangeDelivers: Money.ofMinor(o.exchange_delivers_minor, o.exchange_delivers_asset).toJSON(),
     exchangeDeliversRemaining: remaining.exchangeDelivers.toJSON(),
   };
-}
-
-/** ACTIVE payout accounts with what is left of today's capacity — the panel's "Available today" column. */
-export async function payoutAccounts(ex: Executor): Promise<PayoutAccountOption[]> {
-  const day = await istToday(ex);
-  const rows = await sql<{
-    id: string; label: string; bank_name: string; account_last4: string; rails: string[];
-    capacity_minor: bigint | null; used_minor: bigint | null; reserved_minor: bigint | null; default_daily_capacity_minor: bigint;
-  }>`
-    select a.id, a.label, a.bank_name, a.account_last4, a.rails,
-           d.capacity_minor, d.used_minor, d.reserved_minor, a.default_daily_capacity_minor
-    from inr_settlement_account a
-    left join inr_account_day d on d.account_id = a.id and d.day = ${day}::date
-    where a.status = 'ACTIVE' and a.direction in ('PAYOUT', 'BOTH')
-    order by a.label`.execute(ex);
-  return rows.rows.map((r) => {
-    // No row for today yet means the day has not been opened: the default capacity is what it would start at.
-    const capacity = r.capacity_minor ?? r.default_daily_capacity_minor;
-    const available = capacity - (r.used_minor ?? 0n) - (r.reserved_minor ?? 0n);
-    return {
-      accountId: r.id,
-      label: r.label,
-      bankName: r.bank_name,
-      last4: r.account_last4,
-      availableToday: Money.ofMinor(available > 0n ? available : 0n, 'INR').toDecimalString(),
-      capacityToday: Money.ofMinor(capacity, 'INR').toDecimalString(),
-      rails: r.rails,
-    };
-  });
-}
-
-export async function treasuryWallets(ex: Executor): Promise<TreasuryWalletOption[]> {
-  const rows = await ex
-    .selectFrom('treasury_wallet')
-    .select(['id', 'label', 'address', 'observed_balance_minor', 'reserved_minor'])
-    .where('status', '=', 'ACTIVE')
-    .where('role', 'in', ['HOT', 'COLD'])
-    .orderBy('label')
-    .execute();
-  return rows.map((r) => {
-    const available = r.observed_balance_minor - r.reserved_minor;
-    return {
-      walletId: r.id,
-      label: r.label,
-      address: r.address,
-      available: Money.ofMinor(available > 0n ? available : 0n, 'USDT').toDecimalString(),
-    };
-  });
 }

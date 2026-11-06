@@ -163,7 +163,7 @@ async function timelineOf(ex: Executor, tradeId: string, trade: DeskTrade, acces
     const who = leg.side === 'CLIENT_TO_EXCHANGE' ? 'client' : leg.side === 'REFUND_TO_CLIENT' ? 'refund' : 'payout';
     const created =
       who === 'client' ? (leg.asset === 'USDT' ? 'USDT arrived at the deposit address' : 'Client INR payment recorded') : who === 'refund' ? 'Refund leg created' : 'Payout leg created';
-    events.push({ at: leg.createdAt, kind: 'LEG', title: created, ref: leg.ref, amount, actor: leg.createdByLabel, note: leg.payer === 'ROUTE' ? `paid by ${leg.routeName ?? 'the route'}` : leg.accountLabel, tone: 'neutral' });
+    events.push({ at: leg.createdAt, kind: 'LEG', title: created, ref: leg.ref, amount, actor: leg.createdByLabel, note: leg.payer === 'ROUTE' ? `paid by ${leg.routeName ?? 'the route'}` : null, tone: 'neutral' });
     if (leg.sentAt && who !== 'client') {
       events.push({ at: leg.sentAt, kind: 'LEG', title: who === 'refund' ? 'Refund sent' : leg.payer === 'ROUTE' ? 'Route reported the payout sent' : 'Payout sent', ref: leg.ref, amount, actor: null, note: null, tone: 'neutral' });
     }

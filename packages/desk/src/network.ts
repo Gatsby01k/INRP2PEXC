@@ -61,7 +61,6 @@ export interface TradeNetworkRow {
   readonly lifecycle: string;
   readonly funder: string;
   readonly grossMargin: string;
-  readonly reward: string;
   /** The network fee inside the client's price (INR) and the TRX it priced. */
   readonly feeCharged: string;
   readonly feeChargedTrx: string;
@@ -74,7 +73,7 @@ export interface TradeNetworkRow {
   readonly spentInr: string;
   readonly reimbursed: string | null;
   /**
-   * What the trade leaves: gross margin less the reward less the network — what its transfers actually cost once its
+   * What the trade leaves: gross margin less the network — what its transfers actually cost once its
    * hold is closed (`netFinal`), and until then the fee its price carried (or the cost so far, if that is already more).
    */
   readonly netProfit: string;
@@ -221,10 +220,10 @@ async function sendRowsOf(ex: Executor, filter: { tradeId?: string; limit: numbe
  */
 async function tradeNetworkRows(ex: Executor, filter: { tradeId?: string; limit: number; trxOnly?: boolean }): Promise<TradeNetworkRow[]> {
   const rows = await sql<{
-    id: string; ref: string; direction: 'SELL_USDT' | 'BUY_USDT'; lifecycle_state: string; gross: bigint; reward: bigint; fee_inr: bigint; fee_sun: bigint; usdt_per_trx: bigint | null;
+    id: string; ref: string; direction: 'SELL_USDT' | 'BUY_USDT'; lifecycle_state: string; gross: bigint; fee_inr: bigint; fee_sun: bigint; usdt_per_trx: bigint | null;
     client_rate: bigint; funder: string | null; trader_ref: string | null; hold_amount: bigint | null; hold_status: 'ACTIVE' | 'CLOSED' | null; reimbursed: bigint | null; spent: string; trader_borne: string;
   }>`
-    select t.id, t.ref, t.direction, t.lifecycle_state, q.gross_margin_inr_minor as gross, f.reward_inr_minor as reward, f.fee_inr_minor as fee_inr, f.fee_sun,
+    select t.id, t.ref, t.direction, t.lifecycle_state, q.gross_margin_inr_minor as gross, f.fee_inr_minor as fee_inr, f.fee_sun,
            f.usdt_per_trx_micro as usdt_per_trx, q.client_rate_micro as client_rate, f.funder_trader_id as funder, tp.ref as trader_ref,
            h.amount_sun as hold_amount, h.status as hold_status, h.reimbursed_inr_minor as reimbursed,
            coalesce((select -sum(e.amount_sun) from network_budget_entry e where e.kind = 'SPENT' and e.trade_id = t.id), 0)::text as spent,
@@ -248,11 +247,11 @@ async function tradeNetworkRows(ex: Executor, filter: { tradeId?: string; limit:
     const costInr = r.usdt_per_trx === null ? 0n : trxToInrMinor(spent - traderBorne, r.usdt_per_trx, r.client_rate, 'UP');
     return {
       tradeId: r.id, ref: r.ref, direction: r.direction, lifecycle: r.lifecycle_state, funder: r.trader_ref ?? 'Platform',
-      grossMargin: Money.ofMinor(r.gross, 'INR').toDecimalString(), reward: Money.ofMinor(r.reward, 'INR').toDecimalString(),
+      grossMargin: Money.ofMinor(r.gross, 'INR').toDecimalString(),
       feeCharged: Money.ofMinor(r.fee_inr, 'INR').toDecimalString(), feeChargedTrx: trx(r.fee_sun), heldTrx: r.hold_amount === null ? '0.000000' : trx(r.hold_amount),
       spentTrx: trx(spent), traderBorneTrx: trx(traderBorne), spentInr: Money.ofMinor(costInr, 'INR').toDecimalString(),
       reimbursed: r.reimbursed === null ? null : Money.ofMinor(r.reimbursed, 'INR').toDecimalString(),
-      netProfit: Money.ofMinor(r.gross - r.reward - (r.hold_status === 'CLOSED' || costInr > r.fee_inr ? costInr : r.fee_inr), 'INR').toDecimalString(),
+      netProfit: Money.ofMinor(r.gross - (r.hold_status === 'CLOSED' || costInr > r.fee_inr ? costInr : r.fee_inr), 'INR').toDecimalString(),
       netFinal: r.hold_status === 'CLOSED',
       holdStatus: r.hold_status ?? 'NONE',
     };
@@ -269,7 +268,7 @@ export interface DeskTradeNetwork {
   readonly spentTrx: string;
   readonly traderBorneTrx: string;
   readonly reimbursed: string | null;
-  readonly economics: Pick<TradeNetworkRow, 'grossMargin' | 'reward' | 'feeCharged' | 'feeChargedTrx' | 'spentInr' | 'netProfit' | 'netFinal'> | null;
+  readonly economics: Pick<TradeNetworkRow, 'grossMargin' | 'feeCharged' | 'feeChargedTrx' | 'spentInr' | 'netProfit' | 'netFinal'> | null;
   readonly sends: readonly NetworkSendRow[];
   /**
    * USDT refunds waiting for a second person whose money sits at an address the signer holds: approving one sends it.
@@ -294,7 +293,7 @@ export async function deskTradeNetwork(ex: Executor, tradeId: string, opts: { ec
   return {
     funder: row.funder, holdStatus: row.holdStatus, heldTrx: row.heldTrx, spentTrx: row.spentTrx,
     committedTrx: trx(BigInt((await sql<{ c: string }>`select inrp2p_trade_network_committed(${tradeId}::uuid, null)::text as c`.execute(ex)).rows[0]!.c)), traderBorneTrx: row.traderBorneTrx, reimbursed: row.reimbursed,
-    economics: opts.economics ? { grossMargin: row.grossMargin, reward: row.reward, feeCharged: row.feeCharged, feeChargedTrx: row.feeChargedTrx, spentInr: row.spentInr, netProfit: row.netProfit, netFinal: row.netFinal } : null,
+    economics: opts.economics ? { grossMargin: row.grossMargin, feeCharged: row.feeCharged, feeChargedTrx: row.feeChargedTrx, spentInr: row.spentInr, netProfit: row.netProfit, netFinal: row.netFinal } : null,
     sends: await sendRowsOf(ex, { tradeId, limit: 20 }),
     signerRefunds: legs.rows.map((l) => ({ legId: l.id, destinationSet: l.destination_set })),
     gasFree: hold?.unit === 'USDT' ? {

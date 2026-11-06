@@ -48,131 +48,11 @@ function Payments({ title, rows, empty }: { title: string; rows: readonly Paymen
   );
 }
 
-/** Buy USDT, the trader's turn: where to pay, and the reference it gives back once it has paid. */
-function PayInr({ detail }: { detail: TraderOrderDetail }) {
-  const { run, busy, error, dialog } = useCommand();
-  const [rail, setRail] = useState<(typeof RAILS)[number]>('IMPS');
-  const [utr, setUtr] = useState('');
-  const payTo = detail.payTo;
-  if (!payTo) {
-    return (
-      <p className={shell.info} data-tone="warning">
-        <InfoIcon className={shell.infoIcon} />
-        <span>INRP2P has not published its collection account details yet. Contact the desk before you pay.</span>
-      </p>
-    );
-  }
-  const submit = () => run(`Send payment reference for ${detail.order.ref}`, (key) => submitOrderPaymentAction({ ref: detail.order.ref, rail, utr: normalizeUtr(utr) }, key));
-  return (
-    <div className={styles.instructions}>
-      <dl className={styles.payTo}>
-        <div>
-          <dt>Amount</dt>
-          <dd>{inr(detail.youOwe!)}</dd>
-          <CopyButton value={Money.parse(detail.youOwe!, 'INR').toDecimalString()} label="Copy amount" />
-        </div>
-        <div>
-          <dt>Beneficiary</dt>
-          <dd>{payTo.beneficiary}</dd>
-          <CopyButton value={payTo.beneficiary} label="Copy beneficiary" />
-        </div>
-        <div>
-          <dt>Account number</dt>
-          <dd>{payTo.accountNumber}</dd>
-          <CopyButton value={payTo.accountNumber} label="Copy account number" />
-        </div>
-        <div>
-          <dt>IFSC</dt>
-          <dd>
-            {payTo.ifsc} · {payTo.bankName}
-          </dd>
-          <CopyButton value={payTo.ifsc} label="Copy IFSC" />
-        </div>
-        <div>
-          <dt>Narration</dt>
-          <dd>{payTo.narration}</dd>
-          <CopyButton value={payTo.narration} label="Copy narration" />
-        </div>
-      </dl>
-      <p className={styles.note}>
-        Pay from your registered bank account only. Rupees from any other account — a relative’s, a friend’s, a business’s — are returned and never count: INRP2P checks
-        who sent every payment before it confirms it.
-      </p>
-      <form
-        className={styles.editForm}
-        onSubmit={(e) => {
-          e.preventDefault();
-          void submit();
-        }}
-      >
-        <div className={styles.pair}>
-          <label className={styles.field}>
-            <span className={styles.fieldLabel}>Paid by</span>
-            <select className="ix-input" value={rail} onChange={(e) => setRail(e.target.value as (typeof RAILS)[number])}>
-              {RAILS.map((r) => (
-                <option key={r} value={r}>
-                  {r}
-                </option>
-              ))}
-            </select>
-          </label>
-          <UTRField value={utr} onChange={setUtr} label="Bank reference (UTR)" />
-        </div>
-        {utr !== '' && !checkUtrShape(rail, utr).ok ? <p className={styles.note}>Not a {rail} reference yet: {(checkUtrShape(rail, utr) as { hint: string }).hint}.</p> : null}
-        <div className={styles.formActions}>
-          <button type="submit" className={shell.action} disabled={busy || !checkUtrShape(rail, utr).ok}>
-            I have paid
-          </button>
-        </div>
-        {error ? (
-          <p className={shell.error} role="alert">
-            {sentence(error)}
-          </p>
-        ) : null}
-      </form>
-      {dialog}
-    </div>
-  );
-}
-
-/** Sell USDT, the trader's turn: this order's own address, issued once, and the exact amount. */
-function SendUsdt({ detail }: { detail: TraderOrderDetail }) {
-  const { run, busy, error, dialog } = useCommand();
-  const show = () => run(`Show the address for ${detail.order.ref}`, (key) => orderDeliveryAddressAction({ ref: detail.order.ref }, key));
-  if (detail.sendTo && detail.youOwe) {
-    return (
-      <div className={styles.instructions}>
-        <DepositAddress address={detail.sendTo} amount={Money.parse(detail.youOwe, 'USDT')} network="TRC20" tradeRef={detail.order.ref} purpose="order" />
-        <p className={styles.note}>Send from your registered wallet only. The transfer is picked up on-chain; there is no reference to type.</p>
-      </div>
-    );
-  }
-  return (
-    <div className={styles.instructions}>
-      <p className={styles.note}>This order has its own deposit address. USDT that reaches it from your registered wallet settles your side when it is final on TRON.</p>
-      <div className={styles.formActions}>
-        <button type="button" className={shell.action} disabled={busy} onClick={() => void show()}>
-          Show the order’s address
-        </button>
-      </div>
-      {error ? (
-        <p className={shell.error} role="alert">
-          {sentence(error)}
-        </p>
-      ) : null}
-      {dialog}
-    </div>
-  );
-}
-
-function NextAction({ detail, canAct }: { detail: TraderOrderDetail; canAct: boolean }) {
+function NextAction({ detail }: { detail: TraderOrderDetail }) {
   const o = detail.order;
   const buy = o.side === 'BUY_USDT';
   const body = (() => {
     switch (o.stage) {
-      case 'YOUR_TURN':
-        if (!canAct) return <p className={styles.note}>Someone who can accept quotes for your account sends this and records it.</p>;
-        return buy ? <PayInr detail={detail} /> : <SendUsdt detail={detail} />;
       case 'HELD':
         return <p className={styles.note}>Your capacity is held while the trade is confirmed with the other side{o.holdUntil ? `, until ${formatIstDateTime(new Date(o.holdUntil)).split(', ')[1]} at the latest` : ''}. Nothing to send yet.</p>;
       case 'AWAITING_FUNDING':
@@ -197,7 +77,6 @@ function NextAction({ detail, canAct }: { detail: TraderOrderDetail; canAct: boo
     }
   })();
   const title: Record<string, string> = {
-    YOUR_TURN: buy ? `Send ${detail.youOwe ? inr(detail.youOwe) : 'your INR'}` : `Send ${detail.youOwe ? usdt(detail.youOwe) : 'your USDT'}`,
     HELD: 'Waiting for confirmation',
     AWAITING_FUNDING: 'Waiting for the other side',
     CHECKING_YOURS: 'Checking your payment',
@@ -208,7 +87,7 @@ function NextAction({ detail, canAct }: { detail: TraderOrderDetail; canAct: boo
     CLOSED: 'Closed',
   };
   return (
-    <section className={o.stage === 'YOUR_TURN' ? `${shell.surface} ${styles.offer}` : shell.card} aria-labelledby="next-title" data-robot-target="panel">
+    <section className={shell.card} aria-labelledby="next-title" data-robot-target="panel">
       <span className={shell.label}>What happens now</span>
       <h2 id="next-title" className={shell.cardTitle}>
         {title[o.stage] ?? 'Order'}
@@ -251,7 +130,7 @@ export function OrderScreen({ detail, canAct }: { detail: TraderOrderDetail; can
                 <Stepper steps={detail.steps} label="Order progress" />
               </section>
             ) : null}
-            {detail.p2p && o.status !== 'ACCEPTED' ? <P2pOrderAction detail={detail} canAct={canAct} /> : <NextAction detail={detail} canAct={canAct} />}
+            {detail.p2p && o.status !== 'ACCEPTED' ? <P2pOrderAction detail={detail} canAct={canAct} /> : <NextAction detail={detail} />}
             {detail.p2p && o.status !== 'ACCEPTED' ? <P2pOrderChat detail={detail} /> : null}
           </>
         )}

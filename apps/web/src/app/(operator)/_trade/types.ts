@@ -7,14 +7,8 @@ export interface TradePerms {
   readonly meId: string;
   readonly economics: boolean;
   readonly createPayout: boolean;
-  readonly sendPayout: boolean;
-  readonly routeSent: boolean;
-  readonly recordUtr: boolean;
+  /** Who may decide a disputed P2P payment was made: the same people who confirm a client's funds, or a payout. */
   readonly confirmPayout: boolean;
-  readonly failPayout: boolean;
-  readonly cancelPayout: boolean;
-  readonly changeUtr: boolean;
-  readonly recordIncoming: boolean;
   readonly confirmIncoming: boolean;
   readonly openException: boolean;
   readonly resolveException: boolean;

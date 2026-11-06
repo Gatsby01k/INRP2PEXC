@@ -103,7 +103,7 @@ export async function settleSignedSendInTx(ctx: TxContext, deps: SettlementDeps,
   if (send.purpose === 'ROUTE_PAYMENT') {
     const deposit = await ctx.tx.selectFrom('deposit_address').select('id').where('network', '=', 'TRON').where('address', '=', send.from_address).executeTakeFirstOrThrow();
     const recorded = await recordRouteSettlementInTx(ctx, deps, {
-      routeObligationId: send.route_obligation_id!, flow: 'TO_ROUTE', amount: Money.ofMinor(send.amount_minor, 'USDT').toDecimalString(),
+      routeObligationId: send.route_obligation_id!, amount: Money.ofMinor(send.amount_minor, 'USDT').toDecimalString(),
       txHash: attempt.txid, sourceDepositAddressId: deposit.id, toAddress: send.to_address, chainSendId: send.id,
     });
     const confirmed = await confirmRouteSettlementInTx(ctx, deps, recorded.routeSettlementId);

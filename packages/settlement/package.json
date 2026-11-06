@@ -16,7 +16,6 @@
     "@inrp2p/commands": "workspace:*",
     "@inrp2p/ledger": "workspace:*",
     "@inrp2p/clients": "workspace:*",
-    "@inrp2p/inr-accounts": "workspace:*",
     "@inrp2p/routes": "workspace:*",
     "@inrp2p/treasury": "workspace:*",
     "@inrp2p/trades": "workspace:*",

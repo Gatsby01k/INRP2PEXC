@@ -48,11 +48,10 @@ export function TradeNetwork({ trade, perms }: { trade: DeskTrade; perms: TradeP
             ...(n.reimbursed !== null ? [{ label: 'Paid back to the trader', value: inr(n.reimbursed) }] : []),
             ...(n.economics
               ? [
-                  ...(/[1-9]/.test(n.economics.reward) ? [{ label: 'Trader’s reward', value: inr(n.economics.reward) }] : []),
                   { label: 'Network fee in the price', value: `${inr(n.economics.feeCharged)} · ${trx(n.economics.feeChargedTrx)}` },
                   { label: 'Network cost', value: inr(n.economics.spentInr) },
                   {
-                    label: n.economics.netFinal ? 'Net: margin − reward − network' : 'Net expected: margin − reward − fee',
+                    label: n.economics.netFinal ? 'Net: margin − network' : 'Net expected: margin − fee',
                     value: n.economics.netProfit.startsWith('-') ? <Chip tone="danger">{inr(n.economics.netProfit)}</Chip> : inr(n.economics.netProfit),
                     strong: true,
                   },

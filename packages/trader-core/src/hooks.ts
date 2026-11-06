@@ -1,11 +1,10 @@
 import { sql } from 'kysely';
-import { DomainError, Money, requireUuid } from '@inrp2p/kernel';
-import type { Executor, TxContext } from '@inrp2p/db';
+import { DomainError } from '@inrp2p/kernel';
+import type { TxContext } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
 import { enqueueOutbox } from '@inrp2p/outbox';
 import { lockTrader } from './access.ts';
 import { closeUnstartedOrder, lockOrder } from './offers.ts';
-import { traderProgram } from './policy.ts';
 
 /**
  * The contract between quotes and trader orders — the only part of the trader programme the quote module sees.
@@ -16,39 +15,6 @@ import { traderProgram } from './policy.ts';
 async function businessNow(ctx: TxContext): Promise<Date> {
   const r = await sql<{ now: Date }>`select inrp2p_now() as now`.execute(ctx.tx);
   return r.rows[0]!.now;
-}
-
-/**
- * The reward model (V1), explicit and configured — never inferred from a market.
- *
- * A trader's rate is its own price; what it makes on that price is its business and appears nowhere here. What
- * INRP2P itself pays a trader is a reward: `reward_bps` (the trader's override, else the programme's) of the
- * order's INR value at the trader's rate, rounded down, fixed when the order starts, and accrued in the ledger when
- * the order completes. With no rate configured there is no reward, and the product says so.
- */
-export function rewardFor(inrMinor: bigint, bps: number): bigint {
-  if (!Number.isInteger(bps) || bps < 0) throw new DomainError('INVALID_ARGUMENT', 'reward basis points must be a non-negative whole number');
-  return (inrMinor * BigInt(bps)) / 10_000n;
-}
-
-export interface OrderRewardTerms {
-  readonly orderId: string;
-  /** The trader's override, else the programme's rate; null when INRP2P pays this trader no reward. */
-  readonly bps: number | null;
-  readonly rewardMinor: bigint;
-}
-
-/**
- * The reward an accepted order carries, as a quote on it counts it (ADR 0017 §1): what the client pays must cover it.
- * The quote freezes these terms (`quote_network_fee`) and the order starts with exactly them (`startOrderForTrade`,
- * IX113) — a change to the programme or to the trader's override after the quote never changes what the order earns.
- */
-export async function orderRewardTerms(ex: Executor, orderId: string): Promise<OrderRewardTerms> {
-  const order = await ex.selectFrom('trader_order').select(['id', 'trader_id', 'inr_minor']).where('id', '=', requireUuid(orderId, 'orderId')).executeTakeFirstOrThrow();
-  const program = await traderProgram(ex);
-  const profile = await ex.selectFrom('trader_profile').select('reward_bps').where('id', '=', order.trader_id).executeTakeFirstOrThrow();
-  const bps = profile.reward_bps ?? program.rewardBps;
-  return { orderId: order.id, bps, rewardMinor: bps === null ? 0n : rewardFor(order.inr_minor, bps) };
 }
 
 /**
@@ -74,12 +40,6 @@ export async function closeOrdersForRequests(ctx: TxContext, requestIds: readonl
     else if (order.status === 'ACCEPTED') await closeUnstartedOrder(ctx, order, 'RELEASED', 'REQUEST_CLOSED');
   }
   return live.length;
-}
-
-/** The trader id behind a route, or null for a desk route. */
-export async function traderOfRoute(ex: Executor, routeId: string): Promise<string | null> {
-  const r = await ex.selectFrom('liquidity_route').select('trader_id').where('id', '=', requireUuid(routeId, 'routeId')).executeTakeFirst();
-  return r?.trader_id ?? null;
 }
 
 export interface OrderForQuote {
@@ -116,10 +76,8 @@ export async function requireOrderForQuote(ctx: TxContext, input: { requestId: s
 
 /**
  * The client accepted a quote on a trader route: the trader's order starts, bound to the trade and its route
- * obligation (the database checks they are the accepted terms). The reward is the one the quote counted and froze
- * (`quote_network_fee`, IX113) — not re-read from the programme — so what the client's price paid for, what the order
- * earns, what the ledger accrues and what the desk reports are one figure. A quote from before frozen terms existed
- * fixes it from the programme now, as before. Runs in the acceptance transaction; any failure fails the acceptance.
+ * obligation (the database checks they are the accepted terms). Runs in the acceptance transaction; any failure fails
+ * the acceptance.
  */
 export async function startOrderForTrade(ctx: TxContext, input: { requestId: string; routeId: string; quoteId: string; tradeId: string; routeObligationId: string }): Promise<{ orderId: string }> {
   const peek = await ctx.tx
@@ -133,18 +91,6 @@ export async function startOrderForTrade(ctx: TxContext, input: { requestId: str
   const order = await lockOrder(ctx, peek.id);
   if (order.status !== 'ACCEPTED') throw new DomainError('TRADER_ORDER_REQUIRED', 'the trader order behind this quote is no longer held');
   const profile = await ctx.tx.selectFrom('trader_profile').select(['client_id']).where('id', '=', order.trader_id).executeTakeFirstOrThrow();
-  const frozen = await ctx.tx.selectFrom('quote_network_fee').select(['trader_order_id', 'reward_bps', 'reward_inr_minor']).where('quote_id', '=', input.quoteId).executeTakeFirst();
-  let bps: number | null;
-  let reward: bigint | null;
-  if (frozen) {
-    if (frozen.trader_order_id !== order.id) throw new DomainError('TRADER_ORDER_MISMATCH', 'the quote counted the reward of another order');
-    bps = frozen.reward_bps;
-    reward = bps === null ? null : frozen.reward_inr_minor;
-  } else {
-    const terms = await orderRewardTerms(ctx.tx, order.id);
-    bps = terms.bps;
-    reward = bps === null ? null : terms.rewardMinor;
-  }
   await ctx.tx
     .updateTable('trader_order')
     .set({
@@ -153,15 +99,13 @@ export async function startOrderForTrade(ctx: TxContext, input: { requestId: str
       route_obligation_id: input.routeObligationId,
       quote_id: input.quoteId,
       started_at: sql<Date>`inrp2p_now()`,
-      reward_bps: bps,
-      reward_inr_minor: reward,
       version: order.version + 1,
     })
     .where('id', '=', order.id)
     .execute();
   await appendAudit(ctx, {
     action: 'trader_order.started', entityType: 'trader_order', entityId: order.id,
-    before: { status: 'ACCEPTED' }, after: { status: 'IN_PROGRESS', trade_id: input.tradeId, route_obligation_id: input.routeObligationId, reward_bps: bps, reward: reward === null ? null : Money.ofMinor(reward, 'INR') },
+    before: { status: 'ACCEPTED' }, after: { status: 'IN_PROGRESS', trade_id: input.tradeId, route_obligation_id: input.routeObligationId },
   });
   await enqueueOutbox(ctx, { type: 'trader.order_started', aggregateType: 'trader_order', aggregateId: order.id, payload: { orderId: order.id, traderId: order.trader_id, clientId: profile.client_id } });
   return { orderId: order.id };

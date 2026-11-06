@@ -15,21 +15,20 @@ const BOUNDARIES = {
   adapters: ['kernel'],
   // Phase 2 reference-data modules (ARCHITECTURE §3): talk to each other only through public APIs.
   clients: ['kernel', 'db', 'audit', 'identity', 'outbox', 'adapters'],
-  'inr-accounts': ['kernel', 'db', 'audit', 'identity', 'outbox', 'adapters'],
   routes: ['kernel', 'db', 'audit', 'identity'],
   pricing: ['kernel', 'db', 'audit', 'identity', 'routes'],
   treasury: ['kernel', 'db', 'audit', 'identity', 'outbox', 'adapters'],
   // Phase 3 trade lifecycle modules (ARCHITECTURE §3).
   trades: ['kernel', 'db', 'audit', 'ledger', 'routes'],
   // Phase 4 settlement: drives trades, movements, route obligations, capacity and treasury through their APIs.
-  settlement: ['kernel', 'db', 'audit', 'identity', 'outbox', 'adapters', 'commands', 'ledger', 'clients', 'inr-accounts', 'routes', 'treasury', 'trades', 'network'],
+  settlement: ['kernel', 'db', 'audit', 'identity', 'outbox', 'adapters', 'commands', 'ledger', 'clients', 'routes', 'treasury', 'trades', 'network'],
   // Traders (docs/TRADERS.md): trader profiles, capacity blocks, private order assignment, Security Reserve and
   // rewards, built on routes, route obligations and route settlements through settlement's public API.
   // The part of the trader programme quote commands depend on: order holds for quotes, starting an order when its
   // quote is accepted, closing orders when a request closes, and the programme settings.
   // It reads a trader's standing, Security Reserve figures included (from the ledger), for the desk deals quotes price.
   'trader-core': ['kernel', 'db', 'audit', 'outbox', 'identity', 'adapters', 'ledger'],
-  traders: ['kernel', 'db', 'audit', 'identity', 'outbox', 'adapters', 'commands', 'ledger', 'clients', 'inr-accounts', 'routes', 'pricing', 'treasury', 'trades', 'settlement', 'trader-core', 'network'],
+  traders: ['kernel', 'db', 'audit', 'identity', 'outbox', 'adapters', 'commands', 'ledger', 'clients', 'routes', 'pricing', 'treasury', 'trades', 'settlement', 'trader-core', 'network'],
   // USDT TRC20 rails (ADR 0017): the TRX network budget, network fees in quotes, and sends the signer will make. Below
   // settlement and quotes, which decide what is sent; the signer that sends it is `onchain`.
   network: ['kernel', 'db', 'audit', 'identity', 'outbox', 'adapters', 'ledger', 'trader-core', 'commands'],
@@ -38,9 +37,9 @@ const BOUNDARIES = {
   // every transaction to its end, settling through settlement's public API. Runs in the worker only.
   onchain: ['kernel', 'db', 'audit', 'identity', 'outbox', 'adapters', 'commands', 'trades', 'treasury', 'settlement', 'network', 'scanner'],
   // Phase 5 chain monitoring: reads the chain through adapters and drives settlement through its public API.
-  scanner: ['kernel', 'db', 'audit', 'identity', 'adapters', 'commands', 'ledger', 'clients', 'inr-accounts', 'routes', 'treasury', 'trades', 'settlement', 'pricing', 'quotes', 'outbox'],
+  scanner: ['kernel', 'db', 'audit', 'identity', 'adapters', 'commands', 'ledger', 'clients', 'routes', 'treasury', 'trades', 'settlement', 'pricing', 'quotes', 'outbox'],
   // Phase 7 client read models: composes the domain's own client projections; never a command, never a write.
-  portal: ['kernel', 'db', 'quotes', 'trades', 'settlement', 'notifications', 'clients', 'identity', 'adapters', 'commands', 'routes', 'pricing', 'treasury', 'ledger', 'audit', 'outbox', 'inr-accounts'],
+  portal: ['kernel', 'db', 'quotes', 'trades', 'settlement', 'notifications', 'clients', 'identity', 'adapters', 'commands', 'routes', 'pricing', 'treasury', 'ledger', 'audit', 'outbox'],
   // Phase 7 client notifications: turns events the domain emitted into the client's inbox; no domain knowledge.
   notifications: ['kernel', 'db', 'outbox', 'adapters'],
   // Phase 8 reporting (ARCHITECTURE §3 `reporting/`): receipts, exports and the one CSV writer they share. A
@@ -49,7 +48,7 @@ const BOUNDARIES = {
   // that stays true.
   reporting: ['kernel', 'db', 'audit', 'commands', 'outbox', 'quotes', 'ui'],
   // Phase 6 operator read models: composes the domain modules' public APIs; never a command, never a write.
-  desk: ['kernel', 'db', 'identity', 'clients', 'inr-accounts', 'routes', 'pricing', 'treasury', 'trades', 'settlement', 'adapters', 'commands', 'quotes', 'scanner', 'ledger', 'audit', 'outbox', 'traders', 'network'],
+  desk: ['kernel', 'db', 'identity', 'clients', 'routes', 'pricing', 'treasury', 'trades', 'settlement', 'adapters', 'commands', 'quotes', 'scanner', 'ledger', 'audit', 'outbox', 'traders', 'network'],
   // Design system: formats kernel Money/Rate values; never touches persistence or domain modules.
   ui: ['kernel'],
   // The canonical visual-baseline environment and its guard; test tooling, depends on nothing of the domain.

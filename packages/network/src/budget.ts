@@ -4,7 +4,7 @@ import type { Executor, TxContext } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
 import { enqueueOutbox } from '@inrp2p/outbox';
 import { type ClientActor, type OperatorActor, operatorCommand, requireConfirmation } from '@inrp2p/identity';
-import { postJournal, traderNetworkReimbursementJournal } from '@inrp2p/ledger';
+import { postJournal } from '@inrp2p/ledger';
 import type { TrxTransferFacts } from '@inrp2p/adapters';
 import { lockTrader, traderClientCommand } from '@inrp2p/trader-core';
 import { type QuoteNetworkFee, tradeNetworkFee } from './pricing.ts';
@@ -150,46 +150,28 @@ export async function spentByBearer(ex: Executor, tradeId: string): Promise<{ cl
 }
 
 /**
- * Closes a finished trade's hold: what it did not spend is free again, and — through the exchange — a trader that paid for
- * transfers it does not bear is owed their value in INR, at the TRX price and rate its trade was quoted with (rounded
- * down: the exchange pays). It is accrued with the trader's rewards (`network_fee:{trade}:reimburse`, Dr
- * EXPENSE:NETWORK_FEES / Cr LIAB:TRADER_REWARD_PAYABLE) and paid like them, only out of realized margin (FI-82). A P2P
- * trader bears all of its deal's transfers. The caller has checked that no transfer of the trade can still happen.
+ * Closes a finished trade's hold: what it did not spend is free again. A trader's transfers are its own cost, priced into
+ * its rate (migration 0040): nothing is paid back. The caller has checked that no transfer of the trade can still happen.
  */
-export async function closeNetworkHold(ctx: TxContext, tradeId: string, reason: string): Promise<{ closed: boolean; spentSun: bigint; reimbursedSun: bigint; reimbursedInrMinor: bigint }> {
+export async function closeNetworkHold(ctx: TxContext, tradeId: string, reason: string): Promise<{ closed: boolean; spentSun: bigint }> {
   const hold = await ctx.tx.selectFrom('network_budget_hold').selectAll().where('trade_id', '=', tradeId).forUpdate().executeTakeFirst();
-  if (!hold || hold.status !== 'ACTIVE') return { closed: false, spentSun: 0n, reimbursedSun: 0n, reimbursedInrMinor: 0n };
+  if (!hold || hold.status !== 'ACTIVE') return { closed: false, spentSun: 0n };
   // ADR 0022: a USDT hold is settled at what GasFree charged, in USDT.
   if (hold.unit === 'USDT') {
     const out = await closeUsdtNetworkHold(ctx, tradeId, reason);
-    return { closed: out.closed, spentSun: 0n, reimbursedSun: 0n, reimbursedInrMinor: 0n };
+    return { closed: out.closed, spentSun: 0n };
   }
   const spent = await spentByBearer(ctx.tx, tradeId);
-  let reimbursedSun = 0n;
-  let reimbursedInr = 0n;
-  // A P2P deal's transfers are its trader's own cost, priced into its rate (migration 0040): nothing is paid back — no rupee
-  // passes the exchange to pay it with, and the platform has no TRX budget of its own to carry it.
-  const mode = (await ctx.tx.selectFrom('trade_economics').select('route_execution_mode').where('trade_id', '=', tradeId).executeTakeFirst())?.route_execution_mode;
-  if (hold.trader_id && mode !== 'P2P') {
-    reimbursedSun = spent.client + spent.platform;
-    const terms = await tradeNetworkFee(ctx.tx, tradeId);
-    if (terms?.usdtPerTrxMicro && reimbursedSun > 0n) {
-      reimbursedInr = trxToInrMinor(reimbursedSun, terms.usdtPerTrxMicro, terms.clientRateMicro, 'DOWN');
-      if (reimbursedInr > 0n) {
-        await postJournal(ctx, traderNetworkReimbursementJournal({ tradeId, traderId: hold.trader_id, amount: Money.ofMinor(reimbursedInr, 'INR') }));
-      }
-    }
-  }
   await ctx.tx
     .updateTable('network_budget_hold')
-    .set({ status: 'CLOSED', closed_at: sql<Date>`inrp2p_now()`, close_reason: reason.slice(0, 500), spent_sun: spent.total, reimbursed_sun: reimbursedSun, reimbursed_inr_minor: reimbursedInr })
+    .set({ status: 'CLOSED', closed_at: sql<Date>`inrp2p_now()`, close_reason: reason.slice(0, 500), spent_sun: spent.total, reimbursed_sun: 0n, reimbursed_inr_minor: 0n })
     .where('id', '=', hold.id)
     .execute();
   await appendAudit(ctx, {
     action: 'network.budget_released', entityType: 'trade', entityId: tradeId,
-    after: { funder: hold.trader_id ?? 'PLATFORM', held_trx: formatTrx(hold.amount_sun!), spent_trx: formatTrx(spent.total), reimbursed_trx: formatTrx(reimbursedSun), reimbursed_inr: Money.ofMinor(reimbursedInr, 'INR'), reason },
+    after: { funder: hold.trader_id ?? 'PLATFORM', held_trx: formatTrx(hold.amount_sun!), spent_trx: formatTrx(spent.total) },
   });
-  return { closed: true, spentSun: spent.total, reimbursedSun, reimbursedInrMinor: reimbursedInr };
+  return { closed: true, spentSun: spent.total };
 }
 
 // ---- deposits ------------------------------------------------------------------------------------------------

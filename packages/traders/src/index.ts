@@ -8,7 +8,6 @@ export * from './delivery.ts';
 export * from './reserve.ts';
 export * from './reserve-application.ts';
 export * from './network.ts';
-export * from './rewards.ts';
 export * from './progress.ts';
 export * from './views.ts';
 export * from './desk.ts';

@@ -3,7 +3,6 @@ import { Money } from '@inrp2p/kernel';
 import type { Executor, TradeLifecycleState, TxContext } from '@inrp2p/db';
 import { enqueueOutbox } from '@inrp2p/outbox';
 import { postJournal, tradeCompleteJournal } from '@inrp2p/ledger';
-import { releaseReservation } from '@inrp2p/inr-accounts';
 import { releaseDepositAssignment, releaseTreasuryReservation } from '@inrp2p/treasury';
 import {
   type TradeRow, effectiveObligations, legTotals, receivedNetOfPlannedExcess, receivedNetOfReturnedExcess, reloadTrade, tradeEconomics, transitionTrade,
@@ -23,8 +22,6 @@ export async function clientLegsInFlight(ex: Executor, tradeId: string): Promise
  * route obligation (FI-62) — a residual may stay open.
  */
 export async function completeTrade(ctx: TxContext, trade: TradeRow, econ: Awaited<ReturnType<typeof tradeEconomics>>): Promise<void> {
-  const reservations = await ctx.tx.selectFrom('capacity_reservation').select('id').where('trade_id', '=', trade.id).where('status', '=', 'ACTIVE').orderBy('id').execute();
-  for (const r of reservations) await releaseReservation(ctx, r.id, 'TRADE_COMPLETED');
   await releaseTreasuryReservation(ctx, { tradeId: trade.id, reason: 'TRADE_COMPLETED' });
   if (trade.direction === 'SELL_USDT') {
     const assignment = await ctx.tx.selectFrom('deposit_assignment').select('id').where('trade_id', '=', trade.id).where('released_at', 'is', null).executeTakeFirst();

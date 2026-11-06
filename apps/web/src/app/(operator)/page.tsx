@@ -1,6 +1,5 @@
 import { isDomainError } from '@inrp2p/kernel';
 import { type QueueGroupKey, deskQuote, deskRequest, deskStrip, deskTrade } from '@inrp2p/desk';
-import { collectionAccounts } from '@inrp2p/traders';
 import { optionalEnv } from '../../server/env.ts';
 import { can, operatorPage } from '../../server/operator.ts';
 import { ContextPanel } from './_desk/ContextPanel.tsx';
@@ -60,7 +59,6 @@ export default async function DeskPage({ searchParams }: { searchParams: Promise
     selected?.kind === 'request' ? orNull(deskRequest(ctx.db, selected.id, ctx.access)) : null,
     selected?.kind === 'quote' ? orNull(deskQuote(ctx.db, selected.id, ctx.access)) : null,
   ]);
-  const collection = trade && trade.direction === 'BUY_USDT' ? await collectionAccounts(ctx.db) : [];
   const hasPanel = Boolean(trade || request || quote);
 
   const keep = (next: Record<string, string | null>) => {
@@ -167,7 +165,7 @@ export default async function DeskPage({ searchParams }: { searchParams: Promise
                 testId="trade-panel"
                 label={`Trade ${trade.ref}`}
               >
-                <TradeWorkspace trade={trade} perms={tradePerms(ctx)} collectionAccounts={collection} {...(section ? { focus: section } : {})} />
+                <TradeWorkspace trade={trade} perms={tradePerms(ctx)} {...(section ? { focus: section } : {})} />
               </ContextPanel>
             ) : null}
           </div>

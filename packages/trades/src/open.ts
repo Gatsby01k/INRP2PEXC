@@ -1,5 +1,5 @@
 import { DomainError, Money, type TradeEconomics } from '@inrp2p/kernel';
-import type { DirectionValue, ExecutionMode, FixedSideValue, TxContext } from '@inrp2p/db';
+import type { DirectionValue, FixedSideValue, TxContext } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
 import { postJournal, tradeAcceptJournal } from '@inrp2p/ledger';
 import { openRouteObligation } from '@inrp2p/routes';
@@ -37,18 +37,16 @@ export interface OpenedTrade {
   readonly ref: string;
   readonly routeObligationId: string;
   readonly acceptJournalId: string;
-  readonly executionMode: ExecutionMode;
 }
 
 /**
  * T1 (STATE_MACHINES §3): inside the acceptance transaction, after the quote row is ACCEPTED. Creates the trade in
- * AWAITING_FIRST_LEG, its insert-once economics (with the route execution mode frozen from the route now), the route
+ * AWAITING_FIRST_LEG, its insert-once economics, the route
  * obligation (OPEN) and the `trade:{t}:accept` journal (FINANCIAL_INVARIANTS §3.3). The database re-checks that
  * economics equal the quote and that the obligation equals the economics.
  */
-export async function openTradeFromAcceptedQuote(ctx: TxContext, terms: AcceptedQuoteTerms, executionMode: ExecutionMode): Promise<OpenedTrade> {
-  const p2p = executionMode === 'P2P';
-  if (p2p !== (terms.routeBaseMinor !== null && terms.routeBaseMinor !== undefined)) throw new DomainError('INVALID_ARGUMENT', 'a P2P trade carries its trader\'s USDT side, and only a P2P trade does');
+export async function openTradeFromAcceptedQuote(ctx: TxContext, terms: AcceptedQuoteTerms): Promise<OpenedTrade> {
+  if (terms.routeBaseMinor === null || terms.routeBaseMinor === undefined) throw new DomainError('INVALID_ARGUMENT', 'a trade carries its trader\'s USDT side');
   if (terms.direction === 'SELL_USDT' && terms.grossMarginInrMinor !== terms.routeValueInrMinor - terms.quoteInrMinor) {
     throw new DomainError('INVALID_ARGUMENT', 'quote margin is inconsistent');
   }
@@ -75,7 +73,7 @@ export async function openTradeFromAcceptedQuote(ctx: TxContext, terms: Accepted
       gross_margin_inr_minor: terms.grossMarginInrMinor,
       route_id: terms.routeId,
       route_rate_snapshot_id: terms.routeRateSnapshotId,
-      route_execution_mode: executionMode,
+      route_execution_mode: 'P2P',
       network: terms.network,
       bank_account_id: terms.bankAccountId,
       crypto_wallet_id: terms.cryptoWalletId,
@@ -94,19 +92,19 @@ export async function openTradeFromAcceptedQuote(ctx: TxContext, terms: Accepted
   const base = Money.ofMinor(terms.baseMinor, 'USDT');
   const clientInr = Money.ofMinor(terms.quoteInrMinor, 'INR');
   const routeInr = Money.ofMinor(terms.routeValueInrMinor, 'INR');
-  const routeBase = p2p ? Money.ofMinor(terms.routeBaseMinor!, 'USDT') : null;
-  // The route's side: on a P2P route, the trader's own USDT (ADR 0019).
-  const obligation = await openRouteObligation(ctx, { tradeId: trade.id, routeId: terms.routeId, direction: terms.direction, executionMode, base: routeBase ?? base, routeValueInr: routeInr });
+  // The route's side: the trader's own USDT (ADR 0019).
+  const routeBase = Money.ofMinor(terms.routeBaseMinor, 'USDT');
+  const obligation = await openRouteObligation(ctx, { tradeId: trade.id, routeId: terms.routeId, direction: terms.direction, base: routeBase, routeValueInr: routeInr });
 
   const econ: TradeEconomics = {
     direction: terms.direction, fixedSide: terms.fixedSide, base, clientInr, routeInr, grossMargin: Money.ofMinor(terms.grossMarginInrMinor, 'INR'),
-    ...(routeBase ? { routeBase, grossMarginBase: Money.ofMinor(terms.grossMarginBaseMinor!, 'USDT') } : {}),
+    routeBase, grossMarginBase: Money.ofMinor(terms.grossMarginBaseMinor!, 'USDT'),
   };
   const journal = await postJournal(ctx, tradeAcceptJournal(econ, { tradeId: trade.id, clientId: terms.clientId, routeId: terms.routeId, routeObligationId: obligation.routeObligationId }));
 
   await appendAudit(ctx, {
     action: 'trade.opened', entityType: 'trade', entityId: trade.id,
-    after: { ref: trade.ref, quote_id: terms.quoteId, direction: terms.direction, state: 'AWAITING_FIRST_LEG', route_execution_mode: executionMode, route_obligation_id: obligation.routeObligationId, journal: journal.postingKey },
+    after: { ref: trade.ref, quote_id: terms.quoteId, direction: terms.direction, state: 'AWAITING_FIRST_LEG', route_obligation_id: obligation.routeObligationId, journal: journal.postingKey },
   });
-  return { tradeId: trade.id, ref: trade.ref, routeObligationId: obligation.routeObligationId, acceptJournalId: journal.id, executionMode };
+  return { tradeId: trade.id, ref: trade.ref, routeObligationId: obligation.routeObligationId, acceptJournalId: journal.id };
 }

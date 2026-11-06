@@ -49,7 +49,7 @@ const HOLD_GRACE_SECONDS = 60;
 const SYSTEM_PRICER = 'SYSTEM:auto_price';
 
 /** Why a request was left for a person rather than priced automatically. */
-export type ManualReason = 'OFF' | 'NOT_P2P' | 'NO_MARKET' | 'NETWORK_UNKNOWN' | 'NO_OFFER' | 'NOT_COMPETITIVE';
+export type ManualReason = 'OFF' | 'NO_MARKET' | 'NETWORK_UNKNOWN' | 'NO_OFFER' | 'NOT_COMPETITIVE';
 
 export type AutoOutcome =
   | { readonly kind: 'QUOTED'; readonly quoteId: string; readonly ref: string; readonly clientRate: string; readonly base: string; readonly clientInr: string; readonly expiresAt: string }
@@ -308,7 +308,6 @@ export async function autoPriceLockedInTx(ctx: TxContext, input: { requestId: st
   let reference: ReferenceRateSnapshot | null = null;
   let network: NetworkMode | null = null;
   if (!policy.autoQuote) manual = 'OFF';
-  else if ((await traderProgram(ctx.tx)).executionMode !== 'P2P') manual = 'NOT_P2P';
   else if (!(reference = await freshReference(ctx.tx, request.direction, policy))) manual = 'NO_MARKET';
   else if (!(network = await networkMode(ctx))) manual = 'NETWORK_UNKNOWN';
   const peek = manual ? [] : await candidates(ctx, request, network!, reference!);

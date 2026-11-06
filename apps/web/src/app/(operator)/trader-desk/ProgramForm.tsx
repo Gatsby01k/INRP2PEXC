@@ -57,8 +57,6 @@ export function ProgramForm({ program, canConfigure }: { program: DeskProgram; c
           offerTtlSeconds: Number.parseInt(offer, 10),
           holdTtlSeconds: Number.parseInt(hold, 10),
           autoAssign: auto,
-          // Traders settle P2P, and nothing else: there is no INR account for rupees to go through (ADR 0019).
-          executionMode: 'P2P',
           p2pTiming: {
             escrowMinutes: minutes(timing.escrowMinutes),
             finalMinutes: minutes(timing.finalMinutes),

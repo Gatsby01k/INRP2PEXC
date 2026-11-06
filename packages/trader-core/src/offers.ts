@@ -47,14 +47,13 @@ export interface OrderRow {
   readonly trade_id: string | null;
   readonly route_obligation_id: string | null;
   readonly delivered_at: Date | null;
-  readonly reward_inr_minor: bigint | null;
   readonly planned_client_rate_micro: bigint | null;
   readonly version: number;
 }
 
 const ORDER_COLUMNS = [
   'id', 'ref', 'trader_id', 'block_id', 'route_id', 'trade_request_id', 'side', 'base_minor', 'inr_minor', 'rate_micro', 'capacity_minor', 'status',
-  'offer_expires_at', 'hold_until', 'route_rate_snapshot_id', 'trade_id', 'route_obligation_id', 'delivered_at', 'reward_inr_minor', 'planned_client_rate_micro', 'version',
+  'offer_expires_at', 'hold_until', 'route_rate_snapshot_id', 'trade_id', 'route_obligation_id', 'delivered_at', 'planned_client_rate_micro', 'version',
 ] as const;
 
 /** One order `FOR UPDATE`, in the global lock order. */

@@ -80,7 +80,7 @@ export default async function NetworkPage() {
           label="Network budget"
           items={[
             { key: 't', label: 'Traders’ deposits free', value: trx(fmt(sum('available'))), sub: `${trx(fmt(sum('held')))} held for open trades`, size: 'lg' },
-            { key: 'p', label: 'Platform budget free', value: trx(platform.available), sub: 'desk routes and the platform’s own mistakes', ...(platform.available.startsWith('-') ? { tone: 'danger' as const } : {}) },
+            { key: 'p', label: 'Platform budget free', value: trx(platform.available), sub: 'the platform’s own mistakes', ...(platform.available.startsWith('-') ? { tone: 'danger' as const } : {}) },
             { key: 's', label: 'Sends in flight', value: String(live.length), sub: `${waiting} need approval · ${blocked} blocked`, ...(blocked > 0 ? { tone: 'danger' as const } : waiting > 0 ? { tone: 'warning' as const } : {}) },
             {
               key: 'f', label: 'One transfer costs', value: view.fees ? trx(view.fees.perSendQuotedTrx) : '—',
@@ -122,11 +122,11 @@ export default async function NetworkPage() {
 
         {trxMode ? (
         <>
-        <Section title="Funders" count={view.funders.length} hint="TRX is prefunded: a trader’s deposit pays the transfers of its orders and is paid back in INR with its rewards when the client paid for them; the platform budget only desk routes and its own mistakes." flush>
+        <Section title="Funders" count={view.funders.length} hint="TRX is prefunded: a trader’s deposit pays the transfers of its orders; the platform budget only its own mistakes." flush>
           <FundersTable funders={view.funders} />
         </Section>
 
-        <Section title="Trades" hint="What the client’s price carried for the network against what the transfers actually burned, and what each trade leaves after the trader’s reward." flush>
+        <Section title="Trades" hint="What the client’s price carried for the network against what the transfers actually burned, and what each trade leaves." flush>
           <TradesNetworkTable trades={view.trades} />
         </Section>
         </>

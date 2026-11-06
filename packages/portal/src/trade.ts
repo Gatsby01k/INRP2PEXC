@@ -1,12 +1,11 @@
 import { sql } from 'kysely';
 import { DomainError, Money } from '@inrp2p/kernel';
 import type { Executor } from '@inrp2p/db';
-import { type ClientTradeView, getClientTradeView, isCounterpartyFunded } from '@inrp2p/trades';
-import { type ClientSettlementView, type P2pDeal, fundingSources, getClientSettlementView, p2pDeal } from '@inrp2p/settlement';
+import { type ClientTradeView, getClientTradeView } from '@inrp2p/trades';
+import { type ClientSettlementView, type P2pDeal, getClientSettlementView, p2pDeal } from '@inrp2p/settlement';
 import { maskedDestination } from '@inrp2p/quotes';
 import type { FieldProtector } from '@inrp2p/adapters';
 import { clientSafe } from './access.ts';
-import { type PortalInrPayment, portalInrPayment } from './payment.ts';
 
 /**
  * One trade, as its client sees it (UX_FLOWS F1 step 6).
@@ -44,11 +43,11 @@ export interface PortalTrade {
   readonly receipt: boolean;
   /** Where this trade pays out, as the client recognises it: a bank's name and last four, or a wallet address. */
   readonly destination: string;
-  /** BUY: how the client pays its rupees, and every payment filed (ADR 0018). Null for a SELL. */
-  readonly payment: PortalInrPayment | null;
+  /** BUY: the client's own registered bank accounts, the only ones it may pay from (ADR 0018). Empty for a SELL. */
+  readonly fromAccounts: readonly { readonly id: string; readonly holderName: string; readonly bankName: string; readonly last4: string }[];
   /**
-   * ADR 0019: a P2P deal — the rupees go straight between the client and its counterparty, the USDT through INRP2P's
-   * escrow. Its step, whose move it is and until when, and the account to pay when the client pays. Null otherwise.
+   * ADR 0019: the deal — the rupees go straight between the client and its counterparty, the USDT through INRP2P's
+   * escrow. Its step, whose move it is and until when, and the account to pay when the client pays.
    */
   readonly p2p: P2pDeal | null;
 }
@@ -89,7 +88,6 @@ export async function portalTrade(ex: Executor, clientId: string, tradeRef: stri
   const receipt = completed ? await ex.selectFrom('receipt').select('id').where('trade_id', '=', row.id).executeTakeFirst() : undefined;
   const ended = row.completed_at ?? row.cancelled_at;
   const closedAt = ended ? ended.toISOString() : null;
-  const liquidity = funded && !completed ? await liquidityOf(ex, row.id) : null;
 
   return clientSafe({
     trade,
@@ -102,7 +100,6 @@ export async function portalTrade(ex: Executor, clientId: string, tradeRef: stri
       paidSomething: paid.isPositive(),
       // A payment sent and not yet confirmed is already on its way: the stage must not still say it is being prepared.
       sending: settlement.payments.some((p) => p.status === 'SENT' || p.status === 'PROCESSING' || p.status === 'EVIDENCE_RECORDED'),
-      liquidity,
       completed,
       closedAt: closedAt,
       detectedAt: transfer ? transfer.detected_at.toISOString() : null,
@@ -120,23 +117,12 @@ export async function portalTrade(ex: Executor, clientId: string, tradeRef: stri
     completedAt: completed ? closedAt : null,
     receipt: receipt !== undefined,
     destination: await maskedDestination(ex, frozen),
-    payment: trade.direction === 'BUY_USDT' ? await portalInrPayment(ex, opts.protector ?? null, { tradeId: row.id, clientId, lifecycle: row.lifecycle_state, hold: row.hold }) : null,
+    fromAccounts: trade.direction === 'BUY_USDT'
+      ? (await ex.selectFrom('bank_account').select(['id', 'holder_name', 'bank_name', 'account_last4']).where('client_id', '=', clientId).where('status', '=', 'ACTIVE').orderBy('created_at').execute())
+          .map((a) => ({ id: a.id, holderName: a.holder_name, bankName: a.bank_name, last4: a.account_last4 }))
+      : [],
     p2p: await p2pDeal(ex, opts.protector ?? null, { tradeId: row.id, viewer: 'CLIENT' }),
   });
-}
-
-/**
- * D-16: on a route that delivers to the exchange, the client is paid with the counterparty's money only, so after
- * the client's own leg the trade waits for that liquidity to arrive. Null where that does not apply (a trade the
- * treasury funded before D-16, or a route that pays the client directly). Only the state is shown — never an amount,
- * which divided by the trade's size would be the route's rate.
- */
-async function liquidityOf(ex: Executor, tradeId: string): Promise<'WAITING' | 'PARTIAL' | 'ARRIVED' | null> {
-  if (!(await isCounterpartyFunded(ex, tradeId))) return null;
-  const route = await ex.selectFrom('route_obligation').select(['execution_mode', 'route_delivers_minor']).where('trade_id', '=', tradeId).executeTakeFirst();
-  if (!route || route.execution_mode !== 'TO_EXCHANGE') return null;
-  const delivered = (await fundingSources(ex, tradeId, { kind: 'COUNTERPARTY_FUNDS' })).reduce((sum, x) => sum + x.amountMinor, 0n);
-  return delivered === 0n ? 'WAITING' : delivered < route.route_delivers_minor ? 'PARTIAL' : 'ARRIVED';
 }
 
 /** Lifecycle states past the client's own leg. */
@@ -153,7 +139,6 @@ function stagesFor(f: {
   funded: boolean;
   paidSomething: boolean;
   sending?: boolean;
-  liquidity: 'WAITING' | 'PARTIAL' | 'ARRIVED' | null;
   completed: boolean;
   closedAt: string | null;
   detectedAt: string | null;
@@ -174,9 +159,7 @@ function stagesFor(f: {
           key: 'settling',
           status: 'current',
           at: null,
-          detail: f.paidSomething
-            ? f.liquidity === 'PARTIAL' ? 'paying out as liquidity arrives' : 'paying out'
-            : f.sending ? 'a payment is on its way' : f.liquidity === 'WAITING' ? 'waiting for liquidity' : 'preparing your payment',
+          detail: f.paidSomething ? 'paying out' : f.sending ? 'a payment is on its way' : 'preparing your payment',
         }
       : { key: 'settling', status: 'pending', at: null, detail: null };
   const completed: TradeStage = f.completed

@@ -1,7 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { deskTradeRecord, tradeIdByRef } from '@inrp2p/desk';
-import { collectionAccounts } from '@inrp2p/traders';
 import { operatorPage } from '../../../../server/operator.ts';
 import { PanelSection } from '../../_desk/ContextPanel.tsx';
 import { Icon } from '../../_desk/icons.tsx';
@@ -32,7 +31,6 @@ export default async function TradeRecordPage({ params }: { params: Promise<{ re
   const record = await deskTradeRecord(ctx.db, tradeId, ctx.access);
   const trade = record.trade;
   const perms = tradePerms(ctx);
-  const collection = await collectionAccounts(ctx.db);
   const completed = trade.lifecycle === 'COMPLETED';
 
   return (
@@ -89,7 +87,7 @@ export default async function TradeRecordPage({ params }: { params: Promise<{ re
         <Columns>
           <Stack>
             <Section>
-              <TradeWorkspace trade={trade} perms={perms} collectionAccounts={collection} record />
+              <TradeWorkspace trade={trade} perms={perms} record />
             </Section>
             <Section title="History" count={record.timeline.length} hint="Every transition, leg, case and adjustment, newest first.">
               <Timeline
@@ -143,7 +141,7 @@ export default async function TradeRecordPage({ params }: { params: Promise<{ re
             ) : null}
 
             <Section>
-              <Closeout trade={trade} perms={perms} refundAccounts={collection} />
+              <Closeout trade={trade} perms={perms} />
               {perms.openException && trade.lifecycle !== 'COMPLETED' && trade.lifecycle !== 'CANCELLED' ? <FlagException trade={trade} /> : null}
               <Adjustments adjustments={record.adjustments} perms={perms} />
               {trade.lifecycle === 'COMPLETED' || trade.lifecycle === 'CANCELLED' ? (

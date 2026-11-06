@@ -44,9 +44,7 @@ export async function reclaimWeights(ex: Executor, address: string, before: Date
   for (const row of r.rows) {
     const left = BigInt(row.left);
     if (left <= 0n) continue;
-    // Paid back in rupees already: a trader's TRX for a transfer it did not bear, on a trade that is not P2P (FI-82).
-    const reimbursed = row.funder !== null && row.mode !== 'P2P' && row.bearer !== 'TRADER';
-    const funder = reimbursed ? null : row.funder;
+    const funder = row.funder;
     by.set(funder, (by.get(funder) ?? 0n) + left);
   }
   return [...by.entries()].map(([funder, amountSun]) => ({ funder, amountSun }));

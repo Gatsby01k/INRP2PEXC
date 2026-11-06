@@ -9,7 +9,6 @@ import type { EntryInput, JournalInput } from '../posting.ts';
  */
 export type MovementParty =
   | { readonly kind: 'CLIENT'; readonly clientId: string }
-  | { readonly kind: 'EXCHANGE_ACCOUNT'; readonly inrAccountId: string }
   | { readonly kind: 'EXCHANGE_TREASURY'; readonly walletId: string }
   | { readonly kind: 'ROUTE'; readonly routeId: string; readonly routeObligationId?: string | null }
   | { readonly kind: 'TRADER'; readonly traderId: string }
@@ -26,20 +25,18 @@ export interface MovementJournalInput {
   /**
    * `CLIENT_FIRST_LEG` and `REFUND` move the client receivable; `CLIENT_PAYOUT` moves the client payable.
    * `ROUTE_SETTLEMENT` moves the route side. `UNALLOCATED` parks funds in suspense until an operator decides.
-   * `TRADER_RESERVE` moves a trader's Security Reserve in (deposit) or out (withdrawal); `TRADER_REWARD_PAYOUT`
-   * pays accrued rewards to the trader. `TRADER_RESERVE_APPLIED` is a trader's reserve delivering the USDT its route
+   * `TRADER_RESERVE` moves a trader's Security Reserve in (deposit) or out (withdrawal);  `TRADER_RESERVE_APPLIED` is a trader's reserve delivering the USDT its route
    * owes (TD-21): from the trader, to the route obligation, moved by custody between two exchange wallets.
    * `ESCROW_RETURN` gives a P2P trader its own USDT back from the escrow of a deal its client never paid (ADR 0019).
    * `FEE_SWEEP` moves INRP2P's earnings from a deal address to its revenue wallet (ADR 0020 §2.16): between two of the
    * exchange's own treasury accounts — nothing is earned or owed by it.
    */
-  readonly purpose: 'CLIENT_FIRST_LEG' | 'CLIENT_PAYOUT' | 'ROUTE_SETTLEMENT' | 'REFUND' | 'UNALLOCATED' | 'TRADER_RESERVE' | 'TRADER_REWARD_PAYOUT' | 'TRADER_RESERVE_APPLIED' | 'ESCROW_RETURN' | 'FEE_SWEEP';
+  readonly purpose: 'CLIENT_FIRST_LEG' | 'CLIENT_PAYOUT' | 'ROUTE_SETTLEMENT' | 'REFUND' | 'UNALLOCATED' | 'TRADER_RESERVE' | 'TRADER_RESERVE_APPLIED' | 'ESCROW_RETURN' | 'FEE_SWEEP';
   /** `TRADER_RESERVE_APPLIED` only: the treasury wallets the USDT left and reached (the same wallet moves nothing). */
   readonly custody?: { readonly fromWalletId: string; readonly toWalletId: string } | null;
 }
 
 const exchangeAsset = (p: MovementParty, amount: Money) => {
-  if (p.kind === 'EXCHANGE_ACCOUNT') return Accounts.inrSettlement(p.inrAccountId);
   if (p.kind === 'EXCHANGE_TREASURY') return Accounts.treasuryUsdt(p.walletId);
   throw new DomainError('INVALID_ARGUMENT', `party ${p.kind} has no exchange asset account for ${amount.currency}`);
 };
@@ -169,14 +166,6 @@ export function movementJournal(input: MovementJournalInput): JournalInput {
               { account: Accounts.treasuryUsdt(custody.toWalletId), direction: 'DR', amount },
               { account: Accounts.treasuryUsdt(custody.fromWalletId), direction: 'CR', amount },
             ] as const)),
-      ];
-      break;
-    }
-    case 'TRADER_REWARD_PAYOUT': {
-      if (to.kind !== 'TRADER' || amount.currency !== 'INR') throw new DomainError('INVALID_ARGUMENT', `a reward payout pays INR to the trader (${key})`);
-      entries = [
-        { account: Accounts.traderRewardPayable(to.traderId), direction: 'DR', amount },
-        { account: exchangeAsset(from, amount), direction: 'CR', amount },
       ];
       break;
     }
