@@ -32,7 +32,7 @@ let sellerId: string;
 let reserveAddress: string;
 beforeAll(async () => {
   w = await createTradersWorld('reserve_application');
-  await configureProgram(w, { reserve: '500', rewardBps: 10, collection: true });
+  await configureProgram(w, { reserve: '500' });
   seller = await traderClient(w, 'Reserve Seller');
   sellerId = (await liveTrader(w, seller, { sell: { capacity: '5000', rate: '105.20', min: '100', max: '2500' }, reserve: '800' })).traderId;
   // The one reserve address every trader funds (D-17): an exchange wallet, which is where custody moves it from.

@@ -26,7 +26,7 @@ let w: TradersWorld;
 let reserveAddress: string;
 beforeAll(async () => {
   w = await createTradersWorld('trader_auto_review');
-  await configureProgram(w, { reserve: '500', rewardBps: 10, collection: true, autoReview: true, riskPolicy: DEFAULT_RISK_POLICY });
+  await configureProgram(w, { reserve: '500', autoReview: true, riskPolicy: DEFAULT_RISK_POLICY });
   reserveAddress = (await sharedReserveAddress(w.app))!.address;
 });
 afterAll(async () => w.close());

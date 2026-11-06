@@ -312,7 +312,7 @@ describe('the buyer’s time to pay, by rail', () => {
     // IMPS's thirty minutes are over, NEFT's sixty are not: nothing happens yet.
     await runP2pDeadlines((await at(45)).db);
     expect((await windowOf(trade.tradeId)).warned_at).toBeNull();
-    await runAs((await at(50)).db, submitOrderPayment(inrTrader.admin.actor, w.traderDeps), inrTrader.admin.ref, 'trader_order.submit_payment', { ref: trade.orderRef, rail: 'NEFT' as const, utr: `ICICN${Date.now().toString().slice(-11)}` });
+    await runAs((await at(50)).db, submitOrderPayment(inrTrader.admin.actor), inrTrader.admin.ref, 'trader_order.submit_payment', { ref: trade.orderRef, rail: 'NEFT' as const, utr: `ICICN${Date.now().toString().slice(-11)}` });
     await runP2pDeadlines((await at(90)).db);
     expect(await w.app.selectFrom('p2p_unwind').select('trade_id').where('trade_id', '=', trade.tradeId).execute()).toEqual([]);
     expect((await p2pDeal((await at(90)).db, null, { tradeId: trade.tradeId, viewer: 'CLIENT' }))!).toMatchObject({ step: 'CONFIRM', turn: 'SELLER' });

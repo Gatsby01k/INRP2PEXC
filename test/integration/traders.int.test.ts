@@ -61,7 +61,7 @@ describe('applying and approval', () => {
     const traderId = await traderIdOf(w.app, t.clientId);
     await expect(runAs(w.app, approveTrader(w.dealer.actor), w.dealer.ref, 'trader.approve', { traderId, requiredReserve: '500' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
     await expect(runAs(w.app, approveTrader(w.finance.actor), w.finance.ref, 'trader.approve', { traderId })).rejects.toMatchObject({ code: 'TRADER_RESERVE_NOT_SET' });
-    await configureProgram(w, { reserve: '500', rewardBps: 10, collection: true });
+    await configureProgram(w, { reserve: '500' });
     const approved = await runAs(w.app, approveTrader(w.finance.actor), w.finance.ref, 'trader.approve', { traderId });
     expect(approved.sides).toEqual(['BUY_USDT']);
     const route = await w.app.selectFrom('liquidity_route').selectAll().where('trader_id', '=', traderId).executeTakeFirstOrThrow();
@@ -85,7 +85,7 @@ describe('applying and approval', () => {
 
 describe('the Security Reserve', () => {
   it('is credited only from the trader’s registered wallet, on chain finality, and must cover the requirement to switch on', async () => {
-    await configureProgram(w, { reserve: '500', rewardBps: 10, collection: true });
+    await configureProgram(w, { reserve: '500' });
     const t = await traderClient(w, 'Reserve Holder');
     await applyAs(w, t.admin, { offersBuy: true, offersSell: false, typicalInr: '100000', bankAccountId: t.bankAccountId, walletId: t.walletId });
     const traderId = await traderIdOf(w.app, t.clientId);
@@ -204,7 +204,7 @@ describe('a Buy USDT order, end to end', () => {
     expect(obligation).toMatchObject({ route_id: order.route_id, execution_mode: 'TO_EXCHANGE', route_delivers_minor: 10_470_000n, exchange_delivers_minor: 1_000_000_000n });
 
     // The trader moves money only once the client's USDT is confirmed.
-    await expect(runAs(w.app, submitOrderPayment(t.admin.actor, w.traderDeps), t.admin.ref, 'trader_order.submit_payment', { ref: assigned.ref, rail: 'IMPS' as const, utr: utr() }))
+    await expect(runAs(w.app, submitOrderPayment(t.admin.actor), t.admin.ref, 'trader_order.submit_payment', { ref: assigned.ref, rail: 'IMPS' as const, utr: utr() }))
       .rejects.toMatchObject({ code: 'TRADER_ACTION_NOT_DUE' });
     await settleFirstLeg(w, accepted.tradeId);
     await dispatch();
@@ -216,8 +216,8 @@ describe('a Buy USDT order, end to end', () => {
     expect(detailDue.youOwe).toBe('104700.00');
 
     const reference = utr();
-    const claim = await runAs(w.app, submitOrderPayment(t.admin.actor, w.traderDeps), t.admin.ref, 'trader_order.submit_payment', { ref: assigned.ref, rail: 'IMPS' as const, utr: reference });
-    await expect(runAs(w.app, submitOrderPayment(t.admin.actor, w.traderDeps), t.admin.ref, 'trader_order.submit_payment', { ref: assigned.ref, rail: 'IMPS' as const, utr: utr() }))
+    const claim = await runAs(w.app, submitOrderPayment(t.admin.actor), t.admin.ref, 'trader_order.submit_payment', { ref: assigned.ref, rail: 'IMPS' as const, utr: reference });
+    await expect(runAs(w.app, submitOrderPayment(t.admin.actor), t.admin.ref, 'trader_order.submit_payment', { ref: assigned.ref, rail: 'IMPS' as const, utr: utr() }))
       .rejects.toMatchObject({ code: 'INVALID_TRANSITION' });
     expect((await traderOrderDetail(w.app, t.admin.userId, assigned.ref, w.traderDeps.protector)).order.stage).toBe('CHECKING_YOURS');
     const recorded = await w.app.selectFrom('route_settlement').select(['id', 'status', 'flow']).where('ref', '=', claim.settlementRef).executeTakeFirstOrThrow();
@@ -256,7 +256,7 @@ describe('a Buy USDT order, end to end', () => {
     expect(await runTraderSweep(w.app)).toMatchObject({ completed: 0 });
 
     const home = await traderHome(w.app, t.admin.userId);
-    expect(home.earnings).toMatchObject({ rewardBps: 10, available: '104.70', today: '104.70', completedOrders: 1, completedUsdt: '1000.000000', completedInr: '104700.00' });
+    expect(home.earnings).toMatchObject({ available: '104.70', today: '104.70', completedOrders: 1, completedUsdt: '1000.000000', completedInr: '104700.00' });
     // Nothing about the client on the other side reaches the trader.
     const serialized = JSON.stringify([home, await traderOrderDetail(w.app, t.admin.userId, assigned.ref, w.traderDeps.protector)]);
     expect(serialized).not.toMatch(/Acme|104\.2|IX-/);

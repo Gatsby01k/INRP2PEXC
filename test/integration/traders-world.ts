@@ -150,7 +150,7 @@ export async function clientRequest(w: World, direction: 'SELL_USDT' | 'BUY_USDT
 
 /** Desk routes the request, the trader accepts, the desk quotes on the trader route, the client accepts. */
 export async function tradeThroughTrader(w: TradersWorld, setup: TraderSetup, input: { requestId: string; clientRate: string }): Promise<{ orderId: string; orderRef: string; tradeId: string; routeObligationId: string; quoteId: string }> {
-  const assigned = await runAs(w.app, assignRequest(w.dealer.actor), w.dealer.ref, 'trader_order.assign', { requestId: input.requestId });
+  const assigned = await runAs(w.app, assignRequest(w.dealer.actor), w.dealer.ref, 'trader_order.assign', { requestId: input.requestId, plannedClientRate: input.clientRate });
   await runAs(w.app, acceptOrder(setup.admin.actor), setup.admin.ref, 'trader_order.accept', { ref: assigned.ref });
   const order = await w.app.selectFrom('trader_order').select(['route_id']).where('id', '=', assigned.orderId).executeTakeFirstOrThrow();
   const quote = await runAs(w.app, createQuote(w.dealer.actor, {}), w.dealer.ref, 'quote.create', { requestId: input.requestId, routeId: order.route_id, clientRate: input.clientRate, validitySeconds: 300 });

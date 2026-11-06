@@ -32,7 +32,7 @@ const policy = (input: Record<string, unknown>) =>
 async function completedSell(amount: string) {
   const trade = await railsTrade(w, trader, { direction: 'SELL_USDT', amount, clientRate: '103.500000', plannedClientRate: '103.500000' });
   await settleFirstLeg(w, trade.tradeId);
-  const paid = await runAs(w.app, submitOrderPayment(trader.admin.actor, w.traderDeps), trader.admin.ref, 'trader_order.submit_payment', { ref: trade.orderRef, rail: 'IMPS' as const, utr: utr() });
+  const paid = await runAs(w.app, submitOrderPayment(trader.admin.actor), trader.admin.ref, 'trader_order.submit_payment', { ref: trade.orderRef, rail: 'IMPS' as const, utr: utr() });
   const profile = await w.app.selectFrom('trader_profile as t').innerJoin('bank_account as b', 'b.id', 't.bank_account_id').select('b.holder_name').where('t.id', '=', trader.traderId).executeTakeFirstOrThrow();
   const tradeRef = (await w.app.selectFrom('trade').select('ref').where('id', '=', trade.tradeId).executeTakeFirstOrThrow()).ref;
   await runAs(w.app, confirmClientReceipt(w.acceptor.actor, w.settlementDeps), w.acceptor.ref, 'payout.confirm_received', { tradeRef, legRef: paid.settlementRef, senderName: profile.holder_name });

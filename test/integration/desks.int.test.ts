@@ -184,7 +184,7 @@ describe('a client sells USDT to the desk at its live price', () => {
     await settleFirstLeg(w, accepted.tradeId);
     const deposit = await w.app.selectFrom('deposit_assignment as a').innerJoin('deposit_address as d', 'd.id', 'a.deposit_address_id').select('d.address').where('a.trade_id', '=', accepted.tradeId).executeTakeFirstOrThrow();
     const orderRef = await orderRefOf(quote.orderId);
-    const paid = await runAs(w.app, submitOrderPayment(desk.admin.actor, w.traderDeps), desk.admin.ref, 'trader_order.submit_payment', { ref: orderRef, rail: 'IMPS' as const, utr: utr() });
+    const paid = await runAs(w.app, submitOrderPayment(desk.admin.actor), desk.admin.ref, 'trader_order.submit_payment', { ref: orderRef, rail: 'IMPS' as const, utr: utr() });
     const holder = (await w.app.selectFrom('bank_account').select('holder_name').where('id', '=', desk.bankAccountId).executeTakeFirstOrThrow()).holder_name;
     expect(await runAs(w.app, confirmClientReceipt(w.acceptor.actor, w.settlementDeps), w.acceptor.ref, 'payout.confirm_received', { tradeRef: await refOf(accepted.tradeId), legRef: paid.settlementRef, senderName: holder }))
       .toMatchObject({ verdict: 'MATCH', confirmed: true });

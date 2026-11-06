@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { parseRewardBps, rewardFor } from '@inrp2p/trader-core';
 import { type BlockFacts, type TraderStanding, blockIssues, effectiveMaxOrder, freeCapacity, orderFit, standingIssues, switchOnIssues } from '@inrp2p/trader-core';
 import { type Candidate, directionForSide, rankCandidates, sideForDirection, sizeOrder } from '../src/routing.ts';
 import { type StageFacts, TRADER_ACTION_STAGES, orderStage, orderSteps } from '../src/progress.ts';
@@ -136,27 +135,6 @@ describe('sizing one order at the trader’s rate', () => {
   it('an INR-fixed request without the planned client rate is refused rather than guessed', () => {
     expect(() => sizeOrder({ direction: 'BUY_USDT', fixedSide: 'QUOTE', requestedMinor: 10_520_000n, traderRateMicro: 104_000_000n, plannedClientRateMicro: null }))
       .toThrow(expect.objectContaining({ code: 'INVALID_ARGUMENT' }));
-  });
-});
-
-describe('rewards', () => {
-  it('is basis points of the order’s INR, rounded down to the paisa', () => {
-    expect(rewardFor(10_470_000n, 10)).toBe(10_470n); // ₹104,700 at 10 bps = ₹104.70
-    expect(rewardFor(999n, 10)).toBe(0n);
-    expect(rewardFor(10_470_000n, 0)).toBe(0n);
-  });
-
-  it('refuses a rate that is not a whole, non-negative number', () => {
-    expect(() => rewardFor(1n, -1)).toThrow();
-    expect(() => rewardFor(1n, 1.5)).toThrow();
-  });
-
-  it('the programme’s reward is none, or a whole number of basis points up to 500', () => {
-    expect(parseRewardBps(null)).toBeNull();
-    expect(parseRewardBps(undefined)).toBeNull();
-    expect(parseRewardBps(10)).toBe(10);
-    expect(() => parseRewardBps(501)).toThrow();
-    expect(() => parseRewardBps(-1)).toThrow();
   });
 });
 

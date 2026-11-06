@@ -60,7 +60,7 @@ async function sellToDesk(amount: string) {
   const quote = await quoteDeal(request.requestId);
   const accepted = await accept(quote.quoteId);
   await settleFirstLeg(w, accepted.tradeId);
-  const paid = await runAs(w.app, submitOrderPayment(desk.admin.actor, w.traderDeps), desk.admin.ref, 'trader_order.submit_payment', { ref: await orderRefOf(quote.orderId), rail: 'IMPS' as const, utr: utr() });
+  const paid = await runAs(w.app, submitOrderPayment(desk.admin.actor), desk.admin.ref, 'trader_order.submit_payment', { ref: await orderRefOf(quote.orderId), rail: 'IMPS' as const, utr: utr() });
   const holder = (await w.app.selectFrom('bank_account').select('holder_name').where('id', '=', desk.bankAccountId).executeTakeFirstOrThrow()).holder_name;
   await runAs(w.app, confirmClientReceipt(w.acceptor.actor, w.settlementDeps), w.acceptor.ref, 'payout.confirm_received', { tradeRef: await refOf(accepted.tradeId), legRef: paid.settlementRef, senderName: holder });
   return { quote, tradeId: accepted.tradeId };
@@ -156,7 +156,6 @@ describe('a desk on GasFree', () => {
     // The operator's pages read such a deal: it froze no TRX price, so nothing there may convert TRX.
     const seen = await deskTrade(w.app, deal.tradeId, FULL_ACCESS);
     expect(seen.network?.gasFree).toMatchObject({ allowance: '4.500000', spent: '3.000000', unused: '1.500000' });
-    expect(seen.settlesP2p).toBe(true);
     await expect(deskTradeRecord(w.app, deal.tradeId, FULL_ACCESS)).resolves.toBeTruthy();
     // The table of what TRX cost each trade leaves it out; the rest of the page still reads.
     expect((await networkView(w.app)).trades.map((t) => t.tradeId)).not.toContain(deal.tradeId);

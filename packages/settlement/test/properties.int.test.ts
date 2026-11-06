@@ -43,10 +43,10 @@ describe('property: random command sequences never break the invariants', () => 
   it('exit 12: FI-20, FI-21, FI-27, FI-28, FI-40, FI-64 and FI-71…75 hold after a random mix of movements', async () => {
     const random = rng(20261106);
     const pick = <T,>(xs: readonly T[]): T => xs[Math.floor(random() * xs.length)]!;
-    const deals = [];
+    const deals: (Awaited<ReturnType<typeof openTrade>> & { sell: boolean; legRef: string | null })[] = [];
     for (let i = 0; i < 6; i++) {
       const sell = i < 4;
-      deals.push({ sell, legRef: null as string | null, ...(await openTrade(w, { direction: sell ? 'SELL_USDT' : 'BUY_USDT', baseUsdt: String(100 + i * 50) })) });
+      deals.push({ sell, legRef: null, ...(await openTrade(w, { direction: sell ? 'SELL_USDT' : 'BUY_USDT', baseUsdt: String(100 + i * 50) })) });
     }
 
     const steps: readonly ((d: (typeof deals)[number]) => Promise<unknown>)[] = [

@@ -29,7 +29,7 @@ import {
 let w: TradersWorld;
 beforeAll(async () => {
   w = await createTradersWorld('trader_lifecycle');
-  await configureProgram(w, { reserve: '500', rewardBps: 10, collection: true });
+  await configureProgram(w, { reserve: '500' });
 });
 afterAll(async () => w.close());
 
@@ -67,7 +67,7 @@ describe('a trader’s whole life (D4)', () => {
     const a = await tradeThroughTrader(w, t, { requestId: await clientRequest(w, 'SELL_USDT', '1000'), clientRate: '104.200000' });
     await settleFirstLeg(w, a.tradeId);
     await dispatch();
-    const claim = await runAs(w.app, submitOrderPayment(t.admin.actor, w.traderDeps), t.admin.ref, 'trader_order.submit_payment', { ref: a.orderRef, rail: 'IMPS' as const, utr: utr() });
+    const claim = await runAs(w.app, submitOrderPayment(t.admin.actor), t.admin.ref, 'trader_order.submit_payment', { ref: a.orderRef, rail: 'IMPS' as const, utr: utr() });
     const claimed = await w.app.selectFrom('route_settlement').select('id').where('ref', '=', claim.settlementRef).executeTakeFirstOrThrow();
     await seeOwnSender(w.app, w.finance, { routeSettlementId: claimed.id });
     await runAs(w.app, confirmRouteSettlement(w.finance.actor, w.settlementDeps), w.finance.ref, 'route_settlement.confirm', { routeSettlementId: claimed.id });
