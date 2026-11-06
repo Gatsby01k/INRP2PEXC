@@ -15,7 +15,7 @@ import { createStaleSettlementOperator, createWorld, deliverCounterparty, newUtr
  * people, to a verified account of the same client — instead of being unwound. `trade_economics` never changes.
  */
 let w: World;
-beforeAll(async () => { w = await createWorld('destination_change', { capacityInr: '500000000.00' }); });
+beforeAll(async () => { w = await createWorld('destination_change'); });
 afterAll(async () => w.close());
 
 let accountSeq = 7_700_000_000;

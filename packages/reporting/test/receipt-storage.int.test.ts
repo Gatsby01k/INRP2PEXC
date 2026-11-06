@@ -35,7 +35,7 @@ async function completedTrade(): Promise<{ tradeId: string; tradeRef: string }> 
 }
 
 beforeAll(async () => {
-  w = await createWorld('receipt_storage', { capacityInr: '500000000.00' });
+  w = await createWorld('receipt_storage');
   s3 = await startLocalS3();
   store = await s3.bucket('inrp2p-receipts');
 }, 180_000);

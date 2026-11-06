@@ -9,12 +9,13 @@ import { createTestOperator } from '@inrp2p/identity/testing';
 import { addWallet } from '@inrp2p/clients';
 import { executeCommand } from '@inrp2p/commands';
 import { acceptQuote, createQuote, createRequest, sendQuote } from '@inrp2p/quotes';
-import { type SettlementDeps, claimIncomingFiat, confirmClientLegInTx, submitTxForVerification } from '@inrp2p/settlement';
-import { confirmOrderPaymentReceived, orderDeliveryAddress } from '@inrp2p/traders';
+import { type SettlementDeps, claimIncomingFiat, confirmClientLegInTx, confirmClientReceipt, submitTxForVerification } from '@inrp2p/settlement';
+import { confirmOrderPaymentReceived, orderDeliveryAddress, submitOrderPayment } from '@inrp2p/traders';
 import { runTronConfirm } from '@inrp2p/scanner';
 import { type ScenarioTrader, type Scenario, createScenario, routeToTrader, scenarioTrader } from '../../quotes/test/scenario.ts';
 
 export type { Scenario };
+export { routeToTrader, scenarioTrader };
 
 export interface World extends Scenario {
   readonly chain: FakeChainVerifier;
@@ -104,6 +105,20 @@ export async function settleFirstLeg(w: World, tradeId: string, opts: { amountUs
 /** What the scanner does once the chain has made a client's USDT final (T4). */
 export async function confirmLeg(w: World, legId: string, opts: { db?: Db } = {}): Promise<void> {
   await executeCommand(opts.db ?? w.app, { authorize: async () => {}, handle: (ctx) => confirmClientLegInTx(ctx, w.settlementDeps, legId) }, { name: 'settlement.confirm_incoming', actor: SYSTEM, payload: { legId }, idempotencyKey: randomUUID(), financial: true });
+}
+
+/**
+ * A SELL deal's rupees: the trader says it paid the client the whole amount from its registered account; with `confirm`
+ * (the default) the client says they arrived, which is what completes the deal on the client's side.
+ */
+export async function payClient(w: World, opened: { tradeRef: string; orderRef: string }, opts: { utr?: string; confirm?: boolean } = {}): Promise<{ legRef: string; utr: string }> {
+  const trader = await scenarioTrader(w);
+  const utr = opts.utr ?? String(100000000000 + Math.floor(Math.random() * 899999999999));
+  const paid = await runAs(w.app, submitOrderPayment(trader.admin.actor), trader.admin.ref, 'trader_order.submit_payment', { ref: opened.orderRef, rail: 'IMPS' as const, utr });
+  if (opts.confirm ?? true) {
+    await runAs(w.app, confirmClientReceipt(w.acceptor.actor, w.settlementDeps), w.acceptor.ref, 'payout.confirm_received', { tradeRef: opened.tradeRef, legRef: paid.settlementRef, senderName: trader.holderName });
+  }
+  return { legRef: paid.settlementRef, utr };
 }
 
 /** A BUY deal's trader funding the escrow: its USDT at the order's own address, final on chain (ADR 0019). */

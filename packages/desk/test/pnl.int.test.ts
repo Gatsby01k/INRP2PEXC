@@ -23,7 +23,7 @@ let openRef = '';
 let realizedMinor = 0n;
 
 beforeAll(async () => {
-  w = await createWorld('desk_pnl', { capacityInr: '500000000.00' });
+  w = await createWorld('desk_pnl');
   day = await istToday(w.app);
 
   const done = await openTrade(w, { baseUsdt: '1000', clientRate: '90.000000' });

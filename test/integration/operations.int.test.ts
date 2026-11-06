@@ -15,7 +15,7 @@ import { type World, createWorld, ensureCounterpartyFunds, newUtr, openTrade, se
  */
 let w: World;
 beforeAll(async () => {
-  w = await createWorld('operations', { capacityInr: '500000000.00' });
+  w = await createWorld('operations');
 });
 afterAll(async () => w.close());
 
@@ -35,7 +35,7 @@ describe('pausing new business (E3)', () => {
     const started = await openTrade(w, { baseUsdt: '100', clientRate: '90.000000' });
     await settleFirstLeg(w, started.tradeId);
     const request = await runAs(w.app, createRequest(w.dealer.actor, {}), w.dealer.ref, 'request.create', { clientId: w.clientId, direction: 'SELL_USDT' as const, fixedSide: 'BASE' as const, amount: '50', bankAccountId: w.bankAccountId });
-    const sent = await runAs(w.app, createQuote(w.dealer.actor, {}), w.dealer.ref, 'quote.create', { requestId: request.requestId, routeId: w.routeId, clientRate: '90.000000', validitySeconds: 300 });
+    const sent = await runAs(w.app, createQuote(w.dealer.actor, {}), w.dealer.ref, 'quote.create', { requestId: request.requestId, routeId: (await routeToTrader(w, request.requestId, '90.000000')).routeId, clientRate: '90.000000', validitySeconds: 300 });
     await runAs(w.app, sendQuote(w.dealer.actor, {}), w.dealer.ref, 'quote.send', { quoteId: sent.quoteId });
     const draftRequest = await runAs(w.app, createRequest(w.dealer.actor, {}), w.dealer.ref, 'request.create', { clientId: w.clientId, direction: 'SELL_USDT' as const, fixedSide: 'BASE' as const, amount: '60', bankAccountId: w.bankAccountId });
     const draft = await runAs(w.app, createQuote(w.dealer.actor, {}), w.dealer.ref, 'quote.create', { requestId: draftRequest.requestId, routeId: w.routeId, clientRate: '90.000000', validitySeconds: 300 });

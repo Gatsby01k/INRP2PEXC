@@ -11,7 +11,7 @@ import {
 import { createWorld, newUtr, openTrade, settleFirstLeg, type World } from './world.ts';
 
 let w: World;
-beforeAll(async () => { w = await createWorld('settlement_properties', { capacityInr: '900000000.00' }); });
+beforeAll(async () => { w = await createWorld('settlement_properties'); });
 afterAll(async () => w.close());
 
 /** Deterministic PRNG (mulberry32) so a failing sequence can be replayed exactly. */

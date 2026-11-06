@@ -15,7 +15,7 @@ import { createStaleSettlementOperator, createWorld, deliverCounterparty, newUtr
  * writes it (IX090); the threshold is OWNER's to move or switch off, on the record.
  */
 let w: World;
-beforeAll(async () => { w = await createWorld('payout_approvals', { capacityInr: '500000000.00' }); });
+beforeAll(async () => { w = await createWorld('payout_approvals'); });
 afterAll(async () => w.close());
 
 async function fundedSellTrade(baseUsdt: string) {

@@ -14,7 +14,7 @@ import {
 import { balanceOf, clientDepositAddressOf, createStaleSettlementOperator, createWorld, deliverCounterparty, newUtr, observe, openTrade, seeOwnSender, settleFirstLeg, type World } from './world.ts';
 
 let w: World;
-beforeAll(async () => { w = await createWorld('settlement_core', { capacityInr: '500000000.00' }); });
+beforeAll(async () => { w = await createWorld('settlement_core'); });
 afterAll(async () => w.close());
 
 /**
@@ -278,7 +278,7 @@ describe('financial adjustments (FI-12, FI-43)', () => {
 
 describe('P&L, reconciliation and SLA (FI-43, FI-44, FI-64)', () => {
   it('exit: P&L counts realized margin of completed trades only', async () => {
-    const pnlWorld = await createWorld('settlement_pnl', { capacityInr: '500000000.00' });
+    const pnlWorld = await createWorld('settlement_pnl');
     try {
       const completed = await openTrade(pnlWorld, { baseUsdt: '1000', clientRate: '102.000000' });
       await settleFirstLeg(pnlWorld, completed.tradeId);

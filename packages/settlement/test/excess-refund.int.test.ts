@@ -17,7 +17,7 @@ import { balanceOf, clientDepositAddressOf, createWorld, deliverCounterparty, ne
 let w: World;
 let sourceWalletId: string;
 beforeAll(async () => {
-  w = await createWorld('excess_refund', { capacityInr: '500000000.00' });
+  w = await createWorld('excess_refund');
   sourceWalletId = (await w.app.selectFrom('crypto_wallet').select('id').where('address', '=', w.clientSourceAddress).executeTakeFirstOrThrow()).id;
 });
 afterAll(async () => w.close());

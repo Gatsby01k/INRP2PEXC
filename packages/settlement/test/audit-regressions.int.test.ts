@@ -19,7 +19,7 @@ import { balanceOf, clientDepositAddressOf, createWorld, deliverCounterparty, en
  * or an invariant silently broken.
  */
 let w: World;
-beforeAll(async () => { w = await createWorld('audit_regressions', { capacityInr: '500000000.00' }); });
+beforeAll(async () => { w = await createWorld('audit_regressions'); });
 afterAll(async () => w.close());
 
 const usdt = (decimal: string) => Money.parse(decimal, 'USDT').minor;
@@ -262,7 +262,7 @@ describe('payout evidence must be what the chain says it is (FI-24)', () => {
 
 describe('the bank statement check covers every movement on the account (SECURITY S7)', () => {
   let s: World;
-  beforeAll(async () => { s = await createWorld('audit_statements', { capacityInr: '500000000.00' }); });
+  beforeAll(async () => { s = await createWorld('audit_statements'); });
   afterAll(async () => s.close());
 
   const today = async () => (await sql<{ day: string }>`select to_char((inrp2p_now() AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD') as day`.execute(s.app)).rows[0]!.day;
@@ -363,7 +363,7 @@ describe('a client may pay the INR of a BUY in more than one transfer (T2)', () 
 
 describe('a destination archived under an open trade opens CLIENT_BANK_CHANGED (SECURITY S8)', () => {
   let d: World;
-  beforeAll(async () => { d = await createWorld('audit_destinations', { capacityInr: '500000000.00' }); });
+  beforeAll(async () => { d = await createWorld('audit_destinations'); });
   afterAll(async () => d.close());
 
   it('puts the open trade on hold with a case, once, and leaves a closed trade alone', async () => {
@@ -476,7 +476,7 @@ describe('a BUY trade is not cancelled around a recorded, unconfirmed INR paymen
 
 describe('a statement reference shared across rails is never matched by guess (SECURITY S7)', () => {
   let r: World;
-  beforeAll(async () => { r = await createWorld('audit_statement_rails', { capacityInr: '500000000.00' }); });
+  beforeAll(async () => { r = await createWorld('audit_statement_rails'); });
   afterAll(async () => r.close());
 
   const today = async () => (await sql<{ day: string }>`select to_char((inrp2p_now() AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD') as day`.execute(r.app)).rows[0]!.day;

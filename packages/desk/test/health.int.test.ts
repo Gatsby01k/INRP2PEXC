@@ -13,7 +13,7 @@ import { type World, createWorld, openTrade } from '../../settlement/test/world.
 let w: World;
 
 beforeAll(async () => {
-  w = await createWorld('desk_health', { capacityInr: '500000000.00' });
+  w = await createWorld('desk_health');
 }, 180_000);
 afterAll(async () => w.close());
 

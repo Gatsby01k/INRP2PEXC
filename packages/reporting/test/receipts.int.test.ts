@@ -25,7 +25,7 @@ let tradeId = '';
 let tradeRef = '';
 
 beforeAll(async () => {
-  w = await createWorld('receipts', { capacityInr: '500000000.00' });
+  w = await createWorld('receipts');
   const trade = await openTrade(w, { baseUsdt: '1000', clientRate: CLIENT_RATE, routeRate: ROUTE_RATE });
   tradeId = trade.tradeId;
   tradeRef = trade.tradeRef;
@@ -251,7 +251,7 @@ function flatten(value: unknown, prefix = '$', out: Record<string, unknown> = {}
 describe('an adjusted trade is receipted at what actually changed hands (FI-12)', () => {
   // Its own world: the suite above archives the client's bank account to prove a snapshot does not follow it.
   let a: World;
-  beforeAll(async () => { a = await createWorld('receipts_adjusted', { capacityInr: '500000000.00' }); });
+  beforeAll(async () => { a = await createWorld('receipts_adjusted'); });
   afterAll(async () => a.close());
 
   it('writing off an unpaid remainder receipts the INR the client received, not the INR it was quoted', async () => {

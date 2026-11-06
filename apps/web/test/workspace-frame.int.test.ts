@@ -14,7 +14,7 @@ const { workspaceFrame } = await import('../src/server/workspace-frame.ts');
 let w: World;
 let counted: ReturnType<typeof countingDb>;
 beforeAll(async () => {
-  w = await createWorld('web_workspace_frame', { capacityInr: '500000000.00' });
+  w = await createWorld('web_workspace_frame');
   counted = countingDb(w.t.appPool);
 });
 afterAll(async () => w.close());
