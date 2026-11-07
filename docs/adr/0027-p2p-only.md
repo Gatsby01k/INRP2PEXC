@@ -31,6 +31,10 @@ column, the columns that pointed at them, `treasury_wallet.reserved_minor` and t
 delivered USDT. It refuses, whole, if any of it ever carried money: nothing about money is dropped by accident, and a read-only
 `scripts/p2p-only-preflight.ts` gives the same answer beforehand. Release order: `docs/DEPLOYMENT.md`, Stage 3.
 
+It lets go of what had no money behind it. On production on 2026-11-07 the preflight found one trade ever, cancelled (`IX-260920-0002`), its
+200 USDT reservation released with nothing used, and six draft quotes on `Test OTC Route`. The trade stays as written; the drafts are
+discarded, the route retired and the released reservation goes with its table.
+
 The names of what remains are kept, because they are in the ledger, the audit trail and the guards: `settlement_leg.side` is still
 `CLIENT_TO_EXCHANGE` / `EXCHANGE_TO_CLIENT`, `payer` is still `ROUTE` / `EXCHANGE_ACCOUNT`, route settlement flows are `DIRECT_TO_CLIENT` /
 `DIRECT_FROM_CLIENT` / `FROM_ROUTE_TO_EXCHANGE`. In a P2P deal they mean: the rupees' leg, the USDT released to the buyer, and each

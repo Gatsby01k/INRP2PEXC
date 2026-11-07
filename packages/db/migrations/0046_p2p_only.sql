@@ -8,6 +8,10 @@
 -- untouched. `scripts/p2p-only-preflight.ts` runs the same block in a read-only transaction, so the answer is known
 -- before anyone stops anything.
 --
+-- What it does let go, because no money was ever behind it: a treasury reservation released without a micro-USDT of it used
+-- (production has one, from its only trade, cancelled on 2026-09-20), and a draft quote nobody was ever sent (production
+-- has six, on its test route).
+--
 -- `execution_mode` stays: fifteen financial guards read it, and rewriting them to remove one word is not worth their risk.
 -- A live route and every new deal can only be P2P.
 
@@ -18,10 +22,13 @@ DECLARE
   t text;
   n bigint;
 BEGIN
-  FOREACH t IN ARRAY ARRAY['bank_statement_import', 'bank_statement_line', 'capacity_reservation', 'trade_collection', 'trader_reward_payout', 'treasury_reservation'] LOOP
+  FOREACH t IN ARRAY ARRAY['bank_statement_import', 'bank_statement_line', 'capacity_reservation', 'trade_collection', 'trader_reward_payout'] LOOP
     EXECUTE format('SELECT count(*) FROM %I', t) INTO n;
     IF n > 0 THEN found := found || format('%s row(s) in %s', n, t); END IF;
   END LOOP;
+
+  SELECT count(*) INTO n FROM treasury_reservation WHERE status = 'ACTIVE' OR consumed_minor <> 0;
+  IF n > 0 THEN found := found || format('%s treasury reservation(s) holding USDT or having paid it', n); END IF;
 
   SELECT count(*) INTO n FROM inr_account_day WHERE used_minor <> 0 OR reserved_minor <> 0;
   IF n > 0 THEN found := found || format('%s INR account day(s) with capacity used or reserved', n); END IF;
@@ -70,8 +77,8 @@ BEGIN
   IF n > 0 THEN found := found || format('%s open trader order(s) on a route that is not P2P', n); END IF;
 
   SELECT count(*) INTO n FROM quote q JOIN liquidity_route r ON r.id = q.route_id
-   WHERE r.execution_mode <> 'P2P' AND q.status IN ('DRAFT', 'SENT');
-  IF n > 0 THEN found := found || format('%s live quote(s) on a route that is not P2P', n); END IF;
+   WHERE r.execution_mode <> 'P2P' AND q.status = 'SENT';
+  IF n > 0 THEN found := found || format('%s sent quote(s) on a route that is not P2P', n); END IF;
 
   IF cardinality(found) > 0 THEN
     RAISE EXCEPTION 'migration 46 refuses, nothing was changed: %', array_to_string(found, '; ');
@@ -81,6 +88,11 @@ $preflight$;
 -- preflight:end
 
 -- ── Every live route is P2P ───────────────────────────────────────────────────────────────────────────────────────────
+
+-- A draft on a route that is going away was never sent to anyone: it is discarded, as the desk discards one.
+UPDATE quote q SET status = 'CANCELLED', cancel_reason = 'DISCARDED', closed_at = inrp2p_now()
+  FROM liquidity_route r
+ WHERE r.id = q.route_id AND r.execution_mode <> 'P2P' AND q.status = 'DRAFT';
 
 -- A trader's route settles P2P (the programme's switch did this between deals, and the switch is gone); a route with no
 -- trader has nothing left to do.
