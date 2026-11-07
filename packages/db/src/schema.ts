@@ -357,72 +357,10 @@ export interface CryptoWalletTable {
   review_note: string | null;
 }
 
-export interface SettlementEntityTable {
-  id: Generated<string>;
-  legal_name: string;
-  short_name: string;
-  status: Generated<'ACTIVE' | 'INACTIVE'>;
-  created_by: string;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-}
-
 export type InrAccountStatus = 'ACTIVE' | 'PAUSED' | 'UNAVAILABLE';
-
-export interface InrSettlementAccountTable {
-  id: Generated<string>;
-  entity_id: string;
-  label: string;
-  bank_name: string;
-  ifsc: string;
-  account_number_enc: string;
-  account_last4: string;
-  account_hmac: string;
-  rails: Rail[];
-  direction: 'PAYOUT' | 'COLLECTION' | 'BOTH';
-  status: Generated<InrAccountStatus>;
-  default_daily_capacity_minor: bigint;
-  notes: string | null;
-  created_by: string;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  version: Generated<number>;
-  /** ADR 0018: who payers pay, and the account's UPI ID when it has one. */
-  upi_vpa: string | null;
-  beneficiary_name: string | null;
-}
-
-export interface InrAccountDayTable {
-  account_id: string;
-  day: string;
-  capacity_minor: bigint;
-  used_minor: Generated<bigint>;
-  reserved_minor: Generated<bigint>;
-  pending_payout_minor: Generated<bigint>;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-}
 
 export type ReservationStatus = 'ACTIVE' | 'CONSUMED' | 'RELEASED';
 export type ReservationReleaseReason = 'TRADE_CANCELLED' | 'LEG_CANCELLED' | 'LEG_FAILED' | 'TRADE_COMPLETED' | 'ROUTE_SETTLEMENT_FAILED' | 'DAY_ROLLOVER' | 'OPERATOR' | 'TRADER_PAYOUT_FAILED';
-
-export interface CapacityReservationTable {
-  id: Generated<string>;
-  purpose: 'CLIENT_PAYOUT' | 'ROUTE_SETTLEMENT' | 'TRADER_REWARD_PAYOUT';
-  trade_id: string | null;
-  route_settlement_id: string | null;
-  trader_reward_payout_id: Generated<string | null>;
-  account_id: string;
-  day: string;
-  amount_minor: bigint;
-  consumed_minor: Generated<bigint>;
-  status: Generated<ReservationStatus>;
-  released_minor: Generated<bigint>;
-  released_reason: ReservationReleaseReason | null;
-  created_by: string;
-  created_at: Generated<Date>;
-  closed_at: Date | null;
-}
 
 export type RouteStatus = 'ACTIVE' | 'PAUSED' | 'RETIRED';
 export type SettlementModel = 'PER_TRADE' | 'PREFUNDED' | 'NET_SETTLED';
@@ -473,7 +411,6 @@ export interface TreasuryWalletTable {
   custody: Generated<'EXTERNAL' | 'HD_SIGNER'>;
   observed_balance_minor: Generated<bigint>;
   observed_at: Date | null;
-  reserved_minor: Generated<bigint>;
   created_by: string;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
@@ -733,19 +670,6 @@ export interface RouteObligationTable {
   created_by: string;
 }
 
-export interface TreasuryReservationTable {
-  id: Generated<string>;
-  treasury_wallet_id: string;
-  trade_id: string;
-  amount_minor: bigint;
-  consumed_minor: Generated<bigint>;
-  status: Generated<'ACTIVE' | 'CONSUMED' | 'RELEASED'>;
-  released_reason: 'TRADE_CANCELLED' | 'TRADE_COMPLETED' | 'OPERATOR' | null;
-  created_by: string;
-  created_at: Generated<Date>;
-  closed_at: Date | null;
-}
-
 export type ExceptionType =
   | 'USDT_WRONG_AMOUNT' | 'USDT_OVERPAYMENT' | 'USDT_UNEXPECTED_SENDER' | 'WRONG_NETWORK' | 'TX_NOT_FINAL'
   | 'ROUTE_DIRECT_PAYOUT_MISMATCH' | 'FUNDS_AFTER_TRADE_CLOSED' | 'UNALLOCATED_DEPOSIT' | 'DEPOSIT_POOL_LOW'
@@ -796,8 +720,6 @@ export interface SettlementLegTable {
   status: Generated<LegStatus>;
   payer: LegPayer;
   route_id: string | null;
-  inr_account_id: string | null;
-  capacity_reservation_id: string | null;
   treasury_wallet_id: string | null;
   destination_bank_account_id: string | null;
   destination_wallet_id: string | null;
@@ -906,7 +828,7 @@ export interface FundingSourceView {
   trade_id: string;
   asset: AssetCode;
   amount_minor: bigint;
-  /** `INR:{inr_account_id}` or `TRON:{address}`. */
+  /** `INR:{payee}` or `TRON:{address}`. */
   location: string;
   confirmed_at: Date | null;
 }
@@ -963,28 +885,18 @@ export interface FiatTransferTable {
 
 export type FiatFiledBy = 'DESK' | 'CLIENT' | 'TRADER';
 
-/** A BUY trade's payment instructions, fixed at acceptance (migration 0038, IX117). */
-export interface TradeCollectionTable {
-  trade_id: string;
-  inr_account_id: string;
-  reference: string;
-  pay_by: Date;
-  created_at: Generated<Date>;
-}
-
 export type SenderVerdict = 'MATCH' | 'PARTIAL' | 'MISMATCH' | 'UNKNOWN' | 'ACCEPTED';
 
 /** Who the sender of a credit was seen to be, and the verdict against the declared account (migration 0038). */
 export interface FiatSenderCheckTable {
   id: Generated<string>;
   fiat_transfer_id: string;
-  via: 'STATEMENT' | 'DESK' | 'PAYEE';
+  via: 'DESK' | 'PAYEE';
   seen_name: string | null;
   seen_account: string | null;
   expected_bank_account_id: string | null;
   verdict: SenderVerdict;
   detail: Generated<Json>;
-  statement_line_id: string | null;
   reason: string | null;
   checked_by: string;
   checked_at: Generated<Date>;
@@ -1034,15 +946,12 @@ export interface RouteSettlementTable {
   transfer_kind: TransferKind;
   fiat_transfer_id: string | null;
   crypto_transfer_id: string | null;
-  capacity_reservation_id: string | null;
   status: Generated<MovementStatus>;
   created_by: string;
   recorded_at: Generated<Date>;
   confirmed_at: Date | null;
   failed_at: Date | null;
   failure_reason: string | null;
-  /** Set when this delivery is a trader's Security Reserve applied to it (migration 0029, TD-21). */
-  reserve_application_id: Generated<string | null>;
   /** Set when the exchange's signer made this payment (migration 0037). */
   chain_send_id: Generated<string | null>;
 }
@@ -1286,45 +1195,7 @@ export interface ReceiptTable {
   generated_by: string;
 }
 
-/**
- * An imported bank statement (SECURITY S7). Evidence, therefore immutable: a corrected statement is a new
- * import of the corrected file, never an edit of this one.
- */
-export interface BankStatementImportTable {
-  id: Generated<string>;
-  inr_account_id: string;
-  period_from: string;
-  period_to: string;
-  filename: string;
-  /** sha256 of the uploaded bytes; unique per account so the same file cannot be counted twice. */
-  sha256: string;
-  line_count: number;
-  matched: number;
-  mismatched: number;
-  unrecorded: number;
-  /** Recorded payments in the period the statement does not show at all — the fake-UTR case. */
-  missing: number;
-  imported_by: string;
-  imported_at: Generated<Date>;
-}
-
 export type StatementLineOutcome = 'MATCHED' | 'MISMATCHED' | 'UNRECORDED' | 'AMBIGUOUS';
-
-export interface BankStatementLineTable {
-  id: Generated<string>;
-  import_id: string;
-  seq: number;
-  value_date: string;
-  direction: 'CREDIT' | 'DEBIT';
-  amount_minor: bigint;
-  reference: string;
-  description: string | null;
-  outcome: StatementLineOutcome;
-  fiat_transfer_id: string | null;
-  /** The remitter as the statement shows it (its own columns, or read from the narration). */
-  sender_name: string | null;
-  sender_account: string | null;
-}
 
 // ---- Traders (migration 0022) ----
 
@@ -1338,13 +1209,9 @@ export type TraderOrderStatus = 'OFFERED' | 'ACCEPTED' | 'DECLINED' | 'EXPIRED' 
 export interface TraderProgramTable {
   id: Generated<number>;
   default_required_reserve_minor: bigint | null;
-  reward_bps: number | null;
   offer_ttl_seconds: Generated<number>;
   hold_ttl_seconds: Generated<number>;
   auto_assign: Generated<boolean>;
-  collection_account_id: string | null;
-  /** ADR 0019: how the programme's routes execute — rupees through the exchange, or P2P between client and trader. */
-  execution_mode: Generated<'TO_EXCHANGE' | 'P2P'>;
   /** Migration 0042: how long each step of a P2P deal may take, by rail (`P2pTiming`). */
   p2p_timing: Generated<Json>;
   /** Migration 0044: applications reviewed by rule, whatever a rule cannot settle left for a person. */
@@ -1370,7 +1237,6 @@ export interface TraderProfileTable {
   bank_account_id: string;
   wallet_id: string;
   required_reserve_minor: bigint | null;
-  reward_bps: number | null;
   max_order_inr_minor: bigint | null;
   max_order_usdt_minor: bigint | null;
   max_capacity_inr_minor: bigint | null;
@@ -1465,8 +1331,6 @@ export interface TraderOrderTable {
   quote_id: string | null;
   started_at: Date | null;
   delivered_at: Date | null;
-  reward_bps: number | null;
-  reward_inr_minor: bigint | null;
   completed_at: Date | null;
   closed_at: Date | null;
   closed_by: string | null;
@@ -1493,7 +1357,7 @@ export interface TraderReserveWithdrawalTable {
   close_reason: string | null;
 }
 
-export type TraderReserveApplicationStatus = 'REQUESTED' | 'APPROVED' | 'REJECTED' | 'CANCELLED' | 'SENT' | 'COMPLETED' | 'FAILED';
+export type TraderReserveApplicationStatus = 'REQUESTED' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
 
 /** A trader's Security Reserve applied to USDT one of its orders did not deliver (migration 0029, TD-21). */
 export interface TraderReserveApplicationTable {
@@ -1502,8 +1366,6 @@ export interface TraderReserveApplicationTable {
   trader_id: string;
   trader_order_id: string;
   route_obligation_id: string;
-  /** APPLY: the reserve becomes the order's USDT delivery. HOLD: kept back against an INR shortfall, nothing moves. */
-  kind: Generated<'APPLY' | 'HOLD'>;
   amount_minor: bigint;
   reason: string;
   status: Generated<TraderReserveApplicationStatus>;
@@ -1512,29 +1374,9 @@ export interface TraderReserveApplicationTable {
   decided_by: string | null;
   decided_at: Date | null;
   decision_note: string | null;
-  sent_at: Date | null;
-  completed_at: Date | null;
   closed_at: Date | null;
   closed_by: string | null;
   close_reason: string | null;
-}
-
-export interface TraderRewardPayoutTable {
-  id: Generated<string>;
-  ref: Generated<string>;
-  trader_id: string;
-  amount_minor: bigint;
-  status: Generated<'RECORDED' | 'CONFIRMED' | 'FAILED'>;
-  inr_account_id: string;
-  fiat_transfer_id: string;
-  capacity_reservation_id: string | null;
-  destination_bank_account_id: string;
-  recorded_by: string;
-  recorded_at: Generated<Date>;
-  confirmed_by: string | null;
-  confirmed_at: Date | null;
-  failed_at: Date | null;
-  failure_reason: string | null;
 }
 
 // ---- USDT TRC20 rails (migration 0037, ADR 0017) ----
@@ -1611,8 +1453,6 @@ export interface QuoteNetworkFeeTable {
   fee_inr_minor: bigint;
   /** The trader order the quote prices and the reward it counted (IX113): the order starts with exactly these. */
   trader_order_id: string | null;
-  reward_bps: number | null;
-  reward_inr_minor: bigint;
   net_margin_inr_minor: bigint;
   reserve_sends: number;
   reserve_sun: bigint | null;
@@ -1662,8 +1502,6 @@ export interface NetworkBudgetHoldTable {
   closed_at: Date | null;
   close_reason: string | null;
   spent_sun: bigint | null;
-  reimbursed_sun: bigint | null;
-  reimbursed_inr_minor: bigint | null;
   /** ADR 0022: a USDT hold — the allowance the escrow carries; on closing, what its transfers' network took and what was left. */
   unit: Generated<NetworkUnit>;
   deal_funded_usdt_minor: bigint | null;
@@ -2150,10 +1988,6 @@ export interface Database {
   client_user: ClientUserTable;
   bank_account: BankAccountTable;
   crypto_wallet: CryptoWalletTable;
-  settlement_entity: SettlementEntityTable;
-  inr_settlement_account: InrSettlementAccountTable;
-  inr_account_day: InrAccountDayTable;
-  capacity_reservation: CapacityReservationTable;
   liquidity_route: LiquidityRouteTable;
   rate_snapshot: RateSnapshotTable;
   treasury_wallet: TreasuryWalletTable;
@@ -2170,7 +2004,6 @@ export interface Database {
   trade_transition: TradeTransitionTable;
   trade_economics: TradeEconomicsTable;
   route_obligation: RouteObligationTable;
-  treasury_reservation: TreasuryReservationTable;
   exception_case: ExceptionCaseTable;
   settlement_leg: SettlementLegTable;
   trade_funding: TradeFundingTable;
@@ -2181,7 +2014,6 @@ export interface Database {
   trade_destination_change: TradeDestinationChangeTable;
   operator_role_request: OperatorRoleRequestTable;
   fiat_transfer: FiatTransferTable;
-  trade_collection: TradeCollectionTable;
   fiat_sender_check: FiatSenderCheckTable;
   crypto_transfer: CryptoTransferTable;
   route_settlement: RouteSettlementTable;
@@ -2197,15 +2029,12 @@ export interface Database {
   trading_control: TradingControlTable;
   worker_heartbeat: WorkerHeartbeatTable;
   receipt: ReceiptTable;
-  bank_statement_import: BankStatementImportTable;
-  bank_statement_line: BankStatementLineTable;
   trader_program: TraderProgramTable;
   trader_profile: TraderProfileTable;
   trader_block: TraderBlockTable;
   trader_order: TraderOrderTable;
   trader_reserve_withdrawal: TraderReserveWithdrawalTable;
   trader_reserve_application: TraderReserveApplicationTable;
-  trader_reward_payout: TraderRewardPayoutTable;
   fee_policy: FeePolicyTable;
   fee_policy_proposal: FeePolicyProposalTable;
   desk: DeskTable;

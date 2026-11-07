@@ -17,7 +17,6 @@ describe('holding a trader’s Security Reserve against rupees it did not pay', 
     await expect(request()).rejects.toMatchObject({ code: 'INVALID_AMOUNT' });
     await expect(request('500.000001')).rejects.toMatchObject({ code: 'TRADER_RESERVE_SHORT' });
     const hold = await request('200');
-    expect(hold.kind).toBe('HOLD');
     const approve = (who: typeof w.financeOp) => runAs(w.app, approveReserveApplication(who.actor), who.ref, 'trader_reserve.approve_application', { applicationId: hold.applicationId });
     await expect(approve(w.financeOp)).rejects.toMatchObject({ code: 'SECOND_APPROVER_REQUIRED' });
     await approve(w.financeOp2);

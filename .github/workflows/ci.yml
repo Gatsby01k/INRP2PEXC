@@ -316,9 +316,9 @@ jobs:
       - name: Point-in-time recovery drill, with the web image against the recovered database
         run: node scripts/pitr-drill.ts --image "inrp2p-web:$TAG" --web-env "$RUNNER_TEMP/web-production.env"
 
-  # The upgrade from the release at schema 23 (d0cc778) to this one. That release writes its own data — its fixture
+  # The upgrade from the release at schema 45 (c2d0115) to this one. That release writes its own data — its fixture
   # world, and its own end-to-end run through its own screens — and this release's migrations must carry it to
-  # SCHEMA_VERSION whole: nothing lost, the books still balanced, every old trade legacy-funded, and this release able
+  # SCHEMA_VERSION whole: nothing lost, the books still balanced, every trade's funding model unchanged, and this release able
   # to read it (scripts/upgrade-check.ts; DEPLOYMENT §2 for the order of a real upgrade).
   upgrade:
     runs-on: ubuntu-24.04
@@ -338,7 +338,7 @@ jobs:
     env:
       NEXT_TELEMETRY_DISABLED: '1'
       TEST_DATABASE_URL: postgres://postgres@127.0.0.1:5432/postgres
-      RELEASE_23: d0cc7785caf57a0ca078d595fb3dc7039623b96c
+      RELEASE_45: c2d01152e36676f61b2b221c04b773c33e5def4c
     steps:
       - uses: actions/checkout@v4
         with:
@@ -357,42 +357,43 @@ jobs:
       - name: Install this release (frozen lockfile)
         run: pnpm install --frozen-lockfile
 
-      - name: The release at schema 23, beside it
+      - name: The release at schema 45, beside it
         run: |
-          git worktree add "$RUNNER_TEMP/release-23" "$RELEASE_23"
-          cd "$RUNNER_TEMP/release-23" && pnpm install --frozen-lockfile
+          git worktree add "$RUNNER_TEMP/release-45" "$RELEASE_45"
+          cd "$RUNNER_TEMP/release-45" && pnpm install --frozen-lockfile
 
-      - name: The release at 23 seeds its fixture world
-        working-directory: ${{ runner.temp }}/release-23
+      - name: The release at 45 seeds its fixture world
+        working-directory: ${{ runner.temp }}/release-45
         run: node --input-type=module -e "const { seedVisual } = await import('./apps/web/visual/world.ts'); const s = await seedVisual(process.env.TEST_DATABASE_URL); console.log('seeded', new URL(s.databaseUrl).pathname);"
 
-      - name: The release at 23 runs its own end-to-end suite (trades through its own screens)
-        working-directory: ${{ runner.temp }}/release-23
+      # Its own screens, not its speed: the performance budgets are judged on the release being built, in the e2e job.
+      - name: The release at 45 runs its own end-to-end suite (trades through its own screens)
+        working-directory: ${{ runner.temp }}/release-45
         run: |
           pnpm --filter @inrp2p/web exec playwright install --with-deps chromium
           pnpm --filter @inrp2p/web build
-          pnpm --filter @inrp2p/web test:e2e
+          pnpm --filter @inrp2p/web test:e2e --project=desk --project=client-mobile
 
       # Its worker seals the audit log every few minutes; the job runs no worker, so the release's own sealAudit does
-      # it here — so a seal chain the release at 23 wrote crosses the upgrade too.
-      - name: The release at 23 seals its audit log, as its worker does
-        working-directory: ${{ runner.temp }}/release-23
+      # it here — so a seal chain the release at 45 wrote crosses the upgrade too.
+      - name: The release at 45 seals its audit log, as its worker does
+        working-directory: ${{ runner.temp }}/release-45
         run: |
           node --input-type=module -e "
             const { createDb, createPool } = await import('./packages/db/src/index.ts');
             const { sealAudit } = await import('./packages/audit/src/index.ts');
             for (const name of ['inrp2p_visual', 'inrp2p_e2e']) {
-              const db = createDb(createPool({ connectionString: 'postgres://postgres@127.0.0.1:5432/' + name, applicationName: 'release-23-seal' }));
+              const db = createDb(createPool({ connectionString: 'postgres://postgres@127.0.0.1:5432/' + name, applicationName: 'release-45-seal' }));
               const r = await sealAudit(db, { settleSeconds: 0 });
               console.log(name, r.sealed ? 'sealed ' + r.fromSeq + '..' + r.toSeq : 'nothing to seal');
               await db.destroy();
             }"
 
-      # The keys the release at 23 sealed its bank accounts, contacts and codes with, read from that release itself: this
-      # release moves every value off them to a KMS key, as production moves off prod-v1 (scripts/reseal-fields.ts).
+      # The keys the release at 45 sealed its bank accounts, contacts and codes with, read from that release itself: this
+      # release moves every value off them to a KMS key (scripts/reseal-fields.ts).
       - name: This release migrates both databases to its schema, moves their sealed values to KMS, and checks what came through
         run: |
-          UPGRADE_FIELD_KEYS="$(cd "$RUNNER_TEMP/release-23" && node --input-type=module -e "
+          UPGRADE_FIELD_KEYS="$(cd "$RUNNER_TEMP/release-45" && node --input-type=module -e "
             const { E2E_FIELD_KEYS } = await import('./apps/web/e2e/world.ts');
             const { VISUAL_FIELD_KEYS } = await import('./apps/web/visual/world.ts');
             console.log(JSON.stringify({ inrp2p_e2e: E2E_FIELD_KEYS, inrp2p_visual: VISUAL_FIELD_KEYS }));" | tail -n 1)"

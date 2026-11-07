@@ -79,12 +79,8 @@ refuses 23. So there is no rolling path for this one transition — it is a shor
    to the point noted in step 1 — the restore fence then holds outgoing payments until two people have reconciled —
    and redeploy the old release.
 
-CI's `upgrade` job proves the data side of this transition on every change: the release at 23 writes its own data —
-its fixture world, and its own end-to-end run through its own screens — and seals its audit log as its worker does;
-this release's migrations carry it to 36 with nothing lost, the books balanced, every old trade legacy-funded, the
-old seal chain intact and continued by this release's first seal, every value it sealed under its local key moved to a
-KMS key (an in-memory one in CI) and opening under that key alone, and this release able to read it
-(`scripts/upgrade-check.ts`).
+CI's `upgrade` job proved the data side of this transition while it was the next one. It now proves the next one, from
+the release at 45 (§ Stage 3), the same way (`scripts/upgrade-check.ts`).
 
 ## 3. Configuration contract
 
@@ -456,12 +452,28 @@ amount above the payout two-person threshold so a second person approves the tra
 
 ADR 0018's collecting account, statements and payment window are gone (ADR 0027): rupees go straight between the two sides.
 
-## Stage 3: dropping the old tables (ADR 0027)
+## Stage 3: migration 46, only P2P remains (ADR 0027)
 
-Not done yet, and needs the owner's agreement. A migration drops `inr_settlement_account`, `inr_account_day`,
-`capacity_reservation`, the statement tables, `trade_collection`, `settlement_entity`, `treasury_reservation`,
-`trader_reward_payout`, the `reward_*`, `reimbursed_*` and `execution_mode` columns and IX113; it touches no reserve balance. Production migrates **before**
-the code that needs it merges.
+From schema 45. It drops the tables and columns of the old settlement models and refuses, whole, if any of them ever carried
+money. It cannot be undone except from the backup below, and the web app and worker serve only the schema they were built for,
+so the steps below are one release, with a short window where the site answers 503. Nothing here is done without the owner.
+
+1. **Ask first, change nothing.** `DATABASE_MIGRATOR_URL=… node scripts/p2p-only-preflight.ts`, from the commit of this
+   release, on the direct (non-pooler) endpoint. It runs the migration's own checks in a read-only transaction. Exit 1 lists
+   what the migration would refuse over: stop there, and the owner decides what those rows are.
+2. **The worker image** for the release's commit, by the *Worker image* workflow (`inrp2p-worker@sha256:…`, not a tag).
+3. **Stop the worker** (ECS desired count 0) and confirm its last heartbeat. Nothing may write while the schema moves.
+4. **The backup of record:** a Neon branch of production named `before-46-<date>`. It is the only way back.
+5. **Migrate.** `DATABASE_MIGRATOR_URL=… node scripts/migrate.ts` (45 → 46), through the migrator login on the direct endpoint.
+   A refusal changes nothing: start the old worker again and go back to step 1.
+6. **The web app.** Merge the release to `main`; Vercel deploys it. It is ready once `/api/health/ready` answers 200 on the
+   public, app and desk hosts. Merged before step 5, the site would answer 503 until the migration ran: this order keeps that
+   window to the deployment.
+7. **The worker.** Update the stack to the image digest of step 2, start it, and confirm its heartbeat and `onchain_cycle`.
+
+If the release does not come up: fix forward, or recover from the branch of step 4 and redeploy the previous release. CI's
+`upgrade` job proves the data side on every change: the release at 45 writes its own data and seals its audit log, and this
+release carries it to 46 with nothing lost, the books balanced and the seal chain continued (`scripts/upgrade-check.ts`).
 
 ## 13. P2P escrow (ADR 0019)
 
@@ -469,9 +481,8 @@ For a desk with no Indian bank account: the rupees go straight between client an
 
 1. **Migration 39.** `DATABASE_MIGRATOR_URL=… node scripts/migrate.ts` (38 → 39); the release then requires 39. Nothing
    changes until the programme says P2P.
-2. **The programme settles P2P.** Every new trader route is P2P. Routes of traders approved earlier follow the programme:
-   saving Desk → Traders → Programme once on the release of PR #26 moves them all. Check before the release of ADR 0027:
-   `select count(*) from liquidity_route where trader_id is not null and execution_mode <> 'P2P'` returns 0.
+2. **The programme settles P2P.** Every trader route is P2P: migration 46 moves any older one, and a live route can be nothing
+   else. Before it, at schema 45, an older route refuses acceptance until Desk → Traders → Programme is saved once.
 3. **The platform's TRX budget.** P2P transfers are paid from the platform's budget, not a trader's deposit: send TRX
    from a wallet no trader registered to the budget wallet and record it on the Network page (*Record a top-up*,
    *the platform's own*). Each deal holds about two transfers' worth until it closes.

@@ -163,7 +163,7 @@ export async function closeNetworkHold(ctx: TxContext, tradeId: string, reason: 
   const spent = await spentByBearer(ctx.tx, tradeId);
   await ctx.tx
     .updateTable('network_budget_hold')
-    .set({ status: 'CLOSED', closed_at: sql<Date>`inrp2p_now()`, close_reason: reason.slice(0, 500), spent_sun: spent.total, reimbursed_sun: 0n, reimbursed_inr_minor: 0n })
+    .set({ status: 'CLOSED', closed_at: sql<Date>`inrp2p_now()`, close_reason: reason.slice(0, 500), spent_sun: spent.total })
     .where('id', '=', hold.id)
     .execute();
   await appendAudit(ctx, {

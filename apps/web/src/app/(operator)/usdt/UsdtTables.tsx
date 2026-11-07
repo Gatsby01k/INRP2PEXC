@@ -29,9 +29,7 @@ export function WalletsTable({ wallets }: { wallets: readonly TreasuryWalletView
       ),
     },
     { key: 'status', header: 'Status', render: (w) => <Chip tone={w.status === 'ACTIVE' ? 'success' : 'warning'}>{w.status.toLowerCase()}</Chip> },
-    { key: 'observed', header: 'Observed', align: 'right', render: (w) => usdt(w.observed, { unit: false }) },
-    { key: 'reserved', header: 'Reserved', align: 'right', render: (w) => usdt(w.reserved, { unit: false }) },
-    { key: 'available', header: 'Available', align: 'right', render: (w) => <strong>{usdt(w.available, { unit: false })}</strong> },
+    { key: 'observed', header: 'Observed', align: 'right', render: (w) => <strong>{usdt(w.observed, { unit: false })}</strong> },
     { key: 'seen', header: 'Observed at', render: (w) => <span className={d.secondary}>{w.observedAt ? dateTime(w.observedAt) : 'not yet'}</span> },
   ];
   return <DataTable<TreasuryWalletView> caption="Treasury wallets" columns={columns} rows={wallets} rowKey={(w) => w.walletId} empty={<Empty title="No treasury wallet registered" />} />;

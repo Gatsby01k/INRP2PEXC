@@ -52,7 +52,7 @@ export async function recordBalanceObservation(ctx: TxContext, input: BalanceObs
     })
     .returning(['id', 'observed_at'])
     .executeTakeFirstOrThrow();
-  const wallet = await ctx.tx.selectFrom('treasury_wallet').select(['id', 'observed_balance_minor', 'reserved_minor']).where('network', '=', 'TRON').where('address', '=', address).executeTakeFirst();
+  const wallet = await ctx.tx.selectFrom('treasury_wallet').select(['id', 'observed_balance_minor']).where('network', '=', 'TRON').where('address', '=', address).executeTakeFirst();
   if (wallet && usable) {
     // Copied from the row in SQL: the timestamp keeps its microseconds, which the guard (IX089) compares exactly.
     await sql`
@@ -68,7 +68,6 @@ export async function recordBalanceObservation(ctx: TxContext, input: BalanceObs
     after: {
       address, quality: input.quality, providers: input.providers, independent_sources: input.independentSources,
       ...(usable ? { balance: Money.ofMinor(input.balanceMinor!, 'USDT'), solidified_block: input.solidifiedBlock!.toString() } : { detail: input.detail ?? null }),
-      ...(wallet && usable && input.balanceMinor! < wallet.reserved_minor ? { below_reserved: Money.ofMinor(wallet.reserved_minor, 'USDT') } : {}),
     },
   });
   return { observationId: row.id, observedAt: row.observed_at };

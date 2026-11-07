@@ -46,7 +46,7 @@ export async function recordClientInrInTx(
     .insertInto('settlement_leg')
     .values({
       trade_id: trade.id, seq, side: 'CLIENT_TO_EXCHANGE', asset: 'INR', amount_minor: p.amount.minor, status: 'PROCESSING',
-      payer: 'CLIENT', inr_account_id: null, created_by: ctx.actor.id ?? 'SYSTEM', sent_at: sql<Date>`inrp2p_now()`,
+      payer: 'CLIENT', created_by: ctx.actor.id ?? 'SYSTEM', sent_at: sql<Date>`inrp2p_now()`,
     })
     .returning(['id', 'ref'])
     .executeTakeFirstOrThrow();

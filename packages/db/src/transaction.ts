@@ -35,7 +35,6 @@ export const LOCK_ORDER = [
   'settlement_leg',
   'route_settlement',
   'movement',
-  'inr_account_day',
   'treasury_wallet',
   'deposit_address',
 ] as const;

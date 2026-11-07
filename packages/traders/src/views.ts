@@ -232,12 +232,12 @@ export interface ReserveView {
   readonly depositAddress: string | null;
   readonly withdrawal: { readonly ref: string; readonly amount: string; readonly status: 'REQUESTED' | 'SENT'; readonly askedAt: string } | null;
   readonly history: readonly {
-    readonly kind: 'DEPOSIT' | 'WITHDRAWAL' | 'APPLIED' | 'HELD';
+    readonly kind: 'DEPOSIT' | 'WITHDRAWAL' | 'HELD';
     readonly amount: string;
     readonly status: string;
     readonly at: string;
     readonly txHash: string | null;
-    /** For `APPLIED` and `HELD`: the order of yours the reserve was applied to or held against. */
+    /** For `HELD`: the order of yours the reserve was held against. */
     readonly orderRef?: string;
   }[];
 }
@@ -393,17 +393,14 @@ async function reserveView(ex: Executor, traderId: string): Promise<ReserveView>
     .orderBy('w.requested_at', 'desc')
     .limit(20)
     .execute();
-  // What the desk decided about the reserve (never its deliberations before that): the trader's own order, the amount,
-  // the movement — or, for a hold, that nothing moved.
+  // What the desk decided about the reserve (never its deliberations before that): the trader's own order and the amount.
   const applied = await ex
     .selectFrom('trader_reserve_application as a')
     .innerJoin('trader_order as o', 'o.id', 'a.trader_order_id')
-    .leftJoin('route_settlement as s', 's.reserve_application_id', 'a.id')
-    .leftJoin('crypto_transfer as c', 'c.id', 's.crypto_transfer_id')
-    .select(['a.kind', 'a.amount_minor', 'a.status', 'a.decided_at', 'a.completed_at', 'a.closed_at', 'o.ref as order_ref', 'c.tx_hash'])
+    .select(['a.amount_minor', 'a.status', 'a.decided_at', 'a.closed_at', 'o.ref as order_ref'])
     .where('a.trader_id', '=', traderId)
     .where('a.decided_at', 'is not', null)
-    .where('a.status', 'in', ['APPROVED', 'SENT', 'COMPLETED', 'CANCELLED', 'FAILED'])
+    .where('a.status', 'in', ['APPROVED', 'CANCELLED'])
     .orderBy('a.requested_at', 'desc')
     .limit(20)
     .execute();
@@ -411,12 +408,10 @@ async function reserveView(ex: Executor, traderId: string): Promise<ReserveView>
     ...deposits.map((d) => ({ kind: 'DEPOSIT' as const, amount: usdt(d.amount_minor), status: d.state === 'CONFIRMED' ? 'CREDITED' : d.state === 'DETECTED' ? 'CONFIRMING' : d.state, at: (d.confirmed_at ?? d.detected_at).toISOString(), txHash: d.tx_hash })),
     ...withdrawals.map((w) => ({ kind: 'WITHDRAWAL' as const, amount: usdt(w.amount_minor), status: w.status, at: (w.completed_at ?? w.requested_at).toISOString(), txHash: w.tx_hash })),
     ...applied.map((a) => ({
-      kind: a.kind === 'HOLD' ? ('HELD' as const) : ('APPLIED' as const),
+      kind: 'HELD' as const,
       amount: usdt(a.amount_minor),
-      status: a.kind === 'HOLD'
-        ? (a.status === 'APPROVED' ? 'HELD' : 'RELEASED')
-        : a.status === 'COMPLETED' ? 'APPLIED' : a.status === 'APPROVED' || a.status === 'SENT' ? 'APPLYING' : 'NOT_APPLIED',
-      at: (a.completed_at ?? a.closed_at ?? a.decided_at ?? new Date(0)).toISOString(), txHash: a.tx_hash, orderRef: a.order_ref,
+      status: a.status === 'APPROVED' ? 'HELD' : 'RELEASED',
+      at: (a.closed_at ?? a.decided_at ?? new Date(0)).toISOString(), txHash: null, orderRef: a.order_ref,
     })),
   ].sort((a, b) => (a.at < b.at ? 1 : -1));
   return {

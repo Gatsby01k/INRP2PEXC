@@ -118,7 +118,6 @@ export async function recordSenderCheckInTx(
       expected_bank_account_id: judged.account?.bankAccountId ?? null,
       verdict: judged.verdict,
       detail: JSON.stringify({ pairs: judged.pairs, account: judged.accountSeen, narration: input.narration ?? null }),
-      statement_line_id: null,
       checked_by: ctx.actor.id ?? `SYSTEM:${ctx.commandName}`,
     })
     .returning('id')
@@ -187,7 +186,7 @@ export interface SenderView {
   readonly verdict: SenderVerdict | 'NOT_CHECKED';
   readonly declared: ExpectedAccount | null;
   readonly checks: readonly {
-    readonly via: 'STATEMENT' | 'DESK' | 'PAYEE';
+    readonly via: 'DESK' | 'PAYEE';
     readonly verdict: SenderVerdict;
     readonly seenName: string | null;
     readonly seenAccount: string | null;
