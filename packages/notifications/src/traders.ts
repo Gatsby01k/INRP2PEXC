@@ -56,7 +56,7 @@ async function orderFacts(db: Db, orderId: string): Promise<{ clientId: string; 
   const o = await db
     .selectFrom('trader_order as o')
     .innerJoin('trader_profile as t', 't.id', 'o.trader_id')
-    .select(['o.ref', 'o.side', 'o.base_minor', 'o.inr_minor', 'o.rate_micro', 'o.reward_inr_minor', 'o.close_reason', 't.client_id'])
+    .select(['o.ref', 'o.side', 'o.base_minor', 'o.inr_minor', 'o.rate_micro', 'o.close_reason', 't.client_id'])
     .where('o.id', '=', orderId)
     .executeTakeFirst();
   if (!o) return null;
@@ -68,7 +68,6 @@ async function orderFacts(db: Db, orderId: string): Promise<{ clientId: string; 
       base: Money.ofMinor(o.base_minor, 'USDT').toDecimalString(),
       inr: Money.ofMinor(o.inr_minor, 'INR').toDecimalString(),
       rate: Rate.ofMicro(o.rate_micro, 'ROUTE').toDecimalString(),
-      ...(o.reward_inr_minor !== null && o.reward_inr_minor > 0n ? { reward: Money.ofMinor(o.reward_inr_minor, 'INR').toDecimalString() } : {}),
       ...(o.close_reason ? { reason: o.close_reason } : {}),
     },
   };

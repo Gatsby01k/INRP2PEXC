@@ -145,7 +145,7 @@ describe('mandatory operator MFA', () => {
     await expect(authorizeOperator(t.app, actor, 'settlement:confirm_payout')).resolves.toMatchObject({ requirement: 'STEP_UP' });
     await sql`update step_up_verification set verified_at = statement_timestamp() - interval '11 minutes' where session_id = ${actor.sessionId}`.execute(t.owner);
     await expect(authorizeOperator(t.app, actor, 'settlement:confirm_payout')).rejects.toMatchObject({ code: 'STEP_UP_REQUIRED' });
-    await expect(authorizeOperator(t.app, actor, 'settlement:record_utr')).resolves.toMatchObject({ requirement: 'ALLOW' });
+    await expect(authorizeOperator(t.app, actor, 'settlement:record_incoming')).resolves.toMatchObject({ requirement: 'ALLOW' });
     const again = await call(operator, DESK, jar, '/two-factor/verify-totp', { code: await currentTotp(secret) });
     expect(again.status).toBe(200);
     await expect(authorizeOperator(t.app, actor, 'settlement:confirm_payout')).resolves.toMatchObject({ requirement: 'STEP_UP' });

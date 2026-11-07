@@ -18,7 +18,7 @@ afterAll(async () => w.close());
 
 const usdt = (decimal: string) => Money.parse(decimal, 'USDT').minor;
 const stranger = () => encodeTronAddress(randomBytes(20));
-const sellTrade = (baseUsdt: string) => openTrade(w, { baseUsdt, clientRate: '102.000000', routeRate: '104.200000' });
+const sellTrade = (baseUsdt: string) => openTrade(w, { baseUsdt, clientRate: '102.000000' });
 
 /** Scanner deps that read one `FakeTronGrid` over HTTP (the documented wire formats) and verify through it. */
 function httpDeps(grid: FakeTronGrid, scanner: Record<string, unknown>, opts: { pageSize?: number } = {}) {
@@ -34,7 +34,7 @@ describe('A2 at the scanner over the documented HTTP API', () => {
   afterAll(async () => g.close());
 
   it('detects one new deposit behind 200 older transfers to the same address, over the documented HTTP API', async () => {
-    const trade = await openTrade(g, { baseUsdt: '25', clientRate: '102.000000', routeRate: '104.200000' });
+    const trade = await openTrade(g, { baseUsdt: '25', clientRate: '102.000000' });
     const address = await depositAddressOf(g, trade.tradeId);
     const grid = new FakeTronGrid({ head: 1_000n });
     // 200 old transfers to the same address, long before the window the scanner will read.

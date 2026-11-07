@@ -5,18 +5,19 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Money, Rate } from '@inrp2p/kernel';
 import type { PortalTrade } from '@inrp2p/portal';
-import { CopyButton, DepositAddress, type LegStatus, SettlementProgress, TransactionHash } from '@inrp2p/ui';
+import { CopyButton, DepositAddress, SettlementProgress, TransactionHash } from '@inrp2p/ui';
 import { formatInr, formatIstDateTime, formatIstTime, formatRate, formatUsdtHeadline, maskUtr, shortenHash } from '@inrp2p/ui/format';
 import { useAssistantState } from '../../_assistant/AssistantPanel.tsx';
 import { type Step, at, tradeAssistant } from '../../_assistant/model.ts';
 import { ArrowIcon, CheckIcon, ClockIcon, DownloadIcon, InfoIcon, PauseIcon, ReceiptIcon } from '../../_workspace/icons.tsx';
 import { SuccessMark } from '../../_workspace/SuccessMark.tsx';
-import { InrPayment } from './InrPayment.tsx';
 import { DepositTimer, P2pDealCard, P2pDealChat } from './P2pDeal.tsx';
 import { MarkArt } from '../../../../components/MarkArt.tsx';
 import shell from '../../shell.module.css';
 import { Amount } from '../../../../components/Amount.tsx';
 import styles from './trade.module.css';
+
+type LegStatus = 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
 
 const LEG_STATUS: Record<string, LegStatus> = {
   DRAFT: 'PENDING',
@@ -190,9 +191,7 @@ export function TradeScreen({ view, justOpened = false }: { view: PortalTrade; j
         title: sell ? `Waiting for your ${usdt}` : `Waiting for your ${inr}`,
         body: sell
           ? 'Send it to this trade’s own address below. Your INR follows as soon as it is final on-chain.'
-          : view.payment?.instructions
-            ? 'Pay it from your own account, as shown below, then tell us the reference. Your USDT follows as soon as the payment is confirmed.'
-            : 'Pay it as the desk instructs. Your USDT follows as soon as the payment is confirmed.',
+          : 'Pay it from your own account, as shown below, then tell us the reference. Your USDT follows as soon as the payment is confirmed.',
       }
     : { title: status.title, body: status.body };
 
@@ -302,10 +301,6 @@ export function TradeScreen({ view, justOpened = false }: { view: PortalTrade; j
 
         {p2p ? <P2pDealCard view={view} /> : null}
         {p2p ? <P2pDealChat view={view} /> : null}
-
-        {!p2p && !sell && view.payment && (trade.status === 'AWAITING_FIRST_LEG' || trade.status === 'FIRST_LEG_DETECTED' || (trade.status !== 'COMPLETED' && view.payment.payments.length > 0)) ? (
-          <InrPayment tradeRef={trade.ref} payment={view.payment} total={trade.inr.amount} />
-        ) : null}
 
         {settlement.payments.length > 0 ? (
           <section className={shell.card} aria-label={inrSettlement ? 'INR settlement' : 'USDT delivery'}>

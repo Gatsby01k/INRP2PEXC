@@ -40,7 +40,7 @@ async function p2pTrade(trader: typeof inrTrader, input: { direction: 'SELL_USDT
 beforeAll(async () => {
   w = await createRailsWorld('p2p');
   const program = await w.app.selectFrom('trader_program').select('version').where('id', '=', 1).executeTakeFirstOrThrow();
-  await runAs(w.app, configureTraderProgram(w.finance.actor), w.finance.ref, 'trader_program.configure', { expectedVersion: program.version, executionMode: 'P2P' as const, riskPolicy: null, reason: 'no INR account: P2P escrow' });
+  await runAs(w.app, configureTraderProgram(w.finance.actor), w.finance.ref, 'trader_program.configure', { expectedVersion: program.version, riskPolicy: null, reason: 'no INR account: P2P escrow' });
   // Each trader prefunds the network of its own deals; the platform's budget stays empty.
   inrTrader = await railsTrader(w, 'INR Provider', { buy: { capacity: '50000000', rate: '104.70', min: '100', max: '20000000' } }, '1000');
   usdtTrader = await railsTrader(w, 'USDT Provider', { sell: { capacity: '500000', rate: '105.20', min: '10', max: '200000' } }, '1000');
@@ -198,7 +198,7 @@ describe('a client sells USDT: the client’s USDT into escrow, the trader’s r
     expect(econ.base_minor - econ.route_base_minor!).toBe(econ.gross_margin_base_minor);
 
     // The trader pays only once the client's USDT is in escrow.
-    const pay = () => runAs(w.app, submitOrderPayment(inrTrader.admin.actor, w.traderDeps), inrTrader.admin.ref, 'trader_order.submit_payment', { ref: trade.orderRef, rail: 'IMPS' as const, utr: utr() });
+    const pay = () => runAs(w.app, submitOrderPayment(inrTrader.admin.actor), inrTrader.admin.ref, 'trader_order.submit_payment', { ref: trade.orderRef, rail: 'IMPS' as const, utr: utr() });
     await expect(pay()).rejects.toMatchObject({ code: 'TRADER_ACTION_NOT_DUE' });
     await settleFirstLeg(w, trade.tradeId);
     const deposit = await w.app.selectFrom('deposit_assignment as a').innerJoin('deposit_address as d', 'd.id', 'a.deposit_address_id').select('d.address').where('a.trade_id', '=', trade.tradeId).executeTakeFirstOrThrow();
@@ -322,7 +322,7 @@ describe('the time limits: whoever does not act in time, the other side gets its
     const told = await w.app.selectFrom('outbox_event').select('type').where('aggregate_id', '=', trade.tradeId).where('type', 'in', ['p2p.unwind_started', 'trader.p2p_unwind_started']).execute();
     expect(told.map((e) => e.type).sort()).toEqual(['p2p.unwind_started', 'trader.p2p_unwind_started']);
     // Too late to pay now: the order says so, and so does the database.
-    await expect(runAs(w.app, submitOrderPayment(inrTrader.admin.actor, w.traderDeps), inrTrader.admin.ref, 'trader_order.submit_payment', { ref: trade.orderRef, rail: 'IMPS' as const, utr: utr() }))
+    await expect(runAs(w.app, submitOrderPayment(inrTrader.admin.actor), inrTrader.admin.ref, 'trader_order.submit_payment', { ref: trade.orderRef, rail: 'IMPS' as const, utr: utr() }))
       .rejects.toMatchObject({ code: 'P2P_PAYMENT_WINDOW_CLOSED' });
 
     const deposit = await w.app.selectFrom('deposit_assignment as a').innerJoin('deposit_address as d', 'd.id', 'a.deposit_address_id').select('d.address').where('a.trade_id', '=', trade.tradeId).executeTakeFirstOrThrow();
@@ -345,7 +345,7 @@ describe('the time limits: whoever does not act in time, the other side gets its
   it('hands INRP2P a payment its payee never answered, and a late confirmation still counts', async () => {
     const trade = await p2pTrade(inrTrader, { direction: 'SELL_USDT', amount: '400', clientRate: '103.500000' });
     await settleFirstLeg(w, trade.tradeId);
-    const paid = await runAs(w.app, submitOrderPayment(inrTrader.admin.actor, w.traderDeps), inrTrader.admin.ref, 'trader_order.submit_payment', { ref: trade.orderRef, rail: 'IMPS' as const, utr: utr() });
+    const paid = await runAs(w.app, submitOrderPayment(inrTrader.admin.actor), inrTrader.admin.ref, 'trader_order.submit_payment', { ref: trade.orderRef, rail: 'IMPS' as const, utr: utr() });
     await runP2pDeadlines((await late(62)).db);
     const leg = await w.app.selectFrom('settlement_leg').select('id').where('ref', '=', paid.settlementRef).executeTakeFirstOrThrow();
     const receipt = () => w.app.selectFrom('exception_case').select('status').where('type', '=', 'P2P_RECEIPT_OVERDUE').where('subject_id', '=', leg.id).executeTakeFirst();
@@ -373,7 +373,7 @@ describe('a seller whose rupees did not arrive says so at once, and INRP2P decid
   async function sellPaidByTrader(amount: string) {
     const trade = await p2pTrade(inrTrader, { direction: 'SELL_USDT', amount, clientRate: '103.500000' });
     await settleFirstLeg(w, trade.tradeId);
-    const paid = await runAs(w.app, submitOrderPayment(inrTrader.admin.actor, w.traderDeps), inrTrader.admin.ref, 'trader_order.submit_payment', { ref: trade.orderRef, rail: 'IMPS' as const, utr: utr() });
+    const paid = await runAs(w.app, submitOrderPayment(inrTrader.admin.actor), inrTrader.admin.ref, 'trader_order.submit_payment', { ref: trade.orderRef, rail: 'IMPS' as const, utr: utr() });
     return { trade, paid, tradeRef: await refOf(trade.tradeId) };
   }
 
@@ -445,7 +445,7 @@ describe('a seller whose rupees did not arrive says so at once, and INRP2P decid
     expect(await caseOf(trade.tradeId, 'BANK_TRANSFER_FAILED')).toEqual([]);
     expect(await w.app.selectFrom('p2p_unwind').select(['reason']).where('trade_id', '=', trade.tradeId).executeTakeFirst()).toEqual({ reason: 'NOT_PAID' });
     expect(await p2pDeal(w.app, null, { tradeId: trade.tradeId, viewer: 'TRADER' })).toMatchObject({ step: 'REFUND', turn: 'INRP2P', dispute: { status: 'NOT_PAID' } });
-    await expect(runAs(w.app, submitOrderPayment(inrTrader.admin.actor, w.traderDeps), inrTrader.admin.ref, 'trader_order.submit_payment', { ref: trade.orderRef, rail: 'IMPS' as const, utr: utr() }))
+    await expect(runAs(w.app, submitOrderPayment(inrTrader.admin.actor), inrTrader.admin.ref, 'trader_order.submit_payment', { ref: trade.orderRef, rail: 'IMPS' as const, utr: utr() }))
       .rejects.toMatchObject({ code: 'P2P_PAYMENT_WINDOW_CLOSED' });
     const before = w.chain.balanceOf(w.clientSourceAddress);
     await railsSettle(w, trade.tradeId);
@@ -567,7 +567,7 @@ describe('the escrow’s own deadline: the seller’s USDT in time, and a transf
   it('takes the rupees as one payment of the whole amount, from either side — never a part the escrow would wait on', async () => {
     const sell = await p2pTrade(inrTrader, { direction: 'SELL_USDT', amount: '150', clientRate: '103.500000' });
     await settleFirstLeg(w, sell.tradeId);
-    const traderPays = (amount?: string) => runAs(w.app, submitOrderPayment(inrTrader.admin.actor, w.traderDeps), inrTrader.admin.ref, 'trader_order.submit_payment', { ref: sell.orderRef, rail: 'IMPS' as const, utr: utr(), ...(amount ? { amount } : {}) });
+    const traderPays = (amount?: string) => runAs(w.app, submitOrderPayment(inrTrader.admin.actor), inrTrader.admin.ref, 'trader_order.submit_payment', { ref: sell.orderRef, rail: 'IMPS' as const, utr: utr(), ...(amount ? { amount } : {}) });
     await expect(traderPays('10000.00')).rejects.toMatchObject({ code: 'INVALID_AMOUNT' });
     expect(await p2pDeal(w.app, null, { tradeId: sell.tradeId, viewer: 'CLIENT' })).toMatchObject({ step: 'PAY' });
     await traderPays();
@@ -603,7 +603,7 @@ describe('what the desk sees a P2P deal earned', () => {
     expect(open.summary.realizedMarginUsdt).toBe(before.summary.realizedMarginUsdt);
 
     await settleFirstLeg(w, trade.tradeId);
-    const paid = await runAs(w.app, submitOrderPayment(inrTrader.admin.actor, w.traderDeps), inrTrader.admin.ref, 'trader_order.submit_payment', { ref: trade.orderRef, rail: 'IMPS' as const, utr: utr() });
+    const paid = await runAs(w.app, submitOrderPayment(inrTrader.admin.actor), inrTrader.admin.ref, 'trader_order.submit_payment', { ref: trade.orderRef, rail: 'IMPS' as const, utr: utr() });
     const profile = await w.app.selectFrom('trader_profile').select('bank_account_id').where('id', '=', inrTrader.traderId).executeTakeFirstOrThrow();
     await runAs(w.app, confirmClientReceipt(w.acceptor.actor, w.settlementDeps), w.acceptor.ref, 'payout.confirm_received', { tradeRef: await refOf(trade.tradeId), legRef: paid.settlementRef, senderName: await traderHolder(profile.bank_account_id!) });
     await railsSettle(w, trade.tradeId);

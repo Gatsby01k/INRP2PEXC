@@ -182,7 +182,7 @@ reference drill migrates that way, twice in a row.
 ## 7. Jobs
 
 The worker's crontab (`apps/worker/src/tasks.ts`): `outbox_dispatch` (minute), `audit_seal` (hourly), `audit_seal_export`
-(daily), `capacity_day_rollover`, `deposit_address_cooldown_release`, `quote_expiry_sweep`, `settlement_sla`,
+(daily), `deposit_address_cooldown_release`, `quote_expiry_sweep`, `settlement_sla`,
 `settlement_reconcile` (daily), `tron_scan`, `tron_confirm`, `tron_orphan_sweep`, `tron_backfill`, `custody_observe`,
 `trader_orders_sweep`, `receipt_store_backfill`, `worker_heartbeat`, and the exchange's own rails (ADR 0017): `onchain_cycle`
 (every minute and on every planned send: plan payouts, fuel and sign, follow transactions to the end, close holds) and
@@ -332,8 +332,8 @@ the stale-email rule is the worker that starts — and steps 12, 16–18.
     It is the desk, not the clients: both are traders only (Exchange closed), so their own Destinations page is not
     open to them, and their administrators have no authenticator. The command needs no key and is audited
     (`client_bank.archived`, the operator who did it); the client is told (`DESTINATION_ARCHIVED`). Afterwards no
-    request, quote, payout, refund, destination change or trader reward can use them, and the desk will not reveal them
-    — nothing tries to decrypt them. The traders keep their status; a reward to them would need a new bank account,
+    request, quote, payout, refund or destination change can use them, and the desk will not reveal them
+    — nothing tries to decrypt them. The traders keep their status; a deal with them would need a new bank account,
     which is then sealed under KMS.
 16. Checks: System health (expected alarms aside: `restore_drill_age_days`); a sign-in code arrives; a trader's reserve
     page shows the shared address; `preflight` shows the two sealed values under `prod-v1` both `ARCHIVED`, and no
@@ -401,10 +401,9 @@ Vercel, project `inr463rergr`, environment *Production* (names only; values come
 | `INRP2P_CUSTODY_PROVIDER` | the name of the custody provider whose pool addresses SELL deposits go to (D-02) | new |
 | `INRP2P_KEK_BASE64` | removed (step 18): `prod-v1` is retired, not moved | exists |
 
-The desk's own records, entered in the desk once the release runs (System health shows both in alarm until then):
-the exchange's INR settlement and collection accounts with their daily capacity (`inr_capacity_available`), and the
-custody provider's pool of TRC20 deposit addresses SELL deposits go to (`deposit_pool_free`, D-02). Until they exist,
-no SELL trade can be accepted and no INR payout planned — nothing wrong happens, nothing happens.
+The desk's own record, entered in the desk once the release runs (System health shows it in alarm until then): the
+custody provider's pool of TRC20 deposit addresses SELL deposits go to (`deposit_pool_free`, D-02). Until it exists, no SELL
+trade can be accepted — nothing wrong happens, nothing happens.
 
 AWS: the stack's parameters (`VpcId`, `SubnetIds`, `WorkerImage`, `FieldKeyArn`, retention), created in `us-east-1`, and the secret
 `inrp2p/worker` (`WORKER_DATABASE_URL`, `RESEND_API_KEY`, `INRP2P_FIELD_HMAC_BASE64`, `INRP2P_TRON_PRIMARY_KEY`). The
@@ -442,41 +441,27 @@ What the owner sets up once, in this order. Nothing is spent and nothing is sent
 **The first controlled trade.** Pick one approved trader with a network deposit, a client the desk knows, and an
 amount above the payout two-person threshold so a second person approves the transfer (C1).
 
-1. Price the request on the desk: the builder shows the trader's reward, the network fee (≈ 18 TRX in INR at today's
-   prices) and the net margin; a rate below the break-even is refused and the builder says by how much.
+1. Price the request on the desk: the builder shows the network fee and the net margin; a rate below the break-even is
+   refused and the builder says by how much.
 2. The client sees the exact amount it pays and receives, "nothing is deducted", and accepts.
-3. BUY: the client pays INR as usual; the trader delivers USDT to the order's own address; once both are confirmed
-   the payout appears on **Network → Sends** as *Needs approval* — a second person approves it, the signer tops the
-   deal address up with TRX, signs and sends the USDT straight to the client's wallet; the leg completes when TRON
-   makes it final (the client's screen shows the transaction hash meanwhile). SELL: the client sends USDT to the
-   trade's own address; once the trader's INR is confirmed, the signer pays the trader from that address.
+3. BUY: the trader's USDT reaches the deal's escrow; the client pays the trader's account; the trader confirms the rupees
+   against its bank; the payout appears on **Network → Sends** as *Needs approval* — a second person approves it, and the
+   signer sends the USDT straight to the client's wallet; the leg completes when TRON makes it final (the client's screen
+   shows the transaction hash meanwhile). SELL: the client's USDT reaches the escrow; the trader pays the client's account;
+   the client confirms the rupees against its bank, and the signer releases the USDT to the trader.
 4. After completion: the trade's **Network** block shows what the price carried, what the network actually cost and
-   what the trade left; the trader's Network deposit page shows the order's TRX spent and the INR paid back with its
-   rewards; the budget wallet's chain balance matches the records on the Network page.
+   what the trade left; the budget wallet's chain balance matches the records on the Network page.
 
-## 12. Clean INR (ADR 0018)
+## 12. Removed: Clean INR
 
-What the owner sets up once, before the first BUY.
+ADR 0018's collecting account, statements and payment window are gone (ADR 0027): rupees go straight between the two sides.
 
-1. **Migration 38.** `DATABASE_MIGRATOR_URL=… node scripts/migrate.ts` (37 → 38); the release's deployment check then
-   requires 38. Additive: nothing that works stops working; what changes is that a payment from a stranger can no
-   longer be confirmed.
-2. **The exchange's collecting account.** Desk → **INR accounts** → *Add an account* (OWNER or FINANCE, authenticator):
-   the first time, the company that owns the accounts (its legal name is the payee clients see); then the account —
-   bank, IFSC, number (sealed at once), *Collects*, the rails, a daily capacity — and, if it has one, its **UPI ID**
-   and the payee name clients see. A collecting account with a UPI ID gives every BUY up to ₹1,00,000 a code the
-   client's UPI app fills in. Until an active account collects, the page says BUY clients have nowhere to pay.
-3. **Traders pay INR into.** Desk → Traders → Programme → *Traders pay INR into* = that account, so a trader's Buy USDT
-   order has somewhere to pay.
-4. **Every client's own account.** A client pays only from an account registered in its name (Desk → Clients →
-   bank accounts). A payment from any other account is returned, never counted.
-5. **Statements with the sender.** Export the collecting account's statement as CSV with
-   `value_date, direction, amount, reference, description` and, where the bank offers them, `sender_name` and
-   `sender_account`; without them the sender is read from the description. Desk → INR accounts → *Bank statement
-   reconciliation* checks every matched credit's sender.
+## Stage 3: dropping the old tables (ADR 0027)
 
-The worker's `inr_payment_expiry` job cancels a BUY nobody paid within 30 minutes; it needs nothing configured.
-
+Not done yet, and needs the owner's agreement. A migration drops `inr_settlement_account`, `inr_account_day`,
+`capacity_reservation`, the statement tables, `trade_collection`, `settlement_entity`, `treasury_reservation`,
+`trader_reward_payout`, the `reward_*`, `reimbursed_*` and `execution_mode` columns and IX113; it touches no reserve balance. Production migrates **before**
+the code that needs it merges.
 
 ## 13. P2P escrow (ADR 0019)
 
@@ -484,9 +469,9 @@ For a desk with no Indian bank account: the rupees go straight between client an
 
 1. **Migration 39.** `DATABASE_MIGRATOR_URL=… node scripts/migrate.ts` (38 → 39); the release then requires 39. Nothing
    changes until the programme says P2P.
-2. **Switch the programme.** Desk → Traders → Programme → *How traders settle* = **P2P** (OWNER or FINANCE, with a
-   reason). Refused while any trader order or obligation is open: switch between deals. Every trader route then settles
-   P2P, and no trader reward is counted.
+2. **The programme settles P2P.** Every new trader route is P2P. Routes of traders approved earlier follow the programme:
+   saving Desk → Traders → Programme once on the release of PR #26 moves them all. Check before the release of ADR 0027:
+   `select count(*) from liquidity_route where trader_id is not null and execution_mode <> 'P2P'` returns 0.
 3. **The platform's TRX budget.** P2P transfers are paid from the platform's budget, not a trader's deposit: send TRX
    from a wallet no trader registered to the budget wallet and record it on the Network page (*Record a top-up*,
    *the platform's own*). Each deal holds about two transfers' worth until it closes.

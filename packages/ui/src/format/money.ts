@@ -1,4 +1,4 @@
-import { DomainError, Money, type ClientRate, type Rate, type RateKind, RATE_EXPONENT, divRound, exponentOf } from '@inrp2p/kernel';
+import { DomainError, Money, type Rate, type RateKind, RATE_EXPONENT, divRound, exponentOf } from '@inrp2p/kernel';
 import { rescaleMinor, splitMinor } from './number.ts';
 
 export type InrFraction = 'auto' | 'always' | 'never';
@@ -52,10 +52,6 @@ export function formatRate(rate: Rate<RateKind>, opts: { unit?: boolean } = {}):
   const d = splitMinor(rate.micro, RATE_EXPONENT);
   const fraction = d.fraction.replace(/0+$/, '').padEnd(2, '0');
   return `₹${d.whole}.${fraction}${opts.unit ? ' / USDT' : ''}`;
-}
-
-export function formatClientRate(rate: ClientRate): string {
-  return formatRate(rate);
 }
 
 const COMPACT_UNITS: readonly (readonly [bigint, string])[] = [

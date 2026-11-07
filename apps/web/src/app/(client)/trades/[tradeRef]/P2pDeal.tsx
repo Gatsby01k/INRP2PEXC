@@ -73,7 +73,7 @@ export function P2pDealCard({ view }: { view: PortalTrade }) {
       {buy && deal.step === 'PAY' ? (
         <PayInr
           deal={deal}
-          fromAccounts={view.payment?.fromAccounts ?? []}
+          fromAccounts={view.fromAccounts}
           attachFields={{ tradeRef: view.trade.ref }}
           choose={(m, key) => choosePayMethodAction({ tradeRef: view.trade.ref, method: m }, key)}
           claim={(input, key) => claimPaymentAction({ tradeRef: view.trade.ref, rail: input.rail, utr: input.utr, fromBankAccountId: input.fromBankAccountId ?? '', amount: deal.inr }, key)}

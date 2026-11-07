@@ -1,7 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { deskTradeRecord, tradeIdByRef } from '@inrp2p/desk';
-import { collectionAccounts } from '@inrp2p/traders';
 import { operatorPage } from '../../../../server/operator.ts';
 import { PanelSection } from '../../_desk/ContextPanel.tsx';
 import { Icon } from '../../_desk/icons.tsx';
@@ -32,7 +31,6 @@ export default async function TradeRecordPage({ params }: { params: Promise<{ re
   const record = await deskTradeRecord(ctx.db, tradeId, ctx.access);
   const trade = record.trade;
   const perms = tradePerms(ctx);
-  const collection = await collectionAccounts(ctx.db);
   const completed = trade.lifecycle === 'COMPLETED';
 
   return (
@@ -89,7 +87,7 @@ export default async function TradeRecordPage({ params }: { params: Promise<{ re
         <Columns>
           <Stack>
             <Section>
-              <TradeWorkspace trade={trade} perms={perms} collectionAccounts={collection} record />
+              <TradeWorkspace trade={trade} perms={perms} record />
             </Section>
             <Section title="History" count={record.timeline.length} hint="Every transition, leg, case and adjustment, newest first.">
               <Timeline
@@ -137,13 +135,13 @@ export default async function TradeRecordPage({ params }: { params: Promise<{ re
             </Section>
 
             {trade.route ? (
-              <Section title="Route side" hint={`${trade.route.routeName} · ${trade.route.executionMode === 'DIRECT_TO_CLIENT' ? 'pays the client directly' : 'settles with the exchange'}`} actions={<Link href="/rates#positions" className={d.linkButton}>Route positions</Link>}>
+              <Section title="The trader’s side" hint={trade.route.routeName}>
                 <RouteSide route={trade.route} />
               </Section>
             ) : null}
 
             <Section>
-              <Closeout trade={trade} perms={perms} refundAccounts={collection} />
+              <Closeout trade={trade} perms={perms} />
               {perms.openException && trade.lifecycle !== 'COMPLETED' && trade.lifecycle !== 'CANCELLED' ? <FlagException trade={trade} /> : null}
               <Adjustments adjustments={record.adjustments} perms={perms} />
               {trade.lifecycle === 'COMPLETED' || trade.lifecycle === 'CANCELLED' ? (
@@ -165,8 +163,8 @@ export default async function TradeRecordPage({ params }: { params: Promise<{ re
 
 function RouteSide({ route }: { route: NonNullable<Awaited<ReturnType<typeof deskTradeRecord>>['trade']['route']> }) {
   const sides = [
-    { title: 'Route delivers', total: route.routeDelivers, remaining: route.routeDeliversRemaining },
-    { title: 'Exchange delivers', total: route.exchangeDelivers, remaining: route.exchangeDeliversRemaining },
+    { title: 'The trader delivers', total: route.routeDelivers, remaining: route.routeDeliversRemaining },
+    { title: 'The trader receives', total: route.exchangeDelivers, remaining: route.exchangeDeliversRemaining },
   ];
   return (
     <div className={d.stackTight}>
@@ -178,14 +176,13 @@ function RouteSide({ route }: { route: NonNullable<Awaited<ReturnType<typeof des
               split
               items={[
                 { label: s.title, value: money(s.total.amount, s.total.currency), strong: true },
-                { label: 'Still to settle', value: money(s.remaining.amount, s.remaining.currency) },
+                { label: 'Still to come', value: money(s.remaining.amount, s.remaining.currency) },
               ]}
             />
             <Meter size="sm" label={`${s.title}: ${money(s.remaining.amount, s.remaining.currency)} remaining`} parts={[{ value: settled, tone: 'success' }]} />
           </div>
         );
       })}
-      <p className={d.fieldHint}>The client trade never waits for the route; this side settles separately on Rates.</p>
     </div>
   );
 }

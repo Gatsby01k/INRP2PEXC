@@ -3,7 +3,7 @@ import type { DeskTrade } from '@inrp2p/desk';
 import { CopyButton } from '@inrp2p/ui';
 import { shortenAddress, shortenHash } from '@inrp2p/ui/format';
 import { PanelSection } from '../_desk/ContextPanel.tsx';
-import { inr, usdt } from '../_desk/format.ts';
+import { usdt } from '../_desk/format.ts';
 import { ATTEMPT, PURPOSE, STATUS, trx } from '../_desk/network.ts';
 import { Chip, KeyValues, Notice } from '../_desk/ui.tsx';
 import { RaiseHold } from './RaiseHold.tsx';
@@ -12,8 +12,7 @@ import d from '../_desk/desk.module.css';
 import t from './trade.module.css';
 
 /**
- * A trade's side of the exchange's own rails (ADR 0017): whose TRX pays its transfers, what it holds and spent, the
- * network fee its client's price carried against what the network actually cost (economics viewers only), and each
+ * A trade's side of the exchange's own rails (ADR 0017): whose TRX pays its transfers, what it holds and spent, and each
  * transfer the signer makes for it with its transactions. Approving and unblocking happen on the Network page.
  */
 export function TradeNetwork({ trade, perms }: { trade: DeskTrade; perms: TradePerms }) {
@@ -45,19 +44,6 @@ export function TradeNetwork({ trade, perms }: { trade: DeskTrade; perms: TradeP
             { label: 'TRX from', value: n.funder === 'Platform' ? 'Platform budget' : `${n.funder}’s network deposit` },
             { label: 'Held for its transfers', value: `${trx(n.heldTrx)} · ${trx(n.committedTrx)} committed` },
             { label: 'Spent so far', value: /[1-9]/.test(n.traderBorneTrx) ? `${trx(n.spentTrx)} · ${trx(n.traderBorneTrx)} the trader’s` : trx(n.spentTrx) },
-            ...(n.reimbursed !== null ? [{ label: 'Paid back to the trader', value: inr(n.reimbursed) }] : []),
-            ...(n.economics
-              ? [
-                  ...(/[1-9]/.test(n.economics.reward) ? [{ label: 'Trader’s reward', value: inr(n.economics.reward) }] : []),
-                  { label: 'Network fee in the price', value: `${inr(n.economics.feeCharged)} · ${trx(n.economics.feeChargedTrx)}` },
-                  { label: 'Network cost', value: inr(n.economics.spentInr) },
-                  {
-                    label: n.economics.netFinal ? 'Net: margin − reward − network' : 'Net expected: margin − reward − fee',
-                    value: n.economics.netProfit.startsWith('-') ? <Chip tone="danger">{inr(n.economics.netProfit)}</Chip> : inr(n.economics.netProfit),
-                    strong: true,
-                  },
-                ]
-              : []),
           ]}
         />
         )}

@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { sql } from 'kysely';
 import { DomainError } from '@inrp2p/kernel';
-import { type ActorRef, type Db, type IsolationLevel, type TxContext, withTransaction } from '@inrp2p/db';
+import { type ActorRef, type Db, type IsolationLevel, type TxContext, pgErrorCode, withTransaction } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
 
 export interface CommandRequest<P> {
@@ -69,6 +69,25 @@ export async function executeCommand<P, R>(db: Db, def: CommandDefinition<P, R>,
   if (req.financial && !key) throw new DomainError('IDEMPOTENCY_KEY_REQUIRED', `${req.name} is a financial mutation`);
   const hash = requestHash(req.name, req.actor, req.payload);
 
+  // A deadlock is Postgres choosing a victim: nothing of this attempt survived, so it runs again. Everything it does is in
+  // the transaction, which is what makes that safe. Anything else is the command's own answer and is never retried.
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await attemptCommand(db, def, req, { correlationId, key, hash });
+    } catch (e) {
+      if (attempt >= DEADLOCK_ATTEMPTS || pgErrorCode(e) !== '40P01') throw e;
+    }
+  }
+}
+
+const DEADLOCK_ATTEMPTS = 3;
+
+async function attemptCommand<P, R>(
+  db: Db,
+  def: CommandDefinition<P, R>,
+  req: CommandRequest<P>,
+  { correlationId, key, hash }: { correlationId: string; key: string | null; hash: string },
+): Promise<CommandOutcome<R>> {
   return withTransaction(
     db,
     async (tx) => {
@@ -97,7 +116,8 @@ export async function executeCommand<P, R>(db: Db, def: CommandDefinition<P, R>,
         }
       }
 
-      const ctx: TxContext = { tx, actor: req.actor, correlationId, idempotencyKey: key, commandName: req.name };
+      const atEnd = new Map<string, () => Promise<unknown>>();
+      const ctx: TxContext = { tx, actor: req.actor, correlationId, idempotencyKey: key, commandName: req.name, atEnd };
       await sql`set local statement_timeout = '30s'`.execute(tx);
       await def.authorize(ctx, req.payload);
       const result = await def.handle(ctx, req.payload);
@@ -110,6 +130,7 @@ export async function executeCommand<P, R>(db: Db, def: CommandDefinition<P, R>,
           .where('key', '=', key)
           .execute();
       }
+      for (const step of atEnd.values()) await step();
       return { result, replayed: false, correlationId };
     },
     req.isolation ? { isolation: req.isolation } : {},

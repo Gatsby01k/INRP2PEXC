@@ -79,13 +79,12 @@ describe('graphile worker end to end', () => {
 
   it('reference-data maintenance jobs run as inrp2p_worker and are idempotent', async () => {
     const taskList = buildTaskList(t.worker, []);
-    const helpers = {} as Parameters<NonNullable<typeof taskList.capacity_day_rollover>>[1];
+    const helpers = {} as Parameters<NonNullable<typeof taskList.deposit_address_cooldown_release>>[1];
     for (let i = 0; i < 2; i++) {
-      await taskList.capacity_day_rollover!({}, helpers);
       await taskList.deposit_address_cooldown_release!({}, helpers);
     }
-    const runs = await t.app.selectFrom('idempotency_key').select('scope').where('scope', 'in', ['capacity.day_rollover', 'deposit_address.cooldown_release']).execute();
-    expect(runs).toHaveLength(4);
+    const runs = await t.app.selectFrom('idempotency_key').select('scope').where('scope', '=', 'deposit_address.cooldown_release').execute();
+    expect(runs).toHaveLength(2);
   });
 
   it('the TRON jobs exist, are scheduled, and do nothing at all when monitoring is deliberately disabled', async () => {

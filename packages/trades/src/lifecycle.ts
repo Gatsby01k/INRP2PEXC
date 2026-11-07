@@ -1,6 +1,6 @@
 import { sql } from 'kysely';
 import { DomainError, Money, type TradeEconomics, requireUuid } from '@inrp2p/kernel';
-import { type Executor, type LockResource, type TradeLifecycleState, type Tx, type TxContext, assertLockOrder } from '@inrp2p/db';
+import { type Executor, type TradeLifecycleState, type Tx, type TxContext, assertLockOrder } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
 
 export interface TradeRow {
@@ -32,12 +32,6 @@ export async function reloadTrade(tx: Tx, tradeId: string): Promise<TradeRow> {
   const row = rows.rows[0];
   if (!row) throw new DomainError('NOT_FOUND', 'trade not found');
   return row;
-}
-
-export async function lockInOrderRow(tx: Tx, resource: LockResource, table: string, id: string): Promise<void> {
-  assertLockOrder(tx, resource);
-  const r = await sql`select 1 from ${sql.table(table)} where id = ${id} for update`.execute(tx);
-  if (r.rows.length === 0) throw new DomainError('NOT_FOUND', `${table} not found`);
 }
 
 export interface EffectiveObligations {

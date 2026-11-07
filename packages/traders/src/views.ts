@@ -2,14 +2,12 @@ import { sql } from 'kysely';
 import { DomainError, Money, Rate, requireText } from '@inrp2p/kernel';
 import type { DestinationStatus, Executor, InrRailValue, P2pExperience, TraderOrderStatus, TraderSide, TraderStatus } from '@inrp2p/db';
 import type { FieldProtector } from '@inrp2p/adapters';
-import { inrAccountSealContext } from '@inrp2p/inr-accounts';
 import { type P2pDeal, obligationRemaining, p2pDeal } from '@inrp2p/settlement';
 import { traderApplicant, traderMembership, traderProgram } from '@inrp2p/trader-core';
 import { CLIENT_FUNDED_STATES } from './delivery.ts';
 import { type BlockIssue, type StandingIssue, blockIssues, freeCapacity, standingIssues } from '@inrp2p/trader-core';
 import { type OrderStage, type OrderStep, orderStage, orderSteps, p2pOrderStage, p2pOrderSteps } from './progress.ts';
 import { sharedReserveAddress } from './reserve.ts';
-import { earnings } from './rewards.ts';
 import { type PriceAskView, priceAsksFor } from './rfq.ts';
 import { type RiskLimits, type TierName, readBlocks, readStanding } from '@inrp2p/trader-core';
 import { PERSON_FLAGS } from './auto-review.ts';
@@ -62,8 +60,6 @@ export interface OrderSummary {
   readonly completedAt: string | null;
   readonly closedAt: string | null;
   readonly closeNote: string | null;
-  /** The reward fixed on this order, when INRP2P pays one; earned on completion. */
-  readonly reward: string | null;
   /** What the trader still owes on its side, in that side's currency. */
   readonly youOwe: string | null;
   /** ADR 0019: the step of a P2P order's deal (escrow, payment, confirmation, release); null otherwise. */
@@ -87,13 +83,12 @@ interface OrderRowFull {
   completed_at: Date | null;
   closed_at: Date | null;
   close_reason: string | null;
-  reward_inr_minor: bigint | null;
   trade_id: string | null;
   route_obligation_id: string | null;
   route_id: string;
 }
 
-const ORDER_SELECT = ['o.id', 'o.ref', 'o.side', 'o.status', 'o.base_minor', 'o.inr_minor', 'o.rate_micro', 'o.offered_at', 'o.offer_expires_at', 'o.hold_until', 'o.started_at', 'o.completed_at', 'o.closed_at', 'o.close_reason', 'o.reward_inr_minor', 'o.trade_id', 'o.route_obligation_id', 'o.route_id'] as const;
+const ORDER_SELECT = ['o.id', 'o.ref', 'o.side', 'o.status', 'o.base_minor', 'o.inr_minor', 'o.rate_micro', 'o.offered_at', 'o.offer_expires_at', 'o.hold_until', 'o.started_at', 'o.completed_at', 'o.closed_at', 'o.close_reason', 'o.trade_id', 'o.route_obligation_id', 'o.route_id'] as const;
 
 interface OrderProgressFacts {
   readonly stage: OrderStage;
@@ -105,8 +100,13 @@ interface OrderProgressFacts {
   readonly dueBy: string | null;
 }
 
-async function isP2pOrder(ex: Executor, o: OrderRowFull): Promise<boolean> {
-  return (await ex.selectFrom('liquidity_route').select('execution_mode').where('id', '=', o.route_id).executeTakeFirstOrThrow()).execution_mode === 'P2P';
+/** A trader's completed orders and their volume, in USDT and in INR at its own rates. */
+export async function completedVolume(ex: Executor, traderId: string): Promise<EarningsView> {
+  const r = await sql<{ completed: string; usdt: string; inr: string }>`
+    select count(*)::text as completed, coalesce(sum(base_minor), 0)::text as usdt, coalesce(sum(inr_minor), 0)::text as inr
+      from trader_order where trader_id = ${traderId} and status = 'COMPLETED'`.execute(ex);
+  const row = r.rows[0]!;
+  return { completedOrders: Number.parseInt(row.completed, 10), completedUsdt: usdt(BigInt(row.usdt)), completedInr: inr(BigInt(row.inr)) };
 }
 
 /** The facts behind an order's stage, from the trade, the obligation's allocations and its settlements. */
@@ -138,11 +138,9 @@ async function progressFacts(ex: Executor, o: OrderRowFull): Promise<OrderProgre
   }
   const traderOwed = remaining.routeDelivers.minor;
   const inrp2pOwed = remaining.exchangeDelivers.minor;
-  if (await isP2pOrder(ex, o)) {
-    const deal = await p2pDeal(ex, null, { tradeId: o.trade_id, viewer: 'TRADER' });
-    if (deal) {
-      return { stage: needsReview || deal.turn === 'INRP2P' && deal.step !== 'RELEASE' ? 'REVIEW' : p2pOrderStage(o.side, o.status, deal.step), traderOwed, inrp2pOwed, deliveryAddress: delivery?.address ?? null, p2pStep: deal.step, dueBy: deal.dueBy };
-    }
+  const deal = await p2pDeal(ex, null, { tradeId: o.trade_id, viewer: 'TRADER' });
+  if (deal) {
+    return { stage: needsReview || deal.turn === 'INRP2P' && deal.step !== 'RELEASE' ? 'REVIEW' : p2pOrderStage(o.side, o.status, deal.step), traderOwed, inrp2pOwed, deliveryAddress: delivery?.address ?? null, p2pStep: deal.step, dueBy: deal.dueBy };
   }
   return {
     stage: orderStage({
@@ -179,7 +177,6 @@ function summarize(o: OrderRowFull, facts: OrderProgressFacts): OrderSummary {
     completedAt: iso(o.completed_at),
     closedAt: iso(o.closed_at),
     closeNote: o.close_reason,
-    reward: o.reward_inr_minor !== null && o.reward_inr_minor > 0n ? inr(o.reward_inr_minor) : null,
     youOwe: o.status === 'IN_PROGRESS' && facts.traderOwed > 0n ? (buy ? inr(facts.traderOwed) : usdt(facts.traderOwed)) : null,
     p2pStep: facts.p2pStep,
     dueBy: facts.dueBy,
@@ -245,13 +242,8 @@ export interface ReserveView {
   }[];
 }
 
+/** What a trader has done with INRP2P: its completed volume at its own rates. INRP2P pays a trader nothing (ADR 0019). */
 export interface EarningsView {
-  readonly rewardBps: number | null;
-  readonly today: string;
-  readonly available: string;
-  readonly payingOut: string;
-  readonly pending: string;
-  readonly paidOut: string;
   readonly completedOrders: number;
   readonly completedUsdt: string;
   readonly completedInr: string;
@@ -366,7 +358,6 @@ export interface TraderHome {
   readonly limits: LimitsView | null;
   /** Orders accepted or in progress — the desk changes settlement details only once there are none. */
   readonly openOrders: number;
-  readonly paymentDetailsPublished: boolean;
   /** Database time, so a countdown on the page starts from the server's clock. */
   readonly now: string;
 }
@@ -498,7 +489,7 @@ export async function traderHome(ex: Executor, userId: string): Promise<TraderHo
   if (!profile) {
     return traderSafe({
       state: 'NONE' as const, ref: null, ...base, application: null, available: false, controlNote: null, assignmentsEnabled: true, issues: [], blocks: [], reserve: null,
-      offers: [], priceAsks: [], active: [], recentlyCompleted: null, earnings: null, registered: null, proposal: NO_PROPOSAL, openOrders: 0, paymentDetailsPublished: false,
+      offers: [], priceAsks: [], active: [], recentlyCompleted: null, earnings: null, registered: null, proposal: NO_PROPOSAL, openOrders: 0,
       review: null, limits: null,
     });
   }
@@ -539,7 +530,7 @@ export async function traderHome(ex: Executor, userId: string): Promise<TraderHo
       : null;
     return traderSafe({
       state: profile.status, ref: profile.ref, ...base, application, available: false, controlNote: null, assignmentsEnabled: profile.assignments_enabled, issues: [], blocks: [],
-      reserve: await reserveView(ex, profile.id), offers: [], priceAsks: [], active: [], recentlyCompleted: null, earnings: null, registered, proposal: NO_PROPOSAL, openOrders: 0, paymentDetailsPublished: false,
+      reserve: await reserveView(ex, profile.id), offers: [], priceAsks: [], active: [], recentlyCompleted: null, earnings: null, registered, proposal: NO_PROPOSAL, openOrders: 0,
       review, limits: null,
     });
   }
@@ -566,7 +557,7 @@ export async function traderHome(ex: Executor, userId: string): Promise<TraderHo
     .execute();
   const summaries: OrderSummary[] = [];
   for (const o of orders) summaries.push(summarize(o, await progressFacts(ex, o)));
-  const e = await earnings(ex, profile.id);
+  const e = await completedVolume(ex, profile.id);
 
   return traderSafe({
     state: profile.status,
@@ -603,21 +594,10 @@ export async function traderHome(ex: Executor, userId: string): Promise<TraderHo
     priceAsks: await priceAsksFor(ex, profile.id),
     active: summaries.filter((s) => s.status === 'ACCEPTED' || s.status === 'IN_PROGRESS'),
     recentlyCompleted: summaries.find((s) => s.status === 'COMPLETED') ?? null,
-    earnings: {
-      rewardBps: e.rewardBps,
-      today: e.today.toDecimalString(),
-      available: e.available.toDecimalString(),
-      payingOut: e.payingOut.toDecimalString(),
-      pending: e.pending.toDecimalString(),
-      paidOut: e.paidOut.toDecimalString(),
-      completedOrders: e.completedOrders,
-      completedUsdt: e.completedUsdt.toDecimalString(),
-      completedInr: e.completedInr.toDecimalString(),
-    },
+    earnings: e,
     registered,
     proposal,
     openOrders: summaries.filter((x) => x.status === 'ACCEPTED' || x.status === 'IN_PROGRESS').length,
-    paymentDetailsPublished: program.collectionAccountId !== null,
     review: null,
     limits: reserve.limits ? limitsView(reserve.limits) : null,
   });
@@ -667,11 +647,8 @@ export interface TraderOrderDetail {
   /** INR still owed by the trader (Buy USDT) or USDT (Sell USDT); INRP2P's side likewise. */
   readonly youOwe: string | null;
   readonly inrp2pOwes: string | null;
-  /** Buy USDT, at the trader's turn: where to pay. Null until then, or when not published. */
-  readonly payTo: { readonly beneficiary: string; readonly bankName: string; readonly ifsc: string; readonly accountNumber: string; readonly narration: string } | null;
   /** Sell USDT: this order's own address, once issued. */
   readonly sendTo: string | null;
-  readonly paymentDetailsPublished: boolean;
   /**
    * ADR 0019: a P2P order's deal — its step, whose move it is and until when, and, when the trader pays the rupees, the
    * account it pays into. Null for an order through INRP2P's account.
@@ -697,7 +674,6 @@ export async function traderOrderDetail(ex: Executor, userId: string, ref: strin
   const summary = summarize(o, facts);
   const buy = o.side === 'BUY_USDT';
   const now = await nowOf(ex);
-  const program = await traderProgram(ex);
 
   const payments = o.route_obligation_id
     ? await ex
@@ -717,24 +693,7 @@ export async function traderOrderDetail(ex: Executor, userId: string, ref: strin
     at: (p.confirmed_at ?? p.recorded_at).toISOString(),
   });
 
-  const p2p = o.trade_id && (await isP2pOrder(ex, o)) ? await p2pDeal(ex, protector, { tradeId: o.trade_id, viewer: 'TRADER' }) : null;
-  let payTo: TraderOrderDetail['payTo'] = null;
-  if (!p2p && buy && facts.stage === 'YOUR_TURN' && program.collectionAccountId) {
-    const account = await ex
-      .selectFrom('inr_settlement_account as a')
-      .innerJoin('settlement_entity as e', 'e.id', 'a.entity_id')
-      .select(['a.bank_name', 'a.ifsc', 'a.account_number_enc', 'a.entity_id', 'e.legal_name'])
-      .where('a.id', '=', program.collectionAccountId)
-      .executeTakeFirstOrThrow();
-    payTo = {
-      beneficiary: account.legal_name,
-      bankName: account.bank_name,
-      ifsc: account.ifsc,
-      accountNumber: await protector.open(account.account_number_enc, inrAccountSealContext(account.entity_id)),
-      narration: o.ref,
-    };
-  }
-
+  const p2p = o.trade_id ? await p2pDeal(ex, protector, { tradeId: o.trade_id, viewer: 'TRADER' }) : null;
   return traderSafe({
     order: summary,
     steps: o.status === 'OFFERED' || o.status === 'ACCEPTED' || o.status === 'IN_PROGRESS' || o.status === 'COMPLETED'
@@ -745,16 +704,14 @@ export async function traderOrderDetail(ex: Executor, userId: string, ref: strin
         ? 'The seller’s USDT is held in escrow by INRP2P. You pay INR straight to the seller’s bank account from your registered account; once the seller confirms it, INRP2P releases the USDT to your registered wallet.'
         : 'You put the USDT in escrow — this order’s own address. The buyer pays INR straight to your registered bank account; once you confirm it arrived, INRP2P releases the USDT to the buyer.'
       : buy
-        ? 'You pay INR by bank transfer to INRP2P from your registered account. INRP2P sends USDT on TRC20 to your registered wallet.'
-        : 'You send USDT on TRC20 from your registered wallet to this order’s own address. INRP2P pays INR to your registered bank account.',
+        ? 'You pay INR straight to the seller’s bank account from your registered account. INRP2P sends the USDT from escrow to your registered wallet.'
+        : 'You put the USDT in escrow from your registered wallet. The buyer pays INR straight to your registered bank account.',
     youReceiveAt: buy ? `TRC20 · ${maskWallet(o.address)}` : `${o.bank_name} ••••${o.account_last4}`,
     yourPayments: payments.filter((p) => p.obligation_side === 'ROUTE_DELIVERS').map(row),
     inrp2pPayments: payments.filter((p) => p.obligation_side === 'EXCHANGE_DELIVERS').map(row),
     youOwe: summary.youOwe,
     inrp2pOwes: o.status === 'IN_PROGRESS' && facts.inrp2pOwed > 0n ? (buy ? usdt(facts.inrp2pOwed) : inr(facts.inrp2pOwed)) : null,
-    payTo,
     sendTo: facts.deliveryAddress,
-    paymentDetailsPublished: p2p !== null || program.collectionAccountId !== null,
     p2p,
     now: now.toISOString(),
   });

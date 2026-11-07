@@ -12,14 +12,10 @@ import q from './queue.module.css';
 import d from './_desk/desk.module.css';
 
 /** The desk's action hotkeys (UX_FLOWS §6). Each opens the row's panel on the section it names. */
-const HOTKEYS: Record<string, string> = { q: 'quote', p: 'payout', u: 'utr', e: 'exception' };
+const HOTKEYS: Record<string, string> = { q: 'quote', e: 'exception' };
 
 const NEXT: Record<QueueAction, { label: string; key?: string; section: string } | null> = {
   QUOTE: { label: 'Quote', key: 'Q', section: 'quote' },
-  CREATE_PAYOUT: { label: 'Create payout', key: 'P', section: 'payout' },
-  CONFIRM_INCOMING: { label: 'Confirm INR', key: 'P', section: 'payout' },
-  RECORD_EVIDENCE: { label: 'Add UTR', key: 'U', section: 'utr' },
-  CONFIRM_PAYOUT: { label: 'Confirm payout', key: 'U', section: 'utr' },
   RESOLVE_EXCEPTION: { label: 'Resolve', key: 'E', section: 'exception' },
   COPY_LINK: { label: 'Open quote', section: 'quote' },
   NONE: null,

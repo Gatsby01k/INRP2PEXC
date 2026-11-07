@@ -38,11 +38,10 @@ test('trade: accepted, waiting for the client’s USDT', async ({ page }) => {
   await capture(page, 'client-trade-awaiting-usdt');
 });
 
-test('trade: a BUY waiting for the client’s rupees (ADR 0018)', async ({ page }) => {
-  await page.goto(`/trades/${state().tradeRefs.awaitingInr}`);
-  await expect(page.getByRole('heading', { level: 2, name: /^Pay ₹/ })).toBeVisible();
-  await expect(page.getByText('Pay only from your own account.')).toBeVisible();
-  await capture(page, 'client-trade-awaiting-inr');
+test('trade: P2P, a BUY waiting for the seller’s USDT (ADR 0019)', async ({ page }) => {
+  await page.goto(`/trades/${state().tradeRefs.awaitingEscrow}`);
+  await expect(page.getByRole('heading', { name: /The seller is putting .* in escrow/ }).first()).toBeVisible();
+  await capture(page, 'client-trade-p2p-escrow');
 });
 
 test('trade: P2P, the seller’s USDT in escrow, the client pays the seller (ADR 0019)', async ({ page }) => {
@@ -51,10 +50,10 @@ test('trade: P2P, the seller’s USDT in escrow, the client pays the seller (ADR
   await capture(page, 'client-trade-p2p-pay');
 });
 
-test('trade: funded, INR going out', async ({ page }) => {
-  await page.goto(`/trades/${state().tradeRefs.awaitingPayout}`);
-  await expect(page.getByRole('region', { name: 'INR settlement' })).toBeVisible();
-  await capture(page, 'client-trade-settling');
+test('trade: P2P, the buyer says it paid, the client looks at their bank', async ({ page }) => {
+  await page.goto(`/trades/${state().tradeRefs.awaitingConfirmation}`);
+  await expect(page.getByRole('heading', { name: /^Did .* arrive\?/ }).first()).toBeVisible();
+  await capture(page, 'client-trade-p2p-confirm');
 });
 
 test('trade: settled in full', async ({ page }) => {

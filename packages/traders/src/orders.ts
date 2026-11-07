@@ -1,10 +1,9 @@
 import { sql } from 'kysely';
-import { DomainError, Money, Rate, requireText, requireUuid } from '@inrp2p/kernel';
+import { DomainError, Rate, requireText, requireUuid } from '@inrp2p/kernel';
 import { type Executor, type TxContext, assertLockOrder } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
 import { enqueueOutbox } from '@inrp2p/outbox';
 import { type ClientActor, type OperatorActor, operatorCommand } from '@inrp2p/identity';
-import { postJournal, traderRewardAccrualJournal } from '@inrp2p/ledger';
 import { publishTraderRate } from '@inrp2p/pricing';
 import { obligationRemaining } from '@inrp2p/settlement';
 import { releaseSubjectAssignment } from '@inrp2p/treasury';
@@ -187,8 +186,7 @@ export type ReconcileOutcome = 'COMPLETED' | 'CANCELLED' | 'DELIVERED' | 'UNCHAN
  *
  * - The trader's own side fully allocated → `delivered_at` is set once and the trader is told its payment arrived.
  * - The obligation SETTLED (both sides) → the order completes: its capacity is used (it leaves the block's capacity
- *   and its hold), the reward accrues in the ledger (`trader_reward:{order}:accrue`), and the delivery address, if
- *   it had one, closes.
+ *   and its hold), and the delivery address, if it had one, closes.
  * - The obligation CANCELLED (the trade was cancelled before the trader's side moved) → the order is cancelled and
  *   its capacity given back untouched.
  */
@@ -250,16 +248,13 @@ export async function reconcileOrderInTx(ctx: TxContext, orderId: string): Promi
     for (const a of open) {
       await appendAudit(ctx, { action: 'trader_reserve.application_cancelled', entityType: 'trader_profile', entityId: order.trader_id, after: { status: 'CANCELLED', ref: a.ref, kind: a.kind, reason: completed ? 'order completed' : 'order cancelled' } });
     }
-    if (completed && order.reward_inr_minor !== null && order.reward_inr_minor > 0n) {
-      await postJournal(ctx, traderRewardAccrualJournal({ orderId: order.id, traderId: order.trader_id, amount: Money.ofMinor(order.reward_inr_minor, 'INR') }));
-    }
     if (order.side === 'SELL_USDT') {
       await releaseSubjectAssignment(ctx, { subject: { kind: 'ROUTE_OBLIGATION', routeObligationId: order.route_obligation_id }, reason: completed ? 'OBLIGATION_SETTLED' : 'OBLIGATION_CANCELLED' });
     }
     await appendAudit(ctx, {
       action: completed ? 'trader_order.completed' : 'trader_order.cancelled', entityType: 'trader_order', entityId: order.id,
       before: { status: 'IN_PROGRESS' },
-      after: { status: completed ? 'COMPLETED' : 'CANCELLED', capacity_used: completed ? order.capacity_minor.toString() : '0', reward: order.reward_inr_minor === null ? null : Money.ofMinor(order.reward_inr_minor, 'INR'), reason },
+      after: { status: completed ? 'COMPLETED' : 'CANCELLED', capacity_used: completed ? order.capacity_minor.toString() : '0', reason },
     });
     await enqueueOutbox(ctx, {
       type: completed ? 'trader.order_completed' : 'trader.order_cancelled',

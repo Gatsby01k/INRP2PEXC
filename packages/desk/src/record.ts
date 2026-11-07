@@ -161,20 +161,23 @@ async function timelineOf(ex: Executor, tradeId: string, trade: DeskTrade, acces
   for (const leg of trade.legs) {
     const amount = { amount: leg.amount, currency: leg.asset } as const;
     const who = leg.side === 'CLIENT_TO_EXCHANGE' ? 'client' : leg.side === 'REFUND_TO_CLIENT' ? 'refund' : 'payout';
-    const created =
-      who === 'client' ? (leg.asset === 'USDT' ? 'USDT arrived at the deposit address' : 'Client INR payment recorded') : who === 'refund' ? 'Refund leg created' : 'Payout leg created';
-    events.push({ at: leg.createdAt, kind: 'LEG', title: created, ref: leg.ref, amount, actor: leg.createdByLabel, note: leg.payer === 'ROUTE' ? `paid by ${leg.routeName ?? 'the route'}` : leg.accountLabel, tone: 'neutral' });
-    if (leg.sentAt && who !== 'client') {
-      events.push({ at: leg.sentAt, kind: 'LEG', title: who === 'refund' ? 'Refund sent' : leg.payer === 'ROUTE' ? 'Route reported the payout sent' : 'Payout sent', ref: leg.ref, amount, actor: null, note: null, tone: 'neutral' });
-    }
+    const rupees = leg.asset === 'INR';
+    // A deal's rupees go straight between its two sides, and whoever received them confirms them; its USDT leaves the escrow.
+    const words = who === 'refund'
+      ? { created: 'Refund planned', sent: 'Refund sent', confirmed: 'Refund confirmed', failed: 'Refund failed' }
+      : who === 'client'
+        ? rupees
+          ? { created: 'The client said it paid the trader', sent: null, confirmed: 'The trader confirmed the rupees', failed: 'The client’s rupees did not arrive' }
+          : { created: 'USDT arrived at the escrow', sent: null, confirmed: 'The client’s USDT confirmed in escrow', failed: 'The client’s USDT did not arrive' }
+        : rupees
+          ? { created: 'The trader said it paid the client', sent: null, confirmed: 'The client confirmed the rupees', failed: 'The trader’s rupees did not arrive' }
+          : { created: 'USDT release planned', sent: 'USDT sent to the client', confirmed: 'USDT reached the client', failed: 'USDT release failed' };
+    events.push({ at: leg.createdAt, kind: 'LEG', title: words.created, ref: leg.ref, amount, actor: leg.createdByLabel, note: null, tone: 'neutral' });
+    if (leg.sentAt && words.sent) events.push({ at: leg.sentAt, kind: 'LEG', title: words.sent, ref: leg.ref, amount, actor: null, note: null, tone: 'neutral' });
     if (leg.confirmedAt) {
-      events.push({
-        at: leg.confirmedAt, kind: 'LEG', title: who === 'client' ? 'Client funds confirmed on the leg' : who === 'refund' ? 'Refund confirmed' : 'Payout confirmed',
-        ref: leg.ref, amount, actor: null, note: leg.reference ? evidence(leg.reference, leg.referenceKind) : null, tone: 'success',
-      });
+      events.push({ at: leg.confirmedAt, kind: 'LEG', title: words.confirmed, ref: leg.ref, amount, actor: null, note: leg.reference ? evidence(leg.reference, leg.referenceKind) : null, tone: 'success' });
     }
-    if (leg.failedAt) events.push({ at: leg.failedAt, kind: 'LEG', title: who === 'client' ? 'Client payment not received' : who === 'refund' ? 'Refund failed' : 'Payout failed', ref: leg.ref, amount, actor: null, note: leg.failureReason, tone: 'danger' });
-    if (leg.cancelledAt) events.push({ at: leg.cancelledAt, kind: 'LEG', title: 'Leg cancelled', ref: leg.ref, amount, actor: null, note: leg.failureReason, tone: 'warning' });
+    if (leg.failedAt) events.push({ at: leg.failedAt, kind: 'LEG', title: words.failed, ref: leg.ref, amount, actor: null, note: leg.failureReason, tone: 'danger' });
   }
 
   const cases = await sql<{
@@ -399,36 +402,6 @@ export interface RateHistoryRow {
   readonly previous: string | null;
   readonly effectiveAt: string;
   readonly byLabel: string;
-}
-
-/**
- * The desk's own route rates as they were published, newest first. A route rate is economics, so the page only
- * asks for this with `economics:view` — the same gate the strip applies to the current rate.
- */
-export async function rateHistory(ex: Executor, opts: { limit?: number } = {}): Promise<readonly RateHistoryRow[]> {
-  const rows = await sql<{
-    id: string; route_id: string; route_name: string; direction: DirectionValue; rate_micro: bigint; previous_micro: bigint | null;
-    effective_at: Date; created_by: string; by_label: string | null;
-  }>`
-    select s.id, s.route_id, r.name as route_name, s.direction, s.rate_micro,
-           lag(s.rate_micro) over (partition by s.route_id, s.direction order by s.effective_at, s.id) as previous_micro,
-           s.effective_at, s.created_by, coalesce(u.name, u.email) as by_label
-    from rate_snapshot s
-    join liquidity_route r on r.id = s.route_id
-    left join auth_user u on u.id::text = s.created_by
-    where s.kind = 'ROUTE' and r.trader_id is null
-    order by s.effective_at desc, s.id desc
-    limit ${opts.limit ?? 40}`.execute(ex);
-  return rows.rows.map((r) => ({
-    id: r.id,
-    routeId: r.route_id,
-    routeName: r.route_name,
-    direction: r.direction,
-    rate: microToDecimal(BigInt(r.rate_micro)),
-    previous: r.previous_micro === null ? null : microToDecimal(BigInt(r.previous_micro)),
-    effectiveAt: r.effective_at.toISOString(),
-    byLabel: label(r.created_by, r.by_label) ?? 'an operator',
-  }));
 }
 
 /* ------------------------------------------------------------------ *

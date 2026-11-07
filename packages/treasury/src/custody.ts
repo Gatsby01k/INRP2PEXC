@@ -174,20 +174,6 @@ export async function allocateDepositAddress(ctx: TxContext, adapter: CustodyAda
 }
 
 /**
- * The address a trader sends its Security Reserve to: one per trader, open for as long as the trader exists, so a
- * top-up needs no request of its own. Returns the open one when it already exists.
- */
-export async function allocateTraderReserveAddress(
-  ctx: TxContext,
-  adapter: CustodyAdapter,
-  input: { network: CustodyNetwork; traderId: string; traderRef: string; expectedAmount: Money<'USDT'> },
-): Promise<DepositAddressAllocation> {
-  const open = await openAssignment(ctx, { kind: 'TRADER_RESERVE', traderId: input.traderId });
-  if (open) return open;
-  return allocateAddressFor(ctx, adapter, { network: input.network, subject: { kind: 'TRADER_RESERVE', traderId: input.traderId }, reference: input.traderRef, expectedAmount: input.expectedAmount });
-}
-
-/**
  * The address a trader sends the USDT of one order to (its route obligation's route-delivers side). One per
  * obligation, ever: a second call returns the same address, and a released one is not reissued.
  */

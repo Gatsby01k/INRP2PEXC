@@ -1,20 +1,14 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import type { DirectionValue, FiatRail } from '@inrp2p/db';
+import type { DirectionValue } from '@inrp2p/db';
 import { archiveBankAccount } from '@inrp2p/clients';
-import { createInrAccount, createSettlementEntity, setDayCapacity, setInrAccountCollectionDetails } from '@inrp2p/inr-accounts';
-import { protectorForWeb } from '../quotes.ts';
-import { publishRouteRate } from '@inrp2p/pricing';
 import { cancelQuote, createQuote, createQuoteLink, createRequest, declineRequest, sendQuote, withdrawRequest } from '@inrp2p/quotes';
 import {
-  type NON_FINANCIAL_RESOLUTIONS, approveAdjustment, cancelPayoutLeg, cancelTrade, confirmFirstLeg, confirmPayout,
-  confirmRefundLeg, confirmRouteSettlement, createPayoutLeg, createRefundLeg, failPayoutLeg, openException, recordIncomingFiat,
-  recordLegEvidence, recordRouteSettlement, refundAndCancel, rejectAdjustment, requestAdjustment, resolveException, revertFirstLeg, sendPayoutLeg,
-  takeException, voidException, approveDestinationChange, cancelDestinationChange, refundExcess, rejectDestinationChange, requestDestinationChange,
-  acceptIncomingSender, checkIncomingSender, decideP2pPayment, postDeskDealMessage,
+  type NON_FINANCIAL_RESOLUTIONS, approveAdjustment, cancelTrade, confirmRefundLeg, createRefundLeg, openException, refundAndCancel, rejectAdjustment, requestAdjustment, resolveException,
+  takeException, voidException, approveDestinationChange, cancelDestinationChange, refundExcess, rejectDestinationChange, requestDestinationChange, decideP2pPayment, postDeskDealMessage,
 } from '@inrp2p/settlement';
-import { type CommandResult, failure, runCommand, withOperator } from '../command.ts';
+import { type CommandResult, failure, runCommand } from '../command.ts';
 import { attachmentOf, formText } from '../deal-files.ts';
 
 /** Every mutation redraws the desk: the queue, the strip and the panels all read from the same rows. */
@@ -126,98 +120,6 @@ export async function cancelQuoteAction(input: { quoteId: string; reason: string
   return out;
 }
 
-export async function createPayoutLegAction(
-  input: { tradeId: string; amount: string; payer: 'EXCHANGE_ACCOUNT' | 'ROUTE'; inrAccountId?: string | null; treasuryWalletId?: string | null; sourceDepositAddressId?: string | null; notes?: string | null },
-  key: string,
-): Promise<CommandResult<{ legId: string; ref: string; remainingAfter: string }>> {
-  const out = await runCommand((ctx) => createPayoutLeg(ctx.actor, {}), input, { name: 'payout_leg.create', idempotencyKey: key });
-  if (out.ok) refresh();
-  return out as CommandResult<{ legId: string; ref: string; remainingAfter: string }>;
-}
-
-export async function sendPayoutLegAction(input: { legId: string }, key: string): Promise<CommandResult<unknown>> {
-  const out = await runCommand((ctx) => sendPayoutLeg(ctx.actor), input, { name: 'payout_leg.send', idempotencyKey: key });
-  if (out.ok) refresh();
-  return out;
-}
-
-export async function recordEvidenceAction(
-  input: { legId: string; rail?: FiatRail; utr?: string; valueDate?: string | null; txHash?: string; logIndex?: number; fromAddress?: string; replaceReason?: string | null },
-  key: string,
-): Promise<CommandResult<unknown>> {
-  const out = await runCommand((ctx, deps) => recordLegEvidence(ctx.actor, deps), input, { name: 'payout_leg.record_evidence', idempotencyKey: key });
-  if (out.ok) refresh();
-  return out;
-}
-
-/**
- * The payout confirm (T6/T7). It goes through settlement's own wrapper, which opens the
- * `ROUTE_DIRECT_PAYOUT_MISMATCH` case in its own transaction after the confirm has rolled back — the desk must
- * not have to remember to do that.
- */
-export async function confirmPayoutAction(input: { legId: string }, key: string): Promise<CommandResult<unknown>> {
-  const out = await withOperator((ctx, deps) => confirmPayout(ctx.db, ctx.actor, deps, { legId: input.legId, idempotencyKey: key }));
-  if (out.ok) refresh();
-  return out;
-}
-
-export async function failPayoutAction(input: { legId: string; reason: string }, key: string): Promise<CommandResult<unknown>> {
-  const out = await runCommand((ctx) => failPayoutLeg(ctx.actor), input, { name: 'payout_leg.fail', idempotencyKey: key });
-  if (out.ok) refresh();
-  return out;
-}
-
-export async function cancelPayoutAction(input: { legId: string; reason: string }, key: string): Promise<CommandResult<unknown>> {
-  const out = await runCommand((ctx) => cancelPayoutLeg(ctx.actor), input, { name: 'payout_leg.cancel', idempotencyKey: key });
-  if (out.ok) refresh();
-  return out;
-}
-
-export async function recordIncomingFiatAction(
-  input: {
-    tradeId: string; rail: FiatRail; utr: string; amount: string; inrAccountId: string; valueDate?: string | null;
-    payerBankAccountId?: string | null; senderName?: string | null; senderAccount?: string | null;
-  },
-  key: string,
-): Promise<CommandResult<{ legId: string; ref: string }>> {
-  const out = await runCommand((ctx) => recordIncomingFiat(ctx.actor), input, { name: 'fiat_in.record', idempotencyKey: key });
-  if (out.ok) refresh();
-  return out as CommandResult<{ legId: string; ref: string }>;
-}
-
-/**
- * ADR 0018 — who sent a client's (or a trader's) rupees, as the desk sees it on the credit in the bank. Judged against
- * the account the payment was declared from; a stranger opens a case at once.
- */
-export async function checkSenderAction(input: { transferId: string; senderName: string; senderAccount?: string | null }, key: string): Promise<CommandResult<{ verdict: string }>> {
-  const out = await runCommand((ctx) => checkIncomingSender(ctx.actor), input, { name: 'fiat_in.check_sender', idempotencyKey: key });
-  if (out.ok) refresh();
-  return out as CommandResult<{ verdict: string }>;
-}
-
-/** A partial match accepted as the payer's own, with the reason (⧗). Never a stranger. */
-export async function acceptSenderAction(input: { transferId: string; reason: string }, key: string): Promise<CommandResult<unknown>> {
-  const out = await runCommand((ctx) => acceptIncomingSender(ctx.actor), input, { name: 'fiat_in.accept_sender', idempotencyKey: key });
-  if (out.ok) refresh();
-  return out;
-}
-
-export async function confirmIncomingAction(input: { legId: string }, key: string): Promise<CommandResult<unknown>> {
-  const out = await runCommand((ctx, deps) => confirmFirstLeg(ctx.actor, deps), input, { name: 'settlement.confirm_incoming', idempotencyKey: key });
-  if (out.ok) refresh();
-  return out;
-}
-
-/**
- * The other answer to a recorded INR payment: it never arrived. The leg fails, the recorded transfer is closed as
- * FAILED, and the trade goes back to awaiting the client — which is also what makes it cancellable again (T3).
- */
-export async function revertIncomingAction(input: { legId: string; reason: string }, key: string): Promise<CommandResult<unknown>> {
-  const out = await runCommand((ctx) => revertFirstLeg(ctx.actor), input, { name: 'settlement.revert_incoming', idempotencyKey: key });
-  if (out.ok) refresh();
-  return out;
-}
-
 export async function takeExceptionAction(input: { exceptionId: string }, key: string): Promise<CommandResult<unknown>> {
   const out = await runCommand((ctx) => takeException(ctx.actor), input, { name: 'exception.take', idempotencyKey: key });
   if (out.ok) refresh();
@@ -278,7 +180,7 @@ export async function voidExceptionAction(input: { exceptionId: string; reason: 
 export async function requestAdjustmentAction(
   input: {
     tradeId: string; type: 'AMOUNT_CORRECTION' | 'RATE_CORRECTION' | 'FEE' | 'WRITE_OFF' | 'REFUND';
-    deltaBaseUsdt?: string; deltaClientInr?: string; deltaRouteInr?: string; reason: string; exceptionId?: string | null;
+    deltaBaseUsdt?: string; deltaClientInr?: string; reason: string; exceptionId?: string | null;
   },
   key: string,
 ): Promise<CommandResult<unknown>> {
@@ -296,10 +198,10 @@ export async function rejectAdjustmentAction(input: { adjustmentId: string; reas
 
 /**
  * `exception.open` — the cases the system cannot detect by itself: USDT sent on the wrong network, a client asking
- * to cancel, a payout the bank is sitting on, a mistake the desk made. A blocking type puts the trade on hold.
+ * to cancel, a mistake the desk made. Each puts the trade on hold.
  */
 export async function openTradeExceptionAction(
-  input: { tradeId: string; type: 'WRONG_NETWORK' | 'TRADE_CANCELLATION' | 'OPERATOR_MISTAKE' | 'INR_PAYOUT_DELAYED'; notes: string },
+  input: { tradeId: string; type: 'WRONG_NETWORK' | 'TRADE_CANCELLATION' | 'OPERATOR_MISTAKE'; notes: string },
   key: string,
 ): Promise<CommandResult<{ exceptionId: string; ref: string; opened: boolean }>> {
   const out = await runCommand(
@@ -324,9 +226,9 @@ export async function cancelTradeAction(input: { tradeId: string; reason: string
   return out;
 }
 
-/** T10 step 1: create the refund leg that sends the client's own funds back. */
+/** T10 step 1: create the refund leg that sends the client's own USDT back from the escrow it arrived at. */
 export async function createRefundLegAction(
-  input: { tradeId: string; inrAccountId?: string | null; treasuryWalletId?: string | null; sourceDepositAddressId?: string | null; notes?: string | null },
+  input: { tradeId: string; sourceDepositAddressId: string; notes?: string | null },
   key: string,
 ): Promise<CommandResult<{ legId: string; ref: string }>> {
   const out = await runCommand((ctx) => createRefundLeg(ctx.actor), input, { name: 'refund_leg.create', idempotencyKey: key });
@@ -336,7 +238,7 @@ export async function createRefundLegAction(
 
 /** T10 step 2: a different person approves the refund and records its evidence (⧗✱). */
 export async function confirmRefundLegAction(
-  input: { legId: string; rail?: FiatRail; utr?: string; txHash?: string; logIndex?: number },
+  input: { legId: string; txHash: string; logIndex?: number },
   key: string,
 ): Promise<CommandResult<unknown>> {
   const out = await runCommand((ctx, deps) => confirmRefundLeg(ctx.actor, deps), input, { name: 'refund_leg.confirm', idempotencyKey: key });
@@ -344,74 +246,9 @@ export async function confirmRefundLegAction(
   return out;
 }
 
-/** T10 step 3: with every confirmed rupee back, the trade is cancelled and the accept journal reversed. */
+/** T10 step 3: with every confirmed USDT back, the trade is cancelled and the accept journal reversed. */
 export async function refundAndCancelAction(input: { tradeId: string; exceptionId?: string | null; reason: string }, key: string): Promise<CommandResult<unknown>> {
   const out = await runCommand((ctx) => refundAndCancel(ctx.actor), input, { name: 'trade.refund_and_cancel', idempotencyKey: key });
-  if (out.ok) refresh();
-  return out;
-}
-
-export async function publishRouteRateAction(input: { routeId: string; direction: DirectionValue; rate: string }, key: string): Promise<CommandResult<unknown>> {
-  const out = await runCommand((ctx) => publishRouteRate(ctx.actor), input, { name: 'rates.publish_route', idempotencyKey: key });
-  if (out.ok) refresh();
-  return out;
-}
-
-export async function recordRouteSettlementAction(
-  input: {
-    routeObligationId: string; flow: 'FROM_ROUTE_TO_EXCHANGE' | 'TO_ROUTE'; amount: string;
-    rail?: FiatRail; utr?: string; txHash?: string; logIndex?: number; fromAddress?: string; inrAccountId?: string | null; treasuryWalletId?: string | null;
-  },
-  key: string,
-): Promise<CommandResult<{ routeSettlementId: string; ref: string }>> {
-  const out = await runCommand((ctx, deps) => recordRouteSettlement(ctx.actor, deps), input, { name: 'route_settlement.record', idempotencyKey: key });
-  if (out.ok) refresh();
-  return out as CommandResult<{ routeSettlementId: string; ref: string }>;
-}
-
-export async function confirmRouteSettlementAction(input: { routeSettlementId: string }, key: string): Promise<CommandResult<unknown>> {
-  const out = await runCommand((ctx, deps) => confirmRouteSettlement(ctx.actor, deps), input, { name: 'route_settlement.confirm', idempotencyKey: key });
-  if (out.ok) refresh();
-  return out;
-}
-
-export async function setDayCapacityAction(input: { accountId: string; capacity: string; day?: string; reason: string }, key: string): Promise<CommandResult<unknown>> {
-  const out = await runCommand((ctx) => setDayCapacity(ctx.actor), input, { name: 'capacity.set_day', idempotencyKey: key });
-  if (out.ok) refresh();
-  return out;
-}
-
-/**
- * The exchange's own INR accounts (ADR 0018): the legal entity that owns them, a new account (its number sealed at
- * once), and what a paying client sees on a collecting one — the payee name and its UPI ID. All `inr_account:manage` (⧗).
- */
-export async function createSettlementEntityAction(input: { legalName: string; shortName: string }, key: string): Promise<CommandResult<{ entityId: string }>> {
-  const out = await runCommand((ctx) => createSettlementEntity(ctx.actor), input, { name: 'settlement_entity.create', idempotencyKey: key });
-  if (out.ok) refresh();
-  return out as CommandResult<{ entityId: string }>;
-}
-
-export async function createInrAccountAction(
-  input: {
-    entityId: string; label: string; bankName: string; ifsc: string; accountNumber: string; rails: readonly ('IMPS' | 'NEFT' | 'RTGS' | 'UPI')[];
-    direction: 'PAYOUT' | 'COLLECTION' | 'BOTH'; defaultDailyCapacity: string; upiVpa?: string | null; beneficiaryName?: string | null;
-  },
-  key: string,
-): Promise<CommandResult<{ accountId: string }>> {
-  const { upiVpa, beneficiaryName, ...account } = input;
-  const out = await runCommand((ctx) => createInrAccount(ctx.actor, protectorForWeb()), account, { name: 'inr_account.create', idempotencyKey: key });
-  if (!out.ok) return out as CommandResult<{ accountId: string }>;
-  const accountId = (out.result as { accountId: string }).accountId;
-  if (upiVpa || beneficiaryName) {
-    const details = await runCommand((ctx) => setInrAccountCollectionDetails(ctx.actor), { accountId, upiVpa: upiVpa ?? null, beneficiaryName: beneficiaryName ?? null }, { name: 'inr_account.set_collection_details', idempotencyKey: `${key}:details` });
-    if (!details.ok) return details as CommandResult<{ accountId: string }>;
-  }
-  refresh();
-  return { ok: true, result: { accountId } };
-}
-
-export async function setCollectionDetailsAction(input: { accountId: string; upiVpa: string | null; beneficiaryName: string | null }, key: string): Promise<CommandResult<unknown>> {
-  const out = await runCommand((ctx) => setInrAccountCollectionDetails(ctx.actor), input, { name: 'inr_account.set_collection_details', idempotencyKey: key });
   if (out.ok) refresh();
   return out;
 }
@@ -447,8 +284,7 @@ export async function cancelDestinationChangeAction(input: { requestId: string }
 /** D2 (TD-19): return an overpayment to a verified destination of the client; someone else confirms it. */
 export async function refundExcessAction(
   input: {
-    tradeId: string; amount?: string | null; destinationWalletId?: string | null; destinationBankAccountId?: string | null;
-    inrAccountId?: string | null; sourceDepositAddressId?: string | null; treasuryWalletId?: string | null; exceptionId?: string | null;
+    tradeId: string; amount?: string | null; destinationWalletId: string; sourceDepositAddressId: string; exceptionId?: string | null;
   },
   key: string,
 ): Promise<CommandResult<{ legId: string; ref: string; amount: string }>> {

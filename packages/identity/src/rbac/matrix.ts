@@ -22,7 +22,6 @@ const r = (o: Requirement, d: Requirement, s: Requirement, f: Requirement, su: R
 export const PERMISSION_MATRIX = Object.freeze({
   'desk:view': r(A, A, A, A, A, A),
   'economics:view': r(A, A, D, A, D, D),
-  'rates:update_route': r(A, A, D, D, D, D),
   // ADR 0025: switching the exchange's automatic prices on or off and setting their guard-rails.
   'pricing:configure': r(S, D, D, D, D, D),
   'request:create': r(A, A, D, D, A, D),
@@ -34,17 +33,10 @@ export const PERMISSION_MATRIX = Object.freeze({
   'quote:send_negative_margin': r(S, D, D, D, D, D),
   'quote_link:create': r(A, A, D, D, D, D),
   'quote_link:revoke': r(A, A, D, D, D, D),
-  'settlement:reserve_capacity': r(A, D, A, D, D, D),
   'settlement:create_payout': r(A, D, A, D, D, D),
-  'settlement:send_payout': r(A, D, A, D, D, D),
   'settlement:record_incoming': r(A, D, A, D, D, D),
-  'settlement:record_utr': r(A, D, A, D, D, D),
-  'settlement:record_route_payout_sent': r(A, D, A, D, D, D),
-  'settlement:change_utr': r(S, D, S, D, D, D),
   'settlement:confirm_payout': r(S, D, S, D, D, D),
   'settlement:confirm_incoming': r(S, D, S, D, D, D),
-  'settlement:fail_payout': r(S, D, S, D, D, D),
-  'settlement:cancel_payout': r(S, D, S, D, D, D),
   'crypto:submit_tx_for_verification': r(A, D, A, A, D, D),
   'trade:cancel': r(S, S, D, D, D, D),
   'trade:request_destination_change': r(S, D, S, S, S, D),
@@ -54,8 +46,6 @@ export const PERMISSION_MATRIX = Object.freeze({
   'adjustment:request': r(A, A, A, A, D, D),
   'adjustment:approve': r(S2, D, D, S2, D, D),
   'refund:approve': r(S2, D, D, S2, D, D),
-  'inr_account:manage': r(S, D, D, S, D, D),
-  'capacity:change': r(S, D, D, S, D, D),
   'treasury:manage_wallets': r(S, D, D, S, D, D),
   'client:manage': r(A, A, D, D, A, D),
   'client:manage_contacts': r(A, A, D, D, A, D),
@@ -63,7 +53,6 @@ export const PERMISSION_MATRIX = Object.freeze({
   'client_wallet:manage': r(S, D, D, D, S, D),
   'client_user:grant_accept_quotes': r(S, D, D, D, S, D),
   'client_user:reset_mfa': r(S, D, D, D, S, D),
-  'routes:configure': r(S, D, D, D, D, D),
   'route_settlement:record': r(A, D, D, A, D, D),
   'route_settlement:confirm': r(S, D, D, S, D, D),
   'route_positions:view': r(A, A, D, A, D, D),
@@ -78,7 +67,6 @@ export const PERMISSION_MATRIX = Object.freeze({
   'ledger:export': r(A, D, D, A, D, D),
   // Importing a bank statement is what checks the desk's own record against the bank's (SECURITY S7). It is
   // step-up because a forged statement is how a fake payment would be made to look reconciled.
-  'statement:import': r(S, D, D, S, D, D),
   // Traders (docs/TRADERS.md). A trader's rate is a route rate, so seeing traders is limited to the roles that
   // already see route economics. Controls that change who may provide liquidity, and on what terms, are step-up.
   'traders:view': r(A, A, D, A, D, D),

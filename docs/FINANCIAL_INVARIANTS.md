@@ -1,5 +1,7 @@
 # INRP2P Exchange — Financial Invariants
 
+> **Since ADR 0027 every deal is P2P.** What this document says about INR accounts, capacity, rewards and the `TO_EXCHANGE` and `DIRECT_TO_CLIENT` models is history: where they disagree, `adr/0027-p2p-only.md` wins.
+
 Status: Phase 0, revision 3 (`DECISIONS.md` Revision 3).
 Every invariant has an ID, a statement, and the mechanism that enforces it. "Enforced by app" alone is never sufficient for money: each invariant names at least one database-level or structural guarantee, plus the test that proves it.
 

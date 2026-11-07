@@ -14,7 +14,6 @@
 export const CAPTURES = [
   'operator-desk',
   'operator-trade-panel',
-  'operator-payout-direct-route',
   'operator-exception',
   'operator-exceptions',
   'operator-orders',
@@ -37,10 +36,10 @@ export const CAPTURES = [
   // The client product (Phase 7). Same rules, same environment; different surface and, for the link, a phone.
   'client-exchange-quote',
   'client-trade-awaiting-usdt',
-  'client-trade-awaiting-inr',
+  'client-trade-p2p-escrow',
   // P2P (ADR 0019): a client buying from a trader, the seller's USDT in escrow, paying the seller's own account.
   'client-trade-p2p-pay',
-  'client-trade-settling',
+  'client-trade-p2p-confirm',
   'client-trade-completed',
   'client-history',
   'client-destinations',

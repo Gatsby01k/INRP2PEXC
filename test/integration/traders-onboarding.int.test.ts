@@ -24,7 +24,7 @@ import {
 let w: TradersWorld;
 beforeAll(async () => {
   w = await createTradersWorld('trader_onboarding');
-  await configureProgram(w, { reserve: '500', rewardBps: 10, collection: true });
+  await configureProgram(w, { reserve: '500' });
 });
 afterAll(async () => w.close());
 

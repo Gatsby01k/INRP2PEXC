@@ -5,20 +5,20 @@ import { type Locator, type Page, expect } from '@playwright/test';
 import { sql } from 'kysely';
 import { Money } from '@inrp2p/kernel';
 import { type Db, createDb, createPool } from '@inrp2p/db';
-import { QuorumChainVerifier, UnconfiguredChainVerifier } from '@inrp2p/adapters';
-import { FAKE_USDT_CONTRACT, FakeCustodyAdapter, FakeNotificationAdapter, FakeTronChain, FakeTronProvider } from '@inrp2p/adapters/testing';
+import { QuorumChainVerifier } from '@inrp2p/adapters';
+import { FAKE_USDT_CONTRACT, FakeNotificationAdapter, FakeTronChain, FakeTronProvider } from '@inrp2p/adapters/testing';
 import { addBankAccount } from '@inrp2p/clients';
 import { executeCommand } from '@inrp2p/commands';
-import type { ClientActor, DomainCommand, OperatorActor } from '@inrp2p/identity';
-import { acceptQuote, acceptanceCodeHandler, createQuote, createQuoteLink, createRequest, deliverAcceptanceCode, sendQuote } from '@inrp2p/quotes';
-import { confirmRouteSettlement, createPayoutLeg, confirmPayout, obligationRemaining, recordLegEvidence, recordRouteSettlement, sendPayoutLeg } from '@inrp2p/settlement';
+import type { DomainCommand, OperatorActor } from '@inrp2p/identity';
+import { acceptanceCodeHandler, createQuote, createQuoteLink, createRequest, deliverAcceptanceCode, sendQuote } from '@inrp2p/quotes';
+import { acceptOrder, assignRequest, submitOrderPayment } from '@inrp2p/traders';
 import { acknowledgedSignalHandler, clientNotificationHandler } from '@inrp2p/notifications';
 import { receiptHandler } from '@inrp2p/reporting';
 import { dispatchOutbox } from '@inrp2p/outbox';
 import { runTronConfirm, runTronScan } from '@inrp2p/scanner';
 import { deskBaseUrl, surfacePorts } from '../harness/desk-server.ts';
 import { OTP_SINK_FILE } from './global-setup.ts';
-import { type E2EOperator, type E2EState, STATE_FILE, e2eFieldProtector, totpFor } from './world.ts';
+import { type E2EOperator, type E2EState, STATE_FILE, asClient, e2eFieldProtector, totpFor } from './world.ts';
 
 export const state = (): E2EState => JSON.parse(readFileSync(STATE_FILE, 'utf8')) as E2EState;
 
@@ -89,23 +89,6 @@ export async function pressUntilFocused(page: Page, target: Locator, maxPresses 
   await expect(target).toBeFocused();
 }
 
-/** Signs in the way a dealer with no mouse does: Tab, type, Enter. */
-export async function signInWithKeyboard(page: Page, who: E2EOperator): Promise<void> {
-  await resetAuthThrottle();
-  await page.goto('/sign-in');
-  await pressUntilFocused(page, page.getByLabel('Work email'));
-  await page.keyboard.type(who.email);
-  await page.keyboard.press('Tab');
-  await page.keyboard.type(who.password);
-  await pressUntilFocused(page, page.getByRole('button', { name: 'Continue' }));
-  await page.keyboard.press('Enter');
-  await pressUntilFocused(page, page.getByLabel('Authenticator code'));
-  await page.keyboard.type(await freshTotp(who.totpSecret));
-  await pressUntilFocused(page, page.getByRole('button', { name: 'Verify and open the desk' }));
-  await page.keyboard.press('Enter');
-  await expect(page.getByRole('heading', { name: 'Desk', exact: true })).toBeVisible();
-}
-
 /** Answers the step-up dialog the desk raises for a ⧗ action, and fails if it was never raised. */
 export async function stepUp(page: Page, who: E2EOperator, opts: { keyboard?: boolean } = {}): Promise<void> {
   const dialog = page.getByRole('dialog', { name: 'Verify to continue' });
@@ -123,11 +106,6 @@ export async function stepUp(page: Page, who: E2EOperator, opts: { keyboard?: bo
   await expect(dialog).toBeHidden();
 }
 
-/** Asserts the desk went straight through, because the sign-in verification is still inside the window. */
-export async function noStepUp(page: Page): Promise<void> {
-  await expect(page.getByRole('dialog', { name: 'Verify to continue' })).toBeHidden();
-}
-
 /**
  * Ages every step-up verification past its window (SECURITY §2.1, `STEP_UP_MAX_AGE_SECONDS`). Signing in
  * verifies TOTP, so without this the whole demo would sit inside one ten-minute window and never exercise the
@@ -139,35 +117,6 @@ export async function expireStepUp(): Promise<void> {
     .set({ verified_at: new Date(Date.now() - 3_600_000) })
     .execute();
 }
-
-/**
- * The two things the operator product cannot do, done the way the real world does them:
- * the client accepts their own quote (D-01), and the chain delivers the USDT.
- */
-export async function acceptAsClient(quoteId: string): Promise<{ tradeId: string; tradeRef: string }> {
-  const s = state();
-  const session = await appDb()
-    .insertInto('auth_session')
-    .values({ expires_at: new Date(Date.now() + 3_600_000), token: randomUUID(), created_at: new Date(), updated_at: new Date(), user_id: s.acceptorUserId, surface: 'CLIENT' })
-    .returning('id')
-    .executeTakeFirstOrThrow();
-  const actor: ClientActor = { kind: 'CLIENT', userId: s.acceptorUserId, sessionId: session.id };
-  const out = await executeCommand(
-    appDb(),
-    acceptQuote(actor, { custody: custodyForAcceptance(), protector: e2eFieldProtector() }),
-    {
-      name: 'quote.accept',
-      actor: { type: 'USER', id: s.acceptorUserId, surface: 'CLIENT', sessionId: session.id },
-      payload: { quoteId },
-      idempotencyKey: randomUUID(),
-      financial: true,
-    },
-  );
-  return out.result as { tradeId: string; tradeRef: string };
-}
-
-// Acceptance allocates a deposit address from the pool that was imported during seeding.
-const custodyForAcceptance = () => new FakeCustodyAdapter({ capability: 'POOL', poolSize: 20, seed: 'e2e' });
 
 /** The client sends the USDT, and the scanner does what it does in production: detect, then confirm. */
 export async function clientSendsUsdt(tradeId: string, amount: string): Promise<void> {
@@ -194,26 +143,6 @@ export async function clientSendsUsdt(tradeId: string, amount: string): Promise<
 export async function tradeState(tradeId: string): Promise<string> {
   const r = await appDb().selectFrom('trade').select('lifecycle_state').where('id', '=', tradeId).executeTakeFirstOrThrow();
   return r.lifecycle_state;
-}
-
-/** Realized gross margin in the ledger — the figure the demo scenario has to land on (FI-43). */
-export async function realizedMargin(): Promise<string> {
-  const r = await sql<{ net: string }>`
-    select coalesce(sum(case e.direction when 'CR' then e.amount_minor else -e.amount_minor end), 0)::text as net
-    from ledger_entry e join ledger_account a on a.id = e.account_id
-    where a.code = 'REVENUE:GROSS_MARGIN'`.execute(appDb());
-  return Money.ofMinor(BigInt(r.rows[0]!.net), 'INR').toDecimalString();
-}
-
-export async function latestSentQuoteId(clientId: string): Promise<string> {
-  const r = await appDb()
-    .selectFrom('quote')
-    .select('id')
-    .where('client_id', '=', clientId)
-    .where('status', '=', 'SENT')
-    .orderBy('sent_at', 'desc')
-    .executeTakeFirstOrThrow();
-  return r.id;
 }
 
 /* ------------------------------------------------------------------ *
@@ -267,8 +196,11 @@ export async function deskSendsQuoteWithLink(input: { amount: string; clientRate
   const request = await asOperator(s.owner, (o) => createRequest(o.actor, {}), 'request.create', {
     clientId: s.clientId, direction: 'SELL_USDT' as const, fixedSide: 'BASE' as const, amount: input.amount, bankAccountId: s.bankAccountId,
   });
+  const assigned = await asOperator(s.owner, (o) => assignRequest(o.actor), 'trader_order.assign', { requestId: request.requestId, plannedClientRate: input.clientRate });
+  await asClient(appDb(), s.trader.userId, (actor) => acceptOrder(actor), 'trader_order.accept', { ref: assigned.ref });
+  const order = await appDb().selectFrom('trader_order').select('route_id').where('ref', '=', assigned.ref).executeTakeFirstOrThrow();
   const quote = await asOperator(s.owner, (o) => createQuote(o.actor, {}), 'quote.create', {
-    requestId: request.requestId, routeId: s.routeId, clientRate: input.clientRate, validitySeconds: input.validitySeconds ?? 600,
+    requestId: request.requestId, routeId: order.route_id, clientRate: input.clientRate, validitySeconds: input.validitySeconds ?? 600,
   });
   await asOperator(s.owner, (o) => sendQuote(o.actor, {}), 'quote.send', { quoteId: quote.quoteId });
   let token = '';
@@ -337,36 +269,13 @@ export async function signInAsClient(page: Page, email: string): Promise<void> {
   await expect(page.getByRole('heading', { name: 'Exchange', exact: true })).toBeVisible();
 }
 
-/**
- * The trade's counterparty delivers: the route pays its INR into the exchange's account, and the desk records the
- * credit against the route obligation and confirms it against the bank (`route_settlement:record` / `:confirm`).
- * Under D-16 the client is paid with that money and nothing else, so no payout can be created before it.
- */
-export async function routeDelivers(tradeId: string): Promise<void> {
+/** The trader pays the client's rupees from its own account and says so with the bank's reference. */
+export async function traderPaysClient(tradeId: string): Promise<void> {
   const s = state();
-  const obligation = await appDb().selectFrom('route_obligation').select('id').where('trade_id', '=', tradeId).executeTakeFirstOrThrow();
-  const owed = (await obligationRemaining(appDb(), obligation.id)).routeDelivers.toDecimalString();
-  const recorded = await asOperator(s.owner, (o) => recordRouteSettlement(o.actor, settlementDeps()), 'route_settlement.record', {
-    routeObligationId: obligation.id, flow: 'FROM_ROUTE_TO_EXCHANGE' as const, amount: owed, rail: 'IMPS' as const,
-    utr: `RTE${Date.now().toString(36).toUpperCase()}${randomUUID().slice(0, 4).toUpperCase()}`, inrAccountId: s.inrAccountId,
-  });
-  await asOperator(s.owner, (o) => confirmRouteSettlement(o.actor, settlementDeps()), 'route_settlement.confirm', { routeSettlementId: recorded.routeSettlementId });
+  const order = await appDb().selectFrom('trader_order').select('ref').where('trade_id', '=', tradeId).executeTakeFirstOrThrow();
+  const utr = String(100000000000 + Math.floor(Math.random() * 899999999999));
+  await asClient(appDb(), s.trader.userId, (actor) => submitOrderPayment(actor), 'trader_order.submit_payment', { ref: order.ref, rail: 'IMPS' as const, utr });
 }
-
-/** The desk pays an INR leg and confirms it, which is what moves a client's trade towards settled. */
-export async function deskPaysOut(tradeId: string, amount: string): Promise<void> {
-  const s = state();
-  const leg = await asOperator(s.settlementOperator, (o) => createPayoutLeg(o.actor, {}), 'payout_leg.create', {
-    tradeId, amount, payer: 'EXCHANGE_ACCOUNT' as const, inrAccountId: s.inrAccountId,
-  });
-  await asOperator(s.settlementOperator, (o) => sendPayoutLeg(o.actor), 'payout_leg.send', { legId: leg.legId });
-  const utr = `HDFCR${Date.now()}`.slice(0, 22);
-  await asOperator(s.settlementOperator, (o) => recordLegEvidence(o.actor, settlementDeps()), 'payout_leg.record_evidence', { legId: leg.legId, rail: 'IMPS' as const, utr });
-  const o = await operatorSession(s.settlementOperator);
-  await confirmPayout(appDb(), o.actor, settlementDeps(), { legId: leg.legId, idempotencyKey: randomUUID() });
-}
-
-const settlementDeps = () => ({ chain: new UnconfiguredChainVerifier() });
 
 export async function tradeIdForRef(ref: string): Promise<string> {
   const r = await appDb().selectFrom('trade').select('id').where('ref', '=', ref).executeTakeFirstOrThrow();

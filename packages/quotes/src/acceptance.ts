@@ -1,4 +1,3 @@
-import { sql } from 'kysely';
 import { DomainError, Money, requireUuid } from '@inrp2p/kernel';
 import type { ActorRef, Db, TxContext } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
@@ -7,7 +6,7 @@ import { executeCommand } from '@inrp2p/commands';
 import type { ClientActor } from '@inrp2p/identity';
 import { assertNewBusinessOpen, openTradeFromAcceptedQuote, tradeFundingModel } from '@inrp2p/trades';
 import { getClientTradeView, type ClientTradeView } from '@inrp2p/trades';
-import { allocateDepositAddress, assertSellAcceptanceSupported, assignTradeCollection } from '@inrp2p/treasury';
+import { allocateDepositAddress, assertSellAcceptanceSupported } from '@inrp2p/treasury';
 import { startOrderForTrade } from '@inrp2p/trader-core';
 import { holdTradeNetwork, quoteNetworkFee } from '@inrp2p/network';
 import { lockRow, requireQuoteDecider } from './actors.ts';
@@ -94,10 +93,10 @@ async function acceptCore(ctx: TxContext, deps: QuoteDeps, input: { quote: Decis
     .where('id', '=', quote.trade_request_id)
     .execute();
 
-  const route = await ctx.tx.selectFrom('liquidity_route').select(['execution_mode', 'trader_id']).where('id', '=', quote.route_id).forShare().executeTakeFirstOrThrow();
+  await ctx.tx.selectFrom('liquidity_route').select('id').where('id', '=', quote.route_id).forShare().executeTakeFirstOrThrow();
   // A trader filling a client's BUY delivers its USDT to an address of the order's own (D-02): without a confirmed
   // deposit-address capability that delivery could not be attributed, so the trade is not opened at all.
-  if (route.trader_id && quote.direction === 'BUY_USDT') await assertSellAcceptanceSupported(ctx.tx, 'TRON');
+  if (quote.direction === 'BUY_USDT') await assertSellAcceptanceSupported(ctx.tx, 'TRON');
   const trade = await openTradeFromAcceptedQuote(ctx, {
     quoteId: quote.id,
     tradeRequestId: quote.trade_request_id,
@@ -120,24 +119,17 @@ async function acceptCore(ctx: TxContext, deps: QuoteDeps, input: { quote: Decis
     network: quote.network,
     bankAccountId: quote.bank_account_id,
     cryptoWalletId: quote.crypto_wallet_id,
-  }, route.execution_mode);
-  // A quote on a trader's route starts that trader's accepted order, bound to this trade and its obligation.
-  if (route.trader_id) {
-    await startOrderForTrade(ctx, { requestId: quote.trade_request_id, routeId: quote.route_id, quoteId: quote.id, tradeId: trade.tradeId, routeObligationId: trade.routeObligationId });
-  }
+  });
+  // The quote starts its trader's accepted order, bound to this trade and its obligation.
+  await startOrderForTrade(ctx, { requestId: quote.trade_request_id, routeId: quote.route_id, quoteId: quote.id, tradeId: trade.tradeId, routeObligationId: trade.routeObligationId });
 
   // The database made this trade counterparty-funded when it was inserted (migration 0025); acceptance relies on it.
   const funding = await tradeFundingModel(ctx.tx, trade.tradeId);
   if (funding !== 'COUNTERPARTY_FUNDED') throw new DomainError('INVALID_TRANSITION', `a new trade must be counterparty-funded (it is ${funding})`);
   if (quote.direction === 'SELL_USDT') {
     await allocateDepositAddress(ctx, deps.custody, { network: 'TRON', tradeId: trade.tradeId, tradeRef: trade.ref, expectedAmount: Money.ofMinor(quote.base_minor, 'USDT') });
-  } else if (route.execution_mode !== 'P2P') {
-    // ADR 0018: a BUY names the account its client pays, the trade's own payment reference and the time to pay. A P2P
-    // client pays its trader directly (ADR 0019), once the trader's USDT is in escrow.
-    await assignTradeCollection(ctx, { tradeId: trade.tradeId });
   }
-  // ADR 0017 §2: the trade's transfers are paid for before it exists. Its funder — the trader of its route, or the
-  // platform for a desk route — holds the worst case of them (its transfer and, for a SELL, a return of the client's
+  // ADR 0017 §2: the trade's transfers are paid for before it exists. Its funder — the trader of its route — holds the worst case of them (its transfer and, for a SELL, a return of the client's
   // USDT) from now on; a funder without that much free TRX does not get the trade. Priced in USDT (ADR 0022), the hold is
   // the allowance its escrow carries and its share of the desk's network credit, which must still be free.
   const network = await quoteNetworkFee(ctx.tx, quote.id);
@@ -251,16 +243,4 @@ async function decideViaLink(db: Db, deps: QuoteDeps, input: LinkDecisionInput, 
     financial: purpose === 'ACCEPT',
   });
   return out.result;
-}
-
-/** Records a clean acceptance failure for the desk after the acceptance transaction rolled back (STATE_MACHINES §2). */
-export async function recordAcceptanceFailure(db: Db, input: { quoteId: string; code: string; via: 'APP' | 'LINK' }): Promise<void> {
-  await executeCommand(db, {
-    authorize: async () => {},
-    handle: async (ctx) => {
-      await appendAudit(ctx, { action: 'quote.acceptance_failed', entityType: 'quote', entityId: input.quoteId, after: { code: input.code, via: input.via } });
-      await enqueueOutbox(ctx, { type: 'desk.acceptance_failed', aggregateType: 'quote', aggregateId: input.quoteId, payload: { quoteId: input.quoteId, code: input.code } });
-      await sql`select 1`.execute(ctx.tx);
-    },
-  }, { name: 'quote.acceptance_failed', actor: { type: 'SYSTEM', id: null, surface: 'SYSTEM' }, payload: input, financial: false });
 }

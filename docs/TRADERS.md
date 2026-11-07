@@ -1,5 +1,7 @@
 # INRP2P Exchange — Traders
 
+> **Since ADR 0027 every deal is P2P.** What this document says about rewards, the collection account and `TO_EXCHANGE` settlement is history: where they disagree, `adr/0027-p2p-only.md` wins.
+
 Status: implemented (migration `0022_traders.sql`, packages `trader-core` and `traders`), 2026-09-27. Self-onboarding
 and trader-submitted settlement details: migration `0023_trader_self_onboarding.sql`, 2026-09-28.
 

@@ -1,5 +1,7 @@
 # INRP2P Exchange — State Machines
 
+> **Since ADR 0027 every deal is P2P.** What this document says about payout legs recorded by operators, capacity, route settlements recorded by hand is history: where they disagree, `adr/0027-p2p-only.md` wins.
+
 Status: Phase 0, revision 3 (`DECISIONS.md` Revision 3).
 
 Rules for every machine below:

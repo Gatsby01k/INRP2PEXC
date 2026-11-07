@@ -1,49 +1,36 @@
-import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from 'kysely';
 import { runAs } from '@inrp2p/identity/testing';
 import { dispatchOutbox } from '@inrp2p/outbox';
-import { approveAdjustment, confirmPayout, createPayoutLeg, recordLegEvidence, requestAdjustment, sendPayoutLeg } from '@inrp2p/settlement';
+import { approveAdjustment, requestAdjustment } from '@inrp2p/settlement';
 import { FORBIDDEN_CLIENT_KEY } from '@inrp2p/quotes';
 import {
   type ReceiptSnapshot, buildReceiptSnapshot, canonicalJson, getReceipt, issueReceipt, receiptArtifacts,
   receiptCsv, receiptHandler, receiptHtml, regenerateReceipt, sha256,
 } from '../src/index.ts';
-import { type World, createWorld, newUtr, openTrade, settleFirstLeg, ensureCounterpartyFunds } from '../../settlement/test/world.ts';
+import { type World, createWorld, openTrade, payClient, settleFirstLeg } from '../../settlement/test/world.ts';
 
 /**
  * Phase 8 exit: a receipt regenerated from its snapshot is the same document, byte for byte.
  *
- * The world settles one trade in two payments, which is the ordinary case and the one a receipt has to get
- * right: the client wants to see both bank references and a total that adds up.
+ * The world settles one deal: the client wants to see the bank reference of the rupees its trader paid, and a total that
+ * adds up.
  */
 const CLIENT_RATE = '90.000000';
-const ROUTE_RATE = '92.500000';
 
 let w: World;
 let tradeId = '';
 let tradeRef = '';
 
 beforeAll(async () => {
-  w = await createWorld('receipts', { capacityInr: '500000000.00' });
-  const trade = await openTrade(w, { baseUsdt: '1000', clientRate: CLIENT_RATE, routeRate: ROUTE_RATE, executionMode: 'TO_EXCHANGE' });
+  w = await createWorld('receipts');
+  const trade = await openTrade(w, { baseUsdt: '1000', clientRate: CLIENT_RATE });
   tradeId = trade.tradeId;
   tradeRef = trade.tradeRef;
   await settleFirstLeg(w, tradeId);
-  await payLeg('50000.00');
-  await payLeg('40000.00');
+  await payClient(w, trade);
 });
 afterAll(async () => w.close());
-
-async function payLeg(amount: string) {
-  await ensureCounterpartyFunds(w, tradeId);
-  const leg = await runAs(w.app, createPayoutLeg(w.settlementOp.actor, {}), w.settlementOp.ref, 'payout_leg.create', {
-    tradeId, amount, payer: 'EXCHANGE_ACCOUNT' as const, inrAccountId: w.inrAccountId,
-  });
-  await runAs(w.app, sendPayoutLeg(w.settlementOp.actor), w.settlementOp.ref, 'payout_leg.send', { legId: leg.legId });
-  await runAs(w.app, recordLegEvidence(w.settlementOp.actor, w.settlementDeps), w.settlementOp.ref, 'payout_leg.record_evidence', { legId: leg.legId, rail: 'IMPS' as const, utr: newUtr() });
-  await confirmPayout(w.app, w.settlementOp.actor, w.settlementDeps, { legId: leg.legId, idempotencyKey: randomUUID() });
-}
 
 describe('the snapshot', () => {
   it('describes the settled trade in the client’s own terms', async () => {
@@ -54,8 +41,7 @@ describe('the snapshot', () => {
     expect(s.inr).toEqual({ amount: '90000.00', currency: 'INR' });
     expect(s.clientRate).toBe(CLIENT_RATE);
     expect(s.destination).toMatch(/•••• \d{4}$/);
-    expect(s.payments).toHaveLength(2);
-    expect(s.payments.map((p) => p.amount)).toEqual(['50000.00', '40000.00']);
+    expect(s.payments.map((p) => p.amount)).toEqual(['90000.00']);
     // The full bank reference is on the client's own receipt (D-09); a masked one would be useless to their bank.
     for (const p of s.payments) expect(p.reference).toMatch(/^[A-Z0-9]{8,22}$/);
     expect(s.totalPaid).toEqual({ amount: '90000.00', currency: 'INR' });
@@ -66,12 +52,12 @@ describe('the snapshot', () => {
     const s = await buildReceiptSnapshot(w.app, tradeId);
     const json = canonicalJson(s as never);
     for (const key of Object.keys(flatten(s))) expect(FORBIDDEN_CLIENT_KEY.test(key.split('.').at(-1) ?? ''), key).toBe(false);
-    // The desk bought at 92.50 and sold at 90.00, making ₹2,500. None of that is the client's business (S14).
-    for (const value of ['92.50', '92.500000', '2500.00']) expect(json.includes(value), `leaks ${value}`).toBe(false);
+    // The trader's rate is 103.00: ₹90,000 buys it 873.79 USDT, and the rest is INRP2P's. None of that is the client's business (S14).
+    for (const value of ['103.00', '873.78', '126.21']) expect(json.includes(value), `leaks ${value}`).toBe(false);
   });
 
   it('refuses to describe a trade that has not finished', async () => {
-    const open = await openTrade(w, { baseUsdt: '10', clientRate: CLIENT_RATE, routeRate: ROUTE_RATE, executionMode: 'TO_EXCHANGE' });
+    const open = await openTrade(w, { baseUsdt: '10', clientRate: CLIENT_RATE });
     await expect(buildReceiptSnapshot(w.app, open.tradeId)).rejects.toMatchObject({ code: 'INVALID_TRANSITION' });
   });
 });
@@ -93,15 +79,9 @@ describe('issuing', () => {
   });
 
   it('is what the outbox handler does with `receipt.generate`', async () => {
-    const other = await openTrade(w, { baseUsdt: '20', clientRate: CLIENT_RATE, routeRate: ROUTE_RATE, executionMode: 'TO_EXCHANGE' });
+    const other = await openTrade(w, { baseUsdt: '20', clientRate: CLIENT_RATE });
     await settleFirstLeg(w, other.tradeId);
-    await ensureCounterpartyFunds(w, other.tradeId);
-    const leg = await runAs(w.app, createPayoutLeg(w.settlementOp.actor, {}), w.settlementOp.ref, 'payout_leg.create', {
-      tradeId: other.tradeId, amount: '1800.00', payer: 'EXCHANGE_ACCOUNT' as const, inrAccountId: w.inrAccountId,
-    });
-    await runAs(w.app, sendPayoutLeg(w.settlementOp.actor), w.settlementOp.ref, 'payout_leg.send', { legId: leg.legId });
-    await runAs(w.app, recordLegEvidence(w.settlementOp.actor, w.settlementDeps), w.settlementOp.ref, 'payout_leg.record_evidence', { legId: leg.legId, rail: 'IMPS' as const, utr: newUtr() });
-    await confirmPayout(w.app, w.settlementOp.actor, w.settlementDeps, { legId: leg.legId, idempotencyKey: randomUUID() });
+    await payClient(w, other);
 
     // Completion enqueued the event; the worker's own handler turns it into the document.
     await dispatchOutbox(w.t.worker, [receiptHandler(w.app), { name: 'ignore_rest', handles: (t) => t !== 'receipt.generate', run: async () => {} }]);
@@ -181,7 +161,7 @@ describe('the artifacts themselves', () => {
     expect(lines[0]).toContain('trade_ref,client,direction');
     expect(lines[1]).toContain(snapshot.tradeRef);
     // Ungrouped decimals in machine formats (D-11).
-    expect(csv).toContain('50000.00');
+    expect(csv).toContain('90000.00');
     expect(csv).not.toContain('50,000');
 
     const quoted = receiptCsv({ ...snapshot, clientName: 'Acme, "the" Pay' });
@@ -251,24 +231,18 @@ function flatten(value: unknown, prefix = '$', out: Record<string, unknown> = {}
 describe('an adjusted trade is receipted at what actually changed hands (FI-12)', () => {
   // Its own world: the suite above archives the client's bank account to prove a snapshot does not follow it.
   let a: World;
-  beforeAll(async () => { a = await createWorld('receipts_adjusted', { capacityInr: '500000000.00' }); });
+  beforeAll(async () => { a = await createWorld('receipts_adjusted'); });
   afterAll(async () => a.close());
 
-  it('writing off an unpaid remainder receipts the INR the client received, not the INR it was quoted', async () => {
+  it('a corrected deal receipts the INR the client received, not the INR it was quoted', async () => {
     const w = a;
-    const trade = await openTrade(w, { baseUsdt: '100', clientRate: CLIENT_RATE, routeRate: ROUTE_RATE, executionMode: 'TO_EXCHANGE' });
+    const trade = await openTrade(w, { baseUsdt: '100', clientRate: CLIENT_RATE });
     await settleFirstLeg(w, trade.tradeId);
-    await ensureCounterpartyFunds(w, trade.tradeId);
-    const leg = await runAs(w.app, createPayoutLeg(w.settlementOp.actor, {}), w.settlementOp.ref, 'payout_leg.create', {
-      tradeId: trade.tradeId, amount: '8900.00', payer: 'EXCHANGE_ACCOUNT' as const, inrAccountId: w.inrAccountId,
-    });
-    await runAs(w.app, sendPayoutLeg(w.settlementOp.actor), w.settlementOp.ref, 'payout_leg.send', { legId: leg.legId });
-    await runAs(w.app, recordLegEvidence(w.settlementOp.actor, w.settlementDeps), w.settlementOp.ref, 'payout_leg.record_evidence', { legId: leg.legId, rail: 'IMPS' as const, utr: newUtr() });
-    await confirmPayout(w.app, w.settlementOp.actor, w.settlementDeps, { legId: leg.legId, idempotencyKey: randomUUID() });
     const requested = await runAs(w.app, requestAdjustment(w.financeOp.actor), w.financeOp.ref, 'adjustment.request', {
       tradeId: trade.tradeId, type: 'WRITE_OFF' as const, deltaClientInr: '-100.00', reason: 'client agreed to settle the last ₹100 as a fee',
     });
     await runAs(w.app, approveAdjustment(w.financeOp2.actor), w.financeOp2.ref, 'adjustment.approve', { adjustmentId: requested.adjustmentId });
+    await payClient(w, trade);
 
     const s = await buildReceiptSnapshot(w.app, trade.tradeId);
     expect(s.inr).toEqual({ amount: '8900.00', currency: 'INR' });

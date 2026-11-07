@@ -4,7 +4,6 @@ import type { Db } from '@inrp2p/db';
 import type { ClientActor } from '@inrp2p/identity';
 import { createTestClientLogin, runAs } from '@inrp2p/identity/testing';
 import { addBankAccount, addWallet, createClient, linkClientUser, setCanAcceptQuotes } from '@inrp2p/clients';
-import { createInrAccount, createSettlementEntity } from '@inrp2p/inr-accounts';
 import { acceptQuote, createQuote, createRequest, sendQuote } from '@inrp2p/quotes';
 import { submitTxForVerification } from '@inrp2p/settlement';
 import { runTronConfirm } from '@inrp2p/scanner';
@@ -32,20 +31,12 @@ export interface TraderSetup {
 export interface TradersWorld extends World {
   readonly traderDeps: TraderDeps;
   readonly hotAddress: string;
-  /** The account traders pay INR into, sealed with the same protector the trader views open it with. */
-  readonly collectionAccountId: string;
 }
 
 export async function createTradersWorld(label: string): Promise<TradersWorld> {
   const w = await createWorld(label, { depositPoolSize: 60 });
   const hot = await w.app.selectFrom('treasury_wallet').select('address').where('id', '=', w.treasuryWalletId).executeTakeFirstOrThrow();
-  const entity = await runAs(w.app, createSettlementEntity(w.finance.actor), w.finance.ref, 'settlement_entity.create', { legalName: 'INRP2P Collections Private Limited', shortName: `COLL-${randomUUID().slice(0, 6)}` });
-  const collection = await runAs(w.app, createInrAccount(w.finance.actor, w.deps.protector), w.finance.ref, 'inr_account.create', {
-    entityId: entity.entityId, label: 'Trader collections', bankName: 'Axis Bank', ifsc: 'UTIB0000456', accountNumber: '918020045510099',
-    // It collects the traders' INR and pays clients out of it (D-16: pass-through from where the money arrived).
-    rails: ['IMPS', 'NEFT', 'RTGS'] as const, direction: 'BOTH' as const, defaultDailyCapacity: '100000000.00',
-  });
-  return { ...w, traderDeps: { custody: w.deps.custody, protector: w.deps.protector, chain: w.chain }, hotAddress: hot.address, collectionAccountId: collection.accountId };
+  return { ...w, traderDeps: { custody: w.deps.custody, protector: w.deps.protector, chain: w.chain }, hotAddress: hot.address };
 }
 
 async function person(w: World, clientId: string, opts: { admin: boolean; canCommit: boolean }): Promise<TraderPerson> {
@@ -77,15 +68,13 @@ export async function traderClient(w: World, name: string, walletPurpose: 'BOTH'
  * The programme a test runs under. The reserve-based limits (ADR 0024) are off unless the test names a policy: a suite
  * about something else deals amounts a 500 USDT reserve would not allow, and the limits have their own suite.
  */
-export async function configureProgram(w: TradersWorld, input: { reserve?: string | null; rewardBps?: number | null; collection?: boolean; riskPolicy?: RiskPolicy | null; autoReview?: boolean }): Promise<void> {
+export async function configureProgram(w: TradersWorld, input: { reserve?: string | null; riskPolicy?: RiskPolicy | null; autoReview?: boolean }): Promise<void> {
   const current = await w.app.selectFrom('trader_program').select('version').where('id', '=', 1).executeTakeFirstOrThrow();
   await runAs(w.app, configureTraderProgram(w.finance.actor), w.finance.ref, 'trader_program.configure', {
     expectedVersion: current.version,
     riskPolicy: input.riskPolicy ?? null,
     ...(input.autoReview !== undefined ? { autoReview: input.autoReview } : {}),
     ...(input.reserve !== undefined ? { defaultRequiredReserve: input.reserve } : {}),
-    ...(input.rewardBps !== undefined ? { rewardBps: input.rewardBps } : {}),
-    ...(input.collection ? { collectionAccountId: w.collectionAccountId } : {}),
     reason: 'test programme',
   });
 }
@@ -161,7 +150,7 @@ export async function clientRequest(w: World, direction: 'SELL_USDT' | 'BUY_USDT
 
 /** Desk routes the request, the trader accepts, the desk quotes on the trader route, the client accepts. */
 export async function tradeThroughTrader(w: TradersWorld, setup: TraderSetup, input: { requestId: string; clientRate: string }): Promise<{ orderId: string; orderRef: string; tradeId: string; routeObligationId: string; quoteId: string }> {
-  const assigned = await runAs(w.app, assignRequest(w.dealer.actor), w.dealer.ref, 'trader_order.assign', { requestId: input.requestId });
+  const assigned = await runAs(w.app, assignRequest(w.dealer.actor), w.dealer.ref, 'trader_order.assign', { requestId: input.requestId, plannedClientRate: input.clientRate });
   await runAs(w.app, acceptOrder(setup.admin.actor), setup.admin.ref, 'trader_order.accept', { ref: assigned.ref });
   const order = await w.app.selectFrom('trader_order').select(['route_id']).where('id', '=', assigned.orderId).executeTakeFirstOrThrow();
   const quote = await runAs(w.app, createQuote(w.dealer.actor, {}), w.dealer.ref, 'quote.create', { requestId: input.requestId, routeId: order.route_id, clientRate: input.clientRate, validitySeconds: 300 });

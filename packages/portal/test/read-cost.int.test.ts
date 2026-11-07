@@ -3,7 +3,7 @@ import { countingDb } from '@inrp2p/db/testing';
 import { runAs } from '@inrp2p/identity/testing';
 import { createQuote, createRequest, sendQuote, toClientQuoteView } from '@inrp2p/quotes';
 import { exchangeView, portalAccess, workspaceAccess } from '../src/index.ts';
-import { type World, createWorld } from '../../settlement/test/world.ts';
+import { type World, createWorld, routeToTrader } from '../../settlement/test/world.ts';
 
 /**
  * What the client workspace's reads cost (performance budget), counted in statements and in how many of them are in
@@ -14,13 +14,13 @@ let w: World;
 let counted: ReturnType<typeof countingDb>;
 let quoteId: string;
 beforeAll(async () => {
-  w = await createWorld('portal_read_cost', { capacityInr: '500000000.00' });
+  w = await createWorld('portal_read_cost');
   counted = countingDb(w.t.appPool);
   const request = await runAs(w.app, createRequest(w.dealer.actor, {}), w.dealer.ref, 'request.create', {
     clientId: w.clientId, direction: 'SELL_USDT' as const, fixedSide: 'BASE' as const, amount: '400', bankAccountId: w.bankAccountId,
   });
   const quote = await runAs(w.app, createQuote(w.dealer.actor, {}), w.dealer.ref, 'quote.create', {
-    requestId: request.requestId, routeId: w.routeId, clientRate: '90.000000', validitySeconds: 600,
+    requestId: request.requestId, routeId: (await routeToTrader(w, request.requestId, '90.000000')).routeId, clientRate: '90.000000', validitySeconds: 600,
   });
   await runAs(w.app, sendQuote(w.dealer.actor, {}), w.dealer.ref, 'quote.send', { quoteId: quote.quoteId });
   quoteId = quote.quoteId;

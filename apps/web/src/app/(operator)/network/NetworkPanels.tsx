@@ -14,7 +14,7 @@ import { Cell, type Column, DataTable } from '../_desk/DataTable.tsx';
 import { GuardedAction } from '../_desk/GuardedAction.tsx';
 import { Checkbox, TextField } from '../_desk/fields.tsx';
 import { ATTEMPT, PURPOSE, STATUS, isPositiveDecimal, trx } from '../_desk/network.ts';
-import { dateTime, inr, usdt } from '../_desk/format.ts';
+import { dateTime, usdt } from '../_desk/format.ts';
 import { Chip, Empty, Notice } from '../_desk/ui.tsx';
 import d from '../_desk/desk.module.css';
 
@@ -193,17 +193,10 @@ export function FundersTable({ funders }: { funders: readonly FunderRow[] }) {
 export function TradesNetworkTable({ trades }: { trades: readonly TradeNetworkRow[] }) {
   const columns: Column<TradeNetworkRow>[] = [
     { key: 'ref', header: 'Trade', render: (t) => <Cell main={<Link href={`/orders/${encodeURIComponent(t.ref)}`} className={d.link}>{t.ref}</Link>} sub={`${t.direction === 'SELL_USDT' ? 'Client sells' : 'Client buys'} · ${t.lifecycle.toLowerCase().replace(/_/g, ' ')}`} /> },
-    { key: 'gross', header: 'Gross margin', align: 'right', render: (t) => inr(t.grossMargin) },
-    { key: 'reward', header: 'Trader reward', align: 'right', render: (t) => inr(t.reward) },
-    { key: 'fee', header: 'Network fee in price', align: 'right', render: (t) => <Cell main={inr(t.feeCharged)} sub={trx(t.feeChargedTrx)} /> },
-    { key: 'spent', header: 'Network cost', align: 'right', render: (t) => <Cell main={inr(t.spentInr)} sub={`${trx(t.spentTrx)} of ${trx(t.heldTrx)} held`} /> },
-    {
-      key: 'net', header: 'Net', align: 'right',
-      render: (t) => <Cell main={t.netProfit.startsWith('-') ? <Chip tone="danger">{inr(t.netProfit)}</Chip> : <strong>{inr(t.netProfit)}</strong>} sub={t.netFinal ? 'actual' : 'expected'} />,
-    },
-    { key: 'funder', header: 'TRX from', render: (t) => <Cell main={t.funder} sub={t.reimbursed ? `paid back ${inr(t.reimbursed)}` : t.holdStatus === 'ACTIVE' ? 'held' : '—'} /> },
+    { key: 'spent', header: 'TRX burned', align: 'right', render: (t) => <Cell main={trx(t.spentTrx)} sub={`of ${trx(t.heldTrx)} held`} /> },
+    { key: 'funder', header: 'TRX from', render: (t) => <Cell main={t.funder} sub={t.holdStatus === 'ACTIVE' ? 'held' : '—'} /> },
   ];
-  return <DataTable<TradeNetworkRow> caption="Trades’ network economics" columns={columns} rows={trades} rowKey={(t) => t.tradeId} empty={<Empty title="No trade on the rails yet" />} />;
+  return <DataTable<TradeNetworkRow> caption="What each trade’s transfers burned" columns={columns} rows={trades} rowKey={(t) => t.tradeId} empty={<Empty title="No trade on the rails yet" />} />;
 }
 
 export function WithdrawalsTable({ withdrawals, canDecide }: { withdrawals: NetworkView['withdrawals']; canDecide: boolean }) {

@@ -21,4 +21,10 @@ export interface TxContext {
   /** Present for every financial mutation (FI-50). */
   readonly idempotencyKey: string | null;
   readonly commandName: string;
+  /**
+   * Work that takes a row every command wants, kept for the transaction's very end so it is held only until the commit
+   * that follows: taken earlier, the row would be held across every lock the handler still takes, and two commands would
+   * wait on each other. Each key runs once. Set by the command pipeline.
+   */
+  readonly atEnd?: Map<string, () => Promise<unknown>>;
 }

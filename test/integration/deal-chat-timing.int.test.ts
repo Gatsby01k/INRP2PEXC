@@ -58,7 +58,7 @@ const clientPost = (tradeRef: string, p: { body?: string; file?: DealAttachment;
 beforeAll(async () => {
   w = await createRailsWorld('deal_chat_timing');
   const program = await w.app.selectFrom('trader_program').select('version').where('id', '=', 1).executeTakeFirstOrThrow();
-  await runAs(w.app, configureTraderProgram(w.finance.actor), w.finance.ref, 'trader_program.configure', { expectedVersion: program.version, executionMode: 'P2P' as const, riskPolicy: null, reason: 'P2P escrow' });
+  await runAs(w.app, configureTraderProgram(w.finance.actor), w.finance.ref, 'trader_program.configure', { expectedVersion: program.version, riskPolicy: null, reason: 'P2P escrow' });
   usdtTrader = await railsTrader(w, 'USDT Seller', { sell: { capacity: '500000', rate: '105.20', min: '10', max: '200000' } }, '5000');
   inrTrader = await railsTrader(w, 'INR Payer', { buy: { capacity: '50000000', rate: '104.70', min: '100', max: '20000000' } }, '5000');
   support = await createTestOperator(w.t.owner, ['SUPPORT']);
@@ -312,7 +312,7 @@ describe('the buyer’s time to pay, by rail', () => {
     // IMPS's thirty minutes are over, NEFT's sixty are not: nothing happens yet.
     await runP2pDeadlines((await at(45)).db);
     expect((await windowOf(trade.tradeId)).warned_at).toBeNull();
-    await runAs((await at(50)).db, submitOrderPayment(inrTrader.admin.actor, w.traderDeps), inrTrader.admin.ref, 'trader_order.submit_payment', { ref: trade.orderRef, rail: 'NEFT' as const, utr: `ICICN${Date.now().toString().slice(-11)}` });
+    await runAs((await at(50)).db, submitOrderPayment(inrTrader.admin.actor), inrTrader.admin.ref, 'trader_order.submit_payment', { ref: trade.orderRef, rail: 'NEFT' as const, utr: `ICICN${Date.now().toString().slice(-11)}` });
     await runP2pDeadlines((await at(90)).db);
     expect(await w.app.selectFrom('p2p_unwind').select('trade_id').where('trade_id', '=', trade.tradeId).execute()).toEqual([]);
     expect((await p2pDeal((await at(90)).db, null, { tradeId: trade.tradeId, viewer: 'CLIENT' }))!).toMatchObject({ step: 'CONFIRM', turn: 'SELLER' });

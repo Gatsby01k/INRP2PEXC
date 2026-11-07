@@ -1,10 +1,10 @@
 import { sql } from 'kysely';
 import { DomainError, Money, type P2pTiming, Rate, requireUuid } from '@inrp2p/kernel';
 import type { AutoReviewFlag, DestinationStatus, Executor, P2pExperience, TraderOrderStatus, TraderReserveApplicationStatus, TraderSide, TraderStatus } from '@inrp2p/db';
-import { type SenderView, fundingSources, obligationRemaining, senderView } from '@inrp2p/settlement';
+import { type SenderView, obligationRemaining, senderView } from '@inrp2p/settlement';
 import { type RiskPolicy, type TierName, standingIssues, type StandingIssue } from '@inrp2p/trader-core';
 import { traderProgram, type TraderProgram } from '@inrp2p/trader-core';
-import { earnings } from './rewards.ts';
+import { completedVolume } from './views.ts';
 import { sharedReserveAddress } from './reserve.ts';
 import { readBlocks, readStanding } from '@inrp2p/trader-core';
 
@@ -18,13 +18,9 @@ const amountOf = (side: TraderSide, m: bigint | null) => (m === null ? null : si
 
 export interface DeskProgram {
   readonly defaultRequiredReserve: string | null;
-  readonly rewardBps: number | null;
   readonly offerTtlSeconds: number;
   readonly holdTtlSeconds: number;
   readonly autoAssign: boolean;
-  readonly collectionAccountId: string | null;
-  /** ADR 0019: how trader routes settle — through INRP2P's account, or P2P with INRP2P holding the USDT. */
-  readonly executionMode: 'TO_EXCHANGE' | 'P2P';
   /** ADR 0023: how long each step of a P2P deal may take, by rail. */
   readonly p2pTiming: P2pTiming;
   /** ADR 0024: applications and due changes decided by the programme's rules. */
@@ -36,12 +32,9 @@ export interface DeskProgram {
 
 const programView = (p: TraderProgram): DeskProgram => ({
   defaultRequiredReserve: p.defaultRequiredReserve?.toDecimalString() ?? null,
-  rewardBps: p.rewardBps,
   offerTtlSeconds: p.offerTtlSeconds,
   holdTtlSeconds: p.holdTtlSeconds,
   autoAssign: p.autoAssign,
-  collectionAccountId: p.collectionAccountId,
-  executionMode: p.executionMode,
   p2pTiming: p.p2pTiming,
   autoReview: p.autoReview,
   riskPolicy: p.riskPolicy,
@@ -162,55 +155,11 @@ export interface DeskOrderRow {
   readonly startedAt: string | null;
   readonly closedAt: string | null;
   readonly closeNote: string | null;
-  readonly reward: string | null;
   /** What the trader still owes / what INRP2P still owes the trader, per side of the obligation. */
   readonly traderOwes: string | null;
   readonly inrp2pOwes: string | null;
   readonly settlements: readonly DeskSettlementRow[];
   readonly deliveryAddress: string | null;
-  /**
-   * Where INRP2P's side of the order can be paid from (D-16): the client's own money on the trade, at the place it
-   * arrived, with what is still free of it. Empty until the client's funds are confirmed.
-   */
-  readonly payFrom: readonly DeskPayFrom[];
-}
-
-export interface DeskPayFrom {
-  readonly location: string;
-  readonly asset: 'INR' | 'USDT';
-  readonly label: string;
-  readonly inrAccountId: string | null;
-  readonly depositAddressId: string | null;
-  readonly treasuryWalletId: string | null;
-  readonly address: string | null;
-  readonly free: string;
-}
-
-async function payFromOf(ex: Executor, tradeId: string): Promise<DeskPayFrom[]> {
-  const byPlace = new Map<string, { asset: 'INR' | 'USDT'; free: bigint }>();
-  for (const src of await fundingSources(ex, tradeId, { kind: 'CLIENT_FUNDS' })) {
-    const place = byPlace.get(src.location) ?? { asset: src.asset, free: 0n };
-    place.free += src.availableMinor;
-    byPlace.set(src.location, place);
-  }
-  const out: DeskPayFrom[] = [];
-  for (const [location, p] of byPlace) {
-    if (p.free <= 0n) continue;
-    if (location.startsWith('INR:')) {
-      const id = location.slice(4);
-      const a = await ex.selectFrom('inr_settlement_account').select(['label', 'bank_name', 'account_last4']).where('id', '=', id).executeTakeFirst();
-      out.push({ location, asset: p.asset, label: a ? `${a.bank_name} ••••${a.account_last4} · ${a.label}` : 'INR account', inrAccountId: id, depositAddressId: null, treasuryWalletId: null, address: null, free: Money.ofMinor(p.free, p.asset).toDecimalString() });
-    } else {
-      const address = location.slice(5);
-      const deposit = await ex.selectFrom('deposit_address').select('id').where('network', '=', 'TRON').where('address', '=', address).executeTakeFirst();
-      const wallet = deposit ? undefined : await ex.selectFrom('treasury_wallet').select(['id', 'label']).where('network', '=', 'TRON').where('address', '=', address).executeTakeFirst();
-      out.push({
-        location, asset: p.asset, label: deposit ? 'Client’s deposit address' : (wallet?.label ?? 'Exchange address'),
-        inrAccountId: null, depositAddressId: deposit?.id ?? null, treasuryWalletId: wallet?.id ?? null, address, free: Money.ofMinor(p.free, p.asset).toDecimalString(),
-      });
-    }
-  }
-  return out;
 }
 
 async function deskOrderRows(ex: Executor, where: { traderId?: string; requestId?: string }, limit: number): Promise<DeskOrderRow[]> {
@@ -220,7 +169,7 @@ async function deskOrderRows(ex: Executor, where: { traderId?: string; requestId
     .leftJoin('trade as t', 't.id', 'o.trade_id')
     .select([
       'o.id', 'o.ref', 'o.side', 'o.status', 'rq.ref as request_ref', 'o.trade_id', 't.ref as trade_ref', 't.lifecycle_state', 'o.route_obligation_id', 'o.base_minor', 'o.inr_minor', 'o.rate_micro',
-      'o.offered_at', 'o.offer_expires_at', 'o.hold_until', 'o.started_at', 'o.closed_at', 'o.close_reason', 'o.reward_inr_minor',
+      'o.offered_at', 'o.offer_expires_at', 'o.hold_until', 'o.started_at', 'o.closed_at', 'o.close_reason',
     ])
     .orderBy('o.offered_at', 'desc')
     .limit(limit);
@@ -233,7 +182,6 @@ async function deskOrderRows(ex: Executor, where: { traderId?: string; requestId
     let inrp2pOwes: string | null = null;
     let settlements: DeskSettlementRow[] = [];
     let deliveryAddress: string | null = null;
-    const payFrom = o.trade_id ? await payFromOf(ex, o.trade_id) : [];
     if (o.route_obligation_id) {
       const remaining = await obligationRemaining(ex, o.route_obligation_id);
       traderOwes = remaining.routeDelivers.isZero() ? null : remaining.routeDelivers.toDecimalString();
@@ -280,12 +228,10 @@ async function deskOrderRows(ex: Executor, where: { traderId?: string; requestId
       startedAt: o.started_at?.toISOString() ?? null,
       closedAt: o.closed_at?.toISOString() ?? null,
       closeNote: o.close_reason,
-      reward: o.reward_inr_minor === null ? null : inr(o.reward_inr_minor),
       traderOwes,
       inrp2pOwes,
       settlements,
       deliveryAddress,
-      payFrom,
     });
   }
   return out;
@@ -365,7 +311,6 @@ export interface DeskTraderDetail {
     readonly reviewNote: string | null;
     readonly reviewedAt: string | null;
     readonly controlNote: string | null;
-    readonly rewardBps: number | null;
     readonly limits: { readonly maxOrderInr: string | null; readonly maxOrderUsdt: string | null; readonly maxCapacityInr: string | null; readonly maxCapacityUsdt: string | null };
   };
   readonly bank: DeskBankView;
@@ -380,14 +325,10 @@ export interface DeskTraderDetail {
   /** The reserve applied to USDT the trader's own orders did not deliver (TD-21), newest first. */
   readonly applications: readonly DeskReserveApplication[];
   /**
-   * Started orders whose trader side is due and not delivered or on its way: a Sell USDT order's USDT, where the reserve
-   * may be applied, or a Buy USDT order's INR, against which it may only be held.
+   * Started orders whose rupees are due and not paid: the reserve may be held against them.
    */
-  readonly applicableOrders: readonly { orderId: string; ref: string; kind: 'APPLY' | 'HOLD'; owed: string; owedAsset: 'USDT' | 'INR' }[];
-  readonly earnings: { readonly rewardBps: number | null; readonly available: string; readonly payingOut: string; readonly pending: string; readonly paidOut: string; readonly completedUsdt: string; readonly completedInr: string };
-  readonly payouts: readonly { payoutId: string; ref: string; amount: string; status: string; utr: string; recordedAt: string }[];
-  /** Realized margin free at each active exchange account — the only money a reward may be paid with (D4). */
-  readonly rewardMargins: readonly { accountId: string; freeMargin: string }[];
+  readonly applicableOrders: readonly { orderId: string; ref: string; kind: 'HOLD'; owed: string; owedAsset: 'INR' }[];
+  readonly earnings: { readonly completedUsdt: string; readonly completedInr: string };
   readonly orders: readonly DeskOrderRow[];
   readonly decisions: readonly { at: string; action: string; actor: string | null; detail: string }[];
 }
@@ -471,22 +412,12 @@ export async function deskTrader(ex: Executor, traderId: string): Promise<DeskTr
   const applicable = await sql<{ id: string; ref: string; side: TraderSide; owed: string }>`
     select o.id, o.ref, o.side, inrp2p_route_delivery_open(o.route_obligation_id)::text as owed
       from trader_order o join trade t on t.id = o.trade_id
-     where o.trader_id = ${id} and o.status = 'IN_PROGRESS'
+     where o.trader_id = ${id} and o.status = 'IN_PROGRESS' and o.side = 'BUY_USDT'
        and t.lifecycle_state in ('FIRST_LEG_CONFIRMED', 'SETTLING', 'PARTIALLY_SETTLED')
        and inrp2p_route_delivery_open(o.route_obligation_id) > 0
        and not exists (select 1 from trader_reserve_application a where a.trader_order_id = o.id and a.status in ('REQUESTED', 'APPROVED', 'SENT'))
      order by o.started_at`.execute(ex);
-  const e = await earnings(ex, id);
-  const margins = await sql<{ id: string; free: string }>`
-    select a.id, greatest(inrp2p_inr_account_free_margin(a.id), 0)::text as free from inr_settlement_account a where a.status = 'ACTIVE' order by a.id`.execute(ex);
-  const payouts = await ex
-    .selectFrom('trader_reward_payout as r')
-    .innerJoin('fiat_transfer as f', 'f.id', 'r.fiat_transfer_id')
-    .select(['r.id', 'r.ref', 'r.amount_minor', 'r.status', 'f.utr', 'r.recorded_at'])
-    .where('r.trader_id', '=', id)
-    .orderBy('r.recorded_at', 'desc')
-    .limit(50)
-    .execute();
+  const e = await completedVolume(ex, id);
   const decisions = await ex
     .selectFrom('audit_event')
     .select(['at', 'action', 'actor_id', 'after'])
@@ -525,7 +456,6 @@ export async function deskTrader(ex: Executor, traderId: string): Promise<DeskTr
       reviewNote: p.review_note,
       reviewedAt: p.reviewed_at?.toISOString() ?? null,
       controlNote: p.control_note,
-      rewardBps: p.reward_bps,
       limits: {
         maxOrderInr: p.max_order_inr_minor === null ? null : inr(p.max_order_inr_minor),
         maxOrderUsdt: p.max_order_usdt_minor === null ? null : usdt(p.max_order_usdt_minor),
@@ -564,21 +494,8 @@ export async function deskTrader(ex: Executor, traderId: string): Promise<DeskTr
       requestedByLabel: a.requested_by_label ?? 'an operator', requestedAt: a.requested_at.toISOString(), decidedByLabel: a.decided_by_label, closeReason: a.close_reason,
       deliveryAddress: a.delivery_address, txHash: a.tx_hash,
     })),
-    applicableOrders: applicable.rows.map((o) => {
-      const usdtSide = o.side === 'SELL_USDT';
-      return { orderId: o.id, ref: o.ref, kind: usdtSide ? ('APPLY' as const) : ('HOLD' as const), owed: usdtSide ? usdt(BigInt(o.owed)) : inr(BigInt(o.owed)), owedAsset: usdtSide ? ('USDT' as const) : ('INR' as const) };
-    }),
-    earnings: {
-      rewardBps: e.rewardBps,
-      available: e.available.toDecimalString(),
-      payingOut: e.payingOut.toDecimalString(),
-      pending: e.pending.toDecimalString(),
-      paidOut: e.paidOut.toDecimalString(),
-      completedUsdt: e.completedUsdt.toDecimalString(),
-      completedInr: e.completedInr.toDecimalString(),
-    },
-    payouts: payouts.map((r) => ({ payoutId: r.id, ref: r.ref, amount: inr(r.amount_minor), status: r.status, utr: r.utr, recordedAt: r.recorded_at.toISOString() })),
-    rewardMargins: margins.rows.map((m) => ({ accountId: m.id, freeMargin: inr(BigInt(m.free)) })),
+    applicableOrders: applicable.rows.map((o) => ({ orderId: o.id, ref: o.ref, kind: 'HOLD' as const, owed: inr(BigInt(o.owed)), owedAsset: 'INR' as const })),
+    earnings: { completedUsdt: e.completedUsdt, completedInr: e.completedInr },
     orders: await deskOrderRows(ex, { traderId: id }, 100),
     decisions: decisions.map((d) => ({ at: d.at.toISOString(), action: d.action, actor: d.actor_id, detail: summarizeAudit(d.after) })),
   };
@@ -591,14 +508,13 @@ function summarizeAudit(after: unknown): string {
   const said = (v: unknown) => (typeof v === 'object' ? JSON.stringify(v) : String(v));
   // A stored decimal reads as a person would write it: "500.000000" → "500", "12.500000" → "12.50".
   const amount = (v: unknown) => said(v).replace(/^(\d+)\.(\d*?)0+$/, (_, w: string, f: string) => (f === '' ? w : `${w}.${f.padEnd(2, '0')}`));
-  for (const key of ['status', 'available', 'assignments_enabled', 'destination', 'label', 'bank', 'wallet', 'required_reserve', 'reward_bps', 'reason', 'note']) {
+  for (const key of ['status', 'available', 'assignments_enabled', 'destination', 'label', 'bank', 'wallet', 'required_reserve', 'reason', 'note']) {
     const v = a[key];
     if (v === undefined || v === null) continue;
     if (key === 'status') parts.push(`now ${said(v).toLowerCase().replace(/_/g, ' ')}`);
     else if (key === 'available') parts.push(v === true ? 'now online' : v === false ? 'now offline' : `available: ${said(v)}`);
     else if (key === 'assignments_enabled') parts.push(v === true ? 'new assignments on' : v === false ? 'new assignments off' : `assignments: ${said(v)}`);
     else if (key === 'required_reserve') parts.push(`required reserve ${amount(v)} USDT`);
-    else if (key === 'reward_bps') parts.push(`reward ${said(v)} bps`);
     else if (key === 'reason' || key === 'note') parts.push(`“${said(v)}”`);
     else parts.push(`${key.replace(/_/g, ' ')}: ${said(v)}`);
   }
@@ -615,16 +531,4 @@ export async function requestTraderOrders(ex: Executor, requestId: string): Prom
     history: rows,
     traderRefs: Object.fromEntries(refs.rows.map((r) => [r.order_id, r.ref])),
   };
-}
-
-/** ACTIVE accounts that accept collections — where the programme may tell traders to pay INR. */
-export async function collectionAccounts(ex: Executor): Promise<readonly { accountId: string; label: string; bankName: string; last4: string }[]> {
-  const rows = await ex
-    .selectFrom('inr_settlement_account')
-    .select(['id', 'label', 'bank_name', 'account_last4'])
-    .where('status', '=', 'ACTIVE')
-    .where('direction', 'in', ['COLLECTION', 'BOTH'])
-    .orderBy('label')
-    .execute();
-  return rows.map((r) => ({ accountId: r.id, label: r.label, bankName: r.bank_name, last4: r.account_last4 }));
 }

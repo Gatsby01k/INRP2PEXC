@@ -25,6 +25,9 @@ export async function enqueueOutbox(ctx: TxContext, event: OutboxEventInput): Pr
     })
     .returning('id')
     .executeTakeFirstOrThrow();
-  await sql`select inrp2p_enqueue_outbox_dispatch()`.execute(ctx.tx);
+  // One job row wakes the dispatcher for everyone: the last thing a command takes, or commands would deadlock on it.
+  const wake = () => sql`select inrp2p_enqueue_outbox_dispatch()`.execute(ctx.tx);
+  if (ctx.atEnd) ctx.atEnd.set('outbox_dispatch', wake);
+  else await wake();
   return row.id;
 }

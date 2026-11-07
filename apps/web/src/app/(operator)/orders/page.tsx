@@ -1,7 +1,6 @@
 import Link from 'next/link';
 import { isDomainError } from '@inrp2p/kernel';
 import { type OrderFilter, type OrderRow, deskTrade, listOrders, orderCounts, searchOrders } from '@inrp2p/desk';
-import { collectionAccounts } from '@inrp2p/traders';
 import { operatorPage } from '../../../server/operator.ts';
 import { ContextPanel } from '../_desk/ContextPanel.tsx';
 import { Icon } from '../_desk/icons.tsx';
@@ -51,7 +50,6 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
       if (!(isDomainError(e) && (e.code === 'NOT_FOUND' || e.code === 'INVALID_ARGUMENT'))) throw e;
     }
   }
-  const collection = trade && trade.direction === 'BUY_USDT' ? await collectionAccounts(ctx.db) : [];
 
   const href = (next: Record<string, string | null>) => {
     const p = new URLSearchParams();
@@ -128,7 +126,7 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
               testId="trade-panel"
               label={`Trade ${trade.ref}`}
             >
-              <TradeWorkspace trade={trade} perms={tradePerms(ctx)} collectionAccounts={collection} />
+              <TradeWorkspace trade={trade} perms={tradePerms(ctx)} />
             </ContextPanel>
           </div>
         ) : null}

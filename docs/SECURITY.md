@@ -12,7 +12,7 @@ Status: Phase 0, revision 3 (`DECISIONS.md` Revision 3).
 | S4 | Insider manipulation of history | Hidden margin/theft | Append-only ledger + audit, sealed audit hash chain, adjustments two-person, no direct DB access for app users |
 | S5 | Client-side data exposure of internals | Route rate / provider / margin leak | Separate client projection types, serializer allow-lists, tests asserting forbidden keys absent |
 | S6 | Fake blockchain evidence | Payout against unpaid trade | Only scanner/adapter facts confirm USDT; operator tx-hash submission triggers verification, never confirms by itself; dual provider above threshold |
-| S7 | Fake UTR | Trade marked paid when not | UTR uniqueness, proof attachment, step-up, reconciliation against bank statements (manual import V1): every confirmed movement on the account is checked; a line matches only when account, reference, direction and amount identify exactly one transfer — otherwise `AMBIGUOUS` or `MISMATCHED` with a review case, never a guess |
+| S7 | Fake UTR | Trade marked paid when not | UTR uniqueness; a payment counts only when the one who received it confirms it against its own bank, with the sender's name as the bank shows it; a dispute goes to a person with the bank's evidence (`p2p-escrow`) |
 | S8 | Destination swap | Payout to attacker account | Destinations immutable per quote/trade; changes = archive + new, step-up, `CLIENT_BANK_CHANGED` exception, notify all client admins. An open trade pays a new destination only through a recorded change (reason + how the client confirmed it) approved by a second operator with step-up, to an ACTIVE destination of the same client; never while a payout to the old one is unresolved; the client is notified (IX092, D1) |
 | S9 | Sensitive data in logs/backups | Bank data leak | Envelope encryption, redaction, restricted reveal permission |
 | S10 | Misattributed USDT deposit | Payout against another client's funds | Unique per-trade deposit address from CustodyAdapter; no amount/sender heuristics; unassigned-address funds to suspense (D-02) |
@@ -103,21 +103,15 @@ Legend: ✔ allowed · ⧗ allowed with step-up MFA · ✱ requires second appro
 |---|---|---|---|---|---|---|
 | `desk:view` | ✔ | ✔ | ✔ | ✔ | ✔ | ✔ |
 | `economics:view` (route rate, margin) | ✔ | ✔ | — | ✔ | — | — (grantable) |
-| `rates:update_route` | ✔ | ✔ | — | — | — | — |
 | `pricing:configure` | ⧗ | — | — | — | — | — |
 | `request:create` / `request:decline` | ✔ | ✔ | — | — | create only | — |
 | `request:withdraw` (withdraw a request on behalf of the client) | ✔ | ✔ | — | — | — | — |
 | `quote:create` / `quote:send` / `quote:cancel` | ✔ | ✔ | — | — | — | — |
 | `quote:send_negative_margin` | ⧗ | — | — | — | — | — |
 | `quote_link:create` / `revoke` | ✔ | ✔ | — | — | — | — |
-| `settlement:reserve_capacity` | ✔ | — | ✔ | — | — | — |
-| `settlement:create_payout` / `send_payout` | ✔ | — | ✔ | — | — | — |
+| `settlement:create_payout` | ✔ | — | ✔ | — | — | — |
 | `settlement:record_incoming` (record a client's incoming INR reference, T2) | ✔ | — | ✔ | — | — | — |
-| `settlement:record_utr` | ✔ | — | ✔ | — | — | — |
-| `settlement:record_route_payout_sent` (direct legs) | ✔ | — | ✔ | — | — | — |
-| `settlement:change_utr` | ⧗ | — | ⧗ | — | — | — |
 | `settlement:confirm_payout` / `confirm_incoming` | ⧗ | — | ⧗ | — | — | — |
-| `settlement:fail_payout` / `cancel_payout` | ⧗ | — | ⧗ | — | — | — |
 | `crypto:submit_tx_for_verification` | ✔ | — | ✔ | ✔ | — | — |
 | `trade:cancel` | ⧗ | ⧗ | — | — | — | — |
 | `trade:request_destination_change` (an open trade pays to another verified destination of its client, TD-18; changes nothing until approved) | ⧗ | — | ⧗ | ⧗ | ⧗ | — |
@@ -127,14 +121,12 @@ Legend: ✔ allowed · ⧗ allowed with step-up MFA · ✱ requires second appro
 | `adjustment:request` | ✔ | ✔ | ✔ | ✔ | — | — |
 | `adjustment:approve` | ⧗✱ | — | — | ⧗✱ | — | — |
 | `refund:approve` | ⧗✱ | — | — | ⧗✱ | — | — |
-| `inr_account:manage` / `capacity:change` | ⧗ | — | — | ⧗ | — | — |
 | `treasury:manage_wallets` | ⧗ | — | — | ⧗ | — | — |
 | `client:manage` / contacts | ✔ | ✔ | — | — | ✔ | — |
 | `client_bank:add` (operator on behalf) | ⧗ | — | — | — | ⧗ | — |
 | `client_wallet:manage` (add or archive client wallets, operator on behalf) | ⧗ | — | — | — | ⧗ | — |
 | `client_user:grant_accept_quotes` | ⧗ | — | — | — | ⧗ | — |
 | `client_user:reset_mfa` (remove a client user's authenticator after verifying the person out of band; ends their sessions, TD-11) | ⧗ | — | — | — | ⧗ | — |
-| `routes:configure` (incl. settlement model) | ⧗ | — | — | — | — | — |
 | `route_settlement:record` | ✔ | — | — | ✔ | — | — |
 | `route_settlement:confirm` (confirms the movement and allocates the obligation side it was recorded against) | ⧗ | — | — | ⧗ | — | — |
 | `route_positions:view` | ✔ | ✔ | — | ✔ | — | — |
@@ -143,7 +135,6 @@ Legend: ✔ allowed · ⧗ allowed with step-up MFA · ✱ requires second appro
 | `custody:refresh_balance` (read what an exchange address holds now, from the configured providers, B2) | ✔ | — | ✔ | ✔ | — | — |
 | `bank_account:reveal` | ⧗ | — | ⧗ | ⧗ | — | — |
 | `ledger:view` / `pnl:view` / `export` | ✔ | pnl only | — | ✔ | — | — |
-| `statement:import` (manual bank statement, reconciled against recorded UTRs — S7) | ⧗ | — | — | ⧗ | — | — |
 | `traders:view` (traders, their rates, capacity, orders and reserve) | ✔ | ✔ | — | ✔ | — | — |
 | `traders:assign` (route a request to a trader; release an accepted order) | ✔ | ✔ | — | — | — | — |
 | `traders:pause` (pause or resume a trader; disable or enable new assignments) | ⧗ | ⧗ | — | ⧗ | — | — |

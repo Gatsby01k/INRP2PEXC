@@ -3,13 +3,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { runAs } from '@inrp2p/identity/testing';
 import { dispatchOutbox } from '@inrp2p/outbox';
 import { createQuote, createRequest, declineRequest, sendQuote } from '@inrp2p/quotes';
-import { confirmPayout, createPayoutLeg, recordLegEvidence, sendPayoutLeg } from '@inrp2p/settlement';
 import { clientInbox, clientNotificationHandler, markNotificationsRead, unreadCount } from '../src/index.ts';
-import { type World, createWorld, newUtr, openTrade, settleFirstLeg, ensureCounterpartyFunds } from '../../settlement/test/world.ts';
+import { type World, createWorld, openTrade, payClient, routeToTrader, settleFirstLeg } from '../../settlement/test/world.ts';
 
 let w: World;
 beforeAll(async () => {
-  w = await createWorld('client_notifications', { capacityInr: '500000000.00' });
+  w = await createWorld('client_notifications');
 });
 afterAll(async () => w.close());
 
@@ -18,23 +17,13 @@ const deliver = () => dispatchOutbox(w.t.worker, [clientNotificationHandler(w.ap
 
 const inbox = () => clientInbox(w.app, w.clientId, { limit: 100 });
 
-async function payLeg(tradeId: string, amount: string) {
-  await ensureCounterpartyFunds(w, tradeId);
-  const leg = await runAs(w.app, createPayoutLeg(w.settlementOp.actor, {}), w.settlementOp.ref, 'payout_leg.create', {
-    tradeId, amount, payer: 'EXCHANGE_ACCOUNT' as const, inrAccountId: w.inrAccountId,
-  });
-  await runAs(w.app, sendPayoutLeg(w.settlementOp.actor), w.settlementOp.ref, 'payout_leg.send', { legId: leg.legId });
-  await runAs(w.app, recordLegEvidence(w.settlementOp.actor, w.settlementDeps), w.settlementOp.ref, 'payout_leg.record_evidence', { legId: leg.legId, rail: 'IMPS' as const, utr: newUtr() });
-  await confirmPayout(w.app, w.settlementOp.actor, w.settlementDeps, { legId: leg.legId, idempotencyKey: randomUUID() });
-}
-
 describe('what a client is told', () => {
   it('tells them a quote is ready, with the figure they will act on', async () => {
     const request = await runAs(w.app, createRequest(w.dealer.actor, {}), w.dealer.ref, 'request.create', {
       clientId: w.clientId, direction: 'SELL_USDT' as const, fixedSide: 'BASE' as const, amount: '500', bankAccountId: w.bankAccountId,
     });
     const quote = await runAs(w.app, createQuote(w.dealer.actor, {}), w.dealer.ref, 'quote.create', {
-      requestId: request.requestId, routeId: w.routeId, clientRate: '90.000000', validitySeconds: 120,
+      requestId: request.requestId, routeId: (await routeToTrader(w, request.requestId, '90.000000')).routeId, clientRate: '90.000000', validitySeconds: 120,
     });
     await runAs(w.app, sendQuote(w.dealer.actor, {}), w.dealer.ref, 'quote.send', { quoteId: quote.quoteId });
     await deliver();
@@ -57,20 +46,20 @@ describe('what a client is told', () => {
   });
 
   it('follows one trade from open to settled, and says "complete" only when it is', async () => {
-    const trade = await openTrade(w, { baseUsdt: '100', clientRate: '90.000000', routeRate: '92.500000', executionMode: 'TO_EXCHANGE' });
+    const trade = await openTrade(w, { baseUsdt: '100', clientRate: '90.000000' });
     await deliver();
     const opened = (await inbox()).find((n) => n.subjectRef === trade.tradeRef && n.kind === 'TRADE_OPENED');
     expect(opened?.body).toContain('100 USDT');
     expect(opened?.href).toBe(`/trades/${trade.tradeRef}`);
 
     await settleFirstLeg(w, trade.tradeId);
-    await payLeg(trade.tradeId, '4000.00');
+    const paid = await payClient(w, trade, { confirm: false });
     await deliver();
-    const partial = (await inbox()).filter((n) => n.subjectRef === trade.tradeRef);
-    expect(partial.some((n) => n.kind === 'PAYOUT_CONFIRMED')).toBe(true);
-    expect(partial.some((n) => n.kind === 'TRADE_COMPLETED')).toBe(false);
+    const waiting = (await inbox()).filter((n) => n.subjectRef === trade.tradeRef);
+    expect(waiting.some((n) => n.kind === 'TRADE_COMPLETED')).toBe(false);
 
-    await payLeg(trade.tradeId, '5000.00');
+    const { confirmClientReceipt } = await import('@inrp2p/settlement');
+    await runAs(w.app, confirmClientReceipt(w.acceptor.actor, w.settlementDeps), w.acceptor.ref, 'payout.confirm_received', { tradeRef: trade.tradeRef, legRef: paid.legRef, senderName: 'Konkan Desk LLP' });
     await deliver();
     const settled = (await inbox()).filter((n) => n.subjectRef === trade.tradeRef);
     expect(settled.some((n) => n.kind === 'TRADE_COMPLETED')).toBe(true);

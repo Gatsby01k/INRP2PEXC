@@ -1,14 +1,13 @@
-import { randomBytes, randomUUID } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Money, encodeTronAddress } from '@inrp2p/kernel';
 import { pgErrorCode } from '@inrp2p/db';
 import { QuorumChainVerifier } from '@inrp2p/adapters';
 import { FAKE_USDT_CONTRACT, FakeTronProvider } from '@inrp2p/adapters/testing';
 import { runAs } from '@inrp2p/identity/testing';
-import { cancelTrade, confirmPayout, createPayoutLeg, recordLegEvidence, sendPayoutLeg, submitTxForVerification, verifyCryptoTransfer } from '@inrp2p/settlement';
+import { cancelTrade, submitTxForVerification, verifyCryptoTransfer } from '@inrp2p/settlement';
 import { readCursor, runOrphanSweep, runTronConfirm, runTronScan } from '../src/index.ts';
-import {
-  type ChainWorld, createChainWorld, depositAddressOf, entriesOf, journalsFor, legsOf, openCases, openTrade, settleFirstLeg, stateOf, transferByHash, ensureCounterpartyFunds, observe } from './world.ts';
+import { type ChainWorld, createChainWorld, depositAddressOf, entriesOf, journalsFor, legsOf, openCases, openTrade, stateOf, transferByHash } from './world.ts';
 
 let w: ChainWorld;
 beforeAll(async () => { w = await createChainWorld('scanner', { depositPoolSize: 60 }); });
@@ -17,7 +16,7 @@ afterAll(async () => w.close());
 const usdt = (decimal: string) => Money.parse(decimal, 'USDT').minor;
 
 /** A SELL trade on the canonical rates (client ₹102.00, route ₹104.20), ready for its first leg. */
-const sellTrade = (baseUsdt: string) => openTrade(w, { baseUsdt, clientRate: '102.000000', routeRate: '104.200000' });
+const sellTrade = (baseUsdt: string) => openTrade(w, { baseUsdt, clientRate: '102.000000' });
 const strangerAddress = () => encodeTronAddress(randomBytes(20));
 
 /** Mines a deposit into a trade's assigned address and runs one full scan. */
@@ -288,42 +287,6 @@ describe('reorganisations (tron_orphan_sweep)', () => {
     w.tron.solidifyAll();
     await runTronConfirm(w.app, w.scanDeps);
     expect((await transferByHash(w, transfer.txHash))?.state).toBe('CONFIRMED');
-  });
-});
-
-describe('outbound USDT (BUY payouts)', () => {
-  it('verifies the payout transaction by tx hash but leaves the release to an operator', async () => {
-    const trade = await openTrade(w, { direction: 'BUY_USDT', executionMode: 'TO_EXCHANGE', baseUsdt: '500', clientRate: '106.000000', routeRate: '104.200000' });
-    await settleFirstLeg(w, trade.tradeId);
-
-    await ensureCounterpartyFunds(w, trade.tradeId);
-
-    const leg = await runAs(w.app, createPayoutLeg(w.settlementOp.actor, {}), w.settlementOp.ref, 'payout_leg.create', {
-      tradeId: trade.tradeId, amount: '500', payer: 'EXCHANGE_ACCOUNT' as const, treasuryWalletId: w.treasuryWalletId,
-    });
-    const treasury = await w.app.selectFrom('treasury_wallet').select('address').where('id', '=', w.treasuryWalletId).executeTakeFirstOrThrow();
-    await observe(w, treasury.address);
-    await runAs(w.app, sendPayoutLeg(w.settlementOp.actor), w.settlementOp.ref, 'payout_leg.send', { legId: leg.legId });
-
-    const clientWallet = await w.app.selectFrom('crypto_wallet').select('address').where('id', '=', w.walletId).executeTakeFirstOrThrow();
-    const sent = w.tron.add({ to: clientWallet.address, from: treasury.address, amountMinor: usdt('500') });
-    await runAs(w.app, recordLegEvidence(w.settlementOp.actor, w.scanDeps), w.settlementOp.ref, 'payout_leg.record_evidence', {
-      legId: leg.legId, txHash: sent.txHash, logIndex: sent.logIndex, fromAddress: treasury.address,
-    });
-
-    // Not final yet: the operator cannot confirm, and neither does the scanner.
-    await expect(confirmPayout(w.app, w.settlementOp.actor, w.scanDeps, { legId: leg.legId, idempotencyKey: randomUUID() })).rejects.toMatchObject({ code: 'TRANSFER_NOT_CONFIRMED' });
-
-    w.tron.solidifyAll();
-    const verified = await runTronConfirm(w.app, w.scanDeps);
-    expect(verified.verified).toBeGreaterThanOrEqual(1);
-    expect((await transferByHash(w, sent.txHash))?.state).toBe('CONFIRMED');
-    // Verification is not release: the leg stays in flight until an operator confirms it (⧗).
-    expect((await w.app.selectFrom('settlement_leg').select('status').where('id', '=', leg.legId).executeTakeFirstOrThrow()).status).toBe('PROCESSING');
-
-    const done = await confirmPayout(w.app, w.settlementOp.actor, w.scanDeps, { legId: leg.legId, idempotencyKey: randomUUID() });
-    expect(done.completed).toBe(true);
-    expect(await stateOf(w, trade.tradeId)).toBe('COMPLETED');
   });
 });
 

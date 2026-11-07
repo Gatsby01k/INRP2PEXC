@@ -1,6 +1,6 @@
 import type { CurrencyCode } from '@inrp2p/kernel';
 import { DomainError, isUuid } from '@inrp2p/kernel';
-import type { Executor, LedgerAccountType, TxContext } from '@inrp2p/db';
+import type { LedgerAccountType, TxContext } from '@inrp2p/db';
 
 /** Chart of accounts (FINANCIAL_INVARIANTS §3.2). Every account is per currency. */
 export interface AccountRef {
@@ -31,10 +31,6 @@ export const Accounts = {
   suspenseUnallocated: (currency: CurrencyCode) => sub('SUSPENSE', 'UNALLOCATED', null, currency),
   /** USDT a trader has deposited as its Security Reserve: owed back to the trader, never trading capacity. */
   traderReserve: (traderId: string) => sub('LIAB', 'TRADER_RESERVE', traderId, 'USDT'),
-  /** Rewards accrued on a trader's completed orders and not yet paid out. */
-  traderRewardPayable: (traderId: string) => sub('LIAB', 'TRADER_REWARD_PAYABLE', traderId, 'INR'),
-  /** What rewards cost the exchange, recognized when the order they are paid on completes. */
-  traderRewards: () => sub('EXPENSE', 'TRADER_REWARDS', null, 'INR'),
   /**
    * The TRC20 network fees of the exchange's own transfers that a trader's TRX deposit paid and the exchange owes back
    * (ADR 0017): the client paid them inside its price. Never a trade's principal; the TRX budget itself is not in this
@@ -75,9 +71,4 @@ export async function resolveAccountIds(ctx: TxContext, refs: readonly AccountRe
   for (const row of rows) out.set(`${row.code}|${row.currency}`, row.id);
   for (const key of unique.keys()) if (!out.has(key)) throw new DomainError('INVALID_ARGUMENT', `account not resolved: ${key}`);
   return out;
-}
-
-export async function findAccountId(ex: Executor, ref: AccountRef): Promise<string | undefined> {
-  const row = await ex.selectFrom('ledger_account').select('id').where('code', '=', ref.code).where('currency', '=', ref.currency).executeTakeFirst();
-  return row?.id;
 }

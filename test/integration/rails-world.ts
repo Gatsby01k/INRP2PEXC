@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { randomInt, randomUUID } from 'node:crypto';
 import { parseTrx } from '@inrp2p/kernel';
 import { FakeGasFree, type FakeTronGateway, FakeTronNetwork } from '@inrp2p/adapters/testing';
 import { HdWalletCustodyAdapter, TronSendNetwork } from '@inrp2p/adapters';
@@ -7,12 +7,12 @@ import { runAs } from '@inrp2p/identity/testing';
 import { recordCustodyHdAccount } from '@inrp2p/treasury';
 import { claimNetworkDeposit, publishTrxRate, setNetworkFeePolicy } from '@inrp2p/network';
 import { type OnchainDeps, runAutopay, runFeeRefresh, runGasFreeFeeRefresh, runHoldClosing, runMonitor, runSender, runUnwindClosing } from '@inrp2p/onchain';
-import { acceptOrder, assignRequest, submitOrderPayment } from '@inrp2p/traders';
+import { acceptOrder, assignRequest, confirmOrderPaymentReceived, orderDeliveryAddress, submitOrderPayment } from '@inrp2p/traders';
 import { acceptQuote, createQuote, createRequest, sendQuote } from '@inrp2p/quotes';
-import { confirmRouteSettlement } from '@inrp2p/settlement';
+import { claimIncomingFiat, confirmClientReceipt } from '@inrp2p/settlement';
 import type { QuoteDeps } from '@inrp2p/quotes';
-import { type TradersWorld, type TraderSetup, configureProgram, createTradersWorld, liveTrader, traderClient, utr } from './traders-world.ts';
-import { seeOwnSender } from '../../packages/settlement/test/world.ts';
+import { CLIENT_SENDER, settleFirstLeg } from '../../packages/settlement/test/world.ts';
+import { type TradersWorld, type TraderSetup, configureProgram, confirmOnChain, createTradersWorld, liveTrader, sendUsdt, traderClient } from './traders-world.ts';
 
 /** The BIP-39 test mnemonic: its addresses are TronWeb's vectors (packages/adapters/test/tron-tx.unit.test.ts). */
 export const TEST_MNEMONIC = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'; // secret-scan:allow — BIP-39's published test vector, never a wallet with money
@@ -37,7 +37,7 @@ export interface RailsWorld extends TradersWorld {
  */
 export async function createRailsWorld(label: string, opts: { policy?: OnchainDeps['policy']; usdtPerTrx?: string; resourceMode?: 'BURN' | 'GASFREE' } = {}): Promise<RailsWorld> {
   const w = await createTradersWorld(label);
-  await configureProgram(w, { reserve: '500', rewardBps: 10, collection: true });
+  await configureProgram(w, { reserve: '500' });
   const signer = HdSigner.fromMnemonic(TEST_MNEMONIC);
   const custody = new HdWalletCustodyAdapter({ accountXpub: signer.accountXpub });
   const pool = await w.app.selectFrom('treasury_wallet').select('address').where('role', '=', 'DEPOSIT_POOL').executeTakeFirstOrThrow();
@@ -95,15 +95,7 @@ export async function railsTrade(w: RailsWorld, trader: TraderSetup, input: { di
   await runAs(w.app, sendQuote(w.dealer.actor, {}), w.dealer.ref, 'quote.send', { quoteId: quote.quoteId });
   const accepted = await runAs(w.app, acceptQuote(w.acceptor.actor, w.railsDeps), w.acceptor.ref, 'quote.accept', { quoteId: quote.quoteId });
   const obligation = await w.app.selectFrom('route_obligation').select('id').where('trade_id', '=', accepted.tradeId).executeTakeFirstOrThrow();
-  return { tradeId: accepted.tradeId, orderId: order.id, orderRef: assigned.ref, routeObligationId: obligation.id, quote };
-}
-
-/** The INR trader's payment for its order: its own reference, confirmed by FINANCE against the bank. */
-export async function traderPaysInr(w: RailsWorld, trader: TraderSetup, orderRef: string) {
-  const claim = await runAs(w.app, submitOrderPayment(trader.admin.actor, w.traderDeps), trader.admin.ref, 'trader_order.submit_payment', { ref: orderRef, rail: 'IMPS' as const, utr: utr() });
-  const rs = await w.app.selectFrom('route_settlement').select('id').where('ref', '=', claim.settlementRef).executeTakeFirstOrThrow();
-  await seeOwnSender(w.app, w.finance, { routeSettlementId: rs.id });
-  await runAs(w.app, confirmRouteSettlement(w.finance.actor, w.settlementDeps), w.finance.ref, 'route_settlement.confirm', { routeSettlementId: rs.id });
+  return { tradeId: accepted.tradeId, tradeRef: accepted.tradeRef, orderId: order.id, orderRef: assigned.ref, routeObligationId: obligation.id, quote };
 }
 
 /**
@@ -129,6 +121,30 @@ export async function railsSettle(w: RailsWorld, tradeId: string, max = 8): Prom
     if (open.length === 0 && due.length > 0) return i;
   }
   return max;
+}
+
+/**
+ * A deal on the rails to its end, whichever way it goes. A sale: the client's USDT into the escrow, the trader's rupees
+ * to the client, who confirms them; the signer pays the trader. A purchase: the trader's USDT into the escrow, the
+ * client's rupees to the trader, who confirms them; the signer pays the client.
+ */
+export async function completeDeal(w: RailsWorld, trader: TraderSetup, trade: { tradeId: string; tradeRef: string; orderRef: string }, opts: { utr?: string } = {}): Promise<{ utr: string }> {
+  const direction = (await w.app.selectFrom('trade').select('direction').where('id', '=', trade.tradeId).executeTakeFirstOrThrow()).direction;
+  const reference = opts.utr ?? String(randomInt(1e11, 1e12));
+  if (direction === 'SELL_USDT') {
+    await settleFirstLeg(w, trade.tradeId);
+    const paid = await runAs(w.app, submitOrderPayment(trader.admin.actor), trader.admin.ref, 'trader_order.submit_payment', { ref: trade.orderRef, rail: 'IMPS' as const, utr: reference });
+    const holder = (await w.app.selectFrom('bank_account').select('holder_name').where('id', '=', trader.bankAccountId).executeTakeFirstOrThrow()).holder_name;
+    await runAs(w.app, confirmClientReceipt(w.acceptor.actor, w.settlementDeps), w.acceptor.ref, 'payout.confirm_received', { tradeRef: trade.tradeRef, legRef: paid.settlementRef, senderName: holder });
+  } else {
+    const { address, amount } = await runAs(w.app, orderDeliveryAddress(trader.admin.actor, w.traderDeps), trader.admin.ref, 'trader_order.delivery_address', { ref: trade.orderRef });
+    await sendUsdt(w, trader.walletAddress, address, amount);
+    await confirmOnChain(w);
+    await runAs(w.app, claimIncomingFiat(w.acceptor.actor), w.acceptor.ref, 'fiat_in.claim', { tradeRef: trade.tradeRef, rail: 'IMPS' as const, utr: reference, fromBankAccountId: w.bankAccountId });
+    await runAs(w.app, confirmOrderPaymentReceived(trader.admin.actor, w.traderDeps), trader.admin.ref, 'trader_order.confirm_received', { ref: trade.orderRef, senderName: CLIENT_SENDER });
+  }
+  await railsSettle(w, trade.tradeId);
+  return { utr: reference };
 }
 
 export const idem = () => randomUUID();
