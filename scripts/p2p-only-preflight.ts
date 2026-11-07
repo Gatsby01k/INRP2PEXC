@@ -6,8 +6,8 @@
  *
  *   DATABASE_MIGRATOR_URL=… node scripts/p2p-only-preflight.ts
  *
- * Exit 0: the migration will accept this database. Exit 1: it would refuse; the reasons are printed. Exit 2: this tool could
- * not answer, for instance because the database is not at schema 45.
+ * Exit 0: the migration will accept this database. Exit 1: it would refuse; the reasons are printed, with the rows behind
+ * the ones a person has to look at. Exit 2: this tool could not answer, for instance because the database is not at schema 45.
  */
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -55,6 +55,32 @@ export async function preflight(pool: pg.Pool): Promise<PreflightResult> {
   }
 }
 
+/** What a person needs to decide about what was found: no sealed value, no name of a person, read only. */
+export async function preflightDetails(pool: pg.Pool): Promise<Record<string, readonly unknown[]>> {
+  const client = await pool.connect();
+  try {
+    await client.query('begin transaction read only');
+    const rows = async (text: string) => (await client.query(text)).rows;
+    try {
+      return {
+        'treasury reservations': await rows(`
+          select r.status, r.amount_minor::text as amount_minor, r.consumed_minor::text as consumed_minor, r.created_at, t.ref as trade, t.direction, t.lifecycle_state as trade_state
+            from treasury_reservation r left join trade t on t.id = r.trade_id order by r.created_at`),
+        'live quotes on a route that is not P2P': await rows(`
+          select q.ref, q.status, q.created_at, q.expires_at, r.name as route, r.execution_mode, r.status as route_status, r.trader_id is not null as trader_route
+            from quote q join liquidity_route r on r.id = q.route_id
+           where r.execution_mode <> 'P2P' and q.status in ('DRAFT', 'SENT') order by q.created_at`),
+        'routes': await rows(`select execution_mode, status, trader_id is not null as trader_route, count(*)::int as n from liquidity_route group by 1, 2, 3 order by 1, 2, 3`),
+        'trades': await rows(`select e.route_execution_mode, t.lifecycle_state, count(*)::int as n from trade t join trade_economics e on e.trade_id = t.id group by 1, 2 order by 1, 2`),
+      };
+    } finally {
+      await client.query('rollback');
+    }
+  } finally {
+    client.release();
+  }
+}
+
 if (import.meta.main) {
   const url = process.env.DATABASE_MIGRATOR_URL;
   if (!url) {
@@ -69,6 +95,10 @@ if (import.meta.main) {
     } else {
       console.error('migration 46 would refuse this database:');
       for (const reason of result.reasons) console.error(`  - ${reason}`);
+      for (const [title, rows] of Object.entries(await preflightDetails(pool))) {
+        console.error(`\n${title}:`);
+        console.table(rows);
+      }
       process.exitCode = 1;
     }
   } catch (e) {
