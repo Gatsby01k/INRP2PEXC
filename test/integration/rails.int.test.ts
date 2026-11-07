@@ -84,10 +84,9 @@ describe('cancellation and refunds', () => {
     // The trade unwinds; what the return cost is the trader's (it never paid), so nothing is paid back to it.
     await runAs(w.app, refundAndCancel(w.owner.actor), w.owner.ref, 'trade.refund_and_cancel', { tradeId: trade.tradeId, reason: 'the trader did not pay' });
     await railsTurn(w, { mine: false });
-    const hold = await w.app.selectFrom('network_budget_hold').select(['status', 'spent_sun', 'reimbursed_sun']).where('trade_id', '=', trade.tradeId).executeTakeFirstOrThrow();
+    const hold = await w.app.selectFrom('network_budget_hold').select(['status', 'spent_sun']).where('trade_id', '=', trade.tradeId).executeTakeFirstOrThrow();
     expect(hold.status).toBe('CLOSED');
     expect(hold.spent_sun).toBeGreaterThan(0n);
-    expect(hold.reimbursed_sun).toBe(0n);
     expect(await globalImbalance(w.app)).toEqual([]);
   });
 

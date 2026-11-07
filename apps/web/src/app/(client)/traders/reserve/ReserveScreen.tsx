@@ -207,7 +207,7 @@ export function ReserveScreen({ home }: { home: TraderHome }) {
                 <li key={`${h.at}:${i}`}>
                   <span className={styles.orderText}>
                     <span className={styles.orderMain}>
-                      {h.kind === 'DEPOSIT' ? 'Deposit' : h.kind === 'WITHDRAWAL' ? 'Withdrawal' : h.kind === 'HELD' ? `Held against ${h.orderRef ?? 'an order'}` : `Applied to ${h.orderRef ?? 'an order'}`} · {usdt(h.amount)}
+                      {h.kind === 'DEPOSIT' ? 'Deposit' : h.kind === 'WITHDRAWAL' ? 'Withdrawal' : `Held against ${h.orderRef ?? 'an order'}`} · {usdt(h.amount)}
                     </span>
                     <span className={styles.orderMeta}>
                       {formatIstDateTime(new Date(h.at))}
@@ -215,7 +215,7 @@ export function ReserveScreen({ home }: { home: TraderHome }) {
                     </span>
                   </span>
                   <span className={styles.next}>
-                    <span className={styles.pill} data-tone={h.status === 'CREDITED' || h.status === 'COMPLETED' || h.status === 'APPLIED' ? 'done' : ['REJECTED', 'CANCELLED', 'RELEASED', 'NOT_APPLIED'].includes(h.status) ? 'neutral' : 'waiting'}>
+                    <span className={styles.pill} data-tone={h.status === 'CREDITED' || h.status === 'COMPLETED' ? 'done' : ['REJECTED', 'CANCELLED', 'RELEASED'].includes(h.status) ? 'neutral' : 'waiting'}>
                       <span className={styles.pillDot} aria-hidden="true" />
                       {(h.status.charAt(0) + h.status.slice(1).toLowerCase()).replaceAll('_', ' ')}
                     </span>

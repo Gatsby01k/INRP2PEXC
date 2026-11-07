@@ -236,17 +236,16 @@ export async function reconcileOrderInTx(ctx: TxContext, orderId: string): Promi
       })
       .where('id', '=', order.id)
       .execute();
-    // Nothing is left to apply or hold the reserve for: what is still open on the order ends with it (TD-21). An
-    // application whose USDT already moved is SENT and is the chain's to decide, so it is not touched.
+    // Nothing is left to hold the reserve for: what is still open on the order ends with it (TD-21).
     const open = await ctx.tx
       .updateTable('trader_reserve_application')
       .set({ status: 'CANCELLED', closed_at: sql<Date>`inrp2p_now()`, closed_by: `SYSTEM:${ctx.commandName}`, close_reason: completed ? 'the order completed' : 'the order was cancelled' })
       .where('trader_order_id', '=', order.id)
       .where('status', 'in', ['REQUESTED', 'APPROVED'])
-      .returning(['id', 'ref', 'kind', 'status'])
+      .returning(['id', 'ref', 'status'])
       .execute();
     for (const a of open) {
-      await appendAudit(ctx, { action: 'trader_reserve.application_cancelled', entityType: 'trader_profile', entityId: order.trader_id, after: { status: 'CANCELLED', ref: a.ref, kind: a.kind, reason: completed ? 'order completed' : 'order cancelled' } });
+      await appendAudit(ctx, { action: 'trader_reserve.application_cancelled', entityType: 'trader_profile', entityId: order.trader_id, after: { status: 'CANCELLED', ref: a.ref, reason: completed ? 'order completed' : 'order cancelled' } });
     }
     if (order.side === 'SELL_USDT') {
       await releaseSubjectAssignment(ctx, { subject: { kind: 'ROUTE_OBLIGATION', routeObligationId: order.route_obligation_id }, reason: completed ? 'OBLIGATION_SETTLED' : 'OBLIGATION_CANCELLED' });

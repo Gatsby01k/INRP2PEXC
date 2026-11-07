@@ -145,8 +145,6 @@ export async function recordQuoteNetworkFee(ctx: TxContext, quoteId: string, p: 
       fee_sun: p.feeSun,
       fee_inr_minor: p.feeInrMinor,
       trader_order_id: p.traderOrderId,
-      reward_bps: 0,
-      reward_inr_minor: 0n,
       net_margin_inr_minor: p.netMarginInrMinor,
       reserve_sends: p.reserveSends,
       reserve_sun: p.reserveSun,

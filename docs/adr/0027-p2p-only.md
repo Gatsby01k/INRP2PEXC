@@ -23,13 +23,22 @@ Removed from the product:
 
 TRX mode (`BURN`) stays as the fallback for GasFree (ADR 0022).
 
-## 3. What stays in the schema for now
+## 3. The schema (migration 46)
 
-The database keeps the names and tables until the migration that drops them (`docs/DEPLOYMENT.md`, stage 3): `settlement_leg.side`
-is still `CLIENT_TO_EXCHANGE` / `EXCHANGE_TO_CLIENT`, `payer` is still `ROUTE` / `EXCHANGE_ACCOUNT`, route settlement flows are
-`DIRECT_TO_CLIENT` / `DIRECT_FROM_CLIENT` / `FROM_ROUTE_TO_EXCHANGE` / `TO_ROUTE`. In a P2P deal they mean: the rupees' leg, the USDT
-released to the buyer, and each side's delivery. `trader_order.reward_bps` is written as 0 because IX113 still reads it.
-`execution_mode` columns remain and are always `P2P` on new rows; queries keep filtering on them until old rows are retired.
+Migration 46 drops `inr_settlement_account`, `inr_account_day`, `capacity_reservation`, `settlement_entity`, `bank_statement_import`,
+`bank_statement_line`, `trade_collection`, `trader_reward_payout` and `treasury_reservation`, with every `reward_*` and `reimbursed_*`
+column, the columns that pointed at them, `treasury_wallet.reserved_minor` and the kinds and states of a reserve application that
+delivered USDT. It refuses, whole, if any of it ever carried money: nothing about money is dropped by accident, and a read-only
+`scripts/p2p-only-preflight.ts` gives the same answer beforehand. Release order: `docs/DEPLOYMENT.md`, Stage 3.
+
+The names of what remains are kept, because they are in the ledger, the audit trail and the guards: `settlement_leg.side` is still
+`CLIENT_TO_EXCHANGE` / `EXCHANGE_TO_CLIENT`, `payer` is still `ROUTE` / `EXCHANGE_ACCOUNT`, route settlement flows are `DIRECT_TO_CLIENT` /
+`DIRECT_FROM_CLIENT` / `FROM_ROUTE_TO_EXCHANGE`. In a P2P deal they mean: the rupees' leg, the USDT released to the buyer, and each
+side's delivery. The exchange can only ever pay USDT (`settlement_leg_exchange_pays_only_usdt`).
+
+`execution_mode` stays on `liquidity_route`, `route_obligation` and `trade_economics`, because fifteen financial guards read it and
+rewriting them to remove one word is not worth their risk. It can no longer vary: a live route and every new deal are P2P by
+constraint. Old rows keep what they were written with, and the code's filters on the column stay so they are never picked up.
 
 ## 4. Documents
 

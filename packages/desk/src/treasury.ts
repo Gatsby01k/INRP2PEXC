@@ -12,8 +12,6 @@ export interface TreasuryWalletView {
   readonly role: 'HOT' | 'COLD' | 'DEPOSIT_POOL' | 'TRADER_RESERVE' | 'NETWORK_BUDGET' | 'REVENUE';
   readonly status: 'ACTIVE' | 'PAUSED' | 'RETIRED';
   readonly observed: string;
-  readonly reserved: string;
-  readonly available: string;
   readonly observedAt: string | null;
 }
 
@@ -119,7 +117,7 @@ export interface BackfillView {
 export async function usdtView(ex: Executor, opts: { transferLimit?: number } = {}): Promise<UsdtView> {
   const wallets = await ex
     .selectFrom('treasury_wallet')
-    .select(['id', 'label', 'address', 'role', 'status', 'observed_balance_minor', 'reserved_minor', 'observed_at'])
+    .select(['id', 'label', 'address', 'role', 'status', 'observed_balance_minor', 'observed_at'])
     .where('status', '<>', 'RETIRED')
     .orderBy('role')
     .orderBy('label')
@@ -162,20 +160,15 @@ export async function usdtView(ex: Executor, opts: { transferLimit?: number } = 
   return {
     custody,
     maxObservationAgeSeconds: DEFAULT_SETTLEMENT_POLICY.maxObservationAgeSeconds,
-    wallets: wallets.map((w) => {
-      const available = w.observed_balance_minor - w.reserved_minor;
-      return {
-        walletId: w.id,
-        label: w.label,
-        address: w.address,
-        role: w.role,
-        status: w.status,
-        observed: Money.ofMinor(w.observed_balance_minor, 'USDT').toDecimalString(),
-        reserved: Money.ofMinor(w.reserved_minor, 'USDT').toDecimalString(),
-        available: Money.ofMinor(available > 0n ? available : 0n, 'USDT').toDecimalString(),
-        observedAt: w.observed_at ? w.observed_at.toISOString() : null,
-      };
-    }),
+    wallets: wallets.map((w) => ({
+      walletId: w.id,
+      label: w.label,
+      address: w.address,
+      role: w.role,
+      status: w.status,
+      observed: Money.ofMinor(w.observed_balance_minor, 'USDT').toDecimalString(),
+      observedAt: w.observed_at ? w.observed_at.toISOString() : null,
+    })),
     pool,
     transfers: transfers.rows.map((t) => ({
       id: t.id,

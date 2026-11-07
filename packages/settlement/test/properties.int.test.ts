@@ -107,8 +107,6 @@ describe('property: random command sequences never break the invariants', () => 
     expect(await routeObligationMismatches(w.app)).toEqual([]);
 
     const ids = sql.join(deals.map((d) => sql`${d.tradeId}`));
-    // ---- FI-71: no deal holds any of the treasury.
-    expect((await sql`select id from treasury_reservation where trade_id in (${ids})`.execute(w.app)).rows).toEqual([]);
 
     // ---- FI-75: no source is earmarked beyond what arrived.
     const sources = await sql<{ source_id: string; amount: string; taken: string }>`

@@ -15,7 +15,6 @@ function sub(prefix: LedgerAccountType, name: string, id: string | null, currenc
 }
 
 export const Accounts = {
-  inrSettlement: (inrAccountId: string) => sub('ASSET', 'INR_SETTLEMENT', inrAccountId, 'INR'),
   treasuryUsdt: (walletId: string) => sub('ASSET', 'TREASURY_USDT', walletId, 'USDT'),
   clientReceivable: (clientId: string, currency: CurrencyCode) => sub('ASSET', 'CLIENT_RECEIVABLE', clientId, currency),
   clientPayable: (clientId: string, currency: CurrencyCode) => sub('LIAB', 'CLIENT_PAYABLE', clientId, currency),

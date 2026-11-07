@@ -8,7 +8,7 @@ import { appendAudit } from '@inrp2p/audit';
  * client is paid with what the counterparty delivered, the counterparty and a refund with what the client sent —
  * of this trade, in this asset, from the place the money actually is. The platform's own funds never enter.
  *
- * A place is `INR:{inr_account_id}` or `TRON:{address}`. Allocations are earmarks over money the ledger already
+ * A place is `INR:{payee}` or `TRON:{address}`. Allocations are earmarks over money the ledger already
  * recorded; they post no journal (FI-27).
  */
 export const tronLocation = (address: string): string => `TRON:${address}`;

@@ -268,10 +268,8 @@ export interface DeskWalletView {
 export interface DeskReserveApplication {
   readonly applicationId: string;
   readonly ref: string;
-  /** APPLY: the reserve delivers the order's USDT. HOLD: kept back against INR the order owes; nothing moves. */
-  readonly kind: 'APPLY' | 'HOLD';
   readonly orderRef: string;
-  /** USDT, for both kinds. */
+  /** USDT kept back against rupees the order owes; nothing moves. */
   readonly amount: string;
   readonly status: TraderReserveApplicationStatus;
   readonly reason: string;
@@ -280,8 +278,6 @@ export interface DeskReserveApplication {
   readonly requestedAt: string;
   readonly decidedByLabel: string | null;
   readonly closeReason: string | null;
-  readonly deliveryAddress: string | null;
-  readonly txHash: string | null;
 }
 
 export interface DeskTraderDetail {
@@ -395,13 +391,11 @@ export async function deskTrader(ex: Executor, traderId: string): Promise<DeskTr
     .limit(50)
     .execute();
   const applications = await sql<{
-    id: string; ref: string; kind: 'APPLY' | 'HOLD'; order_ref: string; amount_minor: string; status: TraderReserveApplicationStatus; reason: string; requested_by: string;
-    requested_by_label: string | null; requested_at: Date; decided_by_label: string | null; close_reason: string | null; delivery_address: string | null; tx_hash: string | null;
+    id: string; ref: string; order_ref: string; amount_minor: string; status: TraderReserveApplicationStatus; reason: string; requested_by: string;
+    requested_by_label: string | null; requested_at: Date; decided_by_label: string | null; close_reason: string | null;
   }>`
-    select a.id, a.ref, a.kind, o.ref as order_ref, a.amount_minor::text, a.status, a.reason, a.requested_by, coalesce(ru.name, ru.email) as requested_by_label,
-           a.requested_at, coalesce(du.name, du.email) as decided_by_label, a.close_reason,
-           (select d.address from deposit_assignment x join deposit_address d on d.id = x.deposit_address_id where x.route_obligation_id = a.route_obligation_id limit 1) as delivery_address,
-           (select c.tx_hash from route_settlement s join crypto_transfer c on c.id = s.crypto_transfer_id where s.reserve_application_id = a.id) as tx_hash
+    select a.id, a.ref, o.ref as order_ref, a.amount_minor::text, a.status, a.reason, a.requested_by, coalesce(ru.name, ru.email) as requested_by_label,
+           a.requested_at, coalesce(du.name, du.email) as decided_by_label, a.close_reason
       from trader_reserve_application a
       join trader_order o on o.id = a.trader_order_id
       left join auth_user ru on ru.id = a.requested_by
@@ -415,7 +409,7 @@ export async function deskTrader(ex: Executor, traderId: string): Promise<DeskTr
      where o.trader_id = ${id} and o.status = 'IN_PROGRESS' and o.side = 'BUY_USDT'
        and t.lifecycle_state in ('FIRST_LEG_CONFIRMED', 'SETTLING', 'PARTIALLY_SETTLED')
        and inrp2p_route_delivery_open(o.route_obligation_id) > 0
-       and not exists (select 1 from trader_reserve_application a where a.trader_order_id = o.id and a.status in ('REQUESTED', 'APPROVED', 'SENT'))
+       and not exists (select 1 from trader_reserve_application a where a.trader_order_id = o.id and a.status in ('REQUESTED', 'APPROVED'))
      order by o.started_at`.execute(ex);
   const e = await completedVolume(ex, id);
   const decisions = await ex
@@ -490,9 +484,8 @@ export async function deskTrader(ex: Executor, traderId: string): Promise<DeskTr
     },
     withdrawals: withdrawals.map((w) => ({ withdrawalId: w.id, ref: w.ref, amount: usdt(w.amount_minor), status: w.status, destination: w.destination_address, requestedAt: w.requested_at.toISOString(), txHash: w.tx_hash, closeReason: w.close_reason })),
     applications: applications.rows.map((a) => ({
-      applicationId: a.id, ref: a.ref, kind: a.kind, orderRef: a.order_ref, amount: usdt(BigInt(a.amount_minor)), status: a.status, reason: a.reason, requestedBy: a.requested_by,
+      applicationId: a.id, ref: a.ref, orderRef: a.order_ref, amount: usdt(BigInt(a.amount_minor)), status: a.status, reason: a.reason, requestedBy: a.requested_by,
       requestedByLabel: a.requested_by_label ?? 'an operator', requestedAt: a.requested_at.toISOString(), decidedByLabel: a.decided_by_label, closeReason: a.close_reason,
-      deliveryAddress: a.delivery_address, txHash: a.tx_hash,
     })),
     applicableOrders: applicable.rows.map((o) => ({ orderId: o.id, ref: o.ref, kind: 'HOLD' as const, owed: inr(BigInt(o.owed)), owedAsset: 'INR' as const })),
     earnings: { completedUsdt: e.completedUsdt, completedInr: e.completedInr },

@@ -199,9 +199,9 @@ describe('a client sells USDT to the desk at its live price', () => {
     expect(await balanceOf(w.app, 'REVENUE:GROSS_MARGIN', 'USDT', { tradeId: accepted.tradeId })).toBe(0n);
     expect(await balanceOf(w.app, 'LIAB:DEFERRED_MARGIN', 'USDT', { tradeId: accepted.tradeId })).toBe(0n);
     expect(await balanceOf(w.app, 'ASSET:INR_SETTLEMENT:', 'INR', { tradeId: accepted.tradeId })).toBe(0n);
-    // The desk's TRX paid the transfer, and none of it is paid back.
-    const closed = await w.app.selectFrom('network_budget_hold').select(['status', 'spent_sun', 'reimbursed_sun']).where('trade_id', '=', accepted.tradeId).executeTakeFirstOrThrow();
-    expect(closed).toMatchObject({ status: 'CLOSED', reimbursed_sun: 0n });
+    // The desk's TRX paid the transfer.
+    const closed = await w.app.selectFrom('network_budget_hold').select(['status', 'spent_sun']).where('trade_id', '=', accepted.tradeId).executeTakeFirstOrThrow();
+    expect(closed).toMatchObject({ status: 'CLOSED' });
     expect(closed.spent_sun!).toBeGreaterThan(0n);
     expect(await globalImbalance(w.app)).toEqual([]);
   });

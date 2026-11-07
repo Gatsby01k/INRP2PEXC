@@ -55,12 +55,9 @@ export function TraderMoney({ detail, perms }: { detail: DeskTraderDetail; perms
 
 const APPLICATION_STATUS: Record<DeskTraderDetail['applications'][number]['status'], { label: string; tone: 'warning' | 'success' | 'danger' | 'muted' }> = {
   REQUESTED: { label: 'waiting for approval', tone: 'warning' },
-  APPROVED: { label: 'approved — custody to send', tone: 'warning' },
-  SENT: { label: 'sent — waiting for the chain', tone: 'warning' },
-  COMPLETED: { label: 'applied', tone: 'success' },
+  APPROVED: { label: 'held — not withdrawable', tone: 'warning' },
   REJECTED: { label: 'declined', tone: 'muted' },
-  CANCELLED: { label: 'withdrawn', tone: 'muted' },
-  FAILED: { label: 'failed', tone: 'danger' },
+  CANCELLED: { label: 'released', tone: 'muted' },
 };
 
 /**
@@ -137,12 +134,12 @@ function Application({ a, perms }: { a: DeskTraderDetail['applications'][number]
   const mine = a.requestedBy === perms.meId;
   const s = APPLICATION_STATUS[a.status];
   return (
-    <li className={t.leg} {...(a.status === 'REQUESTED' || a.status === 'APPROVED' || a.status === 'SENT' ? { 'data-attention': '' } : {})}>
+    <li className={t.leg} {...(a.status === 'REQUESTED' || a.status === 'APPROVED' ? { 'data-attention': '' } : {})}>
       <div className={t.legHead}>
         <span className={t.legAmount}>
           {usdt(a.amount, { exact: true })} held against {a.orderRef}
         </span>
-        <Chip tone={s.tone}>{a.status === 'APPROVED' ? 'held — not withdrawable' : a.status === 'CANCELLED' ? 'released' : s.label}</Chip>
+        <Chip tone={s.tone}>{s.label}</Chip>
       </div>
       <div className={t.legMeta}>
         <span>{a.ref}</span>
@@ -150,7 +147,7 @@ function Application({ a, perms }: { a: DeskTraderDetail['applications'][number]
         {a.decidedByLabel ? <span>decided by {a.decidedByLabel}</span> : null}
       </div>
       <Notice>{a.reason}</Notice>
-      {a.closeReason && a.status !== 'COMPLETED' ? <Notice>{a.closeReason}</Notice> : null}
+      {a.closeReason ? <Notice>{a.closeReason}</Notice> : null}
       {a.status === 'REQUESTED' ? (
         mine ? (
           <div className={d.actions}>

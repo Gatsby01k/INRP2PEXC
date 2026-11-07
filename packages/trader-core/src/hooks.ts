@@ -99,9 +99,6 @@ export async function startOrderForTrade(ctx: TxContext, input: { requestId: str
       route_obligation_id: input.routeObligationId,
       quote_id: input.quoteId,
       started_at: sql<Date>`inrp2p_now()`,
-      // No reward exists any more; the columns and IX113 go with the next migration.
-      reward_bps: 0,
-      reward_inr_minor: 0n,
       version: order.version + 1,
     })
     .where('id', '=', order.id)

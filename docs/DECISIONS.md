@@ -250,4 +250,4 @@ switches it on; desks and their fees unchanged; anything that cannot be priced h
 
 ## D-25 — P2P only: the old settlement models are removed — Resolved (owner, 2026-11-05; ADR 0027)
 
-INR accounts, payments through the exchange, operator-recorded payouts, direct payouts and trader rewards are deleted. TRX mode stays as the fallback for GasFree. Their tables go with a later migration.
+INR accounts, payments through the exchange, operator-recorded payouts, direct payouts and trader rewards are deleted. TRX mode stays as the fallback for GasFree. Their tables go with migration 46.

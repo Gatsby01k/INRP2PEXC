@@ -337,13 +337,8 @@ describe('trade opening (T1, FI-03, FI-33, D-02)', () => {
       const q = await runAs(buy.app, createQuote(buy.dealer.actor, {}), buy.dealer.ref, 'quote.create', { requestId: r.requestId, routeId, clientRate: '106.000000', validitySeconds: 300 });
       await runAs(buy.app, sendQuote(buy.dealer.actor, {}), buy.dealer.ref, 'quote.send', { quoteId: q.quoteId });
       const accepted = await runAs(buy.app, acceptQuote(buy.acceptor.actor, buy.deps), buy.acceptor.ref, 'quote.accept', { quoteId: q.quoteId });
-      expect(await buy.app.selectFrom('treasury_reservation').select('id').where('trade_id', '=', accepted.tradeId).execute()).toEqual([]);
       expect((await buy.app.selectFrom('trade_funding').select('model').where('trade_id', '=', accepted.tradeId).executeTakeFirstOrThrow()).model).toBe('COUNTERPARTY_FUNDED');
-      // Whatever code tried, the database would not let the exchange reserve its own USDT for this trade (IX083).
-      const hot = await buy.app.selectFrom('treasury_wallet').select('id').where('role', '=', 'HOT').executeTakeFirstOrThrow();
-      await expect(sql`insert into treasury_reservation (treasury_wallet_id, trade_id, amount_minor, created_by) values (${hot.id}, ${accepted.tradeId}, 1, 'test')`.execute(buy.t.owner))
-        .rejects.toSatisfy((e) => pgErrorCode(e) === 'IX083');
-      // …and it never makes a legacy trade again (IX082), not even through a privileged connection.
+      // It never makes a legacy trade again (IX082), not even through a privileged connection.
       await expect(sql`insert into trade_funding (trade_id, model) values (${accepted.tradeId}, 'LEGACY_EXCHANGE_FUNDED')`.execute(buy.t.owner)).rejects.toSatisfy((e) => pgErrorCode(e) === 'IX082' || pgErrorCode(e) === '23505');
       // A client buying sends no USDT, so no deposit address is its own: the trader's escrow is the order's.
       expect(await buy.app.selectFrom('deposit_assignment').select('id').where('trade_id', '=', accepted.tradeId).execute()).toEqual([]);

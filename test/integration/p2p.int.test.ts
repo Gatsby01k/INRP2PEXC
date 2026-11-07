@@ -110,10 +110,9 @@ describe('a client buys USDT: the trader’s USDT into escrow, the client’s ru
     expect(order.base_minor).toBe(econ.route_base_minor);
     expect(econ.route_base_minor! - econ.base_minor).toBe(econ.gross_margin_base_minor);
     expect(econ.gross_margin_base_minor!).toBeGreaterThan(usdt('12'));
-    // Nobody is told where to pay before the trader's USDT is in: no collection account, no reward, the trader's TRX.
-    expect(await w.app.selectFrom('trade_collection').select('trade_id').where('trade_id', '=', trade.tradeId).executeTakeFirst()).toBeUndefined();
+    // The trader's TRX pays the network.
     const fee = await w.app.selectFrom('quote_network_fee').selectAll().where('quote_id', '=', trade.quote.quoteId).executeTakeFirstOrThrow();
-    expect(fee).toMatchObject({ funder_trader_id: usdtTrader.traderId, reward_inr_minor: 0n });
+    expect(fee).toMatchObject({ funder_trader_id: usdtTrader.traderId });
     expect(fee.net_margin_usdt_minor).toBe(econ.gross_margin_base_minor);
     const hold = await w.app.selectFrom('network_budget_hold').selectAll().where('trade_id', '=', trade.tradeId).executeTakeFirstOrThrow();
     expect(hold.trader_id).toBe(usdtTrader.traderId);
@@ -162,11 +161,10 @@ describe('a client buys USDT: the trader’s USDT into escrow, the client’s ru
     expect((await w.app.selectFrom('route_obligation').select('status').where('id', '=', obligation.id).executeTakeFirstOrThrow()).status).toBe('SETTLED');
     expect(-(await balanceOf(w.app, 'REVENUE:GROSS_MARGIN', 'USDT', { tradeId: trade.tradeId }))).toBe(econ.gross_margin_base_minor);
     expect(await balanceOf(w.app, 'REVENUE:GROSS_MARGIN', 'INR', { tradeId: trade.tradeId })).toBe(0n);
-    // The trader's TRX paid the network, and nothing of it is paid back: no INR to pay it with, no platform TRX.
-    const spent = await w.app.selectFrom('network_budget_hold').select(['trader_id', 'status', 'spent_sun', 'reimbursed_sun', 'reimbursed_inr_minor']).where('trade_id', '=', trade.tradeId).executeTakeFirstOrThrow();
-    expect(spent).toMatchObject({ trader_id: usdtTrader.traderId, status: 'CLOSED', reimbursed_sun: 0n, reimbursed_inr_minor: 0n });
+    // The trader's TRX paid the network: no platform TRX.
+    const spent = await w.app.selectFrom('network_budget_hold').select(['trader_id', 'status', 'spent_sun']).where('trade_id', '=', trade.tradeId).executeTakeFirstOrThrow();
+    expect(spent).toMatchObject({ trader_id: usdtTrader.traderId, status: 'CLOSED' });
     expect(spent.spent_sun!).toBeGreaterThan(0n);
-    expect(await balanceOf(w.app, 'LIAB:TRADER_REWARD_PAYABLE', 'INR')).toBe(0n);
     expect((await budgetFigures(w.app, null)).availableSun).toBe(platformBudget);
     expect(await globalImbalance(w.app)).toEqual([]);
   });

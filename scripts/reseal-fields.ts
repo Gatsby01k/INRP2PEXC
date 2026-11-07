@@ -50,7 +50,6 @@ export interface SealedField {
 /** Every `inrp2p_sealed` column of the schema. A column the database has and this list lacks stops the tool. */
 export const SEALED_FIELDS: readonly SealedField[] = [
   { table: 'bank_account', column: 'account_number_enc', with: ['client_id'], context: (r) => bankAccountSealContext(String(r.client_id)), hmac: { column: 'account_hmac', context: BANK_ACCOUNT_HMAC_CONTEXT } },
-  { table: 'inr_settlement_account', column: 'account_number_enc', with: ['entity_id'], context: (r) => `inr_settlement_account.account_number:${String(r.entity_id)}`, hmac: { column: 'account_hmac', context: 'inr_settlement_account.account_number' } },
   { table: 'client_contact', column: 'phone_enc', with: ['client_id'], context: (r) => contactPhoneSealContext(String(r.client_id), 'phone') },
   { table: 'client_contact', column: 'whatsapp_enc', with: ['client_id'], context: (r) => contactPhoneSealContext(String(r.client_id), 'whatsapp') },
   { table: 'trader_profile', column: 'phone_enc', with: ['client_id'], context: (r) => traderPhoneSealContext(String(r.client_id)) },
