@@ -99,6 +99,12 @@ export async function runTronConfirm(db: Db, deps: ScannerDeps): Promise<Confirm
 }
 
 async function verifyOne(ctx: TxContext, deps: ScannerDeps, candidate: Candidate): Promise<{ outcome: ConfirmOutcome; caseOpened: boolean }> {
+  // Two runs at once — a slow run overtaken by the next minute's, or the old and the new worker during a rollout — read
+  // the same DETECTED transfer. The one that holds it settles it; the other steps aside, rather than failing on the
+  // first one's state guard, logging an error and, for an aged transfer, opening a not-final case for money that settled.
+  const held = await sql<{ ok: boolean }>`select pg_try_advisory_xact_lock(hashtext(${`inrp2p.transfer_verify:${candidate.id}`})) as ok`.execute(ctx.tx);
+  if (!held.rows[0]!.ok) return { outcome: 'SKIPPED', caseOpened: false };
+  // Read after taking it: a run that settled the transfer and let go has committed, and its state shows here.
   const transfer = await ctx.tx
     .selectFrom('crypto_transfer')
     .select(['id', 'state', 'amount_minor', 'to_address', 'payer_type', 'payer_id', 'payee_type', 'payee_id'])
