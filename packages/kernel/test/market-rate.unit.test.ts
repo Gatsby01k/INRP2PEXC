@@ -79,3 +79,15 @@ describe('the network the client pays on INRP2P’s own deal (ADR 0028)', () => 
     expect(a.clientNetworkBase).toBeUndefined();
   });
 });
+
+describe('the bank an IFSC belongs to', () => {
+  it('names the banks traders settle with by the four letters of the code, and nothing else', async () => {
+    const { bankNameOfIfsc } = await import('../src/index.ts');
+    expect(bankNameOfIfsc('HDFC0001234')).toBe('HDFC Bank');
+    expect(bankNameOfIfsc('icic0000104')).toBe('ICICI Bank');
+    expect(bankNameOfIfsc('SBIN')).toBe('State Bank of India');
+    expect(bankNameOfIfsc('UTIB0')).toBe('Axis Bank');
+    expect(bankNameOfIfsc('ZZZZ0001234')).toBeNull();
+    expect(bankNameOfIfsc('HD')).toBeNull();
+  });
+});

@@ -75,9 +75,12 @@ export function AssistantPanel({
   meta,
   children,
   after,
+  lead = true,
 }: {
   state: AssistantState;
   size?: 'large' | 'compact';
+  /** On a narrow screen the panel leads the page (its status first); off, it follows the work. */
+  lead?: boolean;
   steps?: readonly Step[] | null | undefined;
   meta?: ReactNode;
   children?: ReactNode;
@@ -88,7 +91,7 @@ export function AssistantPanel({
   useAssistantState(state);
 
   return (
-    <aside className={shell.aside} data-lead="" aria-labelledby={titleId}>
+    <aside className={shell.aside} {...(lead ? { 'data-lead': '' } : {})} aria-labelledby={titleId}>
       <section className={styles.note} data-assistant-mood={state.mood}>
         <div className={styles.noteHead}>
           <span className={styles.avatarFrame} aria-hidden="true">

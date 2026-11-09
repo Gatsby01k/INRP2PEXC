@@ -80,6 +80,20 @@ price request whose award finds them switched off goes to a person, as every req
 Disputes; a payee silent past its window; a sender name that does not match; a payout above the second-person threshold;
 a send blocked by its cap. None of these is pricing or routing.
 
+### 2.7 One price for a trader, and a way in that says what comes next (2026-11-09, migration `0048`)
+A trader set its rate twice — on its sides for INRP2P's orders, and on its desk for its own clients, the second a fixed
+number that ran out — and its way in hid its next step. Now:
+
+- **A desk's price may follow its side** (`desk_price.basis = 'SIDE'`): the side's rate as it is now, its own number or its
+  market rate, with no number and no end of its own; off while the side has no rate. A desk deal on it records the
+  reference and terms its rate was derived from (IX143), like every order at a market rate. A desk opened by someone who
+  can bind the trader starts with both directions priced this way (100 to 10,000 USDT a deal), as a draft.
+- **The way in**: the Security Reserve is named with its amount before anyone applies; the application is three steps (the
+  bank named from its IFSC, the holder from the applicant's name); the Traders screen then shows the four steps to a first
+  order — application, reserve (sent first, from the registered wallet, which proves it), prices, online — each with its
+  one action; and a first-start screen sets both sides against the market (shortcuts, or any percentage), their offers firm
+  while online, and goes online in one press.
+
 ## 3. Consequences
 
 - With automatic prices on and traders at market rates, the INRP2P exchange prices, routes and accepts every deal itself, at

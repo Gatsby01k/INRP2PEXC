@@ -381,7 +381,7 @@ export function AccessSurface({ mode = 'SIGN_IN', next, telegram = null }: { mod
 
   return (
     <section className={styles.surface} aria-label={trader ? 'Open your exchange' : 'Workspace sign-in'} data-robot-target="panel">
-      <p className={styles.product}>{trader ? 'Step one of three' : 'INRP2P Exchange'}</p>
+      <p className={styles.product}>{trader ? 'Step one · your email' : 'INRP2P Exchange'}</p>
 
       <div className={styles.faces} data-robot-target="cta">
         <Face face="EMAIL" stage={stage}>
@@ -442,7 +442,7 @@ export function AccessSurface({ mode = 'SIGN_IN', next, telegram = null }: { mod
               </button>
               <p id={ids.emailNote} className={styles.note}>
                 {trader
-                  ? 'We send a 6-digit code. Then you tell us what you can provide; your exchange opens once INRP2P approves you.'
+                  ? 'We send a 6-digit code. Then you apply in three short steps and send your Security Reserve from your own wallet; your exchange opens once INRP2P approves you.'
                   : 'We send a 6-digit code. No password to remember.'}
               </p>
               {/* The other way in, where Telegram is set up; otherwise what the code opens, in three lines. */}

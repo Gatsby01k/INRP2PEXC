@@ -1,5 +1,6 @@
 import { sql } from 'kysely';
 import { Money, Rate, requireUuid } from '@inrp2p/kernel';
+import { marketReferences } from '@inrp2p/pricing';
 import type { DeskStatus, DirectionValue, Executor } from '@inrp2p/db';
 import { currentDeskPrices } from '@inrp2p/trader-core';
 
@@ -95,7 +96,8 @@ export interface OpsDesk extends OpsDeskRow {
   readonly suspendedAt: string | null;
   readonly pageHiddenReason: string | null;
   readonly pageHiddenAt: string | null;
-  readonly prices: Readonly<Record<DirectionValue, { readonly rate: string; readonly min: string; readonly max: string; readonly offered: boolean; readonly validUntil: string } | null>>;
+  /** Migration 0048: `SIDE` follows the desk's side on Traders — its rate as it is now, no end of its own. */
+  readonly prices: Readonly<Record<DirectionValue, { readonly basis: 'OWN' | 'SIDE'; readonly rate: string | null; readonly min: string; readonly max: string; readonly offered: boolean; readonly validUntil: string | null } | null>>;
   readonly team: number;
   readonly deals: readonly OpsDeskDeal[];
   readonly history: readonly OpsDeskHistory[];
@@ -107,11 +109,14 @@ export async function opsDesk(ex: Executor, deskId: string): Promise<OpsDesk | n
   const [agg] = await deskAggregates(ex, id);
   if (!agg) return null;
   const d = await ex.selectFrom('desk').select(['about', 'suspension_reason', 'suspended_at', 'page_hidden_reason', 'page_hidden_at']).where('id', '=', id).executeTakeFirstOrThrow();
-  const current = await currentDeskPrices(ex, id);
+  const current = await currentDeskPrices(ex, id, await marketReferences(ex));
   const priceOf = (dir: DirectionValue) => {
     const p = current[dir];
     return p
-      ? { rate: Rate.ofMicro(p.rateMicro, 'CLIENT').toDecimalString(), min: Money.ofMinor(p.minBaseMinor, 'USDT').toDecimalString(), max: Money.ofMinor(p.maxBaseMinor, 'USDT').toDecimalString(), offered: p.offered, validUntil: p.validUntil.toISOString() }
+      ? {
+        basis: p.basis, rate: p.rateMicro === null ? null : Rate.ofMicro(p.rateMicro, 'CLIENT').toDecimalString(), min: Money.ofMinor(p.minBaseMinor, 'USDT').toDecimalString(),
+        max: Money.ofMinor(p.maxBaseMinor, 'USDT').toDecimalString(), offered: p.offered, validUntil: p.validUntil?.toISOString() ?? null,
+      }
       : null;
   };
   const team = await sql<{ n: number }>`select count(*)::int as n from client_user cu join trader_profile tp on tp.client_id = cu.client_id where tp.id = ${agg.trader_id} and cu.status = 'ACTIVE'`.execute(ex);

@@ -53,7 +53,7 @@ export function DeskSettings({ desk, prices, host, canAdmin, approved }: { desk:
               return (
                 <div key={d} className={styles.priceTile} {...(on ? {} : { 'data-off': '' })}>
                   <span className={styles.priceCaption}>{d === 'SELL_USDT' ? 'Sell USDT' : 'Buy USDT'}</span>
-                  <span className={styles.priceValue}>{on && p ? <Amount value={rate(p.rate)} /> : '—'}</span>
+                  <span className={styles.priceValue}>{on && p?.rate ? <Amount value={rate(p.rate)} /> : '—'}</span>
                   <span className={styles.priceMeta}>{on && p ? `${usdt(p.min, false)}–${usdt(p.max)}` : desk.status === 'LIVE' ? 'Not offered now' : 'Shown once live'}</span>
                 </div>
               );

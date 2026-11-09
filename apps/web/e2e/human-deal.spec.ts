@@ -511,8 +511,11 @@ test('a payment the trader says never came: the client adds its side, and a pers
   did(deal, 'TRADER', 'says the rupees have not arrived');
 
   await phone.bringToFront();
-  await phone.reload();
-  await expect(phone.getByText('The seller says your', { exact: false }).first()).toBeVisible();
+  // As a person would: look again until the seller's word is there (the trader's screen may say so a moment sooner).
+  await expect(async () => {
+    await phone.reload();
+    await expect(phone.getByText('The seller says your', { exact: false }).first()).toBeVisible({ timeout: 2_000 });
+  }).toPass({ timeout: 30_000 });
   const side = phone.getByRole('region', { name: 'Add your side for INRP2P' }).first();
   await side.getByLabel('For INRP2P').fill('Paid by IMPS from HDFC ••2346 at 14:02, UTR 634567890123 — receipt in the chat');
   await side.getByRole('button', { name: 'Send to INRP2P' }).click();

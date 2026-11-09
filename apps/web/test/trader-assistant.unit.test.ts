@@ -57,6 +57,8 @@ const home = (over: Partial<TraderHome> = {}): TraderHome => ({
   proposal: { bank: null, wallet: null, effectiveAt: null, waitingOn: null },
   review: null,
   limits: null,
+  programmeReserve: '2000.000000',
+  deskOpened: false,
   openOrders: 0,
   now: '2026-09-27T17:51:00.000Z',
   ...over,
@@ -96,8 +98,11 @@ describe('the trader home robot', () => {
   });
 
   it('before applying, under review, rejected and paused each say exactly that', () => {
-    expect(traderHomeAssistant(home({ state: 'NONE', ref: null }))).toMatchObject({ mood: 'ready', title: 'Provide liquidity' });
+    expect(traderHomeAssistant(home({ state: 'NONE', ref: null }))).toMatchObject({ mood: 'ready', title: 'Four steps to your first order' });
     expect(traderHomeAssistant(home({ state: 'UNDER_REVIEW' }))).toMatchObject({ mood: 'waiting', label: 'Under review' });
+    // A person reviews it, and the reserve is still to send: that is the next step, said as one.
+    expect(traderHomeAssistant(home({ state: 'UNDER_REVIEW', review: { automatic: false, waitingOn: 'DESK', reserveToSend: '2000.000000' } })))
+      .toMatchObject({ mood: 'focused', label: 'Under review', title: 'Next: send 2,000 USDT to your Security Reserve' });
     expect(traderHomeAssistant(home({ state: 'REJECTED', application: application({ reviewNote: 'Bank account name does not match' }) })))
       .toMatchObject({ mood: 'alert', body: 'Bank account name does not match' });
     const paused = traderHomeAssistant(home({ state: 'PAUSED', controlNote: 'Statement check', active: [order({ ref: 'TO-1', stage: 'YOUR_TURN', youOwe: '104700.00' })] }));

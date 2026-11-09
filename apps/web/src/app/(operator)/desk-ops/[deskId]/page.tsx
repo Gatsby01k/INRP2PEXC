@@ -34,7 +34,9 @@ export default async function DeskOpsDeskPage({ params }: { params: Promise<{ de
   if (!desk) notFound();
   const price = (dir: 'SELL_USDT' | 'BUY_USDT') => {
     const p = desk.prices[dir];
-    return p ? `${rate(p.rate)} · ${usdt(p.min, { unit: false })}–${usdt(p.max)}${p.offered ? '' : ' · off'}` : 'not set';
+    if (!p) return 'not set';
+    const at = p.rate ? rate(p.rate) : 'no rate now';
+    return `${at}${p.basis === 'SIDE' ? ' (as on Traders)' : ''} · ${usdt(p.min, { unit: false })}–${usdt(p.max)}${p.offered ? '' : ' · off'}`;
   };
 
   return (

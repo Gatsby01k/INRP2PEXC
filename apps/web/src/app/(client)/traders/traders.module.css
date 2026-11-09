@@ -713,6 +713,246 @@
   font-weight: var(--font-weight-semibold);
 }
 
+.how[data-count='4'] {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+@media (max-width: 1279px) {
+  .how[data-count='4'] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.haveReady {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-normal);
+}
+
+.haveReady span {
+  margin-right: var(--space-2);
+  color: var(--text-primary);
+  font-weight: var(--font-weight-semibold);
+}
+
+/* ——— The way to a first order: four steps, the one to act on in the mark's orange ——— */
+
+.start {
+  gap: var(--space-5);
+}
+
+.startHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.startCount {
+  color: var(--text-secondary);
+  font-size: var(--font-size-meta);
+  font-variant-numeric: tabular-nums;
+}
+
+.startList {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.startItem {
+  position: relative;
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: var(--space-4);
+  padding-bottom: var(--space-5);
+}
+
+/* The thread between steps, drawn up to the next number. */
+.startItem:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  top: 36px;
+  bottom: 4px;
+  left: 15px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--border-default);
+}
+
+.startItem[data-state='done']:not(:last-child)::after {
+  background: var(--brand-primary);
+}
+
+.startNum {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--bg-surface);
+  box-shadow: inset 0 0 0 1.5px var(--border-default);
+  color: var(--text-secondary);
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.startNum svg {
+  width: 16px;
+  height: 16px;
+}
+
+.startItem[data-state='done'] .startNum {
+  background: var(--brand-primary);
+  box-shadow: none;
+  color: var(--text-on-action);
+}
+
+.startItem[data-state='current'] .startNum {
+  box-shadow: inset 0 0 0 2px var(--brand-primary), 0 0 0 4px color-mix(in srgb, var(--brand-primary) 16%, transparent);
+  color: var(--brand-action);
+}
+
+.startBody {
+  display: grid;
+  gap: var(--space-2);
+  align-content: start;
+  padding-top: 5px;
+}
+
+.startTitle {
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.3;
+}
+
+.startItem[data-state='pending'] .startTitle {
+  color: var(--text-secondary);
+}
+
+.startText {
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-normal);
+  overflow-wrap: anywhere;
+}
+
+.startMeta {
+  color: var(--text-muted);
+}
+
+.startAside {
+  margin: 0;
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--line-soft, var(--border-default));
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-sm);
+}
+
+/* ——— Chips: a short answer among a few, in one line ——— */
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 var(--space-4);
+  border-radius: 999px;
+  background: var(--bg-surface);
+  box-shadow: inset 0 0 0 1px var(--border-default);
+  color: var(--text-primary);
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-medium, 500);
+  cursor: pointer;
+  transition: box-shadow 120ms ease, background-color 120ms ease;
+}
+
+.chip input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.chip:has(input:checked) {
+  background: var(--brand-soft);
+  box-shadow: inset 0 0 0 1.5px var(--brand-primary);
+  color: var(--brand-action);
+}
+
+.chip:has(input:focus-visible) {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 2px;
+}
+
+/* ——— The first start: both sides on one screen ——— */
+
+.setup {
+  gap: var(--space-8);
+}
+
+.setupSide {
+  display: grid;
+  gap: var(--space-4);
+  padding-bottom: var(--space-8);
+  border-bottom: 1px solid var(--line-soft, var(--border-default));
+}
+
+.setupTitle {
+  margin: 0;
+  font-size: clamp(20px, 2.2vw, 24px);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.02em;
+}
+
+.setupRate {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-input);
+  background: var(--brand-soft);
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-normal);
+}
+
+.setupRate strong {
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.setupFinish {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.setupFinish .check {
+  align-items: flex-start;
+}
+
+.setupFinish .check > span {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.setupHint {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-regular, 400);
+  line-height: var(--line-height-normal);
+}
+
 /* ——— The application ——— */
 
 .steps {
@@ -1060,7 +1300,8 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .how {
+  .how,
+  .how[data-count='4'] {
     grid-template-columns: minmax(0, 1fr);
   }
 

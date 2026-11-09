@@ -1,5 +1,6 @@
 import { sql } from 'kysely';
 import { DomainError, Money, NO_MARKET, Rate, requireText } from '@inrp2p/kernel';
+import { marketReferences } from '@inrp2p/pricing';
 import type { DeskStatus, DirectionValue, Executor, TraderStatus } from '@inrp2p/db';
 import {
   type TierName, type StandingIssue, currentDeskPrices, currentFeePolicy, deskOfTrader, freeCapacity, readBlocks, readStanding, switchOnIssues, traderMembership,
@@ -93,21 +94,32 @@ async function ownDesk(ex: Executor, userId: string) {
 }
 
 export interface DeskPriceView {
-  readonly rate: string;
+  /** Migration 0048: the desk's own number (`OWN`), or its side's rate on Traders as it is now (`SIDE`). */
+  readonly basis: 'OWN' | 'SIDE';
+  /** The rate clients are priced at now; null for a price following a side that has no rate right now. */
+  readonly rate: string | null;
   readonly min: string;
   readonly max: string;
   readonly live: boolean;
-  readonly validUntil: string;
+  /** Until when an own price stands; null for one following a side. */
+  readonly validUntil: string | null;
+  /** For a price following a side at a market rate: the side's offset from the market, in basis points. */
+  readonly marketOffsetBps: number | null;
   /** Live and not past its time: what a client on the page is priced at. */
   readonly offered: boolean;
   readonly setAt: string;
 }
 
 export async function deskPriceViews(ex: Executor, deskId: string): Promise<Readonly<Record<DirectionValue, DeskPriceView | null>>> {
-  const current = await currentDeskPrices(ex, deskId);
+  const current = await currentDeskPrices(ex, deskId, await marketReferences(ex));
   const view = (d: DirectionValue): DeskPriceView | null => {
     const p = current[d];
-    return p ? { rate: clientRate(p.rateMicro), min: usdt(p.minBaseMinor), max: usdt(p.maxBaseMinor), live: p.live, validUntil: p.validUntil.toISOString(), offered: p.offered, setAt: p.setAt.toISOString() } : null;
+    return p
+      ? {
+        basis: p.basis, rate: p.rateMicro === null ? null : clientRate(p.rateMicro), min: usdt(p.minBaseMinor), max: usdt(p.maxBaseMinor), live: p.live,
+        validUntil: p.validUntil?.toISOString() ?? null, marketOffsetBps: p.market?.offsetBps ?? null, offered: p.offered, setAt: p.setAt.toISOString(),
+      }
+      : null;
   };
   return { SELL_USDT: view('SELL_USDT'), BUY_USDT: view('BUY_USDT') };
 }
@@ -377,8 +389,13 @@ export async function deskDeal(ex: Executor, userId: string, ref: string): Promi
 /** The desk's prices, for its prices screen, with what the desk can fill on each side and the fee it pays on a deal. */
 export async function deskPricing(ex: Executor, userId: string) {
   const { desk, traderId } = await ownDesk(ex, userId);
-  const blocks = await readBlocks(ex, traderId, NO_MARKET);
+  // The sides' rates as they are now: what a desk price following its side would be (migration 0048).
+  const blocks = await readBlocks(ex, traderId, await marketReferences(ex));
   const side = (s: 'BUY_USDT' | 'SELL_USDT') => blocks.find((b) => b.side === s);
+  const sideRate = (s: 'BUY_USDT' | 'SELL_USDT') => {
+    const b = side(s);
+    return b ? { rate: b.rateMicro === null ? null : clientRate(b.rateMicro), basis: b.rateBasis, marketOffsetBps: b.marketOffsetBps } : null;
+  };
   const free = (b: ReturnType<typeof side>) => (b && b.status === 'ACTIVE' ? freeCapacity({ ...b, offeredMinor: 0n }) : 0n);
   return deskSafe({
     desk,
@@ -387,6 +404,8 @@ export async function deskPricing(ex: Executor, userId: string) {
       SELL_USDT: side('BUY_USDT') ? inr(free(side('BUY_USDT'))) : null,
       BUY_USDT: side('SELL_USDT') ? usdt(free(side('SELL_USDT'))) : null,
     },
+    /** Keyed by the client's direction: the rate of the side that fills it, now — what "same as on Traders" prices at. */
+    sides: { SELL_USDT: sideRate('BUY_USDT'), BUY_USDT: sideRate('SELL_USDT') },
     feeBps: (await currentFeePolicy(ex)).ownDealBps,
     networkFee: await deskNetworkFee(ex),
     now: (await nowOf(ex)).toISOString(),

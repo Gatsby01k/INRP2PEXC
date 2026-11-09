@@ -17,6 +17,7 @@ import { NetworkCard } from './_ui/NetworkCard.tsx';
 import { OfferCard } from './_ui/OfferCard.tsx';
 import { PriceAskCard } from './_ui/PriceAskCard.tsx';
 import { Onboarding } from './_ui/Onboarding.tsx';
+import { StartChecklist, showStartChecklist } from './_ui/StartChecklist.tsx';
 import { ReserveCard } from './_ui/ReserveCard.tsx';
 import { SettlementCard } from './_ui/SettlementCard.tsx';
 import shell from '../shell.module.css';
@@ -51,7 +52,9 @@ export function TradersHome({ home, network }: { home: TraderHome; network: Trad
   return (
     <>
       <main className={shell.main}>
-        {home.state === 'NONE' ? <Onboarding canApply={home.canApply} /> : null}
+        {home.state === 'NONE' ? <Onboarding canApply={home.canApply} reserve={home.programmeReserve} /> : null}
+        {/* The way to a first order comes first, until the trader takes orders: it is the next thing to do. */}
+        {showStartChecklist(home) ? <StartChecklist home={home} /> : null}
         {home.state === 'UNDER_REVIEW' || home.state === 'REJECTED' ? <ApplicationStatus home={home} /> : null}
         {/* Topping up is not admission (D-17): the reserve is there from the day of the application. */}
         {!working && home.reserve ? <ReserveCard reserve={home.reserve} /> : null}

@@ -77,6 +77,39 @@ export async function updateBlockAction(
   return run('trader.update_block', (ctx) => updateBlock(ctx.actor), input, key);
 }
 
+export interface SideSetup {
+  readonly side: TraderSide;
+  readonly expectedVersion: number;
+  readonly capacity: string;
+  readonly marketOffsetBps: number;
+  readonly minOrder: string;
+  readonly maxOrder: string;
+}
+
+/**
+ * The first start (ADR 0028): both sides set to follow the market in one go, their offers firm while the trader is online
+ * if it says so, and the trader online. Each step is the trader's own command, run one after the other with a key of its
+ * own, so a retry repeats nothing that was done and a refusal stops at the side it is about — with the sides before it
+ * saved, each a complete side on its own.
+ */
+export async function setUpTradingAction(
+  input: { sides: readonly SideSetup[]; instant: boolean; goOnline: boolean },
+  key: string,
+): Promise<CommandResult<{ sides: number; online: boolean; side?: TraderSide }>> {
+  for (const s of input.sides) {
+    const out = await run('trader.update_block', (ctx) => updateBlock(ctx.actor), {
+      side: s.side, expectedVersion: s.expectedVersion, capacity: s.capacity, minOrder: s.minOrder, maxOrder: s.maxOrder, status: 'ACTIVE' as const,
+      rateBasis: 'MARKET' as const, marketOffsetBps: s.marketOffsetBps, ...(input.instant ? { firmOpenEnded: true } : {}),
+    }, `${key}:${s.side}`);
+    if (!out.ok) return { ...out, details: { ...(out.details ?? {}), side: s.side } };
+  }
+  if (input.goOnline) {
+    const out = await run('trader.set_availability', (ctx) => setAvailability(ctx.actor), { available: true }, `${key}:online`);
+    if (!out.ok) return out;
+  }
+  return { ok: true, result: { sides: input.sides.length, online: input.goOnline } };
+}
+
 /** ADR 0025: the trader's rate for a price request put to it — firm until the request is awarded. */
 export async function bidOnRfqAction(input: { ref: string; rate: string }, key: string): Promise<CommandResult<{ ref: string; rate: string; replaced: boolean }>> {
   return run('rfq.bid', (ctx) => bidOnRfq(ctx.actor), input, key);

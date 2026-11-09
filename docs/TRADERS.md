@@ -307,6 +307,15 @@ market — can be put to a few traders as a **price request** (`rfq`): the trade
 closes, and bids one rate (`rfq.bid`, `priceAsksFor`); the best price becomes the client's firm price and only then holds
 capacity. The choice weighs the trader's completion record (`traderRecords`, `completionPpm`).
 
+## 8d. The way in (ADR 0028 §2.7)
+
+Before applying, the trader sees the four steps and what to have ready, the Security Reserve with its amount among them. The
+application is three steps (who, what it trades, where it settles). The Traders screen then leads with the steps to a first
+order — application, reserve, prices, online — each with its one action: the reserve is sent first, from the registered
+wallet (it proves the wallet; under the programme's review it is what approves), and once approved a single screen sets both
+sides against the market, makes their offers firm while online and puts the trader online. Its own desk opens priced as its
+sides (§ desks, ADR 0020; migration 0048).
+
 ## 9. Rewards
 
 - Model: `reward_bps` of the order's INR value (programme default, optional per-trader override), 0–500 bps,

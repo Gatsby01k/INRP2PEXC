@@ -1,5 +1,6 @@
 import { sql } from 'kysely';
 import { DomainError, Money, Rate, requireOneOf } from '@inrp2p/kernel';
+import { marketReferences } from '@inrp2p/pricing';
 import type { DirectionValue, Executor, FixedSideValue } from '@inrp2p/db';
 import { currentDeskPrices, currentFeePolicy, deskByHandle, priceDeskDeal } from '@inrp2p/trader-core';
 
@@ -13,7 +14,8 @@ export interface DeskPagePrice {
   /** Smallest and largest deal on this price, in USDT. */
   readonly min: string;
   readonly max: string;
-  readonly validUntil: string;
+  /** Until when the price stands; null for one following the desk's side, which is as fresh as the market it follows. */
+  readonly validUntil: string | null;
 }
 
 export interface DeskPage {
@@ -32,11 +34,14 @@ export async function deskPage(ex: Executor, handle: string): Promise<DeskPage |
   const desk = await deskByHandle(ex, handle);
   // A draft has no page; one INRP2P hid has none for anyone until INRP2P shows it again (block 11).
   if (!desk || desk.status === 'DRAFT' || desk.pageHiddenReason !== null) return null;
-  const current = await currentDeskPrices(ex, desk.id);
+  const current = await currentDeskPrices(ex, desk.id, await marketReferences(ex));
   const shown = (direction: DirectionValue): DeskPagePrice | null => {
     const p = current[direction];
-    if (desk.status !== 'LIVE' || !p || !p.offered) return null;
-    return { rate: Rate.ofMicro(p.rateMicro, 'CLIENT').toDecimalString(), min: Money.ofMinor(p.minBaseMinor, 'USDT').toDecimalString(), max: Money.ofMinor(p.maxBaseMinor, 'USDT').toDecimalString(), validUntil: p.validUntil.toISOString() };
+    if (desk.status !== 'LIVE' || !p || !p.offered || p.rateMicro === null) return null;
+    return {
+      rate: Rate.ofMicro(p.rateMicro, 'CLIENT').toDecimalString(), min: Money.ofMinor(p.minBaseMinor, 'USDT').toDecimalString(), max: Money.ofMinor(p.maxBaseMinor, 'USDT').toDecimalString(),
+      validUntil: p.validUntil?.toISOString() ?? null,
+    };
   };
   const record = await sql<{ n: number; median: number | null }>`
     select count(*)::int as n,
@@ -60,8 +65,8 @@ export async function previewDeskDeal(ex: Executor, input: { handle: string; dir
   if (!desk || desk.status !== 'LIVE') throw new DomainError('DESK_NOT_LIVE', 'this desk is not taking deals right now');
   const direction = requireOneOf(input.direction, 'direction', ['SELL_USDT', 'BUY_USDT'] as const);
   const fixedSide = requireOneOf(input.fixedSide, 'fixedSide', ['BASE', 'QUOTE'] as const);
-  const price = (await currentDeskPrices(ex, desk.id))[direction];
-  if (!price || !price.offered) throw new DomainError('DESK_NOT_LIVE', 'this desk has no live price for this right now');
+  const price = (await currentDeskPrices(ex, desk.id, await marketReferences(ex)))[direction];
+  if (!price || !price.offered || price.rateMicro === null) throw new DomainError('DESK_NOT_LIVE', 'this desk has no live price for this right now');
   const amount = fixedSide === 'BASE' ? Money.parse(input.amount, 'USDT') : Money.parse(input.amount, 'INR');
   const econ = priceDeskDeal({ direction, fixedSide, amountMinor: amount.minor, clientRate: Rate.ofMicro(price.rateMicro, 'CLIENT'), policy: await currentFeePolicy(ex) });
   return {

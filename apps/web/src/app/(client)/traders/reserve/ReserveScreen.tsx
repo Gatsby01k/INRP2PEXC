@@ -15,8 +15,19 @@ import { sentence, usdt } from '../_ui/format.ts';
 import shell from '../../shell.module.css';
 import styles from '../traders.module.css';
 
+/** What is still to send: the shortfall once working; under review, what the programme's reserve leaves to send. */
+function toSendOf(home: TraderHome): string | null {
+  const r = home.reserve!;
+  const working = home.state === 'APPROVED' || home.state === 'PAUSED';
+  const v = working ? r.shortfall : (home.review?.reserveToSend ?? null);
+  return v && /[1-9]/.test(v) ? v : null;
+}
+
 function reserveAssistant(home: TraderHome): AssistantState {
   const r = home.reserve!;
+  const working = home.state === 'APPROVED' || home.state === 'PAUSED';
+  const toSend = toSendOf(home);
+  if (!working && toSend) return { mood: 'ready', label: 'Reserve', title: 'Your Security Reserve', body: `${usdt(toSend)} to send from your registered wallet, on TRON (TRC20). It proves the wallet is yours, and it stays yours.` };
   if (r.withdrawal) return { mood: r.withdrawal.status === 'SENT' ? 'verifying' : 'waiting', label: 'Withdrawal', title: `${usdt(r.withdrawal.amount)} on its way back`, body: r.withdrawal.status === 'SENT' ? 'Sent to your registered wallet; confirming on-chain.' : 'The desk sends it to your registered wallet.' };
   if (/[1-9]/.test(r.shortfall)) return { mood: 'alert', label: 'Top up', title: 'Your reserve is below the requirement', body: `${usdt(r.shortfall)} more is needed before new orders can be assigned.` };
   if (r.engaged) return { mood: 'ready', label: 'Locked', title: `${usdt(r.locked)} locked`, body: 'It protects your open orders and anything unresolved on them.' };
@@ -38,6 +49,9 @@ export function ReserveScreen({ home }: { home: TraderHome }) {
   const [txHash, setTxHash] = useState('');
   const [found, setFound] = useState<string | null>(null);
   const canWithdraw = home.canAct || home.canApply;
+  const toSend = toSendOf(home);
+  // Nothing to take back and nothing on its way: the withdrawal form is noise until there is.
+  const showWithdraw = r.withdrawal !== null || /[1-9]/.test(r.available);
   const check = async () => {
     setFound(null);
     const out = await claim.run('Check your transfer', (key) => claimDepositAction({ txHash }, key));
@@ -51,52 +65,14 @@ export function ReserveScreen({ home }: { home: TraderHome }) {
     if (out.ok) setAmount('');
   };
 
-  return (
-    <>
-      <main className={shell.main}>
-        <section className={shell.surface} aria-labelledby="reserve-figures" data-robot-target="panel">
-          <span id="reserve-figures" className={shell.label}>
-            Security Reserve
-          </span>
-          <dl className={`${styles.figures} ${styles.figuresFlat}`}>
-            <div className={styles.figure}>
-              <dt>Held</dt>
-              <dd>{usdt(r.balance)}</dd>
-              <span className={styles.figureNote}>{r.required ? `${usdt(r.required)} required` : 'Requirement not set'}</span>
-            </div>
-            <div className={styles.figure}>
-              <dt>Locked</dt>
-              <dd>{usdt(r.locked)}</dd>
-              <span className={styles.figureNote}>{r.engaged ? 'while you provide liquidity or have open orders' : 'nothing locked now'}</span>
-            </div>
-            <div className={styles.figure}>
-              <dt>Available for withdrawal</dt>
-              <dd>{usdt(r.available)}</dd>
-            </div>
-            <div className={styles.figure}>
-              <dt>Pending release</dt>
-              <dd>{usdt(r.pendingRelease)}</dd>
-              <span className={styles.figureNote}>on its way to your wallet</span>
-            </div>
-            {/[1-9]/.test(r.applying) ? (
-              <div className={styles.figure}>
-                <dt>Held or being applied</dt>
-                <dd>{usdt(r.applying)}</dd>
-                <span className={styles.figureNote}>for an order of yours the other side is still waiting on</span>
-              </div>
-            ) : null}
-          </dl>
-          <p className={styles.note}>A USDT reserve is locked while you provide liquidity. It protects open orders and unresolved obligations. Switching off keeps it locked until your last open order finishes.</p>
-        </section>
-
-        <div className={styles.stack}>
+  const addSection = (
           <section className={shell.card} aria-labelledby="add-title">
             <h2 id="add-title" className={shell.cardTitle}>
-              Add to your reserve
+              {toSend ? `Send ${usdt(toSend)}` : 'Add to your reserve'}
             </h2>
             {r.depositAddress ? (
               <>
-                <DepositAddress address={r.depositAddress} amount={/[1-9]/.test(r.shortfall) ? Money.parse(r.shortfall, 'USDT') : null} network="TRC20" tradeRef={home.ref ?? ''} purpose="reserve" showQr framed={false} />
+                <DepositAddress address={r.depositAddress} amount={toSend ? Money.parse(toSend, 'USDT') : null} network="TRC20" tradeRef={home.ref ?? ''} purpose="reserve" showQr framed={false} />
                 <p className={styles.note}>
                   One address for every trader. Send only from your registered wallet{home.registered ? <> <span className="ix-num">{home.registered.walletAddress}</span></> : null}: the wallet it comes from is how your deposit is credited to you. It is credited when final on TRON, whether or not your application has been approved yet.
                 </p>
@@ -136,7 +112,51 @@ export function ReserveScreen({ home }: { home: TraderHome }) {
               </p>
             ) : null}
           </section>
+  );
 
+  return (
+    <>
+      <main className={shell.main}>
+        {/* What is still to send comes first: it is the one thing to do here. */}
+        {toSend ? addSection : null}
+        <section className={shell.surface} aria-labelledby="reserve-figures" data-robot-target="panel">
+          <span id="reserve-figures" className={shell.label}>
+            Security Reserve
+          </span>
+          <dl className={`${styles.figures} ${styles.figuresFlat}`}>
+            <div className={styles.figure}>
+              <dt>Held</dt>
+              <dd>{usdt(r.balance)}</dd>
+              <span className={styles.figureNote}>{r.required ? `${usdt(r.required)} required` : 'Requirement not set'}</span>
+            </div>
+            <div className={styles.figure}>
+              <dt>Locked</dt>
+              <dd>{usdt(r.locked)}</dd>
+              <span className={styles.figureNote}>{r.engaged ? 'while you provide liquidity or have open orders' : 'nothing locked now'}</span>
+            </div>
+            <div className={styles.figure}>
+              <dt>Available for withdrawal</dt>
+              <dd>{usdt(r.available)}</dd>
+            </div>
+            <div className={styles.figure}>
+              <dt>Pending release</dt>
+              <dd>{usdt(r.pendingRelease)}</dd>
+              <span className={styles.figureNote}>on its way to your wallet</span>
+            </div>
+            {/[1-9]/.test(r.applying) ? (
+              <div className={styles.figure}>
+                <dt>Held or being applied</dt>
+                <dd>{usdt(r.applying)}</dd>
+                <span className={styles.figureNote}>for an order of yours the other side is still waiting on</span>
+              </div>
+            ) : null}
+          </dl>
+          <p className={styles.note}>A USDT reserve is locked while you provide liquidity. It protects open orders and unresolved obligations. Switching off keeps it locked until your last open order finishes.</p>
+        </section>
+
+        <div className={styles.stack}>
+          {toSend ? null : addSection}
+          {showWithdraw ? (
           <section className={shell.card} aria-labelledby="withdraw-title">
             <h2 id="withdraw-title" className={shell.cardTitle}>
               Withdraw
@@ -193,6 +213,7 @@ export function ReserveScreen({ home }: { home: TraderHome }) {
               </p>
             ) : null}
           </section>
+          ) : null}
         </div>
 
         <section className={shell.card} aria-labelledby="history-title">

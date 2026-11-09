@@ -1,5 +1,6 @@
 'use client';
 
+import { bankNameOfIfsc } from '@inrp2p/kernel';
 import styles from '../traders.module.css';
 
 export type Rail = 'IMPS' | 'NEFT' | 'RTGS';
@@ -47,11 +48,30 @@ export function BankFields({ value, onChange }: { value: BankDraft; onChange: (n
   return (
     <div className={styles.choices}>
       <Text label="Account holder" value={value.holderName} onChange={(v) => set({ holderName: v })} autoComplete="name" maxLength={140} />
-      <Text label="Bank name" value={value.bankName} onChange={(v) => set({ bankName: v })} maxLength={140} />
       <div className={styles.pair}>
         <Text label="Account number" value={value.accountNumber} onChange={(v) => set({ accountNumber: v.replace(/[^0-9 ]/g, '') })} inputMode="numeric" maxLength={24} />
-        <Text label="IFSC" value={value.ifsc} onChange={(v) => set({ ifsc: v.toUpperCase().replace(/[^A-Z0-9]/g, '') })} maxLength={11} autoCapitalize="characters" hint="Like HDFC0001234" />
+        <Text
+          label="IFSC"
+          value={value.ifsc}
+          onChange={(v) => {
+            const ifsc = v.toUpperCase().replace(/[^A-Z0-9]/g, '');
+            // The bank follows its code, unless the trader typed its own name for it.
+            const named = bankNameOfIfsc(ifsc);
+            const ownName = value.bankName.trim() !== '' && value.bankName !== bankNameOfIfsc(value.ifsc);
+            set({ ifsc, ...(named && !ownName ? { bankName: named } : {}) });
+          }}
+          maxLength={11}
+          autoCapitalize="characters"
+          hint="Like HDFC0001234"
+        />
       </div>
+      <Text
+        label="Bank name"
+        value={value.bankName}
+        onChange={(v) => set({ bankName: v })}
+        maxLength={140}
+        {...(bankNameOfIfsc(value.ifsc) && value.bankName === bankNameOfIfsc(value.ifsc) ? { hint: 'From the IFSC. Change it if it is not right.' } : {})}
+      />
       <fieldset className={styles.railSet}>
         <legend className={styles.fieldLabel}>Transfers this account takes</legend>
         <div className={styles.rails}>

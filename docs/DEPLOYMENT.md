@@ -671,3 +671,14 @@ rate was derived to `trader_order` (IX143), the client's network line to `quote`
 3. **Switch on** automatic prices and price requests on Rates → Automatic prices, as in §19. From then on a request nothing
    prices honestly closes with a plain answer to the client; nothing is left in the desk's queue for pricing.
 
+## 21. One price for a trader (ADR 0028 §2.7)
+
+Migration `0048` (schema 48) lets a desk's price follow its side (`desk_price.basis`, `rate_micro` and `valid_until` empty for
+it). Nothing else in the schema changes; no new secret, service or job.
+
+1. **Release order** (from production at 47): all CI jobs green; a Neon branch `before-48-<date>` (or note the time and WAL
+   position: the history is the restore point); `scripts/migrate.ts` with the production env; then merge — Vercel deploys
+   `main` at once, and the app at 48 refuses a database at 47. The worker image of the same commit after (it checks the
+   schema when it starts).
+2. Existing desk prices keep their numbers and their time; a desk changes a direction to "As on Traders" on Prices.
+

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from 'kysely';
-import { Money, Rate } from '@inrp2p/kernel';
+import { Money, NO_MARKET, Rate } from '@inrp2p/kernel';
 import { pgErrorCode } from '@inrp2p/db';
 import { executeCommand } from '@inrp2p/commands';
 import { runAs } from '@inrp2p/identity/testing';
@@ -111,13 +111,13 @@ describe('a desk’s prices', () => {
       ],
       validForHours: 12,
     });
-    const prices = await currentDeskPrices(w.app, deskId);
+    const prices = await currentDeskPrices(w.app, deskId, NO_MARKET);
     expect(prices.SELL_USDT).toMatchObject({ rateMicro: Rate.parse('100.9', 'CLIENT').micro, minBaseMinor: usdt('100'), maxBaseMinor: usdt('20000'), offered: true });
     expect(prices.BUY_USDT!.offered).toBe(true);
     // Past its time a price is shown but not dealt on.
     const clock = await w.t.pinnedClock();
     await clock.set(new Date(Date.now() + 13 * 3600_000));
-    expect((await currentDeskPrices(clock.db, deskId)).SELL_USDT!.offered).toBe(false);
+    expect((await currentDeskPrices(clock.db, deskId, NO_MARKET)).SELL_USDT!.offered).toBe(false);
     expect(await dbCode(w.t.owner.updateTable('desk_price').set({ live: false }).where('desk_id', '=', deskId).execute())).toBe('IX001');
   });
 });
@@ -583,7 +583,7 @@ describe('a desk’s team', () => {
 
     const prices = { prices: [{ direction: 'SELL_USDT' as const, rate: '100.950000', min: '100', max: '20000', live: true }] };
     await runAs(w.app, setDeskPrices(operator.actor), operator.ref, 'desk.set_prices', prices);
-    expect((await currentDeskPrices(w.app, deskId)).SELL_USDT).toMatchObject({ setBy: login.userId });
+    expect((await currentDeskPrices(w.app, deskId, NO_MARKET)).SELL_USDT).toMatchObject({ setBy: login.userId });
     await expect(runAs(w.app, setDeskStatus(operator.actor), operator.ref, 'desk.set_status', { expectedVersion: await deskVersion(), status: 'PAUSED' as const })).rejects.toMatchObject({ code: 'TRADER_ACTION_NOT_PERMITTED' });
     await expect(runAs(w.app, inviteTeamMember(operator.actor), operator.ref, 'client_invite.create', { email: 'x@desk.test', role: 'OPERATOR' as const })).rejects.toMatchObject({ code: 'FORBIDDEN' });
 
@@ -854,5 +854,45 @@ describe('INRP2P’s desk over the desks (block 11)', () => {
     expect((await feePolicyView(w.app)).proposal).toBeNull();
     expect((await currentFeePolicy(w.app)).ownDealBps).toBe(30);
     expect(await openDisputes(w.app)).toEqual([]);
+  });
+});
+
+describe('a desk’s price that follows its side on Traders (migration 0048)', () => {
+  it('is the side’s rate as it is now — its market rate, no number and no end of its own — and a deal on it records how', async () => {
+    const { runMarketReferenceRefresh } = await import('@inrp2p/quotes');
+    const { marketReferences } = await import('@inrp2p/pricing');
+    const { updateBlock } = await import('@inrp2p/traders');
+    const { marketRateMicro } = await import('@inrp2p/kernel');
+    const r = (d: string) => Rate.parse(d, 'ROUTE').micro;
+    const d = (await deskOfTrader(w.app, desk.traderId))!;
+    if (d.status !== 'LIVE') await runAs(w.app, setDeskStatus(desk.admin.actor), desk.admin.ref, 'desk.set_status', { expectedVersion: d.version, status: 'LIVE' as const });
+    await runMarketReferenceRefresh(w.app, async () => ({ bidMicro: r('101.00'), askMicro: r('102.00'), source: 'market: test books' }));
+    // The desk sells USDT 0.30% under the ask on Traders, and its page prices clients buying at that, whatever it is.
+    const block = await w.app.selectFrom('trader_block').select('version').where('trader_id', '=', desk.traderId).where('side', '=', 'SELL_USDT').executeTakeFirstOrThrow();
+    await runAs(w.app, updateBlock(desk.admin.actor), desk.admin.ref, 'trader.update_block', { side: 'SELL_USDT' as const, expectedVersion: block.version, rateBasis: 'MARKET' as const, marketOffsetBps: -30 });
+    await runAs(w.app, setDeskPrices(desk.admin.actor), desk.admin.ref, 'desk.set_prices', {
+      prices: [{ direction: 'BUY_USDT' as const, basis: 'SIDE' as const, min: '100', max: '20000', live: true }],
+    });
+    const stored = await w.app.selectFrom('desk_price').select(['basis', 'rate_micro', 'valid_until']).where('desk_id', '=', deskId).where('direction', '=', 'BUY_USDT')
+      .orderBy('set_at', 'desc').orderBy('id', 'desc').executeTakeFirstOrThrow();
+    expect(stored).toEqual({ basis: 'SIDE', rate_micro: null, valid_until: null });
+    const ask = (await marketReferences(w.app)).BUY_USDT!;
+    const price = (await currentDeskPrices(w.app, deskId, await marketReferences(w.app))).BUY_USDT!;
+    expect(price).toMatchObject({ basis: 'SIDE', validUntil: null, offered: true, rateMicro: marketRateMicro({ side: 'SELL_USDT', referenceMicro: r('102'), offsetBps: -30, limitMicro: null }) });
+    expect(price.rateMicro).toBe(r('101.7'));
+    expect(price.market).toMatchObject({ offsetBps: -30, reference: { snapshotId: ask.snapshotId } });
+    // Without a fresh market the side has no rate, and the page has no price on it.
+    expect((await currentDeskPrices(w.app, deskId, NO_MARKET)).BUY_USDT).toMatchObject({ rateMicro: null, offered: false });
+    // The public page shows it; a deal on it is at that rate, and the desk's order records the reference and terms (IX143).
+    expect((await deskPage(w.app, d.handle))!.prices.BUY_USDT).toMatchObject({ rate: '101.700000', validUntil: null });
+    const quote = await bharatQuote('BUY_USDT', '500', d.handle);
+    expect(quote.clientRate).toBe('101.700000');
+    const order = await w.app.selectFrom('trader_order').select(['rate_micro', 'rate_reference_snapshot_id', 'rate_offset_bps']).where('id', '=', quote.orderId).executeTakeFirstOrThrow();
+    expect(order).toEqual({ rate_micro: r('101.7'), rate_reference_snapshot_id: ask.snapshotId, rate_offset_bps: -30 });
+    // An own price still needs its number; a price with neither shape is refused by the database.
+    await expect(runAs(w.app, setDeskPrices(desk.admin.actor), desk.admin.ref, 'desk.set_prices', { prices: [{ direction: 'BUY_USDT' as const, min: '100', max: '200', live: true }] }))
+      .rejects.toMatchObject({ code: 'INVALID_ARGUMENT' });
+    expect(await dbCode(w.app.insertInto('desk_price').values({ desk_id: deskId, direction: 'BUY_USDT', basis: 'SIDE', rate_micro: r('101'), min_base_minor: usdt('1'), max_base_minor: usdt('2'), live: true, valid_until: null, set_by: desk.admin.userId }).execute()))
+      .toBe('23514');
   });
 });

@@ -21,7 +21,7 @@ import { currentPricingPolicy, setPricingPolicy } from '@inrp2p/pricing';
 import { runMarketReferenceRefresh } from '@inrp2p/quotes';
 import { runTronConfirm } from '@inrp2p/scanner';
 import { submitTxForVerification } from '@inrp2p/settlement';
-import { applyAsTrader, approveTrader, configureTraderProgram, setAvailability, sharedReserveAddress, updateBlock } from '@inrp2p/traders';
+import { applicationsUnderReview, applyAsTrader, approveTrader, autoReviewTraderInTx, configureTraderProgram, setAvailability, sharedReserveAddress, updateBlock } from '@inrp2p/traders';
 import { deskBaseUrl, startDesk, surfacePorts } from '../harness/desk-server.ts';
 import { CLIENT_AUTH_SECRET, E2E_FIELD_KEYS, OPERATOR_AUTH_SECRET, OPERATOR_PASSWORD, e2eFieldProtector, operator, run } from './world.ts';
 
@@ -66,6 +66,10 @@ export interface HumanWorld {
   /** The owner switches automatic prices on against a fresh market, and the trader makes both its offers firm. */
   /** The owner's one switch (ADR 0025, 0028): the market read, automatic prices and price requests on. Traders do their own part on their phone. */
   automaticPricesOn(): Promise<void>;
+  /** The shared Security Reserve address every trader sends its reserve to. */
+  reserveAddress(): Promise<string>;
+  /** The programme's own review (ADR 0024), as the worker runs it: on, then every application waiting is decided. */
+  reviewApplications(): Promise<{ traderId: string; outcome: string; flags: readonly string[] }[]>;
   stop(): Promise<void>;
 }
 
@@ -197,6 +201,23 @@ export async function createHumanWorld(adminUrl: string, port: number): Promise<
       await run(db, setPricingPolicy(owner.actor), owner.ref, 'pricing.set_policy', {
         expectedPolicyId: (await currentPricingPolicy(db)).id, autoQuote: true, rfq: true, reason: 'automatic prices and price requests on for the run',
       });
+    },
+    async reserveAddress() {
+      return (await sharedReserveAddress(db))!.address;
+    },
+    async reviewApplications() {
+      const program = await db.selectFrom('trader_program').select(['version', 'auto_review']).where('id', '=', 1).executeTakeFirstOrThrow();
+      if (!program.auto_review) {
+        await run(db, configureTraderProgram(owner.actor), owner.ref, 'trader_program.configure', { expectedVersion: program.version, autoReview: true, reason: 'the programme reviews by its rules' });
+      }
+      const out: { traderId: string; outcome: string; flags: readonly string[] }[] = [];
+      for (const traderId of await applicationsUnderReview(db)) {
+        const r = await executeCommand(db, { authorize: async () => {}, handle: (ctx) => autoReviewTraderInTx(ctx, traderId) }, {
+          name: 'trader.auto_review', actor: { type: 'SYSTEM', id: null, surface: 'SYSTEM' }, payload: { traderId }, idempotencyKey: randomUUID(), financial: true,
+        });
+        out.push({ traderId, outcome: r.result.outcome, flags: r.result.flags });
+      }
+      return out;
     },
     async stop() {
       await stopServer();

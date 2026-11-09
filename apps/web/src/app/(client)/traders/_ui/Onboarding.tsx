@@ -1,41 +1,51 @@
 import Link from 'next/link';
 import { ArrowIcon, InfoIcon } from '../../_workspace/icons.tsx';
+import { usdt } from './format.ts';
 import shell from '../../shell.module.css';
 import styles from '../traders.module.css';
 
-/** First visit: what an exchange of one's own on INRP2P is, in two lines, the three steps to it, and the one way in. */
-export function Onboarding({ canApply }: { canApply: boolean }) {
+/**
+ * First visit: what trading on INRP2P is, the four steps to a first order — the Security Reserve named with its amount
+ * before anyone starts, never a surprise halfway through — what to have at hand, and the one way in.
+ */
+export function Onboarding({ canApply, reserve }: { canApply: boolean; reserve: string | null }) {
+  const amount = reserve && /[1-9]/.test(reserve) ? usdt(reserve) : null;
   return (
     <section className={`${shell.surface} ${styles.onboard}`} aria-labelledby="onboard-title" data-robot-target="panel">
       <div>
         <h2 id="onboard-title" className={styles.onboardTitle}>
-          Open your exchange.
-          <span>Your clients, your prices, our escrow.</span>
+          Trade on INRP2P.
+          <span>Orders come to you. The escrow holds every deal.</span>
         </h2>
         <p className={styles.onboardCopy}>
-          Apply once. When INRP2P approves you, your page and deal links open here,
-          <br />
-          and INRP2P’s own orders come to you too.
+          INRP2P’s clients buy and sell USDT at your prices while you are online, and your own page and deal links bring you clients of your own.
         </p>
       </div>
-      <ol className={styles.how}>
+      <ol className={styles.how} data-count="4">
         <li>
-          <strong>Apply</strong>
-          Who you are, the INR or USDT you can provide, and the bank account and TRC20 wallet you settle with.
+          <strong>Apply · 2 minutes</strong>
+          Who you are, what you trade, and your own bank account and TRC20 wallet.
+        </li>
+        <li>
+          <strong>Send your reserve</strong>
+          {amount ? `${amount} from that wallet, on TRON.` : 'USDT from that wallet, on TRON.'} It proves the wallet is yours and stays yours — it is not spent on deals.
         </li>
         <li>
           <strong>Set your prices</strong>
-          What you pay and what you ask, and how much you can take on.
+          Follow the market by your own margin, and say how much you can take on.
         </li>
         <li>
-          <strong>Deal</strong>
-          With your own clients through your page and links, and with INRP2P’s orders, which you accept or decline.
+          <strong>Go online</strong>
+          Orders arrive at your prices; the USDT of each deal waits in escrow until the rupees are confirmed.
         </li>
       </ol>
+      <p className={styles.haveReady}>
+        <span>Have ready</span> a bank account in your name (or your company’s) · a TRC20 wallet you hold the key to{amount ? ` · ${amount} for the reserve` : ''}
+      </p>
       {canApply ? (
         <div>
           <Link className={shell.action} href="/traders/apply" data-robot-target="cta">
-            Open your exchange
+            Apply now
             <ArrowIcon className={shell.actionIcon} />
           </Link>
         </div>

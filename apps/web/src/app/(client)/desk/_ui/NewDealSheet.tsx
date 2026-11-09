@@ -57,7 +57,7 @@ export function NewDealSheet({
   const [direction, setDirection] = useState<Direction>(prices.SELL_USDT ? 'SELL_USDT' : 'BUY_USDT');
   const [fixedSide, setFixedSide] = useState<'BASE' | 'QUOTE'>('BASE');
   const [amount, setAmount] = useState('');
-  const [rate, setRate] = useState(plainRate(prices[direction]?.rate));
+  const [rate, setRate] = useState(plainRate(prices[direction]?.rate ?? undefined));
   const [minutes, setMinutes] = useState<number>(60);
   const [note, setNote] = useState('');
   const [made, setMade] = useState<{ url: string; ref: string; expiresAt: string } | null>(null);
@@ -76,7 +76,7 @@ export function NewDealSheet({
 
   const pickDirection = (next: Direction) => {
     setDirection(next);
-    setRate(prices[next] ? plainRate(prices[next]!.rate) : rate);
+    setRate(prices[next]?.rate ? plainRate(prices[next]!.rate!) : rate);
   };
 
   const submit = async () => {
@@ -200,8 +200,8 @@ export function NewDealSheet({
               value={direction}
               onChange={pickDirection}
               options={[
-                { value: 'SELL_USDT', label: 'Sells USDT', detail: prices.SELL_USDT ? `Your price ${rateText(prices.SELL_USDT.rate)}` : 'You buy' },
-                { value: 'BUY_USDT', label: 'Buys USDT', detail: prices.BUY_USDT ? `Your price ${rateText(prices.BUY_USDT.rate)}` : 'You sell' },
+                { value: 'SELL_USDT', label: 'Sells USDT', detail: prices.SELL_USDT?.rate ? `Your price ${rateText(prices.SELL_USDT.rate)}` : 'You buy' },
+                { value: 'BUY_USDT', label: 'Buys USDT', detail: prices.BUY_USDT?.rate ? `Your price ${rateText(prices.BUY_USDT.rate)}` : 'You sell' },
               ]}
             />
             <div className={styles.row2}>

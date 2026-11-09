@@ -224,7 +224,7 @@ test('a stranger opens their exchange with an email and a code, and gets Traders
   await expect(page.getByRole('heading', { name: 'Traders', exact: true })).toBeVisible();
   const sections = page.getByRole('navigation', { name: 'Sections' }).getByRole('link');
   await expect(sections).toHaveText(['Open account', 'Traders']);
-  await expect(page.getByRole('link', { name: /Open your exchange/ })).toHaveAttribute('href', '/traders/apply');
+  await expect(page.getByRole('link', { name: /Apply now/ })).toHaveAttribute('href', '/traders/apply');
 
   // Verifying an email opened no Exchange: its pages send this person to open an account first (D-17).
   for (const path of ['/exchange', '/history', '/destinations']) {

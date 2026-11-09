@@ -20,6 +20,10 @@ function displayNameOf(value: unknown): string {
 }
 
 /** `desk.open` — a trader's administrator opens its desk, as a draft: nothing is shown or traded until it goes live. */
+/** The limits a new desk's prices start with, in micro-USDT: 100 to 10,000 USDT a deal — the desk changes them on Prices. */
+const SIDE_PRICE_MIN = 100_000_000n;
+const SIDE_PRICE_MAX = 10_000_000_000n;
+
 export function openDesk(actor: ClientActor) {
   return traderClientCommand(actor, 'ADMIN', async (ctx, p: { handle: string; displayName: string; about?: string | null }, member) => {
     const trader = await lockTraderOfClient(ctx, member.clientId);
@@ -38,7 +42,22 @@ export function openDesk(actor: ClientActor) {
       if (isUniqueViolation(e, 'desk_handle_key')) throw new DomainError('DESK_HANDLE_TAKEN', `inrp2p.com/${handle} is taken`, { field: 'handle' });
       throw e;
     }
-    await appendAudit(ctx, { action: 'desk.opened', entityType: 'desk', entityId: row.id, after: { trader_id: trader.id, handle, display_name: displayName, about, status: row.status } });
+    // One price for the trader (migration 0048): a new desk prices as its sides on Traders do, live as soon as the desk is,
+    // by whoever opened it when they can bind the trader. It opens as a draft, so nothing is public until it goes live.
+    const sides = (await ctx.tx.selectFrom('trader_block').select('side').where('trader_id', '=', trader.id).execute()).map((b) => b.side);
+    const seeded = member.canCommit && sides.length > 0;
+    if (seeded) {
+      await ctx.tx.insertInto('desk_price')
+        .values(sides.map((side) => ({
+          desk_id: row.id, direction: side === 'BUY_USDT' ? ('SELL_USDT' as const) : ('BUY_USDT' as const), basis: 'SIDE' as const, rate_micro: null,
+          min_base_minor: SIDE_PRICE_MIN, max_base_minor: SIDE_PRICE_MAX, live: true, valid_until: null, set_by: member.userId,
+        })))
+        .execute();
+    }
+    await appendAudit(ctx, {
+      action: 'desk.opened', entityType: 'desk', entityId: row.id,
+      after: { trader_id: trader.id, handle, display_name: displayName, about, status: row.status, prices: seeded ? 'AS_ON_TRADERS' : null },
+    });
     return { deskId: row.id, handle, status: row.status, version: row.version };
   });
 }
@@ -106,7 +125,12 @@ export function setDeskStatus(actor: ClientActor) {
 export interface DeskPriceInput {
   /** The client's direction: SELL_USDT is what the desk pays a client for USDT, BUY_USDT what a client pays for it. */
   readonly direction: DirectionValue;
-  readonly rate: string;
+  /**
+   * Migration 0048: `OWN` (the default) — `rate`, valid for `validForHours`; `SIDE` — the desk's side on Traders at its rate
+   * as it is now (its own number, or its market rate), with no number and no end of its own.
+   */
+  readonly basis?: 'OWN' | 'SIDE';
+  readonly rate?: string;
   /** Smallest and largest deal on this price, in USDT. */
   readonly min: string;
   readonly max: string;
@@ -117,9 +141,11 @@ export interface DeskPriceInput {
 const sideFor = (direction: DirectionValue): TraderSide => (direction === 'SELL_USDT' ? 'BUY_USDT' : 'SELL_USDT');
 
 /**
- * `desk.set_prices` — the prices the desk's clients see and deal on, per direction, with the smallest and largest deal,
- * valid for a number of hours (1 to 168, 24 by default): a desk that stops updating stops trading on stale prices. A
- * direction the desk does not fill (it has no side for it) cannot be priced. Prices are append-only; the latest counts.
+ * `desk.set_prices` — the prices the desk's clients see and deal on, per direction, with the smallest and largest deal.
+ * An own price is valid for a number of hours (1 to 168, 24 by default): a desk that stops updating stops trading on stale
+ * prices. A price following the desk's side (migration 0048) is its side's rate as it is now and needs no end of its own:
+ * the side's market rate never goes stale, and a fixed one is the trader's to change. A direction the desk does not fill
+ * (it has no side for it) cannot be priced. Prices are append-only; the latest counts.
  */
 export function setDeskPrices(actor: ClientActor) {
   return traderClientCommand(actor, 'COMMIT', async (ctx, p: { prices: readonly DeskPriceInput[]; validForHours?: number }, member) => {
@@ -138,25 +164,26 @@ export function setDeskPrices(actor: ClientActor) {
       if (!sides.has(sideFor(direction))) {
         throw new DomainError('INVALID_ARGUMENT', direction === 'SELL_USDT' ? 'you do not buy USDT, so you cannot price it for clients selling' : 'you do not sell USDT, so you cannot price it for clients buying', { field: 'prices' });
       }
-      const rate = Rate.parse(requireText(price.rate, 'rate', 32), 'CLIENT');
+      const basis = price.basis === undefined ? 'OWN' : requireOneOf(price.basis, 'basis', ['OWN', 'SIDE'] as const);
+      const rate = basis === 'OWN' ? Rate.parse(requireText(price.rate, 'rate', 32), 'CLIENT') : null;
       const min = Money.parse(requireText(price.min, 'min', 32), 'USDT');
       const max = Money.parse(requireText(price.max, 'max', 32), 'USDT');
-      if (rate.micro <= 0n) throw new DomainError('INVALID_RATE', 'the rate must be positive', { field: 'rate' });
+      if (rate !== null && rate.micro <= 0n) throw new DomainError('INVALID_RATE', 'the rate must be positive', { field: 'rate' });
       if (!min.isPositive() || max.minor < min.minor) throw new DomainError('INVALID_AMOUNT', 'the smallest deal must be positive and no larger than the largest', { field: 'min' });
       if (typeof price.live !== 'boolean') throw new DomainError('INVALID_ARGUMENT', 'say whether the price is live', { field: 'live' });
-      return { direction, rate, min, max, live: price.live };
+      return { direction, basis, rate, min, max, live: price.live };
     });
     const inserted = await ctx.tx.insertInto('desk_price')
       .values(rows.map((r) => ({
-        desk_id: desk.id, direction: r.direction, rate_micro: r.rate.micro, min_base_minor: r.min.minor, max_base_minor: r.max.minor, live: r.live,
-        valid_until: sql<Date>`inrp2p_now() + make_interval(hours => ${hours})`, set_by: member.userId,
+        desk_id: desk.id, direction: r.direction, basis: r.basis, rate_micro: r.rate?.micro ?? null, min_base_minor: r.min.minor, max_base_minor: r.max.minor, live: r.live,
+        valid_until: r.basis === 'OWN' ? sql<Date>`inrp2p_now() + make_interval(hours => ${hours})` : null, set_by: member.userId,
       })))
       .returning(['id', 'direction', 'valid_until'])
       .execute();
     await appendAudit(ctx, {
       action: 'desk.prices_set', entityType: 'desk', entityId: desk.id,
-      after: { prices: rows.map((r) => ({ direction: r.direction, rate: r.rate, min: r.min, max: r.max, live: r.live })), valid_for_hours: hours },
+      after: { prices: rows.map((r) => ({ direction: r.direction, basis: r.basis, rate: r.rate, min: r.min, max: r.max, live: r.live })), valid_for_hours: hours },
     });
-    return { deskId: desk.id, prices: inserted.map((r) => ({ id: r.id, direction: r.direction, validUntil: r.valid_until.toISOString() })) };
+    return { deskId: desk.id, prices: inserted.map((r) => ({ id: r.id, direction: r.direction, validUntil: r.valid_until?.toISOString() ?? null })) };
   });
 }

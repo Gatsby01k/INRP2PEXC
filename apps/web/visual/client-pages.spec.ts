@@ -96,7 +96,7 @@ test('a desk: its prices, the amount, where the money lands, and its deals with 
 
 test('traders: the application, as a client of the exchange sees it (TD-23)', async ({ page }) => {
   await page.goto('/traders/apply');
-  await expect(page.getByRole('heading', { name: 'Open your exchange', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Apply to trade', exact: true })).toBeVisible();
   await capture(page, 'client-trader-apply');
 });
 
