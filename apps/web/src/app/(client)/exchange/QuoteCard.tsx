@@ -60,6 +60,8 @@ export function QuoteCard({ quote, canAccept, now }: { quote: ClientQuoteView; c
   const rate = formatRate(Rate.parse(quote.clientRate, 'CLIENT'));
   const usdt = legAmount(quote.base.amount, 'USDT');
   const inr = legAmount(quote.inr.amount, 'INR');
+  // ADR 0028: the deal's network as the client's own line — paid on top when buying, out of the USDT sent when selling.
+  const fee = quote.networkFee ? legAmount(quote.networkFee.amount, 'USDT') : null;
 
   const accept = async () => {
     robotCues.emit({ kind: 'wait', on: true });
@@ -102,7 +104,13 @@ export function QuoteCard({ quote, canAccept, now }: { quote: ClientQuoteView; c
             <Amount value={sell ? `₹${inr}` : usdt} />
             <span className={styles.heroUnit}>{sell ? 'INR' : 'USDT'}</span>
           </span>
-          <span className={styles.heroSub}>{sell ? `You send ${usdt} USDT` : `You pay ₹${inr}`} · exactly, nothing is deducted</span>
+          <span className={styles.heroSub}>
+            {fee
+              ? sell
+                ? `You send ${usdt} USDT · ${fee} USDT of it pays the network`
+                : `You pay ₹${inr} · your USDT and ${fee} USDT of network at this rate`
+              : `${sell ? `You send ${usdt} USDT` : `You pay ₹${inr}`} · exactly, nothing is deducted`}
+          </span>
         </div>
 
         <div className={styles.rate} data-robot-target="rate">
@@ -128,7 +136,12 @@ export function QuoteCard({ quote, canAccept, now }: { quote: ClientQuoteView; c
             <dt>Network</dt>
             <dd>USDT on TRON (TRC20)</dd>
           </div>
-          {quote.networkFeeIncluded ? (
+          {fee ? (
+            <div>
+              <dt>Network fee</dt>
+              <dd>{fee} USDT — what TRON charges for this deal’s escrow and its transfers. No other fee: the rate is the market’s.</dd>
+            </div>
+          ) : quote.networkFeeIncluded ? (
             <div>
               <dt>Fees</dt>
               <dd>Included in the rate, with the TRC20 network fee of ₹{legAmount(quote.networkFeeIncluded.amount, 'INR')}</dd>

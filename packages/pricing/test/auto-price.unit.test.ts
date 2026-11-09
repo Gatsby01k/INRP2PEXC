@@ -17,7 +17,7 @@ const offer = (id: string, rate: string, o: Partial<Omit<PricedOffer, 'id' | 'ra
 
 const input = (over: Partial<PricingInput>): PricingInput => ({
   direction: 'BUY_USDT', fixedSide: 'BASE', amountMinor: usdt('1000'), offers: [], referenceMicro: r('100'), maxPremiumBps: 0, binBps: 10,
-  networkAllowanceMinor: usdt('4.5'), minNetMarginInrMinor: inr('100'), evidence: NONE, ...over,
+  networkAllowanceMinor: usdt('4.5'), clientNetworkMinor: 0n, minNetMarginInrMinor: inr('100'), evidence: NONE, ...over,
 });
 
 const priced = (i: PricingInput) => {
@@ -201,3 +201,35 @@ describe('the arithmetic it stands on', () => {
     }
   });
 });
+
+describe('the client paying the network (ADR 0028)', () => {
+  const network = usdt('4.5');
+
+  it('prices a small deal at the market that its margin alone could never carry', () => {
+    // 200 USDT at a trader 0.5% under the market: ~1 USDT of spread, never enough for a 4.5 USDT network out of the margin.
+    const small = { amountMinor: usdt('200'), offers: [offer('a', '99.5')], minNetMarginInrMinor: inr('0.01') };
+    expect(choosePrice(input(small)).kind).toBe('NONE');
+    const c = priced(input({ ...small, clientNetworkMinor: network }));
+    expect(c.clientRateMicro).toBe(r('100'));
+    expect(c.econ.base.minor).toBe(usdt('200'));
+    // The client pays for its 200 USDT and the network; INRP2P keeps the spread on all of it.
+    expect(c.econ.clientInr.minor).toBe(inr('20450'));
+    expect(c.econ.clientNetworkBase?.minor).toBe(network);
+    expect(c.netMarginMinor).toBe(c.econ.grossMarginBase.minor - network);
+    expect(c.netMarginMinor > 0n).toBe(true);
+  });
+
+  it('agrees with the kernel for a client selling, either side fixed', () => {
+    for (const fixedSide of ['BASE', 'QUOTE'] as const) {
+      const c = priced(input({ direction: 'SELL_USDT', fixedSide, amountMinor: fixedSide === 'BASE' ? usdt('500') : inr('50000'), offers: [offer('a', '101')], clientNetworkMinor: network }));
+      const k = computeP2pEconomics(
+        fixedSide === 'BASE'
+          ? { direction: 'SELL_USDT', fixedSide, amount: Money.ofMinor(usdt('500'), 'USDT'), clientRate: Rate.ofMicro(c.clientRateMicro, 'CLIENT'), routeRate: Rate.parse('101', 'ROUTE') }
+          : { direction: 'SELL_USDT', fixedSide, amount: Money.ofMinor(inr('50000'), 'INR'), clientRate: Rate.ofMicro(c.clientRateMicro, 'CLIENT'), routeRate: Rate.parse('101', 'ROUTE') },
+        { clientNetwork: Money.ofMinor(network, 'USDT') },
+      );
+      expect(c.econ).toEqual(k);
+    }
+  });
+});
+

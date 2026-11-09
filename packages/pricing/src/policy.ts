@@ -1,5 +1,5 @@
 import { sql } from 'kysely';
-import { DomainError, Rate, requireText, requireUuid } from '@inrp2p/kernel';
+import { DomainError, type MarketReferences, Rate, requireText, requireUuid } from '@inrp2p/kernel';
 import type { DirectionValue, Executor, TxContext } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
 import { type OperatorActor, actorLabel, operatorCommand } from '@inrp2p/identity';
@@ -45,6 +45,19 @@ export async function freshReference(ex: Executor, direction: DirectionValue, po
   const r = await sql<{ age: string }>`select floor(extract(epoch from (inrp2p_now() - ${ref.effectiveAt}::timestamptz)))::bigint::text as age`.execute(ex);
   const ageSeconds = Number.parseInt(r.rows[0]!.age, 10);
   return ageSeconds >= 0 && ageSeconds <= policy.referenceMaxAgeSeconds ? { ...ref, ageSeconds } : null;
+}
+
+/**
+ * ADR 0028: the market references a trader's market rate may be derived from — each direction's while it is fresh enough
+ * for the policy to price on, null otherwise. A side at a market rate has no rate without its own.
+ */
+export async function marketReferences(ex: Executor, policy?: Pick<PricingPolicy, 'referenceMaxAgeSeconds'>): Promise<MarketReferences> {
+  const p = policy ?? (await currentPricingPolicy(ex));
+  const [sell, buy] = await Promise.all([freshReference(ex, 'SELL_USDT', p), freshReference(ex, 'BUY_USDT', p)]);
+  return {
+    SELL_USDT: sell ? { snapshotId: sell.id, micro: sell.rate.micro } : null,
+    BUY_USDT: buy ? { snapshotId: buy.id, micro: buy.rate.micro } : null,
+  };
 }
 
 /**

@@ -1,5 +1,5 @@
 import { sql } from 'kysely';
-import { DomainError, Rate, requireText, requireUuid } from '@inrp2p/kernel';
+import { DomainError, NO_MARKET, Rate, requireText, requireUuid } from '@inrp2p/kernel';
 import { type Executor, type TxContext, assertLockOrder } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
 import { enqueueOutbox } from '@inrp2p/outbox';
@@ -7,7 +7,7 @@ import { type ClientActor, type OperatorActor, operatorCommand } from '@inrp2p/i
 import { publishTraderRate } from '@inrp2p/pricing';
 import { obligationRemaining } from '@inrp2p/settlement';
 import { releaseSubjectAssignment } from '@inrp2p/treasury';
-import { lockTrader, lockTraderOfClient, traderClientCommand, type CloseReason, type OrderRow, closeUnstartedOrder, lockBlock, lockOrder, traderProgram } from '@inrp2p/trader-core';
+import { lockTrader, lockTraderOfClient, traderClientCommand, type CloseReason, type OrderRow, closeUnstartedOrder, lockBlock, lockOrder, standsBehind, traderProgram } from '@inrp2p/trader-core';
 import { freeCapacity, riskFit, standingIssues } from '@inrp2p/trader-core';
 import { directionForSide } from './routing.ts';
 import { readBlocks, readStanding } from '@inrp2p/trader-core';
@@ -63,10 +63,11 @@ export function acceptOrder(actor: ClientActor) {
       throw new DomainError('TRADER_NOT_ELIGIBLE', risk === 'DEAL_ABOVE_LIMIT' ? 'this order is larger than your reserve allows at your level' : 'your open deals and this one are more than your reserve allows at your level', { issues: [risk] });
     }
 
-    const facts = (await readBlocks(ctx.tx, trader.id)).find((b) => b.id === order.block_id)!;
+    // The offer names its own rate; the side gives it capacity.
+    const facts = (await readBlocks(ctx.tx, trader.id, NO_MARKET)).find((b) => b.id === order.block_id)!;
     const block = await lockBlock(ctx, order.block_id);
     if (block.status !== 'ACTIVE') throw new DomainError('TRADER_NOT_ELIGIBLE', 'this side is paused', { issues: ['BLOCK_PAUSED'] });
-    if (block.rate_micro !== order.rate_micro) throw new DomainError('TRADER_ORDER_NOT_LIVE', 'your rate changed since this offer was made');
+    if (!standsBehind(block, order)) throw new DomainError('TRADER_ORDER_NOT_LIVE', 'your rate changed since this offer was made');
     // What this block can still hold, not counting this very offer.
     const free = freeCapacity({ ...facts, capacityMinor: block.capacity_minor, reservedMinor: block.reserved_minor, offeredMinor: facts.offeredMinor - order.capacity_minor });
     if (order.capacity_minor > free) throw new DomainError('CAPACITY_INSUFFICIENT', 'this order no longer fits your available capacity');

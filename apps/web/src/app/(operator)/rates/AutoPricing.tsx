@@ -18,6 +18,15 @@ const whole = (v: string) => (/^\d{1,4}$/.test(v) ? Number.parseInt(v, 10) : nul
  * are bounded by, the guard-rails, and what the last day did. Every change is a person's, with the reason and a fresh
  * authenticator code; switching on is refused while either reference is stale.
  */
+
+/** ADR 0028: why a request closed without a price, in the desk's words. */
+const UNPRICED: Record<string, string> = {
+  NO_MARKET: 'with the market stale',
+  NETWORK_UNKNOWN: 'with network fees unknown',
+  NO_OFFER: 'too large or small for any firm offer',
+  NOT_COMPETITIVE: 'no firm offer at the market',
+  NO_BID: 'no bid in time',
+};
 export function AutoPricing({ view, canSet }: { view: AutoPricingView; canSet: boolean }) {
   const cmd = useCommand();
   const p = view.policy;
@@ -50,7 +59,7 @@ export function AutoPricing({ view, canSet }: { view: AutoPricingView; canSet: b
               disabledReason={!p.autoQuote && stale ? 'A market reference is missing or stale.' : null}
               consequence={p.autoQuote
                 ? 'New requests wait for a person again. Prices already given keep their terms until they run out.'
-                : 'Clients get a firm 60-second price the moment they ask, from the traders’ firm offers, never worse than the market reference. Nothing is priced when the reference is stale.'}
+                : 'Clients get a firm 60-second price the moment they ask, from the traders’ firm offers, never worse than the market reference, the deal’s network as their own line. A request nothing prices is answered at once — nothing waits for a person. Nothing is priced when the reference is stale.'}
               busy={cmd.busy}
               onConfirm={set(p.autoQuote ? 'Switch automatic prices off' : 'Switch automatic prices on', { autoQuote: !p.autoQuote })}
             />
@@ -60,8 +69,8 @@ export function AutoPricing({ view, canSet }: { view: AutoPricingView; canSet: b
               reasonLabel="Reason"
               minReason={10}
               consequence={p.rfq
-                ? 'An amount no firm offer covers waits for a person.'
-                : `An amount no firm offer covers is put to up to ${p.rfqMaxTraders} traders for ${p.rfqWindowSeconds} seconds; the best bid becomes the client’s firm price.`}
+                ? 'A request no firm offer prices is answered at once: there is no price for it now.'
+                : `A request no firm offer prices is put to up to ${p.rfqMaxTraders} traders for ${p.rfqWindowSeconds} seconds; the best bid becomes the client’s firm price.`}
               busy={cmd.busy}
               onConfirm={set(p.rfq ? 'Stop price requests' : 'Start price requests', { rfq: !p.rfq })}
             />
@@ -84,7 +93,13 @@ export function AutoPricing({ view, canSet }: { view: AutoPricingView; canSet: b
           <dt>Last 24 hours</dt>
           <dd>
             {view.lastDay.quoted} priced · {view.lastDay.accepted} accepted · {usdt(view.lastDay.acceptedNetUsdt)} net · {view.lastDay.fromRfq} from price requests ·{' '}
-            {view.lastDay.leftForDesk} left for a person
+            {view.lastDay.unpriced} without a price
+            {view.lastDay.unpriced > 0 ? (
+              <span className={d.muted}>
+                {' '}
+                ({Object.entries(view.lastDay.unpricedBy).map(([why, n]) => `${n} ${UNPRICED[why] ?? why}`).join(', ')})
+              </span>
+            ) : null}
           </dd>
         </div>
         <div>

@@ -39,6 +39,7 @@ const request = {
   destination: 'HDFC Bank •••• 8219',
   status: 'OPEN' as const,
   statusReason: null,
+  noPrice: false,
   createdAt: EARLIER,
 };
 const quote = {
@@ -53,6 +54,7 @@ const quote = {
   expiresAt: LATER,
   status: 'SENT' as const,
   networkFeeIncluded: null,
+  networkFee: null,
 };
 const view = (over: Partial<ExchangeView>): ExchangeView => ({ destinations: both, request: null, quote: null, openTradeRef: null, ...over });
 
@@ -112,6 +114,7 @@ const trade = (over: Partial<PortalTrade['trade']> = {}, rest: Partial<PortalTra
     network: 'TRON',
     openedAt: EARLIER,
     depositInstructions: { address: 'TXdeposit', amount: '25000.000000', network: 'TRON' },
+    networkFee: null,
     ...over,
   },
   settlement: {

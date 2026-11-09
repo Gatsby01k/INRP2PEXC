@@ -21,6 +21,11 @@ export interface OpenRequest {
   readonly destination: string;
   readonly status: 'OPEN' | 'QUOTED' | 'DECLINED' | 'EXPIRED' | 'WITHDRAWN';
   readonly statusReason: string | null;
+  /**
+   * ADR 0028: declined by the system, not a person — nothing priced it honestly when it was asked. `statusReason` then says
+   * what happened and what the client can do; asking again is a new request.
+   */
+  readonly noPrice: boolean;
   readonly createdAt: string;
   /** ADR 0025: when the best price for this amount is being gathered, until when; and whether the client can ask for a new price itself. */
   readonly gatheringUntil: string | null;
@@ -50,7 +55,7 @@ export async function exchangeView(ex: Executor, clientId: string): Promise<Exch
       .selectFrom('trade_request')
       .select([
         'id', 'ref', 'direction', 'fixed_side', 'requested_base_minor', 'requested_quote_minor', 'target_rate_micro',
-        'bank_account_id', 'crypto_wallet_id', 'status', 'status_reason', 'created_at',
+        'bank_account_id', 'crypto_wallet_id', 'status', 'status_reason', 'no_price_reason', 'created_at',
       ])
       .where('client_id', '=', clientId)
       // A deal with an independent desk (ADR 0020) has its own page; the Exchange is the INRP2P desk's conversation.
@@ -104,6 +109,7 @@ export async function exchangeView(ex: Executor, clientId: string): Promise<Exch
           destination: destinationLabel(destinations, request),
           status: request.status as OpenRequest['status'],
           statusReason: request.status_reason,
+          noPrice: request.no_price_reason !== null,
           createdAt: request.created_at.toISOString(),
           gatheringUntil: automatic.rfqClosesAt,
           canReprice: automatic.canReprice,

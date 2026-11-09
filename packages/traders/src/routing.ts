@@ -1,7 +1,8 @@
 import { assertNewBusinessOpen, newBusinessState } from '@inrp2p/trades';
 import { sql } from 'kysely';
-import { currentNetworkCosts, networkAvailable, networkFeePolicy, reservePerSendSun } from '@inrp2p/network';
-import { DomainError, Money, Rate, computeP2pEconomics, requireUuid } from '@inrp2p/kernel';
+import { currentNetworkCosts, networkAvailable, networkFeePolicy, reservePerSendSun, usdtNetworkTerms } from '@inrp2p/network';
+import { marketReferences } from '@inrp2p/pricing';
+import { DomainError, type MarketReference, Money, Rate, computeP2pEconomics, requireUuid } from '@inrp2p/kernel';
 import { type DirectionValue, type FixedSideValue, type TraderSide, type TxContext, assertLockOrder } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
 import { enqueueOutbox } from '@inrp2p/outbox';
@@ -20,6 +21,8 @@ export interface Candidate {
   readonly blockId: string;
   readonly routeId: string;
   readonly rateMicro: bigint;
+  /** ADR 0028: for a side at a market rate, the reference and the terms the rate was derived from — recorded with the order. */
+  readonly market?: { readonly reference: MarketReference; readonly offsetBps: number; readonly limitMicro: bigint | null } | null;
   /** Capacity the block could still promise, in its own currency. */
   readonly freeMinor: bigint;
   /** Orders accepted or in progress. */
@@ -53,14 +56,16 @@ export interface SizedOrder {
 /**
  * The order's terms: the rupees are one amount for the trader and the client (ADR 0019), so the order is sized at the client
  * rate the desk names, and the trader's USDT follows at its own rate. The same function the quote will use, so the quote on
- * an accepted order prices exactly what the trader accepted (the database checks they agree).
+ * an accepted order prices exactly what the trader accepted (the database checks they agree). On INRP2P's own deal priced in
+ * USDT the client's rupees also pay the deal's network (ADR 0028), so the order is sized with it.
  */
-export function sizeOrder(input: { direction: DirectionValue; fixedSide: FixedSideValue; requestedMinor: bigint; traderRateMicro: bigint; plannedClientRateMicro: bigint }): SizedOrder {
+export function sizeOrder(input: { direction: DirectionValue; fixedSide: FixedSideValue; requestedMinor: bigint; traderRateMicro: bigint; plannedClientRateMicro: bigint; clientNetworkMinor?: bigint }): SizedOrder {
   const routeRate = Rate.ofMicro(input.traderRateMicro, 'ROUTE');
   const clientRate = Rate.ofMicro(input.plannedClientRateMicro, 'CLIENT');
+  const options = input.clientNetworkMinor ? { clientNetwork: Money.ofMinor(input.clientNetworkMinor, 'USDT') } : {};
   const econ = input.fixedSide === 'BASE'
-    ? computeP2pEconomics({ direction: input.direction, fixedSide: 'BASE', amount: Money.ofMinor(input.requestedMinor, 'USDT'), clientRate, routeRate })
-    : computeP2pEconomics({ direction: input.direction, fixedSide: 'QUOTE', amount: Money.ofMinor(input.requestedMinor, 'INR'), clientRate, routeRate });
+    ? computeP2pEconomics({ direction: input.direction, fixedSide: 'BASE', amount: Money.ofMinor(input.requestedMinor, 'USDT'), clientRate, routeRate }, options)
+    : computeP2pEconomics({ direction: input.direction, fixedSide: 'QUOTE', amount: Money.ofMinor(input.requestedMinor, 'INR'), clientRate, routeRate }, options);
   return { baseMinor: econ.routeBase.minor, inrMinor: econ.clientInr.minor };
 }
 
@@ -142,9 +147,20 @@ export async function assignRequestInTx(
   // ADR 0017 §2: a trader's network deposit pays for the transfers of its orders, and a trade holds the worst case of
   // them from acceptance. A trader that could not cover one more order is not offered one.
   let networkNeed: bigint | null = null;
-  // ADR 0022: on GasFree a deal carries its network out of its margin — its trader needs no deposit, and the TRX price and
-  // the chain's TRX fees price nothing of it: only a deal paid in TRX waits on them.
+  // ADR 0022: on GasFree a deal carries its network in USDT (its client pays it, ADR 0028) — its trader needs no deposit,
+  // and the TRX price and the chain's TRX fees price nothing of it: only a deal paid in TRX waits on them.
   const rented = (await networkFeePolicy(ctx.tx)).resourceMode === 'GASFREE';
+  // ADR 0028: on GasFree the client pays the deal's network — the order is sized with it; unknown fees size nothing.
+  let clientNetworkMinor: bigint | null = null;
+  if (rented) {
+    try {
+      clientNetworkMinor = (await usdtNetworkTerms(ctx.tx, { funderTraderId: null })).allowanceUsdtMinor;
+    } catch (e) {
+      if (!(e instanceof DomainError && (e.code === 'NETWORK_FEES_UNKNOWN' || e.code === 'NOT_FOUND'))) throw e;
+    }
+  }
+  // ADR 0028: a side at a market rate is priced on the references fresh enough to price on, the same ones as everywhere.
+  const market = await marketReferences(ctx.tx);
   try {
     const costs = await currentNetworkCosts(ctx.tx);
     // A deal holds its transfer and a return of the escrow, whichever direction (`priceNetworkP2p`).
@@ -168,12 +184,16 @@ export async function assignRequestInTx(
       exclude(issues[0]!);
       continue;
     }
-    const block = (await readBlocks(ctx.tx, t.id)).find((b) => b.side === side);
+    const block = (await readBlocks(ctx.tx, t.id, market)).find((b) => b.side === side);
     if (!block) {
       exclude('NO_SIDE');
       continue;
     }
     // A deal's transfers are paid from its trader's network deposit (migration 0040) — unless they go through GasFree.
+    if (rented && clientNetworkMinor === null) {
+      exclude('NETWORK_FEES_UNKNOWN');
+      continue;
+    }
     if (!rented) {
       if (networkNeed === null) {
         exclude('NETWORK_FEES_UNKNOWN');
@@ -195,7 +215,10 @@ export async function assignRequestInTx(
     }
     let sized: SizedOrder;
     try {
-      sized = sizeOrder({ direction: request.direction, fixedSide: request.fixed_side, requestedMinor, traderRateMicro: block.rateMicro, plannedClientRateMicro: input.plannedClientRateMicro });
+      sized = sizeOrder({
+        direction: request.direction, fixedSide: request.fixed_side, requestedMinor, traderRateMicro: block.rateMicro, plannedClientRateMicro: input.plannedClientRateMicro,
+        clientNetworkMinor: clientNetworkMinor ?? 0n,
+      });
     } catch (e) {
       if (e instanceof DomainError && e.code === 'INVALID_AMOUNT') {
         exclude('BELOW_MINIMUM');
@@ -217,6 +240,7 @@ export async function assignRequestInTx(
     }
     candidates.push({
       traderId: t.id, traderRef: t.ref, blockId: block.id, routeId: block.routeId, rateMicro: block.rateMicro,
+      market: block.market ? { reference: block.market, offsetBps: block.marketOffsetBps!, limitMicro: block.rateLimitMicro } : null,
       freeMinor: freeCapacity(block), openOrders: Number.parseInt(t.open, 10), completedOrders: Number.parseInt(t.completed, 10), sized,
     });
   }
@@ -242,6 +266,9 @@ export async function assignRequestInTx(
       rate_micro: chosen.rateMicro,
       capacity_minor: capacityMinor,
       planned_client_rate_micro: input.plannedClientRateMicro,
+      rate_reference_snapshot_id: chosen.market?.reference.snapshotId ?? null,
+      rate_offset_bps: chosen.market?.offsetBps ?? null,
+      rate_limit_micro: chosen.market?.limitMicro ?? null,
       offered_by: input.offeredBy,
       offer_expires_at: sql<Date>`inrp2p_now() + make_interval(secs => ${program.offerTtlSeconds})`,
     })
@@ -251,7 +278,8 @@ export async function assignRequestInTx(
     action: 'trader_order.offered', entityType: 'trader_order', entityId: row.id,
     after: {
       ref: row.ref, request_id: request.id, trader_id: chosen.traderId, side, base: Money.ofMinor(chosen.sized.baseMinor, 'USDT'), inr: Money.ofMinor(chosen.sized.inrMinor, 'INR'),
-      rate: Rate.ofMicro(chosen.rateMicro, 'ROUTE'), considered: traders.rows.length, eligible: ranked.length, excluded, offer_expires_at: row.offer_expires_at,
+      rate: Rate.ofMicro(chosen.rateMicro, 'ROUTE'), market: chosen.market ? { reference_snapshot_id: chosen.market.reference.snapshotId, offset_bps: chosen.market.offsetBps } : null,
+      considered: traders.rows.length, eligible: ranked.length, excluded, offer_expires_at: row.offer_expires_at,
     },
   });
   await enqueueOutbox(ctx, { type: 'trader.order_offered', aggregateType: 'trader_order', aggregateId: row.id, payload: { orderId: row.id, traderId: chosen.traderId, requestId: request.id } });

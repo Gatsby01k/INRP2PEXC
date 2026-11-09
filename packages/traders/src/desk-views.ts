@@ -1,5 +1,5 @@
 import { sql } from 'kysely';
-import { DomainError, Money, Rate, requireText } from '@inrp2p/kernel';
+import { DomainError, Money, NO_MARKET, Rate, requireText } from '@inrp2p/kernel';
 import type { DeskStatus, DirectionValue, Executor, TraderStatus } from '@inrp2p/db';
 import {
   type TierName, type StandingIssue, currentDeskPrices, currentFeePolicy, deskOfTrader, freeCapacity, readBlocks, readStanding, switchOnIssues, traderMembership,
@@ -292,7 +292,8 @@ export async function deskToday(ex: Executor, userId: string): Promise<DeskToday
   const now = await nowOf(ex);
   const { standing, reserve } = await readStanding(ex, traderId);
   const issues = switchOnIssues(standing);
-  const blocks = await readBlocks(ex, traderId);
+  // A desk deals at its own live prices: its sides give it capacity, never a rate.
+  const blocks = await readBlocks(ex, traderId, NO_MARKET);
   const l = reserve.limits;
   const room = l ? l.maxOpenMinor - l.exposure.totalMinor : 0n;
   const largest = l ? (room < l.maxDealMinor ? (room > 0n ? room : 0n) : l.maxDealMinor) : 0n;
@@ -376,7 +377,7 @@ export async function deskDeal(ex: Executor, userId: string, ref: string): Promi
 /** The desk's prices, for its prices screen, with what the desk can fill on each side and the fee it pays on a deal. */
 export async function deskPricing(ex: Executor, userId: string) {
   const { desk, traderId } = await ownDesk(ex, userId);
-  const blocks = await readBlocks(ex, traderId);
+  const blocks = await readBlocks(ex, traderId, NO_MARKET);
   const side = (s: 'BUY_USDT' | 'SELL_USDT') => blocks.find((b) => b.side === s);
   const free = (b: ReturnType<typeof side>) => (b && b.status === 'ACTIVE' ? freeCapacity({ ...b, offeredMinor: 0n }) : 0n);
   return deskSafe({

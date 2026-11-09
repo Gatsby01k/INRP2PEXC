@@ -131,8 +131,9 @@ describe('migration 46 at schema 45', () => {
     });
     expect(await preflight(pool)).toEqual({ accepted: true, reasons: [] });
 
-    expect(await migrate(pool)).toEqual([46]);
-    expect(await version()).toBe(46);
+    // 46 runs first; the migrations after it run on top, as they would on production.
+    expect((await migrate(pool))[0]).toBe(46);
+    expect(await version()).toBeGreaterThanOrEqual(46);
 
     const route = async (id: string) => (await pool.query(`select status, execution_mode from liquidity_route where id = $1`, [id])).rows[0];
     expect(await route(traderRoute)).toEqual({ status: 'ACTIVE', execution_mode: 'P2P' });

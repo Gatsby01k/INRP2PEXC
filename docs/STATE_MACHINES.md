@@ -30,6 +30,7 @@ OPEN ──quote.send──▶ QUOTED ──quote.accept──▶ ACCEPTED (term
 | OPEN → QUOTED | side effect of `quote.send` | — | — |
 | QUOTED → OPEN | side effect of quote EXPIRED/REJECTED/CANCELLED(not superseded) | no other SENT quote | outbox `desk.request_needs_action` |
 | OPEN/QUOTED → DECLINED | Dealer `request:decline` | not ACCEPTED | cancels SENT quote (reason `DECLINED_BY_DESK`); audit; notify client |
+| OPEN → DECLINED (system) | ADR 0028: automatic prices on and nothing prices it honestly — no market reference, unknown network fees, no firm offer for the amount, none at the market, or no bid | OPEN | `no_price_reason` set; the plain answer is the `status_reason`; audit `request.declined` by `SYSTEM:auto_price`; the client's inbox told when it was waiting on traders |
 | OPEN/QUOTED → WITHDRAWN | Client user or operator `request:withdraw` | not ACCEPTED | cancels SENT quote; audit |
 | QUOTED → ACCEPTED | side effect of `quote.accept` or `quote.accept_via_link` | — | — |
 | OPEN → EXPIRED | Job | no activity for request TTL (default 24h) | audit |

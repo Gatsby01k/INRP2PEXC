@@ -7,6 +7,7 @@ import { traderProgram, type TraderProgram } from '@inrp2p/trader-core';
 import { completedVolume } from './views.ts';
 import { sharedReserveAddress } from './reserve.ts';
 import { readBlocks, readStanding } from '@inrp2p/trader-core';
+import { marketReferences } from '@inrp2p/pricing';
 
 /**
  * What the desk sees of traders. Operator-only (`traders:view`): a trader's rate is a route rate, so these views
@@ -312,7 +313,13 @@ export interface DeskTraderDetail {
   readonly bank: DeskBankView;
   readonly wallet: DeskWalletView;
   readonly clientDestinations: { readonly banks: readonly { id: string; label: string }[]; readonly wallets: readonly { id: string; label: string }[] };
-  readonly blocks: readonly { side: TraderSide; status: string; rate: string | null; capacity: string; held: string; minOrder: string | null; maxOrder: string | null }[];
+  readonly blocks: readonly {
+    side: TraderSide; status: string; rate: string | null; capacity: string; held: string; minOrder: string | null; maxOrder: string | null;
+    /** ADR 0028: a rate set against the market — the trader's offset in basis points and its own bound — or null for its own number. */
+    market: { offsetBps: number; limit: string | null } | null;
+    /** Whether INRP2P fills orders at this side's rate without asking, and until when (null: until the trader turns it off). */
+    firm: { until: string | null } | null;
+  }[];
   readonly reserve: {
     readonly balance: string; readonly required: string | null; readonly locked: string; readonly available: string; readonly pendingRelease: string;
     readonly applying: string; readonly shortfall: string; readonly depositAddress: string | null;
@@ -378,7 +385,7 @@ export async function deskTrader(ex: Executor, traderId: string): Promise<DeskTr
   const applicant = await ex.selectFrom('auth_user').select('email').where('id', '=', p.applied_by).executeTakeFirst();
   const banks = await ex.selectFrom('bank_account').select(['id', 'bank_name', 'account_last4']).where('client_id', '=', p.client_id).where('status', '=', 'ACTIVE').execute();
   const wallets = await ex.selectFrom('crypto_wallet').select(['id', 'label', 'address', 'purpose']).where('client_id', '=', p.client_id).where('status', '=', 'ACTIVE').where('purpose', '=', 'BOTH').execute();
-  const blocks = await readBlocks(ex, id);
+  const blocks = await readBlocks(ex, id, await marketReferences(ex));
   const { reserve } = await readStanding(ex, id);
   // One address for every trader (D-17): the desk sees the address the trader is told to send to.
   const address = await sharedReserveAddress(ex);
@@ -471,6 +478,8 @@ export async function deskTrader(ex: Executor, traderId: string): Promise<DeskTr
       held: amountOf(b.side, b.reservedMinor)!,
       minOrder: amountOf(b.side, b.minOrderMinor),
       maxOrder: amountOf(b.side, b.maxOrderMinor),
+      market: b.rateBasis === 'MARKET' ? { offsetBps: b.marketOffsetBps!, limit: b.rateLimitMicro === null ? null : Rate.ofMicro(b.rateLimitMicro, 'ROUTE').toDecimalString() } : null,
+      firm: b.firm ? { until: b.instantOpenEnded ? null : b.instantUntil!.toISOString() } : null,
     })),
     reserve: {
       balance: reserve.balance.toDecimalString(),

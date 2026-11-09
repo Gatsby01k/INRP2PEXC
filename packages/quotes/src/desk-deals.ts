@@ -1,5 +1,5 @@
 import { sql } from 'kysely';
-import { DomainError, Money, Rate, requireText, requireUuid } from '@inrp2p/kernel';
+import { DomainError, Money, NO_MARKET, Rate, requireText, requireUuid } from '@inrp2p/kernel';
 import { type DirectionValue, type Executor, type FixedSideValue, type TraderSide, type TxContext, assertLockOrder } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
 import { enqueueOutbox } from '@inrp2p/outbox';
@@ -110,7 +110,8 @@ export async function quoteLockedDeskDealInTx(ctx: TxContext, deps: Pick<QuoteDe
   const { standing } = await readStanding(ctx.tx, trader.id);
   if (switchOnIssues(standing).length > 0) throw new DomainError('DESK_NOT_LIVE', 'this desk is not taking deals right now');
   const side = sideFor(request.direction);
-  const facts = (await readBlocks(ctx.tx, trader.id)).find((b) => b.side === side);
+  // A desk's deal is at the desk's own rate: its side gives it capacity, never a rate.
+  const facts = (await readBlocks(ctx.tx, trader.id, NO_MARKET)).find((b) => b.side === side);
   if (!facts) throw new DomainError('INVALID_ARGUMENT', request.direction === 'SELL_USDT' ? 'this desk does not buy USDT' : 'this desk does not sell USDT');
   const route = await ctx.tx.selectFrom('liquidity_route').select(['execution_mode']).where('id', '=', facts.routeId).executeTakeFirstOrThrow();
   if (route.execution_mode !== 'P2P') throw new DomainError('INVALID_ARGUMENT', 'a desk deals P2P: its rupees go straight to and from its client');

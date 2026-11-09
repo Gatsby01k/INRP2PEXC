@@ -94,6 +94,14 @@ export function exchangeAssistant(view: ExchangeView, opts: { canAccept: boolean
       body: 'A request needs somewhere to pay you: a bank account for INR, or a wallet for USDT. Add one from the Exchange or Bank & wallets.',
     };
   }
+  if (request?.status === 'DECLINED' && request.noPrice) {
+    return {
+      mood: 'alert',
+      label: 'No price',
+      title: 'No price for that right now',
+      body: request.statusReason ?? 'Ask again in a few minutes, or try another amount.',
+    };
+  }
   if (request?.status === 'DECLINED') {
     return {
       mood: 'alert',

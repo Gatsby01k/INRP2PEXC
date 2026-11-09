@@ -18,7 +18,8 @@
     "versions:check": "node scripts/check-versions.ts",
     "workspace:graph": "node scripts/workspace-graph.ts",
     "smoke:tron": "node scripts/tron-smoke.ts",
-    "load:test": "LOAD_WORKERS=${LOAD_WORKERS:-12} LOAD_TRADES_PER_WORKER=${LOAD_TRADES_PER_WORKER:-25} vitest run --project integration packages/settlement/test/load.int.test.ts --reporter=verbose"
+    "load:test": "LOAD_WORKERS=${LOAD_WORKERS:-12} LOAD_TRADES_PER_WORKER=${LOAD_TRADES_PER_WORKER:-25} vitest run --project integration packages/settlement/test/load.int.test.ts --reporter=verbose",
+    "load:market": "MARKET_DEALS=${MARKET_DEALS:-300} MARKET_LANES=${MARKET_LANES:-30} MARKET_TRADERS=${MARKET_TRADERS:-10} vitest run --project integration test/integration/market-day.int.test.ts --reporter=verbose"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

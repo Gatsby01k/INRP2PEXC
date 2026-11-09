@@ -34,6 +34,7 @@ Non-blocking items accepted at phase review. Each entry names the phase that mus
 | TD-28 | A deposit at the shared reserve address that no trader can be credited with automatically has no desk resolution in the product | D-17 (2026-10-10) | The first such deposit (a trader sending from an unregistered wallet, or two traders with one wallet on file) | Open — the money is safe in suspense with a case |
 | TD-29 | The public site still says the desk onboards clients, although clients now open their own accounts | D-17 (2026-10-10) | Before the self sign-up is announced | Closed (2026-10-12) — "Open an account" leads to the workspace gateway everywhere the question comes up |
 | TD-42 | A reserve withdrawal still needs a person to send it from custody, record it and confirm it | ADR 0024 (2026-10-30) | Traders withdrawing often enough for the desk to notice | Open — the owner decides whether the reserve moves to signer-held GasFree accounts (TD-41) |
+| TD-44 | A client's receipt does not show the network it paid as its own line (ADR 0028) | ADR 0028 (2026-11-09) | A client asking why its rupees are more than its USDT at the rate | Open — add the line to the receipt snapshot (a new snapshot version) and its PDF |
 
 ## TD-01 — Better Auth schema warning for `auth_rate_limit.last_request`
 
@@ -924,4 +925,14 @@ the owner's decision; the same signer would then return an unattributable deposi
 
 **Resolution (to do).** A Telegram moment for `trader.rfq_opened`; limit `escrow_payment.choose_method` to the trader's rails;
 more strata once there is evidence enough to fill them.
+
+## TD-44 — The receipt has no network line
+
+**Observed (ADR 0028, 2026-11-09).** On INRP2P's own deal the client pays the deal's network as its own line: the quote,
+the Exchange screen and the trade carry it (`client_network_base_minor`). The receipt (`inrp2p.receipt.v1`) shows the
+frozen USDT, rupees and rate — all correct — but not the network, so its rupees are more than its USDT at the rate by an
+amount it does not name.
+
+**Resolution (to do).** A receipt snapshot v2 with `networkFee` (from the trade's `client_network_base_minor`) and its line
+in the PDF; v1 receipts stay as issued.
 

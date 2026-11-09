@@ -1,5 +1,5 @@
 import { sql } from 'kysely';
-import { DomainError, Money, Rate, divRound, requireText } from '@inrp2p/kernel';
+import { DomainError, Money, NO_MARKET, Rate, divRound, requireText } from '@inrp2p/kernel';
 import type { Executor, TraderSide } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
 import { enqueueOutbox } from '@inrp2p/outbox';
@@ -73,7 +73,8 @@ export function bidOnRfq(actor: ClientActor) {
 
     // What the order would hold at this rate: the rupees a buyer of USDT pays, at most the amount at its own rate; the USDT
     // a seller delivers, at least the client's (the client's price, not known yet, only adds to it).
-    const block = (await readBlocks(ctx.tx, trader.id)).find((b) => b.id === ask.block_id);
+    // A bid is its own rate: the side gives it capacity and INRP2P's ceilings, never a rate.
+    const block = (await readBlocks(ctx.tx, trader.id, NO_MARKET)).find((b) => b.id === ask.block_id);
     if (!block || block.status !== 'ACTIVE') throw new DomainError('TRADER_NOT_ELIGIBLE', 'this side is paused', { issues: ['BLOCK_PAUSED'] });
     const buying = block.side === 'BUY_USDT';
     const base = ask.requested_base_minor;

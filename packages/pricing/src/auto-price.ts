@@ -1,4 +1,4 @@
-import { DomainError, Money, Rate, computeP2pEconomics, divRound, inrToUsdt, type TradeEconomics } from '@inrp2p/kernel';
+import { DomainError, Money, Rate, computeP2pEconomics, divRound, inrToUsdt, type P2pTradeEconomics } from '@inrp2p/kernel';
 
 /**
  * The automatic price of a deal on the INRP2P exchange (ADR 0025), as pure arithmetic over facts read elsewhere.
@@ -74,14 +74,19 @@ export interface PricingInput {
   readonly referenceMicro: bigint;
   readonly maxPremiumBps: number;
   readonly binBps: number;
-  /** The USDT the escrow carries for the deal's network out of INRP2P's margin (GasFree); zero when its trader funds it in TRX. */
+  /** The USDT the escrow carries for the deal's network (GasFree); zero when its trader funds it in TRX. */
   readonly networkAllowanceMinor: bigint;
+  /**
+   * ADR 0028: the part of that network the client pays as its own line — the whole allowance on INRP2P's own deal priced
+   * in USDT, zero otherwise. The client's rupees price its USDT and this together, so what INRP2P keeps is the spread.
+   */
+  readonly clientNetworkMinor: bigint;
   /** The policy's minimum net margin in rupees; each price must leave it in USDT at that price's own rate (rounded up). */
   readonly minNetMarginInrMinor: bigint;
   readonly evidence: AcceptanceEvidence;
 }
 
-export type P2pEconomics = TradeEconomics & { readonly routeBase: Money<'USDT'>; readonly grossMarginBase: Money<'USDT'> };
+export type P2pEconomics = P2pTradeEconomics;
 
 export interface PricingChoice {
   readonly clientRateMicro: bigint;
@@ -194,16 +199,20 @@ interface Scored {
  * `computeP2pEconomics` (FINANCIAL_INVARIANTS §1.2), without its objects, because every grid price is weighed against every
  * offer. The chosen one is recomputed by the kernel and must agree (`choose` refuses otherwise).
  */
-function score(direction: Direction, fixedSide: FixedSide, amountMinor: bigint, clientRateMicro: bigint, rateMicro: bigint): Scored | null {
+function score(direction: Direction, fixedSide: FixedSide, amountMinor: bigint, clientRateMicro: bigint, rateMicro: bigint, networkMinor: bigint): Scored | null {
   const buy = direction === 'BUY_USDT';
   let base: bigint;
   let inr: bigint;
   if (fixedSide === 'BASE') {
     base = amountMinor;
-    inr = divRound(base * clientRateMicro, SCALE, buy ? 'UP' : 'DOWN');
+    // The USDT the client rate prices: the client's own and the network it pays (ADR 0028), as `computeP2pEconomics` does.
+    const priced = buy ? base + networkMinor : base - networkMinor;
+    if (priced <= 0n) return null;
+    inr = divRound(priced * clientRateMicro, SCALE, buy ? 'UP' : 'DOWN');
   } else {
     inr = amountMinor;
-    base = divRound(inr * SCALE, clientRateMicro, buy ? 'DOWN' : 'UP');
+    const priced = divRound(inr * SCALE, clientRateMicro, buy ? 'DOWN' : 'UP');
+    base = buy ? priced - networkMinor : priced + networkMinor;
   }
   const routeBase = divRound(inr * SCALE, rateMicro, buy ? 'UP' : 'DOWN');
   if (base <= 0n || inr <= 0n || routeBase <= 0n) return null;
@@ -259,7 +268,7 @@ export function choosePrice(input: PricingInput): PricingOutcome {
     const minNet = minNetAt(input.minNetMarginInrMinor, c);
     const pos = positionBps(direction, c, referenceMicro);
     for (const offer of offers) {
-      const s = score(direction, fixedSide, amountMinor, c, offer.rateMicro);
+      const s = score(direction, fixedSide, amountMinor, c, offer.rateMicro, input.clientNetworkMinor);
       if (!s || !fits(offer, direction, s)) continue;
       const net = s.grossMinor - input.networkAllowanceMinor;
       if (net < minNet || net < 0n) continue;
@@ -275,9 +284,10 @@ export function choosePrice(input: PricingInput): PricingOutcome {
 
   const clientRate = Rate.ofMicro(best.c, 'CLIENT');
   const routeRate = Rate.ofMicro(best.offer.rateMicro, 'ROUTE');
+  const options = input.clientNetworkMinor > 0n ? { clientNetwork: Money.ofMinor(input.clientNetworkMinor, 'USDT') } : {};
   const econ = fixedSide === 'BASE'
-    ? computeP2pEconomics({ direction, fixedSide: 'BASE', amount: Money.ofMinor(amountMinor, 'USDT'), clientRate, routeRate })
-    : computeP2pEconomics({ direction, fixedSide: 'QUOTE', amount: Money.ofMinor(amountMinor, 'INR'), clientRate, routeRate });
+    ? computeP2pEconomics({ direction, fixedSide: 'BASE', amount: Money.ofMinor(amountMinor, 'USDT'), clientRate, routeRate }, options)
+    : computeP2pEconomics({ direction, fixedSide: 'QUOTE', amount: Money.ofMinor(amountMinor, 'INR'), clientRate, routeRate }, options);
   if (econ.base.minor !== best.s.baseMinor || econ.clientInr.minor !== best.s.inrMinor || econ.routeBase.minor !== best.s.routeBaseMinor) {
     throw new DomainError('INVALID_ARGUMENT', 'automatic pricing disagrees with the kernel economics');
   }
@@ -292,6 +302,6 @@ export function choosePrice(input: PricingInput): PricingOutcome {
 
 /** Whether an offer takes this amount at its own rate, whatever the client's price — to tell "nobody can" from "nobody can here". */
 function sizeAtAll(input: PricingInput, offer: PricedOffer): boolean {
-  const s = score(input.direction, input.fixedSide, input.amountMinor, offer.rateMicro, offer.rateMicro);
+  const s = score(input.direction, input.fixedSide, input.amountMinor, offer.rateMicro, offer.rateMicro, input.clientNetworkMinor);
   return s !== null && fits(offer, input.direction, s);
 }

@@ -105,3 +105,24 @@ describe('a failed top-up does not undo the part that arrived (T3)', () => {
     expect((await legsOf(w, trade.tradeId)).map((l) => l.status)).toEqual(['COMPLETED', 'FAILED']);
   });
 });
+
+describe('two confirmation runs at once (2026-11-08 market-day load test)', () => {
+  it('settle each transfer once, and the run that finds it taken steps aside instead of failing on it', async () => {
+    // A slow run overtaken by the next minute's, or the old and the new worker during a rollout: both read the same
+    // DETECTED transfers. Before, the loser failed every one the winner had settled (INVALID_TRANSITION, logged as an
+    // error, and a not-final case for an aged one).
+    const trades = await Promise.all(Array.from({ length: 6 }, () => sellTrade('10')));
+    for (const trade of trades) w.tron.add({ to: (await depositAddressOf(w, trade.tradeId)).address, from: w.clientSourceAddress, amountMinor: usdt('10') });
+    w.tron.solidifyAll();
+    await runTronScan(w.app, w.scanDeps);
+    for (const trade of trades) expect(await stateOf(w, trade.tradeId)).toBe('FIRST_LEG_DETECTED');
+
+    const [a, b] = await Promise.all([runTronConfirm(w.app, w.scanDeps), runTronConfirm(w.app, w.scanDeps)]);
+    expect([...a.failures, ...b.failures]).toEqual([]);
+    expect(a.clientLegsConfirmed + b.clientLegsConfirmed).toBe(trades.length);
+    for (const trade of trades) {
+      expect(await stateOf(w, trade.tradeId)).toBe('FIRST_LEG_CONFIRMED');
+      expect((await legsOf(w, trade.tradeId)).map((l) => l.status)).toEqual(['COMPLETED']);
+    }
+  });
+});
