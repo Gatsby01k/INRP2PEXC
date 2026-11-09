@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { DomainError } from '@inrp2p/kernel';
 import { carriesSessionCookie } from '@inrp2p/identity/session-cookie';
 import { hostConfig } from './server/hosts.ts';
-import { type Surface, DESK_PAGE_PREFIX, PUBLIC_HOME_PATH, RETURN_PATH_HEADER, deskHandleOfPath, gateFor, isDeskPagePath, safeReturnPath, surfaceForHost } from './server/surface.ts';
+import { type Surface, DESK_PAGE_PREFIX, PUBLIC_HOME_PATH, RETURN_PATH_HEADER, deskHandleOfPath, gateFor, isDeskPagePath, isWorkspacePath, safeReturnPath, surfaceForHost } from './server/surface.ts';
 import { contentSecurityPolicy, isHttps, securityHeaders } from './server/headers.ts';
 import { authErrorResponse } from './server/http.ts';
 
@@ -32,7 +32,8 @@ function wantsHtml(request: NextRequest): boolean {
  * navigation, prefetch, refresh and action, across an ocean, before the page began.
  */
 export function proxy(request: NextRequest) {
-  const surface = surfaceForHost(request.headers.get('host'), hostConfig());
+  const hosts = hostConfig();
+  const surface = surfaceForHost(request.headers.get('host'), hosts);
   const nonce = newNonce();
   const https = isHttps({ proto: request.headers.get('x-forwarded-proto'), url: request.url });
   const headers = securityHeaders({ surface, nonce, https });
@@ -77,6 +78,14 @@ export function proxy(request: NextRequest) {
     }
   }
   const needs: Surface | null = gate === 'OPERATOR_SESSION' ? 'OPERATOR' : gate === 'CLIENT_SESSION' ? 'CLIENT' : null;
+  // A person who types a workspace section on the public domain (`inrp2p.com/traders`) is looking for the workspace:
+  // a page request is sent to the same path on the app's host, where their session — or the sign-in — is. Only a
+  // browser's page request, only the workspace's own sections, and only to the configured app host, so it can never
+  // send anyone anywhere else. API calls and any other path are still refused below.
+  if (surface === 'PUBLIC' && needs && wantsHtml(request) && hosts.appHost && isWorkspacePath(request.nextUrl.pathname)) {
+    const to = new URL(`${request.nextUrl.pathname}${request.nextUrl.search}`, `${https ? 'https' : 'http'}://${hosts.appHost}`);
+    return withHeaders(NextResponse.redirect(to, 307), headers);
+  }
   // The public host never receives a session cookie (they are host-only), so a path there that would need one is
   // refused whatever the request carries.
   if (needs && (surface === 'PUBLIC' || !carriesSessionCookie(request.headers, needs))) {

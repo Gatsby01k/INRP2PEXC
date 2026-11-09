@@ -72,6 +72,19 @@ describe('the proxy reads no database', () => {
     expect((await proxy(req(ENV.PUBLIC_HOST, '/exchange', { cookie: APP_COOKIE }))).status).toBe(401);
   });
 
+  it('sends a person who types a workspace section on the public domain to the same page on the app host', async () => {
+    for (const path of ['/traders', '/traders/orders/TO-260919-0006', '/become-a-trader', '/exchange', '/sign-in', '/desk/deals?tab=links']) {
+      const r = await proxy(req(ENV.PUBLIC_HOST, path, { html: true }));
+      expect(r.status, path).toBe(307);
+      expect(r.headers.get('location'), path).toBe(`https://${ENV.APP_HOST}${path}`);
+    }
+    // Only a browser's page request, and only the workspace's own sections: anything else is still refused.
+    expect((await proxy(req(ENV.PUBLIC_HOST, '/traders'))).status).toBe(401);
+    expect((await proxy(req(ENV.PUBLIC_HOST, '/api/client/me', { html: true }))).status).toBe(401);
+    expect((await proxy(req(ENV.PUBLIC_HOST, '/orders/TO-1', { html: true }))).status).toBe(401);
+    expect((await proxy(req(ENV.PUBLIC_HOST, '/settings/team', { html: true }))).status).toBe(401);
+  });
+
   it('keeps sign-in, the auth endpoints and the probes open', async () => {
     expect(passes(await proxy(req(ENV.DESK_HOST, '/sign-in', { html: true })))).toBe(true);
     expect(passes(await proxy(req(ENV.DESK_HOST, '/api/auth/sign-in/email')))).toBe(true);
