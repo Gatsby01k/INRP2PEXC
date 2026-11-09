@@ -19,6 +19,7 @@ import { ClockIcon, InfoIcon, LockIcon, ShieldIcon } from '../../../_workspace/i
 import { inr, sentence, usdt } from '../../_ui/format.ts';
 import shell from '../../../shell.module.css';
 import styles from '../../traders.module.css';
+import pay from '../../../trades/[tradeRef]/payment.module.css';
 
 type Deal = NonNullable<TraderOrderDetail['p2p']>;
 
@@ -142,20 +143,25 @@ export function P2pOrderAction({ detail, canAct }: { detail: TraderOrderDetail; 
     }
   })();
 
+  const badge = disputed ? 'With INRP2P' : yours ? 'Your move' : deal.step === 'RELEASE' ? 'Releasing' : deal.step === 'REFUND' ? 'Refund' : deal.step === 'CANCELLED' ? 'Closed' : deal.step === 'DONE' ? 'Done' : 'Escrow';
   return (
-    <section className={yours ? `${shell.surface} ${styles.offer}` : shell.card} aria-labelledby="next-title" data-robot-target="panel">
-      <div className={styles.p2pHead}>
-        <span className={shell.label}>What happens now</span>
+    <section className={`${shell.card} ${pay.card}`} aria-labelledby="next-title" data-robot-target="panel" {...(yours ? { 'data-attention': '' } : {})}>
+      <div className={pay.head}>
+        <div className={pay.headText}>
+          <span className={pay.badge} data-tone={yours ? undefined : 'quiet'}>
+            {badge}
+          </span>
+          <h2 id="next-title" className={pay.title}>
+            {title}
+          </h2>
+        </div>
         {remaining !== null ? (
-          <span className={styles.p2pTimer} data-state={remaining <= 0 ? 'over' : final || remaining <= 5 * 60_000 ? 'soon' : 'calm'} role="timer" aria-live="off">
-            <ClockIcon className={styles.p2pTimerIcon} />
+          <span className={pay.timer} data-state={remaining <= 0 ? 'over' : final || remaining <= 5 * 60_000 ? 'soon' : 'calm'} role="timer" aria-live="off">
+            <ClockIcon className={pay.inlineIcon} />
             {remaining <= 0 ? 'Time’s up' : <>{final ? 'Final' : yours ? 'Within' : 'Expected within'} <span className="ix-num">{formatCountdown(remaining)}</span></>}
           </span>
         ) : null}
       </div>
-      <h2 id="next-title" className={shell.cardTitle}>
-        {title}
-      </h2>
       <p className={styles.p2pEscrow} data-state={deal.escrowFunded && deal.step !== 'CANCELLED' ? 'locked' : 'open'}>
         <LockIcon className={styles.p2pEscrowIcon} />
         {deal.step === 'CANCELLED'

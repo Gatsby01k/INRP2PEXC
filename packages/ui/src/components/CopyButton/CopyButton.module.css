@@ -1,15 +1,38 @@
 .button {
-  min-height: 32px;
-  padding: 0 var(--space-3);
-  border: 1px solid var(--border-strong);
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
   border-radius: var(--radius-control);
-  background: var(--bg-surface);
-  color: var(--text-primary);
-  font-size: var(--font-size-meta);
-  font-weight: var(--font-weight-medium);
+  background: transparent;
+  color: var(--text-muted);
   cursor: pointer;
+  transition:
+    color var(--dur-fast) var(--ease),
+    background-color var(--dur-fast) var(--ease);
 }
-.copied {
+
+@media (hover: hover) {
+  .button:hover {
+    background: color-mix(in srgb, var(--text-primary) 6%, transparent);
+    color: var(--text-primary);
+  }
+}
+
+.button:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 1px;
+}
+
+.button:active {
+  transform: scale(0.94);
+}
+
+.copied,
+.copied:hover {
   color: var(--status-success);
-  border-color: var(--status-success);
+  background: var(--status-success-soft);
 }

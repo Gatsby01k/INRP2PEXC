@@ -44,21 +44,21 @@ export function ActiveOrders({ orders }: { orders: readonly OrderSummary[] }) {
         </h2>
         <Link className={shell.textAction} href="/traders/orders">
           All orders
+          <ChevronIcon />
         </Link>
       </div>
       <ul className={styles.orderList}>
         {orders.map((o) => (
           <li key={o.ref}>
-            <Link className={styles.orderRow} href={`/traders/orders/${o.ref}`}>
-              <span className={styles.sideMark} data-side={o.side} aria-hidden="true">
+            <Link className={styles.orderRow} href={`/traders/orders/${o.ref}`} data-due={o.stage === 'YOUR_TURN' || o.stage === 'OFFER' || undefined}>
+              <span className={styles.sideMark} data-side={o.side}>
                 {o.side === 'BUY_USDT' ? 'Buy' : 'Sell'}
               </span>
               <span className={styles.orderText}>
-                <span className={styles.orderMain}>
-                  {o.side === 'BUY_USDT' ? 'Buy' : 'Sell'} {usdt(o.usdt)} · <span className={styles.refWhole}>{o.ref}</span>
-                </span>
-                <span className={styles.orderMeta}>{nextStepText(o)}</span>
+                <span className={styles.orderMain}>{usdt(o.usdt)}</span>
+                <span className={`${styles.orderMeta} ${styles.refWhole}`}>{o.ref}</span>
               </span>
+              <span className={styles.orderStep}>{nextStepText(o)}</span>
               <span className={styles.next}>
                 <OrderPill stage={o.stage} status={o.status} />
                 <ChevronIcon className={styles.chevron} />

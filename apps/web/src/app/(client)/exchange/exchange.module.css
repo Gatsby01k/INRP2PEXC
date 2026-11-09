@@ -14,6 +14,33 @@
   width: 100%;
 }
 
+/* Sell or buy, the way exchanges draw it: the side you are on filled, in red to sell and green to buy. */
+.direction :global([role='radiogroup']) {
+  padding: 4px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--paper);
+}
+
+.direction :global([role='radio']) {
+  min-height: 42px;
+  border-radius: 9px;
+  font-weight: var(--font-weight-semibold);
+}
+
+.direction :global([role='radio'][aria-checked='true']) {
+  box-shadow: 0 1px 2px rgba(18, 19, 23, 0.12);
+  color: var(--text-on-action);
+}
+
+.direction :global([role='radio']:first-child[aria-checked='true']) {
+  background: var(--sell);
+}
+
+.direction :global([role='radio']:last-child[aria-checked='true']) {
+  background: var(--buy);
+}
+
 .legs {
   position: relative;
   display: grid;
@@ -24,9 +51,9 @@
   display: grid;
   gap: var(--space-2);
   padding: var(--space-4) var(--space-5) var(--space-5);
-  border-radius: var(--radius-surface);
-  background: var(--bg-subtle);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border-default) 80%, transparent);
+  border-radius: 14px;
+  background: var(--paper);
+  box-shadow: inset 0 0 0 1px transparent;
   transition:
     background-color var(--dur-base) var(--ease),
     box-shadow var(--dur-base) var(--ease);
@@ -295,14 +322,15 @@ label.destination:has(input:focus-visible) {
   width: 40px;
   height: 40px;
   border-radius: 12px;
-  background: var(--text-primary);
-  color: var(--bg-surface);
+  background: var(--paper);
+  color: var(--text-primary);
   font-size: var(--font-size-meta);
   font-weight: var(--font-weight-semibold);
 }
 
 .monogram[data-kind='wallet'] {
-  background: var(--status-success);
+  background: var(--buy-soft);
+  color: var(--buy);
   font-size: var(--font-size-body);
 }
 
@@ -332,9 +360,10 @@ label.destination:has(input:focus-visible) {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  color: var(--text-secondary);
+  color: var(--brand-action);
   font-size: var(--font-size-meta);
-  font-weight: var(--font-weight-medium);
+  font-weight: var(--font-weight-semibold);
+  text-decoration: none;
 }
 
 .change svg {
@@ -512,235 +541,193 @@ label.destination:has(input:checked) .radioMark {
 
 /* ——— The firm quote ——— */
 
-/* The quote's face: the mark's own orange field at the top of the ticket, every figure on it in white. */
+/* The quote's face: the mark's own orange at the top of the ticket, every figure on it in white. */
 .face {
   display: grid;
-  gap: var(--space-6);
+  gap: var(--space-4);
   margin: calc(var(--space-3) * -1) calc(var(--space-3) * -1) 0;
-  padding: var(--space-6) var(--space-6) var(--space-6);
+  padding: var(--space-5) var(--space-6) var(--space-5);
   animation: rise var(--dur-complete) var(--ease) both;
 }
 
 @keyframes rise {
   from {
     opacity: 0;
-    transform: translateY(10px) scale(0.985);
+    transform: translateY(8px);
   }
 }
-
-.face .quoteId > :first-child,
-.face .heroLabel,
-.face .heroSub,
-.face .heroUnit,
-.face .rateUnit,
-.face .timerLabel {
-  color: color-mix(in srgb, var(--text-on-action) 82%, transparent);
-}
-
-.face .quoteRef,
-.face .heroFigure,
-.face .rateValue,
-.face .rateNote,
-.face .timerTime,
-.face .timer[data-state='expiring'] .timerTime {
-  color: var(--text-on-action);
-}
-
-.face .side {
-  background: color-mix(in srgb, var(--text-on-action) 16%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-on-action) 30%, transparent);
-  color: var(--text-on-action);
-}
-
-.face .heroFigure {
-  font-size: clamp(44px, 5.4vw, 76px);
-  letter-spacing: -0.05em;
-}
-
-.face .timer {
-  --tone: var(--text-on-action);
-  width: 84px;
-  height: 84px;
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--text-on-action) 12%, transparent);
-  backdrop-filter: blur(6px);
-}
-
-.face .timerTrack {
-  stroke: color-mix(in srgb, var(--text-on-action) 26%, transparent);
-}
-
-.face .timer[data-state='expiring'] {
-  animation: urgent 1.2s var(--ease) infinite;
-}
-
-@keyframes urgent {
-  50% {
-    box-shadow: 0 0 0 8px color-mix(in srgb, var(--text-on-action) 0%, transparent), 0 0 0 0 color-mix(in srgb, var(--text-on-action) 40%, transparent);
-    background: color-mix(in srgb, var(--text-on-action) 22%, transparent);
-  }
-}
-
-.face .rate {
-  background: color-mix(in srgb, var(--text-on-action) 14%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-on-action) 26%, transparent);
-  backdrop-filter: blur(8px);
-}
-
-.face .rateLock {
-  background: var(--text-on-action);
-  box-shadow: 0 6px 14px -6px color-mix(in srgb, var(--text-primary) 50%, transparent);
-  color: var(--brand-action);
-}
-
-@media (max-width: 599px) {
-  .face {
-    margin: calc(var(--space-2) * -1) calc(var(--space-2) * -1) 0;
-    padding: var(--space-5) var(--space-4);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .face,
-  .face .timer[data-state='expiring'] {
-    animation: none;
-  }
-}
-
 
 .quoteHead {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: var(--space-4);
 }
 
 .quoteId {
   display: grid;
-  gap: 4px;
+  gap: 2px;
   min-width: 0;
 }
 
+.quoteKind {
+  color: color-mix(in srgb, var(--text-on-action) 82%, transparent);
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-medium);
+}
+
+.side {
+  color: var(--text-on-action);
+  font-weight: var(--font-weight-semibold);
+}
+
 .quoteRef {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2);
+  color: var(--text-on-action);
   font-size: var(--font-size-body);
   font-weight: var(--font-weight-semibold);
   font-variant-numeric: tabular-nums;
 }
 
-.side {
-  padding: 2px 8px;
-  border-radius: var(--radius-pill);
-  background: var(--bg-subtle);
-  box-shadow: inset 0 0 0 1px var(--border-default);
-  color: var(--text-secondary);
-  font-size: var(--font-size-micro);
-  font-weight: var(--font-weight-semibold);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-/* The countdown: one thin arc that runs down to nothing, the time left inside it. */
+/* The countdown: a small ring that runs down to nothing beside the time left, on a frosted chip. */
 .timer {
-  --tone: var(--brand-primary);
-  position: relative;
-  display: grid;
+  --tone: var(--text-on-action);
+  display: inline-flex;
   flex: none;
-  place-items: center;
-  width: 76px;
-  height: 76px;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  white-space: nowrap;
+  padding: 0 12px 0 8px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--text-on-action) 16%, transparent);
+  color: var(--text-on-action);
 }
 
 .timer[data-state='expiring'] {
-  --tone: var(--status-warning);
+  background: var(--text-on-action);
+  color: var(--brand-action);
+  --tone: var(--brand-action);
 }
 
 .timerRing {
-  position: absolute;
-  inset: 0;
+  width: 24px;
+  height: 24px;
   transform: rotate(-90deg);
 }
 
 .timerTrack {
   fill: none;
-  stroke: var(--border-default);
-  stroke-width: 3;
+  stroke: color-mix(in srgb, currentColor 28%, transparent);
+  stroke-width: 2.5;
 }
 
 .timerArc {
   fill: none;
   stroke: var(--tone);
-  stroke-width: 3;
+  stroke-width: 2.5;
   stroke-linecap: round;
-  transition:
-    stroke-dashoffset 1s linear,
-    stroke var(--dur-base) var(--ease);
+  transition: stroke-dashoffset 1s linear;
 }
 
 .timerText {
-  display: grid;
-  justify-items: center;
-  line-height: 1.1;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
 }
 
 .timerTime {
-  font-size: var(--font-size-body-lg);
+  font-size: 17px;
   font-weight: var(--font-weight-semibold);
   font-variant-numeric: tabular-nums;
-  color: var(--text-primary);
-}
-
-.timer[data-state='expiring'] .timerTime {
-  color: var(--status-warning);
+  letter-spacing: 0.01em;
 }
 
 .timerLabel {
-  color: var(--text-muted);
-  font-size: 10px;
+  opacity: 0.8;
+  font-size: var(--font-size-meta);
   font-weight: var(--font-weight-medium);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+}
+
+/* What you give, then what you get — the way an exchange's convert screen reads. */
+.convert {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-5);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--text-on-action) 12%, transparent);
+}
+
+.convertRow {
+  display: grid;
+  gap: 2px;
+}
+
+.convertLabel,
+.heroLabel {
+  color: color-mix(in srgb, var(--text-on-action) 80%, transparent);
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-medium);
+}
+
+.convertValue {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.convertUnit,
+.heroUnit {
+  color: color-mix(in srgb, var(--text-on-action) 78%, transparent);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0;
+}
+
+.convertArrow {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--text-on-action);
+  color: var(--brand-action);
+}
+
+.convertArrow svg {
+  width: 16px;
+  height: 16px;
+  transform: rotate(90deg);
 }
 
 .hero {
   display: grid;
   gap: var(--space-1);
-  padding: var(--space-2) 0;
-}
-
-.heroLabel {
-  color: var(--text-secondary);
-  font-size: var(--font-size-body-sm);
-  font-weight: var(--font-weight-medium);
 }
 
 .heroFigure {
-  font-family: var(--font-display);
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: var(--space-1) var(--space-3);
-  font-size: clamp(36px, 4.6vw, 56px);
+  gap: var(--space-1) var(--space-2);
+  font-family: var(--font-display);
+  font-size: clamp(38px, 4.6vw, 56px);
   font-weight: var(--font-weight-semibold);
   font-variant-numeric: tabular-nums;
-  letter-spacing: -0.04em;
-  line-height: 1.02;
+  letter-spacing: -0.045em;
+  line-height: 1.05;
   animation: settle var(--dur-complete) var(--ease) both;
 }
 
-.heroUnit {
-  color: var(--text-muted);
-  font-size: var(--font-size-heading);
-  font-weight: var(--font-weight-medium);
-  letter-spacing: -0.01em;
-}
-
 .heroSub {
-  color: var(--text-secondary);
-  font-size: var(--font-size-body);
+  margin: calc(var(--space-2) * -1) 0 0;
+  color: color-mix(in srgb, var(--text-on-action) 82%, transparent);
+  font-size: var(--font-size-meta);
   font-variant-numeric: tabular-nums;
 }
 
@@ -750,10 +737,9 @@ label.destination:has(input:checked) .radioMark {
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2) var(--space-4);
-  padding: var(--space-4) var(--space-5);
-  border-radius: var(--radius-surface);
-  background: var(--brand-soft);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand-primary) 22%, transparent);
+  padding-top: var(--space-4);
+  border-top: 1px solid color-mix(in srgb, var(--text-on-action) 22%, transparent);
+  color: var(--text-on-action);
 }
 
 .rateMain {
@@ -765,39 +751,63 @@ label.destination:has(input:checked) .radioMark {
 .rateLock {
   display: inline-grid;
   place-items: center;
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background: var(--bg-surface);
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  background: var(--text-on-action);
   color: var(--brand-action);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--brand-primary) 22%, transparent);
   animation: lock var(--dur-complete) var(--ease) 120ms both;
 }
 
 .rateLock svg {
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
 }
 
 .rateValue {
   font-family: var(--font-display);
-  font-size: var(--font-size-heading-lg);
+  font-size: 22px;
   font-weight: var(--font-weight-semibold);
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.02em;
 }
 
 .rateUnit {
-  margin-left: 4px;
-  color: var(--text-secondary);
+  color: color-mix(in srgb, var(--text-on-action) 82%, transparent);
   font-size: var(--font-size-body-sm);
   font-weight: var(--font-weight-medium);
 }
 
 .rateNote {
-  color: var(--brand-action);
-  font-size: var(--font-size-body-sm);
+  color: color-mix(in srgb, var(--text-on-action) 88%, transparent);
+  font-size: var(--font-size-meta);
   font-weight: var(--font-weight-medium);
+}
+
+@media (max-width: 599px) {
+  .face {
+    margin: calc(var(--space-2) * -1) calc(var(--space-2) * -1) 0;
+    padding: var(--space-4);
+  }
+
+  .timer {
+    height: 36px;
+    padding: 0 10px 0 6px;
+  }
+
+  .timerLabel {
+    display: none;
+  }
+
+  .convert {
+    padding: var(--space-3) var(--space-4);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .face {
+    animation: none;
+  }
 }
 
 .terms {
@@ -810,8 +820,12 @@ label.destination:has(input:checked) .radioMark {
   display: grid;
   grid-template-columns: minmax(120px, 34%) minmax(0, 1fr);
   gap: var(--space-3);
-  padding: var(--space-3) 0;
-  border-top: 1px solid color-mix(in srgb, var(--border-default) 60%, transparent);
+  padding: 10px 0;
+  border-top: 1px dashed var(--line-soft);
+}
+
+.terms > div:first-child {
+  border-top: 0;
 }
 
 .terms dt {
@@ -839,9 +853,8 @@ label.destination:has(input:checked) .radioMark {
   display: grid;
   gap: var(--space-3);
   padding: var(--space-4);
-  border-radius: var(--radius-input);
-  background: var(--bg-subtle);
-  box-shadow: inset 0 0 0 1px var(--border-default);
+  border-radius: 12px;
+  background: var(--paper);
 }
 
 .confirmRow p {
@@ -914,11 +927,14 @@ label.destination:has(input:checked) .radioMark {
 }
 
 .panelLink {
-  color: var(--text-secondary);
-  font-size: var(--font-size-meta);
-  font-weight: var(--font-weight-medium);
+  color: var(--brand-action);
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-semibold);
+  text-decoration: none;
+}
+
+.panelLink:hover {
   text-decoration: underline;
-  text-decoration-color: color-mix(in srgb, var(--brand-action) 45%, transparent);
   text-underline-offset: 3px;
 }
 
@@ -951,13 +967,12 @@ label.destination:has(input:checked) .radioMark {
   width: 32px;
   height: 32px;
   border-radius: 10px;
-  background: var(--bg-subtle);
-  box-shadow: inset 0 0 0 1px var(--border-default);
+  background: var(--paper);
   color: var(--text-secondary);
 }
 
 .activityMark[data-tone='action'] {
-  background: var(--brand-soft);
+  background: var(--accent-soft);
   box-shadow: none;
   color: var(--brand-action);
 }
@@ -1333,10 +1348,5 @@ label.destination:has(input:checked) .radioMark {
 
   .quoteHead {
     align-items: flex-start;
-  }
-
-  .timer {
-    width: 64px;
-    height: 64px;
   }
 }

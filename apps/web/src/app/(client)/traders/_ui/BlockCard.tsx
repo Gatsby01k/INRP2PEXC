@@ -123,13 +123,26 @@ export function BlockCard({ block, canAct }: { block: BlockView; canAct: boolean
   return (
     <section className={`${shell.card} ${styles.block}`} aria-labelledby={titleId}>
       <div className={styles.blockHead}>
-        <h2 id={titleId} className={styles.blockTitle}>
+        <h2 id={titleId} className={styles.blockTitle} data-side={block.side}>
           {buy ? 'Buy USDT' : 'Sell USDT'}
         </h2>
         <span className={styles.pill} data-tone={block.status === 'ACTIVE' ? 'done' : 'neutral'}>
           <span className={styles.pillDot} aria-hidden="true" />
           {block.status === 'ACTIVE' ? 'Active' : 'Paused'}
         </span>
+        {canAct && !editing ? (
+          <button
+            type="button"
+            className={`${shell.secondaryAction} ${styles.blockEdit}`}
+            data-size="sm"
+            onClick={() => {
+              reset();
+              setEditing(true);
+            }}
+          >
+            Edit
+          </button>
+        ) : null}
       </div>
       <p className={styles.blockMeaning}>{MEANING[block.side]}</p>
 
@@ -268,19 +281,21 @@ export function BlockCard({ block, canAct }: { block: BlockView; canAct: boolean
         <>
           <dl className={styles.blockFigures}>
             <div>
-              <dt>{buy ? 'INR available' : 'USDT available'}</dt>
-              <dd data-big="">{balanceIn(currency, block.available)}</dd>
-              {block.limitMaxCapacity ? <span className={styles.blockLimit}>INRP2P limit {amountIn(currency, block.limitMaxCapacity)}</span> : null}
-            </div>
-            <div>
               <dt>Your rate</dt>
-              <dd>{block.rate ? rate(block.rate) : block.rateBasis === 'MARKET' ? 'Waiting for the market rate' : 'Not set'}</dd>
+              <dd data-big="">{block.rate ? rate(block.rate) : block.rateBasis === 'MARKET' ? 'Waiting for the market' : 'Not set'}</dd>
               {block.rateBasis === 'MARKET' && block.marketOffsetBps !== null ? (
                 <span className={styles.blockLimit}>
                   Market {offsetText(block.marketOffsetBps)}
                   {block.rateLimit ? `, never ${buy ? 'above' : 'below'} ${rate(block.rateLimit)}` : ''}
                 </span>
-              ) : null}
+              ) : (
+                <span className={styles.blockLimit}>Fixed rate</span>
+              )}
+            </div>
+            <div>
+              <dt>{buy ? 'INR available' : 'USDT available'}</dt>
+              <dd>{balanceIn(currency, block.available)}</dd>
+              {block.limitMaxCapacity ? <span className={styles.blockLimit}>INRP2P limit {amountIn(currency, block.limitMaxCapacity)}</span> : null}
             </div>
             <div>
               <dt>Instant orders</dt>
@@ -298,20 +313,6 @@ export function BlockCard({ block, canAct }: { block: BlockView; canAct: boolean
                 ? 'Waiting for the market rate: orders on this side resume the moment it is back.'
                 : ISSUE_TEXT[block.issues[0]]}
             </p>
-          ) : null}
-          {canAct ? (
-            <div>
-              <button
-                type="button"
-                className={shell.secondaryAction}
-                onClick={() => {
-                  reset();
-                  setEditing(true);
-                }}
-              >
-                Edit
-              </button>
-            </div>
           ) : null}
         </>
       )}

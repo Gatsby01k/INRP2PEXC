@@ -5,6 +5,7 @@ import type { TraderHome } from '@inrp2p/traders';
 import { useCommand } from '../../../../components/useCommand.tsx';
 import { setAvailabilityAction } from '../../../../server/actions/traders.ts';
 import { InfoIcon } from '../../_workspace/icons.tsx';
+import { Unit } from './Unit.tsx';
 import { amountIn, balanceIn, sentence, usdt } from './format.ts';
 import shell from '../../shell.module.css';
 import styles from '../traders.module.css';
@@ -71,21 +72,22 @@ export function AvailabilityCard({ home }: { home: TraderHome }) {
   const toggle = () => run(on ? 'Switch off' : 'Switch on', (key) => setAvailabilityAction({ available: !on }, key));
 
   return (
-    <section className={`${shell.surface} ${styles.availability}`} aria-labelledby="availability-title" data-robot-target="toggle">
+    <section className={`${shell.card} ${styles.availability}`} aria-labelledby="availability-title" data-robot-target="toggle" data-on={(on && !paused) || undefined}>
       <div className={styles.availHead}>
+        <span className={styles.availDot} aria-hidden="true" />
         <div className={styles.availText}>
-          <span id="availability-title" className={shell.label}>
+          <span id="availability-title" className={styles.availLabel}>
             Provide liquidity
           </span>
           <p className={styles.availState}>{paused ? 'Paused by INRP2P' : on ? 'You’re online' : 'You’re offline'}</p>
-          <p className={styles.availNote}>
-            {paused
-              ? 'No new orders are assigned. Orders in progress continue.'
-              : on
-                ? 'You are available for matching. Switching off stops new orders; orders in progress continue.'
-                : 'No new orders are assigned while you are off.'}
-          </p>
         </div>
+        <p className={styles.availNote}>
+          {paused
+            ? 'No new orders are assigned. Orders in progress continue.'
+            : on
+              ? 'You are available for matching. Switching off stops new orders; orders in progress continue.'
+              : 'No new orders are assigned while you are off.'}
+        </p>
         <button
           type="button"
           role="switch"
@@ -105,23 +107,25 @@ export function AvailabilityCard({ home }: { home: TraderHome }) {
       <dl className={styles.figures}>
         <div className={styles.figure} {...(buy ? {} : { 'data-quiet': '' })}>
           <dt>INR available</dt>
-          <dd>{buy ? amountIn('INR', buy.available) : '—'}</dd>
+          <dd>{buy ? <Unit value={amountIn('INR', buy.available)} /> : '—'}</dd>
           <span className={styles.figureNote}>{buy ? (/[1-9]/.test(buy.held) ? `${amountIn('INR', buy.held)} held for orders` : 'Nothing held') : 'Not offered'}</span>
         </div>
         <div className={styles.figure} {...(sell ? {} : { 'data-quiet': '' })}>
           <dt>USDT available</dt>
-          <dd>{sell ? balanceIn('USDT', sell.available) : '—'}</dd>
+          <dd>{sell ? <Unit value={balanceIn('USDT', sell.available)} /> : '—'}</dd>
           <span className={styles.figureNote}>{sell ? (/[1-9]/.test(sell.held) ? `${balanceIn('USDT', sell.held)} held for orders` : 'Nothing held') : 'Not offered'}</span>
         </div>
         <div className={styles.figure}>
           <dt>Security Reserve</dt>
-          <dd>{home.reserve ? usdt(home.reserve.engaged ? home.reserve.locked : home.reserve.balance) : '—'}</dd>
+          <dd>{home.reserve ? <Unit value={usdt(home.reserve.engaged ? home.reserve.locked : home.reserve.balance)} /> : '—'}</dd>
           <span className={styles.figureNote}>{!home.reserve ? 'not set' : home.reserve.engaged ? 'locked' : 'held · not locked while you are off'}</span>
         </div>
         <div className={styles.figure}>
           <dt>Active orders</dt>
           <dd>{home.active.length}</dd>
-          <span className={styles.figureNote}>{activeNote(home)}</span>
+          <span className={styles.figureNote} data-tone={home.active.some((o) => o.stage === 'YOUR_TURN') ? 'action' : undefined}>
+            {activeNote(home)}
+          </span>
         </div>
       </dl>
 

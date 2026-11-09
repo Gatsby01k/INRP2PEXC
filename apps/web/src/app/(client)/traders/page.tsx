@@ -2,7 +2,6 @@ import { traderHome, traderNetworkHome } from '@inrp2p/traders';
 import { workspacePage } from '../../../server/client.ts';
 import { PageHead } from '../_workspace/PageHead.tsx';
 import { TradersHome } from './TradersHome.tsx';
-import { UsersIcon } from '../_workspace/icons.tsx';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,9 +18,8 @@ export default async function TradersPage() {
   return (
     <>
       <PageHead
-        icon={<UsersIcon />}
         title="Traders"
-        lede={working ? `Your capacity, your rates and your orders${home.ref ? ` · ${home.ref}` : ''}.` : 'Provide INR or USDT capacity to INRP2P, and receive matching orders privately.'}
+        lede={working ? `Your capacity, your prices and your orders${home.ref ? ` · ${home.ref}` : ''}` : 'Provide INR or USDT capacity to INRP2P, and receive matching orders privately.'}
       />
       <TradersHome home={home} network={network} />
     </>

@@ -10,7 +10,7 @@
   display: inline-grid;
   place-items: center;
   border-radius: 50%;
-  background: linear-gradient(160deg, var(--brand-primary), var(--brand-action));
+  background: var(--brand-action);
   color: var(--text-on-action);
   font-weight: var(--font-weight-semibold);
 }

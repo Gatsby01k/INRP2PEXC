@@ -5,16 +5,18 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { PaymentRow, TraderOrderDetail } from '@inrp2p/traders';
 import { formatIstDateTime } from '@inrp2p/ui/format';
-import { AssistantPanel } from '../../../_assistant/AssistantPanel.tsx';
+import { CopyButton } from '@inrp2p/ui';
+import { useAssistantState } from '../../../_assistant/AssistantPanel.tsx';
 import { traderOrderAssistant } from '../../../_assistant/traders.ts';
-import { InfoIcon } from '../../../_workspace/icons.tsx';
-import { Stepper } from '../../../_workspace/Stepper.tsx';
+import { BackIcon, InfoIcon } from '../../../_workspace/icons.tsx';
+import { type Figure, Figures, Track } from '../../../_workspace/OrderSummary.tsx';
 import { useServerClock } from '../../../exchange/useServerClock.ts';
 import { OfferCard } from '../../_ui/OfferCard.tsx';
 import { P2pOrderAction, P2pOrderChat } from './P2pOrderAction.tsx';
-import { amountIn, inr, rate, usdt } from '../../_ui/format.ts';
+import { amountIn, inr, rate, usdt, usdtExact } from '../../_ui/format.ts';
 import shell from '../../../shell.module.css';
 import styles from '../../traders.module.css';
+import trade from '../../../trades/[tradeRef]/trade.module.css';
 
 
 function Payments({ title, rows, empty }: { title: string; rows: readonly PaymentRow[]; empty: string }) {
@@ -110,67 +112,27 @@ export function OrderScreen({ detail, canAct }: { detail: TraderOrderDetail; can
   }, [live, router]);
   const buy = o.side === 'BUY_USDT';
 
+  const status = traderOrderAssistant(detail);
+  useAssistantState(status);
+  const figures: Figure[] = [
+    { label: buy ? 'You pay' : 'You sell', value: buy ? inr(o.inr) : usdt(o.usdt) },
+    { label: 'You receive', value: buy ? usdt(o.usdt) : inr(o.inr) },
+    { label: 'Rate', value: rate(o.rate).replace(' / USDT', '') },
+  ];
+  const chat = detail.p2p && o.status !== 'ACCEPTED' && o.status !== 'OFFERED';
+
   return (
     <>
       <main className={shell.main}>
         {o.status === 'OFFERED' ? (
           <OfferCard order={o} now={now} canAct={canAct} receiveAt={detail.youReceiveAt} />
         ) : (
-          <>
-            {detail.steps.length > 0 ? (
-              <section className={shell.card} aria-labelledby="progress-title">
-                <h2 id="progress-title" className={shell.cardTitle}>
-                  Progress
-                </h2>
-                <Stepper steps={detail.steps} label="Order progress" />
-              </section>
-            ) : null}
-            {detail.p2p && o.status !== 'ACCEPTED' ? <P2pOrderAction detail={detail} canAct={canAct} /> : <NextAction detail={detail} />}
-            {detail.p2p && o.status !== 'ACCEPTED' ? <P2pOrderChat detail={detail} /> : null}
-          </>
+          <section className={`${shell.card} ${trade.hero}`} aria-label="Order summary">
+            <Figures figures={figures} />
+            {detail.steps.length > 0 ? <Track steps={detail.steps} label="Order progress" /> : null}
+          </section>
         )}
-
-        <section className={shell.card} aria-labelledby="terms-title">
-          <h2 id="terms-title" className={shell.cardTitle}>
-            The order
-          </h2>
-          <div className={styles.twoCol}>
-            <dl className={shell.facts}>
-              <div>
-                <dt>Direction</dt>
-                <dd>{buy ? 'You buy USDT with INR' : 'You sell USDT for INR'}</dd>
-              </div>
-              <div>
-                <dt>Amount</dt>
-                <dd className="ix-num">{usdt(o.usdt)}</dd>
-              </div>
-              <div>
-                <dt>{buy ? 'You pay' : 'You receive'}</dt>
-                <dd className="ix-num">{inr(o.inr)}</dd>
-              </div>
-              <div>
-                <dt>Rate</dt>
-                <dd className="ix-num">{rate(o.rate)}</dd>
-              </div>
-            </dl>
-            <dl className={shell.facts}>
-              <div>
-                <dt>Settlement</dt>
-                <dd>{detail.method}</dd>
-              </div>
-              <div>
-                <dt>You receive at</dt>
-                <dd>{detail.youReceiveAt}</dd>
-              </div>
-              {o.startedAt ? (
-                <div>
-                  <dt>Started</dt>
-                  <dd>{formatIstDateTime(new Date(o.startedAt))}</dd>
-                </div>
-              ) : null}
-            </dl>
-          </div>
-        </section>
+        {o.status === 'OFFERED' ? null : detail.p2p && o.status !== 'ACCEPTED' ? <P2pOrderAction detail={detail} canAct={canAct} /> : <NextAction detail={detail} />}
 
         {o.status === 'IN_PROGRESS' || o.status === 'COMPLETED' ? (
           <section className={shell.card} aria-labelledby="evidence-title">
@@ -188,16 +150,57 @@ export function OrderScreen({ detail, canAct }: { detail: TraderOrderDetail; can
           </section>
         ) : null}
       </main>
-      <AssistantPanel state={traderOrderAssistant(detail)} steps={detail.steps.length > 0 && o.status !== 'OFFERED' ? detail.steps : null}>
+
+      <aside className={`${shell.aside} ${trade.side}`} aria-label="Chat and details">
+        {chat ? <P2pOrderChat detail={detail} /> : null}
+        <section className={shell.card} aria-labelledby="terms-title">
+          <h2 id="terms-title" className={shell.cardTitle}>
+            The order
+          </h2>
+          <dl className={shell.facts}>
+            <div>
+              <dt>Reference</dt>
+              <dd className={trade.refValue}>
+                <span className="ix-num">{o.ref}</span>
+                <CopyButton value={o.ref} label="order reference" />
+              </dd>
+            </div>
+            <div>
+              <dt>Direction</dt>
+              <dd>{buy ? 'You buy USDT with INR' : 'You sell USDT for INR'}</dd>
+            </div>
+            <div>
+              <dt>Amount</dt>
+              <dd className="ix-num">{usdtExact(o.usdt)}</dd>
+            </div>
+            <div>
+              <dt>{buy ? 'You pay' : 'You receive'}</dt>
+              <dd className="ix-num">{inr(o.inr)}</dd>
+            </div>
+            <div>
+              <dt>Rate</dt>
+              <dd className="ix-num">{rate(o.rate)}</dd>
+            </div>
+            <div>
+              <dt>You receive at</dt>
+              <dd>{detail.youReceiveAt}</dd>
+            </div>
+            {o.startedAt ? (
+              <div>
+                <dt>Started</dt>
+                <dd>{formatIstDateTime(new Date(o.startedAt))}</dd>
+              </div>
+            ) : null}
+          </dl>
+          <p className={styles.note}>{detail.method}</p>
+        </section>
         <div className={styles.navRow}>
           <Link className={shell.textAction} href="/traders/orders">
+            <BackIcon />
             All orders
           </Link>
-          <Link className={shell.textAction} href="/traders">
-            Traders
-          </Link>
         </div>
-      </AssistantPanel>
+      </aside>
     </>
   );
 }

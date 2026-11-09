@@ -4,70 +4,89 @@
  * sides, earnings and the reserve as quiet cards. No charts and no counters that are not a fact of record.
  */
 
-/* ——— Availability: the switch and the four numbers ——— */
+/* ——— Availability: the switch and the four numbers, as an exchange's balance bar ——— */
 
 .availability {
-  gap: var(--space-6);
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
 }
 
 .availHead {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--space-4) var(--space-6);
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-4) var(--space-6);
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.availDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--text-disabled);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--text-disabled) 18%, transparent);
+}
+
+.availability[data-on] .availDot {
+  background: var(--buy);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--buy) 18%, transparent);
 }
 
 .availText {
   display: grid;
-  gap: var(--space-1);
+  gap: 0;
   min-width: 0;
+}
+
+.availLabel {
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-medium);
 }
 
 .availState {
   margin: 0;
-  font-size: clamp(22px, 2.6vw, 28px);
+  font-family: var(--font-display);
+  font-size: 18px;
   font-weight: var(--font-weight-semibold);
-  letter-spacing: -0.025em;
-  line-height: 1.15;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+  white-space: nowrap;
 }
 
 .availNote {
   margin: 0;
-  color: var(--text-secondary);
-  font-size: var(--font-size-body-sm);
+  padding-left: var(--space-4);
+  border-left: 1px solid var(--line-soft);
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
   line-height: var(--line-height-normal);
   text-wrap: pretty;
 }
 
-/* The switch: a pill track and a knob, its word beside it — never colour alone. */
+/* The switch: a track and a knob, its word beside it — never colour alone. */
 .switch {
   display: inline-flex;
   flex: none;
   align-items: center;
-  gap: var(--space-3);
-  min-height: 48px;
-  padding: var(--space-1) var(--space-2) var(--space-1) var(--space-4);
+  gap: var(--space-2);
+  min-height: 36px;
+  padding: 0 4px 0 var(--space-3);
   border: 0;
   border-radius: var(--radius-pill);
-  background: var(--bg-subtle);
-  box-shadow: inset 0 0 0 1px var(--border-default);
+  background: transparent;
   color: var(--text-secondary);
   font: inherit;
-  font-size: var(--font-size-body-sm);
+  font-size: var(--font-size-meta);
   font-weight: var(--font-weight-semibold);
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   cursor: pointer;
-  transition:
-    background-color var(--dur-base) var(--ease),
-    box-shadow var(--dur-base) var(--ease),
-    color var(--dur-base) var(--ease);
 }
 
 .switch[aria-checked='true'] {
-  background: color-mix(in srgb, var(--status-success-soft) 70%, var(--bg-surface));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--status-success) 30%, transparent);
-  color: var(--status-success);
+  color: var(--buy);
 }
 
 .switch:disabled {
@@ -76,31 +95,29 @@
 }
 
 .switch:focus-visible {
-  outline: none;
-  box-shadow:
-    inset 0 0 0 1px var(--border-strong),
-    0 0 0 3px color-mix(in srgb, var(--brand-primary) 24%, transparent);
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 2px;
 }
 
 .track {
   position: relative;
-  width: 56px;
-  height: 32px;
+  width: 44px;
+  height: 26px;
   border-radius: var(--radius-pill);
   background: var(--border-strong);
   transition: background-color var(--dur-base) var(--ease);
 }
 
 .switch[aria-checked='true'] .track {
-  background: var(--status-success);
+  background: var(--buy);
 }
 
 .knob {
   position: absolute;
   top: 3px;
   left: 3px;
-  width: 26px;
-  height: 26px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
   background: var(--bg-surface);
   box-shadow: 0 1px 3px color-mix(in srgb, var(--text-primary) 25%, transparent);
@@ -108,7 +125,7 @@
 }
 
 .switch[aria-checked='true'] .knob {
-  transform: translateX(24px);
+  transform: translateX(18px);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -122,10 +139,8 @@
 .figures {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: var(--space-4);
+  gap: 0;
   margin: 0;
-  padding-top: var(--space-5);
-  border-top: 1px solid var(--line-soft);
 }
 
 .figuresFlat {
@@ -133,11 +148,39 @@
   border-top: 0;
 }
 
+/* Figures inside an ordinary card: the card's own padding is their edge. */
+.figuresFlat .figure {
+  padding: var(--space-1) var(--space-5) var(--space-1);
+}
+
+.figuresFlat .figure:first-child {
+  padding-left: 0;
+}
+
+@media (max-width: 899px) {
+  .figuresFlat {
+    row-gap: var(--space-4);
+  }
+
+  .figuresFlat .figure:nth-child(3) {
+    padding-left: 0;
+  }
+
+  .figuresFlat .figure:nth-child(n + 3) {
+    padding-top: var(--space-4);
+  }
+}
+
 .figure {
   display: grid;
   align-content: start;
-  gap: var(--space-1);
+  gap: 4px;
   min-width: 0;
+  padding: var(--space-4) var(--space-6) var(--space-5);
+}
+
+.figure + .figure {
+  border-left: 1px solid var(--line-soft);
 }
 
 .figure dt {
@@ -148,11 +191,21 @@
 
 .figure dd {
   margin: 0;
-  overflow-wrap: anywhere;
-  font-size: clamp(20px, 2.2vw, 24px);
+  overflow-wrap: break-word;
+  font-family: var(--font-display);
+  font-size: 22px;
   font-weight: var(--font-weight-semibold);
   letter-spacing: -0.02em;
+  line-height: 1.2;
   font-variant-numeric: tabular-nums;
+}
+
+.unit {
+  color: var(--text-muted);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0;
 }
 
 .figureNote {
@@ -161,18 +214,25 @@
   line-height: var(--line-height-normal);
 }
 
+.figureNote[data-tone='action'] {
+  color: var(--brand-action);
+  font-weight: var(--font-weight-semibold);
+}
+
 .figure[data-quiet] dd {
   color: var(--text-muted);
+}
+
+.availability > :not(.availHead, .figures) {
+  margin: 0 var(--space-6) var(--space-4);
 }
 
 /* ——— An order offered, or one that needs the trader ——— */
 
 .offer {
   gap: var(--space-5);
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--brand-primary) 38%, var(--line)),
-    0 0 0 5px color-mix(in srgb, var(--brand-primary) 8%, transparent),
-    var(--lift-strong);
+  border-color: color-mix(in srgb, var(--brand-primary) 55%, var(--border-default));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-primary) 10%, transparent);
 }
 
 .offerHead {
@@ -186,10 +246,8 @@
 .eyebrow {
   margin: 0;
   color: var(--brand-action);
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-meta);
   font-weight: var(--font-weight-semibold);
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
 }
 
 .countdown {
@@ -232,9 +290,8 @@
   gap: var(--space-4);
   margin: 0;
   padding: var(--space-4) var(--space-5);
-  border-radius: var(--radius-input);
-  background: var(--bg-subtle);
-  box-shadow: inset 0 0 0 1px var(--line-soft);
+  border-radius: 12px;
+  background: var(--paper);
 }
 
 .terms dt {
@@ -270,65 +327,71 @@
   flex: 1 1 180px;
 }
 
-/* ——— Orders in progress, as a short list on the working screen ——— */
+/* ——— Orders in progress, as an exchange's order table: side, amount, next step, state ——— */
 
 .orderList {
   display: grid;
   gap: 0;
-  margin: 0;
+  margin: 0 calc(var(--space-6) * -1) calc(var(--space-5) * -1);
   padding: 0;
   list-style: none;
 }
 
 .orderRow {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: 52px minmax(140px, 0.9fr) minmax(0, 1.4fr) auto;
   align-items: center;
   gap: var(--space-4);
-  padding: var(--space-4) 0;
+  min-height: 60px;
+  padding: var(--space-3) var(--space-6);
   border-top: 1px solid var(--line-soft);
   color: inherit;
   text-decoration: none;
-}
-
-.orderList > li:first-child .orderRow {
-  border-top: 0;
-  padding-top: 0;
+  transition: background-color var(--dur-fast) var(--ease);
 }
 
 @media (hover: hover) {
-  .orderRow:hover .orderMain {
-    text-decoration: underline;
-    text-decoration-color: color-mix(in srgb, var(--brand-action) 55%, transparent);
-    text-underline-offset: 3px;
+  .orderRow:hover {
+    background: color-mix(in srgb, var(--paper) 60%, transparent);
+  }
+
+  .orderRow:hover .chevron {
+    color: var(--text-primary);
+    transform: translateX(2px);
   }
 }
 
+.orderRow:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: -2px;
+}
+
+/* The side, as exchanges say it: Buy in green, Sell in red. */
 .sideMark {
-  display: grid;
+  display: inline-grid;
   place-items: center;
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
+  justify-self: start;
+  min-width: 40px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 6px;
   font-size: var(--font-size-meta);
   font-weight: var(--font-weight-semibold);
 }
 
 .sideMark[data-side='BUY_USDT'] {
-  background: var(--status-success-soft);
-  color: var(--status-success);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--status-success) 18%, transparent);
+  background: var(--buy-soft);
+  color: var(--buy);
 }
 
 .sideMark[data-side='SELL_USDT'] {
-  background: var(--brand-soft);
-  color: var(--brand-action);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand-action) 18%, transparent);
+  background: var(--sell-soft);
+  color: var(--sell);
 }
 
 .orderText {
   display: grid;
-  gap: 2px;
+  gap: 1px;
   min-width: 0;
 }
 
@@ -352,26 +415,108 @@
   font-size: var(--font-size-meta);
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.orderStep {
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.orderRow[data-due] .orderStep {
+  color: var(--text-primary);
+  font-weight: var(--font-weight-semibold);
 }
 
 .next {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: var(--space-2);
 }
 
 .chevron {
-  width: 18px;
-  height: 18px;
-  color: var(--text-muted);
+  width: 16px;
+  height: 16px;
+  color: var(--text-disabled);
+  transition:
+    color var(--dur-fast) var(--ease),
+    transform var(--dur-fast) var(--ease);
 }
 
-/* ——— The two sides ——— */
+@media (max-width: 719px) {
+  .orderList {
+    margin-inline: calc(var(--space-4) * -1);
+    margin-bottom: calc(var(--space-4) * -1);
+  }
+
+  .orderRow {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      'side main next'
+      'side step next';
+    row-gap: 2px;
+    column-gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+  }
+
+  .sideMark {
+    grid-area: side;
+  }
+
+  .orderText {
+    grid-area: main;
+  }
+
+  .orderMain {
+    overflow: visible;
+  }
+
+  /* On a phone the line keeps its amount and its next step; the reference is on the order itself. */
+  .orderText .orderMeta {
+    display: none;
+  }
+
+  .orderStep {
+    grid-area: step;
+    font-size: var(--font-size-meta);
+  }
+
+  .next {
+    grid-area: next;
+  }
+}
+
+/* ——— The two sides: the trader's own prices, like an exchange's "my ads" ——— */
+
+.blocksSection {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.sectionHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-4);
+  padding: var(--space-2) var(--space-1) 0;
+}
+
+.sectionTitle {
+  margin: 0;
+  font-size: 16px;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.01em;
+}
 
 .blocks {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-5);
+  gap: var(--space-4);
 }
 
 .blocks[data-count='1'] {
@@ -379,22 +524,40 @@
 }
 
 .block {
-  gap: var(--space-5);
+  gap: var(--space-4);
 }
 
 .blockHead {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
+  gap: var(--space-2);
+  min-height: 36px;
 }
 
 .blockTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
   margin: 0;
-  font-size: var(--font-size-micro);
+  font-size: 16px;
   font-weight: var(--font-weight-semibold);
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
+  letter-spacing: -0.01em;
+}
+
+.blockTitle::before {
+  content: '';
+  width: 4px;
+  height: 18px;
+  border-radius: 2px;
+  background: var(--buy);
+}
+
+.blockTitle[data-side='SELL_USDT']::before {
+  background: var(--sell);
+}
+
+.blockEdit {
+  margin-left: auto;
 }
 
 .blockMeaning {
@@ -406,8 +569,15 @@
 
 .blockFigures {
   display: grid;
-  gap: var(--space-4);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4) var(--space-5);
   margin: 0;
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--line-soft);
+}
+
+.blockFigures > div:first-child {
+  grid-column: 1 / -1;
 }
 
 .blockFigures dt {
@@ -418,13 +588,14 @@
 
 .blockFigures dd {
   margin: 2px 0 0;
-  font-size: var(--font-size-body-lg);
+  font-size: var(--font-size-body);
   font-weight: var(--font-weight-semibold);
   font-variant-numeric: tabular-nums;
 }
 
 .blockFigures dd[data-big] {
-  font-size: clamp(24px, 2.8vw, 30px);
+  font-family: var(--font-display);
+  font-size: 26px;
   letter-spacing: -0.025em;
 }
 
@@ -463,17 +634,21 @@
   display: flex;
   align-items: center;
   min-height: 48px;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-input);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
   background: var(--bg-surface);
   transition:
     border-color var(--dur-fast) var(--ease),
     box-shadow var(--dur-fast) var(--ease);
 }
 
+.inputBox:hover {
+  border-color: var(--text-muted);
+}
+
 .inputBox:focus-within {
   border-color: var(--brand-primary);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-primary) 16%, transparent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--brand-primary) 14%, transparent);
 }
 
 .inputAffix {
@@ -569,7 +744,8 @@
 }
 
 .numbers dd[data-big] {
-  font-size: clamp(22px, 2.4vw, 26px);
+  font-family: var(--font-display);
+  font-size: 22px;
   letter-spacing: -0.02em;
 }
 
@@ -600,40 +776,41 @@
 
 .pill {
   --tone: var(--text-secondary);
-  --tone-soft: var(--bg-subtle);
+  --tone-soft: color-mix(in srgb, var(--text-primary) 6%, transparent);
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  min-height: 26px;
-  padding: 0 var(--space-3);
-  border-radius: var(--radius-pill);
+  min-height: 24px;
+  padding: 0 8px;
+  border-radius: 6px;
   background: var(--tone-soft);
   color: var(--tone);
   font-size: var(--font-size-meta);
   font-weight: var(--font-weight-semibold);
+  line-height: 1;
   white-space: nowrap;
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tone) 14%, transparent);
 }
 
 .pill[data-size='lg'] {
-  min-height: 32px;
-  padding: 0 var(--space-4);
-  font-size: var(--font-size-body-sm);
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 8px;
+  font-size: 13px;
 }
 
 .pill[data-tone='action'] {
-  --tone: var(--brand-action);
-  --tone-soft: var(--brand-soft);
+  --tone: var(--text-on-action);
+  --tone-soft: var(--brand-action);
 }
 
 .pill[data-tone='waiting'] {
-  --tone: var(--status-warning);
-  --tone-soft: var(--status-warning-soft);
+  --tone: #9a5b00;
+  --tone-soft: #fdf3e1;
 }
 
 .pill[data-tone='done'] {
-  --tone: var(--status-success);
-  --tone-soft: var(--status-success-soft);
+  --tone: #0b8a4f;
+  --tone-soft: #e7f5ee;
 }
 
 .pillDot {
@@ -1169,26 +1346,21 @@
 }
 
 .listHead {
-  padding: var(--space-5) var(--space-6) var(--space-4);
+  padding: 0 var(--space-6);
+  border-bottom: 1px solid var(--line-soft);
 }
 
 .tabs {
-  display: inline-flex;
-  align-self: flex-start;
-  gap: var(--space-1);
-  padding: var(--space-1);
-  border-radius: var(--radius-input);
-  background: var(--bg-subtle);
-  box-shadow: inset 0 0 0 1px var(--line-soft);
+  display: flex;
+  gap: var(--space-6);
 }
 
 .tab {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  min-height: 38px;
-  padding: 0 var(--space-4);
-  border-radius: var(--radius-control);
+  min-height: 52px;
   color: var(--text-secondary);
   font-size: var(--font-size-body-sm);
   font-weight: var(--font-weight-medium);
@@ -1196,20 +1368,31 @@
   white-space: nowrap;
 }
 
+.tab:hover {
+  color: var(--text-primary);
+}
+
 .tab[aria-current='page'] {
-  background: var(--bg-surface);
   color: var(--text-primary);
   font-weight: var(--font-weight-semibold);
-  box-shadow:
-    0 0 0 1px var(--line),
-    0 2px 6px -2px color-mix(in srgb, var(--text-primary) 14%, transparent);
+}
+
+.tab[aria-current='page']::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--brand-primary);
 }
 
 .count {
-  min-width: 22px;
-  padding: 1px 7px;
-  border-radius: var(--radius-pill);
-  background: color-mix(in srgb, var(--border-default) 70%, transparent);
+  min-width: 20px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--text-primary) 6%, transparent);
   color: var(--text-secondary);
   font-size: var(--font-size-micro);
   font-weight: var(--font-weight-semibold);
@@ -1218,7 +1401,7 @@
 }
 
 .tab[aria-current='page'] .count {
-  background: var(--brand-soft);
+  background: var(--accent-soft);
   color: var(--brand-action);
 }
 
@@ -1232,10 +1415,10 @@
 .row {
   display: grid;
   /* A fixed end column, so a longer status pill never shifts the columns of its row. */
-  grid-template-columns: minmax(150px, 1.2fr) minmax(0, 1fr) minmax(0, 0.9fr) 9.5rem;
+  grid-template-columns: minmax(190px, 1.1fr) minmax(0, 1fr) minmax(0, 1.2fr) 8.5rem;
   align-items: center;
   gap: var(--space-4);
-  padding: var(--space-4) var(--space-6);
+  padding: 14px var(--space-6);
   border-top: 1px solid var(--line-soft);
   color: inherit;
   text-decoration: none;
@@ -1244,8 +1427,25 @@
 
 @media (hover: hover) {
   .row:hover {
-    background: color-mix(in srgb, var(--bg-subtle) 80%, var(--bg-surface));
+    background: color-mix(in srgb, var(--paper) 70%, var(--bg-surface));
   }
+}
+
+.cellSide {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+/* The tag beside the reference says Buy or Sell; the words stay for assistive technology. */
+.cellSide .cellSub {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
 
 .cell {
@@ -1291,7 +1491,25 @@
 @media (max-width: 899px) {
   .figures {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: var(--space-5) var(--space-4);
+  }
+
+  .figure:nth-child(3) {
+    border-left: 0;
+  }
+
+  .figure:nth-child(n + 3) {
+    border-top: 1px solid var(--line-soft);
+  }
+
+  .availHead {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .availNote {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    padding-left: 0;
+    border-left: 0;
   }
 
   .blocks,
@@ -1322,13 +1540,25 @@
   }
 
   .listHead {
-    padding: var(--space-4) var(--space-5);
+    padding: 0 var(--space-4);
   }
 }
 
 @media (max-width: 599px) {
   .availHead {
-    align-items: flex-start;
+    padding: var(--space-3) var(--space-4);
+  }
+
+  .figure {
+    padding: var(--space-3) var(--space-4) var(--space-4);
+  }
+
+  .figure dd {
+    font-size: 18px;
+  }
+
+  .availability > :not(.availHead, .figures) {
+    margin: 0 var(--space-4) var(--space-4);
   }
 
   .onboard {
@@ -1357,20 +1587,6 @@
     flex-basis: 100%;
   }
 
-  /* An order line keeps its reference and its next step whole on a phone; the words already say Buy or Sell. */
-  .orderRow {
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: var(--space-3);
-  }
-
-  .sideMark {
-    display: none;
-  }
-
-  .orderMain,
-  .orderMeta {
-    white-space: normal;
-  }
 }
 
 /* ——— Settlement details the trader submits (application and changes) ——— */
@@ -1418,7 +1634,7 @@
 
 .pill[data-tone='neutral'] {
   --tone: var(--text-secondary);
-  --tone-soft: var(--bg-subtle);
+  --tone-soft: color-mix(in srgb, var(--text-primary) 6%, transparent);
 }
 
 @media (max-width: 599px) {
@@ -1467,18 +1683,19 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
+  align-self: flex-start;
   justify-self: start;
   margin: 0;
   padding: 6px var(--space-3);
-  border-radius: var(--radius-pill);
-  background: var(--bg-subtle);
+  border-radius: 8px;
+  background: var(--paper, var(--bg-subtle));
   color: var(--text-secondary);
   font-size: var(--font-size-meta);
   font-weight: var(--font-weight-semibold);
 }
 
 .p2pEscrow[data-state='locked'] {
-  background: var(--brand-soft);
+  background: var(--accent-soft, var(--brand-soft));
   color: var(--brand-action);
 }
 

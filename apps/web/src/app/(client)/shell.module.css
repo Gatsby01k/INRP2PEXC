@@ -1,26 +1,36 @@
 /*
- * The client workspace: the home page's room — its warm paper, near-black type and the mark's orange — with the
- * client's work in the middle of it.
+ * The client workspace — one system for every page, set the way a serious exchange sets its product:
  *
- * One system for every page:
- * - the home page's masthead: the mark and the name, the sections in a floating pill whose current one is filled in
- *   the mark's orange and slides as you move, then search (⌘K), sound, notifications and the account;
- * - on a phone the sections drop to a floating bar under the thumb;
- * - a heading set at the home page's scale (`PageHead`), then the page's work (`.main`) and, where the page has
- *   context to give, a column beside it (`.aside`) that stays in view — laid out by the width the page has (a
- *   container query), not the window's;
- * - one orange moment per page (`.brandField`): the figure that matters, in white, on the mark's own colour, with
- *   the mark's geometry behind it (`MarkArt`); everything else is paper and white sheets.
+ * - a flat, full-width bar across the top: the mark and the name, the sections as words with the current one
+ *   underlined in the mark's orange, then search (⌘K), notifications and the account;
+ * - on a phone the sections drop to a tab bar under the thumb, flush with the bottom edge;
+ * - a compact heading (`PageHead`): where you are, the page's name, its state, and its actions on the right;
+ * - the page's work (`.main`) and, where the page has context to give, a column beside it (`.aside`);
+ * - white sheets on quiet paper, hairline borders, tabular figures, one accent colour — the mark's orange — used
+ *   for what you can act on, green and red only for buying and selling and for money that arrived or failed;
+ * - one orange moment per page at most (`.brandField`): the figure that matters, in white, on the mark's colour.
  */
 .shell {
-  --line: color-mix(in srgb, var(--border-default) 82%, transparent);
-  --line-soft: color-mix(in srgb, var(--border-default) 55%, transparent);
-  --lift: 0 1px 2px color-mix(in srgb, var(--text-primary) 4%, transparent), 0 10px 28px -18px color-mix(in srgb, var(--text-primary) 18%, transparent), 0 30px 60px -44px color-mix(in srgb, var(--text-primary) 20%, transparent);
-  --lift-strong: 0 1px 2px color-mix(in srgb, var(--text-primary) 5%, transparent), 0 16px 40px -22px color-mix(in srgb, var(--text-primary) 24%, transparent), 0 48px 96px -56px color-mix(in srgb, var(--text-primary) 32%, transparent);
-  --glow: 0 2px 4px color-mix(in srgb, var(--brand-action) 24%, transparent), 0 24px 48px -22px color-mix(in srgb, var(--brand-primary) 62%, transparent), 0 60px 110px -60px color-mix(in srgb, var(--brand-primary) 70%, transparent);
-  --gutter: var(--space-10);
-  --masthead: 76px;
-  --measure: 1240px;
+  --line: #e7e3dc;
+  --line-soft: #efece6;
+  --paper: #f6f5f2;
+  --sheet: var(--bg-surface);
+  --ink: var(--text-primary);
+  --ink-2: #474b53;
+  --buy: #0b8a4f;
+  --buy-soft: #e7f5ee;
+  --sell: #d1361f;
+  --sell-soft: #fdece8;
+  --accent: var(--brand-action);
+  --accent-soft: #fff1ec;
+  --radius-card: 16px;
+  --radius-ctl: 10px;
+  --lift: 0 1px 2px rgba(18, 19, 23, 0.04);
+  --lift-strong: 0 1px 2px rgba(18, 19, 23, 0.04), 0 8px 24px -16px rgba(18, 19, 23, 0.16);
+  --glow: 0 18px 40px -24px color-mix(in srgb, var(--brand-action) 70%, transparent);
+  --gutter: var(--space-8);
+  --masthead: 64px;
+  --measure: 1280px;
   position: relative;
   isolation: isolate;
   display: flex;
@@ -28,95 +38,38 @@
   min-height: 100vh;
   min-height: 100svh;
   color: var(--text-primary);
-  background:
-    radial-gradient(ellipse 70% 46% at 30% -8%, color-mix(in srgb, var(--bg-surface) 100%, transparent) 0%, transparent 100%),
-    var(--bg-app);
+  background: var(--paper);
+  font-feature-settings: 'cv11', 'ss01';
 }
 
-/* The backdrop: the mark's construction drawing in the top corner, fading into the paper, and a fine grain over the
-   whole page so the paper reads as paper. Fixed, so it stays where it is while the work scrolls. */
-.backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: -1;
-  overflow: hidden;
-  pointer-events: none;
-  background: radial-gradient(ellipse 60% 48% at 12% -12%, var(--bg-surface) 0%, transparent 72%);
+/* Figures line up in every column of every page. */
+.shell :where(td, dd, output, [data-num]) {
+  font-variant-numeric: tabular-nums;
 }
 
-/* A fine grid of points, the paper's ruling: strongest under the masthead, gone by the middle of the page. */
-.backdrop::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background-image: radial-gradient(color-mix(in srgb, var(--text-primary) 14%, transparent) 1px, transparent 1.5px);
-  background-size: 24px 24px;
-  mask-image: radial-gradient(ellipse 85% 62% at 50% -4%, var(--text-primary) 0%, transparent 78%);
-  -webkit-mask-image: radial-gradient(ellipse 85% 62% at 50% -4%, var(--text-primary) 0%, transparent 78%);
-}
-
-/* The paper's grain, over everything, multiplied in so it darkens nothing but texture. */
-.backdrop::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  opacity: 0.32;
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.45  0 0 0 0 0.38  0 0 0 0 0.3  0 0 0 .55 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
-  mix-blend-mode: multiply;
-}
-
-/* One warm glow: the mark's orange let into the ivory, high on the right like early light, drifting very slowly. */
+/* Kept as an anchor for pages that still render it: the room is flat paper now. */
+.backdrop,
 .glow {
-  position: absolute;
-  top: -34vh;
-  right: -18vw;
-  width: 78vw;
-  height: 78vh;
-  border-radius: 50%;
-  background: radial-gradient(closest-side, color-mix(in srgb, var(--brand-primary) 16%, var(--ivory)) 0%, color-mix(in srgb, var(--brand-primary) 7%, var(--ivory)) 42%, transparent 100%);
-  opacity: 0.9;
-  animation: drift 26s ease-in-out infinite alternate;
+  display: none;
 }
 
-@keyframes drift {
-  to {
-    transform: translate(-6vw, 5vh) scale(1.08);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .glow {
-    animation: none;
-  }
-}
-
-/* ——— Masthead: the home page's own ——— */
+/* ——— The bar across the top ——— */
 
 .header {
   position: sticky;
   top: 0;
   z-index: 20;
-  isolation: isolate;
-}
-
-/* The masthead's glass fades out downward rather than ending on an edge: the page passes under it softly. */
-.header::before {
-  content: '';
-  position: absolute;
-  inset: 0 0 -28px;
-  z-index: -1;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--bg-app) 94%, transparent) 0%, color-mix(in srgb, var(--bg-app) 70%, transparent) 60%, color-mix(in srgb, var(--bg-app) 0%, transparent) 100%);
-  backdrop-filter: saturate(1.3) blur(14px);
-  mask-image: linear-gradient(180deg, var(--text-primary) 55%, transparent 100%);
-  -webkit-mask-image: linear-gradient(180deg, var(--text-primary) 55%, transparent 100%);
-  pointer-events: none;
+  background: color-mix(in srgb, var(--bg-surface) 92%, transparent);
+  backdrop-filter: saturate(1.4) blur(16px);
+  -webkit-backdrop-filter: saturate(1.4) blur(16px);
+  box-shadow: 0 1px 0 var(--line);
 }
 
 .mastheadInner {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  column-gap: var(--space-6);
+  column-gap: var(--space-8);
   max-width: var(--measure);
   height: var(--masthead);
   margin: 0 auto;
@@ -127,7 +80,7 @@
   display: inline-flex;
   align-items: center;
   justify-self: start;
-  gap: var(--space-3);
+  gap: 10px;
   color: inherit;
   text-decoration: none;
 }
@@ -135,98 +88,81 @@
 .brandMark {
   display: block;
   flex: none;
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
-  box-shadow: 0 6px 16px -6px color-mix(in srgb, var(--brand-primary) 70%, transparent);
-  transition: transform var(--dur-complete) var(--ease);
-}
-
-.brand:hover .brandMark {
-  transform: rotate(-24deg);
 }
 
 .brandName {
   font-family: var(--font-display);
-  font-size: var(--font-size-body-lg);
+  font-size: 17px;
   font-weight: var(--font-weight-semibold);
   letter-spacing: -0.02em;
   white-space: nowrap;
 }
 
 .brandSub {
-  color: var(--text-secondary);
-  font-weight: var(--font-weight-medium);
+  margin-left: 2px;
+  color: var(--text-muted);
+  font-weight: var(--font-weight-regular);
 }
 
-/* The sections: a floating white pill; the one you are on is filled in the mark's orange. */
+/* The sections: words, the current one in ink with the mark's orange under it, on the bar's bottom edge. */
 .nav {
   display: flex;
-  align-items: center;
-  justify-self: center;
-  gap: 2px;
-  padding: 5px;
-  border-radius: var(--radius-pill);
-  background: color-mix(in srgb, var(--bg-surface) 88%, transparent);
-  box-shadow:
-    0 0 0 1px var(--line),
-    0 1px 2px color-mix(in srgb, var(--text-primary) 5%, transparent),
-    0 12px 30px -18px color-mix(in srgb, var(--text-primary) 30%, transparent);
+  align-items: stretch;
+  justify-self: start;
+  align-self: stretch;
+  gap: var(--space-1);
 }
 
 .navItem {
   position: relative;
-  isolation: isolate;
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  min-height: 40px;
-  padding: 0 var(--space-4);
-  border-radius: var(--radius-pill);
+  padding: 0 var(--space-3);
   color: var(--text-secondary);
   font-size: var(--font-size-body-sm);
   font-weight: var(--font-weight-medium);
   text-decoration: none;
   white-space: nowrap;
-  transition: color var(--dur-base) var(--ease);
+  transition: color var(--dur-fast) var(--ease);
+}
+
+.navItem:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: -6px;
+  border-radius: 10px;
 }
 
 .navPill {
   position: absolute;
-  inset: 0;
-  z-index: -1;
-  border-radius: var(--radius-pill);
-  background: linear-gradient(160deg, var(--brand-primary) 0%, var(--brand-action) 100%);
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, var(--text-on-action) 30%, transparent),
-    0 6px 16px -6px color-mix(in srgb, var(--brand-primary) 75%, transparent);
+  right: var(--space-3);
+  bottom: 0;
+  left: var(--space-3);
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--brand-primary);
 }
 
+/* Glyphs belong to the phone's tab bar; on a desk the words are enough. */
 .navIcon {
-  display: block;
+  display: none;
   flex: none;
-  width: 18px;
-  height: 18px;
-  transition: transform var(--dur-base) var(--ease);
-}
-
-@media (hover: hover) {
-  .navItem:hover .navIcon {
-    transform: translateY(-1px) scale(1.08);
-  }
-}
-
-.navItem:active .navIcon {
-  transform: scale(0.92);
+  width: 22px;
+  height: 22px;
 }
 
 @media (hover: hover) {
   .navItem:not([aria-current='page']):hover {
     color: var(--text-primary);
-    background: color-mix(in srgb, var(--text-primary) 5%, transparent);
   }
 }
 
 .navItem[aria-current='page'] {
-  color: var(--text-on-action);
+  color: var(--text-primary);
+  font-weight: var(--font-weight-semibold);
 }
 
 .headerActions {
@@ -234,31 +170,29 @@
   align-items: center;
   justify-content: flex-end;
   justify-self: end;
-  gap: var(--space-1);
+  gap: var(--space-2);
 }
 
 .iconButton {
   position: relative;
   display: inline-grid;
   place-items: center;
-  width: 40px;
-  height: 40px;
+  width: 38px;
+  height: 38px;
   padding: 0;
   border: 0;
-  border-radius: 50%;
+  border-radius: 10px;
   background: transparent;
   color: var(--text-secondary);
   text-decoration: none;
   cursor: pointer;
   transition:
     color var(--dur-fast) var(--ease),
-    background-color var(--dur-fast) var(--ease),
-    box-shadow var(--dur-fast) var(--ease);
+    background-color var(--dur-fast) var(--ease);
 }
 
 .iconButton[aria-current='page'] {
-  background: var(--bg-surface);
-  box-shadow: 0 0 0 1px var(--line);
+  background: var(--accent-soft);
   color: var(--brand-action);
 }
 
@@ -268,10 +202,14 @@
 
 @media (hover: hover) {
   .iconButton:hover {
-    background: var(--bg-surface);
-    box-shadow: 0 0 0 1px var(--line), 0 6px 14px -8px color-mix(in srgb, var(--text-primary) 30%, transparent);
+    background: color-mix(in srgb, var(--text-primary) 5%, transparent);
     color: var(--text-primary);
   }
+}
+
+.iconButton:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 1px;
 }
 
 .toolIcon {
@@ -281,17 +219,17 @@
 
 .unread {
   position: absolute;
-  top: 1px;
-  right: -1px;
+  top: 3px;
+  right: 2px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
   border-radius: var(--radius-pill);
-  background: linear-gradient(160deg, var(--brand-primary), var(--brand-action));
-  box-shadow: 0 0 0 2px var(--bg-app);
+  background: var(--brand-primary);
+  box-shadow: 0 0 0 2px var(--bg-surface);
   color: var(--text-on-action);
   font-size: 10px;
   font-weight: var(--font-weight-semibold);
@@ -303,8 +241,8 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 3px 10px;
-  border-radius: var(--radius-pill);
+  padding: 2px 8px;
+  border-radius: 6px;
   background: color-mix(in srgb, var(--text-primary) 5%, transparent);
   color: var(--text-secondary);
   font-size: var(--font-size-micro);
@@ -312,8 +250,8 @@
 }
 
 .deskState[data-tone='live'] {
-  background: var(--status-success-soft);
-  color: var(--status-success);
+  background: var(--buy-soft);
+  color: var(--buy);
 }
 
 .deskState[data-tone='paused'] {
@@ -328,45 +266,29 @@
   background: currentColor;
 }
 
-/* ——— The orange moment: the mark's own field, a figure in white, the mark's geometry behind it ——— */
+/* ——— The orange moment: the mark's own colour, a figure in white ——— */
 
 .brandField {
   --mark-cut: var(--brand-action);
   position: relative;
   isolation: isolate;
   overflow: hidden;
-  border-radius: 28px;
-  background:
-    radial-gradient(ellipse 70% 90% at 0% 0%, color-mix(in srgb, var(--brand-primary) 100%, transparent) 0%, transparent 70%),
-    radial-gradient(ellipse 60% 80% at 100% 100%, color-mix(in srgb, var(--brand-action-hover) 100%, transparent) 0%, transparent 70%),
-    var(--brand-action);
+  border-radius: 20px;
+  background: linear-gradient(135deg, var(--brand-primary) 0%, #e2461d 55%, var(--brand-action) 100%);
   box-shadow:
-    inset 0 1px 0 color-mix(in srgb, var(--text-on-action) 28%, transparent),
-    inset 0 0 0 1px color-mix(in srgb, var(--text-on-action) 10%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--text-on-action) 22%, transparent),
     var(--glow);
   color: var(--text-on-action);
-}
-
-/* A fine grain over the orange, so the field reads as a material rather than a fill. */
-.brandField::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  background-image: radial-gradient(color-mix(in srgb, var(--text-on-action) 14%, transparent) 0.7px, transparent 0.8px);
-  background-size: 6px 6px;
-  mask-image: linear-gradient(120deg, transparent 20%, var(--text-primary) 100%);
-  pointer-events: none;
 }
 
 .brandArt {
   position: absolute;
   z-index: -1;
   top: 50%;
-  right: -90px;
-  width: 440px;
-  height: 440px;
-  color: color-mix(in srgb, var(--text-on-action) 16%, transparent);
+  right: -120px;
+  width: 400px;
+  height: 400px;
+  color: color-mix(in srgb, var(--text-on-action) 9%, transparent);
   transform: translateY(-50%);
   pointer-events: none;
 }
@@ -380,7 +302,7 @@
   padding: var(--space-3) var(--space-4);
   border-radius: 12px;
   background: var(--status-warning-soft);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--status-warning) 18%, transparent), inset 3px 0 0 var(--status-warning);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--status-warning) 18%, transparent);
   color: var(--status-warning);
   font-size: var(--font-size-body-sm);
   line-height: 1.5;
@@ -389,7 +311,7 @@
 /* ——— The workspace: heading, then the page's work and its context ——— */
 
 .workspace {
-  --aside: 340px;
+  --aside: 360px;
   flex: 1 1 auto;
   display: grid;
   grid-template-columns: minmax(0, 1fr) var(--aside);
@@ -398,7 +320,7 @@
     'main aside';
   align-items: start;
   align-content: start;
-  column-gap: var(--space-8);
+  column-gap: var(--space-6);
   width: 100%;
   max-width: var(--measure);
   margin: 0 auto;
@@ -418,32 +340,13 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--space-5);
+  gap: var(--space-4);
 }
 
-/* The page's blocks arrive one after another, a few tens of milliseconds apart, the first with the heading. */
+/* The page's blocks fade in together with the heading — quickly, without travelling. */
 .main > *,
 .aside > * {
-  animation: enter var(--dur-complete) var(--ease) both;
-}
-
-.main > :nth-child(2),
-.aside > :nth-child(1) {
-  animation-delay: 60ms;
-}
-
-.main > :nth-child(3),
-.aside > :nth-child(2) {
-  animation-delay: 120ms;
-}
-
-.main > :nth-child(4),
-.aside > :nth-child(3) {
-  animation-delay: 180ms;
-}
-
-.main > :nth-child(n + 5) {
-  animation-delay: 240ms;
+  animation: enter 240ms var(--ease) both;
 }
 
 /* The column beside the work: context the client may want while they work, kept in view. */
@@ -468,100 +371,93 @@
   flex-wrap: wrap;
   align-items: flex-end;
   justify-content: space-between;
-  gap: var(--space-4) var(--space-8);
-  margin-bottom: var(--space-8);
-  animation: enter var(--dur-complete) var(--ease) both;
+  gap: var(--space-4) var(--space-6);
+  margin-bottom: var(--space-6);
+  animation: enter 240ms var(--ease) both;
 }
 
 .pageHeadText {
   display: grid;
-  gap: var(--space-2);
-  max-width: 46rem;
+  gap: 6px;
+  min-width: 0;
+  max-width: 52rem;
 }
 
 .pageHeadAside {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-3);
+  gap: var(--space-2);
 }
 
+/* Where the page sits: the section it belongs to, quiet, above the name. */
 .eyebrow {
-  margin: 0 0 var(--space-2);
-  font-size: var(--font-size-micro);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-body-sm);
   font-weight: var(--font-weight-medium);
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--brand-action);
+}
+
+.eyebrow a {
+  color: var(--text-secondary);
+  text-decoration: none;
+}
+
+.eyebrow a:hover {
+  color: var(--text-primary);
+}
+
+.crumbSep {
+  width: 14px;
+  height: 14px;
+  color: var(--text-disabled);
 }
 
 .titleRow {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-2) var(--space-4);
+  gap: var(--space-2) var(--space-3);
 }
 
 .titleMain {
   display: flex;
   align-items: center;
-  gap: var(--space-4);
+  gap: var(--space-3);
   min-width: 0;
 }
 
-/* The section's glyph, set as the mark is: white on a disc of the mark's orange. */
+/* The section's glyph is no longer drawn on a tile in front of the title: the bar says where you are. */
 .pageGlyph {
-  display: inline-grid;
-  flex: none;
-  place-items: center;
-  width: 52px;
-  height: 52px;
-  border-radius: 50%;
-  background: linear-gradient(160deg, var(--brand-primary), var(--brand-action));
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, var(--text-on-action) 30%, transparent),
-    0 10px 24px -10px color-mix(in srgb, var(--brand-primary) 70%, transparent);
-  color: var(--text-on-action);
-}
-
-.pageGlyph svg {
-  width: 26px;
-  height: 26px;
-  stroke-width: 1.8;
-}
-
-.pageGlyph {
-  animation: glyphIn 700ms var(--ease) both;
-}
-
-@keyframes glyphIn {
-  from {
-    opacity: 0;
-    transform: rotate(-90deg) scale(0.6);
-  }
+  display: none;
 }
 
 .pageTitle {
-  font-family: var(--font-display);
   margin: 0;
-  font-size: clamp(34px, 4vw, 54px);
+  font-family: var(--font-display);
+  font-size: 28px;
   font-weight: var(--font-weight-semibold);
-  line-height: 1.02;
-  letter-spacing: -0.045em;
+  line-height: 1.15;
+  letter-spacing: -0.025em;
   text-wrap: balance;
 }
 
 .lede {
-  margin: var(--space-2) 0 0;
-  max-width: 40rem;
-  font-size: var(--font-size-body-lg);
-  line-height: var(--line-height-normal);
+  margin: 0;
+  max-width: 44rem;
   color: var(--text-secondary);
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-normal);
   text-wrap: pretty;
 }
 
 .footer {
   margin-top: auto;
+  border-top: 1px solid var(--line);
+  background: var(--bg-surface);
 }
 
 .footerInner {
@@ -572,7 +468,7 @@
   gap: var(--space-2) var(--space-6);
   max-width: var(--measure);
   margin: 0 auto;
-  padding: var(--space-5) var(--gutter) var(--space-6);
+  padding: var(--space-4) var(--gutter);
   color: var(--text-muted);
   font-size: var(--font-size-meta);
 }
@@ -584,8 +480,8 @@
 }
 
 .footerMark {
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
 }
 
@@ -598,39 +494,42 @@
 
 .footerLink {
   color: var(--text-secondary);
-  text-decoration: underline;
-  text-decoration-color: color-mix(in srgb, var(--brand-action) 45%, transparent);
-  text-underline-offset: 3px;
+  text-decoration: none;
+}
+
+.footerLink:hover {
+  color: var(--text-primary);
 }
 
 /* ——— Surfaces the pages share ——— */
 
-/* The one surface a page turns on — the Exchange ticket: lifted a little further than the rest. */
+/* The one surface a page turns on — the Exchange ticket. */
 .surface {
   position: relative;
   display: flex;
   flex-direction: column;
   gap: var(--space-5);
-  padding: var(--space-8);
-  border-radius: 28px;
-  background: var(--bg-surface);
-  box-shadow: 0 0 0 1px var(--line), var(--lift-strong);
+  padding: var(--space-6);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--sheet);
+  box-shadow: var(--lift-strong);
 }
 
 .card {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
-  padding: var(--space-6) var(--space-8);
-  border-radius: 24px;
-  background: var(--bg-surface);
-  box-shadow: 0 0 0 1px var(--line), var(--lift);
+  padding: var(--space-5) var(--space-6);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--sheet);
+  box-shadow: var(--lift);
 }
 
 @keyframes enter {
   from {
     opacity: 0;
-    transform: translateY(6px);
   }
 }
 
@@ -640,60 +539,57 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2) var(--space-4);
+  min-height: 28px;
 }
 
 .cardTitle {
-  font-family: var(--font-display);
   margin: 0;
-  font-size: var(--font-size-heading);
+  font-family: var(--font-sans);
+  font-size: 16px;
   font-weight: var(--font-weight-semibold);
-  letter-spacing: -0.015em;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
 }
 
 /* A card's title with its glyph in front of it. */
 .cardTitleRow {
   display: inline-flex;
   align-items: center;
-  gap: var(--space-3);
+  gap: 10px;
   min-width: 0;
 }
 
-/* A card's glyph: a soft tinted tile in front of its title. */
+/* A card's glyph: small, quiet, in the line of the title. */
 .cardGlyph {
   display: inline-grid;
   flex: none;
   place-items: center;
-  width: 36px;
-  height: 36px;
-  border-radius: 11px;
-  background: var(--bg-subtle);
-  box-shadow: inset 0 0 0 1px var(--line);
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--paper);
   color: var(--text-secondary);
 }
 
 .cardGlyph svg {
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
 }
 
 .cardGlyph[data-tone='brand'] {
-  background: var(--brand-soft);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand-primary) 20%, transparent);
+  background: var(--accent-soft);
   color: var(--brand-action);
 }
 
 .cardGlyph[data-tone='success'] {
-  background: var(--status-success-soft);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--status-success) 18%, transparent);
-  color: var(--status-success);
+  background: var(--buy-soft);
+  color: var(--buy);
 }
 
 .label {
-  font-size: var(--font-size-micro);
-  font-weight: var(--font-weight-semibold);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
   color: var(--text-muted);
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-medium);
 }
 
 .muted {
@@ -705,27 +601,29 @@
 .info {
   display: flex;
   align-items: flex-start;
-  gap: var(--space-3);
+  gap: 10px;
   margin: 0;
   padding: var(--space-3) var(--space-4);
   border-radius: 12px;
-  background: var(--bg-subtle);
-  box-shadow: inset 0 0 0 1px var(--line-soft);
+  background: var(--paper);
   color: var(--text-secondary);
   font-size: var(--font-size-body-sm);
   line-height: var(--line-height-normal);
 }
 
+.info strong {
+  color: var(--text-primary);
+  font-weight: var(--font-weight-semibold);
+}
+
 .info[data-tone='warning'] {
   background: var(--status-warning-soft);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--status-warning) 16%, transparent);
-  color: var(--text-primary);
+  color: #5f4300;
 }
 
 /* The client's own next move, in the mark's orange: one sentence that unblocks everything after it. */
 .info[data-tone='brand'] {
-  background: color-mix(in srgb, var(--brand-primary) 8%, var(--bg-subtle));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand-primary) 22%, transparent);
+  background: var(--accent-soft);
   color: var(--text-primary);
 }
 
@@ -756,20 +654,24 @@
   color: var(--status-warning);
 }
 
-/* Definition rows: a quiet term, the fact, on one line. */
-/* Rows sit at the top of their column: a long answer beside them must not spread them apart. */
+/* Definition rows: a quiet term on the left, the fact on the right, figures aligned. */
 .facts {
   display: grid;
   align-content: start;
-  gap: var(--space-3);
+  gap: 0;
   margin: 0;
 }
 
 .facts > div {
   display: grid;
-  grid-template-columns: minmax(96px, 38%) minmax(0, 1fr);
+  grid-template-columns: minmax(96px, 40%) minmax(0, 1fr);
   gap: var(--space-3);
   align-items: baseline;
+  padding: 9px 0;
+}
+
+.facts > div + div {
+  border-top: 1px dashed var(--line-soft);
 }
 
 .facts dt {
@@ -783,36 +685,33 @@
   overflow-wrap: anywhere;
   font-size: var(--font-size-body-sm);
   font-weight: var(--font-weight-medium);
+  font-variant-numeric: tabular-nums;
 }
 
 /* ——— Actions ——— */
 
 .action {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: var(--space-2);
-  min-height: 52px;
+  min-height: 48px;
   padding: 0 var(--space-6);
-  border: 1px solid var(--brand-action);
-  border-radius: 14px;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--brand-primary) 55%, var(--brand-action)) 0%, var(--brand-action) 100%);
+  border: 0;
+  border-radius: 12px;
+  background: var(--brand-action);
   color: var(--text-on-action);
   font: inherit;
-  font-size: var(--font-size-body-lg);
-  font-weight: var(--font-weight-medium);
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-semibold);
   letter-spacing: -0.005em;
   text-decoration: none;
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, var(--text-on-action) 26%, transparent),
-    inset 0 -1px 0 color-mix(in srgb, var(--text-primary) 14%, transparent),
-    0 1px 2px color-mix(in srgb, var(--brand-action) 30%, transparent),
-    0 12px 28px -14px color-mix(in srgb, var(--brand-action) 80%, transparent);
+  white-space: nowrap;
   cursor: pointer;
   transition:
-    background-color var(--dur-base) var(--ease),
-    border-color var(--dur-base) var(--ease),
-    box-shadow var(--dur-base) var(--ease),
+    background-color var(--dur-fast) var(--ease),
+    box-shadow var(--dur-fast) var(--ease),
     transform var(--dur-fast) var(--ease);
 }
 
@@ -822,52 +721,9 @@
   transition: transform var(--dur-base) var(--ease);
 }
 
-/* A band of light crosses the primary action once as the pointer arrives — the way light catches a pressed metal key. */
-.action {
-  position: relative;
-  overflow: hidden;
-  isolation: isolate;
-}
-
-.action::after {
-  content: '';
-  position: absolute;
-  inset: -2px auto -2px -40%;
-  z-index: -1;
-  width: 34%;
-  background: linear-gradient(100deg, transparent, color-mix(in srgb, var(--text-on-action) 30%, transparent), transparent);
-  transform: skewX(-18deg) translateX(-120%);
-  opacity: 0;
-  pointer-events: none;
-}
-
-@media (hover: hover) and (prefers-reduced-motion: no-preference) {
-  .action:not(:disabled):hover::after {
-    opacity: 1;
-    transform: skewX(-18deg) translateX(520%);
-    transition:
-      transform 900ms var(--ease),
-      opacity 200ms var(--ease);
-  }
-}
-
-.action:not(:disabled):active {
-  transform: translateY(1px);
-}
-
-.action:focus-visible .actionIcon {
-  transform: translateX(2px);
-}
-
 @media (hover: hover) {
   .action:not(:disabled):hover {
-    border-color: var(--brand-action-hover);
-    background: linear-gradient(180deg, var(--brand-action) 0%, var(--brand-action-hover) 100%);
-    transform: translateY(-1px);
-    box-shadow:
-      inset 0 1px 0 color-mix(in srgb, var(--text-on-action) 26%, transparent),
-      0 2px 4px color-mix(in srgb, var(--brand-action) 30%, transparent),
-      0 18px 34px -16px color-mix(in srgb, var(--brand-action) 85%, transparent);
+    background: var(--brand-action-hover);
   }
 
   .action:not(:disabled):hover .actionIcon {
@@ -875,48 +731,57 @@
   }
 }
 
+.action:not(:disabled):active {
+  transform: scale(0.99);
+}
+
+.action:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 2px;
+}
+
 .action:disabled {
-  border-color: var(--border-strong);
-  background: var(--bg-subtle);
-  color: var(--text-muted);
+  background: color-mix(in srgb, var(--text-primary) 8%, var(--bg-surface));
+  color: var(--text-disabled);
   box-shadow: none;
-  cursor: default;
+  cursor: not-allowed;
 }
 
 .action[aria-busy='true']:disabled {
-  border-color: var(--brand-action);
   background: var(--brand-action);
   color: var(--text-on-action);
+  opacity: 0.8;
   cursor: progress;
 }
 
 /* The dark variant: for the one action that sets something up rather than trades. */
 .action[data-tone='ink'] {
-  border-color: var(--text-primary);
-  background: linear-gradient(180deg, color-mix(in srgb, var(--text-primary) 82%, var(--bg-surface)) 0%, var(--text-primary) 100%);
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, var(--bg-surface) 18%, transparent),
-    0 1px 2px color-mix(in srgb, var(--text-primary) 20%, transparent),
-    0 12px 28px -16px color-mix(in srgb, var(--text-primary) 80%, transparent);
+  background: var(--text-primary);
 }
 
 @media (hover: hover) {
   .action[data-tone='ink']:not(:disabled):hover {
-    border-color: color-mix(in srgb, var(--text-primary) 86%, var(--bg-surface));
-    background: color-mix(in srgb, var(--text-primary) 86%, var(--bg-surface));
+    background: #2a2c33;
   }
 }
 
 .action[data-tone='ink']:disabled {
-  border-color: var(--border-strong);
-  background: var(--bg-subtle);
-  color: var(--text-muted);
-  box-shadow: none;
+  background: color-mix(in srgb, var(--text-primary) 8%, var(--bg-surface));
+  color: var(--text-disabled);
+}
+
+.action[data-tone='buy'] {
+  background: var(--buy);
+}
+
+.action[data-tone='sell'] {
+  background: var(--sell);
 }
 
 .action[data-size='sm'] {
-  min-height: 40px;
+  min-height: 36px;
   padding: 0 var(--space-4);
+  border-radius: 10px;
   font-size: var(--font-size-body-sm);
 }
 
@@ -931,26 +796,25 @@
   gap: var(--space-2);
   min-height: 44px;
   padding: 0 var(--space-5);
-  border: 0;
+  border: 1px solid var(--border-strong);
   border-radius: 12px;
   background: var(--bg-surface);
-  box-shadow:
-    inset 0 0 0 1px var(--border-strong),
-    0 1px 2px color-mix(in srgb, var(--text-primary) 6%, transparent);
   color: var(--text-primary);
   font: inherit;
-  font-size: var(--font-size-body);
-  font-weight: var(--font-weight-medium);
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-semibold);
   text-decoration: none;
+  white-space: nowrap;
   cursor: pointer;
   transition:
-    box-shadow var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease),
     background-color var(--dur-fast) var(--ease);
 }
 
 .secondaryAction[data-size='sm'] {
   min-height: 36px;
   padding: 0 var(--space-3);
+  border-radius: 10px;
   font-size: var(--font-size-body-sm);
 }
 
@@ -961,49 +825,60 @@
 
 @media (hover: hover) {
   .secondaryAction:not(:disabled):hover {
+    border-color: var(--text-muted);
     background: var(--bg-subtle);
-    box-shadow:
-      inset 0 0 0 1px var(--text-muted),
-      0 4px 10px -6px color-mix(in srgb, var(--text-primary) 24%, transparent);
   }
+}
+
+.secondaryAction:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 2px;
 }
 
 .secondaryAction:disabled {
   color: var(--text-disabled);
-  cursor: default;
+  cursor: not-allowed;
 }
 
-/* A quieter way out: words, underlined in the brand's orange. */
+/* A quieter way to act: the words in the mark's orange, no box, no underline until the pointer is on them. */
 .textAction {
   display: inline-flex;
   align-items: center;
-  gap: var(--space-1);
-  min-height: var(--touch-min);
+  gap: 4px;
+  min-height: 32px;
   padding: 0;
   border: 0;
   background: none;
-  color: var(--text-primary);
+  color: var(--brand-action);
   font: inherit;
   font-size: var(--font-size-body-sm);
-  font-weight: var(--font-weight-medium);
-  text-decoration: underline;
-  text-decoration-color: color-mix(in srgb, var(--brand-action) 55%, transparent);
-  text-decoration-thickness: 1.5px;
-  text-underline-offset: 3px;
+  font-weight: var(--font-weight-semibold);
+  text-decoration: none;
   cursor: pointer;
-  transition: text-decoration-color var(--dur-fast) var(--ease);
+}
+
+.textAction svg {
+  width: 16px;
+  height: 16px;
 }
 
 @media (hover: hover) {
   .textAction:not(:disabled):hover {
-    text-decoration-color: var(--brand-action);
+    color: var(--brand-action-hover);
+    text-decoration: underline;
+    text-underline-offset: 3px;
   }
+}
+
+.textAction:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 2px;
+  border-radius: 4px;
 }
 
 .textAction:disabled {
   color: var(--text-disabled);
-  text-decoration-color: var(--border-strong);
-  cursor: default;
+  cursor: not-allowed;
 }
 
 .error {
@@ -1012,7 +887,6 @@
   font-size: var(--font-size-body-sm);
   font-weight: var(--font-weight-medium);
 }
-
 
 /* ——— Narrower pages: one column; the context follows the work, a page's status leads it ——— */
 
@@ -1023,7 +897,7 @@
       'head'
       'main'
       'aside';
-    row-gap: var(--space-6);
+    row-gap: var(--space-4);
     max-width: 780px;
   }
 
@@ -1039,42 +913,68 @@
   }
 
   .pageHead {
-    margin-bottom: 0;
+    margin-bottom: var(--space-2);
+  }
+
+  /* A column that carries secondary cards: its status leads the page, the cards follow the work. */
+  .workspace:has(> .aside[data-split]) {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+  }
+
+  .workspace:has(> .aside[data-split]) > .pageHead {
+    order: 0;
+  }
+
+  .aside[data-split] {
+    display: contents;
+  }
+
+  .aside[data-split] > * {
+    order: 3;
+  }
+
+  .aside[data-split] > [data-first] {
+    order: 1;
+  }
+
+  .workspace:has(> .aside[data-split]) > .main {
+    order: 2;
   }
 }
 
-/* ——— A narrower window: the pill keeps every glyph and only the current section's word ——— */
+/* Taller than a screen, a column with secondary cards scrolls with the page. */
+.aside[data-split] {
+  position: relative;
+  top: auto;
+}
 
-@media (max-width: 1379px) and (min-width: 900px) {
+@media (max-width: 1179px) and (min-width: 900px) {
   .shell {
-    --gutter: var(--space-8);
+    --gutter: var(--space-6);
   }
 
   .brandSub {
     display: none;
   }
 
-  .navItem:not([aria-current='page']) {
-    padding: 0 var(--space-3);
+  .mastheadInner {
+    column-gap: var(--space-4);
   }
 
-  .navItem:not([aria-current='page']) .navText {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip: rect(0 0 0 0);
-    white-space: nowrap;
+  .navItem {
+    padding: 0 10px;
   }
 }
 
-/* ——— A phone: the sections drop to a floating bar under the thumb ——— */
+/* ——— A phone: the sections drop to a tab bar under the thumb ——— */
 
 @media (max-width: 899px) {
   .shell {
-    --gutter: var(--space-6);
-    --masthead: 64px;
-    padding-bottom: calc(84px + env(safe-area-inset-bottom));
+    --gutter: var(--space-5);
+    --masthead: 56px;
+    padding-bottom: calc(64px + env(safe-area-inset-bottom));
   }
 
   .mastheadInner {
@@ -1085,32 +985,28 @@
     display: none;
   }
 
-  /* A backdrop filter would make the masthead the frame of anything fixed inside it — the bar below. */
+  /* A backdrop filter would make the bar the frame of anything fixed inside it — the tab bar below. */
   .header {
-    background: var(--bg-app);
-    box-shadow: 0 1px 0 var(--line-soft);
-  }
-
-  .header::before {
-    display: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: var(--bg-surface);
   }
 
   .nav {
     position: fixed;
-    right: var(--space-3);
-    bottom: calc(var(--space-3) + env(safe-area-inset-bottom));
-    left: var(--space-3);
+    right: 0;
+    bottom: 0;
+    left: 0;
     z-index: 25;
     justify-self: stretch;
+    align-self: end;
     justify-content: space-around;
-    padding: 6px;
-    border-radius: 26px;
-    background: color-mix(in srgb, var(--bg-surface) 90%, transparent);
-    backdrop-filter: saturate(1.6) blur(20px);
-    box-shadow:
-      0 0 0 1px var(--line),
-      0 2px 6px color-mix(in srgb, var(--text-primary) 6%, transparent),
-      0 20px 44px -16px color-mix(in srgb, var(--text-primary) 36%, transparent);
+    gap: 0;
+    padding: 0 var(--space-1) env(safe-area-inset-bottom);
+    background: color-mix(in srgb, var(--bg-surface) 96%, transparent);
+    backdrop-filter: saturate(1.6) blur(18px);
+    -webkit-backdrop-filter: saturate(1.6) blur(18px);
+    box-shadow: 0 -1px 0 var(--line);
   }
 
   .navItem {
@@ -1119,30 +1015,54 @@
     justify-content: center;
     gap: 3px;
     min-width: 0;
-    min-height: 56px;
+    height: 60px;
     padding: 0 2px;
-    border-radius: 20px;
-    font-size: 10.5px;
-    letter-spacing: -0.01em;
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: var(--font-weight-medium);
+    letter-spacing: 0;
+  }
+
+  .navItem[aria-current='page'] {
+    color: var(--brand-action);
+    font-weight: var(--font-weight-semibold);
   }
 
   .navPill {
-    border-radius: 20px;
+    top: 0;
+    bottom: auto;
+    right: 28%;
+    left: 28%;
+    border-radius: 0 0 2px 2px;
   }
 
   .navIcon {
-    width: 22px;
-    height: 22px;
+    display: block;
   }
 
+  /* The bar has room for one word: the section's short name, its full name kept for assistive technology. */
   .navText {
+    display: none;
+  }
+
+  .navItem::after {
+    content: attr(data-short);
     max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .workspace {
-    padding-top: var(--space-6);
+    padding-top: var(--space-5);
+  }
+
+  .pageTitle {
+    font-size: 24px;
+  }
+
+  .footer {
+    display: none;
   }
 }
 
@@ -1152,49 +1072,41 @@
   }
 
   .workspace {
-    padding-top: var(--space-5);
-    padding-bottom: var(--space-10);
+    padding-top: var(--space-4);
+    padding-bottom: var(--space-8);
   }
 
   .brandName {
-    font-size: var(--font-size-body);
+    font-size: 16px;
   }
 
-  .pageGlyph {
-    width: 40px;
-    height: 40px;
-  }
-
-  .pageGlyph svg {
-    width: 20px;
-    height: 20px;
-  }
-
-  .titleRow {
-    gap: var(--space-2) var(--space-3);
+  .lede {
+    font-size: var(--font-size-body-sm);
   }
 
   .surface,
   .card {
-    padding: var(--space-5) var(--space-4);
-    border-radius: 22px;
+    padding: var(--space-4);
+    border-radius: 14px;
   }
 
   .brandField {
-    border-radius: 24px;
+    border-radius: 16px;
   }
 
-
   .brandArt {
-    right: -140px;
-    width: 340px;
-    height: 340px;
+    right: -150px;
+    width: 300px;
+    height: 300px;
+  }
+
+  .facts > div {
+    grid-template-columns: minmax(88px, 42%) minmax(0, 1fr);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .pageHead,
-  .pageGlyph,
   .main > *,
   .aside > * {
     animation: none;

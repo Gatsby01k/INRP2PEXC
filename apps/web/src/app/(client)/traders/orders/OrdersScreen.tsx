@@ -64,9 +64,14 @@ export function OrdersScreen({ rows, open, counts, tab }: { rows: readonly Order
               {rows.map((o) => (
                 <li key={o.ref}>
                   <Link className={styles.row} href={`/traders/orders/${o.ref}`}>
-                    <span className={styles.cell}>
-                      <span className={styles.cellMain}>{o.ref}</span>
-                      <span className={styles.cellSub}>{o.side === 'BUY_USDT' ? 'Buy USDT' : 'Sell USDT'}</span>
+                    <span className={styles.cellSide}>
+                      <span className={styles.sideMark} data-side={o.side}>
+                        {o.side === 'BUY_USDT' ? 'Buy' : 'Sell'}
+                      </span>
+                      <span className={styles.cell}>
+                        <span className={styles.cellMain}>{o.ref}</span>
+                        <span className={styles.cellSub}>{o.side === 'BUY_USDT' ? 'Buy USDT' : 'Sell USDT'}</span>
+                      </span>
                     </span>
                     <span className={styles.cell}>
                       <span className={styles.cellMain}>{usdt(o.usdt)}</span>

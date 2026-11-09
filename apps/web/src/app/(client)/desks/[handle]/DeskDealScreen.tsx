@@ -122,7 +122,7 @@ export function DeskDealScreen(props: DeskDealProps) {
           <section className={shell.surface} aria-label="Your deal">
             <div className={styles.sides} role="group" aria-label="I want to">
               {(['SELL_USDT', 'BUY_USDT'] as const).map((s) => (
-                <button key={s} type="button" className={styles.side} aria-pressed={side === s} disabled={!desk.prices[s]} onClick={() => setSide(s)}>
+                <button key={s} type="button" className={styles.side} data-side={s} aria-pressed={side === s} disabled={!desk.prices[s]} onClick={() => setSide(s)}>
                   <span className={styles.sideLabel}>{s === 'SELL_USDT' ? 'Sell USDT' : 'Buy USDT'}</span>
                   <span className={styles.sideRate}>{desk.prices[s] ? `${rateText(desk.prices[s]!.rate)} per USDT` : 'Not offered'}</span>
                 </button>

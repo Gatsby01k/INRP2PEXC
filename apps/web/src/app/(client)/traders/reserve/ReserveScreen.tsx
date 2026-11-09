@@ -12,6 +12,7 @@ import { AssistantPanel } from '../../_assistant/AssistantPanel.tsx';
 import type { AssistantState } from '../../_assistant/model.ts';
 import { InfoIcon } from '../../_workspace/icons.tsx';
 import { sentence, usdt } from '../_ui/format.ts';
+import { Unit } from '../_ui/Unit.tsx';
 import shell from '../../shell.module.css';
 import styles from '../traders.module.css';
 
@@ -126,27 +127,27 @@ export function ReserveScreen({ home }: { home: TraderHome }) {
           <dl className={`${styles.figures} ${styles.figuresFlat}`}>
             <div className={styles.figure}>
               <dt>Held</dt>
-              <dd>{usdt(r.balance)}</dd>
+              <dd><Unit value={usdt(r.balance)} /></dd>
               <span className={styles.figureNote}>{r.required ? `${usdt(r.required)} required` : 'Requirement not set'}</span>
             </div>
             <div className={styles.figure}>
               <dt>Locked</dt>
-              <dd>{usdt(r.locked)}</dd>
+              <dd><Unit value={usdt(r.locked)} /></dd>
               <span className={styles.figureNote}>{r.engaged ? 'while you provide liquidity or have open orders' : 'nothing locked now'}</span>
             </div>
             <div className={styles.figure}>
               <dt>Available for withdrawal</dt>
-              <dd>{usdt(r.available)}</dd>
+              <dd><Unit value={usdt(r.available)} /></dd>
             </div>
             <div className={styles.figure}>
               <dt>Pending release</dt>
-              <dd>{usdt(r.pendingRelease)}</dd>
+              <dd><Unit value={usdt(r.pendingRelease)} /></dd>
               <span className={styles.figureNote}>on its way to your wallet</span>
             </div>
             {/[1-9]/.test(r.applying) ? (
               <div className={styles.figure}>
                 <dt>Held or being applied</dt>
-                <dd>{usdt(r.applying)}</dd>
+                <dd><Unit value={usdt(r.applying)} /></dd>
                 <span className={styles.figureNote}>for an order of yours the other side is still waiting on</span>
               </div>
             ) : null}

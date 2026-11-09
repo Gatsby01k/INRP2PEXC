@@ -5,9 +5,8 @@
 }
 
 .card[data-attention] {
-  box-shadow:
-    0 0 0 1.5px var(--brand-primary),
-    0 24px 48px -32px color-mix(in srgb, var(--brand-primary) 45%, transparent);
+  border-color: color-mix(in srgb, var(--brand-primary) 55%, var(--border-default));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-primary) 10%, transparent);
 }
 
 .head {
@@ -25,19 +24,19 @@
 }
 
 .badge {
-  padding: 3px 10px;
-  border-radius: var(--radius-pill);
-  background: var(--brand-soft);
-  color: var(--brand-action);
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: var(--brand-action);
+  color: var(--text-on-action);
   font-size: var(--font-size-micro);
   font-weight: var(--font-weight-semibold);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  letter-spacing: 0.02em;
 }
 
 .title {
   margin: 0;
-  font-size: var(--font-size-heading);
+  font-family: var(--font-display);
+  font-size: 20px;
   font-weight: var(--font-weight-semibold);
   letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
@@ -55,25 +54,35 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  padding: 6px var(--space-3);
-  border-radius: var(--radius-pill);
-  background: var(--bg-subtle);
-  box-shadow: inset 0 0 0 1px var(--border-default);
+  min-height: 36px;
+  padding: 0 var(--space-3);
+  border-radius: 10px;
+  background: var(--paper, var(--bg-subtle));
   color: var(--text-secondary);
   font-size: var(--font-size-meta);
-  font-weight: var(--font-weight-semibold);
+  font-weight: var(--font-weight-medium);
   white-space: nowrap;
+}
+
+/* The figure itself is what a payer watches: larger, in tabular digits. */
+.timer :global(.ix-num) {
+  color: var(--text-primary);
+  font-size: 16px;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.01em;
 }
 
 .timer[data-state='soon'] {
   background: var(--status-warning-soft);
-  box-shadow: none;
   color: var(--status-warning);
+}
+
+.timer[data-state='soon'] :global(.ix-num) {
+  color: #8a4f00;
 }
 
 .timer[data-state='over'] {
   background: var(--status-danger-soft);
-  box-shadow: none;
   color: var(--status-danger);
 }
 
@@ -90,10 +99,9 @@
   grid-template-columns: auto minmax(0, 1fr);
   gap: var(--space-3);
   align-items: start;
-  padding: var(--space-4);
-  border-radius: var(--radius-control);
-  background: linear-gradient(110deg, var(--brand-soft), var(--bg-surface) 85%);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand-primary) 22%, transparent);
+  padding: var(--space-3) var(--space-4);
+  border-radius: 12px;
+  background: var(--accent-soft, var(--brand-soft));
 }
 
 .rule p {
@@ -108,8 +116,8 @@
 }
 
 .ruleIcon {
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   color: var(--brand-action);
 }
 
@@ -121,7 +129,7 @@
   align-items: start;
   margin: 0;
   padding: var(--space-3) var(--space-4);
-  border-radius: var(--radius-control);
+  border-radius: 12px;
   font-size: var(--font-size-body-sm);
   line-height: var(--line-height-normal);
 }
@@ -169,10 +177,11 @@
   content: '';
   position: absolute;
   top: 32px;
-  bottom: 4px;
-  left: 13.5px;
-  width: 1px;
-  background: var(--border-default);
+  bottom: 6px;
+  left: 13px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--line-soft, var(--border-default));
 }
 
 .stepNo {
@@ -181,9 +190,8 @@
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  background: var(--bg-surface);
-  box-shadow: inset 0 0 0 1.5px var(--brand-primary);
-  color: var(--brand-action);
+  background: var(--text-primary);
+  color: var(--text-on-action);
   font-size: var(--font-size-meta);
   font-weight: var(--font-weight-semibold);
 }
@@ -204,7 +212,7 @@
 
 .stepTitle {
   margin: 0;
-  padding-top: 3px;
+  padding-top: 4px;
   font-size: var(--font-size-body);
   font-weight: var(--font-weight-semibold);
 }
@@ -232,9 +240,9 @@
   align-items: center;
   min-height: var(--touch-min);
   padding: var(--space-3) var(--space-4);
-  border-radius: var(--radius-control);
+  border-radius: 12px;
   background: var(--bg-surface);
-  box-shadow: inset 0 0 0 1px var(--border-control);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
   cursor: pointer;
   transition: box-shadow var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
 }
@@ -244,7 +252,7 @@
 }
 
 .account[data-selected] {
-  background: var(--brand-soft);
+  background: var(--accent-soft, var(--brand-soft));
   box-shadow: inset 0 0 0 1.5px var(--brand-primary);
 }
 
@@ -325,8 +333,9 @@
   gap: var(--space-5);
   align-items: start;
   padding: var(--space-4);
-  border-radius: var(--radius-control);
-  background: var(--bg-subtle);
+  border: 1px solid var(--line, var(--border-default));
+  border-radius: 12px;
+  background: var(--bg-surface);
 }
 
 .qr {
@@ -358,18 +367,20 @@
 .bank {
   display: grid;
   gap: 0;
-  border-radius: var(--radius-control);
-  background: var(--bg-subtle);
+  border: 1px solid var(--line, var(--border-default));
+  border-radius: 12px;
+  background: var(--bg-surface);
   overflow: hidden;
 }
 
 .detail {
   display: grid;
-  grid-template-columns: 130px minmax(0, 1fr) auto;
+  grid-template-columns: 140px minmax(0, 1fr) 32px;
   gap: var(--space-3);
   align-items: center;
-  padding: var(--space-3) var(--space-4);
-  border-top: 1px solid color-mix(in srgb, var(--border-default) 55%, transparent);
+  min-height: 48px;
+  padding: 6px var(--space-2) 6px var(--space-4);
+  border-top: 1px solid var(--line-soft, var(--border-default));
 }
 
 .detail:first-child {
@@ -384,13 +395,14 @@
 
 .detailLabel {
   color: var(--text-muted);
-  font-size: var(--font-size-meta);
+  font-size: 13px;
 }
 
 .detailValue {
   overflow-wrap: anywhere;
-  font-size: var(--font-size-body-sm);
+  font-size: 15px;
   font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
 }
 
 .hint {
@@ -399,7 +411,8 @@
   align-items: flex-start;
   margin: 0;
   padding: var(--space-3) var(--space-4);
-  border-top: 1px solid color-mix(in srgb, var(--border-default) 55%, transparent);
+  border-top: 1px solid var(--line-soft, var(--border-default));
+  background: var(--paper, var(--bg-subtle));
   color: var(--text-muted);
   font-size: var(--font-size-meta);
   line-height: var(--line-height-normal);
@@ -444,20 +457,32 @@
 }
 
 .input {
-  min-height: var(--touch-min);
+  min-height: 48px;
   padding: 0 var(--space-4);
   border: 0;
-  border-radius: var(--radius-input);
+  border-radius: 12px;
   background: var(--bg-surface);
-  box-shadow: inset 0 0 0 1px var(--border-control);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
   color: var(--text-primary);
   font-size: var(--font-size-body-lg);
-  letter-spacing: 0.06em;
+  letter-spacing: 0.04em;
+  transition: box-shadow var(--dur-fast) var(--ease);
+}
+
+.input:hover {
+  box-shadow: inset 0 0 0 1px var(--text-muted);
 }
 
 .input:focus-visible {
   outline: none;
-  box-shadow: inset 0 0 0 2px var(--brand-primary);
+  box-shadow:
+    inset 0 0 0 1.5px var(--brand-primary),
+    0 0 0 4px color-mix(in srgb, var(--brand-primary) 14%, transparent);
+}
+
+.input::placeholder {
+  color: var(--text-disabled);
+  letter-spacing: 0;
 }
 
 .input[aria-invalid='true'] {
@@ -526,8 +551,8 @@
   gap: var(--space-3);
   align-items: center;
   padding: var(--space-4);
-  border-radius: var(--radius-control);
-  background: var(--bg-subtle);
+  border-radius: 12px;
+  background: var(--paper, var(--bg-subtle));
 }
 
 .checking p {
@@ -561,7 +586,7 @@
 
 .payments {
   display: grid;
-  margin: 0 calc(var(--space-6) * -1) calc(var(--space-6) * -1);
+  margin: 0 calc(var(--space-6) * -1) calc(var(--space-5) * -1);
   padding: 0;
   list-style: none;
 }
@@ -580,7 +605,7 @@
   place-items: center;
   width: 32px;
   height: 32px;
-  border-radius: 50%;
+  border-radius: 10px;
   background: var(--bg-subtle);
   color: var(--text-secondary);
   font-weight: var(--font-weight-semibold);
@@ -652,11 +677,15 @@
   }
 
   .detail {
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) 32px;
+    row-gap: 0;
+    padding-top: 8px;
+    padding-bottom: 8px;
   }
 
   .detailLabel {
     grid-column: 1 / -1;
+    font-size: var(--font-size-meta);
   }
 
   /* The UPI panel's rows too: the value takes the width, its label above it — never a 70px column on a phone. */
@@ -681,14 +710,13 @@
 
 /* A step that is not the client's: the badge says where things are, quietly. */
 .badge[data-tone='quiet'] {
-  background: var(--bg-subtle);
+  background: color-mix(in srgb, var(--text-primary) 7%, transparent);
   color: var(--text-secondary);
 }
 
 /* The one rule before a decision that releases money: amber, not brand. */
 .rule[data-tone='warning'] {
-  background: linear-gradient(110deg, var(--status-warning-soft), var(--bg-surface) 85%);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--status-warning) 30%, transparent);
+  background: var(--status-warning-soft);
 }
 
 .rule[data-tone='warning'] .ruleIcon {

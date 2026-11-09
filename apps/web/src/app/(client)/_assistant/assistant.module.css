@@ -76,56 +76,89 @@
 .note {
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
+  gap: var(--space-3);
   padding: var(--space-5);
-  border-radius: var(--radius-surface);
+  border: 1px solid var(--line, var(--border-default));
+  border-radius: 16px;
   background: var(--bg-surface);
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--border-default) 78%, transparent),
-    0 1px 2px color-mix(in srgb, var(--text-primary) 4%, transparent),
-    0 14px 36px -28px color-mix(in srgb, var(--text-primary) 22%, transparent);
+  box-shadow: 0 1px 2px rgba(18, 19, 23, 0.04);
+}
+
+.note[data-assistant-mood='focused'] {
+  border-color: color-mix(in srgb, var(--brand-primary) 40%, var(--border-default));
+}
+
+.note[data-assistant-mood='alert'] {
+  border-color: color-mix(in srgb, var(--status-danger) 40%, var(--border-default));
 }
 
 .noteHead {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: var(--space-3);
 }
 
-/* The robot's head, from the still of its mood: the bust scaled so the face fills a small circle. */
-.avatarFrame {
-  display: block;
+/* The state's glyph on a soft disc in its tone. */
+.mark {
+  --tone: #0b8a4f;
+  --tone-soft: #e7f5ee;
+  display: inline-grid;
   flex: none;
-  width: 44px;
-  height: 44px;
-  overflow: hidden;
-  border-radius: 50%;
-  background: radial-gradient(ellipse 70% 70% at 50% 35%, var(--bg-surface) 0%, var(--ivory) 60%, color-mix(in srgb, var(--brand-soft) 80%, var(--ivory)) 100%);
-  box-shadow: inset 0 0 0 1px var(--border-default);
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: var(--tone-soft);
+  color: var(--tone);
 }
 
+.mark[data-mood='waiting'],
+.mark[data-mood='verifying'] {
+  --tone: #9a5b00;
+  --tone-soft: #fdf3e1;
+}
+
+.mark[data-mood='focused'] {
+  --tone: var(--text-on-action);
+  --tone-soft: var(--brand-action);
+}
+
+.mark[data-mood='alert'] {
+  --tone: var(--status-danger);
+  --tone-soft: var(--status-danger-soft);
+}
+
+.mark[data-mood='none'] {
+  --tone: var(--text-secondary);
+  --tone-soft: #f3f1ed;
+}
+
+.markIcon {
+  width: 20px;
+  height: 20px;
+  stroke-width: 2;
+}
+
+/* Kept for the stills that still name them; the face is no longer drawn in a status card. */
+.avatarFrame,
 .avatar {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  object-position: 50% 6%;
-  transform: scale(1.5);
-  transform-origin: 50% 0;
+  display: none;
 }
 
 .noteText {
   display: grid;
-  gap: var(--space-1);
+  gap: 4px;
+  min-width: 0;
+  padding-top: 1px;
 }
 
 .noteTitle {
   margin: 0;
-  font-size: var(--font-size-body-lg);
+  font-size: 15px;
   font-weight: var(--font-weight-semibold);
   line-height: var(--line-height-snug);
   letter-spacing: -0.01em;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .noteBody {
@@ -166,8 +199,6 @@
 .progressCount {
   color: var(--text-muted);
   font-weight: var(--font-weight-medium);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
 }
 
 .progressLabel {
@@ -192,7 +223,7 @@
 }
 
 .segment[data-status='current'] {
-  background: linear-gradient(90deg, var(--brand-primary) 0 50%, color-mix(in srgb, var(--brand-primary) 30%, var(--border-default)) 50% 100%);
+  background: color-mix(in srgb, var(--brand-primary) 45%, var(--border-default));
 }
 
 .segment[data-status='exception'] {
@@ -203,8 +234,8 @@
 .noteActions {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-2) var(--space-4);
-  padding-top: var(--space-3);
+  gap: var(--space-1) var(--space-5);
+  padding-top: var(--space-2);
   border-top: 1px solid color-mix(in srgb, var(--border-default) 55%, transparent);
   font-size: var(--font-size-body-sm);
 }
@@ -214,19 +245,21 @@
 .banner {
   display: flex;
   align-items: flex-start;
-  gap: var(--space-4);
-  padding: var(--space-4) var(--space-5);
-  border-radius: var(--radius-surface);
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--line, var(--border-default));
+  border-radius: 16px;
   background: var(--bg-surface);
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--border-default) 78%, transparent),
-    0 14px 36px -28px color-mix(in srgb, var(--text-primary) 22%, transparent);
 }
 
 .banner[data-assistant-mood='alert'] {
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--status-danger) 30%, transparent),
-    0 14px 36px -28px color-mix(in srgb, var(--status-danger) 40%, transparent);
+  border-color: color-mix(in srgb, var(--status-danger) 35%, var(--border-default));
+  background: color-mix(in srgb, var(--status-danger-soft) 45%, var(--bg-surface));
+}
+
+.banner[data-assistant-mood='waiting'],
+.banner[data-assistant-mood='verifying'] {
+  border-color: color-mix(in srgb, #9a5b00 25%, var(--border-default));
 }
 
 .bannerText {
