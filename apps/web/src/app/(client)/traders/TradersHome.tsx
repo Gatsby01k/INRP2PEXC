@@ -20,6 +20,7 @@ import { Onboarding } from './_ui/Onboarding.tsx';
 import { StartChecklist, showStartChecklist } from './_ui/StartChecklist.tsx';
 import { ReserveCard } from './_ui/ReserveCard.tsx';
 import { SettlementCard } from './_ui/SettlementCard.tsx';
+import { ChevronIcon } from '../_workspace/icons.tsx';
 import shell from '../shell.module.css';
 import styles from './traders.module.css';
 
@@ -78,36 +79,44 @@ export function TradersHome({ home, network }: { home: TraderHome; network: Trad
             ))}
             <ActiveOrders orders={home.active} />
             {home.blocks.length > 0 ? (
-              <div className={styles.blocks} data-count={home.blocks.length}>
-                {home.blocks.map((b) => (
-                  <BlockCard key={`${b.side}:${b.version}`} block={b} canAct={home.canAct} />
-                ))}
-              </div>
+              <section className={styles.blocksSection} aria-labelledby="sides-title">
+                <div className={styles.sectionHead}>
+                  <h2 id="sides-title" className={styles.sectionTitle}>
+                    Your prices
+                  </h2>
+                  <span className={styles.sectionNote}>What you take on each side, and at what rate.</span>
+                </div>
+                <div className={styles.blocks} data-count={home.blocks.length}>
+                  {home.blocks.map((b) => (
+                    <BlockCard key={`${b.side}:${b.version}`} block={b} canAct={home.canAct} />
+                  ))}
+                </div>
+              </section>
             ) : null}
-            <div className={styles.split}>
-              {home.earnings ? <EarningsCard earnings={home.earnings} /> : null}
-              {home.reserve ? <ReserveCard reserve={home.reserve} limits={home.limits} /> : null}
-            </div>
-            {network && !network.short ? <NetworkCard network={network} /> : null}
-            {home.registered ? <SettlementCard home={home} /> : null}
           </>
         ) : null}
       </main>
       <AssistantPanel
         state={state}
+        split={working}
+        after={
+          working ? (
+            <>
+              {home.reserve ? <ReserveCard reserve={home.reserve} limits={home.limits} /> : null}
+              {network && !network.short ? <NetworkCard network={network} /> : null}
+              {home.earnings ? <EarningsCard earnings={home.earnings} /> : null}
+              {home.registered ? <SettlementCard home={home} /> : null}
+            </>
+          ) : null
+        }
         size={working ? 'large' : 'compact'}
         meta={firstOffer ? <span className={styles.countdown}>Offer open for {formatCountdown(Math.max(0, Date.parse(firstOffer.offerExpiresAt) - now))}</span> : null}
       >
         {working ? (
           <div className={styles.navRow}>
             <Link className={shell.textAction} href="/traders/orders">
-              Orders
-            </Link>
-            <Link className={shell.textAction} href="/traders/reserve">
-              Security Reserve
-            </Link>
-            <Link className={shell.textAction} href="/traders/network">
-              Network deposit
+              All orders
+              <ChevronIcon />
             </Link>
           </div>
         ) : home.reserve ? (

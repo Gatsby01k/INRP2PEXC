@@ -11,8 +11,8 @@
 }
 
 .panel[data-tone='review'] {
-  background: linear-gradient(160deg, var(--status-warning-soft), var(--bg-surface) 70%);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--status-warning) 28%, transparent);
+  background: var(--status-warning-soft);
+  box-shadow: none;
 }
 
 .head {

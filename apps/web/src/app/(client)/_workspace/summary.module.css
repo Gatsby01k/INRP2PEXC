@@ -1,0 +1,230 @@
+/*
+ * An order's summary, the same on every order page — a client's trade, a trader's order: the figures in one row,
+ * each a quiet label over the figure, then the money's journey as one line filled as far as it has got.
+ */
+
+/* The figures: one row, each a quiet label over the figure, divided by hairlines. */
+.figures {
+  display: grid;
+  grid-template-columns: repeat(var(--cols, 3), minmax(0, 1fr));
+  margin: 0;
+  border-top: 1px solid var(--line-soft);
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.figures[data-count='4'] {
+  --cols: 4;
+}
+
+.figure {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: var(--space-4) var(--space-6);
+}
+
+.figure + .figure {
+  border-left: 1px solid var(--line-soft);
+}
+
+.figureLabel {
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-medium);
+}
+
+.figureValue {
+  margin: 0;
+  white-space: nowrap;
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The money's journey: one line from the first stop to the last, filled as far as it has got. */
+.track {
+  --node: 22px;
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(var(--stops, 4), minmax(0, 1fr));
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-5) var(--space-6) var(--space-5);
+  list-style: none;
+}
+
+.track::before,
+.track::after {
+  content: '';
+  position: absolute;
+  top: calc(var(--space-5) + var(--node) / 2 - 1px);
+  left: calc(var(--space-6) + var(--node) / 2);
+  height: 2px;
+  border-radius: 1px;
+}
+
+.track::before {
+  right: calc(var(--space-6) + (100% - 2 * var(--space-6)) / var(--stops, 4) - var(--node) / 2);
+  background: var(--border-default);
+}
+
+.track::after {
+  width: calc((100% - 2 * var(--space-6)) * (var(--stops, 4) - 1) / var(--stops, 4) * var(--progress, 0));
+  background: var(--brand-primary);
+  transition: width 600ms var(--ease);
+}
+
+.stop {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  justify-items: start;
+  align-content: start;
+  gap: 2px;
+  min-width: 0;
+}
+
+.node {
+  display: grid;
+  place-items: center;
+  width: var(--node);
+  height: var(--node);
+  margin-bottom: var(--space-2);
+  border: 2px solid var(--border-strong);
+  border-radius: 50%;
+  background: var(--bg-surface);
+  color: var(--text-on-action);
+  font-size: 12px;
+  font-weight: var(--font-weight-semibold);
+}
+
+.node svg {
+  width: 13px;
+  height: 13px;
+  stroke-width: 2.5;
+}
+
+.stop[data-status='done'] .node {
+  border-color: var(--brand-primary);
+  background: var(--brand-primary);
+}
+
+.stop[data-status='current'] .node {
+  border-color: var(--brand-primary);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--brand-primary) 16%, transparent);
+}
+
+.stop[data-status='current'] .node::after {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--brand-primary);
+}
+
+.stop[data-status='exception'] .node {
+  border-color: var(--status-danger);
+  background: var(--status-danger);
+}
+
+.stopLabel {
+  font-size: 13px;
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.3;
+}
+
+.stop[data-status='pending'] .stopLabel {
+  color: var(--text-muted);
+  font-weight: var(--font-weight-medium);
+}
+
+.stopDetail {
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+  line-height: 1.35;
+}
+
+.stop[data-status='current'] .stopDetail {
+  color: var(--brand-action);
+  font-weight: var(--font-weight-medium);
+}
+
+@media (max-width: 719px) {
+  .figures[data-count='4'] {
+    --cols: 2;
+  }
+
+  .figures[data-count='4'] .figure:nth-child(3) {
+    border-left: 0;
+  }
+
+  .figures[data-count='4'] .figure:nth-child(n + 3) {
+    border-top: 1px solid var(--line-soft);
+  }
+}
+
+@media (max-width: 599px) {
+  .figure {
+    padding: var(--space-3) var(--space-4);
+  }
+
+  /* Three figures on a phone: what you pay and get side by side, the rate on its own line under them. */
+  .figures[data-count='3'] {
+    --cols: 2;
+  }
+
+  .figures[data-count='3'] .figure:nth-child(3) {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    border-top: 1px solid var(--line-soft);
+    border-left: 0;
+  }
+
+  .figures[data-count='3'] .figure:nth-child(3) .figureValue {
+    font-size: 15px;
+  }
+
+  .figureValue {
+    font-size: 16px;
+  }
+
+  .track {
+    --node: 20px;
+    gap: 4px;
+    padding: var(--space-4);
+  }
+
+  .track::before,
+  .track::after {
+    top: calc(var(--space-4) + var(--node) / 2 - 1px);
+    left: calc(var(--space-4) + var(--node) / 2);
+  }
+
+  .track::before {
+    right: calc(var(--space-4) + (100% - 2 * var(--space-4)) / var(--stops, 4) - var(--node) / 2);
+  }
+
+  .track::after {
+    width: calc((100% - 2 * var(--space-4)) * (var(--stops, 4) - 1) / var(--stops, 4) * var(--progress, 0));
+  }
+
+  .stopLabel {
+    font-size: 11.5px;
+  }
+
+  .stopDetail {
+    font-size: 11px;
+  }
+
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .track::after {
+    transition: none;
+  }
+}

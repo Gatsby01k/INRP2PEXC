@@ -7,7 +7,6 @@ import { at } from '../../_assistant/model.ts';
 import { PageHead } from '../../_workspace/PageHead.tsx';
 import { StatusPill } from '../../_workspace/StatusPill.tsx';
 import { TradeScreen } from './TradeScreen.tsx';
-import { SwapIcon } from '../../_workspace/icons.tsx';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,9 +30,9 @@ export default async function TradePage({ params, searchParams }: { params: Prom
   return (
     <>
       <PageHead
-        icon={<SwapIcon />}
-        eyebrow={view.trade.direction === 'SELL_USDT' ? 'Trade · Sell USDT' : 'Trade · Buy USDT'}
-        title={view.trade.ref}
+        back={{ href: '/history', label: 'History' }}
+        eyebrow={<span className="ix-num">{view.trade.ref}</span>}
+        title={view.trade.direction === 'SELL_USDT' ? 'Sell USDT' : 'Buy USDT'}
         status={<StatusPill status={view.trade.status} onHold={view.onHold} size="lg" />}
         lede={`Started ${at(view.trade.openedAt)}${view.completedAt ? ` · settled ${at(view.completedAt)}` : ''}`}
       />

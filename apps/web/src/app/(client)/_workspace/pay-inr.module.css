@@ -15,13 +15,14 @@
   position: relative;
   display: grid;
   justify-items: start;
+  align-content: center;
   gap: 2px;
   min-height: 56px;
   padding: var(--space-2) var(--space-3);
   border: 0;
-  border-radius: var(--radius-control);
+  border-radius: 12px;
   background: var(--bg-surface);
-  box-shadow: inset 0 0 0 1px var(--border-control);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
   color: var(--text-primary);
   font: inherit;
   text-align: left;
@@ -34,8 +35,13 @@
 }
 
 .method[aria-checked='true'] {
-  background: var(--brand-soft);
+  background: var(--accent-soft, var(--brand-soft));
   box-shadow: inset 0 0 0 1.5px var(--brand-primary);
+}
+
+.method:disabled {
+  background: var(--paper, var(--bg-subtle));
+  box-shadow: none;
 }
 
 .method:disabled {
@@ -65,13 +71,15 @@
 
 .methodTag {
   position: absolute;
-  top: 6px;
+  top: 8px;
   right: 8px;
-  color: var(--brand-action);
-  font-size: var(--font-size-micro);
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: var(--brand-action);
+  color: var(--text-on-action);
+  font-size: 10px;
   font-weight: var(--font-weight-semibold);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  letter-spacing: 0.01em;
 }
 
 .methodNote {
@@ -117,7 +125,7 @@
   align-items: start;
   margin: 0;
   padding: var(--space-3) var(--space-4);
-  border-radius: var(--radius-control);
+  border-radius: 12px;
   background: var(--status-warning-soft);
   color: var(--text-primary);
   font-size: var(--font-size-meta);

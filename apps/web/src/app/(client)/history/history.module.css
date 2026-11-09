@@ -11,23 +11,21 @@
 }
 
 .filters {
-  display: inline-flex;
-  align-self: flex-start;
-  gap: var(--space-1);
-  margin: var(--space-5) var(--space-6) var(--space-4);
-  padding: var(--space-1);
-  border-radius: var(--radius-input);
-  background: var(--bg-subtle);
-  box-shadow: inset 0 0 0 1px var(--line-soft);
+  display: flex;
+  align-self: stretch;
+  gap: var(--space-6);
+  margin: 0;
+  padding: 0 var(--space-6);
+  border-bottom: 1px solid var(--line-soft);
 }
 
 .filter {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  min-height: 38px;
-  padding: 0 var(--space-4);
-  border-radius: var(--radius-control);
+  min-height: 52px;
+  padding: 0;
   color: var(--text-secondary);
   font-size: var(--font-size-body-sm);
   font-weight: var(--font-weight-medium);
@@ -45,19 +43,26 @@
 }
 
 .filter[aria-current='page'] {
-  background: var(--bg-surface);
   color: var(--text-primary);
   font-weight: var(--font-weight-semibold);
-  box-shadow:
-    0 0 0 1px var(--line),
-    0 2px 6px -2px color-mix(in srgb, var(--text-primary) 14%, transparent);
+}
+
+.filter[aria-current='page']::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--brand-primary);
 }
 
 .count {
-  min-width: 22px;
-  padding: 1px 7px;
-  border-radius: var(--radius-pill);
-  background: color-mix(in srgb, var(--border-default) 70%, transparent);
+  min-width: 20px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--text-primary) 6%, transparent);
   color: var(--text-secondary);
   font-size: var(--font-size-micro);
   font-weight: var(--font-weight-semibold);
@@ -66,7 +71,7 @@
 }
 
 .filter[aria-current='page'] .count {
-  background: var(--brand-soft);
+  background: var(--accent-soft);
   color: var(--brand-action);
 }
 
@@ -80,21 +85,17 @@
 }
 
 .table th {
-  padding: var(--space-3);
-  border-top: 1px solid var(--line-soft);
+  padding: 10px var(--space-3);
   border-bottom: 1px solid var(--line-soft);
-  background: color-mix(in srgb, var(--bg-subtle) 70%, var(--bg-surface));
   color: var(--text-muted);
   font-size: var(--font-size-meta);
   font-weight: var(--font-weight-medium);
-  letter-spacing: 0.04em;
   text-align: left;
-  text-transform: uppercase;
   white-space: nowrap;
 }
 
 .table td {
-  padding: var(--space-4) var(--space-3);
+  padding: 14px var(--space-3);
   border-bottom: 1px solid var(--line-soft);
   vertical-align: middle;
 }
@@ -116,14 +117,14 @@
 
 @media (hover: hover) {
   .row:hover td {
-    background: color-mix(in srgb, var(--bg-subtle) 80%, var(--bg-surface));
+    background: color-mix(in srgb, var(--paper) 70%, var(--bg-surface));
   }
 }
 
 /* A trade opened in place: the row and its details as one piece. */
 .row[data-expanded] td,
 .detailRow td {
-  background: color-mix(in srgb, var(--brand-soft) 38%, var(--bg-surface));
+  background: color-mix(in srgb, var(--paper) 80%, var(--bg-surface));
 }
 
 .row[data-expanded] td {
@@ -132,7 +133,7 @@
 
 .row[data-expanded] td:first-child,
 .detailRow td:first-child {
-  box-shadow: inset 3px 0 0 var(--brand-primary);
+  box-shadow: inset 2px 0 0 var(--brand-primary);
 }
 
 .toggleCell {
@@ -188,24 +189,19 @@
   display: inline-grid;
   flex: none;
   place-items: center;
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  background: var(--text-primary);
-  box-shadow: 0 6px 14px -8px color-mix(in srgb, var(--text-primary) 60%, transparent);
-  color: var(--bg-surface);
+  min-width: 40px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 6px;
+  background: var(--buy-soft);
+  color: var(--buy);
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-semibold);
 }
 
 .dirDisc[data-dir='sell'] {
-  background: linear-gradient(160deg, var(--brand-primary), var(--brand-action));
-  box-shadow: 0 6px 14px -6px color-mix(in srgb, var(--brand-primary) 70%, transparent);
-  color: var(--text-on-action);
-}
-
-.dirDisc svg {
-  width: 16px;
-  height: 16px;
-  stroke-width: 2;
+  background: var(--sell-soft);
+  color: var(--sell);
 }
 
 .ref a {
@@ -229,6 +225,18 @@
   font-size: var(--font-size-meta);
 }
 
+/* On a desk the tag beside the reference already says Buy or Sell; the words come back where the tag is hidden. */
+@media (min-width: 960px) {
+  .direction {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+}
+
 .started {
   color: var(--text-secondary);
   white-space: nowrap;
@@ -244,10 +252,13 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  color: var(--text-primary);
-  font-weight: var(--font-weight-medium);
+  color: var(--brand-action);
+  font-weight: var(--font-weight-semibold);
+  text-decoration: none;
+}
+
+.receiptLink:hover {
   text-decoration: underline;
-  text-decoration-color: color-mix(in srgb, var(--brand-action) 55%, transparent);
   text-underline-offset: 3px;
 }
 
@@ -278,7 +289,7 @@
   grid-template-columns: repeat(2, minmax(0, 1fr)) minmax(0, 1.1fr);
   gap: var(--space-4) var(--space-8);
   padding-top: var(--space-5);
-  border-top: 1px solid color-mix(in srgb, var(--brand-primary) 18%, var(--border-default));
+  border-top: 1px solid var(--line-soft);
 }
 
 .next {
@@ -405,8 +416,8 @@
   }
 
   .row[data-expanded] {
-    background: color-mix(in srgb, var(--brand-soft) 38%, var(--bg-surface));
-    box-shadow: inset 3px 0 0 var(--brand-primary);
+    background: color-mix(in srgb, var(--paper) 80%, var(--bg-surface));
+    box-shadow: inset 2px 0 0 var(--brand-primary);
   }
 
   .toggleCell {
@@ -466,8 +477,8 @@
 
   .detailRow {
     display: block;
-    background: color-mix(in srgb, var(--brand-soft) 38%, var(--bg-surface));
-    box-shadow: inset 3px 0 0 var(--brand-primary);
+    background: color-mix(in srgb, var(--paper) 80%, var(--bg-surface));
+    box-shadow: inset 2px 0 0 var(--brand-primary);
   }
 
   .detailRow td {

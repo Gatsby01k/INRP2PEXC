@@ -8,8 +8,7 @@ import type { TelegramLinkView, TelegramView } from '@inrp2p/clients';
 import { TelegramCard } from '../_workspace/TelegramCard.tsx';
 import { TelegramConnect } from '../_workspace/TelegramConnect.tsx';
 import { CopyButton } from '@inrp2p/ui';
-import { ArrowIcon, BankIcon, BoltIcon, ChartIcon, CheckIcon, DealsIcon, GaugeIcon, InfoIcon, TrendIcon, VaultIcon, WalletIcon } from '../_workspace/icons.tsx';
-import { MarkArt } from '../../../components/MarkArt.tsx';
+import { BankIcon, BoltIcon, ChartIcon, CheckIcon, DealsIcon, GaugeIcon, InfoIcon, TrendIcon, VaultIcon, WalletIcon } from '../_workspace/icons.tsx';
 import { useServerClock } from '../exchange/useServerClock.ts';
 import { DeskHead } from './_ui/DeskHead.tsx';
 import { DeskNotice } from './_ui/DeskNotice.tsx';
@@ -103,16 +102,14 @@ export function TodayScreen({
       />
       <main className={shell.main}>
         <DeskNotice desk={desk} />
-        <section className={`${shell.brandField} ${styles.priceHero}`} aria-labelledby="prices-title">
-          <MarkArt className={shell.brandArt} live={desk.status === 'LIVE'} />
+        <section className={`${shell.card} ${styles.priceHero}`} aria-labelledby="prices-title">
           <div className={styles.priceHeroHead}>
             <h2 id="prices-title" className={styles.priceHeroTitle}>
               Your prices
             </h2>
             {canCommit ? (
-              <Link className={styles.heroButton} href="/desk/prices">
+              <Link className={shell.secondaryAction} data-size="sm" href="/desk/prices">
                 Edit prices
-                <ArrowIcon className={styles.heroButtonIcon} />
               </Link>
             ) : null}
           </div>
@@ -121,7 +118,7 @@ export function TodayScreen({
               const price = prices[d];
               const on = price?.offered ?? false;
               return (
-                <div key={d} className={styles.monument} {...(on ? {} : { 'data-off': '' })}>
+                <div key={d} className={styles.monument} data-side={d === 'SELL_USDT' ? 'bid' : 'ask'} {...(on ? {} : { 'data-off': '' })}>
                   <span className={styles.monumentLabel}>
                     {DESK_SIDE[d].you}
                     <span className={styles.monumentState}>

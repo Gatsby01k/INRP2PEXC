@@ -1,6 +1,6 @@
 /**
- * The workspace's handful of glyphs: 1.5px strokes on a 24px grid, drawn in `currentColor`, never carrying meaning
- * alone — every one sits beside words that say the same thing.
+ * The workspace's glyphs: one family, 1.75px strokes on a 24px grid with round joins, drawn in `currentColor` and
+ * never carrying meaning alone — every one sits beside words that say the same thing.
  */
 const base = {
   width: 24,
@@ -8,7 +8,7 @@ const base = {
   viewBox: '0 0 24 24',
   fill: 'none',
   stroke: 'currentColor',
-  strokeWidth: 1.5,
+  strokeWidth: 1.75,
   strokeLinecap: 'round' as const,
   strokeLinejoin: 'round' as const,
   'aria-hidden': true,
@@ -19,16 +19,16 @@ type IconProps = { className?: string | undefined };
 
 export const BellIcon = ({ className }: IconProps) => (
   <svg {...base} className={className}>
-    <path d="M6 16.5V11a6 6 0 1 1 12 0v5.5l1.5 1.5h-15L6 16.5Z" />
-    <path d="M10 20.5a2.2 2.2 0 0 0 4 0" />
+    <path d="M6 8.5a6 6 0 0 1 12 0c0 6.5 2.5 8 2.5 8h-17S6 15 6 8.5Z" />
+    <path d="M10.3 20a1.9 1.9 0 0 0 3.4 0" />
   </svg>
 );
 
 export const InfoIcon = ({ className }: IconProps) => (
   <svg {...base} className={className}>
-    <circle cx="12" cy="12" r="9" />
-    <path d="M12 11v5.5" />
-    <circle cx="12" cy="7.8" r="0.6" fill="currentColor" />
+    <circle cx="12" cy="12" r="8.5" />
+    <path d="M12 11v5" />
+    <circle cx="12" cy="8" r="0.9" fill="currentColor" stroke="none" />
   </svg>
 );
 
@@ -41,10 +41,9 @@ export const ArrowIcon = ({ className }: IconProps) => (
 
 export const BankIcon = ({ className }: IconProps) => (
   <svg {...base} className={className}>
-    <path d="M4 9.2 12 5l8 4.2" />
-    <path d="M5.5 10v7.5M10 10v7.5M14 10v7.5M18.5 10v7.5" />
-    <path d="M4 19.5h16" />
-    <circle cx="12" cy="4.4" r="1.5" fill="currentColor" stroke="none" />
+    <path d="M3.5 9.5 12 4.5l8.5 5" />
+    <path d="M5.5 10.5v7M9.8 10.5v7M14.2 10.5v7M18.5 10.5v7" />
+    <path d="M3.5 20h17" />
   </svg>
 );
 
@@ -80,18 +79,16 @@ export const CheckIcon = ({ className }: IconProps) => (
 /** History: the mark's broken ring as a dial, its hand from the hub. */
 export const ClockIcon = ({ className }: IconProps) => (
   <svg {...base} className={className}>
-    <path d="M3.6 13.5A8.5 8.5 0 0 1 8 4.5" />
-    <path d="M16 4.5a8.5 8.5 0 0 1 4.4 9" />
-    <path d="M16.7 19.1a8.5 8.5 0 0 1-9.4 0" />
-    <path d="M12 8v4l2.6 1.6" />
-    <circle cx="12" cy="12" r="1.3" fill="currentColor" stroke="none" />
+    <path d="M3.5 12a8.5 8.5 0 1 0 2.5-6" />
+    <path d="M3.5 4v4h4" />
+    <path d="M12 7.5V12l3 2" />
   </svg>
 );
 
 export const PauseIcon = ({ className }: IconProps) => (
   <svg {...base} className={className}>
     <circle cx="12" cy="12" r="8.5" />
-    <path d="M10 9v6M14 9v6" />
+    <path d="M10 9.5v5M14 9.5v5" />
   </svg>
 );
 
@@ -204,12 +201,10 @@ export const ArchiveIcon = ({ className }: IconProps) => (
 /** Exchange: two arcs of the mark's ring turning into each other, a node where each one starts. */
 export const SwapIcon = ({ className }: IconProps) => (
   <svg {...base} className={className}>
-    <path d="M5.4 9.6A7 7 0 0 1 17.4 7.5" />
-    <path d="M14.4 7 17.4 7.5 17.4 4.5" />
-    <path d="M18.6 14.4A7 7 0 0 1 6.6 16.5" />
-    <path d="M9.6 17 6.6 16.5 6.6 19.5" />
-    <circle cx="5.4" cy="9.6" r="1.6" fill="currentColor" stroke="none" />
-    <circle cx="18.6" cy="14.4" r="1.6" fill="currentColor" stroke="none" />
+    <path d="M4.5 8.5h14" />
+    <path d="m15 5 3.5 3.5L15 12" />
+    <path d="M19.5 15.5h-14" />
+    <path d="M9 12l-3.5 3.5L9 19" />
   </svg>
 );
 
@@ -222,11 +217,10 @@ export const SparkIcon = ({ className }: IconProps) => (
 /** A desk: the mark's hub with its three spokes to the parties of a deal. */
 export const StoreIcon = ({ className }: IconProps) => (
   <svg {...base} className={className}>
-    <circle cx="12" cy="12.6" r="2.7" />
-    <path d="M12 9.9V6.3M9.7 14 6.6 15.8M14.3 14l3.1 1.8" />
-    <circle cx="12" cy="4.6" r="2" fill="currentColor" stroke="none" />
-    <circle cx="5.1" cy="16.7" r="2" fill="currentColor" stroke="none" />
-    <circle cx="18.9" cy="16.7" r="2" fill="currentColor" stroke="none" />
+    <path d="M4 9.5 5.5 4.5h13L20 9.5" />
+    <path d="M4 9.5a2.7 2.7 0 0 0 5.3 0 2.7 2.7 0 0 0 5.4 0 2.7 2.7 0 0 0 5.3 0" />
+    <path d="M5.5 12v7.5h13V12" />
+    <path d="M10 19.5V15h4v4.5" />
   </svg>
 );
 
@@ -247,7 +241,8 @@ export const ShareIcon = ({ className }: IconProps) => (
 
 export const ChatIcon = ({ className }: IconProps) => (
   <svg {...base} className={className}>
-    <path d="M4.5 19.5 6 15.6A7.5 7.5 0 1 1 9 18.6Z" />
+    <path d="M4.5 6.5a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H10l-4 3.5v-3.5h0a1.5 1.5 0 0 1-1.5-1.5Z" />
+    <path d="M8.5 9.5h7M8.5 12.5h4.5" />
   </svg>
 );
 
@@ -290,23 +285,19 @@ export const SearchIcon = ({ className }: IconProps) => (
 /** Today: three arcs of the mark's ring as a dial, the needle on the hub. */
 export const GaugeIcon = ({ className }: IconProps) => (
   <svg {...base} className={className}>
-    <path d="M4.1 15.8a8.4 8.4 0 0 1 2.4-8.6" />
-    <path d="M9.3 5.1a8.4 8.4 0 0 1 5.4 0" />
-    <path d="M17.5 7.2a8.4 8.4 0 0 1 2.4 8.6" />
-    <path d="m12 14 3.4-3.6" />
-    <circle cx="12" cy="14" r="1.8" fill="currentColor" stroke="none" />
+    <path d="M4.2 17.5a8.5 8.5 0 1 1 15.6 0" />
+    <path d="m12 13.5 3.5-3.5" />
+    <circle cx="12" cy="13.5" r="1.4" fill="currentColor" stroke="none" />
   </svg>
 );
 
 /** A deal: two sides moving against each other, each from its own node. */
 export const DealsIcon = ({ className }: IconProps) => (
   <svg {...base} className={className}>
-    <path d="M6.4 8.5H18" />
-    <path d="m15 5.5 3 3-3 3" />
-    <path d="M17.6 15.5H6" />
-    <path d="m9 12.5-3 3 3 3" />
-    <circle cx="4.6" cy="8.5" r="1.6" fill="currentColor" stroke="none" />
-    <circle cx="19.4" cy="15.5" r="1.6" fill="currentColor" stroke="none" />
+    <path d="M4.5 8.5h14" />
+    <path d="m15 5 3.5 3.5L15 12" />
+    <path d="M19.5 15.5h-14" />
+    <path d="M9 12l-3.5 3.5L9 19" />
   </svg>
 );
 
@@ -447,5 +438,47 @@ export const GridIcon = ({ className }: IconProps) => (
 export const PaperclipIcon = ({ className }: IconProps) => (
   <svg {...base} className={className}>
     <path d="m20 11.5-7.8 7.8a5 5 0 0 1-7.1-7.1l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8" />
+  </svg>
+);
+
+export const TimerIcon = ({ className }: IconProps) => (
+  <svg {...base} className={className}>
+    <circle cx="12" cy="13" r="7.5" />
+    <path d="M12 9.5V13l2.2 1.5" />
+    <path d="M10 2.8h4" />
+  </svg>
+);
+
+/** A party the platform has checked: a seal with a tick. */
+export const VerifiedIcon = ({ className }: IconProps) => (
+  <svg {...base} className={className}>
+    <path d="M12 3.2 14.2 5l2.8-.3.9 2.7 2.4 1.5-1 2.6 1 2.6-2.4 1.5-.9 2.7-2.8-.3L12 20.8 9.8 19l-2.8.3-.9-2.7-2.4-1.5 1-2.6-1-2.6 2.4-1.5.9-2.7 2.8.3Z" />
+    <path d="m9 12 2 2 4-4" />
+  </svg>
+);
+
+export const AlertIcon = ({ className }: IconProps) => (
+  <svg {...base} className={className}>
+    <path d="M10.3 4.6 3.2 17a2 2 0 0 0 1.7 3h14.2a2 2 0 0 0 1.7-3L13.7 4.6a2 2 0 0 0-3.4 0Z" />
+    <path d="M12 9.5v4" />
+    <circle cx="12" cy="16.6" r="0.9" fill="currentColor" stroke="none" />
+  </svg>
+);
+
+export const RefreshIcon = ({ className }: IconProps) => (
+  <svg {...base} className={className}>
+    <path d="M19.5 12a7.5 7.5 0 0 1-13.2 4.9" />
+    <path d="M4.5 12a7.5 7.5 0 0 1 13.2-4.9" />
+    <path d="M18 3.5v3.8h-3.8M6 20.5v-3.8h3.8" />
+  </svg>
+);
+
+/** The direction of a trade: a down-and-up pair for "both ways". */
+export const ArrowsUpDownIcon = ({ className }: IconProps) => (
+  <svg {...base} className={className}>
+    <path d="M8 19.5V5" />
+    <path d="m4.5 8.5 3.5-3.5 3.5 3.5" />
+    <path d="M16 4.5V19" />
+    <path d="m19.5 15.5-3.5 3.5-3.5-3.5" />
   </svg>
 );

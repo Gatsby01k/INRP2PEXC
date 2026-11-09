@@ -40,37 +40,49 @@ export function DeskQuoteCard({ quote, deskName, canAccept, now, onAgain, againL
   return (
     <>
       <section className={`${shell.surface} ${ex.ticket}`} aria-label="Firm price">
-        <header className={ex.quoteHead}>
-          <div className={ex.quoteId}>
-            <span className={shell.label}>Firm price from {deskName}</span>
-            <span className={ex.quoteRef}>
-              {quote.ref}
-              <span className={ex.side}>{sell ? 'Sell USDT' : 'Buy USDT'}</span>
+        <div className={`${shell.brandField} ${ex.face}`}>
+          <header className={ex.quoteHead}>
+            <div className={ex.quoteId}>
+              <span className={ex.quoteKind}>
+                Firm price from {deskName} · <span className={ex.side}>{sell ? 'Sell USDT' : 'Buy USDT'}</span>
+              </span>
+              <span className={ex.quoteRef}>{quote.ref}</span>
+            </div>
+            <Countdown sentAt={quote.sentAt ? new Date(quote.sentAt) : null} expiresAt={expiresAt} now={now} />
+          </header>
+
+          <div className={ex.convert}>
+            <div className={ex.convertRow}>
+              <span className={ex.convertLabel}>{sell ? 'You send' : 'You pay'}</span>
+              <span className={ex.convertValue}>
+                {sell ? usdt : `₹${inr}`}
+                <span className={ex.convertUnit}>{sell ? 'USDT' : 'INR'}</span>
+              </span>
+            </div>
+            <span className={ex.convertArrow} aria-hidden="true">
+              <ArrowIcon />
             </span>
+            <div className={ex.convertRow}>
+              <span className={ex.heroLabel}>You receive</span>
+              <span className={ex.heroFigure}>
+                {sell ? `₹${inr}` : usdt}
+                <span className={ex.heroUnit}>{sell ? 'INR' : 'USDT'}</span>
+              </span>
+            </div>
           </div>
-          <Countdown sentAt={quote.sentAt ? new Date(quote.sentAt) : null} expiresAt={expiresAt} now={now} />
-        </header>
 
-        <div className={ex.hero}>
-          <span className={ex.heroLabel}>You receive</span>
-          <span className={ex.heroFigure}>
-            {sell ? `₹${inr}` : usdt}
-            <span className={ex.heroUnit}>{sell ? 'INR' : 'USDT'}</span>
-          </span>
-          <span className={ex.heroSub}>{sell ? `You send ${usdt} USDT` : `You pay ₹${inr}`} · exactly, nothing is deducted</span>
-        </div>
-
-        <div className={ex.rate}>
-          <span className={ex.rateMain}>
-            <span className={ex.rateLock} aria-hidden="true">
-              <LockIcon />
+          <div className={ex.rate}>
+            <span className={ex.rateMain}>
+              <span className={ex.rateLock} aria-hidden="true">
+                <LockIcon />
+              </span>
+              <span>
+                <span className={ex.rateUnit}>1 USDT = </span>
+                <span className={ex.rateValue}>{rate}</span>
+              </span>
             </span>
-            <span>
-              <span className={ex.rateValue}>{rate}</span>
-              <span className={ex.rateUnit}>per USDT</span>
-            </span>
-          </span>
-          <span className={ex.rateNote}>{lapsed ? 'This price has lapsed' : `Held until ${formatIstTime(expiresAt)}`}</span>
+            <span className={ex.rateNote}>{lapsed ? 'This price has lapsed' : `Held until ${formatIstTime(expiresAt)}`}</span>
+          </div>
         </div>
 
         <dl className={ex.terms}>

@@ -7,10 +7,10 @@
 .sides {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
   padding: 4px;
-  border-radius: var(--radius-pill);
-  background: var(--bg-subtle);
-  box-shadow: inset 0 0 0 1px var(--line-soft);
+  border-radius: 12px;
+  background: var(--paper);
 }
 
 .side {
@@ -19,17 +19,26 @@
   min-height: 52px;
   padding: var(--space-2) var(--space-3);
   border: 0;
-  border-radius: var(--radius-pill);
+  border-radius: 9px;
   background: transparent;
   color: var(--text-secondary);
   font: inherit;
   cursor: pointer;
 }
 
+/* The side you are on, filled the way exchanges fill it: red to sell, green to buy. */
 .side[aria-pressed='true'] {
-  background: var(--bg-surface);
-  box-shadow: 0 1px 2px color-mix(in srgb, var(--text-primary) 10%, transparent), 0 0 0 1px var(--line);
-  color: var(--text-primary);
+  background: var(--sell);
+  box-shadow: 0 1px 2px rgba(18, 19, 23, 0.12);
+  color: var(--text-on-action);
+}
+
+.side[data-side='BUY_USDT'][aria-pressed='true'] {
+  background: var(--buy);
+}
+
+.side[aria-pressed='true'] .sideRate {
+  color: color-mix(in srgb, var(--text-on-action) 85%, transparent);
 }
 
 .side:disabled {

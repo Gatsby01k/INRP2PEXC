@@ -448,7 +448,10 @@ test('BUY 50 USDT at the market at once: the network its own line, nobody at INR
   const card = phone.getByRole('region', { name: 'Firm quote' });
   await expect(card.getByRole('button', { name: /^Accept quote at ₹102\.00/ })).toBeVisible();
   await expect(card.getByText('Network fee')).toBeVisible();
-  await expect(card.getByText(/You pay ₹5,?559 · your USDT and 4\.50? USDT of network/)).toBeVisible();
+  // What the client pays, then what it covers: the USDT and the deal's network as its own line.
+  await expect(card.getByText('You pay', { exact: true })).toBeVisible();
+  await expect(card.getByText(/₹5,?559/).first()).toBeVisible();
+  await expect(card.getByText(/Includes your USDT and 4\.50? USDT of network/)).toBeVisible();
   await snap(phone, 'small-buy-quote');
   did(deal, 'CLIENT', 'asks for 50 USDT and gets a firm price at the market at once, the network shown as its own line');
   await card.getByRole('button', { name: /^Accept quote at/ }).click();

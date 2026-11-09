@@ -4,9 +4,49 @@ import { type ReactNode, useEffect, useId, useRef } from 'react';
 import { robotCues } from '../../(public)/_landing/robot/cues.ts';
 import { type AssistantState, type Step, soundForTransition } from './model.ts';
 import { playSound } from './sound.ts';
-import { STILLS } from './stills.ts';
+import { AlertIcon, ArrowIcon, CheckIcon, InfoIcon, ShieldIcon, TimerIcon } from '../_workspace/icons.tsx';
 import shell from '../shell.module.css';
 import styles from './assistant.module.css';
+
+/** The glyph of each state: what needs the client, what is being waited on or checked, what is done. */
+const MOOD_ICON = {
+  alert: AlertIcon,
+  focused: ArrowIcon,
+  waiting: TimerIcon,
+  verifying: ShieldIcon,
+  success: CheckIcon,
+  ready: CheckIcon,
+  none: InfoIcon,
+} as const;
+
+/** The state as a glyph on a soft disc in its tone — the face of a status card. */
+export function StateMark({ mood }: { mood: AssistantState['mood'] }) {
+  const Icon = MOOD_ICON[mood as keyof typeof MOOD_ICON] ?? InfoIcon;
+  return (
+    <span className={styles.mark} data-mood={mood} aria-hidden="true">
+      <Icon className={styles.markIcon} />
+    </span>
+  );
+}
+
+/** A reference is read and quoted whole: in a sentence it never breaks at its hyphens. */
+export function WholeRefs({ text }: { text: string }) {
+  const parts = text.split(/([A-Z]{2}-\d{6}-\d{4,})/);
+  if (parts.length === 1) return <>{text}</>;
+  return (
+    <>
+      {parts.map((p, i) =>
+        i % 2 === 1 ? (
+          <span key={i} style={{ whiteSpace: 'nowrap' }}>
+            {p}
+          </span>
+        ) : (
+          p
+        ),
+      )}
+    </>
+  );
+}
 
 /** The state a page is in, as a word or two beside a dot in its tone. */
 export function StateChip({ state, className }: { state: Pick<AssistantState, 'mood' | 'label'>; className?: string | undefined }) {
@@ -62,7 +102,7 @@ export function useAssistantState(state: AssistantState): void {
 
 /**
  * A page's status, in the column beside its work: the state of record the page's server data is in (`model.ts`) as a
- * chip, a line and a sentence, with the robot's face in the same mood beside it — small, because the work is the
+ * chip, a line and a sentence, with the state's glyph beside it — small, because the work is the
  * page and the status is about it. `steps`, where the page has a sequence, shows how far it has got; `meta` carries
  * a figure that belongs with the state; `children` sit on the card under it, and `after` follows it as cards of
  * their own.
@@ -76,8 +116,14 @@ export function AssistantPanel({
   children,
   after,
   lead = true,
+  split = false,
 }: {
   state: AssistantState;
+  /**
+   * The column carries the page's secondary cards (`after`) as well as its status. On a narrower screen the status
+   * still leads the page, and those cards follow the work rather than coming before it.
+   */
+  split?: boolean;
   size?: 'large' | 'compact';
   /** On a narrow screen the panel leads the page (its status first); off, it follows the work. */
   lead?: boolean;
@@ -87,24 +133,21 @@ export function AssistantPanel({
   after?: ReactNode;
 }) {
   const titleId = useId();
-  const still = STILLS[state.mood];
   useAssistantState(state);
 
   return (
-    <aside className={shell.aside} {...(lead ? { 'data-lead': '' } : {})} aria-labelledby={titleId}>
-      <section className={styles.note} data-assistant-mood={state.mood}>
+    <aside className={shell.aside} {...(lead ? { 'data-lead': '' } : {})} {...(split ? { 'data-split': '' } : {})} aria-labelledby={titleId}>
+      <section className={styles.note} data-assistant-mood={state.mood} data-first="">
         <div className={styles.noteHead}>
-          <span className={styles.avatarFrame} aria-hidden="true">
-            <img className={styles.avatar} src={still.src} width={still.width} height={still.height} alt="" loading="lazy" decoding="async" />
-          </span>
-          <StateChip state={state} />
+          <StateMark mood={state.mood} />
+          <div aria-live="polite" className={styles.noteText}>
+            <StateChip state={state} />
+            <h2 id={titleId} className={styles.noteTitle}>
+              <WholeRefs text={state.title} />
+            </h2>
+          </div>
         </div>
-        <div aria-live="polite" className={styles.noteText}>
-          <h2 id={titleId} className={styles.noteTitle}>
-            {state.title}
-          </h2>
-          <p className={styles.noteBody}>{state.body}</p>
-        </div>
+        <p className={styles.noteBody}>{state.body}</p>
         {meta ? <div className={styles.meta}>{meta}</div> : null}
         {steps && steps.length > 0 ? <ProgressTrack steps={steps} /> : null}
         {children}
@@ -115,19 +158,18 @@ export function AssistantPanel({
 }
 
 /**
- * A page's status as one line across the top of its work, for a page that needs its whole width: the robot's face,
+ * A page's status as one line across the top of its work, for a page that needs its whole width: the state's glyph,
  * the state in a word, and what it means. Drawn only when something is under way or needs the client.
  */
 export function StatusBanner({ state }: { state: AssistantState }) {
-  const still = STILLS[state.mood];
   return (
     <section className={styles.banner} data-assistant-mood={state.mood} aria-live="polite">
-      <span className={styles.avatarFrame} aria-hidden="true">
-        <img className={styles.avatar} src={still.src} width={still.width} height={still.height} alt="" loading="lazy" decoding="async" />
-      </span>
+      <StateMark mood={state.mood} />
       <div className={styles.bannerText}>
         <StateChip state={state} />
-        <p className={styles.bannerTitle}>{state.title}</p>
+        <p className={styles.bannerTitle}>
+          <WholeRefs text={state.title} />
+        </p>
         <p className={styles.noteBody}>{state.body}</p>
       </div>
     </section>

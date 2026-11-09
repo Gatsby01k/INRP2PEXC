@@ -13,7 +13,7 @@
 }
 
 .step {
-  --mark: 22px;
+  --mark: 20px;
   position: relative;
   display: grid;
   gap: var(--space-3);
@@ -37,7 +37,7 @@
 }
 
 .step[data-status='current']:not(:last-child)::after {
-  background: linear-gradient(90deg, color-mix(in srgb, var(--brand-primary) 55%, transparent), var(--border-default) 70%);
+  background: var(--border-default);
 }
 
 .stepMark {
@@ -137,7 +137,7 @@
   }
 
   .step[data-status='current']:not(:last-child)::after {
-    background: linear-gradient(180deg, color-mix(in srgb, var(--brand-primary) 55%, transparent), var(--border-default) 70%);
+    background: var(--border-default);
   }
 
   .stepText {
@@ -145,60 +145,61 @@
   }
 }
 
-/* ——— Status pill ——— */
+/* ——— Status pill: a small tag, its glyph and its word — never colour alone ——— */
 
 .pill {
   --tone: var(--text-secondary);
-  --tone-soft: var(--bg-subtle);
+  --tone-soft: color-mix(in srgb, var(--text-primary) 6%, transparent);
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  min-height: 26px;
-  padding: 0 var(--space-3) 0 var(--space-2);
-  border-radius: var(--radius-pill);
+  gap: 5px;
+  min-height: 24px;
+  padding: 0 8px 0 6px;
+  border-radius: 6px;
   background: var(--tone-soft);
   color: var(--tone);
   font-size: var(--font-size-meta);
   font-weight: var(--font-weight-semibold);
+  line-height: 1;
   white-space: nowrap;
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tone) 14%, transparent);
 }
 
 .pill[data-size='lg'] {
-  min-height: 32px;
-  padding: 0 var(--space-4) 0 var(--space-3);
-  font-size: var(--font-size-body-sm);
+  min-height: 28px;
+  padding: 0 10px 0 8px;
+  border-radius: 8px;
+  font-size: 13px;
 }
 
 .pill[data-size='lg'] .pillIcon {
-  width: 17px;
-  height: 17px;
+  width: 15px;
+  height: 15px;
 }
 
 .pill[data-tone='neutral'] {
-  padding-left: var(--space-3);
+  padding-left: 8px;
 }
 
 .pill[data-tone='waiting'],
 .pill[data-tone='hold'] {
-  --tone: var(--status-warning);
-  --tone-soft: var(--status-warning-soft);
+  --tone: #9a5b00;
+  --tone-soft: #fdf3e1;
 }
 
 .pill[data-tone='progress'] {
-  --tone: var(--brand-action);
-  --tone-soft: var(--brand-soft);
+  --tone: #1d5bd6;
+  --tone-soft: #ebf1fd;
 }
 
 .pill[data-tone='done'] {
-  --tone: var(--status-success);
-  --tone-soft: var(--status-success-soft);
+  --tone: #0b8a4f;
+  --tone-soft: #e7f5ee;
 }
 
 .pillIcon {
-  width: 15px;
-  height: 15px;
-  stroke-width: 1.75;
+  width: 13px;
+  height: 13px;
+  stroke-width: 2;
 }
 
 /* ——— Empty state ——— */
@@ -218,8 +219,7 @@
   height: 52px;
   margin-bottom: var(--space-2);
   border-radius: 50%;
-  background: radial-gradient(circle at 50% 35%, var(--bg-surface), var(--ivory) 70%);
-  box-shadow: inset 0 0 0 1px var(--border-default);
+  background: #f3f1ed;
   color: var(--text-secondary);
 }
 

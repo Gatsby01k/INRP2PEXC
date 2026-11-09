@@ -3,7 +3,10 @@ import { formatInr, formatRate, formatUsdtHeadline, splitMinor } from '@inrp2p/u
 
 /** Display helpers for trader screens: every figure arrives as a decimal string of record and is only formatted here. */
 export const inr = (amount: string) => formatInr(Money.parse(amount, 'INR'));
-export const usdt = (amount: string) => formatUsdtHeadline(Money.parse(amount, 'USDT'));
+/** USDT for reading — in a title, a list, a balance — to the cent, never rounded up: 9,732.82 USDT, not 9,732.824427. */
+export const usdt = (amount: string) => balanceIn('USDT', amount);
+/** USDT to the last unit of record, where the exact figure is the point: the amount of an order, what to send. */
+export const usdtExact = (amount: string) => formatUsdtHeadline(Money.parse(amount, 'USDT'));
 export const rate = (value: string) => `${formatRate(Rate.parse(value, 'ROUTE'))} / USDT`;
 export const amountIn = (currency: 'INR' | 'USDT', amount: string) => (currency === 'INR' ? inr(amount) : usdt(amount));
 /** A balance at a glance — what is available or held — to the cent, never rounded up: 17,173.28 USDT, not 17,173.285171. */

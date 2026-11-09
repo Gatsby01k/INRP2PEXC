@@ -11,13 +11,12 @@ import { useCommand } from '../../../components/useCommand.tsx';
 import { acceptQuoteAction, rejectQuoteAction } from '../../../server/actions/client.ts';
 import { playSound } from '../_assistant/sound.ts';
 import { ArrowIcon, InfoIcon, LockIcon } from '../_workspace/icons.tsx';
-import { MarkArt } from '../../../components/MarkArt.tsx';
 import { legAmount } from './amounts.ts';
 import shell from '../shell.module.css';
 import { Amount } from '../../../components/Amount.tsx';
 import styles from './exchange.module.css';
 
-const R = 34;
+const R = 10;
 const C = 2 * Math.PI * R;
 
 /**
@@ -32,9 +31,9 @@ export function Countdown({ sentAt, expiresAt, now }: { sentAt: Date | null; exp
   const fraction = Math.min(1, remaining / total);
   return (
     <span className={styles.timer} data-state={remaining <= EXPIRING_THRESHOLD_MS ? 'expiring' : 'held'} role="timer" aria-live="off">
-      <svg className={styles.timerRing} viewBox="0 0 76 76" aria-hidden="true" focusable="false">
-        <circle className={styles.timerTrack} cx="38" cy="38" r={R} />
-        <circle className={styles.timerArc} cx="38" cy="38" r={R} strokeDasharray={C} strokeDashoffset={C * (1 - fraction)} />
+      <svg className={styles.timerRing} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <circle className={styles.timerTrack} cx="12" cy="12" r={R} />
+        <circle className={styles.timerArc} cx="12" cy="12" r={R} strokeDasharray={C} strokeDashoffset={C * (1 - fraction)} />
       </svg>
       <span className={styles.timerText}>
         <span className={styles.timerTime}>{formatCountdown(remaining)}</span>
@@ -84,47 +83,59 @@ export function QuoteCard({ quote, canAccept, now }: { quote: ClientQuoteView; c
   return (
     <>
       <section className={`${shell.surface} ${styles.ticket}`} aria-label="Firm quote" data-robot-target="panel">
-        {/* The quote's face: the mark's own orange, the figure in white, the mark turning slowly behind it. */}
+        {/* The quote's face: the mark's own orange; what you give, what you get, and the rate locked between them. */}
         <div className={`${shell.brandField} ${styles.face}`}>
-        <MarkArt className={shell.brandArt} live />
-        <header className={styles.quoteHead}>
-          <div className={styles.quoteId}>
-            <span className={shell.label}>Firm quote</span>
-            <span className={styles.quoteRef}>
-              {quote.ref}
-              <span className={styles.side}>{sell ? 'Sell USDT' : 'Buy USDT'}</span>
-            </span>
-          </div>
-          <Countdown sentAt={quote.sentAt ? new Date(quote.sentAt) : null} expiresAt={expiresAt} now={now} />
-        </header>
+          <header className={styles.quoteHead}>
+            <div className={styles.quoteId}>
+              <span className={styles.quoteKind}>
+                Firm quote · <span className={styles.side}>{sell ? 'Sell USDT' : 'Buy USDT'}</span>
+              </span>
+              <span className={styles.quoteRef}>{quote.ref}</span>
+            </div>
+            <Countdown sentAt={quote.sentAt ? new Date(quote.sentAt) : null} expiresAt={expiresAt} now={now} />
+          </header>
 
-        <div className={styles.hero}>
-          <span className={styles.heroLabel}>You receive</span>
-          <span className={styles.heroFigure}>
-            <Amount value={sell ? `₹${inr}` : usdt} />
-            <span className={styles.heroUnit}>{sell ? 'INR' : 'USDT'}</span>
-          </span>
-          <span className={styles.heroSub}>
+          <div className={styles.convert}>
+            <div className={styles.convertRow}>
+              <span className={styles.convertLabel}>{sell ? 'You send' : 'You pay'}</span>
+              <span className={styles.convertValue}>
+                <Amount value={sell ? usdt : `₹${inr}`} />
+                <span className={styles.convertUnit}>{sell ? 'USDT' : 'INR'}</span>
+              </span>
+            </div>
+            <span className={styles.convertArrow} aria-hidden="true">
+              <ArrowIcon />
+            </span>
+            <div className={styles.convertRow} data-get="">
+              <span className={styles.heroLabel}>You receive</span>
+              <span className={styles.heroFigure}>
+                <Amount value={sell ? `₹${inr}` : usdt} />
+                <span className={styles.heroUnit}>{sell ? 'INR' : 'USDT'}</span>
+              </span>
+            </div>
+          </div>
+          <p className={styles.heroSub}>
             {fee
               ? sell
-                ? `You send ${usdt} USDT · ${fee} USDT of it pays the network`
-                : `You pay ₹${inr} · your USDT and ${fee} USDT of network at this rate`
-              : `${sell ? `You send ${usdt} USDT` : `You pay ₹${inr}`} · exactly, nothing is deducted`}
-          </span>
-        </div>
+                ? `${fee} USDT of what you send pays the network.`
+                : `Includes your USDT and ${fee} USDT of network at this rate.`
+              : sell
+                ? 'Exactly this — nothing is deducted.'
+                : 'Exactly this — nothing is added.'}
+          </p>
 
-        <div className={styles.rate} data-robot-target="rate">
-          <span className={styles.rateMain}>
-            <span className={styles.rateLock} aria-hidden="true">
-              <LockIcon />
+          <div className={styles.rate} data-robot-target="rate">
+            <span className={styles.rateMain}>
+              <span className={styles.rateLock} aria-hidden="true">
+                <LockIcon />
+              </span>
+              <span>
+                <span className={styles.rateUnit}>1 USDT = </span>
+                <Amount className={styles.rateValue} value={rate} />
+              </span>
             </span>
-            <span>
-              <Amount className={styles.rateValue} value={rate} />
-              <span className={styles.rateUnit}>per USDT</span>
-            </span>
-          </span>
-          <span className={styles.rateNote}>Locked until {formatIstTime(expiresAt)}</span>
-        </div>
+            <span className={styles.rateNote}>Locked until {formatIstTime(expiresAt)}</span>
+          </div>
         </div>
 
         <dl className={styles.terms}>
