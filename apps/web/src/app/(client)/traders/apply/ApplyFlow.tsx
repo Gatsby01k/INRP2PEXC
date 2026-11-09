@@ -10,8 +10,8 @@ import { useCommand } from '../../../../components/useCommand.tsx';
 import { applyAsTraderAction } from '../../../../server/actions/traders.ts';
 import { AssistantPanel } from '../../_assistant/AssistantPanel.tsx';
 import type { AssistantState, Step } from '../../_assistant/model.ts';
-import { ArrowIcon, InfoIcon } from '../../_workspace/icons.tsx';
-import { inr, sentence, usdt } from '../_ui/format.ts';
+import { ArrowIcon } from '../../_workspace/icons.tsx';
+import { sentence, usdt } from '../_ui/format.ts';
 import {
   type BankDraft, type WalletDraft, BankFields, EMPTY_BANK, EMPTY_WALLET, OWNERSHIP_TEXT, WalletFields, bankComplete, bankPayload, walletComplete, walletPayload,
 } from '../_ui/SettlementFields.tsx';
@@ -22,25 +22,24 @@ type Provides = 'INR' | 'USDT' | 'BOTH';
 type Experience = 'BINANCE' | 'BYBIT' | 'OTHER' | 'NONE';
 type EntityType = 'INDIVIDUAL' | 'COMPANY';
 
-const STEP_LABELS = ['About you', 'What you provide', 'Your capacity', 'Settlement details', 'Security Reserve', 'Submit'];
+const STEP_LABELS = ['About you', 'What you trade', 'Where you settle'];
 const LAST = STEP_LABELS.length - 1;
 const hasAmount = (v: string) => /[1-9]/.test(v);
 const decimal = (v: string) => Number.parseFloat(v.replace(/,/g, '')) || 0;
 const EXPERIENCE: readonly [Experience, string][] = [['BINANCE', 'Binance'], ['BYBIT', 'Bybit'], ['OTHER', 'Other'], ['NONE', 'No']];
-const EXPERIENCE_WORDS: Record<Experience, string> = { BINANCE: 'Binance P2P', BYBIT: 'Bybit P2P', OTHER: 'Another P2P platform', NONE: 'No P2P experience' };
 const TELEGRAM = /^@?[A-Za-z0-9_]{5,32}$/;
 const PHONE = /^\+?[0-9]{8,15}$/;
 
 /** Which step asks for a field the server refused, so a refusal returns the applicant to where they can fix it. */
 const FIELD_STEP: Record<string, number> = {
   fullName: 0, entityType: 0, telegram: 0, phone: 0, contact: 0, experience: 0, profileLink: 0,
-  offers: 1,
-  typicalInr: 2, dailyInr: 2, typicalUsdt: 2, dailyUsdt: 2,
-  bank: 3, wallet: 3, bankAccountId: 3, walletId: 3, accountNumber: 3, ifsc: 3, holderName: 3, bankName: 3, rails: 3, walletLabel: 3, confirmOwnership: 3,
+  offers: 1, typicalInr: 1, dailyInr: 1, typicalUsdt: 1, dailyUsdt: 1,
+  bank: 2, wallet: 2, bankAccountId: 2, walletId: 2, accountNumber: 2, ifsc: 2, holderName: 2, bankName: 2, rails: 2, walletLabel: 2, confirmOwnership: 2,
 };
 
 /**
- * The trader application: six short steps, then the desk reviews it. Nothing here decides anything — the answers go
+ * The trader application: three short steps — who you are, what you trade, where you settle — then the review. The
+ * Security Reserve is said with its amount on the last step and sent from the Traders screen right after. Nothing here decides anything — the answers go
  * to `trader.apply`, which creates a new applicant's client (without the Exchange), records the bank account and the
  * wallet as pending review, and puts the application in front of the desk. No rate is asked for: rates are set by
  * an approved trader on its own screen. The Security Reserve shown is the one the desk configured, or nothing.
@@ -68,7 +67,6 @@ export function ApplyFlow({ options }: { options: TraderApplicationOptions }) {
   const [bank, setBank] = useState<BankDraft>(EMPTY_BANK);
   const [wallet, setWallet] = useState<WalletDraft>(EMPTY_WALLET);
   const [owned, setOwned] = useState(false);
-  const [understood, setUnderstood] = useState(false);
 
   const offersBuy = provides === 'INR' || provides === 'BOTH';
   const offersSell = provides === 'USDT' || provides === 'BOTH';
@@ -80,12 +78,15 @@ export function ApplyFlow({ options }: { options: TraderApplicationOptions }) {
   const sideOk = (offers: boolean, typical: string, daily: string) => !offers || (hasAmount(typical) && hasAmount(daily) && decimal(daily) >= decimal(typical));
   const canNext = [
     (profile.nameFixed || fullName.trim() !== '') && entityType !== null && contactOk && experience !== null,
-    provides !== null,
-    sideOk(offersBuy, typicalInr, dailyInr) && sideOk(offersSell, typicalUsdt, dailyUsdt),
+    provides !== null && sideOk(offersBuy, typicalInr, dailyInr) && sideOk(offersSell, typicalUsdt, dailyUsdt),
     (newBank ? bankComplete(bank) : true) && (newWallet ? walletComplete(wallet) : true) && owned,
-    understood,
-    true,
   ][step];
+  const applicantName = profile.nameFixed ? (profile.fullName ?? '') : fullName.trim();
+  const next = () => {
+    // The account holder is usually the applicant: the name is carried over, to change if it is not.
+    if (step === 1 && newBank && bank.holderName.trim() === '' && applicantName) setBank({ ...bank, holderName: applicantName });
+    setStep(step + 1);
+  };
 
   const submit = async () => {
     const out = await run('Submit trader application', (key) =>
@@ -124,17 +125,11 @@ export function ApplyFlow({ options }: { options: TraderApplicationOptions }) {
     label: `Step ${step + 1} of ${STEP_LABELS.length}`,
     title: STEP_LABELS[step]!,
     body: [
-      'Who you are, and how the desk can reach you about your application.',
-      'Choose what you can provide. You can do both.',
-      'A typical order and what you can provide in a day. You set exact capacity and rates after approval.',
-      'Your own bank account and TRC20 wallet. The desk verifies them before anything settles through them.',
-      'The reserve protects open orders. It is locked only while you provide liquidity.',
-      'The desk reviews your application. You cannot provide liquidity until it approves.',
+      'Who you are, and how INRP2P can reach you about your application.',
+      'Buy USDT, sell it, or both — and roughly how much. Exact capacity and prices come after approval, in a minute.',
+      'Your own bank account and TRC20 wallet. Then send the Security Reserve from that wallet, so you can start the moment you are approved.',
     ][step]!,
   };
-  const chosenBank = options.banks.find((b) => b.id === bankId);
-  const chosenWallet = options.wallets.find((w) => w.id === walletId);
-  const provideWords = provides === 'BOTH' ? 'INR and USDT' : provides;
 
   return (
     <>
@@ -146,8 +141,8 @@ export function ApplyFlow({ options }: { options: TraderApplicationOptions }) {
           onSubmit={(e) => {
             e.preventDefault();
             if (step < LAST) {
-              if (canNext) setStep(step + 1);
-            } else void submit();
+              if (canNext) next();
+            } else if (canNext) void submit();
           }}
         >
           <ol className={styles.steps} aria-label={`Step ${step + 1} of ${STEP_LABELS.length}`}>
@@ -216,14 +211,11 @@ export function ApplyFlow({ options }: { options: TraderApplicationOptions }) {
               <p className={styles.note}>At least one, so the desk can reach you.</p>
               <fieldset className={styles.choices}>
                 <legend className={styles.fieldLabel}>Do you trade P2P already?</legend>
-                <div className={styles.segmented}>
+                <div className={styles.chips}>
                   {EXPERIENCE.map(([value, name]) => (
-                    <label key={value} className={styles.choice}>
+                    <label key={value} className={styles.chip}>
                       <input type="radio" name="experience" checked={experience === value} onChange={() => setExperience(value)} />
-                      <span className={styles.choiceText}>
-                        <span className={styles.choiceName}>{name}</span>
-                      </span>
-                      <span className={styles.ring} aria-hidden="true" />
+                      <span>{name}</span>
                     </label>
                   ))}
                 </div>
@@ -238,30 +230,26 @@ export function ApplyFlow({ options }: { options: TraderApplicationOptions }) {
           ) : null}
 
           {step === 1 ? (
-            <fieldset className={styles.choices}>
-              <legend className={styles.question}>What can you provide?</legend>
-              {(
-                [
-                  ['INR', 'INR', 'You have INR and buy USDT.'],
-                  ['USDT', 'USDT', 'You have USDT and sell it for INR.'],
-                  ['BOTH', 'Both', 'You buy and sell.'],
-                ] as const
-              ).map(([value, name, meta]) => (
-                <label key={value} className={styles.choice}>
-                  <input type="radio" name="provides" value={value} checked={provides === value} onChange={() => setProvides(value)} />
-                  <span className={styles.choiceText}>
-                    <span className={styles.choiceName}>{name}</span>
-                    <span className={styles.choiceMeta}>{meta}</span>
-                  </span>
-                  <span className={styles.ring} aria-hidden="true" />
-                </label>
-              ))}
-            </fieldset>
-          ) : null}
-
-          {step === 2 ? (
             <div className={styles.choices}>
-              <h2 className={styles.question}>Your capacity</h2>
+              <fieldset className={styles.choices}>
+                <legend className={styles.question}>What do you trade?</legend>
+                {(
+                  [
+                    ['INR', 'Buy USDT', 'You have INR and buy USDT.'],
+                    ['USDT', 'Sell USDT', 'You have USDT and sell it for INR.'],
+                    ['BOTH', 'Both', 'You buy and sell.'],
+                  ] as const
+                ).map(([value, name, meta]) => (
+                  <label key={value} className={styles.choice}>
+                    <input type="radio" name="provides" value={value} checked={provides === value} onChange={() => setProvides(value)} />
+                    <span className={styles.choiceText}>
+                      <span className={styles.choiceName}>{name}</span>
+                      <span className={styles.choiceMeta}>{meta}</span>
+                    </span>
+                    <span className={styles.ring} aria-hidden="true" />
+                  </label>
+                ))}
+              </fieldset>
               {offersBuy ? (
                 <div className={styles.pair}>
                   <Amount label="Typical order, INR" affix="₹" currency="INR" value={typicalInr} onChange={setTypicalInr} />
@@ -274,11 +262,11 @@ export function ApplyFlow({ options }: { options: TraderApplicationOptions }) {
                   <Amount label="USDT you can provide in a day" affix="USDT" currency="USDT" value={dailyUsdt} onChange={setDailyUsdt} />
                 </div>
               ) : null}
-              <p className={styles.note}>Daily capacity is at least your typical order. Rates are not asked for here: you set them yourself once approved.</p>
+              {provides ? <p className={styles.note}>Roughly is enough: a typical order, and what you can take on in a day. Exact capacity and prices come after approval.</p> : null}
             </div>
           ) : null}
 
-          {step === 3 ? (
+          {step === 2 ? (
             <div className={styles.choices}>
               <h2 className={styles.question}>Settlement details</h2>
               <p className={styles.note}>Your own accounts, or your company’s. Third-party accounts are not accepted. The desk verifies each one before anything settles through it.</p>
@@ -335,84 +323,18 @@ export function ApplyFlow({ options }: { options: TraderApplicationOptions }) {
               ) : null}
               {newWallet ? <WalletFields value={wallet} onChange={setWallet} /> : null}
 
+              <div className={styles.reserveBox}>
+                <span className={shell.label}>Next: your Security Reserve</span>
+                <p className={styles.reserveAmount}>{options.reserveRequired ? usdt(options.reserveRequired) : 'Set at review'}</p>
+                <p className={styles.note}>
+                  Send it from this wallet as soon as you have applied: it proves the wallet is yours, so you can start the moment you are approved. It stays
+                  yours — it is not spent on deals, and it is released when you stop and your orders are finished.
+                </p>
+              </div>
               <label className={styles.check}>
                 <input type="checkbox" checked={owned} onChange={(e) => setOwned(e.target.checked)} />
                 {OWNERSHIP_TEXT}
               </label>
-            </div>
-          ) : null}
-
-          {step === 4 ? (
-            <div className={styles.choices}>
-              <h2 className={styles.question}>Security Reserve</h2>
-              <div className={styles.reserveBox}>
-                <span className={shell.label}>Required</span>
-                <p className={styles.reserveAmount}>{options.reserveRequired ? usdt(options.reserveRequired) : 'Set by the desk at review'}</p>
-                <p className={styles.note}>A USDT reserve is locked while you provide liquidity. It protects open orders and unresolved obligations.</p>
-                <p className={styles.note}>You send it from your registered wallet after approval. It is not trading capacity, and it is released when you stop and your orders are finished.</p>
-              </div>
-              <label className={styles.check}>
-                <input type="checkbox" checked={understood} onChange={(e) => setUnderstood(e.target.checked)} />
-                I understand the Security Reserve
-              </label>
-            </div>
-          ) : null}
-
-          {step === LAST ? (
-            <div className={styles.choices}>
-              <h2 className={styles.question}>Submit for review</h2>
-              <dl className={shell.facts}>
-                <div>
-                  <dt>Name</dt>
-                  <dd>
-                    {profile.nameFixed ? profile.fullName : fullName.trim()} · {entityType === 'COMPANY' ? 'Company' : 'Individual'}
-                  </dd>
-                </div>
-                <div>
-                  <dt>Contact</dt>
-                  <dd>{[tg ? (tg.startsWith('@') ? tg : `@${tg}`) : null, ph || null].filter(Boolean).join(' · ')}</dd>
-                </div>
-                <div>
-                  <dt>P2P experience</dt>
-                  <dd>{experience ? EXPERIENCE_WORDS[experience] : '—'}</dd>
-                </div>
-                <div>
-                  <dt>You provide</dt>
-                  <dd>{provideWords}</dd>
-                </div>
-                {offersBuy ? (
-                  <div>
-                    <dt>INR · typical / daily</dt>
-                    <dd className="ix-num">
-                      {inr(typicalInr || '0')} / {inr(dailyInr || '0')}
-                    </dd>
-                  </div>
-                ) : null}
-                {offersSell ? (
-                  <div>
-                    <dt>USDT · typical / daily</dt>
-                    <dd className="ix-num">
-                      {usdt(typicalUsdt || '0')} / {usdt(dailyUsdt || '0')}
-                    </dd>
-                  </div>
-                ) : null}
-                <div>
-                  <dt>Bank account</dt>
-                  <dd>{newBank ? `${bank.bankName.trim()} ••••${bank.accountNumber.replace(/\s+/g, '').slice(-4)} · pending review` : `${chosenBank?.label ?? '—'} · verified`}</dd>
-                </div>
-                <div>
-                  <dt>TRC20 wallet</dt>
-                  <dd>{newWallet ? `TRC20 · ${shortenAddress(wallet.address.trim())} · pending review` : `TRC20 · ${chosenWallet ? shortenAddress(chosenWallet.address) : '—'} · verified`}</dd>
-                </div>
-                <div>
-                  <dt>Security Reserve</dt>
-                  <dd>{options.reserveRequired ? usdt(options.reserveRequired) : 'Set by the desk'}</dd>
-                </div>
-              </dl>
-              <p className={shell.info}>
-                <InfoIcon className={shell.infoIcon} />
-                <span>Your status becomes “Under review”. You cannot provide liquidity until the desk verifies your details and approves.</span>
-              </p>
             </div>
           ) : null}
 
@@ -427,7 +349,7 @@ export function ApplyFlow({ options }: { options: TraderApplicationOptions }) {
               </Link>
             )}
             <button type="submit" className={shell.action} disabled={!canNext || busy} aria-busy={busy || undefined}>
-              {step < LAST ? 'Continue' : 'Submit for review'}
+              {step < LAST ? 'Continue' : 'Submit application'}
               <ArrowIcon className={shell.actionIcon} />
             </button>
           </div>
@@ -438,7 +360,8 @@ export function ApplyFlow({ options }: { options: TraderApplicationOptions }) {
           ) : null}
         </form>
       </main>
-      <AssistantPanel state={assistant} steps={steps} size="compact" />
+      {/* On a phone the form comes first: the assistant says the same steps after it, not above it. */}
+      <AssistantPanel state={assistant} steps={steps} size="compact" lead={false} />
       {dialog}
     </>
   );

@@ -89,7 +89,7 @@ const STAGE_ORDER: Readonly<Record<string, number>> = { OFFER: 0, YOUR_TURN: 1, 
 export function traderHomeAssistant(home: TraderHome): AssistantState {
   switch (home.state) {
     case 'NONE':
-      return { mood: 'ready', label: 'Traders', title: 'Provide liquidity', body: 'Set how much INR or USDT you can provide. INRP2P sends matching orders to you.' };
+      return { mood: 'ready', label: 'Traders', title: 'Four steps to your first order', body: 'Apply, send your Security Reserve, set your prices, go online — each one on this screen.' };
     case 'UNDER_REVIEW': {
       const a = home.application;
       const refused = a ? ([['bank account', a.bank], ['wallet', a.wallet]] as const).find(([, d]) => d.state === 'REJECTED') : undefined;
@@ -100,6 +100,11 @@ export function traderHomeAssistant(home: TraderHome): AssistantState {
       if (home.review?.automatic && home.review.waitingOn === 'RESERVE') {
         const left = home.review.reserveToSend && /[1-9]/.test(home.review.reserveToSend) ? usdt(home.review.reserveToSend) : null;
         return { mood: 'focused', label: 'Last step', title: left ? `Send ${left} to your Security Reserve` : 'Send your Security Reserve', body: 'From your registered wallet. You are approved the moment it lands — it also proves the wallet is yours.' };
+      }
+      // A person reviews it; the reserve is still the trader's move meanwhile, so it can go online the minute it is approved.
+      const toSend = home.review?.reserveToSend && /[1-9]/.test(home.review.reserveToSend) ? usdt(home.review.reserveToSend) : null;
+      if (toSend) {
+        return { mood: 'focused', label: 'Under review', title: `Next: send ${toSend} to your Security Reserve`, body: 'From your registered wallet, while INRP2P reviews your application — so you can go online the minute you are approved.' };
       }
       return { mood: 'waiting', label: 'Under review', title: 'Your application is under review', body: 'INRP2P checks your bank account and wallet. You will be told here and in Notifications.' };
     }
@@ -129,6 +134,10 @@ export function traderHomeAssistant(home: TraderHome): AssistantState {
   if (home.recentlyCompleted) {
     const r = home.recentlyCompleted;
     return { mood: 'success', label: 'Completed', title: `${r.ref} completed`, body: 'Order completed. Nothing is held for it any more.' };
+  }
+  // Approved and not yet started: the next step is the prices, then online.
+  if (!home.available && home.blocks.length > 0 && home.blocks.every((b) => b.status !== 'ACTIVE')) {
+    return { mood: 'focused', label: 'Approved', title: 'You are approved', body: 'Set your prices — a minute for both sides — and go online.' };
   }
   if (!home.available) return { mood: 'ready', label: 'Offline', title: 'You’re offline', body: 'No new orders are assigned. Switch on when you are ready.' };
   if (!home.blocks.some((b) => b.status === 'ACTIVE')) {

@@ -8,7 +8,7 @@ import { UsersIcon } from '../../_workspace/icons.tsx';
 export const dynamic = 'force-dynamic';
 
 /**
- * The trader application: six short steps, then the desk reviews it. Open to a person who verified their email
+ * The trader application: three short steps, then the review. Open to a person who verified their email
  * through "Open your exchange" (their application creates their client) and to an administrator of an existing client.
  */
 export default async function ApplyPage() {
@@ -21,9 +21,9 @@ export default async function ApplyPage() {
     <>
       <PageHead
         icon={<UsersIcon />}
-        eyebrow="Your exchange"
-        title="Open your exchange"
-        lede="Tell INRP2P who you are, what you can provide and how you settle. Once INRP2P approves you, your page, prices and clients open here."
+        eyebrow="Traders"
+        title="Apply to trade"
+        lede="Three short steps. Then send your Security Reserve from your wallet, and you can start the moment you are approved."
       />
       <ApplyFlow options={options} />
     </>

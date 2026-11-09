@@ -367,6 +367,10 @@ export interface TraderHome {
   };
   /** ADR 0024: the application's own review — null once decided. */
   readonly review: ApplicationReview | null;
+  /** The Security Reserve the programme asks a new trader for, before any is set on this one; null when none is set. */
+  readonly programmeReserve: string | null;
+  /** ADR 0020: this trader has opened its own desk (its page, prices and clients), in any state. */
+  readonly deskOpened: boolean;
   /** ADR 0024: the deals the reserve allows at the trader's level; null when the programme sets none. */
   readonly limits: LimitsView | null;
   /** Orders accepted or in progress — the desk changes settlement details only once there are none. */
@@ -380,7 +384,7 @@ async function nowOf(ex: Executor): Promise<Date> {
   return r.rows[0]!.now;
 }
 
-async function reserveView(ex: Executor, traderId: string): Promise<ReserveView> {
+async function reserveView(ex: Executor, traderId: string, programmeRequired: bigint | null = null): Promise<ReserveView> {
   const { reserve } = await readStanding(ex, traderId);
   // One address for every trader (D-17): what makes a deposit this trader's is the wallet it came from.
   const address = await sharedReserveAddress(ex);
@@ -429,7 +433,8 @@ async function reserveView(ex: Executor, traderId: string): Promise<ReserveView>
   ].sort((a, b) => (a.at < b.at ? 1 : -1));
   return {
     balance: reserve.balance.toDecimalString(),
-    required: reserve.required?.toDecimalString() ?? null,
+    // Before a reserve is set on the trader (at approval), the programme's is the one it is asked for.
+    required: reserve.required?.toDecimalString() ?? (programmeRequired === null ? null : Money.ofMinor(programmeRequired, 'USDT').toDecimalString()),
     locked: reserve.locked.toDecimalString(),
     available: reserve.available.toDecimalString(),
     pendingRelease: reserve.pendingRelease.toDecimalString(),
@@ -440,6 +445,12 @@ async function reserveView(ex: Executor, traderId: string): Promise<ReserveView>
     withdrawal: open ? { ref: open.ref, amount: usdt(open.amount_minor), status: open.status as 'REQUESTED' | 'SENT', askedAt: open.requested_at.toISOString() } : null,
     history,
   };
+}
+
+/** The Security Reserve the programme asks of a new trader, as a decimal; null when the programme sets none. */
+async function programmeReserveOf(ex: Executor): Promise<string | null> {
+  const r = (await traderProgram(ex)).defaultRequiredReserve;
+  return r ? usdt(r.minor) : null;
 }
 
 const bankText = (name: string, digits: string) => `${name} ••••${digits}`;
@@ -498,7 +509,7 @@ export async function traderHome(ex: Executor, userId: string): Promise<TraderHo
     return traderSafe({
       state: 'NONE' as const, ref: null, ...base, application: null, available: false, controlNote: null, assignmentsEnabled: true, issues: [], blocks: [], reserve: null,
       offers: [], priceAsks: [], active: [], recentlyCompleted: null, earnings: null, registered: null, proposal: NO_PROPOSAL, openOrders: 0,
-      review: null, limits: null,
+      review: null, limits: null, programmeReserve: await programmeReserveOf(ex), deskOpened: false,
     });
   }
   const bank = bankText(profile.bank_name, profile.account_last4);
@@ -538,8 +549,8 @@ export async function traderHome(ex: Executor, userId: string): Promise<TraderHo
       : null;
     return traderSafe({
       state: profile.status, ref: profile.ref, ...base, application, available: false, controlNote: null, assignmentsEnabled: profile.assignments_enabled, issues: [], blocks: [],
-      reserve: await reserveView(ex, profile.id), offers: [], priceAsks: [], active: [], recentlyCompleted: null, earnings: null, registered, proposal: NO_PROPOSAL, openOrders: 0,
-      review, limits: null,
+      reserve: await reserveView(ex, profile.id, required), offers: [], priceAsks: [], active: [], recentlyCompleted: null, earnings: null, registered, proposal: NO_PROPOSAL, openOrders: 0,
+      review, limits: null, programmeReserve: required === null ? null : usdt(required), deskOpened: false,
     });
   }
   const bankProposal = await bankView(ex, profile.proposed_bank_account_id);
@@ -618,6 +629,8 @@ export async function traderHome(ex: Executor, userId: string): Promise<TraderHo
     openOrders: summaries.filter((x) => x.status === 'ACCEPTED' || x.status === 'IN_PROGRESS').length,
     review: null,
     limits: reserve.limits ? limitsView(reserve.limits) : null,
+    programmeReserve: await programmeReserveOf(ex),
+    deskOpened: (await ex.selectFrom('desk').select('id').where('trader_id', '=', profile.id).executeTakeFirst()) !== undefined,
   });
 }
 

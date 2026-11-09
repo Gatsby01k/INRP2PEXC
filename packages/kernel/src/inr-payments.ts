@@ -129,6 +129,27 @@ export function checkIfsc(raw: string): { readonly ok: true; readonly ifsc: stri
   return { ok: true, ifsc, bank: ifsc.slice(0, 4), branch: ifsc.slice(5) };
 }
 
+/**
+ * The banks most traders settle with, by the four letters every one of their IFSCs starts with — so a form can name the
+ * bank from the code instead of asking for it. A bank not here is typed by hand; nothing is decided by this name.
+ */
+const IFSC_BANKS: Readonly<Record<string, string>> = Object.freeze({
+  HDFC: 'HDFC Bank', ICIC: 'ICICI Bank', SBIN: 'State Bank of India', UTIB: 'Axis Bank', KKBK: 'Kotak Mahindra Bank', YESB: 'Yes Bank',
+  INDB: 'IndusInd Bank', IDFB: 'IDFC First Bank', FDRL: 'Federal Bank', RATN: 'RBL Bank', BDBL: 'Bandhan Bank', AUBL: 'AU Small Finance Bank',
+  PUNB: 'Punjab National Bank', BARB: 'Bank of Baroda', CNRB: 'Canara Bank', UBIN: 'Union Bank of India', BKID: 'Bank of India',
+  IDIB: 'Indian Bank', IOBA: 'Indian Overseas Bank', CBIN: 'Central Bank of India', MAHB: 'Bank of Maharashtra', UCBA: 'UCO Bank',
+  PSIB: 'Punjab & Sind Bank', JAKA: 'Jammu & Kashmir Bank', KARB: 'Karnataka Bank', SIBL: 'South Indian Bank', KVBL: 'Karur Vysya Bank',
+  TMBL: 'Tamilnad Mercantile Bank', CSBK: 'CSB Bank', DLXB: 'Dhanlaxmi Bank', ESFB: 'Equitas Small Finance Bank', UJVN: 'Ujjivan Small Finance Bank',
+  SCBL: 'Standard Chartered Bank', HSBC: 'HSBC', CITI: 'Citibank', DBSS: 'DBS Bank India', AIRP: 'Airtel Payments Bank', PYTM: 'Paytm Payments Bank',
+  IPOS: 'India Post Payments Bank', FINO: 'Fino Payments Bank',
+});
+
+/** The bank an IFSC belongs to, when it is one of the banks above; null otherwise (or for a code not yet four letters long). */
+export function bankNameOfIfsc(raw: string): string | null {
+  const code = raw.replace(/\s+/g, '').toUpperCase().slice(0, 4);
+  return code.length === 4 ? (IFSC_BANKS[code] ?? null) : null;
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 // Which rail suits an amount
 // ---------------------------------------------------------------------------------------------------------------
