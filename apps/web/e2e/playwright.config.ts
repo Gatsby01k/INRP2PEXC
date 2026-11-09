@@ -40,5 +40,6 @@ export default defineConfig({
     // A deal as people make it: a client and a trader on their phones, INRP2P's operator where a person is still needed,
     // receipts attached, and a journal of who did what. Its own world and server, like the desks'.
     { name: 'human', testMatch: /human-deal\.spec\.ts/, use: { ...devices['Desktop Chrome'] } },
+    { name: 'merchant', testMatch: /merchant-journey\.spec\.ts/, use: { ...devices['Desktop Chrome'] } },
   ],
 });

@@ -1,6 +1,7 @@
 import { sql } from 'kysely';
-import { type ClientRate, type DeskEconomics, DomainError, Money, computeDeskEconomics, requireUuid, DESK_HANDLE_SHAPE, RESERVED_DESK_HANDLES } from '@inrp2p/kernel';
-import type { DeskClientSource, DeskClientStatus, DeskStatus, DirectionValue, Executor, FixedSideValue, TxContext } from '@inrp2p/db';
+import { type ClientRate, type DeskEconomics, DomainError, type MarketReference, type MarketReferences, Money, computeDeskEconomics, requireUuid, DESK_HANDLE_SHAPE, RESERVED_DESK_HANDLES } from '@inrp2p/kernel';
+import type { DeskClientSource, DeskClientStatus, DeskStatus, DirectionValue, Executor, FixedSideValue, TraderSide, TxContext } from '@inrp2p/db';
+import { readBlocks } from './standing.ts';
 
 /**
  * Desks (docs/adr/0020-desks.md): every trader runs its own exchange on INRP2P — a name and a page, its own clients and
@@ -111,31 +112,47 @@ export async function deskByHandle(ex: Executor, handle: string): Promise<DeskRo
 export interface DeskPrice {
   readonly id: string;
   readonly direction: DirectionValue;
-  readonly rateMicro: bigint;
+  /** Migration 0048: the desk's own number (`OWN`), or its side's rate on Traders as it is now (`SIDE`). */
+  readonly basis: 'OWN' | 'SIDE';
+  /** The rate a deal is priced at now; null for a price following a side that has no rate (no fresh market reference). */
+  readonly rateMicro: bigint | null;
   readonly minBaseMinor: bigint;
   readonly maxBaseMinor: bigint;
   readonly live: boolean;
-  readonly validUntil: Date;
+  /** Until when an own price is offered; null for one following a side, which is as fresh as the side. */
+  readonly validUntil: Date | null;
   readonly setAt: Date;
   /** The desk's person who set it: whose standing commitment a deal priced on it is. */
   readonly setBy: string;
-  /** Live and not past its time: a deal may be priced on it now (business clock). */
+  /** Live, with a rate, and an own price not past its time: a deal may be priced on it now (business clock). */
   readonly offered: boolean;
+  /** For a price following a side at a market rate: the reference and the terms the rate is derived from (IX143). */
+  readonly market: { readonly reference: MarketReference; readonly offsetBps: number; readonly limitMicro: bigint | null } | null;
 }
 
-/** The desk's latest price per client direction, and whether each may be dealt on right now. */
-export async function currentDeskPrices(ex: Executor, deskId: string): Promise<Readonly<Record<DirectionValue, DeskPrice | null>>> {
-  const r = await sql<{ id: string; direction: DirectionValue; rate_micro: string; min_base_minor: string; max_base_minor: string; live: boolean; valid_until: Date; set_at: Date; set_by: string; offered: boolean }>`
-    select distinct on (direction) id, direction, rate_micro::text, min_base_minor::text, max_base_minor::text, live, valid_until, set_at, set_by,
-           (live and valid_until > inrp2p_now()) as offered
-      from desk_price
-     where desk_id = ${requireUuid(deskId, 'deskId')}
-     order by direction, set_at desc, id desc`.execute(ex);
+/** The trader side that fills a client direction: a client selling USDT needs the desk buying it, and vice versa. */
+const deskSideFor = (direction: DirectionValue): TraderSide => (direction === 'SELL_USDT' ? 'BUY_USDT' : 'SELL_USDT');
+
+/**
+ * The desk's latest price per client direction, and whether each may be dealt on right now. A price following its side is
+ * read at the side's rate as it is now — on `market`, the references fresh enough to price on, for a side at a market rate.
+ */
+export async function currentDeskPrices(ex: Executor, deskId: string, market: MarketReferences): Promise<Readonly<Record<DirectionValue, DeskPrice | null>>> {
+  const r = await sql<{ id: string; direction: DirectionValue; basis: 'OWN' | 'SIDE'; rate_micro: string | null; min_base_minor: string; max_base_minor: string; live: boolean; valid_until: Date | null; set_at: Date; set_by: string; current: boolean; trader_id: string }>`
+    select distinct on (p.direction) p.id, p.direction, p.basis, p.rate_micro::text, p.min_base_minor::text, p.max_base_minor::text, p.live, p.valid_until, p.set_at, p.set_by,
+           (p.valid_until is null or p.valid_until > inrp2p_now()) as current, d.trader_id
+      from desk_price p join desk d on d.id = p.desk_id
+     where p.desk_id = ${requireUuid(deskId, 'deskId')}
+     order by p.direction, p.set_at desc, p.id desc`.execute(ex);
   const out: Record<DirectionValue, DeskPrice | null> = { SELL_USDT: null, BUY_USDT: null };
+  const blocks = r.rows.some((p) => p.basis === 'SIDE') ? await readBlocks(ex, r.rows[0]!.trader_id, market) : [];
   for (const p of r.rows) {
+    const side = p.basis === 'SIDE' ? blocks.find((b) => b.side === deskSideFor(p.direction)) : undefined;
+    const rateMicro = p.basis === 'OWN' ? BigInt(p.rate_micro!) : (side?.rateMicro ?? null);
     out[p.direction] = {
-      id: p.id, direction: p.direction, rateMicro: BigInt(p.rate_micro), minBaseMinor: BigInt(p.min_base_minor), maxBaseMinor: BigInt(p.max_base_minor),
-      live: p.live, validUntil: p.valid_until, setAt: p.set_at, setBy: p.set_by, offered: p.offered,
+      id: p.id, direction: p.direction, basis: p.basis, rateMicro, minBaseMinor: BigInt(p.min_base_minor), maxBaseMinor: BigInt(p.max_base_minor),
+      live: p.live, validUntil: p.valid_until, setAt: p.set_at, setBy: p.set_by, offered: p.live && p.current && rateMicro !== null,
+      market: side && side.rateBasis === 'MARKET' && side.market ? { reference: side.market, offsetBps: side.marketOffsetBps!, limitMicro: side.rateLimitMicro } : null,
     };
   }
   return out;

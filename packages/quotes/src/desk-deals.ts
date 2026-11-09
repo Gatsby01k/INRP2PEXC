@@ -4,9 +4,9 @@ import { type DirectionValue, type Executor, type FixedSideValue, type TraderSid
 import { appendAudit } from '@inrp2p/audit';
 import { enqueueOutbox } from '@inrp2p/outbox';
 import type { ClientActor, DomainCommand } from '@inrp2p/identity';
-import { publishTraderRate } from '@inrp2p/pricing';
+import { marketReferences, publishTraderRate } from '@inrp2p/pricing';
 import {
-  attachDeskClientInTx, closeUnstartedOrder, currentDeskPrices, currentFeePolicy, deskByHandle, deskById, deskClient, freeCapacity, lockBlock, lockTrader,
+  type DeskPrice, attachDeskClientInTx, closeUnstartedOrder, currentDeskPrices, currentFeePolicy, deskByHandle, deskById, deskClient, freeCapacity, lockBlock, lockTrader,
   priceDeskDeal, readBlocks, readOrder, readStanding, riskFit, switchOnIssues, traderProgram,
 } from '@inrp2p/trader-core';
 import {
@@ -119,11 +119,14 @@ export async function quoteLockedDeskDealInTx(ctx: TxContext, deps: Pick<QuoteDe
   // The desk's rate: the deal link's, or its live price — with that price's limits.
   let rateMicro = input.clientRateMicro;
   let limits: { min: bigint; max: bigint } | null = null;
+  // Migration 0048: a price following the desk's side at a market rate records what its rate was derived from (IX143).
+  let derived: DeskPrice['market'] = null;
   if (rateMicro === null) {
-    const price = (await currentDeskPrices(ctx.tx, desk.id))[request.direction];
-    if (!price || !price.offered) throw new DomainError('DESK_NOT_LIVE', 'this desk has no live price for this right now');
+    const price = (await currentDeskPrices(ctx.tx, desk.id, await marketReferences(ctx.tx)))[request.direction];
+    if (!price || !price.offered || price.rateMicro === null) throw new DomainError('DESK_NOT_LIVE', 'this desk has no live price for this right now');
     rateMicro = price.rateMicro;
     limits = { min: price.minBaseMinor, max: price.maxBaseMinor };
+    derived = price.market;
   }
   if (rateMicro <= 0n) throw new DomainError('INVALID_RATE', 'the rate must be positive');
   const clientRate = Rate.ofMicro(rateMicro, 'CLIENT');
@@ -185,6 +188,7 @@ export async function quoteLockedDeskDealInTx(ctx: TxContext, deps: Pick<QuoteDe
       trader_id: trader.id, block_id: facts.id, route_id: facts.routeId, trade_request_id: request.id, side,
       base_minor: econ.routeBase.minor, inr_minor: econ.clientInr.minor, rate_micro: rateMicro, capacity_minor: capacityMinor,
       planned_client_rate_micro: rateMicro, offered_by: `DESK:${desk.handle}`,
+      rate_reference_snapshot_id: derived?.reference.snapshotId ?? null, rate_offset_bps: derived?.offsetBps ?? null, rate_limit_micro: derived?.limitMicro ?? null,
       offer_expires_at: sql<Date>`inrp2p_now() + make_interval(secs => ${program.offerTtlSeconds})`,
     })
     .returning(['id', 'ref'])
@@ -294,7 +298,7 @@ export function requestDeskQuote(actor: ClientActor, deps: QuoteDeps) {
   return memberClientCommand(actor, async (ctx, p: DeskQuotePayload, clientId): Promise<DeskDealQuote> => {
     const desk = await deskByHandle(ctx.tx, requireText(p.handle, 'handle', 30));
     if (!desk || desk.status !== 'LIVE') throw new DomainError('DESK_NOT_LIVE', 'this desk is not taking deals right now');
-    const price = (await currentDeskPrices(ctx.tx, desk.id))[p.direction];
+    const price = (await currentDeskPrices(ctx.tx, desk.id, await marketReferences(ctx.tx)))[p.direction];
     if (!price || !price.offered) throw new DomainError('DESK_NOT_LIVE', 'this desk has no live price for this right now');
     const relation = await attachDeskClientInTx(ctx, { deskId: desk.id, clientId, source: 'PAGE' });
     if (relation.status !== 'ACTIVE') throw new DomainError('DESK_CLIENT_BLOCKED', 'this desk is not dealing with this client');

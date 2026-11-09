@@ -1,7 +1,8 @@
 import { sql } from 'kysely';
-import { Money, Rate, requireUuid } from '@inrp2p/kernel';
+import { Money, NO_MARKET, Rate, requireUuid } from '@inrp2p/kernel';
 import type { DeskClientStatus, DeskStatus, DirectionValue, Executor } from '@inrp2p/db';
 import { currentDeskPrices } from '@inrp2p/trader-core';
+import { marketReferences } from '@inrp2p/pricing';
 import { type ClientQuoteView, assertClientSafe, toClientQuoteView } from './projections.ts';
 import { deskDealLinkView } from './desk-links.ts';
 import { linkTokenHash } from './security.ts';
@@ -150,9 +151,13 @@ export async function clientDesks(ex: Executor, clientId: string): Promise<Clien
      order by coalesce(max(t.opened_at), dc.created_at) desc
      limit 100`.execute(ex);
   const out: ClientDeskRow[] = [];
+  const market = r.rows.length > 0 ? await marketReferences(ex) : NO_MARKET;
   for (const x of r.rows) {
-    const prices = await currentDeskPrices(ex, x.desk_id);
-    const shown = (d: DirectionValue) => (x.desk_status === 'LIVE' && prices[d]?.offered ? Rate.ofMicro(prices[d]!.rateMicro, 'CLIENT').toDecimalString() : null);
+    const prices = await currentDeskPrices(ex, x.desk_id, market);
+    const shown = (d: DirectionValue) => {
+      const p = prices[d];
+      return x.desk_status === 'LIVE' && p?.offered && p.rateMicro !== null ? Rate.ofMicro(p.rateMicro, 'CLIENT').toDecimalString() : null;
+    };
     out.push({
       handle: x.handle, displayName: x.display_name, deskStatus: x.desk_status, relation: x.status, since: x.created_at.toISOString(),
       prices: { SELL_USDT: shown('SELL_USDT'), BUY_USDT: shown('BUY_USDT') },

@@ -1716,11 +1716,13 @@ export interface DeskPriceTable {
   id: Generated<string>;
   desk_id: string;
   direction: DirectionValue;
-  rate_micro: bigint;
+  /** Migration 0048: `OWN` — this number until `valid_until`; `SIDE` — whatever the desk's side on Traders is at now. */
+  basis: Generated<'OWN' | 'SIDE'>;
+  rate_micro: bigint | null;
   min_base_minor: bigint;
   max_base_minor: bigint;
   live: boolean;
-  valid_until: Date;
+  valid_until: Date | null;
   set_by: string;
   set_at: Generated<Date>;
 }

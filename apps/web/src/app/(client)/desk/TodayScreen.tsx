@@ -84,7 +84,7 @@ export function TodayScreen({
   const suspended = desk.status === 'SUSPENDED';
   const p = today.periods[period];
   const address = `${host}/${desk.handle}`;
-  const spread = prices.SELL_USDT && prices.BUY_USDT ? rateGap(prices.BUY_USDT.rate, prices.SELL_USDT.rate) : null;
+  const spread = prices.SELL_USDT?.rate && prices.BUY_USDT?.rate ? rateGap(prices.BUY_USDT.rate, prices.SELL_USDT.rate) : null;
 
   return (
     <>
@@ -129,10 +129,10 @@ export function TodayScreen({
                       {on ? 'Live' : 'Off'}
                     </span>
                   </span>
-                  <span className={styles.monumentValue}>{price ? <Amount value={rate(price.rate)} /> : '—'}</span>
+                  <span className={styles.monumentValue}>{price?.rate ? <Amount value={rate(price.rate)} /> : '—'}</span>
                   <span className={styles.monumentMeta}>
                     {price ? `${usdt(price.min, false)}–${usdt(price.max)}` : 'No price yet'}
-                    {price && on ? ` · ${relative(Date.parse(price.validUntil), now).replace('in ', '')} left` : ''}
+                    {price && on ? (price.validUntil ? ` · ${relative(Date.parse(price.validUntil), now).replace('in ', '')} left` : ' · follows your Traders price') : ''}
                   </span>
                 </div>
               );
