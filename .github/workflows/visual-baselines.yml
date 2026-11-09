@@ -57,7 +57,10 @@ jobs:
       - name: Verify recorded baselines compare clean
         run: pnpm --filter @inrp2p/ui test:visual
 
+      # A convenience copy only: the review branch below is the record. When GitHub's artifact storage is full, the
+      # upload fails, and the branch must still be pushed.
       - name: Upload baselines
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: visual-baselines-${{ github.run_id }}
@@ -132,7 +135,10 @@ jobs:
       - name: Verify recorded baselines compare clean
         run: pnpm --filter @inrp2p/web test:visual
 
+      # A convenience copy only: the review branch below is the record. When GitHub's artifact storage is full, the
+      # upload fails, and the branch must still be pushed.
       - name: Upload baselines
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: visual-page-baselines-${{ github.run_id }}
