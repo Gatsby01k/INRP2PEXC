@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { RESERVED_DESK_HANDLES } from '@inrp2p/kernel';
-import { DESK_PAGE_PREFIX, MARKET_RATE_PATH, PUBLIC_HOME_PATH, deskHandleOfPath, gateFor, isDeskPagePath, safeReturnPath, surfaceForHost } from '../src/server/surface.ts';
+import { DESK_PAGE_PREFIX, MARKET_RATE_PATH, PUBLIC_HOME_PATH, deskHandleOfPath, gateFor, isDeskPagePath, isWorkspacePath, safeReturnPath, surfaceForHost } from '../src/server/surface.ts';
 import { SITE_PATHS } from '../src/content/site.ts';
 
 const hosts = { deskHost: 'desk.inrp2p.com', appHost: 'app.inrp2p.com', publicHost: 'inrp2p.com' };
@@ -96,6 +96,15 @@ describe('proxy gating', () => {
     for (const path of ['/ab', '/-konkan', '/konkan-', '/KONKAN', '/konkan.html', '/konkan/', '/a'.repeat(1) + 'b'.repeat(30)]) expect(deskHandleOfPath(path), path).toBeNull();
     expect(gateFor('CLIENT', '/konkan')).toBe('CLIENT_SESSION');
     expect(gateFor('OPERATOR', '/konkan')).toBe('OPERATOR_SESSION');
+  });
+
+  it('knows the workspace’s own sections, and nothing that merely starts like one', () => {
+    for (const p of ['/traders', '/traders/', '/traders/orders/TO-1', '/become-a-trader', '/exchange', '/trades/IX-1', '/desk', '/desk/prices', '/desks/konkan', '/sign-in']) {
+      expect(isWorkspacePath(p), p).toBe(true);
+    }
+    for (const p of ['/', '/tradersx', '/desktop', '/orders', '/q/abc', '/usdt-to-inr', '/api/client/me']) {
+      expect(isWorkspacePath(p), p).toBe(false);
+    }
   });
 
   it('goes back after signing in only to a path on the same host', () => {

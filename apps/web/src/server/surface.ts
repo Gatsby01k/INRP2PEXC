@@ -38,6 +38,33 @@ export function surfaceForHost(host: string | null, cfg: HostConfig): Surface {
 /** Where a new trader starts, on the client app's host: email, code, application. */
 export const TRADER_ENTRY_PATH = '/become-a-trader';
 
+/**
+ * The workspace's own sections, which live on the client app's host. Someone who types one on the public domain —
+ * `inrp2p.com/traders` — is a person looking for the workspace, not a request to refuse: the proxy sends a page
+ * request for one of these to the same path on the app's host, where the session (or the sign-in) is. Exact
+ * sections and what is under them; anything else on the public host is still refused.
+ */
+const WORKSPACE_SECTIONS: readonly string[] = [
+  '/sign-in',
+  TRADER_ENTRY_PATH,
+  '/exchange',
+  '/history',
+  '/destinations',
+  '/accounts',
+  '/account',
+  '/notifications',
+  '/open-account',
+  '/traders',
+  '/trades',
+  '/desk',
+  '/desks',
+];
+
+export const isWorkspacePath = (pathname: string): boolean => {
+  const path = pathname.replace(/\/+$/, '') || '/';
+  return WORKSPACE_SECTIONS.some((s) => path === s || path.startsWith(`${s}/`));
+};
+
 /** The shareable quote link (D-01): opening it authorizes nothing, so it is reachable without a session. */
 export const isQuoteLinkPath = (path: string): boolean => path === '/q' || path.startsWith('/q/');
 
