@@ -457,15 +457,16 @@ export async function systemHealth(ex: Executor): Promise<SystemHealth> {
           and type in ('RECONCILIATION_MISMATCH', 'ROUTE_SETTLEMENT_MISMATCH', 'ROUTE_DIRECT_PAYOUT_MISMATCH', 'DUPLICATE_UTR', 'DUPLICATE_TX_HASH'))::text as reconciliation_mismatches,
       ((select count(*) from pg_stat_activity) * 100 / greatest(current_setting('max_connections')::int, 1))::text as db_connections_percent,
       -- A trader that could be offered an order now, per side: approved, online, taking assignments, its reserve covering
-      -- the requirement, its settlement details active, and an active block with capacity left and a rate.
+      -- the requirement, its settlement details active, and an active block with capacity left and a rate (its own number,
+      -- or set against the market — ADR 0028; such a side has no rate while the market reference is stale).
       (select count(distinct t.id) from trader_profile t
-         join trader_block b on b.trader_id = t.id and b.side = 'SELL_USDT' and b.status = 'ACTIVE' and b.rate_micro is not null and b.capacity_minor > b.reserved_minor
+         join trader_block b on b.trader_id = t.id and b.side = 'SELL_USDT' and b.status = 'ACTIVE' and (b.rate_micro is not null or b.rate_basis = 'MARKET') and b.capacity_minor > b.reserved_minor
          join bank_account ba on ba.id = t.bank_account_id and ba.status = 'ACTIVE'
          join crypto_wallet cw on cw.id = t.wallet_id and cw.status = 'ACTIVE'
         where t.status = 'APPROVED' and t.available and t.assignments_enabled and t.required_reserve_minor is not null
           and inrp2p_trader_reserve_free(t.id, null) >= t.required_reserve_minor)::text as traders_ready_sell_usdt,
       (select count(distinct t.id) from trader_profile t
-         join trader_block b on b.trader_id = t.id and b.side = 'BUY_USDT' and b.status = 'ACTIVE' and b.rate_micro is not null and b.capacity_minor > b.reserved_minor
+         join trader_block b on b.trader_id = t.id and b.side = 'BUY_USDT' and b.status = 'ACTIVE' and (b.rate_micro is not null or b.rate_basis = 'MARKET') and b.capacity_minor > b.reserved_minor
          join bank_account ba on ba.id = t.bank_account_id and ba.status = 'ACTIVE'
          join crypto_wallet cw on cw.id = t.wallet_id and cw.status = 'ACTIVE'
         where t.status = 'APPROVED' and t.available and t.assignments_enabled and t.required_reserve_minor is not null

@@ -656,3 +656,18 @@ reads two public order books (WazirX, CoinDCX) with no key.
 3. **Switch on** on Rates → Automatic prices (`pricing:configure`, ⧗, with the reason). Price requests are a second switch.
    Switching off is never refused: requests then wait for a person.
 
+## 20. The fully automatic exchange (ADR 0028)
+
+Migration `0047` (schema 47) adds a side's market rate and its open-ended firm offer to `trader_block`, how an order's market
+rate was derived to `trader_order` (IX143), the client's network line to `quote` and `trade_economics` (IX144) and
+`trade_request.no_price_reason`. No new secret, service or job.
+
+1. **Release order** (from production at 46): all CI jobs green; stop the worker; a Neon branch `before-47-<date>`;
+   `node --env-file=$HOME/.config/inrp2p/neon-production.env scripts/migrate.ts`; Vercel ready on 47; the worker image of
+   the same commit. Quotes sent before the migration keep their terms (their network out of the margin) and are accepted
+   as they were; every quote made after it carries the client's network line.
+2. **Traders**: on their side, "Your rate → Follow the market" with their margin (and, if they want, the rate they never go
+   past), then "Instant orders → On until I turn it off". A fixed rate still works, firm for at most seven days.
+3. **Switch on** automatic prices and price requests on Rates → Automatic prices, as in §19. From then on a request nothing
+   prices honestly closes with a plain answer to the client; nothing is left in the desk's queue for pricing.
+

@@ -23,6 +23,12 @@ export interface ClientQuoteView {
    * what it receives is exactly the quoted amount. Null for a quote priced before network fees existed.
    */
   readonly networkFeeIncluded: { readonly amount: string; readonly currency: 'INR' } | null;
+  /**
+   * ADR 0028: the network the client pays as its own line — the TRON cost of the deal's escrow and its transfers. A client
+   * buying pays for its USDT and this together and receives its USDT in full; a client selling sends its USDT and is paid
+   * for it less this. Null when the rate includes the network, as before.
+   */
+  readonly networkFee: { readonly amount: string; readonly currency: 'USDT' } | null;
 }
 
 /** Keys that must never appear anywhere in client-facing JSON (checked by tests on every client response). */
@@ -55,7 +61,7 @@ export async function maskedDestination(ex: Executor, q: { bank_account_id: stri
 export async function toClientQuoteView(ex: Executor, quoteId: string): Promise<ClientQuoteView> {
   const q = await ex
     .selectFrom('quote')
-    .select(['ref', 'direction', 'base_minor', 'quote_inr_minor', 'client_rate_micro', 'network', 'bank_account_id', 'crypto_wallet_id', 'sent_at', 'expires_at', 'status'])
+    .select(['ref', 'direction', 'base_minor', 'quote_inr_minor', 'client_rate_micro', 'network', 'bank_account_id', 'crypto_wallet_id', 'sent_at', 'expires_at', 'status', 'client_network_base_minor'])
     .where('id', '=', quoteId)
     .executeTakeFirst();
   if (!q || q.status === 'DRAFT') throw new DomainError('NOT_FOUND', 'quote not found');
@@ -75,7 +81,8 @@ export async function toClientQuoteView(ex: Executor, quoteId: string): Promise<
     sentAt: q.sent_at ? q.sent_at.toISOString() : null,
     expiresAt: q.expires_at ? q.expires_at.toISOString() : null,
     status: q.status as Exclude<QuoteStatus, 'DRAFT'>,
-    networkFeeIncluded: fee ? Money.ofMinor(fee.fee_inr_minor, 'INR').toJSON() : null,
+    networkFeeIncluded: fee && q.client_network_base_minor === null ? Money.ofMinor(fee.fee_inr_minor, 'INR').toJSON() : null,
+    networkFee: q.client_network_base_minor === null ? null : Money.ofMinor(q.client_network_base_minor, 'USDT').toJSON(),
   };
   return view;
 }

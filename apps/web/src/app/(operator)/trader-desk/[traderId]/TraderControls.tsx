@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import type { DeskTraderDetail } from '@inrp2p/traders';
 import { Button, StepUpMark } from '@inrp2p/ui';
+import { formatIstTime } from '@inrp2p/ui/format';
 import { useCommand } from '../../../../components/useCommand.tsx';
 import {
   approveTraderAction, pauseTraderAction, rejectTraderAction, resumeTraderAction, setAssignmentsAction, setLimitsAction, setRequiredReserveAction, setSettlementDetailsAction,
@@ -12,6 +13,9 @@ import { SelectField, TextArea, TextField } from '../../_desk/fields.tsx';
 import { inr, plainDecimal, rate, share, usdt } from '../../_desk/format.ts';
 import { Chip, KeyValues, Meter, Notice, Section } from '../../_desk/ui.tsx';
 import d from '../../_desk/desk.module.css';
+
+/** ADR 0028: a market rate's margin in basis points, as the trader set it: +0.30%, −0.25%. */
+const offset = (bps: number) => `${bps >= 0 ? '+' : '−'}${Math.trunc(Math.abs(bps) / 100)}.${String(Math.abs(bps) % 100).padStart(2, '0')}%`;
 
 export interface TraderPerms {
   readonly configure: boolean;
@@ -192,7 +196,14 @@ export function TraderControls({ detail, perms }: { detail: DeskTraderDetail; pe
               <KeyValues
                 split
                 items={[
-                  { label: 'Rate', value: b.rate ? rate(b.rate) : 'not set', strong: true },
+                  {
+                    label: 'Rate',
+                    value: b.market
+                      ? `${b.rate ? rate(b.rate) : 'no market rate now'} · market ${offset(b.market.offsetBps)}${b.market.limit ? `, never ${b.side === 'BUY_USDT' ? 'above' : 'below'} ${rate(b.market.limit)}` : ''}`
+                      : b.rate ? rate(b.rate) : 'not set',
+                    strong: true,
+                  },
+                  { label: 'Instant orders', value: b.firm ? (b.firm.until ? `on until ${formatIstTime(new Date(b.firm.until))}` : 'on until the trader turns it off') : 'off' },
                   { label: 'Capacity', value: blockAmount(b.side, b.capacity) },
                   { label: 'Held by open orders', value: blockAmount(b.side, b.held) },
                   { label: 'Per order', value: b.minOrder && b.maxOrder ? `${blockAmount(b.side, b.minOrder)} – ${blockAmount(b.side, b.maxOrder)}` : 'not set' },

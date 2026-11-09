@@ -97,9 +97,10 @@ export default tseslint.config(
   {
     // ADR 0017: the custody seed and the signer exist only in the worker. The web app derives addresses from the public
     // key alone and must never be able to sign. The one exception is the desks' end-to-end world, which plays the worker
-    // beside the built app (with BIP-39's published test mnemonic) — it is a test, never part of the app.
+    // beside the built app (with BIP-39's published test mnemonic) — it is a test, never part of the app — and the human
+    // deal's world, which does the same for INRP2P's own deals.
     files: ['apps/web/**/*.ts', 'apps/web/**/*.tsx'],
-    ignores: ['apps/web/e2e/desk-world.ts'],
+    ignores: ['apps/web/e2e/desk-world.ts', 'apps/web/e2e/human-world.ts'],
     rules: {
       'no-restricted-imports': ['error', { patterns: [
         { group: ['@inrp2p/*/src/*', '@inrp2p/*/test/*'], message: 'Import packages through their public entry points.' },

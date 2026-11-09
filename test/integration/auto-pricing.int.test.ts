@@ -12,10 +12,11 @@ import { traderClient } from './traders-world.ts';
 import { type RailsWorld, createRailsWorld, railsTrader } from './rails-world.ts';
 
 /**
- * Automatic prices of the INRP2P exchange (ADR 0025), on the exchange's own rails and GasFree: a client asks and gets a
- * firm 60-second price at once, from the traders' firm offers, bounded by the market and the minimum net margin; accepting
- * it opens the deal with the chosen trader exactly as a person's quote would. Larger amounts go to several traders as a
- * price request; anything that cannot be priced honestly waits for a person.
+ * Automatic prices of the INRP2P exchange (ADR 0025, 0028), on the exchange's own rails and GasFree: a client asks and gets
+ * a firm 60-second price at once, from the traders' firm offers — their own numbers, or rates set against the market —
+ * bounded by the market and the minimum net margin, the deal's network as the client's own line; accepting it opens the
+ * deal with the chosen trader exactly as a person's quote would. What no firm offer prices goes to several traders as a
+ * price request; anything that still cannot be priced honestly closes with a plain answer — nothing waits for a person.
  */
 let w: RailsWorld;
 let a: Awaited<ReturnType<typeof railsTrader>>;
@@ -24,6 +25,8 @@ let c: Awaited<ReturnType<typeof railsTrader>>;
 
 const r = (d: string) => Rate.parse(d, 'ROUTE').micro;
 const usdt = (d: string) => Money.parse(d, 'USDT').minor;
+/** GasFree's activation and two transfers in this world (ADR 0022): what the client pays as its own line (ADR 0028). */
+const NETWORK = Money.parse('4.5', 'USDT');
 const inr = (d: string) => Money.parse(d, 'INR').minor;
 const dbCode = (p: Promise<unknown>) => p.then(() => null, (e) => pgErrorCode(e) ?? e?.code ?? e);
 
@@ -103,13 +106,17 @@ describe('a client buying USDT', () => {
     const decision = await decisionOf(q.quoteId);
     const order = await orderOfQuote(q.quoteId);
     // The market's ask is ₹102; Alpha sells at ₹101.20, Bravo at ₹101.50; Charlie's ₹100.90 is not firm.
-    expect(quote).toMatchObject({ status: 'SENT', client_rate_micro: r('102'), route_rate_micro: r('101.2'), valid_for_seconds: 60, base_minor: usdt('1000'), quote_inr_minor: inr('102000') });
+    // The client receives its 1,000 USDT and pays for them and the deal's network at the market's ask: 1,004.5 × ₹102.
+    expect(quote).toMatchObject({
+      status: 'SENT', client_rate_micro: r('102'), route_rate_micro: r('101.2'), valid_for_seconds: 60, base_minor: usdt('1000'), quote_inr_minor: inr('102459'),
+      network_fee_base_minor: NETWORK.minor, client_network_base_minor: NETWORK.minor,
+    });
     expect(quote.expires_at!.getTime() - quote.sent_at!.getTime()).toBe(60_000);
     expect(traderOfOrder(order)).toBe(a.traderId);
-    expect(order).toMatchObject({ status: 'ACCEPTED', accepted_by: a.admin.userId, rate_micro: r('101.2'), planned_client_rate_micro: r('102') });
+    expect(order).toMatchObject({ status: 'ACCEPTED', accepted_by: a.admin.userId, rate_micro: r('101.2'), planned_client_rate_micro: r('102'), rate_reference_snapshot_id: null });
     expect(order.hold_until!.getTime()).toBe(quote.expires_at!.getTime() + 60_000);
-    // The trader's USDT is the client's rupees at its own rate; INRP2P keeps the rest, less the deal's network.
-    const k = computeP2pEconomics({ direction: 'BUY_USDT', fixedSide: 'BASE', amount: Money.ofMinor(usdt('1000'), 'USDT'), clientRate: Rate.ofMicro(r('102'), 'CLIENT'), routeRate: Rate.ofMicro(r('101.2'), 'ROUTE') });
+    // The trader's USDT is the client's rupees at its own rate; INRP2P keeps the rest, less the deal's network the client paid.
+    const k = computeP2pEconomics({ direction: 'BUY_USDT', fixedSide: 'BASE', amount: Money.ofMinor(usdt('1000'), 'USDT'), clientRate: Rate.ofMicro(r('102'), 'CLIENT'), routeRate: Rate.ofMicro(r('101.2'), 'ROUTE') }, { clientNetwork: NETWORK });
     expect(quote.route_base_minor).toBe(k.routeBase.minor);
     expect(quote.gross_margin_base_minor).toBe(k.grossMarginBase.minor);
     const terms = await w.app.selectFrom('quote_network_fee').selectAll().where('quote_id', '=', q.quoteId).executeTakeFirstOrThrow();
@@ -121,9 +128,9 @@ describe('a client buying USDT', () => {
     expect((await requestOf(out.requestId)).status).toBe('QUOTED');
   });
 
-  it('shows the client its price and nothing of who fills it', async () => {
+  it('shows the client its price, the network as its own line, and nothing of who fills it', async () => {
     const view = await exchangeView(w.app, w.clientId);
-    expect(view.quote).toMatchObject({ status: 'SENT' });
+    expect(view.quote).toMatchObject({ status: 'SENT', networkFee: { amount: '4.500000', currency: 'USDT' }, networkFeeIncluded: null });
     expect(JSON.stringify(view).match(/Alpha|101\.200000|"trader|traderId|traderRef|route/i)?.[0] ?? null).toBeNull();
   });
 
@@ -133,7 +140,10 @@ describe('a client buying USDT', () => {
     expect(order).toMatchObject({ status: 'IN_PROGRESS', trade_id: accepted.tradeId });
     const econ = await w.app.selectFrom('trade_economics').selectAll().where('trade_id', '=', accepted.tradeId).executeTakeFirstOrThrow();
     const quote = await quoteOf(quoteId);
-    expect(econ).toMatchObject({ route_execution_mode: 'P2P', client_rate_micro: quote.client_rate_micro, route_base_minor: quote.route_base_minor, gross_margin_base_minor: quote.gross_margin_base_minor });
+    expect(econ).toMatchObject({
+      route_execution_mode: 'P2P', client_rate_micro: quote.client_rate_micro, route_base_minor: quote.route_base_minor, gross_margin_base_minor: quote.gross_margin_base_minor,
+      client_network_base_minor: NETWORK.minor,
+    });
   });
 });
 
@@ -141,11 +151,12 @@ describe('a client selling USDT', () => {
   it('is paid at least the market, by the firm offer paying the most', async () => {
     const q = quoted(await ask('SELL_USDT', '1000'));
     const quote = await quoteOf(q.quoteId);
-    expect(quote).toMatchObject({ client_rate_micro: r('101'), route_rate_micro: r('101.8'), quote_inr_minor: inr('101000') });
+    // It sends 1,000 USDT and is paid for them less the deal's network at the market's bid: 995.5 × ₹101.
+    expect(quote).toMatchObject({ client_rate_micro: r('101'), route_rate_micro: r('101.8'), base_minor: usdt('1000'), quote_inr_minor: inr('100545.50'), client_network_base_minor: NETWORK.minor });
     const order = await orderOfQuote(q.quoteId);
     expect(traderOfOrder(order)).toBe(a.traderId);
     // A trader buying USDT holds the rupees it pays the client.
-    expect(order.capacity_minor).toBe(inr('101000'));
+    expect(order.capacity_minor).toBe(inr('100545.50'));
     expect(quote.base_minor - quote.route_base_minor!).toBe(quote.gross_margin_base_minor);
   });
 });
@@ -208,8 +219,11 @@ describe('a trader’s own reserve (ADR 0024)', () => {
       await setRisk({ cleanDays: 30, tiers: [wide, { ...wide, minDeals: 10 }, { ...wide, minDeals: 50 }] });
       const within = quoted(await ask('BUY_USDT', '900'));
       expect((await quoteOf(within.quoteId)).route_base_minor!).toBeLessThanOrEqual(usdt('1000'));
+      // Past it, the client is told what it can have instead, and nothing waits for a person.
       const past = await ask('BUY_USDT', '1500');
-      expect(past.outcome).toEqual({ kind: 'MANUAL', reason: 'NO_OFFER' });
+      expect(past.outcome).toMatchObject({ kind: 'NO_PRICE', reason: 'NO_OFFER' });
+      expect((past.outcome as { message: string }).message).toMatch(/available for about \d+ to \d+ USDT/);
+      expect(await requestOf(past.requestId)).toMatchObject({ status: 'DECLINED', no_price_reason: 'NO_OFFER' });
     } finally {
       await setRisk(null);
     }
@@ -217,11 +231,12 @@ describe('a trader’s own reserve (ADR 0024)', () => {
 });
 
 describe('what is never priced automatically', () => {
-  it('nothing competitive: when no firm offer beats the market, the request waits for a person', async () => {
+  it('nothing competitive: when no firm offer beats the market, the client is told so and nothing waits for a person', async () => {
     await books('101.00', '100.50');
     const out = await ask('BUY_USDT', '1000');
-    expect(out.outcome).toEqual({ kind: 'MANUAL', reason: 'NOT_COMPETITIVE' });
-    expect((await requestOf(out.requestId)).status).toBe('OPEN');
+    expect(out.outcome).toMatchObject({ kind: 'NO_PRICE', reason: 'NOT_COMPETITIVE' });
+    expect(await requestOf(out.requestId)).toMatchObject({ status: 'DECLINED', no_price_reason: 'NOT_COMPETITIVE' });
+    expect((await exchangeView(w.app, w.clientId)).request).toMatchObject({ status: 'DECLINED', noPrice: true });
     const skipped = await w.app.selectFrom('audit_event').select('after').where('action', '=', 'quote.auto_price_skipped').where('entity_id', '=', out.requestId).executeTakeFirstOrThrow();
     expect(JSON.stringify(skipped.after)).toContain('NOT_COMPETITIVE');
     await books('101.00', '102.00');
@@ -250,7 +265,9 @@ describe('a larger amount than any firm offer takes', () => {
 
     const clock = await w.t.pinnedClock();
     await clock.set(new Date(Date.now() + 121_000));
-    expect(await runRfqSweep(clock.db)).toMatchObject({ AWARDED: 1 });
+    const swept = await runRfqSweep(clock.db);
+    expect(swept.failures).toEqual([]);
+    expect(swept).toMatchObject({ AWARDED: 1 });
     const bids = await w.app.selectFrom('rfq_bid').select(['trader_id', 'rate_micro', 'status']).where('rfq_id', '=', rfq.id).orderBy('placed_at').execute();
     expect(bids.map((x) => x.status)).toEqual(['LOST', 'REPLACED', 'WON']);
     const quote = await w.app.selectFrom('quote').selectAll().where('trade_request_id', '=', out.requestId).where('status', '=', 'SENT').executeTakeFirstOrThrow();
@@ -264,14 +281,17 @@ describe('a larger amount than any firm offer takes', () => {
     expect((await orderOfQuote(quote.id)).trade_id).toBe(accepted.tradeId);
   });
 
-  it('a price request nobody answers goes to a person', async () => {
+  it('a price request nobody answers closes, and the client is told in its inbox too', async () => {
     const out = await ask('BUY_USDT', '60000');
     expect(out.outcome.kind).toBe('RFQ');
     const clock = await w.t.pinnedClock();
     await clock.set(new Date(Date.now() + 121_000));
     expect(await runRfqSweep(clock.db)).toMatchObject({ NO_PRICE: 1 });
-    expect((await requestOf(out.requestId)).status).toBe('OPEN');
+    expect(await requestOf(out.requestId)).toMatchObject({ status: 'DECLINED', no_price_reason: 'NO_BID' });
     expect(await w.app.selectFrom('quote').select('id').where('trade_request_id', '=', out.requestId).execute()).toEqual([]);
+    const told = await w.app.selectFrom('outbox_event').select('type').where('aggregate_id', '=', out.requestId).execute();
+    expect(told.map((e) => e.type)).toContain('client.request_declined');
+    expect(told.map((e) => e.type)).not.toContain('desk.request_needs_action');
   });
 });
 
@@ -294,7 +314,8 @@ describe('a market nobody confirmed lately', () => {
     const clock = await w.t.pinnedClock();
     await clock.set(new Date(Date.now() + 16 * 60_000));
     const out = await ask('BUY_USDT', '1000', undefined, clock.db);
-    expect(out.outcome).toEqual({ kind: 'MANUAL', reason: 'NO_MARKET' });
+    expect(out.outcome).toMatchObject({ kind: 'NO_PRICE', reason: 'NO_MARKET' });
+    expect(await requestOf(out.requestId)).toMatchObject({ status: 'DECLINED', no_price_reason: 'NO_MARKET' });
   });
 });
 

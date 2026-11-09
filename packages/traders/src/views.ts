@@ -1,5 +1,5 @@
 import { sql } from 'kysely';
-import { DomainError, Money, Rate, requireText } from '@inrp2p/kernel';
+import { DomainError, Money, Rate, referenceDirectionOf, requireText } from '@inrp2p/kernel';
 import type { DestinationStatus, Executor, InrRailValue, P2pExperience, TraderOrderStatus, TraderSide, TraderStatus } from '@inrp2p/db';
 import type { FieldProtector } from '@inrp2p/adapters';
 import { type P2pDeal, obligationRemaining, p2pDeal } from '@inrp2p/settlement';
@@ -10,6 +10,7 @@ import { type OrderStage, type OrderStep, orderStage, orderSteps, p2pOrderStage,
 import { sharedReserveAddress } from './reserve.ts';
 import { type PriceAskView, priceAsksFor } from './rfq.ts';
 import { type RiskLimits, type TierName, readBlocks, readStanding } from '@inrp2p/trader-core';
+import { marketReferences } from '@inrp2p/pricing';
 import { PERSON_FLAGS } from './auto-review.ts';
 
 /**
@@ -212,8 +213,20 @@ export interface BlockView {
   readonly version: number;
   /** ADR 0025: until when this side's offer is firm — INRP2P fills orders at its rate within its limits without asking — or null. */
   readonly firmUntil: string | null;
+  /** ADR 0028: firm until the trader turns it off — a market rate's offer needs no end of its own. */
+  readonly firmOpenEnded: boolean;
   /** The INR rails this side pays or is paid by. */
   readonly rails: readonly InrRailValue[];
+  /**
+   * ADR 0028: the rate is the trader's own number (`fixedRate`) or set against the market — `marketOffsetBps` from the market
+   * of the deals the side fills, never past `rateLimit`. `rate` is what it comes to now; `market` is that market now (the
+   * bid for a side buying USDT, the ask for one selling), null while no reference is fresh enough to price on.
+   */
+  readonly rateBasis: 'FIXED' | 'MARKET';
+  readonly fixedRate: string | null;
+  readonly marketOffsetBps: number | null;
+  readonly rateLimit: string | null;
+  readonly market: string | null;
 }
 
 export interface ReserveView {
@@ -534,7 +547,8 @@ export async function traderHome(ex: Executor, userId: string): Promise<TraderHo
   const live = [bankProposal, walletProposal].some((d) => d !== null && (d.state === 'PENDING_REVIEW' || d.state === 'VERIFIED'));
 
   const { standing, reserve } = await readStanding(ex, profile.id);
-  const blocks = await readBlocks(ex, profile.id);
+  const market = await marketReferences(ex);
+  const blocks = await readBlocks(ex, profile.id, market);
   const program = await traderProgram(ex);
   const effectiveAt = live ? profile.proposal_effective_at : null;
   const proposal = {
@@ -581,7 +595,16 @@ export async function traderHome(ex: Executor, userId: string): Promise<TraderHo
         issues: blockIssues({ ...b, offeredMinor: 0n }),
         version: b.version,
         firmUntil: b.firm && b.instantUntil ? b.instantUntil.toISOString() : null,
+        firmOpenEnded: b.instantOpenEnded,
         rails: b.rails,
+        rateBasis: b.rateBasis,
+        fixedRate: b.fixedRateMicro === null ? null : rate(b.fixedRateMicro),
+        marketOffsetBps: b.marketOffsetBps,
+        rateLimit: b.rateLimitMicro === null ? null : rate(b.rateLimitMicro),
+        market: (() => {
+          const ref = market[referenceDirectionOf(b.side)];
+          return ref ? rate(ref.micro) : null;
+        })(),
       };
     }),
     reserve: await reserveView(ex, profile.id),

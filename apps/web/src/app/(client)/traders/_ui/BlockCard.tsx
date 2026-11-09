@@ -1,11 +1,13 @@
 'use client';
 
 import { useId, useState } from 'react';
+import { MAX_MARKET_OFFSET_BPS, Rate, marketRateMicro } from '@inrp2p/kernel';
 import { formatIstTime } from '@inrp2p/ui/format';
 import type { BlockView } from '@inrp2p/traders';
 import { sanitizeAmountInput } from '@inrp2p/ui';
 import { useCommand } from '../../../../components/useCommand.tsx';
 import { updateBlockAction } from '../../../../server/actions/traders.ts';
+import { Segmented } from '../../_workspace/Field.tsx';
 import { amountIn, balanceIn, rate, sentence } from './format.ts';
 import shell from '../../shell.module.css';
 import styles from '../traders.module.css';
@@ -17,9 +19,43 @@ const MEANING = {
 
 const RAILS = ['UPI', 'IMPS', 'NEFT', 'RTGS'] as const;
 type Rail = (typeof RAILS)[number];
-/** How long a firm offer stands: the trader re-confirms it after that. */
+/** How long a firm offer stands: the trader re-confirms it after that — or, on a market rate, until it turns it off. */
 const FIRM_CHOICES = [1, 4, 8, 24, 72, 168] as const;
 const firmLabel = (h: number) => (h < 24 ? `${h} hour${h === 1 ? '' : 's'}` : h === 24 ? '1 day' : `${h / 24} days`);
+type FirmChoice = 'keep' | 'off' | 'open' | `${(typeof FIRM_CHOICES)[number]}`;
+
+/** Basis points as the trader reads them: +0.30%, −0.25%, 0.00%. */
+export const offsetText = (bps: number) => {
+  const abs = Math.abs(bps);
+  const text = `${Math.trunc(abs / 100)}.${String(abs % 100).padStart(2, '0')}%`;
+  return bps > 0 ? `+${text}` : bps < 0 ? `−${text}` : text;
+};
+
+/** "0.3", "+0.30", "-0.25" → basis points, without a float; null when it is not a percentage to two places. */
+export function parseOffsetBps(text: string): number | null {
+  const m = /^\s*([+\-−])?\s*(\d{1,2})(?:[.,](\d{0,2}))?\s*%?\s*$/.exec(text);
+  if (!m) return null;
+  const bps = Number.parseInt(m[2]!, 10) * 100 + Number.parseInt((m[3] ?? '').padEnd(2, '0') || '0', 10);
+  const signed = m[1] === '-' || m[1] === '−' ? -bps : bps;
+  return Math.abs(signed) <= MAX_MARKET_OFFSET_BPS ? signed : null;
+}
+
+/** What a market rate comes to now, for the trader to see before it saves: null without a market or a valid offset. */
+function marketPreview(block: BlockView, offset: string, limit: string): string | null {
+  const bps = parseOffsetBps(offset);
+  if (bps === null || block.market === null) return null;
+  let limitMicro: bigint | null = null;
+  if (limit.trim()) {
+    try {
+      limitMicro = Rate.parse(limit.trim(), 'ROUTE').micro;
+    } catch {
+      return null;
+    }
+  }
+  if (limitMicro !== null && limitMicro <= 0n) return null;
+  const micro = marketRateMicro({ side: block.side, referenceMicro: Rate.parse(block.market, 'ROUTE').micro, offsetBps: bps, limitMicro });
+  return Rate.ofMicro(micro, 'ROUTE').toDecimalString();
+}
 
 const ISSUE_TEXT: Record<string, string> = {
   BLOCK_PAUSED: 'Paused — no orders on this side.',
@@ -52,8 +88,8 @@ function AmountField({ id, label, affix, value, onChange, currency, hint }: { id
 }
 
 /**
- * One side of the trader's book: how much it can provide, its fixed rate and the order size it takes, and whether
- * the side is taking orders. Editing is the trader's own — within INRP2P's ceilings, never below what open orders
+ * One side of the trader's book: how much it can provide, its rate — set against the market (ADR 0028) or a fixed number —
+ * and the order size it takes, and whether the side is taking orders. Editing is the trader's own — within INRP2P's ceilings, never below what open orders
  * already hold — and quiet: no sound for a rate or a number. Registered settlement details are not edited here;
  * changing those is a desk review.
  */
@@ -61,29 +97,39 @@ export function BlockCard({ block, canAct }: { block: BlockView; canAct: boolean
   const { run, busy, error, dialog, clearError } = useCommand();
   const [editing, setEditing] = useState(false);
   const [capacity, setCapacity] = useState(block.capacity);
-  const [rateValue, setRate] = useState(block.rate ?? '');
+  const [basis, setBasis] = useState<'MARKET' | 'FIXED'>(block.rateBasis);
+  const [rateValue, setRate] = useState(block.fixedRate ?? block.rate ?? '');
+  const [offset, setOffset] = useState(block.marketOffsetBps === null ? '0.00' : offsetText(block.marketOffsetBps).replace('%', '').replace('−', '-'));
+  const [limitValue, setLimit] = useState(block.rateLimit ?? '');
   const [minOrder, setMin] = useState(block.minOrder ?? '');
   const [maxOrder, setMax] = useState(block.maxOrder ?? '');
   const [active, setActive] = useState(block.status === 'ACTIVE');
-  // 0 keeps the offer as it stands; a number of hours (re)starts it from now; -1 ends it.
-  const [firm, setFirm] = useState<number>(0);
+  // Keep the offer as it stands; a number of hours (re)starts it from now; open lasts until the trader turns it off.
+  const [firm, setFirm] = useState<FirmChoice>('keep');
   const [rails, setRails] = useState<readonly Rail[]>(block.rails);
   const titleId = useId();
-  const ids = { capacity: useId(), rate: useId(), min: useId(), max: useId() };
+  const ids = { capacity: useId(), rate: useId(), min: useId(), max: useId(), offset: useId(), limit: useId() };
   const buy = block.side === 'BUY_USDT';
   const currency = block.currency;
   const unit = currency === 'INR' ? '₹' : 'USDT';
 
   const reset = () => {
     setCapacity(block.capacity);
-    setRate(block.rate ?? '');
+    setBasis(block.rateBasis);
+    setRate(block.fixedRate ?? block.rate ?? '');
+    setOffset(block.marketOffsetBps === null ? '0.00' : offsetText(block.marketOffsetBps).replace('%', '').replace('−', '-'));
+    setLimit(block.rateLimit ?? '');
     setMin(block.minOrder ?? '');
     setMax(block.maxOrder ?? '');
     setActive(block.status === 'ACTIVE');
-    setFirm(0);
+    setFirm('keep');
     setRails(block.rails);
     clearError();
   };
+  const offsetBps = parseOffsetBps(offset);
+  const preview = basis === 'MARKET' ? marketPreview(block, offset, limitValue) : null;
+  // A fixed rate cannot stay firm until turned off: the choice goes with it.
+  const firmChoice: FirmChoice = basis === 'FIXED' && firm === 'open' ? 'keep' : firm;
   const save = async () => {
     const out = await run(`Save ${buy ? 'Buy USDT' : 'Sell USDT'}`, (key) =>
       updateBlockAction(
@@ -91,11 +137,13 @@ export function BlockCard({ block, canAct }: { block: BlockView; canAct: boolean
           side: block.side,
           expectedVersion: block.version,
           capacity: capacity || '0',
-          ...(rateValue ? { rate: rateValue } : {}),
+          ...(basis === 'MARKET'
+            ? { rateBasis: 'MARKET' as const, ...(offsetBps !== null ? { marketOffsetBps: offsetBps } : {}), rateLimit: limitValue.trim() || null }
+            : { rateBasis: 'FIXED' as const, ...(rateValue ? { rate: rateValue } : {}) }),
           ...(minOrder ? { minOrder } : {}),
           ...(maxOrder ? { maxOrder } : {}),
           status: active ? 'ACTIVE' : 'PAUSED',
-          ...(firm !== 0 ? { firmHours: firm < 0 ? 0 : firm } : {}),
+          ...(firmChoice === 'open' ? { firmOpenEnded: true } : firmChoice === 'off' ? { firmHours: 0 } : firmChoice === 'keep' ? {} : { firmHours: Number.parseInt(firmChoice, 10) }),
           rails,
         },
         key,
@@ -134,7 +182,52 @@ export function BlockCard({ block, canAct }: { block: BlockView; canAct: boolean
             currency={currency}
             hint={[/[1-9]/.test(block.held) ? `${amountIn(currency, block.held)} is held for open orders.` : null, block.limitMaxCapacity ? `INRP2P limit ${amountIn(currency, block.limitMaxCapacity)}.` : null].filter(Boolean).join(' ') || undefined}
           />
-          <AmountField id={ids.rate} label="Your rate (INR per USDT)" affix="₹" value={rateValue} onChange={setRate} currency="INR" hint="A fixed rate. Changing it withdraws any offer made at the old rate." />
+          <Segmented
+            legend="Your rate"
+            value={basis}
+            onChange={setBasis}
+            options={[
+              { value: 'MARKET', label: 'Follow the market', detail: buy ? 'The best bid on WazirX and CoinDCX, ± your margin' : 'The best ask on WazirX and CoinDCX, ± your margin' },
+              { value: 'FIXED', label: 'Fixed rate', detail: 'One number until you change it' },
+            ]}
+          />
+          {basis === 'MARKET' ? (
+            <div className={styles.pair}>
+              <label className={styles.field} htmlFor={ids.offset}>
+                <span className={styles.fieldLabel}>Your margin on the market</span>
+                <span className={styles.inputBox}>
+                  <input
+                    id={ids.offset}
+                    className={styles.input}
+                    inputMode="decimal"
+                    autoComplete="off"
+                    value={offset}
+                    onChange={(e) => setOffset(e.target.value.replace(/[^0-9+\-−.,%]/g, '').slice(0, 7))}
+                    aria-invalid={offsetBps === null}
+                  />
+                  <span className={styles.inputAffix}>%</span>
+                </span>
+                <span className={styles.fieldHint}>
+                  {offsetBps === null
+                    ? `A percentage within ${MAX_MARKET_OFFSET_BPS / 100}% either way, like 0.30 or -0.25.`
+                    : preview
+                      ? `Now ${rate(preview)} — the market's ${rate(block.market!)} ${offsetText(offsetBps)}. It moves with the market.`
+                      : 'The market rate is not available right now: this side takes no orders until it is.'}
+                </span>
+              </label>
+              <AmountField
+                id={ids.limit}
+                label={buy ? 'Never buy above (optional)' : 'Never sell below (optional)'}
+                affix="₹"
+                value={limitValue}
+                onChange={setLimit}
+                currency="INR"
+                hint={buy ? 'Your rate stops here, however high the market goes.' : 'Your rate stops here, however low the market goes.'}
+              />
+            </div>
+          ) : (
+            <AmountField id={ids.rate} label="Your rate (INR per USDT)" affix="₹" value={rateValue} onChange={setRate} currency="INR" hint="A fixed rate. Changing it withdraws any offer made at the old rate." />
+          )}
           <div className={styles.pair}>
             <AmountField id={ids.min} label="Minimum order" affix={unit} value={minOrder} onChange={setMin} currency={currency} />
             <AmountField id={ids.max} label="Maximum order" affix={unit} value={maxOrder} onChange={setMax} currency={currency} {...(block.limitMaxOrder ? { hint: `INRP2P limit ${amountIn(currency, block.limitMaxOrder)}` } : {})} />
@@ -160,19 +253,29 @@ export function BlockCard({ block, canAct }: { block: BlockView; canAct: boolean
           </fieldset>
           <label className={styles.field}>
             <span className={styles.fieldLabel}>Instant orders</span>
-            <select className={styles.input} value={firm} onChange={(e) => setFirm(Number.parseInt(e.target.value, 10))} disabled={!active}>
-              <option value={0}>{block.firmUntil ? `Keep — on until ${formatIstTime(new Date(block.firmUntil))}` : 'Off — accept each order yourself'}</option>
+            <select className={styles.input} value={firmChoice} onChange={(e) => setFirm(e.target.value as FirmChoice)} disabled={!active}>
+              <option value="keep">
+                {block.firmOpenEnded && basis === 'MARKET'
+                  ? 'Keep — on until you turn it off'
+                  : block.firmUntil
+                    ? `Keep — on until ${formatIstTime(new Date(block.firmUntil))}`
+                    : 'Off — accept each order yourself'}
+              </option>
+              {basis === 'MARKET' && !block.firmOpenEnded ? <option value="open">On until I turn it off</option> : null}
               {FIRM_CHOICES.map((h) => (
-                <option key={h} value={h}>
+                <option key={h} value={String(h)}>
                   On for {firmLabel(h)}
                 </option>
               ))}
-              {block.firmUntil ? <option value={-1}>Turn off</option> : null}
+              {block.firmUntil || block.firmOpenEnded ? <option value="off">Turn off</option> : null}
             </select>
-            <span className={styles.fieldHint}>On, INRP2P fills orders at your rate within your order size and capacity straight away, without asking you each time.</span>
+            <span className={styles.fieldHint}>
+              On, INRP2P fills orders at your rate within your order size and capacity straight away, without asking you each time.
+              {basis === 'MARKET' ? ' A rate that follows the market can stay on for as long as you are online.' : ''}
+            </span>
           </label>
           <div className={styles.formActions}>
-            <button type="submit" className={shell.secondaryAction} disabled={busy}>
+            <button type="submit" className={shell.secondaryAction} disabled={busy || (basis === 'MARKET' && offsetBps === null)}>
               Save
             </button>
             <button
@@ -203,11 +306,17 @@ export function BlockCard({ block, canAct }: { block: BlockView; canAct: boolean
             </div>
             <div>
               <dt>Your rate</dt>
-              <dd>{block.rate ? rate(block.rate) : 'Not set'}</dd>
+              <dd>{block.rate ? rate(block.rate) : block.rateBasis === 'MARKET' ? 'Waiting for the market rate' : 'Not set'}</dd>
+              {block.rateBasis === 'MARKET' && block.marketOffsetBps !== null ? (
+                <span className={styles.blockLimit}>
+                  Market {offsetText(block.marketOffsetBps)}
+                  {block.rateLimit ? `, never ${buy ? 'above' : 'below'} ${rate(block.rateLimit)}` : ''}
+                </span>
+              ) : null}
             </div>
             <div>
               <dt>Instant orders</dt>
-              <dd>{block.firmUntil ? `On until ${formatIstTime(new Date(block.firmUntil))}` : 'Off'}</dd>
+              <dd>{block.firmOpenEnded ? 'On until you turn it off' : block.firmUntil ? `On until ${formatIstTime(new Date(block.firmUntil))}` : 'Off'}</dd>
             </div>
             <div>
               <dt>Per order</dt>

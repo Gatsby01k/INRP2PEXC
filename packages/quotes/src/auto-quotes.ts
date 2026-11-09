@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { sql } from 'kysely';
-import { DomainError, Money, Rate, railOptions, requireUuid } from '@inrp2p/kernel';
+import { DomainError, type MarketReference, type MarketReferences, Money, NO_MARKET, Rate, railOptions, requireUuid } from '@inrp2p/kernel';
 import { type Db, type DirectionValue, type Executor, type FixedSideValue, type TraderSide, type TxContext, assertLockOrder, lockInOrder } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
 import { enqueueOutbox, type OutboxHandler } from '@inrp2p/outbox';
@@ -9,7 +9,7 @@ import type { ClientActor } from '@inrp2p/identity';
 import { assertNewBusinessOpen, newBusinessState } from '@inrp2p/trades';
 import {
   type PricedOffer, type PricingChoice, type PricingPolicy, type ReferenceRateSnapshot, acceptanceEvidence, approximateBase, choosePrice, currentPricingPolicy, freshReference,
-  publishTraderRate, recordMarketReference, sizeBand,
+  marketReferences, publishTraderRate, recordMarketReference, sizeBand,
 } from '@inrp2p/pricing';
 import {
   type BlockRead, type RiskLimits, closeOrdersForRequests, completionPpm, effectiveMaxOrder, freeCapacity, lockBlock, readBlocks, readStanding, riskFit, standingIssues, traderProgram,
@@ -26,9 +26,10 @@ import { type CreateRequestPayload, cancelSentQuoteOfRequest, closeRequest, open
 import { businessNow, hitRateLimit } from './security.ts';
 
 /**
- * Automatic prices of the INRP2P exchange (docs/adr/0025-automatic-pricing.md): a client asks, and in the same step gets a
- * firm price — or, for an amount no firm offer covers, a price request goes to several traders — or, when nothing can be
- * priced honestly, the request waits for a person exactly as before.
+ * Automatic prices of the INRP2P exchange (docs/adr/0025-automatic-pricing.md, 0028-fully-automatic-exchange.md): a client
+ * asks, and in the same step gets a firm price — or, when no firm offer prices it, a price request goes to several traders —
+ * or, when nothing can be priced honestly, the client is told so plainly and the request closes. Nobody at INRP2P prices or
+ * routes it; with automatic prices off, every request waits for a person exactly as before.
  *
  * A firm price is, in one transaction: the chosen trader's order opened and accepted on its own firm offer (or its winning
  * bid), its capacity held until the quote can no longer be accepted and a minute more; the trader's rate published as the
@@ -48,13 +49,21 @@ const HOLD_GRACE_SECONDS = 60;
 /** The acting system, as it is written into orders, quotes and audit events. */
 const SYSTEM_PRICER = 'SYSTEM:auto_price';
 
-/** Why a request was left for a person rather than priced automatically. */
+/**
+ * Why a request could not be priced automatically: prices are off (a person prices it), the market reference or the
+ * network's fees are not known, no firm offer takes the amount, none takes it at the market — or, put to traders, none bid
+ * a price that does.
+ */
 export type ManualReason = 'OFF' | 'NO_MARKET' | 'NETWORK_UNKNOWN' | 'NO_OFFER' | 'NOT_COMPETITIVE';
+export type NoPriceReason = Exclude<ManualReason, 'OFF'> | 'NO_BID';
 
 export type AutoOutcome =
   | { readonly kind: 'QUOTED'; readonly quoteId: string; readonly ref: string; readonly clientRate: string; readonly base: string; readonly clientInr: string; readonly expiresAt: string }
   | { readonly kind: 'RFQ'; readonly rfqRef: string; readonly closesAt: string }
-  | { readonly kind: 'MANUAL'; readonly reason: ManualReason };
+  /** Automatic prices are off: the request waits for a person, as before ADR 0025. */
+  | { readonly kind: 'MANUAL'; readonly reason: 'OFF' }
+  /** ADR 0028: nothing prices it honestly now — the request is closed with what the client is told. */
+  | { readonly kind: 'NO_PRICE'; readonly reason: NoPriceReason; readonly message: string };
 
 const sideFor = (direction: DirectionValue): TraderSide => (direction === 'SELL_USDT' ? 'BUY_USDT' : 'SELL_USDT');
 
@@ -85,7 +94,7 @@ async function readRequest(ctx: TxContext, requestId: string): Promise<RequestRo
 
 const requestedOf = (r: RequestRow): bigint => (r.fixed_side === 'BASE' ? r.requested_base_minor : r.requested_quote_minor)!;
 
-/** How the deal's network is paid — on GasFree out of INRP2P's margin, in TRX from its trader's network deposit (ADR 0022). */
+/** How the deal's network is paid — on GasFree in USDT, by its client (ADR 0022, 0028); in TRX from its trader's network deposit. */
 type NetworkMode = { readonly mode: 'GASFREE'; readonly terms: UsdtNetworkTerms } | { readonly mode: 'BURN'; readonly needSun: bigint; readonly minNetMarginInrMinor: bigint };
 
 async function networkMode(ctx: TxContext): Promise<NetworkMode | null> {
@@ -121,7 +130,7 @@ const roomOf = (limits: RiskLimits | null): bigint | null => {
  * and — when their deposit pays the network in TRX — can cover the deal's transfers. Whether their offer is firm, and
  * whether it takes this amount, is the pricing's to decide.
  */
-async function candidates(ctx: TxContext, request: RequestRow, network: NetworkMode, reference: ReferenceRateSnapshot): Promise<Candidate[]> {
+async function candidates(ctx: TxContext, request: RequestRow, network: NetworkMode, reference: ReferenceRateSnapshot, market: MarketReferences): Promise<Candidate[]> {
   const side = sideFor(request.direction);
   const approxInr = request.fixed_side === 'QUOTE' ? requestedOf(request) : (requestedOf(request) * reference.rate.micro) / 10_000_000_000n;
   const possibleRails = new Set(railOptions(approxInr > 0n ? approxInr : 1n).filter((o) => o.possible).map((o) => o.rail));
@@ -133,7 +142,7 @@ async function candidates(ctx: TxContext, request: RequestRow, network: NetworkM
     if (standingIssues(standing).length > 0) continue;
     const roomMinor = roomOf(reserve.limits);
     if (roomMinor === 0n) continue;
-    const block = (await readBlocks(ctx.tx, t.id)).find((b) => b.side === side);
+    const block = (await readBlocks(ctx.tx, t.id, market)).find((b) => b.side === side);
     if (!block || block.status !== 'ACTIVE') continue;
     const route = await ctx.tx.selectFrom('liquidity_route').select(['execution_mode', 'status']).where('id', '=', block.routeId).executeTakeFirstOrThrow();
     if (route.execution_mode !== 'P2P' || route.status !== 'ACTIVE') continue;
@@ -154,7 +163,12 @@ interface PriceContext {
   readonly policy: PricingPolicy;
   readonly reference: ReferenceRateSnapshot;
   readonly network: NetworkMode;
+  /** ADR 0028: the references a side at a market rate is priced on — the same reads for every trader weighed. */
+  readonly market: MarketReferences;
 }
+
+/** ADR 0028: on GasFree the client pays the deal's network, the whole allowance its escrow carries. */
+const clientNetworkOf = (network: NetworkMode): bigint => (network.mode === 'GASFREE' ? network.terms.allowanceUsdtMinor : 0n);
 
 /** The kernel's pricing over a set of offers, with this request's evidence of acceptance. */
 async function price(ctx: TxContext, pc: PriceContext, offers: readonly PricedOffer[]) {
@@ -165,6 +179,7 @@ async function price(ctx: TxContext, pc: PriceContext, offers: readonly PricedOf
     direction: pc.request.direction, fixedSide: pc.request.fixed_side, amountMinor: amount, offers, referenceMicro: pc.reference.rate.micro,
     maxPremiumBps: pc.policy.maxPremiumBps, binBps: pc.policy.binBps,
     networkAllowanceMinor: pc.network.mode === 'GASFREE' ? pc.network.terms.allowanceUsdtMinor : 0n,
+    clientNetworkMinor: clientNetworkOf(pc.network),
     minNetMarginInrMinor: pc.network.mode === 'GASFREE' ? pc.network.terms.minNetMarginInrMinor : pc.network.minNetMarginInrMinor,
     evidence,
   });
@@ -181,6 +196,8 @@ interface Placement {
   readonly offeredBy: string;
   readonly source: 'INSTANT' | 'RFQ';
   readonly rfqId: string | null;
+  /** ADR 0028: for a firm offer at a market rate, the reference and terms its rate was derived from; null otherwise. */
+  readonly market: { readonly reference: MarketReference; readonly offsetBps: number; readonly limitMicro: bigint | null } | null;
 }
 
 /**
@@ -210,15 +227,22 @@ async function placeQuote(ctx: TxContext, p: Placement): Promise<Extract<AutoOut
       trader_id: p.traderId, block_id: p.blockId, route_id: p.routeId, trade_request_id: request.id, side,
       base_minor: econ.routeBase.minor, inr_minor: econ.clientInr.minor, rate_micro: rateMicro, capacity_minor: choice.capacityMinor,
       planned_client_rate_micro: choice.clientRateMicro, offered_by: p.offeredBy,
+      rate_reference_snapshot_id: p.market?.reference.snapshotId ?? null, rate_offset_bps: p.market?.offsetBps ?? null, rate_limit_micro: p.market?.limitMicro ?? null,
       offer_expires_at: sql<Date>`inrp2p_now() + make_interval(secs => ${program.offerTtlSeconds})`,
     })
     .returning(['id', 'ref'])
     .executeTakeFirstOrThrow();
-  const facts = (await readBlocks(ctx.tx, p.traderId)).find((b) => b.id === p.blockId)!;
+  const facts = (await readBlocks(ctx.tx, p.traderId, pc.market)).find((b) => b.id === p.blockId)!;
   const block = await lockBlock(ctx, p.blockId);
   if (block.status !== 'ACTIVE') throw new DomainError('TRADER_NOT_ELIGIBLE', 'the chosen side stopped taking orders');
-  if (p.source === 'INSTANT' && (block.rate_micro !== rateMicro || !block.instant_until || block.instant_until <= now)) {
-    throw new DomainError('TRADER_ORDER_NOT_LIVE', 'the chosen firm offer changed while it was being priced');
+  if (p.source === 'INSTANT') {
+    // Under the block's lock: still firm, and still the very terms the price was made on — its own number, or the same
+    // market terms on the same reference (the database derives that rate again, IX143).
+    const firm = block.instant_open_ended || (block.instant_until !== null && block.instant_until > now);
+    const same = p.market
+      ? block.rate_basis === 'MARKET' && block.market_offset_bps === p.market.offsetBps && block.rate_limit_micro === p.market.limitMicro && facts.rateMicro === rateMicro
+      : block.rate_basis === 'FIXED' && block.rate_micro === rateMicro;
+    if (!firm || !same) throw new DomainError('TRADER_ORDER_NOT_LIVE', 'the chosen firm offer changed while it was being priced');
   }
   const offered = await ctx.tx.selectFrom('trader_order').select(({ fn }) => fn.sum<string>('capacity_minor').as('n'))
     .where('block_id', '=', block.id).where('status', '=', 'OFFERED').where('id', '<>', order.id).where('offer_expires_at', '>', sql<Date>`inrp2p_now()`).executeTakeFirst();
@@ -238,7 +262,7 @@ async function placeQuote(ctx: TxContext, p: Placement): Promise<Extract<AutoOut
       base_minor: econ.base.minor, quote_inr_minor: econ.clientInr.minor, client_rate_micro: choice.clientRateMicro, route_rate_micro: rateMicro,
       route_rate_snapshot_id: snapshot.snapshotId, route_id: p.routeId, route_value_inr_minor: econ.routeInr.minor, gross_margin_inr_minor: econ.grossMargin.minor,
       route_base_minor: econ.routeBase.minor, gross_margin_base_minor: econ.grossMarginBase.minor, network_fee_base_minor: allowance,
-      network: request.network, bank_account_id: request.bank_account_id, crypto_wallet_id: request.crypto_wallet_id,
+      client_network_base_minor: allowance, network: request.network, bank_account_id: request.bank_account_id, crypto_wallet_id: request.crypto_wallet_id,
       valid_for_seconds: AUTO_QUOTE_SECONDS, is_counter: false, negative_margin_reason: null, created_by: SYSTEM_PRICER,
     })
     .returning(['id', 'ref'])
@@ -270,6 +294,7 @@ async function placeQuote(ctx: TxContext, p: Placement): Promise<Extract<AutoOut
       ref: quote.ref, request_id: request.id, source: p.source, rfq_id: p.rfqId, order_id: order.id, trader_id: p.traderId, direction: request.direction,
       client_rate: Rate.ofMicro(choice.clientRateMicro, 'CLIENT'), trader_rate: Rate.ofMicro(rateMicro, 'ROUTE'), base: econ.base, client_inr: econ.clientInr,
       trader_base: econ.routeBase, gross_margin_usdt: econ.grossMarginBase, network_usdt: allowance === null ? null : Money.ofMinor(allowance, 'USDT'),
+      network_paid_by: allowance === null ? null : 'CLIENT', trader_rate_market: p.market ? { reference_snapshot_id: p.market.reference.snapshotId, offset_bps: p.market.offsetBps } : null,
       net_margin_usdt: Money.ofMinor(choice.netMarginMinor, 'USDT'), min_net_margin_usdt: Money.ofMinor(choice.minNetMarginMinor, 'USDT'),
       reference: { snapshot_id: pc.reference.id, rate: pc.reference.rate, age_seconds: pc.reference.ageSeconds }, cap_rate: Rate.ofMicro(choice.capRateMicro, 'CLIENT'),
       position_bps: choice.positionBps, acceptance_ppm: choice.acceptancePpm.toString(), completion_ppm: choice.offer.completionPpm.toString(),
@@ -310,7 +335,8 @@ export async function autoPriceLockedInTx(ctx: TxContext, input: { requestId: st
   if (!policy.autoQuote) manual = 'OFF';
   else if (!(reference = await freshReference(ctx.tx, request.direction, policy))) manual = 'NO_MARKET';
   else if (!(network = await networkMode(ctx))) manual = 'NETWORK_UNKNOWN';
-  const peek = manual ? [] : await candidates(ctx, request, network!, reference!);
+  const market = manual ? NO_MARKET : await marketReferences(ctx.tx, policy);
+  const peek = manual ? [] : await candidates(ctx, request, network!, reference!, market);
 
   // Every trader whose order closes here, and every trader the price may go to, locked at once, before any order.
   const stale = await ctx.tx.selectFrom('trader_order').select('trader_id').where('trade_request_id', 'in', [request.id, ...supersede]).where('status', 'in', ['OFFERED', 'ACCEPTED']).execute();
@@ -322,35 +348,88 @@ export async function autoPriceLockedInTx(ctx: TxContext, input: { requestId: st
     await closeRequest(ctx.tx, id, 'WITHDRAWN', 'replaced by a new price', old.version);
     await appendAudit(ctx, { action: 'request.withdrawn', entityType: 'trade_request', entityId: id, before: { status: old.status }, after: { status: 'WITHDRAWN', reason: 'replaced by a new price', by: 'CLIENT' } });
   }
-  if (manual) return leaveForDesk(ctx, request, manual);
+  // With prices off a person prices it, as before; with them on, nothing waits for a person (ADR 0028).
+  if (manual === 'OFF') return { kind: 'MANUAL', reason: 'OFF' };
+  if (manual) return closeUnpriced(ctx, request, manual, NO_PRICE_TEXT[manual], false);
 
   // Under the locks, the candidates as they are now.
-  const pc: PriceContext = { request, policy, reference: reference!, network: network! };
-  const locked = await candidates(ctx, request, network!, reference!);
+  const pc: PriceContext = { request, policy, reference: reference!, network: network!, market };
+  const locked = await candidates(ctx, request, network!, reference!, market);
   const completion = await completionOf(ctx, policy);
   const offers = locked.map((c) => firmOffer(c, completion(c.traderId))).filter((o): o is PricedOffer => o !== null);
   const outcome = await price(ctx, pc, offers);
   if (outcome.kind === 'PRICED') {
     const chosen = locked.find((c) => c.traderId === outcome.choice.offer.id)!;
+    const b = chosen.block;
     return placeQuote(ctx, {
-      pc, choice: outcome.choice, traderId: chosen.traderId, blockId: chosen.block.id, routeId: chosen.block.routeId,
-      committedBy: chosen.block.instantSetBy!, offeredBy: SYSTEM_PRICER, source: 'INSTANT', rfqId: null,
+      pc, choice: outcome.choice, traderId: chosen.traderId, blockId: b.id, routeId: b.routeId,
+      committedBy: b.instantSetBy!, offeredBy: SYSTEM_PRICER, source: 'INSTANT', rfqId: null,
+      market: b.rateBasis === 'MARKET' && b.market ? { reference: b.market, offsetBps: b.marketOffsetBps!, limitMicro: b.rateLimitMicro } : null,
     });
   }
-  // Nobody's firm offer takes this amount: when price requests are on, the traders who could are asked.
-  if (outcome.reason === 'NO_OFFER' && policy.rfq) {
+  // No firm offer prices it — none takes the amount, or none takes it at the market: when price requests are on, the
+  // traders who could fill it are asked for their best rate, the ones whose firm offer fell short included.
+  if (policy.rfq) {
     const opened = await openRfqInTx(ctx, pc, locked.map((c) => ({ ...c, completionPpm: completion(c.traderId) })));
     if (opened) return opened;
   }
-  return leaveForDesk(ctx, request, outcome.reason);
+  return closeUnpriced(ctx, request, outcome.reason, outcome.reason === 'NO_OFFER' ? sizeText(pc, offers) : NO_PRICE_TEXT.NOT_COMPETITIVE, false);
 }
 
-/** Nothing could be priced honestly: the request stays open for a person, and the record says why. */
-async function leaveForDesk(ctx: TxContext, request: RequestRow, reason: ManualReason): Promise<AutoOutcome> {
-  if (reason !== 'OFF') {
-    await appendAudit(ctx, { action: 'quote.auto_price_skipped', entityType: 'trade_request', entityId: request.id, after: { ref: request.ref, reason } });
+/** What the client is told when there is no price, in plain words: what happened, and what it can do. */
+const NO_PRICE_TEXT: Readonly<Record<NoPriceReason, string>> = Object.freeze({
+  NO_MARKET: 'Prices are paused for a moment while the market rate updates. Ask again in a few minutes.',
+  NETWORK_UNKNOWN: 'Prices are paused for a moment while the network fees update. Ask again in a few minutes.',
+  NO_OFFER: 'No trader can take this amount right now. Ask again in a few minutes, or try another amount.',
+  NOT_COMPETITIVE: 'No trader can match the market rate for this amount right now. Ask again in a few minutes.',
+  NO_BID: 'No trader priced this amount in time. Ask again in a few minutes, or try another amount.',
+});
+
+/**
+ * For an amount no firm offer takes: the amounts the firm offers do take now, in whole USDT at the market reference — what
+ * the client can ask for instead. Said as "about": the client's own USDT moves with its price and the deal's network.
+ */
+function sizeText(pc: PriceContext, offers: readonly PricedOffer[]): string {
+  if (offers.length === 0) return NO_PRICE_TEXT.NO_OFFER;
+  const inr = pc.request.direction === 'SELL_USDT';
+  const usdt = (m: bigint): bigint => (inr ? (m * 10_000_000_000n) / pc.reference.rate.micro : m);
+  let lo: bigint | null = null;
+  let hi = 0n;
+  for (const o of offers) {
+    let top = o.freeMinor;
+    if (o.maxMinor !== null && o.maxMinor < top) top = o.maxMinor;
+    let topUsdt = usdt(top);
+    if (o.maxBaseMinor !== undefined && o.maxBaseMinor !== null && o.maxBaseMinor < topUsdt) topUsdt = o.maxBaseMinor;
+    const bottom = o.minMinor === null ? 0n : usdt(o.minMinor);
+    if (topUsdt <= bottom) continue;
+    if (lo === null || bottom < lo) lo = bottom;
+    if (topUsdt > hi) hi = topUsdt;
   }
-  return { kind: 'MANUAL', reason };
+  const whole = (m: bigint, up: boolean) => ((m + (up ? 999_999n : 0n)) / 1_000_000n).toString();
+  if (lo === null || hi === 0n) return NO_PRICE_TEXT.NO_OFFER;
+  return `No trader can take this amount right now. A firm price is available for about ${whole(lo, true)} to ${whole(hi, false)} USDT — ask for an amount in that range.`;
+}
+
+/**
+ * ADR 0028: nothing prices the request honestly now. It closes — declined, with what the client is told as its reason — so
+ * nobody at INRP2P has it waiting on them; the record says why. The client is told on the screen it asked from, and, when it
+ * was waiting on traders, in its inbox too.
+ */
+async function closeUnpriced(ctx: TxContext, request: RequestRow, reason: NoPriceReason, message: string, notify: boolean): Promise<AutoOutcome> {
+  const current = await ctx.tx.selectFrom('trade_request').select(['status', 'version']).where('id', '=', request.id).executeTakeFirstOrThrow();
+  await ctx.tx.updateTable('trade_request')
+    .set({ status: 'DECLINED', status_reason: message, no_price_reason: reason, closed_at: sql<Date>`inrp2p_now()`, last_activity_at: sql<Date>`inrp2p_now()`, version: current.version + 1 })
+    .where('id', '=', request.id)
+    .execute();
+  await appendAudit(ctx, { action: 'quote.auto_price_skipped', entityType: 'trade_request', entityId: request.id, after: { ref: request.ref, reason } });
+  await appendAudit(ctx, {
+    action: 'request.declined', entityType: 'trade_request', entityId: request.id,
+    before: { status: current.status }, after: { status: 'DECLINED', reason: message, by: SYSTEM_PRICER, no_price: reason },
+  });
+  if (notify) {
+    await enqueueOutbox(ctx, { type: 'client.request_declined', aggregateType: 'trade_request', aggregateId: request.id, payload: { requestId: request.id, clientId: request.client_id } });
+  }
+  return { kind: 'NO_PRICE', reason, message };
 }
 
 // ---- price requests to several traders --------------------------------------------------------------------------------
@@ -403,7 +482,8 @@ export type AwardResult = 'NOT_DUE' | 'AWARDED' | 'NO_PRICE' | 'CANCELLED' | 'CL
  * highest expected net margin, priced exactly as a firm offer would be (the bid's rate, INRP2P's ceilings and the trader's
  * free capacity; the market bound and the minimum net margin). The winner's order is opened and accepted on its bid and the
  * client gets a firm price for `AUTO_QUOTE_SECONDS`; the others are told they lost. With no bid that prices honestly the
- * request goes to a person; with the request gone or taken by a person, the price request is cancelled.
+ * request closes with a plain answer to the client (ADR 0028); with the request gone or taken by a person, the price
+ * request is cancelled.
  */
 export async function awardRfqInTx(ctx: TxContext, rfqId: string): Promise<AwardResult> {
   const head = await ctx.tx.selectFrom('rfq').select(['trade_request_id']).where('id', '=', requireUuid(rfqId, 'rfqId')).executeTakeFirst();
@@ -427,11 +507,15 @@ export async function awardRfqInTx(ctx: TxContext, rfqId: string): Promise<Award
   const policy = await currentPricingPolicy(ctx.tx);
   const reference = await freshReference(ctx.tx, request.direction, policy);
   const network = reference ? await networkMode(ctx) : null;
-  if (!reference || !network || bids.length === 0) return noPrice(ctx, rfq.id, request, bids.length === 0 ? 'no trader bid' : 'nothing to bound the price by');
+  if (!reference || !network || bids.length === 0) {
+    return noPrice(ctx, rfq.id, request, bids.length === 0 ? 'no trader bid' : 'nothing to bound the price by', !reference ? 'NO_MARKET' : !network ? 'NETWORK_UNKNOWN' : 'NO_BID');
+  }
 
   await lockInOrder(ctx.tx, 'trader_profile', 'trader_profile', bids.map((b) => b.trader_id));
-  const pc: PriceContext = { request, policy, reference, network };
-  const able = new Map((await candidates(ctx, request, network, reference)).map((c) => [c.traderId, c]));
+  // A bid is its own rate; the references only say whether its side is in standing as everywhere else.
+  const market = await marketReferences(ctx.tx, policy);
+  const pc: PriceContext = { request, policy, reference, network, market };
+  const able = new Map((await candidates(ctx, request, network, reference, market)).map((c) => [c.traderId, c]));
   const completion = await completionOf(ctx, policy);
   const offers: PricedOffer[] = [];
   for (const bid of bids) {
@@ -444,20 +528,28 @@ export async function awardRfqInTx(ctx: TxContext, rfqId: string): Promise<Award
     });
   }
   const outcome = await price(ctx, pc, offers);
-  if (outcome.kind !== 'PRICED') return noPrice(ctx, rfq.id, request, outcome.reason === 'NO_OFFER' ? 'no bid can take the amount' : 'no bid prices within the market');
+  if (outcome.kind !== 'PRICED') return noPrice(ctx, rfq.id, request, outcome.reason === 'NO_OFFER' ? 'no bid can take the amount' : 'no bid prices within the market', 'NO_BID');
   const chosen = able.get(outcome.choice.offer.id)!;
   const winner = bids.find((b) => b.trader_id === chosen.traderId)!;
   const quoted = await placeQuote(ctx, {
     pc, choice: outcome.choice, traderId: chosen.traderId, blockId: chosen.block.id, routeId: chosen.block.routeId,
-    committedBy: winner.placed_by, offeredBy: `RFQ:${rfq.ref}`, source: 'RFQ', rfqId: rfq.id,
+    committedBy: winner.placed_by, offeredBy: `RFQ:${rfq.ref}`, source: 'RFQ', rfqId: rfq.id, market: null,
   });
   await closeRfq(ctx, rfq.id, 'AWARDED', `priced as ${quoted.ref}`, winner.id);
   return 'AWARDED';
 }
 
-async function noPrice(ctx: TxContext, rfqId: string, request: RequestRow, note: string): Promise<AwardResult> {
+/**
+ * A price request that ends without a price. With automatic prices on, the request closes and the client is told (ADR
+ * 0028); switched off meanwhile, it goes to a person as every request then does.
+ */
+async function noPrice(ctx: TxContext, rfqId: string, request: RequestRow, note: string, reason: NoPriceReason): Promise<AwardResult> {
   await closeRfq(ctx, rfqId, 'NO_PRICE', note, null);
-  await enqueueOutbox(ctx, { type: 'desk.request_needs_action', aggregateType: 'trade_request', aggregateId: request.id, payload: { requestId: request.id } });
+  if ((await currentPricingPolicy(ctx.tx)).autoQuote) {
+    await closeUnpriced(ctx, request, reason, NO_PRICE_TEXT[reason], true);
+  } else {
+    await enqueueOutbox(ctx, { type: 'desk.request_needs_action', aggregateType: 'trade_request', aggregateId: request.id, payload: { requestId: request.id } });
+  }
   return 'NO_PRICE';
 }
 
@@ -476,8 +568,8 @@ async function awardStep(db: Db, rfqId: string, key: string): Promise<AwardResul
 }
 
 /**
- * A price request the award refused outright (the winner's side changed under it, say) goes to a person rather than being
- * tried again every minute in front of the others.
+ * A price request the award refused outright (the winner's side changed under it, say) ends without a price rather than
+ * being tried again every minute in front of the others.
  */
 async function giveUpStep(db: Db, rfqId: string, reason: string): Promise<void> {
   const key = randomUUID();
@@ -489,7 +581,7 @@ async function giveUpStep(db: Db, rfqId: string, reason: string): Promise<void> 
       assertLockOrder(ctx.tx, 'rfq');
       const rfq = await ctx.tx.selectFrom('rfq').select(['id', 'status']).where('id', '=', rfqId).forUpdate().executeTakeFirstOrThrow();
       if (rfq.status !== 'OPEN') return;
-      await noPrice(ctx, rfq.id, await readRequest(ctx, head.trade_request_id), `could not be awarded: ${reason}`);
+      await noPrice(ctx, rfq.id, await readRequest(ctx, head.trade_request_id), `could not be awarded: ${reason}`, 'NO_BID');
     },
   }, { name: 'rfq.give_up', actor: SYSTEM, payload: { rfqId, run: key }, idempotencyKey: key, financial: true });
 }
@@ -580,7 +672,8 @@ export interface InstantQuoteResult {
  * `request.instant_quote` — a client of the INRP2P exchange asks for a price. With automatic prices off this is
  * `request.create` exactly. With them on, the client's earlier open requests are replaced (their quotes cancelled and their
  * traders' capacity given back) — one live price per client, so nobody holds liquidity by asking repeatedly — and the new
- * request is priced at once: a firm quote, a price request to traders, or a request a person prices.
+ * request is priced at once: a firm quote, a price request to traders, or — nothing pricing it honestly — a plain answer
+ * and the request closed (ADR 0028).
  */
 export function requestInstantQuote(actor: ClientActor, deps: QuoteDeps) {
   return memberClientCommand(actor, async (ctx, p: InstantQuotePayload, clientId): Promise<InstantQuoteResult> => {

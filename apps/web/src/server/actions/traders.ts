@@ -69,10 +69,11 @@ export async function setAvailabilityAction(input: { available: boolean }, key: 
 export async function updateBlockAction(
   input: {
     side: TraderSide; expectedVersion: number; capacity?: string; rate?: string; minOrder?: string; maxOrder?: string; status?: 'ACTIVE' | 'PAUSED';
-    firmHours?: number; rails?: readonly ('UPI' | 'IMPS' | 'NEFT' | 'RTGS')[];
+    rateBasis?: 'FIXED' | 'MARKET'; marketOffsetBps?: number; rateLimit?: string | null;
+    firmHours?: number; firmOpenEnded?: boolean; rails?: readonly ('UPI' | 'IMPS' | 'NEFT' | 'RTGS')[];
   },
   key: string,
-): Promise<CommandResult<{ version: number; offersWithdrawn: number; firmUntil: string | null }>> {
+): Promise<CommandResult<{ version: number; offersWithdrawn: number; firmUntil: string | null; firmOpenEnded: boolean }>> {
   return run('trader.update_block', (ctx) => updateBlock(ctx.actor), input, key);
 }
 

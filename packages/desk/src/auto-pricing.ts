@@ -33,7 +33,9 @@ export interface AutoPricingView {
     readonly rfqOpened: number;
     readonly rfqAwarded: number;
     readonly rfqNoPrice: number;
-    readonly leftForDesk: number;
+    /** ADR 0028: requests nothing priced honestly, closed with a plain answer to the client — by why. */
+    readonly unpriced: number;
+    readonly unpricedBy: Readonly<Partial<Record<'NO_MARKET' | 'NETWORK_UNKNOWN' | 'NO_OFFER' | 'NOT_COMPETITIVE' | 'NO_BID', number>>>;
   };
 }
 
@@ -47,16 +49,18 @@ export async function autoPricingView(ex: Executor): Promise<AutoPricingView> {
       fresh: r !== null && r.ageSeconds <= policy.referenceMaxAgeSeconds,
     });
   }
-  const day = await sql<{ quoted: number; accepted: number; from_rfq: number; net: string; rfq_opened: number; rfq_awarded: number; rfq_no_price: number; skipped: number }>`
+  const day = await sql<{ quoted: number; accepted: number; from_rfq: number; net: string; rfq_opened: number; rfq_awarded: number; rfq_no_price: number }>`
     select (select count(*) from auto_quote a where a.created_at >= inrp2p_now() - interval '1 day')::int as quoted,
            (select count(*) from auto_quote a join quote q on q.id = a.quote_id where a.created_at >= inrp2p_now() - interval '1 day' and q.status = 'ACCEPTED')::int as accepted,
            (select count(*) from auto_quote a where a.created_at >= inrp2p_now() - interval '1 day' and a.source = 'RFQ')::int as from_rfq,
            (select coalesce(sum(a.net_margin_usdt_minor), 0) from auto_quote a join quote q on q.id = a.quote_id where a.created_at >= inrp2p_now() - interval '1 day' and q.status = 'ACCEPTED')::text as net,
            (select count(*) from rfq where opened_at >= inrp2p_now() - interval '1 day')::int as rfq_opened,
            (select count(*) from rfq where opened_at >= inrp2p_now() - interval '1 day' and status = 'AWARDED')::int as rfq_awarded,
-           (select count(*) from rfq where opened_at >= inrp2p_now() - interval '1 day' and status = 'NO_PRICE')::int as rfq_no_price,
-           (select count(*) from audit_event where action = 'quote.auto_price_skipped' and at >= inrp2p_now() - interval '1 day')::int as skipped`.execute(ex);
+           (select count(*) from rfq where opened_at >= inrp2p_now() - interval '1 day' and status = 'NO_PRICE')::int as rfq_no_price`.execute(ex);
   const d = day.rows[0]!;
+  const unpriced = await sql<{ reason: 'NO_MARKET' | 'NETWORK_UNKNOWN' | 'NO_OFFER' | 'NOT_COMPETITIVE' | 'NO_BID'; n: number }>`
+    select no_price_reason as reason, count(*)::int as n from trade_request
+     where no_price_reason is not null and closed_at >= inrp2p_now() - interval '1 day' group by no_price_reason`.execute(ex);
   // Who set the policy, as a person reads it: the operator's name or email; a system actor as it is written.
   const setter = await ex.selectFrom('auth_user').select(['name', 'email']).where('id', '=', policy.setBy).executeTakeFirst().catch(() => undefined);
   return {
@@ -67,7 +71,8 @@ export async function autoPricingView(ex: Executor): Promise<AutoPricingView> {
     references,
     lastDay: {
       quoted: d.quoted, accepted: d.accepted, fromRfq: d.from_rfq, acceptedNetUsdt: Money.ofMinor(BigInt(d.net), 'USDT').toDecimalString(),
-      rfqOpened: d.rfq_opened, rfqAwarded: d.rfq_awarded, rfqNoPrice: d.rfq_no_price, leftForDesk: d.skipped,
+      rfqOpened: d.rfq_opened, rfqAwarded: d.rfq_awarded, rfqNoPrice: d.rfq_no_price,
+      unpriced: unpriced.rows.reduce((sum, r) => sum + r.n, 0), unpricedBy: Object.fromEntries(unpriced.rows.map((r) => [r.reason, r.n])),
     },
   };
 }

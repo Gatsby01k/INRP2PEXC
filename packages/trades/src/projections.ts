@@ -16,6 +16,8 @@ export interface ClientTradeView {
   readonly openedAt: string;
   /** SELL only: the trade's unique deposit address and the exact amount to send (D-02). */
   readonly depositInstructions: { readonly address: string; readonly amount: string; readonly network: 'TRON' } | null;
+  /** ADR 0028: the network the client pays as its own line — on top when buying, out of what it sends when selling. */
+  readonly networkFee: { readonly amount: string; readonly currency: 'USDT' } | null;
 }
 
 export async function getClientTradeView(ex: Executor, tradeId: string, clientId: string): Promise<ClientTradeView> {
@@ -24,7 +26,7 @@ export async function getClientTradeView(ex: Executor, tradeId: string, clientId
     .innerJoin('trade_economics as e', 'e.trade_id', 't.id')
     .leftJoin('deposit_assignment as a', 'a.trade_id', 't.id')
     .leftJoin('deposit_address as d', 'd.id', 'a.deposit_address_id')
-    .select(['t.ref', 't.direction', 't.lifecycle_state', 't.opened_at', 't.client_id', 'e.base_minor', 'e.quote_inr_minor', 'e.client_rate_micro', 'e.network', 'd.address', 'a.expected_amount_minor'])
+    .select(['t.ref', 't.direction', 't.lifecycle_state', 't.opened_at', 't.client_id', 'e.base_minor', 'e.quote_inr_minor', 'e.client_rate_micro', 'e.network', 'e.client_network_base_minor', 'd.address', 'a.expected_amount_minor'])
     .where('t.id', '=', requireUuid(tradeId, 'tradeId'))
     .executeTakeFirst();
   if (!row || row.client_id !== clientId) throw new DomainError('NOT_FOUND', 'trade not found');
@@ -33,7 +35,7 @@ export async function getClientTradeView(ex: Executor, tradeId: string, clientId
 
 export function toClientTradeView(row: {
   ref: string; direction: 'SELL_USDT' | 'BUY_USDT'; lifecycle_state: ClientTradeView['status']; opened_at: Date; base_minor: bigint; quote_inr_minor: bigint;
-  client_rate_micro: bigint; network: 'TRON'; address: string | null; expected_amount_minor: bigint | null;
+  client_rate_micro: bigint; network: 'TRON'; address: string | null; expected_amount_minor: bigint | null; client_network_base_minor?: bigint | null;
 }): ClientTradeView {
   return {
     ref: row.ref,
@@ -47,5 +49,6 @@ export function toClientTradeView(row: {
     depositInstructions: row.direction === 'SELL_USDT' && row.address && row.expected_amount_minor !== null
       ? { address: row.address, amount: Money.ofMinor(row.expected_amount_minor, 'USDT').toDecimalString(), network: row.network }
       : null,
+    networkFee: row.client_network_base_minor === null || row.client_network_base_minor === undefined ? null : Money.ofMinor(row.client_network_base_minor, 'USDT').toJSON(),
   };
 }

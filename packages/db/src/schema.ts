@@ -473,6 +473,9 @@ export interface RateLimitCounterTable {
 export type RequestStatus = 'OPEN' | 'QUOTED' | 'ACCEPTED' | 'DECLINED' | 'WITHDRAWN' | 'EXPIRED';
 export type FixedSideValue = 'BASE' | 'QUOTE';
 
+/** Migration 0047: why automatic pricing could not price a request honestly, and closed it. */
+export type NoPriceReasonValue = 'NO_MARKET' | 'NETWORK_UNKNOWN' | 'NO_OFFER' | 'NOT_COMPETITIVE' | 'NO_BID';
+
 export interface TradeRequestTable {
   id: Generated<string>;
   ref: Generated<string>;
@@ -493,6 +496,8 @@ export interface TradeRequestTable {
   channel: 'CLIENT_APP' | 'OPERATOR' | 'LINK';
   status: Generated<RequestStatus>;
   status_reason: string | null;
+  /** Migration 0047 (ADR 0028): why the system closed it unpriced — never set on a request a person declined. */
+  no_price_reason: Generated<NoPriceReasonValue | null>;
   assigned_dealer_id: string | null;
   created_by: string;
   created_at: Generated<Date>;
@@ -530,6 +535,8 @@ export interface QuoteTable {
   platform_fee_base_minor: bigint | null;
   /** ADR 0022: the USDT of the deal's network allowance its escrow carries (part of the gross USDT margin); null when priced in TRX. */
   network_fee_base_minor: Generated<bigint | null>;
+  /** ADR 0028: the network the client pays as a line of its own — the whole allowance on INRP2P's own deal; null otherwise. */
+  client_network_base_minor: Generated<bigint | null>;
   valid_for_seconds: number;
   sent_at: Date | null;
   expires_at: Date | null;
@@ -644,6 +651,8 @@ export interface TradeEconomicsTable {
   platform_fee_base_minor: bigint | null;
   /** ADR 0022: the network allowance the escrow carries, frozen from its quote. */
   network_fee_base_minor: Generated<bigint | null>;
+  /** ADR 0028: the network the client paid as its own line, frozen from its quote. */
+  client_network_base_minor: Generated<bigint | null>;
   fees_json: Generated<Json>;
   network: 'TRON';
   bank_account_id: string | null;
@@ -1284,6 +1293,9 @@ export type AutoReviewFlag =
   | 'REJECTED_BEFORE'
   | 'ORDERS_OPEN';
 
+/** Migration 0047: a trader's rate is its own number, or set against the market (ADR 0028). */
+export type RateBasis = 'FIXED' | 'MARKET';
+
 export interface TraderBlockTable {
   id: Generated<string>;
   trader_id: string;
@@ -1303,6 +1315,15 @@ export interface TraderBlockTable {
   instant_set_by: string | null;
   /** Migration 0045: the INR rails this side pays or is paid by. */
   rails: Generated<InrRailValue[]>;
+  /**
+   * Migration 0047 (ADR 0028): whether the rate is the trader's own number or set against the market — the confirmed
+   * reference of the deals the side fills, moved by `market_offset_bps`, held at `rate_limit_micro` (a side selling USDT
+   * never sells below it, one buying never buys above it). A market rate's firm offer may last until it is turned off.
+   */
+  rate_basis: Generated<RateBasis>;
+  market_offset_bps: number | null;
+  rate_limit_micro: bigint | null;
+  instant_open_ended: Generated<boolean>;
 }
 
 export interface TraderOrderTable {
@@ -1318,6 +1339,10 @@ export interface TraderOrderTable {
   rate_micro: bigint;
   capacity_minor: bigint;
   planned_client_rate_micro: bigint | null;
+  /** Migration 0047 (ADR 0028): the market reference and the terms an order at a market rate was derived from (IX143). */
+  rate_reference_snapshot_id: Generated<string | null>;
+  rate_offset_bps: Generated<number | null>;
+  rate_limit_micro: Generated<bigint | null>;
   status: Generated<TraderOrderStatus>;
   offered_by: string;
   offered_at: Generated<Date>;

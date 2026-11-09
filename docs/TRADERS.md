@@ -194,10 +194,14 @@ the USDT follows from it, and the quote must use that same rate.
 
 ## 6. Pricing
 
-The trader sets a **fixed rate** per side. Each change publishes a `rate_snapshot` with source `TRADER` on its
-route; the desk cannot publish a rate on a trader route and a trader rate cannot land on a desk route (IX076).
-Changing a rate withdraws unanswered offers made at the old rate. There is no reference-plus-adjustment pricing
-and no market feed in V1. The client's rate and the exchange's margin are never shown to the trader.
+The trader sets each side's rate as a **fixed rate**, or **against the market** (ADR 0028): an offset in basis points
+from the confirmed reference of the deals the side fills — the bid for Buy USDT, the ask for Sell USDT (ADR 0025 §2.6) —
+within ±10%, never past the trader's own bound (`rateBasis`, `marketOffsetBps`, `rateLimit`). A market rate is known only
+while the reference is fresh enough to price on; without it the side is offered nothing. Each change of a fixed rate
+publishes a `rate_snapshot` with source `TRADER` on its route; an order at a market rate records the reference and terms
+it was derived from (IX143), and its acceptance publishes its rate. The desk cannot publish a rate on a trader route and a
+trader rate cannot land on a desk route (IX076). Changing a side's rate terms withdraws unanswered offers made on the old
+ones. The client's rate and the exchange's margin are never shown to the trader.
 
 ## 7. Settlement per side
 
@@ -295,12 +299,13 @@ now live in `@inrp2p/trader-core`, where a desk deal checks them.
 
 ## 8c. Firm offers and price requests (ADR 0025)
 
-A side's offer can be made **firm** for 1 hour to 7 days (`trader.update_block` `firmHours`): INRP2P then fills orders at
-its rate, within its order size and capacity, without asking — the order is opened and accepted at once when a client
-accepts an automatic price built on it. A side names the INR rails it pays or is paid by (`rails`). An amount no firm offer
-covers can be put to a few traders as a **price request** (`rfq`): the trader sees the side, the amount and when it closes,
-and bids one rate (`rfq.bid`, `priceAsksFor`); the best price becomes the client's firm price and only then holds capacity.
-The choice weighs the trader's completion record (`traderRecords`, `completionPpm`).
+A side's offer can be made **firm** for 1 hour to 7 days (`trader.update_block` `firmHours`) — or, on a market rate, until
+the trader turns it off (`firmOpenEnded`, ADR 0028): INRP2P then fills orders at its rate, within its order size and
+capacity, without asking — the order is opened and accepted at once when a client accepts an automatic price built on it.
+A side names the INR rails it pays or is paid by (`rails`). An amount no firm offer prices — none takes it, or none at the
+market — can be put to a few traders as a **price request** (`rfq`): the trader sees the side, the amount and when it
+closes, and bids one rate (`rfq.bid`, `priceAsksFor`); the best price becomes the client's firm price and only then holds
+capacity. The choice weighs the trader's completion record (`traderRecords`, `completionPpm`).
 
 ## 9. Rewards
 

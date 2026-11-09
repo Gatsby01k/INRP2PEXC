@@ -248,6 +248,14 @@ the market reference (two Indian books agreeing), never below the minimum net ma
 priced on without being asked; amounts no firm offer covers go to several traders as a price request. Off until the owner
 switches it on; desks and their fees unchanged; anything that cannot be priced honestly waits for a person.
 
+## D-26 — The fully automatic INRP2P exchange — Resolved (owner, 2026-11-09; ADR 0028)
+
+Traders may set a side's rate against the market — an offset from the confirmed bid or ask, never past their own bound — and
+leave it firm until they turn it off. The client pays the deal's network as its own line on every INRP2P deal priced in
+USDT (the owner's choice over carrying it out of INRP2P's margin), so any size is priced at the market's rate. A request no
+firm offer prices goes to traders as a price request; anything still unpriced closes with a plain answer. With automatic
+prices on, nobody at INRP2P prices or routes a deal; desks unchanged.
+
 ## D-25 — P2P only: the old settlement models are removed — Resolved (owner, 2026-11-05; ADR 0027)
 
 INR accounts, payments through the exchange, operator-recorded payouts, direct payouts and trader rewards are deleted. TRX mode stays as the fallback for GasFree. Their tables go with migration 46.

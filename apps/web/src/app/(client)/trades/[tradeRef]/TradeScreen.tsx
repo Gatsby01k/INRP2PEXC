@@ -245,6 +245,12 @@ export function TradeScreen({ view, justOpened = false }: { view: PortalTrade; j
               <span className={styles.amountLabel}>Rate</span>
               <Amount className={styles.rateFigure} value={rate} />
             </div>
+            {trade.networkFee ? (
+              <div className={`${styles.amount} ${styles.amountRate}`}>
+                <span className={styles.amountLabel}>Network fee</span>
+                <Amount className={styles.rateFigure} value={formatUsdtHeadline(Money.parse(trade.networkFee.amount, 'USDT'))} />
+              </div>
+            ) : null}
           </div>
           </div>
 

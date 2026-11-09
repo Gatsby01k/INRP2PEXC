@@ -141,7 +141,12 @@ export function RequestForm({ view, draft, who }: { view: ExchangeView; draft?: 
           void submit();
         }}
       >
-        {request?.status === 'DECLINED' ? (
+        {request?.status === 'DECLINED' && request.noPrice ? (
+          <p className={shell.info} data-tone="warning" role="status">
+            <InfoIcon className={shell.infoIcon} />
+            <span>{request.statusReason ?? 'No price for that right now. Ask again in a few minutes.'}</span>
+          </p>
+        ) : request?.status === 'DECLINED' ? (
           <p className={shell.info} data-tone="warning" role="status">
             <InfoIcon className={shell.infoIcon} />
             <span>

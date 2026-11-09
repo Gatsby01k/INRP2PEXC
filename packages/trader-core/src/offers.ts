@@ -48,13 +48,36 @@ export interface OrderRow {
   readonly route_obligation_id: string | null;
   readonly delivered_at: Date | null;
   readonly planned_client_rate_micro: bigint | null;
+  /** ADR 0028: for an order at a market rate, the reference and the terms its rate was derived from (IX143). */
+  readonly rate_reference_snapshot_id: string | null;
+  readonly rate_offset_bps: number | null;
+  readonly rate_limit_micro: bigint | null;
   readonly version: number;
 }
 
 const ORDER_COLUMNS = [
   'id', 'ref', 'trader_id', 'block_id', 'route_id', 'trade_request_id', 'side', 'base_minor', 'inr_minor', 'rate_micro', 'capacity_minor', 'status',
-  'offer_expires_at', 'hold_until', 'route_rate_snapshot_id', 'trade_id', 'route_obligation_id', 'delivered_at', 'planned_client_rate_micro', 'version',
+  'offer_expires_at', 'hold_until', 'route_rate_snapshot_id', 'trade_id', 'route_obligation_id', 'delivered_at', 'planned_client_rate_micro',
+  'rate_reference_snapshot_id', 'rate_offset_bps', 'rate_limit_micro', 'version',
 ] as const;
+
+/** A side's rate terms, as the block row holds them. */
+export interface RateTerms {
+  readonly rate_basis: 'FIXED' | 'MARKET';
+  readonly rate_micro: bigint | null;
+  readonly market_offset_bps: number | null;
+  readonly rate_limit_micro: bigint | null;
+}
+
+/**
+ * ADR 0028: whether a side still stands behind the rate an offer was made at — its own number unchanged, or the very market
+ * terms the offer's rate was derived from. A market rate moves with the market; the offer keeps the rate it names, and
+ * that is the rate the trader accepts. Changing the terms withdraws the offers made on the old ones (`RATE_CHANGED`).
+ */
+export function standsBehind(block: RateTerms, order: Pick<OrderRow, 'rate_micro' | 'rate_reference_snapshot_id' | 'rate_offset_bps' | 'rate_limit_micro'>): boolean {
+  if (order.rate_reference_snapshot_id === null) return block.rate_basis === 'FIXED' && block.rate_micro === order.rate_micro;
+  return block.rate_basis === 'MARKET' && block.market_offset_bps === order.rate_offset_bps && block.rate_limit_micro === order.rate_limit_micro;
+}
 
 /** One order `FOR UPDATE`, in the global lock order. */
 export async function lockOrder(ctx: TxContext, orderId: string): Promise<OrderRow> {

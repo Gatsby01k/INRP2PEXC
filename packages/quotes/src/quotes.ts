@@ -60,11 +60,13 @@ export function createQuote(actor: OperatorActor, deps: Pick<QuoteDeps, 'policy'
     const amount = p.amount !== undefined
       ? (fixedSide === 'BASE' ? Money.parse(p.amount, 'USDT') : Money.parse(p.amount, 'INR'))
       : (request.fixed_side === 'BASE' ? Money.ofMinor(request.requested_base_minor!, 'USDT') : Money.ofMinor(request.requested_quote_minor!, 'INR'));
-    // ADR 0019: the rupees are one amount between client and trader, and the exchange keeps USDT.
+    // ADR 0019: the rupees are one amount between client and trader, and the exchange keeps USDT. ADR 0028: on GasFree the
+    // client's rupees also pay the deal's network, as a line of its own — the order was sized with it.
+    const gasFree = (await networkFeePolicy(ctx.tx)).resourceMode === 'GASFREE' ? await usdtNetworkTerms(ctx.tx, { funderTraderId: null }) : null;
     const econInput = fixedSide === 'BASE'
       ? { direction: request.direction, fixedSide: 'BASE' as const, amount: amount as Money<'USDT'>, clientRate, routeRate: snapshot.rate }
       : { direction: request.direction, fixedSide: 'QUOTE' as const, amount: amount as Money<'INR'>, clientRate, routeRate: snapshot.rate };
-    const econ = computeP2pEconomics(econInput);
+    const econ = computeP2pEconomics(econInput, gasFree ? { clientNetwork: Money.ofMinor(gasFree.allowanceUsdtMinor, 'USDT') } : {});
     const orderBase = econ.routeBase ?? econ.base;
     if (orderBase.minor !== traderOrder.baseMinor || econ.routeInr.minor !== traderOrder.inrMinor) {
       throw new DomainError('TRADER_ORDER_MISMATCH', `the trader accepted ${Money.ofMinor(traderOrder.inrMinor, 'INR').toDecimalString()} INR for ${Money.ofMinor(traderOrder.baseMinor, 'USDT').toDecimalString()} USDT on ${traderOrder.ref}; quote at the client rate it was sized at`, {
@@ -73,11 +75,11 @@ export function createQuote(actor: OperatorActor, deps: Pick<QuoteDeps, 'policy'
       });
     }
     // ADR 0019: a quote keeps USDT. The trader's network deposit pays the TRX (migration 0040) — or, priced in USDT
-    // (ADR 0022), INRP2P's own deal carries its network out of its own margin and the executor pays nothing. A quote that
-    // would not leave the minimum net margin is never created.
+    // (ADR 0022), the deal's escrow carries its network, which its client pays (ADR 0028), and the executor pays nothing. A
+    // quote that would not leave the minimum net margin is never created.
     if (!econ.grossMarginBase) throw new DomainError('INVALID_ARGUMENT', 'a quote prices a trader order');
-    const network = (await networkFeePolicy(ctx.tx)).resourceMode === 'GASFREE'
-      ? pricingOfUsdtTerms(await usdtNetworkTerms(ctx.tx, { funderTraderId: null }), {
+    const network = gasFree
+      ? pricingOfUsdtTerms(gasFree, {
         direction: request.direction, clientRateMicro: clientRate.micro, grossMarginBaseMinor: econ.grossMarginBase.minor, traderOrderId: traderOrder.orderId,
       })
       : await priceNetworkP2p(ctx.tx, { direction: request.direction, clientRateMicro: clientRate.micro, grossMarginBaseMinor: econ.grossMarginBase.minor, traderOrderId: traderOrder.orderId });
@@ -105,6 +107,7 @@ export function createQuote(actor: OperatorActor, deps: Pick<QuoteDeps, 'policy'
         route_base_minor: econ.routeBase?.minor ?? null,
         gross_margin_base_minor: econ.grossMarginBase?.minor ?? null,
         network_fee_base_minor: network.usdt ? network.p2p.feeUsdtMinor : null,
+        client_network_base_minor: network.usdt ? network.p2p.feeUsdtMinor : null,
         network: request.network,
         bank_account_id: request.bank_account_id,
         crypto_wallet_id: request.crypto_wallet_id,

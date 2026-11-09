@@ -37,5 +37,8 @@ export default defineConfig({
     // A desk's deals both ways (ADR 0020): its own world and server on the HD rails, the desk on a desktop and its client
     // on a phone in the same run. Last, so nothing it changes reaches the others.
     { name: 'desks', testMatch: /desks\.spec\.ts/, use: { ...devices['Desktop Chrome'] } },
+    // A deal as people make it: a client and a trader on their phones, INRP2P's operator where a person is still needed,
+    // receipts attached, and a journal of who did what. Its own world and server, like the desks'.
+    { name: 'human', testMatch: /human-deal\.spec\.ts/, use: { ...devices['Desktop Chrome'] } },
   ],
 });

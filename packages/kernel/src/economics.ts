@@ -84,30 +84,60 @@ function assertPriceable(base: Money<'USDT'>, clientInr: Money<'INR'>, routeInr:
   }
 }
 
+export interface P2pOptions {
+  /**
+   * ADR 0028: the deal's network, when the client pays it — on INRP2P's own deal priced in USDT. The client's rupees are
+   * then the price of its USDT and of the network together: a client buying pays for `base + network` and receives
+   * `base`; a client selling sends `base` and is paid for `base − network`. The network stays at the escrow inside the
+   * margin until the deal's transfers are settled at what they cost (FI-101), so INRP2P's own margin is the spread alone.
+   */
+  readonly clientNetwork?: Money<'USDT'>;
+}
+
+export type P2pTradeEconomics = TradeEconomics & {
+  readonly routeBase: Money<'USDT'>;
+  readonly grossMarginBase: Money<'USDT'>;
+  /** ADR 0028: the network the client pays, part of `grossMarginBase`. Absent when the client pays none. */
+  readonly clientNetworkBase?: Money<'USDT'>;
+};
+
 /**
  * P2P economics (ADR 0019, FI-97): the client pays (or receives) exactly the rupees the trader receives (or pays), so
  * there is one rupee amount; the exchange's margin is the USDT between the client's amount and the trader's. Rounding
  * still goes against whoever is paid: the client's rupees as in `computeTradeEconomics`, the trader's USDT so the
  * exchange never gives more (client sells: DOWN) nor takes less (client buys: UP) than the trader's own rate says.
+ *
+ * With the client paying the network (ADR 0028), the rupees are priced on the USDT the client rate applies to — the
+ * client's own USDT and the network — and the client's own USDT is what is left either side of it.
  */
-export function computeP2pEconomics(input: EconomicsInput): TradeEconomics & { readonly routeBase: Money<'USDT'>; readonly grossMarginBase: Money<'USDT'> } {
+export function computeP2pEconomics(input: EconomicsInput, options: P2pOptions = {}): P2pTradeEconomics {
   const { direction, clientRate, routeRate } = input;
   if (!input.amount.isPositive()) throw new DomainError('INVALID_AMOUNT', 'amount must be positive');
+  const network = options.clientNetwork;
+  if (network?.isNegative()) throw new DomainError('INVALID_AMOUNT', 'a network is never negative');
   const buy = direction === 'BUY_USDT';
   let base: Money<'USDT'>;
   let inr: Money<'INR'>;
   if (input.fixedSide === 'BASE') {
     base = input.amount;
-    inr = usdtToInr(base, clientRate, buy ? 'UP' : 'DOWN');
+    // The USDT the rate prices: what the client receives and its network, or what it sends less the network.
+    const priced = network ? (buy ? base.add(network) : base.sub(network)) : base;
+    if (!priced.isPositive()) throw new DomainError('INVALID_AMOUNT', 'amount is too small to carry the network');
+    inr = usdtToInr(priced, clientRate, buy ? 'UP' : 'DOWN');
   } else {
     inr = input.amount;
-    base = inrToUsdt(inr, clientRate, buy ? 'DOWN' : 'UP');
+    const priced = inrToUsdt(inr, clientRate, buy ? 'DOWN' : 'UP');
+    base = network ? (buy ? priced.sub(network) : priced.add(network)) : priced;
+    if (network && !base.isPositive()) throw new DomainError('INVALID_AMOUNT', 'amount is too small to carry the network');
   }
   const routeBase = inrToUsdt(inr, routeRate, buy ? 'UP' : 'DOWN');
   assertPriceable(base, inr, inr);
   if (!routeBase.isPositive()) throw new DomainError('INVALID_AMOUNT', 'amount is too small to price at these rates');
   const grossMarginBase = buy ? routeBase.sub(base) : base.sub(routeBase);
-  return Object.freeze({ direction, fixedSide: input.fixedSide, base, clientInr: inr, routeInr: inr, grossMargin: inr.sub(inr), routeBase, grossMarginBase });
+  return Object.freeze({
+    direction, fixedSide: input.fixedSide, base, clientInr: inr, routeInr: inr, grossMargin: inr.sub(inr), routeBase, grossMarginBase,
+    ...(network ? { clientNetworkBase: network } : {}),
+  });
 }
 
 /**
