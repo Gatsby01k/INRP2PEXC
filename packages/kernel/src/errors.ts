@@ -54,6 +54,10 @@ export type DomainErrorCode =
   | 'DIRECTION_DISABLED'
   | 'DESTINATION_INVALID'
   | 'DESTINATION_CHANGED'
+  // A client buying USDT pays from a bank account of its own that is on file: it has none yet (launch audit 2026-11-10).
+  | 'PAYER_ACCOUNT_REQUIRED'
+  // A bank account or wallet an open trade pays to, or the client's trader account settles with, is not archived.
+  | 'DESTINATION_IN_USE'
   | 'ROUTE_RATE_STALE'
   | 'MARKET_REFERENCE_STALE'
   | 'NEGATIVE_MARGIN_NOT_PERMITTED'

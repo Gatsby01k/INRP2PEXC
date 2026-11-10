@@ -109,16 +109,6 @@ export async function confirmReceiptAction(
 }
 
 /**
- * Destinations are **not** managed from the client product in V1.
- *
- * Adding or archiving one is a sensitive client-admin action that needs an enrolled authenticator and a fresh
- * TOTP step-up (SECURITY §2.2, D-08), and client TOTP enrolment is not built yet (TD-11). Exposing a server
- * action that every call would refuse is not a smaller gap than exposing none — it is the same gap with an
- * attack surface — so the client actions do not exist. The desk acts on the client's behalf through
- * `client_bank:add` and `client_wallet:manage`, both of which already do.
- */
-
-/**
  * Marking notifications read. Deliberately not a domain command: it moves no money and changes no state of
  * record. The client id still comes from the session, so one client can never mark another's inbox.
  */

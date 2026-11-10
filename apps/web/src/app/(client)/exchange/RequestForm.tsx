@@ -61,7 +61,7 @@ export function RequestForm({ view, draft, who }: { view: ExchangeView; draft?: 
   const [targetOpen, setTargetOpen] = useState(false);
   const [targetRate, setTargetRate] = useState('');
   const [picking, setPicking] = useState(false);
-  const [adding, setAdding] = useState(false);
+  const [adding, setAdding] = useState<'bank' | 'wallet' | null>(null);
   const banks = view.destinations.banks;
   const wallets = view.destinations.wallets.filter((w) => w.purpose !== 'SOURCE');
   const [bankId, setBankId] = useState(banks[0]?.id ?? '');
@@ -71,6 +71,9 @@ export function RequestForm({ view, draft, who }: { view: ExchangeView; draft?: 
   const wallet = wallets.find((w) => w.id === walletId) ?? wallets[0];
   const destinationId = (sell ? bank?.id : wallet?.id) ?? '';
   const options = sell ? banks.length : wallets.length;
+  // Buying, the client pays from a bank account of its own that is on file — asked for before the price, not when the
+  // seller's USDT is already locked and the time to pay is running.
+  const payFromMissing = !sell && banks.length === 0;
   const inputs = useRef<Record<'BASE' | 'QUOTE', HTMLInputElement | null>>({ BASE: null, QUOTE: null });
   const hintId = useId();
 
@@ -106,7 +109,11 @@ export function RequestForm({ view, draft, who }: { view: ExchangeView; draft?: 
 
   const submit = async () => {
     if (destinationId === '') {
-      if (who.isAdmin) setAdding(true);
+      if (who.isAdmin) setAdding(sell ? 'bank' : 'wallet');
+      return;
+    }
+    if (payFromMissing) {
+      if (who.isAdmin) setAdding('bank');
       return;
     }
     if (!hasAmount(amount)) {
@@ -217,7 +224,7 @@ export function RequestForm({ view, draft, who }: { view: ExchangeView; draft?: 
         <fieldset className={styles.payTo}>
           <legend className={styles.payToLabel}>{sell ? 'INR paid to' : 'USDT delivered to'}</legend>
           {noDestination ? (
-            <button type="button" className={styles.addDestination} onClick={() => setAdding(true)} disabled={!who.isAdmin}>
+            <button type="button" className={styles.addDestination} onClick={() => setAdding(sell ? 'bank' : 'wallet')} disabled={!who.isAdmin}>
               <span className={styles.addIcon} aria-hidden="true">
                 {who.isAdmin ? <PlusIcon /> : sell ? <BankIcon /> : <WalletIcon />}
               </span>
@@ -282,6 +289,29 @@ export function RequestForm({ view, draft, who }: { view: ExchangeView; draft?: 
           )}
         </fieldset>
 
+        {sell || noDestination ? null : payFromMissing ? (
+          <fieldset className={styles.payTo}>
+            <legend className={styles.payToLabel}>You pay from</legend>
+            <button type="button" className={styles.addDestination} onClick={() => setAdding('bank')} disabled={!who.isAdmin}>
+              <span className={styles.addIcon} aria-hidden="true">
+                {who.isAdmin ? <PlusIcon /> : <BankIcon />}
+              </span>
+              <span className={styles.destinationText}>
+                <span className={styles.destinationName}>Add the bank account you pay from</span>
+                <span className={styles.destinationMeta}>
+                  {who.isAdmin ? 'The seller takes rupees only from an account in your own name.' : `An administrator of ${who.clientName} adds it.`}
+                </span>
+              </span>
+              {who.isAdmin ? <ArrowIcon className={styles.addArrow} /> : null}
+            </button>
+          </fieldset>
+        ) : (
+          <p className={styles.hint}>
+            You pay from your own account: {banks[0]!.bankName} •••• {banks[0]!.last4}
+            {banks.length > 1 ? ' or another of your registered accounts' : ''}.
+          </p>
+        )}
+
         <div className={styles.target}>
           {targetOpen ? (
             <div className={styles.targetRow}>
@@ -331,7 +361,7 @@ export function RequestForm({ view, draft, who }: { view: ExchangeView; draft?: 
             type="submit"
             className={`${shell.action} ${shell.wide}`}
             data-robot-target="cta"
-            disabled={busy || (noDestination && !who.isAdmin)}
+            disabled={busy || ((noDestination || payFromMissing) && !who.isAdmin)}
             aria-busy={busy || undefined}
             onPointerEnter={() => markCta('hover', true)}
             onPointerLeave={() => markCta('hover', false)}
@@ -339,7 +369,7 @@ export function RequestForm({ view, draft, who }: { view: ExchangeView; draft?: 
             onBlur={() => markCta('focus', false)}
           >
             {busy ? <ArcLoader size="sm" label="Sending your request" tone="inherit" /> : null}
-            <span>{noDestination ? (sell ? 'Add a bank account to continue' : 'Add a wallet to continue') : 'Request firm quote'}</span>
+            <span>{noDestination ? (sell ? 'Add a bank account to continue' : 'Add a wallet to continue') : payFromMissing ? 'Add a bank account to continue' : 'Request firm quote'}</span>
             {busy ? null : <ArrowIcon className={shell.actionIcon} />}
           </button>
           {error ? (
@@ -355,14 +385,14 @@ export function RequestForm({ view, draft, who }: { view: ExchangeView; draft?: 
       </form>
       {dialog}
       <AddDestination
-        open={adding}
-        kind={sell ? 'bank' : 'wallet'}
-        onClose={() => setAdding(false)}
+        open={adding !== null}
+        kind={adding ?? (sell ? 'bank' : 'wallet')}
+        onClose={() => setAdding(null)}
         protection={who.protection}
         email={who.email}
         holderName={who.clientName}
         next="exchange"
-        firstOfKind={sell ? banks.length === 0 : view.destinations.wallets.length === 0}
+        firstOfKind={(adding ?? (sell ? 'bank' : 'wallet')) === 'bank' ? banks.length === 0 : view.destinations.wallets.length === 0}
       />
     </>
   );
@@ -379,10 +409,7 @@ function Chosen({ sell, bank, wallet }: { sell: boolean; bank: ExchangeView['des
           <span className={styles.destinationName}>
             {bank.bankName} •••• {bank.last4}
           </span>
-          <span className={styles.destinationMeta}>
-            {bank.holderName}
-            {bank.rails.length > 0 ? ` · ${bank.rails.join(' / ')}` : ''}
-          </span>
+          <span className={styles.destinationMeta}>{bank.holderName}</span>
         </span>
       </>
     );

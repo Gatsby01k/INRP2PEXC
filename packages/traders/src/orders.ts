@@ -262,6 +262,17 @@ export async function reconcileOrderInTx(ctx: TxContext, orderId: string): Promi
       aggregateId: order.id,
       payload: { orderId: order.id, traderId: order.trader_id, reason },
     });
+    // A completed order uses its capacity up for good. When that leaves an active side unable to take even its smallest
+    // order, and nothing else of its is still open, the trader is told once — the side gets no orders until it is topped up,
+    // and nothing else would say so (migration 0049).
+    if (completed && block.status === 'ACTIVE') {
+      const capacityLeft = block.capacity_minor - order.capacity_minor;
+      const stillHeld = block.reserved_minor - order.capacity_minor;
+      const smallest = block.min_order_minor ?? 1n;
+      if (stillHeld === 0n && capacityLeft < smallest) {
+        await enqueueOutbox(ctx, { type: 'trader.side_empty', aggregateType: 'trader_block', aggregateId: block.id, payload: { traderId: order.trader_id, blockId: block.id, side: order.side } });
+      }
+    }
     outcome = completed ? 'COMPLETED' : 'CANCELLED';
   }
   return outcome;

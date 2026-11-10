@@ -12,7 +12,7 @@ import { AddDestination } from '../../(client)/destinations/AddDestination.tsx';
 import { useServerClock } from '../../(client)/exchange/useServerClock.ts';
 import { inr, rate as rateText, sentence, usdt } from '../../(client)/desk/_ui/format.ts';
 import { DeskQuoteCard } from '../../(client)/desks/_ui/DeskQuoteCard.tsx';
-import { DestinationPick, type PickOption } from '../../(client)/desks/_ui/DestinationPick.tsx';
+import { DestinationPick, PayFromNotice, type PickOption } from '../../(client)/desks/_ui/DestinationPick.tsx';
 import shell from '../../(client)/shell.module.css';
 import { Amount } from '../../../components/Amount.tsx';
 import styles from '../../public-desk/storefront.module.css';
@@ -45,7 +45,7 @@ export function LinkTakeScreen({
   const sells = link.direction === 'SELL_USDT';
   const [bankId, setBankId] = useState(banks[0]?.id ?? '');
   const [walletId, setWalletId] = useState(wallets[0]?.id ?? '');
-  const [adding, setAdding] = useState(false);
+  const [adding, setAdding] = useState<'bank' | 'wallet' | null>(null);
   const { run, busy, error, dialog } = useCommand();
   useEffect(() => {
     if (!banks.some((b) => b.id === bankId) && banks[0]) setBankId(banks[0].id);
@@ -55,6 +55,8 @@ export function LinkTakeScreen({
   const left = Date.parse(link.expiresAt) - now;
   const takeable = (link.state === 'OPEN' || (link.state === 'TAKEN' && state.mine)) && left > 0 && link.desk.live;
   const destination = sells ? bankId : walletId;
+  // Buying, the client pays from a bank account of its own that is on file: none yet, the deal is not taken.
+  const payFromMissing = !sells && banks.length === 0;
 
   const take = async () => {
     const out = await run(`Take ${link.desk.displayName}’s deal`, (key) => takeDeskLinkAction({ token, ...(sells ? { bankAccountId: bankId } : { walletId }) }, key));
@@ -107,13 +109,14 @@ export function LinkTakeScreen({
             </div>
           ) : (
             <>
-              <DestinationPick kind={sells ? 'bank' : 'wallet'} options={sells ? banks : wallets} value={destination} onChange={sells ? setBankId : setWalletId} canAdd={who.isAdmin} onAdd={() => setAdding(true)} />
+              <DestinationPick kind={sells ? 'bank' : 'wallet'} options={sells ? banks : wallets} value={destination} onChange={sells ? setBankId : setWalletId} canAdd={who.isAdmin} onAdd={() => setAdding(sells ? 'bank' : 'wallet')} />
+              {sells ? null : <PayFromNotice banks={banks} canAdd={who.isAdmin} onAdd={() => setAdding('bank')} />}
               {error ? (
                 <p className={shell.error} role="alert">
                   {sentence(error)}
                 </p>
               ) : null}
-              <button type="button" className={`${styles.cta} ${styles.ctaButton}`} disabled={busy || destination === ''} aria-disabled={busy || destination === ''} onClick={() => void take()}>
+              <button type="button" className={`${styles.cta} ${styles.ctaButton}`} disabled={busy || destination === '' || payFromMissing} aria-disabled={busy || destination === '' || payFromMissing} onClick={() => void take()}>
                 {busy ? <ArcLoader size="sm" label="Taking" tone="inherit" /> : null}
                 Take this deal
               </button>
@@ -124,13 +127,13 @@ export function LinkTakeScreen({
       )}
 
       <AddDestination
-        open={adding}
-        kind={sells ? 'bank' : 'wallet'}
-        onClose={() => setAdding(false)}
+        open={adding !== null}
+        kind={adding ?? (sells ? 'bank' : 'wallet')}
+        onClose={() => setAdding(null)}
         protection={who.protection}
         email={who.email}
         holderName={who.clientName}
-        firstOfKind={sells ? banks.length === 0 : !anyWallet}
+        firstOfKind={(adding ?? (sells ? 'bank' : 'wallet')) === 'bank' ? banks.length === 0 : !anyWallet}
         next="deal"
         onAdded={() => router.refresh()}
       />

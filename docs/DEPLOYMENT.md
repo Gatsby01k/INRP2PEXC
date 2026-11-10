@@ -682,3 +682,27 @@ it). Nothing else in the schema changes; no new secret, service or job.
    schema when it starts).
 2. Existing desk prices keep their numbers and their time; a desk changes a direction to "As on Traders" on Prices.
 
+## 22. A deal's hand-offs, and the ways to pay a trader chose (launch audit, 2026-11-10)
+
+Migration `0049` (schema 49) adds three inbox kinds — `P2P_PAY_NOW`, `P2P_PAYMENT_SENT`, `TRADER_SIDE_EMPTY` — to
+`client_notification_kind_check`. No table, column, money rule, secret, service or job changes.
+
+1. **Release order** (from production at 48): as §21 — CI green, a restore point, `scripts/migrate.ts` with the production
+   env, then merge (the app at 49 refuses a database at 48), then the worker image of the same commit. The worker composes
+   the new messages, so until its image is updated the new events (`p2p.pay_window_opened`, `trader.side_empty`) wait in
+   the outbox and are delivered when it starts — the email channel withholds anything older than its freshness limit.
+2. **What changes for people, with no setting to switch:**
+   - Each timed step of a P2P deal is announced to the side it has just become — the seller told to lock its USDT (with the
+     minutes it has), the buyer told its time to pay has started (with the IST time), the seller told the buyer says it
+     paid — in the inbox and by email, not only in a linked Telegram chat.
+   - A deal offers only the rails its trader's side uses (`trader_block.rails`, "Clients pay you by" / "You pay clients by").
+     A trader who unticked UPI is no longer paid by UPI; every existing side has all four rails on, as before.
+   - A trader's application offers UPI among "How you are paid to this account", and the sides of a trader approved on an
+     account it submitted itself start with what it chose. An account the desk added narrows nothing.
+   - A client must have a bank account on file before it asks for a price to **buy** USDT (`PAYER_ACCOUNT_REQUIRED`); the
+     Exchange, a desk's page and a deal link each offer to add it in place.
+   - A client cannot archive the bank account or wallet an open trade pays to, or its trader account settles with
+     (`DESTINATION_IN_USE`). The desk still can.
+3. **Visual baselines** change on: the trader application's last step, the Traders home (each side shows its rails), the
+   Exchange ticket when buying, and Bank accounts (the per-account transfer list is no longer shown). Re-record them.
+

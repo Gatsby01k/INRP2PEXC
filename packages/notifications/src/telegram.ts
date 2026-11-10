@@ -218,6 +218,12 @@ export function orderAlertText(f: OrderFacts, moment: OrderMoment, minutesLeft?:
     case 'NEW_OFFER':
       return `New order ${f.ref}\n${order}. Accept or decline it in Traders before it expires.`;
     case 'STARTED':
+      // ADR 0019: on a P2P deal the seller of the USDT moves first — its escrow clock runs from the trade's opening.
+      if (f.p2p) {
+        return sells
+          ? `Your move · ${f.ref}\n${order}. Put ${usdt(f.traderBaseMinor)} in escrow now: the address is on the order. The buyer pays once it is locked.`
+          : `Order ${f.ref} is confirmed\n${order}. The seller locks the USDT in escrow first; you are told when to pay.`;
+      }
       return `Order ${f.ref} is confirmed\n${order}. You will be told when it is your turn.`;
     case 'YOUR_MOVE':
       return `Your turn · ${f.ref}\nSend your ${sells ? usdt(f.traderBaseMinor) : inr(f.inrMinor)} as shown on the order.`;

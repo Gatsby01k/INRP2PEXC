@@ -68,7 +68,7 @@ export function SetupGuide({ who }: { who: Who }) {
             n={who.isAdmin ? 2 : 1}
             status={destination}
             title="Add where you are paid"
-            body={who.isAdmin ? 'A bank account to sell USDT for INR, or a wallet to buy USDT.' : `An administrator of ${who.clientName} adds the bank accounts and wallets you are paid to.`}
+            body={who.isAdmin ? 'A bank account — you are paid to it when you sell USDT, and you pay from it when you buy — and a wallet for the USDT you buy.' : `An administrator of ${who.clientName} adds the bank accounts and wallets you are paid to.`}
             stacked
             action={
               who.isAdmin ? (

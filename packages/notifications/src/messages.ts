@@ -56,6 +56,10 @@ export interface NotificationFacts {
   readonly settlementChange?: { readonly action: 'PROPOSED' | 'CANCELLED' | 'APPLIED'; readonly what: 'BANK' | 'WALLET' | 'BOTH'; readonly effectiveAt?: Date };
   /** ADR 0025: a price the trader is asked for — the amount as asked and how long it has to answer. */
   readonly priceAsk?: { readonly ref: string; readonly amount: string; readonly currency: 'USDT' | 'INR'; readonly closesAt: Date };
+  /** A trader's order on a P2P deal (ADR 0019): the minutes it has to lock its USDT in escrow when it is the seller. */
+  readonly escrow?: { readonly minutes: number };
+  /** A side of the trader's that can no longer take its smallest order: what is left of it, in its own currency. */
+  readonly sideEmpty?: { readonly currency: 'INR' | 'USDT'; readonly left: string };
 }
 
 /** Thousands grouped the international way (D-11) — `10,200,000` — whatever the reader's locale. */
@@ -112,7 +116,7 @@ export function draftFor(kind: NotificationKind, facts: NotificationFacts): Noti
         body:
           facts.direction === 'SELL_USDT'
             ? `${facts.tradeRef} is open. Send ${facts.base ? usdt(facts.base) : 'the USDT'} to the address shown on the trade.`
-            : `${facts.tradeRef} is open. The payment details are on the trade.`,
+            : `${facts.tradeRef} is open. The seller locks the USDT in escrow first — you are told the moment it is time to pay.`,
         subjectRef: facts.tradeRef ?? null,
         href: facts.tradeRef ? `/trades/${facts.tradeRef}` : null,
       };
@@ -182,6 +186,9 @@ export function draftFor(kind: NotificationKind, facts: NotificationFacts): Noti
     case 'P2P_PAY_FINAL':
     case 'P2P_RECEIPT_LATE':
       return dealDraft(kind, facts);
+    case 'P2P_PAY_NOW':
+    case 'P2P_PAYMENT_SENT':
+      return handoffDraft(kind, facts);
     default:
       return traderDraft(kind, facts);
   }
@@ -302,6 +309,40 @@ function dealDraft(kind: 'DEAL_MESSAGE' | 'P2P_PAY_FINAL' | 'P2P_RECEIPT_LATE', 
   }
 }
 
+/**
+ * A P2P deal changing hands (migration 0049): the step that has just become this side's, said the moment it does — not
+ * when its time is nearly up. The buyer is told the seller's USDT is locked and until when it pays; the seller is told the
+ * buyer says it paid, and to look in its own bank before it releases anything.
+ */
+function handoffDraft(kind: 'P2P_PAY_NOW' | 'P2P_PAYMENT_SENT', facts: NotificationFacts): NotificationDraft {
+  const p = facts.p2p ?? { audience: 'CLIENT' as const, payee: false };
+  const trader = p.audience === 'TRADER';
+  const ref = (trader ? facts.orderRef : facts.tradeRef) ?? null;
+  const href = trader ? (ref ? (p.deskDeal ? `/desk/deals/${ref}` : `/traders/orders/${ref}`) : '/traders') : ref ? `/trades/${ref}` : '/trades';
+  const inrAmount = facts.inr ? inr(facts.inr) : 'the rupees';
+  const usdtAmount = facts.base ? usdt(facts.base) : 'the USDT';
+  const on = ref ? `${ref}: ` : '';
+  const deal = trader ? 'order' : 'trade';
+  if (kind === 'P2P_PAY_NOW') {
+    const by = p.until ? ` by ${ist(p.until)}` : ' now';
+    return {
+      kind,
+      title: 'Pay now — the seller’s USDT is locked',
+      body: `${on}${usdtAmount} is locked in escrow for you. Pay ${inrAmount}${by}: the seller’s account is on the ${deal}. Pay from your own registered account, then say you paid.`,
+      subjectRef: ref,
+      href,
+    };
+  }
+  const by = p.rail ? ` by ${p.rail}` : '';
+  return {
+    kind,
+    title: 'The buyer says they paid',
+    body: `${on}the buyer says they sent ${inrAmount}${by}. Check your bank app, then confirm it on the ${deal} — or say it has not arrived. Confirm only once the money is in your account.`,
+    subjectRef: ref,
+    href,
+  };
+}
+
 const sideWords = (side: NotificationFacts['side']): string => (side === 'SELL_USDT' ? 'Sell' : 'Buy');
 const orderHref = (facts: NotificationFacts): string | null => (facts.orderRef ? `/traders/orders/${facts.orderRef}` : '/traders');
 
@@ -343,6 +384,25 @@ function traderDraft(kind: NotificationKind, facts: NotificationFacts): Notifica
         href: orderHref(facts),
       };
     case 'TRADER_ORDER_ACCEPTED':
+      // On a P2P deal the seller of the USDT moves first: its escrow clock runs from the moment the trade opens.
+      if (facts.escrow && facts.side === 'SELL_USDT') {
+        return {
+          kind,
+          title: ref ? `Your move: put ${usdtAmount} in escrow for ${ref}` : `Your move: put ${usdtAmount} in escrow`,
+          body: `The buyer accepted your price. Send ${usdtAmount} from your registered wallet to the order’s escrow address within ${facts.escrow.minutes} minutes — the buyer pays you only once it is locked. Late, and the order is cancelled.`,
+          subjectRef: ref,
+          href: orderHref(facts),
+        };
+      }
+      if (facts.escrow) {
+        return {
+          kind,
+          title: ref ? `Order ${ref} is confirmed` : 'Your order is confirmed',
+          body: `The seller locks ${usdtAmount} in escrow first. You are told the moment it is locked — then you pay ${inrAmount}.`,
+          subjectRef: ref,
+          href: orderHref(facts),
+        };
+      }
       return { kind, title: ref ? `Order ${ref} is confirmed` : 'Your order is confirmed', body: 'The trade is open. You will be told when it is your turn to send.', subjectRef: ref, href: orderHref(facts) };
     case 'TRADER_ACTION_REQUIRED':
       return {
@@ -353,6 +413,16 @@ function traderDraft(kind: NotificationKind, facts: NotificationFacts): Notifica
         href: orderHref(facts),
       };
     case 'TRADER_PAYMENT_CONFIRMED':
+      // A P2P seller's USDT is locked, not yet paid for: the buyer's rupees come next, and the seller confirms them.
+      if (facts.escrow && facts.side === 'SELL_USDT') {
+        return {
+          kind,
+          title: `Your USDT is locked for ${ref ?? 'your order'}`,
+          body: `${usdtAmount} is in escrow. The buyer now pays you ${inrAmount}; you are asked to confirm it the moment they say they paid.`,
+          subjectRef: ref,
+          href: orderHref(facts),
+        };
+      }
       return {
         kind,
         title: `Payment received for ${ref ?? 'your order'}`,
@@ -416,6 +486,17 @@ function traderDraft(kind: NotificationKind, facts: NotificationFacts): Notifica
       };
       const [title, body] = said[c.action];
       return { kind, title, body: short(body, 400), subjectRef: null, href: '/traders/settlement' };
+    }
+    case 'TRADER_SIDE_EMPTY': {
+      const buy = facts.side === 'BUY_USDT';
+      const left = facts.sideEmpty ? (facts.sideEmpty.currency === 'INR' ? inr(facts.sideEmpty.left) : usdt(facts.sideEmpty.left)) : 'nothing';
+      return {
+        kind,
+        title: `Your ${sideWords(facts.side)} USDT side is out of capacity`,
+        body: `Completed orders used it up: ${left} is left, less than your smallest order. You get no new ${buy ? 'buy' : 'sell'} orders until you add ${buy ? 'INR' : 'USDT'} capacity on Traders.`,
+        subjectRef: null,
+        href: '/traders',
+      };
     }
     case 'TRADER_RESERVE_ISSUE':
       return {

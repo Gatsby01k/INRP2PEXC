@@ -140,6 +140,11 @@ export async function approveTraderInTx(ctx: TxContext, trader: TraderRow, input
   const destinations = await requireRegisteredDestinations(ctx.tx, trader.client_id, { bankAccountId: profile.bank_account_id, walletId: profile.wallet_id });
 
   const payoutIdentity = payoutIdentityOf(destinations.bank);
+  // The transfers the trader chose on its own application are how its sides start out paying and being paid: one answer,
+  // asked once at registration, then the side's own to change ("Clients pay you by"). Only an account the trader itself
+  // submitted for review carries such a choice — on one the desk added, nobody was asked, and the sides start with every rail.
+  const registered = await ctx.tx.selectFrom('bank_account').select(['rail_preferences', 'reviewed_at']).where('id', '=', profile.bank_account_id).executeTakeFirstOrThrow();
+  const rails = registered.reviewed_at === null ? [] : (['UPI', 'IMPS', 'NEFT', 'RTGS'] as const).filter((r) => registered.rail_preferences.includes(r));
   const sides: TraderSide[] = [...(profile.offers_buy ? (['BUY_USDT'] as const) : []), ...(profile.offers_sell ? (['SELL_USDT'] as const) : [])];
   for (const side of sides) {
     const existing = await ctx.tx.selectFrom('trader_block').select('id').where('trader_id', '=', trader.id).where('side', '=', side).executeTakeFirst();
@@ -152,7 +157,7 @@ export async function approveTraderInTx(ctx: TxContext, trader: TraderRow, input
       registeredRouteAddress: destinations.wallet.address,
       registeredPayoutIdentity: payoutIdentity,
     });
-    await ctx.tx.insertInto('trader_block').values({ trader_id: trader.id, side, route_id: route.routeId }).execute();
+    await ctx.tx.insertInto('trader_block').values({ trader_id: trader.id, side, route_id: route.routeId, ...(rails.length > 0 ? { rails: [...rails] } : {}) }).execute();
   }
   const after = await ctx.tx
     .updateTable('trader_profile')

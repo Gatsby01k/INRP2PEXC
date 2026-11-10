@@ -1,7 +1,8 @@
 import { sql } from 'kysely';
-import { DomainError, type InrRail, P2P_RAIL_ORDER, type P2pTiming, railOptions, requireOneOf, requireP2pTiming, requireUuid, suggestedRail } from '@inrp2p/kernel';
+import { DomainError, type InrRail, P2P_RAIL_ORDER, type P2pTiming, RAIL_NOT_TAKEN, railOptionsFor, requireOneOf, requireP2pTiming, requireUuid } from '@inrp2p/kernel';
 import type { Executor, TxContext } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
+import { enqueueOutbox } from '@inrp2p/outbox';
 import { lockTrade } from '@inrp2p/trades';
 
 /** The business clock (`inrp2p_now()`), which every deadline of a deal is judged by. */
@@ -38,6 +39,31 @@ export interface P2pPayState {
   /** Any rupee payment was ever said to be sent: such a deal is never cancelled for time — a person decides. */
   readonly everFiled: boolean;
   readonly unwound: boolean;
+  /**
+   * The rails the trader's side of the deal uses (`dealRails`) — how it pays, or is paid. Null when the deal has no
+   * trader's side to ask.
+   */
+  readonly rails: readonly InrRail[] | null;
+}
+
+/**
+ * The rails a deal's rupees may travel by: what the trader's side of the order behind the trade says — `trader_block.rails`,
+ * "Clients pay you by" on a side that sells USDT, "You pay clients by" on one that buys. It is the one setting about rails
+ * a person chose and can change; what the amount allows is `railOptionsFor`'s to add. Until this was read, a deal offered
+ * whatever the amount allowed — UPI and its fifteen minutes to a trader who had said it takes no UPI.
+ *
+ * The list on a bank account (`rail_preferences`) is not read here: on most accounts nobody chose it (the client's own
+ * form never asked), and a deal must not be refused a way to pay by a list its owner cannot see or change.
+ */
+export async function dealRails(ex: Executor, input: { readonly tradeId: string }): Promise<readonly InrRail[] | null> {
+  const side = await ex
+    .selectFrom('trader_order as o')
+    .innerJoin('trader_block as b', 'b.id', 'o.block_id')
+    .select('b.rails')
+    .where('o.trade_id', '=', input.tradeId)
+    .orderBy('o.offered_at', 'desc')
+    .executeTakeFirst();
+  return side ? P2P_RAIL_ORDER.filter((r) => side.rails.includes(r)) : null;
 }
 
 export async function p2pPayState(ex: Executor, tradeId: string): Promise<P2pPayState | null> {
@@ -73,6 +99,7 @@ export async function p2pPayState(ex: Executor, tradeId: string): Promise<P2pPay
   return {
     tradeId: t.id, ref: t.ref, clientId: t.client_id, buy, lifecycle: t.lifecycle_state, hold: t.hold, inrMinor: t.quote_inr_minor, fundedAt,
     payeeAccountId: active ? accountId : null, payeeReadyAt: active ? account!.created_at : null, filed, everFiled: buy ? rupees.length > 0 : filed, unwound,
+    rails: await dealRails(ex, { tradeId: t.id }),
   };
 }
 
@@ -114,7 +141,8 @@ export async function payWindowOf(ex: Executor, tradeId: string): Promise<PayWin
 export function prospectiveWindow(s: P2pPayState, timing: P2pTiming): PayWindow | null {
   if (!s.fundedAt || !s.payeeAccountId || !s.payeeReadyAt) return null;
   const openedAt = new Date(Math.max(s.fundedAt.getTime(), s.payeeReadyAt.getTime()));
-  const method = suggestedRail(s.inrMinor);
+  // The way the amount suggests, among the ways the trader's side uses.
+  const method = railOptionsFor(s.inrMinor, s.rails)[0]!.rail;
   const dueAt = new Date(openedAt.getTime() + timing.pay[method] * 60_000);
   return { tradeId: s.tradeId, openedAt, method, chosen: false, timing, dueAt, finalUntil: new Date(dueAt.getTime() + timing.finalMinutes * 60_000), changes: 0, warnedAt: null };
 }
@@ -128,13 +156,21 @@ export async function openPayWindowInTx(ctx: TxContext, s: P2pPayState): Promise
   if (existing) return existing;
   const w = prospectiveWindow(s, await programP2pTiming(ctx.tx));
   if (!w) return null;
-  await sql`
+  const opened = await sql<{ trade_id: string }>`
     insert into p2p_pay_window (trade_id, opened_at, method, timing, due_at, final_until)
     values (${s.tradeId}::uuid, ${w.openedAt}::timestamptz, ${w.method}, ${JSON.stringify(w.timing)}::jsonb,
             ${w.openedAt}::timestamptz + make_interval(mins => ${w.timing.pay[w.method]}),
             ${w.openedAt}::timestamptz + make_interval(mins => ${w.timing.pay[w.method] + w.timing.finalMinutes}))
-    on conflict (trade_id) do nothing`.execute(ctx.tx);
-  return payWindowOf(ctx.tx, s.tradeId);
+    on conflict (trade_id) do nothing
+    returning trade_id`.execute(ctx.tx);
+  const window = await payWindowOf(ctx.tx, s.tradeId);
+  // The buyer's clock has just started: it is told now, once, with the time it has — not when that time is up (0049).
+  if (opened.rows.length > 0 && window) {
+    const payload = { tradeId: s.tradeId, clientId: s.clientId, payer: s.buy ? 'CLIENT' : 'TRADER', method: window.method, dueAt: window.dueAt.toISOString() };
+    await enqueueOutbox(ctx, { type: 'p2p.pay_window_opened', aggregateType: 'trade', aggregateId: s.tradeId, payload });
+    await enqueueOutbox(ctx, { type: 'trader.p2p_pay_window_opened', aggregateType: 'trade', aggregateId: s.tradeId, payload });
+  }
+  return window;
 }
 
 /**
@@ -165,8 +201,10 @@ export async function choosePayMethodInTx(ctx: TxContext, input: { readonly trad
   if ((s.buy ? 'CLIENT' : 'TRADER') !== input.payer) throw new DomainError('NOT_THE_PAYER', 'only the one who pays the rupees chooses how');
   if (!isPaying(s)) throw new DomainError('INVALID_TRANSITION', s.filed ? 'your payment is already filed' : 'this deal is not waiting for your payment');
   const method = requireOneOf(input.method, 'method', P2P_RAIL_ORDER);
-  const option = railOptions(s.inrMinor).find((o) => o.rail === method)!;
-  if (!option.possible) throw new DomainError('INVALID_ARGUMENT', `${option.limit} — choose another way to pay`, { field: 'method' });
+  const option = railOptionsFor(s.inrMinor, s.rails).find((o) => o.rail === method)!;
+  if (!option.possible) {
+    throw new DomainError('INVALID_ARGUMENT', option.limit === RAIL_NOT_TAKEN ? `${method} is not used on this deal — choose another way to pay` : `${option.limit} — choose another way to pay`, { field: 'method' });
+  }
   const now = await dealNow(ctx.tx);
   const w = await openPayWindowInTx(ctx, s);
   if (!w) throw new DomainError('INVALID_TRANSITION', 'the seller’s account is not ready yet');

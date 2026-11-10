@@ -30,6 +30,40 @@ async function clientOfWallet(ctx: TxContext, id: string): Promise<string> {
   return row.client_id;
 }
 
+/**
+ * A bank account or wallet something live still depends on is not archived by the client itself — archiving cannot be
+ * undone, and the deal it belonged to would be left with nowhere to pay: its buyer shown no account, its clock never
+ * started. The desk may still archive one (a compromised account); it then moves the trade's destination itself.
+ *
+ * - The account or wallet the client's trader account settles with, or has proposed to: changed on Traders first.
+ * - The destination of a trade of the client's that is still open: archived once the trade has finished.
+ */
+async function assertNotInUse(ctx: TxContext, actor: ClientDataActor, kind: 'BANK' | 'WALLET', id: string, clientId: string): Promise<void> {
+  if (actor.kind === 'OPERATOR') return;
+  const what = kind === 'BANK' ? 'bank account' : 'wallet';
+  const trader = await ctx.tx
+    .selectFrom('trader_profile')
+    .select('ref')
+    .where('client_id', '=', clientId)
+    .where('status', 'in', ['UNDER_REVIEW', 'APPROVED', 'PAUSED'])
+    .where((eb) => (kind === 'BANK' ? eb.or([eb('bank_account_id', '=', id), eb('proposed_bank_account_id', '=', id)]) : eb.or([eb('wallet_id', '=', id), eb('proposed_wallet_id', '=', id)])))
+    .executeTakeFirst();
+  if (trader) {
+    throw new DomainError('DESTINATION_IN_USE', `This is the ${what} your trader account settles with. Register another one on Traders → Settlement details first; this one can be archived once the change has taken effect.`, { field: kind === 'BANK' ? 'bankAccountId' : 'walletId' });
+  }
+  const open = await sql<{ ref: string }>`
+    select t.ref
+      from trade t
+      cross join lateral inrp2p_trade_payout_destination(t.id) d
+     where t.client_id = ${clientId}::uuid and t.lifecycle_state not in ('COMPLETED', 'CANCELLED')
+       and ${kind === 'BANK' ? sql`d.bank_account_id` : sql`d.wallet_id`} = ${id}::uuid
+     order by t.opened_at limit 1`.execute(ctx.tx);
+  const trade = open.rows[0];
+  if (trade) {
+    throw new DomainError('DESTINATION_IN_USE', `Trade ${trade.ref} is still open and pays to this ${what}. Archive it once the trade has finished.`, { field: kind === 'BANK' ? 'bankAccountId' : 'walletId' });
+  }
+}
+
 export interface AddBankAccountPayload {
   readonly clientId: string;
   readonly holderName: string;
@@ -87,6 +121,7 @@ export function archiveBankAccount(actor: ClientDataActor) {
     const reason = requireText(p.reason, 'reason', 500);
     const before = await ctx.tx.selectFrom('bank_account').select(['id', 'status', 'account_last4', 'bank_name']).where('id', '=', p.bankAccountId).forUpdate().executeTakeFirstOrThrow();
     if (before.status !== 'ACTIVE') throw new DomainError('INVALID_TRANSITION', 'bank account is already archived');
+    await assertNotInUse(ctx, actor, 'BANK', before.id, clientId);
     await ctx.tx
       .updateTable('bank_account')
       .set({ status: 'ARCHIVED', archived_by: actorLabel(ctx), archived_at: sql<Date>`statement_timestamp()`, archive_reason: reason })
@@ -162,6 +197,7 @@ export function archiveWallet(actor: ClientDataActor) {
     const reason = requireText(p.reason, 'reason', 500);
     const before = await ctx.tx.selectFrom('crypto_wallet').select(['id', 'status']).where('id', '=', p.walletId).forUpdate().executeTakeFirstOrThrow();
     if (before.status !== 'ACTIVE') throw new DomainError('INVALID_TRANSITION', 'wallet is already archived');
+    await assertNotInUse(ctx, actor, 'WALLET', before.id, clientId);
     await ctx.tx.updateTable('crypto_wallet').set({ status: 'ARCHIVED', archived_by: actorLabel(ctx), archived_at: sql<Date>`statement_timestamp()`, archive_reason: reason }).where('id', '=', before.id).execute();
     await appendAudit(ctx, { action: 'client_wallet.archived', entityType: 'crypto_wallet', entityId: before.id, before: { status: 'ACTIVE' }, after: { status: 'ARCHIVED', reason, archived_via: actor.kind } });
     await enqueueOutbox(ctx, { type: 'client.destination_archived', aggregateType: 'client', aggregateId: clientId, payload: { clientId, destination: 'WALLET', id: before.id } });

@@ -31,6 +31,10 @@ const EMAILED = new Set([
   'TRADER_SETTLEMENT_CHANGE',
   // ADR 0025: a trader's price is asked for; the request closes in minutes.
   'TRADER_PRICE_REQUEST',
+  // Migration 0049: a deal's step has just become this side's and its clock runs — the buyer's time to pay started, the
+  // buyer says it paid, a trader's order opened on its firm offer (it may have its USDT to lock, and was never asked) —
+  // and a side that has run out of capacity takes no orders until someone tops it up.
+  'P2P_PAY_NOW', 'P2P_PAYMENT_SENT', 'TRADER_ORDER_ACCEPTED', 'TRADER_SIDE_EMPTY',
 ]);
 
 export interface EmailChannelOptions {
@@ -184,7 +188,7 @@ async function sendOne(db: Db, adapter: NotificationAdapter, deliveryId: string,
 export function clientNotificationEmailHandler(db: Db, adapter: NotificationAdapter, opts: EmailChannelOptions = {}): OutboxHandler {
   return {
     name: 'client_notification_email',
-    handles: (type) => type.startsWith('client.') || type.startsWith('trader.') || type.startsWith('p2p.') || type === 'quote.sent' || type === 'trade.opened' || type === 'desk.payout_actionable',
+    handles: (type) => type.startsWith('client.') || type.startsWith('trader.') || type.startsWith('p2p.') || type === 'quote.sent' || type === 'trade.opened' || type === 'desk.payout_actionable' || type === 'desk.client_payment_claimed',
     run: async (event) => {
       await emailNotification(db, adapter, { outboxEventId: event.id, ...opts });
     },

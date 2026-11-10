@@ -35,6 +35,8 @@ Non-blocking items accepted at phase review. Each entry names the phase that mus
 | TD-29 | The public site still says the desk onboards clients, although clients now open their own accounts | D-17 (2026-10-10) | Before the self sign-up is announced | Closed (2026-10-12) — "Open an account" leads to the workspace gateway everywhere the question comes up |
 | TD-42 | A reserve withdrawal still needs a person to send it from custody, record it and confirm it | ADR 0024 (2026-10-30) | Traders withdrawing often enough for the desk to notice | Open — the owner decides whether the reserve moves to signer-held GasFree accounts (TD-41) |
 | TD-44 | A client's receipt does not show the network it paid as its own line (ADR 0028) | ADR 0028 (2026-11-09) | A client asking why its rupees are more than its USDT at the rate | Open — add the line to the receipt snapshot (a new snapshot version) and its PDF |
+| TD-45 | A trader cannot register its own UPI ID: UPI is paid to the account's own UPI address, whose support in every UPI app is unverified | Launch audit (2026-11-10) | The first UPI payment a client's app refuses; a trader asking where to enter its UPI ID | Open — test the code in GPay, PhonePe and Paytm before launch; the owner decides whether a reviewed UPI ID joins the settlement details |
+| TD-46 | A client has no Telegram alerts for its deal — only the inbox and email | Launch audit (2026-11-10) | Clients missing their time to pay with the page closed | Open — the trader's alert channel, for the client's `P2P_PAY_NOW` and `P2P_PAYMENT_SENT` |
 
 ## TD-01 — Better Auth schema warning for `auth_rate_limit.last_request`
 
@@ -935,4 +937,28 @@ amount it does not name.
 
 **Resolution (to do).** A receipt snapshot v2 with `networkFee` (from the trade's `client_network_base_minor`) and its line
 in the PDF; v1 receipts stay as issued.
+
+## TD-45 — UPI is paid to the account's own address; a trader's UPI ID is not registered
+
+**Observed (launch audit, 2026-11-10).** A UPI payment of a deal goes to `<account>@<ifsc>.ifsc.npci` — NPCI's
+account-and-IFSC address — so that it lands in exactly the registered, verified account (ADR 0023). The code and the
+`upi://pay` link carry that address. Two things follow. Whether every UPI app a client uses accepts that address in a
+scanned code or an app link has not been tested with real apps: a client whose app refuses it is left with a fifteen-minute
+window and a method that does not work (it can switch to IMPS, at the cost of time). And a trader who works by its own UPI
+ID (`name@bank`), as on every P2P board, has nowhere to enter one.
+
+**Resolution (to do, owner).** Before launch: one rupee by the deal's code from GPay, PhonePe and Paytm to a test account,
+on Android and iOS. If any refuses it, either take UPI off new sides by default, or add a UPI ID to the settlement details
+— submitted with the bank account, reviewed with it, changed only through the settlement-change hold (ADR 0024), with the
+payer told to check the name its app shows against the account holder. The second weakens "lands in the registered
+account" to "lands where the reviewed UPI ID points"; that is the owner's decision.
+
+## TD-46 — A client's deal alerts stop at the inbox and email
+
+**Observed (launch audit, 2026-11-10).** Since migration 0049 a client is told when its time to pay starts and when its
+trader says it paid, in the inbox and by email. A trader also gets Telegram alerts for its steps; a client that linked
+Telegram to sign in gets none. Fifteen minutes is short for email.
+
+**Resolution (to do).** Send the client's `P2P_PAY_NOW`, `P2P_PAYMENT_SENT` and the final call through the Telegram channel
+to the chats its people linked, deduplicated like the trader's.
 

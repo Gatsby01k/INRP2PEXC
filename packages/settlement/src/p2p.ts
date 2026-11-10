@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { sql } from 'kysely';
-import { DomainError, Money, type InrRail, accountUpiAddress, checkIfsc, optionalText, railOptions, requireText, requireUtrShape, requireUuid, upiPayUri } from '@inrp2p/kernel';
+import { DomainError, Money, type InrRail, accountUpiAddress, checkIfsc, optionalText, railOptionsFor, requireText, requireUtrShape, requireUuid, upiPayUri } from '@inrp2p/kernel';
 import type { Db, Executor, ExceptionType, SenderVerdict, TxContext } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
 import { bankAccountSealContext } from '@inrp2p/clients';
@@ -18,7 +18,7 @@ import type { SettlementDeps } from './policy.ts';
 import { recordSenderCheckInTx } from './sender.ts';
 import { type DealChatView, dealChatView } from './chat.ts';
 import {
-  type PayWindow, PAY_METHOD_CHANGES, dealNow, isPaying, openPayWindowInTx, p2pPayState, payWindowOf, programP2pTiming, prospectiveWindow, warnPayWindowInTx,
+  type PayWindow, PAY_METHOD_CHANGES, dealNow, dealRails, isPaying, openPayWindowInTx, p2pPayState, payWindowOf, programP2pTiming, prospectiveWindow, warnPayWindowInTx,
 } from './p2p-timing.ts';
 
 /**
@@ -547,6 +547,8 @@ export async function p2pDeal(ex: Executor, protector: { open(value: string, con
   let dueBy: string | null = null;
   let window: PayWindow | null = null;
   let receiptLate = false;
+  // The ways to pay this deal: what its amount allows, among what the trader's side uses.
+  let methods: ReturnType<typeof railOptionsFor> = [];
   if (t.lifecycle_state === 'CANCELLED') step = 'CANCELLED';
   else if (t.lifecycle_state === 'COMPLETED') step = 'DONE';
   else if (!funded.d) {
@@ -557,6 +559,7 @@ export async function p2pDeal(ex: Executor, protector: { open(value: string, con
     step = 'PAY';
     // The window the deadlines opened — or, in the minute before they run, the one they will open.
     const state = await p2pPayState(ex, t.id);
+    methods = railOptionsFor(t.quote_inr_minor, state ? state.rails : await dealRails(ex, { tradeId: t.id }));
     window = (await payWindowOf(ex, t.id)) ?? (state ? prospectiveWindow(state, timing) : null);
     // A deal whose rupees were once said to be sent (and then not counted) waits for a person, never for a clock.
     if (window && !state?.everFiled) dueBy = (now < window.dueAt ? window.dueAt : window.finalUntil).toISOString();
@@ -597,9 +600,9 @@ export async function p2pDeal(ex: Executor, protector: { open(value: string, con
         const upiId = accountUpiAddress(accountNumber, b.ifsc);
         // The payee recognises the payment by the reference it knows: the trader its order, the client its trade.
         const remarks = `INRP2P ${buy ? ((await ex.selectFrom('trader_order').select('ref').where('trade_id', '=', t.id).orderBy('offered_at', 'desc').executeTakeFirst())?.ref ?? t.ref) : t.ref}`;
-        const upiPossible = railOptions(t.quote_inr_minor).some((o) => o.rail === 'UPI' && o.possible);
+        const upiPossible = methods.some((o) => o.rail === 'UPI' && o.possible);
         payTo = {
-          holderName: b.holder_name, bankName: b.bank_name, ifsc: b.ifsc, last4: b.account_last4, rails: b.rail_preferences, accountNumber, upiId, remarks,
+          holderName: b.holder_name, bankName: b.bank_name, ifsc: b.ifsc, last4: b.account_last4, rails: methods.filter((o) => o.possible).map((o) => o.rail), accountNumber, upiId, remarks,
           upiLink: upiPossible ? upiPayUri({ vpa: upiId, payeeName: b.holder_name, amount: Money.ofMinor(t.quote_inr_minor, 'INR').toDecimalString(), note: remarks }) : null,
           ifscValid: checkIfsc(b.ifsc).ok,
         };
@@ -644,7 +647,7 @@ export async function p2pDeal(ex: Executor, protector: { open(value: string, con
     const w = window;
     payWindow = {
       method: w.method, chosen: w.chosen, dueAt: w.dueAt.toISOString(), finalUntil: w.finalUntil.toISOString(), final: now >= w.dueAt, changesLeft: Math.max(0, PAY_METHOD_CHANGES - w.changes),
-      methods: railOptions(t.quote_inr_minor).map((o) => {
+      methods: methods.map((o) => {
         const due = new Date(w.openedAt.getTime() + w.timing.pay[o.rail] * 60_000);
         return { rail: o.rail, minutes: w.timing.pay[o.rail], possible: o.possible, limit: o.limit, dueAt: due.toISOString(), open: due.getTime() > now.getTime() + 60_000 };
       }),
