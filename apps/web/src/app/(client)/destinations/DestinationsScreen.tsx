@@ -301,7 +301,6 @@ function BankRow({ bank: b, onArchive }: { bank: ClientBankAccount; onArchive?: 
         </span>
         <span className={styles.meta}>
           {b.holderName} · <span className="ix-num">{b.ifsc}</span>
-          {b.rails.length > 0 ? ` · ${b.rails.join(' / ')}` : ''}
         </span>
       </span>
       <span className={styles.tags}>

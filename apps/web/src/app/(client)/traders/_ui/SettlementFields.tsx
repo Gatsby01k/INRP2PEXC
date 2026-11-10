@@ -3,8 +3,8 @@
 import { bankNameOfIfsc } from '@inrp2p/kernel';
 import styles from '../traders.module.css';
 
-export type Rail = 'IMPS' | 'NEFT' | 'RTGS';
-export const RAILS: readonly Rail[] = ['IMPS', 'NEFT', 'RTGS'];
+export type Rail = 'UPI' | 'IMPS' | 'NEFT' | 'RTGS';
+export const RAILS: readonly Rail[] = ['UPI', 'IMPS', 'NEFT', 'RTGS'];
 
 export interface BankDraft {
   readonly holderName: string;
@@ -73,7 +73,7 @@ export function BankFields({ value, onChange }: { value: BankDraft; onChange: (n
         {...(bankNameOfIfsc(value.ifsc) && value.bankName === bankNameOfIfsc(value.ifsc) ? { hint: 'From the IFSC. Change it if it is not right.' } : {})}
       />
       <fieldset className={styles.railSet}>
-        <legend className={styles.fieldLabel}>Transfers this account takes</legend>
+        <legend className={styles.fieldLabel}>How you are paid to this account</legend>
         <div className={styles.rails}>
           {RAILS.map((r) => (
             <label key={r} className={styles.check}>
@@ -86,6 +86,11 @@ export function BankFields({ value, onChange }: { value: BankDraft; onChange: (n
             </label>
           ))}
         </div>
+        <span className={styles.fieldHint}>
+          {value.rails.includes('UPI')
+            ? 'UPI is paid straight to this account number, up to ₹1,00,000 a payment — no separate UPI ID. On Traders you choose, per side, which of these your deals use.'
+            : 'Without UPI, buyers pay you by bank transfer only. On Traders you choose, per side, which of these your deals use.'}
+        </span>
       </fieldset>
     </div>
   );

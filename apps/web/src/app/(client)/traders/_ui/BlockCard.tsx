@@ -29,7 +29,7 @@ const ISSUE_TEXT: Record<string, string> = {
   BLOCK_PAUSED: 'Paused — no orders on this side.',
   NO_RATE: 'Set your rate to receive orders on this side.',
   NO_LIMITS: 'Set the order size you take.',
-  NO_CAPACITY: 'No capacity left on this side.',
+  NO_CAPACITY: 'No capacity left on this side: completed and open orders used it up. Add capacity under Edit to take orders again.',
 };
 
 function AmountField({ id, label, affix, value, onChange, currency, hint }: { id: string; label: string; affix: string; value: string; onChange: (v: string) => void; currency: 'INR' | 'USDT'; hint?: string | undefined }) {
@@ -161,7 +161,11 @@ export function BlockCard({ block, canAct }: { block: BlockView; canAct: boolean
             value={capacity}
             onChange={setCapacity}
             currency={currency}
-            hint={[/[1-9]/.test(block.held) ? `${amountIn(currency, block.held)} is held for open orders.` : null, block.limitMaxCapacity ? `INRP2P limit ${amountIn(currency, block.limitMaxCapacity)}.` : null].filter(Boolean).join(' ') || undefined}
+            hint={[
+              'What you can still trade on this side: every completed order uses it up.',
+              /[1-9]/.test(block.held) ? `${amountIn(currency, block.held)} is held for open orders.` : null,
+              block.limitMaxCapacity ? `INRP2P limit ${amountIn(currency, block.limitMaxCapacity)}.` : null,
+            ].filter(Boolean).join(' ')}
           />
           <Segmented
             legend="Your rate"
@@ -307,6 +311,9 @@ export function BlockCard({ block, canAct }: { block: BlockView; canAct: boolean
               {block.limitMaxOrder ? <span className={styles.blockLimit}>INRP2P limit {amountIn(currency, block.limitMaxOrder)} per order</span> : null}
             </div>
           </dl>
+          <p className={styles.blockLimit}>
+            {buy ? 'You pay clients by' : 'Clients pay you by'} {block.rails.length > 0 ? block.rails.join(' · ') : '—'}
+          </p>
           {block.issues.length > 0 && block.issues[0] ? (
             <p className={styles.note}>
               {block.issues[0] === 'NO_RATE' && block.rateBasis === 'MARKET'

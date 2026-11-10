@@ -48,7 +48,38 @@ function Issue({ home }: { home: TraderHome }) {
       </p>
     );
   }
+  // Online, and still no order can come: every side is paused, unpriced or out of capacity. Said here, where "online" is.
+  const stuck = sidesTakingNothing(home);
+  if (stuck) {
+    return (
+      <p className={shell.info} data-tone="warning" role="status">
+        <InfoIcon className={shell.infoIcon} />
+        <span>You are online, but no order can reach you: {stuck}. Open the side under “Your prices” and press Edit.</span>
+      </p>
+    );
+  }
   return null;
+}
+
+const SIDE_STOPPED: Record<string, string> = {
+  BLOCK_PAUSED: 'is paused',
+  NO_RATE: 'has no rate',
+  NO_LIMITS: 'has no order size',
+  NO_CAPACITY: 'has no capacity left',
+};
+
+/**
+ * Why an online trader gets no orders although nothing is wrong with its account: each of its sides, and what stops it.
+ * Null when it is offline, something about the account already says why, or at least one side can take an order. A market
+ * rate that is only waiting for the market is not the trader's to fix, and is said on the side itself.
+ */
+export function sidesTakingNothing(home: TraderHome): string | null {
+  if (!home.available || home.state !== 'APPROVED' || home.issues.length > 0 || home.blocks.length === 0) return null;
+  if (home.blocks.some((b) => b.issues.length === 0)) return null;
+  const said = home.blocks
+    .filter((b) => !(b.issues[0] === 'NO_RATE' && b.rateBasis === 'MARKET'))
+    .map((b) => `${b.side === 'BUY_USDT' ? 'Buy USDT' : 'Sell USDT'} ${SIDE_STOPPED[b.issues[0]!] ?? 'takes no orders'}`);
+  return said.length > 0 ? said.join(', ') : null;
 }
 
 /** Under the count: whether any order is waiting on the trader, then any offer to answer, then plain progress. */
@@ -85,7 +116,9 @@ export function AvailabilityCard({ home }: { home: TraderHome }) {
           {paused
             ? 'No new orders are assigned. Orders in progress continue.'
             : on
-              ? 'You are available for matching. Switching off stops new orders; orders in progress continue.'
+              ? sidesTakingNothing(home)
+                ? 'Online, but no side can take an order right now — see below.'
+                : 'You are available for matching. Switching off stops new orders; orders in progress continue.'
               : 'No new orders are assigned while you are off.'}
         </p>
         <button

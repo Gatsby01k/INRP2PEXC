@@ -1,4 +1,4 @@
-import { Money, Rate } from '@inrp2p/kernel';
+import { Money, Rate, requireP2pTiming } from '@inrp2p/kernel';
 import type { Db, NotificationKind } from '@inrp2p/db';
 import type { OutboxEvent, OutboxHandler } from '@inrp2p/outbox';
 import { chatAlreadyTold } from './handler.ts';
@@ -52,16 +52,21 @@ function reserveIssueText(p: Payload): string {
   }
 }
 
-async function orderFacts(db: Db, orderId: string): Promise<{ clientId: string; facts: NotificationFacts } | null> {
+async function orderFacts(db: Db, orderId: string): Promise<{ clientId: string; deskDeal: boolean; facts: NotificationFacts } | null> {
   const o = await db
     .selectFrom('trader_order as o')
     .innerJoin('trader_profile as t', 't.id', 'o.trader_id')
-    .select(['o.ref', 'o.side', 'o.base_minor', 'o.inr_minor', 'o.rate_micro', 'o.close_reason', 't.client_id'])
+    .innerJoin('trade_request as r', 'r.id', 'o.trade_request_id')
+    .innerJoin('liquidity_route as lr', 'lr.id', 'o.route_id')
+    .select(['o.ref', 'o.side', 'o.base_minor', 'o.inr_minor', 'o.rate_micro', 'o.close_reason', 't.client_id', 'r.desk_id', 'lr.execution_mode'])
     .where('o.id', '=', orderId)
     .executeTakeFirst();
   if (!o) return null;
+  // On a P2P deal (ADR 0019) the seller of the USDT moves first, within the programme's escrow time.
+  const escrowMinutes = o.execution_mode === 'P2P' ? requireP2pTiming((await db.selectFrom('trader_program').select('p2p_timing').where('id', '=', 1).executeTakeFirstOrThrow()).p2p_timing).escrowMinutes : null;
   return {
     clientId: o.client_id,
+    deskDeal: o.desk_id !== null,
     facts: {
       orderRef: o.ref,
       side: o.side,
@@ -69,8 +74,49 @@ async function orderFacts(db: Db, orderId: string): Promise<{ clientId: string; 
       inr: Money.ofMinor(o.inr_minor, 'INR').toDecimalString(),
       rate: Rate.ofMicro(o.rate_micro, 'ROUTE').toDecimalString(),
       ...(o.close_reason ? { reason: o.close_reason } : {}),
+      ...(escrowMinutes !== null ? { escrow: { minutes: escrowMinutes } } : {}),
     },
   };
+}
+
+/**
+ * A client buying USDT says it paid (`fiat_in.claim`): its trader — the seller — is told at once, in its inbox and by
+ * email, to look in its own bank and confirm. Until migration 0049 only a linked Telegram chat heard of it.
+ */
+async function buyerPaid(db: Db, event: OutboxEvent): Promise<{ clientId: string; kind: NotificationKind; facts: NotificationFacts } | null> {
+  const p = (event.payload ?? {}) as Payload;
+  const tradeId = str(p.tradeId);
+  if (!tradeId) return null;
+  const o = await db.selectFrom('trader_order').select(['id', 'side']).where('trade_id', '=', tradeId).where('status', '=', 'IN_PROGRESS').executeTakeFirst();
+  if (!o || o.side !== 'SELL_USDT') return null;
+  const resolved = await orderFacts(db, o.id);
+  if (!resolved || !resolved.facts.escrow) return null;
+  const legId = str(p.legId);
+  const filed = legId
+    ? await db.selectFrom('transfer_allocation as a').innerJoin('fiat_transfer as f', 'f.id', 'a.fiat_transfer_id').select('f.rail').where('a.settlement_leg_id', '=', legId).where('a.voided_at', 'is', null).executeTakeFirst()
+    : undefined;
+  return {
+    clientId: resolved.clientId,
+    kind: 'P2P_PAYMENT_SENT',
+    facts: { ...resolved.facts, p2p: { audience: 'TRADER', payee: true, deskDeal: resolved.deskDeal, ...(filed?.rail ? { rail: filed.rail } : {}) } },
+  };
+}
+
+/** A side that can no longer take its smallest order (migration 0049): which, and what is left of it. */
+async function sideEmpty(db: Db, event: OutboxEvent): Promise<{ clientId: string; kind: NotificationKind; facts: NotificationFacts } | null> {
+  const p = (event.payload ?? {}) as Payload;
+  const blockId = str(p.blockId);
+  if (!blockId) return null;
+  const b = await db
+    .selectFrom('trader_block as b')
+    .innerJoin('trader_profile as t', 't.id', 'b.trader_id')
+    .select(['b.side', 'b.capacity_minor', 'b.reserved_minor', 't.client_id'])
+    .where('b.id', '=', blockId)
+    .executeTakeFirst();
+  if (!b) return null;
+  const currency = b.side === 'BUY_USDT' ? 'INR' : 'USDT';
+  const left = b.capacity_minor - b.reserved_minor;
+  return { clientId: b.client_id, kind: 'TRADER_SIDE_EMPTY', facts: { side: b.side, sideEmpty: { currency, left: Money.ofMinor(left > 0n ? left : 0n, currency).toDecimalString() } } };
 }
 
 /**
@@ -133,6 +179,8 @@ const SETTLEMENT_CHANGE: Readonly<Record<string, 'PROPOSED' | 'CANCELLED' | 'APP
 async function resolve(db: Db, event: OutboxEvent): Promise<{ clientId: string; kind: NotificationKind; facts: NotificationFacts } | null> {
   const p = (event.payload ?? {}) as Payload;
   if (event.type.startsWith('trader.p2p_')) return p2pResolve(db, event);
+  if (event.type === 'desk.client_payment_claimed') return buyerPaid(db, event);
+  if (event.type === 'trader.side_empty') return sideEmpty(db, event);
   if (event.type === 'trader.desk_moderated') {
     // INRP2P's decision about the trader's desk (block 11): the action from its enumerated values, the reason as written.
     const traderId = str(p.traderId);
@@ -190,7 +238,7 @@ async function resolve(db: Db, event: OutboxEvent): Promise<{ clientId: string; 
     const o = await db.selectFrom('trader_order').select('id').where('trade_id', '=', tradeId).where('status', '=', 'IN_PROGRESS').executeTakeFirst();
     if (!o) return null;
     const resolved = await orderFacts(db, o.id);
-    return resolved ? { ...resolved, kind: 'TRADER_ACTION_REQUIRED' } : null;
+    return resolved ? { clientId: resolved.clientId, facts: resolved.facts, kind: 'TRADER_ACTION_REQUIRED' } : null;
   }
   const orderKind = ORDER_EVENTS[event.type];
   if (orderKind) {
@@ -198,7 +246,7 @@ async function resolve(db: Db, event: OutboxEvent): Promise<{ clientId: string; 
     const orderId = str(p.orderId);
     if (!orderId) return null;
     const resolved = await orderFacts(db, orderId);
-    return resolved ? { ...resolved, kind: orderKind } : null;
+    return resolved ? { clientId: resolved.clientId, facts: resolved.facts, kind: orderKind } : null;
   }
   const profileKind = PROFILE_EVENTS[event.type];
   if (profileKind) {
@@ -216,7 +264,7 @@ async function resolve(db: Db, event: OutboxEvent): Promise<{ clientId: string; 
 export function traderNotificationHandler(db: Db): OutboxHandler {
   return {
     name: 'trader_notification_inbox',
-    handles: (type) => type.startsWith('trader.') || type === 'desk.payout_actionable',
+    handles: (type) => type.startsWith('trader.') || type === 'desk.payout_actionable' || type === 'desk.client_payment_claimed',
     run: async (event) => {
       const resolved = await resolve(db, event);
       if (!resolved) return;

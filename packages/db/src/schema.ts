@@ -1112,7 +1112,11 @@ export type NotificationKind =
   | 'P2P_PAY_FINAL'
   | 'P2P_RECEIPT_LATE'
   | 'TRADER_SETTLEMENT_CHANGE'
-  | 'TRADER_PRICE_REQUEST';
+  | 'TRADER_PRICE_REQUEST'
+  // Migration 0049: a deal's hand-offs — pay now, the buyer says it paid — and a trader's side out of capacity.
+  | 'P2P_PAY_NOW'
+  | 'P2P_PAYMENT_SENT'
+  | 'TRADER_SIDE_EMPTY';
 
 export interface ClientNotificationTable {
   id: Generated<string>;

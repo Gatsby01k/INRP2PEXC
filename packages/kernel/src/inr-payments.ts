@@ -197,6 +197,32 @@ export function suggestedRail(inrMinor: bigint): InrRail {
   return railOptions(inrMinor)[0]!.rail;
 }
 
+/** Why a rail the amount allows is still not offered on a deal: its trader's side does not use it. */
+export const RAIL_NOT_TAKEN = 'not used on this deal';
+
+/**
+ * The rails of one deal: what the amount allows (`railOptions`), less the rails its trader's side does not use — the side
+ * says how it pays or is paid ("Clients pay you by"). `accepted` is that list; null when the deal has no trader's side to
+ * ask (the amount alone decides, as before).
+ *
+ * A deal is never left with no way to pay: when nothing the side uses can carry the amount, the amount's own rails stand —
+ * matching keeps such a deal from opening, and one a person opened by hand is still payable.
+ */
+export function railOptionsFor(inrMinor: bigint, accepted: readonly InrRail[] | null): readonly RailOption[] {
+  const base = railOptions(inrMinor);
+  if (accepted === null) return base;
+  const take = new Set<InrRail>(accepted);
+  if (!base.some((o) => o.possible && take.has(o.rail))) return base;
+  const narrowed = base.map((o) => (o.possible && !take.has(o.rail) ? { rail: o.rail, possible: false, limit: RAIL_NOT_TAKEN } : o));
+  return [...narrowed.filter((o) => o.possible), ...narrowed.filter((o) => !o.possible)];
+}
+
+/** Whether a payment of this amount can travel by one of these rails. */
+export function railsOverlap(inrMinor: bigint, accepted: readonly InrRail[]): boolean {
+  const take = new Set<InrRail>(accepted);
+  return railOptions(inrMinor).some((o) => o.possible && take.has(o.rail));
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 // Who paid: matching the sender's name against the account it should have come from
 // ---------------------------------------------------------------------------------------------------------------

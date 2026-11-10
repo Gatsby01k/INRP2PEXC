@@ -79,6 +79,13 @@ export async function openRequestInTx(
     walletId = requireUuid(p.walletId, 'walletId');
     const w = await ctx.tx.selectFrom('crypto_wallet').select(['client_id', 'status', 'purpose']).where('id', '=', walletId).forShare().executeTakeFirst();
     if (!w || w.client_id !== client.id || w.status !== 'ACTIVE' || w.purpose === 'SOURCE') throw new DomainError('DESTINATION_INVALID', 'wallet must be an ACTIVE destination wallet of the client');
+    // The client pays its seller from a bank account of its own that is on file — the seller checks the sender against it,
+    // and "I've paid" names it (ADR 0018, `fiat_in.claim`). Asked for here, before a price: otherwise the client accepts,
+    // the seller's USDT is locked for it, and its time to pay runs out while it has no account to say it paid from.
+    const payFrom = await ctx.tx.selectFrom('bank_account').select('id').where('client_id', '=', client.id).where('status', '=', 'ACTIVE').executeTakeFirst();
+    if (!payFrom) {
+      throw new DomainError('PAYER_ACCOUNT_REQUIRED', 'Add the bank account you will pay from first: the seller takes rupees only from an account in your own name.', { field: 'bankAccountId' });
+    }
   }
 
   // ADR 0020: a request placed with a desk is that desk's to price and fill; the database re-checks it (IX123).

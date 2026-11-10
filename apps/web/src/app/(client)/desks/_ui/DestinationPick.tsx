@@ -53,3 +53,33 @@ export function DestinationPick({ kind, options, value, onChange, canAdd, onAdd 
     </fieldset>
   );
 }
+
+/**
+ * A client buying USDT pays its rupees from a bank account of its own that is on file (ADR 0018): the seller checks who
+ * sent them against it. With none yet, a price is not asked for — the way to add one is here, without leaving the deal.
+ */
+export function PayFromNotice({ banks, canAdd, onAdd }: { banks: readonly PickOption[]; canAdd: boolean; onAdd: () => void }) {
+  if (banks.length > 0) {
+    return (
+      <p className={shell.muted}>
+        You pay from your own account: {banks[0]!.name}
+        {banks.length > 1 ? ' or another of your registered accounts' : ''}.
+      </p>
+    );
+  }
+  return (
+    <div className={shell.info}>
+      <span className={styles.rowText}>
+        <span>Add the bank account you will pay from. The seller takes rupees only from an account in your own name.</span>
+        {canAdd ? (
+          <button type="button" className={shell.secondaryAction} data-size="sm" onClick={onAdd}>
+            <PlusIcon />
+            Add bank account
+          </button>
+        ) : (
+          <span className={shell.muted}>An administrator of your account adds it.</span>
+        )}
+      </span>
+    </div>
+  );
+}

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { type InrRail, Money, NEW_PAYEE_CAUTION_INR, checkUtrShape, normalizeUtr, railsForUtr } from '@inrp2p/kernel';
+import { type InrRail, Money, NEW_PAYEE_CAUTION_INR, RAIL_NOT_TAKEN, checkUtrShape, normalizeUtr, railsForUtr } from '@inrp2p/kernel';
 import type { P2pDeal } from '@inrp2p/settlement';
 import { CopyButton, QrCode } from '@inrp2p/ui';
 import { formatInr } from '@inrp2p/ui/format';
@@ -156,7 +156,7 @@ export function PayInr({
                     onClick={() => void select(m)}
                   >
                     <span className={styles.methodName}>{m.rail}</span>
-                    <span className={styles.methodTime}>{m.possible ? `${m.minutes} min` : m.limit?.replace(/ in one payment$/, '')}</span>
+                    <span className={styles.methodTime}>{m.possible ? `${m.minutes} min` : m.limit === RAIL_NOT_TAKEN ? (fromAccounts ? 'the seller does not take it' : 'not used on this deal') : m.limit?.replace(/ in one payment$/, '')}</span>
                     {i === 0 && m.possible ? <span className={styles.methodTag}>Suggested</span> : null}
                   </button>
                 ))}
@@ -236,7 +236,10 @@ export function PayInr({
             <h3 className={pay.stepTitle}>Tell the seller you paid</h3>
             {fromAccounts && fromAccounts.length !== 1 ? (
               fromAccounts.length === 0 ? (
-                <p className={pay.muted}>No bank account of yours is registered yet. Ask the desk to add one in your name before you pay.</p>
+                <p className={pay.muted}>
+                  No bank account of yours is registered. <a className={shell.textAction} href="/destinations">Add the account you pay from</a> — it takes a minute — then come
+                  back here; pay only from that account.
+                </p>
               ) : (
                 <div className={pay.accounts} role="radiogroup" aria-label="You paid from">
                   {fromAccounts.map((a) => (

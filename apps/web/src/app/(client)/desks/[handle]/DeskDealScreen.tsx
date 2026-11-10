@@ -17,7 +17,7 @@ import { Field } from '../../_workspace/Field.tsx';
 import { useServerClock } from '../../exchange/useServerClock.ts';
 import { inr, previewDeal, rate as rateText, sentence, usdt } from '../../desk/_ui/format.ts';
 import { DeskQuoteCard } from '../_ui/DeskQuoteCard.tsx';
-import { DestinationPick, type PickOption } from '../_ui/DestinationPick.tsx';
+import { DestinationPick, PayFromNotice, type PickOption } from '../_ui/DestinationPick.tsx';
 import shell from '../../shell.module.css';
 import { Amount } from '../../../../components/Amount.tsx';
 import styles from '../desks.module.css';
@@ -62,7 +62,7 @@ export function DeskDealScreen(props: DeskDealProps) {
   const [amount, setAmount] = useState(props.start.amount || '1000');
   const [bankId, setBankId] = useState(props.banks[0]?.id ?? '');
   const [walletId, setWalletId] = useState(props.wallets[0]?.id ?? '');
-  const [adding, setAdding] = useState(false);
+  const [adding, setAdding] = useState<'bank' | 'wallet' | null>(null);
   const [showForm, setShowForm] = useState(false);
   const { run, busy, error, dialog } = useCommand();
   // A bank account or wallet just added is the one to use.
@@ -80,7 +80,9 @@ export function DeskDealScreen(props: DeskDealProps) {
   const tooSmall = price && base !== null && base < Money.parse(price.min, 'USDT').minor;
   const tooLarge = limitMax && base !== null && base > Money.parse(limitMax, 'USDT').minor;
   const destination = sells ? bankId : walletId;
-  const ready = desk.live && !props.blocked && priced !== null && !tooSmall && !tooLarge && destination !== '';
+  // Buying, the client pays from a bank account of its own that is on file: none yet, no price is asked for.
+  const payFromMissing = !sells && props.banks.length === 0;
+  const ready = desk.live && !props.blocked && priced !== null && !tooSmall && !tooLarge && destination !== '' && !payFromMissing;
 
   const ask = async (input: { direction: Side; fixedSide: 'BASE' | 'QUOTE'; amount: string }) => {
     const sell = input.direction === 'SELL_USDT';
@@ -165,8 +167,9 @@ export function DeskDealScreen(props: DeskDealProps) {
               value={destination}
               onChange={sells ? setBankId : setWalletId}
               canAdd={who.isAdmin}
-              onAdd={() => setAdding(true)}
+              onAdd={() => setAdding(sells ? 'bank' : 'wallet')}
             />
+            {sells ? null : <PayFromNotice banks={props.banks} canAdd={who.isAdmin} onAdd={() => setAdding('bank')} />}
 
             {error ? (
               <p className={shell.error} role="alert">
@@ -233,13 +236,13 @@ export function DeskDealScreen(props: DeskDealProps) {
       </aside>
 
       <AddDestination
-        open={adding}
-        kind={sells ? 'bank' : 'wallet'}
-        onClose={() => setAdding(false)}
+        open={adding !== null}
+        kind={adding ?? (sells ? 'bank' : 'wallet')}
+        onClose={() => setAdding(null)}
         protection={who.protection}
         email={who.email}
         holderName={who.clientName}
-        firstOfKind={sells ? props.banks.length === 0 : !props.anyWallet}
+        firstOfKind={(adding ?? (sells ? 'bank' : 'wallet')) === 'bank' ? props.banks.length === 0 : !props.anyWallet}
         next="deal"
         onAdded={() => router.refresh()}
       />

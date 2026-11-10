@@ -30,6 +30,9 @@ const HANDLED = new Set([
   'p2p.message_posted',
   'p2p.pay_final_call',
   'p2p.receipt_late',
+  // Migration 0049: the hand-offs of a deal — the client's time to pay has started; its trader says it paid.
+  'p2p.pay_window_opened',
+  'client.p2p_payment_sent',
 ]);
 
 type Payload = Record<string, unknown>;
@@ -149,9 +152,27 @@ function p2pKindFor(event: OutboxEvent, direction: NotificationFacts['direction'
       return { kind: 'P2P_PAY_FINAL', facts: { audience: 'CLIENT', payee, ...(typeof p.finalUntil === 'string' ? { until: new Date(p.finalUntil) } : {}) } };
     case 'p2p.receipt_late':
       return { kind: 'P2P_RECEIPT_LATE', facts: { audience: 'CLIENT', payee, ...(typeof p.rail === 'string' ? { rail: p.rail } : {}) } };
+    // The seller's USDT is locked and the client is the one who pays: its time runs from now. A client selling is paid by
+    // its trader, who is told on its own order.
+    case 'p2p.pay_window_opened':
+      return p.payer === 'CLIENT' && !payee ? { kind: 'P2P_PAY_NOW', facts: { audience: 'CLIENT', payee: false, ...(typeof p.dueAt === 'string' ? { until: new Date(p.dueAt) } : {}) } } : null;
     default:
       return null;
   }
+}
+
+/** How a payment of the trade was said to be sent, by the reference its payer filed it under. */
+async function railOfPayment(db: Db, legRef: string | undefined): Promise<string | null> {
+  if (!legRef) return null;
+  const r = await db
+    .selectFrom('settlement_leg as l')
+    .innerJoin('transfer_allocation as a', 'a.settlement_leg_id', 'l.id')
+    .innerJoin('fiat_transfer as f', 'f.id', 'a.fiat_transfer_id')
+    .select('f.rail')
+    .where('l.ref', '=', legRef)
+    .where('a.voided_at', 'is', null)
+    .executeTakeFirst();
+  return r?.rail ?? null;
 }
 
 /**
@@ -192,6 +213,13 @@ export function clientNotificationHandler(db: Db): OutboxHandler {
         if (!p2p) return;
         const draft = draftFor(p2p.kind, { ...resolved.facts, p2p: p2p.facts });
         if (p2p.kind === 'DEAL_MESSAGE' && (await chatAlreadyTold(db, resolved.clientId, draft.subjectRef))) return;
+        await recordNotification(db, { ...draft, clientId: resolved.clientId, outboxEventId: event.id });
+        return;
+      }
+      if (event.type === 'client.p2p_payment_sent') {
+        // A client selling USDT: its trader says the rupees are sent. The client looks in its own bank, then confirms.
+        const rail = await railOfPayment(db, str(((event.payload ?? {}) as Payload).legRef));
+        const draft = draftFor('P2P_PAYMENT_SENT', { ...resolved.facts, p2p: { audience: 'CLIENT', payee: true, ...(rail ? { rail } : {}) } });
         await recordNotification(db, { ...draft, clientId: resolved.clientId, outboxEventId: event.id });
         return;
       }

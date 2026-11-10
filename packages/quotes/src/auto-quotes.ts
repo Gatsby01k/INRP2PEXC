@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { sql } from 'kysely';
-import { DomainError, type MarketReference, type MarketReferences, Money, NO_MARKET, Rate, railOptions, requireUuid } from '@inrp2p/kernel';
+import { DomainError, type MarketReference, type MarketReferences, Money, NO_MARKET, Rate, railsOverlap, requireUuid } from '@inrp2p/kernel';
 import { type Db, type DirectionValue, type Executor, type FixedSideValue, type TraderSide, type TxContext, assertLockOrder, lockInOrder } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
 import { enqueueOutbox, type OutboxHandler } from '@inrp2p/outbox';
@@ -133,7 +133,6 @@ const roomOf = (limits: RiskLimits | null): bigint | null => {
 async function candidates(ctx: TxContext, request: RequestRow, network: NetworkMode, reference: ReferenceRateSnapshot, market: MarketReferences): Promise<Candidate[]> {
   const side = sideFor(request.direction);
   const approxInr = request.fixed_side === 'QUOTE' ? requestedOf(request) : (requestedOf(request) * reference.rate.micro) / 10_000_000_000n;
-  const possibleRails = new Set(railOptions(approxInr > 0n ? approxInr : 1n).filter((o) => o.possible).map((o) => o.rail));
   const traders = await ctx.tx.selectFrom('trader_profile').select(['id', 'ref', 'client_id']).where('status', 'in', ['APPROVED', 'PAUSED']).orderBy('ref').execute();
   const out: Candidate[] = [];
   for (const t of traders) {
@@ -146,7 +145,8 @@ async function candidates(ctx: TxContext, request: RequestRow, network: NetworkM
     if (!block || block.status !== 'ACTIVE') continue;
     const route = await ctx.tx.selectFrom('liquidity_route').select(['execution_mode', 'status']).where('id', '=', block.routeId).executeTakeFirstOrThrow();
     if (route.execution_mode !== 'P2P' || route.status !== 'ACTIVE') continue;
-    if (!block.rails.some((r) => possibleRails.has(r))) continue;
+    // The deal will offer only the rails this side uses (`dealRails`): one of them must be able to carry the amount.
+    if (!railsOverlap(approxInr > 0n ? approxInr : 1n, block.rails)) continue;
     if (network.mode === 'BURN' && (await networkAvailable(ctx.tx, t.id)) < network.needSun) continue;
     out.push({ traderId: t.id, ref: t.ref, block, roomMinor });
   }

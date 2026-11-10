@@ -19,7 +19,12 @@ import { assertNoOpenOrders, payoutIdentityOf, positiveOrNull, requireVerifiedBa
 /** AAD context for a trader's contact phone, bound to its client like every other sealed value (SECURITY §5). */
 export const traderPhoneSealContext = (clientId: string) => `trader_profile.phone:${clientId}`;
 
-const RAILS = ['IMPS', 'NEFT', 'RTGS'] as const;
+/**
+ * How a trader may say it is paid to the account it registers. UPI was missing here while every deal up to ₹1 lakh
+ * offered it — a method the trader was never asked about. What it chooses here becomes its sides' own setting at approval
+ * ("Clients pay you by", `approveTraderInTx`), which is what a deal then offers (`dealRails`).
+ */
+const RAILS = ['UPI', 'IMPS', 'NEFT', 'RTGS'] as const;
 const EXPERIENCE: readonly P2pExperience[] = ['BINANCE', 'BYBIT', 'OTHER', 'NONE'];
 
 export interface BankDetails {

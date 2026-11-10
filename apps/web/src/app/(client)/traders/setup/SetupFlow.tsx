@@ -191,7 +191,7 @@ export function SetupFlow({ home }: { home: TraderHome }) {
                   if (next !== null) set(b.side, { capacity: next });
                 }}
                 adornment={unit}
-                hint={b.limitMaxCapacity ? `INRP2P’s limit ${amountIn(b.currency, b.limitMaxCapacity)}.` : 'What open orders may hold at once. You can change it any time.'}
+                hint={`${b.limitMaxCapacity ? `INRP2P’s limit ${amountIn(b.currency, b.limitMaxCapacity)}. ` : ''}What you can trade in all: every completed order uses it up, and the side stops when it runs out. Top it up any time.`}
               />
               <div className={styles.pair}>
                 <Field

@@ -388,6 +388,30 @@ Through the existing outbox and client inbox (and email, where a provider is bou
 `TRADER_ACTION_REQUIRED`, `TRADER_PAYMENT_CONFIRMED`, `TRADER_ORDER_COMPLETED`, `TRADER_ORDER_CLOSED`,
 `TRADER_RESERVE_ISSUE`. There is no Telegram channel in the product, so none was added.
 
+**Whose move it is (migration 0049).** A P2P deal is a relay of timed steps, and each is announced to the side it has just
+become, in the inbox and by email:
+
+| Moment | Told | Kind |
+|---|---|---|
+| The trade opens on a trader's Sell side | the trader: lock N USDT in escrow within `escrowMinutes` | `TRADER_ORDER_ACCEPTED` |
+| The trade opens on a trader's Buy side | the trader: the seller locks first, then you pay ₹X | `TRADER_ORDER_ACCEPTED` |
+| The seller's USDT is final and the buyer's window opens (`p2p.pay_window_opened`) | a client buying: pay ₹X by HH:MM IST | `P2P_PAY_NOW` |
+| The client's USDT is final (`desk.payout_actionable`) | a trader buying: send ₹X | `TRADER_ACTION_REQUIRED` |
+| The buyer says it paid (`desk.client_payment_claimed`, `client.p2p_payment_sent`) | the seller — trader or client: check your bank, confirm | `P2P_PAYMENT_SENT` |
+| A completed order leaves a side under its smallest order, nothing else open (`trader.side_empty`) | the trader: add capacity | `TRADER_SIDE_EMPTY` |
+
+Before 0049 the first row said "you will be told when it is your turn" to the side whose turn it was, and the third and
+fifth were heard of only once their time was up (or, for a trader, in a linked Telegram chat).
+
+**The ways to pay a deal.** A side's `rails` ("Clients pay you by" on a side that sells USDT, "You pay clients by" on one
+that buys) are what its deals offer: `dealRails` reads them, `railOptionsFor` adds what the amount allows (UPI to ₹1 lakh,
+IMPS to ₹5 lakh, RTGS from ₹2 lakh), and the buyer's window opens on the first of them. Matching asks for one rail that can
+carry the amount; a deal a person opened with none still offers the amount's own rails rather than no way to pay. "I've
+paid" is never refused for its rail. The application asks "How you are paid to this account" — UPI included — and the sides
+of a trader approved on an account it submitted itself start with that answer; `bank_account.rail_preferences` decides
+nothing else. A UPI payment goes to the account's own UPI address (`<account>@<ifsc>.ifsc.npci`), not to a UPI ID the
+trader registers (TD-45).
+
 ## 13. Client surfaces
 
 `/become-a-trader` (public entry on the app host), `/traders` (onboarding, application status with each detail's
