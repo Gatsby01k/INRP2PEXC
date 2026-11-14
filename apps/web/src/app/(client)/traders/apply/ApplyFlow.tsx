@@ -321,7 +321,7 @@ export function ApplyFlow({ options }: { options: TraderApplicationOptions }) {
                 </span>
                 <span className={styles.fieldHint}>
                   {upiOk
-                    ? 'INRP2P checks it is in your own name before anything is paid to it — up to ₹1,00,000 a payment. Without one, buyers pay you by bank transfer. You can add more on Traders.'
+                    ? 'Buyers pay you by UPI to it, and their app shows them the name it is registered under — it must be yours. Up to ₹25,000 a payment until your first deal to it is confirmed. You can add more on Traders.'
                     : 'A UPI ID looks like name@bank — your own, not one made from an account number.'}
                 </span>
               </label>

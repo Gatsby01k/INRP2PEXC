@@ -4,7 +4,7 @@ import { type ClientActor, type OperatorActor, operatorCommand } from '@inrp2p/i
 import { lockTrade } from '@inrp2p/trades';
 import { type DealAttachment, type DealAttachmentRef, callSupportInTx, postDealMessageInTx, postDeskMessageInTx } from './chat.ts';
 import { clientTradeCommand } from './disputes.ts';
-import { choosePayMethodInTx } from './p2p-timing.ts';
+import { choosePayMethodInTx, reportPayeeUpiNameInTx } from './p2p-timing.ts';
 
 /**
  * The client's and INRP2P's commands on a P2P deal's chat and its time to pay (ADR 0023). The trader's live with its
@@ -41,6 +41,11 @@ export function callClientSupport(actor: ClientActor) {
 /** `escrow_payment.choose_method` for a client buying USDT: how it pays the seller, and so its time to. */
 export function chooseClientPayMethod(actor: ClientActor) {
   return clientTradeCommand(actor, (ctx, p: { tradeRef: string; method: string }, tradeId) => choosePayMethodInTx(ctx, { tradeId, payer: 'CLIENT', userId: actor.userId, method: p.method }));
+}
+
+/** `escrow_payment.report_name` for a client buying USDT: its UPI app shows another name for the seller's UPI ID (ADR 0030). */
+export function reportClientPayeeName(actor: ClientActor) {
+  return clientTradeCommand(actor, (ctx, p: { tradeRef: string; shownName: string }, tradeId) => reportPayeeUpiNameInTx(ctx, { tradeId, payer: 'CLIENT', shownName: p.shownName }));
 }
 
 /**

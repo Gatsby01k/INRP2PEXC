@@ -70,7 +70,7 @@ export function PayFromNotice({ banks, canAdd, onAdd }: { banks: readonly PickOp
   return (
     <div className={shell.info}>
       <span className={styles.rowText}>
-        <span>Add the bank account you will pay from — or a UPI ID on Bank & wallets, which INRP2P verifies first. The seller takes rupees only from your own.</span>
+        <span>Add the bank account you will pay from — or a UPI ID on Bank & wallets. The seller takes rupees only from your own.</span>
         {canAdd ? (
           <button type="button" className={shell.secondaryAction} data-size="sm" onClick={onAdd}>
             <PlusIcon />

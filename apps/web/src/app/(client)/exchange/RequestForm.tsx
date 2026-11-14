@@ -73,7 +73,7 @@ export function RequestForm({ view, draft, who }: { view: ExchangeView; draft?: 
   const options = sell ? banks.length : wallets.length;
   // Buying, the client pays from a bank account of its own that is on file — asked for before the price, not when the
   // seller's USDT is already locked and the time to pay is running.
-  // A verified UPI ID of its own is enough to pay from (ADR 0029); one still waiting for INRP2P is not yet.
+  // A UPI ID of its own is enough to pay from (ADR 0029); one paused after a payer's report is not, until INRP2P decides (ADR 0030).
   const upiPayFrom = view.destinations.upiIds.filter((u) => u.status === 'ACTIVE');
   const payFromMissing = !sell && banks.length === 0 && upiPayFrom.length === 0;
   const inputs = useRef<Record<'BASE' | 'QUOTE', HTMLInputElement | null>>({ BASE: null, QUOTE: null });

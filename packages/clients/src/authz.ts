@@ -14,8 +14,8 @@ export interface ClientAdminCheck {
   readonly confirmedBy: Confirmation | 'NONE';
 }
 
-/** The kinds of destination a client adds: where it is paid rupees, and where it sends or receives USDT. */
-export type DestinationKind = 'BANK_ACCOUNT' | 'WALLET';
+/** The kinds of destination a client adds: where it is paid rupees — an account, a UPI ID — and where it sends or receives USDT. */
+export type DestinationKind = 'BANK_ACCOUNT' | 'WALLET' | 'UPI_ID';
 
 export interface ClientAdminStepUp {
   readonly stepUp: boolean;
@@ -31,7 +31,7 @@ export interface ClientAdminStepUp {
 }
 
 async function hasLiveDestination(ex: Executor, clientId: string, kind: DestinationKind): Promise<boolean> {
-  const table = kind === 'BANK_ACCOUNT' ? 'bank_account' : 'crypto_wallet';
+  const table = kind === 'BANK_ACCOUNT' ? 'bank_account' : kind === 'UPI_ID' ? 'upi_id' : 'crypto_wallet';
   const r = await ex.selectFrom(table).select('id').where('client_id', '=', clientId).where('status', 'in', ['ACTIVE', 'PENDING_REVIEW']).executeTakeFirst();
   return r !== undefined;
 }

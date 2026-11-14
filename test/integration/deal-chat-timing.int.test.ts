@@ -141,7 +141,7 @@ describe('the chat of a P2P deal', () => {
 
   it('attaches a receipt only to the payer’s own payment — and a receipt is never a confirmation', async () => {
     const t = await fundedBuy();
-    const claimed = await runAs(w.app, claimIncomingFiat(w.acceptor.actor), w.acceptor.ref, 'fiat_in.claim', { tradeRef: t.tradeRef, rail: 'UPI' as const, utr: utr(), fromBankAccountId: w.bankAccountId });
+    const claimed = await runAs(w.app, claimIncomingFiat(w.acceptor.actor), w.acceptor.ref, 'fiat_in.claim', { tradeRef: t.tradeRef, rail: 'UPI' as const, utr: utr(), fromBankAccountId: w.bankAccountId, payeeNameConfirmed: true });
     await clientPost(t.tradeRef, { file: file(PNG()), legRef: claimed.legRef });
     await expect(clientPost(t.tradeRef, { body: 'no file', legRef: claimed.legRef })).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' });
     // The trader is the payee of this payment: its receipt it is not.
@@ -288,7 +288,7 @@ describe('the buyer’s time to pay, by rail', () => {
       const [job, buyer] = await Promise.all([at(30), at(30)]);
       const [deadline, claim] = await Promise.allSettled([
         runP2pDeadlines(job.db),
-        runAs(buyer.db, claimIncomingFiat(w.acceptor.actor), w.acceptor.ref, 'fiat_in.claim', { tradeRef: t.tradeRef, rail: 'UPI' as const, utr: utr(), fromBankAccountId: w.bankAccountId }),
+        runAs(buyer.db, claimIncomingFiat(w.acceptor.actor), w.acceptor.ref, 'fiat_in.claim', { tradeRef: t.tradeRef, rail: 'UPI' as const, utr: utr(), fromBankAccountId: w.bankAccountId, payeeNameConfirmed: true }),
       ]);
       expect(deadline.status).toBe('fulfilled');
       const state = (await stateOf(t.tradeId)).lifecycle_state;

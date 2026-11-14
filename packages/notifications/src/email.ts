@@ -37,6 +37,8 @@ const EMAILED = new Set([
   'P2P_PAY_NOW', 'P2P_PAYMENT_SENT', 'TRADER_ORDER_ACCEPTED', 'TRADER_SIDE_EMPTY',
   // ADR 0029: a UPI ID the desk did not verify — its owner is waiting to be paid to it.
   'DESTINATION_REJECTED',
+  // ADR 0030: a UPI ID paused because a payer's app showed another name — its owner is not paid to it until it is checked.
+  'DESTINATION_PAUSED',
 ]);
 
 export interface EmailChannelOptions {

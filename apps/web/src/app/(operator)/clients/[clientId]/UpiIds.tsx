@@ -12,10 +12,11 @@ import d from '../../_desk/desk.module.css';
 const rupees = (amount: string) => `₹${Number.parseFloat(amount).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 
 /**
- * A client's UPI IDs for the desk (ADR 0029). One the client submitted waits here: a person opens a UPI app, starts a
- * payment to the address without paying, and types the name the app shows. The command judges that name against the
- * client's own names on its record — a match verifies it, a partial match needs a reason, anyone else's is refused — and
- * a rejection's note is what the client reads. Archiving one is for a compromised address: deals then go by bank transfer.
+ * A client's UPI IDs for the desk (ADR 0029/0030). One is live when the client adds it; a payer whose app showed another
+ * name pauses it, and it waits here: a person opens a UPI app, starts a payment to the address without paying, and types
+ * the name the app shows. The command judges that name against the client's own names on its record — a match puts it
+ * back with its full limits, a partial match needs a reason, anyone else's is refused — and a rejection's note is what the
+ * client reads. Archiving one is for a compromised address: deals then go by bank transfer.
  */
 export function UpiIds({ upiIds, canReview }: { upiIds: readonly UpiIdView[]; canReview: boolean }) {
   const cmd = useCommand();
@@ -41,9 +42,13 @@ export function UpiIds({ upiIds, canReview }: { upiIds: readonly UpiIdView[]; ca
           value: (
             <span className={d.row}>
               {u.status === 'ACTIVE' ? (
-                <Chip tone="success" glyph="done">verified · {u.verifiedName}</Chip>
+                u.nameConfirmed ? (
+                  <Chip tone="success" glyph="done">confirmed · {u.verifiedName ?? u.holderName}</Chip>
+                ) : (
+                  <Chip tone="brand">live · first deals · {u.holderName}</Chip>
+                )
               ) : u.status === 'PENDING_REVIEW' ? (
-                <Chip tone="warning">to check · says {u.holderName}</Chip>
+                <Chip tone="warning">paused · {u.reportedName ? `app showed ${u.reportedName}` : 'to check'}</Chip>
               ) : (
                 <Chip tone="neutral">not verified</Chip>
               )}
@@ -52,7 +57,7 @@ export function UpiIds({ upiIds, canReview }: { upiIds: readonly UpiIdView[]; ca
               </span>
               {canReview && u.status === 'PENDING_REVIEW' && open?.id !== u.id ? (
                 <>
-                  <Button intent="secondary" size="sm" disabled={cmd.busy} onClick={() => start(u.id, 'VERIFY')}>Verify</Button>
+                  <Button intent="secondary" size="sm" disabled={cmd.busy} onClick={() => start(u.id, 'VERIFY')}>Put back</Button>
                   <Button intent="ghost" size="sm" disabled={cmd.busy} onClick={() => start(u.id, 'REJECT')}>Reject</Button>
                 </>
               ) : null}
@@ -89,7 +94,7 @@ export function UpiIds({ upiIds, canReview }: { upiIds: readonly UpiIdView[]; ca
               shortcut={<StepUpMark label="needs your authenticator code" />}
               disabled={cmd.busy || (open.mode === 'VERIFY' ? resolved.trim().length < 2 : note.trim().length < 3)}
               onClick={async () => {
-                const out = await cmd.run(`${open.mode === 'VERIFY' ? 'Verify' : open.mode === 'REJECT' ? 'Reject' : 'Archive'} UPI ID ${chosen.vpa}`, (key) =>
+                const out = await cmd.run(`${open.mode === 'VERIFY' ? 'Put back' : open.mode === 'REJECT' ? 'Reject' : 'Archive'} UPI ID ${chosen.vpa}`, (key) =>
                   open.mode === 'ARCHIVE'
                     ? archiveClientUpiIdAction({ upiId: chosen.id, reason: note.trim() }, key)
                     : reviewUpiIdAction({ upiId: chosen.id, decision: open.mode, resolvedName: open.mode === 'VERIFY' ? resolved.trim() : null, note: note.trim() || null }, key),
@@ -97,7 +102,7 @@ export function UpiIds({ upiIds, canReview }: { upiIds: readonly UpiIdView[]; ca
                 if (out.ok) setOpen(null);
               }}
             >
-              {open.mode === 'VERIFY' ? 'Verify' : open.mode === 'REJECT' ? 'Reject' : 'Archive'}
+              {open.mode === 'VERIFY' ? 'Put back' : open.mode === 'REJECT' ? 'Reject' : 'Archive'}
             </Button>
             <Button intent="ghost" size="sm" disabled={cmd.busy} onClick={() => setOpen(null)}>Cancel</Button>
           </div>

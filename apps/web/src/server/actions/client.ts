@@ -6,7 +6,9 @@ import { markNotificationsRead } from '@inrp2p/notifications';
 import { quoteIdForRef, requestIdForRef } from '@inrp2p/portal';
 import { type AutoOutcome, acceptQuote, limitPriceRequests, rejectQuote, repriceRequest, requestInstantQuote, withdrawRequest } from '@inrp2p/quotes';
 import { addBankAccount, addWallet, archiveBankAccount, archiveWallet, setCanAcceptQuotes } from '@inrp2p/clients';
-import { type P2pDisputeReason, answerClientDispute, callClientSupport, chooseClientPayMethod, claimIncomingFiat, confirmClientReceipt, openClientDispute, postClientDealMessage } from '@inrp2p/settlement';
+import {
+  type P2pDisputeReason, answerClientDispute, callClientSupport, chooseClientPayMethod, claimIncomingFiat, confirmClientReceipt, openClientDispute, postClientDealMessage, reportClientPayeeName,
+} from '@inrp2p/settlement';
 import { chainForWeb } from '../chain.ts';
 import { type CommandResult, failure } from '../command.ts';
 import { runClientCommand, withClient, withMember } from '../client.ts';
@@ -84,10 +86,10 @@ export async function rejectQuoteAction(input: { quoteRef: string }, key: string
  * accounts, under the reference its bank gave it. The refusals are worded for the client, so they are shown as they
  * are.
  */
-const CLAIM_MESSAGES: ReadonlySet<string> = new Set(['INVALID_UTR', 'DUPLICATE_UTR', 'NOT_OWN_ACCOUNT', 'ACCOUNT_NOT_ACTIVE', 'NOTHING_OWED', 'NO_COLLECTION', 'INVALID_AMOUNT', 'INVALID_TRANSITION', 'ESCROW_NOT_FUNDED']);
+const CLAIM_MESSAGES: ReadonlySet<string> = new Set(['INVALID_UTR', 'DUPLICATE_UTR', 'NOT_OWN_ACCOUNT', 'ACCOUNT_NOT_ACTIVE', 'NOTHING_OWED', 'NO_COLLECTION', 'INVALID_AMOUNT', 'INVALID_TRANSITION', 'ESCROW_NOT_FUNDED', 'UPI_NAME_UNCHECKED']);
 
 export async function claimPaymentAction(
-  input: { tradeRef: string; rail: 'IMPS' | 'NEFT' | 'RTGS' | 'UPI'; utr: string; fromBankAccountId?: string | null; fromUpiId?: string | null; amount?: string | null },
+  input: { tradeRef: string; rail: 'IMPS' | 'NEFT' | 'RTGS' | 'UPI'; utr: string; fromBankAccountId?: string | null; fromUpiId?: string | null; amount?: string | null; payeeNameConfirmed?: boolean | null },
   key: string,
 ): Promise<CommandResult<{ legRef: string }>> {
   const out = await runClientCommand((ctx) => claimIncomingFiat(ctx.actor), input, { name: 'fiat_in.claim', idempotencyKey: key, keepMessages: CLAIM_MESSAGES });
@@ -211,6 +213,13 @@ export async function postDealMessageAction(form: FormData): Promise<CommandResu
 /** `deal_chat.call_support` — INRP2P is asked into the trade's chat. */
 export async function callSupportAction(input: { tradeRef: string; note?: string | null }, key: string): Promise<CommandResult<{ ref: string; called: boolean }>> {
   const out = await runClientCommand((ctx) => callClientSupport(ctx.actor), input, { name: 'deal_chat.call_support', idempotencyKey: key, financial: false, keepMessages: CHAT_MESSAGES });
+  if (out.ok) revalidatePath(`/trades/${encodeURIComponent(input.tradeRef)}`);
+  return out;
+}
+
+/** `escrow_payment.report_name` (ADR 0030) — the client's UPI app shows another name for the seller's UPI ID: it pays by bank transfer instead. */
+export async function reportPayeeNameAction(input: { tradeRef: string; shownName: string }, key: string): Promise<CommandResult<{ method: string; dueAt: string; finalUntil: string }>> {
+  const out = await runClientCommand((ctx) => reportClientPayeeName(ctx.actor), input, { name: 'escrow_payment.report_name', idempotencyKey: key, financial: false, keepMessages: CHAT_MESSAGES });
   if (out.ok) revalidatePath(`/trades/${encodeURIComponent(input.tradeRef)}`);
   return out;
 }

@@ -22,6 +22,7 @@ const HANDLED = new Set([
   'client.destination_added',
   'client.destination_archived',
   'client.destination_rejected',
+  'client.destination_paused',
   'client.trade_destination_changed',
   'client.payment_third_party',
   'client.team_changed',
@@ -93,6 +94,8 @@ async function facts(db: Db, event: OutboxEvent): Promise<{ clientId: string; fa
   if (label) out.label = label;
   if (paid) out.paid = paid;
   if (of) out.of = of;
+  // ADR 0030: a UPI ID added is live at once — with its full limits only when the desk looked it up.
+  if (p.destination === 'UPI_ID' && typeof p.confirmed === 'boolean') out.upiConfirmed = p.confirmed;
   // Team changes carry only enumerated values; anything else is ignored.
   if (p.change === 'JOINED' || p.change === 'ROLE_CHANGED' || p.change === 'REMOVED') out.teamChange = p.change;
   if (p.role === 'ADMIN' || p.role === 'OPERATOR') out.teamRole = p.role;
@@ -120,6 +123,8 @@ function kindFor(event: OutboxEvent, f: NotificationFacts): Parameters<typeof dr
       return 'DESTINATION_ARCHIVED';
     case 'client.destination_rejected':
       return 'DESTINATION_REJECTED';
+    case 'client.destination_paused':
+      return 'DESTINATION_PAUSED';
     case 'client.trade_destination_changed':
       return 'TRADE_DESTINATION_CHANGED';
     case 'client.payment_third_party':

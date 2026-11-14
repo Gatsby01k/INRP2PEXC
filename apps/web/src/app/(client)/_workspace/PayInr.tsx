@@ -23,7 +23,7 @@ const SPEED: Record<InrRail, string> = {
   RTGS: 'From ₹2 lakh. Usually within half an hour; some banks send RTGS only in banking hours.',
 };
 
-/** One of the payer's own: a registered bank account, or (ADR 0029) a verified UPI ID. */
+/** One of the payer's own: a registered bank account, or (ADR 0029) a UPI ID of its own. */
 export interface PayFromAccount {
   readonly id: string;
   readonly kind: 'BANK' | 'UPI';
@@ -42,6 +42,10 @@ export interface PayFromAccount {
  * Choosing a way to pay sets the deadline on the server (never past the slowest way's). Saying "I've paid" stops that
  * clock and starts the seller's; nothing here — the reference, the receipt, a return from the bank's app — counts as the
  * money having arrived. Only the seller's confirmation from its own bank does.
+ *
+ * Paying a UPI ID, the payer is the one who checks it (ADR 0030): its app shows the name the address resolves to, and it
+ * says that name is the seller's before it says it paid. Another name, it does not pay — it says what it saw, the UPI ID
+ * is paused for INRP2P, and the deal goes on to the seller's bank account.
  */
 export function PayInr({
   deal,
@@ -50,20 +54,24 @@ export function PayInr({
   attachFields,
   choose,
   claim,
+  report,
   attach,
 }: {
   deal: P2pDeal;
-  /** The payer's own accounts and verified UPI IDs; null for one that pays only from the account on its file. */
+  /** The payer's own accounts and live UPI IDs; null for one that pays only from the account on its file. */
   fromAccounts: readonly PayFromAccount[] | null;
   /** The one chosen to start with — a trader's registered account; without it, a sole account, or none. */
   defaultFrom?: string;
   attachFields: Readonly<Record<string, string>>;
   choose: (method: InrRail, key: string) => Promise<ActionResult<unknown>>;
-  claim: (input: { rail: InrRail; utr: string; from: { readonly kind: 'BANK' | 'UPI'; readonly id: string } | null }, key: string) => Promise<ActionResult<{ legRef: string }>>;
+  claim: (input: { rail: InrRail; utr: string; from: { readonly kind: 'BANK' | 'UPI'; readonly id: string } | null; payeeNameConfirmed: boolean | null }, key: string) => Promise<ActionResult<{ legRef: string }>>;
+  /** ADR 0030: the payer's UPI app shows another name — what it shows; the deal moves to a bank transfer. */
+  report: (shownName: string, key: string) => Promise<ActionResult<{ method: string }>>;
   attach: (form: FormData) => Promise<ActionResult<{ id: string }>>;
 }) {
   const cmd = useCommand();
   const picking = useCommand();
+  const reporting = useCommand();
   const slot = deal.payWindow;
   const payee = deal.payTo;
   const [method, setMethod] = useState<InrRail>(slot?.method ?? 'IMPS');
@@ -73,6 +81,9 @@ export function PayInr({
   const [receipt, setReceipt] = useState<File | null>(null);
   const [receiptError, setReceiptError] = useState<string | null>(null);
   const [sentNote, setSentNote] = useState<string | null>(null);
+  const [nameOk, setNameOk] = useState(false);
+  const [mismatch, setMismatch] = useState(false);
+  const [shownName, setShownName] = useState('');
   const amount = Money.parse(deal.inr, 'INR');
   const inr = formatInr(amount, { fraction: 'always' });
 
@@ -83,7 +94,9 @@ export function PayInr({
   const shape = utr === '' ? null : checkUtrShape(method, utr);
   const otherRail = shape && !shape.ok ? railsForUtr(utr).find((r) => r !== method) : undefined;
   const fromAccount = fromAccounts ? (fromAccounts.find((a) => a.id === from) ?? null) : null;
-  const ready = !cmd.busy && shape?.ok === true && own && (fromAccounts === null || fromAccount !== null);
+  // Paying the seller's UPI ID, the name the app shows is checked first (ADR 0030).
+  const toUpiId = method === 'UPI' && payee.upiId !== null;
+  const ready = !cmd.busy && shape?.ok === true && own && (fromAccounts === null || fromAccount !== null) && (!toUpiId || nameOk);
   const large = amount.minor >= BigInt(NEW_PAYEE_CAUTION_INR) * 100n;
 
   const select = async (m: Method) => {
@@ -102,7 +115,9 @@ export function PayInr({
   };
 
   const submit = async () => {
-    const out = await cmd.run(`Payment of ${inr} filed`, (key) => claim({ rail: method, utr: normalizeUtr(utr), from: fromAccount ? { kind: fromAccount.kind, id: fromAccount.id } : null }, key));
+    const out = await cmd.run(`Payment of ${inr} filed`, (key) =>
+      claim({ rail: method, utr: normalizeUtr(utr), from: fromAccount ? { kind: fromAccount.kind, id: fromAccount.id } : null, payeeNameConfirmed: toUpiId ? nameOk : null }, key),
+    );
     if (!out.ok) return;
     playSound('success');
     if (receipt) {
@@ -120,6 +135,15 @@ export function PayInr({
     setUtr('');
     setOwn(false);
     setReceipt(null);
+  };
+
+  const reportName = async () => {
+    const out = await reporting.run('Paying by bank transfer instead', (key) => report(shownName.trim(), key));
+    if (!out.ok) return;
+    setMethod(out.result.method as InrRail);
+    setMismatch(false);
+    setShownName('');
+    setNameOk(false);
   };
 
   return (
@@ -185,17 +209,57 @@ export function PayInr({
               <div className={pay.upi}>
                 <QrCode value={payee.upiLink} label={`UPI code to pay ${inr} to ${payee.upiName ?? payee.holderName}`} className={pay.qr} />
                 <div className={pay.upiText}>
-                  <p className={pay.upiLead}>
-                    Scan with any UPI app — the amount and the remarks are filled in. Your app should show <strong>{payee.upiName ?? payee.holderName}</strong>: if it shows
-                    another name, do not pay. Then approve with your UPI PIN.
-                  </p>
+                  <p className={pay.upiLead}>Scan with any UPI app — the amount and the remarks are filled in. Before you enter your UPI PIN, check the name your app shows.</p>
                   <a className={`${shell.action} ${pay.openApp}`} href={payee.upiLink}>
                     <PhoneIcon className={pay.inlineIcon} />
                     Pay in UPI app
                   </a>
                   <Detail label="UPI ID" value={payee.upiId ?? ''} mono />
                   <Detail label="Amount" value={deal.inr} shown={inr} mono />
-                  <Detail label="Name in your app" value={payee.upiName ?? payee.holderName} copy={false} extra={<span className={styles.ifscOk}><CheckIcon /> verified by INRP2P</span>} />
+                  <div className={styles.nameCheck}>
+                    <label className={pay.confirm}>
+                      <input type="checkbox" checked={nameOk} onChange={(e) => setNameOk(e.target.checked)} disabled={mismatch} />
+                      <span>
+                        My UPI app shows <strong>{payee.upiName ?? payee.holderName}</strong>
+                        {payee.upiConfirmed ? <span className={styles.ifscOk}> · paid to before</span> : null}
+                      </span>
+                    </label>
+                    {mismatch ? (
+                      <div className={styles.mismatch}>
+                        <p>
+                          <strong>Don’t pay this UPI ID.</strong> Say what name your app shows: you pay the seller’s bank account instead, and INRP2P checks the UPI ID.
+                        </p>
+                        <label className={pay.field}>
+                          <span className={pay.fieldLabel}>Name your app shows</span>
+                          <input className={pay.input} value={shownName} onChange={(e) => setShownName(e.target.value)} maxLength={140} autoComplete="off" spellCheck={false} />
+                        </label>
+                        <div className={styles.mismatchActions}>
+                          <button type="button" className={shell.action} data-size="sm" disabled={reporting.busy || shownName.trim().length < 2} onClick={() => void reportName()}>
+                            Pay by bank instead
+                          </button>
+                          <button type="button" className={shell.secondaryAction} data-size="sm" disabled={reporting.busy} onClick={() => setMismatch(false)}>
+                            Back
+                          </button>
+                        </div>
+                        {reporting.error ? (
+                          <p className={shell.error} role="alert">
+                            {reporting.error}
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        className={styles.mismatchLink}
+                        onClick={() => {
+                          setNameOk(false);
+                          setMismatch(true);
+                        }}
+                      >
+                        It shows a different name
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             ) : (
@@ -247,7 +311,7 @@ export function PayInr({
             {fromAccounts && fromAccounts.length !== 1 ? (
               fromAccounts.length === 0 ? (
                 <p className={pay.muted}>
-                  No bank account or verified UPI ID of yours is registered. <a className={shell.textAction} href="/destinations">Add the one you pay from</a>, then come back
+                  No bank account or UPI ID of yours is registered. <a className={shell.textAction} href="/destinations">Add the one you pay from</a>, then come back
                   here; pay only from your own.
                 </p>
               ) : (
@@ -345,6 +409,7 @@ export function PayInr({
       </ol>
       {cmd.dialog}
       {picking.dialog}
+      {reporting.dialog}
     </div>
   );
 }

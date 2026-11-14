@@ -92,7 +92,7 @@ describe('a deal says whose move it is, the moment it becomes theirs', () => {
     expect(await eventsOf(trade.tradeId, ['p2p.pay_window_opened'])).toHaveLength(1);
 
     // 3. The buyer says it paid: the seller hears at once, in its inbox — not only in a Telegram chat it may never have linked.
-    await runAs(w.app, claimIncomingFiat(w.acceptor.actor), w.acceptor.ref, 'fiat_in.claim', { tradeRef: trade.tradeRef, rail: 'UPI' as const, utr: utr12(), fromBankAccountId: w.bankAccountId });
+    await runAs(w.app, claimIncomingFiat(w.acceptor.actor), w.acceptor.ref, 'fiat_in.claim', { tradeRef: trade.tradeRef, rail: 'UPI' as const, utr: utr12(), fromBankAccountId: w.bankAccountId, payeeNameConfirmed: true });
     const claimed = await eventsOf(trade.tradeId, ['desk.client_payment_claimed']);
     expect(claimed).toHaveLength(1);
     expect(trader.handles('desk.client_payment_claimed')).toBe(true);
@@ -149,7 +149,7 @@ describe('a deal offers only the ways to pay its trader’s side uses', () => {
       // What the buyer may still choose is among the trader's ways.
       await runAs(w.app, chooseClientPayMethod(w.acceptor.actor), w.acceptor.ref, 'escrow_payment.choose_method', { tradeRef: trade.tradeRef, method: 'NEFT' });
       // "I've paid" is never refused for its rail: money that moved is filed, whatever way it went.
-      await runAs(w.app, claimIncomingFiat(w.acceptor.actor), w.acceptor.ref, 'fiat_in.claim', { tradeRef: trade.tradeRef, rail: 'UPI' as const, utr: utr12(), fromBankAccountId: w.bankAccountId });
+      await runAs(w.app, claimIncomingFiat(w.acceptor.actor), w.acceptor.ref, 'fiat_in.claim', { tradeRef: trade.tradeRef, rail: 'UPI' as const, utr: utr12(), fromBankAccountId: w.bankAccountId, payeeNameConfirmed: true });
     } finally {
       const now = await blockOf(usdtTrader.traderId, 'SELL_USDT');
       await runAs(w.app, updateBlock(usdtTrader.admin.actor), usdtTrader.admin.ref, 'trader.update_block', { side: 'SELL_USDT' as const, expectedVersion: now.version, rails: ['UPI', 'IMPS', 'NEFT', 'RTGS'] as const });

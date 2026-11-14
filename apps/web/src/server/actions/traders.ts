@@ -5,7 +5,7 @@ import type { FiatRail, TraderSide } from '@inrp2p/db';
 import {
   type ApplyPayload, type ProposeSettlementPayload, acceptOrder, applyAsTrader, cancelReserveWithdrawal, cancelSettlementChange, confirmOrderPaymentReceived, declineOrder, orderDeliveryAddress, proposeSettlementChange,
   type ClaimedDeposit, claimReserveDeposit, requestReserveWithdrawal, setAvailability, submitOrderPayment, updateBlock, answerOrderDispute, disputeOrderPayment,
-  callOrderSupport, chooseOrderPayMethod, postOrderDealMessage, bidOnRfq,
+  callOrderSupport, chooseOrderPayMethod, postOrderDealMessage, bidOnRfq, reportOrderPayeeName,
 } from '@inrp2p/traders';
 import type { P2pDisputeReason } from '@inrp2p/settlement';
 import { cancelNetworkWithdrawal, claimNetworkDeposit, requestNetworkWithdrawal } from '@inrp2p/network';
@@ -33,6 +33,8 @@ const TRADER_WORDING: ReadonlySet<string> = new Set([
   'CAPACITY_INSUFFICIENT', 'INVALID_TRANSITION', 'DISPUTE_EXISTS', 'NOT_THE_PAYEE', 'NOT_THE_PAYER', 'P2P_PAYMENT_WINDOW_CLOSED',
   // ADR 0023: the deal's chat and its time to pay.
   'CHAT_CLOSED', 'FILE_TOO_LARGE', 'FILE_TYPE_NOT_ALLOWED', 'RATE_LIMITED', 'P2P_METHOD_LOCKED', 'P2P_METHOD_TOO_LATE', 'INVALID_ARGUMENT',
+  // ADR 0030: the name the client's UPI ID resolves to is checked before paying it.
+  'UPI_NAME_UNCHECKED',
   // ADR 0025: a firm offer and a price request's bid.
   'TRADER_BLOCK_INCOMPLETE', 'TRADER_LIMIT_EXCEEDED', 'TRADER_NOT_ELIGIBLE',
 ]);
@@ -123,8 +125,18 @@ export async function declineOrderAction(input: { ref: string; reason?: string |
   return run('trader_order.decline', (ctx) => declineOrder(ctx.actor), input, key);
 }
 
-export async function submitOrderPaymentAction(input: { ref: string; rail: FiatRail; utr: string; amount?: string; fromUpiId?: string | null }, key: string): Promise<CommandResult<{ settlementRef: string }>> {
+export async function submitOrderPaymentAction(
+  input: { ref: string; rail: FiatRail; utr: string; amount?: string; fromUpiId?: string | null; payeeNameConfirmed?: boolean | null },
+  key: string,
+): Promise<CommandResult<{ settlementRef: string }>> {
   return run('trader_order.submit_payment', (ctx) => submitOrderPayment(ctx.actor), input, key);
+}
+
+/** ADR 0030: the trader's UPI app shows another name for the client's UPI ID — it does not pay it, and pays by bank transfer. */
+export async function reportOrderPayeeNameAction(input: { ref: string; shownName: string }, key: string): Promise<CommandResult<{ method: string; dueAt: string; finalUntil: string }>> {
+  const out = await runWorkspaceCommand((ctx) => reportOrderPayeeName(ctx.actor), input, { name: 'trader_order.report_name', idempotencyKey: key, financial: false, keepMessages: TRADER_WORDING });
+  if (out.ok) refresh();
+  return out;
 }
 
 /**

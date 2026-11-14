@@ -1,6 +1,6 @@
 import { sql } from 'kysely';
 import { DomainError, type InrRail, P2P_RAIL_ORDER, type P2pTiming, RAIL_NOT_TAKEN, type RailOption, railOptions, railOptionsFor, requireOneOf, requireP2pTiming, requireUuid } from '@inrp2p/kernel';
-import { type UsableUpiId, activeUpiId, usableUpiId } from '@inrp2p/clients';
+import { type UsableUpiId, activeUpiId, pauseUpiIdInTx, usableUpiId } from '@inrp2p/clients';
 import type { Executor, TxContext } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
 import { enqueueOutbox } from '@inrp2p/outbox';
@@ -48,18 +48,18 @@ export interface P2pPayState {
   /** Who receives the rupees: the trader's own client on a client's BUY, the client on its SELL. */
   readonly payeeClientId: string | null;
   /**
-   * The payee's verified UPI ID this deal is paid to by UPI (ADR 0029): the one its window was opened with, while it is
-   * still active — or, before the window opens, the one that can take the amount now. Null: no UPI on this deal.
+   * The payee's live UPI ID this deal is paid to by UPI (ADR 0029/0030): the one its window was opened with, while it is
+   * still live — or, before the window opens, the one that can take the amount now. Null: no UPI on this deal.
    */
   readonly payeeUpi: UsableUpiId | null;
 }
 
-/** Why UPI is not offered although the amount and the trader's side allow it: nobody verified a UPI ID to pay. */
-export const RAIL_NO_UPI_ID = 'no verified UPI ID to pay to';
+/** Why UPI is not offered although the amount and the trader's side allow it: the payee has no UPI ID that can take it. */
+export const RAIL_NO_UPI_ID = 'no UPI ID to pay to';
 
 /**
  * The ways to pay one deal, best first: what its amount allows among what its trader's side uses (`railOptionsFor`) — and
- * UPI only when the payee has a verified UPI ID that can take it (ADR 0029). There is no UPI address but a registered one.
+ * UPI only when the payee has a live UPI ID that can take it (ADR 0029). There is no UPI address but a registered one.
  * A deal is never left with no way to pay: without UPI the amount's bank rails stand.
  */
 export function dealPayOptions(inrMinor: bigint, rails: readonly InrRail[] | null, hasUpi: boolean): readonly RailOption[] {
@@ -179,7 +179,7 @@ export async function payWindowOf(ex: Executor, tradeId: string): Promise<PayWin
 export function prospectiveWindow(s: P2pPayState, timing: P2pTiming): PayWindow | null {
   if (!s.fundedAt || !s.payeeAccountId || !s.payeeReadyAt) return null;
   const openedAt = new Date(Math.max(s.fundedAt.getTime(), s.payeeReadyAt.getTime()));
-  // The way the amount suggests, among the ways the trader's side uses — UPI only to a verified UPI ID.
+  // The way the amount suggests, among the ways the trader's side uses — UPI only to a live UPI ID of the payee's.
   const method = dealPayOptions(s.inrMinor, s.rails, s.payeeUpi !== null)[0]!.rail;
   const dueAt = new Date(openedAt.getTime() + timing.pay[method] * 60_000);
   return { tradeId: s.tradeId, openedAt, method, chosen: false, timing, dueAt, finalUntil: new Date(dueAt.getTime() + timing.finalMinutes * 60_000), changes: 0, warnedAt: null, payeeUpiId: s.payeeUpi?.id ?? null };
@@ -250,11 +250,11 @@ export async function choosePayMethodInTx(ctx: TxContext, input: { readonly trad
   const now = await dealNow(ctx.tx);
   const w = await openPayWindowInTx(ctx, s);
   if (!w) throw new DomainError('INVALID_TRANSITION', 'the seller’s account is not ready yet');
-  // Judged against the window as it is: UPI only to the UPI ID the deal was opened with, while it is still verified.
+  // Judged against the window as it is: UPI only to the UPI ID the deal was opened with, while it is still live.
   const hasUpi = w.payeeUpiId !== null && (await activeUpiId(ctx.tx, w.payeeUpiId)) !== null;
   const option = dealPayOptions(s.inrMinor, s.rails, hasUpi).find((o) => o.rail === method)!;
   if (!option.possible) {
-    const why = option.limit === RAIL_NOT_TAKEN ? `${method} is not used on this deal` : option.limit === RAIL_NO_UPI_ID ? 'the seller has no verified UPI ID to pay to' : option.limit;
+    const why = option.limit === RAIL_NOT_TAKEN ? `${method} is not used on this deal` : option.limit === RAIL_NO_UPI_ID ? 'the seller has no UPI ID to pay to' : option.limit;
     throw new DomainError('INVALID_ARGUMENT', `${why} — choose another way to pay`, { field: 'method' });
   }
   if (w.method === method) return { method, dueAt: w.dueAt.toISOString(), finalUntil: w.finalUntil.toISOString(), changed: false };
@@ -273,4 +273,63 @@ export async function choosePayMethodInTx(ctx: TxContext, input: { readonly trad
   await appendAudit(ctx, { action: 'p2p.pay_method_chosen', entityType: 'trade', entityId: s.tradeId, before: { method: w.method, due_at: w.dueAt.toISOString() }, after: { method, due_at: dueAt.toISOString() } });
   const after = (await payWindowOf(ctx.tx, s.tradeId))!;
   return { method, dueAt: after.dueAt.toISOString(), finalUntil: after.finalUntil.toISOString(), changed: true };
+}
+
+/**
+ * ADR 0030: the payer of a deal's UPI ID says its UPI app showed the name the deal told it to expect — before it says it
+ * paid. Asked only of a payment by UPI on a deal paid to a UPI ID; recorded on the deal's window, and read when the payee
+ * confirms the rupees arrived (`confirmP2pReceiptInTx`). The caller holds the trade lock.
+ */
+export async function recordPayeeNameCheckInTx(ctx: TxContext, input: { readonly tradeId: string; readonly rail: InrRail; readonly confirmed: unknown }): Promise<void> {
+  if (input.rail !== 'UPI') return;
+  // Said before the deadlines opened the window: it opens now, on the UPI ID the payer was shown — the same choice.
+  let w = await payWindowOf(ctx.tx, input.tradeId);
+  if (!w) {
+    const s = await p2pPayState(ctx.tx, input.tradeId);
+    if (s && isPaying(s)) w = await openPayWindowInTx(ctx, s);
+  }
+  if (!w?.payeeUpiId) return;
+  if (input.confirmed !== true) {
+    throw new DomainError('UPI_NAME_UNCHECKED', 'Check the name your UPI app shows for the seller’s UPI ID first. If it shows another name, do not pay — say so instead, and pay by bank transfer.', { field: 'payeeNameConfirmed' });
+  }
+  await sql`
+    update p2p_pay_window set payee_name_confirmed_at = inrp2p_now(), updated_at = inrp2p_now()
+     where trade_id = ${input.tradeId}::uuid and payee_name_confirmed_at is null`.execute(ctx.tx);
+}
+
+/**
+ * `escrow_payment.report_name` (ADR 0030) — the payer's UPI app shows another name for the deal's UPI ID than the one it was
+ * told to expect: it does not pay it. The UPI ID is paused for a person at INRP2P (`pauseUpiIdInTx`), and the deal goes on
+ * by bank transfer to the payee's own account — the way the amount suits whose time from the escrow is still open, or the
+ * slowest; never a longer window than that way's own. Not a change of the payer's (its three stay). The caller is the
+ * deal's payer; the trade is locked here.
+ */
+export async function reportPayeeUpiNameInTx(ctx: TxContext, input: { readonly tradeId: string; readonly payer: PayerSide; readonly shownName: unknown }): Promise<{ readonly method: InrRail; readonly dueAt: string; readonly finalUntil: string }> {
+  await lockTrade(ctx.tx, input.tradeId);
+  const s = await p2pPayState(ctx.tx, input.tradeId);
+  if (!s) throw new DomainError('NOT_FOUND', 'deal not found');
+  if ((s.buy ? 'CLIENT' : 'TRADER') !== input.payer) throw new DomainError('NOT_THE_PAYER', 'only the one who pays the rupees checks the name');
+  if (!isPaying(s)) throw new DomainError('INVALID_TRANSITION', s.filed ? 'your payment is already filed' : 'this deal is not waiting for your payment');
+  const w = await openPayWindowInTx(ctx, s);
+  if (!w) throw new DomainError('INVALID_TRANSITION', 'the seller’s account is not ready yet');
+  if (!w.payeeUpiId) throw new DomainError('INVALID_TRANSITION', 'this deal is not paid to a UPI ID');
+  const shownName = typeof input.shownName === 'string' ? input.shownName : '';
+  await pauseUpiIdInTx(ctx, { upiId: w.payeeUpiId, tradeId: s.tradeId, shownName });
+  const now = await dealNow(ctx.tx);
+  const banks = dealPayOptions(s.inrMinor, s.rails, false).filter((o) => o.possible && o.rail !== 'UPI');
+  const due = (rail: InrRail) => new Date(w.openedAt.getTime() + w.timing.pay[rail] * 60_000);
+  const next = banks.find((o) => due(o.rail).getTime() > now.getTime() + 5 * 60_000) ?? [...banks].sort((a, b) => due(b.rail).getTime() - due(a.rail).getTime())[0];
+  if (!next) throw new DomainError('INVALID_TRANSITION', 'this deal has no bank transfer to fall back on — ask INRP2P in the chat');
+  if (w.method === 'UPI') {
+    await sql`
+      update p2p_pay_window
+         set method = ${next.rail},
+             due_at = opened_at + make_interval(mins => ${w.timing.pay[next.rail]}),
+             final_until = greatest(opened_at + make_interval(mins => ${w.timing.pay[next.rail] + w.timing.finalMinutes}), ${now}::timestamptz + make_interval(mins => ${w.timing.finalMinutes})),
+             warned_at = null, updated_at = ${now}::timestamptz
+       where trade_id = ${s.tradeId}::uuid`.execute(ctx.tx);
+  }
+  await appendAudit(ctx, { action: 'p2p.payee_name_reported', entityType: 'trade', entityId: s.tradeId, before: { method: w.method }, after: { method: w.method === 'UPI' ? next.rail : w.method, upi_id: w.payeeUpiId, shown_name: shownName } });
+  const after = (await payWindowOf(ctx.tx, s.tradeId))!;
+  return { method: after.method, dueAt: after.dueAt.toISOString(), finalUntil: after.finalUntil.toISOString() };
 }

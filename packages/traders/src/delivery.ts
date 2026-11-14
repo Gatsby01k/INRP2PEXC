@@ -5,7 +5,7 @@ import { enqueueOutbox } from '@inrp2p/outbox';
 import type { ClientActor } from '@inrp2p/identity';
 import {
   type DealAttachment, type DealAttachmentRef, type P2pDisputeReason, answerP2pDisputeInTx, callSupportInTx, choosePayMethodInTx, confirmP2pReceiptInTx, fileRoutePayoutInTx, obligationRemaining,
-  openP2pDisputeInTx, postDealMessageInTx,
+  openP2pDisputeInTx, postDealMessageInTx, recordPayeeNameCheckInTx, reportPayeeUpiNameInTx,
 } from '@inrp2p/settlement';
 import { lockTrade } from '@inrp2p/trades';
 import { allocateObligationDeliveryAddress } from '@inrp2p/treasury';
@@ -38,10 +38,11 @@ async function startedOrderOfClient(ctx: TxContext, clientId: string, ref: strin
 /**
  * `trader_order.submit_payment` — a user who can commit, on a Buy USDT order once the other side is funded. The
  * trader paid the client directly, from its own registered account (ADR 0019), and gives the bank reference (UTR); the
- * client's confirmation of it is what releases the escrow. One payment of the whole amount, one at a time.
+ * client's confirmation of it is what releases the escrow. One payment of the whole amount, one at a time. Paid by UPI
+ * to the client's UPI ID, the trader says its app showed the client's name (ADR 0030).
  */
 export function submitOrderPayment(actor: ClientActor) {
-  return traderClientCommand(actor, 'COMMIT', async (ctx, p: { ref: string; rail: FiatRail; utr: string; amount?: string; fromUpiId?: string | null }, member) => {
+  return traderClientCommand(actor, 'COMMIT', async (ctx, p: { ref: string; rail: FiatRail; utr: string; amount?: string; fromUpiId?: string | null; payeeNameConfirmed?: boolean | null }, member) => {
     const order = await startedOrderOfClient(ctx, member.clientId, p.ref);
     if (order.side !== 'BUY_USDT') throw new DomainError('INVALID_ARGUMENT', 'on a Sell USDT order you send USDT to the order address instead');
     const profile = await ctx.tx.selectFrom('trader_profile').select('bank_account_id').where('id', '=', order.trader_id).executeTakeFirstOrThrow();
@@ -54,10 +55,12 @@ export function submitOrderPayment(actor: ClientActor) {
     const amount = p.amount ? Money.parse(p.amount, 'INR') : owed;
     // ADR 0019: one payment of the whole amount — the client's confirmation of it is what releases the escrow.
     if (amount.minor !== owed.minor) throw new DomainError('INVALID_AMOUNT', `pay the client the whole ${owed.toDecimalString()} INR in one payment`);
+    await lockTrade(ctx.tx, order.trade_id);
+    await recordPayeeNameCheckInTx(ctx, { tradeId: order.trade_id, rail, confirmed: p.payeeNameConfirmed });
     // ADR 0029: paid from one of the trader's own verified UPI IDs, it is declared from that address (IX145), not the account.
     const payer = p.fromUpiId ? { payerUpiId: p.fromUpiId } : { payerBankAccountId: profile.bank_account_id };
     const filed = await fileRoutePayoutInTx(ctx, {}, { tradeId: order.trade_id, rail, utr: p.utr, amount, ...payer });
-    await appendAudit(ctx, { action: 'trader_order.payment_submitted', entityType: 'trader_order', entityId: order.id, after: { leg_ref: filed.legRef, amount } });
+    await appendAudit(ctx, { action: 'trader_order.payment_submitted', entityType: 'trader_order', entityId: order.id, after: { leg_ref: filed.legRef, amount, payee_name_confirmed: p.payeeNameConfirmed === true } });
     await enqueueOutbox(ctx, { type: 'trader.payment_submitted', aggregateType: 'trader_order', aggregateId: order.id, payload: { orderId: order.id, legRef: filed.legRef } });
     return { settlementRef: filed.legRef };
   });
@@ -185,5 +188,14 @@ export function chooseOrderPayMethod(actor: ClientActor) {
     const order = await p2pOrderOfClient(ctx, member.clientId, p.ref);
     if (order.side !== 'BUY_USDT') throw new DomainError('NOT_THE_PAYER', 'on a Sell USDT order the client pays you');
     return choosePayMethodInTx(ctx, { tradeId: order.trade_id, payer: 'TRADER', userId: actor.userId, method: p.method });
+  });
+}
+
+/** `trader_order.report_name` — on a P2P Buy USDT order, the trader's UPI app shows another name for the client's UPI ID (ADR 0030). */
+export function reportOrderPayeeName(actor: ClientActor) {
+  return traderClientCommand(actor, 'COMMIT', async (ctx, p: { ref: string; shownName: string }, member) => {
+    const order = await p2pOrderOfClient(ctx, member.clientId, p.ref);
+    if (order.side !== 'BUY_USDT') throw new DomainError('NOT_THE_PAYER', 'on a Sell USDT order the client pays you');
+    return reportPayeeUpiNameInTx(ctx, { tradeId: order.trade_id, payer: 'TRADER', shownName: p.shownName });
   });
 }

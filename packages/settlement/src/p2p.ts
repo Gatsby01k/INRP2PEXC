@@ -3,7 +3,7 @@ import { sql } from 'kysely';
 import { DomainError, Money, type InrRail, type RailOption, checkIfsc, optionalText, requireText, requireUtrShape, requireUuid, upiPayUri } from '@inrp2p/kernel';
 import type { Db, Executor, ExceptionType, SenderVerdict, TxContext } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
-import { type UsableUpiId, bankAccountSealContext } from '@inrp2p/clients';
+import { type UsableUpiId, bankAccountSealContext, confirmUpiNameInTx } from '@inrp2p/clients';
 import { executeCommand } from '@inrp2p/commands';
 import { enqueueOutbox } from '@inrp2p/outbox';
 import type { ClientActor, DomainCommand } from '@inrp2p/identity';
@@ -143,6 +143,15 @@ export async function confirmP2pReceiptInTx(
       : { status: 'PAID', via: 'PAYEE', notes: `the ${input.payee === 'CLIENT' ? 'client' : 'trader'} confirmed it received the payment after all` });
   }
   await closeCases(ctx, 'P2P_RECEIPT_OVERDUE', 'SETTLEMENT_LEG', leg.id, via === 'DESK' ? `INRP2P found the payment paid: ${evidence}` : `the ${input.payee === 'CLIENT' ? 'client' : 'trader'} confirmed it received the payment`, via === 'DESK' ? 'p2p_decide' : 'confirm');
+  // ADR 0030: rupees that came by UPI to the payee's UPI ID, whose name the payer said its app showed, and that the payee
+  // itself says arrived — the address is the payee's own, and takes its own limits from now on.
+  if (via === 'PAYEE') {
+    const w = await ctx.tx.selectFrom('p2p_pay_window').select(['payee_upi_id', 'payee_name_confirmed_at']).where('trade_id', '=', trade.id).executeTakeFirst();
+    if (w?.payee_upi_id && w.payee_name_confirmed_at) {
+      const f = await ctx.tx.selectFrom('fiat_transfer').select('rail').where('id', '=', allocation.fiat_transfer_id).executeTakeFirstOrThrow();
+      if (f.rail === 'UPI') await confirmUpiNameInTx(ctx, { upiId: w.payee_upi_id, tradeId: trade.id });
+    }
+  }
   if (input.payee === 'CLIENT') await confirmPayoutLegInTx(ctx, deps, leg.id);
   else await confirmClientLegInTx(ctx, deps, leg.id);
   return { verdict, confirmed: true, exceptionId: null };
@@ -436,10 +445,15 @@ export interface P2pPayee {
   readonly accountNumber: string;
   readonly last4: string;
   readonly rails: readonly string[];
-  /** The payee's own verified UPI ID (ADR 0029) this deal is paid to by UPI; null — the payee has none that can take it. */
+  /** The payee's own live UPI ID (ADR 0029) this deal is paid to by UPI; null — the payee has none that can take it. */
   readonly upiId: string | null;
-  /** The name a payer's app shows for that UPI ID, as INRP2P saw it resolve: the payer checks it before approving. */
+  /**
+   * The name the payer's UPI app must show for that UPI ID (ADR 0030): what INRP2P saw it resolve to when a person looked
+   * it up, otherwise the payee's own — its account's holder. The payer checks it before it approves, and says so.
+   */
   readonly upiName: string | null;
+  /** A deal paid to that UPI ID before (or INRP2P) showed it is the payee's own. */
+  readonly upiConfirmed: boolean;
   /** The `upi://pay` link to that UPI ID with the exact amount — a QR code on a computer, a tap on a phone; null without UPI. */
   readonly upiLink: string | null;
   /** What to put in the payment's remarks, so the payee recognises it on its statement. */
@@ -557,7 +571,7 @@ export async function p2pDeal(ex: Executor, protector: { open(value: string, con
   let dueBy: string | null = null;
   let window: PayWindow | null = null;
   let receiptLate = false;
-  // The ways to pay this deal: what its amount allows, among what the trader's side uses — UPI only to a verified UPI ID.
+  // The ways to pay this deal: what its amount allows, among what the trader's side uses — UPI only to a live UPI ID.
   let methods: readonly RailOption[] = [];
   let payeeUpi: UsableUpiId | null = null;
   if (t.lifecycle_state === 'CANCELLED') step = 'CANCELLED';
@@ -611,13 +625,14 @@ export async function p2pDeal(ex: Executor, protector: { open(value: string, con
         const accountNumber = await protector.open(b.account_number_enc, bankAccountSealContext(b.client_id));
         // The payee recognises the payment by the reference it knows: the trader its order, the client its trade.
         const remarks = `INRP2P ${buy ? ((await ex.selectFrom('trader_order').select('ref').where('trade_id', '=', t.id).orderBy('offered_at', 'desc').executeTakeFirst())?.ref ?? t.ref) : t.ref}`;
-        // UPI goes to the payee's own registered, verified UPI ID and nowhere else — never to an address made up from
-        // the account number (ADR 0029).
+        // UPI goes to the payee's own registered UPI ID and nowhere else — never to an address made up from the account
+        // number (ADR 0029). The name to check is the payee's own (ADR 0030), not one typed beside the address.
         const upi = methods.some((o) => o.rail === 'UPI' && o.possible) ? payeeUpi : null;
+        const upiName = upi ? (upi.verifiedName ?? b.holder_name) : null;
         payTo = {
           holderName: b.holder_name, bankName: b.bank_name, ifsc: b.ifsc, last4: b.account_last4, rails: methods.filter((o) => o.possible).map((o) => o.rail), accountNumber, remarks,
-          upiId: upi?.vpa ?? null, upiName: upi?.name ?? null,
-          upiLink: upi ? upiPayUri({ vpa: upi.vpa, payeeName: upi.name, amount: Money.ofMinor(t.quote_inr_minor, 'INR').toDecimalString(), note: remarks }) : null,
+          upiId: upi?.vpa ?? null, upiName, upiConfirmed: upi?.confirmed ?? false,
+          upiLink: upi ? upiPayUri({ vpa: upi.vpa, payeeName: upiName!, amount: Money.ofMinor(t.quote_inr_minor, 'INR').toDecimalString(), note: remarks }) : null,
           ifscValid: checkIfsc(b.ifsc).ok,
         };
       }

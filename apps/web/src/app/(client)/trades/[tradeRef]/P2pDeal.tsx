@@ -7,7 +7,7 @@ import { CopyButton } from '@inrp2p/ui';
 import { formatCountdown, formatInr, formatIstDateTime, formatUsdtHeadline, maskUtr } from '@inrp2p/ui/format';
 import { useCommand } from '../../../../components/useCommand.tsx';
 import {
-  answerDisputeAction, callSupportAction, choosePayMethodAction, claimPaymentAction, confirmReceiptAction, openDisputeAction, postDealMessageAction,
+  answerDisputeAction, callSupportAction, choosePayMethodAction, claimPaymentAction, confirmReceiptAction, openDisputeAction, postDealMessageAction, reportPayeeNameAction,
 } from '../../../../server/actions/client.ts';
 import { DealChat } from '../../_workspace/DealChat.tsx';
 import { PayInr } from '../../_workspace/PayInr.tsx';
@@ -78,10 +78,11 @@ export function P2pDealCard({ view }: { view: PortalTrade }) {
           choose={(m, key) => choosePayMethodAction({ tradeRef: view.trade.ref, method: m }, key)}
           claim={(input, key) =>
             claimPaymentAction({
-              tradeRef: view.trade.ref, rail: input.rail, utr: input.utr, amount: deal.inr,
+              tradeRef: view.trade.ref, rail: input.rail, utr: input.utr, amount: deal.inr, payeeNameConfirmed: input.payeeNameConfirmed,
               ...(input.from?.kind === 'UPI' ? { fromUpiId: input.from.id } : { fromBankAccountId: input.from?.id ?? '' }),
             }, key)
           }
+          report={(shownName, key) => reportPayeeNameAction({ tradeRef: view.trade.ref, shownName }, key)}
           attach={postDealMessageAction}
         />
       ) : null}

@@ -88,7 +88,7 @@ export function BankFields({ value, onChange }: { value: BankDraft; onChange: (n
         </div>
         <span className={styles.fieldHint}>
           {value.rails.includes('UPI')
-            ? 'UPI is paid to your own UPI ID — add it below; INRP2P checks it first. Up to ₹1,00,000 a payment. On Traders you choose, per side, which of these your deals use.'
+            ? 'UPI is paid to your own UPI ID — add it below; it is ready at once. Up to ₹1,00,000 a payment. On Traders you choose, per side, which of these your deals use.'
             : 'Without UPI, buyers pay you by bank transfer only. On Traders you choose, per side, which of these your deals use.'}
         </span>
       </fieldset>

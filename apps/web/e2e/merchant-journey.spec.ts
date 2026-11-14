@@ -206,7 +206,7 @@ test('its own page prices as on Traders: one price for the merchant', async () =
   ]);
 });
 
-test('it adds the UPI ID buyers pay it to, on its own — and nothing is paid to it until INRP2P has checked it', async () => {
+test('it adds the UPI ID buyers pay it to, on its own — ready at once, on the first deals’ limit (ADR 0030)', async () => {
   await phone.goto(`${w.appUrl}/traders/settlement`);
   const card = phone.getByRole('region', { name: 'UPI IDs' });
   await expect(card.getByText('No UPI ID yet', { exact: false })).toBeVisible();
@@ -217,16 +217,18 @@ test('it adds the UPI ID buyers pay it to, on its own — and nothing is paid to
   await expect(sheet.getByText('not one made from an account number', { exact: false })).toBeVisible();
   await expect(sheet.getByRole('button', { name: 'Add UPI ID' })).toBeDisabled();
   await fill(sheet.getByLabel('UPI ID', { exact: true }), 'Rohan.P2P@okicici');
-  // The name its app shows starts as the name on its bank account.
-  await expect(sheet.getByLabel('Name your UPI app shows')).not.toHaveValue('');
+  // No name to type: buyers are told its own name — the one on its bank account — and check it in their app.
+  await expect(sheet.getByLabel('Name your UPI app shows')).toHaveCount(0);
+  await expect(sheet.getByText('they check it is', { exact: false })).toBeVisible();
   await snap('upi-add');
   await tap(sheet.getByRole('button', { name: 'Add UPI ID' }));
-  await expect(sheet.getByRole('heading', { name: 'Sent to INRP2P to check' })).toBeVisible();
+  await expect(sheet.getByRole('heading', { name: 'UPI ID added' })).toBeVisible();
   await tap(sheet.getByRole('button', { name: 'Done' }));
   await expect(card.getByText('rohan.p2p@okicici', { exact: true })).toBeVisible();
-  await expect(card.getByText('Checking', { exact: true })).toBeVisible();
-  await snap('upi-checking');
-  const rows = await w.db.selectFrom('upi_id as u').innerJoin('client as c', 'c.id', 'u.client_id').select(['u.vpa', 'u.status', 'u.per_payment_limit_minor'])
+  await expect(card.getByText('Ready', { exact: true })).toBeVisible();
+  await expect(card.getByText('Up to ₹25,000 until your first deal to it is confirmed', { exact: false })).toBeVisible();
+  await snap('upi-ready');
+  const rows = await w.db.selectFrom('upi_id as u').innerJoin('client as c', 'c.id', 'u.client_id').select(['u.vpa', 'u.status', 'u.per_payment_limit_minor', 'u.name_confirmed_at'])
     .where('c.display_name', '=', M.name).execute();
-  expect(rows).toEqual([{ vpa: 'rohan.p2p@okicici', status: 'PENDING_REVIEW', per_payment_limit_minor: 10_000_000n }]);
+  expect(rows).toEqual([{ vpa: 'rohan.p2p@okicici', status: 'ACTIVE', per_payment_limit_minor: 10_000_000n, name_confirmed_at: null }]);
 });
