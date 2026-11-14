@@ -1,8 +1,10 @@
 import Link from 'next/link';
 import { clientBook } from '@inrp2p/desk';
+import { pendingUpiIds } from '@inrp2p/clients';
 import { can, operatorPage } from '../../../server/operator.ts';
 import { Icon } from '../_desk/icons.tsx';
-import { Page, PageBody, PageHeader, Section } from '../_desk/ui.tsx';
+import { KeyValues, Page, PageBody, PageHeader, Section } from '../_desk/ui.tsx';
+import d from '../_desk/desk.module.css';
 import { ClientBook } from './ClientBook.tsx';
 import o from '../orders/orders.module.css';
 
@@ -12,7 +14,7 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
   const ctx = await operatorPage();
   const params = await searchParams;
   const search = typeof params.q === 'string' ? params.q.trim() : '';
-  const rows = await clientBook(ctx.db, { ...(search ? { search } : {}), access: ctx.access, limit: 300 });
+  const [rows, upiToCheck] = await Promise.all([clientBook(ctx.db, { ...(search ? { search } : {}), access: ctx.access, limit: 300 }), pendingUpiIds(ctx.db)]);
   const open = rows.reduce((n, c) => n + c.openTrades, 0);
 
   return (
@@ -33,6 +35,23 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
         }
       />
       <PageBody>
+        {/* ADR 0029: UPI IDs clients and traders submitted — nothing is paid to one until a person here verifies it. */}
+        {upiToCheck.length > 0 ? (
+          <Section title="UPI IDs to verify" count={upiToCheck.length} hint="Oldest first. Open the client, look the address up in a UPI app, and verify or reject it.">
+            <KeyValues
+              items={upiToCheck.map((u) => ({
+                key: u.id,
+                label: <Link href={`/clients/${u.clientId}#upi`}>{u.clientName}</Link>,
+                value: (
+                  <span className={d.row}>
+                    <span className={d.mono}>{u.vpa}</span>
+                    <span className={d.secondary}>says {u.holderName} · {new Date(u.submittedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+                  </span>
+                ),
+              }))}
+            />
+          </Section>
+        ) : null}
         <Section flush>
           <ClientBook rows={rows} economics={ctx.access.economics} canRequest={can(ctx, 'request:create')} />
         </Section>

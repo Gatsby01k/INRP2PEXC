@@ -155,16 +155,26 @@ export function draftFor(kind: NotificationKind, facts: NotificationFacts): Noti
     case 'DESTINATION_ADDED':
       return {
         kind,
-        title: 'A bank account or wallet was added',
-        body: `${facts.label ?? 'A new bank account or wallet'} was added to where you are paid. If you did not expect this, tell the desk straight away.`,
+        title: facts.label?.startsWith('UPI ID') ? 'A UPI ID was verified' : 'A bank account or wallet was added',
+        body: facts.label?.startsWith('UPI ID')
+          ? `${facts.label} is verified: your deals can be paid to it by UPI, and you can pay from it. If you did not add it, tell the desk straight away.`
+          : `${facts.label ?? 'A new bank account or wallet'} was added to where you are paid. If you did not expect this, tell the desk straight away.`,
         subjectRef: null,
         href: '/destinations',
       };
     case 'DESTINATION_ARCHIVED':
       return {
         kind,
-        title: 'A bank account or wallet was archived',
+        title: facts.label?.startsWith('UPI ID') ? 'A UPI ID was archived' : 'A bank account or wallet was archived',
         body: `${facts.label ?? 'It'} can no longer be paid to.`,
+        subjectRef: null,
+        href: '/destinations',
+      };
+    case 'DESTINATION_REJECTED':
+      return {
+        kind,
+        title: 'Your UPI ID was not verified',
+        body: short(`${facts.label ?? 'The UPI ID you added'} was not verified${facts.reason ? `: ${facts.reason}` : '.'} Nothing is paid to it. You can add another one.`, 400),
         subjectRef: null,
         href: '/destinations',
       };

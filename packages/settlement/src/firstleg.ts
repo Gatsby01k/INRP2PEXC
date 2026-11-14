@@ -25,6 +25,8 @@ export async function recordClientInrInTx(
     /** The trade's route: its trader, who the rupees went straight to (ADR 0019). */
     routeId: string;
     valueDate?: string | null; payerBankAccountId?: string | null;
+    /** ADR 0029: the client's own verified UPI ID it paid from, instead of a bank account. */
+    payerUpiId?: string | null;
   },
 ): Promise<{ legId: string; ref: string; transferId: string }> {
   if (trade.direction !== 'BUY_USDT') throw new DomainError('INVALID_ARGUMENT', 'only a BUY trade receives INR from the client');
@@ -39,6 +41,13 @@ export async function recordClientInrInTx(
     const own = await ctx.tx.selectFrom('bank_account').select(['client_id', 'status']).where('id', '=', requireUuid(p.payerBankAccountId, 'payerBankAccountId')).executeTakeFirst();
     if (!own || own.client_id !== trade.client_id) throw new DomainError('NOT_OWN_ACCOUNT', 'pay only from one of your own registered bank accounts');
     if (own.status !== 'ACTIVE') throw new DomainError('ACCOUNT_NOT_ACTIVE', 'that bank account is not active');
+  }
+  if (p.payerUpiId) {
+    // IX145 says it again at insert: the UPI ID a payment is declared from is the client's own, and verified.
+    if (p.payerBankAccountId) throw new DomainError('INVALID_ARGUMENT', 'say which one you paid from: a bank account or a UPI ID, not both');
+    const own = await ctx.tx.selectFrom('upi_id').select(['client_id', 'status']).where('id', '=', requireUuid(p.payerUpiId, 'payerUpiId')).executeTakeFirst();
+    if (!own || own.client_id !== trade.client_id) throw new DomainError('NOT_OWN_ACCOUNT', 'pay only from one of your own registered UPI IDs');
+    if (own.status !== 'ACTIVE') throw new DomainError('ACCOUNT_NOT_ACTIVE', 'that UPI ID is not verified yet');
   }
 
   const seq = await nextLegSeq(ctx, trade.id);
@@ -61,6 +70,7 @@ export async function recordClientInrInTx(
     destinationMasked: 'the trader\'s registered account',
     valueDate: p.valueDate ?? null,
     payerBankAccountId: p.payerBankAccountId ?? null,
+    payerUpiId: p.payerUpiId ?? null,
     filedBy: 'CLIENT',
   });
   await ctx.tx

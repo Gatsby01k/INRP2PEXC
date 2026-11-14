@@ -35,6 +35,8 @@ const EMAILED = new Set([
   // buyer says it paid, a trader's order opened on its firm offer (it may have its USDT to lock, and was never asked) —
   // and a side that has run out of capacity takes no orders until someone tops it up.
   'P2P_PAY_NOW', 'P2P_PAYMENT_SENT', 'TRADER_ORDER_ACCEPTED', 'TRADER_SIDE_EMPTY',
+  // ADR 0029: a UPI ID the desk did not verify — its owner is waiting to be paid to it.
+  'DESTINATION_REJECTED',
 ]);
 
 export interface EmailChannelOptions {

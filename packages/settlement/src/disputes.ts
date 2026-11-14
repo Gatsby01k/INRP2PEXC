@@ -303,12 +303,16 @@ export async function p2pDecisionView(ex: Executor, tradeId: string): Promise<P2
       .selectFrom('settlement_leg as l')
       .leftJoin('transfer_allocation as a', (j) => j.onRef('a.settlement_leg_id', '=', 'l.id').on('a.voided_at', 'is', null))
       .leftJoin('fiat_transfer as f', 'f.id', 'a.fiat_transfer_id')
-      .select(['l.id', 'l.ref', 'l.amount_minor', 'l.created_at', 'f.rail', 'f.utr', 'f.payer_bank_account_id'])
+      .select(['l.id', 'l.ref', 'l.amount_minor', 'l.created_at', 'f.rail', 'f.utr', 'f.payer_bank_account_id', 'f.payer_upi_id'])
       .where('l.id', '=', legPeek.id)
       .executeTakeFirstOrThrow();
     payment = {
       legId: r.id, ref: r.ref, amount: Money.ofMinor(r.amount_minor, 'INR').toDecimalString(), rail: r.rail, utr: r.utr, filedAt: r.created_at.toISOString(),
-      declaredFrom: r.payer_bank_account_id ? await maskedBankDestination(ex, r.payer_bank_account_id) : null,
+      declaredFrom: r.payer_bank_account_id
+        ? await maskedBankDestination(ex, r.payer_bank_account_id)
+        : r.payer_upi_id
+          ? await ex.selectFrom('upi_id').select(['vpa', 'verified_name']).where('id', '=', r.payer_upi_id).executeTakeFirst().then((u) => (u ? `UPI ID ${u.vpa}${u.verified_name ? ` · ${u.verified_name}` : ''}` : null))
+          : null,
     };
   }
   const refund = u?.refund_leg_id ? await ex.selectFrom('settlement_leg').select(['ref', 'status']).where('id', '=', u.refund_leg_id).executeTakeFirst() : undefined;

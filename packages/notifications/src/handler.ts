@@ -21,6 +21,7 @@ const HANDLED = new Set([
   'client.trade_cancelled',
   'client.destination_added',
   'client.destination_archived',
+  'client.destination_rejected',
   'client.trade_destination_changed',
   'client.payment_third_party',
   'client.team_changed',
@@ -117,6 +118,8 @@ function kindFor(event: OutboxEvent, f: NotificationFacts): Parameters<typeof dr
       return 'DESTINATION_ADDED';
     case 'client.destination_archived':
       return 'DESTINATION_ARCHIVED';
+    case 'client.destination_rejected':
+      return 'DESTINATION_REJECTED';
     case 'client.trade_destination_changed':
       return 'TRADE_DESTINATION_CHANGED';
     case 'client.payment_third_party':

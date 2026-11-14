@@ -73,7 +73,9 @@ export function RequestForm({ view, draft, who }: { view: ExchangeView; draft?: 
   const options = sell ? banks.length : wallets.length;
   // Buying, the client pays from a bank account of its own that is on file — asked for before the price, not when the
   // seller's USDT is already locked and the time to pay is running.
-  const payFromMissing = !sell && banks.length === 0;
+  // A verified UPI ID of its own is enough to pay from (ADR 0029); one still waiting for INRP2P is not yet.
+  const upiPayFrom = view.destinations.upiIds.filter((u) => u.status === 'ACTIVE');
+  const payFromMissing = !sell && banks.length === 0 && upiPayFrom.length === 0;
   const inputs = useRef<Record<'BASE' | 'QUOTE', HTMLInputElement | null>>({ BASE: null, QUOTE: null });
   const hintId = useId();
 
@@ -299,7 +301,7 @@ export function RequestForm({ view, draft, who }: { view: ExchangeView; draft?: 
               <span className={styles.destinationText}>
                 <span className={styles.destinationName}>Add the bank account you pay from</span>
                 <span className={styles.destinationMeta}>
-                  {who.isAdmin ? 'The seller takes rupees only from an account in your own name.' : `An administrator of ${who.clientName} adds it.`}
+                  {who.isAdmin ? 'Or a UPI ID, on Bank & wallets. The seller takes rupees only from your own.' : `An administrator of ${who.clientName} adds it.`}
                 </span>
               </span>
               {who.isAdmin ? <ArrowIcon className={styles.addArrow} /> : null}
@@ -307,8 +309,8 @@ export function RequestForm({ view, draft, who }: { view: ExchangeView; draft?: 
           </fieldset>
         ) : (
           <p className={styles.hint}>
-            You pay from your own account: {banks[0]!.bankName} •••• {banks[0]!.last4}
-            {banks.length > 1 ? ' or another of your registered accounts' : ''}.
+            You pay from your own {banks[0] ? `account: ${banks[0].bankName} •••• ${banks[0].last4}` : `UPI ID: ${upiPayFrom[0]!.vpa}`}
+            {banks.length + upiPayFrom.length > 1 ? ' or another of your own' : ''}.
           </p>
         )}
 

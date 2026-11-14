@@ -7,6 +7,7 @@ import { createTestOperator, runAs, type TestOperator } from '@inrp2p/identity/t
 import type { OutboxEvent } from '@inrp2p/outbox';
 import { clientInbox, clientNotificationHandler, traderNotificationHandler } from '@inrp2p/notifications';
 import { configureTraderProgram } from '@inrp2p/trader-core';
+import { addUpiId } from '@inrp2p/clients';
 import {
   type DealAttachment, attachmentRef, callClientSupport, chatSideOf, chooseClientPayMethod, claimIncomingFiat, dealChatView, dealFile, deskDealChat, p2pDeal,
   postClientDealMessage, postDeskDealMessage, runP2pDeadlines,
@@ -60,6 +61,8 @@ beforeAll(async () => {
   const program = await w.app.selectFrom('trader_program').select('version').where('id', '=', 1).executeTakeFirstOrThrow();
   await runAs(w.app, configureTraderProgram(w.finance.actor), w.finance.ref, 'trader_program.configure', { expectedVersion: program.version, riskPolicy: null, reason: 'P2P escrow' });
   usdtTrader = await railsTrader(w, 'USDT Seller', { sell: { capacity: '500000', rate: '105.20', min: '10', max: '200000' } }, '5000');
+  // ADR 0029: buyers pay the seller by UPI only to a verified UPI ID of its own — the desk adds one, live at once.
+  await runAs(w.app, addUpiId(w.owner.actor), w.owner.ref, 'client_upi.add', { clientId: usdtTrader.clientId, vpa: 'usdt.seller.chat@okaxis', holderName: 'USDT Seller LLP' });
   inrTrader = await railsTrader(w, 'INR Payer', { buy: { capacity: '50000000', rate: '104.70', min: '100', max: '20000000' } }, '5000');
   support = await createTestOperator(w.t.owner, ['SUPPORT']);
   readOnly = await createTestOperator(w.t.owner, ['READ_ONLY']);
@@ -199,8 +202,9 @@ describe('the buyer’s time to pay, by rail', () => {
     expect(deal.payWindow).toMatchObject({ method: 'UPI', chosen: false, final: false, changesLeft: 3 });
     expect(deal.payWindow!.methods.map((m) => [m.rail, m.minutes, m.possible])).toEqual([['UPI', 15, true], ['IMPS', 30, true], ['NEFT', 60, true], ['RTGS', 45, false]]);
     expect(Date.parse(deal.dueBy!) - Date.parse(deal.now)).toBeGreaterThan(14 * 60_000);
-    expect(deal.payTo).toMatchObject({ ifscValid: true, remarks: `INRP2P ${t.orderRef}`, upiId: expect.stringMatching(/^\d{9,18}@[a-z]{4}0[a-z0-9]{6}\.ifsc\.npci$/) });
-    expect(deal.payTo!.upiLink).toMatch(/^upi:\/\/pay\?pa=\d+%40[a-z0-9]+\.ifsc\.npci&pn=.+&am=74550\.00&cu=INR&tn=INRP2P%20/);
+    // ADR 0029: UPI goes to the seller's own verified UPI ID, with the name it resolves to — never to its account's address.
+    expect(deal.payTo).toMatchObject({ ifscValid: true, remarks: `INRP2P ${t.orderRef}`, upiId: 'usdt.seller.chat@okaxis', upiName: 'USDT Seller LLP' });
+    expect(deal.payTo!.upiLink).toMatch(/^upi:\/\/pay\?pa=usdt\.seller\.chat%40okaxis&pn=USDT%20Seller%20LLP&am=74550\.00&cu=INR&tn=INRP2P%20/);
     // The payee is never shown its own account to pay; it sees how the buyer pays and until when.
     const seller = (await p2pDeal(w.app, w.deps.protector, { tradeId: t.tradeId, viewer: 'TRADER' }))!;
     expect(seller.payTo).toBeNull();

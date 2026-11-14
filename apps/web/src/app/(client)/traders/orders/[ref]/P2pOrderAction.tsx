@@ -86,11 +86,13 @@ export function P2pOrderAction({ detail, canAct }: { detail: TraderOrderDetail; 
         ) : (
           <PayInr
             deal={deal}
-            fromAccounts={null}
+            fromAccounts={detail.payFrom.length > 1 ? detail.payFrom : null}
+            // Its registered account is where it pays from unless it says otherwise (a UPI ID of its own).
+            {...(detail.payFrom[0] ? { defaultFrom: detail.payFrom[0].id } : {})}
             attachFields={{ ref: detail.order.ref }}
             choose={(m, key) => chooseOrderMethodAction({ ref: detail.order.ref, method: m }, key)}
             claim={async (input, key) => {
-              const out = await submitOrderPaymentAction({ ref: detail.order.ref, rail: input.rail, utr: input.utr }, key);
+              const out = await submitOrderPaymentAction({ ref: detail.order.ref, rail: input.rail, utr: input.utr, ...(input.from?.kind === 'UPI' ? { fromUpiId: input.from.id } : {}) }, key);
               return out.ok ? { ok: true, result: { legRef: out.result.settlementRef } } : out;
             }}
             attach={postOrderMessageAction}

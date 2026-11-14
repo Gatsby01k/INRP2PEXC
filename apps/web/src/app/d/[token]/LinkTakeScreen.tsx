@@ -26,6 +26,7 @@ export function LinkTakeScreen({
   token,
   state,
   banks,
+  payFrom,
   wallets,
   anyWallet,
   who,
@@ -34,6 +35,8 @@ export function LinkTakeScreen({
   token: string;
   state: ClientLinkState;
   banks: readonly PickOption[];
+  /** What the client may pay from when it buys: its bank accounts and verified UPI IDs. */
+  payFrom: readonly PickOption[];
   wallets: readonly PickOption[];
   anyWallet: boolean;
   who: { readonly canAccept: boolean; readonly isAdmin: boolean; readonly protection: Protection; readonly email: string; readonly clientName: string };
@@ -56,7 +59,7 @@ export function LinkTakeScreen({
   const takeable = (link.state === 'OPEN' || (link.state === 'TAKEN' && state.mine)) && left > 0 && link.desk.live;
   const destination = sells ? bankId : walletId;
   // Buying, the client pays from a bank account of its own that is on file: none yet, the deal is not taken.
-  const payFromMissing = !sells && banks.length === 0;
+  const payFromMissing = !sells && payFrom.length === 0;
 
   const take = async () => {
     const out = await run(`Take ${link.desk.displayName}’s deal`, (key) => takeDeskLinkAction({ token, ...(sells ? { bankAccountId: bankId } : { walletId }) }, key));
@@ -110,7 +113,7 @@ export function LinkTakeScreen({
           ) : (
             <>
               <DestinationPick kind={sells ? 'bank' : 'wallet'} options={sells ? banks : wallets} value={destination} onChange={sells ? setBankId : setWalletId} canAdd={who.isAdmin} onAdd={() => setAdding(sells ? 'bank' : 'wallet')} />
-              {sells ? null : <PayFromNotice banks={banks} canAdd={who.isAdmin} onAdd={() => setAdding('bank')} />}
+              {sells ? null : <PayFromNotice banks={payFrom} canAdd={who.isAdmin} onAdd={() => setAdding('bank')} />}
               {error ? (
                 <p className={shell.error} role="alert">
                   {sentence(error)}

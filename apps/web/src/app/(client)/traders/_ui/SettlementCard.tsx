@@ -63,7 +63,7 @@ export function SettlementCard({ home }: { home: TraderHome }) {
       {home.canApply && !pending ? (
         <div>
           <Link className={shell.textAction} href="/traders/settlement">
-            Submit a new bank account or wallet
+            UPI IDs, or a new bank account or wallet
             <ArrowIcon className={shell.actionIcon} />
           </Link>
         </div>

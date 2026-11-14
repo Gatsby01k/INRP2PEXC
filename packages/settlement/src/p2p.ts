@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { sql } from 'kysely';
-import { DomainError, Money, type InrRail, accountUpiAddress, checkIfsc, optionalText, railOptionsFor, requireText, requireUtrShape, requireUuid, upiPayUri } from '@inrp2p/kernel';
+import { DomainError, Money, type InrRail, type RailOption, checkIfsc, optionalText, requireText, requireUtrShape, requireUuid, upiPayUri } from '@inrp2p/kernel';
 import type { Db, Executor, ExceptionType, SenderVerdict, TxContext } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
-import { bankAccountSealContext } from '@inrp2p/clients';
+import { type UsableUpiId, bankAccountSealContext } from '@inrp2p/clients';
 import { executeCommand } from '@inrp2p/commands';
 import { enqueueOutbox } from '@inrp2p/outbox';
 import type { ClientActor, DomainCommand } from '@inrp2p/identity';
@@ -18,7 +18,7 @@ import type { SettlementDeps } from './policy.ts';
 import { recordSenderCheckInTx } from './sender.ts';
 import { type DealChatView, dealChatView } from './chat.ts';
 import {
-  type PayWindow, PAY_METHOD_CHANGES, dealNow, dealRails, isPaying, openPayWindowInTx, p2pPayState, payWindowOf, programP2pTiming, prospectiveWindow, warnPayWindowInTx,
+  type PayWindow, PAY_METHOD_CHANGES, dealNow, dealPayOptions, isPaying, openPayWindowInTx, p2pPayState, payWindowOf, programP2pTiming, prospectiveWindow, warnPayWindowInTx,
 } from './p2p-timing.ts';
 
 /**
@@ -40,7 +40,7 @@ export async function isP2pTrade(ex: Executor, tradeId: string): Promise<boolean
 export async function fileRoutePayoutInTx(
   ctx: TxContext,
   deps: Pick<SettlementDeps, 'policy'>,
-  input: { readonly tradeId: string; readonly rail: InrRail; readonly utr: string; readonly amount: Money<'INR'>; readonly payerBankAccountId: string },
+  input: { readonly tradeId: string; readonly rail: InrRail; readonly utr: string; readonly amount: Money<'INR'> } & ({ readonly payerBankAccountId: string; readonly payerUpiId?: undefined } | { readonly payerUpiId: string; readonly payerBankAccountId?: undefined }),
 ): Promise<{ readonly legId: string; readonly legRef: string; readonly transferId: string }> {
   if (!(await isP2pTrade(ctx.tx, input.tradeId))) throw new DomainError('INVALID_ARGUMENT', 'only a P2P trader pays the client directly');
   // An unwound deal takes no payment any more: its USDT is going back to the client (IX129 says the same at the insert).
@@ -49,6 +49,13 @@ export async function fileRoutePayoutInTx(
   await sendPayoutLegInTx(ctx, deps, leg.legId);
   const row = await ctx.tx.selectFrom('settlement_leg').select(['route_id', 'destination_bank_account_id', 'amount_minor']).where('id', '=', leg.legId).executeTakeFirstOrThrow();
   const trade = await ctx.tx.selectFrom('trade').select('client_id').where('id', '=', input.tradeId).executeTakeFirstOrThrow();
+  if (input.payerUpiId) {
+    // The trader's own, and verified — IX145 says it again at the insert.
+    const own = await ctx.tx.selectFrom('upi_id as u').innerJoin('trader_profile as t', 't.client_id', 'u.client_id').innerJoin('liquidity_route as r', 'r.trader_id', 't.id')
+      .select('u.status').where('u.id', '=', requireUuid(input.payerUpiId, 'fromUpiId')).where('r.id', '=', row.route_id!).executeTakeFirst();
+    if (!own) throw new DomainError('NOT_OWN_ACCOUNT', 'pay only from one of your own UPI IDs');
+    if (own.status !== 'ACTIVE') throw new DomainError('ACCOUNT_NOT_ACTIVE', 'that UPI ID is not verified yet');
+  }
   const recorded = await recordFiatTransfer(ctx, {
     rail: input.rail,
     utr: requireUtrShape(input.rail, input.utr),
@@ -58,7 +65,8 @@ export async function fileRoutePayoutInTx(
     payeeType: 'CLIENT_BANK',
     payeeId: trade.client_id,
     destinationMasked: await maskedBankDestination(ctx.tx, row.destination_bank_account_id!),
-    payerBankAccountId: input.payerBankAccountId,
+    payerBankAccountId: input.payerBankAccountId ?? null,
+    payerUpiId: input.payerUpiId ?? null,
     filedBy: 'TRADER',
   });
   await ctx.tx
@@ -428,9 +436,11 @@ export interface P2pPayee {
   readonly accountNumber: string;
   readonly last4: string;
   readonly rails: readonly string[];
-  /** The account's own UPI address (`<account>@<ifsc>.ifsc.npci`): a UPI payment to it lands in exactly this account. */
-  readonly upiId: string;
-  /** The `upi://pay` link with the exact amount — a QR code on a computer, a tap on a phone; null above UPI's limit. */
+  /** The payee's own verified UPI ID (ADR 0029) this deal is paid to by UPI; null — the payee has none that can take it. */
+  readonly upiId: string | null;
+  /** The name a payer's app shows for that UPI ID, as INRP2P saw it resolve: the payer checks it before approving. */
+  readonly upiName: string | null;
+  /** The `upi://pay` link to that UPI ID with the exact amount — a QR code on a computer, a tap on a phone; null without UPI. */
   readonly upiLink: string | null;
   /** What to put in the payment's remarks, so the payee recognises it on its statement. */
   readonly remarks: string;
@@ -547,8 +557,9 @@ export async function p2pDeal(ex: Executor, protector: { open(value: string, con
   let dueBy: string | null = null;
   let window: PayWindow | null = null;
   let receiptLate = false;
-  // The ways to pay this deal: what its amount allows, among what the trader's side uses.
-  let methods: ReturnType<typeof railOptionsFor> = [];
+  // The ways to pay this deal: what its amount allows, among what the trader's side uses — UPI only to a verified UPI ID.
+  let methods: readonly RailOption[] = [];
+  let payeeUpi: UsableUpiId | null = null;
   if (t.lifecycle_state === 'CANCELLED') step = 'CANCELLED';
   else if (t.lifecycle_state === 'COMPLETED') step = 'DONE';
   else if (!funded.d) {
@@ -559,7 +570,8 @@ export async function p2pDeal(ex: Executor, protector: { open(value: string, con
     step = 'PAY';
     // The window the deadlines opened — or, in the minute before they run, the one they will open.
     const state = await p2pPayState(ex, t.id);
-    methods = railOptionsFor(t.quote_inr_minor, state ? state.rails : await dealRails(ex, { tradeId: t.id }));
+    payeeUpi = state?.payeeUpi ?? null;
+    methods = dealPayOptions(t.quote_inr_minor, state?.rails ?? null, payeeUpi !== null);
     window = (await payWindowOf(ex, t.id)) ?? (state ? prospectiveWindow(state, timing) : null);
     // A deal whose rupees were once said to be sent (and then not counted) waits for a person, never for a clock.
     if (window && !state?.everFiled) dueBy = (now < window.dueAt ? window.dueAt : window.finalUntil).toISOString();
@@ -597,13 +609,15 @@ export async function p2pDeal(ex: Executor, protector: { open(value: string, con
       const b = await ex.selectFrom('bank_account').select(['client_id', 'holder_name', 'bank_name', 'ifsc', 'account_number_enc', 'account_last4', 'rail_preferences', 'status']).where('id', '=', accountId).executeTakeFirstOrThrow();
       if (b.status === 'ACTIVE') {
         const accountNumber = await protector.open(b.account_number_enc, bankAccountSealContext(b.client_id));
-        const upiId = accountUpiAddress(accountNumber, b.ifsc);
         // The payee recognises the payment by the reference it knows: the trader its order, the client its trade.
         const remarks = `INRP2P ${buy ? ((await ex.selectFrom('trader_order').select('ref').where('trade_id', '=', t.id).orderBy('offered_at', 'desc').executeTakeFirst())?.ref ?? t.ref) : t.ref}`;
-        const upiPossible = methods.some((o) => o.rail === 'UPI' && o.possible);
+        // UPI goes to the payee's own registered, verified UPI ID and nowhere else — never to an address made up from
+        // the account number (ADR 0029).
+        const upi = methods.some((o) => o.rail === 'UPI' && o.possible) ? payeeUpi : null;
         payTo = {
-          holderName: b.holder_name, bankName: b.bank_name, ifsc: b.ifsc, last4: b.account_last4, rails: methods.filter((o) => o.possible).map((o) => o.rail), accountNumber, upiId, remarks,
-          upiLink: upiPossible ? upiPayUri({ vpa: upiId, payeeName: b.holder_name, amount: Money.ofMinor(t.quote_inr_minor, 'INR').toDecimalString(), note: remarks }) : null,
+          holderName: b.holder_name, bankName: b.bank_name, ifsc: b.ifsc, last4: b.account_last4, rails: methods.filter((o) => o.possible).map((o) => o.rail), accountNumber, remarks,
+          upiId: upi?.vpa ?? null, upiName: upi?.name ?? null,
+          upiLink: upi ? upiPayUri({ vpa: upi.vpa, payeeName: upi.name, amount: Money.ofMinor(t.quote_inr_minor, 'INR').toDecimalString(), note: remarks }) : null,
           ifscValid: checkIfsc(b.ifsc).ok,
         };
       }

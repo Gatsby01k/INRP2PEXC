@@ -29,12 +29,14 @@ const decimal = (v: string) => Number.parseFloat(v.replace(/,/g, '')) || 0;
 const EXPERIENCE: readonly [Experience, string][] = [['BINANCE', 'Binance'], ['BYBIT', 'Bybit'], ['OTHER', 'Other'], ['NONE', 'No']];
 const TELEGRAM = /^@?[A-Za-z0-9_]{5,32}$/;
 const PHONE = /^\+?[0-9]{8,15}$/;
+/** A UPI ID a person registers: `name@handle`, never one made from an account number (ADR 0029). */
+const VPA = /^[a-z0-9][a-z0-9._-]{1,255}@[a-z][a-z0-9.-]{1,63}$/;
 
 /** Which step asks for a field the server refused, so a refusal returns the applicant to where they can fix it. */
 const FIELD_STEP: Record<string, number> = {
   fullName: 0, entityType: 0, telegram: 0, phone: 0, contact: 0, experience: 0, profileLink: 0,
   offers: 1, typicalInr: 1, dailyInr: 1, typicalUsdt: 1, dailyUsdt: 1,
-  bank: 2, wallet: 2, bankAccountId: 2, walletId: 2, accountNumber: 2, ifsc: 2, holderName: 2, bankName: 2, rails: 2, walletLabel: 2, confirmOwnership: 2,
+  bank: 2, wallet: 2, bankAccountId: 2, walletId: 2, accountNumber: 2, ifsc: 2, holderName: 2, bankName: 2, rails: 2, walletLabel: 2, confirmOwnership: 2, vpa: 2, upiHolderName: 2,
 };
 
 /**
@@ -67,6 +69,7 @@ export function ApplyFlow({ options }: { options: TraderApplicationOptions }) {
   const [bank, setBank] = useState<BankDraft>(EMPTY_BANK);
   const [wallet, setWallet] = useState<WalletDraft>(EMPTY_WALLET);
   const [owned, setOwned] = useState(false);
+  const [upi, setUpi] = useState('');
 
   const offersBuy = provides === 'INR' || provides === 'BOTH';
   const offersSell = provides === 'USDT' || provides === 'BOTH';
@@ -75,11 +78,13 @@ export function ApplyFlow({ options }: { options: TraderApplicationOptions }) {
   const contactOk = (tg !== '' || ph !== '') && (tg === '' || TELEGRAM.test(tg)) && (ph === '' || PHONE.test(ph));
   const newBank = bankId === 'NEW';
   const newWallet = walletId === 'NEW';
+  const vpa = upi.trim().toLowerCase();
+  const upiOk = vpa === '' || (VPA.test(vpa) && !vpa.endsWith('.npci'));
   const sideOk = (offers: boolean, typical: string, daily: string) => !offers || (hasAmount(typical) && hasAmount(daily) && decimal(daily) >= decimal(typical));
   const canNext = [
     (profile.nameFixed || fullName.trim() !== '') && entityType !== null && contactOk && experience !== null,
     provides !== null && sideOk(offersBuy, typicalInr, dailyInr) && sideOk(offersSell, typicalUsdt, dailyUsdt),
-    (newBank ? bankComplete(bank) : true) && (newWallet ? walletComplete(wallet) : true) && owned,
+    (newBank ? bankComplete(bank) : true) && (newWallet ? walletComplete(wallet) : true) && owned && upiOk,
   ][step];
   const applicantName = profile.nameFixed ? (profile.fullName ?? '') : fullName.trim();
   const next = () => {
@@ -106,6 +111,7 @@ export function ApplyFlow({ options }: { options: TraderApplicationOptions }) {
           dailyUsdt: offersSell ? dailyUsdt : null,
           ...(newBank ? { bank: bankPayload(bank) } : { bankAccountId: bankId }),
           ...(newWallet ? { wallet: walletPayload(wallet) } : { walletId }),
+          ...(vpa ? { upi: { vpa } } : {}),
           confirmOwnership: owned,
         },
         key,
@@ -295,6 +301,30 @@ export function ApplyFlow({ options }: { options: TraderApplicationOptions }) {
                 </fieldset>
               ) : null}
               {newBank ? <BankFields value={bank} onChange={setBank} /> : null}
+
+              <h3 className={styles.subhead}>UPI ID (optional)</h3>
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>The UPI ID buyers pay you to</span>
+                <span className={styles.inputBox}>
+                  <input
+                    className={styles.input}
+                    autoComplete="off"
+                    autoCapitalize="none"
+                    spellCheck={false}
+                    inputMode="email"
+                    placeholder="name@okhdfcbank"
+                    maxLength={120}
+                    value={upi}
+                    onChange={(e) => setUpi(e.target.value.replace(/\s+/g, ''))}
+                    aria-invalid={!upiOk || undefined}
+                  />
+                </span>
+                <span className={styles.fieldHint}>
+                  {upiOk
+                    ? 'INRP2P checks it is in your own name before anything is paid to it — up to ₹1,00,000 a payment. Without one, buyers pay you by bank transfer. You can add more on Traders.'
+                    : 'A UPI ID looks like name@bank — your own, not one made from an account number.'}
+                </span>
+              </label>
 
               <h3 className={styles.subhead}>TRC20 wallet</h3>
               {usableWallets.length > 0 ? (

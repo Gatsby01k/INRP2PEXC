@@ -44,7 +44,8 @@ export interface PortalTrade {
   /** Where this trade pays out, as the client recognises it: a bank's name and last four, or a wallet address. */
   readonly destination: string;
   /** BUY: the client's own registered bank accounts, the only ones it may pay from (ADR 0018). Empty for a SELL. */
-  readonly fromAccounts: readonly { readonly id: string; readonly holderName: string; readonly bankName: string; readonly last4: string }[];
+  /** The client's own accounts it may say it paid from: its bank accounts, and (ADR 0029) its verified UPI IDs. */
+  readonly fromAccounts: readonly { readonly id: string; readonly kind: 'BANK' | 'UPI'; readonly label: string; readonly holderName: string; readonly bankName: string; readonly last4: string }[];
   /**
    * ADR 0019: the deal — the rupees go straight between the client and its counterparty, the USDT through INRP2P's
    * escrow. Its step, whose move it is and until when, and the account to pay when the client pays.
@@ -118,8 +119,12 @@ export async function portalTrade(ex: Executor, clientId: string, tradeRef: stri
     receipt: receipt !== undefined,
     destination: await maskedDestination(ex, frozen),
     fromAccounts: trade.direction === 'BUY_USDT'
-      ? (await ex.selectFrom('bank_account').select(['id', 'holder_name', 'bank_name', 'account_last4']).where('client_id', '=', clientId).where('status', '=', 'ACTIVE').orderBy('created_at').execute())
-          .map((a) => ({ id: a.id, holderName: a.holder_name, bankName: a.bank_name, last4: a.account_last4 }))
+      ? [
+          ...(await ex.selectFrom('bank_account').select(['id', 'holder_name', 'bank_name', 'account_last4']).where('client_id', '=', clientId).where('status', '=', 'ACTIVE').orderBy('created_at').execute())
+            .map((a) => ({ id: a.id, kind: 'BANK' as const, label: `${a.bank_name} ••${a.account_last4}`, holderName: a.holder_name, bankName: a.bank_name, last4: a.account_last4 })),
+          ...(await ex.selectFrom('upi_id').select(['id', 'vpa', 'verified_name', 'holder_name']).where('client_id', '=', clientId).where('status', '=', 'ACTIVE').orderBy('created_at').execute())
+            .map((u) => ({ id: u.id, kind: 'UPI' as const, label: `UPI ID ${u.vpa}`, holderName: u.verified_name ?? u.holder_name, bankName: 'UPI', last4: '' })),
+        ]
       : [],
     p2p: await p2pDeal(ex, opts.protector ?? null, { tradeId: row.id, viewer: 'CLIENT' }),
   });

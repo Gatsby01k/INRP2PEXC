@@ -38,6 +38,8 @@ export interface DeskDealProps {
   readonly liveQuote: ClientQuoteView | null;
   readonly deals: readonly ClientDeskDeal[];
   readonly banks: readonly PickOption[];
+  /** What the client may pay from when it buys: its bank accounts and verified UPI IDs. */
+  readonly payFrom: readonly PickOption[];
   readonly wallets: readonly PickOption[];
   readonly anyWallet: boolean;
   readonly who: { readonly canAccept: boolean; readonly isAdmin: boolean; readonly protection: Protection; readonly email: string; readonly clientName: string };
@@ -81,7 +83,7 @@ export function DeskDealScreen(props: DeskDealProps) {
   const tooLarge = limitMax && base !== null && base > Money.parse(limitMax, 'USDT').minor;
   const destination = sells ? bankId : walletId;
   // Buying, the client pays from a bank account of its own that is on file: none yet, no price is asked for.
-  const payFromMissing = !sells && props.banks.length === 0;
+  const payFromMissing = !sells && props.payFrom.length === 0;
   const ready = desk.live && !props.blocked && priced !== null && !tooSmall && !tooLarge && destination !== '' && !payFromMissing;
 
   const ask = async (input: { direction: Side; fixedSide: 'BASE' | 'QUOTE'; amount: string }) => {
@@ -169,7 +171,7 @@ export function DeskDealScreen(props: DeskDealProps) {
               canAdd={who.isAdmin}
               onAdd={() => setAdding(sells ? 'bank' : 'wallet')}
             />
-            {sells ? null : <PayFromNotice banks={props.banks} canAdd={who.isAdmin} onAdd={() => setAdding('bank')} />}
+            {sells ? null : <PayFromNotice banks={props.payFrom} canAdd={who.isAdmin} onAdd={() => setAdding('bank')} />}
 
             {error ? (
               <p className={shell.error} role="alert">

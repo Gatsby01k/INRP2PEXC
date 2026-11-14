@@ -87,7 +87,7 @@ export async function rejectQuoteAction(input: { quoteRef: string }, key: string
 const CLAIM_MESSAGES: ReadonlySet<string> = new Set(['INVALID_UTR', 'DUPLICATE_UTR', 'NOT_OWN_ACCOUNT', 'ACCOUNT_NOT_ACTIVE', 'NOTHING_OWED', 'NO_COLLECTION', 'INVALID_AMOUNT', 'INVALID_TRANSITION', 'ESCROW_NOT_FUNDED']);
 
 export async function claimPaymentAction(
-  input: { tradeRef: string; rail: 'IMPS' | 'NEFT' | 'RTGS' | 'UPI'; utr: string; fromBankAccountId: string; amount?: string | null },
+  input: { tradeRef: string; rail: 'IMPS' | 'NEFT' | 'RTGS' | 'UPI'; utr: string; fromBankAccountId?: string | null; fromUpiId?: string | null; amount?: string | null },
   key: string,
 ): Promise<CommandResult<{ legRef: string }>> {
   const out = await runClientCommand((ctx) => claimIncomingFiat(ctx.actor), input, { name: 'fiat_in.claim', idempotencyKey: key, keepMessages: CLAIM_MESSAGES });

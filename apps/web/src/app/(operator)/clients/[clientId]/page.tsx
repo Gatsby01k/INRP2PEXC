@@ -2,12 +2,14 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { isDomainError } from '@inrp2p/kernel';
 import { type ClientDetail, clientDetail } from '@inrp2p/desk';
+import { listUpiIds } from '@inrp2p/clients';
 import { can, operatorPage } from '../../../../server/operator.ts';
 import { marginText, titleCase, usdt, usdtCompact } from '../../_desk/format.ts';
 import { Chip, Columns, KeyValues, KpiBand, Notice, Page, PageBody, PageHeader, Section, Stack } from '../../_desk/ui.tsx';
 import { BankAccounts } from './BankAccounts.tsx';
 import { NewRequest } from './NewRequest.tsx';
 import { RecentTrades } from './RecentTrades.tsx';
+import { UpiIds } from './UpiIds.tsx';
 import d from '../../_desk/desk.module.css';
 
 export const dynamic = 'force-dynamic';
@@ -28,6 +30,7 @@ export default async function ClientPage({ params, searchParams }: { params: Pro
     if (isDomainError(e) && (e.code === 'NOT_FOUND' || e.code === 'INVALID_ARGUMENT')) notFound();
     throw e;
   }
+  const upiIds = await listUpiIds(ctx.db, clientId);
   const canRequest = can(ctx, 'request:create');
   // "Repeat trade" prefills the builder from a previous trade of this client — nothing is created until the dealer
   // presses the button, so a repeat is still a fresh request with its own terms.
@@ -115,6 +118,9 @@ export default async function ClientPage({ params, searchParams }: { params: Pro
             ) : null}
             <Section title="Bank accounts" count={client.bankAccounts.length} hint="Where INR is paid. Added and archived by the desk, with step-up.">
               <BankAccounts accounts={client.bankAccounts} canArchive={can(ctx, 'client_bank:add')} />
+            </Section>
+            <Section id="upi" title="UPI IDs" count={upiIds.filter((u) => u.status === 'ACTIVE').length} hint="Paid to and paid from by UPI, each verified by a person first (ADR 0029).">
+              <UpiIds upiIds={upiIds} canReview={can(ctx, 'client_bank:add')} />
             </Section>
             <Section title="Wallets · TRC20" count={client.wallets.length} hint="Where USDT is sent.">
               {client.wallets.length === 0 ? (

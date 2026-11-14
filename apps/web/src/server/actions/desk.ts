@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import type { DirectionValue } from '@inrp2p/db';
-import { archiveBankAccount } from '@inrp2p/clients';
+import { archiveBankAccount, archiveUpiId, reviewUpiId } from '@inrp2p/clients';
 import { cancelQuote, createQuote, createQuoteLink, createRequest, declineRequest, sendQuote, withdrawRequest } from '@inrp2p/quotes';
 import {
   type NON_FINANCIAL_RESOLUTIONS, approveAdjustment, cancelTrade, confirmRefundLeg, createRefundLeg, openException, refundAndCancel, rejectAdjustment, requestAdjustment, resolveException,
@@ -32,6 +32,23 @@ export async function createRequestAction(
  */
 export async function archiveClientBankAccountAction(input: { bankAccountId: string; reason: string }, key: string): Promise<CommandResult<unknown>> {
   const out = await runCommand((ctx) => archiveBankAccount(ctx.actor), input, { name: 'client_bank.archive', idempotencyKey: key, financial: false });
+  if (out.ok) refresh();
+  return out;
+}
+
+/**
+ * ADR 0029: the desk decides a UPI ID a client submitted — verified with the name the address resolves to in a UPI app,
+ * or rejected with a note the client reads (`client_bank:add`, with step-up).
+ */
+export async function reviewUpiIdAction(input: { upiId: string; decision: 'VERIFY' | 'REJECT'; resolvedName?: string | null; note?: string | null }, key: string): Promise<CommandResult<{ status: string }>> {
+  const out = await runCommand((ctx) => reviewUpiId(ctx.actor), input, { name: 'client_upi.review', idempotencyKey: key, financial: false });
+  if (out.ok) refresh();
+  return out;
+}
+
+/** The desk retires a client's UPI ID (a compromised address): a deal paid to it then offers a bank transfer instead. */
+export async function archiveClientUpiIdAction(input: { upiId: string; reason: string }, key: string): Promise<CommandResult<unknown>> {
+  const out = await runCommand((ctx) => archiveUpiId(ctx.actor), input, { name: 'client_upi.archive', idempotencyKey: key, financial: false });
   if (out.ok) refresh();
   return out;
 }

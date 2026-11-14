@@ -205,3 +205,28 @@ test('its own page prices as on Traders: one price for the merchant', async () =
     { direction: 'SELL_USDT', basis: 'SIDE', rate_micro: null, valid_until: null },
   ]);
 });
+
+test('it adds the UPI ID buyers pay it to, on its own — and nothing is paid to it until INRP2P has checked it', async () => {
+  await phone.goto(`${w.appUrl}/traders/settlement`);
+  const card = phone.getByRole('region', { name: 'UPI IDs' });
+  await expect(card.getByText('No UPI ID yet', { exact: false })).toBeVisible();
+  await tap(card.getByRole('button', { name: 'Add UPI ID' }));
+  const sheet = phone.getByRole('dialog');
+  // An address made up from an account number is not a UPI ID it registers (ADR 0029).
+  await fill(sheet.getByLabel('UPI ID', { exact: true }), '50100234567891@hdfc0001234.ifsc.npci');
+  await expect(sheet.getByText('not one made from an account number', { exact: false })).toBeVisible();
+  await expect(sheet.getByRole('button', { name: 'Add UPI ID' })).toBeDisabled();
+  await fill(sheet.getByLabel('UPI ID', { exact: true }), 'Rohan.P2P@okicici');
+  // The name its app shows starts as the name on its bank account.
+  await expect(sheet.getByLabel('Name your UPI app shows')).not.toHaveValue('');
+  await snap('upi-add');
+  await tap(sheet.getByRole('button', { name: 'Add UPI ID' }));
+  await expect(sheet.getByRole('heading', { name: 'Sent to INRP2P to check' })).toBeVisible();
+  await tap(sheet.getByRole('button', { name: 'Done' }));
+  await expect(card.getByText('rohan.p2p@okicici', { exact: true })).toBeVisible();
+  await expect(card.getByText('Checking', { exact: true })).toBeVisible();
+  await snap('upi-checking');
+  const rows = await w.db.selectFrom('upi_id as u').innerJoin('client as c', 'c.id', 'u.client_id').select(['u.vpa', 'u.status', 'u.per_payment_limit_minor'])
+    .where('c.display_name', '=', M.name).execute();
+  expect(rows).toEqual([{ vpa: 'rohan.p2p@okicici', status: 'PENDING_REVIEW', per_payment_limit_minor: 10_000_000n }]);
+});

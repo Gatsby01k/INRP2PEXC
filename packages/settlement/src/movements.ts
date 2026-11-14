@@ -17,6 +17,8 @@ export interface RecordFiatInput {
   readonly valueDate?: string | null;
   /** ADR 0018: the payer's registered account the rupees are declared to come from (IX118), and who filed it. */
   readonly payerBankAccountId?: string | null;
+  /** ADR 0029: the payer's own verified UPI ID the payment is declared from, instead of a bank account (IX145). */
+  readonly payerUpiId?: string | null;
   readonly filedBy?: 'DESK' | 'CLIENT' | 'TRADER';
 }
 
@@ -44,13 +46,14 @@ export async function recordFiatTransfer(ctx: TxContext, input: RecordFiatInput)
         value_date: input.valueDate ?? null,
         recorded_by: ctx.actor.id ?? `SYSTEM:${ctx.commandName}`,
         payer_bank_account_id: input.payerBankAccountId ? requireUuid(input.payerBankAccountId, 'payerBankAccountId') : null,
+        payer_upi_id: input.payerUpiId ? requireUuid(input.payerUpiId, 'payerUpiId') : null,
         filed_by: input.filedBy ?? 'DESK',
       })
       .returning('id')
       .executeTakeFirstOrThrow();
     await appendAudit(ctx, {
       action: 'utr.entered', entityType: 'fiat_transfer', entityId: row.id,
-      after: { rail, utr, amount: input.amount, payer: input.payerType, payee: input.payeeType, destination: input.destinationMasked, payer_bank_account_id: input.payerBankAccountId ?? null, filed_by: input.filedBy ?? 'DESK' },
+      after: { rail, utr, amount: input.amount, payer: input.payerType, payee: input.payeeType, destination: input.destinationMasked, payer_bank_account_id: input.payerBankAccountId ?? null, payer_upi_id: input.payerUpiId ?? null, filed_by: input.filedBy ?? 'DESK' },
     });
     return { transferId: row.id };
   } catch (e) {

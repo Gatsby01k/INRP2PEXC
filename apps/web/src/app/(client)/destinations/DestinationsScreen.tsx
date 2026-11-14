@@ -11,6 +11,7 @@ import { SecondFactor } from '../_workspace/SecondFactor.tsx';
 import type { Protection } from '../../../server/client.ts';
 import { Sheet } from '../_workspace/Sheet.tsx';
 import { AddDestination, type DestinationKind } from './AddDestination.tsx';
+import { UpiIdsCard } from './UpiIds.tsx';
 import { ArchiveDialog, type ArchiveTarget } from './ArchiveDialog.tsx';
 import { monogram } from './checks.ts';
 import shell from '../shell.module.css';
@@ -108,6 +109,8 @@ export function DestinationsScreen({
             </ul>
           )}
         </section>
+
+        <UpiIdsCard upiIds={destinations.upiIds} isAdmin={isAdmin} holderName={clientName} clientName={clientName} />
 
         <section className={shell.card} aria-labelledby="wallets-title">
           <div className={styles.sectionHead}>

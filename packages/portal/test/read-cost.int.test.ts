@@ -63,14 +63,15 @@ describe('who is asking', () => {
 });
 
 describe('the Exchange screen', () => {
-  it('reads a live quote in six statements, the destinations and the latest request together', async () => {
+  it('reads a live quote in eight statements, the destinations and the latest request together', async () => {
     await exchangeView(counted.db, w.clientId); // warm the pool, so the measure is the read's and not the connections'
     counted.reset();
     const { result, peak } = await peakInFlight(() => exchangeView(counted.db, w.clientId));
     expect(result.quote?.status).toBe('SENT');
-    // banks, wallets and the latest request; then its latest quote; then the quote, then its destination and fee.
-    expect(counted.statements).toHaveLength(7);
-    expect(peak).toBe(3);
+    // banks, wallets, UPI IDs (ADR 0029) and the latest request; then its latest quote; then the quote, then its destination
+    // and fee.
+    expect(counted.statements).toHaveLength(8);
+    expect(peak).toBe(4);
   });
 
   it('reads a quote for the client with its destination and its network fee together', async () => {

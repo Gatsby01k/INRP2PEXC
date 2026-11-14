@@ -170,7 +170,7 @@ test('the client’s USDT reaches the escrow, the desk pays the rupees, and the 
   await expect(desk.getByText('50200061234570')).toBeVisible();
   // ₹1,01,800 is over UPI's limit: IMPS is suggested, with its thirty minutes (ADR 0023).
   await expect(desk.getByRole('radio', { name: /IMPS/ })).toHaveAttribute('aria-checked', 'true');
-  await expect(desk.getByRole('radio', { name: /UPI/ })).toBeDisabled();
+  await expect(desk.getByRole('radiogroup', { name: 'How you pay' }).getByRole('radio', { name: /UPI/ })).toBeDisabled();
   await desk.getByLabel(/reference \(UTR\)/).fill('412345678901');
   await desk.getByRole('checkbox', { name: /I sent/ }).check();
   await desk.getByRole('button', { name: 'I’ve paid' }).click();
@@ -247,9 +247,12 @@ test('the same client buys USDT on the desk’s page: the desk funds the escrow,
   await phone.bringToFront();
   await phone.reload();
   await expect(phone.getByText(DESK.legalName).first()).toBeVisible();
-  // ₹51,300 goes by UPI first: a tap opens the UPI app, and its address is the desk's own account (ADR 0023).
-  await expect(phone.getByRole('link', { name: 'Pay in UPI app' })).toHaveAttribute('href', /^upi:\/\/pay\?pa=74130211980057%40kkbk0000123\.ifsc\.npci&.*am=51300\.00/);
-  await expect(phone.getByText('74130211980057').first()).toBeVisible();
+  // ₹51,300 goes by UPI first: a tap opens the UPI app on the desk's own verified UPI ID — never an address made up from
+  // its account (ADR 0029) — and the client is told the name its app must show.
+  const upiLink = phone.getByRole('link', { name: 'Pay in UPI app' });
+  await expect(upiLink).toHaveAttribute('href', /^upi:\/\/pay\?pa=rahulotc%40okaxis&pn=Rahul%20OTC%20LLP&am=51300\.00/);
+  await expect(upiLink).not.toHaveAttribute('href', /\.npci/);
+  await expect(phone.getByText(DESK.upi).first()).toBeVisible();
   await phone.getByLabel(/reference \(UTR\)/).fill('598765432109');
   await phone.getByRole('checkbox').check();
   await phone.getByRole('button', { name: 'I’ve paid' }).click();

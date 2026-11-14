@@ -58,6 +58,8 @@ export type DomainErrorCode =
   | 'PAYER_ACCOUNT_REQUIRED'
   // A bank account or wallet an open trade pays to, or the client's trader account settles with, is not archived.
   | 'DESTINATION_IN_USE'
+  // ADR 0029: the name a UPI ID resolves to is not one the client is known by on its record.
+  | 'UPI_NAME_MISMATCH'
   | 'ROUTE_RATE_STALE'
   | 'MARKET_REFERENCE_STALE'
   | 'NEGATIVE_MARGIN_NOT_PERMITTED'

@@ -1,5 +1,6 @@
 import { sql } from 'kysely';
-import { DomainError, type InrRail, P2P_RAIL_ORDER, type P2pTiming, RAIL_NOT_TAKEN, railOptionsFor, requireOneOf, requireP2pTiming, requireUuid } from '@inrp2p/kernel';
+import { DomainError, type InrRail, P2P_RAIL_ORDER, type P2pTiming, RAIL_NOT_TAKEN, type RailOption, railOptions, railOptionsFor, requireOneOf, requireP2pTiming, requireUuid } from '@inrp2p/kernel';
+import { type UsableUpiId, activeUpiId, usableUpiId } from '@inrp2p/clients';
 import type { Executor, TxContext } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
 import { enqueueOutbox } from '@inrp2p/outbox';
@@ -44,6 +45,31 @@ export interface P2pPayState {
    * trader's side to ask.
    */
   readonly rails: readonly InrRail[] | null;
+  /** Who receives the rupees: the trader's own client on a client's BUY, the client on its SELL. */
+  readonly payeeClientId: string | null;
+  /**
+   * The payee's verified UPI ID this deal is paid to by UPI (ADR 0029): the one its window was opened with, while it is
+   * still active — or, before the window opens, the one that can take the amount now. Null: no UPI on this deal.
+   */
+  readonly payeeUpi: UsableUpiId | null;
+}
+
+/** Why UPI is not offered although the amount and the trader's side allow it: nobody verified a UPI ID to pay. */
+export const RAIL_NO_UPI_ID = 'no verified UPI ID to pay to';
+
+/**
+ * The ways to pay one deal, best first: what its amount allows among what its trader's side uses (`railOptionsFor`) — and
+ * UPI only when the payee has a verified UPI ID that can take it (ADR 0029). There is no UPI address but a registered one.
+ * A deal is never left with no way to pay: without UPI the amount's bank rails stand.
+ */
+export function dealPayOptions(inrMinor: bigint, rails: readonly InrRail[] | null, hasUpi: boolean): readonly RailOption[] {
+  const options = railOptionsFor(inrMinor, rails);
+  if (hasUpi || !options.some((o) => o.rail === 'UPI' && o.possible)) return options;
+  const noUpi = (list: readonly RailOption[]) => list.map((o) => (o.rail === 'UPI' && o.possible ? { rail: o.rail, possible: false, limit: RAIL_NO_UPI_ID } : o));
+  let narrowed = noUpi(options);
+  // The side takes UPI only, and there is no UPI ID to pay: the amount's own bank rails, rather than nothing.
+  if (!narrowed.some((o) => o.possible)) narrowed = noUpi(railOptions(inrMinor));
+  return [...narrowed.filter((o) => o.possible), ...narrowed.filter((o) => !o.possible)];
 }
 
 /**
@@ -96,10 +122,20 @@ export async function p2pPayState(ex: Executor, tradeId: string): Promise<P2pPay
   const account = accountId ? await ex.selectFrom('bank_account').select(['status', 'created_at']).where('id', '=', accountId).executeTakeFirst() : undefined;
   const active = account?.status === 'ACTIVE';
   const unwound = buy ? false : (await ex.selectFrom('p2p_unwind').select('trade_id').where('trade_id', '=', t.id).executeTakeFirst()) !== undefined;
+  const rails = await dealRails(ex, { tradeId: t.id });
+  const payeeClientId = buy ? ((await ex.selectFrom('trader_profile').select('client_id').where('id', '=', t.trader_id!).executeTakeFirst())?.client_id ?? null) : t.client_id;
+  // A deal keeps the UPI ID its window was opened with (or none); before that, the payee's UPI ID that can take it now.
+  const opened = await ex.selectFrom('p2p_pay_window').select('payee_upi_id').where('trade_id', '=', t.id).executeTakeFirst();
+  const upiWanted = rails === null || rails.includes('UPI');
+  const payeeUpi = opened
+    ? (opened.payee_upi_id ? await activeUpiId(ex, opened.payee_upi_id) : null)
+    : upiWanted && payeeClientId ? await usableUpiId(ex, payeeClientId, t.quote_inr_minor) : null;
   return {
     tradeId: t.id, ref: t.ref, clientId: t.client_id, buy, lifecycle: t.lifecycle_state, hold: t.hold, inrMinor: t.quote_inr_minor, fundedAt,
     payeeAccountId: active ? accountId : null, payeeReadyAt: active ? account!.created_at : null, filed, everFiled: buy ? rupees.length > 0 : filed, unwound,
-    rails: await dealRails(ex, { tradeId: t.id }),
+    rails,
+    payeeClientId,
+    payeeUpi,
   };
 }
 
@@ -119,6 +155,8 @@ export interface PayWindow {
   readonly finalUntil: Date;
   readonly changes: number;
   readonly warnedAt: Date | null;
+  /** The payee's UPI ID the window was opened with; null — the deal has no UPI. */
+  readonly payeeUpiId: string | null;
 }
 
 /** A buyer changes its method at most this many times: the choice is how it pays, not a way to buy time. */
@@ -129,7 +167,7 @@ export async function payWindowOf(ex: Executor, tradeId: string): Promise<PayWin
   if (!w) return null;
   return {
     tradeId: w.trade_id, openedAt: w.opened_at, method: w.method, chosen: w.chosen_by !== null, timing: requireP2pTiming(w.timing), dueAt: w.due_at,
-    finalUntil: w.final_until, changes: w.changes, warnedAt: w.warned_at,
+    finalUntil: w.final_until, changes: w.changes, warnedAt: w.warned_at, payeeUpiId: w.payee_upi_id,
   };
 }
 
@@ -141,26 +179,34 @@ export async function payWindowOf(ex: Executor, tradeId: string): Promise<PayWin
 export function prospectiveWindow(s: P2pPayState, timing: P2pTiming): PayWindow | null {
   if (!s.fundedAt || !s.payeeAccountId || !s.payeeReadyAt) return null;
   const openedAt = new Date(Math.max(s.fundedAt.getTime(), s.payeeReadyAt.getTime()));
-  // The way the amount suggests, among the ways the trader's side uses.
-  const method = railOptionsFor(s.inrMinor, s.rails)[0]!.rail;
+  // The way the amount suggests, among the ways the trader's side uses — UPI only to a verified UPI ID.
+  const method = dealPayOptions(s.inrMinor, s.rails, s.payeeUpi !== null)[0]!.rail;
   const dueAt = new Date(openedAt.getTime() + timing.pay[method] * 60_000);
-  return { tradeId: s.tradeId, openedAt, method, chosen: false, timing, dueAt, finalUntil: new Date(dueAt.getTime() + timing.finalMinutes * 60_000), changes: 0, warnedAt: null };
+  return { tradeId: s.tradeId, openedAt, method, chosen: false, timing, dueAt, finalUntil: new Date(dueAt.getTime() + timing.finalMinutes * 60_000), changes: 0, warnedAt: null, payeeUpiId: s.payeeUpi?.id ?? null };
 }
 
 /**
  * Opens the deal's window once (ADR 0023): from the escrow being final, with the method the amount suggests and the
  * programme's timing as it is now. The caller holds the trade lock; a second call finds the first one's window.
  */
-export async function openPayWindowInTx(ctx: TxContext, s: P2pPayState): Promise<PayWindow | null> {
-  const existing = await payWindowOf(ctx.tx, s.tradeId);
+export async function openPayWindowInTx(ctx: TxContext, s0: P2pPayState): Promise<PayWindow | null> {
+  const existing = await payWindowOf(ctx.tx, s0.tradeId);
   if (existing) return existing;
+  // The deal's UPI ID is fixed here, and what it takes in a day is counted from here: one payee's deals choose theirs one
+  // at a time, so two deals opening together are never both promised the last of a UPI ID's day (ADR 0029).
+  let s = s0;
+  if (s.payeeClientId && (s.rails === null || s.rails.includes('UPI'))) {
+    await sql`select pg_advisory_xact_lock(hashtext(${`upi_pin:${s.payeeClientId}`}))`.execute(ctx.tx);
+    s = { ...s, payeeUpi: await usableUpiId(ctx.tx, s.payeeClientId, s.inrMinor) };
+  }
   const w = prospectiveWindow(s, await programP2pTiming(ctx.tx));
   if (!w) return null;
   const opened = await sql<{ trade_id: string }>`
-    insert into p2p_pay_window (trade_id, opened_at, method, timing, due_at, final_until)
+    insert into p2p_pay_window (trade_id, opened_at, method, timing, due_at, final_until, payee_upi_id)
     values (${s.tradeId}::uuid, ${w.openedAt}::timestamptz, ${w.method}, ${JSON.stringify(w.timing)}::jsonb,
             ${w.openedAt}::timestamptz + make_interval(mins => ${w.timing.pay[w.method]}),
-            ${w.openedAt}::timestamptz + make_interval(mins => ${w.timing.pay[w.method] + w.timing.finalMinutes}))
+            ${w.openedAt}::timestamptz + make_interval(mins => ${w.timing.pay[w.method] + w.timing.finalMinutes}),
+            ${w.payeeUpiId}::uuid)
     on conflict (trade_id) do nothing
     returning trade_id`.execute(ctx.tx);
   const window = await payWindowOf(ctx.tx, s.tradeId);
@@ -201,13 +247,16 @@ export async function choosePayMethodInTx(ctx: TxContext, input: { readonly trad
   if ((s.buy ? 'CLIENT' : 'TRADER') !== input.payer) throw new DomainError('NOT_THE_PAYER', 'only the one who pays the rupees chooses how');
   if (!isPaying(s)) throw new DomainError('INVALID_TRANSITION', s.filed ? 'your payment is already filed' : 'this deal is not waiting for your payment');
   const method = requireOneOf(input.method, 'method', P2P_RAIL_ORDER);
-  const option = railOptionsFor(s.inrMinor, s.rails).find((o) => o.rail === method)!;
-  if (!option.possible) {
-    throw new DomainError('INVALID_ARGUMENT', option.limit === RAIL_NOT_TAKEN ? `${method} is not used on this deal — choose another way to pay` : `${option.limit} — choose another way to pay`, { field: 'method' });
-  }
   const now = await dealNow(ctx.tx);
   const w = await openPayWindowInTx(ctx, s);
   if (!w) throw new DomainError('INVALID_TRANSITION', 'the seller’s account is not ready yet');
+  // Judged against the window as it is: UPI only to the UPI ID the deal was opened with, while it is still verified.
+  const hasUpi = w.payeeUpiId !== null && (await activeUpiId(ctx.tx, w.payeeUpiId)) !== null;
+  const option = dealPayOptions(s.inrMinor, s.rails, hasUpi).find((o) => o.rail === method)!;
+  if (!option.possible) {
+    const why = option.limit === RAIL_NOT_TAKEN ? `${method} is not used on this deal` : option.limit === RAIL_NO_UPI_ID ? 'the seller has no verified UPI ID to pay to' : option.limit;
+    throw new DomainError('INVALID_ARGUMENT', `${why} — choose another way to pay`, { field: 'method' });
+  }
   if (w.method === method) return { method, dueAt: w.dueAt.toISOString(), finalUntil: w.finalUntil.toISOString(), changed: false };
   if (w.changes >= PAY_METHOD_CHANGES) throw new DomainError('P2P_METHOD_LOCKED', `the way you pay was changed ${PAY_METHOD_CHANGES} times already — pay by ${w.method}`);
   const dueAt = new Date(w.openedAt.getTime() + w.timing.pay[method] * 60_000);

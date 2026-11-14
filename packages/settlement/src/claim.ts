@@ -15,7 +15,7 @@ import { obligationOfTrade, obligationRemaining } from './obligations.ts';
  * The reference must have its rail's shape — the one moment a typo is cheapest to catch is while the client still has
  * their payment app open.
  */
-export function claimIncomingFiat(actor: ClientActor): DomainCommand<{ tradeRef: string; rail: InrRail; utr: string; fromBankAccountId: string; amount?: string | null }, { legRef: string; transferId: string }> {
+export function claimIncomingFiat(actor: ClientActor): DomainCommand<{ tradeRef: string; rail: InrRail; utr: string; fromBankAccountId?: string | null; fromUpiId?: string | null; amount?: string | null }, { legRef: string; transferId: string }> {
   let clientId: string | undefined;
   return {
     authorize: async (ctx, p) => {
@@ -58,10 +58,15 @@ export function claimIncomingFiat(actor: ClientActor): DomainCommand<{ tradeRef:
       // release all follow that one payment; a part of it would leave the deal waiting on nothing.
       if (amount.minor !== owed) throw new DomainError('INVALID_AMOUNT', `pay the whole ${Money.ofMinor(owed, 'INR').toDecimalString()} INR in one payment`);
 
+      // From one of its own: a registered bank account, or a verified UPI ID (ADR 0029) — exactly one of the two.
+      if (Boolean(p.fromBankAccountId) === Boolean(p.fromUpiId)) {
+        throw new DomainError('INVALID_ARGUMENT', 'say which of your own you paid from: a registered bank account or a verified UPI ID', { field: 'fromBankAccountId' });
+      }
       const recorded = await recordClientInrInTx(ctx, trade, {
-        rail, utr, amount, routeId: e.route_id, payerBankAccountId: requireUuid(p.fromBankAccountId, 'fromBankAccountId'),
+        rail, utr, amount, routeId: e.route_id,
+        ...(p.fromBankAccountId ? { payerBankAccountId: requireUuid(p.fromBankAccountId, 'fromBankAccountId') } : { payerUpiId: requireUuid(p.fromUpiId, 'fromUpiId') }),
       });
-      await appendAudit(ctx, { action: 'fiat_in.claimed', entityType: 'trade', entityId: trade.id, after: { leg_ref: recorded.ref, rail, utr, amount, from_bank_account_id: p.fromBankAccountId } });
+      await appendAudit(ctx, { action: 'fiat_in.claimed', entityType: 'trade', entityId: trade.id, after: { leg_ref: recorded.ref, rail, utr, amount, from_bank_account_id: p.fromBankAccountId ?? null, from_upi_id: p.fromUpiId ?? null } });
       await enqueueOutbox(ctx, { type: 'desk.client_payment_claimed', aggregateType: 'trade', aggregateId: trade.id, payload: { tradeId: trade.id, legId: recorded.legId } });
       return { legRef: recorded.ref, transferId: recorded.transferId };
     },

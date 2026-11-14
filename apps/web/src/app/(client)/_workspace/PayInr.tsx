@@ -23,8 +23,12 @@ const SPEED: Record<InrRail, string> = {
   RTGS: 'From ₹2 lakh. Usually within half an hour; some banks send RTGS only in banking hours.',
 };
 
+/** One of the payer's own: a registered bank account, or (ADR 0029) a verified UPI ID. */
 export interface PayFromAccount {
   readonly id: string;
+  readonly kind: 'BANK' | 'UPI';
+  /** How it is named on screen: `HDFC Bank ••1234`, `UPI ID name@bank`. */
+  readonly label: string;
   readonly bankName: string;
   readonly last4: string;
   readonly holderName: string;
@@ -42,17 +46,20 @@ export interface PayFromAccount {
 export function PayInr({
   deal,
   fromAccounts,
+  defaultFrom,
   attachFields,
   choose,
   claim,
   attach,
 }: {
   deal: P2pDeal;
-  /** The client's own registered accounts; null for a trader, which pays from the account on its file. */
+  /** The payer's own accounts and verified UPI IDs; null for one that pays only from the account on its file. */
   fromAccounts: readonly PayFromAccount[] | null;
+  /** The one chosen to start with — a trader's registered account; without it, a sole account, or none. */
+  defaultFrom?: string;
   attachFields: Readonly<Record<string, string>>;
   choose: (method: InrRail, key: string) => Promise<ActionResult<unknown>>;
-  claim: (input: { rail: InrRail; utr: string; fromBankAccountId: string | null }, key: string) => Promise<ActionResult<{ legRef: string }>>;
+  claim: (input: { rail: InrRail; utr: string; from: { readonly kind: 'BANK' | 'UPI'; readonly id: string } | null }, key: string) => Promise<ActionResult<{ legRef: string }>>;
   attach: (form: FormData) => Promise<ActionResult<{ id: string }>>;
 }) {
   const cmd = useCommand();
@@ -60,7 +67,7 @@ export function PayInr({
   const slot = deal.payWindow;
   const payee = deal.payTo;
   const [method, setMethod] = useState<InrRail>(slot?.method ?? 'IMPS');
-  const [from, setFrom] = useState<string>(fromAccounts?.length === 1 ? fromAccounts[0]!.id : '');
+  const [from, setFrom] = useState<string>(defaultFrom ?? (fromAccounts?.length === 1 ? fromAccounts[0]!.id : ''));
   const [utr, setUtr] = useState('');
   const [own, setOwn] = useState(false);
   const [receipt, setReceipt] = useState<File | null>(null);
@@ -95,7 +102,7 @@ export function PayInr({
   };
 
   const submit = async () => {
-    const out = await cmd.run(`Payment of ${inr} filed`, (key) => claim({ rail: method, utr: normalizeUtr(utr), fromBankAccountId: fromAccount?.id ?? null }, key));
+    const out = await cmd.run(`Payment of ${inr} filed`, (key) => claim({ rail: method, utr: normalizeUtr(utr), from: fromAccount ? { kind: fromAccount.kind, id: fromAccount.id } : null }, key));
     if (!out.ok) return;
     playSound('success');
     if (receipt) {
@@ -176,16 +183,19 @@ export function PayInr({
 
             {method === 'UPI' && payee.upiLink ? (
               <div className={pay.upi}>
-                <QrCode value={payee.upiLink} label={`UPI code to pay ${inr} to ${payee.holderName}`} className={pay.qr} />
+                <QrCode value={payee.upiLink} label={`UPI code to pay ${inr} to ${payee.upiName ?? payee.holderName}`} className={pay.qr} />
                 <div className={pay.upiText}>
-                  <p className={pay.upiLead}>Scan with any UPI app — the amount and the remarks are filled in. Check them, then approve with your UPI PIN.</p>
+                  <p className={pay.upiLead}>
+                    Scan with any UPI app — the amount and the remarks are filled in. Your app should show <strong>{payee.upiName ?? payee.holderName}</strong>: if it shows
+                    another name, do not pay. Then approve with your UPI PIN.
+                  </p>
                   <a className={`${shell.action} ${pay.openApp}`} href={payee.upiLink}>
                     <PhoneIcon className={pay.inlineIcon} />
                     Pay in UPI app
                   </a>
-                  <Detail label="UPI ID" value={payee.upiId} mono />
+                  <Detail label="UPI ID" value={payee.upiId ?? ''} mono />
                   <Detail label="Amount" value={deal.inr} shown={inr} mono />
-                  <Detail label="Pays" value={`${payee.holderName} · ${payee.bankName} ••${payee.last4}`} copy={false} />
+                  <Detail label="Name in your app" value={payee.upiName ?? payee.holderName} copy={false} extra={<span className={styles.ifscOk}><CheckIcon /> verified by INRP2P</span>} />
                 </div>
               </div>
             ) : (
@@ -237,20 +247,18 @@ export function PayInr({
             {fromAccounts && fromAccounts.length !== 1 ? (
               fromAccounts.length === 0 ? (
                 <p className={pay.muted}>
-                  No bank account of yours is registered. <a className={shell.textAction} href="/destinations">Add the account you pay from</a> — it takes a minute — then come
-                  back here; pay only from that account.
+                  No bank account or verified UPI ID of yours is registered. <a className={shell.textAction} href="/destinations">Add the one you pay from</a>, then come back
+                  here; pay only from your own.
                 </p>
               ) : (
                 <div className={pay.accounts} role="radiogroup" aria-label="You paid from">
                   {fromAccounts.map((a) => (
                     <label key={a.id} className={pay.account} data-selected={from === a.id || undefined}>
                       <input type="radio" name="from" value={a.id} checked={from === a.id} onChange={() => setFrom(a.id)} className={pay.radio} />
-                      <BankIcon className={pay.accountIcon} />
+                      {a.kind === 'UPI' ? <PhoneIcon className={pay.accountIcon} /> : <BankIcon className={pay.accountIcon} />}
                       <span className={pay.accountText}>
-                        <span className={pay.accountBank}>
-                          {a.bankName} <span className="ix-num">••{a.last4}</span>
-                        </span>
-                        <span className={pay.accountHolder}>{a.holderName}</span>
+                        <span className={`${pay.accountBank} ${a.kind === 'UPI' ? 'ix-num' : ''}`}>{a.label}</span>
+                        {a.holderName ? <span className={pay.accountHolder}>{a.holderName}</span> : null}
                       </span>
                     </label>
                   ))}
@@ -316,7 +324,7 @@ export function PayInr({
               <input type="checkbox" checked={own} onChange={(e) => setOwn(e.target.checked)} disabled={fromAccounts !== null && !fromAccount} />
               <span>
                 I sent {inr} to {payee.holderName}
-                {fromAccounts ? ` from ${fromAccount ? `${fromAccount.bankName} ••${fromAccount.last4}` : 'my account'}` : ' from my registered account'} — an account in my own name.
+                {fromAccounts ? ` from ${fromAccount ? fromAccount.label : 'my account'}` : ' from my registered account'} — in my own name.
               </span>
             </label>
             <div className={pay.submitRow}>

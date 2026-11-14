@@ -41,7 +41,7 @@ async function startedOrderOfClient(ctx: TxContext, clientId: string, ref: strin
  * client's confirmation of it is what releases the escrow. One payment of the whole amount, one at a time.
  */
 export function submitOrderPayment(actor: ClientActor) {
-  return traderClientCommand(actor, 'COMMIT', async (ctx, p: { ref: string; rail: FiatRail; utr: string; amount?: string }, member) => {
+  return traderClientCommand(actor, 'COMMIT', async (ctx, p: { ref: string; rail: FiatRail; utr: string; amount?: string; fromUpiId?: string | null }, member) => {
     const order = await startedOrderOfClient(ctx, member.clientId, p.ref);
     if (order.side !== 'BUY_USDT') throw new DomainError('INVALID_ARGUMENT', 'on a Sell USDT order you send USDT to the order address instead');
     const profile = await ctx.tx.selectFrom('trader_profile').select('bank_account_id').where('id', '=', order.trader_id).executeTakeFirstOrThrow();
@@ -54,7 +54,9 @@ export function submitOrderPayment(actor: ClientActor) {
     const amount = p.amount ? Money.parse(p.amount, 'INR') : owed;
     // ADR 0019: one payment of the whole amount — the client's confirmation of it is what releases the escrow.
     if (amount.minor !== owed.minor) throw new DomainError('INVALID_AMOUNT', `pay the client the whole ${owed.toDecimalString()} INR in one payment`);
-    const filed = await fileRoutePayoutInTx(ctx, {}, { tradeId: order.trade_id, rail, utr: p.utr, amount, payerBankAccountId: profile.bank_account_id });
+    // ADR 0029: paid from one of the trader's own verified UPI IDs, it is declared from that address (IX145), not the account.
+    const payer = p.fromUpiId ? { payerUpiId: p.fromUpiId } : { payerBankAccountId: profile.bank_account_id };
+    const filed = await fileRoutePayoutInTx(ctx, {}, { tradeId: order.trade_id, rail, utr: p.utr, amount, ...payer });
     await appendAudit(ctx, { action: 'trader_order.payment_submitted', entityType: 'trader_order', entityId: order.id, after: { leg_ref: filed.legRef, amount } });
     await enqueueOutbox(ctx, { type: 'trader.payment_submitted', aggregateType: 'trader_order', aggregateId: order.id, payload: { orderId: order.id, legRef: filed.legRef } });
     return { settlementRef: filed.legRef };
