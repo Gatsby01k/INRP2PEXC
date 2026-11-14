@@ -84,6 +84,8 @@ async function ClientLinkPage({ token }: { token: string }) {
     sql<{ now: Date }>`select inrp2p_now() as now`.execute(ctx.db).then((r) => r.rows[0]!.now),
   ]);
   const banks = destinations.banks.filter((b) => b.status === 'ACTIVE').map((b) => ({ id: b.id, name: `${b.bankName} •••• ${b.last4}`, meta: b.holderName }));
+  // What a buyer may say it paid from: its bank accounts and its verified UPI IDs (ADR 0029).
+  const payFrom = [...banks, ...destinations.upiIds.filter((u) => u.status === 'ACTIVE').map((u) => ({ id: u.id, name: `UPI ID ${u.vpa}`, meta: u.verifiedName ?? u.holderName }))];
   const wallets = destinations.wallets
     .filter((w) => w.status === 'ACTIVE' && w.purpose !== 'SOURCE')
     .map((w) => ({ id: w.id, name: w.label, meta: `TRC20 · ${w.address.slice(0, 4)}…${w.address.slice(-4)}` }));
@@ -108,6 +110,7 @@ async function ClientLinkPage({ token }: { token: string }) {
         token={token}
         state={state}
         banks={banks}
+        payFrom={payFrom}
         wallets={wallets}
         anyWallet={destinations.wallets.some((w) => w.status === 'ACTIVE' || w.status === 'PENDING_REVIEW')}
         who={{ canAccept: member.canAcceptQuotes, isAdmin: member.role === 'CLIENT_ADMIN', protection, email: ctx.access.email, clientName: member.clientName }}

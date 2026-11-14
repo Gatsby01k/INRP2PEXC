@@ -35,7 +35,7 @@ Non-blocking items accepted at phase review. Each entry names the phase that mus
 | TD-29 | The public site still says the desk onboards clients, although clients now open their own accounts | D-17 (2026-10-10) | Before the self sign-up is announced | Closed (2026-10-12) — "Open an account" leads to the workspace gateway everywhere the question comes up |
 | TD-42 | A reserve withdrawal still needs a person to send it from custody, record it and confirm it | ADR 0024 (2026-10-30) | Traders withdrawing often enough for the desk to notice | Open — the owner decides whether the reserve moves to signer-held GasFree accounts (TD-41) |
 | TD-44 | A client's receipt does not show the network it paid as its own line (ADR 0028) | ADR 0028 (2026-11-09) | A client asking why its rupees are more than its USDT at the rate | Open — add the line to the receipt snapshot (a new snapshot version) and its PDF |
-| TD-45 | A trader cannot register its own UPI ID: UPI is paid to the account's own UPI address, whose support in every UPI app is unverified | Launch audit (2026-11-10) | The first UPI payment a client's app refuses; a trader asking where to enter its UPI ID | Open — test the code in GPay, PhonePe and Paytm before launch; the owner decides whether a reviewed UPI ID joins the settlement details |
+| TD-45 | A trader cannot register its own UPI ID: UPI is paid to the account's own UPI address, whose support in every UPI app is unverified | Launch audit (2026-11-10) | The first UPI payment a client's app refuses; a trader asking where to enter its UPI ID | Resolved — ADR 0029 (2026-11-10): registered UPI IDs, verified by a person; nothing pays to the account address |
 | TD-46 | A client has no Telegram alerts for its deal — only the inbox and email | Launch audit (2026-11-10) | Clients missing their time to pay with the page closed | Open — the trader's alert channel, for the client's `P2P_PAY_NOW` and `P2P_PAYMENT_SENT` |
 
 ## TD-01 — Better Auth schema warning for `auth_rate_limit.last_request`
@@ -952,6 +952,10 @@ on Android and iOS. If any refuses it, either take UPI off new sides by default,
 — submitted with the bank account, reviewed with it, changed only through the settlement-change hold (ADR 0024), with the
 payer told to check the name its app shows against the account holder. The second weakens "lands in the registered
 account" to "lands where the reviewed UPI ID points"; that is the owner's decision.
+
+**Resolved (ADR 0029, migration 0050, 2026-11-10).** UPI IDs are destinations of their own, registered by the client or
+trader, verified by a person against the client's own names, and the only UPI addresses a deal is paid to. Still for the
+owner before launch: one rupee by a deal's code to a verified UPI ID from GPay, PhonePe and Paytm on Android and iOS.
 
 ## TD-46 — A client's deal alerts stop at the inbox and email
 

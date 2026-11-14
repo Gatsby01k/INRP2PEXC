@@ -1,6 +1,7 @@
 'use client';
 
 import { useId, useState } from 'react';
+import Link from 'next/link';
 import { MAX_MARKET_OFFSET_BPS } from '@inrp2p/kernel';
 import { formatIstTime } from '@inrp2p/ui/format';
 import type { BlockView } from '@inrp2p/traders';
@@ -61,7 +62,7 @@ function AmountField({ id, label, affix, value, onChange, currency, hint }: { id
  * already hold — and quiet: no sound for a rate or a number. Registered settlement details are not edited here;
  * changing those is a desk review.
  */
-export function BlockCard({ block, canAct }: { block: BlockView; canAct: boolean }) {
+export function BlockCard({ block, canAct, upiReady = true }: { block: BlockView; canAct: boolean; upiReady?: boolean }) {
   const { run, busy, error, dialog, clearError } = useCommand();
   const [editing, setEditing] = useState(false);
   const [capacity, setCapacity] = useState(block.capacity);
@@ -313,6 +314,12 @@ export function BlockCard({ block, canAct }: { block: BlockView; canAct: boolean
           </dl>
           <p className={styles.blockLimit}>
             {buy ? 'You pay clients by' : 'Clients pay you by'} {block.rails.length > 0 ? block.rails.join(' · ') : '—'}
+            {/* ADR 0029: a buyer pays by UPI only to a verified UPI ID of the trader's own. */}
+            {!buy && !upiReady && block.rails.includes('UPI') ? (
+              <>
+                {' '}— UPI once you add a UPI ID on <Link href="/traders/settlement">Settlement details</Link>
+              </>
+            ) : null}
           </p>
           {block.issues.length > 0 && block.issues[0] ? (
             <p className={styles.note}>

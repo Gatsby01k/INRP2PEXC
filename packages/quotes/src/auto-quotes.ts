@@ -4,6 +4,7 @@ import { DomainError, type MarketReference, type MarketReferences, Money, NO_MAR
 import { type Db, type DirectionValue, type Executor, type FixedSideValue, type TraderSide, type TxContext, assertLockOrder, lockInOrder } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
 import { enqueueOutbox, type OutboxHandler } from '@inrp2p/outbox';
+import { usableUpiId } from '@inrp2p/clients';
 import { executeCommand } from '@inrp2p/commands';
 import type { ClientActor } from '@inrp2p/identity';
 import { assertNewBusinessOpen, newBusinessState } from '@inrp2p/trades';
@@ -145,8 +146,11 @@ async function candidates(ctx: TxContext, request: RequestRow, network: NetworkM
     if (!block || block.status !== 'ACTIVE') continue;
     const route = await ctx.tx.selectFrom('liquidity_route').select(['execution_mode', 'status']).where('id', '=', block.routeId).executeTakeFirstOrThrow();
     if (route.execution_mode !== 'P2P' || route.status !== 'ACTIVE') continue;
-    // The deal will offer only the rails this side uses (`dealRails`): one of them must be able to carry the amount.
-    if (!railsOverlap(approxInr > 0n ? approxInr : 1n, block.rails)) continue;
+    // The deal will offer only the rails this side uses (`dealRails`) — and UPI only to a verified UPI ID of whoever is
+    // paid (ADR 0029): the trader when the client buys, the client when it sells. One of them must carry the amount.
+    const inr = approxInr > 0n ? approxInr : 1n;
+    const upi = block.rails.includes('UPI') && (await usableUpiId(ctx.tx, request.direction === 'BUY_USDT' ? t.client_id : request.client_id, inr)) !== null;
+    if (!railsOverlap(inr, upi ? block.rails : block.rails.filter((r) => r !== 'UPI'))) continue;
     if (network.mode === 'BURN' && (await networkAvailable(ctx.tx, t.id)) < network.needSun) continue;
     out.push({ traderId: t.id, ref: t.ref, block, roomMinor });
   }

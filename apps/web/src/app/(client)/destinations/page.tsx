@@ -23,7 +23,7 @@ export default async function DestinationsPage() {
 
   return (
     <>
-      <PageHead icon={<BankIcon />} title="Bank & wallets" lede="Where the desk pays you. INR goes only to these bank accounts, and USDT only to these wallets." />
+      <PageHead icon={<BankIcon />} title="Bank & wallets" lede="Where you are paid, and what you pay from. INR goes only to these bank accounts and UPI IDs, and USDT only to these wallets." />
       <DestinationsScreen
         destinations={destinations}
         clientName={ctx.access.clientName}

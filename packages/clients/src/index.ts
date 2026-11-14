@@ -6,3 +6,4 @@ export * from './queries.ts';
 export * from './open-account.ts';
 export * from './team.ts';
 export * from './telegram.ts';
+export * from './upi-ids.ts';

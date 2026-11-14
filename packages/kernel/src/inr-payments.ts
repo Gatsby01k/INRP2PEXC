@@ -76,6 +76,23 @@ export function normalizeVpa(raw: unknown): string | null {
   return VPA.test(vpa) ? vpa : null;
 }
 
+/** A UPI ID as it is shown to anyone but its owner and its payer: `ra•••@okhdfcbank`. */
+export function maskVpa(vpa: string): string {
+  const at = vpa.lastIndexOf('@');
+  if (at < 1) return '•••';
+  return `${vpa.slice(0, Math.min(2, at))}•••${vpa.slice(at)}`;
+}
+
+/**
+ * A UPI ID a person registers (ADR 0029): a real `name@handle`. An address made up from an account number or a phone
+ * (`….ifsc.npci`, `….mmid.npci`) is not one — it is exactly what registered UPI IDs replace.
+ */
+export function requireRegisteredVpa(raw: unknown, field = 'vpa'): string {
+  const vpa = requireVpa(raw, field);
+  if (vpa.endsWith('.npci')) throw new DomainError('INVALID_ARGUMENT', 'enter your own UPI ID, such as name@bank — not one made from an account number', { field });
+  return vpa;
+}
+
 export function requireVpa(raw: unknown, field = 'upiId'): string {
   const vpa = normalizeVpa(raw);
   if (!vpa) throw new DomainError('INVALID_ARGUMENT', `${field} must be a UPI ID such as name@bank`);

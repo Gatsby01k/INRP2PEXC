@@ -88,7 +88,7 @@ export function TradersHome({ home, network }: { home: TraderHome; network: Trad
                 </div>
                 <div className={styles.blocks} data-count={home.blocks.length}>
                   {home.blocks.map((b) => (
-                    <BlockCard key={`${b.side}:${b.version}`} block={b} canAct={home.canAct} />
+                    <BlockCard key={`${b.side}:${b.version}`} block={b} canAct={home.canAct} upiReady={home.upiReady} />
                   ))}
                 </div>
               </section>

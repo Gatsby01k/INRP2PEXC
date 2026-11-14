@@ -4,7 +4,7 @@ import { type P2pExperience, type Rail, type Tx, type TxContext, isUniqueViolati
 import type { FieldProtector } from '@inrp2p/adapters';
 import { appendAudit } from '@inrp2p/audit';
 import { enqueueOutbox } from '@inrp2p/outbox';
-import { BANK_ACCOUNT_HMAC_CONTEXT, bankAccountSealContext } from '@inrp2p/clients';
+import { BANK_ACCOUNT_HMAC_CONTEXT, bankAccountSealContext, submitUpiIdInTx } from '@inrp2p/clients';
 import { type ClientActor, type DomainCommand, type OperatorActor, actorLabel, operatorCommand, requireConfirmation as requireStepUp } from '@inrp2p/identity';
 import { updateTraderRouteRegistration } from '@inrp2p/routes';
 import { type TraderApplicant, type TraderMember, type TraderRow, assertAuthority, lockTrader, lockTraderOfClient, traderApplicant, traderClientCommand, traderProgram } from '@inrp2p/trader-core';
@@ -198,6 +198,11 @@ export interface ApplyPayload {
   readonly bank?: BankDetails | null;
   readonly walletId?: string | null;
   readonly wallet?: WalletDetails | null;
+  /**
+   * ADR 0029: a UPI ID the trader is paid to, registered with the application as a destination of its own and reviewed by
+   * a person — its deals are paid by UPI only once it is verified. Optional; more are added on Traders at any time.
+   */
+  readonly upi?: { readonly vpa: string; readonly holderName?: string | null } | null;
   /** "I confirm this bank account and wallet belong to me or my company." */
   readonly confirmOwnership: boolean;
 }
@@ -315,6 +320,12 @@ export function applyAsTrader(actor: ClientActor, deps: { protector: FieldProtec
           ownership_confirmed: true, self_registered: current.member === null, reapplied: Boolean(existing),
         },
       });
+      // Its UPI ID, when it named one: a destination of its own, waiting for a person — never a condition of approval.
+      if (p.upi && typeof p.upi.vpa === 'string' && p.upi.vpa.trim() !== '') {
+        const holder = optionalText(p.upi.holderName, 'upiHolderName', 140)
+          ?? (await ctx.tx.selectFrom('bank_account').select('holder_name').where('id', '=', bank.id).executeTakeFirstOrThrow()).holder_name;
+        await submitUpiIdInTx(ctx, clientId, { vpa: p.upi.vpa, holderName: holder });
+      }
       await enqueueOutbox(ctx, { type: 'trader.applied', aggregateType: 'trader_profile', aggregateId: traderId, payload: { traderId, clientId } });
       return { traderId, ref, status: 'UNDER_REVIEW' as const, bankStatus: bank.status, walletStatus: wallet.status };
     },

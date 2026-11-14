@@ -82,9 +82,11 @@ export async function openRequestInTx(
     // The client pays its seller from a bank account of its own that is on file — the seller checks the sender against it,
     // and "I've paid" names it (ADR 0018, `fiat_in.claim`). Asked for here, before a price: otherwise the client accepts,
     // the seller's USDT is locked for it, and its time to pay runs out while it has no account to say it paid from.
-    const payFrom = await ctx.tx.selectFrom('bank_account').select('id').where('client_id', '=', client.id).where('status', '=', 'ACTIVE').executeTakeFirst();
+    // A verified UPI ID of its own is such an account too (ADR 0029): no bank details are needed to pay by UPI.
+    const payFrom = (await ctx.tx.selectFrom('bank_account').select('id').where('client_id', '=', client.id).where('status', '=', 'ACTIVE').executeTakeFirst())
+      ?? (await ctx.tx.selectFrom('upi_id').select('id').where('client_id', '=', client.id).where('status', '=', 'ACTIVE').executeTakeFirst());
     if (!payFrom) {
-      throw new DomainError('PAYER_ACCOUNT_REQUIRED', 'Add the bank account you will pay from first: the seller takes rupees only from an account in your own name.', { field: 'bankAccountId' });
+      throw new DomainError('PAYER_ACCOUNT_REQUIRED', 'Add the bank account or UPI ID you will pay from first: the seller takes rupees only from one in your own name. A UPI ID is checked by INRP2P before you can use it.', { field: 'bankAccountId' });
     }
   }
 

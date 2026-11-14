@@ -30,9 +30,28 @@ export interface ClientWallet {
   readonly status: DestinationStatus;
 }
 
+/**
+ * A UPI ID the client registered (ADR 0029): shown in full to its own people — an address is what they check — with
+ * the name INRP2P saw it resolve to once a person verified it, and its own limits.
+ */
+export interface ClientUpiId {
+  readonly id: string;
+  readonly vpa: string;
+  readonly holderName: string;
+  readonly verifiedName: string | null;
+  readonly label: string | null;
+  /** Decimal rupees. */
+  readonly perPaymentLimit: string;
+  readonly dailyLimit: string | null;
+  readonly status: DestinationStatus;
+  /** Why the desk did not verify it, when it did not. */
+  readonly reviewNote: string | null;
+}
+
 export interface ClientDestinations {
   readonly banks: readonly ClientBankAccount[];
   readonly wallets: readonly ClientWallet[];
+  readonly upiIds: readonly ClientUpiId[];
 }
 
 export async function clientDestinations(ex: Executor, clientId: string, opts: { includeArchived?: boolean } = {}): Promise<ClientDestinations> {
@@ -46,12 +65,19 @@ export async function clientDestinations(ex: Executor, clientId: string, opts: {
     .select(['id', 'network', 'address', 'label', 'purpose', 'status'])
     .where('client_id', '=', clientId)
     .orderBy('created_at', 'asc');
+  // Waiting and refused ones are the client's to see: it added them, and is told why one was not verified.
+  let upis = ex
+    .selectFrom('upi_id')
+    .select(['id', 'vpa', 'holder_name', 'verified_name', 'label', 'per_payment_limit_minor', 'daily_limit_minor', 'status', 'review_note'])
+    .where('client_id', '=', clientId)
+    .orderBy('created_at', 'asc');
   if (!opts.includeArchived) {
     banks = banks.where('status', '=', 'ACTIVE');
     wallets = wallets.where('status', '=', 'ACTIVE');
+    upis = upis.where('status', 'in', ['ACTIVE', 'PENDING_REVIEW', 'REJECTED']);
   }
 
-  const [bankRows, walletRows] = await Promise.all([banks.execute(), wallets.execute()]);
+  const [bankRows, walletRows, upiRows] = await Promise.all([banks.execute(), wallets.execute(), upis.execute()]);
   return clientSafe({
     banks: bankRows.map((b) => ({
       id: b.id,
@@ -71,8 +97,26 @@ export async function clientDestinations(ex: Executor, clientId: string, opts: {
       purpose: w.purpose,
       status: w.status,
     })),
+    upiIds: upiRows.map((u) => ({
+      id: u.id,
+      vpa: u.vpa,
+      holderName: u.holder_name,
+      verifiedName: u.verified_name,
+      label: u.label,
+      perPaymentLimit: rupees(u.per_payment_limit_minor),
+      dailyLimit: u.daily_limit_minor === null ? null : rupees(u.daily_limit_minor),
+      status: u.status,
+      reviewNote: u.review_note,
+    })),
   });
 }
+
+/** Paise as decimal rupees, without a float on the way. */
+const rupees = (minor: bigint): string => {
+  const whole = minor / 100n;
+  const paise = minor % 100n;
+  return paise === 0n ? whole.toString() : `${whole}.${paise.toString().padStart(2, '0')}`;
+};
 
 /** How a destination is named on screen: recognisable, and never the full account number. */
 export const bankLabel = (b: Pick<ClientBankAccount, 'bankName' | 'last4'>): string => `${b.bankName} •••• ${b.last4}`;

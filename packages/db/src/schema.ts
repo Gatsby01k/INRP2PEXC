@@ -339,6 +339,31 @@ export interface BankAccountTable {
   review_note: string | null;
 }
 
+/**
+ * Migration 0050 (ADR 0029): a UPI ID a client or trader registered as a payment destination of its own, apart from any
+ * bank account. Paid to, or declared as the payer's, only while ACTIVE — which takes a person's verification.
+ */
+export interface UpiIdTable {
+  id: Generated<string>;
+  client_id: string;
+  vpa: string;
+  holder_name: string;
+  label: string | null;
+  per_payment_limit_minor: Generated<bigint>;
+  daily_limit_minor: bigint | null;
+  status: Generated<DestinationStatus>;
+  verified_name: string | null;
+  reviewed_by: string | null;
+  reviewed_at: Date | null;
+  review_note: string | null;
+  created_by: string;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+  archived_by: string | null;
+  archived_at: Date | null;
+  archive_reason: string | null;
+}
+
 export interface CryptoWalletTable {
   id: Generated<string>;
   client_id: string;
@@ -889,6 +914,8 @@ export interface FiatTransferTable {
   failure_reason: string | null;
   /** ADR 0018: the payer's registered account the rupees are declared to come from (IX118), and who filed it. */
   payer_bank_account_id: string | null;
+  /** Migration 0050: the payer's own verified UPI ID the payment was declared from, instead of a bank account (IX145). */
+  payer_upi_id: Generated<string | null>;
   filed_by: Generated<FiatFiledBy>;
 }
 
@@ -1116,7 +1143,9 @@ export type NotificationKind =
   // Migration 0049: a deal's hand-offs — pay now, the buyer says it paid — and a trader's side out of capacity.
   | 'P2P_PAY_NOW'
   | 'P2P_PAYMENT_SENT'
-  | 'TRADER_SIDE_EMPTY';
+  | 'TRADER_SIDE_EMPTY'
+  // Migration 0050: a UPI ID the desk did not verify.
+  | 'DESTINATION_REJECTED';
 
 export interface ClientNotificationTable {
   id: Generated<string>;
@@ -1873,6 +1902,8 @@ export interface P2pPayWindowTable {
   warned_at: Date | null;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
+  /** Migration 0050: the payee's verified UPI ID the buyer is shown, fixed when the window opens (IX146); null — no UPI on this deal. */
+  payee_upi_id: Generated<string | null>;
 }
 
 /** Migration 0042: a file attached in a P2P deal's chat — kept private, served only to the deal's people. */
@@ -2018,6 +2049,7 @@ export interface Database {
   client_contact: ClientContactTable;
   client_user: ClientUserTable;
   bank_account: BankAccountTable;
+  upi_id: UpiIdTable;
   crypto_wallet: CryptoWalletTable;
   liquidity_route: LiquidityRouteTable;
   rate_snapshot: RateSnapshotTable;

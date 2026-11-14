@@ -24,8 +24,8 @@ const EARLIER = '2026-09-19T09:10:00.000Z';
 
 const bank = { id: 'b1', bankName: 'HDFC Bank', ifsc: 'HDFC0000001', last4: '8219', holderName: 'Acme Pay', rails: ['IMPS'], status: 'ACTIVE' as const, verified: true };
 const wallet = { id: 'w1', network: 'TRON' as const, address: 'TQMabcdefghijklmnopqrstuvwxyzxd8D', label: 'Acme wallet', purpose: 'DESTINATION' as const, status: 'ACTIVE' as const };
-const both: ClientDestinations = { banks: [bank], wallets: [wallet] };
-const none: ClientDestinations = { banks: [], wallets: [] };
+const both: ClientDestinations = { banks: [bank], wallets: [wallet], upiIds: [] };
+const none: ClientDestinations = { banks: [], wallets: [], upiIds: [] };
 
 const request = {
   gatheringUntil: null,
@@ -228,9 +228,9 @@ describe('history', () => {
 describe('destinations', () => {
   it('knows which directions an active destination makes possible', () => {
     expect(readiness(both)).toEqual({ sell: true, buy: true });
-    expect(readiness({ banks: [{ ...bank, status: 'ARCHIVED' }], wallets: [{ ...wallet, purpose: 'SOURCE' }] })).toEqual({ sell: false, buy: false });
+    expect(readiness({ banks: [{ ...bank, status: 'ARCHIVED' }], wallets: [{ ...wallet, purpose: 'SOURCE' }], upiIds: [] })).toEqual({ sell: false, buy: false });
     expect(destinationsAssistant(both)).toMatchObject({ mood: 'ready', label: 'Ready' });
-    expect(destinationsAssistant({ banks: [bank], wallets: [] })).toMatchObject({ label: 'Ready to sell', title: 'Buying USDT needs a wallet' });
+    expect(destinationsAssistant({ banks: [bank], wallets: [], upiIds: [] })).toMatchObject({ label: 'Ready to sell', title: 'Buying USDT needs a wallet' });
     expect(destinationsAssistant(none)).toMatchObject({ mood: 'alert', label: 'Setup needed' });
   });
 });

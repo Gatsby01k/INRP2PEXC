@@ -21,11 +21,13 @@ import styles from '../traders.module.css';
  * `useCommand` offers the factors in place). Once approved, the new details wait out the programme's hold (ADR 0024),
  * every member is told, and the current details keep settling every order until then.
  */
-export function SettlementChange({ working, current, openOrders, holdHours }: {
+export function SettlementChange({ working, current, openOrders, holdHours, children }: {
   working: boolean;
   current: { bank: string | null; wallet: string | null };
   openOrders: number;
   holdHours: number;
+  /** ADR 0029: the trader's UPI IDs, in the same column — they are added and checked on their own, with no hold. */
+  children?: React.ReactNode;
 }) {
   const router = useRouter();
   const { run, busy, error, dialog } = useCommand();
@@ -103,6 +105,7 @@ export function SettlementChange({ working, current, openOrders, holdHours }: {
             </p>
           ) : null}
         </form>
+        {children}
       </main>
       <AssistantPanel state={assistant} size="compact" />
       {dialog}

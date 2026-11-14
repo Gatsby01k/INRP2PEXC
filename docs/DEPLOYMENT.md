@@ -706,3 +706,19 @@ Migration `0049` (schema 49) adds three inbox kinds — `P2P_PAY_NOW`, `P2P_PAYM
 3. **Visual baselines** change on: the trader application's last step, the Traders home (each side shows its rails), the
    Exchange ticket when buying, and Bank accounts (the per-account transfer list is no longer shown). Re-record them.
 
+## 23. UPI IDs as payment destinations of their own (ADR 0029)
+
+Migration `0050` (schema 50) adds `upi_id`, `p2p_pay_window.payee_upi_id`, `fiat_transfer.payer_upi_id`, the inbox kind
+`DESTINATION_REJECTED` and two guards (IX145, IX146). No secret, service or job changes.
+
+1. **Release order** (from production at 49): CI green, a restore point, `scripts/migrate.ts` with the production env, then
+   merge — the app at 50 refuses a database at 49 — then the worker image of the same commit. Merging first makes the
+   site answer 500 until the migration runs (as on 2026-11-09 and 2026-11-10).
+2. **What changes for people at once:** no deal is paid by UPI until someone has a verified UPI ID. Deals that would have
+   gone by UPI to the account address go by IMPS until then. Nothing in progress changes: a window already open keeps its
+   method.
+3. **The desk's new task:** Clients → "UPI IDs to verify". For each, start a payment to the address in a UPI app without
+   paying, type the name it shows, and verify — or reject with a note the client reads.
+4. **Before switching it on for real money:** one rupee by a deal's code to a verified UPI ID from GPay, PhonePe and Paytm
+   on Android and iOS.
+

@@ -137,7 +137,7 @@ test.describe('traders', () => {
 
   test('settlement details', async ({ page }) => {
     await page.goto('/traders/settlement');
-    await expect(page.getByRole('heading', { name: 'New settlement details', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Settlement details', exact: true })).toBeVisible();
     await capture(page, 'client-trader-settlement');
   });
 });

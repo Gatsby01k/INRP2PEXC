@@ -371,6 +371,8 @@ export interface TraderHome {
   readonly programmeReserve: string | null;
   /** ADR 0020: this trader has opened its own desk (its page, prices and clients), in any state. */
   readonly deskOpened: boolean;
+  /** ADR 0029: the trader has a verified UPI ID — without one, its deals are not paid by UPI whatever its sides say. */
+  readonly upiReady: boolean;
   /** ADR 0024: the deals the reserve allows at the trader's level; null when the programme sets none. */
   readonly limits: LimitsView | null;
   /** Orders accepted or in progress — the desk changes settlement details only once there are none. */
@@ -509,7 +511,7 @@ export async function traderHome(ex: Executor, userId: string): Promise<TraderHo
     return traderSafe({
       state: 'NONE' as const, ref: null, ...base, application: null, available: false, controlNote: null, assignmentsEnabled: true, issues: [], blocks: [], reserve: null,
       offers: [], priceAsks: [], active: [], recentlyCompleted: null, earnings: null, registered: null, proposal: NO_PROPOSAL, openOrders: 0,
-      review: null, limits: null, programmeReserve: await programmeReserveOf(ex), deskOpened: false,
+      review: null, limits: null, programmeReserve: await programmeReserveOf(ex), deskOpened: false, upiReady: false,
     });
   }
   const bank = bankText(profile.bank_name, profile.account_last4);
@@ -550,7 +552,7 @@ export async function traderHome(ex: Executor, userId: string): Promise<TraderHo
     return traderSafe({
       state: profile.status, ref: profile.ref, ...base, application, available: false, controlNote: null, assignmentsEnabled: profile.assignments_enabled, issues: [], blocks: [],
       reserve: await reserveView(ex, profile.id, required), offers: [], priceAsks: [], active: [], recentlyCompleted: null, earnings: null, registered, proposal: NO_PROPOSAL, openOrders: 0,
-      review, limits: null, programmeReserve: required === null ? null : usdt(required), deskOpened: false,
+      review, limits: null, programmeReserve: required === null ? null : usdt(required), deskOpened: false, upiReady: false,
     });
   }
   const bankProposal = await bankView(ex, profile.proposed_bank_account_id);
@@ -631,6 +633,7 @@ export async function traderHome(ex: Executor, userId: string): Promise<TraderHo
     limits: reserve.limits ? limitsView(reserve.limits) : null,
     programmeReserve: await programmeReserveOf(ex),
     deskOpened: (await ex.selectFrom('desk').select('id').where('trader_id', '=', profile.id).executeTakeFirst()) !== undefined,
+    upiReady: member !== null && (await ex.selectFrom('upi_id').select('id').where('client_id', '=', member.clientId).where('status', '=', 'ACTIVE').executeTakeFirst()) !== undefined,
   });
 }
 
@@ -685,6 +688,11 @@ export interface TraderOrderDetail {
    * account it pays into. Null for an order through INRP2P's account.
    */
   readonly p2p: P2pDeal | null;
+  /**
+   * Buy USDT, paying a client: what the trader may say it paid from — its registered bank account, and (ADR 0029) its own
+   * verified UPI IDs. A single entry when it has no UPI ID: the registered account, as always.
+   */
+  readonly payFrom: readonly { readonly id: string; readonly kind: 'BANK' | 'UPI'; readonly label: string; readonly holderName: string; readonly bankName: string; readonly last4: string }[];
   readonly now: string;
 }
 
@@ -696,7 +704,7 @@ export async function traderOrderDetail(ex: Executor, userId: string, ref: strin
     .innerJoin('trader_profile as t', 't.id', 'o.trader_id')
     .innerJoin('bank_account as b', 'b.id', 't.bank_account_id')
     .innerJoin('crypto_wallet as w', 'w.id', 't.wallet_id')
-    .select([...ORDER_SELECT, 'b.bank_name', 'b.account_last4', 'w.address'])
+    .select([...ORDER_SELECT, 'b.bank_name', 'b.account_last4', 'w.address', 't.bank_account_id'])
     .where('o.ref', '=', requireText(ref, 'ref', 32))
     .where('t.client_id', '=', member.clientId)
     .executeTakeFirst();
@@ -725,6 +733,14 @@ export async function traderOrderDetail(ex: Executor, userId: string, ref: strin
   });
 
   const p2p = o.trade_id ? await p2pDeal(ex, protector, { tradeId: o.trade_id, viewer: 'TRADER' }) : null;
+  // ADR 0029: a trader buying USDT pays its client from its registered account or one of its own verified UPI IDs.
+  const payFrom = buy
+    ? [
+        { id: o.bank_account_id, kind: 'BANK' as const, label: `${o.bank_name} ••${o.account_last4}`, holderName: '', bankName: o.bank_name, last4: o.account_last4 },
+        ...(await ex.selectFrom('upi_id').select(['id', 'vpa', 'verified_name', 'holder_name']).where('client_id', '=', member.clientId).where('status', '=', 'ACTIVE').orderBy('created_at').execute())
+          .map((u) => ({ id: u.id, kind: 'UPI' as const, label: `UPI ID ${u.vpa}`, holderName: u.verified_name ?? u.holder_name, bankName: 'UPI', last4: '' })),
+      ]
+    : [];
   return traderSafe({
     order: summary,
     steps: o.status === 'OFFERED' || o.status === 'ACCEPTED' || o.status === 'IN_PROGRESS' || o.status === 'COMPLETED'
@@ -744,6 +760,7 @@ export async function traderOrderDetail(ex: Executor, userId: string, ref: strin
     inrp2pOwes: o.status === 'IN_PROGRESS' && facts.inrp2pOwed > 0n ? (buy ? usdt(facts.inrp2pOwed) : inr(facts.inrp2pOwed)) : null,
     sendTo: facts.deliveryAddress,
     p2p,
+    payFrom,
     now: now.toISOString(),
   });
 }

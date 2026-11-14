@@ -13,7 +13,7 @@ import { FakeChainVerifier, FakeGasFree, FakeTronNetwork } from '@inrp2p/adapter
 import { executeCommand } from '@inrp2p/commands';
 import type { ClientActor, DomainCommand } from '@inrp2p/identity';
 import { createClientAuth, createOperatorAuth, provisionClientUser } from '@inrp2p/identity';
-import { addBankAccount, addWallet, createClient, linkClientUser, setCanAcceptQuotes, setClientExchangeAccess } from '@inrp2p/clients';
+import { addBankAccount, addUpiId, addWallet, createClient, linkClientUser, setCanAcceptQuotes, setClientExchangeAccess } from '@inrp2p/clients';
 import { recordCustodyHdAccount } from '@inrp2p/treasury';
 import { publishTrxRate, setNetworkFeePolicy } from '@inrp2p/network';
 import { type OnchainDeps, runAutopay, runFeeRefresh, runGasFreeFeeRefresh, runHoldClosing, runMonitor, runSender } from '@inrp2p/onchain';
@@ -42,6 +42,8 @@ export const DESK = {
   handle: 'rahul',
   name: 'Rahul OTC',
   legalName: 'Rahul OTC LLP',
+  /** The desk's own UPI ID (ADR 0029): what a buyer's UPI app is opened on. */
+  upi: 'rahulotc@okaxis',
   email: 'desk@rahulotc.test',
   /** What the desk pays for a client's USDT, and what it asks for its own. */
   sells: '101.800000',
@@ -132,6 +134,8 @@ export async function createDeskWorld(adminUrl: string, port: number): Promise<D
   const bank = await run(db, addBankAccount(owner.actor, protector), owner.ref, 'client_bank.add', {
     clientId: company.clientId, holderName: DESK.legalName, bankName: 'Kotak Mahindra Bank', ifsc: 'KKBK0000123', accountNumber: '74130211980057', railPreferences: ['IMPS', 'NEFT'] as const,
   });
+  // ADR 0029: the UPI ID buyers pay the desk to — added by INRP2P's desk, so verified and live at once.
+  await run(db, addUpiId(owner.actor), owner.ref, 'client_upi.add', { clientId: company.clientId, vpa: DESK.upi, holderName: DESK.legalName });
   const deskWalletAddress = encodeTronAddress(randomBytes(20));
   const wallet = await run(db, addWallet(owner.actor), owner.ref, 'client_wallet.add', { clientId: company.clientId, network: 'TRON' as const, address: deskWalletAddress, purpose: 'BOTH' as const, label: 'Desk wallet' });
   const userId = await provisionClientUser(clientAuth, { email: DESK.email, name: 'Rahul' });

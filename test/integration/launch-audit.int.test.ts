@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Money, encodeTronAddress } from '@inrp2p/kernel';
 import { createTestClientLogin, runAs } from '@inrp2p/identity/testing';
 import type { OutboxEvent } from '@inrp2p/outbox';
-import { addBankAccount, addWallet, archiveBankAccount, archiveWallet, createClient } from '@inrp2p/clients';
+import { addBankAccount, addUpiId, addWallet, archiveBankAccount, archiveWallet, createClient } from '@inrp2p/clients';
 import { clientInbox, clientNotificationHandler, traderNotificationHandler } from '@inrp2p/notifications';
 import { createRequest } from '@inrp2p/quotes';
 import { configureTraderProgram } from '@inrp2p/trader-core';
@@ -52,6 +52,8 @@ beforeAll(async () => {
   const program = await w.app.selectFrom('trader_program').select('version').where('id', '=', 1).executeTakeFirstOrThrow();
   await runAs(w.app, configureTraderProgram(w.finance.actor), w.finance.ref, 'trader_program.configure', { expectedVersion: program.version, riskPolicy: null, reason: 'launch audit' });
   usdtTrader = await railsTrader(w, 'USDT Seller', { sell: { capacity: '500000', rate: '105.20', min: '10', max: '200000' } }, '5000');
+  // ADR 0029: buyers pay the seller by UPI only to a verified UPI ID of its own — the desk adds one, live at once.
+  await runAs(w.app, addUpiId(w.owner.actor), w.owner.ref, 'client_upi.add', { clientId: usdtTrader.clientId, vpa: 'usdt.seller@okaxis', holderName: 'USDT Seller LLP' });
   inrTrader = await railsTrader(w, 'INR Payer', { buy: { capacity: '50000000', rate: '104.70', min: '100', max: '20000000' } }, '5000');
 });
 afterAll(async () => w.close());

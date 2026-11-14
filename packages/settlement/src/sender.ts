@@ -18,10 +18,13 @@ import { lockMovement } from './movements.ts';
  */
 
 export interface ExpectedAccount {
-  readonly bankAccountId: string;
+  /** The registered bank account; null when the payer's own is a verified UPI ID (ADR 0029). */
+  readonly bankAccountId: string | null;
+  readonly upiId?: string;
   readonly holderName: string;
   readonly bankName: string;
-  readonly last4: string;
+  /** The account's last digits; null for a UPI ID, which has none to compare. */
+  readonly last4: string | null;
 }
 
 export interface SeenSender {
@@ -37,22 +40,29 @@ interface TransferForCheck {
   readonly payerId: string;
   readonly payeeType: string;
   readonly declared: string | null;
+  /** ADR 0029: the payer's own verified UPI ID the payment was declared from. */
+  readonly declaredUpi: string | null;
 }
 
 async function transferForCheck(ex: Executor, transferId: string): Promise<TransferForCheck & { readonly needsCheck: boolean }> {
-  const row = await sql<{ id: string; status: 'RECORDED' | 'CONFIRMED' | 'FAILED'; payer_type: string; payer_id: string; payee_type: string; payer_bank_account_id: string | null; needs: boolean }>`
-    select f.id, f.status, f.payer_type, f.payer_id, f.payee_type, f.payer_bank_account_id, inrp2p_fiat_needs_sender_check(f) as needs
+  const row = await sql<{ id: string; status: 'RECORDED' | 'CONFIRMED' | 'FAILED'; payer_type: string; payer_id: string; payee_type: string; payer_bank_account_id: string | null; payer_upi_id: string | null; needs: boolean }>`
+    select f.id, f.status, f.payer_type, f.payer_id, f.payee_type, f.payer_bank_account_id, f.payer_upi_id, inrp2p_fiat_needs_sender_check(f) as needs
     from fiat_transfer f where f.id = ${requireUuid(transferId, 'transferId')}`.execute(ex);
   const f = row.rows[0];
   if (!f) throw new DomainError('NOT_FOUND', 'payment not found');
-  return { id: f.id, status: f.status, payerType: f.payer_type, payerId: f.payer_id, payeeType: f.payee_type, declared: f.payer_bank_account_id, needsCheck: f.needs };
+  return { id: f.id, status: f.status, payerType: f.payer_type, payerId: f.payer_id, payeeType: f.payee_type, declared: f.payer_bank_account_id, declaredUpi: f.payer_upi_id, needsCheck: f.needs };
 }
 
 /**
  * The accounts the rupees may have come from: the one the payment was declared from, or — when nobody declared one —
  * every active account the payer registered (a client's own; a trader's, through its route).
  */
-export async function expectedAccounts(ex: Executor, t: Pick<TransferForCheck, 'payerType' | 'payerId' | 'declared'>): Promise<readonly ExpectedAccount[]> {
+export async function expectedAccounts(ex: Executor, t: Pick<TransferForCheck, 'payerType' | 'payerId' | 'declared'> & { readonly declaredUpi?: string | null }): Promise<readonly ExpectedAccount[]> {
+  // Declared from a verified UPI ID (ADR 0029): the sender is judged against the name that address resolves to.
+  if (t.declaredUpi) {
+    const u = await ex.selectFrom('upi_id').select(['id', 'verified_name', 'holder_name']).where('id', '=', t.declaredUpi).executeTakeFirst();
+    return u ? [{ bankAccountId: null, upiId: u.id, holderName: u.verified_name ?? u.holder_name, bankName: 'UPI', last4: null }] : [];
+  }
   let q = ex.selectFrom('bank_account as b').select(['b.id', 'b.holder_name', 'b.bank_name', 'b.account_last4']);
   if (t.declared) q = q.where('b.id', '=', t.declared);
   else if (t.payerType === 'CLIENT') q = q.where('b.client_id', '=', t.payerId).where('b.status', '=', 'ACTIVE');
@@ -117,7 +127,7 @@ export async function recordSenderCheckInTx(
       seen_account: seen.account,
       expected_bank_account_id: judged.account?.bankAccountId ?? null,
       verdict: judged.verdict,
-      detail: JSON.stringify({ pairs: judged.pairs, account: judged.accountSeen, narration: input.narration ?? null }),
+      detail: JSON.stringify({ pairs: judged.pairs, account: judged.accountSeen, narration: input.narration ?? null, ...(judged.account?.upiId ? { expected_upi_id: judged.account.upiId } : {}) }),
       checked_by: ctx.actor.id ?? `SYSTEM:${ctx.commandName}`,
     })
     .returning('id')

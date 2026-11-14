@@ -409,8 +409,8 @@ IMPS to ₹5 lakh, RTGS from ₹2 lakh), and the buyer's window opens on the fir
 carry the amount; a deal a person opened with none still offers the amount's own rails rather than no way to pay. "I've
 paid" is never refused for its rail. The application asks "How you are paid to this account" — UPI included — and the sides
 of a trader approved on an account it submitted itself start with that answer; `bank_account.rail_preferences` decides
-nothing else. A UPI payment goes to the account's own UPI address (`<account>@<ifsc>.ifsc.npci`), not to a UPI ID the
-trader registers (TD-45).
+nothing else. Since ADR 0029 a UPI payment goes only to a verified UPI ID the payee registered — on the application or on
+Traders → Settlement details, as many as it has — never to an address made up from the bank account.
 
 ## 13. Client surfaces
 

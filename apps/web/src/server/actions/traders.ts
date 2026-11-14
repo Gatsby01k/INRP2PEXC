@@ -123,7 +123,7 @@ export async function declineOrderAction(input: { ref: string; reason?: string |
   return run('trader_order.decline', (ctx) => declineOrder(ctx.actor), input, key);
 }
 
-export async function submitOrderPaymentAction(input: { ref: string; rail: FiatRail; utr: string; amount?: string }, key: string): Promise<CommandResult<{ settlementRef: string }>> {
+export async function submitOrderPaymentAction(input: { ref: string; rail: FiatRail; utr: string; amount?: string; fromUpiId?: string | null }, key: string): Promise<CommandResult<{ settlementRef: string }>> {
   return run('trader_order.submit_payment', (ctx) => submitOrderPayment(ctx.actor), input, key);
 }
 
