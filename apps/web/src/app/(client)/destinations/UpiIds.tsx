@@ -8,10 +8,12 @@ import { Money } from '@inrp2p/kernel';
 import { ConfirmPanel, SecondFactorNeeded } from '../../../components/Confirm.tsx';
 import { addUpiIdAction, updateUpiIdAction } from '../../../server/actions/upi.ts';
 import { Field } from '../_workspace/Field.tsx';
-import { ArchiveIcon, InfoIcon, PhoneIcon, PlusIcon, ShieldIcon } from '../_workspace/icons.tsx';
+import { ArchiveIcon, BoltIcon, InfoIcon, PauseIcon, SettingsIcon } from '../_workspace/icons.tsx';
+import { UpiMark } from '../../../components/PayMarks.tsx';
 import { Sheet } from '../_workspace/Sheet.tsx';
 import { useGuarded } from '../_workspace/useGuarded.ts';
 import { ArchiveDialog, type ArchiveTarget } from './ArchiveDialog.tsx';
+import { AddTile, CardMenu, Group, Instrument, InstrumentTop, NoneYet, Tag } from './parts.tsx';
 import shell from '../shell.module.css';
 import styles from './destinations.module.css';
 import add from './add.module.css';
@@ -23,126 +25,137 @@ const rupees = (amount: string) => formatInr(Money.parse(amount, 'INR'));
 /** What a UPI ID takes, a payment and a day, until a deal paid to it is confirmed (ADR 0030; `UPI_FIRST_DEAL_MAX_MINOR`). */
 const FIRST_DEALS = '₹25,000';
 
+/** UPI's own orange, the wash in a UPI ID card's corner. */
+const UPI_TINT = '#f47920';
+
 const STATE: Record<ClientUpiId['status'], string> = { ACTIVE: 'Ready', PENDING_REVIEW: 'Paused', REJECTED: 'Not verified', ARCHIVED: 'Archived' };
 
 /**
  * A client's UPI IDs (ADR 0029): the addresses it is paid to and pays from by UPI, each its own, with no bank details
  * needed. One it adds is ready at once (ADR 0030): every buyer's UPI app shows the name the address is registered under, and
  * the buyer checks it is the client's before paying. Up to ₹25,000 until a deal to it is confirmed, then its own limits; a
- * buyer who sees another name pauses it for INRP2P. The same card on Bank & wallets and, for a trader, on its settlement
- * details.
+ * buyer who sees another name pauses it for INRP2P. Each is a card with UPI's own mark, the address large enough to check,
+ * and what it takes. The same list on Bank & wallets and, for a trader, on its settlement details.
  */
 export function UpiIdsCard({ upiIds, isAdmin, holderName, clientName }: { upiIds: readonly ClientUpiId[]; isAdmin: boolean; holderName: string; clientName: string }) {
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<ClientUpiId | null>(null);
   const [archiving, setArchiving] = useState<ArchiveTarget | null>(null);
   const shown = upiIds.filter((u) => u.status !== 'ARCHIVED');
+  const live = shown.filter((u) => u.status === 'ACTIVE').length;
 
   return (
-    <section className={shell.card} aria-labelledby="upi-title">
-      <div className={styles.sectionHead}>
-        <div>
-          <h2 id="upi-title" className={shell.cardTitle}>
-            UPI IDs
-          </h2>
-          <p className={styles.sectionNote}>Buyers pay you to these by UPI, and you can pay from them. No bank details needed — ready as soon as you add one.</p>
-        </div>
-        {isAdmin && shown.length > 0 ? (
-          <button type="button" className={shell.secondaryAction} data-size="sm" onClick={() => setAdding(true)}>
-            <PlusIcon />
-            Add
-          </button>
+    <>
+      <Group id="upi-title" title="UPI IDs" count={live} note="Buyers pay you to these by UPI, and you can pay from them. No bank details needed — ready as soon as you add one.">
+        {shown.map((u) => (
+          <UpiCard
+            key={u.id}
+            upi={u}
+            {...(isAdmin && u.status !== 'REJECTED' ? { onEdit: () => setEditing(u), onArchive: () => setArchiving({ kind: 'upi', id: u.id, name: u.vpa, pending: u.status === 'PENDING_REVIEW' }) } : {})}
+          />
+        ))}
+        {isAdmin ? (
+          <AddTile
+            title="Add UPI ID"
+            note={
+              shown.length === 0 ? (
+                <>
+                  No UPI ID yet. Add the one you use — like <span className="ix-num">name@okhdfcbank</span> — to be paid by UPI in seconds, up to ₹100,000 a payment.
+                </>
+              ) : (
+                'Paid in seconds, up to ₹100,000 a payment.'
+              )
+            }
+            marks={
+              <span className={styles.upiTile} data-size="sm">
+                <UpiMark />
+              </span>
+            }
+            onClick={() => setAdding(true)}
+          />
+        ) : shown.length === 0 ? (
+          <NoneYet>No UPI ID yet. An administrator of {clientName} adds it.</NoneYet>
         ) : null}
-      </div>
-      {shown.length === 0 ? (
-        <div className={styles.empty}>
-          <span className={styles.emptyIcon} aria-hidden="true">
-            <PhoneIcon />
-          </span>
-          <p className={styles.emptyText}>
-            No UPI ID yet. Add the one you use — like <span className="ix-num">name@okhdfcbank</span> — to be paid by UPI in seconds, up to ₹1,00,000 a payment.
-          </p>
-          {isAdmin ? (
-            <button type="button" className={shell.action} data-size="sm" onClick={() => setAdding(true)}>
-              Add UPI ID
-            </button>
-          ) : (
-            <p className={styles.emptyText}>An administrator of {clientName} adds it.</p>
-          )}
-        </div>
-      ) : (
-        <ul className={styles.rows}>
-          {shown.map((u) => (
-            <UpiRow
-              key={u.id}
-              upi={u}
-              {...(isAdmin && u.status !== 'REJECTED' ? { onEdit: () => setEditing(u), onArchive: () => setArchiving({ kind: 'upi', id: u.id, name: u.vpa, pending: u.status === 'PENDING_REVIEW' }) } : {})}
-            />
-          ))}
-        </ul>
-      )}
+      </Group>
       <AddUpiSheet open={adding} onClose={() => setAdding(false)} holderName={holderName} first={shown.length === 0} />
       <LimitsSheet upi={editing} onClose={() => setEditing(null)} />
       <ArchiveDialog target={archiving} onClose={() => setArchiving(null)} />
-    </section>
+    </>
   );
 }
 
-function UpiRow({ upi: u, onEdit, onArchive }: { upi: ClientUpiId; onEdit?: () => void; onArchive?: () => void }) {
-  const limits = `${rupees(u.perPaymentLimit)} a payment${u.dailyLimit ? ` · ${rupees(u.dailyLimit)} a day` : ''}`;
+function UpiCard({ upi: u, onEdit, onArchive }: { upi: ClientUpiId; onEdit?: () => void; onArchive?: () => void }) {
+  const perPayment = rupees(u.perPaymentLimit);
+  const limits = `${perPayment} a payment${u.dailyLimit ? ` · ${rupees(u.dailyLimit)} a day` : ''}`;
+  const seen = u.verifiedName ?? u.holderName;
+  const menu = [
+    ...(onEdit && u.status === 'ACTIVE' ? [{ label: 'Change limits', icon: <SettingsIcon />, onSelect: onEdit }] : []),
+    ...(onArchive ? [{ label: u.status === 'PENDING_REVIEW' ? 'Withdraw' : 'Archive', icon: <ArchiveIcon />, onSelect: onArchive, tone: 'danger' as const }] : []),
+  ];
   return (
-    <li className={styles.row}>
-      <span className={styles.monogram} data-kind="upi" aria-hidden="true">
-        <PhoneIcon />
-      </span>
-      <span className={styles.main}>
-        <span className={styles.name}>
-          <span className="ix-num">{u.vpa}</span>
-          {u.status === 'ACTIVE' && u.nameConfirmed ? (
-            <span className={styles.verified}>
-              <ShieldIcon />
-              Confirmed
-            </span>
-          ) : null}
-        </span>
-        <span className={styles.meta}>
-          {u.status === 'ACTIVE'
-            ? u.nameConfirmed
-              ? `Buyers see ${u.verifiedName ?? u.holderName} · ${limits}`
-              : `Up to ${FIRST_DEALS} until your first deal to it is confirmed, then ${limits}`
-            : u.status === 'PENDING_REVIEW'
-              ? 'A buyer’s UPI app showed a different name. Paused until INRP2P checks it — buyers pay your bank account meanwhile.'
-              : `Not verified${u.reviewNote ? `: ${u.reviewNote}` : ''}. Add another one.`}
-        </span>
-      </span>
-      <span className={styles.tags}>
-        {u.status !== 'ACTIVE' || !u.nameConfirmed ? (
-          <span className={styles.status} data-state={u.status.toLowerCase()}>
-            <span className={styles.statusDot} aria-hidden="true" />
-            {STATE[u.status]}
+    <Instrument tint={UPI_TINT} state={u.status.toLowerCase()}>
+      <InstrumentTop
+        mark={
+          <span className={styles.upiTile}>
+            <UpiMark />
           </span>
-        ) : null}
-        <CopyButton value={u.vpa} label={`UPI ID ${u.vpa}`} />
-        {onEdit ? (
-          <button type="button" className={styles.rowAction} onClick={onEdit} title="Limits">
-            <span className={styles.rowActionText}>Limits</span>
-          </button>
-        ) : null}
-        {onArchive ? (
-          <button type="button" className={styles.rowAction} onClick={onArchive} title={u.status === 'PENDING_REVIEW' ? 'Withdraw' : 'Archive'}>
-            <ArchiveIcon />
-            <span className={styles.rowActionText}>{u.status === 'PENDING_REVIEW' ? 'Withdraw' : 'Archive'}</span>
-          </button>
-        ) : null}
-      </span>
-    </li>
+        }
+        title={seen}
+        sub={u.label ?? 'The name buyers see'}
+        tag={
+          u.status === 'ACTIVE' ? (
+            u.nameConfirmed ? (
+              <Tag tone="success">Confirmed</Tag>
+            ) : (
+              <Tag tone="brand">Ready</Tag>
+            )
+          ) : u.status === 'PENDING_REVIEW' ? (
+            <Tag tone="warning" icon={<PauseIcon />}>
+              Paused
+            </Tag>
+          ) : (
+            <Tag tone="danger">{STATE[u.status]}</Tag>
+          )
+        }
+      />
+      <div className={styles.figure}>
+        <span className={styles.addressRow}>
+          <span className={styles.vpa}>{u.vpa}</span>
+          <CopyButton value={u.vpa} label={`UPI ID ${u.vpa}`} />
+        </span>
+      </div>
+      {u.status === 'ACTIVE' && u.nameConfirmed ? (
+        <p className={styles.cardNote} data-tone="success">
+          A deal confirmed it is yours — your own limits apply.
+        </p>
+      ) : u.status === 'ACTIVE' ? (
+        <p className={styles.cardNote} data-tone="brand">
+          Up to {FIRST_DEALS} until your first deal to it is confirmed, then {perPayment} a payment.
+        </p>
+      ) : u.status === 'PENDING_REVIEW' ? (
+        <p className={styles.cardNote} data-tone="warning">
+          A buyer’s UPI app showed a different name. Paused until INRP2P checks it — buyers pay your bank account meanwhile.
+        </p>
+      ) : u.status === 'REJECTED' ? (
+        <p className={styles.cardNote} data-tone="danger">
+          Not verified{u.reviewNote ? `: ${u.reviewNote}` : ''}. Add another one.
+        </p>
+      ) : null}
+      <div className={styles.foot}>
+        <span className={styles.limits}>
+          <BoltIcon />
+          {limits}
+        </span>
+        {menu.length > 0 ? <CardMenu label={u.vpa} items={menu} /> : null}
+      </div>
+    </Instrument>
   );
 }
 
 /** The limits as typed: rupees, or empty for none of its own. */
 function limitsProblem(perPayment: string, daily: string): string | null {
   const per = perPayment === '' ? Number(UPI_MAX) : Number.parseFloat(perPayment);
-  if (!(per >= 1) || per > Number(UPI_MAX)) return 'One UPI payment is between ₹1 and ₹1,00,000.';
+  if (!(per >= 1) || per > Number(UPI_MAX)) return 'One UPI payment is between ₹1 and ₹100,000.';
   if (daily !== '' && Number.parseFloat(daily) < per) return 'A day’s limit cannot be below one payment’s.';
   return null;
 }
@@ -236,13 +249,13 @@ function AddUpiSheet({ open, onClose, holderName, first }: { open: boolean; onCl
               label="Most in one payment"
               inputMode="decimal"
               adornment="₹"
-              placeholder="1,00,000"
+              placeholder="100,000"
               value={perPayment}
               onChange={(e) => {
                 const v = sanitizeAmountInput(e.target.value, 'INR');
                 if (v !== null) setPerPayment(v);
               }}
-              hint="Up to UPI’s ₹1,00,000. Larger deals go by bank transfer."
+              hint="Up to UPI’s ₹100,000. Larger deals go by bank transfer."
             />
             <Field
               label="Most in a day (optional)"
@@ -330,7 +343,7 @@ function LimitsSheet({ upi, onClose }: { upi: ClientUpiId | null; onClose: () =>
             label="Most in one payment"
             inputMode="decimal"
             adornment="₹"
-            placeholder="1,00,000"
+            placeholder="100,000"
             value={perPayment}
             onChange={(e) => {
               const v = sanitizeAmountInput(e.target.value, 'INR');

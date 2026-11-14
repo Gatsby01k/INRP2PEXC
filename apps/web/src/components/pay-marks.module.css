@@ -1,0 +1,123 @@
+/* The marks of the ways money moves. Their colours are theirs — NPCI's grey, orange and green, Tether's green,
+   TRON's red, a bank's own — as a bank's colour on a card is the bank's. */
+
+.word {
+  display: block;
+  width: auto;
+  height: 1em;
+  overflow: visible;
+}
+
+.word [data-tone='ink'] {
+  fill: #5d5e62;
+}
+
+.word [data-tone='orange'] {
+  fill: #f47920;
+}
+
+.word [data-tone='green'] {
+  fill: #028c45;
+}
+
+.word[data-mono] path {
+  fill: currentColor;
+}
+
+.coin {
+  display: block;
+  flex: none;
+}
+
+/* A token on its chain: the chain's disc on the coin's lower right, cut out of it by a ring of the surface colour. */
+.token {
+  position: relative;
+  display: inline-block;
+  flex: none;
+  width: var(--size);
+  height: var(--size);
+}
+
+.chain {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--mark-ring, var(--bg-surface));
+}
+
+/* A bank's tile: its colour, a corner of its second colour, its short name in white. */
+.bank {
+  position: relative;
+  isolation: isolate;
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  overflow: hidden;
+  width: var(--size);
+  height: var(--size);
+  border-radius: calc(var(--size) * 0.28);
+  background: linear-gradient(150deg, color-mix(in srgb, var(--bank) 82%, #fff) 0%, var(--bank) 46%, color-mix(in srgb, var(--bank) 80%, #000) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    inset 0 0 0 1px rgba(0, 0, 0, 0.08),
+    0 6px 14px -8px color-mix(in srgb, var(--bank) 70%, transparent);
+  color: var(--bank-fg, #fff);
+  font-family: var(--font-sans);
+  font-size: calc(var(--size) * 0.3);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.bank[data-len='mid'] {
+  font-size: calc(var(--size) * 0.25);
+}
+
+.bank[data-len='long'] {
+  font-size: calc(var(--size) * 0.205);
+  letter-spacing: -0.035em;
+}
+
+.bank::after {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  right: calc(var(--size) * -0.22);
+  bottom: calc(var(--size) * -0.22);
+  width: calc(var(--size) * 0.56);
+  height: calc(var(--size) * 0.56);
+  border-radius: 50%;
+  background: var(--bank-accent, transparent);
+  opacity: 0.95;
+}
+
+/* A rail, as a chip: the mark at the height of a line of small text. */
+.rail {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  height: 26px;
+  padding: 0 9px;
+  border-radius: 8px;
+  background: var(--bg-surface);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border-default) 90%, transparent);
+  font-size: 11px;
+}
+
+.rail[data-rail='UPI'] .word {
+  height: 13px;
+}
+
+.rail[data-rail='IMPS'] .word {
+  height: 11px;
+}
+
+.railWord {
+  color: #3f4147;
+  font-family: var(--font-sans);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
