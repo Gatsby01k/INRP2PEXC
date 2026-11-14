@@ -35,9 +35,9 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
         }
       />
       <PageBody>
-        {/* ADR 0029: UPI IDs clients and traders submitted — nothing is paid to one until a person here verifies it. */}
+        {/* ADR 0030: a UPI ID is live when added; one a payer's app showed another name for is paused here for a person. */}
         {upiToCheck.length > 0 ? (
-          <Section title="UPI IDs to verify" count={upiToCheck.length} hint="Oldest first. Open the client, look the address up in a UPI app, and verify or reject it.">
+          <Section title="UPI IDs paused by a payer" count={upiToCheck.length} hint="A payer’s UPI app showed another name. Oldest first: open the client, look the address up in a UPI app, and put it back or reject it.">
             <KeyValues
               items={upiToCheck.map((u) => ({
                 key: u.id,
@@ -45,7 +45,11 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
                 value: (
                   <span className={d.row}>
                     <span className={d.mono}>{u.vpa}</span>
-                    <span className={d.secondary}>says {u.holderName} · {new Date(u.submittedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+                    <span className={d.secondary}>
+                      {u.reportedName ? `app showed ${u.reportedName}, expected ${u.holderName}` : `expected ${u.holderName}`}
+                      {u.tradeRef ? ` · ${u.tradeRef}` : ''} ·{' '}
+                      {new Date(u.reportedAt ?? u.submittedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                    </span>
                   </span>
                 ),
               }))}

@@ -254,7 +254,10 @@ test('the same client buys USDT on the desk’s page: the desk funds the escrow,
   await expect(upiLink).not.toHaveAttribute('href', /\.npci/);
   await expect(phone.getByText(DESK.upi).first()).toBeVisible();
   await phone.getByLabel(/reference \(UTR\)/).fill('598765432109');
-  await phone.getByRole('checkbox').check();
+  // ADR 0030: paying a UPI ID, the client says its app showed the desk's name — "I've paid" waits for it.
+  await phone.getByRole('checkbox', { name: /I sent/ }).check();
+  await expect(phone.getByRole('button', { name: 'I’ve paid' })).toBeDisabled();
+  await phone.getByRole('checkbox', { name: /My UPI app shows Rahul OTC LLP/ }).check();
   await phone.getByRole('button', { name: 'I’ve paid' }).click();
 
   // The desk's move: the rupees are in, from the client's own account. Each deal has its own chat: the last deal's words are not here.

@@ -37,7 +37,7 @@ export async function archiveClientBankAccountAction(input: { bankAccountId: str
 }
 
 /**
- * ADR 0029: the desk decides a UPI ID a client submitted — verified with the name the address resolves to in a UPI app,
+ * ADR 0029/0030: the desk decides a UPI ID a payer's report paused — put back with the name the address resolves to in a UPI app,
  * or rejected with a note the client reads (`client_bank:add`, with step-up).
  */
 export async function reviewUpiIdAction(input: { upiId: string; decision: 'VERIFY' | 'REJECT'; resolvedName?: string | null; note?: string | null }, key: string): Promise<CommandResult<{ status: string }>> {

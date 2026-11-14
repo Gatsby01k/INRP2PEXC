@@ -269,6 +269,11 @@
   background: var(--status-danger);
 }
 
+/* ADR 0030: a UPI ID ready at once, on its first deals' limit. */
+.status[data-state='active'] .statusDot {
+  background: var(--brand-primary);
+}
+
 .rowAction {
   display: inline-flex;
   align-items: center;

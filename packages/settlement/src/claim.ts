@@ -6,6 +6,7 @@ import type { ClientActor, DomainCommand } from '@inrp2p/identity';
 import { effectiveObligations, lockTrade } from '@inrp2p/trades';
 import { recordClientInrInTx } from './firstleg.ts';
 import { obligationOfTrade, obligationRemaining } from './obligations.ts';
+import { recordPayeeNameCheckInTx } from './p2p-timing.ts';
 
 /**
  * `fiat_in.claim` (ADR 0018) — the client says "I paid": from which of its own registered accounts, over which rail,
@@ -13,9 +14,9 @@ import { obligationOfTrade, obligationRemaining } from './obligations.ts';
  * its rupees. Nothing counts until its trader has seen the credit and who sent it (ADR 0019).
  *
  * The reference must have its rail's shape — the one moment a typo is cheapest to catch is while the client still has
- * their payment app open.
+ * their payment app open. Paid by UPI to the seller's UPI ID, the client says its app showed the seller's name (ADR 0030).
  */
-export function claimIncomingFiat(actor: ClientActor): DomainCommand<{ tradeRef: string; rail: InrRail; utr: string; fromBankAccountId?: string | null; fromUpiId?: string | null; amount?: string | null }, { legRef: string; transferId: string }> {
+export function claimIncomingFiat(actor: ClientActor): DomainCommand<{ tradeRef: string; rail: InrRail; utr: string; fromBankAccountId?: string | null; fromUpiId?: string | null; amount?: string | null; payeeNameConfirmed?: boolean | null }, { legRef: string; transferId: string }> {
   let clientId: string | undefined;
   return {
     authorize: async (ctx, p) => {
@@ -45,6 +46,7 @@ export function claimIncomingFiat(actor: ClientActor): DomainCommand<{ tradeRef:
       if (!remaining.routeDelivers.isZero()) throw new DomainError('ESCROW_NOT_FUNDED', 'wait until the trader’s USDT is in escrow — you will see the account to pay then');
       const rail = requireOneOf(p.rail, 'rail', ['IMPS', 'NEFT', 'RTGS', 'UPI'] as const);
       const utr = requireUtrShape(rail, p.utr);
+      await recordPayeeNameCheckInTx(ctx, { tradeId: trade.id, rail, confirmed: p.payeeNameConfirmed });
 
       const { receivable } = await effectiveObligations(ctx.tx, trade.id);
       const counted = await sql<{ total: string }>`
@@ -66,7 +68,7 @@ export function claimIncomingFiat(actor: ClientActor): DomainCommand<{ tradeRef:
         rail, utr, amount, routeId: e.route_id,
         ...(p.fromBankAccountId ? { payerBankAccountId: requireUuid(p.fromBankAccountId, 'fromBankAccountId') } : { payerUpiId: requireUuid(p.fromUpiId, 'fromUpiId') }),
       });
-      await appendAudit(ctx, { action: 'fiat_in.claimed', entityType: 'trade', entityId: trade.id, after: { leg_ref: recorded.ref, rail, utr, amount, from_bank_account_id: p.fromBankAccountId ?? null, from_upi_id: p.fromUpiId ?? null } });
+      await appendAudit(ctx, { action: 'fiat_in.claimed', entityType: 'trade', entityId: trade.id, after: { leg_ref: recorded.ref, rail, utr, amount, from_bank_account_id: p.fromBankAccountId ?? null, from_upi_id: p.fromUpiId ?? null, payee_name_confirmed: p.payeeNameConfirmed === true } });
       await enqueueOutbox(ctx, { type: 'desk.client_payment_claimed', aggregateType: 'trade', aggregateId: trade.id, payload: { tradeId: trade.id, legId: recorded.legId } });
       return { legRef: recorded.ref, transferId: recorded.transferId };
     },

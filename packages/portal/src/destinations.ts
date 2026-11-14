@@ -31,8 +31,9 @@ export interface ClientWallet {
 }
 
 /**
- * A UPI ID the client registered (ADR 0029): shown in full to its own people — an address is what they check — with
- * the name INRP2P saw it resolve to once a person verified it, and its own limits.
+ * A UPI ID the client registered (ADR 0029): shown in full to its own people — an address is what they check — with its
+ * own limits, whether a deal has shown it is the client's own yet (ADR 0030), and why it is paused when a payer's app
+ * showed another name.
  */
 export interface ClientUpiId {
   readonly id: string;
@@ -43,9 +44,14 @@ export interface ClientUpiId {
   /** Decimal rupees. */
   readonly perPaymentLimit: string;
   readonly dailyLimit: string | null;
+  /** ACTIVE: live. PENDING_REVIEW: paused — a payer's app showed another name, and INRP2P is checking. REJECTED: not the client's. */
   readonly status: DestinationStatus;
-  /** Why the desk did not verify it, when it did not. */
+  /** Why the desk did not put it back, when it did not. */
   readonly reviewNote: string | null;
+  /** A deal (or INRP2P) showed it is the client's own: its own limits apply; until then, the first deals' limit. */
+  readonly nameConfirmed: boolean;
+  /** When a payer said its app showed another name. */
+  readonly reportedAt: string | null;
 }
 
 export interface ClientDestinations {
@@ -68,7 +74,7 @@ export async function clientDestinations(ex: Executor, clientId: string, opts: {
   // Waiting and refused ones are the client's to see: it added them, and is told why one was not verified.
   let upis = ex
     .selectFrom('upi_id')
-    .select(['id', 'vpa', 'holder_name', 'verified_name', 'label', 'per_payment_limit_minor', 'daily_limit_minor', 'status', 'review_note'])
+    .select(['id', 'vpa', 'holder_name', 'verified_name', 'label', 'per_payment_limit_minor', 'daily_limit_minor', 'status', 'review_note', 'name_confirmed_at', 'reported_at'])
     .where('client_id', '=', clientId)
     .orderBy('created_at', 'asc');
   if (!opts.includeArchived) {
@@ -107,6 +113,8 @@ export async function clientDestinations(ex: Executor, clientId: string, opts: {
       dailyLimit: u.daily_limit_minor === null ? null : rupees(u.daily_limit_minor),
       status: u.status,
       reviewNote: u.review_note,
+      nameConfirmed: u.name_confirmed_at !== null,
+      reportedAt: u.reported_at?.toISOString() ?? null,
     })),
   });
 }

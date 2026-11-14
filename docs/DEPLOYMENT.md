@@ -722,3 +722,21 @@ Migration `0050` (schema 50) adds `upi_id`, `p2p_pay_window.payee_upi_id`, `fiat
 4. **Before switching it on for real money:** one rupee by a deal's code to a verified UPI ID from GPay, PhonePe and Paytm
    on Android and iOS.
 
+## 24. The one who pays a UPI ID checks it (ADR 0030)
+
+Migration `0051` (schema 51): `upi_id` gains `name_confirmed_*` and `reported_*`, `p2p_pay_window` gains
+`payee_name_confirmed_at`, a UPI ID may go `ACTIVE → PENDING_REVIEW`, `ACTIVE` no longer needs a reviewer, and the inbox
+kind `DESTINATION_PAUSED`. It makes any UPI ID still waiting from 0050 live, and gives verified ones their confirmation.
+No secret, service or job changes; no new IX code.
+
+1. **Release order** (from production at 50): CI green, `gh pr view` to see the PR is **not merged yet**, a restore point,
+   `scripts/migrate.ts` with the production env, then merge — the app at 51 refuses a database at 50 — then the worker
+   image of the same commit. The worker at 50 keeps running on a database at 51 until it restarts: it handles no event of
+   0051 (`client.destination_paused` waits for the new worker; nothing about money depends on it).
+2. **What changes for people at once:** a UPI ID is ready the moment it is added — up to ₹25,000 a payment and a day until
+   one deal to it is confirmed. A buyer paying it ticks "My UPI app shows <name>" before "I've paid", or says it shows
+   another name and pays the bank account instead.
+3. **The desk's task changes:** Clients → "UPI IDs paused by a payer" lists only addresses a payer reported. Look the address
+   up in a UPI app: the owner's own name puts it back (full limits); another name rejects it with a note.
+4. **Before real money** (unchanged from §23.4): one rupee by a deal's code to a UPI ID from GPay, PhonePe and Paytm.
+

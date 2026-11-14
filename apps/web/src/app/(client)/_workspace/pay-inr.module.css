@@ -218,3 +218,51 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* ADR 0030: the payer checks the name its UPI app shows before it approves — the one check between its rupees and a stranger. */
+.nameCheck {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--brand-soft, var(--border-default));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--brand-soft, transparent) 35%, transparent);
+}
+
+.nameCheck strong {
+  color: var(--text-primary);
+}
+
+.mismatchLink {
+  justify-self: start;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--font-size-meta);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.mismatch {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-radius: 12px;
+  background: var(--status-warning-soft);
+  color: var(--text-primary);
+  font-size: var(--font-size-meta);
+  line-height: var(--line-height-normal);
+}
+
+.mismatch p {
+  margin: 0;
+}
+
+.mismatchActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}

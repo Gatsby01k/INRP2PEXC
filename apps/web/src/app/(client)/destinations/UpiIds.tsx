@@ -8,7 +8,7 @@ import { Money } from '@inrp2p/kernel';
 import { ConfirmPanel, SecondFactorNeeded } from '../../../components/Confirm.tsx';
 import { addUpiIdAction, updateUpiIdAction } from '../../../server/actions/upi.ts';
 import { Field } from '../_workspace/Field.tsx';
-import { ArchiveIcon, PhoneIcon, PlusIcon, ShieldIcon } from '../_workspace/icons.tsx';
+import { ArchiveIcon, InfoIcon, PhoneIcon, PlusIcon, ShieldIcon } from '../_workspace/icons.tsx';
 import { Sheet } from '../_workspace/Sheet.tsx';
 import { useGuarded } from '../_workspace/useGuarded.ts';
 import { ArchiveDialog, type ArchiveTarget } from './ArchiveDialog.tsx';
@@ -20,14 +20,17 @@ import add from './add.module.css';
 const UPI_MAX = '100000';
 const VPA = /^[a-z0-9][a-z0-9._-]{1,255}@[a-z][a-z0-9.-]{1,63}$/;
 const rupees = (amount: string) => formatInr(Money.parse(amount, 'INR'));
+/** What a UPI ID takes, a payment and a day, until a deal paid to it is confirmed (ADR 0030; `UPI_FIRST_DEAL_MAX_MINOR`). */
+const FIRST_DEALS = '₹25,000';
 
-const STATE: Record<ClientUpiId['status'], string> = { ACTIVE: 'Verified', PENDING_REVIEW: 'Checking', REJECTED: 'Not verified', ARCHIVED: 'Archived' };
+const STATE: Record<ClientUpiId['status'], string> = { ACTIVE: 'Ready', PENDING_REVIEW: 'Paused', REJECTED: 'Not verified', ARCHIVED: 'Archived' };
 
 /**
  * A client's UPI IDs (ADR 0029): the addresses it is paid to and pays from by UPI, each its own, with no bank details
- * needed. One it adds is used by nothing until a person at INRP2P has looked it up and seen it resolve to the client's own
- * name; then deals up to its limits are paid to it, and the payer's app shows that name. The same card on Bank & wallets
- * and, for a trader, on its settlement details.
+ * needed. One it adds is ready at once (ADR 0030): every buyer's UPI app shows the name the address is registered under, and
+ * the buyer checks it is the client's before paying. Up to ₹25,000 until a deal to it is confirmed, then its own limits; a
+ * buyer who sees another name pauses it for INRP2P. The same card on Bank & wallets and, for a trader, on its settlement
+ * details.
  */
 export function UpiIdsCard({ upiIds, isAdmin, holderName, clientName }: { upiIds: readonly ClientUpiId[]; isAdmin: boolean; holderName: string; clientName: string }) {
   const [adding, setAdding] = useState(false);
@@ -42,7 +45,7 @@ export function UpiIdsCard({ upiIds, isAdmin, holderName, clientName }: { upiIds
           <h2 id="upi-title" className={shell.cardTitle}>
             UPI IDs
           </h2>
-          <p className={styles.sectionNote}>Buyers pay you to these by UPI, and you can pay from them. No bank details needed — INRP2P checks each one first.</p>
+          <p className={styles.sectionNote}>Buyers pay you to these by UPI, and you can pay from them. No bank details needed — ready as soon as you add one.</p>
         </div>
         {isAdmin && shown.length > 0 ? (
           <button type="button" className={shell.secondaryAction} data-size="sm" onClick={() => setAdding(true)}>
@@ -78,7 +81,7 @@ export function UpiIdsCard({ upiIds, isAdmin, holderName, clientName }: { upiIds
           ))}
         </ul>
       )}
-      <AddUpiSheet open={adding} onClose={() => setAdding(false)} holderName={holderName} />
+      <AddUpiSheet open={adding} onClose={() => setAdding(false)} holderName={holderName} first={shown.length === 0} />
       <LimitsSheet upi={editing} onClose={() => setEditing(null)} />
       <ArchiveDialog target={archiving} onClose={() => setArchiving(null)} />
     </section>
@@ -95,23 +98,25 @@ function UpiRow({ upi: u, onEdit, onArchive }: { upi: ClientUpiId; onEdit?: () =
       <span className={styles.main}>
         <span className={styles.name}>
           <span className="ix-num">{u.vpa}</span>
-          {u.status === 'ACTIVE' ? (
+          {u.status === 'ACTIVE' && u.nameConfirmed ? (
             <span className={styles.verified}>
               <ShieldIcon />
-              Verified
+              Confirmed
             </span>
           ) : null}
         </span>
         <span className={styles.meta}>
           {u.status === 'ACTIVE'
-            ? `Shows as ${u.verifiedName ?? u.holderName} · ${limits}`
+            ? u.nameConfirmed
+              ? `Buyers see ${u.verifiedName ?? u.holderName} · ${limits}`
+              : `Up to ${FIRST_DEALS} until your first deal to it is confirmed, then ${limits}`
             : u.status === 'PENDING_REVIEW'
-              ? `INRP2P is checking it — nothing is paid to it until then · ${limits}`
+              ? 'A buyer’s UPI app showed a different name. Paused until INRP2P checks it — buyers pay your bank account meanwhile.'
               : `Not verified${u.reviewNote ? `: ${u.reviewNote}` : ''}. Add another one.`}
         </span>
       </span>
       <span className={styles.tags}>
-        {u.status !== 'ACTIVE' ? (
+        {u.status !== 'ACTIVE' || !u.nameConfirmed ? (
           <span className={styles.status} data-state={u.status.toLowerCase()}>
             <span className={styles.statusDot} aria-hidden="true" />
             {STATE[u.status]}
@@ -142,24 +147,22 @@ function limitsProblem(perPayment: string, daily: string): string | null {
   return null;
 }
 
-function AddUpiSheet({ open, onClose, holderName }: { open: boolean; onClose: () => void; holderName: string }) {
+function AddUpiSheet({ open, onClose, holderName, first }: { open: boolean; onClose: () => void; holderName: string; first: boolean }) {
   const [vpa, setVpa] = useState('');
-  const [name, setName] = useState(holderName);
   const [perPayment, setPerPayment] = useState('');
   const [daily, setDaily] = useState('');
   const clean = vpa.trim().toLowerCase();
   const shapeOk = VPA.test(clean) && !clean.endsWith('.npci');
   const problem = limitsProblem(perPayment, daily);
-  const guarded = useGuarded((key) => addUpiIdAction({ vpa: clean, holderName: name.trim(), perPaymentLimit: perPayment || null, dailyLimit: daily || null }, key));
+  const guarded = useGuarded((key) => addUpiIdAction({ vpa: clean, perPaymentLimit: perPayment || null, dailyLimit: daily || null }, key));
   const { reset } = guarded;
   useEffect(() => {
     if (!open) return;
     setVpa('');
-    setName(holderName);
     setPerPayment('');
     setDaily('');
     reset();
-  }, [open, holderName, reset]);
+  }, [open, reset]);
 
   return (
     <Sheet
@@ -167,15 +170,15 @@ function AddUpiSheet({ open, onClose, holderName }: { open: boolean; onClose: ()
       onClose={onClose}
       locked={guarded.busy}
       eyebrow="UPI ID"
-      title={guarded.done ? 'Sent to INRP2P to check' : 'Add a UPI ID'}
-      description={guarded.done ? undefined : 'The UPI ID you are paid to and pay from. INRP2P looks it up and checks it is in your own name before anything is paid to it.'}
+      title={guarded.done ? 'UPI ID added' : 'Add a UPI ID'}
+      description={guarded.done ? undefined : first ? 'The UPI ID you are paid to and pay from — ready as soon as you add it.' : 'Another UPI ID you are paid to and pay from. You confirm it is you with your second factor.'}
       footer={
         guarded.done || guarded.confirmWith || guarded.needsFactor ? undefined : (
           <>
             <button type="button" className={shell.secondaryAction} onClick={onClose} disabled={guarded.busy}>
               Cancel
             </button>
-            <button type="button" className={shell.action} disabled={guarded.busy || !shapeOk || name.trim().length < 2 || problem !== null} onClick={() => void guarded.run()}>
+            <button type="button" className={shell.action} disabled={guarded.busy || !shapeOk || problem !== null} onClick={() => void guarded.run()}>
               Add UPI ID
             </button>
           </>
@@ -185,7 +188,7 @@ function AddUpiSheet({ open, onClose, holderName }: { open: boolean; onClose: ()
       {guarded.done ? (
         <div className={add.done}>
           <p className={add.doneText}>
-            <span className="ix-num">{clean}</span> is with INRP2P. You are told here and by email once it is checked. Until then, buyers pay you by bank transfer.
+            <span className="ix-num">{clean}</span> is ready. Buyers can pay you up to {FIRST_DEALS} to it until your first deal to it is confirmed — then your own limits apply.
           </p>
           <div className={add.doneActions}>
             <button type="button" className={shell.action} onClick={onClose}>
@@ -221,7 +224,13 @@ function AddUpiSheet({ open, onClose, holderName }: { open: boolean; onClose: ()
             error={vpa !== '' && !shapeOk ? (clean.endsWith('.npci') ? 'Enter your own UPI ID — not one made from an account number.' : 'A UPI ID looks like name@bank.') : null}
             hint="As your UPI app shows it under your profile."
           />
-          <Field label="Name your UPI app shows" autoComplete="name" maxLength={140} value={name} onChange={(e) => setName(e.target.value)} hint="Your own name, or your company’s. A UPI ID in anyone else’s name is not verified." />
+          <p className={shell.info}>
+            <InfoIcon className={shell.infoIcon} />
+            <span>
+              Buyers’ UPI apps show the name this UPI ID is registered under, and they check it is <strong>{holderName}</strong> before paying. Add only one in your own
+              name — one in another name is paused at the first deal.
+            </span>
+          </p>
           <div className={add.pair}>
             <Field
               label="Most in one payment"

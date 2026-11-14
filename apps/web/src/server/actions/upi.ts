@@ -24,12 +24,14 @@ async function memberClientId(): Promise<string | null> {
 }
 
 export async function addUpiIdAction(
-  input: { vpa: string; holderName: string; label?: string | null; perPaymentLimit?: string | null; dailyLimit?: string | null },
+  input: { vpa: string; label?: string | null; perPaymentLimit?: string | null; dailyLimit?: string | null },
   key: string,
 ): Promise<CommandResult<{ upiId: string; status: string }>> {
   const clientId = await memberClientId().catch(() => null);
   if (!clientId) return { ok: false, code: 'FORBIDDEN', message: 'This account is not linked to a client yet.' };
-  const out = await runWorkspaceCommand((ctx) => addUpiId(ctx.actor), { ...input, clientId }, { name: 'client_upi.add', idempotencyKey: key, financial: false, keepMessages: KEEP });
+  // The name a payer checks is the client's own (ADR 0030): nothing typed in the browser is sent as it.
+  const payload = { vpa: input.vpa, label: input.label ?? null, perPaymentLimit: input.perPaymentLimit ?? null, dailyLimit: input.dailyLimit ?? null, clientId };
+  const out = await runWorkspaceCommand((ctx) => addUpiId(ctx.actor), payload, { name: 'client_upi.add', idempotencyKey: key, financial: false, keepMessages: KEEP });
   if (out.ok) refresh();
   return out;
 }

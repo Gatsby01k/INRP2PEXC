@@ -8,7 +8,7 @@ import { formatCountdown, formatIstDateTime } from '@inrp2p/ui/format';
 import { useCommand } from '../../../../../components/useCommand.tsx';
 import {
   answerOrderDisputeAction, callOrderSupportAction, chooseOrderMethodAction, confirmOrderPaymentReceivedAction, disputeOrderPaymentAction, orderDeliveryAddressAction,
-  postOrderMessageAction, submitOrderPaymentAction,
+  postOrderMessageAction, reportOrderPayeeNameAction, submitOrderPaymentAction,
 } from '../../../../../server/actions/traders.ts';
 import { ClaimProof } from '../../../_workspace/ClaimProof.tsx';
 import { DealChat } from '../../../_workspace/DealChat.tsx';
@@ -92,9 +92,13 @@ export function P2pOrderAction({ detail, canAct }: { detail: TraderOrderDetail; 
             attachFields={{ ref: detail.order.ref }}
             choose={(m, key) => chooseOrderMethodAction({ ref: detail.order.ref, method: m }, key)}
             claim={async (input, key) => {
-              const out = await submitOrderPaymentAction({ ref: detail.order.ref, rail: input.rail, utr: input.utr, ...(input.from?.kind === 'UPI' ? { fromUpiId: input.from.id } : {}) }, key);
+              const out = await submitOrderPaymentAction(
+                { ref: detail.order.ref, rail: input.rail, utr: input.utr, payeeNameConfirmed: input.payeeNameConfirmed, ...(input.from?.kind === 'UPI' ? { fromUpiId: input.from.id } : {}) },
+                key,
+              );
               return out.ok ? { ok: true, result: { legRef: out.result.settlementRef } } : out;
             }}
+            report={(shownName, key) => reportOrderPayeeNameAction({ ref: detail.order.ref, shownName }, key)}
             attach={postOrderMessageAction}
           />
         );

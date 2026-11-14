@@ -341,7 +341,8 @@ export interface BankAccountTable {
 
 /**
  * Migration 0050 (ADR 0029): a UPI ID a client or trader registered as a payment destination of its own, apart from any
- * bank account. Paid to, or declared as the payer's, only while ACTIVE — which takes a person's verification.
+ * bank account. Paid to, or declared as the payer's, only while ACTIVE. Since 0051 (ADR 0030) it is ACTIVE when added: the
+ * payer checks the name its app shows, and a payer's report pauses it (PENDING_REVIEW) for a person to decide.
  */
 export interface UpiIdTable {
   id: Generated<string>;
@@ -362,6 +363,14 @@ export interface UpiIdTable {
   archived_by: string | null;
   archived_at: Date | null;
   archive_reason: string | null;
+  /** Migration 0051: a deal paid to it was confirmed by its owner, the payer having checked the name — or the desk looked it up. */
+  name_confirmed_at: Date | null;
+  name_confirmed_trade_id: string | null;
+  /** Migration 0051: what a payer's app showed instead of the owner's name, on which deal, and who said so. */
+  reported_name: string | null;
+  reported_at: Date | null;
+  reported_by: string | null;
+  reported_trade_id: string | null;
 }
 
 export interface CryptoWalletTable {
@@ -1145,7 +1154,9 @@ export type NotificationKind =
   | 'P2P_PAYMENT_SENT'
   | 'TRADER_SIDE_EMPTY'
   // Migration 0050: a UPI ID the desk did not verify.
-  | 'DESTINATION_REJECTED';
+  | 'DESTINATION_REJECTED'
+  // Migration 0051: a UPI ID paused because a payer's app showed another name.
+  | 'DESTINATION_PAUSED';
 
 export interface ClientNotificationTable {
   id: Generated<string>;
@@ -1904,6 +1915,8 @@ export interface P2pPayWindowTable {
   updated_at: Generated<Date>;
   /** Migration 0050: the payee's verified UPI ID the buyer is shown, fixed when the window opens (IX146); null — no UPI on this deal. */
   payee_upi_id: Generated<string | null>;
+  /** Migration 0051 (ADR 0030): the payer said its UPI app showed the name it was told to check. */
+  payee_name_confirmed_at: Generated<Date | null>;
 }
 
 /** Migration 0042: a file attached in a P2P deal's chat — kept private, served only to the deal's people. */

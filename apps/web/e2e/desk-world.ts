@@ -134,7 +134,7 @@ export async function createDeskWorld(adminUrl: string, port: number): Promise<D
   const bank = await run(db, addBankAccount(owner.actor, protector), owner.ref, 'client_bank.add', {
     clientId: company.clientId, holderName: DESK.legalName, bankName: 'Kotak Mahindra Bank', ifsc: 'KKBK0000123', accountNumber: '74130211980057', railPreferences: ['IMPS', 'NEFT'] as const,
   });
-  // ADR 0029: the UPI ID buyers pay the desk to — added by INRP2P's desk, so verified and live at once.
+  // ADR 0029/0030: the UPI ID buyers pay the desk to — added by INRP2P's desk after looking it up, so its full limits at once.
   await run(db, addUpiId(owner.actor), owner.ref, 'client_upi.add', { clientId: company.clientId, vpa: DESK.upi, holderName: DESK.legalName });
   const deskWalletAddress = encodeTronAddress(randomBytes(20));
   const wallet = await run(db, addWallet(owner.actor), owner.ref, 'client_wallet.add', { clientId: company.clientId, network: 'TRON' as const, address: deskWalletAddress, purpose: 'BOTH' as const, label: 'Desk wallet' });

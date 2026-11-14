@@ -1,6 +1,6 @@
 # ADR 0029 — UPI IDs as payment destinations of their own
 
-Status: **Accepted** — owner request of 2026-11-10 ("UPI IDs as independent payment destinations, separate from bank
+Status: **Accepted**, §2.2–2.3 amended by ADR 0030 (2026-11-14: a UPI ID is live when added; the payer checks the name) — owner request of 2026-11-10 ("UPI IDs as independent payment destinations, separate from bank
 accounts … registered VPAs instead of generated account+IFSC addresses; verification before live use, payment limits,
 protect active deals"). Resolves TD-45. Builds on ADR 0018 (sender check), ADR 0019 (P2P escrow), ADR 0023 (time to pay
 by rail), ADR 0026 (confirmation by another factor). Migration `0050`, schema 50. Nothing of the escrow, the ledger, the

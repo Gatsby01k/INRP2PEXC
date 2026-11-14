@@ -27,6 +27,8 @@ export interface NotificationFacts {
   readonly of?: string;
   readonly reason?: string;
   readonly label?: string;
+  /** ADR 0030: a UPI ID added with its full limits (the desk looked it up), or with the first deals' limit. */
+  readonly upiConfirmed?: boolean;
   readonly expiresAt?: Date;
   readonly direction?: 'SELL_USDT' | 'BUY_USDT';
   /** Trader messages: the order, its side in the trader's words, and its figures at the trader's own rate. */
@@ -155,9 +157,11 @@ export function draftFor(kind: NotificationKind, facts: NotificationFacts): Noti
     case 'DESTINATION_ADDED':
       return {
         kind,
-        title: facts.label?.startsWith('UPI ID') ? 'A UPI ID was verified' : 'A bank account or wallet was added',
+        title: facts.label?.startsWith('UPI ID') ? 'A UPI ID was added' : 'A bank account or wallet was added',
         body: facts.label?.startsWith('UPI ID')
-          ? `${facts.label} is verified: your deals can be paid to it by UPI, and you can pay from it. If you did not add it, tell the desk straight away.`
+          ? facts.upiConfirmed === false
+            ? `${facts.label} is ready: deals of up to ₹25,000 can be paid to it by UPI, and its own limits apply once your first one is confirmed. If you did not add it, tell the desk straight away.`
+            : `${facts.label} is ready: your deals can be paid to it by UPI, and you can pay from it. If you did not add it, tell the desk straight away.`
           : `${facts.label ?? 'A new bank account or wallet'} was added to where you are paid. If you did not expect this, tell the desk straight away.`,
         subjectRef: null,
         href: '/destinations',
@@ -168,6 +172,17 @@ export function draftFor(kind: NotificationKind, facts: NotificationFacts): Noti
         title: facts.label?.startsWith('UPI ID') ? 'A UPI ID was archived' : 'A bank account or wallet was archived',
         body: `${facts.label ?? 'It'} can no longer be paid to.`,
         subjectRef: null,
+        href: '/destinations',
+      };
+    case 'DESTINATION_PAUSED':
+      return {
+        kind,
+        title: 'Your UPI ID is paused',
+        body: short(
+          `A buyer’s UPI app showed a different name for ${facts.label ?? 'your UPI ID'}${facts.tradeRef ? ` on ${facts.tradeRef}` : ''}. Nothing more is paid to it until INRP2P has checked it — that deal goes on by bank transfer to your account. Only a UPI ID in your own name is paid to.`,
+          400,
+        ),
+        subjectRef: facts.tradeRef ?? null,
         href: '/destinations',
       };
     case 'DESTINATION_REJECTED':

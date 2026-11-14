@@ -60,6 +60,8 @@ export type DomainErrorCode =
   | 'DESTINATION_IN_USE'
   // ADR 0029: the name a UPI ID resolves to is not one the client is known by on its record.
   | 'UPI_NAME_MISMATCH'
+  // ADR 0030: a payer paying a deal's UPI ID did not say its app showed the name the deal told it to check.
+  | 'UPI_NAME_UNCHECKED'
   | 'ROUTE_RATE_STALE'
   | 'MARKET_REFERENCE_STALE'
   | 'NEGATIVE_MARGIN_NOT_PERMITTED'

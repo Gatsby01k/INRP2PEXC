@@ -409,8 +409,10 @@ IMPS to ₹5 lakh, RTGS from ₹2 lakh), and the buyer's window opens on the fir
 carry the amount; a deal a person opened with none still offers the amount's own rails rather than no way to pay. "I've
 paid" is never refused for its rail. The application asks "How you are paid to this account" — UPI included — and the sides
 of a trader approved on an account it submitted itself start with that answer; `bank_account.rail_preferences` decides
-nothing else. Since ADR 0029 a UPI payment goes only to a verified UPI ID the payee registered — on the application or on
-Traders → Settlement details, as many as it has — never to an address made up from the bank account.
+nothing else. Since ADR 0029 a UPI payment goes only to a UPI ID the payee registered — on the application or on
+Traders → Settlement details, as many as it has — never to an address made up from the bank account. Since ADR 0030 one is
+live when added (₹25,000 a payment and a day until a deal to it is confirmed), and the payer checks the name its app shows
+— the payee's own — before it says it paid; another name pauses the address and the deal goes on by bank transfer.
 
 ## 13. Client surfaces
 

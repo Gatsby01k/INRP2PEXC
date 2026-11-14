@@ -314,7 +314,7 @@ export function BlockCard({ block, canAct, upiReady = true }: { block: BlockView
           </dl>
           <p className={styles.blockLimit}>
             {buy ? 'You pay clients by' : 'Clients pay you by'} {block.rails.length > 0 ? block.rails.join(' · ') : '—'}
-            {/* ADR 0029: a buyer pays by UPI only to a verified UPI ID of the trader's own. */}
+            {/* ADR 0029/0030: a buyer pays by UPI only to a live UPI ID of the trader's own. */}
             {!buy && !upiReady && block.rails.includes('UPI') ? (
               <>
                 {' '}— UPI once you add a UPI ID on <Link href="/traders/settlement">Settlement details</Link>

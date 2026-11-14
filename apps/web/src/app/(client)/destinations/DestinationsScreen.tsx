@@ -110,7 +110,7 @@ export function DestinationsScreen({
           )}
         </section>
 
-        <UpiIdsCard upiIds={destinations.upiIds} isAdmin={isAdmin} holderName={clientName} clientName={clientName} />
+        <UpiIdsCard upiIds={destinations.upiIds} isAdmin={isAdmin} holderName={banks.find((b) => b.status === 'ACTIVE')?.holderName ?? clientName} clientName={clientName} />
 
         <section className={shell.card} aria-labelledby="wallets-title">
           <div className={styles.sectionHead}>

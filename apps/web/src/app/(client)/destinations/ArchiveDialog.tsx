@@ -58,8 +58,8 @@ export function ArchiveDialog({ target, onClose }: { target: ArchiveTarget | nul
           ? 'Nothing will be paid to this account again. It stays in your list as archived; to use it again, add it as a new account.'
           : target?.kind === 'upi'
             ? target.pending
-              ? 'INRP2P stops checking it, and nothing is ever paid to it. You can add it again later.'
-              : 'No deal is paid to this UPI ID again, and you can no longer pay from it. A deal in progress keeps it until it finishes. To use it again, add it again — INRP2P checks it once more.'
+              ? 'INRP2P stops checking it, and nothing is ever paid to it. You can add another one.'
+              : 'No deal is paid to this UPI ID again, and you can no longer pay from it. A deal in progress keeps it until it finishes. To use it again, add it again.'
             : 'Nothing will be sent to this wallet again. It stays in your list as archived; to use it again, add it as a new wallet.'
       }
       footer={
