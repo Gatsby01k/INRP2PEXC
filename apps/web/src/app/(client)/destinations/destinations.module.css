@@ -1,112 +1,239 @@
-/* Bank & wallets: what the client can trade, then the accounts and wallets, then what is archived. */
+/*
+ * Bank & wallets: on the mark's orange, what the client can trade and where the money lands; then a card for each
+ * bank account, UPI ID and wallet, each with its own sign; then what is archived.
+ */
 
-/* ——— Can I sell, can I buy ——— */
+/* ——— The orange moment: sell, buy ——— */
 
-.readiness {
+.routes {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-4);
+  --mark-ring: #ea4a1f;
 }
 
-.ready {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  grid-template-areas:
-    'mark text'
-    '. action';
-  align-items: start;
-  gap: var(--space-2) var(--space-3);
-  padding: var(--space-5);
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  background: var(--bg-surface);
-  box-shadow: var(--lift);
+.routesArt {
+  position: absolute;
+  z-index: -1;
+  top: 50%;
+  right: -90px;
+  width: 340px;
+  height: 340px;
+  color: color-mix(in srgb, var(--text-on-action) 12%, transparent);
+  transform: translateY(-50%);
+  pointer-events: none;
 }
 
-.ready[data-ready] {
-  background: var(--bg-surface);
-}
-
-.readyMark {
-  grid-area: mark;
-  display: inline-grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  box-shadow: inset 0 0 0 1.5px var(--border-strong);
-}
-
-.ready:not([data-ready]) .readyMark {
-  border: 1.5px dashed var(--border-strong);
-  box-shadow: none;
-}
-
-.ready[data-ready] .readyMark {
-  background: var(--status-success);
-  box-shadow: none;
-  color: var(--bg-surface);
-}
-
-.readyMark svg {
-  width: 16px;
-  height: 16px;
-  stroke-width: 2.25;
-}
-
-.readyText {
-  grid-area: text;
-  display: grid;
-  gap: 2px;
-  min-width: 0;
-}
-
-.readyTitle {
+.lane {
   display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: var(--space-1) var(--space-3);
-  font-size: var(--font-size-body-lg);
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+  padding: var(--space-6) var(--space-6) var(--space-6) 28px;
+}
+
+.lane + .lane {
+  box-shadow: inset 1px 0 0 color-mix(in srgb, var(--text-on-action) 22%, transparent);
+}
+
+.laneHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.laneEyebrow {
+  color: color-mix(in srgb, var(--text-on-action) 82%, transparent);
+  font-size: 12px;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.laneState {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px 0 8px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--text-on-action) 16%, transparent);
+  color: var(--text-on-action);
+  font-size: 12px;
   font-weight: var(--font-weight-semibold);
 }
 
-.readyState {
-  color: var(--text-muted);
-  font-size: var(--font-size-meta);
-  font-weight: var(--font-weight-medium);
+.laneState[data-ready] {
+  background: var(--text-on-action);
+  color: var(--buy);
 }
 
-.ready[data-ready] .readyState {
-  color: var(--status-success);
+.laneState svg {
+  width: 14px;
+  height: 14px;
+  stroke-width: 2.5;
 }
 
-.readyDetail {
+.laneDot {
+  width: 7px;
+  height: 7px;
+  margin: 0 2px;
+  border: 1.5px dashed currentColor;
+  border-radius: 50%;
+}
+
+/* The banks it can land in, then the rails it travels by. */
+.laneMarks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: auto;
+  padding-top: var(--space-2);
+}
+
+.laneMarks .stack {
+  padding-right: var(--space-3);
+  box-shadow: inset -1px 0 0 color-mix(in srgb, var(--text-on-action) 26%, transparent);
+}
+
+.laneText {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.laneTitle {
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: -0.025em;
+}
+
+.laneDetail {
   overflow: hidden;
-  color: var(--text-secondary);
+  color: color-mix(in srgb, var(--text-on-action) 86%, transparent);
   font-size: var(--font-size-body-sm);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.ready > button {
-  grid-area: action;
-  justify-self: start;
-  margin-top: var(--space-2);
+/* The banks the INR can land in, overlapped like the cards in a wallet, with UPI's mark on its own white tile. */
+.stack {
+  display: flex;
+  flex: none;
+  align-items: center;
 }
 
-/* ——— Sections ——— */
+.stack > * {
+  box-shadow:
+    0 0 0 2.5px var(--mark-ring),
+    0 8px 18px -10px rgba(0, 0, 0, 0.45);
+}
 
-.sectionHead {
+.stack {
+  gap: 6px;
+}
+
+.laneToken {
+  border-radius: 50%;
+}
+
+.laneRails {
   display: flex;
-  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.laneRails > span {
+  box-shadow: none;
+}
+
+.chainChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px 0 6px;
+  border-radius: 8px;
+  background: var(--bg-surface);
+  color: #3f4147;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.laneAdd {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: var(--space-2);
+  height: 40px;
+  margin-top: auto;
+  padding: 0 var(--space-4) 0 var(--space-3);
+  border: 0;
+  border-radius: 10px;
+  background: var(--text-on-action);
+  color: var(--brand-action);
+  font: inherit;
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+  transition: transform var(--dur-fast) var(--ease);
+}
+
+.laneAdd:active {
+  transform: scale(0.98);
+}
+
+.laneAdd svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* ——— A group: its heading on the paper, its cards in a grid ——— */
+
+.group {
+  display: grid;
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+}
+
+.groupHead {
+  display: flex;
+  align-items: flex-end;
   justify-content: space-between;
   gap: var(--space-4);
+  padding: 0 2px;
 }
 
-.sectionNote {
-  margin: 2px 0 0;
+.groupText {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.groupTitleRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.groupTitle {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+
+.groupNote {
+  margin: 0;
   color: var(--text-muted);
   font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-normal);
 }
 
 .count {
@@ -117,94 +244,93 @@
   height: 22px;
   padding: 0 7px;
   border-radius: var(--radius-pill);
-  background: var(--bg-subtle);
-  box-shadow: inset 0 0 0 1px var(--border-default);
+  background: var(--bg-surface);
+  box-shadow: inset 0 0 0 1px var(--line);
   color: var(--text-secondary);
   font-size: var(--font-size-meta);
   font-weight: var(--font-weight-semibold);
   font-variant-numeric: tabular-nums;
 }
 
-.rows {
+.grid {
   display: grid;
-  margin: 0 calc(var(--space-6) * -1);
+  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  gap: var(--space-4);
+  margin: 0;
   padding: 0;
   list-style: none;
 }
 
-/* The last list of a card runs to its bottom edge, so its last row does not sit on a band of empty card. */
-.rows:last-child {
-  margin-bottom: calc(var(--space-6) * -1);
-}
+/* ——— One account, UPI ID or wallet ——— */
 
-.row {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
+.instrument {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
   gap: var(--space-4);
-  padding: var(--space-4) var(--space-6);
-  border-top: 1px solid color-mix(in srgb, var(--border-default) 60%, transparent);
-  transition: background-color var(--dur-fast) var(--ease);
+  min-width: 0;
+  padding: var(--space-5);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--sheet);
+  box-shadow: var(--lift);
+  transition:
+    box-shadow var(--dur-base) var(--ease),
+    transform var(--dur-base) var(--ease);
 }
 
-.row:hover {
-  background: color-mix(in srgb, var(--bg-subtle) 80%, transparent);
+/* Its own colour, as a light in the corner. */
+.instrument::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(130% 90% at 100% 0%, color-mix(in srgb, var(--tint) 10%, transparent) 0%, transparent 55%);
+  pointer-events: none;
 }
 
-.row[data-archived] {
-  opacity: 0.6;
+@media (hover: hover) {
+  .instrument:hover {
+    box-shadow: var(--lift-strong);
+    transform: translateY(-1px);
+  }
 }
 
-.monogram {
-  display: inline-grid;
-  place-items: center;
-  width: 40px;
-  height: 40px;
-  border-radius: 12px;
-  background: var(--paper);
-  color: var(--text-primary);
-  font-size: var(--font-size-meta);
-  font-weight: var(--font-weight-semibold);
-  letter-spacing: 0.02em;
+.instrument[data-state='pending_review'],
+.instrument[data-state='rejected'] {
+  background: color-mix(in srgb, var(--sheet) 70%, var(--paper));
 }
 
-.monogram[data-kind='wallet'] {
-  background: var(--buy-soft);
-  color: var(--buy);
-  font-size: var(--font-size-body);
-}
-
-/* ADR 0029: a UPI ID — the brand's own colour, a phone, not a bank's letter. */
-.monogram[data-kind='upi'] {
-  background: var(--brand-soft);
-  color: var(--brand-primary);
-}
-
-.monogram[data-kind='upi'] svg {
-  width: 18px;
-  height: 18px;
-}
-
-.row[data-archived] .monogram {
-  background: var(--text-disabled);
-}
-
-.main {
-  display: grid;
-  gap: 2px;
+.top {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
   min-width: 0;
 }
 
-.name {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-1) var(--space-2);
-  font-size: var(--font-size-body);
-  font-weight: var(--font-weight-semibold);
+.who {
+  display: grid;
+  flex: 1 1 auto;
+  gap: 2px;
+  min-width: 0;
+  padding-top: 2px;
 }
 
-.meta {
+/* A long name wraps once rather than losing its end: it is what the client checks. */
+.title {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.sub {
   overflow: hidden;
   color: var(--text-muted);
   font-size: var(--font-size-body-sm);
@@ -212,142 +338,442 @@
   white-space: nowrap;
 }
 
-.address {
-  font-family: var(--font-mono);
-  font-size: var(--font-size-meta);
+.figure {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
 }
 
-.verified {
+.number {
   display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 8px 2px 6px;
-  border-radius: var(--radius-pill);
-  background: var(--status-success-soft);
-  color: var(--status-success);
-  font-size: var(--font-size-micro);
-  font-weight: var(--font-weight-semibold);
+  align-items: baseline;
+  gap: 10px;
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: 0.01em;
+  font-variant-numeric: tabular-nums;
 }
 
-.verified svg {
-  width: 14px;
-  height: 14px;
+.dots {
+  color: var(--text-disabled);
+  font-size: 18px;
+  letter-spacing: 0.12em;
 }
 
-.tags {
+.figureMeta {
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+  letter-spacing: 0.02em;
+}
+
+.addressRow {
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  min-width: 0;
 }
 
-.status {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 10px;
-  border-radius: var(--radius-pill);
-  background: var(--bg-subtle);
-  box-shadow: inset 0 0 0 1px var(--border-default);
-  color: var(--text-secondary);
-  font-size: var(--font-size-meta);
-  font-weight: var(--font-weight-medium);
+.address,
+.vpa {
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: 17px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.statusDot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--text-disabled);
+.foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-height: 34px;
+  margin-top: auto;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--line-soft);
 }
 
-.status[data-state='pending_review'] .statusDot {
-  background: var(--status-warning);
+.rails {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
 }
 
-.status[data-state='rejected'] .statusDot {
-  background: var(--status-danger);
+.purposes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
-/* ADR 0030: a UPI ID ready at once, on its first deals' limit. */
-.status[data-state='active'] .statusDot {
-  background: var(--brand-primary);
+.purpose {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 9px 0 6px;
+  border-radius: 8px;
+  background: var(--buy-soft);
+  color: var(--buy);
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-semibold);
 }
 
-.rowAction {
+.purpose[data-way='out'] {
+  background: var(--paper);
+  color: var(--text-secondary);
+}
+
+.purpose svg {
+  width: 15px;
+  height: 15px;
+  stroke-width: 2;
+}
+
+.limits {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 34px;
-  padding: 0 var(--space-3);
-  border: 0;
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-medium);
+  font-variant-numeric: tabular-nums;
+}
+
+.limits svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: #f47920;
+}
+
+/* UPI's mark on its own white tile, the size of a bank's. */
+.upiTile {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  height: 44px;
+  padding: 0 11px;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow:
+    inset 0 0 0 1px var(--line),
+    0 6px 14px -10px rgba(244, 121, 32, 0.6);
+}
+
+.upiTile svg {
+  height: 15px;
+}
+
+.upiTile[data-size='sm'] {
+  height: 36px;
+  padding: 0 9px;
+  border-radius: 10px;
+}
+
+.upiTile[data-size='sm'] svg {
+  height: 12px;
+}
+
+.cardNote {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  color: color-mix(in srgb, var(--brand-action) 70%, var(--text-primary));
+  font-size: var(--font-size-meta);
+  line-height: 1.45;
+}
+
+.cardNote[data-tone='success'] {
+  background: var(--buy-soft);
+  color: var(--buy);
+}
+
+.cardNote[data-tone='warning'] {
+  background: var(--status-warning-soft);
+  color: var(--status-warning);
+}
+
+.cardNote[data-tone='danger'] {
+  background: var(--status-danger-soft);
+  color: var(--status-danger);
+}
+
+/* ——— A state in a word ——— */
+
+.tag {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 10px 0 8px;
   border-radius: var(--radius-pill);
+  background: var(--paper);
+  color: var(--text-secondary);
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-semibold);
+  white-space: nowrap;
+}
+
+.tag svg {
+  width: 15px;
+  height: 15px;
+}
+
+.tagDot {
+  width: 7px;
+  height: 7px;
+  margin: 0 1px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.tag[data-tone='success'] {
+  background: var(--buy-soft);
+  color: var(--buy);
+}
+
+.tag[data-tone='brand'] {
+  background: var(--accent-soft);
+  color: var(--brand-action);
+}
+
+.tag[data-tone='warning'] {
+  background: var(--status-warning-soft);
+  color: var(--status-warning);
+}
+
+.tag[data-tone='danger'] {
+  background: var(--status-danger-soft);
+  color: var(--status-danger);
+}
+
+/* ——— More: the card's menu ——— */
+
+.menuBox {
+  position: relative;
+  flex: none;
+}
+
+.more {
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 10px;
   background: transparent;
   color: var(--text-muted);
-  font: inherit;
-  font-size: var(--font-size-meta);
-  font-weight: var(--font-weight-medium);
   cursor: pointer;
   transition:
     background-color var(--dur-fast) var(--ease),
     color var(--dur-fast) var(--ease);
 }
 
-.rowAction:hover {
-  background: var(--status-danger-soft);
-  color: var(--status-danger);
+.more:hover,
+.more[aria-expanded='true'] {
+  background: var(--paper);
+  color: var(--text-primary);
 }
 
-.rowAction svg {
-  width: 16px;
-  height: 16px;
+.more:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 1px;
 }
 
-/* ——— Nothing here yet ——— */
-
-.empty {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-4);
-  padding: var(--space-5);
-  border-radius: var(--radius-input);
-  background: var(--bg-subtle);
-  box-shadow: inset 0 0 0 1px var(--border-default);
-  border: 1px dashed transparent;
+.more svg {
+  width: 20px;
+  height: 20px;
 }
 
-.emptyIcon {
-  display: inline-grid;
-  flex: none;
-  place-items: center;
-  width: 44px;
-  height: 44px;
+.menu {
+  position: absolute;
+  z-index: 20;
+  right: 0;
+  bottom: calc(100% + 6px);
+  display: grid;
+  min-width: 180px;
+  padding: 6px;
   border-radius: 12px;
   background: var(--bg-surface);
-  box-shadow: inset 0 0 0 1px var(--border-default);
+  box-shadow:
+    0 0 0 1px var(--line),
+    0 18px 40px -16px rgba(18, 19, 23, 0.28);
+  animation: menuIn 140ms var(--ease) both;
+}
+
+@keyframes menuIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+}
+
+.menuItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 40px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-medium);
+  text-align: left;
+  cursor: pointer;
+}
+
+.menuItem svg {
+  width: 18px;
+  height: 18px;
   color: var(--text-muted);
 }
 
-.emptyIcon svg {
-  width: 22px;
-  height: 22px;
+.menuItem:hover,
+.menuItem:focus-visible {
+  outline: none;
+  background: var(--paper);
 }
 
-.emptyText {
-  flex: 1 1 220px;
-  margin: 0;
+.menuItem[data-tone='danger'],
+.menuItem[data-tone='danger'] svg {
+  color: var(--status-danger);
+}
+
+.menuItem[data-tone='danger']:hover,
+.menuItem[data-tone='danger']:focus-visible {
+  background: var(--status-danger-soft);
+}
+
+/* ——— Adding one ——— */
+
+.addCell {
+  display: flex;
+  min-width: 0;
+}
+
+/* Alone in its list, the tile is the whole list: it lies across it. */
+.grid > .addCell:only-child {
+  grid-column: 1 / -1;
+}
+
+.addTile {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: var(--space-3);
+  min-height: 176px;
+  padding: var(--space-5);
+  border: 1.5px dashed color-mix(in srgb, var(--text-muted) 38%, transparent);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--sheet) 45%, transparent);
   color: var(--text-secondary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color var(--dur-fast) var(--ease),
+    background-color var(--dur-fast) var(--ease);
+}
+
+.grid > .addCell:only-child .addTile {
+  flex-direction: row;
+  align-items: center;
+  min-height: 0;
+}
+
+.addTile:hover {
+  border-color: var(--brand-action);
+  background: color-mix(in srgb, var(--accent-soft) 70%, var(--sheet));
+}
+
+.addTile:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 2px;
+}
+
+.addPlus {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: var(--brand-action);
+  box-shadow: var(--glow);
+  color: var(--text-on-action);
+  transition: transform var(--dur-base) var(--ease);
+}
+
+.addTile:hover .addPlus {
+  transform: rotate(90deg);
+}
+
+.addPlus svg {
+  width: 20px;
+  height: 20px;
+  stroke-width: 2.25;
+}
+
+.addText {
+  display: grid;
+  flex: 0 0 auto;
+  gap: 2px;
+  min-width: 0;
+}
+
+.grid > .addCell:only-child .addText {
+  flex: 1 1 auto;
+}
+
+.addTitle {
+  color: var(--text-primary);
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-semibold);
+}
+
+.addNote {
+  color: var(--text-muted);
   font-size: var(--font-size-body-sm);
   line-height: var(--line-height-normal);
+}
+
+.addMarks {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+}
+
+.none {
+  grid-column: 1 / -1;
+  padding: var(--space-5);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--sheet) 55%, transparent);
+  box-shadow: inset 0 0 0 1px var(--line);
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-sm);
 }
 
 /* ——— Archived, folded away ——— */
 
 .archived {
-  border-radius: var(--radius-surface);
-  background: color-mix(in srgb, var(--bg-surface) 60%, transparent);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--border-default) 70%, transparent);
+  margin-top: var(--space-4);
+  border-radius: var(--radius-card);
+  background: color-mix(in srgb, var(--sheet) 60%, transparent);
+  box-shadow: inset 0 0 0 1px var(--line);
 }
 
 .archived summary {
@@ -355,7 +781,7 @@
   align-items: center;
   gap: var(--space-2);
   min-height: 52px;
-  padding: 0 var(--space-6);
+  padding: 0 var(--space-5);
   color: var(--text-secondary);
   font-size: var(--font-size-body-sm);
   font-weight: var(--font-weight-medium);
@@ -378,30 +804,71 @@
   transform: none;
 }
 
-.archived .rows {
+.rows {
+  display: grid;
   margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
-/* ——— The column beside: security and trust ——— */
+.row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-5);
+  border-top: 1px solid var(--line-soft);
+}
 
-.security {
+.row > :first-child {
+  filter: grayscale(1);
+  opacity: 0.55;
+}
+
+.rowMain {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.rowName {
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-semibold);
+}
+
+.rowMeta {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ——— The column beside: protection, and how the money moves ——— */
+
+.protect,
+.ways {
+  display: grid;
+  gap: var(--space-4);
+  padding: var(--space-5);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--sheet);
+  box-shadow: var(--lift);
+}
+
+.protectHead {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
-  gap: var(--space-3) var(--space-4);
-  padding: var(--space-5);
-  border-radius: var(--radius-surface);
-  background: var(--bg-surface);
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--border-default) 78%, transparent),
-    0 14px 36px -28px color-mix(in srgb, var(--text-primary) 22%, transparent);
+  gap: var(--space-3);
 }
 
-.security > button {
-  grid-column: 2;
+.protect > button {
   justify-self: start;
 }
 
-.securityIcon {
+.protectIcon {
   display: inline-grid;
   place-items: center;
   width: 40px;
@@ -411,17 +878,18 @@
   color: var(--status-warning);
 }
 
-.security[data-on] .securityIcon {
-  background: var(--status-success-soft);
-  color: var(--status-success);
+.protect[data-on] .protectIcon {
+  background: var(--brand-action);
+  box-shadow: var(--glow);
+  color: var(--text-on-action);
 }
 
-.securityIcon svg {
+.protectIcon svg {
   width: 22px;
   height: 22px;
 }
 
-.securityText {
+.protectText {
   display: grid;
   gap: 2px;
 }
@@ -439,21 +907,12 @@
   line-height: var(--line-height-normal);
 }
 
-.trust {
-  background: color-mix(in srgb, var(--bg-surface) 72%, transparent);
-  backdrop-filter: blur(10px);
-  display: grid;
-  gap: var(--space-3);
-  padding: var(--space-5);
-  border-radius: var(--radius-surface);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border-default) 70%, transparent);
-}
-
 .trustList {
   display: grid;
   gap: var(--space-3);
   margin: 0;
-  padding: 0;
+  padding: var(--space-4) 0 0;
+  border-top: 1px solid var(--line-soft);
   list-style: none;
   color: var(--text-secondary);
   font-size: var(--font-size-body-sm);
@@ -470,7 +929,58 @@
   width: 18px;
   height: 18px;
   margin-top: 1px;
-  color: var(--status-success);
+  color: var(--buy);
+}
+
+.waysList {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+}
+
+.waysList > div {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.waysList dt {
+  display: flex;
+}
+
+.waysList dd {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-sm);
+  line-height: 1.4;
+}
+
+.wayMark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  width: 76px;
+  height: 32px;
+  border-radius: 9px;
+  background: var(--sheet);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+.wayMark[data-rail='UPI'] svg {
+  height: 14px;
+}
+
+.wayMark[data-rail='IMPS'] svg {
+  height: 12px;
+}
+
+.wayWord {
+  color: #3f4147;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
 }
 
 /* ——— Archive dialog ——— */
@@ -558,33 +1068,56 @@
 }
 
 @media (max-width: 639px) {
-  .readiness {
+  .routes {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .rows {
-    margin: 0 calc(var(--space-4) * -1);
+  .lane {
+    padding: var(--space-5);
   }
 
-  .row {
-    gap: var(--space-3);
+  .lane + .lane {
+    box-shadow: inset 0 1px 0 color-mix(in srgb, var(--text-on-action) 22%, transparent);
+  }
+
+  .laneTitle {
+    font-size: 22px;
+  }
+
+  .routesArt {
+    top: 0;
+    right: -120px;
+    transform: none;
+  }
+
+  .grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .grid > .addCell:only-child .addTile {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .addTile {
+    min-height: 0;
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .addText {
+    flex: 1 1 auto;
+  }
+
+  .groupTitle {
+    font-size: 18px;
+  }
+
+  .instrument {
     padding: var(--space-4);
   }
 
-  .monogram {
-    width: 40px;
-    height: 40px;
-  }
-
-  .ready {
-    padding: var(--space-4);
-  }
-
-  .readiness {
-    gap: var(--space-3);
-  }
-
-  .rowActionText {
-    display: none;
+  .number {
+    font-size: 24px;
   }
 }
