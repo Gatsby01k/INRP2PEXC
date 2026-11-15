@@ -588,36 +588,53 @@ label.destination:has(input:checked) .radioMark {
   font-variant-numeric: tabular-nums;
 }
 
-/* The countdown: a small ring that runs down to nothing beside the time left, on a frosted chip. */
+/* The countdown is a display: the robot's visor, a ring that runs down to nothing beside the time left, both lit. */
 .timer {
-  --tone: var(--text-on-action);
+  --tone: #ff6a3d;
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
   display: inline-flex;
   flex: none;
   align-items: center;
-  gap: 8px;
-  height: 40px;
+  gap: 10px;
+  height: 44px;
   white-space: nowrap;
-  padding: 0 12px 0 8px;
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--text-on-action) 16%, transparent);
+  padding: 0 16px 0 10px;
+  border-radius: var(--radius-pill);
+  background: var(--visor, #17181c);
+  box-shadow:
+    var(--visor-edge, inset 0 1px 0 rgba(255, 255, 255, 0.28)),
+    0 10px 22px -10px rgba(0, 0, 0, 0.6);
   color: var(--text-on-action);
 }
 
+.timer::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  top: 8%;
+  right: 44%;
+  left: 9%;
+  height: 36%;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0));
+}
+
 .timer[data-state='expiring'] {
-  background: var(--text-on-action);
-  color: var(--brand-action);
-  --tone: var(--brand-action);
+  --tone: #ffb020;
 }
 
 .timerRing {
-  width: 24px;
-  height: 24px;
+  width: 26px;
+  height: 26px;
   transform: rotate(-90deg);
+  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--tone) 90%, transparent));
 }
 
 .timerTrack {
   fill: none;
-  stroke: color-mix(in srgb, currentColor 28%, transparent);
+  stroke: rgba(255, 255, 255, 0.14);
   stroke-width: 2.5;
 }
 
@@ -636,14 +653,16 @@ label.destination:has(input:checked) .radioMark {
 }
 
 .timerTime {
-  font-size: 17px;
+  color: color-mix(in srgb, var(--tone) 70%, #ffd0b8);
+  font-size: 18px;
   font-weight: var(--font-weight-semibold);
   font-variant-numeric: tabular-nums;
-  letter-spacing: 0.01em;
+  letter-spacing: -0.01em;
+  text-shadow: 0 0 10px color-mix(in srgb, var(--tone) 90%, transparent);
 }
 
 .timerLabel {
-  opacity: 0.8;
+  opacity: 0.7;
   font-size: var(--font-size-meta);
   font-weight: var(--font-weight-medium);
 }
@@ -820,8 +839,8 @@ label.destination:has(input:checked) .radioMark {
   display: grid;
   grid-template-columns: minmax(120px, 34%) minmax(0, 1fr);
   gap: var(--space-3);
-  padding: 10px 0;
-  border-top: 1px dashed var(--line-soft);
+  padding: 13px 0;
+  border-top: 1px solid var(--line);
 }
 
 .terms > div:first-child {

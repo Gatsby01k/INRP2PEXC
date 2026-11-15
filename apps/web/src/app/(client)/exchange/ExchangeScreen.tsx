@@ -5,13 +5,16 @@ import { useRouter } from 'next/navigation';
 import type { ExchangeView, HistoryRow } from '@inrp2p/portal';
 import { useAssistantState } from '../_assistant/AssistantPanel.tsx';
 import { exchangeAssistant, quoteLive, requestSteps } from '../_assistant/model.ts';
-import { ExchangeAside } from './ExchangeAside.tsx';
+import { DealRail } from '../_workspace/DealRail.tsx';
+import { legAmount } from './amounts.ts';
+import { Activity, ExchangeAside } from './ExchangeAside.tsx';
 import { PricingCard } from './PricingCard.tsx';
 import { QuoteCard } from './QuoteCard.tsx';
 import { RequestForm, type Who } from './RequestForm.tsx';
 import { SetupGuide } from './SetupGuide.tsx';
 import { useServerClock } from './useServerClock.ts';
 import shell from '../shell.module.css';
+import stage from './stage.module.css';
 
 export type Direction = 'SELL_USDT' | 'BUY_USDT';
 
@@ -83,17 +86,40 @@ export function ExchangeScreen({
       <main className={shell.main}>
         {firstRun ? <SetupGuide who={who} /> : null}
         {quote && live ? (
-          <QuoteCard quote={quote} canAccept={canAccept} now={now} />
+          <>
+            <QuoteCard quote={quote} canAccept={canAccept} now={now} />
+            {/* What accepting starts, as the same picture the trade then carries to its receipt. */}
+            <section className={`${shell.card} ${stage.ahead}`} aria-labelledby="ahead-title">
+              <div className={shell.cardHead}>
+                <h2 id="ahead-title" className={shell.cardTitle}>
+                  When you accept, the trade opens at this rate
+                </h2>
+                <span className={shell.idx}>The same picture follows the deal to its receipt</span>
+              </div>
+              <DealRail
+                viewer={quote.direction === 'SELL_USDT' ? 'seller' : 'buyer'}
+                step="AHEAD"
+                usdt={`${legAmount(quote.base.amount, 'USDT')} USDT`}
+                inr={`₹${legAmount(quote.inr.amount, 'INR')}`}
+                label="After you accept: the USDT goes into INRP2P’s escrow, the rupees are paid bank to bank, and the escrow releases once they are confirmed."
+              />
+              <ol className={stage.aheadSteps}>
+                <li>The rate and amounts are fixed from that moment.</li>
+                <li>The USDT goes into INRP2P’s escrow — to an address that belongs to this trade alone.</li>
+                <li>The rupees are paid bank to bank, with their reference.</li>
+                <li>Once they are confirmed the escrow releases, and a receipt is issued.</li>
+              </ol>
+            </section>
+            {recent.length > 0 ? <Activity recent={recent} /> : null}
+          </>
         ) : withDesk ? (
           <PricingCard view={view} />
         ) : (
           <RequestForm view={view} who={who} {...(draft ? { draft } : {})} />
         )}
       </main>
-      <ExchangeAside
-        mode={quote && live ? { kind: 'quote', sell: quote.direction === 'SELL_USDT' } : withDesk ? { kind: 'pricing', steps: requestSteps(view, now) } : { kind: 'ready' }}
-        recent={recent}
-      />
+      {/* A live quote takes the page's whole width; every other state keeps its context beside the work. */}
+      {quote && live ? null : <ExchangeAside mode={withDesk ? { kind: 'pricing', steps: requestSteps(view, now) } : { kind: 'ready' }} recent={recent} />}
     </>
   );
 }

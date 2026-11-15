@@ -20,7 +20,7 @@
   display: grid;
   gap: 4px;
   min-width: 0;
-  padding: var(--space-4) var(--space-6);
+  padding: var(--space-5) 28px;
 }
 
 .figure + .figure {
@@ -29,17 +29,17 @@
 
 .figureLabel {
   color: var(--text-muted);
-  font-size: var(--font-size-meta);
+  font-size: 12.5px;
   font-weight: var(--font-weight-medium);
 }
 
 .figureValue {
   margin: 0;
   white-space: nowrap;
-  font-family: var(--font-display);
-  font-size: 20px;
+  font-family: var(--font-figure, var(--font-sans));
+  font-size: 22px;
   font-weight: var(--font-weight-semibold);
-  letter-spacing: -0.02em;
+  letter-spacing: -0.035em;
   line-height: 1.2;
   font-variant-numeric: tabular-nums;
 }

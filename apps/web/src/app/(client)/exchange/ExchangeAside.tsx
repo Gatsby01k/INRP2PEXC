@@ -105,7 +105,7 @@ export function ExchangeAside({ mode, recent }: { mode: Mode; recent: readonly H
 
 const AWAITING = new Set(['AWAITING_FIRST_LEG']);
 
-function Activity({ recent }: { recent: readonly HistoryRow[] }) {
+export function Activity({ recent }: { recent: readonly HistoryRow[] }) {
   const sorted = [...recent].sort((a, b) => Number(AWAITING.has(b.status) && !b.onHold) - Number(AWAITING.has(a.status) && !a.onHold));
   return (
     <section className={styles.panel} aria-labelledby="activity-title">

@@ -4,9 +4,9 @@
   gap: var(--space-5);
 }
 
+/* The card whose move is yours is the page's raised sheet; its head is the orange field (`shell.cap`). */
 .card[data-attention] {
-  border-color: color-mix(in srgb, var(--brand-primary) 55%, var(--border-default));
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-primary) 10%, transparent);
+  box-shadow: var(--lift-strong);
 }
 
 .head {
@@ -23,23 +23,36 @@
   gap: var(--space-2);
 }
 
+/* Whose move it is, in the technical voice: on the field it is the field's own eyebrow. */
 .badge {
-  padding: 3px 8px;
-  border-radius: 6px;
-  background: var(--brand-action);
-  color: var(--text-on-action);
+  color: rgba(255, 255, 255, 0.84);
+  font-family: var(--font-mono);
   font-size: var(--font-size-micro);
-  font-weight: var(--font-weight-semibold);
-  letter-spacing: 0.02em;
+  font-weight: var(--font-weight-medium);
+  line-height: 1.2;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
 }
 
 .title {
   margin: 0;
   font-family: var(--font-display);
-  font-size: 20px;
+  font-size: 24px;
   font-weight: var(--font-weight-semibold);
-  letter-spacing: -0.02em;
+  line-height: 1.12;
+  letter-spacing: -0.035em;
   font-variant-numeric: tabular-nums;
+  text-wrap: balance;
+}
+
+.card[data-attention] .head {
+  align-items: center;
+}
+
+.card[data-attention] .title {
+  font-size: 34px;
+  line-height: 1.08;
+  letter-spacing: -0.04em;
 }
 
 .lead {
@@ -50,40 +63,54 @@
   line-height: var(--line-height-normal);
 }
 
+/* A timer is a display: the robot's visor, its figure lit. */
 .timer {
+  --node: var(--led);
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  min-height: 36px;
-  padding: 0 var(--space-3);
-  border-radius: 10px;
-  background: var(--paper, var(--bg-subtle));
-  color: var(--text-secondary);
+  min-height: 40px;
+  padding: 0 var(--space-4) 0 var(--space-3);
+  border-radius: var(--radius-pill);
+  background: var(--visor);
+  box-shadow:
+    var(--visor-edge),
+    0 10px 22px -10px rgba(0, 0, 0, 0.6);
+  color: rgba(255, 255, 255, 0.78);
   font-size: var(--font-size-meta);
   font-weight: var(--font-weight-medium);
   white-space: nowrap;
 }
 
-/* The figure itself is what a payer watches: larger, in tabular digits. */
+.timer::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  top: 8%;
+  right: 44%;
+  left: 9%;
+  height: 36%;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0));
+}
+
+/* The figure itself is what a payer watches: larger, in tabular digits, glowing as the robot's eyes do. */
 .timer :global(.ix-num) {
-  color: var(--text-primary);
-  font-size: 16px;
+  color: var(--led);
+  font-size: 17px;
   font-weight: var(--font-weight-semibold);
-  letter-spacing: 0.01em;
+  letter-spacing: -0.01em;
+  text-shadow:
+    0 0 10px rgba(255, 106, 61, 0.95),
+    0 0 2px rgba(255, 180, 140, 0.9);
 }
 
-.timer[data-state='soon'] {
-  background: var(--status-warning-soft);
-  color: var(--status-warning);
-}
-
-.timer[data-state='soon'] :global(.ix-num) {
-  color: #8a4f00;
-}
-
+.timer[data-state='soon'],
 .timer[data-state='over'] {
-  background: var(--status-danger-soft);
-  color: var(--status-danger);
+  color: var(--text-on-action);
 }
 
 .inlineIcon {
@@ -710,8 +737,7 @@
 
 /* A step that is not the client's: the badge says where things are, quietly. */
 .badge[data-tone='quiet'] {
-  background: color-mix(in srgb, var(--text-primary) 7%, transparent);
-  color: var(--text-secondary);
+  color: var(--text-muted);
 }
 
 /* The one rule before a decision that releases money: amber, not brand. */

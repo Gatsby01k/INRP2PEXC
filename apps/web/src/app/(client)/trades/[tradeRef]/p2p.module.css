@@ -206,3 +206,10 @@
     animation: none;
   }
 }
+
+/* On a desk the deal's picture is drawn above (`DealRail`); the strip is the phone's. */
+@media (min-width: 700px) {
+  :global([data-deal-rail]) .strip {
+    display: none;
+  }
+}

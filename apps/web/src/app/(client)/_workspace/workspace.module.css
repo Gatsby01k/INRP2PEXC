@@ -148,58 +148,65 @@
 /* ——— Status pill: a small tag, its glyph and its word — never colour alone ——— */
 
 .pill {
-  --tone: var(--text-secondary);
-  --tone-soft: color-mix(in srgb, var(--text-primary) 6%, transparent);
+  --ring: var(--text-muted);
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  min-height: 24px;
-  padding: 0 8px 0 6px;
-  border-radius: 6px;
-  background: var(--tone-soft);
-  color: var(--tone);
-  font-size: var(--font-size-meta);
-  font-weight: var(--font-weight-semibold);
+  gap: 7px;
+  min-height: 28px;
+  padding: 0 12px 0 7px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface);
+  box-shadow: 0 0 0 1px var(--line-strong);
+  color: var(--text-primary);
+  font-size: 12.5px;
+  font-weight: var(--font-weight-medium);
   line-height: 1;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
 .pill[data-size='lg'] {
-  min-height: 28px;
-  padding: 0 10px 0 8px;
-  border-radius: 8px;
-  font-size: 13px;
+  min-height: 32px;
+  padding: 0 14px 0 9px;
+  font-size: 13.5px;
 }
 
 .pill[data-size='lg'] .pillIcon {
-  width: 15px;
-  height: 15px;
+  width: 18px;
+  height: 18px;
 }
 
-.pill[data-tone='neutral'] {
-  padding-left: 8px;
-}
-
-.pill[data-tone='waiting'],
-.pill[data-tone='hold'] {
-  --tone: #9a5b00;
-  --tone-soft: #fdf3e1;
+.pill[data-tone='waiting'] {
+  --ring: var(--ink-2);
 }
 
 .pill[data-tone='progress'] {
-  --tone: #1d5bd6;
-  --tone-soft: #ebf1fd;
+  --ring: var(--amber);
 }
 
-.pill[data-tone='done'] {
-  --tone: #0b8a4f;
-  --tone-soft: #e7f5ee;
+.pill[data-tone='hold'] {
+  --ring: var(--sell);
+}
+
+.pill[data-tone='done'],
+.pill[data-tone='live'] {
+  --ring: var(--buy);
+}
+
+/* The one state that is colour: it is waiting for you. */
+.pill[data-tone='turn'] {
+  --ring: var(--text-on-action);
+  background: linear-gradient(180deg, #f4592e, #e2461d);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.3),
+    0 8px 16px -8px rgba(226, 70, 29, 0.9);
+  color: var(--text-on-action);
+  font-weight: var(--font-weight-semibold);
 }
 
 .pillIcon {
-  width: 13px;
-  height: 13px;
-  stroke-width: 2;
+  width: 16px;
+  height: 16px;
 }
 
 /* ——— Empty state ——— */
@@ -245,4 +252,26 @@
 
 .emptyAction {
   margin-top: var(--space-3);
+}
+
+/* ——— A pair of currencies as one mark (`PairCoin`) ——— */
+
+.pair {
+  position: relative;
+  display: block;
+  flex: none;
+  width: var(--pair);
+  height: var(--pair);
+}
+
+.pair > svg {
+  filter: none;
+}
+
+.pair > .pairBadge {
+  position: absolute;
+  right: -18%;
+  bottom: -12%;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--bg-surface);
 }

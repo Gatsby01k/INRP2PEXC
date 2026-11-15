@@ -1,0 +1,527 @@
+/*
+ * A firm quote as a stage (`QuoteCard`): the request on a sheet beside it, and the quote itself on the mark's orange
+ * — the figure the client gets as a monument, the robot in its halo, the time left on a visor, the decision.
+ */
+
+.deal {
+  display: grid;
+  grid-template-columns: minmax(0, 0.6fr) minmax(0, 1fr);
+  align-items: stretch;
+  gap: var(--space-6);
+}
+
+/* ——— The request ——— */
+
+.ask {
+  --pad-y: 14px;
+  --pad-x: 14px;
+  gap: 0;
+  border-radius: 30px;
+}
+
+.askHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 8px 10px 14px;
+}
+
+.side {
+  padding: 5px 11px;
+  border-radius: var(--radius-pill);
+  background: var(--sell-soft);
+  color: var(--sell);
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1;
+}
+
+.side[data-side='buy'] {
+  background: var(--buy-soft);
+  color: var(--buy);
+}
+
+.askWell {
+  display: grid;
+  gap: var(--space-3);
+  padding: 22px 22px 24px;
+}
+
+.askRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.askFigure {
+  font-size: clamp(40px, 4vw, 56px);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.askCoin {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  height: 44px;
+  padding: 0 14px 0 6px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface);
+  box-shadow:
+    0 0 0 1px var(--line),
+    0 6px 14px -8px rgba(18, 19, 23, 0.2);
+  font-size: 14.5px;
+  font-weight: var(--font-weight-semibold);
+}
+
+.askCoin svg {
+  filter: none;
+}
+
+.terms {
+  padding: 8px 12px 6px;
+}
+
+.askNote {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: auto 0 0;
+  padding: 18px 12px 10px;
+  color: var(--ink-2);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+.askNote svg {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  color: var(--text-primary);
+}
+
+/* ——— The stage ——— */
+
+.stage {
+  display: flex;
+  flex-direction: column;
+  min-height: 560px;
+  padding: 34px 40px 36px;
+  border-radius: 30px;
+}
+
+/* The landing's halo behind the robot: a lighter sun, the mark's three arcs turning round it, a dotted orbit with
+   its nodes turning the other way. */
+.halo {
+  position: absolute;
+  z-index: -1;
+  right: -56px;
+  bottom: -196px;
+  width: 480px;
+  aspect-ratio: 1;
+  pointer-events: none;
+}
+
+.halo i {
+  position: absolute;
+  inset: 12%;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 34% 26%, rgba(255, 255, 255, 0.42), transparent 50%),
+    radial-gradient(circle, rgba(255, 150, 104, 0.75), rgba(255, 120, 70, 0.3) 70%, transparent 72%);
+}
+
+.haloArcs,
+.haloOrbit {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+}
+
+.haloArcs {
+  color: rgba(255, 255, 255, 0.5);
+  stroke-width: 5;
+  animation: turn 70s linear infinite;
+}
+
+.haloOrbit {
+  color: rgba(255, 255, 255, 0.55);
+  stroke-width: 1.6;
+  stroke-dasharray: 1.5 11;
+  animation: turn 140s linear infinite reverse;
+}
+
+.haloNode {
+  fill: var(--text-on-action);
+  stroke: none;
+}
+
+.robot {
+  position: absolute;
+  z-index: -1;
+  right: 4px;
+  bottom: -110px;
+  width: 400px;
+  height: 400px;
+  overflow: visible;
+  filter: drop-shadow(0 30px 40px rgba(90, 20, 0, 0.45));
+  pointer-events: none;
+}
+
+.stageHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+}
+
+.chip {
+  --ring-cut: #e2461d;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 13px 0 8px;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.18);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.28);
+  font-size: 12.5px;
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+}
+
+.ref {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  letter-spacing: -0.01em;
+  opacity: 0.84;
+}
+
+.get {
+  display: grid;
+  gap: 14px;
+  margin-top: 38px;
+}
+
+.getLabel {
+  color: rgba(255, 255, 255, 0.8);
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-medium);
+}
+
+/* The monument: as large as the stage allows, never wrapped inside the number. */
+.getFigure {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-3);
+  font-size: clamp(44px, 6.1vw, 86px);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.getUnit {
+  color: rgba(255, 255, 255, 0.7);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.04em;
+}
+
+.getSub {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.86);
+  font-size: var(--font-size-body-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-6);
+}
+
+.fact {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 14px 0 10px;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.16);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.26);
+  font-size: 13.5px;
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+}
+
+.fact svg {
+  width: 18px;
+  height: 18px;
+}
+
+.factQuiet {
+  opacity: 0.8;
+}
+
+.factFigure {
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.decide {
+  display: grid;
+  justify-items: start;
+  gap: 14px;
+  max-width: 440px;
+  margin-top: auto;
+  padding-top: var(--space-10);
+}
+
+.decideRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3) var(--space-4);
+}
+
+.decideRow [role='timer'] {
+  height: 60px;
+  padding: 0 20px 0 14px;
+}
+
+/* The one decision, in white on the field: nothing on the page outranks it. */
+.accept {
+  --node: var(--brand-primary);
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 60px;
+  padding: 0 28px;
+  border: 0;
+  border-radius: 18px;
+  background: var(--bg-surface);
+  box-shadow:
+    0 1px 2px rgba(90, 25, 5, 0.3),
+    0 18px 34px -16px rgba(80, 20, 0, 0.7);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 17px;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: transform var(--dur-fast) var(--ease);
+}
+
+.accept::after {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  background: linear-gradient(105deg, transparent 36%, color-mix(in srgb, var(--brand-primary) 16%, transparent) 50%, transparent 64%);
+  transform: translateX(-130%);
+  animation: sheen 5.5s ease-in-out infinite;
+}
+
+.accept:not(:disabled):active {
+  transform: scale(0.985);
+}
+
+.accept:focus-visible {
+  outline: 2px solid var(--text-on-action);
+  outline-offset: 3px;
+}
+
+.accept:disabled {
+  opacity: 0.85;
+  cursor: progress;
+}
+
+.onField,
+.onField:hover {
+  color: var(--text-on-action) !important;
+  font-weight: var(--font-weight-medium);
+}
+
+.confirm {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.confirm p,
+.cannot {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.92);
+  font-size: var(--font-size-body-sm);
+  line-height: 1.5;
+}
+
+.cannot {
+  display: flex;
+  gap: 10px;
+}
+
+.confirmActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+}
+
+.error {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: var(--bg-surface);
+  color: var(--status-danger);
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-medium);
+}
+
+/* ——— What accepting starts ——— */
+
+.ahead {
+  gap: var(--space-5);
+}
+
+/* The picture is the desk's; a phone reads the same in four lines. */
+.aheadSteps {
+  display: none;
+  gap: var(--space-2);
+  margin: 0;
+  padding-left: 1.2em;
+  color: var(--ink-2);
+  font-size: var(--font-size-body-sm);
+  line-height: 1.5;
+}
+
+@media (max-width: 699px) {
+  .aheadSteps {
+    display: grid;
+  }
+}
+
+@supports (corner-shape: superellipse(1.5)) {
+  .accept,
+  .ask,
+  .stage {
+    corner-shape: superellipse(1.5);
+  }
+}
+
+@keyframes turn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes sheen {
+  0%,
+  72% {
+    transform: translateX(-130%);
+  }
+
+  100% {
+    transform: translateX(130%);
+  }
+}
+
+/* Narrower than a desk: the request first, the stage under it; the robot steps back so the words keep their room. */
+@media (max-width: 1099px) {
+  .deal {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-4);
+  }
+
+  .stage {
+    min-height: 0;
+    order: -1;
+  }
+
+  .decide {
+    padding-top: var(--space-8);
+  }
+}
+
+@media (max-width: 699px) {
+  .stage {
+    padding: 22px 20px 24px;
+    border-radius: 26px;
+  }
+
+  .ask {
+    border-radius: 26px;
+  }
+
+  .halo {
+    right: -120px;
+    bottom: auto;
+    top: -130px;
+    width: 300px;
+  }
+
+  .robot {
+    top: -18px;
+    right: -34px;
+    bottom: auto;
+    width: 150px;
+    height: 150px;
+  }
+
+  .stageHead {
+    padding-right: 96px;
+  }
+
+  .ref {
+    display: none;
+  }
+
+  .get {
+    margin-top: 26px;
+  }
+
+  .decide {
+    max-width: none;
+    justify-items: stretch;
+  }
+
+  .decideRow {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .decideRow [role='timer'] {
+    justify-self: start;
+    height: 44px;
+  }
+
+  .accept {
+    width: 100%;
+    white-space: normal;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .haloArcs,
+  .haloOrbit,
+  .accept::after {
+    animation: none;
+  }
+}

@@ -1,0 +1,161 @@
+/* The status rings (`StateRing`): drawn on a 20 grid in the text colour, or in `--ring` where a pill names one. */
+
+.ring {
+  display: block;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  overflow: visible;
+  color: var(--ring, currentColor);
+}
+
+.dot {
+  fill: currentColor;
+}
+
+.line,
+.track,
+.dashes,
+.ripple,
+.breath,
+.sweep,
+.bars,
+.tick,
+.cutLine {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.line {
+  stroke-width: 1.8;
+}
+
+.bars {
+  stroke-width: 2;
+}
+
+/* Your move: a pulse out of a beating node. */
+.ripple {
+  stroke-width: 1.4;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: ripple 1.7s ease-out infinite;
+}
+
+.beat {
+  fill: currentColor;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: beat 1.7s ease-in-out infinite;
+}
+
+/* Waiting for the other side: a node on a dotted orbit. */
+.dashes {
+  stroke-width: 1.6;
+  stroke-dasharray: 1.4 3.63;
+  opacity: 0.5;
+  transform-box: view-box;
+  transform-origin: 10px 10px;
+  animation: spin 16s linear infinite;
+}
+
+.orbiter {
+  fill: currentColor;
+  transform-box: view-box;
+  transform-origin: 10px 10px;
+  animation: spin 3.4s linear infinite;
+}
+
+/* Being checked: an arc sweeping its ring. */
+.track {
+  stroke-width: 1.8;
+  opacity: 0.22;
+}
+
+.sweep {
+  stroke-width: 2;
+  transform-box: view-box;
+  transform-origin: 10px 10px;
+  animation: spin 1.15s linear infinite;
+}
+
+/* On a filled disc the lock and the tick are cut out of it, in the surface's own colour. */
+.cut {
+  fill: var(--ring-cut, var(--bg-surface));
+}
+
+.cutLine {
+  stroke: var(--ring-cut, var(--bg-surface));
+  stroke-width: 1.5;
+}
+
+.tick {
+  stroke: var(--ring-cut, var(--bg-surface));
+  stroke-width: 2;
+  stroke-dasharray: 12.4;
+  animation: draw 520ms var(--ease) 160ms both;
+}
+
+/* Live: breathing. */
+.breath {
+  stroke-width: 1.4;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: breath 2s ease-out infinite;
+}
+
+@keyframes ripple {
+  from {
+    opacity: 0.8;
+    transform: scale(1);
+  }
+
+  to {
+    opacity: 0;
+    transform: scale(2.9);
+  }
+}
+
+@keyframes beat {
+  50% {
+    transform: scale(1.15);
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes draw {
+  from {
+    stroke-dashoffset: 12.4;
+  }
+}
+
+@keyframes breath {
+  from {
+    opacity: 0.7;
+    transform: scale(1);
+  }
+
+  to {
+    opacity: 0;
+    transform: scale(2.1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ripple,
+  .beat,
+  .dashes,
+  .orbiter,
+  .sweep,
+  .tick,
+  .breath {
+    animation: none;
+  }
+}

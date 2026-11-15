@@ -10,11 +10,15 @@ import { robotCues } from '../../(public)/_landing/robot/cues.ts';
 import { useCommand } from '../../../components/useCommand.tsx';
 import { acceptQuoteAction, rejectQuoteAction } from '../../../server/actions/client.ts';
 import { playSound } from '../_assistant/sound.ts';
-import { ArrowIcon, InfoIcon, LockIcon } from '../_workspace/icons.tsx';
+import { RobotFigure } from '../_assistant/RobotFigure.tsx';
+import { ArrowIcon, InfoIcon, LockIcon, RateIcon, ShieldIcon } from '../_workspace/icons.tsx';
+import { StateRing } from '../_workspace/StateRing.tsx';
 import { legAmount } from './amounts.ts';
 import shell from '../shell.module.css';
 import { Amount } from '../../../components/Amount.tsx';
+import { Coin } from '../../../components/Coin.tsx';
 import styles from './exchange.module.css';
+import stage from './stage.module.css';
 
 const R = 10;
 const C = 2 * Math.PI * R;
@@ -45,8 +49,9 @@ export function Countdown({ sentAt, expiresAt, now }: { sentAt: Date | null; exp
 }
 
 /**
- * A firm quote the desk has sent, as an execution ticket: what the client gets — as large as the page allows —
- * for what they give, the rate locked inside it, how long it is held, where the money lands, and the decision.
+ * A firm quote the desk has sent, in two parts side by side: what the client asked — what they give and where the
+ * money lands — and the quote's stage: what they get, as large as the page allows, the rate locked inside it, how
+ * long it is held on the robot's visor, and the decision, with the robot standing in its halo beside it.
  * Accepting opens the trade and takes the client straight to it; declining is a formal answer to the desk, so it
  * asks once before it is sent.
  */
@@ -82,125 +87,161 @@ export function QuoteCard({ quote, canAccept, now }: { quote: ClientQuoteView; c
 
   return (
     <>
-      <section className={`${shell.surface} ${styles.ticket}`} aria-label="Firm quote" data-robot-target="panel">
-        {/* The quote's face: the mark's own orange; what you give, what you get, and the rate locked between them. */}
-        <div className={`${shell.brandField} ${styles.face}`}>
-          <header className={styles.quoteHead}>
-            <div className={styles.quoteId}>
-              <span className={styles.quoteKind}>
-                Firm quote · <span className={styles.side}>{sell ? 'Sell USDT' : 'Buy USDT'}</span>
-              </span>
-              <span className={styles.quoteRef}>{quote.ref}</span>
-            </div>
-            <Countdown sentAt={quote.sentAt ? new Date(quote.sentAt) : null} expiresAt={expiresAt} now={now} />
+      <section className={stage.deal} aria-label="Firm quote" data-robot-target="panel">
+        {/* What was asked: the client's own side of the deal, and where its money lands. */}
+        <div className={`${shell.surface} ${stage.ask}`}>
+          <header className={stage.askHead}>
+            <span className={shell.idx}>Your request</span>
+            <span className={stage.side} data-side={sell ? 'sell' : 'buy'}>
+              {sell ? 'Sell USDT' : 'Buy USDT'}
+            </span>
           </header>
-
-          <div className={styles.convert}>
-            <div className={styles.convertRow}>
-              <span className={styles.convertLabel}>{sell ? 'You send' : 'You pay'}</span>
-              <span className={styles.convertValue}>
+          <div className={`${shell.well} ${stage.askWell}`}>
+            <span className={shell.label}>{sell ? 'You send' : 'You pay'}</span>
+            <span className={stage.askRow}>
+              <span className={stage.askFigure}>
                 <Amount value={sell ? usdt : `₹${inr}`} />
-                <span className={styles.convertUnit}>{sell ? 'USDT' : 'INR'}</span>
               </span>
-            </div>
-            <span className={styles.convertArrow} aria-hidden="true">
-              <ArrowIcon />
+              <span className={stage.askCoin}>
+                <Coin currency={sell ? 'USDT' : 'INR'} size={32} />
+                {sell ? 'USDT' : 'INR'}
+              </span>
             </span>
-            <div className={styles.convertRow} data-get="">
-              <span className={styles.heroLabel}>You receive</span>
-              <span className={styles.heroFigure}>
-                <Amount value={sell ? `₹${inr}` : usdt} />
-                <span className={styles.heroUnit}>{sell ? 'INR' : 'USDT'}</span>
-              </span>
-            </div>
           </div>
-          <p className={styles.heroSub}>
-            {fee
-              ? sell
-                ? `${fee} USDT of what you send pays the network.`
-                : `Includes your USDT and ${fee} USDT of network at this rate.`
-              : sell
-                ? 'Exactly this — nothing is deducted.'
-                : 'Exactly this — nothing is added.'}
+          <dl className={`${styles.terms} ${stage.terms}`}>
+            <div>
+              <dt>{sell ? 'INR paid to' : 'USDT delivered to'}</dt>
+              <dd>{quote.destination}</dd>
+            </div>
+            <div>
+              <dt>Network</dt>
+              <dd>USDT on TRON (TRC20)</dd>
+            </div>
+            {fee ? (
+              <div>
+                <dt>Network fee</dt>
+                <dd>{fee} USDT — what TRON charges for this deal’s escrow and its transfers. No other fee: the rate is the market’s.</dd>
+              </div>
+            ) : quote.networkFeeIncluded ? (
+              <div>
+                <dt>Fees</dt>
+                <dd>Included in the rate, with the TRC20 network fee of ₹{legAmount(quote.networkFeeIncluded.amount, 'INR')}</dd>
+              </div>
+            ) : null}
+            <div>
+              <dt>Settlement</dt>
+              <dd>{sell ? 'Send your USDT to the trade’s own address; INR follows in one or more transfers, each with its bank reference.' : 'Pay the INR; the USDT is sent to your wallet once it is confirmed.'}</dd>
+            </div>
+          </dl>
+          <p className={stage.askNote}>
+            <ShieldIcon />
+            {sell ? 'Your USDT waits in escrow until the rupees are in your bank.' : 'The seller’s USDT is locked in escrow before you pay anything.'}
           </p>
-
-          <div className={styles.rate} data-robot-target="rate">
-            <span className={styles.rateMain}>
-              <span className={styles.rateLock} aria-hidden="true">
-                <LockIcon />
-              </span>
-              <span>
-                <span className={styles.rateUnit}>1 USDT = </span>
-                <Amount className={styles.rateValue} value={rate} />
-              </span>
-            </span>
-            <span className={styles.rateNote}>Locked until {formatIstTime(expiresAt)}</span>
-          </div>
         </div>
 
-        <dl className={styles.terms}>
-          <div>
-            <dt>{sell ? 'INR paid to' : 'USDT delivered to'}</dt>
-            <dd>{quote.destination}</dd>
+        {/* The quote's face is a stage: the figure the client gets as a monument on the mark's orange, the robot
+            standing in its halo and answering what happens, the time left on its visor, and the decision. */}
+        <div className={`${shell.brandField} ${stage.stage}`}>
+          <div className={stage.halo} aria-hidden="true">
+            <i />
+            <svg className={stage.haloArcs} viewBox="0 0 400 400" focusable="false">
+              <path d="M 27.6 230.4 A 175 175 0 0 1 117.8 45.5" />
+              <path d="M 282.2 45.5 A 175 175 0 0 1 372.4 230.4" />
+              <path d="M 297.9 345 A 175 175 0 0 1 102.1 345" />
+            </svg>
+            <svg className={stage.haloOrbit} viewBox="0 0 400 400" focusable="false">
+              <circle cx="200" cy="200" r="194" />
+              <circle className={stage.haloNode} cx="200" cy="6" r="6" />
+              <circle className={stage.haloNode} cx="32" cy="297" r="5" />
+              <circle className={stage.haloNode} cx="368" cy="297" r="5" />
+            </svg>
           </div>
-          <div>
-            <dt>Network</dt>
-            <dd>USDT on TRON (TRC20)</dd>
-          </div>
-          {fee ? (
-            <div>
-              <dt>Network fee</dt>
-              <dd>{fee} USDT — what TRON charges for this deal’s escrow and its transfers. No other fee: the rate is the market’s.</dd>
-            </div>
-          ) : quote.networkFeeIncluded ? (
-            <div>
-              <dt>Fees</dt>
-              <dd>Included in the rate, with the TRC20 network fee of ₹{legAmount(quote.networkFeeIncluded.amount, 'INR')}</dd>
-            </div>
-          ) : null}
-          <div>
-            <dt>Settlement</dt>
-            <dd>{sell ? 'Send your USDT to the trade’s own address; INR follows in one or more transfers, each with its bank reference.' : 'Pay the INR; the USDT is sent to your wallet once it is confirmed.'}</dd>
-          </div>
-        </dl>
+          <RobotFigure mood="focused" className={stage.robot} />
 
-        {canAccept ? (
-          declining ? (
-            <div className={styles.confirmRow} role="group" aria-label="Decline this quote">
-              <p>Declining tells the desk you will not take this price, and it can no longer be accepted. Your request stays open for a new quote.</p>
-              <div className={styles.confirmActions}>
-                <button type="button" className={shell.secondaryAction} onClick={() => void decline()} disabled={busy}>
-                  {busy ? <ArcLoader size="sm" label="Declining" tone="inherit" /> : null}
-                  Decline quote
-                </button>
-                <button type="button" className={shell.textAction} onClick={() => setDeclining(false)} disabled={busy}>
-                  Keep it
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className={styles.decide}>
-              <button type="button" className={`${shell.action} ${shell.wide}`} data-robot-target="cta" onClick={() => void accept()} disabled={busy} aria-busy={busy || undefined}>
-                {busy ? <ArcLoader size="sm" label="Accepting" tone="inherit" /> : null}
-                <span>Accept quote at {rate}</span>
-                {busy ? null : <ArrowIcon className={shell.actionIcon} />}
-              </button>
-              <button type="button" className={`${shell.textAction} ${styles.decline}`} onClick={() => setDeclining(true)} disabled={busy}>
-                Decline
-              </button>
-            </div>
-          )
-        ) : (
-          <p className={shell.info} data-tone="warning">
-            <InfoIcon className={shell.infoIcon} />
-            <span>Your account can see quotes but not accept them. Someone with acceptance rights has to decide on this one.</span>
-          </p>
-        )}
-        {error ? (
-          <p className={shell.error} role="alert">
-            {error}
-          </p>
-        ) : null}
+          <header className={stage.stageHead}>
+            <span className={stage.chip}>
+              <StateRing state="lock" />
+              <span>
+                Firm quote · <span className={styles.side}>held for you</span>
+              </span>
+            </span>
+            <span className={stage.ref}>{quote.ref}</span>
+          </header>
+
+          <div className={stage.get}>
+            <span className={stage.getLabel}>You receive</span>
+            <span className={stage.getFigure}>
+              <Amount value={sell ? `₹${inr}` : usdt} />
+              <span className={stage.getUnit}>{sell ? 'INR' : 'USDT'}</span>
+            </span>
+            <p className={stage.getSub}>
+              {fee
+                ? sell
+                  ? `${fee} USDT of what you send pays the network.`
+                  : `Includes your USDT and ${fee} USDT of network at this rate.`
+                : sell
+                  ? 'Exactly this — nothing is deducted.'
+                  : 'Exactly this — nothing is added.'}
+            </p>
+          </div>
+
+          <div className={stage.facts}>
+            <span className={stage.fact} data-robot-target="rate">
+              <RateIcon />
+              <span>
+                <span className={stage.factQuiet}>1 USDT = </span>
+                <span className={stage.factFigure}>{rate}</span>
+              </span>
+            </span>
+            <span className={stage.fact}>
+              <LockIcon />
+              Locked until {formatIstTime(expiresAt)}
+            </span>
+          </div>
+
+          <div className={stage.decide}>
+            {canAccept ? (
+              declining ? (
+                <div className={stage.confirm} role="group" aria-label="Decline this quote">
+                  <p>Declining tells the desk you will not take this price, and it can no longer be accepted. Your request stays open for a new quote.</p>
+                  <div className={stage.confirmActions}>
+                    <button type="button" className={shell.secondaryAction} onClick={() => void decline()} disabled={busy}>
+                      {busy ? <ArcLoader size="sm" label="Declining" tone="inherit" /> : null}
+                      Decline quote
+                    </button>
+                    <button type="button" className={`${shell.textAction} ${stage.onField}`} onClick={() => setDeclining(false)} disabled={busy}>
+                      Keep it
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className={stage.decideRow}>
+                    <Countdown sentAt={quote.sentAt ? new Date(quote.sentAt) : null} expiresAt={expiresAt} now={now} />
+                    <button type="button" className={stage.accept} data-robot-target="cta" onClick={() => void accept()} disabled={busy} aria-busy={busy || undefined}>
+                      {busy ? <ArcLoader size="sm" label="Accepting" tone="inherit" /> : null}
+                      <span>Accept quote at {rate}</span>
+                      {busy ? null : <ArrowIcon className={shell.actionIcon} />}
+                    </button>
+                  </div>
+                  <button type="button" className={`${shell.textAction} ${stage.onField}`} onClick={() => setDeclining(true)} disabled={busy}>
+                    Decline — your request stays open
+                  </button>
+                </>
+              )
+            ) : (
+              <p className={stage.cannot}>
+                <InfoIcon className={shell.infoIcon} />
+                <span>Your account can see quotes but not accept them. Someone with acceptance rights has to decide on this one.</span>
+              </p>
+            )}
+            {error ? (
+              <p className={stage.error} role="alert">
+                {error}
+              </p>
+            ) : null}
+          </div>
+        </div>
       </section>
       {dialog}
     </>

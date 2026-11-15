@@ -77,19 +77,65 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
-  padding: var(--space-5);
-  border: 1px solid var(--line, var(--border-default));
-  border-radius: 16px;
-  background: var(--bg-surface);
-  box-shadow: 0 1px 2px rgba(18, 19, 23, 0.04);
+  padding: var(--space-6);
+  border: 1px solid transparent;
+  border-radius: var(--radius-card, 26px);
+  background:
+    linear-gradient(var(--bg-surface), var(--bg-surface)) padding-box,
+    var(--edge, linear-gradient(var(--border-default), var(--border-default))) border-box;
+  box-shadow: var(--lift, 0 1px 2px rgba(18, 19, 23, 0.04));
 }
 
-.note[data-assistant-mood='focused'] {
-  border-color: color-mix(in srgb, var(--brand-primary) 40%, var(--border-default));
+/* A status that waits for the reader is the page's orange moment (`shell.brandField`), its words in white. */
+.note[data-turn] {
+  gap: var(--space-4);
+  padding: 28px;
+  border: 0;
+  background: linear-gradient(140deg, #f55a2d 0%, #ea4a20 46%, #c63d17 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.34),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.07),
+    var(--glow, 0 30px 60px -30px rgba(200, 64, 26, 0.95));
 }
 
-.note[data-assistant-mood='alert'] {
-  border-color: color-mix(in srgb, var(--status-danger) 40%, var(--border-default));
+.note[data-turn] .chip {
+  color: rgba(255, 255, 255, 0.86);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.note[data-turn] .mark {
+  display: none;
+}
+
+.note[data-turn] .noteTitle {
+  font-family: var(--font-display);
+  font-size: 28px;
+  line-height: 1.1;
+  letter-spacing: -0.04em;
+}
+
+.note[data-turn] .noteBody,
+.note[data-turn] .meta {
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.note[data-turn] a,
+.note[data-turn] button {
+  color: var(--text-on-action);
+}
+
+.chipRing {
+  width: 16px;
+  height: 16px;
+  color: var(--tone);
+}
+
+.note[data-turn] .chipRing {
+  color: var(--text-on-action);
 }
 
 .noteHead {

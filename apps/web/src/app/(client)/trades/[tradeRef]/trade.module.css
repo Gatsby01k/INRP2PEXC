@@ -144,8 +144,7 @@
 }
 
 .action[data-attention] {
-  border-color: color-mix(in srgb, var(--brand-primary) 55%, var(--border-default));
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-primary) 10%, transparent);
+  box-shadow: var(--lift-strong);
 }
 
 .actionHead {
@@ -163,21 +162,31 @@
 }
 
 .actionBadge {
-  padding: 3px 8px;
-  border-radius: 6px;
-  background: var(--brand-action);
-  color: var(--text-on-action);
+  color: rgba(255, 255, 255, 0.84);
+  font-family: var(--font-mono);
   font-size: var(--font-size-micro);
-  font-weight: var(--font-weight-semibold);
-  letter-spacing: 0.02em;
+  font-weight: var(--font-weight-medium);
+  line-height: 1.2;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
 }
 
 .actionTitle {
   margin: 0;
   font-family: var(--font-display);
-  font-size: 20px;
+  font-size: 34px;
   font-weight: var(--font-weight-semibold);
-  letter-spacing: -0.02em;
+  line-height: 1.08;
+  letter-spacing: -0.04em;
+}
+
+.actionHead {
+  align-items: center;
+}
+
+/* The picture of the deal sits between the headline and the figures. */
+.rail {
+  padding: var(--space-2) 0 0;
 }
 
 .actionText {
@@ -438,5 +447,39 @@ a.eventDetail:hover {
 
   .payment {
     padding: var(--space-3) var(--space-4);
+  }
+}
+
+/* ——— The state's headline, the deal's picture and its figures ——— */
+
+.state {
+  padding: var(--space-6) 28px var(--space-2);
+  background: none;
+}
+
+.hero[data-mood='success'] .state,
+.hero[data-mood='alert'] .state {
+  background: none;
+}
+
+.stateTitle {
+  font-size: 26px;
+  line-height: 1.15;
+  letter-spacing: -0.035em;
+}
+
+.stateBody {
+  color: var(--ink-2);
+  font-size: var(--font-size-body);
+}
+
+.rail {
+  padding: var(--space-4) 28px var(--space-5);
+}
+
+/* Where the picture is drawn, the journey in words is the phone's. */
+@media (min-width: 700px) {
+  .progress > ol {
+    display: none;
   }
 }

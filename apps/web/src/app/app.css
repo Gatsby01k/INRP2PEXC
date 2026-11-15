@@ -14,6 +14,21 @@ html {
   scrollbar-color: color-mix(in srgb, var(--text-primary) 22%, transparent) transparent;
 }
 
+/* The workspace's glyphs carry one node in the mark's orange; a surface that is itself colour sets `--node`. */
+.ix-node {
+  fill: var(--node, var(--brand-primary));
+  stroke: none;
+}
+
+.ix-ink {
+  fill: currentColor;
+  stroke: none;
+}
+
+.ix-accent {
+  stroke: var(--node, var(--brand-primary));
+}
+
 /* Desk-only helpers. Anything reusable belongs in the design system, not here. */
 .ix-linkish {
   background: none;
