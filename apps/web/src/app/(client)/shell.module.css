@@ -505,8 +505,42 @@ svg.led {
 }
 
 .liveDealGlyph {
+  --ring: var(--led);
   width: 16px;
   height: 16px;
+}
+
+.liveDealTime {
+  font-family: var(--font-figure);
+  font-size: 14px;
+  font-weight: var(--font-weight-semibold);
+  line-height: 1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.liveDealMore {
+  display: inline-grid;
+  place-items: center;
+  min-width: 22px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.14);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The pill arrives after the page: it fades in where it stands, and nothing beside it moves. */
+.liveDeal {
+  animation: enter 420ms var(--ease) both;
+}
+
+@media (hover: hover) {
+  .liveDeal:hover {
+    filter: brightness(1.15);
+  }
 }
 
 .deskState {
@@ -1490,8 +1524,13 @@ svg.led {
     white-space: nowrap;
   }
 
-  .liveDealRef,
-  .liveDealWord {
+  .liveDealWord,
+  .liveDealMore {
+    display: none;
+  }
+
+  /* With a time to show, a phone shows the time; without one, the reference. */
+  .liveDeal:has(.liveDealTime) .liveDealRef {
     display: none;
   }
 

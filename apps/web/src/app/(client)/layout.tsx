@@ -8,6 +8,7 @@ import { workspaceFrame } from '../../server/workspace-frame.ts';
 import { AccountMenu } from './_workspace/AccountMenu.tsx';
 import { CommandMenu, type CommandEntry } from './_workspace/CommandMenu.tsx';
 import { FieldLight } from './_workspace/FieldLight.tsx';
+import { LiveDeal } from './_workspace/LiveDeal.tsx';
 import { MailIcon } from './_workspace/icons.tsx';
 import { NotificationsLink } from './_workspace/NotificationsLink.tsx';
 import { PAGE_HEAD_ID } from './_workspace/PageHead.tsx';
@@ -66,7 +67,8 @@ const DESK_STATE: Record<string, { label: string; tone: 'live' | 'paused' | 'neu
  *
  * The masthead is one glass bar floating over the page: the mark and the name on the left, the sections beside it —
  * the one you are on a visor with its glyph lit, sliding to the next as you move — and search (⌘K), notifications and
- * the account on the right. On a phone the sections drop to a floating bar under the thumb. Below
+ * the account on the right, and — when a deal waits on this person — that deal riding in the bar on every page
+ * (`LiveDeal`). On a phone the sections drop to a floating bar under the thumb. Below
  * it each page lays out its own work: a heading, the work, and — where the page has one — a column of context beside
  * it (`shell.module.css`).
  */
@@ -133,6 +135,7 @@ export default async function ClientLayout({ children }: { children: ReactNode }
           </Link>
           <ClientNav entries={entries} />
           <div className={styles.headerActions}>
+            {member ? <LiveDeal /> : null}
             <CommandMenu entries={commands} />
             {member ? (
               <NotificationsLink unread={unread} className={styles.iconButton} iconClassName={styles.toolIcon} badgeClassName={styles.unread} />
