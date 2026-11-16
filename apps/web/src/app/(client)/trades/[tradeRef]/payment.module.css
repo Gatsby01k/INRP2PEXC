@@ -126,14 +126,14 @@
   grid-template-columns: auto minmax(0, 1fr);
   gap: var(--space-3);
   align-items: start;
-  padding: var(--space-3) var(--space-4);
-  border-radius: 12px;
+  padding: var(--space-4) 18px;
+  border-radius: 16px;
   background: var(--accent-soft, var(--brand-soft));
 }
 
 .rule p {
   margin: 0;
-  color: var(--text-secondary);
+  color: var(--ink-2, var(--text-secondary));
   font-size: var(--font-size-body-sm);
   line-height: var(--line-height-normal);
 }

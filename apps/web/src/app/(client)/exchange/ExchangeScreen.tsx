@@ -7,7 +7,9 @@ import { useAssistantState } from '../_assistant/AssistantPanel.tsx';
 import { exchangeAssistant, quoteLive, requestSteps } from '../_assistant/model.ts';
 import { DealRail } from '../_workspace/DealRail.tsx';
 import { legAmount } from './amounts.ts';
-import { Activity, ExchangeAside } from './ExchangeAside.tsx';
+import { StateRing } from '../_workspace/StateRing.tsx';
+import { Activity } from './ExchangeAside.tsx';
+import { StagePanel } from './StagePanel.tsx';
 import { PricingCard } from './PricingCard.tsx';
 import { QuoteCard } from './QuoteCard.tsx';
 import { RequestForm, type Who } from './RequestForm.tsx';
@@ -24,6 +26,13 @@ export interface RequestDraft {
   readonly amount?: string;
 }
 
+/** What the page does, as the stage shows it before there is a request. */
+const HOW = [
+  { label: 'Ask for a price', status: 'current' },
+  { label: 'Accept a firm quote', status: 'pending' },
+  { label: 'Settle and get paid', status: 'pending' },
+] as const;
+
 /** How often the screen looks for the desk's quote while a request is being priced. */
 const PRICING_POLL_MS = 8_000;
 /** How long to wait before looking again at a quote whose time is up but which the expiry job has not yet closed. */
@@ -38,8 +47,9 @@ const EXPIRY_LAG_POLL_MS = 5_000;
  * - a request with the desk (or a quote that just ran out): wait, or withdraw it;
  * - otherwise: ask for a price — after, for a new client, the two steps that make that possible.
  *
- * The state is also what any robot on screen rests in and what may make a sound (`useAssistantState`), from the
- * same data and the same clock.
+ * Every state has the same shape — the request on its sheet, and beside it the stage the robot stands on — so the
+ * page does not rearrange itself as the deal moves. The state is also what the robot rests in and what may make a
+ * sound (`useAssistantState`), from the same data and the same clock.
  */
 export function ExchangeScreen({
   view,
@@ -113,13 +123,31 @@ export function ExchangeScreen({
             {recent.length > 0 ? <Activity recent={recent} /> : null}
           </>
         ) : withDesk ? (
-          <PricingCard view={view} />
+          <>
+            <PricingCard view={view} steps={requestSteps(view, now) ?? undefined} />
+            {recent.length > 0 ? <Activity recent={recent} /> : null}
+          </>
         ) : (
-          <RequestForm view={view} who={who} {...(draft ? { draft } : {})} />
+          <>
+            <div className={stage.deal} data-even="">
+              <RequestForm view={view} who={who} {...(draft ? { draft } : {})} />
+              <StagePanel
+                mood="ready"
+                chip={
+                  <>
+                    <StateRing state="live" />
+                    <span>Ready for your request</span>
+                  </>
+                }
+                title="One firm price for the whole amount"
+                body="Ask for a price in either currency. It is held for a short time, and nothing is committed until you accept."
+                steps={HOW}
+              />
+            </div>
+            {recent.length > 0 ? <Activity recent={recent} /> : null}
+          </>
         )}
       </main>
-      {/* A live quote takes the page's whole width; every other state keeps its context beside the work. */}
-      {quote && live ? null : <ExchangeAside mode={withDesk ? { kind: 'pricing', steps: requestSteps(view, now) } : { kind: 'ready' }} recent={recent} />}
     </>
   );
 }

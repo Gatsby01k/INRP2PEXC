@@ -152,7 +152,7 @@ export function P2pOrderAction({ detail, canAct }: { detail: TraderOrderDetail; 
   const badge = disputed ? 'With INRP2P' : yours ? 'Your move' : deal.step === 'RELEASE' ? 'Releasing' : deal.step === 'REFUND' ? 'Refund' : deal.step === 'CANCELLED' ? 'Closed' : deal.step === 'DONE' ? 'Done' : 'Escrow';
   return (
     <section className={`${shell.card} ${pay.card}`} aria-labelledby="next-title" data-robot-target="panel" {...(yours ? { 'data-attention': '' } : {})}>
-      <div className={pay.head}>
+      <div className={yours ? `${pay.head} ${shell.cap}` : pay.head}>
         <div className={pay.headText}>
           <span className={pay.badge} data-tone={yours ? undefined : 'quiet'}>
             {badge}

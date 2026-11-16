@@ -1,12 +1,16 @@
 import Link from 'next/link';
 import { Money } from '@inrp2p/kernel';
 import type { HistoryRow } from '@inrp2p/portal';
-import { formatInrCompact, formatUsdtHeadline } from '@inrp2p/ui/format';
+import { formatInr, formatUsdtHeadline } from '@inrp2p/ui/format';
 import { type Step, isOpenTrade } from '../_assistant/model.ts';
 import { TRADE_STATUS } from '../_workspace/StatusPill.tsx';
-import { ArrowIcon, CheckIcon, ClockIcon, PauseIcon } from '../_workspace/icons.tsx';
+import { ChevronIcon } from '../_workspace/icons.tsx';
+import { PairCoin } from '../_workspace/PairCoin.tsx';
+import { StateRing } from '../_workspace/StateRing.tsx';
+import workspace from '../_workspace/workspace.module.css';
 import shell from '../shell.module.css';
 import styles from './exchange.module.css';
+import stage from './stage.module.css';
 
 type Mode = { kind: 'ready' } | { kind: 'pricing'; steps: readonly Step[] } | { kind: 'quote'; sell: boolean };
 
@@ -108,37 +112,50 @@ const AWAITING = new Set(['AWAITING_FIRST_LEG']);
 export function Activity({ recent }: { recent: readonly HistoryRow[] }) {
   const sorted = [...recent].sort((a, b) => Number(AWAITING.has(b.status) && !b.onHold) - Number(AWAITING.has(a.status) && !a.onHold));
   return (
-    <section className={styles.panel} aria-labelledby="activity-title">
-      <div className={styles.panelHead}>
-        <h2 id="activity-title" className={styles.panelTitle}>
+    <section className={`${shell.card} ${stage.recent}`} aria-labelledby="activity-title">
+      <div className={shell.cardHead}>
+        <h2 id="activity-title" className={shell.cardTitle}>
           Your trades
         </h2>
-        <Link className={styles.panelLink} href="/history">
+        <Link className={shell.textAction} href="/history">
           All trades
+          <ChevronIcon />
         </Link>
       </div>
-      <ul className={styles.activity}>
+      <ul className={stage.rows}>
         {sorted.slice(0, 4).map((t) => {
           const sell = t.direction === 'SELL_USDT';
           const yours = AWAITING.has(t.status) && !t.onHold;
           const done = t.status === 'COMPLETED';
-          const tone = yours ? 'action' : done ? 'done' : undefined;
+          const held = t.onHold && isOpenTrade(t.status);
           const usdt = formatUsdtHeadline(Money.parse(t.base, 'USDT'));
-          const inr = formatInrCompact(Money.parse(t.inr, 'INR'));
-          const state = t.onHold && isOpenTrade(t.status) ? 'On hold' : yours ? (sell ? 'Send USDT' : 'Pay INR') : (TRADE_STATUS[t.status]?.label ?? t.status);
+          const inr = formatInr(Money.parse(t.inr, 'INR'));
+          const known = TRADE_STATUS[t.status];
+          const state = held ? 'On hold' : yours ? (sell ? 'Send USDT' : 'Pay INR') : (known?.label ?? t.status);
           return (
             <li key={t.ref}>
-              <Link href={`/trades/${t.ref}`}>
-                <span className={styles.activityMark} {...(tone ? { 'data-tone': tone } : {})} aria-hidden="true">
-                  {done ? <CheckIcon /> : t.onHold ? <PauseIcon /> : yours ? <ArrowIcon /> : <ClockIcon />}
+              <Link href={`/trades/${t.ref}`} className={stage.row}>
+                <PairCoin side={t.direction} />
+                <span className={stage.rowText}>
+                  <span className={stage.rowTitle}>
+                    <span className={stage.rowSide} data-side={sell ? 'sell' : 'buy'}>
+                      {sell ? 'Sell' : 'Buy'}
+                    </span>{' '}
+                    {usdt}
+                  </span>
+                  <span className={stage.rowRef}>{t.ref}</span>
                 </span>
-                <span className={styles.activityText}>
-                  <span className={styles.activityTitle}>{sell ? `${usdt} → ${inr}` : `${inr} → ${usdt}`}</span>
-                  <span className={styles.activityMeta}>{t.ref}</span>
+                <span className={stage.rowFigure}>
+                  <span className={stage.rowArrow} aria-hidden="true">
+                    {sell ? '→ ' : '← '}
+                  </span>
+                  {inr}
                 </span>
-                <span className={styles.activityState} {...(tone === 'action' ? { 'data-tone': 'action' } : {})}>
+                <span className={workspace.pill} data-tone={held ? 'hold' : yours ? 'turn' : done ? 'done' : (known?.tone ?? 'neutral')}>
+                  <StateRing state={held ? 'hold' : yours ? 'turn' : (known?.ring ?? 'off')} className={workspace.pillIcon} />
                   {state}
                 </span>
+                <ChevronIcon className={stage.rowGo} />
               </Link>
             </li>
           );

@@ -9,6 +9,7 @@ import { CopyButton } from '@inrp2p/ui';
 import { useAssistantState } from '../../../_assistant/AssistantPanel.tsx';
 import { traderOrderAssistant } from '../../../_assistant/traders.ts';
 import { BackIcon, InfoIcon } from '../../../_workspace/icons.tsx';
+import { DealRail } from '../../../_workspace/DealRail.tsx';
 import { type Figure, Figures, Track } from '../../../_workspace/OrderSummary.tsx';
 import { useServerClock } from '../../../exchange/useServerClock.ts';
 import { OfferCard } from '../../_ui/OfferCard.tsx';
@@ -128,8 +129,17 @@ export function OrderScreen({ detail, canAct }: { detail: TraderOrderDetail; can
           <OfferCard order={o} now={now} canAct={canAct} receiveAt={detail.youReceiveAt} />
         ) : (
           <section className={`${shell.card} ${trade.hero}`} aria-label="Order summary">
+            {o.p2pStep && detail.steps.length > 0 ? (
+              <div className={trade.progress} role="group" aria-label="Order progress">
+                <div className={trade.rail}>
+                  <DealRail viewer={buy ? 'buyer' : 'seller'} step={o.p2pStep} usdt={usdt(o.usdt)} inr={inr(o.inr)} label={status.title} />
+                </div>
+                <Track steps={detail.steps} label="Stops" />
+              </div>
+            ) : detail.steps.length > 0 ? (
+              <Track steps={detail.steps} label="Order progress" />
+            ) : null}
             <Figures figures={figures} />
-            {detail.steps.length > 0 ? <Track steps={detail.steps} label="Order progress" /> : null}
           </section>
         )}
         {o.status === 'OFFERED' ? null : detail.p2p && o.status !== 'ACCEPTED' ? <P2pOrderAction detail={detail} canAct={canAct} /> : <NextAction detail={detail} />}
