@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import type { OrderSummary } from '@inrp2p/traders';
-import { ChevronIcon } from '../../_workspace/icons.tsx';
+import { ArrowIcon, ChevronIcon } from '../../_workspace/icons.tsx';
+import { PairCoin } from '../../_workspace/PairCoin.tsx';
+import { StateRing, type RingState } from '../../_workspace/StateRing.tsx';
 import { OrderPill } from './OrderPill.tsx';
 import { inr, usdt } from './format.ts';
 import shell from '../../shell.module.css';
@@ -33,40 +35,71 @@ export function nextStepText(o: OrderSummary): string {
   }
 }
 
-/** Orders held or in progress, one line each: what, how much, where it stands, what is next. */
+/** The queue's three lanes, in the order a trader reads them: what waits for them, what waits for the other side, what is being checked. */
+const LANES: readonly { key: string; title: string; ring: RingState; stages: readonly string[] }[] = [
+  { key: 'turn', title: 'Your move', ring: 'turn', stages: ['OFFER', 'YOUR_TURN'] },
+  { key: 'wait', title: 'Waiting for the other side', ring: 'wait', stages: ['HELD', 'AWAITING_FUNDING'] },
+  { key: 'check', title: 'Being checked', ring: 'check', stages: ['CHECKING_YOURS', 'CHECKING_INRP2P', 'INRP2P_SENDING', 'REVIEW'] },
+];
+
+/**
+ * Orders held or in progress as a queue in lanes — what waits for the trader first — one card each: the pair, the
+ * side and how much, where it stands, and what is next. A lane with nothing in it is not drawn.
+ */
 export function ActiveOrders({ orders }: { orders: readonly OrderSummary[] }) {
   if (orders.length === 0) return null;
+  const known = new Set(LANES.flatMap((l) => l.stages));
+  const lanes = LANES.map((l) => ({ ...l, orders: orders.filter((o) => l.stages.includes(o.stage) || (l.key === 'check' && !known.has(o.stage))) })).filter((l) => l.orders.length > 0);
   return (
-    <section className={shell.card} aria-labelledby="active-orders-title">
-      <div className={shell.cardHead}>
-        <h2 id="active-orders-title" className={shell.cardTitle}>
-          Active orders
+    <section className={styles.queue} aria-labelledby="active-orders-title">
+      <div className={styles.queueHead}>
+        <h2 id="active-orders-title" className={styles.queueTitle}>
+          Active orders <span className={styles.queueCount}>· {orders.length}</span>
         </h2>
         <Link className={shell.textAction} href="/traders/orders">
           All orders
           <ChevronIcon />
         </Link>
       </div>
-      <ul className={styles.orderList}>
-        {orders.map((o) => (
-          <li key={o.ref}>
-            <Link className={styles.orderRow} href={`/traders/orders/${o.ref}`} data-due={o.stage === 'YOUR_TURN' || o.stage === 'OFFER' || undefined}>
-              <span className={styles.sideMark} data-side={o.side}>
-                {o.side === 'BUY_USDT' ? 'Buy' : 'Sell'}
-              </span>
-              <span className={styles.orderText}>
-                <span className={styles.orderMain}>{usdt(o.usdt)}</span>
-                <span className={`${styles.orderMeta} ${styles.refWhole}`}>{o.ref}</span>
-              </span>
-              <span className={styles.orderStep}>{nextStepText(o)}</span>
-              <span className={styles.next}>
-                <OrderPill stage={o.stage} status={o.status} />
-                <ChevronIcon className={styles.chevron} />
-              </span>
-            </Link>
-          </li>
+      <div className={styles.lanes} data-count={lanes.length}>
+        {lanes.map((lane) => (
+          <div key={lane.key} className={styles.lane} data-lane={lane.key}>
+            <h3 className={styles.laneHead}>
+              <StateRing state={lane.ring} className={styles.laneRing} />
+              {lane.title}
+              <span className={styles.laneCount}>{lane.orders.length}</span>
+            </h3>
+            <ul className={styles.laneList}>
+              {lane.orders.map((o) => {
+                const due = o.stage === 'YOUR_TURN' || o.stage === 'OFFER';
+                return (
+                  <li key={o.ref}>
+                    <Link className={styles.orderCard} href={`/traders/orders/${o.ref}`} data-due={due || undefined}>
+                      <span className={styles.orderTop}>
+                        <PairCoin side={o.side} />
+                        <span className={styles.orderText}>
+                          <span className={styles.sideWord} data-side={o.side}>
+                            {o.side === 'BUY_USDT' ? 'Buy' : 'Sell'}
+                          </span>
+                          <span className={styles.orderFigure}>{usdt(o.usdt)}</span>
+                        </span>
+                        <OrderPill stage={o.stage} status={o.status} />
+                      </span>
+                      <span className={styles.orderAct}>
+                        <span>{nextStepText(o)}</span>
+                        <span className={styles.orderGo} aria-hidden="true">
+                          {due ? <ArrowIcon /> : <ChevronIcon />}
+                        </span>
+                      </span>
+                      <span className={`${styles.orderRef} ${styles.refWhole}`}>{o.ref}</span>
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
         ))}
-      </ul>
+      </div>
     </section>
   );
 }

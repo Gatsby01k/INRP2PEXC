@@ -6,6 +6,7 @@ import { type AssistantState, type Step, soundForTransition } from './model.ts';
 import { playSound } from './sound.ts';
 import { AlertIcon, ArrowIcon, CheckIcon, InfoIcon, ShieldIcon, TimerIcon } from '../_workspace/icons.tsx';
 import shell from '../shell.module.css';
+import { StateRing } from '../_workspace/StateRing.tsx';
 import styles from './assistant.module.css';
 
 /** The glyph of each state: what needs the client, what is being waited on or checked, what is done. */
@@ -18,6 +19,9 @@ const MOOD_ICON = {
   ready: CheckIcon,
   none: InfoIcon,
 } as const;
+
+/** The state's ring beside its word: the same family as every status pill. */
+const MOOD_RING = { alert: 'turn', focused: 'turn', waiting: 'wait', verifying: 'check', success: 'done', ready: 'live', none: 'live' } as const;
 
 /** The state as a glyph on a soft disc in its tone — the face of a status card. */
 export function StateMark({ mood }: { mood: AssistantState['mood'] }) {
@@ -52,7 +56,7 @@ export function WholeRefs({ text }: { text: string }) {
 export function StateChip({ state, className }: { state: Pick<AssistantState, 'mood' | 'label'>; className?: string | undefined }) {
   return (
     <span className={`${styles.chip}${className ? ` ${className}` : ''}`} data-mood={state.mood}>
-      <span className={styles.dot} aria-hidden="true" />
+      <StateRing state={MOOD_RING[state.mood as keyof typeof MOOD_RING] ?? 'live'} className={styles.chipRing} />
       {state.label}
     </span>
   );
@@ -109,6 +113,9 @@ export function useAssistantState(state: AssistantState): void {
  *
  * On a narrower screen the status leads the page (`data-lead`), so what is happening is read first.
  */
+/** A status that waits for the reader is the page's orange moment: the field, not a card. */
+const YOUR_MOVE: ReadonlySet<string> = new Set(['Your turn', 'New order']);
+
 export function AssistantPanel({
   state,
   steps,
@@ -137,7 +144,12 @@ export function AssistantPanel({
 
   return (
     <aside className={shell.aside} {...(lead ? { 'data-lead': '' } : {})} {...(split ? { 'data-split': '' } : {})} aria-labelledby={titleId}>
-      <section className={styles.note} data-assistant-mood={state.mood} data-first="">
+      <section
+        className={YOUR_MOVE.has(state.label) ? `${styles.note} ${shell.brandField}` : styles.note}
+        data-assistant-mood={state.mood}
+        data-first=""
+        {...(YOUR_MOVE.has(state.label) ? { 'data-turn': '' } : {})}
+      >
         <div className={styles.noteHead}>
           <StateMark mood={state.mood} />
           <div aria-live="polite" className={styles.noteText}>

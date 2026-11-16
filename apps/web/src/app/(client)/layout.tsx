@@ -7,6 +7,8 @@ import { mailto, siteContacts } from '../../server/site.ts';
 import { workspaceFrame } from '../../server/workspace-frame.ts';
 import { AccountMenu } from './_workspace/AccountMenu.tsx';
 import { CommandMenu, type CommandEntry } from './_workspace/CommandMenu.tsx';
+import { FieldLight } from './_workspace/FieldLight.tsx';
+import { LiveDeal } from './_workspace/LiveDeal.tsx';
 import { MailIcon } from './_workspace/icons.tsx';
 import { NotificationsLink } from './_workspace/NotificationsLink.tsx';
 import { PAGE_HEAD_ID } from './_workspace/PageHead.tsx';
@@ -63,9 +65,10 @@ const DESK_STATE: Record<string, { label: string; tone: 'live' | 'paused' | 'neu
  * account: a client with the Exchange sees all four sections; a trader applicant, or a client that provides capacity
  * only, sees Traders.
  *
- * The masthead is the home page's own: the mark and the name on the left, the sections in a floating pill in the
- * middle — the one you are on filled in the mark's orange, sliding to the next as you move — and search (⌘K), sound,
- * notifications and the account on the right. On a phone the sections drop to a floating bar under the thumb. Below
+ * The masthead is one glass bar floating over the page: the mark and the name on the left, the sections beside it —
+ * the one you are on a visor with its glyph lit, sliding to the next as you move — and search (⌘K), notifications and
+ * the account on the right, and — when a deal waits on this person — that deal riding in the bar on every page
+ * (`LiveDeal`). On a phone the sections drop to a floating bar under the thumb. Below
  * it each page lays out its own work: a heading, the work, and — where the page has one — a column of context beside
  * it (`shell.module.css`).
  */
@@ -104,10 +107,23 @@ export default async function ClientLayout({ children }: { children: ReactNode }
           only place that can hold a first paint: on a click it lands in a page already drawn and does nothing, and the
           shape opens the section at once (§2.3). A browser that does not know `expect` draws as before. */}
       <link rel="expect" href={`#${PAGE_HEAD_ID}`} blocking="render" />
-      {/* The page's backdrop: light from above, a fine grid fading into the paper, one warm glow of the mark's orange
-          drifting slowly, and a grain — the room the work sits in. */}
+      <FieldLight />
+      {/* The room the work sits in: warm paper, a sunrise across its top whose light drifts slowly, the landing's dotted
+          orbits turning in the corner, and a grain. */}
       <div className={styles.backdrop} aria-hidden="true">
         <span className={styles.glow} />
+        <span className={styles.orbitMask}>
+          <svg className={styles.orbits} viewBox="0 0 1400 1400" fill="none" focusable="false">
+            <g stroke="currentColor" strokeLinecap="round" strokeWidth="1.5">
+              <circle cx="700" cy="700" r="470" strokeDasharray="2 13" />
+              <circle cx="700" cy="700" r="590" strokeDasharray="2 17" opacity="0.75" />
+              <circle cx="700" cy="700" r="690" strokeDasharray="2 22" opacity="0.5" />
+            </g>
+            <circle cx="367.7" cy="1032.3" r="6" fill="currentColor" />
+            <circle cx="1117.2" cy="1117.2" r="5" fill="currentColor" opacity="0.8" />
+            <circle cx="212" cy="212" r="5" fill="currentColor" opacity="0.7" />
+          </svg>
+        </span>
       </div>
       <header className={styles.header}>
         <div className={styles.mastheadInner}>
@@ -119,6 +135,7 @@ export default async function ClientLayout({ children }: { children: ReactNode }
           </Link>
           <ClientNav entries={entries} />
           <div className={styles.headerActions}>
+            {member ? <LiveDeal /> : null}
             <CommandMenu entries={commands} />
             {member ? (
               <NotificationsLink unread={unread} className={styles.iconButton} iconClassName={styles.toolIcon} badgeClassName={styles.unread} />

@@ -4,9 +4,9 @@
   gap: var(--space-5);
 }
 
+/* The card whose move is yours is the page's raised sheet; its head is the orange field (`shell.cap`). */
 .card[data-attention] {
-  border-color: color-mix(in srgb, var(--brand-primary) 55%, var(--border-default));
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-primary) 10%, transparent);
+  box-shadow: var(--lift-strong);
 }
 
 .head {
@@ -23,23 +23,36 @@
   gap: var(--space-2);
 }
 
+/* Whose move it is, in the technical voice: on the field it is the field's own eyebrow. */
 .badge {
-  padding: 3px 8px;
-  border-radius: 6px;
-  background: var(--brand-action);
-  color: var(--text-on-action);
+  color: rgba(255, 255, 255, 0.84);
+  font-family: var(--font-mono);
   font-size: var(--font-size-micro);
-  font-weight: var(--font-weight-semibold);
-  letter-spacing: 0.02em;
+  font-weight: var(--font-weight-medium);
+  line-height: 1.2;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
 }
 
 .title {
   margin: 0;
   font-family: var(--font-display);
-  font-size: 20px;
+  font-size: 24px;
   font-weight: var(--font-weight-semibold);
-  letter-spacing: -0.02em;
+  line-height: 1.12;
+  letter-spacing: -0.035em;
   font-variant-numeric: tabular-nums;
+  text-wrap: balance;
+}
+
+.card[data-attention] .head {
+  align-items: center;
+}
+
+.card[data-attention] .title {
+  font-size: 34px;
+  line-height: 1.08;
+  letter-spacing: -0.04em;
 }
 
 .lead {
@@ -50,40 +63,54 @@
   line-height: var(--line-height-normal);
 }
 
+/* A timer is a display: the robot's visor, its figure lit. */
 .timer {
+  --node: var(--led);
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  min-height: 36px;
-  padding: 0 var(--space-3);
-  border-radius: 10px;
-  background: var(--paper, var(--bg-subtle));
-  color: var(--text-secondary);
+  min-height: 40px;
+  padding: 0 var(--space-4) 0 var(--space-3);
+  border-radius: var(--radius-pill);
+  background: var(--visor);
+  box-shadow:
+    var(--visor-edge),
+    0 10px 22px -10px rgba(0, 0, 0, 0.6);
+  color: rgba(255, 255, 255, 0.78);
   font-size: var(--font-size-meta);
   font-weight: var(--font-weight-medium);
   white-space: nowrap;
 }
 
-/* The figure itself is what a payer watches: larger, in tabular digits. */
+.timer::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  top: 8%;
+  right: 44%;
+  left: 9%;
+  height: 36%;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0));
+}
+
+/* The figure itself is what a payer watches: larger, in tabular digits, glowing as the robot's eyes do. */
 .timer :global(.ix-num) {
-  color: var(--text-primary);
-  font-size: 16px;
+  color: var(--led);
+  font-size: 17px;
   font-weight: var(--font-weight-semibold);
-  letter-spacing: 0.01em;
+  letter-spacing: -0.01em;
+  text-shadow:
+    0 0 10px rgba(255, 106, 61, 0.95),
+    0 0 2px rgba(255, 180, 140, 0.9);
 }
 
-.timer[data-state='soon'] {
-  background: var(--status-warning-soft);
-  color: var(--status-warning);
-}
-
-.timer[data-state='soon'] :global(.ix-num) {
-  color: #8a4f00;
-}
-
+.timer[data-state='soon'],
 .timer[data-state='over'] {
-  background: var(--status-danger-soft);
-  color: var(--status-danger);
+  color: var(--text-on-action);
 }
 
 .inlineIcon {
@@ -99,14 +126,14 @@
   grid-template-columns: auto minmax(0, 1fr);
   gap: var(--space-3);
   align-items: start;
-  padding: var(--space-3) var(--space-4);
-  border-radius: 12px;
+  padding: var(--space-4) 18px;
+  border-radius: 16px;
   background: var(--accent-soft, var(--brand-soft));
 }
 
 .rule p {
   margin: 0;
-  color: var(--text-secondary);
+  color: var(--ink-2, var(--text-secondary));
   font-size: var(--font-size-body-sm);
   line-height: var(--line-height-normal);
 }
@@ -121,6 +148,11 @@
   color: var(--brand-action);
 }
 
+/*
+ * What the sheet says besides its question, in three weights: a fact about time is a quiet line on the sheet's own
+ * tint with an amber edge (`overdue`); the rule before money moves keeps its tint (`rule`); only what can go wrong
+ * for good is red (`alert`). Colour is kept for what the reader must not miss.
+ */
 .alert,
 .overdue {
   display: grid;
@@ -128,8 +160,8 @@
   gap: var(--space-3);
   align-items: start;
   margin: 0;
-  padding: var(--space-3) var(--space-4);
-  border-radius: 12px;
+  padding: var(--space-4) 18px;
+  border-radius: 16px;
   font-size: var(--font-size-body-sm);
   line-height: var(--line-height-normal);
 }
@@ -146,8 +178,17 @@
 }
 
 .overdue {
-  background: var(--status-warning-soft);
+  background: var(--paper, var(--bg-subtle));
+  box-shadow: inset 3px 0 0 var(--amber, var(--status-warning));
+  color: var(--ink-2, var(--text-secondary));
+}
+
+.overdue strong {
   color: var(--text-primary);
+}
+
+.overdue svg {
+  color: var(--amber, var(--status-warning));
 }
 
 /* ——— Steps ——— */
@@ -457,12 +498,13 @@
 }
 
 .input {
-  min-height: 48px;
-  padding: 0 var(--space-4);
+  min-height: 54px;
+  padding: 0 18px;
   border: 0;
-  border-radius: 12px;
-  background: var(--bg-surface);
-  box-shadow: inset 0 0 0 1px var(--border-strong);
+  border-radius: 16px;
+  /* A well, as on the ticket: the sheet's tint, no frame until it is in use. */
+  background: var(--paper, var(--bg-subtle));
+  box-shadow: inset 0 0 0 1px transparent;
   color: var(--text-primary);
   font-size: var(--font-size-body-lg);
   letter-spacing: 0.04em;
@@ -470,7 +512,11 @@
 }
 
 .input:hover {
-  box-shadow: inset 0 0 0 1px var(--text-muted);
+  box-shadow: inset 0 0 0 1px var(--line-strong, var(--border-default));
+}
+
+.input:focus-visible {
+  background: var(--bg-surface);
 }
 
 .input:focus-visible {
@@ -710,13 +756,16 @@
 
 /* A step that is not the client's: the badge says where things are, quietly. */
 .badge[data-tone='quiet'] {
-  background: color-mix(in srgb, var(--text-primary) 7%, transparent);
-  color: var(--text-secondary);
+  color: var(--text-muted);
 }
 
-/* The one rule before a decision that releases money: amber, not brand. */
+/* The one rule before a decision that releases money: amber, not brand — the one place amber fills a band. */
 .rule[data-tone='warning'] {
   background: var(--status-warning-soft);
+}
+
+.rule[data-tone='warning'] p {
+  color: #5f4300;
 }
 
 .rule[data-tone='warning'] .ruleIcon {

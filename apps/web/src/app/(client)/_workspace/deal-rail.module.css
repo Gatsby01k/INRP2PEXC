@@ -1,0 +1,227 @@
+/* The deal rail (`DealRail`): a drawing on a 780 × 206 grid that scales with its sheet. */
+
+.rail {
+  display: block;
+  width: 100%;
+  max-width: 860px;
+  height: auto;
+  margin: 0 auto;
+  overflow: visible;
+  font-family: var(--font-sans);
+}
+
+.who {
+  fill: var(--text-primary);
+  font-size: 13px;
+  font-weight: var(--font-weight-semibold);
+}
+
+.cap {
+  fill: var(--text-primary);
+  font-size: 13px;
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.cap[data-quiet] {
+  fill: var(--text-muted);
+  font-weight: var(--font-weight-medium);
+}
+
+.note {
+  fill: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.03em;
+}
+
+/* A lane: done is a solid line, moving a dotted orange one, waiting an orange one that holds still, not begun quiet. */
+.lane,
+.head {
+  fill: none;
+  stroke: var(--line-strong);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.lane {
+  stroke-dasharray: 2 9;
+}
+
+.lane[data-lane='done'] {
+  stroke: var(--text-primary);
+  stroke-dasharray: none;
+}
+
+.head[data-lane='done'] {
+  stroke: var(--text-primary);
+}
+
+.lane[data-lane='fly'],
+.lane[data-lane='wait'],
+.head[data-lane='fly'],
+.head[data-lane='wait'] {
+  stroke: var(--brand-primary);
+}
+
+.lane[data-lane='fly'] {
+  animation: ants 1.1s linear infinite;
+}
+
+.lane[data-lane='off'],
+.head[data-lane='off'] {
+  opacity: 0.6;
+}
+
+/* The coin riding a lane: travelling while the money moves, at rest in the middle once it has arrived. */
+.rider {
+  offset-rotate: 0deg;
+  offset-distance: 50%;
+}
+
+.rider[data-lane='fly'] {
+  animation: ride 3.2s linear infinite;
+}
+
+.rider[data-lane='fly'][data-slow] {
+  animation-duration: 4.8s;
+}
+
+.rider[data-lane='todo'],
+.rider[data-lane='off'] {
+  display: none;
+}
+
+.plate {
+  fill: var(--bg-surface);
+}
+
+.usdt {
+  fill: #26a17b;
+}
+
+.sign {
+  fill: var(--text-on-action);
+}
+
+.inr {
+  fill: var(--brand-primary);
+}
+
+.rupee {
+  fill: none;
+  stroke: var(--text-on-action);
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.tag {
+  fill: var(--bg-surface);
+  stroke: var(--line-strong);
+}
+
+.tagText {
+  fill: var(--text-primary);
+  font-size: 13px;
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.tagNote {
+  fill: var(--text-muted);
+  font-weight: var(--font-weight-medium);
+}
+
+.you {
+  fill: var(--text-primary);
+}
+
+.them {
+  fill: var(--bg-surface);
+  stroke: var(--line-strong);
+  stroke-width: 1.5;
+}
+
+.person,
+.personYou {
+  fill: none;
+  stroke: var(--text-primary);
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.personYou {
+  stroke: var(--text-on-action);
+}
+
+.vault {
+  fill: var(--bg-surface);
+  stroke: var(--line-soft);
+}
+
+.arc {
+  fill: none;
+  stroke: var(--line-strong);
+  stroke-width: 4.5;
+  stroke-linecap: round;
+}
+
+.arc[data-arc='done'] {
+  stroke: var(--text-primary);
+}
+
+.arc[data-arc='now'] {
+  stroke: var(--brand-primary);
+  animation: pulse 1.7s ease-in-out infinite;
+}
+
+.lockDisc {
+  fill: var(--buy);
+}
+
+.lockBow {
+  fill: none;
+  stroke: var(--bg-surface);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+}
+
+@keyframes ants {
+  to {
+    stroke-dashoffset: -22;
+  }
+}
+
+@keyframes ride {
+  from {
+    offset-distance: 0%;
+  }
+
+  to {
+    offset-distance: 100%;
+  }
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* On a phone the drawing would be too small to read: the journey below it says the same in words. */
+@media (max-width: 699px) {
+  .rail {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lane[data-lane='fly'],
+  .rider[data-lane='fly'],
+  .arc[data-arc='now'] {
+    animation: none;
+  }
+}

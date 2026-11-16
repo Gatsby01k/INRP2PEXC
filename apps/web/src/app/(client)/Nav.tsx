@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { LazyMotion, MotionConfig, domMax, m } from 'framer-motion';
-import { BankIcon, ClockIcon, StoreIcon, SwapIcon, UserIcon, UsersIcon } from './_workspace/icons.tsx';
+import { DesksIcon, ExchangeIcon, HistoryIcon, UserIcon, UsersIcon, WalletIcon } from './_workspace/icons.tsx';
 import styles from './shell.module.css';
 
 export interface ClientNavEntry {
@@ -11,13 +11,13 @@ export interface ClientNavEntry {
   readonly label: string;
 }
 
-/** The glyph each section carries — beside its word in the masthead's pill, and above it in the phone's bar. */
-const ICONS: Record<string, typeof SwapIcon> = {
-  '/exchange': SwapIcon,
-  '/history': ClockIcon,
-  '/destinations': BankIcon,
-  '/desk': StoreIcon,
-  '/desks': StoreIcon,
+/** The glyph each section carries — lit beside its word where the section is the current one, and above it in the phone's bar. */
+const ICONS: Record<string, typeof ExchangeIcon> = {
+  '/exchange': ExchangeIcon,
+  '/history': HistoryIcon,
+  '/destinations': WalletIcon,
+  '/desk': DesksIcon,
+  '/desks': DesksIcon,
   '/traders': UsersIcon,
   '/open-account': UserIcon,
 };
@@ -28,7 +28,7 @@ const SHORT: Record<string, string> = {
   '/open-account': 'Open',
 };
 
-/** The line under the current section moves to the next one on a spring, quickly and without overshoot. */
+/** The visor behind the current section moves to the next one on a spring, quickly and without overshoot. */
 const SPRING = { type: 'spring', stiffness: 640, damping: 48, mass: 0.8 } as const;
 
 /**
@@ -36,7 +36,7 @@ const SPRING = { type: 'spring', stiffness: 640, damping: 48, mass: 0.8 } as con
  * capacity — Traders. A trade's own page belongs to History, where it is found, so History stays marked while one
  * is open; a trader's order pages belong to Traders; Account belongs to nothing in the row.
  *
- * The section you are on is underlined in the mark's orange; moving to another, the line slides there.
+ * The section you are on is a visor — the robot's black glass, its node lit; moving to another, the visor slides there.
  */
 export function ClientNav({ entries }: { entries: readonly ClientNavEntry[] }) {
   const pathname = usePathname();

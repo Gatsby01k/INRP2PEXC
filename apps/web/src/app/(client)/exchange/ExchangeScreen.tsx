@@ -5,13 +5,18 @@ import { useRouter } from 'next/navigation';
 import type { ExchangeView, HistoryRow } from '@inrp2p/portal';
 import { useAssistantState } from '../_assistant/AssistantPanel.tsx';
 import { exchangeAssistant, quoteLive, requestSteps } from '../_assistant/model.ts';
-import { ExchangeAside } from './ExchangeAside.tsx';
+import { DealRail } from '../_workspace/DealRail.tsx';
+import { legAmount } from './amounts.ts';
+import { StateRing } from '../_workspace/StateRing.tsx';
+import { Activity } from './ExchangeAside.tsx';
+import { StagePanel } from './StagePanel.tsx';
 import { PricingCard } from './PricingCard.tsx';
 import { QuoteCard } from './QuoteCard.tsx';
 import { RequestForm, type Who } from './RequestForm.tsx';
 import { SetupGuide } from './SetupGuide.tsx';
 import { useServerClock } from './useServerClock.ts';
 import shell from '../shell.module.css';
+import stage from './stage.module.css';
 
 export type Direction = 'SELL_USDT' | 'BUY_USDT';
 
@@ -20,6 +25,13 @@ export interface RequestDraft {
   readonly direction: Direction;
   readonly amount?: string;
 }
+
+/** What the page does, as the stage shows it before there is a request. */
+const HOW = [
+  { label: 'Ask for a price', status: 'current' },
+  { label: 'Accept a firm quote', status: 'pending' },
+  { label: 'Settle and get paid', status: 'pending' },
+] as const;
 
 /** How often the screen looks for the desk's quote while a request is being priced. */
 const PRICING_POLL_MS = 8_000;
@@ -35,8 +47,9 @@ const EXPIRY_LAG_POLL_MS = 5_000;
  * - a request with the desk (or a quote that just ran out): wait, or withdraw it;
  * - otherwise: ask for a price — after, for a new client, the two steps that make that possible.
  *
- * The state is also what any robot on screen rests in and what may make a sound (`useAssistantState`), from the
- * same data and the same clock.
+ * Every state has the same shape — the request on its sheet, and beside it the stage the robot stands on — so the
+ * page does not rearrange itself as the deal moves. The state is also what the robot rests in and what may make a
+ * sound (`useAssistantState`), from the same data and the same clock.
  */
 export function ExchangeScreen({
   view,
@@ -83,17 +96,58 @@ export function ExchangeScreen({
       <main className={shell.main}>
         {firstRun ? <SetupGuide who={who} /> : null}
         {quote && live ? (
-          <QuoteCard quote={quote} canAccept={canAccept} now={now} />
+          <>
+            <QuoteCard quote={quote} canAccept={canAccept} now={now} />
+            {/* What accepting starts, as the same picture the trade then carries to its receipt. */}
+            <section className={`${shell.card} ${stage.ahead}`} aria-labelledby="ahead-title">
+              <div className={shell.cardHead}>
+                <h2 id="ahead-title" className={shell.cardTitle}>
+                  When you accept, the trade opens at this rate
+                </h2>
+                <span className={shell.idx}>The same picture follows the deal to its receipt</span>
+              </div>
+              <DealRail
+                viewer={quote.direction === 'SELL_USDT' ? 'seller' : 'buyer'}
+                step="AHEAD"
+                usdt={`${legAmount(quote.base.amount, 'USDT')} USDT`}
+                inr={`₹${legAmount(quote.inr.amount, 'INR')}`}
+                label="After you accept: the USDT goes into INRP2P’s escrow, the rupees are paid bank to bank, and the escrow releases once they are confirmed."
+              />
+              <ol className={stage.aheadSteps}>
+                <li>The rate and amounts are fixed from that moment.</li>
+                <li>The USDT goes into INRP2P’s escrow — to an address that belongs to this trade alone.</li>
+                <li>The rupees are paid bank to bank, with their reference.</li>
+                <li>Once they are confirmed the escrow releases, and a receipt is issued.</li>
+              </ol>
+            </section>
+            {recent.length > 0 ? <Activity recent={recent} /> : null}
+          </>
         ) : withDesk ? (
-          <PricingCard view={view} />
+          <>
+            <PricingCard view={view} steps={requestSteps(view, now) ?? undefined} />
+            {recent.length > 0 ? <Activity recent={recent} /> : null}
+          </>
         ) : (
-          <RequestForm view={view} who={who} {...(draft ? { draft } : {})} />
+          <>
+            <div className={stage.deal} data-even="">
+              <RequestForm view={view} who={who} {...(draft ? { draft } : {})} />
+              <StagePanel
+                mood="ready"
+                chip={
+                  <>
+                    <StateRing state="live" />
+                    <span>Ready for your request</span>
+                  </>
+                }
+                title="One firm price for the whole amount"
+                body="Ask for a price in either currency. It is held for a short time, and nothing is committed until you accept."
+                steps={HOW}
+              />
+            </div>
+            {recent.length > 0 ? <Activity recent={recent} /> : null}
+          </>
         )}
       </main>
-      <ExchangeAside
-        mode={quote && live ? { kind: 'quote', sell: quote.direction === 'SELL_USDT' } : withDesk ? { kind: 'pricing', steps: requestSteps(view, now) } : { kind: 'ready' }}
-        recent={recent}
-      />
     </>
   );
 }

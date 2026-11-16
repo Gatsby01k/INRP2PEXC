@@ -20,7 +20,7 @@
   display: grid;
   gap: 4px;
   min-width: 0;
-  padding: var(--space-4) var(--space-6);
+  padding: var(--space-5) 28px;
 }
 
 .figure + .figure {
@@ -29,24 +29,24 @@
 
 .figureLabel {
   color: var(--text-muted);
-  font-size: var(--font-size-meta);
+  font-size: 12.5px;
   font-weight: var(--font-weight-medium);
 }
 
 .figureValue {
   margin: 0;
   white-space: nowrap;
-  font-family: var(--font-display);
-  font-size: 20px;
+  font-family: var(--font-figure, var(--font-sans));
+  font-size: 22px;
   font-weight: var(--font-weight-semibold);
-  letter-spacing: -0.02em;
+  letter-spacing: -0.035em;
   line-height: 1.2;
   font-variant-numeric: tabular-nums;
 }
 
 /* The money's journey: one line from the first stop to the last, filled as far as it has got. */
 .track {
-  --node: 22px;
+  --stop: 22px;
   position: relative;
   display: grid;
   grid-template-columns: repeat(var(--stops, 4), minmax(0, 1fr));
@@ -60,20 +60,20 @@
 .track::after {
   content: '';
   position: absolute;
-  top: calc(var(--space-5) + var(--node) / 2 - 1px);
-  left: calc(var(--space-6) + var(--node) / 2);
+  top: calc(var(--space-5) + var(--stop) / 2 - 1px);
+  left: calc(var(--space-6) + var(--stop) / 2);
   height: 2px;
   border-radius: 1px;
 }
 
 .track::before {
-  right: calc(var(--space-6) + (100% - 2 * var(--space-6)) / var(--stops, 4) - var(--node) / 2);
+  right: calc(var(--space-6) + (100% - 2 * var(--space-6)) / var(--stops, 4) - var(--stop) / 2);
   background: var(--border-default);
 }
 
 .track::after {
   width: calc((100% - 2 * var(--space-6)) * (var(--stops, 4) - 1) / var(--stops, 4) * var(--progress, 0));
-  background: var(--brand-primary);
+  background: var(--text-primary);
   transition: width 600ms var(--ease);
 }
 
@@ -90,8 +90,8 @@
 .node {
   display: grid;
   place-items: center;
-  width: var(--node);
-  height: var(--node);
+  width: var(--stop);
+  height: var(--stop);
   margin-bottom: var(--space-2);
   border: 2px solid var(--border-strong);
   border-radius: 50%;
@@ -107,14 +107,16 @@
   stroke-width: 2.5;
 }
 
+/* Done is ink with its tick; only the stop being waited on is the mark's orange. */
 .stop[data-status='done'] .node {
-  border-color: var(--brand-primary);
-  background: var(--brand-primary);
+  border-color: var(--text-primary);
+  background: var(--text-primary);
 }
 
 .stop[data-status='current'] .node {
-  border-color: var(--brand-primary);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--brand-primary) 16%, transparent);
+  border: 0;
+  background: var(--brand-primary);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--brand-primary) 18%, transparent);
 }
 
 .stop[data-status='current'] .node::after {
@@ -122,7 +124,7 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--brand-primary);
+  background: var(--bg-surface);
 }
 
 .stop[data-status='exception'] .node {
@@ -201,12 +203,12 @@
 
   .track::before,
   .track::after {
-    top: calc(var(--space-4) + var(--node) / 2 - 1px);
-    left: calc(var(--space-4) + var(--node) / 2);
+    top: calc(var(--space-4) + var(--stop) / 2 - 1px);
+    left: calc(var(--space-4) + var(--stop) / 2);
   }
 
   .track::before {
-    right: calc(var(--space-4) + (100% - 2 * var(--space-4)) / var(--stops, 4) - var(--node) / 2);
+    right: calc(var(--space-4) + (100% - 2 * var(--space-4)) / var(--stops, 4) - var(--stop) / 2);
   }
 
   .track::after {

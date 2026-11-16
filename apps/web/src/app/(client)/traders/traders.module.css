@@ -1703,3 +1703,232 @@
   width: 14px;
   height: 14px;
 }
+
+/* ——— The queue: active orders in lanes, a card each (`ActiveOrders`) ——— */
+
+.queue {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.queueHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-4);
+  padding: var(--space-2) 6px 0;
+}
+
+.queueTitle {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: 20px;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.02em;
+}
+
+.queueCount {
+  color: var(--text-muted);
+  font-weight: var(--font-weight-medium);
+  font-variant-numeric: tabular-nums;
+}
+
+.lanes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(248px, 1fr));
+  align-items: start;
+  gap: var(--space-5) var(--space-4);
+}
+
+.lane {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.laneHead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0 6px;
+  font-family: var(--font-sans);
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.01em;
+}
+
+.laneRing {
+  width: 18px;
+  height: 18px;
+  color: var(--ink-2);
+}
+
+.lane[data-lane='turn'] .laneRing {
+  color: var(--brand-primary);
+}
+
+.lane[data-lane='check'] .laneRing {
+  color: var(--amber);
+}
+
+.laneCount {
+  min-width: 22px;
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--text-primary) 7%, transparent);
+  color: var(--ink-2);
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-semibold);
+  line-height: 20px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.lane[data-lane='turn'] .laneCount {
+  background: var(--brand-primary);
+  color: var(--text-on-action);
+}
+
+.laneList {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.orderCard {
+  display: grid;
+  gap: var(--space-3);
+  padding: 18px;
+  border: 1px solid transparent;
+  border-radius: 22px;
+  background:
+    linear-gradient(var(--bg-surface), var(--bg-surface)) padding-box,
+    var(--edge) border-box;
+  box-shadow:
+    0 1px 2px rgba(18, 19, 23, 0.04),
+    0 18px 36px -26px rgba(96, 56, 24, 0.3);
+  color: inherit;
+  text-decoration: none;
+  transition:
+    transform var(--dur-fast) var(--ease),
+    box-shadow var(--dur-fast) var(--ease);
+}
+
+@supports (corner-shape: superellipse(1.5)) {
+  .orderCard,
+  .orderAct {
+    corner-shape: superellipse(1.5);
+  }
+}
+
+@media (hover: hover) {
+  .orderCard:hover {
+    transform: translateY(-2px);
+    box-shadow:
+      0 2px 4px rgba(18, 19, 23, 0.05),
+      0 26px 44px -26px rgba(96, 56, 24, 0.42);
+  }
+}
+
+.orderCard:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 2px;
+}
+
+.orderTop {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) 14px;
+}
+
+.orderTop > :last-child {
+  margin-left: auto;
+}
+
+.orderTop .orderText {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.sideWord {
+  color: var(--buy);
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.sideWord[data-side='SELL_USDT'] {
+  color: var(--sell);
+}
+
+.orderFigure {
+  font-family: var(--font-figure, var(--font-sans));
+  font-size: 20px;
+  font-weight: var(--font-weight-semibold);
+  line-height: 1;
+  letter-spacing: -0.035em;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.orderAct {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-height: 52px;
+  padding: 10px 10px 10px 14px;
+  border-radius: 14px;
+  background: var(--paper);
+  color: var(--ink-2);
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.35;
+}
+
+.orderCard[data-due] .orderAct {
+  background: var(--accent-soft);
+  color: #8f2a0c;
+  font-weight: var(--font-weight-semibold);
+}
+
+.orderGo {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--bg-surface);
+  box-shadow: 0 0 0 1px var(--line-strong);
+  color: var(--text-primary);
+}
+
+.orderCard[data-due] .orderGo {
+  --node: currentColor;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--brand-primary) 70%, var(--brand-action)), var(--brand-action));
+  box-shadow: 0 8px 16px -8px rgba(200, 64, 26, 0.9);
+  color: var(--text-on-action);
+}
+
+.orderGo svg {
+  width: 16px;
+  height: 16px;
+  stroke-width: 2;
+}
+
+.orderRef {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-meta);
+  letter-spacing: -0.01em;
+}

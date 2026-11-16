@@ -10,6 +10,7 @@ import { StateMark, useAssistantState } from '../../_assistant/AssistantPanel.ts
 import { type Step, at, tradeAssistant } from '../../_assistant/model.ts';
 import { CheckIcon, ClockIcon, DownloadIcon, InfoIcon, PauseIcon, ReceiptIcon } from '../../_workspace/icons.tsx';
 import { SuccessMark } from '../../_workspace/SuccessMark.tsx';
+import { DealRail } from '../../_workspace/DealRail.tsx';
 import { type Figure, Figures, Track } from '../../_workspace/OrderSummary.tsx';
 import { DepositTimer, P2pDealCard, P2pDealChat } from './P2pDeal.tsx';
 import shell from '../../shell.module.css';
@@ -189,6 +190,18 @@ export function TradeScreen({ view, justOpened = false }: { view: PortalTrade; j
       }
     : { title: status.title, body: status.body };
 
+  // What each stop of the journey says under its name: when it was reached, or what it is waiting for.
+  const trackNote: NonNullable<Parameters<typeof Track>[0]['note']> = (s) =>
+              s.status === 'done' && 'at' in s && s.at
+                ? formatIstTime(new Date(s.at as string))
+                : s.status === 'current'
+                  ? view.onHold && p2p?.dispute?.status !== 'OPEN'
+                    ? 'on hold'
+                    : (s.detail ?? 'in progress')
+                  : s.status === 'exception'
+                    ? (s.detail ?? 'cancelled')
+                    : '';
+
   const figures: Figure[] = [
     { label: sell ? 'You sell' : 'You pay', value: sell ? usdt : inr },
     { label: 'You receive', value: sell ? inr : usdt },
@@ -198,7 +211,7 @@ export function TradeScreen({ view, justOpened = false }: { view: PortalTrade; j
 
   return (
     <>
-      <main className={shell.main}>
+      <main className={shell.main} {...(p2p ? { 'data-deal-rail': '' } : {})}>
         {welcome ? (
           <section className={styles.opened} role="status">
             <SuccessMark size={40} />
@@ -230,22 +243,17 @@ export function TradeScreen({ view, justOpened = false }: { view: PortalTrade; j
             </div>
           </div>
 
+          {p2p ? (
+            <div className={styles.progress} role="group" aria-label="Trade progress">
+              <div className={styles.rail}>
+                <DealRail viewer={sell ? 'seller' : 'buyer'} step={p2p.step} usdt={usdt} inr={inr} label={headline.title} />
+              </div>
+              <Track steps={steps} label="Stops" note={trackNote} />
+            </div>
+          ) : (
+            <Track steps={steps} label="Trade progress" note={trackNote} />
+          )}
           <Figures figures={figures} />
-          <Track
-            steps={steps}
-            label="Trade progress"
-            note={(s) =>
-              s.status === 'done' && 'at' in s && s.at
-                ? formatIstTime(new Date(s.at as string))
-                : s.status === 'current'
-                  ? view.onHold && p2p?.dispute?.status !== 'OPEN'
-                    ? 'on hold'
-                    : (s.detail ?? 'in progress')
-                  : s.status === 'exception'
-                    ? (s.detail ?? 'cancelled')
-                    : ''
-            }
-          />
           {view.incoming ? (
             <div className={styles.transfer}>
               <span className={shell.label}>Your transfer</span>
@@ -256,7 +264,7 @@ export function TradeScreen({ view, justOpened = false }: { view: PortalTrade; j
 
         {sell && trade.depositInstructions && view.incoming === null && trade.status !== 'CANCELLED' ? (
           <section className={`${shell.card} ${styles.action}`} aria-labelledby="deposit-title" data-attention={yourMove || undefined}>
-            <div className={styles.actionHead}>
+            <div className={`${styles.actionHead} ${shell.cap}`}>
               <div className={styles.actionHeadText}>
                 <span className={styles.actionBadge}>Your move</span>
                 <h2 id="deposit-title" className={styles.actionTitle}>

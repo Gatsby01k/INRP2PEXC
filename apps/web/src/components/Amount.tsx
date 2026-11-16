@@ -20,18 +20,18 @@ export function Amount({ value, className }: { value: string; className?: string
       </span>
     ));
   return (
-    <span className={`${styles.amount} ${className ?? ''}`}>
+    <span className={`${styles.amount} ${className ?? ''}`} data-amount="">
       {cur === '₹' ? (
-        <span className={styles.cur}>
+        <span className={styles.cur} data-part="cur">
           <span className="ix-visually-hidden">₹</span>
           <RupeeGlyph className={styles.rupee} />
         </span>
       ) : cur ? (
-        <span className={styles.cur}>{cur}</span>
+        <span className={styles.cur} data-part="cur">{cur}</span>
       ) : null}
       {chars(whole)}
-      {fraction ? <span className={styles.fraction}>{chars(fraction)}</span> : null}
-      {unit ? <span className={styles.unit}>{unit}</span> : null}
+      {fraction ? <span className={styles.fraction} data-part="fraction">{chars(fraction)}</span> : null}
+      {unit ? <span className={styles.unit} data-part="unit">{unit}</span> : null}
     </span>
   );
 }

@@ -50,7 +50,7 @@ export function P2pDealCard({ view }: { view: PortalTrade }) {
 
   return (
     <section className={`${shell.card} ${pay.card} ${styles.card}`} aria-labelledby="deal-title" {...(yours ? { 'data-attention': '' } : {})}>
-      <div className={pay.head}>
+      <div className={yours ? `${pay.head} ${shell.cap}` : pay.head}>
         <div className={pay.headText}>
           <span className={pay.badge} data-tone={yours ? undefined : 'quiet'}>
             {disputed ? 'With INRP2P' : yours ? 'Your move' : deal.step === 'RELEASE' ? 'Releasing' : deal.step === 'REFUND' ? 'Refund' : 'Escrow'}
