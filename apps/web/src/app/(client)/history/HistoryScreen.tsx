@@ -10,6 +10,7 @@ import { RobotFigure } from '../_assistant/RobotFigure.tsx';
 import { historyAssistant, isOpenTrade, lifecycleSteps } from '../_assistant/model.ts';
 import { EmptyState } from '../_workspace/EmptyState.tsx';
 import { ArrowIcon, ChevronIcon, ClockIcon, ReceiptIcon } from '../_workspace/icons.tsx';
+import { PairCoin } from '../_workspace/PairCoin.tsx';
 import { Stepper } from '../_workspace/Stepper.tsx';
 import { StatusPill } from '../_workspace/StatusPill.tsx';
 import shell from '../shell.module.css';
@@ -158,15 +159,15 @@ export function HistoryScreen({ rows, open, counts, filter }: { rows: readonly H
                         </td>
                         <td className={styles.ref}>
                           <span className={styles.refRow}>
-                            {/* The side as exchanges say it: Buy in green, Sell in red. */}
-                            <span className={styles.dirDisc} data-dir={sell ? 'sell' : 'buy'} aria-hidden="true">
-                              {sell ? 'Sell' : 'Buy'}
-                            </span>
+                            {/* The pair, what is given and what is got, and the side as exchanges say it. */}
+                            <PairCoin side={r.direction} />
                             <span className={styles.refText}>
+                              <span className={styles.dirWord} data-dir={sell ? 'sell' : 'buy'}>
+                                {sell ? 'Sell USDT' : 'Buy USDT'}
+                              </span>
                               <Link href={`/trades/${r.ref}`} onClick={(e) => e.stopPropagation()}>
                                 {r.ref}
                               </Link>
-                              <span className={styles.direction}>{sell ? 'Sell USDT' : 'Buy USDT'}</span>
                             </span>
                           </span>
                         </td>

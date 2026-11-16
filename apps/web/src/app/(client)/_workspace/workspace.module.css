@@ -33,7 +33,7 @@
 }
 
 .step[data-status='done']:not(:last-child)::after {
-  background: var(--brand-primary);
+  background: var(--text-primary);
 }
 
 .step[data-status='current']:not(:last-child)::after {
@@ -46,16 +46,17 @@
   width: var(--mark);
   height: var(--mark);
   border-radius: 50%;
-  border: 2px solid var(--border-strong);
+  border: 2px solid var(--line-strong, var(--border-strong));
   background: var(--bg-surface);
   color: var(--text-on-action);
   font-size: var(--font-size-meta);
   font-weight: var(--font-weight-semibold);
 }
 
+/* Done is ink with its tick; only the step being waited on is the mark's orange. */
 .step[data-status='done'] .stepMark {
-  border-color: var(--brand-primary);
-  background: var(--brand-primary);
+  border-color: var(--text-primary);
+  background: var(--text-primary);
 }
 
 .stepCheck {
@@ -66,8 +67,9 @@
 
 /* The step being waited on: a ring of the brand's orange around a lit centre. */
 .step[data-status='current'] .stepMark {
-  border-color: var(--brand-primary);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--brand-primary) 16%, transparent);
+  border: 0;
+  background: var(--brand-primary);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--brand-primary) 18%, transparent);
 }
 
 .step[data-status='current'] .stepMark::after {
@@ -75,7 +77,7 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--brand-primary);
+  background: var(--bg-surface);
 }
 
 .step[data-status='exception'] .stepMark {
@@ -109,6 +111,11 @@
   font-size: var(--font-size-meta);
   line-height: var(--line-height-normal);
   color: var(--text-muted);
+}
+
+.step[data-status='current'] .stepDetail {
+  color: var(--brand-action);
+  font-weight: var(--font-weight-medium);
 }
 
 @media (max-width: 599px) {

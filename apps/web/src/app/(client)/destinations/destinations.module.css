@@ -507,52 +507,44 @@
 
 /* ——— A state in a word ——— */
 
+/* A state as the workspace says every state: a white pill, its ring in the state's colour, its word in ink. */
 .tag {
+  --ring: var(--text-muted);
   display: inline-flex;
   flex: none;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   height: 26px;
-  padding: 0 10px 0 8px;
+  padding: 0 11px 0 7px;
   border-radius: var(--radius-pill);
-  background: var(--paper);
-  color: var(--text-secondary);
+  background: var(--bg-surface);
+  box-shadow: 0 0 0 1px var(--line-strong);
+  color: var(--text-primary);
   font-size: var(--font-size-meta);
-  font-weight: var(--font-weight-semibold);
+  font-weight: var(--font-weight-medium);
   white-space: nowrap;
 }
 
 .tag svg {
   width: 15px;
   height: 15px;
-}
-
-.tagDot {
-  width: 7px;
-  height: 7px;
-  margin: 0 1px;
-  border-radius: 50%;
-  background: currentColor;
+  color: var(--ring);
 }
 
 .tag[data-tone='success'] {
-  background: var(--buy-soft);
-  color: var(--buy);
+  --ring: var(--buy);
 }
 
 .tag[data-tone='brand'] {
-  background: var(--accent-soft);
-  color: var(--brand-action);
+  --ring: var(--brand-primary);
 }
 
 .tag[data-tone='warning'] {
-  background: var(--status-warning-soft);
-  color: var(--status-warning);
+  --ring: var(--amber);
 }
 
 .tag[data-tone='danger'] {
-  background: var(--status-danger-soft);
-  color: var(--status-danger);
+  --ring: var(--sell);
 }
 
 /* ——— More: the card's menu ——— */

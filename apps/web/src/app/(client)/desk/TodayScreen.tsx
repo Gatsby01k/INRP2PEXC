@@ -16,6 +16,7 @@ import { DeskStatus } from './_ui/DeskStatus.tsx';
 import { DealList } from './_ui/DealList.tsx';
 import { NewDealSheet } from './_ui/NewDealSheet.tsx';
 import { DESK_SIDE, inr, percent, rate, rateGap, relative, usdt, usdtShort } from './_ui/format.ts';
+import { StateRing } from '../_workspace/StateRing.tsx';
 import shell from '../shell.module.css';
 import { Amount } from '../../../components/Amount.tsx';
 import styles from './desk.module.css';
@@ -191,16 +192,18 @@ export function TodayScreen({
 
         {today.yourMove.length > 0 ? (
           <section className={`${shell.card} ${styles.urgent}`} aria-labelledby="move-title">
-            <div className={shell.cardHead}>
-              <span className={shell.cardTitleRow}>
-                <span className={shell.cardGlyph} data-tone="brand" aria-hidden="true">
-                  <BoltIcon />
+            {/* What waits on the desk is the page's one orange moment: the sheet opens with the field. */}
+            <div className={`${shell.cardHead} ${shell.cap} ${styles.urgentCap}`}>
+              <span className={styles.urgentTitle}>
+                <span className={shell.eyebrow}>
+                  <StateRing state="turn" className={styles.urgentRing} />
+                  Your move
                 </span>
-                <h2 id="move-title" className={shell.cardTitle}>
+                <h2 id="move-title" className={styles.urgentHeading}>
                   Waiting on you
                 </h2>
               </span>
-              <span className={shell.muted}>{today.yourMove.length === 1 ? '1 deal' : `${today.yourMove.length} deals`}</span>
+              <span className={styles.urgentCount}>{today.yourMove.length === 1 ? '1 deal' : `${today.yourMove.length} deals`}</span>
             </div>
             <DealList deals={today.yourMove} now={today.now} showNext />
           </section>

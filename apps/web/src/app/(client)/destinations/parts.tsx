@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useId, useRef, useState } from 'react';
-import { AlertIcon, ClockIcon, MoreIcon, PauseIcon, PlusIcon, VerifiedIcon } from '../_workspace/icons.tsx';
+import { MoreIcon, PlusIcon } from '../_workspace/icons.tsx';
+import { StateRing, type RingState } from '../_workspace/StateRing.tsx';
 import styles from './destinations.module.css';
 
 /**
@@ -56,20 +57,20 @@ export function InstrumentTop({ mark, title, sub, tag }: { mark: React.ReactNode
 
 export type Tone = 'success' | 'brand' | 'warning' | 'danger' | 'muted';
 
-const TAG_ICON: Record<Tone, React.ReactNode> = {
-  success: <VerifiedIcon />,
-  brand: null,
-  warning: <ClockIcon />,
-  danger: <AlertIcon />,
-  muted: <PauseIcon />,
+/** Each state's ring, from the same family as every status in the workspace (`StateRing`). */
+const TAG_RING: Record<Tone, RingState> = {
+  success: 'done',
+  brand: 'live',
+  warning: 'check',
+  danger: 'hold',
+  muted: 'hold',
 };
 
 /** What state one is in, in a word — with a glyph or a dot, never colour alone. */
 export function Tag({ tone, children, icon }: { tone: Tone; children: React.ReactNode; icon?: React.ReactNode }) {
-  const glyph = icon ?? TAG_ICON[tone];
   return (
     <span className={styles.tag} data-tone={tone}>
-      {glyph ?? <span className={styles.tagDot} aria-hidden="true" />}
+      {icon ?? <StateRing state={TAG_RING[tone]} />}
       {children}
     </span>
   );

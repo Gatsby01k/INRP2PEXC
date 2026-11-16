@@ -84,19 +84,23 @@
   font-size: var(--font-size-body-sm);
 }
 
+/* Column heads in the technical voice. */
 .table th {
-  padding: 10px var(--space-3);
-  border-bottom: 1px solid var(--line-soft);
+  padding: 12px var(--space-3);
+  border-bottom: 1px solid var(--line);
   color: var(--text-muted);
-  font-size: var(--font-size-meta);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
   font-weight: var(--font-weight-medium);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
   text-align: left;
   white-space: nowrap;
 }
 
 .table td {
-  padding: 14px var(--space-3);
-  border-bottom: 1px solid var(--line-soft);
+  padding: 16px var(--space-3);
+  border-bottom: 1px solid var(--line);
   vertical-align: middle;
 }
 
@@ -133,7 +137,7 @@
 
 .row[data-expanded] td:first-child,
 .detailRow td:first-child {
-  box-shadow: inset 2px 0 0 var(--brand-primary);
+  box-shadow: inset 2px 0 0 var(--text-primary);
 }
 
 .toggleCell {
@@ -183,31 +187,30 @@
 
 .refText {
   display: grid;
+  gap: 4px;
 }
 
-.dirDisc {
-  display: inline-grid;
-  flex: none;
-  place-items: center;
-  min-width: 40px;
-  height: 24px;
-  padding: 0 8px;
-  border-radius: 6px;
-  background: var(--buy-soft);
+/* The side in the pair's colours: the word, small and tracked, above the reference. */
+.dirWord {
   color: var(--buy);
-  font-size: var(--font-size-meta);
+  font-size: var(--font-size-micro);
   font-weight: var(--font-weight-semibold);
+  line-height: 1.2;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
-.dirDisc[data-dir='sell'] {
-  background: var(--sell-soft);
+.dirWord[data-dir='sell'] {
   color: var(--sell);
 }
 
 .ref a {
   display: block;
   color: var(--text-primary);
-  font-weight: var(--font-weight-semibold);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: var(--font-weight-medium);
+  letter-spacing: -0.01em;
   font-variant-numeric: tabular-nums;
   text-decoration: none;
 }
@@ -220,22 +223,6 @@
   }
 }
 
-.direction {
-  color: var(--text-muted);
-  font-size: var(--font-size-meta);
-}
-
-/* On a desk the tag beside the reference already says Buy or Sell; the words come back where the tag is hidden. */
-@media (min-width: 960px) {
-  .direction {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip: rect(0 0 0 0);
-    white-space: nowrap;
-  }
-}
 
 .started {
   color: var(--text-secondary);
@@ -509,4 +496,25 @@
   .dirDisc {
     display: none;
   }
+}
+
+/* The figures a trade is about, set as figures: the rupees in the brand's figure face, the units quiet. */
+.inr,
+.usdt {
+  font-family: var(--font-figure, var(--font-sans));
+  font-size: 16px;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.03em;
+}
+
+.cardUnit {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.04em;
+}
+
+.rate {
+  color: var(--ink-2);
 }

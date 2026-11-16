@@ -561,10 +561,9 @@
   font-weight: var(--font-weight-semibold);
 }
 
-/* A card whose work waits on the desk: an orange edge, so it is the first thing the eye finds. */
+/* A card whose work waits on the desk: the page's raised sheet, opening with the field (`.urgentCap`). */
 .urgent {
-  border-color: color-mix(in srgb, var(--brand-primary) 55%, var(--border-default));
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-primary) 10%, transparent);
+  box-shadow: var(--lift-strong);
 }
 
 .cardActions {
@@ -1541,4 +1540,46 @@
   .monumentValue {
     font-size: 28px;
   }
+}
+
+/* ——— Waiting on you: the sheet opens with the field ——— */
+
+.urgentCap {
+  align-items: flex-end;
+  padding-top: 24px;
+  padding-bottom: 22px;
+}
+
+.urgentTitle {
+  display: grid;
+  gap: 10px;
+}
+
+.urgentTitle > span {
+  --ring: var(--text-on-action);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: rgba(255, 255, 255, 0.86);
+}
+
+.urgentRing {
+  width: 16px;
+  height: 16px;
+}
+
+.urgentHeading {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.1;
+  letter-spacing: -0.04em;
+}
+
+.urgentCount {
+  color: rgba(255, 255, 255, 0.86);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-meta);
+  letter-spacing: 0.04em;
 }
