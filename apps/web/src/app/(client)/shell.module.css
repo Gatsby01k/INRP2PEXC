@@ -703,10 +703,19 @@ svg.led {
   gap: var(--space-6);
 }
 
-/* The page's blocks rise in together with the heading — once, a short way. */
+/*
+ * The page's blocks rise in together with the heading — once, a short way. The heading and the page's first block
+ * only move: they are drawn at full strength from the first frame, so what the reader looks for first (and what the
+ * browser counts as the page's largest paint) is never held behind a fade. What follows them fades in as it rises.
+ */
 .main > *,
 .aside > * {
   animation: enter 560ms var(--ease) both;
+}
+
+.main > :first-child,
+.aside > [data-first] {
+  animation-name: rise;
 }
 
 .main > :nth-child(2),
@@ -748,7 +757,7 @@ svg.led {
   justify-content: space-between;
   gap: var(--space-4) var(--space-6);
   margin-bottom: var(--space-8);
-  animation: enter 560ms var(--ease) both;
+  animation: rise 560ms var(--ease) both;
 }
 
 .pageHeadText {
@@ -912,6 +921,12 @@ svg.led {
     linear-gradient(var(--sheet), var(--sheet)) padding-box,
     var(--edge) border-box;
   box-shadow: var(--lift);
+}
+
+@keyframes rise {
+  from {
+    transform: translateY(10px);
+  }
 }
 
 @keyframes enter {
