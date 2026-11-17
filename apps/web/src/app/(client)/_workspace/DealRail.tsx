@@ -34,7 +34,36 @@ const Usdt = ({ x, y, size }: { x: number; y: number; size: number }) => (
  * It is a drawing of what the page already says in words (the headline, the journey below it), so it is one image
  * to assistive technology, with that sentence as its name.
  */
-export function DealRail({ viewer, step, usdt, inr, label }: { viewer: 'seller' | 'buyer'; step: RailStep | RailAhead; usdt: string; inr: string; label: string }) {
+export function DealRail({
+  viewer,
+  step,
+  usdt,
+  inr,
+  label,
+  destination,
+  initial,
+  sent,
+  rail,
+  inrTo,
+  inrFrom,
+}: {
+  viewer: 'seller' | 'buyer';
+  step: RailStep | RailAhead;
+  usdt: string;
+  inr: string;
+  label: string;
+  destination?: string;
+  /** The viewer's own initial, set on its disc — the same letter as the bar's account. A person's glyph when absent. */
+  initial?: string;
+  /** When the USDT reached the escrow, once it is there: "SENT 14:41 · FINAL". */
+  sent?: string | null;
+  /** How the rupees travel, once the buyer has said: "IMPS". */
+  rail?: string | null;
+  /** Under the seller: where the rupees land ("to HDFC ···· 8219"). */
+  inrTo?: string | null;
+  /** Under the buyer: where the rupees must come from. */
+  inrFrom?: string | null;
+}) {
   const ahead = step === 'AHEAD';
   const over = step === 'REFUND' || step === 'CANCELLED';
   const into: Lane = over ? 'off' : ahead ? 'todo' : step === 'ESCROW' ? 'fly' : 'done';
@@ -43,6 +72,7 @@ export function DealRail({ viewer, step, usdt, inr, label }: { viewer: 'seller' 
   const reached = REACHED[step];
   const locked = !over && !ahead && step !== 'ESCROW' && step !== 'DONE';
   const seller = viewer === 'seller';
+  const tagText = `${inr}${rail && back !== 'todo' && back !== 'off' ? ` · ${rail}` : ''}`;
   const inrWord = { todo: seller ? 'paid to you once the USDT is in escrow' : 'you pay once the USDT is in escrow', wait: seller ? 'the buyer is paying' : 'yours to pay', fly: 'on its way', done: 'received', off: 'not paid' }[back];
   return (
     <svg className={styles.rail} viewBox="0 0 780 206" role="img" aria-label={label} focusable="false">
@@ -56,6 +86,8 @@ export function DealRail({ viewer, step, usdt, inr, label }: { viewer: 'seller' 
         {seller ? 'Buyer' : 'You · buyer'}
       </text>
 
+      {ahead ? <AheadMarks seller={seller} destination={destination} /> : null}
+
       {/* USDT, seller → escrow. */}
       <path id="rail-into" className={styles.lane} data-lane={into} d="M98 84H322" />
       <path className={styles.head} data-lane={into} d="M315 77.5l8 6.5-8 6.5" />
@@ -63,12 +95,16 @@ export function DealRail({ viewer, step, usdt, inr, label }: { viewer: 'seller' 
         <circle r="15" className={styles.plate} />
         <Usdt x={-12} y={-12} size={24} />
       </g>
-      <text className={styles.cap} x="210" y="58" textAnchor="middle">
-        {usdt}
-      </text>
-      <text className={styles.note} x="210" y="116" textAnchor="middle">
-        {into === 'todo' ? 'FIRST, INTO ESCROW' : into === 'fly' ? 'ON ITS WAY TO ESCROW' : into === 'done' ? 'IN ESCROW' : 'GOING BACK'}
-      </text>
+      {ahead ? null : (
+        <>
+          <text className={styles.cap} x="210" y="58" textAnchor="middle">
+            {usdt}
+          </text>
+          <text className={styles.note} x="210" y="116" textAnchor="middle">
+            {into === 'fly' ? 'ON ITS WAY TO ESCROW' : into === 'done' ? (sent ?? 'IN ESCROW') : 'GOING BACK'}
+          </text>
+        </>
+      )}
 
       {/* USDT, escrow → buyer: only at the end. */}
       <path className={styles.lane} data-lane={out} d="M458 84H682" />
@@ -79,12 +115,16 @@ export function DealRail({ viewer, step, usdt, inr, label }: { viewer: 'seller' 
           <Usdt x={-12} y={-12} size={24} />
         </g>
       ) : null}
-      <text className={styles.cap} data-quiet={out === 'todo' || undefined} x="570" y="58" textAnchor="middle">
-        {seller ? 'to the buyer' : 'to your wallet'}
-      </text>
-      <text className={styles.note} x="570" y="116" textAnchor="middle">
-        {out === 'fly' ? 'RELEASING' : out === 'done' ? 'RELEASED' : out === 'off' ? '' : seller ? 'WHEN YOU CONFIRM' : 'WHEN THE SELLER CONFIRMS'}
-      </text>
+      {ahead ? null : (
+        <>
+          <text className={styles.cap} data-quiet={out === 'todo' || undefined} x="570" y="58" textAnchor="middle">
+            {seller ? 'to the buyer' : 'to your wallet'}
+          </text>
+          <text className={styles.note} x="570" y="116" textAnchor="middle">
+            {out === 'fly' ? 'RELEASING' : out === 'done' ? 'RELEASED' : out === 'off' ? '' : seller ? 'WHEN YOU CONFIRM' : 'WHEN THE SELLER CONFIRMS'}
+          </text>
+        </>
+      )}
 
       {/* INR, buyer → seller, bank to bank. */}
       <path className={styles.lane} data-lane={back} d={INR_PATH} />
@@ -96,30 +136,63 @@ export function DealRail({ viewer, step, usdt, inr, label }: { viewer: 'seller' 
           <path className={styles.rupee} transform="translate(0 .3) scale(.77) translate(-12.1 -12.3)" d={RUPEE} />
         </g>
       ) : null}
-      <rect className={styles.tag} x={back === 'todo' ? 190 : 246} y="160" width={back === 'todo' ? 400 : 288} height="32" rx="16" />
-      <text className={styles.tagText} x="390" y="181" textAnchor="middle">
-        {inr}
-        <tspan className={styles.tagNote}> · {inrWord}</tspan>
-      </text>
+      {ahead ? null : (
+        <>
+          {/* The tag is as wide as what it says: about 7px a character at its size, with its padding. */}
+          <rect className={styles.tag} x={390 - tagWidth(tagText, inrWord) / 2} y="160" width={tagWidth(tagText, inrWord)} height="32" rx="16" />
+          <text className={styles.tagText} x="390" y="181" textAnchor="middle">
+            {inr}
+            <tspan className={styles.tagNote}>
+              {tagText.slice(inr.length)} · {inrWord}
+            </tspan>
+          </text>
+          {back !== 'off' && back !== 'todo' ? (
+            <>
+              {(seller ? inrTo : inrTo ?? 'to the seller’s own account') ? (
+                <text className={styles.side} x="78" y="150">
+                  {seller ? inrTo : (inrTo ?? 'to the seller’s own account')}
+                </text>
+              ) : null}
+              <text className={styles.side} x="702" y="150" textAnchor="end">
+                {inrFrom ?? (seller ? 'from the buyer’s own account' : 'from your own account')}
+              </text>
+            </>
+          ) : null}
+        </>
+      )}
 
       {/* The parties: the one looking at the page is ink, the other a person. */}
       <circle cx="60" cy="84" r="30" className={seller ? styles.you : styles.them} />
       <circle cx="720" cy="84" r="30" className={seller ? styles.them : styles.you} />
-      {[60, 720].map((cx) => (
-        <g key={cx} className={(cx === 60) === seller ? styles.personYou : styles.person} transform={`translate(${cx - 13} 71) scale(1.083)`}>
-          <circle cx="12" cy="8.4" r="3.4" />
-          <path d="M5.2 19.6c.7-3.6 3.3-5.6 6.8-5.6s6.1 2 6.8 5.6" />
-        </g>
-      ))}
+      {[60, 720].map((cx) =>
+        (cx === 60) === seller && initial ? (
+          <text key={cx} className={styles.initial} x={cx} y="89.5" textAnchor="middle">
+            {initial}
+          </text>
+        ) : (
+          <g key={cx} className={(cx === 60) === seller ? styles.personYou : styles.person} transform={`translate(${cx - 13} 71) scale(1.083)`}>
+            <circle cx="12" cy="8.4" r="3.4" />
+            <path d="M5.2 19.6c.7-3.6 3.3-5.6 6.8-5.6s6.1 2 6.8 5.6" />
+          </g>
+        ),
+      )}
 
       {/* The escrow: its ring in four arcs, the coin it holds, its lock. */}
-      <circle cx="390" cy="84" r="44" className={styles.vault} />
-      {ARCS.map((d, i) => (
-        <path key={d} d={d} className={styles.arc} data-arc={over ? 'off' : i < reached ? 'done' : i === reached ? 'now' : 'todo'} />
-      ))}
-      <g opacity={ahead || step === 'ESCROW' || step === 'DONE' || over ? 0.28 : 1}>
-        <Usdt x={364} y={58} size={52} />
+      <circle cx="390" cy="84" r="44" className={styles.vault} data-ahead={ahead || undefined} />
+      {ahead
+        ? null
+        : ARCS.map((d, i) => <path key={d} d={d} className={styles.arc} data-arc={over ? 'off' : i < reached ? 'done' : i === reached ? 'now' : 'todo'} />)}
+      <g opacity={ahead ? 0.9 : step === 'ESCROW' || step === 'DONE' || over ? 0.28 : 1}>
+        {ahead ? <Usdt x={368} y={62} size={44} /> : <Usdt x={364} y={58} size={52} />}
       </g>
+      {ahead ? (
+        <g>
+          <circle cx="416" cy="108" r="12.5" className={styles.plate} />
+          <circle cx="416" cy="108" r="8.6" className={styles.lockQuiet} />
+          <rect x="412.3" y="107.4" width="7.4" height="5.6" rx="1.7" className={styles.plate} />
+          <path d="M413.9 107.4v-1.3a2.1 2.1 0 0 1 4.2 0v1.3" className={styles.lockBow} />
+        </g>
+      ) : null}
       {locked ? (
         <g>
           <circle cx="421" cy="113" r="13.5" className={styles.plate} />
@@ -129,5 +202,50 @@ export function DealRail({ viewer, step, usdt, inr, label }: { viewer: 'seller' 
         </g>
       ) : null}
     </svg>
+  );
+}
+
+/** The rupee tag's width: the figure set heavier, the words after it lighter, and its padding either side. */
+const tagWidth = (lead: string, word: string) => Math.round(lead.length * 7.6 + (word.length + 3) * 6.6 + 40);
+
+/** The quote's picture of what accepting starts: the three moves after it, numbered, on the lanes they happen on. */
+function AheadMarks({ seller, destination }: { seller: boolean; destination?: string | undefined }) {
+  const into = seller ? ['Your USDT goes to escrow', 'to an address of this trade alone'] : ['The seller’s USDT goes to escrow', 'before you pay anything'];
+  const out = seller ? ['You confirm, escrow releases', 'a receipt is issued for your records'] : ['The seller confirms, escrow releases', 'the USDT goes to your wallet'];
+  const pay = seller ? ['The buyer pays your INR', ` · to ${destination ?? 'your bank'}, with its UTR`] : ['You pay the INR', ' · to the seller’s own account, with its UTR'];
+  const chip = (x: number, y: number, n: string) => (
+    <g>
+      <rect className={styles.stepChip} x={x - 18} y={y - 13} width="36" height="26" rx="9" />
+      <text className={styles.stepNo} x={x} y={y + 4.5} textAnchor="middle">
+        {n}
+      </text>
+    </g>
+  );
+  return (
+    <g>
+      <text className={styles.cap} x="210" y="44" textAnchor="middle">
+        {into[0]}
+      </text>
+      <text className={styles.capNote} x="210" y="116" textAnchor="middle">
+        {into[1]}
+      </text>
+      {chip(210, 84, '02')}
+      <text className={styles.cap} x="570" y="44" textAnchor="middle">
+        {out[0]}
+      </text>
+      <text className={styles.capNote} x="570" y="116" textAnchor="middle">
+        {out[1]}
+      </text>
+      {chip(570, 84, '04')}
+      <rect className={styles.tag} x="150" y="160" width="480" height="32" rx="16" />
+      <rect className={styles.stepChipQuiet} x="160" y="165" width="34" height="22" rx="8" />
+      <text className={styles.stepNo} x="177" y="180.5" textAnchor="middle">
+        03
+      </text>
+      <text className={styles.tagText} x="204" y="181">
+        {pay[0]}
+        <tspan className={styles.tagNote}>{pay[1]}</tspan>
+      </text>
+    </g>
   );
 }

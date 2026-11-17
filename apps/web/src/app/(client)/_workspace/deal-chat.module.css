@@ -1,14 +1,15 @@
 /* A P2P deal's chat (ADR 0023): beside the deal's card, one thread, the other side by its role. */
 
 .chat {
+  --pad-x: 20px;
   gap: var(--space-3);
   padding-bottom: var(--space-4);
 }
 
 .head {
   display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
+  flex-wrap: nowrap;
+  align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
 }
@@ -19,26 +20,49 @@
   min-width: 0;
 }
 
+.head > :last-child:not(.headText) {
+  flex: none;
+}
+
+/* The chat's name with its glyph on a tile, and who sees it under the name. */
 .title {
   display: inline-flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-3);
   margin: 0;
-  font-size: 16px;
+  font-size: 17px;
   font-weight: var(--font-weight-semibold);
-  letter-spacing: -0.01em;
+  letter-spacing: -0.015em;
+}
+
+.titleTile {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  background: var(--paper);
+  color: var(--text-primary);
 }
 
 .titleIcon {
-  width: 18px;
-  height: 18px;
-  color: var(--text-secondary);
+  width: 20px;
+  height: 20px;
+}
+
+.titleWords {
+  display: grid;
+  gap: 2px;
+  white-space: nowrap;
 }
 
 .caption {
   margin: 0;
   color: var(--text-muted);
   font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-regular);
+  letter-spacing: 0;
 }
 
 .supportPill {
@@ -87,9 +111,9 @@
 .input {
   width: 100%;
   border: 0;
-  border-radius: 12px;
-  background: var(--bg-surface);
-  box-shadow: inset 0 0 0 1px var(--border-strong);
+  border-radius: 22px;
+  background: var(--paper);
+  box-shadow: inset 0 0 0 1px transparent;
   color: var(--text-primary);
   font: inherit;
   font-size: var(--font-size-body);
@@ -129,13 +153,13 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
-  height: min(460px, 58vh);
+  height: min(376px, 52vh);
   min-height: 220px;
-  margin: 0 calc(var(--space-6) * -1);
-  padding: var(--space-4) var(--space-6);
+  margin: 0 calc(var(--pad-x) * -1);
+  padding: var(--space-4) var(--pad-x);
   border-top: 1px solid var(--line-soft, var(--border-default));
   border-bottom: 1px solid var(--line-soft, var(--border-default));
-  background: color-mix(in srgb, var(--paper, var(--bg-subtle)) 60%, var(--bg-surface));
+  background: none;
   list-style: none;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -146,13 +170,23 @@
   outline-offset: 2px;
 }
 
+/* The chat's one rule, at the top of the thread with the shield beside it; the messages gather at its foot. */
 .empty {
-  max-width: 30ch;
-  margin: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 0 auto;
+  padding: 0 8px;
   color: var(--text-muted);
   font-size: var(--font-size-meta);
-  line-height: var(--line-height-normal);
-  text-align: center;
+  line-height: 1.45;
+}
+
+.empty svg {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
 }
 
 .message {
@@ -181,20 +215,19 @@
   color: var(--brand-action);
 }
 
+/* Theirs on the sheet's tint, yours in ink — the chat's two voices, never the action colour. */
 .bubble {
   display: grid;
   gap: var(--space-2);
-  padding: 8px 12px;
-  border-radius: 14px 14px 14px 4px;
-  background: var(--bg-surface);
-  box-shadow: inset 0 0 0 1px var(--line, var(--border-default));
+  padding: 10px 14px;
+  border-radius: 18px 18px 18px 6px;
+  background: var(--paper);
   min-width: 0;
 }
 
 .message[data-from='you'] .bubble {
-  border-radius: 14px 14px 4px 14px;
-  background: var(--brand-action);
-  box-shadow: none;
+  border-radius: 18px 18px 6px 18px;
+  background: var(--text-primary);
   color: var(--text-on-action);
 }
 
@@ -343,9 +376,14 @@
   cursor: pointer;
 }
 
+.iconButton,
+.send {
+  border-radius: 50%;
+}
+
 .iconButton {
-  background: transparent;
-  color: var(--text-secondary);
+  background: var(--paper);
+  color: var(--text-primary);
 }
 
 .iconButton:hover {
@@ -359,14 +397,17 @@
   height: 20px;
 }
 
+/* Sending is the robot's visor: ink glass, its node lit. */
 .send {
-  background: var(--brand-action);
+  --node: #ff6a3d;
+  background: var(--visor, var(--text-primary));
+  box-shadow:
+    var(--visor-edge, none),
+    0 8px 16px -8px rgba(0, 0, 0, 0.6);
   color: var(--text-on-action);
 }
 
 .send:disabled {
-  background: color-mix(in srgb, var(--text-primary) 6%, transparent);
-  color: var(--text-disabled);
   cursor: not-allowed;
 }
 
@@ -423,12 +464,14 @@
 }
 
 @media (max-width: 599px) {
+  .chat {
+    --pad-x: var(--space-4);
+  }
+
   .thread {
     height: auto;
     min-height: 160px;
     max-height: 60vh;
-    margin-inline: calc(var(--space-4) * -1);
-    padding-inline: var(--space-4);
   }
 
   .message {

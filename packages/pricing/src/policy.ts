@@ -77,6 +77,24 @@ export async function publicMarketRates(ex: Executor): Promise<PublicMarketRates
   return { SELL_USDT: sell?.rate.toDecimalString() ?? null, BUY_USDT: buy?.rate.toDecimalString() ?? null };
 }
 
+/**
+ * The market's last day as a line for a glance (the workspace's ticker): the reference's mid — both directions averaged
+ * — hour by hour, oldest first. It is the same append-only history the references are read from, nothing more; an hour
+ * the feed did not report is simply missing. Empty when there is no history, and then no line is drawn.
+ */
+export async function marketTrail(ex: Executor, hours = 24): Promise<readonly string[]> {
+  const span = Math.max(1, Math.min(168, Math.trunc(hours)));
+  const rows = await sql<{ r: string }>`
+    select (avg(rate_micro))::bigint::text as r
+      from rate_snapshot
+     where kind = 'REFERENCE'
+       and effective_at > inrp2p_now() - make_interval(hours => ${span})
+       and effective_at <= inrp2p_now()
+     group by date_bin('1 hour', effective_at, timestamptz '2000-01-01')
+     order by date_bin('1 hour', effective_at, timestamptz '2000-01-01')`.execute(ex);
+  return rows.rows.map((x) => Rate.ofMicro(BigInt(x.r), 'REFERENCE').toDecimalString());
+}
+
 export interface SetPricingPolicyPayload {
   /** The policy the person was looking at: a change made meanwhile is not overwritten. */
   readonly expectedPolicyId: string;

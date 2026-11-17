@@ -8,14 +8,14 @@ import { formatIstTime, formatRate } from '@inrp2p/ui/format';
 import { robotCues } from '../../(public)/_landing/robot/cues.ts';
 import { useCommand } from '../../../components/useCommand.tsx';
 import { repriceAction, withdrawRequestAction } from '../../../server/actions/client.ts';
-import { at, type Step } from '../_assistant/model.ts';
+import type { Step } from '../_assistant/model.ts';
 import { InfoIcon } from '../_workspace/icons.tsx';
 import { legAmount } from './amounts.ts';
-import { LEGS, LegStatic } from './Legs.tsx';
 import shell from '../shell.module.css';
 import styles from './exchange.module.css';
 import stage from './stage.module.css';
 import { StagePanel } from './StagePanel.tsx';
+import { RequestSheet } from './RequestSheet.tsx';
 
 /**
  * A request the desk has: the same ticket the client filled in, now still, on its sheet — and beside it the stage,
@@ -27,7 +27,6 @@ export function PricingCard({ view, steps }: { view: ExchangeView; steps?: reado
   const [withdrawing, setWithdrawing] = useState(false);
   const request = view.request!;
   const expired = view.quote;
-  const sell = request.direction === 'SELL_USDT';
 
   const withdraw = async () => {
     const out = await run('Withdraw this request', (key) => withdrawRequestAction({ requestRef: request.ref }, key));
@@ -44,63 +43,41 @@ export function PricingCard({ view, steps }: { view: ExchangeView; steps?: reado
   return (
     <>
       <section className={stage.deal} data-even="" aria-label="Request with the desk" data-robot-target="panel">
-        <div className={`${shell.surface} ${stage.ask}`}>
-          <header className={stage.askHead}>
-            <span className={shell.idx}>Your request · sent {at(request.createdAt)}</span>
-            <span className={stage.side} data-side={sell ? 'sell' : 'buy'}>
-              {sell ? 'Sell USDT' : 'Buy USDT'}
-            </span>
-          </header>
-
-          <div className={styles.legs} data-robot-target="amount">
-            {LEGS[request.direction].map((leg) => (
-              <LegStatic key={leg.currency} label={leg.label} currency={leg.currency} amount={leg.currency === request.currency ? legAmount(request.amount, leg.currency) : null} />
-            ))}
-          </div>
-
-          <dl className={`${styles.terms} ${stage.terms}`}>
-            <div>
-              <dt>{sell ? 'INR paid to' : 'USDT delivered to'}</dt>
-              <dd>{request.destination}</dd>
-            </div>
-            {request.targetRate ? (
-              <div>
-                <dt>Your target rate</dt>
-                <dd>{formatRate(Rate.parse(request.targetRate, 'CLIENT'))} per USDT</dd>
+        <RequestSheet
+          direction={request.direction}
+          amount={legAmount(request.amount, request.currency)}
+          currency={request.currency}
+          destination={request.destination}
+          destinations={view.destinations}
+          targetRate={request.targetRate ? formatRate(Rate.parse(request.targetRate, 'CLIENT')) : null}
+          sentAt={formatIstTime(new Date(request.createdAt))}
+          reference={request.ref}
+          networkFee={null}
+        >
+          {withdrawing ? (
+            <div className={styles.confirmRow} role="group" aria-label="Withdraw this request">
+              <p>Withdrawing closes {request.ref}, and the desk stops pricing it.</p>
+              <div className={styles.confirmActions}>
+                <button type="button" className={shell.secondaryAction} onClick={() => void withdraw()} disabled={busy}>
+                  {busy ? <ArcLoader size="sm" label="Withdrawing" tone="inherit" /> : null}
+                  Withdraw request
+                </button>
+                <button type="button" className={shell.textAction} onClick={() => setWithdrawing(false)} disabled={busy}>
+                  Keep it
+                </button>
               </div>
-            ) : null}
-            <div>
-              <dt>Request</dt>
-              <dd>{request.ref}</dd>
             </div>
-          </dl>
-
-          <div className={stage.askFoot}>
-            {withdrawing ? (
-              <div className={styles.confirmRow} role="group" aria-label="Withdraw this request">
-                <p>Withdrawing closes {request.ref}, and the desk stops pricing it.</p>
-                <div className={styles.confirmActions}>
-                  <button type="button" className={shell.secondaryAction} onClick={() => void withdraw()} disabled={busy}>
-                    {busy ? <ArcLoader size="sm" label="Withdrawing" tone="inherit" /> : null}
-                    Withdraw request
-                  </button>
-                  <button type="button" className={shell.textAction} onClick={() => setWithdrawing(false)} disabled={busy}>
-                    Keep it
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <button type="button" className={shell.textAction} onClick={() => setWithdrawing(true)}>
-                Withdraw the request
-              </button>
-            )}
-            {error ? (
-              <p className={shell.error} role="alert">
-                {error}
-              </p>
-            ) : null}
-          </div>
-        </div>
+          ) : (
+            <button type="button" className={`${shell.secondaryAction} ${shell.wide}`} onClick={() => setWithdrawing(true)}>
+              Withdraw the request
+            </button>
+          )}
+          {error ? (
+            <p className={shell.error} role="alert">
+              {error}
+            </p>
+          ) : null}
+        </RequestSheet>
 
         <StagePanel
           mood="waiting"

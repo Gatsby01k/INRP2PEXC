@@ -184,9 +184,9 @@ test('the client’s USDT reaches the escrow, the desk pays the rupees, and the 
   await expect(phone.getByText('Checking my bank app now')).toBeVisible();
   await phone.getByLabel('Sender’s name, as your bank shows it').fill(DESK.legalName);
   await phone.getByRole('checkbox').check();
-  await phone.getByRole('button', { name: 'Release the escrow' }).click();
+  await phone.getByRole('button', { name: /^Release [\d,.]+ USDT$/ }).click();
   // The release recorded before the worker turns: a click returns before its server action does.
-  await expect(phone.getByRole('button', { name: 'Release the escrow' })).toBeHidden();
+  await expect(phone.getByRole('button', { name: /^Release [\d,.]+ USDT$/ })).toBeHidden();
 
   // The worker's signer pays the desk from the escrow; the fee stays at the deal's address.
   const before = w.chain.balanceOf(w.deskWalletAddress);

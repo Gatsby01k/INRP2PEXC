@@ -89,8 +89,9 @@ export const ClockIcon = ({ className }: IconProps) => (
 
 export const PauseIcon = ({ className }: IconProps) => (
   <svg {...base} className={className}>
-    <circle cx="12" cy="12" r="8.5" />
+    <path d="M12 3.5A8.5 8.5 0 1 0 18.01 6" />
     <path d="M10 9.5v5M14 9.5v5" />
+    <circle className="ix-node" cx="15.9" cy="4.5" r="1.6" />
   </svg>
 );
 
@@ -144,8 +145,8 @@ export const LockIcon = ({ className }: IconProps) => (
 
 export const PhoneIcon = ({ className }: IconProps) => (
   <svg {...base} className={className}>
-    <rect x="7" y="3" width="10" height="18" rx="2.5" />
-    <path d="M10.5 18h3" />
+    <rect x="7" y="3" width="10" height="18" rx="2.8" />
+    <circle className="ix-node" cx="12" cy="17.4" r="1.4" />
   </svg>
 );
 
@@ -168,14 +169,16 @@ export const UsersIcon = ({ className }: IconProps) => (
 export const SignOutIcon = ({ className }: IconProps) => (
   <svg {...base} className={className}>
     <path d="M14 4.5H7a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h7" />
-    <path d="M10.5 12H20M16.5 8.5 20 12l-3.5 3.5" />
+    <path d="M13 12h7M16.5 8.5 20 12l-3.5 3.5" />
+    <circle className="ix-node" cx="10.6" cy="12" r="1.8" />
   </svg>
 );
 
 export const DownloadIcon = ({ className }: IconProps) => (
   <svg {...base} className={className}>
-    <path d="M12 4v11M7.5 10.5 12 15l4.5-4.5" />
+    <path d="M12 7.2V15M7.5 10.5 12 15l4.5-4.5" />
     <path d="M5 19.5h14" />
+    <circle className="ix-node" cx="12" cy="4.8" r="1.7" />
   </svg>
 );
 
@@ -188,32 +191,36 @@ export const CopyIcon = ({ className }: IconProps) => (
 
 export const PasteIcon = ({ className }: IconProps) => (
   <svg {...base} className={className}>
-    <path d="M9 4.5h6v2.5H9z" />
     <path d="M15 5.5h2a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-11a2 2 0 0 1 2-2h2" />
+    <path d="M9.5 4.2h5v2.6h-5z" />
+    <circle className="ix-node" cx="12" cy="13.6" r="1.8" />
   </svg>
 );
 
 export const ArchiveIcon = ({ className }: IconProps) => (
   <svg {...base} className={className}>
-    <rect x="3.5" y="4.5" width="17" height="4.5" rx="1.2" />
+    <rect x="3.5" y="4.5" width="17" height="4.5" rx="1.4" />
     <path d="M5 9v9a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9" />
-    <path d="M10 13h4" />
+    <circle className="ix-node" cx="12" cy="13.6" r="1.7" />
   </svg>
 );
 
 /** Exchange: two arcs of the mark's ring turning into each other, a node where each one starts. */
 export const SwapIcon = ({ className }: IconProps) => (
   <svg {...base} className={className}>
-    <path d="M4.5 8.5h14" />
+    <path d="M6.6 8.5h12" />
     <path d="m15 5 3.5 3.5L15 12" />
-    <path d="M19.5 15.5h-14" />
+    <path d="M17.4 15.5h-12" />
     <path d="M9 12l-3.5 3.5L9 19" />
+    <circle className="ix-node" cx="4.6" cy="8.5" r="1.7" />
+    <circle className="ix-ink" cx="19.4" cy="15.5" r="1.5" />
   </svg>
 );
 
 export const SparkIcon = ({ className }: IconProps) => (
   <svg {...base} className={className}>
-    <path d="M12 3.5v4M12 16.5v4M3.5 12h4M16.5 12h4M6 6l2.6 2.6M15.4 15.4 18 18M6 18l2.6-2.6M15.4 8.6 18 6" />
+    <path d="M12 3.5c.6 4.4 2.1 5.9 6.5 6.5-4.4.6-5.9 2.1-6.5 6.5-.6-4.4-2.1-5.9-6.5-6.5 4.4-.6 5.9-2.1 6.5-6.5z" />
+    <circle className="ix-node" cx="18.2" cy="18.2" r="1.8" />
   </svg>
 );
 
@@ -223,7 +230,7 @@ export const StoreIcon = ({ className }: IconProps) => (
     <path d="M4 9.5 5.5 4.5h13L20 9.5" />
     <path d="M4 9.5a2.7 2.7 0 0 0 5.3 0 2.7 2.7 0 0 0 5.4 0 2.7 2.7 0 0 0 5.3 0" />
     <path d="M5.5 12v7.5h13V12" />
-    <path d="M10 19.5V15h4v4.5" />
+    <circle className="ix-node" cx="12" cy="16.2" r="1.9" />
   </svg>
 );
 
@@ -231,14 +238,16 @@ export const LinkIcon = ({ className }: IconProps) => (
   <svg {...base} className={className}>
     <path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1" />
     <path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" />
+    <circle className="ix-node" cx="12" cy="12" r="1.5" />
   </svg>
 );
 
 export const ShareIcon = ({ className }: IconProps) => (
   <svg {...base} className={className}>
-    <path d="M12 15V4" />
-    <path d="m8 8 4-4 4 4" />
+    <path d="M12 15V7.2" />
+    <path d="m8.6 9.6 3.4-3.4 3.4 3.4" />
     <path d="M6 12v6.5A1.5 1.5 0 0 0 7.5 20h9a1.5 1.5 0 0 0 1.5-1.5V12" />
+    <circle className="ix-node" cx="12" cy="4" r="1.7" />
   </svg>
 );
 
@@ -262,15 +271,16 @@ export const ChartIcon = ({ className }: IconProps) => (
   <svg {...base} className={className}>
     <path d="M4 20h16" />
     <path d="M7 16v-5" />
-    <path d="M12 16V7" />
+    <path d="M12 16V9.4" />
     <path d="M17 16v-8" />
+    <circle className="ix-node" cx="12" cy="6.4" r="1.8" />
   </svg>
 );
 
 export const TagIcon = ({ className }: IconProps) => (
   <svg {...base} className={className}>
     <path d="M3.5 12.3V4.5a1 1 0 0 1 1-1h7.8l8.2 8.2a1 1 0 0 1 0 1.4l-7.8 7.8a1 1 0 0 1-1.4 0Z" />
-    <circle cx="8" cy="8" r="1.3" />
+    <circle className="ix-node" cx="8" cy="8" r="1.7" />
   </svg>
 );
 
@@ -291,9 +301,11 @@ export const SearchIcon = ({ className }: IconProps) => (
 /** Today: three arcs of the mark's ring as a dial, the needle on the hub. */
 export const GaugeIcon = ({ className }: IconProps) => (
   <svg {...base} className={className}>
-    <path d="M4.2 17.5a8.5 8.5 0 1 1 15.6 0" />
+    <path d="M4.2 17.5a8.5 8.5 0 0 1 12.4-11.3" />
+    <path d="M19.2 9.4a8.5 8.5 0 0 1 .6 8.1" />
     <path d="m12 13.5 3.5-3.5" />
-    <circle cx="12" cy="13.5" r="1.4" fill="currentColor" stroke="none" />
+    <circle className="ix-node" cx="12" cy="13.5" r="1.9" />
+    <circle className="ix-ink" cx="18.2" cy="7.6" r="1.3" />
   </svg>
 );
 
@@ -309,16 +321,19 @@ export const DealsIcon = ({ className }: IconProps) => (
 
 export const GlobeIcon = ({ className }: IconProps) => (
   <svg {...base} className={className}>
-    <circle cx="12" cy="12" r="8.5" />
+    <path d="M12 3.5A8.5 8.5 0 1 0 20.5 12" />
     <path d="M3.5 12h17" />
     <path d="M12 3.5c2.3 2.4 3.5 5.2 3.5 8.5s-1.2 6.1-3.5 8.5c-2.3-2.4-3.5-5.2-3.5-8.5S9.7 5.9 12 3.5Z" />
+    <circle className="ix-node" cx="18.4" cy="5.6" r="1.8" />
   </svg>
 );
 
 export const MailIcon = ({ className }: IconProps) => (
   <svg {...base} className={className}>
-    <rect x="3.5" y="5.5" width="17" height="13" rx="2.5" />
-    <path d="m4.5 7 7.5 6 7.5-6" />
+    <rect x="3.5" y="5.5" width="17" height="13" rx="2.8" />
+    <path d="m4.5 7 6.2 5" />
+    <path d="m19.5 7-6.2 5" />
+    <circle className="ix-node" cx="12" cy="13" r="1.6" />
   </svg>
 );
 
@@ -339,8 +354,8 @@ export const VaultIcon = ({ className }: IconProps) => (
 
 export const TrendIcon = ({ className }: IconProps) => (
   <svg {...base} className={className}>
-    <path d="m3.5 16.5 5.5-5.5 4 4 7.5-7.5" />
-    <path d="M15.5 7.5h5v5" />
+    <path d="m3.5 16.5 5.5-5.5 4 4 5.6-5.6" />
+    <circle className="ix-node" cx="20.2" cy="7.8" r="2" />
   </svg>
 );
 
@@ -362,36 +377,40 @@ export const InboxIcon = ({ className }: IconProps) => (
   <svg {...base} className={className}>
     <path d="M4 13.5 6.3 5.6a1.5 1.5 0 0 1 1.4-1.1h8.6a1.5 1.5 0 0 1 1.4 1.1l2.3 7.9" />
     <path d="M4 13.5v5a1.5 1.5 0 0 0 1.5 1.5h13a1.5 1.5 0 0 0 1.5-1.5v-5h-4.5l-1.5 2.5h-4L8.5 13.5Z" />
+    <circle className="ix-node" cx="12" cy="9.2" r="1.7" />
   </svg>
 );
 
 export const HelpIcon = ({ className }: IconProps) => (
   <svg {...base} className={className}>
-    <circle cx="12" cy="12" r="8.5" />
+    <path d="M12 3.5A8.5 8.5 0 1 0 18.01 6" />
     <path d="M9.6 9.4a2.5 2.5 0 0 1 4.8.9c0 1.7-2.4 2.2-2.4 3.7" />
-    <circle cx="12" cy="16.9" r="0.7" fill="currentColor" stroke="none" />
+    <circle className="ix-node" cx="12" cy="17" r="1.3" />
+    <circle className="ix-ink" cx="15.9" cy="4.5" r="1.2" />
   </svg>
 );
 
 export const SettingsIcon = ({ className }: IconProps) => (
   <svg {...base} className={className}>
-    <path d="M4 7h9M17 7h3M4 17h3M11 17h9" />
-    <circle cx="15" cy="7" r="2" />
-    <circle cx="9" cy="17" r="2" />
+    <path d="M4 7h8.6M17.4 7H20M4 17h2.6M11.4 17H20" />
+    <circle className="ix-node" cx="15" cy="7" r="2.2" />
+    <circle cx="9" cy="17" r="2.2" />
   </svg>
 );
 
 export const KeyIcon = ({ className }: IconProps) => (
   <svg {...base} className={className}>
-    <circle cx="8" cy="15" r="4" />
+    <circle cx="8" cy="15" r="4.2" />
     <path d="m11 12 8.5-8.5M16.5 6.5l2.5 2.5M14 9l2 2" />
+    <circle className="ix-node" cx="8" cy="15" r="1.5" />
   </svg>
 );
 
 export const CalendarIcon = ({ className }: IconProps) => (
   <svg {...base} className={className}>
-    <rect x="4" y="5.5" width="16" height="14.5" rx="2.5" />
+    <rect x="4" y="5.5" width="16" height="14.5" rx="2.8" />
     <path d="M4 10h16M8.5 3.5v4M15.5 3.5v4" />
+    <circle className="ix-node" cx="15.5" cy="15" r="1.6" />
   </svg>
 );
 
@@ -404,10 +423,11 @@ export const ExternalIcon = ({ className }: IconProps) => (
 
 export const QrIcon = ({ className }: IconProps) => (
   <svg {...base} className={className}>
-    <rect x="4" y="4" width="6" height="6" rx="1.2" />
-    <rect x="14" y="4" width="6" height="6" rx="1.2" />
-    <rect x="4" y="14" width="6" height="6" rx="1.2" />
-    <path d="M14 14h2.5v2.5M20 14v.01M14 20h.01M17 20h3v-3" />
+    <rect x="4" y="4" width="6" height="6" rx="1.4" />
+    <rect x="14" y="4" width="6" height="6" rx="1.4" />
+    <rect x="4" y="14" width="6" height="6" rx="1.4" />
+    <path d="M14 14h2.5v2.5M17 20h3v-3" />
+    <circle className="ix-node" cx="14.6" cy="19.4" r="1.3" />
   </svg>
 );
 
@@ -433,10 +453,10 @@ export const ReturnIcon = ({ className }: IconProps) => (
 
 export const GridIcon = ({ className }: IconProps) => (
   <svg {...base} className={className}>
-    <rect x="4" y="4" width="6.5" height="6.5" rx="1.6" />
-    <rect x="13.5" y="4" width="6.5" height="6.5" rx="1.6" />
-    <rect x="4" y="13.5" width="6.5" height="6.5" rx="1.6" />
-    <rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.6" />
+    <rect x="4" y="4" width="6.5" height="6.5" rx="1.8" />
+    <rect x="13.5" y="4" width="6.5" height="6.5" rx="1.8" />
+    <rect x="4" y="13.5" width="6.5" height="6.5" rx="1.8" />
+    <circle className="ix-node" cx="16.75" cy="16.75" r="3" />
   </svg>
 );
 
@@ -459,7 +479,7 @@ export const TimerIcon = ({ className }: IconProps) => (
 export const VerifiedIcon = ({ className }: IconProps) => (
   <svg {...base} className={className}>
     <path d="M12 3.2 14.2 5l2.8-.3.9 2.7 2.4 1.5-1 2.6 1 2.6-2.4 1.5-.9 2.7-2.8-.3L12 20.8 9.8 19l-2.8.3-.9-2.7-2.4-1.5 1-2.6-1-2.6 2.4-1.5.9-2.7 2.8.3Z" />
-    <path d="m9 12 2 2 4-4" />
+    <path className="ix-accent" d="m9 12 2 2 4-4" />
   </svg>
 );
 
@@ -473,9 +493,10 @@ export const AlertIcon = ({ className }: IconProps) => (
 
 export const RefreshIcon = ({ className }: IconProps) => (
   <svg {...base} className={className}>
-    <path d="M19.5 12a7.5 7.5 0 0 1-13.2 4.9" />
-    <path d="M4.5 12a7.5 7.5 0 0 1 13.2-4.9" />
-    <path d="M18 3.5v3.8h-3.8M6 20.5v-3.8h3.8" />
+    <path d="M19.5 12a7.5 7.5 0 0 1-12.4 5.7" />
+    <path d="M4.5 12a7.5 7.5 0 0 1 12.4-5.7" />
+    <circle className="ix-node" cx="18.4" cy="7.4" r="2" />
+    <circle className="ix-ink" cx="5.6" cy="16.6" r="1.6" />
   </svg>
 );
 
@@ -536,5 +557,14 @@ export const SupportIcon = ({ className }: IconProps) => (
     <rect className="ix-node" x="3" y="12.6" width="3.6" height="6" rx="1.8" />
     <rect className="ix-node" x="17.4" y="12.6" width="3.6" height="6" rx="1.8" />
     <circle className="ix-ink" cx="13.4" cy="21.1" r="1.2" />
+  </svg>
+);
+
+/** A pencil: its body a stroke, its tip the node. */
+export const EditIcon = ({ className }: IconProps) => (
+  <svg {...base} className={className}>
+    <path d="M14.6 5.6 18.4 9.4 9.2 18.6 4.8 19.2 5.4 14.8z" />
+    <path d="M12.8 7.4 16.6 11.2" />
+    <circle className="ix-node" cx="5.6" cy="18.4" r="1.4" />
   </svg>
 );

@@ -1,0 +1,97 @@
+/* The market rate in the bar (`Ticker`): the pair, the rate, the day as a line. */
+
+.ticker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 12px 0 6px;
+  border-radius: 999px;
+  background: rgba(18, 19, 23, 0.045);
+  font-size: 13.5px;
+  white-space: nowrap;
+  animation: ticker-in 420ms var(--ease) both;
+}
+
+.figure {
+  display: inline-block;
+  margin-left: 4px;
+  font-family: var(--font-figure, var(--font-sans));
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.figure[data-moved='up'] {
+  animation: ticker-up 550ms var(--ease);
+}
+
+.figure[data-moved='down'] {
+  animation: ticker-down 550ms var(--ease);
+}
+
+.spark {
+  width: 44px;
+  height: 18px;
+  fill: none;
+  stroke: var(--buy);
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.ticker[data-trend='down'] .spark {
+  stroke: var(--sell);
+}
+
+@keyframes ticker-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+@keyframes ticker-up {
+  from {
+    opacity: 0;
+    transform: translateY(45%);
+    color: var(--buy);
+  }
+
+  60% {
+    color: var(--buy);
+  }
+}
+
+@keyframes ticker-down {
+  from {
+    opacity: 0;
+    transform: translateY(-45%);
+    color: var(--sell);
+  }
+
+  60% {
+    color: var(--sell);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ticker,
+  .figure {
+    animation: none !important;
+  }
+}
+
+/* A phone's bar has room for the deal and the account only: the rate lives on the Exchange's own stage there. */
+@media (max-width: 899px) {
+  .ticker {
+    display: none;
+  }
+}
+
+/* A narrower desk keeps the sections and the deal in the bar; the rate is on the Exchange's own heading too. */
+@media (max-width: 1279px) {
+  .ticker {
+    display: none;
+  }
+}

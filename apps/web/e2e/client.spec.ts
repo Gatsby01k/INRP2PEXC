@@ -160,7 +160,7 @@ test('the client follows that trade to completion on their phone', async ({ page
   await page.reload();
   await expect(page.getByRole('heading', { name: /^Did .* arrive\?/ }).first()).toBeVisible();
   await expect(page.getByText('₹100,000', { exact: false }).first()).toBeVisible();
-  const release = page.getByRole('button', { name: 'Release the escrow' });
+  const release = page.getByRole('button', { name: /^Release [\d,.]+ USDT$/ });
   await expect(release, 'nothing releases before the client has looked at the bank').toBeDisabled();
   await page.getByLabel('Sender’s name, as your bank shows it').fill(s.trader.holderName);
   await page.getByRole('checkbox', { name: /credited to/ }).check();

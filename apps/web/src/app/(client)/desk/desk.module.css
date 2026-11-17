@@ -20,14 +20,17 @@
   margin-bottom: 0;
 }
 
+/* The desk's sections: a capsule on the paper, the one you are on a visor with its glyph lit — the bar's own language. */
 .tabs {
-  display: flex;
-  justify-self: stretch;
-  gap: var(--space-6);
+  display: inline-flex;
+  justify-self: start;
+  gap: 2px;
   max-width: 100%;
-  padding: 0;
+  padding: 4px;
   overflow-x: auto;
-  border-bottom: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--text-primary) 5%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-primary) 3%, transparent);
   scrollbar-width: none;
 }
 
@@ -42,9 +45,10 @@
   flex: none;
   align-items: center;
   gap: var(--space-2);
-  min-height: 44px;
-  padding: 0;
-  color: var(--text-secondary);
+  min-height: 38px;
+  padding: 0 14px;
+  border-radius: var(--radius-pill);
+  color: var(--ink-2);
   font-size: var(--font-size-body-sm);
   font-weight: var(--font-weight-medium);
   text-decoration: none;
@@ -54,16 +58,32 @@
 
 .tabIcon {
   display: none;
+  width: 18px;
+  height: 18px;
 }
 
 .tabPill {
   position: absolute;
-  right: 0;
-  bottom: -1px;
-  left: 0;
-  height: 2px;
-  border-radius: 2px 2px 0 0;
-  background: var(--brand-primary);
+  z-index: -1;
+  inset: 0;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: var(--visor);
+  box-shadow:
+    var(--visor-edge),
+    0 8px 18px -10px rgba(0, 0, 0, 0.6);
+}
+
+.tabPill::before {
+  content: '';
+  position: absolute;
+  top: 8%;
+  left: 9%;
+  width: 40%;
+  max-width: 56px;
+  height: 36%;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0));
 }
 
 @media (hover: hover) {
@@ -73,8 +93,15 @@
 }
 
 .tab[aria-current='page'] {
-  color: var(--text-primary);
+  --node: #ff6a3d;
+  padding-left: 11px;
+  color: var(--text-on-action);
   font-weight: var(--font-weight-semibold);
+}
+
+.tab[aria-current='page'] .tabIcon {
+  display: block;
+  filter: drop-shadow(0 0 3px rgba(255, 106, 61, 0.6));
 }
 
 .tabCount {
@@ -83,7 +110,7 @@
   min-width: 18px;
   height: 18px;
   padding: 0 5px;
-  border-radius: 6px;
+  border-radius: var(--radius-pill);
   background: var(--brand-primary);
   color: var(--text-on-action);
   font-size: 11px;
@@ -109,19 +136,19 @@
 
 /* ——— Status ——— */
 
+/* A state as the workspace says every state: a white pill, its dot in the state's colour, its word in ink. */
 .status {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
   min-height: 28px;
-  padding: 0 var(--space-3);
+  padding: 0 12px 0 10px;
   border-radius: var(--radius-pill);
-  background: var(--bg-subtle);
-  box-shadow: inset 0 0 0 1px var(--line);
-  color: var(--text-secondary);
-  font-size: var(--font-size-meta);
-  font-weight: var(--font-weight-semibold);
-  letter-spacing: 0.01em;
+  background: var(--bg-surface);
+  box-shadow: 0 0 0 1px var(--line-strong);
+  color: var(--text-primary);
+  font-size: 12.5px;
+  font-weight: var(--font-weight-medium);
   white-space: nowrap;
 }
 
@@ -133,9 +160,7 @@
 }
 
 .status[data-tone='live'] {
-  background: var(--status-success-soft);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--status-success) 18%, transparent);
-  color: var(--status-success);
+  color: var(--text-primary);
 }
 
 .status[data-tone='live'] .statusDot {
@@ -145,23 +170,25 @@
 }
 
 .status[data-tone='paused'] {
-  background: var(--status-warning-soft);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--status-warning) 18%, transparent);
-  color: var(--status-warning);
+  color: var(--text-primary);
 }
 
 .status[data-tone='paused'] .statusDot {
   background: var(--status-warning);
 }
 
+/* The one state that is colour: it is waiting on the desk. */
 .status[data-tone='action'] {
-  background: color-mix(in srgb, var(--brand-primary) 10%, var(--bg-surface));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand-primary) 22%, transparent);
-  color: var(--brand-action);
+  background: linear-gradient(180deg, #f4592e, #e2461d);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.3),
+    0 8px 16px -8px rgba(226, 70, 29, 0.9);
+  color: var(--text-on-action);
+  font-weight: var(--font-weight-semibold);
 }
 
 .status[data-tone='action'] .statusDot {
-  background: var(--brand-primary);
+  background: var(--text-on-action);
 }
 
 .status[data-tone='done'] {
@@ -1313,21 +1340,25 @@
   min-height: 96px;
   padding: var(--space-3) var(--space-4);
   border: 0;
-  border-radius: var(--radius-input);
-  background: var(--bg-surface);
-  box-shadow: inset 0 0 0 1px var(--border-strong);
+  border-radius: 16px;
+  /* A well, as every field in the workspace. */
+  background: var(--paper);
+  box-shadow: inset 0 0 0 1px transparent;
   color: var(--text-primary);
   font: inherit;
   font-size: var(--font-size-body);
   line-height: var(--line-height-normal);
   resize: vertical;
   outline: 0;
-  transition: box-shadow var(--dur-fast) var(--ease);
+  transition:
+    box-shadow var(--dur-fast) var(--ease),
+    background-color var(--dur-fast) var(--ease);
 }
 
 .textarea:focus {
+  background: var(--bg-surface);
   box-shadow:
-    inset 0 0 0 1.5px var(--text-primary),
+    inset 0 0 0 1.5px var(--brand-primary),
     0 0 0 4px color-mix(in srgb, var(--brand-primary) 14%, transparent);
 }
 

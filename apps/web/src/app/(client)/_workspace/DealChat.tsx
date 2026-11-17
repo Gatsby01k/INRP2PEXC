@@ -5,7 +5,7 @@ import type { DealChatMessage, DealChatView } from '@inrp2p/settlement';
 import { formatIstDateTime } from '@inrp2p/ui/format';
 import { type ActionResult, useCommand } from '../../../components/useCommand.tsx';
 import { ATTACH_ACCEPT, fileSize, prepareAttachment } from './attach.ts';
-import { ChatIcon, CloseIcon, PaperclipIcon, ReceiptIcon, SendIcon, ShieldIcon } from './icons.tsx';
+import { ChatIcon, CloseIcon, PaperclipIcon, ReceiptIcon, SendIcon, ShieldIcon, SupportIcon } from './icons.tsx';
 import shell from '../shell.module.css';
 import styles from './deal-chat.module.css';
 
@@ -91,20 +91,24 @@ export function DealChat({
   };
 
   return (
-    <section className={`${shell.card} ${styles.chat}`} aria-labelledby="deal-chat-title">
+    <section id="deal-chat" className={`${shell.card} ${styles.chat}`} aria-labelledby="deal-chat-title">
       <div className={styles.head}>
         <div className={styles.headText}>
           <h2 id="deal-chat-title" className={styles.title}>
-            <ChatIcon className={styles.titleIcon} />
-            Chat with the {other}
+            <span className={styles.titleTile} aria-hidden="true">
+              <ChatIcon className={styles.titleIcon} />
+            </span>
+            <span className={styles.titleWords}>
+              Chat with the {other}
+              <span className={styles.caption}>History is kept</span>
+            </span>
           </h2>
-          <p className={styles.caption}>Only you, the {other} and INRP2P support see it. The history is kept.</p>
         </div>
         {chat.support === 'NONE' ? (
           chat.canPost ? (
-            <button type="button" className={shell.secondaryAction} data-size="sm" onClick={() => setAsking((v) => !v)} aria-expanded={asking}>
-              <ShieldIcon />
-              Call support
+            <button type="button" className={shell.secondaryAction} data-size="sm" onClick={() => setAsking((v) => !v)} aria-expanded={asking} title="Call INRP2P support into this chat">
+              <SupportIcon />
+              Support
             </button>
           ) : null
         ) : (
@@ -139,13 +143,14 @@ export function DealChat({
       ) : null}
 
       <ol ref={thread} className={styles.thread} aria-label={`Messages with the ${other}`} aria-live="polite" tabIndex={0}>
-        {count === 0 ? (
-          <li className={styles.empty}>
-            Agree anything about the payment here. Never share an OTP, a PIN or a password — INRP2P never asks for them.
-          </li>
-        ) : (
-          chat.messages.map((m) => <Message key={m.id} m={m} other={other} />)
-        )}
+        {/* The one rule of the chat stays at its top, above whatever is said. Only the people in the deal and INRP2P see it. */}
+        <li className={styles.empty}>
+          <ShieldIcon />
+          <span>Never share an OTP, a PIN or a password — INRP2P never asks for them.</span>
+        </li>
+        {chat.messages.map((m) => (
+          <Message key={m.id} m={m} other={other} />
+        ))}
       </ol>
 
       {chat.canPost ? (

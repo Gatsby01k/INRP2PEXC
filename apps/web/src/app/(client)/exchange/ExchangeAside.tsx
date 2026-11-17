@@ -1,7 +1,10 @@
 import Link from 'next/link';
 import { Money } from '@inrp2p/kernel';
 import type { HistoryRow } from '@inrp2p/portal';
-import { formatInr, formatUsdtHeadline } from '@inrp2p/ui/format';
+import { formatInr, formatUsdtHeadline, shortenAddress } from '@inrp2p/ui/format';
+import { Amount } from '../../../components/Amount.tsx';
+import { Coin } from '../../../components/Coin.tsx';
+import { BankMark } from '../../../components/PayMarks.tsx';
 import { type Step, isOpenTrade } from '../_assistant/model.ts';
 import { TRADE_STATUS } from '../_workspace/StatusPill.tsx';
 import { ChevronIcon } from '../_workspace/icons.tsx';
@@ -122,6 +125,14 @@ export function Activity({ recent }: { recent: readonly HistoryRow[] }) {
           <ChevronIcon />
         </Link>
       </div>
+      <div className={stage.thead} aria-hidden="true">
+        <span />
+        <span>Trade</span>
+        <span className={stage.thR}>You get</span>
+        <span>Lands at</span>
+        <span>Status</span>
+        <span />
+      </div>
       <ul className={stage.rows}>
         {sorted.slice(0, 4).map((t) => {
           const sell = t.direction === 'SELL_USDT';
@@ -129,9 +140,9 @@ export function Activity({ recent }: { recent: readonly HistoryRow[] }) {
           const done = t.status === 'COMPLETED';
           const held = t.onHold && isOpenTrade(t.status);
           const usdt = formatUsdtHeadline(Money.parse(t.base, 'USDT'));
-          const inr = formatInr(Money.parse(t.inr, 'INR'));
           const known = TRADE_STATUS[t.status];
-          const state = held ? 'On hold' : yours ? (sell ? 'Send USDT' : 'Pay INR') : (known?.label ?? t.status);
+          const state = held ? 'On hold' : yours ? 'Your move' : (known?.label ?? t.status);
+          const lands = t.landing;
           return (
             <li key={t.ref}>
               <Link href={`/trades/${t.ref}`} className={stage.row}>
@@ -146,10 +157,27 @@ export function Activity({ recent }: { recent: readonly HistoryRow[] }) {
                   <span className={stage.rowRef}>{t.ref}</span>
                 </span>
                 <span className={stage.rowFigure}>
-                  <span className={stage.rowArrow} aria-hidden="true">
-                    {sell ? '→ ' : '← '}
-                  </span>
-                  {inr}
+                  {sell ? (
+                    <Amount value={formatInr(Money.parse(t.inr, 'INR'))} />
+                  ) : (
+                    <>
+                      <Amount value={formatUsdtHeadline(Money.parse(t.base, 'USDT'), { unit: false })} />
+                      <span className={stage.rowUnit}>USDT</span>
+                    </>
+                  )}
+                </span>
+                <span className={stage.rowLands}>
+                  {lands?.kind === 'BANK' ? (
+                    <>
+                      <BankMark ifsc={lands.ifsc} name={lands.bankName} size={24} />
+                      {lands.bankName.replace(/ Bank$/, '')} ···· {lands.last4}
+                    </>
+                  ) : lands?.kind === 'WALLET' ? (
+                    <>
+                      <Coin currency="USDT" size={24} />
+                      <span className={stage.mono}>{shortenAddress(lands.address)}</span>
+                    </>
+                  ) : null}
                 </span>
                 <span className={workspace.pill} data-tone={held ? 'hold' : yours ? 'turn' : done ? 'done' : (known?.tone ?? 'neutral')}>
                   <StateRing state={held ? 'hold' : yours ? 'turn' : (known?.ring ?? 'off')} className={workspace.pillIcon} />

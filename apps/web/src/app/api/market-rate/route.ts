@@ -1,4 +1,4 @@
-import { publicMarketRates } from '@inrp2p/pricing';
+import { marketTrail, publicMarketRates } from '@inrp2p/pricing';
 import { getRuntime } from '../../../server/runtime.ts';
 
 export const dynamic = 'force-dynamic';
@@ -11,9 +11,12 @@ export const dynamic = 'force-dynamic';
  */
 export async function GET() {
   try {
-    const rates = await publicMarketRates(getRuntime().appDb);
-    return Response.json(rates, { headers: { 'cache-control': 'public, max-age=60, s-maxage=300, stale-while-revalidate=300' } });
+    const db = getRuntime().appDb;
+    const rates = await publicMarketRates(db);
+    // The last day's line, for the workspace's ticker; only while there is a rate to show beside it.
+    const trail = rates.SELL_USDT || rates.BUY_USDT ? await marketTrail(db) : [];
+    return Response.json({ ...rates, trail }, { headers: { 'cache-control': 'public, max-age=60, s-maxage=300, stale-while-revalidate=300' } });
   } catch {
-    return Response.json({ SELL_USDT: null, BUY_USDT: null }, { status: 503, headers: { 'cache-control': 'no-store' } });
+    return Response.json({ SELL_USDT: null, BUY_USDT: null, trail: [] }, { status: 503, headers: { 'cache-control': 'no-store' } });
   }
 }

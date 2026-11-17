@@ -15,52 +15,66 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-4);
-  min-height: 64px;
-  padding: var(--space-3) var(--space-6);
+  min-height: 68px;
+  padding: var(--space-3) 28px;
 }
 
 .summary {
-  color: var(--text-secondary);
-  font-size: var(--font-size-body-sm);
-  font-weight: var(--font-weight-medium);
+  color: var(--text-primary);
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.01em;
 }
 
 .day {
-  border-top: 1px solid color-mix(in srgb, var(--border-default) 60%, transparent);
+  box-shadow: inset 0 1px 0 var(--line);
 }
 
+/* The day in the technical voice, held under the bar while its messages scroll by. */
 .dayTitle {
   position: sticky;
-  top: var(--masthead);
+  top: calc(var(--masthead) + 14px);
   z-index: 1;
   margin: 0;
-  padding: var(--space-3) var(--space-6) var(--space-2);
+  padding: 14px 28px 8px;
   background: color-mix(in srgb, var(--bg-surface) 92%, transparent);
   backdrop-filter: blur(8px);
   color: var(--text-muted);
-  font-size: var(--font-size-meta);
-  font-weight: var(--font-weight-semibold);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
 }
 
 .list {
   margin: 0;
-  padding: 0;
+  padding: 0 10px 10px;
   list-style: none;
 }
 
+/* A message is a row on the sheet; an unread one carries the mark's node beside its time, not a tinted band. */
 .row {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) 10px;
   align-items: start;
   gap: var(--space-4);
-  padding: var(--space-4) var(--space-6);
+  padding: 14px 18px;
+  border-radius: 18px;
   color: inherit;
   text-decoration: none;
   transition: background-color var(--dur-fast) var(--ease);
 }
 
+@supports (corner-shape: superellipse(1.5)) {
+  .row,
+  .icon {
+    corner-shape: superellipse(1.5);
+  }
+}
+
 a.row:hover {
-  background: var(--bg-subtle);
+  background: var(--paper);
 }
 
 a.row:focus-visible {
@@ -68,51 +82,38 @@ a.row:focus-visible {
   outline-offset: -2px;
 }
 
-.item[data-unread] .row {
-  background: color-mix(in srgb, var(--brand-soft) 35%, transparent);
-}
-
-.item[data-unread] a.row:hover {
-  background: color-mix(in srgb, var(--brand-soft) 60%, transparent);
-}
-
+/* Its glyph on a tile of the sheet's tint; the glyph's own node carries the colour. */
 .icon {
   display: inline-grid;
   place-items: center;
-  width: 36px;
-  height: 36px;
-  border-radius: 11px;
-  background: var(--bg-subtle);
-  box-shadow: inset 0 0 0 1px var(--border-default);
-  color: var(--text-secondary);
-}
-
-.icon[data-tone='brand'] {
-  background: var(--brand-soft);
-  box-shadow: none;
-  color: var(--brand-action);
+  width: 40px;
+  height: 40px;
+  border-radius: 13px;
+  background: var(--paper);
+  color: var(--text-primary);
 }
 
 .icon[data-tone='success'] {
-  background: var(--status-success-soft);
-  box-shadow: none;
-  color: var(--status-success);
+  --node: var(--buy);
 }
 
 .icon[data-tone='warning'] {
-  background: var(--status-warning-soft);
-  box-shadow: none;
-  color: var(--status-warning);
+  --node: var(--amber);
+}
+
+.item:not([data-unread]) .icon {
+  --node: var(--text-muted);
+  color: var(--ink-2);
 }
 
 .icon svg {
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
 }
 
 .body {
   display: grid;
-  gap: 3px;
+  gap: 4px;
   min-width: 0;
 }
 
@@ -124,40 +125,49 @@ a.row:focus-visible {
 }
 
 .title {
-  font-size: var(--font-size-body-sm);
+  font-size: var(--font-size-body);
   font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.01em;
 }
 
 .item:not([data-unread]) .title {
+  color: var(--ink-2);
   font-weight: var(--font-weight-medium);
 }
 
 .time {
   flex: none;
   color: var(--text-muted);
+  font-family: var(--font-mono);
   font-size: var(--font-size-meta);
   font-variant-numeric: tabular-nums;
 }
 
 .text {
-  color: var(--text-secondary);
+  color: var(--ink-2);
   font-size: var(--font-size-body-sm);
   line-height: var(--line-height-normal);
   font-variant-numeric: tabular-nums;
 }
 
+.item:not([data-unread]) .text {
+  color: var(--text-muted);
+}
+
 .ref {
   color: var(--text-muted);
+  font-family: var(--font-mono);
   font-size: var(--font-size-meta);
   font-variant-numeric: tabular-nums;
 }
 
 .dot {
-  width: 8px;
-  height: 8px;
+  width: 9px;
+  height: 9px;
   margin-top: 6px;
   border-radius: 50%;
   background: var(--brand-primary);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--brand-primary) 16%, transparent);
 }
 
 /* ——— Nothing yet ——— */

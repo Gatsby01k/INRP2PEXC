@@ -97,12 +97,13 @@ export function ExchangeScreen({
         {firstRun ? <SetupGuide who={who} /> : null}
         {quote && live ? (
           <>
-            <QuoteCard quote={quote} canAccept={canAccept} now={now} />
+            <QuoteCard quote={quote} canAccept={canAccept} now={now} request={view.request} destinations={view.destinations} />
             {/* What accepting starts, as the same picture the trade then carries to its receipt. */}
             <section className={`${shell.card} ${stage.ahead}`} aria-labelledby="ahead-title">
               <div className={shell.cardHead}>
-                <h2 id="ahead-title" className={shell.cardTitle}>
-                  When you accept, the trade opens at this rate
+                <h2 id="ahead-title" className={`${shell.cardTitle} ${stage.aheadTitle}`}>
+                  <span className={shell.kbd}>01</span>
+                  Accept, and the trade opens at this rate
                 </h2>
                 <span className={shell.idx}>The same picture follows the deal to its receipt</span>
               </div>
@@ -111,6 +112,7 @@ export function ExchangeScreen({
                 step="AHEAD"
                 usdt={`${legAmount(quote.base.amount, 'USDT')} USDT`}
                 inr={`₹${legAmount(quote.inr.amount, 'INR')}`}
+                destination={quote.destination.replace(' Bank', '')}
                 label="After you accept: the USDT goes into INRP2P’s escrow, the rupees are paid bank to bank, and the escrow releases once they are confirmed."
               />
               <ol className={stage.aheadSteps}>

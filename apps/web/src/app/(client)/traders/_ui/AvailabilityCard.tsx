@@ -11,7 +11,7 @@ import shell from '../../shell.module.css';
 import styles from '../traders.module.css';
 
 /** What stops orders, in the trader's words, and the one thing to do about it where there is one. */
-function Issue({ home }: { home: TraderHome }) {
+export function Issue({ home }: { home: TraderHome }) {
   const reserve = home.reserve;
   if (home.issues.includes('RESERVE_SHORT') && reserve) {
     return (

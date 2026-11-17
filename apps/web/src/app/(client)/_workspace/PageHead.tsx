@@ -16,6 +16,7 @@ export function PageHead({
   eyebrow,
   back,
   title,
+  display,
   status,
   lede,
   aside,
@@ -23,16 +24,39 @@ export function PageHead({
   eyebrow?: ReactNode;
   back?: { readonly href: string; readonly label: string };
   title: ReactNode;
+  /**
+   * What the page is about right now, set large — "Sell 10,000 USDT" — while `title` stays the page's name, set as the
+   * line above it (still the page's one heading, so its name never changes as its state does).
+   */
+  display?: ReactNode;
   status?: ReactNode;
   lede?: ReactNode;
   aside?: ReactNode;
   icon?: ReactNode;
 }) {
+  if (display) {
+    return (
+      <header id={PAGE_HEAD_ID} className={styles.pageHead}>
+        <div className={styles.pageHeadText}>
+          <div className={styles.eyebrow}>
+            <h1 className={styles.eyebrowHeading}>{title}</h1>
+            {eyebrow ? <span>· {eyebrow}</span> : null}
+          </div>
+          <div className={styles.titleRow}>
+            <p className={styles.pageTitle}>{display}</p>
+            {status}
+          </div>
+          {lede ? <p className={styles.lede}>{lede}</p> : null}
+        </div>
+        {aside ? <div className={styles.pageHeadAside}>{aside}</div> : null}
+      </header>
+    );
+  }
   return (
     <header id={PAGE_HEAD_ID} className={styles.pageHead}>
       <div className={styles.pageHeadText}>
         {back || eyebrow ? (
-          <p className={styles.eyebrow}>
+          <p className={back ? styles.crumb : styles.eyebrow}>
             {back ? <Link href={back.href}>{back.label}</Link> : null}
             {back && eyebrow ? <ChevronIcon className={styles.crumbSep} /> : null}
             {eyebrow ? <span>{eyebrow}</span> : null}

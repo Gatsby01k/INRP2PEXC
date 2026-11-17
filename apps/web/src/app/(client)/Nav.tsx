@@ -3,12 +3,14 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { LazyMotion, MotionConfig, domMax, m } from 'framer-motion';
-import { DesksIcon, ExchangeIcon, HistoryIcon, UserIcon, UsersIcon, WalletIcon } from './_workspace/icons.tsx';
+import { DealsIcon, DesksIcon, ExchangeIcon, HistoryIcon, ShieldIcon, UserIcon, UsersIcon, WalletIcon } from './_workspace/icons.tsx';
 import styles from './shell.module.css';
 
 export interface ClientNavEntry {
   readonly href: string;
   readonly label: string;
+  /** Only in the phone's tab bar, where a trader's orders and reserve are a thumb away (on a desk they are on the page). */
+  readonly phone?: boolean;
 }
 
 /** The glyph each section carries — lit beside its word where the section is the current one, and above it in the phone's bar. */
@@ -19,6 +21,8 @@ const ICONS: Record<string, typeof ExchangeIcon> = {
   '/desk': DesksIcon,
   '/desks': DesksIcon,
   '/traders': UsersIcon,
+  '/traders/orders': DealsIcon,
+  '/traders/reserve': ShieldIcon,
   '/open-account': UserIcon,
 };
 
@@ -41,12 +45,15 @@ const SPRING = { type: 'spring', stiffness: 640, damping: 48, mass: 0.8 } as con
 export function ClientNav({ entries }: { entries: readonly ClientNavEntry[] }) {
   const pathname = usePathname();
   const section = pathname.startsWith('/trades/') ? '/history' : pathname;
+  // The most particular section wins: an order's page is Orders' where Orders is in the bar, Traders' otherwise.
+  const within = (href: string) => section === href || section.startsWith(`${href}/`);
+  const currentHref = entries.filter((e) => within(e.href)).sort((a, b) => b.href.length - a.href.length)[0]?.href;
   return (
     <LazyMotion features={domMax} strict>
       <MotionConfig reducedMotion="user">
         <nav className={styles.nav} aria-label="Sections">
           {entries.map((e) => {
-            const current = section === e.href || section.startsWith(`${e.href}/`);
+            const current = e.href === currentHref;
             const Icon = ICONS[e.href];
             return (
               <Link
@@ -55,6 +62,7 @@ export function ClientNav({ entries }: { entries: readonly ClientNavEntry[] }) {
                 className={styles.navItem}
                 aria-label={e.label}
                 data-short={SHORT[e.href] ?? e.label}
+                data-phone={e.phone || undefined}
                 {...(current ? { 'aria-current': 'page' as const } : {})}
               >
                 {current ? <m.span layoutId="ix-nav-pill" className={styles.navPill} transition={SPRING} aria-hidden="true" /> : null}

@@ -392,6 +392,13 @@ svg.led {
   }
 }
 
+/* An entry only the phone's tab bar carries. */
+@media (min-width: 900px) {
+  .navItem[data-phone] {
+    display: none;
+  }
+}
+
 .navItem[aria-current='page'] {
   --node: #ff6a3d;
   padding: 0 16px 0 12px;
@@ -570,6 +577,35 @@ svg.led {
   height: 6px;
   border-radius: 50%;
   background: currentColor;
+}
+
+/* A reference beside the heading, on glass, to quote and to copy. */
+.refPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  height: 42px;
+  padding: 0 6px 0 16px;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(255, 255, 255, 0.5));
+  backdrop-filter: blur(20px) saturate(1.8);
+  -webkit-backdrop-filter: blur(20px) saturate(1.8);
+  box-shadow:
+    inset 0 1px 0 var(--bg-surface),
+    0 0 0 1px rgba(18, 19, 23, 0.055),
+    0 14px 34px -18px rgba(120, 60, 20, 0.42);
+  font-size: 13.5px;
+  white-space: nowrap;
+}
+
+.refPillWord {
+  color: var(--text-muted);
+}
+
+.refPillRef {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  letter-spacing: -0.01em;
 }
 
 /* ——— The orange moment: the mark's own colour, a figure in white, light that follows the pointer ——— */
@@ -789,6 +825,18 @@ svg.led {
   text-transform: uppercase;
 }
 
+/* The page's name, set as the eyebrow when the large line says what the page is about now (`PageHead display`). */
+.eyebrowHeading {
+  margin: 0;
+  font: inherit;
+  letter-spacing: inherit;
+}
+
+.unit {
+  color: var(--text-muted);
+  font-weight: var(--font-weight-medium);
+}
+
 .eyebrow a {
   color: var(--text-secondary);
   text-decoration: none;
@@ -796,6 +844,33 @@ svg.led {
 
 .eyebrow a:hover {
   color: var(--text-primary);
+}
+
+/* A page inside another — a trade inside History — is a quiet trail: the section's name, then the reference in mono. */
+.crumb {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13.5px;
+  font-weight: var(--font-weight-medium);
+  line-height: 1.2;
+}
+
+.crumb a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.crumb a:hover {
+  color: var(--text-primary);
+}
+
+.crumb > span {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  letter-spacing: 0.02em;
 }
 
 .crumbSep {
@@ -1587,6 +1662,42 @@ svg.led {
 
   .facts > div {
     grid-template-columns: minmax(88px, 42%) minmax(0, 1fr);
+  }
+}
+
+/*
+ * A page that brings its own phone bar (a trade: back, its reference, chat, support) opens as one thing: the
+ * workspace's masthead and section bar step aside, and so does the page's own heading — the bar names the trade.
+ */
+@media (max-width: 699px) {
+  .shell:has([data-phone-bar]) {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .shell:has([data-phone-bar]) .header {
+    display: none;
+  }
+
+  /* The heading stays the page's heading for assistive technology; the eye reads the bar. */
+  .shell:has([data-phone-bar]) .pageHead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .shell:has([data-phone-bar]) .workspace {
+    padding-top: 8px;
+  }
+
+  /* The deal's own move comes first on a phone, drawn at full strength as the page's first block. */
+  .main[data-deal-rail] > [data-attention] {
+    order: -1;
+    animation-name: rise;
+    animation-delay: 0ms;
   }
 }
 

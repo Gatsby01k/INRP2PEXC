@@ -37,13 +37,29 @@ type Submit<A extends unknown[]> = (...args: A) => Promise<{ ok: boolean; error?
  * The seller's way out of "Release the escrow": the rupees are not there. Folded until asked for, so the one right thing
  * — checking the bank, then confirming — stays the obvious one.
  */
-export function NotArrived({ inr, onSubmit, busy }: { inr: string; onSubmit: Submit<[DisputeReason, string | null]>; busy: boolean }) {
-  const [open, setOpen] = useState(false);
+export function NotArrived({
+  inr,
+  onSubmit,
+  busy,
+  open: openFrom,
+  onOpenChange,
+}: {
+  inr: string;
+  onSubmit: Submit<[DisputeReason, string | null]>;
+  busy: boolean;
+  /** Driven from outside (the button beside the release): closed, nothing is drawn here. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+}) {
+  const [openHere, setOpenHere] = useState(false);
+  const open = openFrom ?? openHere;
+  const setOpen = (v: boolean) => (onOpenChange ? onOpenChange(v) : setOpenHere(v));
   const [reason, setReason] = useState<DisputeReason>('NO_CREDIT');
   const [note, setNote] = useState('');
   const [error, setError] = useState<string | null>(null);
   const ready = !busy && (reason !== 'OTHER' || note.trim().length >= 3);
 
+  if (!open && openFrom !== undefined) return null;
   if (!open) {
     return (
       <div className={styles.fold}>

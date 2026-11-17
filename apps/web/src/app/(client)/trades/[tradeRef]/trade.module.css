@@ -483,3 +483,100 @@ a.eventDetail:hover {
     display: none;
   }
 }
+
+/* On a phone the picture is not drawn (`DealRail`), so its frame takes no room either. */
+@media (max-width: 699px) {
+  .rail {
+    display: none;
+  }
+}
+
+/* With the deal's own card below saying the same, the state's words step out of view: the card is where they are read. */
+.state[data-quiet] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  padding: 0;
+}
+
+.rail {
+  padding-top: var(--space-6);
+}
+
+/* "3 of 4 · INR from the buyer": the stop's count and name, set as the figure's unit. */
+.stepOf {
+  margin-left: 0.5em;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.46em;
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  opacity: 0.85;
+}
+
+/* Five figures leave the stop's name no room beside its number: it goes under it. */
+.stepOf[data-wrap] {
+  display: block;
+  margin: 6px 0 0;
+  white-space: normal;
+}
+
+/* ——— Words on the paper beside the work: the trade's details and its activity ——— */
+
+.paper {
+  display: grid;
+  gap: 6px;
+  padding: 0 8px;
+}
+
+.paperTitle {
+  margin: 0;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.paper .facts,
+.paper dl {
+  margin: 0;
+}
+
+.quietValue {
+  color: var(--text-muted);
+  font-weight: var(--font-weight-regular) !important;
+}
+
+/* The transfer's hash in the details: mono, with the way out beside it. */
+.hashLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  text-decoration: none;
+}
+
+.hashLink svg {
+  width: 16px;
+  height: 16px;
+  color: var(--text-muted);
+}
+
+.hashLink:hover span {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.hashState {
+  color: var(--text-muted);
+  font-family: var(--font-sans);
+  font-size: 12px;
+}

@@ -8,23 +8,23 @@ import { ArcLoader } from '@inrp2p/ui';
 import { formatIstDate, formatIstTime } from '@inrp2p/ui/format';
 import { markNotificationsReadAction } from '../../../server/actions/client.ts';
 import { RobotFigure } from '../_assistant/RobotFigure.tsx';
-import { ArrowIcon, BankIcon, CheckIcon, ClockIcon, InfoIcon, ReceiptIcon, SwapIcon, UsersIcon } from '../_workspace/icons.tsx';
+import { BankIcon, CheckIcon, ClockIcon, ExchangeIcon, InfoIcon, RateIcon, ReceiptIcon, UsersIcon, VerifiedIcon } from '../_workspace/icons.tsx';
 import shell from '../shell.module.css';
 import styles from './inbox.module.css';
 
 type Tone = 'brand' | 'success' | 'warning' | 'neutral';
 
 /** What kind of news a message is, as a glyph and a tone — always beside its title, never instead of it. */
-function look(kind: ClientNotification['kind']): { Icon: typeof SwapIcon; tone: Tone } {
+function look(kind: ClientNotification['kind']): { Icon: typeof RateIcon; tone: Tone } {
   switch (kind) {
     case 'QUOTE_SENT':
-      return { Icon: SwapIcon, tone: 'brand' };
+      return { Icon: RateIcon, tone: 'brand' };
     case 'TRADE_OPENED':
-      return { Icon: ArrowIcon, tone: 'brand' };
+      return { Icon: ExchangeIcon, tone: 'brand' };
     case 'PAYOUT_CONFIRMED':
       return { Icon: ReceiptIcon, tone: 'success' };
     case 'TRADE_COMPLETED':
-      return { Icon: CheckIcon, tone: 'success' };
+      return { Icon: VerifiedIcon, tone: 'success' };
     case 'QUOTE_EXPIRED':
       return { Icon: ClockIcon, tone: 'neutral' };
     case 'REQUEST_DECLINED':

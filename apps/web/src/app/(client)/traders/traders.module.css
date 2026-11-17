@@ -1932,3 +1932,300 @@
   font-size: var(--font-size-meta);
   letter-spacing: -0.01em;
 }
+
+/* ——— The prices card (`PricesCard`): both sides as figures, one Edit ——— */
+
+.prices {
+  --pad-y: 24px;
+  --pad-x: 28px;
+  gap: 18px;
+}
+
+.pricesHead {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.pricesTitle {
+  margin: 0;
+  font-size: 18px;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.015em;
+}
+
+.pricesEdit {
+  margin-left: auto;
+}
+
+.pricesEdit svg {
+  width: 16px;
+  height: 16px;
+}
+
+.halves {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.halves[data-count='1'] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.half {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.half + .half {
+  padding-left: 28px;
+  box-shadow: inset 1px 0 0 var(--line);
+}
+
+.halves > .half:first-child {
+  padding-right: 28px;
+}
+
+.halfEditing {
+  gap: var(--space-4);
+}
+
+.halfEyebrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--buy);
+  font-size: 12px;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.halfEyebrow[data-side='SELL_USDT'] {
+  color: var(--sell);
+}
+
+.halfPaused {
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--text-primary) 7%, transparent);
+  color: var(--text-muted);
+  font-size: 11px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.halfRate {
+  margin: 6px 0 2px;
+  font-family: var(--font-figure, var(--font-sans));
+  font-size: 42px;
+  font-weight: var(--font-weight-semibold);
+  line-height: 1;
+  letter-spacing: -0.045em;
+  white-space: nowrap;
+}
+
+.halfLine {
+  margin: 0;
+  color: var(--ink-2, var(--text-secondary));
+  font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.halfQuiet {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.pricesFoot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+  padding-top: 16px;
+  box-shadow: inset 0 1px 0 var(--line);
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.pricesRails {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+@media (max-width: 699px) {
+  .halves {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 18px;
+  }
+
+  .half + .half {
+    padding: 18px 0 0;
+    box-shadow: inset 0 1px 0 var(--line);
+  }
+
+  .halves > .half:first-child {
+    padding-right: 0;
+  }
+
+  .halfRate {
+    font-size: 34px;
+  }
+}
+
+/* ——— The queue's cards, as the mock-up sets them: the time at the corner, a foot under the bar ——— */
+
+.orderTop {
+  flex-wrap: nowrap;
+}
+
+.orderFigure [data-part='unit'] {
+  font-size: 0.46em;
+  margin-left: 0.4em;
+}
+
+.timeChip {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 7px;
+  height: 28px;
+  padding: 0 12px 0 10px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: var(--font-weight-semibold);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.timeChip[data-tone='turn'] {
+  background: linear-gradient(180deg, #f4592e, #e2461d);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.3),
+    0 8px 16px -8px rgba(226, 70, 29, 0.9);
+  color: #fff;
+}
+
+.timeChip[data-tone='wait'] {
+  background: var(--bg-surface);
+  box-shadow: 0 0 0 1px var(--line-strong);
+  color: var(--text-primary);
+  font-weight: var(--font-weight-medium);
+}
+
+.timeDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #fff;
+}
+
+.timeRing {
+  width: 16px;
+  height: 16px;
+  color: var(--text-muted);
+}
+
+.orderFoot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  color: var(--text-muted);
+  font-size: 12.5px;
+}
+
+.orderFoot > :last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.laneMore {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  color: var(--ink-2, var(--text-secondary));
+  font-size: 14px;
+  font-weight: var(--font-weight-semibold);
+  text-decoration: none;
+}
+
+.laneMore[data-lane='turn'] {
+  color: var(--brand-action);
+}
+
+.laneMore svg {
+  width: 16px;
+  height: 16px;
+}
+
+@media (min-width: 1100px) {
+  .lanes {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* A card's amount reads whole: its cents are part of what is owed, not a quieter tail. */
+.orderFigure [data-part='fraction'] {
+  opacity: 1;
+}
+
+.halfQuiet a {
+  color: var(--brand-action);
+  font-weight: var(--font-weight-medium);
+  text-decoration: none;
+}
+
+/* On a desk all three lanes stand side by side; on a phone they are one switch, one lane at a time. */
+.laneTabs {
+  display: none;
+}
+
+@media (max-width: 699px) {
+  .laneTabs {
+    display: grid;
+    grid-auto-columns: 1fr;
+    grid-auto-flow: column;
+    gap: 4px;
+    padding: 4px;
+    border-radius: 18px;
+    background: color-mix(in srgb, var(--text-primary) 5%, transparent);
+  }
+
+  .laneTabs button {
+    height: 40px;
+    padding: 0 8px;
+    border: 0;
+    border-radius: 14px;
+    background: none;
+    color: var(--text-muted);
+    font: inherit;
+    font-size: 14px;
+    font-weight: var(--font-weight-medium);
+    white-space: nowrap;
+    cursor: pointer;
+  }
+
+  .laneTabs button[aria-pressed='true'] {
+    background: var(--bg-surface);
+    box-shadow:
+      0 1px 2px rgba(18, 19, 23, 0.06),
+      0 6px 14px -8px rgba(40, 25, 10, 0.3);
+    color: var(--text-primary);
+    font-weight: var(--font-weight-semibold);
+  }
+
+  .lane:not([data-shown]),
+  .laneHead {
+    display: none;
+  }
+}

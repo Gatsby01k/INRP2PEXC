@@ -3,7 +3,13 @@ import { businessNow } from '@inrp2p/quotes';
 import { clientPage, workspaceContext, protectionOfRequest } from '../../../server/client.ts';
 import { PageHead } from '../_workspace/PageHead.tsx';
 import { ExchangeScreen, type RequestDraft } from './ExchangeScreen.tsx';
+import { MarketRate } from './MarketRate.tsx';
 import { SwapIcon } from '../_workspace/icons.tsx';
+import { StateRing } from '../_workspace/StateRing.tsx';
+import { formatIstTime } from '@inrp2p/ui/format';
+import { legAmount } from './amounts.ts';
+import shell from '../shell.module.css';
+import workspace from '../_workspace/workspace.module.css';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,15 +39,49 @@ export default async function ExchangePage({ searchParams }: { searchParams: Pro
     exchangeView(ctx.db, ctx.access.clientId),
     businessNow(ctx.db),
     searchParams,
-    clientHistory(ctx.db, ctx.access.clientId, { limit: 6 }),
+    clientHistory(ctx.db, ctx.access.clientId, { limit: 6, withLanding: true }),
     protectionOfRequest(),
     workspaceContext().then((w) => w.access),
   ]);
   const draft = draftFrom(params);
 
+  // While a request is with the desk, the heading says what it is — "Sell 10,000 USDT" — and where it stands; the page's
+  // own name moves to the line above it. With nothing asked yet, the page is simply the Exchange.
+  const request = view.request && (view.request.status === 'OPEN' || view.request.status === 'QUOTED') ? view.request : null;
+  const quoteLive = view.quote?.status === 'SENT' && view.quote.expiresAt !== null && Date.parse(view.quote.expiresAt) > now.getTime();
+  const sell = (view.quote?.direction ?? request?.direction) === 'SELL_USDT';
+  const usdt = quoteLive ? legAmount(view.quote!.base.amount, 'USDT') : request?.currency === 'USDT' ? legAmount(request.amount, 'USDT') : null;
+  const display = quoteLive || request ? (
+    usdt ? (
+      <>
+        {sell ? 'Sell' : 'Buy'} {usdt} <span className={shell.unit}>USDT</span>
+      </>
+    ) : (
+      <>
+        {sell ? 'Sell USDT for' : 'Buy USDT for'} ₹{legAmount(request!.amount, 'INR')}
+      </>
+    )
+  ) : null;
+  const status = quoteLive ? (
+    <span className={workspace.pill} data-tone="turn" data-size="lg">
+      <StateRing state="turn" className={workspace.pillIcon} />
+      Firm quote ready
+    </span>
+  ) : request ? (
+    <span className={workspace.pill} data-tone="waiting" data-size="lg">
+      <StateRing state="wait" className={workspace.pillIcon} />
+      {request.gatheringUntil ? 'Gathering prices' : 'With the desk'}
+    </span>
+  ) : null;
+  const sentAt = request ? `request sent ${formatIstTime(new Date(request.createdAt))}` : undefined;
+
   return (
     <>
-      <PageHead icon={<SwapIcon />} title="Exchange" lede="Firm prices from the desk for USDT against INR. Nothing is committed until you accept." />
+      {display ? (
+        <PageHead title="Exchange" eyebrow={sentAt} display={display} status={status} aside={<MarketRate />} />
+      ) : (
+        <PageHead icon={<SwapIcon />} title="Exchange" lede="Firm prices from the desk for USDT against INR. Nothing is committed until you accept." aside={<MarketRate />} />
+      )}
       <ExchangeScreen
         view={view}
         canAccept={ctx.access.canAcceptQuotes}
