@@ -2,21 +2,24 @@
 
 import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Rate } from '@inrp2p/kernel';
+import { Money, Rate } from '@inrp2p/kernel';
+import type { ClientDestinations, OpenRequest } from '@inrp2p/portal';
 import type { ClientQuoteView } from '@inrp2p/quotes';
 import { ArcLoader, EXPIRING_THRESHOLD_MS } from '@inrp2p/ui';
-import { formatCountdown, formatIstTime, formatRate } from '@inrp2p/ui/format';
+import { formatCountdown, formatInr, formatIstTime, formatRate } from '@inrp2p/ui/format';
 import { robotCues } from '../../(public)/_landing/robot/cues.ts';
 import { useCommand } from '../../../components/useCommand.tsx';
 import { acceptQuoteAction, rejectQuoteAction } from '../../../server/actions/client.ts';
 import { playSound } from '../_assistant/sound.ts';
 import { RobotFigure } from '../_assistant/RobotFigure.tsx';
-import { ArrowIcon, InfoIcon, LockIcon, RateIcon, ShieldIcon } from '../_workspace/icons.tsx';
+import { ArrowIcon, InfoIcon, RateIcon } from '../_workspace/icons.tsx';
 import { StateRing } from '../_workspace/StateRing.tsx';
 import { legAmount } from './amounts.ts';
 import shell from '../shell.module.css';
 import { Amount } from '../../../components/Amount.tsx';
 import { Coin } from '../../../components/Coin.tsx';
+import { BankMark } from '../../../components/PayMarks.tsx';
+import { RequestSheet } from './RequestSheet.tsx';
 import styles from './exchange.module.css';
 import stage from './stage.module.css';
 
@@ -28,11 +31,26 @@ const C = 2 * Math.PI * R;
  * inside it, turning amber in the last seconds — never flashing. Drawn against the whole time the desk held it for
  * (sent → expiry), on the database's clock.
  */
-export function Countdown({ sentAt, expiresAt, now }: { sentAt: Date | null; expiresAt: Date; now: number }) {
+export function Countdown({ sentAt, expiresAt, now, variant = 'pill' }: { sentAt: Date | null; expiresAt: Date; now: number; variant?: 'pill' | 'ring' }) {
   const first = useRef(Math.max(1, expiresAt.getTime() - now));
   const total = sentAt ? Math.max(1, expiresAt.getTime() - sentAt.getTime()) : first.current;
   const remaining = Math.max(0, expiresAt.getTime() - now);
   const fraction = Math.min(1, remaining / total);
+  if (variant === 'ring') {
+    // The stage's visor: a disc of the robot's black glass, the ring running down round the time left, both lit.
+    const r = 35;
+    const c = 2 * Math.PI * r;
+    return (
+      <span className={stage.ringTimer} data-state={remaining <= EXPIRING_THRESHOLD_MS ? 'expiring' : 'held'} role="timer" aria-live="off">
+        <svg viewBox="0 0 84 84" aria-hidden="true" focusable="false">
+          <circle className={stage.ringTrack} cx="42" cy="42" r={r} />
+          <circle className={stage.ringArc} cx="42" cy="42" r={r} strokeDasharray={c} strokeDashoffset={c * (1 - fraction)} />
+        </svg>
+        <b className={stage.ringTime}>{formatCountdown(remaining)}</b>
+        <span className="ix-visually-hidden">, held until {formatIstTime(expiresAt)}</span>
+      </span>
+    );
+  }
   return (
     <span className={styles.timer} data-state={remaining <= EXPIRING_THRESHOLD_MS ? 'expiring' : 'held'} role="timer" aria-live="off">
       <svg className={styles.timerRing} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -55,7 +73,7 @@ export function Countdown({ sentAt, expiresAt, now }: { sentAt: Date | null; exp
  * Accepting opens the trade and takes the client straight to it; declining is a formal answer to the desk, so it
  * asks once before it is sent.
  */
-export function QuoteCard({ quote, canAccept, now }: { quote: ClientQuoteView; canAccept: boolean; now: number }) {
+export function QuoteCard({ quote, canAccept, now, request, destinations }: { quote: ClientQuoteView; canAccept: boolean; now: number; request: OpenRequest | null; destinations: ClientDestinations }) {
   const router = useRouter();
   const { run, busy, error, dialog } = useCommand();
   const [declining, setDeclining] = useState(false);
@@ -66,6 +84,9 @@ export function QuoteCard({ quote, canAccept, now }: { quote: ClientQuoteView; c
   const inr = legAmount(quote.inr.amount, 'INR');
   // ADR 0028: the deal's network as the client's own line — paid on top when buying, out of the USDT sent when selling.
   const fee = quote.networkFee ? legAmount(quote.networkFee.amount, 'USDT') : null;
+  // The rupees as a statement sets them, to the paisa: the figure the stage is about.
+  const inrExact = formatInr(Money.parse(quote.inr.amount, 'INR'), { fraction: 'always' }).replace('₹', '');
+  const landBank = sell ? destinations.banks.find((b) => quote.destination.includes(b.last4) && quote.destination.includes(b.bankName)) : undefined;
 
   const accept = async () => {
     robotCues.emit({ kind: 'wait', on: true });
@@ -89,55 +110,25 @@ export function QuoteCard({ quote, canAccept, now }: { quote: ClientQuoteView; c
     <>
       <section className={stage.deal} aria-label="Firm quote" data-robot-target="panel">
         {/* What was asked: the client's own side of the deal, and where its money lands. */}
-        <div className={`${shell.surface} ${stage.ask}`}>
-          <header className={stage.askHead}>
-            <span className={shell.idx}>Your request</span>
-            <span className={stage.side} data-side={sell ? 'sell' : 'buy'}>
-              {sell ? 'Sell USDT' : 'Buy USDT'}
-            </span>
-          </header>
-          <div className={`${shell.well} ${stage.askWell}`}>
-            <span className={shell.label}>{sell ? 'You send' : 'You pay'}</span>
-            <span className={stage.askRow}>
-              <span className={stage.askFigure}>
-                <Amount value={sell ? usdt : `₹${inr}`} />
-              </span>
-              <span className={stage.askCoin}>
-                <Coin currency={sell ? 'USDT' : 'INR'} size={32} />
-                {sell ? 'USDT' : 'INR'}
-              </span>
-            </span>
-          </div>
-          <dl className={`${styles.terms} ${stage.terms}`}>
-            <div>
-              <dt>{sell ? 'INR paid to' : 'USDT delivered to'}</dt>
-              <dd>{quote.destination}</dd>
-            </div>
-            <div>
-              <dt>Network</dt>
-              <dd>USDT on TRON (TRC20)</dd>
-            </div>
-            {fee ? (
-              <div>
-                <dt>Network fee</dt>
-                <dd>{fee} USDT — what TRON charges for this deal’s escrow and its transfers. No other fee: the rate is the market’s.</dd>
-              </div>
-            ) : quote.networkFeeIncluded ? (
-              <div>
-                <dt>Fees</dt>
-                <dd>Included in the rate, with the TRC20 network fee of ₹{legAmount(quote.networkFeeIncluded.amount, 'INR')}</dd>
-              </div>
-            ) : null}
-            <div>
-              <dt>Settlement</dt>
-              <dd>{sell ? 'Send your USDT to the trade’s own address; INR follows in one or more transfers, each with its bank reference.' : 'Pay the INR; the USDT is sent to your wallet once it is confirmed.'}</dd>
-            </div>
-          </dl>
-          <p className={stage.askNote}>
-            <ShieldIcon />
-            {sell ? 'Your USDT waits in escrow until the rupees are in your bank.' : 'The seller’s USDT is locked in escrow before you pay anything.'}
-          </p>
-        </div>
+        <RequestSheet
+          direction={quote.direction}
+          amount={sell ? usdt : inr}
+          currency={sell ? 'USDT' : 'INR'}
+          destination={quote.destination}
+          destinations={destinations}
+          targetRate={request?.targetRate ? formatRate(Rate.parse(request.targetRate, 'CLIENT')) : null}
+          sentAt={request ? formatIstTime(new Date(request.createdAt)) : null}
+          reference={request?.ref ?? null}
+          networkFee={
+            fee
+              ? sell
+                ? `${fee} USDT — what TRON charges for this deal’s escrow, out of what you send`
+                : `${fee} USDT — what TRON charges for this deal’s escrow, on top`
+              : quote.networkFeeIncluded
+                ? `Included in the rate (₹${legAmount(quote.networkFeeIncluded.amount, 'INR')})`
+                : null
+          }
+        />
 
         {/* The quote's face is a stage: the figure the client gets as a monument on the mark's orange, the robot
             standing in its halo and answering what happens, the time left on its visor, and the decision. */}
@@ -161,9 +152,7 @@ export function QuoteCard({ quote, canAccept, now }: { quote: ClientQuoteView; c
           <header className={stage.stageHead}>
             <span className={stage.chip}>
               <StateRing state="lock" />
-              <span>
-                Firm quote · <span className={styles.side}>held for you</span>
-              </span>
+              <span>Firm quote · held for you</span>
             </span>
             <span className={stage.ref}>{quote.ref}</span>
           </header>
@@ -171,31 +160,24 @@ export function QuoteCard({ quote, canAccept, now }: { quote: ClientQuoteView; c
           <div className={stage.get}>
             <span className={stage.getLabel}>You receive</span>
             <span className={stage.getFigure}>
-              <Amount value={sell ? `₹${inr}` : usdt} />
-              <span className={stage.getUnit}>{sell ? 'INR' : 'USDT'}</span>
+              <Amount value={sell ? `₹${inrExact}` : usdt} />
+              {sell ? null : <span className={stage.getUnit}>USDT</span>}
             </span>
-            <p className={stage.getSub}>
-              {fee
-                ? sell
-                  ? `${fee} USDT of what you send pays the network.`
-                  : `Includes your USDT and ${fee} USDT of network at this rate.`
-                : sell
-                  ? 'Exactly this — nothing is deducted.'
-                  : 'Exactly this — nothing is added.'}
-            </p>
           </div>
 
           <div className={stage.facts}>
             <span className={stage.fact} data-robot-target="rate">
               <RateIcon />
               <span>
-                <span className={stage.factQuiet}>1 USDT = </span>
-                <span className={stage.factFigure}>{rate}</span>
+                <span className={stage.factFigure}>{rate}</span> per USDT
               </span>
             </span>
             <span className={stage.fact}>
-              <LockIcon />
-              Locked until {formatIstTime(expiresAt)}
+              {landBank ? <BankMark ifsc={landBank.ifsc} name={landBank.bankName} size={22} /> : <Coin currency={sell ? 'INR' : 'USDT'} size={22} />}
+              <span>to {quote.destination}</span>
+            </span>
+            <span className={stage.fact}>
+              {fee ? (sell ? `${fee} USDT of what you send pays the network` : `Includes your USDT and ${fee} USDT of network`) : sell ? 'Nothing is deducted' : 'Nothing is added'}
             </span>
           </div>
 
@@ -217,7 +199,7 @@ export function QuoteCard({ quote, canAccept, now }: { quote: ClientQuoteView; c
               ) : (
                 <>
                   <div className={stage.decideRow}>
-                    <Countdown sentAt={quote.sentAt ? new Date(quote.sentAt) : null} expiresAt={expiresAt} now={now} />
+                    <Countdown sentAt={quote.sentAt ? new Date(quote.sentAt) : null} expiresAt={expiresAt} now={now} variant="ring" />
                     <button type="button" className={stage.accept} data-robot-target="cta" onClick={() => void accept()} disabled={busy} aria-busy={busy || undefined}>
                       {busy ? <ArcLoader size="sm" label="Accepting" tone="inherit" /> : null}
                       <span>Accept quote at {rate}</span>

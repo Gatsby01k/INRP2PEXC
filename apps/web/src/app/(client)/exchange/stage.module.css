@@ -454,7 +454,7 @@
   gap: var(--space-3) var(--space-4);
 }
 
-.decideRow [role='timer'] {
+.decideRow [role='timer']:not(.ringTimer) {
   height: 60px;
   padding: 0 20px 0 14px;
 }
@@ -658,7 +658,8 @@
     font-size: var(--font-size-body);
   }
 
-  .row > :nth-child(4) {
+  .row > :nth-child(4),
+  .recent .row > :nth-child(5) {
     grid-column: 3;
     grid-row: 1 / span 2;
   }
@@ -822,6 +823,9 @@
 
   .decideRow [role='timer'] {
     justify-self: start;
+  }
+
+  .decideRow [role='timer']:not(.ringTimer) {
     height: 44px;
   }
 
@@ -836,5 +840,363 @@
   .haloOrbit,
   .accept::after {
     animation: none;
+  }
+}
+
+/* ——— The market's rate beside the heading (`MarketRate`): glass, a live ring, the two sides ——— */
+
+.market {
+  --ring: var(--buy);
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  height: 44px;
+  margin: 0;
+  padding: 0 18px 0 14px;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(255, 255, 255, 0.5));
+  backdrop-filter: blur(20px) saturate(1.8);
+  -webkit-backdrop-filter: blur(20px) saturate(1.8);
+  box-shadow:
+    inset 0 1px 0 var(--bg-surface),
+    0 0 0 1px rgba(18, 19, 23, 0.055),
+    0 14px 34px -18px rgba(120, 60, 20, 0.42);
+  white-space: nowrap;
+  animation: fadeIn 420ms var(--ease) both;
+}
+
+.marketRing {
+  width: 16px;
+  height: 16px;
+}
+
+.marketLabel {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.marketSide {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.marketSide + .marketSide {
+  padding-left: 12px;
+  box-shadow: inset 1px 0 0 var(--line);
+}
+
+.marketWord {
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-medium);
+}
+
+.marketFigure {
+  display: inline-block;
+  font-family: var(--font-figure, var(--font-sans));
+  font-size: 16px;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+
+.marketFigure[data-moved='up'] {
+  animation: tickUp 700ms var(--ease);
+}
+
+.marketFigure[data-moved='down'] {
+  animation: tickDown 700ms var(--ease);
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes tickUp {
+  from {
+    color: var(--buy);
+    transform: translateY(40%);
+    opacity: 0;
+  }
+
+  60% {
+    color: var(--buy);
+  }
+}
+
+@keyframes tickDown {
+  from {
+    color: var(--sell);
+    transform: translateY(-40%);
+    opacity: 0;
+  }
+
+  60% {
+    color: var(--sell);
+  }
+}
+
+/* On a phone the heading keeps its room: the label goes, the two sides stay. */
+@media (max-width: 699px) {
+  .market {
+    gap: 10px;
+    height: 40px;
+    padding: 0 14px 0 12px;
+  }
+
+  .marketLabel {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .market,
+  .marketFigure[data-moved] {
+    animation: none;
+  }
+}
+
+/* ——— The request's sheet, as in the mock-up (`RequestSheet`) ——— */
+
+/* The side, as the switch it was chosen with: the chosen half a white pill, the other quiet. */
+.seg {
+  display: grid;
+  grid-auto-columns: 1fr;
+  grid-auto-flow: column;
+  padding: 4px;
+  border-radius: var(--radius-pill);
+  background: var(--paper);
+}
+
+.seg span {
+  display: grid;
+  place-items: center;
+  height: 44px;
+  border-radius: var(--radius-pill);
+  color: var(--text-muted);
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-semibold);
+}
+
+.seg span[data-on] {
+  background: var(--bg-surface);
+  box-shadow:
+    0 1px 2px rgba(18, 19, 23, 0.1),
+    0 6px 14px -8px rgba(18, 19, 23, 0.25);
+  color: var(--text-primary);
+}
+
+.ask > .askWell {
+  margin-top: 10px;
+}
+
+.askCoin small {
+  color: var(--text-muted);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.02em;
+}
+
+.rows {
+  display: grid;
+  padding: 8px 4px 0;
+}
+
+.rowl {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 12px;
+}
+
+.rowl + .rowl {
+  box-shadow: inset 0 1px 0 var(--line);
+}
+
+.rowText {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.rowText b {
+  overflow: hidden;
+  font-weight: var(--font-weight-semibold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.rowEnd {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tile {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  background: var(--paper);
+  color: var(--text-primary);
+}
+
+.tile svg {
+  width: 20px;
+  height: 20px;
+}
+
+.mono {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-meta);
+  letter-spacing: -0.01em;
+}
+
+/* ——— The stage's ring timer: the robot's visor as a disc ——— */
+
+.ringTimer {
+  --tone: #ff6a3d;
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 92px;
+  height: 92px;
+  border-radius: 50%;
+  background: var(--visor);
+  box-shadow:
+    var(--visor-edge),
+    0 12px 24px -12px rgba(0, 0, 0, 0.7);
+}
+
+.ringTimer::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  top: 9%;
+  left: 18%;
+  width: 46%;
+  height: 32%;
+  border-radius: 50%;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0));
+}
+
+.ringTimer[data-state='expiring'] {
+  --tone: #ffb020;
+}
+
+.ringTimer svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--tone) 90%, transparent));
+}
+
+.ringTrack {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.12);
+  stroke-width: 4;
+}
+
+.ringArc {
+  fill: none;
+  stroke: var(--tone);
+  stroke-width: 4;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 1s linear;
+}
+
+.ringTime {
+  color: color-mix(in srgb, var(--tone) 70%, #ffd0b8);
+  font-family: var(--font-figure, var(--font-sans));
+  font-size: 18px;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 10px color-mix(in srgb, var(--tone) 90%, transparent);
+}
+
+/* ——— The ghost rail's heading and the recent trades' table ——— */
+
+.aheadTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.thead {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1fr) 170px 18px;
+  align-items: center;
+  gap: 18px;
+  margin: 0 calc(-1 * var(--pad-x));
+  padding: 6px var(--pad-x) 12px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.thR {
+  justify-self: end;
+}
+
+.recent .row {
+  grid-template-columns: 44px minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1fr) 170px 18px;
+  gap: 18px;
+}
+
+.recent .row > :nth-child(5) {
+  justify-self: start;
+}
+
+.rowLands {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--ink-2);
+  font-size: 13.5px;
+  white-space: nowrap;
+}
+
+.rowUnit {
+  margin-left: 0.35em;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.04em;
+}
+
+@media (max-width: 899px) {
+  .thead,
+  .recent .row > .rowLands {
+    display: none;
+  }
+}
+
+@media (max-width: 699px) {
+  .recent .row {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 6px 14px;
   }
 }

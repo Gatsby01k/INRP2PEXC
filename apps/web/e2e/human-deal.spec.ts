@@ -129,8 +129,10 @@ async function confirmInr(page: Page, input: { sender: string }): Promise<void> 
   await snap(page, 'confirm-receipt');
   await page.getByLabel('Sender’s name, as your bank shows it').fill(input.sender);
   await page.getByRole('checkbox', { name: /credited|arrived|I see/ }).check();
-  await page.getByRole('button', { name: 'Release the escrow' }).click();
-  await expect(page.getByRole('button', { name: 'Release the escrow' })).toBeHidden();
+  // The client's button names what it releases ("Release 8,000 USDT"); the trader's says the escrow.
+  const release = page.getByRole('button', { name: /^Release (the escrow|[\d,.]+ USDT)$/ });
+  await release.click();
+  await expect(release).toBeHidden();
 }
 
 async function tradeOnPhone(direction: 'SELL_USDT' | 'BUY_USDT') {
@@ -162,8 +164,9 @@ async function rupeesOf(tradeId: string): Promise<string> {
 async function followTheMarket(side: 'Buy USDT' | 'Sell USDT', margin: string, now: RegExp): Promise<void> {
   await traderPhone.bringToFront();
   await traderPhone.goto(`${w.appUrl}/traders`);
+  // The prices card's one Edit opens both sides in place; this side's form is in its own half.
+  await traderPhone.getByRole('region', { name: 'Your prices' }).getByRole('button', { name: 'Edit' }).click();
   const card = traderPhone.getByRole('region', { name: side, exact: true });
-  await card.getByRole('button', { name: 'Edit' }).click();
   await card.locator('label', { hasText: 'Follow the market' }).click();
   await expect(card.getByRole('radio', { name: /Follow the market/ })).toBeChecked();
   await card.getByLabel('Your margin on the market').fill(margin);

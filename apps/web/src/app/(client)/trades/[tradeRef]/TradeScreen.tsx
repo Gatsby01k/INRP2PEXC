@@ -8,9 +8,10 @@ import { CopyButton, DepositAddress, SettlementProgress, TransactionHash } from 
 import { formatInr, formatIstDateTime, formatIstTime, formatRate, formatUsdtHeadline, maskUtr, shortenHash } from '@inrp2p/ui/format';
 import { StateMark, useAssistantState } from '../../_assistant/AssistantPanel.tsx';
 import { type Step, at, tradeAssistant } from '../../_assistant/model.ts';
-import { CheckIcon, ClockIcon, DownloadIcon, InfoIcon, PauseIcon, ReceiptIcon } from '../../_workspace/icons.tsx';
+import { CheckIcon, ClockIcon, DownloadIcon, ExternalIcon, InfoIcon, PauseIcon, ReceiptIcon } from '../../_workspace/icons.tsx';
 import { SuccessMark } from '../../_workspace/SuccessMark.tsx';
 import { DealRail } from '../../_workspace/DealRail.tsx';
+import { Amount } from '../../../../components/Amount.tsx';
 import { type Figure, Figures, Track } from '../../_workspace/OrderSummary.tsx';
 import { DepositTimer, P2pDealCard, P2pDealChat } from './P2pDeal.tsx';
 import shell from '../../shell.module.css';
@@ -138,7 +139,7 @@ const LIVE_POLL_MS = 10_000;
  * Everything here came from the domain's client projections. There is no figure on this page the desk has not
  * already committed to, and nothing about how the desk sourced the other side of the trade (SECURITY §5).
  */
-export function TradeScreen({ view, justOpened = false }: { view: PortalTrade; justOpened?: boolean }) {
+export function TradeScreen({ view, justOpened = false, initial }: { view: PortalTrade; justOpened?: boolean; initial?: string }) {
   const router = useRouter();
   // Arriving straight from accepting the quote: said once, with the mark closing — and not again on a reload.
   const [welcome, setWelcome] = useState(justOpened);
@@ -170,6 +171,7 @@ export function TradeScreen({ view, justOpened = false }: { view: PortalTrade; j
   const usdt = formatUsdtHeadline(Money.parse(trade.base.amount, 'USDT'));
   const inr = formatInr(Money.parse(trade.inr.amount, 'INR'));
   const rate = formatRate(Rate.parse(trade.clientRate, 'CLIENT'));
+  const inrExact = formatInr(Money.parse(trade.inr.amount, 'INR'), { fraction: 'always' });
   const inrSettlement = settlement.expected.currency === 'INR';
   const receipt = `/api/receipts/${encodeURIComponent(trade.ref)}`;
   const p2p = view.p2p;
@@ -202,11 +204,28 @@ export function TradeScreen({ view, justOpened = false }: { view: PortalTrade; j
                     ? (s.detail ?? 'cancelled')
                     : '';
 
+  // Where the deal is, as its journey counts it: the stop being waited on, of the four, and what it is.
+  const stopAt = steps.findIndex((s) => s.status === 'current' || s.status === 'exception');
   const figures: Figure[] = [
-    { label: sell ? 'You sell' : 'You pay', value: sell ? usdt : inr },
-    { label: 'You receive', value: sell ? inr : usdt },
-    { label: 'Rate', value: `${rate}` },
-    ...(trade.networkFee ? [{ label: 'Network fee', value: formatUsdtHeadline(Money.parse(trade.networkFee.amount, 'USDT')) }] : []),
+    { label: sell ? 'You sell' : 'You pay', value: <Amount value={sell ? usdt : inrExact} /> },
+    { label: 'You receive', value: <Amount value={sell ? inrExact : usdt} /> },
+    { label: 'Rate', value: <Amount value={rate} /> },
+    ...(trade.networkFee ? [{ label: 'Network fee', value: <Amount value={formatUsdtHeadline(Money.parse(trade.networkFee.amount, 'USDT'))} /> }] : []),
+    ...(stopAt >= 0
+      ? [
+          {
+            label: 'Step',
+            value: (
+              <>
+                {stopAt + 1}
+                <span className={styles.stepOf} data-wrap={trade.networkFee ? '' : undefined}>
+                  of {steps.length} · {steps[stopAt]!.label}
+                </span>
+              </>
+            ),
+          },
+        ]
+      : []),
   ];
 
   return (
@@ -233,7 +252,7 @@ export function TradeScreen({ view, justOpened = false }: { view: PortalTrade; j
               Paused while the desk checks something. Nothing is lost.
             </p>
           ) : null}
-          <div className={styles.state} aria-live="polite">
+          <div className={styles.state} aria-live="polite" {...(p2p ? { 'data-quiet': '' } : {})}>
             <StateMark mood={status.mood} />
             <div className={styles.stateText}>
               <h2 id="state-title" className={styles.stateTitle}>
@@ -246,7 +265,17 @@ export function TradeScreen({ view, justOpened = false }: { view: PortalTrade; j
           {p2p ? (
             <div className={styles.progress} role="group" aria-label="Trade progress">
               <div className={styles.rail}>
-                <DealRail viewer={sell ? 'seller' : 'buyer'} step={p2p.step} usdt={usdt} inr={inr} label={headline.title} />
+                <DealRail
+                  viewer={sell ? 'seller' : 'buyer'}
+                  step={p2p.step}
+                  usdt={usdt}
+                  inr={inrExact}
+                  label={headline.title}
+                  {...(initial ? { initial } : {})}
+                  sent={sell && view.incoming?.state === 'CONFIRMED' ? `SENT ${formatIstTime(new Date(view.incoming.detectedAt)).replace(' IST', '')} · FINAL` : null}
+                  rail={p2p.payments.findLast((x) => x.rail)?.rail ?? null}
+                  inrTo={sell ? `to ${view.destination.replace(/ Bank\b/, '')}` : null}
+                />
               </div>
               <Track steps={steps} label="Stops" note={trackNote} />
             </div>
@@ -254,12 +283,6 @@ export function TradeScreen({ view, justOpened = false }: { view: PortalTrade; j
             <Track steps={steps} label="Trade progress" note={trackNote} />
           )}
           <Figures figures={figures} />
-          {view.incoming ? (
-            <div className={styles.transfer}>
-              <span className={shell.label}>Your transfer</span>
-              <TransactionHash hash={view.incoming.txHash} explorerUrl={explorer(view.incoming.txHash)} finality={view.incoming.state === 'CONFIRMED' ? 'Confirmed' : 'Seen, not final'} copy={false} />
-            </div>
-          ) : null}
         </section>
 
         {sell && trade.depositInstructions && view.incoming === null && trade.status !== 'CANCELLED' ? (
@@ -299,7 +322,8 @@ export function TradeScreen({ view, justOpened = false }: { view: PortalTrade; j
 
         {p2p ? <P2pDealCard view={view} /> : null}
 
-        {settlement.payments.length > 0 ? (
+        {/* A P2P deal's payments are on its own card; this list is for the desk's own settlements. */}
+        {settlement.payments.length > 0 && !p2p ? (
           <section className={shell.card} aria-label={inrSettlement ? 'INR settlement' : 'USDT delivery'}>
             <div className={shell.cardHead}>
               <h2 className={shell.cardTitle}>{inrSettlement ? 'Your INR' : 'Your USDT'}</h2>
@@ -340,30 +364,49 @@ export function TradeScreen({ view, justOpened = false }: { view: PortalTrade; j
       <aside className={`${shell.aside} ${styles.side}`} aria-label="Chat and details">
         {p2p ? <P2pDealChat view={view} /> : null}
 
-        <section className={shell.card} aria-labelledby="summary-title">
-          <h2 id="summary-title" className={shell.cardTitle}>
+        {/* The details are words on the paper, not another card: the page's cards are its work. */}
+        <section className={styles.paper} aria-labelledby="summary-title">
+          <h2 id="summary-title" className={styles.paperTitle}>
             Details
           </h2>
           <dl className={shell.facts}>
-            <div>
-              <dt>Reference</dt>
-              <dd className={styles.refValue}>
-                <span className="ix-num">{trade.ref}</span>
-                <CopyButton value={trade.ref} label="trade reference" />
-              </dd>
-            </div>
-            <div>
-              <dt>{sell ? 'INR to' : 'USDT to'}</dt>
-              <dd>{view.destination}</dd>
-            </div>
+            {p2p && sell ? null : (
+              <div>
+                <dt>{sell ? 'INR to' : 'USDT to'}</dt>
+                <dd>{view.destination}</dd>
+              </div>
+            )}
             <div>
               <dt>Network</dt>
               <dd>USDT on TRON (TRC20)</dd>
             </div>
+            {view.incoming ? (
+              <div>
+                <dt>Your transfer</dt>
+                <dd>
+                  {p2p ? (
+                    // A P2P deal's rail already says the transfer is final: here it is only the hash, to check it.
+                    <a className={styles.hashLink} href={explorer(view.incoming.txHash)} target="_blank" rel="noreferrer noopener" title="Open on Tronscan">
+                      <span>{shortenHash(view.incoming.txHash)}</span>
+                      <ExternalIcon />
+                      <small className={styles.hashState}>{view.incoming.state === 'CONFIRMED' ? 'Confirmed' : 'Seen, not final'}</small>
+                    </a>
+                  ) : (
+                    <TransactionHash hash={view.incoming.txHash} explorerUrl={explorer(view.incoming.txHash)} finality={view.incoming.state === 'CONFIRMED' ? 'Confirmed' : 'Seen, not final'} copy={false} />
+                  )}
+                </dd>
+              </div>
+            ) : null}
             <div>
               <dt>Started</dt>
               <dd>{at(trade.openedAt)}</dd>
             </div>
+            {!view.receipt ? (
+              <div>
+                <dt>Receipt</dt>
+                <dd className={styles.quietValue}>{trade.status === 'COMPLETED' ? 'Being issued' : 'When the trade settles'}</dd>
+              </div>
+            ) : null}
           </dl>
           {view.receipt ? (
             <div className={styles.receipt}>
@@ -377,13 +420,11 @@ export function TradeScreen({ view, justOpened = false }: { view: PortalTrade; j
                 PDF
               </a>
             </div>
-          ) : trade.status === 'COMPLETED' ? (
-            <p className={shell.muted}>The settlement receipt is being issued.</p>
           ) : null}
         </section>
 
-        <section className={shell.card} aria-labelledby="activity-title">
-          <h2 id="activity-title" className={shell.cardTitle}>
+        <section className={styles.paper} aria-labelledby="activity-title">
+          <h2 id="activity-title" className={styles.paperTitle}>
             Activity
           </h2>
           <ol className={styles.timeline}>

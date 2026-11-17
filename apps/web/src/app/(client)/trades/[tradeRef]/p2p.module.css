@@ -140,29 +140,30 @@
 }
 
 /* What the buyer filed, as the seller checks it against its bank app. */
+/* The buyer's claim, as the mock-up sets it: a well in two halves — the figure and when, then what the bank must show. */
 .claim {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 2px var(--space-3);
-  align-items: center;
-  padding: var(--space-5) 22px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   border-radius: var(--radius-well, 18px);
-  /* The evidence sits in a well of the sheet's own tint, not in a box of its own. */
   background: var(--paper, var(--bg-subtle));
 }
 
+.claimMain {
+  display: grid;
+  align-content: center;
+  gap: 12px;
+  padding: 22px 24px;
+}
+
 .claimLabel {
-  grid-column: 1;
   color: var(--text-muted);
-  font-size: var(--font-size-meta);
-  font-weight: var(--font-weight-semibold);
+  font-size: 12.5px;
+  font-weight: var(--font-weight-medium);
 }
 
 .claimAmount {
-  grid-column: 1;
-  padding: 6px 0 4px;
   font-family: var(--font-figure, var(--font-sans));
-  font-size: 36px;
+  font-size: 42px;
   font-weight: var(--font-weight-semibold);
   line-height: 1;
   letter-spacing: -0.045em;
@@ -170,14 +171,160 @@
 }
 
 .claimMeta {
-  grid-column: 1;
-  color: var(--text-secondary);
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
   font-size: var(--font-size-meta);
+  font-variant-numeric: tabular-nums;
 }
 
-.claim > :last-child:not(.claimMeta) {
-  grid-column: 2;
-  grid-row: 1 / span 3;
+.claimFacts {
+  display: grid;
+  align-content: center;
+  margin: 0;
+  padding: 8px 24px;
+  box-shadow: inset 1px 0 0 var(--line);
+}
+
+.claimFacts > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-height: 46px;
+  font-size: var(--font-size-body-sm);
+}
+
+.claimFacts > div + div {
+  box-shadow: inset 0 1px 0 var(--line);
+}
+
+.claimFacts dt {
+  color: var(--text-muted);
+}
+
+.claimFacts dd {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-weight: var(--font-weight-medium);
+  text-align: right;
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  letter-spacing: -0.01em;
+}
+
+/* The name the bank shows, and how to find it, side by side. */
+.nameRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-6);
+}
+
+.nameRow > p {
+  margin: 0;
+  padding-top: 30px;
+}
+
+/* A bank's delay, said beside the buttons rather than as a band above them. */
+/* The account the rupees must land in, as the mock-up sets it: the bank's tile, then its name. */
+.accountTile {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.lateNote {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 8px;
+  max-width: 34ch;
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.lateNote svg {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  color: var(--amber);
+}
+
+.lateNote strong {
+  color: var(--text-primary);
+}
+
+/* Words for a desk and for a phone, where the phone's are shorter ("To", "Not yet"). */
+.narrow,
+.escrowLine {
+  display: none;
+}
+
+@media (max-width: 699px) {
+  .wide {
+    display: none;
+  }
+
+  .narrow {
+    display: inline;
+  }
+
+  .escrowLine {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+    color: var(--ink-2, var(--text-secondary));
+    font-size: 13.5px;
+  }
+
+  .escrowLine svg {
+    width: 18px;
+    height: 18px;
+    color: var(--status-success);
+  }
+
+  /* The buyer's claim: the rail's mark in the corner, the figure, then the reference and where it must land. */
+  .claimMain {
+    position: relative;
+  }
+
+  .claimMeta {
+    position: absolute;
+    top: 18px;
+    right: 18px;
+  }
+
+  .claimWhen,
+  .claimFacts > .wide {
+    display: none;
+  }
+
+  .nameRow > p {
+    display: none;
+  }
+
+  .claim,
+  .nameRow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .claimFacts {
+    box-shadow: inset 0 1px 0 var(--line);
+  }
+
+  .nameRow > p {
+    padding-top: 0;
+  }
 }
 
 @media (max-width: 560px) {

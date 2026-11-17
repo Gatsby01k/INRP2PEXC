@@ -22,12 +22,23 @@ export interface HistoryRow {
   readonly onHold: boolean;
   /** True once a settlement receipt has been issued for this trade and can be downloaded. */
   readonly receipt: boolean;
+  /**
+   * Where the trade's money lands for the client, when asked for (`withLanding`): its bank account (name, IFSC, last
+   * four) or its wallet (label, address) — the same masked facts the client already sees on Bank & wallets.
+   */
+  readonly landing?: HistoryLanding | null;
 }
+
+export type HistoryLanding =
+  | { readonly kind: 'BANK'; readonly bankName: string; readonly ifsc: string; readonly last4: string }
+  | { readonly kind: 'WALLET'; readonly label: string; readonly address: string };
 
 export interface HistoryQuery {
   readonly limit?: number;
   /** `open` is everything still in flight; `completed` is the archive. Omitted means both, newest first. */
   readonly filter?: 'open' | 'completed';
+  /** Also read where each trade's money lands (one more statement): the Exchange's recent trades show it. */
+  readonly withLanding?: boolean;
 }
 
 export async function clientHistory(ex: Executor, clientId: string, query: HistoryQuery = {}): Promise<readonly HistoryRow[]> {
@@ -47,6 +58,7 @@ export async function clientHistory(ex: Executor, clientId: string, query: Histo
   if (query.filter === 'completed') q = q.where('t.lifecycle_state', '=', 'COMPLETED');
 
   const rows = await q.execute();
+  const landing = query.withLanding && rows.length > 0 ? await landingsOf(ex, clientId, rows.map((r) => r.ref)) : null;
   return clientSafe(
     rows.map((r) => ({
       ref: r.ref,
@@ -59,8 +71,26 @@ export async function clientHistory(ex: Executor, clientId: string, query: Histo
       closedAt: (r.completed_at ?? r.cancelled_at)?.toISOString() ?? null,
       onHold: r.hold,
       receipt: r.has_receipt === true,
+      ...(landing ? { landing: landing.get(r.ref) ?? null } : {}),
     })),
   );
+}
+
+/** Where each of these trades pays the client: the destination in force now (migration 0028), masked as on Bank & wallets. */
+async function landingsOf(ex: Executor, clientId: string, refs: readonly string[]): Promise<Map<string, HistoryLanding>> {
+  const r = await sql<{ ref: string; bank_name: string | null; ifsc: string | null; account_last4: string | null; label: string | null; address: string | null }>`
+    select t.ref, b.bank_name, b.ifsc, b.account_last4, w.label, w.address
+      from trade t
+      cross join lateral inrp2p_trade_payout_destination(t.id) d
+      left join bank_account b on b.id = d.bank_account_id
+      left join crypto_wallet w on w.id = d.wallet_id
+     where t.client_id = ${clientId} and t.ref = any(${refs as string[]})`.execute(ex);
+  const out = new Map<string, HistoryLanding>();
+  for (const x of r.rows) {
+    if (x.bank_name && x.ifsc && x.account_last4) out.set(x.ref, { kind: 'BANK', bankName: x.bank_name, ifsc: x.ifsc, last4: x.account_last4 });
+    else if (x.address) out.set(x.ref, { kind: 'WALLET', label: x.label ?? 'Wallet', address: x.address });
+  }
+  return out;
 }
 
 export interface HistoryCounts {

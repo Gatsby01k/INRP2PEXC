@@ -1,9 +1,11 @@
 'use client';
 
-import { useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import Link from 'next/link';
 import { MAX_MARKET_OFFSET_BPS } from '@inrp2p/kernel';
-import { formatIstTime } from '@inrp2p/ui/format';
+import { Rate } from '@inrp2p/kernel';
+import { formatIstTime, formatRate } from '@inrp2p/ui/format';
+import { Amount } from '../../../../components/Amount.tsx';
 import type { BlockView } from '@inrp2p/traders';
 import { sanitizeAmountInput } from '@inrp2p/ui';
 import { useCommand } from '../../../../components/useCommand.tsx';
@@ -62,9 +64,31 @@ function AmountField({ id, label, affix, value, onChange, currency, hint }: { id
  * already hold — and quiet: no sound for a rate or a number. Registered settlement details are not edited here;
  * changing those is a desk review.
  */
-export function BlockCard({ block, canAct, upiReady = true }: { block: BlockView; canAct: boolean; upiReady?: boolean }) {
+export function BlockCard({
+  block,
+  canAct,
+  upiReady = true,
+  half = false,
+  editSignal = 0,
+  onEditing,
+}: {
+  block: BlockView;
+  canAct: boolean;
+  upiReady?: boolean;
+  /**
+   * One half of the prices card (`PricesCard`): the side's rate as a figure, its order size and how it is set, and its
+   * form in place when the card's one Edit is pressed (`editSignal` counts the presses).
+   */
+  half?: boolean;
+  editSignal?: number;
+  onEditing?: (editing: boolean) => void;
+}) {
   const { run, busy, error, dialog, clearError } = useCommand();
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditingState] = useState(false);
+  const setEditing = (v: boolean) => {
+    setEditingState(v);
+    onEditing?.(v);
+  };
   const [capacity, setCapacity] = useState(block.capacity);
   const [basis, setBasis] = useState<'MARKET' | 'FIXED'>(block.rateBasis);
   const [rateValue, setRate] = useState(block.fixedRate ?? block.rate ?? '');
@@ -121,8 +145,50 @@ export function BlockCard({ block, canAct, upiReady = true }: { block: BlockView
     if (out.ok) setEditing(false);
   };
 
+  // The card's one Edit opens both halves, each from what is saved now.
+  const seen = useRef(editSignal);
+  useEffect(() => {
+    if (!half || editSignal === seen.current) return;
+    seen.current = editSignal;
+    reset();
+    setEditingState(true);
+  }, [editSignal, half]);
+
+  if (half && !editing) {
+    const firm = block.firmOpenEnded ? 'Instant orders on until you turn it off' : block.firmUntil ? `Instant orders on until ${formatIstTime(new Date(block.firmUntil))}` : 'Instant orders off';
+    return (
+      <section className={styles.half} aria-label={buy ? 'Buy USDT' : 'Sell USDT'} data-side={block.side}>
+        <p className={styles.halfEyebrow} data-side={block.side}>
+          {buy ? 'You buy USDT at' : 'You sell USDT at'}
+          {block.status === 'ACTIVE' ? null : <span className={styles.halfPaused}>Paused</span>}
+        </p>
+        <p className={styles.halfRate}>
+          {block.rate ? <Amount value={formatRate(Rate.parse(block.rate, 'ROUTE'))} /> : block.rateBasis === 'MARKET' ? 'Waiting for the market' : 'Not set'}
+        </p>
+        <p className={styles.halfLine}>{block.minOrder && block.maxOrder ? `${amountIn(currency, block.minOrder).replace(' USDT', '')} – ${amountIn(currency, block.maxOrder)} an order` : 'No order size set'}</p>
+        <p className={styles.halfQuiet}>
+          {block.rateBasis === 'MARKET' && block.marketOffsetBps !== null
+            ? `Market ${offsetText(block.marketOffsetBps)}${block.rateLimit ? `, never ${buy ? 'above' : 'below'} ${rate(block.rateLimit)}` : ''}`
+            : 'Fixed rate'}{' '}
+          · {firm}
+        </p>
+        {!buy && !upiReady && block.rails.includes('UPI') ? (
+          <p className={styles.halfQuiet}>
+            UPI once you add a UPI ID on <Link href="/traders/settlement">Settlement details</Link>
+          </p>
+        ) : null}
+        {block.issues.length > 0 && block.issues[0] ? (
+          <p className={styles.note}>
+            {block.issues[0] === 'NO_RATE' && block.rateBasis === 'MARKET' ? 'Waiting for the market rate: orders on this side resume the moment it is back.' : ISSUE_TEXT[block.issues[0]]}
+          </p>
+        ) : null}
+        {dialog}
+      </section>
+    );
+  }
+
   return (
-    <section className={`${shell.card} ${styles.block}`} aria-labelledby={titleId}>
+    <section className={half ? `${styles.half} ${styles.halfEditing}` : `${shell.card} ${styles.block}`} {...(half ? { 'aria-label': buy ? 'Buy USDT' : 'Sell USDT' } : { 'aria-labelledby': titleId })}>
       <div className={styles.blockHead}>
         <h2 id={titleId} className={styles.blockTitle} data-side={block.side}>
           {buy ? 'Buy USDT' : 'Sell USDT'}

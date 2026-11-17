@@ -171,6 +171,12 @@ const BANK_BRANDS: Record<string, BankBrand> = {
 /** The bank's colour, for a card that wants a hint of it. The product's own ink when the bank is not one we know. */
 export const bankTint = (ifsc: string): string => BANK_BRANDS[ifsc.slice(0, 4)]?.bg ?? '#1b1d22';
 
+/** A bank known only by its name ("HDFC Bank •••• 8219" on a trade): the brand whose short name opens it. */
+const brandByName = (name: string): BankBrand | undefined => {
+  const first = name.trim().split(/\s+/)[0]?.toUpperCase() ?? '';
+  return first.length >= 3 ? Object.values(BANK_BRANDS).find((b) => b.short.toUpperCase() === first) : undefined;
+};
+
 /** Two letters for a bank we have no sign for: "Saraswat Co-operative Bank" → SC. */
 function initials(name: string): string {
   const words = name.replace(/&/g, ' ').split(/\s+/).filter((w) => w.length > 0 && !/^(of|the|and|bank|ltd|limited)$/i.test(w));
@@ -179,7 +185,7 @@ function initials(name: string): string {
 }
 
 export function BankMark({ ifsc, name, className, size = 44 }: { ifsc: string; name: string; className?: string | undefined; size?: number }) {
-  const brand = BANK_BRANDS[ifsc.slice(0, 4)];
+  const brand = BANK_BRANDS[ifsc.slice(0, 4)] ?? brandByName(name);
   const short = brand?.short ?? initials(name);
   return (
     <span

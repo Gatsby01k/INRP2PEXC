@@ -16,11 +16,16 @@
   --cols: 4;
 }
 
+.figures[data-count='5'] {
+  --cols: 5;
+}
+
 .figure {
   display: grid;
-  gap: 4px;
+  align-content: start;
+  gap: 8px;
   min-width: 0;
-  padding: var(--space-5) 28px;
+  padding: 18px 28px;
 }
 
 .figure + .figure {
@@ -37,10 +42,10 @@
   margin: 0;
   white-space: nowrap;
   font-family: var(--font-figure, var(--font-sans));
-  font-size: 22px;
+  font-size: 21px;
   font-weight: var(--font-weight-semibold);
-  letter-spacing: -0.035em;
-  line-height: 1.2;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
   font-variant-numeric: tabular-nums;
 }
 
@@ -229,4 +234,10 @@
   .track::after {
     transition: none;
   }
+}
+
+/* A figure this size carries its unit larger than a monument does: "8,000 USDT" reads at a glance. */
+.figureValue [data-part='unit'] {
+  font-size: 0.46em;
+  margin-left: 0.5em;
 }

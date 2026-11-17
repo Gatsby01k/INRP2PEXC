@@ -1,0 +1,77 @@
+/* The halo in an orange field's corner (`FieldHalo`): the mark's arcs and a dotted orbit, turning against each other. */
+
+.halo {
+  position: absolute;
+  z-index: -1;
+  right: -72px;
+  top: -72px;
+  width: 300px;
+  aspect-ratio: 1;
+  pointer-events: none;
+}
+
+.halo[data-place='bottom'] {
+  top: auto;
+  bottom: -150px;
+  right: -40px;
+  width: 340px;
+}
+
+.halo i {
+  position: absolute;
+  inset: 12%;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 34% 26%, rgba(255, 255, 255, 0.42), transparent 50%),
+    radial-gradient(circle, rgba(255, 150, 104, 0.75), rgba(255, 120, 70, 0.3) 70%, transparent 72%);
+}
+
+.arcs,
+.orbit {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+}
+
+.arcs {
+  color: rgba(255, 255, 255, 0.5);
+  stroke-width: 5;
+  animation: halo-turn 70s linear infinite;
+}
+
+.orbit {
+  color: rgba(255, 255, 255, 0.55);
+  stroke-width: 1.6;
+  stroke-dasharray: 1.5 11;
+  animation: halo-turn 140s linear infinite reverse;
+}
+
+.node {
+  fill: #fff;
+  stroke: none;
+}
+
+@keyframes halo-turn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .arcs,
+  .orbit {
+    animation: none;
+  }
+}
+
+/* A phone's field carries its words edge to edge: the halo would run through them. */
+@media (max-width: 699px) {
+  .halo {
+    display: none;
+  }
+}

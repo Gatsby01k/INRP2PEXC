@@ -280,7 +280,7 @@ function ConfirmReceived({ detail, deal }: { detail: TraderOrderDetail; deal: De
           <input type="checkbox" checked={seen} onChange={(e) => setSeen(e.target.checked)} />
           <span>I see {inr(deal.inr)} credited to my account in my bank app.</span>
         </label>
-        <div className={styles.formActions}>
+        <div className={`${styles.formActions} ${pay.submitRow}`}>
           <button type="submit" className={shell.action} disabled={busy || name.trim().length < 2 || !seen}>
             Release the escrow
           </button>

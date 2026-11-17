@@ -6,6 +6,7 @@ import { workspacePage } from '../../server/client.ts';
 import { mailto, siteContacts } from '../../server/site.ts';
 import { workspaceFrame } from '../../server/workspace-frame.ts';
 import { AccountMenu } from './_workspace/AccountMenu.tsx';
+import { Ticker } from './_workspace/Ticker.tsx';
 import { CommandMenu, type CommandEntry } from './_workspace/CommandMenu.tsx';
 import { FieldLight } from './_workspace/FieldLight.tsx';
 import { LiveDeal } from './_workspace/LiveDeal.tsx';
@@ -25,7 +26,12 @@ const ENTRIES: ClientNavEntry[] = [
 ];
 
 /** A client that provides capacity only, or a trader applicant: Traders is the whole of their workspace. */
-const TRADER_ENTRIES: ClientNavEntry[] = [{ href: '/traders', label: 'Traders' }];
+const TRADER_ENTRIES: ClientNavEntry[] = [
+  { href: '/traders', label: 'Traders' },
+  // A trader's phone bar carries its orders and its reserve too (mock-up v3); on a desk they are on the Traders page.
+  { href: '/traders/orders', label: 'Orders', phone: true },
+  { href: '/traders/reserve', label: 'Reserve', phone: true },
+];
 
 /** A trader's own exchange (ADR 0020): its desk comes first, before the programme it trades through. */
 const DESK: ClientNavEntry = { href: '/desk', label: 'Desk' };
@@ -90,7 +96,7 @@ export default async function ClientLayout({ children }: { children: ReactNode }
   const deskState = ownDesk ? DESK_STATE[ownDesk.status] : undefined;
 
   const commands: CommandEntry[] = [
-    ...entries.map((e) => ({ href: e.href, label: e.label, group: 'Go to' })),
+    ...entries.filter((e) => !e.phone).map((e) => ({ href: e.href, label: e.label, group: 'Go to' })),
     ...(ownDesk ? DESK_SECTIONS.map((e) => ({ href: e.href, label: e.label, group: 'Your desk', hint: ownDesk.displayName })) : []),
     ...(member ? [{ href: '/notifications', label: 'Notifications', group: 'Account', ...(unread > 0 ? { hint: `${unread} unread` } : {}) }] : []),
     // ADR 0026: everyone who can sign in has Account & security — how they sign in and confirm is theirs, client or not.
@@ -136,6 +142,7 @@ export default async function ClientLayout({ children }: { children: ReactNode }
           <ClientNav entries={entries} />
           <div className={styles.headerActions}>
             {member ? <LiveDeal /> : null}
+            {member ? <Ticker /> : null}
             <CommandMenu entries={commands} />
             {member ? (
               <NotificationsLink unread={unread} className={styles.iconButton} iconClassName={styles.toolIcon} badgeClassName={styles.unread} />

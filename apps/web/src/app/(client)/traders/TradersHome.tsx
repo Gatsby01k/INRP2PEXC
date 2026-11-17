@@ -10,19 +10,18 @@ import { traderHomeAssistant } from '../_assistant/traders.ts';
 import { useServerClock } from '../exchange/useServerClock.ts';
 import { ActiveOrders } from './_ui/ActiveOrders.tsx';
 import { ApplicationStatus } from './_ui/ApplicationStatus.tsx';
-import { AvailabilityCard } from './_ui/AvailabilityCard.tsx';
-import { BlockCard } from './_ui/BlockCard.tsx';
-import { EarningsCard } from './_ui/EarningsCard.tsx';
+import { Issue } from './_ui/AvailabilityCard.tsx';
+import { Balances, MoveField, ReserveTile, SettleTile } from './_ui/HomeParts.tsx';
 import { NetworkCard } from './_ui/NetworkCard.tsx';
+import { PricesCard } from './_ui/PricesCard.tsx';
 import { OfferCard } from './_ui/OfferCard.tsx';
 import { PriceAskCard } from './_ui/PriceAskCard.tsx';
 import { Onboarding } from './_ui/Onboarding.tsx';
 import { StartChecklist, showStartChecklist } from './_ui/StartChecklist.tsx';
 import { ReserveCard } from './_ui/ReserveCard.tsx';
-import { SettlementCard } from './_ui/SettlementCard.tsx';
-import { ChevronIcon } from '../_workspace/icons.tsx';
 import shell from '../shell.module.css';
 import styles from './traders.module.css';
+import home$ from './_ui/home.module.css';
 
 /** How often the working screen looks again: offers arrive, and orders move on the desk's side and the chain's. */
 const LIVE_POLL_MS = 8_000;
@@ -36,7 +35,7 @@ const LIVE_POLL_MS = 8_000;
 export function TradersHome({ home, network }: { home: TraderHome; network: TraderNetworkView | null }) {
   const router = useRouter();
   const working = home.state === 'APPROVED' || home.state === 'PAUSED';
-  const now = useServerClock(home.now, home.offers.length > 0 || home.priceAsks.length > 0);
+  const now = useServerClock(home.now, home.offers.length > 0 || home.priceAsks.length > 0 || home.active.some((o) => o.dueBy !== null));
 
   // New offers and moving orders appear without a reload, while the page is being looked at.
   useEffect(() => {
@@ -50,6 +49,38 @@ export function TradersHome({ home, network }: { home: TraderHome; network: Trad
   const state = traderHomeAssistant(home);
   const firstOffer = home.offers[0];
 
+  // The working screen, as the mock-up lays it: what to answer first (offers, price asks, anything that stops orders),
+  // then the move beside the balances, the queue in lanes, and along the foot the prices, the reserve and settlement.
+  if (working) {
+    return (
+      <main className={shell.main}>
+        <div className={home$.grid}>
+        {showStartChecklist(home) ? <StartChecklist home={home} /> : null}
+        <Issue home={home} />
+        {network?.short ? <NetworkCard network={network} /> : null}
+        {home.offers.map((o) => (
+          <OfferCard
+            key={o.ref}
+            order={o}
+            now={now}
+            canAct={home.canAct}
+            receiveAt={o.side === 'BUY_USDT' ? `Your registered wallet · TRC20 ${home.registered!.wallet}` : `Your registered account · ${home.registered!.bank}`}
+          />
+        ))}
+        {home.priceAsks.map((a) => (
+          <PriceAskCard key={a.ref} ask={a} now={now} canAct={home.canAct} />
+        ))}
+        <MoveField home={home} now={now} calm={{ title: state.title, body: state.body }} />
+        <Balances home={home} />
+        <ActiveOrders orders={home.active} now={now} />
+        {home.blocks.length > 0 ? <PricesCard home={home} /> : null}
+        {home.reserve ? <ReserveTile home={home} /> : null}
+        {home.registered ? <SettleTile home={home} network={network} /> : null}
+        </div>
+      </main>
+    );
+  }
+
   return (
     <>
       <main className={shell.main}>
@@ -60,66 +91,13 @@ export function TradersHome({ home, network }: { home: TraderHome; network: Trad
         {/* Topping up is not admission (D-17): the reserve is there from the day of the application. */}
         {!working && home.reserve ? <ReserveCard reserve={home.reserve} /> : null}
         {!working && network ? <NetworkCard network={network} /> : null}
-        {working ? (
-          <>
-            <AvailabilityCard home={home} />
-            {/* Short of TRX, no order can be assigned: that is the next thing to do, so it comes first. */}
-            {network?.short ? <NetworkCard network={network} /> : null}
-            {home.offers.map((o) => (
-              <OfferCard
-                key={o.ref}
-                order={o}
-                now={now}
-                canAct={home.canAct}
-                receiveAt={o.side === 'BUY_USDT' ? `Your registered wallet · TRC20 ${home.registered!.wallet}` : `Your registered account · ${home.registered!.bank}`}
-              />
-            ))}
-            {home.priceAsks.map((a) => (
-              <PriceAskCard key={a.ref} ask={a} now={now} canAct={home.canAct} />
-            ))}
-            <ActiveOrders orders={home.active} />
-            {home.blocks.length > 0 ? (
-              <section className={styles.blocksSection} aria-labelledby="sides-title">
-                <div className={styles.sectionHead}>
-                  <h2 id="sides-title" className={styles.sectionTitle}>
-                    Your prices
-                  </h2>
-                  <span className={styles.sectionNote}>What you take on each side, and at what rate.</span>
-                </div>
-                <div className={styles.blocks} data-count={home.blocks.length}>
-                  {home.blocks.map((b) => (
-                    <BlockCard key={`${b.side}:${b.version}`} block={b} canAct={home.canAct} upiReady={home.upiReady} />
-                  ))}
-                </div>
-              </section>
-            ) : null}
-          </>
-        ) : null}
       </main>
       <AssistantPanel
         state={state}
-        split={working}
-        after={
-          working ? (
-            <>
-              {home.reserve ? <ReserveCard reserve={home.reserve} limits={home.limits} /> : null}
-              {network && !network.short ? <NetworkCard network={network} /> : null}
-              {home.earnings ? <EarningsCard earnings={home.earnings} /> : null}
-              {home.registered ? <SettlementCard home={home} /> : null}
-            </>
-          ) : null
-        }
-        size={working ? 'large' : 'compact'}
+        size="compact"
         meta={firstOffer ? <span className={styles.countdown}>Offer open for {formatCountdown(Math.max(0, Date.parse(firstOffer.offerExpiresAt) - now))}</span> : null}
       >
-        {working ? (
-          <div className={styles.navRow}>
-            <Link className={shell.textAction} href="/traders/orders">
-              All orders
-              <ChevronIcon />
-            </Link>
-          </div>
-        ) : home.reserve ? (
+        {home.reserve ? (
           <div className={styles.navRow}>
             <Link className={shell.textAction} href="/traders/reserve">
               Security Reserve

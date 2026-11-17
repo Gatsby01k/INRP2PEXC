@@ -2,6 +2,7 @@ import { traderHome, traderNetworkHome } from '@inrp2p/traders';
 import { workspacePage } from '../../../server/client.ts';
 import { PageHead } from '../_workspace/PageHead.tsx';
 import { TradersHome } from './TradersHome.tsx';
+import { OnlinePill } from './_ui/HomeParts.tsx';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,12 +16,15 @@ export default async function TradersPage() {
   const home = await traderHome(ctx.db, ctx.actor.userId);
   const working = home.state === 'APPROVED' || home.state === 'PAUSED';
   const network = home.state === 'NONE' ? null : await traderNetworkHome(ctx.db, ctx.actor.userId);
+  const clientName = ctx.access.kind === 'MEMBER' ? ctx.access.member.clientName : null;
   return (
     <>
-      <PageHead
-        title="Traders"
-        lede={working ? `Your capacity, your prices and your orders${home.ref ? ` · ${home.ref}` : ''}` : 'Provide INR or USDT capacity to INRP2P, and receive matching orders privately.'}
-      />
+      {working ? (
+        // The working trader's heading: whose desk and its reference above the name, the switch on the right.
+        <PageHead eyebrow={[clientName, home.ref].filter(Boolean).join(' · ') || undefined} title="Traders" aside={<OnlinePill home={home} />} />
+      ) : (
+        <PageHead title="Traders" lede="Provide INR or USDT capacity to INRP2P, and receive matching orders privately." />
+      )}
       <TradersHome home={home} network={network} />
     </>
   );
