@@ -261,9 +261,10 @@ const PAGES = [
     ready: (page: Page) => expect(page.getByRole('heading', { name: 'Exchange', exact: true })).toBeVisible(),
     // The page streams into the workspace's frame: once it has arrived it is shown, not held behind the loading shape.
     streamed: true,
-    // Search (⌘K): the workspace's own control, opened and closed.
+    // The account menu: the workspace's own control in a phone's bar, opened and closed (search is a desk's: a phone's
+    // bar carries the deal, the bell and the account — mock-up v3).
     interact: async (page: Page) => {
-      await page.locator('button[aria-haspopup="dialog"]').first().click();
+      await page.getByRole('banner').locator('button[aria-expanded]').last().click();
       await page.keyboard.press('Escape');
     },
     tbt: 600,

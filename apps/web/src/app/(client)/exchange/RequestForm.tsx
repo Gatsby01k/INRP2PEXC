@@ -11,7 +11,8 @@ import { useCommand } from '../../../components/useCommand.tsx';
 import { requestQuoteAction } from '../../../server/actions/client.ts';
 import { ArrowIcon, BankIcon, ChevronDownIcon, InfoIcon, LockIcon, PlusIcon, SwapIcon, WalletIcon } from '../_workspace/icons.tsx';
 import { AddDestination } from '../destinations/AddDestination.tsx';
-import { monogram } from '../destinations/checks.ts';
+import { BankMark } from '../../../components/PayMarks.tsx';
+import { useMarket } from '../_workspace/useMarket.ts';
 import type { Direction, RequestDraft } from './ExchangeScreen.tsx';
 import { LEGS, LegInput, sideOf } from './Legs.tsx';
 import shell from '../shell.module.css';
@@ -19,12 +20,12 @@ import styles from './exchange.module.css';
 
 const hasAmount = (value: string) => /[1-9]/.test(value);
 
-/** Sizes a USDT desk is usually asked for. */
+/** Sizes a client usually asks for, one tap each (mock-up v3). */
 const QUICK = [
-  { label: '25k', amount: '25000' },
-  { label: '100k', amount: '100000' },
-  { label: '250k', amount: '250000' },
-  { label: '1M', amount: '1000000' },
+  { label: '1k', amount: '1000' },
+  { label: '5k', amount: '5000' },
+  { label: '10k', amount: '10000' },
+  { label: '50k', amount: '50000' },
 ] as const;
 
 /** A target rate as the client types it: digits and one point, four places at most. */
@@ -77,6 +78,15 @@ export function RequestForm({ view, draft, who }: { view: ExchangeView; draft?: 
   const upiPayFrom = view.destinations.upiIds.filter((u) => u.status === 'ACTIVE');
   const payFromMissing = !sell && banks.length === 0 && upiPayFrom.length === 0;
   const inputs = useRef<Record<'BASE' | 'QUOTE', HTMLInputElement | null>>({ BASE: null, QUOTE: null });
+  // The other side, about, at the market's rate for this direction — said as an estimate, never sent: the desk prices it.
+  const market = useMarket();
+  const marketRate = market ? Number((sell ? market.SELL_USDT : market.BUY_USDT) ?? NaN) : NaN;
+  const typed = hasAmount(amount) ? Number(amount) : NaN;
+  const about = Number.isFinite(marketRate) && marketRate > 0 && Number.isFinite(typed)
+    ? fixedSide === 'BASE'
+      ? `₹${(typed * marketRate).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`
+      : (typed / marketRate).toLocaleString('en-IN', { maximumFractionDigits: 2 })
+    : null;
   const hintId = useId();
 
   const onCta = useRef({ hover: false, focus: false });
@@ -194,6 +204,7 @@ export function RequestForm({ view, draft, who }: { view: ExchangeView; draft?: 
                 fixed={fixedSide === side}
                 invalid={missing && fixedSide === side}
                 describedBy={hintId}
+                {...(fixedSide !== side && about ? { about } : {})}
                 onChange={(raw) => changeAmount(side, raw)}
                 extra={
                   leg.currency === 'USDT' ? (
@@ -215,11 +226,17 @@ export function RequestForm({ view, draft, who }: { view: ExchangeView; draft?: 
               />
             );
           })}
-          <span className={styles.join} aria-hidden="true">
-            <ArrowIcon />
-          </span>
+          {/* The two sides meet at one round button: it turns the request round — sell becomes buy. */}
+          <button
+            type="button"
+            className={styles.join}
+            aria-label={sell ? 'Switch to buying USDT' : 'Switch to selling USDT'}
+            onClick={() => changeDirection(sell ? 'BUY_USDT' : 'SELL_USDT')}
+          >
+            <SwapIcon />
+          </button>
         </div>
-        <p id={hintId} className={styles.hint} {...(missing ? { role: 'alert' } : {})}>
+        <p id={hintId} className={styles.hint} data-desk-only={missing ? undefined : ''} {...(missing ? { role: 'alert' } : {})}>
           {missing ? 'Enter an amount in either box.' : 'Type in either box — the desk prices the other side.'}
         </p>
 
@@ -260,9 +277,7 @@ export function RequestForm({ view, draft, who }: { view: ExchangeView; draft?: 
                     ? banks.map((b) => (
                         <label key={b.id} className={styles.destination}>
                           <input type="radio" name="destination" checked={b.id === bank?.id} onChange={() => (setBankId(b.id), setPicking(false))} />
-                          <span className={styles.monogram} aria-hidden="true">
-                            {monogram(b.bankName)}
-                          </span>
+                          <BankMark ifsc={b.ifsc} name={b.bankName} size={36} />
                           <span className={styles.destinationText}>
                             <span className={styles.destinationName}>
                               {b.bankName} •••• {b.last4}
@@ -308,7 +323,7 @@ export function RequestForm({ view, draft, who }: { view: ExchangeView; draft?: 
             </button>
           </fieldset>
         ) : (
-          <p className={styles.hint}>
+          <p className={styles.hint} data-desk-only="">
             You pay from your own {banks[0] ? `account: ${banks[0].bankName} •••• ${banks[0].last4}` : `UPI ID: ${upiPayFrom[0]!.vpa}`}
             {banks.length + upiPayFrom.length > 1 ? ' or another of your own' : ''}.
           </p>
@@ -379,7 +394,7 @@ export function RequestForm({ view, draft, who }: { view: ExchangeView; draft?: 
               {error}
             </p>
           ) : null}
-          <p className={styles.fine}>
+          <p className={styles.fine} data-desk-only="">
             <LockIcon />
             <span>The desk replies with a firm rate, held for a short time. Nothing is committed until you accept it.</span>
           </p>
@@ -404,9 +419,7 @@ function Chosen({ sell, bank, wallet }: { sell: boolean; bank: ExchangeView['des
   if (sell && bank) {
     return (
       <>
-        <span className={styles.monogram} aria-hidden="true">
-          {monogram(bank.bankName)}
-        </span>
+        <BankMark ifsc={bank.ifsc} name={bank.bankName} size={36} />
         <span className={styles.destinationText}>
           <span className={styles.destinationName}>
             {bank.bankName} •••• {bank.last4}

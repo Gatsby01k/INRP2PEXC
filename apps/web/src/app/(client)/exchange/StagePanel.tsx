@@ -21,7 +21,10 @@ export function StagePanel({
   steps,
   children,
   live,
+  mini,
 }: {
+  /** What the stage says on a phone instead (mock-up v3): one short block beside the robot, the stage first on the page. */
+  mini?: ReactNode;
   mood: RobotMood;
   chip: ReactNode;
   refText?: string | undefined;
@@ -33,7 +36,8 @@ export function StagePanel({
   live?: boolean;
 }) {
   return (
-    <div className={`${shell.brandField} ${stage.stage}`} data-quiet="">
+    <div className={`${shell.brandField} ${stage.stage}`} data-quiet="" {...(mini ? { 'data-mini': '' } : {})}>
+      {mini}
       <div className={stage.halo} aria-hidden="true">
         <i />
         <svg className={stage.haloArcs} viewBox="0 0 400 400" focusable="false">

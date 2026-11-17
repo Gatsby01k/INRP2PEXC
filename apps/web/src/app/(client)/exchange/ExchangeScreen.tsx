@@ -10,6 +10,7 @@ import { legAmount } from './amounts.ts';
 import { StateRing } from '../_workspace/StateRing.tsx';
 import { Activity } from './ExchangeAside.tsx';
 import { StagePanel } from './StagePanel.tsx';
+import { LiveMarket } from './LiveMarket.tsx';
 import { PricingCard } from './PricingCard.tsx';
 import { QuoteCard } from './QuoteCard.tsx';
 import { RequestForm, type Who } from './RequestForm.tsx';
@@ -134,6 +135,7 @@ export function ExchangeScreen({
             <div className={stage.deal} data-even="">
               <RequestForm view={view} who={who} {...(draft ? { draft } : {})} />
               <StagePanel
+                mini={<LiveMarket />}
                 mood="ready"
                 chip={
                   <>

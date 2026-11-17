@@ -2229,3 +2229,11 @@
     display: none;
   }
 }
+
+/* A phone's queue is the switch and the cards (mock-up v3): no heading row, no foot under the bar. */
+@media (max-width: 699px) {
+  .queueHead,
+  .orderFoot {
+    display: none;
+  }
+}

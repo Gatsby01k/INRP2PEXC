@@ -1370,3 +1370,138 @@ label.destination:has(input:checked) .radioMark {
     align-items: flex-start;
   }
 }
+
+/* ——— The request as mock-up v3 draws it ——— */
+
+/* The side as a switch with a white thumb, the same on every screen. */
+.direction :global([role='radiogroup']) {
+  border-radius: var(--radius-pill);
+}
+
+.direction :global([role='radio']) {
+  min-height: 44px;
+  border-radius: var(--radius-pill);
+  color: var(--text-muted);
+}
+
+.direction :global([role='radio']:first-child[aria-checked='true']),
+.direction :global([role='radio']:last-child[aria-checked='true']) {
+  background: var(--bg-surface);
+  box-shadow:
+    0 1px 2px rgba(18, 19, 23, 0.1),
+    0 6px 14px -8px rgba(18, 19, 23, 0.25);
+  color: var(--text-primary);
+}
+
+/* The round button between the two sides turns the request round: it sits on the seam between the two wells, whatever
+   their heights. */
+.legs > :nth-child(2) {
+  order: 2;
+}
+
+.join {
+  position: relative;
+  top: auto;
+  left: auto;
+  order: 1;
+  justify-self: center;
+  width: 40px;
+  height: 40px;
+  margin: -24px 0;
+  padding: 0;
+  border: 0;
+  background: var(--visor, var(--text-primary));
+  box-shadow: 0 0 0 4px var(--bg-surface);
+  color: var(--text-on-action);
+  cursor: pointer;
+}
+
+.join svg {
+  width: 18px;
+  height: 18px;
+  transform: none;
+}
+
+.join:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 3px;
+}
+
+/* The other side, about, at the market's rate: quieter, smaller, in the figure's own face. */
+.leg[data-about] .legInput::placeholder {
+  color: var(--ink-2, var(--text-secondary));
+  font-family: var(--font-figure, var(--font-sans));
+  font-size: 30px;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.04em;
+}
+
+@media (max-width: 699px) {
+  .ticket [data-desk-only] {
+    display: none;
+  }
+
+  .ticket {
+    --pad-y: 10px;
+    --pad-x: 10px;
+    gap: 8px;
+    border-radius: 28px;
+  }
+
+  .legs {
+    gap: 8px;
+  }
+
+  /* Each side a well: its label, the amount with its coin, then the sizes one tap away. */
+  .leg {
+    gap: 8px;
+    padding: 16px 18px 14px;
+  }
+
+  .legHead {
+    display: contents;
+  }
+
+  .legLabel {
+    order: 0;
+    font-size: 12.5px;
+    color: var(--text-muted);
+  }
+
+  .legBox {
+    order: 1;
+  }
+
+  .leg .chips {
+    order: 2;
+    margin-top: 4px;
+  }
+
+  .legInput {
+    height: 50px;
+    font-size: 44px;
+  }
+
+  .currencySub {
+    display: none;
+  }
+
+  .currency br {
+    display: none;
+  }
+
+  .chip {
+    height: 30px;
+    padding: 0 14px;
+  }
+
+  .payTo {
+    padding: 4px 8px;
+  }
+
+  .cta :global(button) {
+    min-height: 56px;
+    border-radius: 18px;
+    font-size: 16.5px;
+  }
+}

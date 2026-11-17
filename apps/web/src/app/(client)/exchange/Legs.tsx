@@ -32,14 +32,26 @@ const grouped = (value: string) => {
  */
 export const LegInput = forwardRef<
   HTMLInputElement,
-  { label: string; currency: Currency; value: string; fixed: boolean; invalid?: boolean; describedBy?: string; extra?: ReactNode; onChange: (raw: string) => void }
->(function LegInput({ label, currency, value, fixed, invalid = false, describedBy, extra, onChange }, ref) {
+  {
+    label: string;
+    currency: Currency;
+    value: string;
+    fixed: boolean;
+    invalid?: boolean;
+    describedBy?: string;
+    extra?: ReactNode;
+    /** The other side, about, at the market's rate: shown in the empty box until the client types into it. */
+    about?: string;
+    onChange: (raw: string) => void;
+  }
+>(function LegInput({ label, currency, value, fixed, invalid = false, describedBy, extra, about, onChange }, ref) {
   const id = useId();
   return (
-    <div className={styles.leg} data-fixed={fixed} {...(invalid ? { 'data-invalid': '' } : {})}>
+    <div className={styles.leg} data-fixed={fixed} {...(invalid ? { 'data-invalid': '' } : {})} {...(about ? { 'data-about': '' } : {})}>
       <div className={styles.legHead}>
         <label className={styles.legLabel} htmlFor={id}>
           {label}
+          {about ? ', about' : ''}
         </label>
         {extra}
       </div>
@@ -52,7 +64,7 @@ export const LegInput = forwardRef<
           autoComplete="off"
           spellCheck={false}
           value={fixed ? grouped(value) : ''}
-          placeholder={fixed ? '0' : 'Priced by the desk'}
+          placeholder={fixed ? '0' : (about ?? 'Priced by the desk')}
           onChange={(e) => onChange(e.target.value)}
           aria-invalid={invalid || undefined}
           {...(describedBy ? { 'aria-describedby': describedBy } : {})}
