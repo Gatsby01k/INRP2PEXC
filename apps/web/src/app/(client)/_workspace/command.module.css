@@ -303,3 +303,10 @@
     display: none;
   }
 }
+
+/* A phone's bar carries the deal, the bell and the account (mock-up v3): search stays on a desk. */
+@media (max-width: 699px) {
+  .trigger {
+    display: none;
+  }
+}

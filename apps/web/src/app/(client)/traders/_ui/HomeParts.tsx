@@ -26,10 +26,19 @@ export function OnlinePill({ home }: { home: TraderHome }) {
   const on = home.available;
   const toggle = () => run(on ? 'Switch off' : 'Switch on', (key) => setAvailabilityAction({ available: !on }, key));
   return (
-    <div className={styles.online} data-on={(on && !paused) || undefined}>
+    <div className={styles.online} data-on={(on && !paused) || undefined} data-online-pill="">
       <span className={styles.onlineDot} aria-hidden="true" />
       <span id="availability-title" className={styles.onlineText}>
-        <b>{paused ? 'Paused by INRP2P' : on ? 'You’re online' : 'You’re offline'}</b>
+        <b>
+          {paused ? (
+            'Paused'
+          ) : (
+            <>
+              <span className={styles.wide}>You’re {on ? 'online' : 'offline'}</span>
+              <span className={styles.narrow}>{on ? 'Online' : 'Offline'}</span>
+            </>
+          )}
+        </b>
         <span>{paused ? 'orders in progress continue' : on ? 'taking new orders' : 'no new orders'}</span>
       </span>
       <button
@@ -104,7 +113,11 @@ export function MoveField({ home, now, calm }: { home: TraderHome; now: number; 
           {buy ? `Pay ${inr(first.youOwe ?? first.inr)} to the seller` : `Send ${usdt(first.youOwe ?? first.usdt)} to escrow`}
         </h2>
         <p className={styles.fieldSub}>
-          {buy ? `Their ${usdt(first.usdt)} is locked in escrow` : `The buyer pays ${inr(first.inr)} once it is in`} · <span className={styles.mono}>{first.ref}</span>
+          {buy ? `${usdt(first.usdt)} is locked for you in escrow` : `The buyer pays ${inr(first.inr)} once it is in`}
+          <span className={styles.wide}>
+            {' '}
+            · <span className={styles.mono}>{first.ref}</span>
+          </span>
         </p>
         <div className={styles.fieldActions}>
           <Link className={styles.onField} href={`/traders/orders/${first.ref}`}>

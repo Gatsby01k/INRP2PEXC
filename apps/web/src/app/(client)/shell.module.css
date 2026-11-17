@@ -1693,6 +1693,23 @@ svg.led {
     padding-top: 8px;
   }
 
+  /* The Exchange before a request opens on its stage (the market's rate) and the request: the heading stays for
+     assistive technology, the eye reads the stage. */
+  .shell:has([data-mini]) .pageHead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  /* The trader's home puts its switch in the bar (mock-up v3): the bar keeps the mark, the switch and the account. */
+  .shell:has([data-online-pill]) .headerActions > :not(:last-child) {
+    display: none;
+  }
+
   /* The deal's own move comes first on a phone, drawn at full strength as the page's first block. */
   .main[data-deal-rail] > [data-attention] {
     order: -1;

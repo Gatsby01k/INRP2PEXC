@@ -83,7 +83,8 @@ export async function publicMarketRates(ex: Executor): Promise<PublicMarketRates
  * the feed did not report is simply missing. Empty when there is no history, and then no line is drawn.
  */
 export async function marketTrail(ex: Executor, hours = 24): Promise<readonly string[]> {
-  const span = Math.max(1, Math.min(168, Math.trunc(hours)));
+  // Hours as a whole number within a week; anything else reads the default day.
+  const span = Number.isInteger(hours) && hours >= 1 && hours <= 168 ? hours : 24;
   const rows = await sql<{ r: string }>`
     select (avg(rate_micro))::bigint::text as r
       from rate_snapshot

@@ -512,7 +512,7 @@
     padding-left: 14px;
   }
 
-  .onlineText span {
+  .onlineText > span {
     display: none;
   }
 
@@ -574,7 +574,12 @@
 
   /* The working trader's phone opens on its switch alone: the bar above already says Traders. */
   :global(#page-head):has(.online) > :first-child {
-    display: none;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 
   :global(#page-head):has(.online) {
@@ -612,5 +617,72 @@
 
   .balanceFigure {
     font-size: 24px;
+  }
+}
+
+/* Words a desk has room for and a phone does not ("You’re online", the order's reference). */
+.narrow {
+  display: none;
+}
+
+@media (max-width: 699px) {
+  .wide {
+    display: none;
+  }
+
+  /* On a phone the switch rides in the bar, left of the account: "Online" and its switch. */
+  .online {
+    position: fixed;
+    top: calc(8px + 9px);
+    right: 72px;
+    z-index: 40;
+    height: 34px;
+    gap: 8px;
+    padding: 0 6px 0 12px;
+    background: rgba(18, 19, 23, 0.045);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    box-shadow: none;
+  }
+
+  .onlineText {
+    font-size: 13.5px;
+  }
+
+  .onlineText b {
+    font-weight: var(--font-weight-medium);
+  }
+
+  .narrow {
+    display: inline;
+  }
+
+  .onlineDot {
+    width: 8px;
+    height: 8px;
+  }
+
+  .onlineSwitch {
+    margin-left: 2px;
+    transform: scale(0.8);
+    transform-origin: right center;
+  }
+
+  /* The heading keeps only the switch, which rides in the bar: it takes no room and does not move. */
+  :global(#page-head):has(.online) {
+    height: 0;
+    margin: 0 0 -12px;
+    padding: 0;
+    animation: none;
+  }
+
+  .fieldTitle,
+  .field[data-calm] .fieldTitle {
+    font-size: 26px;
+    line-height: 1.15;
+  }
+
+  .fieldSub {
+    font-size: 13.5px;
   }
 }
