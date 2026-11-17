@@ -11,6 +11,7 @@ import { EmptyState } from '../../_workspace/EmptyState.tsx';
 import { ChevronIcon, ClockIcon, ReceiptIcon } from '../../_workspace/icons.tsx';
 import { nextStepText } from '../_ui/ActiveOrders.tsx';
 import { OrderPill } from '../_ui/OrderPill.tsx';
+import { PairCoin } from '../../_workspace/PairCoin.tsx';
 import { inr, rate, usdt } from '../_ui/format.ts';
 import shell from '../../shell.module.css';
 import styles from '../traders.module.css';
@@ -25,6 +26,7 @@ const TABS = [
  * stands, when it started and — only where INRP2P pays one — what it earned. A row opens the order.
  */
 export function OrdersScreen({ rows, open, counts, tab }: { rows: readonly OrderSummary[]; open: readonly OrderSummary[]; counts: { active: number; completed: number }; tab: 'active' | 'completed' }) {
+  const firstDue = open.find((o) => o.stage === 'OFFER' || o.stage === 'YOUR_TURN');
   const router = useRouter();
   useEffect(() => {
     if (tab !== 'active') return;
@@ -64,13 +66,14 @@ export function OrdersScreen({ rows, open, counts, tab }: { rows: readonly Order
               {rows.map((o) => (
                 <li key={o.ref}>
                   <Link className={styles.row} href={`/traders/orders/${o.ref}`}>
+                    {/* The pair and the side as the queue's cards say them: a coin pair, the side word in its colour. */}
                     <span className={styles.cellSide}>
-                      <span className={styles.sideMark} data-side={o.side}>
-                        {o.side === 'BUY_USDT' ? 'Buy' : 'Sell'}
-                      </span>
+                      <PairCoin side={o.side} size={32} />
                       <span className={styles.cell}>
-                        <span className={styles.cellMain}>{o.ref}</span>
-                        <span className={styles.cellSub}>{o.side === 'BUY_USDT' ? 'Buy USDT' : 'Sell USDT'}</span>
+                        <span className={styles.sideWord} data-side={o.side}>
+                          {o.side === 'BUY_USDT' ? 'Buy USDT' : 'Sell USDT'}
+                        </span>
+                        <span className={`${styles.cellMain} ${styles.mono}`}>{o.ref}</span>
                       </span>
                     </span>
                     <span className={styles.cell}>
@@ -103,10 +106,18 @@ export function OrdersScreen({ rows, open, counts, tab }: { rows: readonly Order
         </section>
       </main>
       <AssistantPanel state={traderOrdersAssistant(open, counts)} size="compact">
+        {/* The field's way on: into the order that waits on the trader, when one does; otherwise back to Traders. */}
         <div className={styles.navRow}>
-          <Link className={shell.textAction} href="/traders">
-            Traders
-          </Link>
+          {firstDue ? (
+            <Link className={shell.textAction} href={`/traders/orders/${firstDue.ref}`}>
+              Open the order
+              <ChevronIcon />
+            </Link>
+          ) : (
+            <Link className={shell.textAction} href="/traders">
+              Traders
+            </Link>
+          )}
         </div>
       </AssistantPanel>
     </>

@@ -1614,3 +1614,12 @@
   font-size: var(--font-size-meta);
   letter-spacing: 0.04em;
 }
+
+/* On a phone the desk's sections scroll sideways: the last one fades out at the edge, so it reads as more to come. */
+@media (max-width: 699px) {
+  .tabs {
+    -webkit-mask-image: linear-gradient(90deg, #000 84%, transparent);
+    mask-image: linear-gradient(90deg, #000 84%, transparent);
+    padding-right: 28px;
+  }
+}

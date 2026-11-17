@@ -114,7 +114,7 @@ export function useAssistantState(state: AssistantState): void {
  * On a narrower screen the status leads the page (`data-lead`), so what is happening is read first.
  */
 /** A status that waits for the reader is the page's orange moment: the field, not a card. */
-const YOUR_MOVE: ReadonlySet<string> = new Set(['Your turn', 'New order']);
+const YOUR_MOVE: ReadonlySet<string> = new Set(['Your move', 'New order']);
 
 export function AssistantPanel({
   state,
