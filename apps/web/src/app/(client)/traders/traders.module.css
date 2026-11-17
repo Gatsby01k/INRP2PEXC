@@ -2237,3 +2237,47 @@
     display: none;
   }
 }
+
+/* A record's row (the reserve's history): the order list's phone areas do not apply here. */
+.evidence .next,
+.evidence .orderText {
+  grid-area: auto;
+}
+
+.evidence .orderMain {
+  white-space: normal;
+}
+
+@media (max-width: 699px) {
+  .evidence li {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+  }
+}
+
+/* The trader's fields are wells, as every field in the workspace is: paper inside the sheet, lit when typed in. */
+.inputBox {
+  border-color: transparent;
+  border-radius: 14px;
+  background: var(--paper);
+}
+
+.inputBox:hover {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--paper) 80%, var(--text-primary) 3%);
+}
+
+.inputBox:focus-within {
+  border-color: var(--brand-primary);
+  background: var(--bg-surface);
+}
+
+@supports (corner-shape: superellipse(1.5)) {
+  .inputBox {
+    corner-shape: superellipse(1.5);
+  }
+}
+
+.evidence .orderText .orderMeta {
+  display: block;
+}

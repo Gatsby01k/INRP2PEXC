@@ -31,15 +31,15 @@ function p2pOrderState(o: OrderSummary): AssistantState | null {
   switch (o.p2pStep) {
     case 'ESCROW':
       return sells
-        ? { mood: 'alert', label: 'Your turn', title: `Put ${usdt(o.usdt)} in escrow for ${o.ref}`, body: 'The buyer pays you only once it is locked. If they don’t pay in time, it comes back to you.' }
+        ? { mood: 'alert', label: 'Your move', title: `Put ${usdt(o.usdt)} in escrow for ${o.ref}`, body: 'The buyer pays you only once it is locked. If they don’t pay in time, it comes back to you.' }
         : { mood: 'waiting', label: 'Waiting', title: `${o.ref}: the seller’s USDT is coming`, body: 'You pay only once it is locked in escrow for you.' };
     case 'PAY':
       return sells
         ? { mood: 'waiting', label: 'Buyer paying', title: `${o.ref}: the buyer is paying you`, body: `${inr(o.inr)} straight to your bank account. Confirm it once you see it.` }
-        : { mood: 'alert', label: 'Your turn', title: `Pay ${inr(o.inr)} for ${o.ref}`, body: 'The seller’s USDT is locked in escrow. Their account is on the order.' };
+        : { mood: 'alert', label: 'Your move', title: `Pay ${inr(o.inr)} for ${o.ref}`, body: 'The seller’s USDT is locked in escrow. Their account is on the order.' };
     case 'CONFIRM':
       return sells
-        ? { mood: 'alert', label: 'Your turn', title: `Did ${inr(o.inr)} arrive for ${o.ref}?`, body: 'The buyer says they paid. Check your bank app, then confirm — that releases the escrow.' }
+        ? { mood: 'alert', label: 'Your move', title: `Did ${inr(o.inr)} arrive for ${o.ref}?`, body: 'The buyer says they paid. Check your bank app, then confirm — that releases the escrow.' }
         : { mood: 'verifying', label: 'Seller checking', title: `${o.ref}: the seller is confirming`, body: 'Your USDT is released the moment they confirm your payment.' };
     case 'RELEASE':
     case 'DONE':
@@ -57,7 +57,7 @@ function orderState(o: OrderSummary): AssistantState | null {
     case 'YOUR_TURN':
       return {
         mood: 'alert',
-        label: 'Your turn',
+        label: 'Your move',
         title: `Send ${owed(o) ?? (o.side === 'BUY_USDT' ? 'your INR' : 'your USDT')} for ${o.ref}`,
         body: o.side === 'BUY_USDT' ? 'The other side is funded. INRP2P’s account details are on the order.' : 'The other side is funded. The order’s own address is on the order.',
       };

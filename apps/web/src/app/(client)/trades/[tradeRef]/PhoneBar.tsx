@@ -9,10 +9,21 @@ import styles from './phone-bar.module.css';
  *
  * `waiting` counts what the other side said since the viewer last wrote: the chat's badge.
  */
-export function PhoneBar({ tradeRef, chat, waiting }: { tradeRef: string; chat: boolean; waiting: number }) {
+export function PhoneBar({
+  tradeRef,
+  chat,
+  waiting,
+  back = { href: '/history', label: 'History' },
+}: {
+  tradeRef: string;
+  chat: boolean;
+  waiting: number;
+  /** Where the page belongs: History for a trade, Orders for a trader's order. */
+  back?: { readonly href: string; readonly label: string };
+}) {
   return (
     <nav className={styles.bar} data-phone-bar="" aria-label="Trade">
-      <Link href="/history" className={styles.button} aria-label="Back to History">
+      <Link href={back.href} className={styles.button} aria-label={`Back to ${back.label}`}>
         <BackIcon />
       </Link>
       <span className={styles.ref}>{tradeRef}</span>

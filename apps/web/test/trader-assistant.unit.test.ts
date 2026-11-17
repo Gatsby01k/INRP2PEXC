@@ -119,7 +119,7 @@ describe('the trader home robot', () => {
 
   it('the trader’s turn names the amount and the order', () => {
     const s = traderHomeAssistant(home({ active: [order({ ref: 'TO-2', stage: 'HELD' }), order({ ref: 'TO-4', stage: 'YOUR_TURN', youOwe: '209400.00' })] }));
-    expect(s).toMatchObject({ mood: 'alert', label: 'Your turn', title: 'Send ₹209,400 for TO-4' });
+    expect(s).toMatchObject({ mood: 'alert', label: 'Your move', title: 'Send ₹209,400 for TO-4' });
   });
 
   it('a short reserve is raised before waiting orders, but after anything the trader has to send', () => {
@@ -127,7 +127,7 @@ describe('the trader home robot', () => {
     expect(traderHomeAssistant(home({ issues: ['RESERVE_SHORT'], reserve: short, active: [order({ ref: 'TO-2', stage: 'CHECKING_YOURS' })] })))
       .toMatchObject({ mood: 'alert', title: 'Top up your Security Reserve' });
     expect(traderHomeAssistant(home({ issues: ['RESERVE_SHORT'], reserve: short, active: [order({ ref: 'TO-2', stage: 'YOUR_TURN', youOwe: '1.00' })] })))
-      .toMatchObject({ label: 'Your turn' });
+      .toMatchObject({ label: 'Your move' });
   });
 
   it('a payment being checked is verifying; a finished order with nothing open is success', () => {

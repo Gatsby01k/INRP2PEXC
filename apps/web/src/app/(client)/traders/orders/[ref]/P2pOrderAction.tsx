@@ -11,6 +11,7 @@ import {
   postOrderMessageAction, reportOrderPayeeNameAction, submitOrderPaymentAction,
 } from '../../../../../server/actions/traders.ts';
 import { ClaimProof } from '../../../_workspace/ClaimProof.tsx';
+import { FieldHalo } from '../../../_workspace/FieldHalo.tsx';
 import { DealChat } from '../../../_workspace/DealChat.tsx';
 import { PayInr } from '../../../_workspace/PayInr.tsx';
 import { AddYourSide, DisputeUnderReview, NotArrived } from '../../../_workspace/P2pDispute.tsx';
@@ -149,10 +150,15 @@ export function P2pOrderAction({ detail, canAct }: { detail: TraderOrderDetail; 
     }
   })();
 
-  const badge = disputed ? 'With INRP2P' : yours ? 'Your move' : deal.step === 'RELEASE' ? 'Releasing' : deal.step === 'REFUND' ? 'Refund' : deal.step === 'CANCELLED' ? 'Closed' : deal.step === 'DONE' ? 'Done' : 'Escrow';
+  // Where the order is of its stops, said in the cap as the trade's is: "Your move · step 3 of 5".
+  const stop = detail.steps.findIndex((s) => s.status === 'current') + 1;
+  const filedAt = deal.step === 'CONFIRM' ? deal.payments.findLast((p) => p.status === 'PROCESSING')?.filedAt : undefined;
+  const share = remaining !== null && filedAt && deal.dueBy ? remaining / Math.max(1, Date.parse(deal.dueBy) - Date.parse(filedAt)) : 1;
+  const badge = disputed ? 'With INRP2P' : yours ? (stop > 0 ? `Your move · step ${stop} of ${detail.steps.length}` : 'Your move') : deal.step === 'RELEASE' ? 'Releasing' : deal.step === 'REFUND' ? 'Refund' : deal.step === 'CANCELLED' ? 'Closed' : deal.step === 'DONE' ? 'Done' : 'Escrow';
   return (
     <section className={`${shell.card} ${pay.card}`} aria-labelledby="next-title" data-robot-target="panel" {...(yours ? { 'data-attention': '' } : {})}>
       <div className={yours ? `${pay.head} ${shell.cap}` : pay.head}>
+        {yours ? <FieldHalo /> : null}
         <div className={pay.headText}>
           <span className={pay.badge} data-tone={yours ? undefined : 'quiet'}>
             {badge}
@@ -161,7 +167,20 @@ export function P2pOrderAction({ detail, canAct }: { detail: TraderOrderDetail; 
             {title}
           </h2>
         </div>
-        {remaining !== null ? (
+        {remaining !== null && yours ? (
+          // In the field the time is a display: the robot's visor as a disc, the time lit, what it is under it.
+          <span className={pay.ringTimer} data-state={remaining <= 0 ? 'over' : final || remaining <= 5 * 60_000 ? 'soon' : 'calm'} role="timer" aria-live="off">
+            <svg viewBox="0 0 100 100" aria-hidden="true" focusable="false">
+              <circle className={pay.ringTrack} cx="50" cy="50" r="43" />
+              <circle className={pay.ringArc} cx="50" cy="50" r="43" strokeDasharray="270.2" strokeDashoffset={remaining <= 0 ? 270.2 : 270.2 * (1 - Math.min(1, Math.max(0.04, share)))} />
+            </svg>
+            <span className={pay.ringText}>
+              <b>{remaining <= 0 ? '0:00' : formatCountdown(remaining)}</b>
+              <small>{remaining <= 0 ? 'Time’s up' : final ? 'final' : 'left'}</small>
+            </span>
+            <span className="ix-visually-hidden">{remaining <= 0 ? 'Time’s up' : `${final ? 'Final' : 'Within'} ${formatCountdown(remaining)}`}</span>
+          </span>
+        ) : remaining !== null ? (
           <span className={pay.timer} data-state={remaining <= 0 ? 'over' : final || remaining <= 5 * 60_000 ? 'soon' : 'calm'} role="timer" aria-live="off">
             <ClockIcon className={pay.inlineIcon} />
             {remaining <= 0 ? 'Time’s up' : <>{final ? 'Final' : yours ? 'Within' : 'Expected within'} <span className="ix-num">{formatCountdown(remaining)}</span></>}

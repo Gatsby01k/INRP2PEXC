@@ -6,7 +6,7 @@ const WORDS: Record<OrderStage, { label: string; tone: 'turn' | 'waiting' | 'pro
   OFFER: { label: 'New order', tone: 'turn', ring: 'turn' },
   HELD: { label: 'Held', tone: 'waiting', ring: 'lock' },
   AWAITING_FUNDING: { label: 'Waiting', tone: 'waiting', ring: 'wait' },
-  YOUR_TURN: { label: 'Your turn', tone: 'turn', ring: 'turn' },
+  YOUR_TURN: { label: 'Your move', tone: 'turn', ring: 'turn' },
   CHECKING_YOURS: { label: 'Checking', tone: 'progress', ring: 'check' },
   CHECKING_INRP2P: { label: 'Confirming', tone: 'progress', ring: 'check' },
   INRP2P_SENDING: { label: 'In progress', tone: 'progress', ring: 'check' },

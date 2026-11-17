@@ -4,7 +4,9 @@ import { useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { PaymentRow, TraderOrderDetail } from '@inrp2p/traders';
-import { formatIstDateTime } from '@inrp2p/ui/format';
+import { Money } from '@inrp2p/kernel';
+import { formatInr, formatIstDateTime } from '@inrp2p/ui/format';
+import { Amount } from '../../../../../components/Amount.tsx';
 import { CopyButton } from '@inrp2p/ui';
 import { useAssistantState } from '../../../_assistant/AssistantPanel.tsx';
 import { traderOrderAssistant } from '../../../_assistant/traders.ts';
@@ -99,7 +101,7 @@ function NextAction({ detail }: { detail: TraderOrderDetail }) {
  * One order: what is happening and what the trader does now, then what was agreed and every payment on it. Built
  * only from the trader projection — the other side is "the other side", never a name, a rate or a reference.
  */
-export function OrderScreen({ detail, canAct }: { detail: TraderOrderDetail; canAct: boolean }) {
+export function OrderScreen({ detail, canAct, initial }: { detail: TraderOrderDetail; canAct: boolean; initial?: string }) {
   const router = useRouter();
   const o = detail.order;
   const live = o.status === 'OFFERED' || o.status === 'ACCEPTED' || o.status === 'IN_PROGRESS';
@@ -115,16 +117,34 @@ export function OrderScreen({ detail, canAct }: { detail: TraderOrderDetail; can
 
   const status = traderOrderAssistant(detail);
   useAssistantState(status);
+  // The figures as statements (the trade page's), and where the order is of its stops.
+  const inrExact = formatInr(Money.parse(o.inr, 'INR'), { fraction: 'always' });
+  const stopAt = detail.steps.findIndex((s) => s.status === 'current' || s.status === 'exception');
   const figures: Figure[] = [
-    { label: buy ? 'You pay' : 'You sell', value: buy ? inr(o.inr) : usdt(o.usdt) },
-    { label: 'You receive', value: buy ? usdt(o.usdt) : inr(o.inr) },
-    { label: 'Rate', value: rate(o.rate).replace(' / USDT', '') },
+    { label: buy ? 'You pay' : 'You sell', value: <Amount value={buy ? inrExact : usdt(o.usdt)} /> },
+    { label: 'You receive', value: <Amount value={buy ? usdt(o.usdt) : inrExact} /> },
+    { label: 'Rate', value: <Amount value={rate(o.rate).replace(' / USDT', '')} /> },
+    ...(stopAt >= 0
+      ? [
+          {
+            label: 'Step',
+            value: (
+              <>
+                {stopAt + 1}
+                <span className={trade.stepOf}>
+                  of {detail.steps.length} · {detail.steps[stopAt]!.label}
+                </span>
+              </>
+            ),
+          },
+        ]
+      : []),
   ];
   const chat = detail.p2p && o.status !== 'ACCEPTED' && o.status !== 'OFFERED';
 
   return (
     <>
-      <main className={shell.main}>
+      <main className={shell.main} {...(detail.p2p ? { 'data-deal-rail': '' } : {})}>
         {o.status === 'OFFERED' ? (
           <OfferCard order={o} now={now} canAct={canAct} receiveAt={detail.youReceiveAt} />
         ) : (
@@ -132,7 +152,15 @@ export function OrderScreen({ detail, canAct }: { detail: TraderOrderDetail; can
             {o.p2pStep && detail.steps.length > 0 ? (
               <div className={trade.progress} role="group" aria-label="Order progress">
                 <div className={trade.rail}>
-                  <DealRail viewer={buy ? 'buyer' : 'seller'} step={o.p2pStep} usdt={usdt(o.usdt)} inr={inr(o.inr)} label={status.title} />
+                  <DealRail
+                    viewer={buy ? 'buyer' : 'seller'}
+                    step={o.p2pStep}
+                    usdt={usdt(o.usdt)}
+                    inr={inrExact}
+                    label={status.title}
+                    {...(initial ? { initial } : {})}
+                    rail={detail.p2p?.payments.findLast((x) => x.rail)?.rail ?? null}
+                  />
                 </div>
                 <Track steps={detail.steps} label="Stops" />
               </div>
@@ -163,8 +191,9 @@ export function OrderScreen({ detail, canAct }: { detail: TraderOrderDetail; can
 
       <aside className={`${shell.aside} ${trade.side}`} aria-label="Chat and details">
         {chat ? <P2pOrderChat detail={detail} /> : null}
-        <section className={shell.card} aria-labelledby="terms-title">
-          <h2 id="terms-title" className={shell.cardTitle}>
+        {/* The order's terms are words on the paper, as a trade's details are: the page's cards are its work. */}
+        <section className={trade.paper} aria-labelledby="terms-title">
+          <h2 id="terms-title" className={trade.paperTitle}>
             The order
           </h2>
           <dl className={shell.facts}>
@@ -194,6 +223,10 @@ export function OrderScreen({ detail, canAct }: { detail: TraderOrderDetail; can
             <div>
               <dt>You receive at</dt>
               <dd>{detail.youReceiveAt}</dd>
+            </div>
+            <div>
+              <dt>Offered</dt>
+              <dd>{formatIstDateTime(new Date(o.offeredAt))}</dd>
             </div>
             {o.startedAt ? (
               <div>
