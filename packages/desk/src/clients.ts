@@ -357,6 +357,27 @@ export async function clientSignIns(ex: Executor, clientId: string, limit = 6): 
   return { first: null, latest: sessions.rows.map(signInOf) };
 }
 
+/**
+ * Where each of these clients' people first signed in (migration 0052), for a list that shows many at once — one read
+ * for all of them. A client with nothing recorded is left out. Only for a caller who may manage clients.
+ */
+export async function clientFirstPlaces(ex: Executor, clientIds: readonly string[]): Promise<Readonly<Record<string, Place>>> {
+  const ids = [...new Set(clientIds)].map((x) => requireUuid(x, 'clientId'));
+  if (ids.length === 0) return {};
+  const rows = await sql<{ client_id: string; country: string | null; region: string | null; city: string | null }>`
+    select distinct on (cu.client_id) cu.client_id, si.country, si.region, si.city
+      from sign_in si
+      join client_user cu on cu.user_id = si.user_id
+     where cu.client_id = any(${ids}::uuid[]) and si.surface = 'CLIENT'
+     order by cu.client_id, si.at`.execute(ex);
+  const out: Record<string, Place> = {};
+  for (const r of rows.rows) {
+    const place = placeOf(r);
+    if (place) out[r.client_id] = place;
+  }
+  return out;
+}
+
 /** "treasury@acmepay.test" → "t•••@acmepay.test", as the acceptors list shows people. */
 function maskAddress(email: string): string {
   const at = email.indexOf('@');

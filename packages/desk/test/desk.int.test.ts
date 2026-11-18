@@ -6,7 +6,7 @@ import { createQuote, createQuoteLink, createRequest, sendQuote } from '@inrp2p/
 import { cancelTrade, openException, requestAdjustment } from '@inrp2p/settlement';
 import { acceptOrder, assignRequest, orderDeliveryAddress } from '@inrp2p/traders';
 import {
-  FULL_ACCESS, NO_ECONOMICS, accessFor, clientBook, clientDetail, clientSignIns, deskApprovals, deskExceptions, deskQueue, deskStrip, deskTrade, deskTradeRecord,
+  FULL_ACCESS, NO_ECONOMICS, accessFor, clientBook, clientDetail, clientFirstPlaces, clientSignIns, deskApprovals, deskExceptions, deskQueue, deskStrip, deskTrade, deskTradeRecord,
   deskQuote, findByRef, listOrders, orderCounts, searchOrders, tradeIdByRef, usdtView,
 } from '../src/index.ts';
 import { settleFirstLeg } from '../../settlement/test/world.ts';
@@ -268,6 +268,10 @@ describe('the client book', () => {
     expect(after.latest[1]).toMatchObject({ ip: '49.36.112.201', live: false });
     expect(after.first).toMatchObject({ ip: '49.36.112.201', place: { city: 'Bengaluru' } });
     expect((await clientBook(w.app)).find((c) => c.clientId === w.clientId)!.firstPlace).toEqual({ country: 'IN', region: 'KA', city: 'Bengaluru' });
+    // A list of many — the traders' — reads every first place at once; a client with nothing recorded is left out.
+    const places = await clientFirstPlaces(w.app, [w.clientId, randomUUID()]);
+    expect(places).toEqual({ [w.clientId]: { country: 'IN', region: 'KA', city: 'Bengaluru' } });
+    expect(await clientFirstPlaces(w.app, [])).toEqual({});
     // A record is not edited.
     await expect(w.t.owner.updateTable('sign_in').set({ city: 'Elsewhere' }).where('user_id', '=', w.acceptor.userId).execute()).rejects.toThrow();
   });
