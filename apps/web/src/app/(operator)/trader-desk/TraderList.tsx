@@ -1,11 +1,12 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
+import type { Place } from '@inrp2p/desk';
 import type { DeskTraderRow } from '@inrp2p/traders';
 import { type Column, DataTable } from '../_desk/DataTable.tsx';
 import { date, share, usdt } from '../_desk/format.ts';
 import { Chip, Empty } from '../_desk/ui.tsx';
-import { MiniMeter, Who, bookStyles as b } from '../_book/parts.tsx';
+import { MiniMeter, Who, bookStyles as b, flagOf, placeText } from '../_book/parts.tsx';
 import { AUTO_FLAG, DESK_FLAGS, ISSUE, StatusChip, TIER_WORD, provides } from './words.tsx';
 import d from '../_desk/desk.module.css';
 
@@ -14,7 +15,7 @@ import d from '../_desk/desk.module.css';
  * matters for routing — whether it is online, its reserve against what it must hold, how much of its limit open deals
  * use, its orders, and what keeps it from being offered work.
  */
-export function TraderList({ traders }: { traders: readonly DeskTraderRow[] }) {
+export function TraderList({ traders, places = {} }: { traders: readonly DeskTraderRow[]; places?: Readonly<Record<string, Place>> }) {
   const router = useRouter();
   const needs = traders.filter((t) => t.status === 'UNDER_REVIEW' || t.awaitingReview > 0);
   const rest = traders.filter((t) => !(t.status === 'UNDER_REVIEW' || t.awaitingReview > 0));
@@ -27,7 +28,19 @@ export function TraderList({ traders }: { traders: readonly DeskTraderRow[] }) {
         <Who
           name={t.clientName}
           href={`/trader-desk/${t.traderId}`}
-          sub={`${t.ref} · ${t.status === 'UNDER_REVIEW' ? `applied ${date(t.appliedAt)}` : `provides ${provides(t.sides)}`}`}
+          sub={
+            <>
+              {t.ref}
+              {places[t.clientId] ? (
+                <span title={`First signed in from ${placeText(places[t.clientId]) ?? ''}`}>
+                  {' · '}
+                  {flagOf(places[t.clientId]!.country)} {places[t.clientId]!.city ?? placeText(places[t.clientId])}
+                </span>
+              ) : null}
+              {' · '}
+              {t.status === 'UNDER_REVIEW' ? `applied ${date(t.appliedAt)}` : `provides ${provides(t.sides)}`}
+            </>
+          }
           {...(t.status === 'PAUSED' || t.status === 'REJECTED' ? { tone: 'quiet' as const } : {})}
         />
       ),
@@ -63,7 +76,9 @@ export function TraderList({ traders }: { traders: readonly DeskTraderRow[] }) {
       key: 'limit',
       header: 'Open of limit',
       render: (t) =>
-        t.risk ? (
+        t.risk && !/[1-9]/.test(t.risk.maxOpen) ? (
+          <span className={d.muted}>no free reserve yet</span>
+        ) : t.risk ? (
           <span className={b.meterCell}>
             <span>
               {usdt(t.risk.open, { unit: false })}

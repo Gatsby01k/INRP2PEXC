@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Money } from '@inrp2p/kernel';
+import { clientFirstPlaces } from '@inrp2p/desk';
 import { deskTraders } from '@inrp2p/traders';
 import { MarkArt } from '../../../components/MarkArt.tsx';
 import { can, operatorPage } from '../../../server/operator.ts';
@@ -25,6 +26,8 @@ export default async function TradersDeskPage({ searchParams }: { searchParams: 
   const params = await searchParams;
   const view = params.view === 'programme' ? 'programme' : 'traders';
   const { program, traders } = await deskTraders(ctx.db);
+  // Where each trader first signed in from (migration 0052): for whoever may manage clients, as on a client's page.
+  const places = can(ctx, 'client:manage') ? await clientFirstPlaces(ctx.db, traders.map((t) => t.clientId)) : {};
   const review = traders.filter((t) => t.status === 'UNDER_REVIEW').length;
   const changes = traders.filter((t) => t.status !== 'UNDER_REVIEW' && t.awaitingReview > 0).length;
   const approved = traders.filter((t) => t.status === 'APPROVED' || t.status === 'PAUSED');
@@ -80,7 +83,7 @@ export default async function TradersDeskPage({ searchParams }: { searchParams: 
                 />
             </div>
             <section className={`${b.sheet} ${b.bookTable}`} aria-label="Every trader">
-              <TraderList traders={traders} />
+              <TraderList traders={traders} places={places} />
             </section>
           </>
         )}
