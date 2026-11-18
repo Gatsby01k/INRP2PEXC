@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { isDomainError } from '@inrp2p/kernel';
-import { type ClientDetail, type ClientSignIn, clientDetail, clientSignIns } from '@inrp2p/desk';
+import { type ClientAccess, type ClientDetail, clientDetail, clientSignIns } from '@inrp2p/desk';
 import { listUpiIds } from '@inrp2p/clients';
 import { CopyButton } from '@inrp2p/ui';
 import { UsdtOnTron } from '../../../../components/PayMarks.tsx';
@@ -10,7 +10,7 @@ import { Ago } from '../../_desk/clock.tsx';
 import { Icon } from '../../_desk/icons.tsx';
 import { date, dateTime, marginNegative, marginText, rate, titleCase, usdt, usdtCompact } from '../../_desk/format.ts';
 import { Chip, Page, PageBody, PageHeader } from '../../_desk/ui.tsx';
-import { Facts, Group, Hero, Monogram, Sheet, Stats, Steps, bankParts, bookStyles as b, deviceOf, shortAddress } from '../../_book/parts.tsx';
+import { Facts, Group, Hero, Monogram, Sheet, Stats, Steps, bankParts, bookStyles as b, deviceOf, flagOf, placeText, shortAddress } from '../../_book/parts.tsx';
 import { BankAccounts } from './BankAccounts.tsx';
 import { NewRequest } from './NewRequest.tsx';
 import { RecentTrades } from './RecentTrades.tsx';
@@ -41,7 +41,7 @@ export default async function ClientPage({ params, searchParams }: { params: Pro
   }
   const canManage = can(ctx, 'client:manage');
   // Where the client's people sign in from is for whoever manages the client — the same people who see its contacts.
-  const [upiIds, signIns] = await Promise.all([listUpiIds(ctx.db, clientId), canManage ? clientSignIns(ctx.db, clientId) : Promise.resolve(null as readonly ClientSignIn[] | null)]);
+  const [upiIds, signIns] = await Promise.all([listUpiIds(ctx.db, clientId), canManage ? clientSignIns(ctx.db, clientId) : Promise.resolve(null as ClientAccess | null)]);
   const canRequest = can(ctx, 'request:create');
   const canManageMoney = can(ctx, 'client_bank:add');
   // "Repeat trade" prefills the builder from a previous trade of this client — nothing is created until the dealer
@@ -234,28 +234,46 @@ export default async function ClientPage({ params, searchParams }: { params: Pro
                     { label: 'Type', value: client.type === 'COMPANY' ? 'Company' : 'Individual' },
                     { label: 'Reference', value: <span className={d.mono}>{client.ref}</span> },
                     { label: 'Joined', value: <>{dateTime(client.joinedAt)} · <Ago at={client.joinedAt} /></> },
+                    ...(signIns
+                      ? [
+                          {
+                            label: 'First sign-in',
+                            value: signIns.first ? (
+                              <>
+                                {flagOf(signIns.first.place?.country)} {placeText(signIns.first.place) ?? 'place not recorded'}
+                                <span className={b.whoSub} style={{ display: 'block', whiteSpace: 'normal' }}>
+                                  <span className={b.addr}>{signIns.first.ip ?? 'no address'}</span> · {deviceOf(signIns.first.userAgent)} · {dateTime(signIns.first.at)}
+                                </span>
+                              </>
+                            ) : (
+                              <span className={d.muted}>not recorded yet</span>
+                            ),
+                          },
+                        ]
+                      : []),
                     { label: 'KYC', value: titleCase(client.kycStatus) },
                     { label: 'Pricing notes', value: client.pricingNotes ?? <span className={d.muted}>none</span> },
                   ]}
                 />
               </Group>
               {signIns ? (
-                <Group title="Sign-ins" count={signIns.length} hint="latest, with address and device" label="Sign-ins">
-                  {signIns.length === 0 ? (
-                    <p className={b.quiet}>No sign-in on record — sessions ended by signing out leave nothing here.</p>
+                <Group title="Sign-ins" count={signIns.latest.length} hint="latest: place, address, device" label="Sign-ins">
+                  {signIns.latest.length === 0 ? (
+                    <p className={b.quiet}>No sign-in on record yet.</p>
                   ) : (
                     <ul className={b.rows}>
-                      {signIns.map((x) => (
-                        <li key={x.sessionId} className={b.row}>
-                          <span className={b.glyph}>
-                            <Icon name={x.method === 'TELEGRAM' ? 'link' : 'user'} size={14} />
+                      {signIns.latest.map((x) => (
+                        <li key={x.key} className={b.row}>
+                          <span className={b.glyph} aria-hidden="true" style={{ fontSize: 16 }}>
+                            {flagOf(x.place?.country) || <Icon name={x.method === 'TELEGRAM' ? 'link' : 'user'} size={14} />}
                           </span>
                           <span className={b.rowMain}>
                             <span className={b.rowTitle}>
-                              <span>{deviceOf(x.userAgent)}</span>
+                              <span>{placeText(x.place) ?? deviceOf(x.userAgent)}</span>
                             </span>
                             <span className={b.rowSub} data-wrap="">
-                              <span className={b.addr}>{x.ip ?? 'address not recorded'}</span> · {x.who} · {dateTime(x.at)}
+                              <span className={b.addr}>{x.ip ?? 'address not recorded'}</span>
+                              {x.place ? ` · ${deviceOf(x.userAgent)}` : ''} · {x.who} · {dateTime(x.at)}
                               {x.method ? ` · ${x.method === 'TELEGRAM' ? 'Telegram' : 'email code'}` : ''}
                             </span>
                           </span>

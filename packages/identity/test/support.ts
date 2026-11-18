@@ -38,10 +38,11 @@ export class CookieJar {
   }
 }
 
-export async function call(auth: { handler: (r: Request) => Promise<Response> }, base: string, jar: CookieJar, path: string, body?: unknown, method = 'POST') {
+export async function call(auth: { handler: (r: Request) => Promise<Response> }, base: string, jar: CookieJar, path: string, body?: unknown, method = 'POST', extra: Record<string, string> = {}) {
   const headers = jar.headers(base);
   headers.set('content-type', 'application/json');
   headers.set('x-forwarded-for', '203.0.113.10');
+  for (const [k, v] of Object.entries(extra)) headers.set(k, v);
   const res = await auth.handler(new Request(`${base}/api/auth${path}`, { method, headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }));
   jar.absorb(res);
   const text = await res.text();

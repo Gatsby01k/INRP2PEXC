@@ -236,19 +236,40 @@ describe('the client book', () => {
 
   it("lists a client's latest sign-ins with the address and device each came from, and nothing a sign-in did not make", async () => {
     const at = new Date();
-    await w.t.owner
+    const session = await w.t.owner
       .insertInto('auth_session')
       .values({
         expires_at: new Date(at.getTime() + 3_600_000), token: randomUUID(), created_at: at, updated_at: at, user_id: w.acceptor.userId, surface: 'CLIENT',
         ip_address: '103.21.58.14', user_agent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) Safari/604.1', sign_in_method: 'EMAIL',
       })
-      .execute();
-    const signIns = await clientSignIns(w.app, w.clientId);
-    expect(signIns[0]).toMatchObject({ ip: '103.21.58.14', method: 'EMAIL', live: true });
-    expect(signIns[0]!.who).toMatch(/^.•••@/);
-    expect(signIns[0]!.who).not.toContain(w.acceptor.email.split('@')[0]!.slice(1));
+      .returning('id')
+      .executeTakeFirstOrThrow();
+    // Before 0052 recorded anything for this client, its live sessions stand in: address and device, no place.
+    const before = await clientSignIns(w.app, w.clientId);
+    expect(before.first).toBeNull();
+    expect(before.latest[0]).toMatchObject({ ip: '103.21.58.14', method: 'EMAIL', live: true, place: null });
+    expect(before.latest[0]!.who).toMatch(/^.•••@/);
+    expect(before.latest[0]!.who).not.toContain(w.acceptor.email.split('@')[0]!.slice(1));
     // The world's own sessions were made by the product, not by a sign-in request: no address, no device, not listed.
-    expect(signIns.every((x) => x.ip !== null || x.userAgent !== null)).toBe(true);
+    expect(before.latest.every((x) => x.ip !== null || x.userAgent !== null)).toBe(true);
+
+    // 0052: sign-ins are recorded with where the edge placed them, and outlive their sessions.
+    await w.t.owner
+      .insertInto('sign_in')
+      .values({ user_id: w.acceptor.userId, session_id: randomUUID(), surface: 'CLIENT', method: 'EMAIL', ip: '49.36.112.201', country: 'IN', region: 'KA', city: 'Bengaluru', user_agent: 'Mozilla/5.0 (Windows NT 10.0) Chrome/131.0', at: new Date(at.getTime() - 86_400_000) })
+      .execute();
+    await w.t.owner
+      .insertInto('sign_in')
+      .values({ user_id: w.acceptor.userId, session_id: session.id, surface: 'CLIENT', method: 'EMAIL', ip: '103.21.58.14', country: 'IN', region: 'MH', city: 'Mumbai', user_agent: 'Mozilla/5.0 (iPhone) Safari/604.1', at })
+      .execute();
+    const after = await clientSignIns(w.app, w.clientId);
+    expect(after.latest.map((x) => x.place?.city)).toEqual(['Mumbai', 'Bengaluru']);
+    expect(after.latest[0]).toMatchObject({ ip: '103.21.58.14', live: true, place: { country: 'IN', region: 'MH', city: 'Mumbai' } });
+    expect(after.latest[1]).toMatchObject({ ip: '49.36.112.201', live: false });
+    expect(after.first).toMatchObject({ ip: '49.36.112.201', place: { city: 'Bengaluru' } });
+    expect((await clientBook(w.app)).find((c) => c.clientId === w.clientId)!.firstPlace).toEqual({ country: 'IN', region: 'KA', city: 'Bengaluru' });
+    // A record is not edited.
+    await expect(w.t.owner.updateTable('sign_in').set({ city: 'Elsewhere' }).where('user_id', '=', w.acceptor.userId).execute()).rejects.toThrow();
   });
 
   it('leaves a cancelled trade out of the queue and in the orders list', async () => {

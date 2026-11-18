@@ -244,6 +244,24 @@ export interface StepUpVerificationTable {
   ip_hash: string | null;
 }
 
+/**
+ * Migration 0052: one row for every sign-in, kept after its session ends — who, how, the address Better Auth resolved,
+ * where the edge placed that address (country, subdivision, city) and the device's user agent. Never updated.
+ */
+export interface SignInTable {
+  id: Generated<string>;
+  user_id: string;
+  session_id: string;
+  surface: 'CLIENT' | 'OPERATOR';
+  method: 'EMAIL' | 'TELEGRAM' | 'PASSWORD' | null;
+  ip: string | null;
+  country: string | null;
+  region: string | null;
+  city: string | null;
+  user_agent: string | null;
+  at: Generated<Date>;
+}
+
 export interface SessionActivityTable {
   session_id: string;
   last_activity_at: Date;
@@ -2057,6 +2075,7 @@ export interface Database {
   operator_user_role: OperatorUserRoleTable;
   operator_permission_grant: OperatorPermissionGrantTable;
   step_up_verification: StepUpVerificationTable;
+  sign_in: SignInTable;
   session_activity: SessionActivityTable;
   client: ClientTable;
   client_contact: ClientContactTable;

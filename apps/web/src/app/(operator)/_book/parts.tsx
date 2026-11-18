@@ -267,4 +267,28 @@ export function deviceOf(userAgent: string | null): string {
   return system ? `${browser} · ${system}` : browser;
 }
 
+const REGION_NAMES = new Intl.DisplayNames(['en'], { type: 'region' });
+
+/** A country's flag, from its ISO code: the two regional-indicator letters every system draws as the flag. */
+export function flagOf(country: string | null | undefined): string {
+  if (!country || !/^[A-Z]{2}$/.test(country)) return '';
+  return String.fromCodePoint(...[...country].map((c) => 0x1f1e6 + c.charCodeAt(0) - 65));
+}
+
+/** Where the edge placed an address, as people say it: "Mumbai, MH · India". Null when nothing is known. */
+export function placeText(p: { country: string | null; region: string | null; city: string | null } | null | undefined): string | null {
+  if (!p) return null;
+  const local = [p.city, p.region].filter(Boolean).join(', ');
+  let country: string | null = null;
+  if (p.country) {
+    try {
+      country = REGION_NAMES.of(p.country) ?? p.country;
+    } catch {
+      country = p.country;
+    }
+  }
+  const text = [local || null, country].filter(Boolean).join(' · ');
+  return text || null;
+}
+
 export { b as bookStyles };

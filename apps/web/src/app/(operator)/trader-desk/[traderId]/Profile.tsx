@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import type { ClientAccess } from '@inrp2p/desk';
 import type { DeskBankView, DeskTraderDetail, DeskWalletView } from '@inrp2p/traders';
 import { CopyButton, StepUpMark } from '@inrp2p/ui';
 import { BankMark, RailMark, UsdtOnTron } from '../../../../components/PayMarks.tsx';
@@ -9,7 +10,7 @@ import { revealBankAccountAction, revealTraderPhoneAction, setExchangeAccessActi
 import { GuardedAction } from '../../_desk/GuardedAction.tsx';
 import { dateTime, inr, usdt } from '../../_desk/format.ts';
 import { Chip } from '../../_desk/ui.tsx';
-import { Facts, Group, Sheet, bookStyles as b } from '../../_book/parts.tsx';
+import { Facts, Group, Sheet, bookStyles as b, deviceOf, flagOf, placeText } from '../../_book/parts.tsx';
 import type { TraderPerms } from '../words.tsx';
 import d from '../../_desk/desk.module.css';
 
@@ -103,7 +104,7 @@ export function useReveal() {
 }
 
 /** Who applied: how the desk reaches them, what they trade elsewhere and how much, and whether the Exchange is open to them. */
-export function ApplicantSheet({ detail, perms }: { detail: DeskTraderDetail; perms: TraderPerms }) {
+export function ApplicantSheet({ detail, perms, access }: { detail: DeskTraderDetail; perms: TraderPerms; access?: ClientAccess | null }) {
   const cmd = useCommand();
   const t = detail.trader;
   const a = detail.applicant;
@@ -141,6 +142,32 @@ export function ApplicantSheet({ detail, perms }: { detail: DeskTraderDetail; pe
           ]}
         />
       </Group>
+      {access ? (
+        <Group title="Signed in from" hint="where the edge placed the address" label="Signed in from">
+          {access.first || access.latest.length > 0 ? (
+            <ul className={b.rows}>
+              {[...(access.first ? [{ ...access.first, label: 'First' }] : []), ...access.latest.slice(0, 3).filter((x) => x.key !== access.first?.key).map((x) => ({ ...x, label: '' }))].map((x) => (
+                <li key={x.key} className={b.row}>
+                  <span className={b.glyph} aria-hidden="true" style={{ fontSize: 16 }}>
+                    {flagOf(x.place?.country) || '·'}
+                  </span>
+                  <span className={b.rowMain}>
+                    <span className={b.rowTitle}>
+                      <span>{placeText(x.place) ?? 'place not recorded'}</span>
+                    </span>
+                    <span className={b.rowSub} data-wrap="">
+                      <span className={b.addr}>{x.ip ?? 'no address'}</span> · {deviceOf(x.userAgent)} · {dateTime(x.at)}
+                    </span>
+                  </span>
+                  <span className={b.rowEnd}>{x.label ? <Chip tone="brand">first</Chip> : x.live ? <Chip tone="success" glyph="done">live</Chip> : null}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className={b.quiet}>No sign-in recorded yet.</p>
+          )}
+        </Group>
+      ) : null}
       <Group title="Trading" label="Trading">
         <Facts
           items={[

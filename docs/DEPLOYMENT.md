@@ -740,3 +740,20 @@ No secret, service or job changes; no new IX code.
    up in a UPI app: the owner's own name puts it back (full limits); another name rejects it with a note.
 4. **Before real money** (unchanged from §23.4): one rupee by a deal's code to a UPI ID from GPay, PhonePe and Paytm.
 
+## 25. Where each sign-in came from
+
+Migration `0052` (schema 52): the table `sign_in`, one row per sign-in on either surface — who, the session it opened,
+how (email code, Telegram, password), the address Better Auth resolved, the country / subdivision / city from Vercel's
+`x-vercel-ip-country`, `x-vercel-ip-country-region` and `x-vercel-ip-city` headers, and the user agent. The application
+adds and reads rows; it cannot update or delete them (`sign_in_append_only`, grants). Rows are never exported. No secret,
+service or job changes; no new IX code; nothing is sent to a third party to look an address up.
+
+1. **Release order** (from production at 51): CI green, `gh pr view` to see the PR is **not merged yet**, a restore point,
+   `scripts/migrate.ts` with the production env, then merge — the app at 52 refuses a database at 51 — then the worker
+   image of the same commit. The worker at 51 keeps running on a database at 52 until it restarts; it writes no sign-in.
+2. **What changes at once:** every sign-in from then on is recorded. Clients → Joined shows the city of a client's first
+   recorded sign-in; a client's page shows its first sign-in and the latest ones with place, address and device; a trader's
+   applicant sheet shows where it signed in from. Clients who signed in before 52 show their live sessions' address and
+   device, without a place, until they sign in again.
+3. **Who sees it:** `client:manage` only — the roles that see a client's contacts.
+
