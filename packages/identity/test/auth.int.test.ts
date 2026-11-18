@@ -97,7 +97,12 @@ describe('mandatory operator MFA', () => {
     expect(signIn.json).toMatchObject({ twoFactorRedirect: true });
     await expect(requireOperatorSession(operator, t.app, jar.headers(DESK))).rejects.toMatchObject({ code: 'UNAUTHENTICATED' });
     expect((await call(operator, DESK, jar, '/two-factor/verify-totp', { code: await currentTotp(secret) })).status).toBe(200);
-    await expect(requireOperatorSession(operator, t.app, jar.headers(DESK))).resolves.toMatchObject({ kind: 'OPERATOR' });
+    const actor = await requireOperatorSession(operator, t.app, jar.headers(DESK));
+    expect(actor).toMatchObject({ kind: 'OPERATOR' });
+    // 0052: the sign-in is on record with its address; a second factor confirms it, it is not a second sign-in.
+    const recorded = await t.app.selectFrom('sign_in').selectAll().where('session_id', '=', actor.sessionId).execute();
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0]).toMatchObject({ surface: 'OPERATOR', method: 'PASSWORD', ip: '203.0.113.10' });
   });
 
   it('a session without a recorded TOTP verification is refused even for an enrolled user', async () => {
@@ -194,6 +199,29 @@ describe('client email OTP login', () => {
     const cookie = jar.raw.filter((c) => c.startsWith('__Secure-inrp2p-app.session_token=')).at(-1)!;
     expect(cookie).toMatch(/SameSite=Lax/i);
     expect(cookie).toMatch(/HttpOnly/i);
+  });
+
+  it('keeps where a sign-in came from — its address, where the edge placed it, the device — after its session ends', async () => {
+    const email = `origin-${randomUUID()}@acmepay.in`;
+    const userId = await provisionClientUser(client, { email, name: 'Acme Treasury' });
+    const jar = new CookieJar();
+    await call(client, APP, jar, '/email-otp/send-verification-otp', { email, type: 'sign-in' });
+    const otp = sentOtps.filter((m) => m.email === email).at(-1)!.otp;
+    const edge = {
+      'x-vercel-ip-country': 'IN', 'x-vercel-ip-country-region': 'MH', 'x-vercel-ip-city': 'Navi%20Mumbai',
+      'user-agent': 'Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Mobile Safari/537.36',
+    };
+    expect((await call(client, APP, jar, '/sign-in/email-otp', { email, otp }, 'POST', edge)).status).toBe(200);
+    const row = await t.app.selectFrom('sign_in').selectAll().where('user_id', '=', userId).executeTakeFirstOrThrow();
+    expect(row).toMatchObject({ surface: 'CLIENT', method: 'EMAIL', ip: '203.0.113.10', country: 'IN', region: 'MH', city: 'Navi Mumbai' });
+    expect(row.user_agent).toContain('Android 14');
+
+    expect((await call(client, APP, jar, '/sign-out', {})).status).toBe(200);
+    expect(await t.app.selectFrom('auth_session').select('id').where('id', '=', row.session_id).executeTakeFirst()).toBeUndefined();
+    expect(await t.app.selectFrom('sign_in').select('id').where('id', '=', row.id).executeTakeFirst()).toBeDefined();
+    // The application adds records and reads them; it cannot rewrite where someone signed in from.
+    await expect(t.app.updateTable('sign_in').set({ city: 'Elsewhere' }).where('id', '=', row.id).execute()).rejects.toThrow();
+    await expect(t.app.deleteFrom('sign_in').where('id', '=', row.id).execute()).rejects.toThrow();
   });
 
   it('has no self sign-up: unknown emails get no account', async () => {

@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import { Money, isDomainError } from '@inrp2p/kernel';
 import { type DeskTraderDetail, deskTrader } from '@inrp2p/traders';
+import { clientSignIns } from '@inrp2p/desk';
 import { can, operatorPage } from '../../../../server/operator.ts';
 import { dateTime, inr, share, titleCase, usdt, usdtCompact } from '../../_desk/format.ts';
 import { LinkTabs, Page, PageBody, PageHeader, Timeline } from '../../_desk/ui.tsx';
@@ -42,6 +43,8 @@ export default async function TraderDeskPage({ params, searchParams }: { params:
     throw e;
   }
   const t = detail.trader;
+  // Where the applicant signs in from: for whoever may manage clients, as on a client's own page (migration 0052).
+  const access = can(ctx, 'client:manage') ? await clientSignIns(ctx.db, t.clientId) : null;
   const perms: TraderPerms = {
     configure: can(ctx, 'traders:configure'),
     pause: can(ctx, 'traders:pause'),
@@ -139,7 +142,7 @@ export default async function TraderDeskPage({ params, searchParams }: { params:
               <ApplicationReview detail={detail} perms={perms} />
             </div>
             <div className={b.aside}>
-              <ApplicantSheet detail={detail} perms={perms} />
+              <ApplicantSheet detail={detail} perms={perms} access={access} />
               {history}
             </div>
           </div>
@@ -255,7 +258,7 @@ export default async function TraderDeskPage({ params, searchParams }: { params:
             {tab === 'details' ? (
               <>
                 <RegisteredSheet detail={detail} perms={perms} />
-                <ApplicantSheet detail={detail} perms={perms} />
+                <ApplicantSheet detail={detail} perms={perms} access={access} />
               </>
             ) : null}
             {tab === 'history' ? history : null}

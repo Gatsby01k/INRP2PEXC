@@ -9,7 +9,7 @@ import { Cell, type Column, DataTable } from '../_desk/DataTable.tsx';
 import { date, marginNegative, marginText, rate, titleCase, usdt, usdtCompact } from '../_desk/format.ts';
 import { Icon } from '../_desk/icons.tsx';
 import { Chip, Empty } from '../_desk/ui.tsx';
-import { Who, bookStyles as b } from '../_book/parts.tsx';
+import { Who, bookStyles as b, flagOf, placeText } from '../_book/parts.tsx';
 import d from '../_desk/desk.module.css';
 
 const hasMargin = (c: ClientBookRow) => /[1-9]/.test(`${c.marginGenerated ?? ''}${c.marginGeneratedUsdt ?? ''}`);
@@ -93,7 +93,17 @@ export function ClientBook({ rows, economics, canRequest, filtered }: { rows: re
         ] as Column<ClientBookRow>[])
       : []),
     { key: 'last', header: 'Last trade', align: 'right', render: (c) => (c.lastActivityAt ? <Ago at={c.lastActivityAt} /> : <span className={d.muted}>never</span>) },
-    { key: 'joined', header: 'Joined', align: 'right', render: (c) => <Cell main={date(c.joinedAt)} sub={<Ago at={c.joinedAt} />} /> },
+    {
+      key: 'joined',
+      header: 'Joined',
+      align: 'right',
+      render: (c) => (
+        <Cell
+          main={date(c.joinedAt)}
+          sub={c.firstPlace ? <span title={placeText(c.firstPlace) ?? undefined}>{flagOf(c.firstPlace.country)} {c.firstPlace.city ?? placeText(c.firstPlace)}</span> : <Ago at={c.joinedAt} />}
+        />
+      ),
+    },
     ...(canRequest
       ? ([
           {

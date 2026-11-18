@@ -12,6 +12,7 @@ import { type StepUpCodeSenders, stepUpCodes } from './step-up-codes.ts';
 import { TELEGRAM_PROVIDER, type TelegramLoginConfig, telegramOAuthProvider, telegramUsernameOf } from './telegram.ts';
 
 import { LAST_SIGN_IN_COOKIE, SESSION_POLICY, type Surface } from './policy.ts';
+import { originOf, recordSignIn } from './sign-ins.ts';
 
 export { ACTIVITY_WRITE_INTERVAL_SECONDS, LAST_SIGN_IN_COOKIE, SESSION_POLICY, type Surface } from './policy.ts';
 
@@ -139,6 +140,19 @@ async function auditFailure(appDb: Db, surface: Surface, path: string, returned:
   });
 }
 
+type OpenedSession = { user: { id: string }; session: { id: string; ipAddress?: string | null | undefined; userAgent?: string | null | undefined } };
+
+/** Migration 0052: the sign-in that opened `s`, with where it came from — kept after the session itself is gone. */
+async function signedIn(appDb: Db, ctx: { headers?: Headers | undefined; request?: Request | undefined }, s: OpenedSession, surface: Surface, method: 'EMAIL' | 'TELEGRAM' | 'PASSWORD') {
+  await recordSignIn(appDb, {
+    userId: s.user.id,
+    sessionId: s.session.id,
+    surface,
+    method,
+    origin: originOf(ctx.headers ?? ctx.request?.headers ?? null, s.session.ipAddress ?? null, s.session.userAgent ?? null),
+  });
+}
+
 function operatorAfterHook(appDb: Db) {
   return createAuthMiddleware(async (ctx) => {
     if (isAPIError(ctx.context.returned)) {
@@ -156,10 +170,12 @@ function operatorAfterHook(appDb: Db) {
         actorType: 'USER', actorId: s.user.id, surface: 'OPERATOR', correlationId, sessionId: s.session.id,
         action: newSession && !current ? 'session.login_mfa' : 'session.step_up', entityType: 'auth_session', entityId: s.session.id,
       });
+      if (newSession && !current) await signedIn(appDb, ctx, newSession, 'OPERATOR', 'PASSWORD');
       return;
     }
     if (ctx.path === '/sign-in/email' && newSession) {
       await appendAuditDirect(appDb, { actorType: 'USER', actorId: newSession.user.id, surface: 'OPERATOR', correlationId, sessionId: newSession.session.id, action: 'session.login_password_only', entityType: 'auth_session', entityId: newSession.session.id });
+      await signedIn(appDb, ctx, newSession, 'OPERATOR', 'PASSWORD');
       return;
     }
     if (ctx.path === '/two-factor/enable' && current) {
@@ -199,6 +215,7 @@ function clientAfterHook(appDb: Db) {
       throw refused;
     }
     if (ctx.path.startsWith('/callback/')) {
+      if (ctx.context.newSession) await signedIn(appDb, ctx, ctx.context.newSession, 'CLIENT', 'TELEGRAM');
       await auditTelegramCallback(appDb, ctx as never);
       return;
     }
@@ -209,6 +226,7 @@ function clientAfterHook(appDb: Db) {
     const s = ctx.context.newSession;
     if (ctx.path === '/sign-in/email-otp' && s) {
       await appendAuditDirect(appDb, { actorType: 'USER', actorId: s.user.id, surface: 'CLIENT', correlationId: randomUUID(), sessionId: s.session.id, action: 'session.login_email_otp', entityType: 'auth_session', entityId: s.session.id });
+      await signedIn(appDb, ctx, s, 'CLIENT', 'EMAIL');
       return;
     }
     // Confirming a new authenticator replaces the session (Better Auth rotates it): the step-up belongs to the new one.

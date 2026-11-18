@@ -72,6 +72,7 @@ erDiagram
 | `permission` / `role_permission` | code e.g. `quote:send` | Matrix in `SECURITY.md §3` |
 | `user_role` | user_id, role_id, granted_by | Changes audited |
 | `step_up_verification` | user_id, session_id, method (`TOTP`), verified_at, ip_hash | INRP2P record written after a successful Better Auth TOTP verification; commands read it for step-up freshness (10 min). Enrolled TOTP is required for every operator |
+| `sign_in` | user_id, session_id (no reference: it outlives the session), surface, method (`EMAIL`,`TELEGRAM`,`PASSWORD`), ip (inet), country, region, city (edge headers), user_agent, at | Migration 0052. One row per sign-in, written by the auth hooks; never updated, never exported. The desk reads a client's first and latest sign-ins (`clientSignIns`) for `client:manage` |
 
 ### 2.2 Clients
 | Entity | Key fields |

@@ -17,6 +17,8 @@ export interface ClientBookRow {
   readonly lastActivityAt: string | null;
   /** When the client's record was made: its own sign-up, or the desk adding it. */
   readonly joinedAt: string;
+  /** Migration 0052: where the edge placed its people's first recorded sign-in; null before one was recorded. */
+  readonly firstPlace: Place | null;
   readonly ref: string;
   readonly typicalDirection: DirectionValue | null;
   /** Typical ticket, in USDT, as the desk recorded it. */
@@ -27,6 +29,16 @@ export interface ClientBookRow {
   /** What its completed P2P deals earned INRP2P, in USDT. */
   readonly marginGeneratedUsdt?: string;
 }
+
+/** Where the edge placed an address: ISO country, its subdivision code, the city — any of them may be unknown. */
+export interface Place {
+  readonly country: string | null;
+  readonly region: string | null;
+  readonly city: string | null;
+}
+
+const placeOf = (r: { country: string | null; region: string | null; city: string | null }): Place | null =>
+  r.country || r.region || r.city ? { country: r.country, region: r.region, city: r.city } : null;
 
 /** How the book is read: who joined last, who traded last, or by name (the command bar's search). */
 export type ClientBookSort = 'NEWEST' | 'ACTIVE' | 'NAME';
@@ -39,6 +51,7 @@ export async function clientBook(ex: Executor, opts: { search?: string; limit?: 
     id: string; ref: string; name: string; status: 'ACTIVE' | 'SUSPENDED'; kyc_status: string; typical_direction: DirectionValue | null;
     typical_size_usdt_minor: bigint | null; open_trades: string; completed_trades: string; completed_volume: string; last_activity: Date | null;
     margin: string; margin_usdt: string; last_rate_micro: bigint | null; created_at: Date;
+    first_country: string | null; first_region: string | null; first_city: string | null;
   }>`
     select c.id, c.ref, c.display_name as name, c.status, c.kyc_status, c.typical_direction, c.typical_size_usdt_minor, c.created_at,
            count(t.id) filter (where t.lifecycle_state not in ('COMPLETED', 'CANCELLED'))::text as open_trades,
@@ -48,12 +61,19 @@ export async function clientBook(ex: Executor, opts: { search?: string; limit?: 
            coalesce(sum((e.gross_margin_base_minor - coalesce(e.network_fee_base_minor, 0))) filter (where t.lifecycle_state = 'COMPLETED'), 0)::text as margin_usdt,
            (select e2.client_rate_micro from trade t2 join trade_economics e2 on e2.trade_id = t2.id
              where t2.client_id = c.id order by t2.opened_at desc limit 1) as last_rate_micro,
-           max(t.opened_at) as last_activity
+           max(t.opened_at) as last_activity,
+           fs.country as first_country, fs.region as first_region, fs.city as first_city
     from client c
+    left join lateral (
+      select si.country, si.region, si.city
+        from sign_in si join client_user cu on cu.user_id = si.user_id and cu.client_id = c.id
+       where si.surface = 'CLIENT'
+       order by si.at
+       limit 1) fs on true
     left join trade t on t.client_id = c.id
     left join trade_economics e on e.trade_id = t.id
     where (${search}::text = '' or c.display_name ilike ${`${search}%`})
-    group by c.id, c.ref, c.display_name, c.status, c.kyc_status, c.typical_direction, c.typical_size_usdt_minor, c.created_at
+    group by c.id, c.ref, c.display_name, c.status, c.kyc_status, c.typical_direction, c.typical_size_usdt_minor, c.created_at, fs.country, fs.region, fs.city
     order by
       case when ${sort} = 'NEWEST' then c.created_at end desc,
       case when ${sort} = 'ACTIVE' then max(t.opened_at) end desc nulls last,
@@ -74,6 +94,7 @@ export async function clientBook(ex: Executor, opts: { search?: string; limit?: 
       completedVolume: Money.ofMinor(BigInt(r.completed_volume), 'USDT').toDecimalString(),
       lastActivityAt: r.last_activity ? r.last_activity.toISOString() : null,
       joinedAt: r.created_at.toISOString(),
+      firstPlace: placeOf({ country: r.first_country, region: r.first_region, city: r.first_city }),
     };
     if (!opts.access?.economics) return row;
     return {
@@ -269,27 +290,62 @@ export async function clientDetail(ex: Executor, clientId: string, access: DeskA
 }
 
 export interface ClientSignIn {
-  readonly sessionId: string;
+  readonly key: string;
   /** Who signed in, masked: the desk tells the client's people apart, it does not need their addresses here. */
   readonly who: string;
   readonly at: string;
   readonly method: 'EMAIL' | 'TELEGRAM' | null;
-  /** The address the request came from, as the session recorded it; null when none was recorded. */
+  /** The address the request came from, as Better Auth resolved it; null when none was recorded. */
   readonly ip: string | null;
+  /** Where the edge placed that address (migration 0052); null for a sign-in from before it was recorded. */
+  readonly place: Place | null;
   readonly userAgent: string | null;
-  /** The session can still be used: not signed out, not expired. */
+  /** The session it opened can still be used: not signed out, not expired. */
   readonly live: boolean;
 }
 
+export interface ClientAccess {
+  /** The first recorded sign-in of any of the client's people — for a client that signed itself up, where it did. */
+  readonly first: ClientSignIn | null;
+  readonly latest: readonly ClientSignIn[];
+}
+
+type SignInRow = { key: string; email: string; at: Date; method: string | null; ip: string | null; user_agent: string | null; country: string | null; region: string | null; city: string | null; live: boolean };
+
+const signInOf = (r: SignInRow): ClientSignIn => ({
+  key: r.key,
+  who: maskAddress(r.email),
+  at: r.at.toISOString(),
+  method: r.method === 'EMAIL' || r.method === 'TELEGRAM' ? r.method : null,
+  ip: r.ip && r.ip.trim() !== '' ? r.ip.replace(/\/(32|128)$/, '') : null,
+  place: placeOf(r),
+  userAgent: r.user_agent && r.user_agent.trim() !== '' ? r.user_agent : null,
+  live: r.live,
+});
+
 /**
- * The client's people's latest sign-ins, newest first: when, how, from which address and device. Read from the sessions
- * the sign-in made — a session ended by signing out leaves no row, so this is the recent picture, not a history. Only for
- * a caller who may manage the client (the page asks with `client:manage`).
+ * Where the client's people sign in from: the first recorded sign-in and the latest ones, newest first — when, how, the
+ * address, where the edge placed it, the device, and whether the session is still open. Read from `sign_in` (0052),
+ * which outlives the sessions; a client with nothing recorded there yet (it signed in before 0052) gets its live
+ * sessions instead, with their address and device and no place. Only for a caller who may manage the client (the page
+ * asks with `client:manage`).
  */
-export async function clientSignIns(ex: Executor, clientId: string, limit = 6): Promise<readonly ClientSignIn[]> {
+export async function clientSignIns(ex: Executor, clientId: string, limit = 6): Promise<ClientAccess> {
   const id = requireUuid(clientId, 'clientId');
-  const rows = await sql<{ id: string; email: string; created_at: Date; expires_at: Date; sign_in_method: string | null; ip_address: string | null; user_agent: string | null }>`
-    select s.id, u.email, s.created_at, s.expires_at, s.sign_in_method, s.ip_address, s.user_agent
+  const recorded = (order: 'asc' | 'desc', n: number) => sql<SignInRow>`
+    select si.id::text as key, u.email, si.at, si.method, host(si.ip) as ip, si.user_agent, si.country, si.region, si.city,
+           exists (select 1 from auth_session s where s.id = si.session_id and s.expires_at > statement_timestamp()) as live
+      from sign_in si
+      join client_user cu on cu.user_id = si.user_id and cu.client_id = ${id}
+      join auth_user u on u.id = si.user_id
+     where si.surface = 'CLIENT'
+     order by si.at ${sql.raw(order)}
+     limit ${n}`.execute(ex);
+  const [latest, first] = await Promise.all([recorded('desc', limit), recorded('asc', 1)]);
+  if (latest.rows.length > 0) return { first: first.rows[0] ? signInOf(first.rows[0]) : null, latest: latest.rows.map(signInOf) };
+  const sessions = await sql<SignInRow>`
+    select s.id::text as key, u.email, s.created_at as at, s.sign_in_method as method, s.ip_address as ip, s.user_agent,
+           null::text as country, null::text as region, null::text as city, s.expires_at > statement_timestamp() as live
       from auth_session s
       join client_user cu on cu.user_id = s.user_id and cu.client_id = ${id}
       join auth_user u on u.id = s.user_id
@@ -298,16 +354,7 @@ export async function clientSignIns(ex: Executor, clientId: string, limit = 6): 
        and (s.ip_address is not null or s.user_agent is not null)
      order by s.created_at desc
      limit ${limit}`.execute(ex);
-  const now = Date.now();
-  return rows.rows.map((r) => ({
-    sessionId: r.id,
-    who: maskAddress(r.email),
-    at: r.created_at.toISOString(),
-    method: r.sign_in_method === 'EMAIL' || r.sign_in_method === 'TELEGRAM' ? r.sign_in_method : null,
-    ip: r.ip_address && r.ip_address.trim() !== '' ? r.ip_address : null,
-    userAgent: r.user_agent && r.user_agent.trim() !== '' ? r.user_agent : null,
-    live: r.expires_at.getTime() > now,
-  }));
+  return { first: null, latest: sessions.rows.map(signInOf) };
 }
 
 /** "treasury@acmepay.test" → "t•••@acmepay.test", as the acceptors list shows people. */
