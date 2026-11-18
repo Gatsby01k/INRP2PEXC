@@ -1,16 +1,16 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { isDomainError } from '@inrp2p/kernel';
-import { type ClientDetail, clientDetail } from '@inrp2p/desk';
+import { type ClientDetail, type ClientSignIn, clientDetail, clientSignIns } from '@inrp2p/desk';
 import { listUpiIds } from '@inrp2p/clients';
 import { CopyButton } from '@inrp2p/ui';
 import { UsdtOnTron } from '../../../../components/PayMarks.tsx';
 import { can, operatorPage } from '../../../../server/operator.ts';
 import { Ago } from '../../_desk/clock.tsx';
 import { Icon } from '../../_desk/icons.tsx';
-import { marginNegative, marginText, rate, titleCase, usdt, usdtCompact } from '../../_desk/format.ts';
+import { date, dateTime, marginNegative, marginText, rate, titleCase, usdt, usdtCompact } from '../../_desk/format.ts';
 import { Chip, Page, PageBody, PageHeader } from '../../_desk/ui.tsx';
-import { Facts, Group, Hero, Monogram, Sheet, Stats, Steps, bankParts, bookStyles as b, shortAddress } from '../../_book/parts.tsx';
+import { Facts, Group, Hero, Monogram, Sheet, Stats, Steps, bankParts, bookStyles as b, deviceOf, shortAddress } from '../../_book/parts.tsx';
 import { BankAccounts } from './BankAccounts.tsx';
 import { NewRequest } from './NewRequest.tsx';
 import { RecentTrades } from './RecentTrades.tsx';
@@ -39,7 +39,9 @@ export default async function ClientPage({ params, searchParams }: { params: Pro
     if (isDomainError(e) && (e.code === 'NOT_FOUND' || e.code === 'INVALID_ARGUMENT')) notFound();
     throw e;
   }
-  const upiIds = await listUpiIds(ctx.db, clientId);
+  const canManage = can(ctx, 'client:manage');
+  // Where the client's people sign in from is for whoever manages the client — the same people who see its contacts.
+  const [upiIds, signIns] = await Promise.all([listUpiIds(ctx.db, clientId), canManage ? clientSignIns(ctx.db, clientId) : Promise.resolve(null as readonly ClientSignIn[] | null)]);
   const canRequest = can(ctx, 'request:create');
   const canManageMoney = can(ctx, 'client_bank:add');
   // "Repeat trade" prefills the builder from a previous trade of this client — nothing is created until the dealer
@@ -73,7 +75,7 @@ export default async function ClientPage({ params, searchParams }: { params: Pro
             <Chip tone={client.kycStatus === 'VERIFIED' ? 'success' : client.kycStatus === 'REJECTED' || client.kycStatus === 'EXPIRED' ? 'danger' : 'neutral'}>KYC {titleCase(client.kycStatus).toLowerCase()}</Chip>
           </span>
         }
-        meta={`${client.ref} · ${client.legalName} · ${client.type === 'COMPANY' ? 'company' : 'individual'}`}
+        meta={`${client.ref} · ${client.legalName} · ${client.type === 'COMPANY' ? 'company' : 'individual'} · joined ${date(client.joinedAt)}`}
       />
       <PageBody>
         <Hero
@@ -231,11 +233,39 @@ export default async function ClientPage({ params, searchParams }: { params: Pro
                     { label: 'Legal name', value: client.legalName },
                     { label: 'Type', value: client.type === 'COMPANY' ? 'Company' : 'Individual' },
                     { label: 'Reference', value: <span className={d.mono}>{client.ref}</span> },
+                    { label: 'Joined', value: <>{dateTime(client.joinedAt)} · <Ago at={client.joinedAt} /></> },
                     { label: 'KYC', value: titleCase(client.kycStatus) },
                     { label: 'Pricing notes', value: client.pricingNotes ?? <span className={d.muted}>none</span> },
                   ]}
                 />
               </Group>
+              {signIns ? (
+                <Group title="Sign-ins" count={signIns.length} hint="latest, with address and device" label="Sign-ins">
+                  {signIns.length === 0 ? (
+                    <p className={b.quiet}>No sign-in on record — sessions ended by signing out leave nothing here.</p>
+                  ) : (
+                    <ul className={b.rows}>
+                      {signIns.map((x) => (
+                        <li key={x.sessionId} className={b.row}>
+                          <span className={b.glyph}>
+                            <Icon name={x.method === 'TELEGRAM' ? 'link' : 'user'} size={14} />
+                          </span>
+                          <span className={b.rowMain}>
+                            <span className={b.rowTitle}>
+                              <span>{deviceOf(x.userAgent)}</span>
+                            </span>
+                            <span className={b.rowSub} data-wrap="">
+                              <span className={b.addr}>{x.ip ?? 'address not recorded'}</span> · {x.who} · {dateTime(x.at)}
+                              {x.method ? ` · ${x.method === 'TELEGRAM' ? 'Telegram' : 'email code'}` : ''}
+                            </span>
+                          </span>
+                          <span className={b.rowEnd}>{x.live ? <Chip tone="success" glyph="done">live</Chip> : <Chip>ended</Chip>}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </Group>
+              ) : null}
               {client.contacts ? (
                 <Group title="Contacts" count={client.contacts.length} hint="CRM only — never a way to sign in" label="Contacts">
                   {client.contacts.length === 0 ? (

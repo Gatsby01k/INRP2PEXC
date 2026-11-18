@@ -227,4 +227,44 @@ export function bankParts(detail: string): { bank: string; ifsc: string; last4: 
   return { bank: bank || 'Bank account', ifsc, last4 };
 }
 
+/**
+ * A browser and its system in the words people use ("Chrome · Android", "Safari · iPhone"), from a user agent. A guess
+ * from a string the browser sends: good enough to tell two devices apart, never evidence of anything.
+ */
+export function deviceOf(userAgent: string | null): string {
+  if (!userAgent) return 'device not recorded';
+  const ua = userAgent;
+  const browser = /Edg\//.test(ua)
+    ? 'Edge'
+    : /OPR\/|Opera/.test(ua)
+      ? 'Opera'
+      : /SamsungBrowser/.test(ua)
+        ? 'Samsung Internet'
+        : /Telegram/i.test(ua)
+          ? 'Telegram'
+          : /Firefox\/|FxiOS/.test(ua)
+            ? 'Firefox'
+            : /Chrome\/|CriOS/.test(ua)
+              ? 'Chrome'
+              : /Safari\//.test(ua)
+                ? 'Safari'
+                : /curl|node|python|okhttp|axios|Go-http/i.test(ua)
+                  ? 'a script'
+                  : 'a browser';
+  const system = /iPhone/.test(ua)
+    ? 'iPhone'
+    : /iPad/.test(ua)
+      ? 'iPad'
+      : /Android/.test(ua)
+        ? 'Android'
+        : /Windows/.test(ua)
+          ? 'Windows'
+          : /Mac OS X|Macintosh/.test(ua)
+            ? 'macOS'
+            : /Linux/.test(ua)
+              ? 'Linux'
+              : null;
+  return system ? `${browser} · ${system}` : browser;
+}
+
 export { b as bookStyles };
