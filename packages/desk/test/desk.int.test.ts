@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Money, isTronAddress } from '@inrp2p/kernel';
 import { runAs } from '@inrp2p/identity/testing';
@@ -5,7 +6,7 @@ import { createQuote, createQuoteLink, createRequest, sendQuote } from '@inrp2p/
 import { cancelTrade, openException, requestAdjustment } from '@inrp2p/settlement';
 import { acceptOrder, assignRequest, orderDeliveryAddress } from '@inrp2p/traders';
 import {
-  FULL_ACCESS, NO_ECONOMICS, accessFor, clientBook, clientDetail, deskApprovals, deskExceptions, deskQueue, deskStrip, deskTrade, deskTradeRecord,
+  FULL_ACCESS, NO_ECONOMICS, accessFor, clientBook, clientDetail, clientSignIns, deskApprovals, deskExceptions, deskQueue, deskStrip, deskTrade, deskTradeRecord,
   deskQuote, findByRef, listOrders, orderCounts, searchOrders, tradeIdByRef, usdtView,
 } from '../src/index.ts';
 import { settleFirstLeg } from '../../settlement/test/world.ts';
@@ -221,6 +222,33 @@ describe('the client book', () => {
 
     const masked = await clientDetail(w.app, w.clientId, NO_ECONOMICS);
     expect(masked.recentTrades.every((t) => !('clientRate' in t))).toBe(true);
+  });
+
+  it('reads newest first when asked, and when each client joined', async () => {
+    const newest = await clientBook(w.app, { sort: 'NEWEST' });
+    const joined = newest.map((c) => Date.parse(c.joinedAt));
+    expect(joined.every((t) => Number.isFinite(t))).toBe(true);
+    expect(joined).toEqual([...joined].sort((a, b) => b - a));
+    const byName = (await clientBook(w.app)).map((c) => c.name);
+    expect(byName).toEqual([...byName].sort((a, b) => a.localeCompare(b)));
+    expect((await clientDetail(w.app, w.clientId, FULL_ACCESS)).joinedAt).toBe(newest.find((c) => c.clientId === w.clientId)!.joinedAt);
+  });
+
+  it("lists a client's latest sign-ins with the address and device each came from, and nothing a sign-in did not make", async () => {
+    const at = new Date();
+    await w.t.owner
+      .insertInto('auth_session')
+      .values({
+        expires_at: new Date(at.getTime() + 3_600_000), token: randomUUID(), created_at: at, updated_at: at, user_id: w.acceptor.userId, surface: 'CLIENT',
+        ip_address: '103.21.58.14', user_agent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) Safari/604.1', sign_in_method: 'EMAIL',
+      })
+      .execute();
+    const signIns = await clientSignIns(w.app, w.clientId);
+    expect(signIns[0]).toMatchObject({ ip: '103.21.58.14', method: 'EMAIL', live: true });
+    expect(signIns[0]!.who).toMatch(/^.•••@/);
+    expect(signIns[0]!.who).not.toContain(w.acceptor.email.split('@')[0]!.slice(1));
+    // The world's own sessions were made by the product, not by a sign-in request: no address, no device, not listed.
+    expect(signIns.every((x) => x.ip !== null || x.userAgent !== null)).toBe(true);
   });
 
   it('leaves a cancelled trade out of the queue and in the orders list', async () => {

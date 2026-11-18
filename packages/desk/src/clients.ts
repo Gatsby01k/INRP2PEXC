@@ -15,6 +15,8 @@ export interface ClientBookRow {
   /** Lifetime completed USDT volume. Economics-gated figures live on the detail view, not here. */
   readonly completedVolume: string;
   readonly lastActivityAt: string | null;
+  /** When the client's record was made: its own sign-up, or the desk adding it. */
+  readonly joinedAt: string;
   readonly ref: string;
   readonly typicalDirection: DirectionValue | null;
   /** Typical ticket, in USDT, as the desk recorded it. */
@@ -26,15 +28,19 @@ export interface ClientBookRow {
   readonly marginGeneratedUsdt?: string;
 }
 
+/** How the book is read: who joined last, who traded last, or by name (the command bar's search). */
+export type ClientBookSort = 'NEWEST' | 'ACTIVE' | 'NAME';
+
 /** The dealer's book: who the clients are and how much of the desk's attention they currently hold. */
-export async function clientBook(ex: Executor, opts: { search?: string; limit?: number; access?: DeskAccess } = {}): Promise<readonly ClientBookRow[]> {
+export async function clientBook(ex: Executor, opts: { search?: string; limit?: number; access?: DeskAccess; sort?: ClientBookSort } = {}): Promise<readonly ClientBookRow[]> {
   const search = (opts.search ?? '').trim();
+  const sort = opts.sort ?? 'NAME';
   const rows = await sql<{
     id: string; ref: string; name: string; status: 'ACTIVE' | 'SUSPENDED'; kyc_status: string; typical_direction: DirectionValue | null;
     typical_size_usdt_minor: bigint | null; open_trades: string; completed_trades: string; completed_volume: string; last_activity: Date | null;
-    margin: string; margin_usdt: string; last_rate_micro: bigint | null;
+    margin: string; margin_usdt: string; last_rate_micro: bigint | null; created_at: Date;
   }>`
-    select c.id, c.ref, c.display_name as name, c.status, c.kyc_status, c.typical_direction, c.typical_size_usdt_minor,
+    select c.id, c.ref, c.display_name as name, c.status, c.kyc_status, c.typical_direction, c.typical_size_usdt_minor, c.created_at,
            count(t.id) filter (where t.lifecycle_state not in ('COMPLETED', 'CANCELLED'))::text as open_trades,
            count(t.id) filter (where t.lifecycle_state = 'COMPLETED')::text as completed_trades,
            coalesce(sum(e.base_minor) filter (where t.lifecycle_state = 'COMPLETED'), 0)::text as completed_volume,
@@ -47,8 +53,12 @@ export async function clientBook(ex: Executor, opts: { search?: string; limit?: 
     left join trade t on t.client_id = c.id
     left join trade_economics e on e.trade_id = t.id
     where (${search}::text = '' or c.display_name ilike ${`${search}%`})
-    group by c.id, c.ref, c.display_name, c.status, c.kyc_status, c.typical_direction, c.typical_size_usdt_minor
-    order by c.display_name
+    group by c.id, c.ref, c.display_name, c.status, c.kyc_status, c.typical_direction, c.typical_size_usdt_minor, c.created_at
+    order by
+      case when ${sort} = 'NEWEST' then c.created_at end desc,
+      case when ${sort} = 'ACTIVE' then max(t.opened_at) end desc nulls last,
+      case when ${sort} = 'ACTIVE' then c.created_at end desc,
+      c.display_name, c.id
     limit ${opts.limit ?? 100}`.execute(ex);
   return rows.rows.map((r) => {
     const row: ClientBookRow = {
@@ -63,6 +73,7 @@ export async function clientBook(ex: Executor, opts: { search?: string; limit?: 
       completedTrades: Number.parseInt(r.completed_trades, 10),
       completedVolume: Money.ofMinor(BigInt(r.completed_volume), 'USDT').toDecimalString(),
       lastActivityAt: r.last_activity ? r.last_activity.toISOString() : null,
+      joinedAt: r.created_at.toISOString(),
     };
     if (!opts.access?.economics) return row;
     return {
@@ -101,6 +112,8 @@ export interface ClientDetail {
   readonly status: 'ACTIVE' | 'SUSPENDED';
   readonly kycStatus: string;
   readonly ref: string;
+  /** When the client's record was made: its own sign-up, or the desk adding it. */
+  readonly joinedAt: string;
   readonly legalName: string;
   readonly type: 'COMPANY' | 'INDIVIDUAL';
   readonly typicalDirection: DirectionValue | null;
@@ -145,7 +158,7 @@ export async function clientDetail(ex: Executor, clientId: string, access: DeskA
   const id = requireUuid(clientId, 'clientId');
   const client = await ex
     .selectFrom('client')
-    .select(['id', 'ref', 'display_name', 'legal_name', 'type', 'status', 'kyc_status', 'typical_direction', 'typical_size_usdt_minor', 'pricing_notes'])
+    .select(['id', 'ref', 'display_name', 'legal_name', 'type', 'status', 'kyc_status', 'typical_direction', 'typical_size_usdt_minor', 'pricing_notes', 'created_at'])
     .where('id', '=', id)
     .executeTakeFirst();
   if (!client) throw new DomainError('NOT_FOUND', 'client not found');
@@ -196,6 +209,7 @@ export async function clientDetail(ex: Executor, clientId: string, access: DeskA
     status: client.status,
     kycStatus: client.kyc_status,
     ref: client.ref,
+    joinedAt: client.created_at.toISOString(),
     legalName: client.legal_name,
     type: client.type,
     typicalDirection: client.typical_direction,
@@ -252,4 +266,52 @@ export async function clientDetail(ex: Executor, clientId: string, access: DeskA
       ...(access.economics ? { clientRate: microToDecimal(t.client_rate_micro), margin: Money.ofMinor(t.gross_margin_inr_minor, 'INR').toDecimalString(), marginUsdt: t.margin_usdt_minor === null ? null : Money.ofMinor(t.margin_usdt_minor, 'USDT').toDecimalString() } : {}),
     })),
   };
+}
+
+export interface ClientSignIn {
+  readonly sessionId: string;
+  /** Who signed in, masked: the desk tells the client's people apart, it does not need their addresses here. */
+  readonly who: string;
+  readonly at: string;
+  readonly method: 'EMAIL' | 'TELEGRAM' | null;
+  /** The address the request came from, as the session recorded it; null when none was recorded. */
+  readonly ip: string | null;
+  readonly userAgent: string | null;
+  /** The session can still be used: not signed out, not expired. */
+  readonly live: boolean;
+}
+
+/**
+ * The client's people's latest sign-ins, newest first: when, how, from which address and device. Read from the sessions
+ * the sign-in made — a session ended by signing out leaves no row, so this is the recent picture, not a history. Only for
+ * a caller who may manage the client (the page asks with `client:manage`).
+ */
+export async function clientSignIns(ex: Executor, clientId: string, limit = 6): Promise<readonly ClientSignIn[]> {
+  const id = requireUuid(clientId, 'clientId');
+  const rows = await sql<{ id: string; email: string; created_at: Date; expires_at: Date; sign_in_method: string | null; ip_address: string | null; user_agent: string | null }>`
+    select s.id, u.email, s.created_at, s.expires_at, s.sign_in_method, s.ip_address, s.user_agent
+      from auth_session s
+      join client_user cu on cu.user_id = s.user_id and cu.client_id = ${id}
+      join auth_user u on u.id = s.user_id
+     where s.surface = 'CLIENT'
+       -- A session made by the product itself (never through a sign-in request) carries neither; it is no sign-in.
+       and (s.ip_address is not null or s.user_agent is not null)
+     order by s.created_at desc
+     limit ${limit}`.execute(ex);
+  const now = Date.now();
+  return rows.rows.map((r) => ({
+    sessionId: r.id,
+    who: maskAddress(r.email),
+    at: r.created_at.toISOString(),
+    method: r.sign_in_method === 'EMAIL' || r.sign_in_method === 'TELEGRAM' ? r.sign_in_method : null,
+    ip: r.ip_address && r.ip_address.trim() !== '' ? r.ip_address : null,
+    userAgent: r.user_agent && r.user_agent.trim() !== '' ? r.user_agent : null,
+    live: r.expires_at.getTime() > now,
+  }));
+}
+
+/** "treasury@acmepay.test" → "t•••@acmepay.test", as the acceptors list shows people. */
+function maskAddress(email: string): string {
+  const at = email.indexOf('@');
+  return at <= 0 ? '•••' : `${email[0]}•••${email.slice(at)}`;
 }

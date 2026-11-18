@@ -6,7 +6,7 @@ import type { ClientBookRow } from '@inrp2p/desk';
 import { Coin } from '../../../components/Coin.tsx';
 import { Ago } from '../_desk/clock.tsx';
 import { Cell, type Column, DataTable } from '../_desk/DataTable.tsx';
-import { marginNegative, marginText, rate, titleCase, usdt, usdtCompact } from '../_desk/format.ts';
+import { date, marginNegative, marginText, rate, titleCase, usdt, usdtCompact } from '../_desk/format.ts';
 import { Icon } from '../_desk/icons.tsx';
 import { Chip, Empty } from '../_desk/ui.tsx';
 import { Who, bookStyles as b } from '../_book/parts.tsx';
@@ -93,6 +93,7 @@ export function ClientBook({ rows, economics, canRequest, filtered }: { rows: re
         ] as Column<ClientBookRow>[])
       : []),
     { key: 'last', header: 'Last trade', align: 'right', render: (c) => (c.lastActivityAt ? <Ago at={c.lastActivityAt} /> : <span className={d.muted}>never</span>) },
+    { key: 'joined', header: 'Joined', align: 'right', render: (c) => <Cell main={date(c.joinedAt)} sub={<Ago at={c.joinedAt} />} /> },
     ...(canRequest
       ? ([
           {
