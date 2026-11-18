@@ -141,7 +141,7 @@ test('command bar', async ({ page }) => {
 test('step-up dialog', async ({ page }) => {
   await expireStepUp();
   await page.goto(`/clients/${state().clients.acme}`);
-  const row = page.locator('dd').filter({ hasText: '••••8219' });
+  const row = page.getByRole('group', { name: 'Bank accounts' }).getByRole('listitem').filter({ hasText: '••••8219' });
   await row.getByRole('button', { name: 'Archive' }).click();
   await page.getByLabel('Why ••••8219 is archived').fill('The client closed this account');
   await page.getByRole('button', { name: /Archive this account/ }).click();

@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import type { DeskTraderDetail } from '@inrp2p/traders';
-import { Button, StepUpMark } from '@inrp2p/ui';
+import { Button, CopyButton, StepUpMark } from '@inrp2p/ui';
 import { shortenHash } from '@inrp2p/ui/format';
 import { useCommand } from '../../../../components/useCommand.tsx';
 import {
@@ -11,8 +11,10 @@ import {
 import { GuardedAction } from '../../_desk/GuardedAction.tsx';
 import { AmountField, SelectField, TextArea, TextField } from '../../_desk/fields.tsx';
 import { dateTime, inr, usdt } from '../../_desk/format.ts';
-import { Chip, KeyValues, Notice, Section } from '../../_desk/ui.tsx';
-import type { TraderPerms } from './TraderControls.tsx';
+import { Chip, Notice } from '../../_desk/ui.tsx';
+import type { TraderPerms } from '../words.tsx';
+import { Sheet, Stats, bookStyles as b, shortAddress } from '../../_book/parts.tsx';
+import { UsdtOnTron } from '../../../../components/PayMarks.tsx';
 import d from '../../_desk/desk.module.css';
 import t from '../../_trade/trade.module.css';
 
@@ -22,22 +24,43 @@ import t from '../../_trade/trade.module.css';
  */
 export function TraderMoney({ detail, perms }: { detail: DeskTraderDetail; perms: TraderPerms }) {
   const r = detail.reserve;
+  const nonzero = (v: string) => /[1-9]/.test(v);
   return (
     <>
-      <Section title="Security Reserve" hint="Deposits are credited by the chain; withdrawals are sent by the desk and confirmed on finality.">
-        <KeyValues
-          split
+      <Sheet title="Security Reserve" hint="Deposits are credited by the chain; withdrawals are sent by the desk and confirmed on finality." label="Security Reserve">
+        <Stats
+          label="Reserve"
           items={[
-            { label: 'Held', value: usdt(r.balance, { exact: true }), strong: true },
-            { label: 'Required', value: r.required ? usdt(r.required, { exact: true }) : 'not set' },
-            { label: 'Locked by open orders', value: usdt(r.locked, { exact: true }) },
-            { label: 'Available to withdraw', value: usdt(r.available, { exact: true }) },
-            { label: 'Pending release', value: usdt(r.pendingRelease, { exact: true }) },
-            ...(/[1-9]/.test(r.applying) ? [{ label: 'Being applied to orders', value: usdt(r.applying, { exact: true }) }] : []),
-            ...(/[1-9]/.test(r.shortfall) ? [{ label: 'Short by', value: <span className={d.negative}>{usdt(r.shortfall, { exact: true })}</span> }] : []),
-            { label: 'Deposit address · shared', value: <span className={d.mono}>{r.depositAddress ?? 'none active'}</span> },
+            { key: 'held', label: 'Held', value: usdt(r.balance, { exact: true }), sub: r.required ? `of ${usdt(r.required, { exact: true })} required` : 'no requirement set' },
+            { key: 'locked', label: 'Locked', value: usdt(r.locked, { exact: true }), sub: 'by open orders', ...(nonzero(r.locked) ? {} : { tone: 'muted' as const }) },
+            { key: 'free', label: 'Free', value: usdt(r.available, { exact: true }), sub: 'to withdraw' },
+            ...(nonzero(r.shortfall) ? [{ key: 'short', label: 'Short by', value: usdt(r.shortfall, { exact: true }), sub: 'below what it must hold', tone: 'danger' as const }] : []),
+            ...(nonzero(r.pendingRelease) ? [{ key: 'pending', label: 'Pending release', value: usdt(r.pendingRelease, { exact: true }), sub: 'on its way back' }] : []),
+            ...(nonzero(r.applying) ? [{ key: 'applying', label: 'Being applied', value: usdt(r.applying, { exact: true }), sub: 'to orders that owe', tone: 'warning' as const }] : []),
           ]}
         />
+        <ul className={b.rows}>
+          <li className={b.row}>
+            <UsdtOnTron size={32} />
+            <span className={b.rowMain}>
+              <span className={b.rowTitle}>
+                <span>Deposit address</span>
+              </span>
+              <span className={b.rowSub} title={r.depositAddress ?? undefined}>
+                {r.depositAddress ? (
+                  <>
+                    <span className={b.addr}>{shortAddress(r.depositAddress)}</span> · shared by every trader; its registered wallet makes a deposit its own
+                  </>
+                ) : (
+                  'none active'
+                )}
+              </span>
+            </span>
+            <span className={b.rowEnd}>{r.depositAddress ? <CopyButton value={r.depositAddress} label="deposit address" /> : null}</span>
+          </li>
+        </ul>
+      </Sheet>
+      <Sheet title="Withdrawals" count={detail.withdrawals.length} label="Withdrawals">
         {detail.withdrawals.length > 0 ? (
           <ul className={t.legs}>
             {detail.withdrawals.map((w) => (
@@ -45,9 +68,9 @@ export function TraderMoney({ detail, perms }: { detail: DeskTraderDetail; perms
             ))}
           </ul>
         ) : (
-          <p className={d.fieldHint}>No withdrawals.</p>
+          <p className={b.quiet}>No withdrawals yet.</p>
         )}
-      </Section>
+      </Sheet>
       <ReserveApplications detail={detail} perms={perms} />
     </>
   );
@@ -75,7 +98,7 @@ function ReserveApplications({ detail, perms }: { detail: DeskTraderDetail; perm
   const order = orders.find((o) => o.orderId === orderId);
   if (detail.applications.length === 0 && (orders.length === 0 || !perms.applyReserve)) return null;
   return (
-    <Section title="Reserve held" count={detail.applications.length} hint="Only against rupees the trader’s own order owes; asked by one person, approved by another.">
+    <Sheet title="Reserve held" count={detail.applications.length} hint="Only against rupees the trader’s own order owes; asked by one person, approved by another." label="Reserve held">
       {detail.applications.length > 0 ? (
         <ul className={t.legs}>
           {detail.applications.map((a) => (
@@ -124,7 +147,7 @@ function ReserveApplications({ detail, perms }: { detail: DeskTraderDetail; perm
         </p>
       ) : null}
       {cmd.dialog}
-    </Section>
+    </Sheet>
   );
 }
 

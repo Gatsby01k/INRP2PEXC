@@ -1,51 +1,18 @@
 'use client';
 
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { DeskTraderRow } from '@inrp2p/traders';
-import { Cell, type Column, DataTable } from '../_desk/DataTable.tsx';
-import { dateTime, share, usdt } from '../_desk/format.ts';
-import { Chip, Empty, Meter } from '../_desk/ui.tsx';
+import { type Column, DataTable } from '../_desk/DataTable.tsx';
+import { date, share, usdt } from '../_desk/format.ts';
+import { Chip, Empty } from '../_desk/ui.tsx';
+import { MiniMeter, Who, bookStyles as b } from '../_book/parts.tsx';
+import { AUTO_FLAG, DESK_FLAGS, ISSUE, StatusChip, TIER_WORD, provides } from './words.tsx';
 import d from '../_desk/desk.module.css';
-
-const ISSUE: Record<string, string> = {
-  NOT_APPROVED: 'not approved',
-  PAUSED: 'paused',
-  RESERVE_NOT_SET: 'reserve not set',
-  RESERVE_SHORT: 'reserve short',
-  DESTINATIONS_INACTIVE: 'settlement details inactive',
-  ASSIGNMENTS_DISABLED: 'assignments off',
-  OFFLINE: 'offline',
-};
-
-/** ADR 0024: why the programme's rules left an application or a change for a person, in the desk's words. */
-export const AUTO_FLAG: Record<string, string> = {
-  BANK_NAME_MISMATCH: 'bank holder is not the applicant',
-  BANK_ON_FILE_ELSEWHERE: 'bank account on another client’s file',
-  BANK_REJECTED_BEFORE: 'bank account rejected before',
-  WALLET_NOT_PROVEN: 'no USDT from the wallet yet',
-  WALLET_ON_FILE_ELSEWHERE: 'wallet on another client’s file',
-  WALLET_REJECTED_BEFORE: 'wallet rejected before',
-  RESERVE_SHORT: 'reserve not funded yet',
-  NO_DEFAULT_RESERVE: 'programme reserve not set',
-  REJECTED_BEFORE: 'rejected before: a person decides',
-  ORDERS_OPEN: 'waits for open orders',
-};
-
-/** Flags a person must act on; the rest are the trader's own move. */
-const DESK_FLAGS = new Set(['BANK_NAME_MISMATCH', 'BANK_ON_FILE_ELSEWHERE', 'BANK_REJECTED_BEFORE', 'WALLET_ON_FILE_ELSEWHERE', 'WALLET_REJECTED_BEFORE', 'REJECTED_BEFORE', 'NO_DEFAULT_RESERVE']);
-
-export function StatusChip({ t }: { t: Pick<DeskTraderRow, 'status' | 'available'> }) {
-  if (t.status === 'APPROVED') return t.available ? <Chip tone="success" glyph="done">Online</Chip> : <Chip glyph="pending">Offline</Chip>;
-  if (t.status === 'UNDER_REVIEW') return <Chip tone="brand" glyph="partial">Under review</Chip>;
-  if (t.status === 'PAUSED') return <Chip tone="warning" icon="pause">Paused</Chip>;
-  return <Chip tone="muted">{t.status.toLowerCase().replace('_', ' ')}</Chip>;
-}
 
 /**
  * Traders for the desk: applications and settlement changes that need a decision first, then every trader with what
- * matters for routing — status, reserve against its requirement, open and unresolved orders, and what keeps it from
- * being offered work.
+ * matters for routing — whether it is online, its reserve against what it must hold, how much of its limit open deals
+ * use, its orders, and what keeps it from being offered work.
  */
 export function TraderList({ traders }: { traders: readonly DeskTraderRow[] }) {
   const router = useRouter();
@@ -55,71 +22,109 @@ export function TraderList({ traders }: { traders: readonly DeskTraderRow[] }) {
     {
       key: 'trader',
       header: 'Trader',
+      width: '24%',
       render: (t) => (
-        <Cell
-          main={
-            <Link href={`/trader-desk/${t.traderId}`} className={d.link}>
-              {t.ref} · {t.clientName}
-            </Link>
-          }
-          sub={`applied ${dateTime(t.appliedAt)}${t.exchangeAccess ? '' : ' · trader only'}`}
+        <Who
+          name={t.clientName}
+          href={`/trader-desk/${t.traderId}`}
+          sub={`${t.ref} · ${t.status === 'UNDER_REVIEW' ? `applied ${date(t.appliedAt)}` : `provides ${provides(t.sides)}`}`}
+          {...(t.status === 'PAUSED' || t.status === 'REJECTED' ? { tone: 'quiet' as const } : {})}
         />
       ),
     },
-    { key: 'status', header: 'Status', render: (t) => <StatusChip t={t} /> },
-    { key: 'sides', header: 'Provides', render: (t) => t.sides.map((s) => (s === 'BUY_USDT' ? 'INR' : 'USDT')).join(' · ') || '—' },
     {
-      key: 'reserve',
-      header: 'Security Reserve',
+      key: 'status',
+      header: 'Status',
       render: (t) => (
-        <span className={d.stackTight} style={{ gap: 3, width: 150 }}>
-          <span className={d.num}>
-            {usdt(t.reserveBalance)}
-            {t.reserveRequired ? <span className={d.muted}> of {usdt(t.reserveRequired, { unit: false })}</span> : null}
-          </span>
-          {t.reserveRequired ? <Meter size="sm" label="Reserve against requirement" parts={[{ value: share(t.reserveBalance, t.reserveRequired, 'USDT'), tone: /[1-9]/.test(t.reserveShortfall) ? 'warning' : 'success' }]} /> : null}
+        <span className={d.row} style={{ flexWrap: 'nowrap' }}>
+          <StatusChip t={t} />
+          {t.status === 'APPROVED' && !t.assignmentsEnabled ? <Chip tone="warning">no new orders</Chip> : null}
         </span>
       ),
     },
-    { key: 'open', header: 'Open', align: 'right', render: (t) => <Cell main={t.openOrders} {...(t.offers > 0 ? { sub: `${t.offers} offered` } : {})} /> },
+    {
+      key: 'reserve',
+      header: 'Security Reserve',
+      render: (t) => {
+        if (t.status === 'UNDER_REVIEW') return <span className={d.muted}>set at approval</span>;
+        const short = /[1-9]/.test(t.reserveShortfall);
+        return (
+          <span className={b.meterCell}>
+            <span>
+              {usdt(t.reserveBalance)}
+              {t.reserveRequired ? <small> of {usdt(t.reserveRequired, { unit: false })}</small> : <small> · none required</small>}
+            </span>
+            {t.reserveRequired ? <MiniMeter value={share(t.reserveBalance, t.reserveRequired, 'USDT')} tone={short ? 'warning' : 'success'} label="Reserve against what it must hold" /> : null}
+          </span>
+        );
+      },
+    },
     {
       key: 'limit',
       header: 'Open of limit',
       render: (t) =>
         t.risk ? (
-          <span className={d.stackTight} style={{ gap: 3, width: 150 }}>
-            <span className={d.num}>
+          <span className={b.meterCell}>
+            <span>
               {usdt(t.risk.open, { unit: false })}
-              <span className={d.muted}> of {usdt(t.risk.maxOpen)}</span>
+              <small> of {usdt(t.risk.maxOpen)}</small>
             </span>
-            <span className={d.muted}>
-              {t.risk.level.toLowerCase()}
+            <MiniMeter value={share(t.risk.open, t.risk.maxOpen, 'USDT')} tone="brand" label="Open deals against the limit" />
+            <small>
+              {TIER_WORD[t.risk.level] ?? t.risk.level}
               {t.risk.heldBack ? ' · held back' : ''} · deal ≤ {usdt(t.risk.maxDeal, { unit: false })}
-            </span>
+            </small>
           </span>
         ) : (
-          <span className={d.muted}>—</span>
+          <span className={d.muted} data-empty="">—</span>
         ),
     },
-    { key: 'unresolved', header: 'Unresolved', align: 'right', render: (t) => (t.unresolved > 0 ? <strong className={d.negative}>{t.unresolved}</strong> : 0) },
-    { key: 'completed', header: 'Completed', align: 'right', render: (t) => t.completedOrders },
+    {
+      key: 'orders',
+      header: 'Orders',
+      render: (t) =>
+        t.status === 'UNDER_REVIEW' ? (
+          <span className={d.muted} data-empty="">—</span>
+        ) : (
+          <span className={d.row} style={{ flexWrap: 'nowrap', gap: 6 }} title={`${t.openOrders} open · ${t.unresolved} unresolved · ${t.completedOrders} completed`}>
+            <span className={b.count} data-tone={t.openOrders > 0 ? 'brand' : 'zero'}>
+              {t.openOrders}
+            </span>
+            <span className={d.muted}>open</span>
+            {t.unresolved > 0 ? (
+              <>
+                <span className={b.count} data-tone="danger">
+                  {t.unresolved}
+                </span>
+                <span className={d.muted}>owed</span>
+              </>
+            ) : null}
+            {t.offers > 0 ? <span className={d.muted}>· {t.offers} offered</span> : null}
+          </span>
+        ),
+    },
     {
       key: 'issues',
       header: 'Needs',
+      wrap: true,
       render: (t) => (
-        <span className={d.row}>
-          {t.awaitingReview > 0 ? <Chip tone="warning">{t.awaitingReview === 1 ? '1 detail' : `${t.awaitingReview} details`} to verify</Chip> : null}
+        <span className={d.row} style={{ gap: 4 }}>
+          {t.awaitingReview > 0 ? <Chip tone="brand" glyph="partial">{t.awaitingReview === 1 ? '1 detail' : `${t.awaitingReview} details`} to verify</Chip> : null}
           {t.autoReviewFlags.map((f) => (
             <Chip key={f} tone={DESK_FLAGS.has(f) ? 'warning' : 'muted'}>
               {AUTO_FLAG[f] ?? f}
             </Chip>
           ))}
-          {t.issues.map((i) => (
-            <Chip key={i} tone="muted">
-              {ISSUE[i] ?? i}
-            </Chip>
-          ))}
-          {t.awaitingReview === 0 && t.issues.length === 0 && t.autoReviewFlags.length === 0 ? <span className={d.muted}>—</span> : null}
+          {t.issues
+            .filter((i) => !(i === 'OFFLINE' && t.status === 'APPROVED') && !(i === 'PAUSED' && t.status === 'PAUSED'))
+            .map((i) => (
+              <Chip key={i} tone="muted">
+                {ISSUE[i] ?? i}
+              </Chip>
+            ))}
+          {t.awaitingReview === 0 && t.autoReviewFlags.length === 0 && t.issues.every((i) => (i === 'OFFLINE' && t.status === 'APPROVED') || (i === 'PAUSED' && t.status === 'PAUSED')) ? (
+            <span className={d.muted} data-empty="">—</span>
+          ) : null}
         </span>
       ),
     },
@@ -141,6 +146,7 @@ export function TraderList({ traders }: { traders: readonly DeskTraderRow[] }) {
       rowKey={(t) => t.traderId}
       onOpen={(t) => router.push(`/trader-desk/${t.traderId}`)}
       rail={(t) => (t.status === 'UNDER_REVIEW' || t.awaitingReview > 0 ? 'action' : t.unresolved > 0 ? 'danger' : null)}
+      dim={(t) => t.status === 'REJECTED'}
       empty={<Empty title="No trader has applied yet" body="Anyone can apply through “Become a trader”; nothing they submit is usable until it is verified here." />}
     />
   );

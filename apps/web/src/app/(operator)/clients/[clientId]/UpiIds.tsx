@@ -3,13 +3,17 @@
 import { useState } from 'react';
 import type { UpiIdView } from '@inrp2p/clients';
 import { Button, StepUpMark } from '@inrp2p/ui';
+import { UpiMark } from '../../../../components/PayMarks.tsx';
 import { useCommand } from '../../../../components/useCommand.tsx';
 import { archiveClientUpiIdAction, reviewUpiIdAction } from '../../../../server/actions/desk.ts';
 import { TextArea, TextField } from '../../_desk/fields.tsx';
-import { Chip, KeyValues, Notice } from '../../_desk/ui.tsx';
+import { inr } from '../../_desk/format.ts';
+import { Chip, Notice } from '../../_desk/ui.tsx';
+import { bookStyles as b } from '../../_book/parts.tsx';
 import d from '../../_desk/desk.module.css';
 
-const rupees = (amount: string) => `₹${Number.parseFloat(amount).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+/** The desk's one way of writing rupees, so a UPI limit reads like every other INR figure on the page. */
+const rupees = (amount: string) => inr(amount);
 
 /**
  * A client's UPI IDs for the desk (ADR 0029/0030). One is live when the client adds it; a payer whose app showed another
@@ -24,8 +28,7 @@ export function UpiIds({ upiIds, canReview }: { upiIds: readonly UpiIdView[]; ca
   const [resolved, setResolved] = useState('');
   const [note, setNote] = useState('');
   const shown = upiIds.filter((u) => u.status !== 'ARCHIVED');
-  if (shown.length === 0) return <Notice>None registered — deals with this client go by bank transfer.</Notice>;
-  const chosen = open ? shown.find((u) => u.id === open.id) ?? null : null;
+  if (shown.length === 0) return <p className={b.quiet}>None registered — deals with this client go by bank transfer.</p>;
   const start = (id: string, mode: 'VERIFY' | 'REJECT' | 'ARCHIVE') => {
     setOpen({ id, mode });
     setResolved('');
@@ -35,80 +38,108 @@ export function UpiIds({ upiIds, canReview }: { upiIds: readonly UpiIdView[]; ca
 
   return (
     <>
-      <KeyValues
-        items={shown.map((u) => ({
-          key: u.id,
-          label: <span className={d.mono}>{u.vpa}</span>,
-          value: (
-            <span className={d.row}>
-              {u.status === 'ACTIVE' ? (
-                u.nameConfirmed ? (
-                  <Chip tone="success" glyph="done">confirmed · {u.verifiedName ?? u.holderName}</Chip>
-                ) : (
-                  <Chip tone="brand">live · first deals · {u.holderName}</Chip>
-                )
-              ) : u.status === 'PENDING_REVIEW' ? (
-                <Chip tone="warning">paused · {u.reportedName ? `app showed ${u.reportedName}` : 'to check'}</Chip>
-              ) : (
-                <Chip tone="neutral">not verified</Chip>
-              )}
-              <span className={d.secondary}>
-                {rupees(u.perPaymentLimit)}/payment{u.dailyLimit ? ` · ${rupees(u.dailyLimit)}/day · ${rupees(u.usedToday)} today` : ''}
+      <ul className={b.rows}>
+        {shown.map((u) => {
+          const paused = u.status === 'PENDING_REVIEW';
+          const editing = open?.id === u.id ? open : null;
+          return (
+            <li key={u.id} className={b.row} {...(paused ? { 'data-attention': '' } : {})}>
+              <span className={b.upiTile}>
+                <UpiMark />
               </span>
-              {canReview && u.status === 'PENDING_REVIEW' && open?.id !== u.id ? (
-                <>
-                  <Button intent="secondary" size="sm" disabled={cmd.busy} onClick={() => start(u.id, 'VERIFY')}>Put back</Button>
-                  <Button intent="ghost" size="sm" disabled={cmd.busy} onClick={() => start(u.id, 'REJECT')}>Reject</Button>
-                </>
+              <span className={b.rowMain}>
+                <span className={b.rowTitle}>
+                  <span className={b.addr} style={{ color: 'var(--text-primary)' }}>
+                    {u.vpa}
+                  </span>
+                  {u.status === 'ACTIVE' ? (
+                    u.nameConfirmed ? (
+                      <Chip tone="success" glyph="done">confirmed</Chip>
+                    ) : (
+                      <Chip tone="brand" glyph="partial">first deals</Chip>
+                    )
+                  ) : paused ? (
+                    <Chip tone="warning" glyph="partial">paused</Chip>
+                  ) : (
+                    <Chip>not verified</Chip>
+                  )}
+                </span>
+                <span className={b.rowSub} data-wrap="">
+                  {paused
+                    ? u.reportedName
+                      ? `app showed ${u.reportedName}, expected ${u.holderName}`
+                      : `expected ${u.holderName}`
+                    : `${u.nameConfirmed ? (u.verifiedName ?? u.holderName) : u.holderName} · ${rupees(u.perPaymentLimit)}/payment${u.dailyLimit ? ` · ${rupees(u.usedToday)} of ${rupees(u.dailyLimit)} today` : ''}`}
+                </span>
+              </span>
+              <span className={b.rowEnd}>
+                {canReview && !editing && u.status === 'ACTIVE' ? (
+                  <Button intent="ghost" size="sm" disabled={cmd.busy} onClick={() => start(u.id, 'ARCHIVE')}>
+                    Archive
+                  </Button>
+                ) : null}
+              </span>
+              {canReview && !editing && paused ? (
+                <div className={b.rowMore} style={{ flexDirection: 'row', gap: 'var(--space-2)', paddingTop: 0 }}>
+                  <Button intent="secondary" size="sm" disabled={cmd.busy} onClick={() => start(u.id, 'VERIFY')}>
+                    Put back
+                  </Button>
+                  <Button intent="ghost" size="sm" disabled={cmd.busy} onClick={() => start(u.id, 'REJECT')}>
+                    Reject
+                  </Button>
+                </div>
               ) : null}
-              {canReview && u.status === 'ACTIVE' && open?.id !== u.id ? (
-                <Button intent="ghost" size="sm" disabled={cmd.busy} onClick={() => start(u.id, 'ARCHIVE')}>Archive</Button>
+              {editing ? (
+                <div className={b.rowMore}>
+                  {editing.mode === 'VERIFY' ? (
+                    <>
+                      <Notice tone="brand">
+                        In a UPI app, start a payment to <span className={d.mono}>{u.vpa}</span> — do not pay — and type the name the app shows. It must be the client’s own name on
+                        its record.
+                      </Notice>
+                      <TextField label="Name the UPI app shows" value={resolved} onChange={setResolved} maxLength={140} autoFocus />
+                      <TextArea label="Note (needed when the name only partly matches)" value={note} onChange={setNote} hint="Why it is the same person or company, for the record." />
+                    </>
+                  ) : (
+                    <TextArea
+                      label={editing.mode === 'REJECT' ? 'Why it is not verified — the client reads this' : 'Why it is archived'}
+                      value={note}
+                      onChange={setNote}
+                      hint={editing.mode === 'REJECT' ? 'For example: the UPI ID shows another person’s name.' : 'A deal paid to it then offers a bank transfer instead.'}
+                    />
+                  )}
+                  <div className={d.actions}>
+                    <Button
+                      intent={editing.mode === 'VERIFY' ? 'primary' : 'danger'}
+                      size="sm"
+                      shortcut={<StepUpMark label="needs your authenticator code" />}
+                      disabled={cmd.busy || (editing.mode === 'VERIFY' ? resolved.trim().length < 2 : note.trim().length < 3)}
+                      onClick={async () => {
+                        const out = await cmd.run(`${editing.mode === 'VERIFY' ? 'Put back' : editing.mode === 'REJECT' ? 'Reject' : 'Archive'} UPI ID ${u.vpa}`, (key) =>
+                          editing.mode === 'ARCHIVE'
+                            ? archiveClientUpiIdAction({ upiId: u.id, reason: note.trim() }, key)
+                            : reviewUpiIdAction({ upiId: u.id, decision: editing.mode, resolvedName: editing.mode === 'VERIFY' ? resolved.trim() : null, note: note.trim() || null }, key),
+                        );
+                        if (out.ok) setOpen(null);
+                      }}
+                    >
+                      {editing.mode === 'VERIFY' ? 'Put back' : editing.mode === 'REJECT' ? 'Reject' : 'Archive'}
+                    </Button>
+                    <Button intent="ghost" size="sm" disabled={cmd.busy} onClick={() => setOpen(null)}>
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
               ) : null}
-            </span>
-          ),
-        }))}
-      />
-      {chosen && open ? (
-        <div className={d.stack}>
-          {open.mode === 'VERIFY' ? (
-            <>
-              <Notice tone="brand">
-                In a UPI app, start a payment to <span className={d.mono}>{chosen.vpa}</span> — do not pay — and type the name the app shows. It must be the client’s
-                own name on its record.
-              </Notice>
-              <TextField label="Name the UPI app shows" value={resolved} onChange={setResolved} maxLength={140} autoFocus />
-              <TextArea label="Note (needed when the name only partly matches)" value={note} onChange={setNote} hint="Why it is the same person or company, for the record." />
-            </>
-          ) : (
-            <TextArea
-              label={open.mode === 'REJECT' ? 'Why it is not verified — the client reads this' : 'Why it is archived'}
-              value={note}
-              onChange={setNote}
-              hint={open.mode === 'REJECT' ? 'For example: the UPI ID shows another person’s name.' : 'A deal paid to it then offers a bank transfer instead.'}
-            />
-          )}
-          <div className={d.actions}>
-            <Button
-              intent={open.mode === 'VERIFY' ? 'primary' : 'danger'}
-              size="sm"
-              shortcut={<StepUpMark label="needs your authenticator code" />}
-              disabled={cmd.busy || (open.mode === 'VERIFY' ? resolved.trim().length < 2 : note.trim().length < 3)}
-              onClick={async () => {
-                const out = await cmd.run(`${open.mode === 'VERIFY' ? 'Put back' : open.mode === 'REJECT' ? 'Reject' : 'Archive'} UPI ID ${chosen.vpa}`, (key) =>
-                  open.mode === 'ARCHIVE'
-                    ? archiveClientUpiIdAction({ upiId: chosen.id, reason: note.trim() }, key)
-                    : reviewUpiIdAction({ upiId: chosen.id, decision: open.mode, resolvedName: open.mode === 'VERIFY' ? resolved.trim() : null, note: note.trim() || null }, key),
-                );
-                if (out.ok) setOpen(null);
-              }}
-            >
-              {open.mode === 'VERIFY' ? 'Put back' : open.mode === 'REJECT' ? 'Reject' : 'Archive'}
-            </Button>
-            <Button intent="ghost" size="sm" disabled={cmd.busy} onClick={() => setOpen(null)}>Cancel</Button>
-          </div>
-        </div>
+            </li>
+          );
+        })}
+      </ul>
+      {cmd.error ? (
+        <Notice tone="danger" role="alert">
+          {cmd.error}
+        </Notice>
       ) : null}
-      {cmd.error ? <Notice tone="danger" role="alert">{cmd.error}</Notice> : null}
       {cmd.dialog}
     </>
   );
