@@ -1,0 +1,1491 @@
+/*
+ * The desk's book — a client, a trader — drawn the way the trade record is: one orange field that says what this
+ * party is to INRP2P, the figures beside it, then the work on the left and the reference on the right.
+ *
+ * Built on the desk's own tokens and primitives (desk.module.css); this file only adds what a profile needs:
+ * the hero, the monogram, figure cells, step rails, a sheet of eyebrowed groups, rows with a mark, and the
+ * order and programme layouts.
+ */
+
+/* ── Hero: the field and the figures beside it ──────────────────────────────────────────────────── */
+
+.hero {
+  display: grid;
+  grid-template-columns: minmax(300px, 0.82fr) minmax(0, 1.3fr);
+  align-items: stretch;
+  overflow: hidden;
+  border-radius: 22px;
+  background: var(--bg-surface);
+  box-shadow: 0 0 0 1px var(--line, var(--border-default)), var(--lift, var(--shadow-low));
+}
+
+.field {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: var(--space-5);
+  min-width: 0;
+  padding: var(--space-6);
+  overflow: hidden;
+  background:
+    radial-gradient(ellipse 70% 90% at 0% 0%, var(--brand-primary) 0%, transparent 70%),
+    radial-gradient(ellipse 60% 80% at 100% 100%, var(--brand-action-hover) 0%, transparent 70%),
+    var(--brand-action);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--text-on-action) 26%, transparent);
+  color: var(--text-on-action);
+}
+
+/* A party the desk has stopped — suspended, paused, rejected: the field goes to ink, so the page says it first. */
+.field[data-state='stopped'] {
+  background:
+    radial-gradient(ellipse 70% 90% at 0% 0%, color-mix(in srgb, var(--text-primary) 78%, var(--bg-surface)) 0%, transparent 70%),
+    var(--text-primary);
+}
+
+.fieldArt {
+  position: absolute;
+  z-index: -1;
+  top: 50%;
+  right: -78px;
+  width: 280px;
+  height: 280px;
+  color: color-mix(in srgb, var(--text-on-action) 18%, transparent);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.fieldTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.eyebrow {
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.field .eyebrow {
+  opacity: 0.86;
+}
+
+.figure {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.figureValue {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 40px;
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.02;
+  letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums lining-nums;
+  overflow-wrap: anywhere;
+}
+
+.figureValue small {
+  margin-left: 0.18em;
+  font-size: 0.5em;
+  font-weight: var(--font-weight-medium);
+  letter-spacing: -0.01em;
+  opacity: 0.8;
+}
+
+.figureSub {
+  margin: 0;
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-normal);
+  color: color-mix(in srgb, var(--text-on-action) 84%, transparent);
+}
+
+/* The field's meter: white on orange, what is held of what there is. */
+.fieldMeter {
+  position: relative;
+  height: 6px;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--text-on-action) 22%, transparent);
+}
+
+.fieldMeter > span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: inherit;
+  background: var(--text-on-action);
+}
+
+.fieldMeter > span[data-part='locked'] {
+  background: color-mix(in srgb, var(--text-on-action) 55%, transparent);
+}
+
+.fieldLegend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  font-size: var(--font-size-meta);
+  color: color-mix(in srgb, var(--text-on-action) 86%, transparent);
+  font-variant-numeric: tabular-nums;
+}
+
+.fieldLegend b {
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-on-action);
+}
+
+.side {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--space-5);
+  min-width: 0;
+  padding: var(--space-5) var(--space-6);
+}
+
+/* ── Monogram: a party's initials on a tile, as the mark sits on its own ─────────────────────────── */
+
+.mono {
+  --size: 40px;
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: var(--size);
+  height: var(--size);
+  border-radius: calc(var(--size) * 0.3);
+  background: color-mix(in srgb, var(--brand-soft) 80%, var(--bg-surface));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand-primary) 16%, transparent);
+  color: var(--brand-action);
+  font-family: var(--font-display);
+  font-size: calc(var(--size) * 0.38);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.02em;
+  line-height: 1;
+  user-select: none;
+}
+
+.mono[data-tone='field'] {
+  background: color-mix(in srgb, var(--text-on-action) 18%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-on-action) 34%, transparent);
+  color: var(--text-on-action);
+}
+
+.mono[data-tone='ink'] {
+  background: var(--text-primary);
+  box-shadow: none;
+  color: var(--bg-surface);
+}
+
+.mono[data-tone='quiet'] {
+  background: var(--bg-subtle);
+  box-shadow: inset 0 0 0 1px var(--border-default);
+  color: var(--text-secondary);
+}
+
+/* A party's name with its tile, in a table or a title row. */
+.who {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.whoText {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.whoName {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-weight: var(--font-weight-semibold);
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+a.whoName:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.whoSub {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Figure cells beside the field ──────────────────────────────────────────────────────────────── */
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  margin: 0;
+  overflow: hidden;
+  border-radius: 16px;
+  box-shadow: inset 0 0 0 1px var(--line-soft, var(--border-default));
+}
+
+.stat {
+  container-type: inline-size;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  padding: var(--space-3) var(--space-4);
+  box-shadow: -1px 0 0 var(--line-soft, var(--border-default)), 0 -1px 0 var(--line-soft, var(--border-default));
+}
+
+.statLabel {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.statValue {
+  margin: 0;
+  overflow: hidden;
+  font-family: var(--font-display);
+  font-size: clamp(16px, 13cqi, 22px);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-snug);
+  letter-spacing: -0.025em;
+  font-variant-numeric: tabular-nums lining-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.statSub {
+  margin: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: var(--font-size-meta);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stat[data-tone='danger'] .statValue {
+  color: var(--status-danger);
+}
+
+.stat[data-tone='warning'] .statValue {
+  color: var(--status-warning);
+}
+
+.stat[data-tone='success'] .statValue {
+  color: var(--status-success);
+}
+
+.stat[data-tone='muted'] .statValue {
+  color: var(--text-muted);
+}
+
+.stat .miniMeter {
+  margin-top: 4px;
+}
+
+.miniMeter {
+  position: relative;
+  height: 4px;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+}
+
+.miniMeter > span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: inherit;
+  background: var(--text-primary);
+}
+
+.miniMeter[data-tone='brand'] > span {
+  background: var(--brand-action);
+}
+
+.miniMeter[data-tone='success'] > span {
+  background: var(--status-success);
+}
+
+.miniMeter[data-tone='warning'] > span {
+  background: var(--status-warning);
+}
+
+/* ── Steps: what this party can do, or how far its application has got ──────────────────────────── */
+
+.steps {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.step {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  padding-top: var(--space-2);
+  border-top: 2px solid var(--border-default);
+  font-size: var(--font-size-meta);
+}
+
+.step[data-state='done'] {
+  border-top-color: var(--status-success);
+}
+
+.step[data-state='now'] {
+  border-top-color: var(--brand-primary);
+}
+
+.step[data-state='blocked'] {
+  border-top-color: var(--status-danger);
+}
+
+.stepName {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--text-primary);
+  font-weight: var(--font-weight-medium);
+}
+
+.stepName svg {
+  flex: none;
+  width: 10px;
+  height: 10px;
+}
+
+.step[data-state='done'] .stepName svg {
+  color: var(--status-success);
+}
+
+.step[data-state='now'] .stepName svg {
+  color: var(--brand-primary);
+}
+
+.step[data-state='blocked'] .stepName svg {
+  color: var(--status-danger);
+}
+
+.step[data-state='pending'] .stepName {
+  color: var(--text-muted);
+}
+
+.stepSub {
+  overflow: hidden;
+  color: var(--text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sideNote {
+  margin: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  color: var(--text-secondary);
+  font-size: var(--font-size-meta);
+  line-height: var(--line-height-normal);
+}
+
+.sideNote svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--brand-action);
+}
+
+/* ── Layout under the hero ──────────────────────────────────────────────────────────────────────── */
+
+.columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(340px, 400px);
+  gap: var(--space-5);
+  align-items: start;
+}
+
+.main,
+.aside {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  min-width: 0;
+}
+
+/* ── Sheet: one card of eyebrowed groups, instead of a stack of small cards ─────────────────────── */
+
+.sheet {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--bg-surface);
+  border-radius: 18px;
+  box-shadow: 0 0 0 1px var(--line, var(--border-default)), var(--lift, var(--shadow-low));
+}
+
+.sheetHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-height: 56px;
+  padding: var(--space-3) var(--space-5);
+  border-bottom: 1px solid var(--line-soft, var(--border-default));
+}
+
+.sheetTitle {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.01em;
+}
+
+.sheetTitle span {
+  color: var(--text-muted);
+  font-weight: var(--font-weight-regular);
+  font-variant-numeric: tabular-nums;
+}
+
+.sheetHint {
+  margin: 2px 0 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+}
+
+.sheetBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-5);
+  min-width: 0;
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-4) var(--space-5);
+}
+
+.group + .group {
+  border-top: 1px solid var(--line-soft, var(--border-default));
+}
+
+.groupHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.groupTitle {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.groupTitle span {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+
+.groupHint {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A group that is missing what the desk needs: said once, in the group, in amber. */
+.gap {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-3);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--status-warning-soft) 70%, var(--bg-surface));
+  color: var(--status-warning);
+  font-size: var(--font-size-meta);
+  line-height: var(--line-height-normal);
+}
+
+.gap svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+.quiet {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+}
+
+/* ── Rows: a mark, what it is, and its actions ──────────────────────────────────────────────────── */
+
+.rows {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-2) 0;
+}
+
+.row + .row {
+  border-top: 1px dashed var(--line-soft, var(--border-default));
+}
+
+.row[data-attention] {
+  margin: 0 calc(-1 * var(--space-2));
+  padding: var(--space-2);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--status-warning-soft) 55%, var(--bg-surface));
+}
+
+.rowMain {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.rowTitle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.rowTitle > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rowSub {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowSub[data-wrap] {
+  white-space: normal;
+}
+
+.rowEnd {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.rowMore {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-2) 0 var(--space-1);
+}
+
+.addr {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-meta);
+  letter-spacing: 0;
+  color: var(--text-secondary);
+}
+
+/* Small round marks for rows that have no brand of their own (a person, a UPI address). */
+.glyph {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  background: var(--bg-subtle);
+  box-shadow: inset 0 0 0 1px var(--border-default);
+  color: var(--text-secondary);
+}
+
+.glyph[data-tone='brand'] {
+  background: var(--brand-soft);
+  box-shadow: none;
+  color: var(--brand-action);
+}
+
+.upiTile {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  padding: 0 5px;
+  border-radius: 10px;
+  background: var(--bg-surface);
+  box-shadow: inset 0 0 0 1px var(--border-default);
+}
+
+.upiTile svg {
+  width: 100%;
+  height: auto;
+}
+
+/* ── Key facts in a sheet: label left, value right, on hairlines ────────────────────────────────── */
+
+.facts {
+  display: grid;
+  grid-template-columns: minmax(110px, max-content) minmax(0, 1fr);
+  margin: 0;
+  font-size: var(--font-size-body-sm);
+}
+
+.facts dt,
+.facts dd {
+  min-width: 0;
+  margin: 0;
+  padding: 7px 0;
+  border-top: 1px dashed var(--line-soft, var(--border-default));
+}
+
+.facts dt:first-of-type,
+.facts dt:first-of-type + dd {
+  border-top: 0;
+}
+
+.facts dt {
+  padding-right: var(--space-4);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.facts dd {
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.facts[data-align='left'] dd {
+  text-align: left;
+}
+
+/* ── Tabs inside a page (link tabs, one view at a time) ─────────────────────────────────────────── */
+
+.tabsRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+/* ── Orders, as one ledger of rows ──────────────────────────────────────────────────────────────── */
+
+.ledger {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.order {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1.5fr) minmax(0, 1.25fr) auto;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-3) var(--space-5);
+  border-top: 1px solid var(--line-soft, var(--border-default));
+}
+
+.order:first-child {
+  border-top: 0;
+}
+
+.order[data-attention] {
+  box-shadow: inset 3px 0 0 var(--brand-primary);
+}
+
+.order[data-owed] {
+  box-shadow: inset 3px 0 0 var(--status-warning);
+}
+
+.orderAmounts {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.orderFigure {
+  overflow: hidden;
+  font-family: var(--font-display);
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.015em;
+  font-variant-numeric: tabular-nums lining-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.orderFigure span {
+  color: var(--text-muted);
+  font-weight: var(--font-weight-regular);
+}
+
+.orderRefs {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-size: var(--font-size-meta);
+  color: var(--text-muted);
+}
+
+.orderRefs > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.orderEnd {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-1);
+}
+
+.orderMore {
+  grid-column: 2 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.owes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  margin: 0;
+  padding: 6px var(--space-3);
+  border-radius: 10px;
+  background: var(--bg-subtle);
+  font-size: var(--font-size-meta);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.owes b {
+  color: var(--text-primary);
+  font-weight: var(--font-weight-semibold);
+}
+
+.legs {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--font-size-meta);
+}
+
+.legs li {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  color: var(--text-muted);
+}
+
+.legs strong {
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Two sides of a trader: what it buys and sells at, and how much of it is held ───────────────── */
+
+.sideBlock {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.sideBlock + .sideBlock {
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--line-soft, var(--border-default));
+}
+
+.sideHead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.sideRate {
+  margin-left: auto;
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.025em;
+  font-variant-numeric: tabular-nums lining-nums;
+  white-space: nowrap;
+}
+
+.sideCaption {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Review cards: one submitted detail, its facts and its two answers ──────────────────────────── */
+
+.reviewGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-5);
+  align-items: stretch;
+}
+
+.review {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--bg-surface);
+  border-radius: 18px;
+  box-shadow: 0 0 0 1px var(--line, var(--border-default)), var(--lift, var(--shadow-low));
+}
+
+.review[data-state='pending'] {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--brand-primary) 38%, transparent), var(--lift, var(--shadow-low));
+}
+
+.reviewHead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--line-soft, var(--border-default));
+}
+
+.reviewTitle {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+
+.reviewTitle strong {
+  overflow: hidden;
+  font-family: var(--font-display);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.01em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reviewTitle span {
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+}
+
+.reviewBody {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-5) var(--space-4);
+}
+
+.reviewFoot {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-5) var(--space-4);
+  border-top: 1px solid var(--line-soft, var(--border-default));
+}
+
+.rails {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+/* ── Programme: grouped settings and a save bar that stays in reach ─────────────────────────────── */
+
+.programme {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-5);
+  align-items: start;
+}
+
+.programmeWide {
+  grid-column: 1 / -1;
+}
+
+.switchRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-radius: 14px;
+  background: var(--bg-subtle);
+}
+
+.switchText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.switchText strong {
+  font-weight: var(--font-weight-semibold);
+}
+
+.switchText span {
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+  line-height: var(--line-height-normal);
+}
+
+.switch {
+  position: relative;
+  flex: none;
+  width: 40px;
+  height: 24px;
+  margin: 0;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--text-primary) 18%, transparent);
+  appearance: none;
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease);
+}
+
+.switch::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--bg-surface);
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--text-primary) 30%, transparent);
+  transition: transform var(--dur-fast) var(--ease);
+}
+
+.switch:checked {
+  background: var(--brand-action);
+}
+
+.switch:checked::after {
+  transform: translateX(16px);
+}
+
+.switch:focus-visible {
+  outline: 2px solid var(--focus-ring, var(--brand-primary));
+  outline-offset: 2px;
+}
+
+.switch:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.grid2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3) var(--space-4);
+  align-items: start;
+}
+
+/* A matrix of small number fields: levels × multiples, rails × minutes. */
+.matrix {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: var(--font-size-body-sm);
+}
+
+.matrix th {
+  padding: 0 var(--space-2) var(--space-2);
+  color: var(--text-muted);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.05em;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.matrix th[scope='row'] {
+  padding: 0 var(--space-3) 0 0;
+  color: var(--text-primary);
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.005em;
+  text-transform: none;
+}
+
+.matrix td {
+  padding: 3px var(--space-2);
+}
+
+.matrix input {
+  width: 100%;
+  height: 36px;
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: 10px;
+  background: var(--bg-subtle);
+  box-shadow: inset 0 0 0 1px var(--border-default);
+  color: var(--text-primary);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
+.matrix input:focus-visible {
+  outline: 2px solid var(--focus-ring, var(--brand-primary));
+  outline-offset: 1px;
+  background: var(--bg-surface);
+}
+
+.matrix input:disabled {
+  color: var(--text-muted);
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--line-soft, var(--border-default));
+}
+
+.saveBar {
+  position: sticky;
+  bottom: var(--space-4);
+  z-index: 2;
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--bg-surface) 92%, transparent);
+  backdrop-filter: blur(14px) saturate(1.2);
+  box-shadow: 0 0 0 1px var(--line, var(--border-default)), 0 18px 40px -24px color-mix(in srgb, var(--text-primary) 45%, transparent);
+}
+
+.saveBar > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ── Book list: the client and trader tables' own cells ─────────────────────────────────────────── */
+
+.usually {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  white-space: nowrap;
+}
+
+.coins {
+  display: inline-flex;
+  align-items: center;
+}
+
+.coins > * + * {
+  margin-left: -6px;
+}
+
+.coins svg {
+  box-shadow: 0 0 0 2px var(--bg-surface);
+  border-radius: 50%;
+}
+
+.meterCell {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 132px;
+  max-width: 170px;
+}
+
+.meterCell > span:first-child {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.meterCell small {
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+}
+
+.count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--text-primary) 6%, transparent);
+  color: var(--text-secondary);
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.count[data-tone='brand'] {
+  background: var(--brand-soft);
+  color: var(--brand-action);
+}
+
+.count[data-tone='danger'] {
+  background: var(--status-danger-soft);
+  color: var(--status-danger);
+}
+
+.count[data-tone='zero'] {
+  background: transparent;
+  color: var(--text-muted);
+  font-weight: var(--font-weight-regular);
+}
+
+.rowAction {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-pill);
+  box-shadow: inset 0 0 0 1px var(--border-default);
+  color: var(--text-secondary);
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-medium);
+  text-decoration: none;
+  white-space: nowrap;
+  transition: color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease), background-color var(--dur-fast) var(--ease);
+}
+
+.rowAction:hover,
+.rowAction:focus-visible {
+  background: var(--brand-soft);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand-primary) 40%, transparent);
+  color: var(--brand-action);
+}
+
+/* An attention band above a list: what waits for a person, in one line each. */
+.attention {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 18px;
+  background: var(--bg-surface);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--brand-primary) 36%, transparent), var(--lift, var(--shadow-low));
+}
+
+.attentionHead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-5);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--brand-soft) 90%, var(--bg-surface)), var(--bg-surface));
+  border-bottom: 1px solid color-mix(in srgb, var(--brand-primary) 18%, transparent);
+}
+
+.attentionHead strong {
+  font-family: var(--font-display);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.01em;
+}
+
+.attentionHead span {
+  color: var(--text-secondary);
+  font-size: var(--font-size-meta);
+}
+
+.attentionBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+}
+
+/* ── Composer: the request builder as one sheet ─────────────────────────────────────────────────── */
+
+.composer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.composerTop {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.composerTop [role='group'] {
+  display: inline-flex;
+  gap: 2px;
+  padding: 4px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-subtle);
+  box-shadow: inset 0 0 0 1px var(--line-soft, var(--border-default));
+}
+
+.composerTop [role='group'] button {
+  height: 34px;
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-body-sm);
+  transition: background-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+
+.composerTop [role='group'] button[aria-pressed='true'] {
+  background: var(--text-primary);
+  box-shadow: 0 6px 14px -8px color-mix(in srgb, var(--text-primary) 70%, transparent);
+  color: var(--bg-surface);
+}
+
+.composerGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: var(--space-3) var(--space-4);
+  align-items: start;
+}
+
+.picks {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.picks legend {
+  margin-bottom: var(--space-2);
+  padding: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-medium);
+}
+
+.pick {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: 14px;
+  background: var(--bg-surface);
+  box-shadow: inset 0 0 0 1px var(--border-default);
+  cursor: pointer;
+  transition: box-shadow var(--dur-fast) var(--ease), background-color var(--dur-fast) var(--ease);
+}
+
+.pick:hover {
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+
+.pick:has(input:checked) {
+  background: color-mix(in srgb, var(--brand-soft) 55%, var(--bg-surface));
+  box-shadow: inset 0 0 0 1.5px var(--brand-action);
+}
+
+.pick:has(input:focus-visible) {
+  outline: 2px solid var(--focus-ring, var(--brand-primary));
+  outline-offset: 2px;
+}
+
+.pick input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.composerFoot {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--line-soft, var(--border-default));
+}
+
+/* The list pages' top: the one orange moment, and the figures beside it (they wrap on their own). */
+.strip {
+  display: grid;
+  grid-template-columns: minmax(220px, 250px) minmax(0, 1fr);
+  gap: var(--space-3);
+  align-items: stretch;
+}
+
+.strip > dl {
+  height: 100%;
+}
+
+.strip > dl > * {
+  justify-content: center;
+}
+
+/* A book table: a table on a desk, a stack of cards on a phone (each row keeps its cells, in reading order). */
+.bookTable {
+  min-width: 0;
+}
+
+/* ── Responsive ─────────────────────────────────────────────────────────────────────────────────── */
+
+@media (max-width: 1279px) {
+  .columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 1023px) {
+  .hero {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .programme,
+  .reviewGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 767px) {
+  .strip {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .bookTable thead {
+    display: none;
+  }
+  .bookTable table,
+  .bookTable tbody {
+    display: block;
+  }
+  .bookTable tr:not([data-row]) th {
+    display: block;
+    padding: var(--space-3) var(--space-4) var(--space-2);
+  }
+  .bookTable tr[data-row] {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-4);
+    padding: var(--space-3) var(--space-4);
+    border-bottom: 1px solid var(--line-soft, var(--border-default));
+  }
+  .bookTable tr[data-row] td {
+    display: block;
+    height: auto;
+    padding: 0;
+    border: 0;
+    text-align: left;
+    white-space: normal;
+  }
+  .bookTable tr[data-row] td:first-child {
+    flex: 1 0 100%;
+  }
+  .bookTable tr[data-row] td:has(> [data-empty]),
+  .bookTable tr[data-row] td[data-col='act'],
+  .bookTable tr[data-row] td[data-col='rate'],
+  .bookTable tr[data-row] td[data-col='margin'] {
+    display: none;
+  }
+  .meterCell {
+    min-width: 120px;
+  }
+  .field,
+  .side {
+    padding: var(--space-5) var(--space-4);
+  }
+  .figureValue {
+    font-size: 32px;
+  }
+  .group,
+  .sheetBody {
+    padding-left: var(--space-4);
+    padding-right: var(--space-4);
+  }
+  .order {
+    grid-template-columns: 38px minmax(0, 1fr);
+    padding: var(--space-3) var(--space-4);
+  }
+  .orderRefs,
+  .orderEnd,
+  .orderMore {
+    grid-column: 2 / -1;
+  }
+  .orderEnd {
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+  }
+  .composerGrid,
+  .grid2 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .saveBar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}

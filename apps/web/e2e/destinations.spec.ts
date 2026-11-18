@@ -12,7 +12,7 @@ test('the desk archives a client bank account with a reason and its authenticato
   await signIn(page, s.owner);
   await page.goto(`/clients/${s.clientId}`);
 
-  const row = page.locator('dd').filter({ hasText: '••••9876' });
+  const row = page.getByRole('group', { name: 'Bank accounts' }).getByRole('listitem').filter({ hasText: '••••9876' });
   await expect(row).toBeVisible();
   await row.getByRole('button', { name: 'Archive' }).click();
   const archive = page.getByRole('button', { name: /Archive this account/ });
@@ -22,8 +22,8 @@ test('the desk archives a client bank account with a reason and its authenticato
   await archive.click();
   await stepUp(page, s.owner);
 
-  await expect(page.locator('dd').filter({ hasText: '••••9876' })).toHaveCount(0);
-  await expect(page.locator('dd').filter({ hasText: 'HDFC Bank' }).first()).toBeVisible(); // the client's other account stays
+  await expect(page.getByRole('group', { name: 'Bank accounts' }).getByRole('listitem').filter({ hasText: '••••9876' })).toHaveCount(0);
+  await expect(page.getByRole('group', { name: 'Bank accounts' }).getByRole('listitem').filter({ hasText: 'HDFC Bank' }).first()).toBeVisible(); // the client's other account stays
 
   const db = appDb();
   expect((await db.selectFrom('bank_account').select('status').where('id', '=', accountId).executeTakeFirstOrThrow()).status).toBe('ARCHIVED');

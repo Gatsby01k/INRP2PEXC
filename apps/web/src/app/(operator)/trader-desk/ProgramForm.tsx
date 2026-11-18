@@ -1,14 +1,16 @@
 'use client';
 
-import { useState } from 'react';
-import { plainDecimal } from '../_desk/format.ts';
+import { useId, useState, type ReactNode } from 'react';
 import { DEFAULT_RISK_POLICY, type RiskPolicy, TIER_NAMES } from '@inrp2p/kernel';
 import type { DeskProgram } from '@inrp2p/traders';
 import { Button, StepUpMark } from '@inrp2p/ui';
 import { configureProgramAction } from '../../../server/actions/traders-desk.ts';
 import { useCommand } from '../../../components/useCommand.tsx';
-import { Checkbox, TextArea, TextField } from '../_desk/fields.tsx';
+import { RailMark } from '../../../components/PayMarks.tsx';
+import { TextArea, TextField } from '../_desk/fields.tsx';
+import { plainDecimal } from '../_desk/format.ts';
 import { Notice } from '../_desk/ui.tsx';
+import { Sheet, bookStyles as b } from '../_book/parts.tsx';
 import d from '../_desk/desk.module.css';
 
 const RAILS = ['UPI', 'IMPS', 'NEFT', 'RTGS'] as const;
@@ -17,9 +19,34 @@ const TIER_LABEL = { NEW: 'New', PROVEN: 'Proven', TRUSTED: 'Trusted' } as const
 type TierField = 'minDeals' | 'minDays' | 'dealX' | 'openX';
 const tierText = (p: RiskPolicy) => p.tiers.map((t) => ({ minDeals: String(t.minDeals), minDays: String(t.minDays), dealX: String(t.dealX), openX: String(t.openX) }));
 
+/** A setting that is on or off, said as what it does — a switch, not a checkbox lost at the end of a sentence. */
+function Switch({ title, body, checked, onChange, disabled }: { title: string; body: ReactNode; checked: boolean; onChange: (v: boolean) => void; disabled: boolean }) {
+  const id = useId();
+  return (
+    <div className={b.switchRow}>
+      <label htmlFor={id} className={b.switchText}>
+        <strong>{title}</strong>
+        <span>{body}</span>
+      </label>
+      <input id={id} type="checkbox" role="switch" className={b.switch} checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
+    </div>
+  );
+}
+
+/** One small number in a matrix, named for a screen reader by its row and column. */
+function Cell({ label, value, onChange, disabled }: { label: string; value: string; onChange?: (v: string) => void; disabled?: boolean }) {
+  return (
+    <td>
+      <input aria-label={label} inputMode="numeric" value={value} disabled={disabled || !onChange} onChange={(e) => onChange?.(e.target.value)} />
+    </td>
+  );
+}
+
 /**
- * The programme settings (`traders:configure`, ⧗). Nothing here has a default that stands in for a decision: the
- * Security Reserve stays unset until someone sets it, and every change is audited with its reason.
+ * The programme settings (`traders:configure`, ⧗), grouped by what they decide: who gets approved, how requests reach a
+ * trader, how far a trader's reserve carries it, and how long each step of a deal may take. Nothing here has a default
+ * that stands in for a decision: the Security Reserve stays unset until someone sets it, and every change is audited with
+ * its reason — given once, in the bar that saves them all.
  */
 export function ProgramForm({ program, canConfigure }: { program: DeskProgram; canConfigure: boolean }) {
   const cmd = useCommand();
@@ -44,9 +71,10 @@ export function ProgramForm({ program, canConfigure }: { program: DeskProgram; c
   const riskPolicy = (): RiskPolicy | null => {
     if (!limitsOn) return null;
     const n = (v: string) => Number(v.trim());
-    const [a, b, c] = tiers.map((t) => ({ minDeals: n(t.minDeals), minDays: n(t.minDays), dealX: n(t.dealX), openX: n(t.openX) }));
-    return { cleanDays: n(cleanDays), tiers: [a!, b!, c!] };
+    const [a, c2, c3] = tiers.map((t) => ({ minDeals: n(t.minDeals), minDays: n(t.minDays), dealX: n(t.dealX), openX: n(t.openX) }));
+    return { cleanDays: n(cleanDays), tiers: [a!, c2!, c3!] };
   };
+  const off = !canConfigure;
 
   const save = () =>
     cmd.run('Save trader programme', (key) =>
@@ -74,85 +102,118 @@ export function ProgramForm({ program, canConfigure }: { program: DeskProgram; c
 
   return (
     <form
-      className={d.stackTight}
+      className={d.stack}
       aria-label="Programme"
       onSubmit={(e) => {
         e.preventDefault();
         void save();
       }}
     >
-      <div className={d.formGrid} style={{ alignItems: 'start' }}>
-        <TextField label="Default Security Reserve (USDT)" value={reserve} onChange={setReserve} placeholder="Not set" disabled={!canConfigure} hint="Offered at approval; each trader’s own can differ." />
-        <TextField label="Offer time (s)" value={offer} onChange={setOffer} disabled={!canConfigure} hint="How long a trader has to take an offer." />
-        <TextField label="Hold time (s)" value={hold} onChange={setHold} disabled={!canConfigure} hint="How long an accepted order holds the request." />
-        <TextField
-          label="New bank or wallet waits (h)"
-          value={holdHours}
-          onChange={setHoldHours}
-          disabled={!canConfigure}
-          hint="Every member is told and can stop it; then it applies by rule, between orders."
-        />
-      </div>
-      <Checkbox label="Route new USDT-fixed requests to a trader automatically" checked={auto} onChange={setAuto} disabled={!canConfigure} />
-      <Checkbox
-        label="Approve traders by rule: wallet proven by the reserve sent from it, bank holder is the applicant and on no other file, reserve funded — anything else waits here"
-        checked={autoReview}
-        onChange={setAutoReview}
-        disabled={!canConfigure}
-      />
-      <fieldset className={d.stackTight} disabled={!canConfigure} aria-label="Reserve-based limits">
-        <legend className={d.fieldLabel}>Limits from the trader’s own reserve · multiples of its free reserve, in USDT · the desk’s ceilings still apply</legend>
-        <Checkbox label="Limit each trader’s deals by its reserve and record" checked={limitsOn} onChange={setLimitsOn} disabled={!canConfigure} />
-        {limitsOn ? (
-          <div className={d.stackTight} role="table" aria-label="Levels">
-            {TIER_NAMES.map((name, i) => (
-              <div key={name} role="row" style={{ display: 'grid', gridTemplateColumns: '88px repeat(4, minmax(0, 1fr))', gap: 'var(--space-3)', alignItems: 'end' }}>
-                <span role="rowheader" className={d.fieldLabel} style={{ paddingBottom: 10 }}>
-                  {TIER_LABEL[name]}
-                </span>
-                <TextField label="One deal ×" value={tiers[i]!.dealX} onChange={(v) => setTier(i, 'dealX', v)} />
-                <TextField label="Open deals ×" value={tiers[i]!.openX} onChange={(v) => setTier(i, 'openX', v)} />
-                {i === 0 ? (
-                  <>
-                    <TextField label="After deals" value="0" onChange={() => undefined} disabled />
-                    <TextField label="After days" value="0" onChange={() => undefined} disabled />
-                  </>
-                ) : (
-                  <>
-                    <TextField label="After deals" value={tiers[i]!.minDeals} onChange={(v) => setTier(i, 'minDeals', v)} />
-                    <TextField label="After days" value={tiers[i]!.minDays} onChange={(v) => setTier(i, 'minDays', v)} />
-                  </>
-                )}
-              </div>
-            ))}
-            <div className={d.formGrid} style={{ alignItems: 'start', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))' }}>
-              <TextField label="Back to New after a failed deal (days)" value={cleanDays} onChange={setCleanDays} hint="A dispute lost, or an escrow unwound because it did not pay." />
+      <div className={b.programme}>
+        <Sheet title="Approvals" hint="Who becomes a trader, and what they must hold.">
+          <Switch
+            title="Approve traders by rule"
+            body="Wallet proven by the reserve sent from it, bank holder is the applicant and on no other file, reserve funded. Anything else waits for a person."
+            checked={autoReview}
+            onChange={setAutoReview}
+            disabled={off}
+          />
+          <div className={b.grid2}>
+            <TextField label="Default Security Reserve (USDT)" value={reserve} onChange={setReserve} placeholder="Not set" disabled={off} hint="Offered at approval; each trader’s own can differ." />
+            <TextField label="New bank or wallet waits (h)" value={holdHours} onChange={setHoldHours} disabled={off} hint="Every member is told and can stop it; then it applies between orders." />
+          </div>
+        </Sheet>
+
+        <Sheet title="Routing" hint="How a request reaches a trader, and how long it is held.">
+          <Switch title="Route requests automatically" body="New USDT-fixed requests go to a trader without a person choosing one." checked={auto} onChange={setAuto} disabled={off} />
+          <div className={b.grid2}>
+            <TextField label="Offer time (s)" value={offer} onChange={setOffer} disabled={off} hint="How long a trader has to take an offer." />
+            <TextField label="Hold time (s)" value={hold} onChange={setHold} disabled={off} hint="How long an accepted order holds the request." />
+          </div>
+        </Sheet>
+
+        <Sheet title="Limits from the reserve" hint="Multiples of a trader’s free reserve, in USDT. The desk’s own ceilings on a trader still apply.">
+          <fieldset className={d.stackTight} disabled={off} aria-label="Reserve-based limits" style={{ border: 0, margin: 0, padding: 0, minWidth: 0 }}>
+            <Switch title="Limit deals by reserve and record" body="A trader moves up a level after enough clean deals and days; a failed deal puts it back to New." checked={limitsOn} onChange={setLimitsOn} disabled={off} />
+            {limitsOn ? (
+              <>
+                <table className={b.matrix} aria-label="Levels">
+                  <thead>
+                    <tr>
+                      <th />
+                      <th scope="col">One deal ×</th>
+                      <th scope="col">Open deals ×</th>
+                      <th scope="col">After deals</th>
+                      <th scope="col">After days</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {TIER_NAMES.map((name, i) => (
+                      <tr key={name}>
+                        <th scope="row">{TIER_LABEL[name]}</th>
+                        <Cell label={`${TIER_LABEL[name]}: one deal ×`} value={tiers[i]!.dealX} onChange={(v) => setTier(i, 'dealX', v)} />
+                        <Cell label={`${TIER_LABEL[name]}: open deals ×`} value={tiers[i]!.openX} onChange={(v) => setTier(i, 'openX', v)} />
+                        {i === 0 ? (
+                          <>
+                            <Cell label="New: after deals" value="0" />
+                            <Cell label="New: after days" value="0" />
+                          </>
+                        ) : (
+                          <>
+                            <Cell label={`${TIER_LABEL[name]}: after deals`} value={tiers[i]!.minDeals} onChange={(v) => setTier(i, 'minDeals', v)} />
+                            <Cell label={`${TIER_LABEL[name]}: after days`} value={tiers[i]!.minDays} onChange={(v) => setTier(i, 'minDays', v)} />
+                          </>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <div className={b.grid2}>
+                  <TextField label="Back to New after a failed deal (days)" value={cleanDays} onChange={setCleanDays} hint="A dispute lost, or an escrow unwound because it did not pay." />
+                </div>
+              </>
+            ) : null}
+          </fieldset>
+        </Sheet>
+
+        <Sheet title="Deal times" hint="Minutes. A running deal keeps the times it opened with.">
+          <fieldset className={d.stackTight} disabled={off} aria-label="P2P deal times" style={{ border: 0, margin: 0, padding: 0, minWidth: 0 }}>
+            <table className={b.matrix} aria-label="Minutes by rail">
+              <thead>
+                <tr>
+                  <th />
+                  <th scope="col">Buyer pays</th>
+                  <th scope="col">Seller confirms</th>
+                </tr>
+              </thead>
+              <tbody>
+                {RAILS.map((r) => (
+                  <tr key={r}>
+                    <th scope="row">
+                      <RailMark rail={r} />
+                    </th>
+                    <Cell label={`Buyer pays by ${r}`} value={timing.pay[r]} onChange={(v) => setTiming((t) => ({ ...t, pay: { ...t.pay, [r]: v } }))} />
+                    <Cell label={`Seller confirms ${r}`} value={timing.receipt[r]} onChange={(v) => setTiming((t) => ({ ...t, receipt: { ...t.receipt, [r]: v } }))} />
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <p className={d.fieldHint}>The buyer’s time runs from the escrow being final; then the seller confirms and INRP2P checks — never cancelled after that.</p>
+            <div className={b.grid2}>
+              <TextField label="Final period" value={timing.finalMinutes} onChange={(v) => setTiming((t) => ({ ...t, finalMinutes: v }))} hint="After the buyer is warned, before a cancel." />
+              <TextField label="Trader funds a BUY’s escrow" value={timing.escrowMinutes} onChange={(v) => setTiming((t) => ({ ...t, escrowMinutes: v }))} hint="From the trade opening." />
             </div>
-          </div>
-        ) : null}
-      </fieldset>
-      <fieldset className={d.stackTight} disabled={!canConfigure} aria-label="P2P deal times">
-        <legend className={d.fieldLabel}>P2P deal times (minutes) · a running deal keeps the times it opened with</legend>
-        <div className={d.formGrid} style={{ alignItems: 'start' }}>
-          {RAILS.map((r) => (
-            <TextField key={`pay-${r}`} label={`Buyer pays by ${r}`} value={timing.pay[r]} onChange={(v) => setTiming((t) => ({ ...t, pay: { ...t.pay, [r]: v } }))} hint="From the escrow being final." />
-          ))}
-          {RAILS.map((r) => (
-            <TextField key={`receipt-${r}`} label={`Seller confirms ${r}`} value={timing.receipt[r]} onChange={(v) => setTiming((t) => ({ ...t, receipt: { ...t.receipt, [r]: v } }))} hint="Then INRP2P checks; never cancelled." />
-          ))}
-          <TextField label="Final period" value={timing.finalMinutes} onChange={(v) => setTiming((t) => ({ ...t, finalMinutes: v }))} hint="After the buyer is warned, before a cancel." />
-          <TextField label="Trader funds a BUY’s escrow" value={timing.escrowMinutes} onChange={(v) => setTiming((t) => ({ ...t, escrowMinutes: v }))} hint="From the trade opening." />
-        </div>
-      </fieldset>
+          </fieldset>
+        </Sheet>
+      </div>
+
       {canConfigure ? (
-        <>
-          <TextArea label="Reason for the change" value={reason} onChange={setReason} />
-          <div className={d.actions}>
-            <Button intent="primary" size="sm" type="submit" disabled={cmd.busy || reason.trim().length < 3} shortcut={<StepUpMark label="needs your authenticator code" />}>
-              Save programme
-            </Button>
-          </div>
-        </>
+        <div className={b.saveBar}>
+          <TextArea label="Reason for the change" value={reason} onChange={setReason} rows={1} placeholder="Kept with every setting this saves" />
+          <Button intent="primary" type="submit" disabled={cmd.busy || reason.trim().length < 3} shortcut={<StepUpMark label="needs your authenticator code" />}>
+            Save programme
+          </Button>
+        </div>
       ) : (
         <Notice icon="lock">Changing the programme needs traders:configure.</Notice>
       )}
