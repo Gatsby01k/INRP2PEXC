@@ -1,8 +1,10 @@
-import { FLOW } from '../../../../content/site.ts';
-import { RAILS } from '../../../../content/site.ts';
+import { getImageProps } from 'next/image';
+import { FLOW, RAILS } from '../../../../content/site.ts';
 import { ImpsMark, UpiMark } from '../../../../components/PayMarks.tsx';
 import { ByDirection } from '../Story.tsx';
 import { DealSteps } from './DealSteps.tsx';
+import still from '../../../(client)/_assistant/stills/robot-none.webp';
+import { LedFace } from './LedFace.tsx';
 import styles from './deal.module.css';
 
 /**
@@ -21,24 +23,13 @@ const TETHER =
   'm73.295 81.633v-.01c-.43.03-2.65.16-7.59.16-3.95 0-6.72-.11-7.7-.16v.01c-15.19-.67-26.52-3.31-26.52-6.48 0-3.16 11.34-5.81 26.52-6.48v10.33c.99.07 3.84.24 7.77.24 4.72 0 7.08-.2 7.52-.24v-10.32c15.16.68 26.46 3.32 26.46 6.48s-11.31 5.8-26.46 6.48m0-14.03v-9.24h21.15v-14.09h-57.58v14.09h21.15v9.24c-17.19.79-30.11 4.19-30.11 8.27s12.93 7.48 30.11 8.28v29.62h15.29v-29.62c17.16-.79 30.06-4.19 30.06-8.27 0-4.07-12.9-7.48-30.06-8.27';
 const RUPEE = 'M8.5 7.5h7 M8.5 10.5h7 M10 7.5c2.6 0 3.9 1.1 3.9 2.9 0 1.9-1.4 3-3.9 3H9l4.8 3.6';
 
-/** The escrow's ring in four arcs around (380, 150) — the deal's four moments, lit in order. */
-const ARC_R = 86;
-const arc = (from: number, to: number): string => {
-  const p = (deg: number) => {
-    const a = ((deg - 90) * Math.PI) / 180;
-    return `${(380 + ARC_R * Math.cos(a)).toFixed(2)} ${(150 + ARC_R * Math.sin(a)).toFixed(2)}`;
-  };
-  return `M${p(from)}A${ARC_R} ${ARC_R} 0 0 1 ${p(to)}`;
-};
-const ARCS = [arc(4, 86), arc(94, 176), arc(184, 266), arc(274, 356)];
-
 /** A party's disc: the person, drawn in the workspace's hand. */
 function Party({ cx, side }: { cx: number; side: 'seller' | 'buyer' }) {
   return (
     <g className={styles.party} data-side={side}>
-      <circle cx={cx} cy="150" r="54" className={styles.partyHalo} />
-      <circle cx={cx} cy="150" r="44" className={styles.partyDisc} />
-      <g transform={`translate(${cx - 17} 133) scale(1.42)`} className={styles.person}>
+      <circle cx={cx} cy="294" r="54" className={styles.partyHalo} />
+      <circle cx={cx} cy="294" r="44" className={styles.partyDisc} />
+      <g transform={`translate(${cx - 17} 277) scale(1.42)`} className={styles.person}>
         <circle cx="12" cy="8.4" r="3.6" />
         <path d="M4.8 19.8c.7-3.8 3.5-5.9 7.2-5.9s6.5 2.1 7.2 5.9" />
       </g>
@@ -46,62 +37,59 @@ function Party({ cx, side }: { cx: number; side: 'seller' | 'buyer' }) {
   );
 }
 
+/** The rupees' way: from the buyer's bank, down under the robot, up to the seller's — never through the escrow. */
+const BACK = 'M670 348V364a22 22 0 0 1-22 22H112a22 22 0 0 1-22-22V348';
+
+/**
+ * The deal's picture: the seller and the buyer either side, and in the middle INRP2P's escrow — the robot itself. The
+ * USDT goes into its chest and comes out only at the end; its face is the deal's display (LedFace.tsx). Three layers:
+ * the lanes and the parties, the robot, then what travels in front of it.
+ */
 function Picture() {
+  const { props: robot } = getImageProps({ src: still, alt: '', width: 360, height: 360, sizes: '(max-width: 1099px) 48vw, 360px' });
   return (
-    <svg className={styles.rail} viewBox="0 0 760 330" aria-hidden="true" focusable="false">
-      <defs>
-        <radialGradient id="deal-vault" cx="38%" cy="30%" r="80%">
-          <stop offset="0" stopColor="#ff8a5c" />
-          <stop offset="0.5" stopColor="#ea4a20" />
-          <stop offset="1" stopColor="#b8360f" />
-        </radialGradient>
-      </defs>
+    <>
+      <svg className={styles.rail} viewBox="0 0 760 410" aria-hidden="true" focusable="false">
+        <circle cx="380" cy="294" r="132" className={styles.vaultGlow} />
+        <path className={styles.lane} data-lane="in" d="M144 294H300" />
+        <path className={styles.lane} data-lane="out" d="M460 294H616" />
+        <path className={styles.laneBack} data-lane="back" d={BACK} />
+        <path className={styles.laneHead} data-lane="back" d="M81.5 358l8.5-10 8.5 10" />
+        <path className={styles.laneHead} data-lane="in" d="M293 287.5l8 6.5-8 6.5" />
+        <path className={styles.laneHead} data-lane="out" d="M609 287.5l8 6.5-8 6.5" />
+        <Party cx={90} side="seller" />
+        <Party cx={670} side="buyer" />
+      </svg>
 
-      {/* The lanes: USDT along the top, in and out of escrow; the rupees along the bottom, buyer to seller. */}
-      <path className={styles.lane} data-lane="in" d="M144 150H284" />
-      <path className={styles.lane} data-lane="out" d="M476 150H616" />
-      <path className={styles.laneBack} data-lane="back" d="M670 204V258a22 22 0 0 1-22 22H112a22 22 0 0 1-22-22V204" />
-      <path className={styles.laneHead} data-lane="back" d="M81.5 214l8.5-10 8.5 10" />
-      <path className={styles.laneHead} data-lane="in" d="M277 143.5l8 6.5-8 6.5" />
-      <path className={styles.laneHead} data-lane="out" d="M609 143.5l8 6.5-8 6.5" />
+      <div className={styles.robot}>
+        <img {...robot} className={styles.robotStill} loading="lazy" decoding="async" />
+        <span className={styles.visorGlass}>
+          <LedFace />
+        </span>
+      </div>
 
-      <Party cx={90} side="seller" />
-      <Party cx={670} side="buyer" />
-
-      {/* The escrow: its glow, its ring of four arcs, the vault itself, and its lock. */}
-      <circle cx="380" cy="150" r="118" className={styles.vaultGlow} />
-      <circle cx="380" cy="150" r={ARC_R} className={styles.arcTrack} />
-      {ARCS.map((d, i) => (
-        <path key={d} d={d} className={styles.arc} data-arc={i} />
-      ))}
-      <circle cx="380" cy="150" r="70" fill="url(#deal-vault)" className={styles.vault} />
-      <circle cx="380" cy="150" r="70" className={styles.vaultRim} />
-      <g className={styles.vaultHub}>
-        <path transform="translate(380 150) scale(2.3) translate(-12.1 -12.3)" d={RUPEE} />
-      </g>
-      <g className={styles.lock}>
-        <circle cx="428" cy="198" r="17" className={styles.lockPlate} />
-        <circle cx="428" cy="198" r="12.5" className={styles.lockDisc} />
-        <rect x="422.5" y="197" width="11" height="8.4" rx="2.2" className={styles.lockBody} />
-        <path className={styles.lockBow} d="M424.8 197v-2.2a3.2 3.2 0 0 1 6.4 0v2.2" />
-      </g>
-
-      {/* The USDT: it waits with the seller, goes into escrow, and leaves only at the end. */}
-      <g className={styles.usdt}>
-        <circle r="23" className={styles.riderPlate} />
-        <g transform="translate(-18 -18) scale(1.125)">
-          <circle cx="16" cy="16" r="16" className={styles.tetherDisc} />
-          <path className={styles.tetherSign} transform="scale(0.25723) translate(-4.465 -13.693)" d={TETHER} />
+      <svg className={`${styles.rail} ${styles.front}`} viewBox="0 0 760 410" aria-hidden="true" focusable="false">
+        <circle cx="380" cy="294" r="38" className={styles.chestGlow} />
+        <g className={styles.lock}>
+          <circle cx="422" cy="334" r="17" className={styles.lockPlate} />
+          <circle cx="422" cy="334" r="12.5" className={styles.lockDisc} />
+          <rect x="416.5" y="333" width="11" height="8.4" rx="2.2" className={styles.lockBody} />
+          <path className={styles.lockBow} d="M418.8 333v-2.2a3.2 3.2 0 0 1 6.4 0v2.2" />
         </g>
-      </g>
-
-      {/* The rupees: from the buyer's bank to the seller's, along the bottom, never through the escrow. */}
-      <g className={styles.inr}>
-        <circle r="20" className={styles.riderPlate} />
-        <circle r="16" className={styles.inrDisc} />
-        <path className={styles.inrSign} transform="scale(1.15) translate(-12.1 -12.3)" d={RUPEE} />
-      </g>
-    </svg>
+        <g className={styles.usdt}>
+          <circle r="23" className={styles.riderPlate} />
+          <g transform="translate(-18 -18) scale(1.125)">
+            <circle cx="16" cy="16" r="16" className={styles.tetherDisc} />
+            <path className={styles.tetherSign} transform="scale(0.25723) translate(-4.465 -13.693)" d={TETHER} />
+          </g>
+        </g>
+        <g className={styles.inr}>
+          <circle r="20" className={styles.riderPlate} />
+          <circle r="16" className={styles.inrDisc} />
+          <path className={styles.inrSign} transform="scale(1.15) translate(-12.1 -12.3)" d={RUPEE} />
+        </g>
+      </svg>
+    </>
   );
 }
 
@@ -146,6 +134,7 @@ export function Deal() {
           </ol>
 
           <div className={styles.sceneWrap}>
+            <div className={styles.pin}>
             <figure className={styles.scene} aria-label={heading}>
               {/* The deal's own display, on the robot's black glass: which moment, and what the deal says. */}
               <div className={styles.visor} aria-hidden="true">
@@ -212,6 +201,7 @@ export function Deal() {
                 <span className={styles.footNote}>{RAILS.usdt} · TRC20</span>
               </figcaption>
             </figure>
+            </div>
           </div>
         </div>
       </div>

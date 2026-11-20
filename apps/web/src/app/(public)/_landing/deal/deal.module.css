@@ -213,9 +213,15 @@
   position: relative;
 }
 
-.scene {
+/* What stays pinned beside the moments: the sheet, and the robot behind it. */
+.pin {
   position: sticky;
-  top: max(96px, calc(50vh - 280px));
+  top: max(150px, calc(50vh - 250px));
+}
+
+.scene {
+  position: relative;
+  z-index: 1;
   margin: 0;
   padding: 22px 26px 20px;
   border: 1px solid transparent;
@@ -253,30 +259,15 @@
   gap: 14px;
   height: 50px;
   padding: 0 18px;
-  border-radius: 18px;
-  background: var(--visor);
-  box-shadow:
-    var(--visor-edge),
-    0 12px 24px -12px rgb(0 0 0 / 0.6);
-  color: var(--led);
+  border-radius: 16px;
+  background: var(--paper);
+  box-shadow: inset 0 1px 2px rgb(18 19 23 / 0.05);
+  color: var(--text-muted);
   font-family: var(--font-mono);
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: var(--font-weight-medium);
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  text-shadow: 0 0 9px rgb(255 106 61 / 0.85);
-}
-
-.visor::before {
-  content: '';
-  position: absolute;
-  top: 6px;
-  left: 12px;
-  width: 90px;
-  height: 14px;
-  border-radius: 999px;
-  background: linear-gradient(180deg, rgb(255 255 255 / 0.16), rgb(255 255 255 / 0));
-  pointer-events: none;
 }
 
 .visorNode {
@@ -318,7 +309,7 @@
 .visorLine {
   flex: 1;
   min-width: 0;
-  color: #ffd2bd;
+  color: var(--text-primary);
 }
 
 .visorBars {
@@ -330,7 +321,7 @@
   width: 18px;
   height: 4px;
   border-radius: 2px;
-  background: rgb(255 255 255 / 0.14);
+  background: rgb(18 19 23 / 0.1);
   transition:
     background-color 300ms var(--ease),
     box-shadow 300ms var(--ease);
@@ -504,11 +495,11 @@
 }
 
 .usdt {
-  offset-path: path('M146 150H380H614');
+  offset-path: path('M146 294H380H614');
 }
 
 .inr {
-  offset-path: path('M670 204V258a22 22 0 0 1-22 22H112a22 22 0 0 1-22-22V204');
+  offset-path: path('M670 348V364a22 22 0 0 1-22 22H112a22 22 0 0 1-22-22V348');
   opacity: 0;
 }
 
@@ -540,7 +531,8 @@
 /* The words on the picture. */
 .who {
   position: absolute;
-  top: 27%;
+  z-index: 3;
+  top: 57%;
   display: grid;
   justify-items: center;
   gap: 2px;
@@ -568,9 +560,13 @@
   left: 11.84%;
 }
 
+/* The escrow's name beside the robot's head, set left rather than centred. */
 .who[data-at='escrow'] {
-  left: 50%;
-  top: 14%;
+  left: 73%;
+  top: 20%;
+  justify-items: start;
+  transform: none;
+  text-align: left;
 }
 
 .who[data-at='buyer'] {
@@ -579,8 +575,8 @@
 
 .laneName {
   position: absolute;
-  top: 37%;
-  left: 28%;
+  top: 67%;
+  left: 29%;
   transform: translate(-50%, -50%);
   font-family: var(--font-mono);
   font-size: 10.5px;
@@ -591,7 +587,8 @@
 /* The rupees' lane carries its rails, on a tag over the line. */
 .tag {
   position: absolute;
-  top: 84.85%;
+  z-index: 3;
+  top: 94.15%;
   left: 50%;
   display: inline-flex;
   align-items: center;
@@ -687,8 +684,7 @@
 .deal[data-step='1'] :is([data-bar='0'], [data-bar='1']),
 .deal[data-step='2'] :is([data-bar='0'], [data-bar='1'], [data-bar='2']),
 .deal[data-step='3'] [data-bar] {
-  background: var(--led);
-  box-shadow: 0 0 8px rgb(255 106 61 / 0.8);
+  background: var(--brand-primary);
 }
 
 /* The escrow's arcs: lit up to the moment, the current one pulsing. */
@@ -788,6 +784,82 @@
   opacity: 0.32;
 }
 
+/* ——— The robot: INRP2P's escrow, between the two parties. The USDT goes into its chest; its face is the deal's
+   display (LedFace.tsx), an LED matrix set exactly into the still's black visor. ——— */
+.robot {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  left: 27.63%;
+  width: 44.74%;
+  aspect-ratio: 1;
+  pointer-events: none;
+}
+
+.robotStill {
+  display: block;
+  width: 100%;
+  height: 100%;
+  filter: drop-shadow(0 24px 30px rgb(96 56 24 / 0.28));
+}
+
+.visorGlass {
+  position: absolute;
+  top: 20.4%;
+  left: 25.1%;
+  width: 49.8%;
+  height: 38.4%;
+  overflow: hidden;
+  border-radius: 21% / 27%;
+  background: radial-gradient(130% 110% at 30% -10%, #26282f 0, #111215 45%, #050506 100%);
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 0.05),
+    inset 0 -8px 16px rgb(0 0 0 / 0.6);
+}
+
+/* The visor's own gloss, top right, as the still has it. */
+.visorGlass::after {
+  content: '';
+  position: absolute;
+  top: 6%;
+  right: 9%;
+  width: 26%;
+  height: 16%;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgb(255 255 255 / 0.5), transparent);
+  pointer-events: none;
+}
+
+.led {
+  position: absolute;
+  top: 9%;
+  left: 7%;
+  width: 86%;
+  height: 82%;
+}
+
+.front {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  left: 0;
+}
+
+/* The chest holds the USDT: its mark glows while the deal is in escrow. */
+.chestGlow {
+  fill: rgb(255 120 70 / 0.55);
+  opacity: 0;
+  filter: blur(10px);
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: opacity 500ms var(--ease);
+}
+
+.deal:is([data-step='1'], [data-step='2']) .chestGlow {
+  opacity: 1;
+  animation: glow 2.4s ease-in-out infinite;
+}
+
 @keyframes flow {
   to {
     stroke-dashoffset: -16;
@@ -856,12 +928,27 @@
     z-index: 2;
   }
 
-  .scene {
+  .pin {
     position: relative;
     top: auto;
+  }
+
+  .scene {
     padding: 12px 12px 10px;
     border-radius: 26px;
   }
+
+  .who[data-at='escrow'] {
+    left: 70%;
+    top: 16%;
+  }
+
+  .who[data-at='escrow'] b {
+    max-width: 7em;
+    white-space: normal;
+    line-height: 1.15;
+  }
+
 
   .visor {
     height: 40px;
@@ -874,6 +961,15 @@
 
   .visorBars i {
     width: 10px;
+  }
+
+  .visorLine {
+    overflow: hidden;
+  }
+
+  .visorLine > [data-show] {
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .picture {
