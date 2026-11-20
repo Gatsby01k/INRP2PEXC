@@ -3,6 +3,8 @@ import Link from 'next/link';
 import { getImageProps } from 'next/image';
 import mark from '../../../../../brand/inrp2p-mark.png';
 import { CLOSING, FOOTER, FOOTER_NOTE, NAV, OWN_DESK, SITE_NAME, SITE_PAGES, TAGLINE, TELEGRAM, TRADER_ENTRY, WORKSPACE_ENTRY, telegramUrl } from '../../content/site.ts';
+import { NavSpy } from './_landing/NavSpy.tsx';
+import { Ticker } from './_landing/Ticker.tsx';
 import { appOrigin, mailto, onboardingHref, siteContacts } from '../../server/site.ts';
 import styles from './public.module.css';
 
@@ -61,10 +63,10 @@ function EntryGlyph({ className, headClassName }: { className?: string | undefin
 /**
  * The frame every public page is drawn in.
  *
- * A server component with no interactivity of its own. The home page hydrates a few small islands (the hero's
- * quote module, the robot stage and the flow's switch);
- * everything else on the public site is plain server-rendered HTML, which keeps it fast on a phone on Indian
- * mobile data and keeps its Content-Security-Policy to one nonce.
+ * A server component. Two small islands live in its masthead — the market's rate (Ticker.tsx) and the section being
+ * read (NavSpy.tsx); the home page adds its own (the converter, the robot's stage, the deal's scene). Everything else
+ * on the public site is plain server-rendered HTML, which keeps it fast on a phone on Indian mobile data and keeps its
+ * Content-Security-Policy to one nonce.
  */
 export function PublicShell({ children, nonce }: { children: ReactNode; nonce?: string | undefined }) {
   const app = appOrigin();
@@ -102,30 +104,35 @@ export function PublicShell({ children, nonce }: { children: ReactNode; nonce?: 
         Skip to content
       </a>
       <header className={styles.masthead}>
-        <div className={styles.mastheadInner}>
+        {/* The workspace's own bar, as a floating glass capsule: the mark, the sections (the one being read carries the
+            visor pill, NavSpy.tsx), the market's rate now, and the way in. */}
+        <div className={styles.capsule}>
           <Link href="/" className={styles.brand}>
             {/* The supplied mark, as supplied; its circular composition is shown in a circular field. */}
             <img {...markProps} className={styles.brandMark} />
             <span className={styles.brandName}>{SITE_NAME}</span>
           </Link>
-          <nav className={styles.nav} aria-label="Pages">
-            {NAV.map((item) => (
-              <Link key={item.path} href={item.path} className={styles.navLink} prefetch={false}>
+          <nav className={styles.nav} aria-label="Pages" data-nav="">
+            <span className={styles.navThumb} aria-hidden="true" />
+            {[...NAV.slice(0, 2), { label: OWN_DESK.nav, path: '/#own-desk' }, ...NAV.slice(2)].map((item) => (
+              <Link key={item.path} href={item.path} className={styles.navLink} prefetch={false} data-section={item.path.split('#')[1]}>
                 {item.label}
+                {item.path === '/#own-desk' ? <span className={styles.navNew} aria-hidden="true" /> : null}
               </Link>
             ))}
-            <Link href="/#own-desk" className={styles.navLink} prefetch={false}>
-              {OWN_DESK.nav}
-              <span className={styles.navNew} aria-hidden="true" />
-            </Link>
           </nav>
-          {/* The way into the workspace. `data-robot-target` lets the home page's robot glance at it; the shell
-              itself still ships no script. */}
-          <a className={styles.entry} href={`${app}${WORKSPACE_ENTRY.appPath}`} data-robot-target="entry">
-            {WORKSPACE_ENTRY.label}
-            <EntryGlyph className={styles.entryGlyph} headClassName={styles.entryHead} />
-          </a>
+          <div className={styles.tools}>
+            <Ticker />
+            {/* The way into the workspace. `data-robot-target` lets the home page's robot glance at it. */}
+            <a className={styles.entry} href={`${app}${WORKSPACE_ENTRY.appPath}`} data-robot-target="entry">
+              <span>
+                Open<span className={styles.entryTail}> workspace</span>
+              </span>
+              <EntryGlyph className={styles.entryGlyph} headClassName={styles.entryHead} />
+            </a>
+          </div>
         </div>
+        <NavSpy />
       </header>
 
       <main id="content" className={styles.main} tabIndex={-1}>

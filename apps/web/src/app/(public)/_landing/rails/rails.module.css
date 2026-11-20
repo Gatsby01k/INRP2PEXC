@@ -1,0 +1,97 @@
+/* The strip under the hero: one line of marks between hairlines, the room's own paper. */
+
+.rails {
+  position: relative;
+  z-index: 1;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.6), rgb(255 255 255 / 0.2));
+}
+
+.inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 14px 22px;
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 18px var(--space-10);
+  font-size: var(--font-size-body-sm);
+}
+
+.label {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.group {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  white-space: nowrap;
+}
+
+.word {
+  font-weight: var(--font-weight-medium);
+  color: var(--text-primary);
+}
+
+.mark {
+  height: 15px;
+  width: auto;
+}
+
+.rail {
+  padding: 3px 7px;
+  border-radius: 7px;
+  background: var(--paper);
+  box-shadow: inset 0 0 0 1px var(--line);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.06em;
+  color: var(--ink-2);
+}
+
+.dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--brand-primary);
+}
+
+.telegram {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border-radius: 50%;
+  background: #2aabee;
+  color: #fff;
+}
+
+.telegram svg {
+  width: 14px;
+  height: 14px;
+}
+
+@media (max-width: 1099px) {
+  .inner {
+    justify-content: flex-start;
+    gap: 12px 16px;
+    max-width: 640px;
+    padding: 16px var(--space-4);
+  }
+
+  .label {
+    flex-basis: 100%;
+  }
+
+  .dot {
+    display: none;
+  }
+}

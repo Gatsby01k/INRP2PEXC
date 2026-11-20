@@ -3,9 +3,12 @@ import { notFound } from 'next/navigation';
 import { pageForPath } from '../../../content/site.ts';
 import { Closing } from '../_landing/closing/Closing.tsx';
 import { Faq } from '../_landing/faq/Faq.tsx';
-import { Flow } from '../_landing/flow/Flow.tsx';
+import { Deal } from '../_landing/deal/Deal.tsx';
 import { Hero } from '../_landing/Hero.tsx';
+import { FieldLight } from '../_landing/FieldLight.tsx';
 import { OwnDesk } from '../_landing/owndesk/OwnDesk.tsx';
+import { Rails } from '../_landing/rails/Rails.tsx';
+import { Showcase } from '../_landing/showcase/Showcase.tsx';
 import { Story } from '../_landing/Story.tsx';
 import { Why } from '../_landing/why/Why.tsx';
 import { pageMetadata } from '../metadata.ts';
@@ -40,11 +43,14 @@ export default async function Page() {
       hero={<Hero />}
       story={
         <Story>
-          <Flow />
+          <Rails />
+          <Deal />
           <Why />
+          <Showcase />
           <OwnDesk appOrigin={appOrigin()} host={host} />
           <Faq />
           <Closing />
+          <FieldLight />
         </Story>
       }
     />

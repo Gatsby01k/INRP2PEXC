@@ -3,9 +3,7 @@
    and elsewhere it simply appears. */
 
 .faq {
-  --line: color-mix(in srgb, var(--border-default) 86%, transparent);
-  border-top: 1px solid var(--border-default);
-  background: var(--bg-app);
+  background: var(--room);
 }
 
 .layout {
@@ -45,11 +43,12 @@
   gap: var(--space-1);
   max-width: 20rem;
   padding: var(--space-5) var(--space-6);
-  border-radius: 20px;
-  background: var(--bg-surface);
-  box-shadow:
-    0 0 0 1px var(--line),
-    0 18px 40px -30px color-mix(in srgb, var(--text-primary) 30%, transparent);
+  border: 1px solid transparent;
+  border-radius: 22px;
+  background:
+    linear-gradient(#fff, #fffdfa) padding-box,
+    var(--edge) border-box;
+  box-shadow: var(--lift);
   color: var(--text-primary);
   text-decoration: none;
   transition: transform var(--dur-base) var(--ease);
@@ -103,13 +102,30 @@
   transform: translateX(2px);
 }
 
+/* Each question is a well on the paper; the open one lifts into a ceramic sheet. */
 .list {
-  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 10px;
 }
 
 .item {
-  border-bottom: 1px solid var(--line);
+  border: 1px solid transparent;
+  border-radius: 22px;
+  background:
+    linear-gradient(var(--paper), var(--paper)) padding-box,
+    linear-gradient(transparent, transparent) border-box;
+  padding: 0 var(--space-6);
   interpolate-size: allow-keywords;
+  transition:
+    background 300ms var(--ease),
+    box-shadow 300ms var(--ease);
+}
+
+.item[open] {
+  background:
+    linear-gradient(#fff, #fffdfa) padding-box,
+    var(--edge) border-box;
+  box-shadow: var(--lift);
 }
 
 .item::details-content {
@@ -129,7 +145,7 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-6);
-  padding: var(--space-6) 0;
+  padding: var(--space-5) 0;
   cursor: pointer;
   list-style: none;
   font-family: var(--font-display);
@@ -161,7 +177,8 @@
   width: 32px;
   height: 32px;
   border-radius: var(--radius-pill);
-  box-shadow: inset 0 0 0 1px var(--border-strong);
+  background: #fff;
+  box-shadow: 0 0 0 1px var(--line), 0 4px 10px -6px rgb(96 56 24 / 0.4);
   transition:
     background-color var(--dur-base) var(--ease),
     box-shadow var(--dur-base) var(--ease);
@@ -186,9 +203,10 @@
 }
 
 .item[open] .toggle {
-  background: var(--brand-primary);
-  box-shadow: none;
-  color: var(--text-on-action);
+  background: var(--visor);
+  box-shadow: var(--visor-edge), 0 6px 12px -6px rgb(18 19 23 / 0.6);
+  color: var(--led);
+  filter: drop-shadow(0 0 3px rgb(255 106 61 / 0.6));
 }
 
 .item[open] .toggle::after {
@@ -200,7 +218,7 @@
   padding: 0 calc(32px + var(--space-6)) var(--space-6) 0;
   font-size: var(--font-size-body-lg);
   line-height: 1.65;
-  color: var(--text-secondary);
+  color: var(--ink-2);
   text-wrap: pretty;
 }
 
@@ -216,6 +234,13 @@
   font-weight: var(--font-weight-medium);
   color: var(--brand-action);
   text-decoration: none;
+}
+
+@media (max-width: 1099px) {
+  .item {
+    padding: 0 var(--space-4);
+    border-radius: 18px;
+  }
 }
 
 @media (max-width: 1099px) {

@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react';
 import { OWN_DESK, type OwnDeskFeature } from '../../../../content/site.ts';
 import { ArrowIcon, CheckIcon } from '../icons.tsx';
-import { MASKS } from '../masks.ts';
+import { groupDigits } from '@inrp2p/ui/format';
+import { LiveRate } from '../LiveRate.tsx';
 import { MarkArt } from '../../../../components/MarkArt.tsx';
 import section from '../section.module.css';
 import styles from './owndesk.module.css';
@@ -46,7 +47,8 @@ function Tile({ feature, className, children }: { feature: OwnDeskFeature; class
   );
 }
 
-const rate = `${MASKS.rate}`;
+/** The example a deal link is drawn with: an amount, never a rate of ours. */
+const LINK_USDT = '5000';
 
 /**
  * "Your own exchange, on INRP2P": the desk programme (ADR 0020) for the traders and brokers who would run one — a
@@ -61,7 +63,10 @@ export function OwnDesk({ appOrigin, host }: { appOrigin: string; host: string }
       <div className={section.inner}>
         <header className={section.head}>
           <div>
-            <p className={section.eyebrow}>{eyebrow}</p>
+            <p className={section.eyebrow}>
+              <span className={section.index}>04</span>
+              {eyebrow}
+            </p>
             <h2 id="own-desk-title" className={section.title}>
               {heading}
             </h2>
@@ -97,12 +102,12 @@ export function OwnDesk({ appOrigin, host }: { appOrigin: string; host: string }
                 <div className={styles.rates}>
                   <span className={styles.rate} data-on="">
                     <span className={styles.rateLabel}>{mock.sell}</span>
-                    <span className={styles.rateValue}>{rate}</span>
+                    <LiveRate direction="SELL_USDT" fallback={mock.market} className={styles.rateValue} />
                     <span className={styles.rateUnit}>{mock.perUsdt}</span>
                   </span>
                   <span className={styles.rate}>
                     <span className={styles.rateLabel}>{mock.buy}</span>
-                    <span className={styles.rateValue}>{rate}</span>
+                    <LiveRate direction="BUY_USDT" fallback={mock.market} className={styles.rateValue} />
                     <span className={styles.rateUnit}>{mock.perUsdt}</span>
                   </span>
                 </div>
@@ -124,11 +129,11 @@ export function OwnDesk({ appOrigin, host }: { appOrigin: string; host: string }
                   {mock.linkTitle}
                 </span>
                 <span className={styles.linkAmount}>
-                  {MASKS.amount} <small>{mock.linkMeta}</small> {rate}
+                  {groupDigits(LINK_USDT)} <small>{mock.linkMeta}</small> <LiveRate direction="BUY_USDT" fallback={mock.market} />
                 </span>
                 <span className={styles.linkHeld}>
                   <span className={styles.ring} />
-                  {mock.held} {MASKS.time}
+                  {mock.held}
                 </span>
                 <span className={styles.linkTake}>{mock.take}</span>
               </div>
@@ -152,7 +157,7 @@ export function OwnDesk({ appOrigin, host }: { appOrigin: string; host: string }
                 <span key={label} className={styles.priceRow}>
                   <span className={styles.priceText}>
                     <span className={styles.priceLabel}>{label}</span>
-                    <span className={styles.priceValue}>{rate}</span>
+                    <LiveRate direction={label === mock.youBuy ? 'SELL_USDT' : 'BUY_USDT'} fallback={mock.followMarket} className={styles.priceValue} />
                   </span>
                   <span className={styles.toggle} data-on="">
                     <span />
