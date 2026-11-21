@@ -526,8 +526,10 @@
 
 .foot {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
-  margin-top: var(--space-10);
+  gap: var(--space-6);
+  margin-top: var(--space-8);
 }
 
 /* Narrower than the three columns need: each row is a card — the topic, the chat's answer set back, INRP2P's

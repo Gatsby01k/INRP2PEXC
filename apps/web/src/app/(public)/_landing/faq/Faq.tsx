@@ -1,5 +1,6 @@
 import { getImageProps } from 'next/image';
-import { FAQ, TELEGRAM, telegramUrl } from '../../../../content/site.ts';
+import Link from 'next/link';
+import { FAQ, GUIDES, SITE_PAGES, TELEGRAM, telegramUrl, withTerms } from '../../../../content/site.ts';
 import { ArrowIcon, TelegramIcon } from '../icons.tsx';
 import wink from '../robot/stills/robot-wink.webp';
 import section from '../section.module.css';
@@ -41,6 +42,20 @@ export function Faq() {
                 </span>
               </a>
             </div>
+            {/* The guides, by what people search for: the same answers at length, a page each. */}
+            <nav className={styles.guides} aria-label={GUIDES.more}>
+              <p className={styles.guidesTitle}>{GUIDES.more}</p>
+              <ul className={styles.guideList}>
+                {SITE_PAGES.filter((p) => p.path !== '/').map((p) => (
+                  <li key={p.path}>
+                    <Link href={p.path} className={styles.guide} prefetch={false}>
+                      {p.h1}
+                      <ArrowIcon className={styles.guideArrow} />
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </nav>
           </div>
 
           <div className={styles.list}>
@@ -51,7 +66,7 @@ export function Faq() {
                   <span className={styles.toggle} aria-hidden="true" />
                 </summary>
                 <div className={styles.answer}>
-                  <p>{item.answer}</p>
+                  <p>{withTerms(item.answer)}</p>
                   {item.more ? (
                     <a className={styles.more} href={`#${item.more.anchor}`}>
                       {item.more.label}

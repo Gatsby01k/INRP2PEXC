@@ -1,0 +1,314 @@
+/* A guide's first screen art (GuideRobot, MarketCard), its questions and the way to the other guides. */
+
+.art {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  align-content: end;
+}
+
+.robot {
+  position: relative;
+  width: min(420px, 100%);
+  aspect-ratio: 1;
+}
+
+.robot > :first-child {
+  /* The halo sits behind the head, as in the hero. */
+  top: -6%;
+  left: 50%;
+}
+
+.still {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  filter: drop-shadow(0 30px 40px rgb(96 56 24 / 0.3));
+}
+
+/* The still's black visor, with the LEDs set into it. */
+.visor {
+  position: absolute;
+  top: 20.4%;
+  left: 25.1%;
+  width: 49.8%;
+  height: 38.4%;
+  overflow: hidden;
+  display: grid;
+  align-items: center;
+  border-radius: 21% / 27%;
+  background: radial-gradient(130% 110% at 30% -10%, #26282f 0, #111215 45%, #050506 100%);
+}
+
+.visor::after {
+  content: '';
+  position: absolute;
+  top: 6%;
+  right: 9%;
+  width: 26%;
+  height: 16%;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgb(255 255 255 / 0.5), transparent);
+}
+
+.led {
+  width: 88%;
+  margin: 0 auto;
+}
+
+/* The market's rate now: a glass card over the robot's chest. */
+.market {
+  position: absolute;
+  z-index: 2;
+  right: -4%;
+  bottom: 6%;
+  display: grid;
+  gap: 10px;
+  width: 260px;
+  padding: 14px 16px 12px;
+  border-radius: 22px;
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.92), rgb(255 255 255 / 0.7));
+  backdrop-filter: blur(18px) saturate(1.7);
+  box-shadow:
+    inset 0 1px 0 #fff,
+    0 0 0 1px rgb(18 19 23 / 0.06),
+    0 30px 60px -26px rgb(96 56 24 / 0.5);
+  animation: rise 600ms var(--ease) both;
+}
+
+.marketHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.pair {
+  position: relative;
+  width: 26px;
+  height: 24px;
+}
+
+.pairBadge {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px #fff;
+}
+
+.live {
+  width: 6px;
+  height: 6px;
+  margin-left: auto;
+  border-radius: 50%;
+  background: var(--brand-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-primary) 22%, transparent);
+}
+
+.marketRows {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 0;
+}
+
+.marketRows div {
+  display: grid;
+  gap: 2px;
+}
+
+.marketRows dt {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.marketRows dd {
+  margin: 0;
+  font-size: 24px;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+
+.spark {
+  width: 100%;
+  height: 36px;
+  fill: none;
+  stroke: var(--buy);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.market[data-trend='down'] .spark {
+  stroke: var(--sell);
+}
+
+.marketNote {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+
+/* ——— The questions, and the other guides ——— */
+
+.block {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 0 var(--space-10) clamp(64px, 9vh, 104px);
+}
+
+.blockTitle {
+  margin: 0 0 var(--space-6);
+  font-family: var(--font-display);
+  font-size: clamp(28px, 3vw, 40px);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.035em;
+}
+
+.faq {
+  display: grid;
+  gap: 10px;
+  max-width: 880px;
+}
+
+.item {
+  padding: 0 var(--space-6);
+  border-radius: 22px;
+  background: var(--paper);
+}
+
+.item[open] {
+  background: #fff;
+  box-shadow: var(--lift), 0 0 0 1px var(--line);
+}
+
+.question {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-5);
+  padding: var(--space-5) 0;
+  cursor: pointer;
+  list-style: none;
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.015em;
+}
+
+.question::-webkit-details-marker {
+  display: none;
+}
+
+.question::after {
+  content: '+';
+  display: grid;
+  flex: none;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 1px var(--line);
+  font-family: var(--font-sans);
+  font-weight: var(--font-weight-medium);
+}
+
+.item[open] .question::after {
+  content: '−';
+  background: var(--visor);
+  color: var(--led);
+}
+
+.answer {
+  margin: 0;
+  padding: 0 0 var(--space-5);
+  max-width: 44rem;
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--ink-2);
+}
+
+.guides {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-3);
+}
+
+.guideLink {
+  display: grid;
+  gap: 6px;
+  padding: 18px 20px;
+  border: 1px solid transparent;
+  border-radius: 22px;
+  background:
+    linear-gradient(#fff, #fffdfa) padding-box,
+    var(--edge) border-box;
+  box-shadow: var(--lift);
+  color: var(--text-primary);
+  text-decoration: none;
+  transition: transform var(--dur-base) var(--ease);
+}
+
+.guideLink:hover {
+  transform: translateY(-2px);
+}
+
+.guideLink b {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.02em;
+}
+
+.guideLink span {
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .market {
+    animation: none;
+  }
+}
+
+@media (max-width: 1099px) {
+  .robot {
+    width: 240px;
+  }
+
+  .market {
+    position: relative;
+    right: auto;
+    bottom: auto;
+    width: 100%;
+    max-width: 360px;
+    margin-top: -36px;
+  }
+
+  .block {
+    padding: 0 var(--space-4) var(--space-16);
+  }
+
+  .item {
+    padding: 0 var(--space-4);
+  }
+}

@@ -147,18 +147,28 @@
 }
 
 /* What is new: a small orange node beside the programme's link, the way an app marks a fresh section. */
-.navNew {
-  display: inline-block;
-  width: 6px;
-  height: 6px;
+/* Beside "For traders", the margin they come for, as a small orange tab. */
+.navTag {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
   margin-left: 7px;
-  border-radius: 50%;
-  background: var(--brand-primary);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-primary) 18%, transparent);
+  padding: 0 6px;
+  border-radius: 6px;
+  background: var(--field);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.3),
+    0 4px 10px -5px color-mix(in srgb, var(--brand-action) 90%, transparent);
+  color: var(--text-on-action);
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
 }
 
-.navLink[aria-current] .navNew {
-  box-shadow: 0 0 8px 1px var(--led);
+.navLink[aria-current] .navTag {
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.24);
 }
 
 .tools {
@@ -261,6 +271,26 @@
 .heroInner {
   max-width: 1360px;
   margin: 0 auto;
+}
+
+/* The words keep to their column. */
+.heroCopy {
+  min-width: 0;
+}
+
+/* A guide with a robot: the words on the left, the robot (and the market's rate) on the right. */
+.heroGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+  align-items: center;
+  gap: var(--space-10);
+}
+
+@media (max-width: 1099px) {
+  .heroGrid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-8);
+  }
 }
 
 .eyebrow {
@@ -375,7 +405,7 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
   gap: var(--space-5);
-  max-width: 1360px;
+  max-width: 1440px;
   margin: 0 auto;
   padding: 0 var(--space-10) clamp(88px, 12vh, 128px);
 }
@@ -394,21 +424,23 @@
 }
 
 .sectionIndex {
-  display: inline-grid;
-  justify-self: start;
-  place-items: center;
-  min-width: 34px;
-  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
   margin-bottom: var(--space-2);
-  padding: 0 8px;
-  border-radius: 8px;
-  background: var(--visor);
-  box-shadow: var(--visor-edge);
-  color: var(--led);
+  color: var(--brand-action);
   font-family: var(--font-mono);
-  font-size: 11.5px;
-  letter-spacing: 0.06em;
-  text-shadow: 0 0 8px rgb(255 106 61 / 0.9);
+  font-size: 12px;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.08em;
+}
+
+.sectionIndex::after {
+  content: '';
+  width: 24px;
+  height: 1px;
+  background: currentColor;
+  opacity: 0.45;
 }
 
 .h2 {

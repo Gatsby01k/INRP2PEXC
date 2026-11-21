@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { CLOSING, FAQ, FLOW, HERO, ONBOARDING, OWN_DESK, SITE_PAGES, SITE_PATHS, TELEGRAM, TRADER_ENTRY, WHY, telegramUrl } from '../src/content/site.ts';
+import { CLOSING, FAQ, FLOW, HERO, ONBOARDING, OWN_DESK, SITE_PAGES, SITE_PATHS, TELEGRAM, TRADER_ENTRY, WHY, telegramUrl, withTerms } from '../src/content/site.ts';
 import { appBaseUrl, deskSendsQuoteWithLink, linkBaseUrl, operatorBaseUrl } from './support.ts';
 import { E2E_PUBLIC_CONTACTS } from './world.ts';
 import { E2E_HEALTH_TOKEN } from '../harness/desk-server.ts';
@@ -57,7 +57,7 @@ test('the home page asks for Geist Mono only once it has loaded, then sets its f
 
 test('the home page ends with one call to action, and its footer links only to what exists', async ({ page }) => {
   await page.goto(linkBaseUrl());
-  for (const heading of [FLOW.heading, WHY.heading, OWN_DESK.heading, FAQ.heading, CLOSING.heading]) {
+  for (const heading of [FLOW.heading, WHY.heading, withTerms(OWN_DESK.heading), FAQ.heading, CLOSING.heading]) {
     await expect(page.getByRole('heading', { level: 2, name: heading })).toBeVisible();
   }
   // The old reading column is gone: the home page says everything in its own sections, once.

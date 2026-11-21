@@ -1,9 +1,10 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { draftFor } from '@inrp2p/notifications';
 import { RECEIPT_SNAPSHOT_VERSION, type ReceiptSnapshot, receiptHtml } from '@inrp2p/reporting';
 import type { NotificationKind } from '@inrp2p/db';
 import {
-  ACTIONS, CLOSING, FAQ, FLOW, FOOTER, FOOTER_NOTE, HERO, NAV, ONBOARDING, OWN_DESK, BOARD, SHOWCASE, SITE_NAME, SITE_PAGES, SITE_PATHS, TAGLINE, TELEGRAM, TRADER_ENTRY, WHY, WORKSPACE_ENTRY,
+  ACTIONS, CLOSING, FAQ, FLOW, FOOTER, FOOTER_NOTE, HERO, NAV, ONBOARDING, OWN_DESK, SHOWCASE, GUIDES, SITE_NAME, SITE_PAGES, SITE_PATHS, TAGLINE, TELEGRAM, TRADER_ENTRY, TRADER_TERMS, WHY, WORKSPACE_ENTRY, withTerms,
 } from '../src/content/site.ts';
 
 /**
@@ -110,7 +111,7 @@ const SITE_COPY: readonly { readonly where: string; readonly text: string }[] = 
   ...copyIn(FLOW, 'FLOW'),
   ...copyIn(WHY, 'WHY'),
   ...copyIn(SHOWCASE, 'SHOWCASE'),
-  ...copyIn(BOARD, 'BOARD'),
+  ...copyIn(GUIDES, 'GUIDES'),
   ...copyIn(OWN_DESK, 'OWN_DESK'),
   ...copyIn(FAQ, 'FAQ'),
   ...copyIn(CLOSING, 'CLOSING'),
@@ -123,6 +124,11 @@ const SITE_COPY: readonly { readonly where: string; readonly text: string }[] = 
     { where: `${p.path} description`, text: p.description },
     { where: `${p.path} h1`, text: p.h1 },
     { where: `${p.path} lede`, text: p.lede },
+    ...(p.led ? [{ where: `${p.path} led`, text: p.led }] : []),
+    ...(p.faq ?? []).flatMap((q, i) => [
+      { where: `${p.path} faq ${i + 1} question`, text: q.question },
+      { where: `${p.path} faq ${i + 1} answer`, text: q.answer },
+    ]),
     ...p.sections.flatMap((s) => [
       { where: `${p.path} § ${s.heading}`, text: s.heading },
       ...s.body.map((b, i) => ({ where: `${p.path} § ${s.heading} ¶${i + 1}`, text: b })),
@@ -223,6 +229,30 @@ describe('the public site says nothing it cannot stand behind', () => {
     let stripped = text;
     for (const token of ALLOWED_DIGIT_TOKENS) stripped = stripped.replaceAll(token, '');
     expect(stripped, `${where} contains a digit`).not.toMatch(/\d/);
+  });
+});
+
+/**
+ * The one exemption from "no figure": the trader programme's terms (TRADER_TERMS). They are stated, so they must be the
+ * terms there are — the fee is the fee policy's, held here against the migration that set it — and they reach the page
+ * only through their names in the copy, so every sentence around them is still read by the rules above.
+ */
+describe('the trader programme’s terms', () => {
+  it('states INRP2P’s fee as the fee policy sets it', () => {
+    const sql = readFileSync(new URL('../../../packages/db/migrations/0040_desks.sql', import.meta.url), 'utf8');
+    const seed = /INSERT INTO fee_policy \(own_deal_bps, network_deal_bps, reason, set_by\)\s*VALUES \((\d+),/.exec(sql);
+    expect(Number(seed?.[1])).toBe(TRADER_TERMS.feeBps);
+  });
+
+  it('keeps the margin band a band', () => {
+    const { low, typical, high } = TRADER_TERMS.margin;
+    expect(low).toBeLessThan(typical);
+    expect(typical).toBeLessThan(high);
+  });
+
+  it.each(SITE_COPY)('$where names only terms there are, and every one is filled', ({ where, text }) => {
+    for (const [token] of text.matchAll(/\{\w+\}/g)) expect(['{margin}', '{fee}', '{rate}'], where).toContain(token);
+    expect(withTerms(text)).not.toMatch(/\{(margin|fee)\}/);
   });
 });
 

@@ -34,6 +34,12 @@ export interface SitePage {
   readonly sections: readonly SiteSection[];
   /** Relative importance for the sitemap; the home page leads. */
   readonly priority: number;
+  /** What the guide's robot says on its visor, in its LEDs. */
+  readonly led?: string;
+  /** Whether the guide shows the market's rate now (the rate pages people search for). */
+  readonly rate?: boolean;
+  /** The questions people search with before this deal, answered in the product's terms; marked up as an FAQ. */
+  readonly faq?: readonly { readonly question: string; readonly answer: string }[];
 }
 
 /** The product's own name, used in copy and in the structured data. Never abbreviated into a claim. */
@@ -224,24 +230,6 @@ export const FLOW: FlowCopy = {
   done: 'Every deal ends with a receipt, not a screenshot.',
   network: 'USDT on TRON · TRC20',
 };
-
-/**
- * The board under the hero: the robot's LEDs running what every deal here does, after the market's rate. Each line is
- * a mechanism the product has (ADR 0019, ADR 0028, ADR 0030), said the way the people it protects would say it.
- */
-export const BOARD = {
-  tag: 'Live',
-  lines: [
-    'Nobody sends first',
-    'Your USDT never sits with a stranger',
-    'A screenshot is not money',
-    'Third-party rupees go back',
-    'Rupees never touch INRP2P',
-    'Rate locked when you accept',
-    'UPI · IMPS · NEFT · RTGS',
-    'Every trader reviewed',
-  ],
-} as const;
 
 /**
  * The workspace, shown rather than described: the screen a client asks for a price on, and the deal on a phone. The
@@ -457,28 +445,81 @@ export const FAQ: FaqCopy = {
       answer: 'Open an account with your email, add your bank account and your wallet, and ask for your first price. You decide after you see it.',
     },
     {
-      question: 'Can I run my own exchange on INRP2P?',
-      answer: 'Yes. Traders and brokers get their own page, deal links, prices, team and Telegram alerts, with INRP2P’s escrow on every deal.',
-      more: { label: 'See the desk programme', anchor: 'own-desk' },
+      question: 'Can I earn on INRP2P as a trader?',
+      answer: 'Yes: open your own exchange. You set your margin over the market — traders in India commonly work at {margin} — and INRP2P takes {fee} of each deal, with its escrow on every one. You also get your own page, deal links, a team and Telegram alerts.',
+      more: { label: 'See what your USDT earns', anchor: 'own-desk' },
     },
   ],
   ask: { title: 'Something else?', body: 'Ask the robot’s boss. Our CEO answers on Telegram, in person.' },
 };
 
 /**
- * A trader's own exchange on INRP2P (ADR 0020): the desk programme, told to the traders and brokers who would run
- * one. Every sentence describes something the workspace does today — the page, deal links, escrow, prices, the team,
- * Telegram alerts — and the mock-ups beside them draw their figures masked, like the rest of the site.
+ * The trader programme's terms: the only figures the public site states, each taken from where it is decided. The fee is
+ * the fee policy's own-deal basis points (migration 0040, `fee_policy.own_deal_bps`; a change of it is two people's
+ * decision, and this constant moves with it — the copy guard holds the two together). The margin band is the owner's
+ * (2026-11-21): the margin over the market that traders in India commonly work at, and the band the earnings example on
+ * the home page lets a trader pick from.
+ *
+ * Copy never writes these figures out. It names them — `{margin}`, `{fee}` — and `withTerms` fills them in where the
+ * words are drawn, so the copy guard still reads every sentence for a figure somebody typed.
+ */
+export const TRADER_TERMS = {
+  /** INRP2P's fee on a deal a trader's own exchange fills itself, in basis points of the deal's USDT. */
+  feeBps: 25,
+  /** The margin band, in whole per cent of the deal: low, the one an example starts from, high. */
+  margin: { low: 5, typical: 6, high: 7 },
+} as const;
+
+/** The fee as a person reads it: `0.25%`. */
+export const feeText = (): string => `${TRADER_TERMS.feeBps / 100}%`;
+
+/** The margin band as a person reads it: `5–7%`. */
+export const marginText = (): string => `${TRADER_TERMS.margin.low}–${TRADER_TERMS.margin.high}%`;
+
+/** A sentence with the programme's terms filled in. */
+export const withTerms = (text: string): string => text.replaceAll('{margin}', marginText()).replaceAll('{fee}', feeText());
+
+/**
+ * A trader's own exchange on INRP2P (ADR 0020): the desk programme, told to the traders who would run one — and told
+ * with money first. The section opens on what a trader earns (the margin is theirs, INRP2P's fee is the policy's) and an
+ * example they set themselves at the market's own rate, then what stops costing them, then the exchange itself: the
+ * page, deal links, escrow, prices, the team, Telegram alerts — every one something the workspace does today.
  */
 export const OWN_DESK_FEATURES = ['page', 'link', 'prices', 'team', 'alerts'] as const;
 export type OwnDeskFeature = (typeof OWN_DESK_FEATURES)[number];
 
 export interface OwnDeskCopy {
   readonly nav: string;
+  /** Beside the masthead's link to this section, in a chip: the margin, as a hook. */
+  readonly navTag: string;
   readonly announce: { readonly tag: string; readonly text: string };
   readonly eyebrow: string;
+  /** Read as one sentence; drawn as a lead, the margin as a monument, and a tail. `{margin}` is the band. */
   readonly heading: string;
+  readonly headline: { readonly lead: string; readonly figure: string; readonly tail: string };
+  /** Under the monument: what INRP2P takes. */
+  readonly fee: string;
   readonly lede: string;
+  /** The example a trader sets: their USDT, how often it turns over, their margin — and what they keep. */
+  readonly earnings: {
+    readonly title: string;
+    readonly live: string;
+    readonly liquidity: string;
+    /** Example amounts of USDT, as a trader would hold them. Figures of the example, not of anybody's business. */
+    readonly amounts: readonly number[];
+    readonly turns: string;
+    readonly turnOptions: readonly { readonly label: string; readonly perMonth: number }[];
+    readonly margin: string;
+    readonly result: string;
+    readonly inUsdt: string;
+    readonly turnover: string;
+    readonly yours: string;
+    readonly ours: string;
+    readonly note: string;
+  };
+  /** What a trader stops losing to: the cost, struck out, and what does it here instead. */
+  readonly stops: { readonly title: string; readonly items: readonly { readonly cost: string; readonly fix: string }[] };
+  readonly tools: { readonly title: string; readonly lede: string };
   readonly features: readonly { readonly key: OwnDeskFeature; readonly title: string; readonly body: string }[];
   readonly mock: {
     readonly deskName: string;
@@ -511,10 +552,45 @@ export interface OwnDeskCopy {
 
 export const OWN_DESK: OwnDeskCopy = {
   nav: 'For traders',
-  announce: { tag: 'New', text: 'Traders: open your own exchange on INRP2P' },
-  eyebrow: 'For traders and brokers',
-  heading: 'Run your own exchange. Skip building one.',
-  lede: 'Stop posting rates in Telegram groups. Get your own page, prices that follow the market, a deal link for every client and a team, with INRP2P’s escrow on every deal.',
+  navTag: '{margin}',
+  announce: { tag: 'Traders', text: 'Earn {margin} on your USDT' },
+  eyebrow: 'For traders',
+  heading: 'Earn {margin} on every USDT you sell.',
+  headline: { lead: 'Earn', figure: '{margin}', tail: 'on every USDT you sell.' },
+  fee: 'INRP2P takes {fee} of a deal. The rest is yours.',
+  lede: 'Buyers in India pay a premium for USDT. Sell to them from your own exchange, at the margin you set, with INRP2P’s escrow on every deal.',
+  earnings: {
+    title: 'What your USDT earns',
+    live: 'At today’s market rate',
+    liquidity: 'Your USDT',
+    amounts: [5_000, 10_000, 25_000, 100_000],
+    turns: 'It turns over',
+    turnOptions: [
+      { label: 'Once a week', perMonth: 4 },
+      { label: 'Twice a week', perMonth: 8 },
+      { label: 'Every day', perMonth: 30 },
+    ],
+    margin: 'Your margin',
+    result: 'You keep, a month',
+    inUsdt: 'USDT a month',
+    turnover: 'on a month’s deals of',
+    yours: 'Yours',
+    ours: 'INRP2P',
+    note: 'An example at your figures. Your margin is the price you set over the market.',
+  },
+  stops: {
+    title: 'What you stop paying for',
+    items: [
+      { cost: 'Frozen bank accounts', fix: 'Rupees reach you only from your client’s own account. Anyone else’s are refused and sent back.' },
+      { cost: 'Fake payment screenshots', fix: 'You release the USDT once the rupees are in your bank, and not a moment before.' },
+      { cost: 'Posting rates all day', fix: 'Set your margin once. Your prices follow the market by themselves.' },
+      { cost: 'Clients who go quiet', fix: 'Every step has a time limit. A deal nobody finishes unwinds, and the USDT goes back.' },
+    ],
+  },
+  tools: {
+    title: 'Your exchange, already built.',
+    lede: 'Your page, your prices, deal links, a team and Telegram alerts. Ready once INRP2P approves you.',
+  },
   features: [
     {
       key: 'page',
@@ -615,8 +691,8 @@ export const CLOSING = {
 export const TRADER_ENTRY = {
   label: 'Open your exchange',
   appPath: '/become-a-trader',
-  title: 'Run an exchange or have liquidity?',
-  body: 'Open your own exchange on INRP2P: your page, your prices, your clients, with escrow on every deal.',
+  title: 'Have USDT? Earn {margin} on it.',
+  body: 'Open your own exchange on INRP2P: your page, your prices, your clients. INRP2P holds the escrow and takes {fee} of a deal.',
 } as const;
 
 /**
@@ -689,9 +765,9 @@ export const NAV: readonly { readonly label: string; readonly path: string }[] =
 
 const HOME: SitePage = {
   path: '/',
-  title: `Buy and sell USDT in India — ${SITE_NAME}`,
+  title: `Buy & Sell USDT in India — P2P with escrow | ${SITE_NAME}`,
   description:
-    'Buy and sell USDT for Indian rupees with escrow on every deal: one firm rate for the whole amount, rupees bank to bank, and USDT released only once they arrive.',
+    'Buy and sell USDT for rupees in India with escrow on every deal. One firm rate for the whole amount, nobody sends first, and rupees bank to bank by UPI, IMPS, NEFT or RTGS.',
   h1: `${HERO.headline.lead} ${HERO.headline.accent} ${HERO.headline.tail}`,
   lede: TAGLINE,
   // The home page tells its story in its own sections (FLOW, OWN_DESK, WHY, FAQ, CLOSING), which say everything
@@ -702,9 +778,9 @@ const HOME: SitePage = {
 
 const USDT_TO_INR: SitePage = {
   path: '/usdt-to-inr',
-  title: `USDT to INR — sell Tether for Indian rupees | ${SITE_NAME}`,
+  title: `USDT to INR rate today — sell USDT with escrow | ${SITE_NAME}`,
   description:
-    'Sell USDT for INR with escrow on every deal: one firm rate for the whole amount, your USDT held in escrow, and rupees paid straight to your own bank account.',
+    'Today’s USDT to INR market rate, and one firm rate for your whole amount. Sell USDT for rupees with your USDT in escrow until the rupees reach your bank.',
   h1: 'USDT to INR',
   lede: 'Sell USDT for rupees at one firm rate. Your USDT waits in escrow until the rupees are in your bank.',
   sections: [
@@ -731,13 +807,29 @@ const USDT_TO_INR: SitePage = {
     },
   ],
   priority: 0.9,
+  led: 'USDT → ₹',
+  rate: true,
+  faq: [
+    {
+      question: 'What is the USDT to INR rate today?',
+      answer: 'The market’s rate is at the top of this page and moves through the day. Your firm rate comes with your quote, for the whole amount, with the network fee on its own line.',
+    },
+    {
+      question: 'Where does my USDT go while I wait for the rupees?',
+      answer: 'To an escrow address made for your deal alone, on TRON. Only INRP2P can release it, and only after you confirm the rupees are in your bank.',
+    },
+    {
+      question: 'Can I get paid by UPI?',
+      answer: 'Yes. Add your UPI ID or bank account once, and the trader pays you from their own account by UPI, IMPS, NEFT or RTGS.',
+    },
+  ],
 };
 
 const INR_TO_USDT: SitePage = {
   path: '/inr-to-usdt',
-  title: `INR to USDT — buy Tether with Indian rupees | ${SITE_NAME}`,
+  title: `INR to USDT rate today — buy USDT, escrow first | ${SITE_NAME}`,
   description:
-    'Buy USDT with INR with escrow on every deal: one firm rate, the USDT locked in escrow before you pay, and USDT delivered to your own TRON wallet.',
+    'Today’s INR to USDT market rate, and one firm rate for your whole amount. Buy USDT with rupees, with the USDT locked in escrow before you pay.',
   h1: 'INR to USDT',
   lede: 'Buy USDT with rupees at one firm rate. The USDT is locked in escrow before you pay a single rupee.',
   sections: [
@@ -764,11 +856,27 @@ const INR_TO_USDT: SitePage = {
     },
   ],
   priority: 0.9,
+  led: '₹ → USDT',
+  rate: true,
+  faq: [
+    {
+      question: 'What is the INR to USDT rate today?',
+      answer: 'The market’s rate is at the top of this page and moves through the day. Your firm rate comes with your quote, for the whole amount, with the network fee on its own line.',
+    },
+    {
+      question: 'Do I pay before I get the USDT?',
+      answer: 'You pay only after the trader has locked the USDT in your deal’s escrow. Once they confirm your rupees, the escrow sends the USDT to your wallet.',
+    },
+    {
+      question: 'Which wallet can I use?',
+      answer: 'Any TRON (TRC20) wallet you control. You add it once, and the USDT goes there and nowhere else.',
+    },
+  ],
 };
 
 const SELL_IN_INDIA: SitePage = {
   path: '/sell-usdt-in-india',
-  title: `Sell USDT in India — escrow on every deal | ${SITE_NAME}`,
+  title: `Sell USDT in India safely — P2P with escrow | ${SITE_NAME}`,
   description:
     'Sell USDT in India without sending first to a stranger: one firm rate, your USDT in escrow, and rupees to your own bank from the buyer’s own account.',
   h1: 'Sell USDT in India',
@@ -797,11 +905,22 @@ const SELL_IN_INDIA: SitePage = {
     },
   ],
   priority: 0.8,
+  led: 'SELL',
+  faq: [
+    {
+      question: 'How do I sell USDT in India without sending first?',
+      answer: 'Sell through escrow. On INRP2P your USDT waits in an escrow address, the rupees must come from the buyer’s own account, and the USDT is released only when you confirm them.',
+    },
+    {
+      question: 'What if the buyer sends a fake payment screenshot?',
+      answer: 'A screenshot changes nothing here. The USDT is released only when you confirm the rupees in your own bank account; until then it stays in escrow.',
+    },
+  ],
 };
 
 const BUY_IN_INDIA: SitePage = {
   path: '/buy-usdt-in-india',
-  title: `Buy USDT in India — escrow on every deal | ${SITE_NAME}`,
+  title: `Buy USDT in India safely — escrow before you pay | ${SITE_NAME}`,
   description:
     'Buy USDT in India with the USDT locked in escrow before you pay: one firm rate for the whole amount, rupees bank to bank, USDT to your own wallet.',
   h1: 'Buy USDT in India',
@@ -829,11 +948,22 @@ const BUY_IN_INDIA: SitePage = {
     },
   ],
   priority: 0.8,
+  led: 'BUY',
+  faq: [
+    {
+      question: 'How do I buy USDT in India without paying a stranger first?',
+      answer: 'Buy through escrow. On INRP2P the trader’s USDT is locked in escrow before you pay, and every trader was reviewed before their first deal.',
+    },
+    {
+      question: 'What if the trader does not release the USDT?',
+      answer: 'The trader does not hold it: the escrow does. Once they confirm your rupees it goes to your wallet; if they say nothing arrived, open a dispute and INRP2P decides on the bank’s evidence.',
+    },
+  ],
 };
 
 const OTC_INDIA: SitePage = {
   path: '/usdt-otc-india',
-  title: `USDT OTC in India — large deals with escrow | ${SITE_NAME}`,
+  title: `USDT OTC in India — large P2P deals with escrow | ${SITE_NAME}`,
   description:
     'Large USDT deals in India: one firm rate for the whole amount, the USDT in escrow, rupees bank to bank, and a receipt for every deal.',
   h1: 'USDT OTC in India',
@@ -860,7 +990,25 @@ const OTC_INDIA: SitePage = {
     },
   ],
   priority: 0.7,
+  led: 'OTC',
+  faq: [
+    {
+      question: 'Can I get one price for a large amount?',
+      answer: 'Ask with the whole amount. One firm rate comes back for all of it when a trader can fill it; when none can, you are told plainly rather than given part of a price.',
+    },
+    {
+      question: 'Can my team trade on one account?',
+      answer: 'Yes. Invite the people you trade with, and choose who may accept a price.',
+    },
+  ],
 };
+
+/** The guides' own section words. */
+export const GUIDES = {
+  rate: { title: 'USDT/INR market rate now', sell: 'You sell', buy: 'You buy', note: 'The market’s rate. Your firm price comes with your quote.' },
+  faq: 'Questions people ask',
+  more: 'More guides',
+} as const;
 
 /** The six routes of PRODUCT §7.4, in sitemap order. Nothing else is published on the public host. */
 export const SITE_PAGES: readonly SitePage[] = [HOME, USDT_TO_INR, INR_TO_USDT, SELL_IN_INDIA, BUY_IN_INDIA, OTC_INDIA];
