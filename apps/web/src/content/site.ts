@@ -36,8 +36,13 @@ export interface SitePage {
   readonly priority: number;
   /** What the guide's robot says on its visor, in its LEDs. */
   readonly led?: string;
-  /** Whether the guide shows the market's rate now (the rate pages people search for). */
-  readonly rate?: boolean;
+  /**
+   * On the rate pages people search for: the direction whose market rate the guide prints into its HTML — in its first
+   * screen and as a table of common amounts — and shows live beside the robot.
+   */
+  readonly rate?: Direction;
+  /** Who the guide is for: a client (the default — buy, sell, a firm price) or a trader (open an exchange). */
+  readonly audience?: 'client' | 'trader';
   /** The questions people search with before this deal, answered in the product's terms; marked up as an FAQ. */
   readonly faq?: readonly { readonly question: string; readonly answer: string }[];
 }
@@ -808,7 +813,7 @@ const USDT_TO_INR: SitePage = {
   ],
   priority: 0.9,
   led: 'USDT → ₹',
-  rate: true,
+  rate: 'SELL_USDT',
   faq: [
     {
       question: 'What is the USDT to INR rate today?',
@@ -857,7 +862,7 @@ const INR_TO_USDT: SitePage = {
   ],
   priority: 0.9,
   led: '₹ → USDT',
-  rate: true,
+  rate: 'BUY_USDT',
   faq: [
     {
       question: 'What is the INR to USDT rate today?',
@@ -1003,15 +1008,301 @@ const OTC_INDIA: SitePage = {
   ],
 };
 
+/**
+ * The fear behind most first deals in India: a bank account frozen after a P2P sale. Told as the mechanism that causes it
+ * (rupees that are someone else's money) and the rule that shuts it out here (ADR 0019 own-account payments, ADR 0030 the
+ * payer check), with no promise about what a bank does.
+ */
+const BANK_FREEZE: SitePage = {
+  path: '/p2p-bank-account-freeze',
+  title: `Bank account frozen after P2P? How to avoid it | ${SITE_NAME}`,
+  description:
+    'Why bank accounts in India get frozen after P2P USDT deals, and how INRP2P refuses third-party rupees so the money you receive comes only from the buyer’s own account.',
+  h1: 'Bank account frozen after a P2P deal?',
+  lede: 'Most freezes start with rupees from someone you never dealt with. On INRP2P those rupees are refused and sent back.',
+  sections: [
+    {
+      heading: 'Why P2P sellers get frozen',
+      body: [
+        'In a chat deal the rupees can come from anyone. Sometimes they are someone else’s money: a person who was cheated, paying through an account rented for the purpose.',
+        'When that person complains, the complaint follows the money to every account it reached, and yours is frozen with it. Often the seller’s only mistake was taking rupees from an account that was not the buyer’s own.',
+      ],
+    },
+    {
+      heading: 'Only the buyer’s own account can pay you',
+      body: [
+        'On INRP2P the rupees must come from the bank account the buyer added before the deal, in their own name. Rupees from any other account or name are refused and sent back.',
+        'Your USDT stays in escrow meanwhile. The deal goes on only with rupees from the right account, or unwinds when its time runs out.',
+      ],
+    },
+    {
+      heading: 'Traders checked before their first deal',
+      body: ['Every trader on INRP2P is reviewed before their first deal and pays only from accounts registered in advance. Nobody turns up halfway with a new account.'],
+    },
+    {
+      heading: 'A record of every deal, ready to show',
+      body: [
+        'Every deal keeps its rate, both sides’ accounts, the payment references and a receipt, as a document, CSV and JSON.',
+        'If your bank ever asks where a payment came from, you show the deal’s whole record, not a chat and a few screenshots.',
+      ],
+    },
+    {
+      heading: 'Habits that keep your account clean',
+      body: [
+        'Take rupees only from the account named on the deal. Never accept a friend’s or a company’s account in its place, whatever the story.',
+        'Keep your trading to one bank account, keep every receipt, and never move a deal to a private chat to save time.',
+      ],
+    },
+  ],
+  priority: 0.8,
+  led: 'CLEAN ₹',
+  faq: [
+    {
+      question: 'Why do banks freeze accounts after P2P crypto deals?',
+      answer: 'Usually because the rupees received were traced to a fraud complaint: someone else’s money, passed on through the buyer. The account it landed in is frozen with it, even when its owner knew nothing.',
+    },
+    {
+      question: 'Can INRP2P promise my account will never be frozen?',
+      answer: 'Nobody can promise what a bank will do. INRP2P shuts the most common way in: rupees from anyone but the buyer’s own account are refused and sent back, and every deal leaves a full record.',
+    },
+    {
+      question: 'What happens if a buyer pays from someone else’s account?',
+      answer: 'The payment is refused and sent back, and your USDT stays in escrow. The deal waits for rupees from the buyer’s own account, or unwinds when its time runs out.',
+    },
+    {
+      question: 'Is selling USDT through escrow safer than in a chat?',
+      answer: 'On both sides of the risk. Your USDT is never sent to a person on trust, and the rupees can come only from the buyer’s own registered account.',
+    },
+  ],
+};
+
+/** The scams people search for by name before a first P2P deal, each answered by the step of the deal that stops it. */
+const SCAMS: SitePage = {
+  path: '/usdt-p2p-scams',
+  title: `USDT P2P scams in India and how to avoid them | ${SITE_NAME}`,
+  description:
+    'The USDT P2P scams people in India meet most — “send first”, fake payment screenshots, third-party rupees, a rate that changes, silence — and how escrow takes each one apart.',
+  h1: 'USDT P2P scams in India',
+  lede: 'Every one of them needs you to trust a stranger for a moment. Escrow takes that moment away.',
+  sections: [
+    {
+      heading: '“Send first, I pay right after”',
+      body: [
+        'The oldest one. Once your USDT has left your wallet, nothing makes the other side pay.',
+        'On INRP2P nobody sends to a person. The USDT goes into an escrow address made for the deal, and only INRP2P can release it.',
+      ],
+    },
+    {
+      heading: 'The fake payment screenshot',
+      body: [
+        'An edited screenshot, a fake bank message, a “pending” transfer that never lands.',
+        'Here the USDT is released only when the seller sees the rupees in their own bank account. A screenshot changes nothing.',
+      ],
+    },
+    {
+      heading: 'Rupees from someone else',
+      body: [
+        'The buyer pays with another person’s money: the victim of a different fraud, or an account rented for the job. Weeks later the complaint reaches your bank.',
+        'On INRP2P rupees from anyone but the buyer’s own account are refused and sent back.',
+      ],
+    },
+    {
+      heading: '“Rate changed, send a bit more”',
+      body: ['The price moves in the middle of the deal, and so does the ask. Here one firm rate is fixed for the whole amount the moment you accept, and nobody can change it after.'],
+    },
+    {
+      heading: 'A new address, just this once',
+      body: [
+        'A message asking you to send to a different address, or on a different network. A TRON transfer cannot be recalled once it is final.',
+        'Here you send only to the escrow address shown on your deal, and the USDT you buy goes only to the wallet you added before your first deal.',
+      ],
+    },
+    {
+      heading: 'The one who goes quiet',
+      body: ['Halfway through, the other side stops answering and your money waits with them. Here every step has a time limit: miss it and the deal unwinds, and the USDT goes back where it came from.'],
+    },
+  ],
+  priority: 0.7,
+  led: 'NO SCAMS',
+  faq: [
+    {
+      question: 'What is the most common USDT P2P scam in India?',
+      answer: 'Being asked to send first, then paid with a fake screenshot or not at all. Escrow removes it: nobody sends to a person, and nothing is released before the rupees are in the seller’s own bank account.',
+    },
+    {
+      question: 'Is P2P crypto trading safe in India?',
+      answer: 'As safe as the deal’s weakest step. Trade with escrow, take rupees only from the other side’s own account, release only on money in your bank, and keep every deal’s record.',
+    },
+    {
+      question: 'Someone wants to finish the deal on WhatsApp. Should I?',
+      answer: 'No. Outside the deal there is no escrow, no time limit and no record. On INRP2P the chat, the payments and the release all happen inside the deal.',
+    },
+  ],
+};
+
+/** The question a person asks before a first deal with a name they have just heard of — answered with the mechanism. */
+const IS_IT_SAFE: SitePage = {
+  path: '/is-inrp2p-safe',
+  title: `Is INRP2P safe? How your USDT is protected | ${SITE_NAME}`,
+  description:
+    'What INRP2P does with your USDT and rupees on every deal: an escrow address per deal, rupees bank to bank between own accounts, reviewed traders, time limits and disputes.',
+  h1: 'Is INRP2P safe?',
+  lede: 'Judge it by what happens to your money on a deal. Here is all of it, step by step.',
+  sections: [
+    {
+      heading: 'Your USDT waits in escrow, not with a person',
+      body: [
+        'Each deal gets its own escrow address on TRON. Only INRP2P can move what is in it, and only where the deal says: to the buyer once the seller confirms the rupees, or back where it came from if the deal unwinds.',
+        'An escrow is an address on the chain, so what is in it can be looked up on any TRON explorer.',
+      ],
+    },
+    {
+      heading: 'Your rupees never pass through INRP2P',
+      body: ['They go bank to bank, by UPI, IMPS, NEFT or RTGS, between your own account and the other side’s own account. Rupees from anyone else are refused and sent back.'],
+    },
+    {
+      heading: 'Every trader is reviewed',
+      body: ['A trader is reviewed by INRP2P before their first deal and pays only from accounts registered in advance.'],
+    },
+    {
+      heading: 'When something goes wrong',
+      body: [
+        'Every step has a time limit, and a deal nobody finishes unwinds. The price cannot change once you accept it.',
+        'If the two sides disagree, open a dispute on the deal: INRP2P decides it on the bank’s evidence.',
+      ],
+    },
+    {
+      heading: 'People you can reach',
+      body: ['INRP2P posts its news on its official Telegram channel, and its CEO answers on Telegram in person. Both are at the foot of every page.'],
+    },
+  ],
+  priority: 0.6,
+  led: 'SAFE',
+  faq: [
+    {
+      question: 'Is INRP2P legit?',
+      answer: 'Judge it by the mechanism. You never send USDT to a person, you never pay a stranger before the USDT is locked, and every deal ends with a receipt. Start with a small deal and watch each step yourself.',
+    },
+    {
+      question: 'Who holds my USDT during a deal?',
+      answer: 'The deal’s own escrow address. It releases only where the deal says: to the buyer once the seller confirms the rupees, or back where it came from.',
+    },
+    {
+      question: 'Who do I talk to if something goes wrong?',
+      answer: 'Open a dispute on the deal itself. For anything else, the CEO answers on Telegram.',
+    },
+  ],
+};
+
+/**
+ * The trader's door from search: people looking to earn on USDT as a P2P merchant. Money first (TRADER_TERMS, filled in
+ * by `withTerms`), then what stops costing them and the exchange they get; its actions open an exchange, not a deal.
+ */
+const MERCHANT: SitePage = {
+  path: '/p2p-merchant-india',
+  title: `Become a USDT P2P merchant in India — earn {margin} | ${SITE_NAME}`,
+  description:
+    'Run your own USDT exchange in India on INRP2P: your page, your clients and prices that follow the market, at the margin you set. INRP2P takes {fee} of a deal.',
+  h1: 'Become a USDT P2P merchant in India',
+  lede: 'Your own exchange, ready once INRP2P approves you. Keep your margin; INRP2P takes {fee} of a deal and holds the escrow on every one.',
+  sections: [
+    {
+      heading: 'Where the margin comes from',
+      body: [
+        'Buyers in India pay over the market for USDT, and sellers want rupees without the risk. A merchant with good prices stands in the middle and keeps the difference.',
+        'Traders in India commonly work at {margin} over the market. You set yours, and your prices can follow the market by themselves.',
+      ],
+    },
+    {
+      heading: 'What INRP2P takes, and what it does',
+      body: [
+        '{fee} of each deal your own exchange fills. The rest of your margin is yours.',
+        'For that, every deal runs through INRP2P’s escrow, every client pays from their own account, and every deal is recorded with its receipt.',
+      ],
+    },
+    {
+      heading: 'What you stop paying for',
+      body: [
+        'Frozen accounts from third-party rupees: here they are refused and sent back. Fake screenshots: you release only on rupees in your bank.',
+        'Posting rates all day: set your margin once. Clients who go quiet: every step has a time limit, and an unfinished deal unwinds.',
+      ],
+    },
+    {
+      heading: 'Your exchange, already built',
+      body: ['Your page at your own address on INRP2P, deal links you send on WhatsApp or Telegram, prices with your limits, a team with roles, and Telegram alerts when it is your move.'],
+    },
+    {
+      heading: 'Three steps to start',
+      body: ['Apply with your email: who you are and what you can provide. Set your prices. Then share your page or a deal link with your clients.'],
+    },
+  ],
+  priority: 0.8,
+  led: 'EARN',
+  audience: 'trader',
+  faq: [
+    {
+      question: 'How much can a USDT P2P merchant earn in India?',
+      answer: 'It depends on your USDT, how often it turns over and your margin. Traders in India commonly work at {margin} over the market; the home page has an example you can set to your own figures.',
+    },
+    {
+      question: 'What does INRP2P charge a merchant?',
+      answer: '{fee} of each deal your own exchange fills, with the escrow on every one. Your margin over the market is yours.',
+    },
+    {
+      question: 'Do I need my own website or app?',
+      answer: 'No. Your page, your prices, deal links, a team and Telegram alerts come with your exchange on INRP2P.',
+    },
+    {
+      question: 'Who can become a merchant?',
+      answer: 'A trader or broker with USDT to sell and a bank account in their own name. INRP2P reviews every trader before a first deal.',
+    },
+  ],
+};
+
 /** The guides' own section words. */
 export const GUIDES = {
   rate: { title: 'USDT/INR market rate now', sell: 'You sell', buy: 'You buy', note: 'The market’s rate. Your firm price comes with your quote.' },
+  /** The line under a rate guide's lede: the market's rate as the page was opened, in its HTML. */
+  now: { label: 'Market rate now', SELL_USDT: 'per USDT when you sell', BUY_USDT: 'per USDT when you buy', at: 'Read at' },
+  /** A rate guide's table of common amounts at the market's rate. */
+  table: {
+    SELL_USDT: { title: 'USDT to INR at the market rate now', from: 'You sell', to: 'You receive about' },
+    BUY_USDT: { title: 'INR to USDT at the market rate now', from: 'You pay', to: 'You receive about' },
+    note: 'At the market’s rate when this page was opened. Your firm price, for your whole amount, comes with your quote, with the network fee on its own line.',
+  },
+  /** A trader's guide: the way to the earnings example on the home page, and what applying takes. */
+  trader: { earn: 'See what your USDT earns', note: 'Apply with your email. INRP2P reviews every trader before a first deal.' },
   faq: 'Questions people ask',
   more: 'More guides',
 } as const;
 
-/** The six routes of PRODUCT §7.4, in sitemap order. Nothing else is published on the public host. */
-export const SITE_PAGES: readonly SitePage[] = [HOME, USDT_TO_INR, INR_TO_USDT, SELL_IN_INDIA, BUY_IN_INDIA, OTC_INDIA];
+/**
+ * The amounts a rate guide's table converts at the market's rate: USDT when selling, rupees when buying — the amounts
+ * people search for ("100 USDT to INR"). Amounts of the example, not of anybody's deals; the rupees beside them are the
+ * market's reference at the moment the page was opened.
+ */
+export const RATE_TABLE: Readonly<Record<Direction, readonly number[]>> = {
+  SELL_USDT: [1, 10, 50, 100, 500, 1_000, 5_000, 10_000],
+  BUY_USDT: [1_000, 5_000, 10_000, 25_000, 50_000, 100_000, 500_000, 1_000_000],
+};
+
+/**
+ * The public site's routes, in sitemap order: PRODUCT §7.4's six, then the guides written for what people in India search
+ * before a deal — a frozen account, the scams, whether INRP2P is safe — and the trader's way in. Nothing else is published
+ * on the public host.
+ */
+export const SITE_PAGES: readonly SitePage[] = [
+  HOME,
+  USDT_TO_INR,
+  INR_TO_USDT,
+  SELL_IN_INDIA,
+  BUY_IN_INDIA,
+  BANK_FREEZE,
+  SCAMS,
+  IS_IT_SAFE,
+  OTC_INDIA,
+  MERCHANT,
+];
 
 export const SITE_PATHS: readonly string[] = SITE_PAGES.map((p) => p.path);
 

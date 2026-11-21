@@ -14,13 +14,13 @@ import { E2E_HEALTH_TOKEN } from '../harness/desk-server.ts';
  */
 test.describe.configure({ mode: 'serial' });
 
-test('the six routes are published, each with its own words', async ({ page }) => {
+test('every route is published, each with its own words', async ({ page }) => {
   for (const site of SITE_PAGES) {
     const url = `${linkBaseUrl()}${site.path === '/' ? '' : site.path}`;
     const response = await page.goto(url);
     expect(response?.status(), site.path).toBe(200);
-    await expect(page.getByRole('heading', { level: 1, name: site.h1 })).toBeVisible();
-    await expect(page).toHaveTitle(site.title);
+    await expect(page.getByRole('heading', { level: 1, name: withTerms(site.h1) })).toBeVisible();
+    await expect(page).toHaveTitle(withTerms(site.title));
     // The canonical URL is built from configuration, never from the Host header that happened to arrive.
     const canonical = page.locator('link[rel="canonical"]');
     await expect(canonical).toHaveAttribute('href', new RegExp(`${site.path === '/' ? '/?$' : site.path.replace(/\//g, '\\/')}$`));
@@ -229,11 +229,18 @@ test('crawlers are told the truth on every host', async ({ page }) => {
   }
   expect((xml.match(/<url>/g) ?? []).length).toBe(SITE_PATHS.length);
 
-  // The private surfaces ask not to be crawled at all, and publish no sitemap of their own pages.
+  // The site as an assistant reads it: every guide, by its own address, in the words the pages say.
+  const llms = await page.request.get(`${linkBaseUrl()}/llms.txt`);
+  expect(llms.status()).toBe(200);
+  const text = await llms.text();
+  for (const site of SITE_PAGES.filter((p) => p.path !== '/')) expect(text, site.path).toContain(`${site.path}): `);
+
+  // The private surfaces ask not to be crawled at all, and publish no sitemap or llms.txt of their own pages.
   for (const base of [operatorBaseUrl(), appBaseUrl()]) {
     const res = await page.request.get(`${base}/robots.txt`);
     expect(await res.text(), base).toContain('Disallow: /');
     expect((await page.request.get(`${base}/sitemap.xml`)).status(), base).toBe(404);
+    expect((await page.request.get(`${base}/llms.txt`)).status(), base).toBe(404);
   }
 });
 

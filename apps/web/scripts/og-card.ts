@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from '@playwright/test';
-import { HERO, SITE_NAME, SITE_PAGES, TAGLINE, type SitePage } from '../src/content/site.ts';
+import { HERO, SITE_NAME, SITE_PAGES, TAGLINE, type SitePage, withTerms } from '../src/content/site.ts';
 import { onRows, strip } from '../src/app/(public)/_landing/led/font.ts';
 
 /**
@@ -57,7 +57,7 @@ function card(page: SitePage): string {
   const say = page.led ?? 'HI!';
   const title = home
     ? `<span>${escape(HERO.headline.lead)}</span><span><span class="accent">${escape(HERO.headline.accent)}</span> ${escape(HERO.headline.tail)}</span>`
-    : `<span>${escape(page.h1)}</span>`;
+    : `<span>${escape(withTerms(page.h1))}</span>`;
   const word = strip(say)[0]!.length;
   // A short word sits still in the middle of the visor; a longer one is shown from its start, as it begins to run.
   const visor = leds(word > 24 ? `${say}` : say, 14, Math.max(26, word + 2), 9);
@@ -81,7 +81,7 @@ function card(page: SitePage): string {
   .brand { display: flex; align-items: center; gap: 14px; font-family: Sora; font-size: 24px; font-weight: 600; letter-spacing: -0.02em; }
   .brand img { width: 46px; height: 46px; border-radius: 50%; box-shadow: 0 6px 14px -6px rgb(240 78 35 / 0.7); }
   .eyebrow { margin: auto 0 18px; font-family: 'Geist Mono'; font-size: 15px; letter-spacing: 0.16em; text-transform: uppercase; color: #C8401A; }
-  h1 { margin: 0; font-family: Sora; font-size: ${home ? 84 : 88}px; font-weight: 600; line-height: 0.98; letter-spacing: -0.05em; }
+  h1 { margin: 0; font-family: Sora; font-size: ${home ? 84 : withTerms(page.h1).length > 24 ? 64 : 88}px; font-weight: 600; line-height: 0.98; letter-spacing: -0.05em; }
   h1 > span { display: block; }
   .accent { color: #F04E23; }
   .lede { margin: 22px 0 0; font-size: 24px; line-height: 1.35; color: #3c4048; letter-spacing: -0.01em; max-width: 30ch; }
@@ -101,7 +101,7 @@ function card(page: SitePage): string {
     <div class="brand"><img src="${dataUrl(path.join(REPO, 'brand/inrp2p-mark.png'), 'image/png')}" alt="">${escape(SITE_NAME)}</div>
     <p class="eyebrow">${escape(HERO.eyebrow)}</p>
     <h1>${title}</h1>
-    <p class="lede">${escape(home ? HERO.lede.split('. ')[0]! + '.' : page.lede)}</p>
+    <p class="lede">${escape(home ? HERO.lede.split('. ')[0]! + '.' : withTerms(page.lede))}</p>
   </div>
   <div class="stage">
     <span class="sun"></span>

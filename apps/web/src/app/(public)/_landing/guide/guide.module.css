@@ -284,6 +284,130 @@
   color: var(--text-muted);
 }
 
+/* ——— The market's rate in the page itself: the line under a rate guide's lede, and the table of amounts ——— */
+
+.rateLine {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  margin: var(--space-6) 0 0;
+  padding: 12px 18px 12px 16px;
+  border: 1px solid transparent;
+  border-radius: 20px;
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.94), rgb(255 255 255 / 0.74)) padding-box,
+    var(--edge) border-box;
+  backdrop-filter: blur(14px) saturate(1.6);
+  box-shadow: var(--lift);
+}
+
+.rateLine .live {
+  align-self: center;
+  margin: 0 2px 0 0;
+}
+
+.rateLabel,
+.rateAt {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.rateFigure {
+  font-family: var(--font-display);
+  font-size: clamp(26px, 2.4vw, 32px);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.035em;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+.rateUnit {
+  font-size: 15px;
+  color: var(--ink-2);
+}
+
+.rateAt {
+  letter-spacing: 0.06em;
+}
+
+.tableCard {
+  max-width: 880px;
+  padding: 8px 28px 22px;
+  border: 1px solid transparent;
+  border-radius: 30px;
+  background:
+    linear-gradient(180deg, #fff, #fffdfa) padding-box,
+    var(--edge) border-box;
+  box-shadow: var(--lift);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.tableCaption {
+  padding: 16px 0 6px;
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.table th,
+.table td {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+}
+
+.table thead th {
+  padding-top: 10px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.table tbody th {
+  font-weight: var(--font-weight-medium);
+  color: var(--ink-2);
+}
+
+.table td,
+.table thead th:last-child {
+  text-align: right;
+}
+
+.table td {
+  font-family: var(--font-display);
+  font-size: 19px;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.02em;
+}
+
+.table tbody tr:last-child th,
+.table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.tableNote {
+  margin: 8px 0 0;
+  max-width: 40rem;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .market {
     animation: none;
@@ -310,5 +434,13 @@
 
   .item {
     padding: 0 var(--space-4);
+  }
+
+  .tableCard {
+    padding: 4px 18px 18px;
+  }
+
+  .table td {
+    font-size: 17px;
   }
 }

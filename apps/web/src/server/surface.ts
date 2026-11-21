@@ -113,12 +113,12 @@ export const isPublicSitePath = (path: string): boolean => PUBLIC_SITE_PATHS.has
 export const PUBLIC_HOME_PATH = '/home';
 
 /**
- * The two files a crawler asks for before anything else. They are answered on every host without a session,
- * because a private app that replies `401` to `robots.txt` has told the crawler nothing — and "nothing" is not
- * "do not index me". Both handlers decide what to say from the host: the private surfaces disallow everything
- * and publish no sitemap, and neither response contains a single fact about the business.
+ * The files a crawler asks for before anything else, and `llms.txt`, the same for an assistant. They are answered on
+ * every host without a session, because a private app that replies `401` to `robots.txt` has told the crawler nothing —
+ * and "nothing" is not "do not index me". Every handler decides what to say from the host: the private surfaces disallow
+ * everything and publish no sitemap and no `llms.txt`, and none of the responses there contains a fact about the business.
  */
-const CRAWLER_PATHS: ReadonlySet<string> = new Set(['/robots.txt', '/sitemap.xml']);
+const CRAWLER_PATHS: ReadonlySet<string> = new Set(['/robots.txt', '/sitemap.xml', '/llms.txt']);
 
 /**
  * Liveness and readiness, answered on every host without a session.
