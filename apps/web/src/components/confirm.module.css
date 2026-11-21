@@ -9,7 +9,6 @@
   padding: var(--space-4);
   background: color-mix(in srgb, var(--text-primary) 28%, transparent);
   backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
   animation: confirm-fade var(--dur-base) var(--ease);
 }
 
