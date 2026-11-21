@@ -2,9 +2,10 @@ import type { Metadata } from 'next';
 import { headers } from 'next/headers';
 import { notFound, redirect } from 'next/navigation';
 import { requireClientSession } from '@inrp2p/identity';
+import { recordTraderEntry } from '../../server/acquisition-app.ts';
 import { getRuntime } from '../../server/runtime.ts';
 import { publicOrigin } from '../../server/site.ts';
-import { surfaceForHost } from '../../server/surface.ts';
+import { TRADERS_PATH, surfaceForHost } from '../../server/surface.ts';
 import { WorkspaceGateway } from '../sign-in/WorkspaceGateway.tsx';
 
 export const dynamic = 'force-dynamic';
@@ -24,11 +25,14 @@ export default async function BecomeATraderPage() {
   const rt = getRuntime();
   const h = await headers();
   if (surfaceForHost(h.get('host'), rt.hosts) !== 'CLIENT') notFound();
+  // From `inrp2p.com/traders`: the visitor reached the app (migration 0053). Nothing is recorded for anyone else.
+  await recordTraderEntry();
   // Someone already signed in goes straight to where their application, or their trader screen, is.
   const signedIn = await requireClientSession(rt.clientAuth, rt.appDb, h).then(
     () => true,
     () => false,
   );
   if (signedIn) redirect('/traders');
-  return <WorkspaceGateway home={await publicOrigin()} mode="TRADER" />;
+  // The way back is the trader page the visitor came from, not the client site's home.
+  return <WorkspaceGateway home={`${await publicOrigin()}${TRADERS_PATH}`} mode="TRADER" />;
 }

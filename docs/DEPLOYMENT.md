@@ -757,3 +757,18 @@ service or job changes; no new IX code; nothing is sent to a third party to look
    device, without a place, until they sign in again.
 3. **Who sees it:** `client:manage` only — the roles that see a client's contacts.
 
+
+## 26. Where traders come from: `inrp2p.com/traders` (ADR 0031)
+
+Migration `0053` (schema 53): three new tables — `acquisition_visitor`, `acquisition_event`, `acquisition_link` — and
+nothing else in the schema changes. The application adds and reads rows; it cannot update them (`*_append_only`, grants).
+Rows are never exported. No secret, env variable, service or job changes; no new IX code; no third party is loaded.
+
+1. **Release order** (from production at 52): CI green, `gh pr view` to see the PR is **not merged yet**, a restore point,
+   `scripts/migrate.ts` with the production env, then merge — the app at 53 refuses a database at 52 — then the worker
+   image of the same commit. The worker at 52 keeps running on a database at 53 until it restarts; it reads none of these.
+2. **What changes at once:** `inrp2p.com/traders` is the trader page instead of a redirect to the workspace (everything
+   under it still redirects); the client site's "For traders" links lead there; the trader sign-in's "Back" leads there;
+   the sitemap lists it. Desk → Traders → **Acquisition** shows the funnel from the first visit on.
+3. **Campaign links:** `https://inrp2p.com/traders?utm_source=telegram&utm_medium=post&utm_campaign=<name>&ref=<code>&for=usdt`
+   (`for` is `usdt`, `inr` or `otc`; every parameter is optional).

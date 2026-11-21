@@ -262,6 +262,56 @@ export interface SignInTable {
   at: Generated<Date>;
 }
 
+/**
+ * Migration 0053: where traders come from. A visitor is a random id the acquisition page's own cookie carries, with the
+ * first touch it arrived with; its events carry the touch it had at that moment; a link ties it to the sign-in identity
+ * the person signed in with on the trader path. Nothing here identifies a person or describes their money.
+ */
+export type AcquisitionSegment = 'USDT' | 'INR' | 'OTC';
+export type AcquisitionEventKind = 'VIEW' | 'SEGMENT' | 'ESTIMATE' | 'CTA' | 'CONTACT' | 'SIGN_IN' | 'FAQ' | 'ENTRY';
+export type AcquisitionClickKind = 'GOOGLE' | 'META' | 'LINKEDIN' | 'MICROSOFT' | 'TIKTOK' | 'X';
+
+export interface AcquisitionVisitorTable {
+  id: string;
+  source: string | null;
+  medium: string | null;
+  campaign: string | null;
+  content: string | null;
+  term: string | null;
+  ref: string | null;
+  click_kind: AcquisitionClickKind | null;
+  click_id: string | null;
+  referrer_host: string | null;
+  segment: AcquisitionSegment | null;
+  country: string | null;
+  device: 'MOBILE' | 'TABLET' | 'DESKTOP' | null;
+  first_at: Date;
+  created_at: Generated<Date>;
+}
+
+export interface AcquisitionEventTable {
+  id: Generated<string>;
+  visitor_id: string;
+  kind: AcquisitionEventKind;
+  page: 'TRADERS' | 'BECOME_A_TRADER';
+  segment: AcquisitionSegment | null;
+  placement: string | null;
+  source: string | null;
+  medium: string | null;
+  campaign: string | null;
+  content: string | null;
+  term: string | null;
+  ref: string | null;
+  referrer_host: string | null;
+  at: Generated<Date>;
+}
+
+export interface AcquisitionLinkTable {
+  visitor_id: string;
+  user_id: string;
+  at: Generated<Date>;
+}
+
 export interface SessionActivityTable {
   session_id: string;
   last_activity_at: Date;
@@ -2076,6 +2126,9 @@ export interface Database {
   operator_permission_grant: OperatorPermissionGrantTable;
   step_up_verification: StepUpVerificationTable;
   sign_in: SignInTable;
+  acquisition_visitor: AcquisitionVisitorTable;
+  acquisition_event: AcquisitionEventTable;
+  acquisition_link: AcquisitionLinkTable;
   session_activity: SessionActivityTable;
   client: ClientTable;
   client_contact: ClientContactTable;

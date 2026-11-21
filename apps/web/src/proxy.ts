@@ -2,7 +2,13 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { DomainError } from '@inrp2p/kernel';
 import { carriesSessionCookie } from '@inrp2p/identity/session-cookie';
 import { hostConfig } from './server/hosts.ts';
-import { type Surface, DESK_PAGE_PREFIX, PUBLIC_HOME_PATH, RETURN_PATH_HEADER, deskHandleOfPath, gateFor, isDeskPagePath, isWorkspacePath, safeReturnPath, surfaceForHost } from './server/surface.ts';
+import {
+  type Surface, DESK_PAGE_PREFIX, PUBLIC_HOME_PATH, RETURN_PATH_HEADER, TRADERS_PAGE_PATH, TRADERS_PATH, TRADER_ENTRY_PATH, deskHandleOfPath, gateFor, isDeskPagePath, isWorkspacePath,
+  safeReturnPath, surfaceForHost,
+} from './server/surface.ts';
+import {
+  SEGMENT_PARAM, TOUCH_COOKIE, TOUCH_HEADER, TOUCH_PARAM, arrive, carry, decodeAttribution, encodeAttribution, referrerHost, segmentOf, touchCookieOptions, touchOf,
+} from './server/acquisition.ts';
 import { contentSecurityPolicy, isHttps, securityHeaders } from './server/headers.ts';
 import { authErrorResponse } from './server/http.ts';
 
@@ -61,6 +67,45 @@ export function proxy(request: NextRequest) {
     const to = request.nextUrl.clone();
     to.pathname = '/';
     return withHeaders(NextResponse.redirect(to, 308), headers);
+  }
+  // The trader acquisition page (migration 0053): `inrp2p.com/traders` — the one address every trader campaign links to —
+  // is rendered from TRADERS_PAGE_PATH, as `/` is from `/home`. Only that exact path: everything under it is still the
+  // workspace's (below). The visitor's attribution — a random id, the campaign they arrived with first and last, the side
+  // they came for — is read and remembered here in a first-party cookie, before the page renders; the page gets it in a
+  // header, because on a first visit the cookie exists only on this response.
+  if (surface === 'PUBLIC' && (request.nextUrl.pathname.replace(/\/+$/, '') || '/') === TRADERS_PATH) {
+    const params = request.nextUrl.searchParams;
+    const touch = touchOf(params, referrerHost(request.headers.get('referer'), [hosts.publicHost, hosts.appHost, hosts.deskHost]), Date.now());
+    const { attribution, changed } = arrive(decodeAttribution(request.cookies.get(TOUCH_COOKIE)?.value), touch, segmentOf(params.get(SEGMENT_PARAM)), () => crypto.randomUUID());
+    const encoded = encodeAttribution(attribution);
+    const to = request.nextUrl.clone();
+    to.pathname = TRADERS_PAGE_PATH;
+    const inner = forwarded(request, surface, nonce, https);
+    inner.set(TOUCH_HEADER, encoded);
+    const response = NextResponse.rewrite(to, { request: { headers: inner } });
+    if (changed) response.cookies.set(TOUCH_COOKIE, encoded, touchCookieOptions(https));
+    return withHeaders(response, headers);
+  }
+  // As with `/home`, the inside of that rewrite is not a second address.
+  if (surface === 'PUBLIC' && request.nextUrl.pathname === TRADERS_PAGE_PATH && !request.headers.get('x-inrp2p-nonce')) {
+    const to = request.nextUrl.clone();
+    to.pathname = TRADERS_PATH;
+    return withHeaders(NextResponse.redirect(to, 308), headers);
+  }
+  // The page's calls to action bring the attribution to the trader sign-in on the app's host in its address (`?t=`): it
+  // is remembered in this host's own cookie — the earlier first touch wins — and the address is cleaned of it, so what the
+  // person sees, bookmarks or shares is the plain sign-in. A token that does not read as an attribution is dropped.
+  if (surface === 'CLIENT' && request.method === 'GET' && request.nextUrl.pathname === TRADER_ENTRY_PATH && request.nextUrl.searchParams.has(TOUCH_PARAM)) {
+    const carried = decodeAttribution(request.nextUrl.searchParams.get(TOUCH_PARAM));
+    const to = request.nextUrl.clone();
+    to.searchParams.delete(TOUCH_PARAM);
+    const response = NextResponse.redirect(to, 307);
+    if (carried) {
+      const segment = segmentOf(request.nextUrl.searchParams.get(SEGMENT_PARAM)) ?? carried.segment;
+      const merged = carry(decodeAttribution(request.cookies.get(TOUCH_COOKIE)?.value), { ...carried, segment });
+      response.cookies.set(TOUCH_COOKIE, encodeAttribution(merged), touchCookieOptions(https));
+    }
+    return withHeaders(response, headers);
   }
   // A desk's page: `inrp2p.com/<handle>` is rendered from `/public-desk/<handle>` (ADR 0020), and — as with `/home` — the
   // inside of the rewrite is not a second address: arriving there from outside is sent to the one address it has.
@@ -130,6 +175,8 @@ function forwarded(request: NextRequest, surface: Surface, nonce: string, https:
   headers.set('content-security-policy', contentSecurityPolicy({ surface, nonce, https }));
   // Only ever the proxy's own value: one a browser sent is dropped before the page can read it.
   headers.delete(RETURN_PATH_HEADER);
+  // The attribution the trader page reads is the proxy's too: dropped from anything but the inside of its own rewrite.
+  if (!request.headers.get('x-inrp2p-nonce')) headers.delete(TOUCH_HEADER);
   const back = surface === 'CLIENT' ? returnPath(request) : null;
   if (back) headers.set(RETURN_PATH_HEADER, back);
   return headers;

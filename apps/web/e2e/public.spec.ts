@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { CLOSING, FAQ, FLOW, HERO, ONBOARDING, OWN_DESK, SITE_PAGES, SITE_PATHS, TELEGRAM, TRADER_ENTRY, WHY, telegramUrl, withTerms } from '../src/content/site.ts';
-import { appBaseUrl, deskSendsQuoteWithLink, linkBaseUrl, operatorBaseUrl } from './support.ts';
+import { TRADERS_PAGE } from '../src/content/traders.ts';
+import { appBaseUrl, appDb, deskSendsQuoteWithLink, linkBaseUrl, operatorBaseUrl, signIn, state } from './support.ts';
 import { E2E_PUBLIC_CONTACTS } from './world.ts';
 import { E2E_HEALTH_TOKEN } from '../harness/desk-server.ts';
 
@@ -84,7 +85,8 @@ test('the home page ends with one call to action, and its footer links only to w
   const configured = Object.values(E2E_PUBLIC_CONTACTS);
   for (const href of hrefs) {
     if (href.startsWith('/#')) await expect(page.locator(href.slice(1)), href).toHaveCount(1);
-    else if (href.startsWith('/')) expect(SITE_PATHS, href).toContain(href);
+    // The six pages, and the trader page (ADR 0031).
+    else if (href.startsWith('/')) expect([...SITE_PATHS, '/traders'], href).toContain(href);
     else if (href.startsWith('mailto:')) expect(configured, href).toContain(href.slice('mailto:'.length).split('?')[0]);
     else if (href.startsWith('https://t.me/')) expect([...TELEGRAM.channels, TELEGRAM.ceo].map((t) => telegramUrl(t.handle)), href).toContain(href);
     else expect(href.startsWith(appBaseUrl()), href).toBe(true);
@@ -105,8 +107,8 @@ test('a visitor without a client account is offered one way in, wherever the que
   await expect(hero.getByRole('link', { name: HERO.quote.cta })).toHaveAttribute('href', new RegExp(`^${appBaseUrl()}/exchange`));
   // Existing clients go into the workspace from the masthead; the client app asks for a code if it needs one.
   await expect(page.getByRole('banner').getByRole('link', { name: 'Open workspace' })).toHaveAttribute('href', `${appBaseUrl()}/exchange`);
-  // Traders have their own door in the masthead: the section about opening an exchange.
-  await expect(page.getByRole('banner').getByRole('link', { name: OWN_DESK.nav })).toHaveAttribute('href', '/#own-desk');
+  // Traders have their own door in the masthead: the trader page, the one address every trader is sent to.
+  await expect(page.getByRole('banner').getByRole('link', { name: OWN_DESK.nav })).toHaveAttribute('href', '/traders');
 
   // And on a page a search engine sends someone to, under its actions.
   await page.goto(`${linkBaseUrl()}/usdt-to-inr`);
@@ -227,7 +229,9 @@ test('crawlers are told the truth on every host', async ({ page }) => {
     expect(xml, path).toContain(`<loc>`);
     expect(xml, path).toContain(suffix);
   }
-  expect((xml.match(/<url>/g) ?? []).length).toBe(SITE_PATHS.length);
+  // The six pages, and the trader page every trader campaign links to.
+  expect(xml).toContain('/traders</loc>');
+  expect((xml.match(/<url>/g) ?? []).length).toBe(SITE_PATHS.length + 1);
 
   // The site as an assistant reads it: every guide, by its own address, in the words the pages say.
   const llms = await page.request.get(`${linkBaseUrl()}/llms.txt`);
@@ -360,4 +364,69 @@ test('a page under the policy loads without the browser refusing anything', asyn
   // Any console error at all on a public page is worth failing for: it is what Lighthouse reports as a
   // best-practices failure, and on these pages there is nothing that should be logging one.
   expect(errors, errors.join('\n')).toEqual([]);
+});
+
+/**
+ * `inrp2p.com/traders` — the one page every trader campaign links to (migration 0053). It is the page itself, not a door
+ * into the workspace; everything under it still is. Every way in carries where the visitor came from to the trader
+ * sign-in, the side they chose goes with it, and the desk sees the campaign's row.
+ */
+test('the trader page: one address, every way in carries the campaign, and the desk sees where traders come from', async ({ page }) => {
+  const { hero, masthead, meta } = TRADERS_PAGE;
+  const errors: string[] = [];
+  page.on('console', (m) => {
+    if (m.type() === 'error') errors.push(m.text());
+  });
+  const response = await page.goto(`${linkBaseUrl()}/traders?utm_source=telegram&utm_medium=post&utm_campaign=e2e-launch&ref=partner-7&for=inr`);
+  expect(response?.status()).toBe(200);
+  expect(new URL(page.url()).pathname).toBe('/traders');
+  await expect(page).toHaveTitle(withTerms(meta.title));
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText(`${hero.title.lead} ${hero.title.accent}`);
+  await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', /\/traders$/);
+
+  // The side the link named is the one shown, and the application starts on it.
+  await expect(page.getByRole('radio', { name: hero.segments.inr.tab })).toHaveAttribute('aria-checked', 'true');
+  await expect(page.getByText(withTerms(hero.segments.inr.lede))).toBeVisible();
+  const cta = page.locator('a[data-cta="hero"]');
+  await expect(cta).toHaveAttribute('href', new RegExp(`^${appBaseUrl()}/become-a-trader\\?t=[A-Za-z0-9_-]+&for=inr$`));
+  // Choosing another side is said everywhere at once: the words, every way in, the page's own address.
+  await page.getByRole('radio', { name: hero.segments.otc.tab }).click();
+  await expect(page.getByText(withTerms(hero.segments.otc.lede))).toBeVisible();
+  await expect(cta).toHaveAttribute('href', /&for=otc$/);
+  await expect(page).toHaveURL(/for=otc/);
+  for (const placement of ['masthead', 'start', 'product', 'closing']) await expect(page.locator(`a[data-cta="${placement}"]`), placement).toHaveAttribute('href', /become-a-trader\?t=.+&for=otc$/);
+
+  // A trader who already has an exchange signs in to their Traders screen, where this address used to send everyone.
+  await expect(page.getByRole('banner').getByRole('link', { name: masthead.signInLong })).toHaveAttribute('href', `${appBaseUrl()}/traders`);
+
+  // One address; and the workspace's own sections under it still go to the workspace.
+  const inside = await page.request.get(`${linkBaseUrl()}/lp/traders`, { maxRedirects: 0 });
+  expect(inside.status()).toBe(308);
+  expect(new URL(inside.headers()['location']!, linkBaseUrl()).pathname).toBe('/traders');
+  const orders = await page.request.get(`${linkBaseUrl()}/traders/orders`, { maxRedirects: 0, headers: { accept: 'text/html' } });
+  expect(orders.status()).toBe(307);
+  expect(orders.headers()['location']).toBe(`${appBaseUrl()}/traders/orders`);
+
+  // The way in: the trader sign-in, its address cleaned of the attribution, the side kept.
+  await cta.click();
+  await expect(page).toHaveURL(`${appBaseUrl()}/become-a-trader?for=otc`);
+  await expect(page.getByRole('heading', { level: 1, name: 'Open your exchange.' })).toBeVisible();
+  expect(errors, errors.join('\n')).toEqual([]);
+
+  // What was recorded: the visit and its campaign, and each step — never anything the visitor typed.
+  await expect
+    .poll(async () => (await appDb().selectFrom('acquisition_visitor').select(['source', 'medium', 'ref']).where('campaign', '=', 'e2e-launch').executeTakeFirst()) ?? null)
+    .toEqual({ source: 'telegram', medium: 'post', ref: 'partner-7' });
+  await expect
+    .poll(async () => (await appDb().selectFrom('acquisition_event').select('kind').where('campaign', '=', 'e2e-launch').orderBy('at').execute()).map((e) => e.kind))
+    .toEqual(expect.arrayContaining(['VIEW', 'SEGMENT', 'CTA', 'ENTRY']));
+
+  // The desk sees the campaign's row on the Traders page.
+  await signIn(page, state().owner);
+  await page.goto(`${operatorBaseUrl()}/trader-desk?view=acquisition`);
+  const row = page.getByRole('row').filter({ hasText: 'e2e-launch' });
+  await expect(row).toContainText('telegram');
+  await expect(row).toContainText('post');
+  // `TRADERS_SHOTS=<dir>` keeps a picture of the desk's view, for a person to look at.
+  if (process.env.TRADERS_SHOTS) await page.screenshot({ path: `${process.env.TRADERS_SHOTS}/desk-acquisition.png`, fullPage: true });
 });

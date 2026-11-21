@@ -2,7 +2,8 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from '@playwright/test';
-import { HERO, SITE_NAME, SITE_PAGES, TAGLINE, type SitePage, withTerms } from '../src/content/site.ts';
+import { HERO, SITE_NAME, SITE_PAGES, TAGLINE, TRADER_TERMS, type SitePage, withTerms } from '../src/content/site.ts';
+import { TRADERS_PAGE } from '../src/content/traders.ts';
 import { onRows, strip } from '../src/app/(public)/_landing/led/font.ts';
 
 /**
@@ -52,12 +53,45 @@ function leds(text: string, rows: number, cols: number, pitch: number): string {
     ${dots}</svg>`;
 }
 
-function card(page: SitePage): string {
+/** What a card says: a page of the site, or the trader page (`inrp2p.com/traders`, ADR 0031). */
+interface CardWords {
+  readonly eyebrow: string;
+  readonly title: string;
+  readonly lede: string;
+  readonly say: string;
+  readonly foot: string;
+  readonly size: number;
+}
+
+function siteWords(page: SitePage): CardWords {
   const home = page.path === '/';
-  const say = page.led ?? 'HI!';
-  const title = home
-    ? `<span>${escape(HERO.headline.lead)}</span><span><span class="accent">${escape(HERO.headline.accent)}</span> ${escape(HERO.headline.tail)}</span>`
-    : `<span>${escape(withTerms(page.h1))}</span>`;
+  return {
+    eyebrow: HERO.eyebrow,
+    title: home
+      ? `<span>${escape(HERO.headline.lead)}</span><span><span class="accent">${escape(HERO.headline.accent)}</span> ${escape(HERO.headline.tail)}</span>`
+      : `<span>${escape(withTerms(page.h1))}</span>`,
+    lede: home ? HERO.lede.split('. ')[0]! + '.' : withTerms(page.lede),
+    say: page.led ?? 'HI!',
+    foot: TAGLINE,
+    size: home ? 84 : withTerms(page.h1).length > 24 ? 64 : 88,
+  };
+}
+
+/** The trader page's card: the page's headline, the programme's terms, the robot wearing the typical margin. */
+function traderWords(): CardWords {
+  const { hero } = TRADERS_PAGE;
+  return {
+    eyebrow: hero.eyebrow,
+    title: `<span>${escape(hero.title.lead)}</span><span class="accent second">${escape(hero.title.accent)}</span>`,
+    lede: withTerms(TRADERS_PAGE.meta.card),
+    say: `+${TRADER_TERMS.margin.typical}%`,
+    foot: `inrp2p.com/traders · ${TRADERS_PAGE.sticky.note}`,
+    size: 76,
+  };
+}
+
+function card(words: CardWords): string {
+  const { say, title } = words;
   const word = strip(say)[0]!.length;
   // A short word sits still in the middle of the visor; a longer one is shown from its start, as it begins to run.
   const visor = leds(word > 24 ? `${say}` : say, 14, Math.max(26, word + 2), 9);
@@ -81,9 +115,10 @@ function card(page: SitePage): string {
   .brand { display: flex; align-items: center; gap: 14px; font-family: Sora; font-size: 24px; font-weight: 600; letter-spacing: -0.02em; }
   .brand img { width: 46px; height: 46px; border-radius: 50%; box-shadow: 0 6px 14px -6px rgb(240 78 35 / 0.7); }
   .eyebrow { margin: auto 0 18px; font-family: 'Geist Mono'; font-size: 15px; letter-spacing: 0.16em; text-transform: uppercase; color: #C8401A; }
-  h1 { margin: 0; font-family: Sora; font-size: ${home ? 84 : withTerms(page.h1).length > 24 ? 64 : 88}px; font-weight: 600; line-height: 0.98; letter-spacing: -0.05em; }
+  h1 { margin: 0; font-family: Sora; font-size: ${words.size}px; font-weight: 600; line-height: 0.98; letter-spacing: -0.05em; }
   h1 > span { display: block; }
   .accent { color: #F04E23; }
+  .second { margin-top: 14px; font-size: 0.6em; letter-spacing: -0.04em; }
   .lede { margin: 22px 0 0; font-size: 24px; line-height: 1.35; color: #3c4048; letter-spacing: -0.01em; max-width: 30ch; }
   .stage { position: absolute; right: 20px; bottom: 0; width: 520px; height: 520px; }
   .sun { position: absolute; left: 50%; top: -4%; width: 92%; aspect-ratio: 1; transform: translateX(-50%); border-radius: 50%;
@@ -99,16 +134,16 @@ function card(page: SitePage): string {
 </style></head><body>
   <div class="copy">
     <div class="brand"><img src="${dataUrl(path.join(REPO, 'brand/inrp2p-mark.png'), 'image/png')}" alt="">${escape(SITE_NAME)}</div>
-    <p class="eyebrow">${escape(HERO.eyebrow)}</p>
+    <p class="eyebrow">${escape(words.eyebrow)}</p>
     <h1>${title}</h1>
-    <p class="lede">${escape(home ? HERO.lede.split('. ')[0]! + '.' : withTerms(page.lede))}</p>
+    <p class="lede">${escape(words.lede)}</p>
   </div>
   <div class="stage">
     <span class="sun"></span>
     <img class="robot" src="${dataUrl(path.join(APP, 'src/app/(client)/_assistant/stills/robot-none.webp'), 'image/webp')}" alt="">
     <span class="visor">${visor}</span>
   </div>
-  <p class="foot">${escape(TAGLINE)}</p>
+  <p class="foot">${escape(words.foot)}</p>
 </body></html>`;
 }
 
@@ -118,13 +153,19 @@ export const cardFile = (p: SitePage): string => (p.path === '/' ? 'card.jpg' : 
 const browser = await chromium.launch();
 try {
   const page = await browser.newPage({ viewport: { width: WIDTH, height: HEIGHT }, deviceScaleFactor: 1 });
-  for (const site of SITE_PAGES) {
-    await page.setContent(card(site), { waitUntil: 'load' });
+  // `--only=traders` (or a guide's path) draws one card and leaves the others as they are.
+  const only = process.argv.find((a) => a.startsWith('--only='))?.slice('--only='.length) ?? null;
+  const cards: { file: string; words: CardWords; key: string }[] = [
+    ...SITE_PAGES.map((p) => ({ file: cardFile(p), words: siteWords(p), key: p.path === '/' ? 'home' : p.path.slice(1) })),
+    { file: 'card-traders.jpg', words: traderWords(), key: 'traders' },
+  ];
+  for (const site of cards.filter((c) => only === null || c.key === only)) {
+    await page.setContent(card(site.words), { waitUntil: 'load' });
     await page.evaluate(async () => {
       await document.fonts.ready;
     });
     const bytes = await page.screenshot({ type: 'jpeg', quality: 86 });
-    const out = path.join(OG, cardFile(site));
+    const out = path.join(OG, site.file);
     writeFileSync(out, bytes);
     console.log(`${path.relative(REPO, out)}  ${WIDTH}x${HEIGHT}  ${Math.round(bytes.length / 1024)} KB`);
   }
