@@ -607,7 +607,6 @@
     border-bottom: 1px solid var(--line-soft);
     background: color-mix(in srgb, var(--bg-app) 78%, transparent);
     backdrop-filter: saturate(1.3) blur(16px);
-    -webkit-backdrop-filter: saturate(1.3) blur(16px);
   }
   .sidebar {
     position: fixed;
