@@ -3,7 +3,7 @@ import { liveDeskHandles } from '@inrp2p/traders';
 import { SITE_PAGES } from '../../content/site.ts';
 import { getRuntime } from '../../server/runtime.ts';
 import { publicOrigin } from '../../server/site.ts';
-import { surfaceForHost } from '../../server/surface.ts';
+import { TRADERS_PATH, surfaceForHost } from '../../server/surface.ts';
 
 export const dynamic = 'force-dynamic';
 
@@ -41,6 +41,8 @@ export async function GET() {
     const loc = escapeXml(`${origin}${page.path === '/' ? '/' : page.path}`);
     return `  <url>\n    <loc>${loc}</loc>\n    <priority>${page.priority.toFixed(1)}</priority>\n  </url>`;
   });
+  // The trader page (ADR 0031), the one address every trader campaign links to.
+  urls.splice(1, 0, `  <url>\n    <loc>${escapeXml(`${origin}${TRADERS_PATH}`)}</loc>\n    <priority>0.9</priority>\n  </url>`);
   // The desks taking deals (ADR 0020 §2.10): each one's page is its shop window. They come from the database, which may be
   // slow or away; the site's own pages never wait on it — a sitemap that answers 500 tells a crawler nothing at all.
   for (const handle of await deskHandles()) {

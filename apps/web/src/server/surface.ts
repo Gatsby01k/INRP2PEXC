@@ -1,5 +1,8 @@
 import { isDeskHandle } from '@inrp2p/kernel';
 import { SITE_PATHS } from '../content/site.ts';
+import { ACQUISITION_EVENT_PATH } from './acquisition.ts';
+
+export { ACQUISITION_EVENT_PATH };
 
 /**
  * Request classification for the proxy. Pure and exhaustively unit-tested: on the desk host every
@@ -74,6 +77,15 @@ export const TELEGRAM_WEBHOOK_PATH = '/api/telegram/webhook';
 /** The market's USDT/INR rate the home page's converter estimates with (ADR 0025's reference), cached at the edge. */
 export const MARKET_RATE_PATH = '/api/market-rate';
 
+/**
+ * The trader acquisition page (migration 0053): `inrp2p.com/traders` is its one address — the one every trader campaign
+ * links to. It is rendered from `TRADERS_PAGE_PATH` by a rewrite in the proxy, as the home page is from `/home`, because
+ * `/traders` in this build is the workspace's Traders screen; on the public host only that exact path is the page, and
+ * everything under it (`/traders/orders`, …) still goes to the workspace. Two segments, so never a desk's handle.
+ */
+export const TRADERS_PATH = '/traders';
+export const TRADERS_PAGE_PATH = '/lp/traders';
+
 /** A desk's deal link (ADR 0020 §2.9): like the quote link, opening it authorizes nothing. */
 export const isDealLinkPath = (path: string): boolean => path === '/d' || path.startsWith('/d/');
 
@@ -103,9 +115,10 @@ export const isDeskPagePath = (path: string): boolean => /^\/public-desk\/[a-z0-
  *
  * `/home` is in the list because it has to be: the home page is served at `/` by an internal rewrite, and Next
  * runs the proxy again on the rewritten path. It is not a second published URL — a request that arrives at
- * `/home` from outside is redirected to `/` (see the proxy), so the page keeps exactly one address.
+ * `/home` from outside is redirected to `/` (see the proxy), so the page keeps exactly one address. The trader
+ * acquisition page's inside (`TRADERS_PAGE_PATH`, served at `/traders`) is listed for the same reason.
  */
-const PUBLIC_SITE_PATHS: ReadonlySet<string> = new Set([...SITE_PATHS, '/home']);
+const PUBLIC_SITE_PATHS: ReadonlySet<string> = new Set([...SITE_PATHS, '/home', TRADERS_PAGE_PATH]);
 
 export const isPublicSitePath = (path: string): boolean => PUBLIC_SITE_PATHS.has(path);
 
@@ -160,7 +173,7 @@ export function gateFor(surface: Surface, pathname: string): Gate {
   // Auth endpoints are not served here at all, and any other path is refused rather than rendered — a page that
   // needs a session has no business on a host that never receives one.
   // The Telegram bot's webhook authenticates itself with the secret Telegram sends (ADR 0020 §2.14).
-  if (path === TELEGRAM_WEBHOOK_PATH || path === MARKET_RATE_PATH) return 'PUBLIC';
+  if (path === TELEGRAM_WEBHOOK_PATH || path === MARKET_RATE_PATH || path === ACQUISITION_EVENT_PATH) return 'PUBLIC';
   return isQuoteLinkPath(path) || isDealLinkPath(path) || isPublicSitePath(path) || deskHandleOfPath(path) !== null || isDeskPagePath(path) ? 'PUBLIC' : 'CLIENT_SESSION';
 }
 

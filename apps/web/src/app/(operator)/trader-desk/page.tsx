@@ -8,6 +8,9 @@ import { can, operatorPage } from '../../../server/operator.ts';
 import { usdt } from '../_desk/format.ts';
 import { KpiBand, LinkTabs, Page, PageBody, PageHeader } from '../_desk/ui.tsx';
 import { bookStyles as b } from '../_book/parts.tsx';
+import { type FunnelGrouping, traderFunnel } from '../../../server/acquisition-funnel.ts';
+import { publicOrigin } from '../../../server/site.ts';
+import { Acquisition } from './Acquisition.tsx';
 import { ProgramForm } from './ProgramForm.tsx';
 import { TraderList } from './TraderList.tsx';
 import q from '../queue.module.css';
@@ -15,17 +18,22 @@ import q from '../queue.module.css';
 export const dynamic = 'force-dynamic';
 
 /**
- * Traders, for the desk (`traders:view`). Two views: the traders — what waits for a decision first, as the page's one
+ * Traders, for the desk (`traders:view`). Three views: the traders — what waits for a decision first, as the page's one
  * orange moment, then every trader with what matters for routing — and the programme, the settings every approval and
- * every deal starts from, on a page of its own so the list is never under a form. Anyone can apply through "Become a
+ * every deal starts from, on a page of its own so the list is never under a form — and where traders come from, the trader
+ * acquisition page's funnel (migration 0053). Anyone can apply through "Become a
  * trader"; nothing an applicant submits is usable until it is verified here.
  */
 export default async function TradersDeskPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const ctx = await operatorPage();
   if (!can(ctx, 'traders:view')) notFound();
   const params = await searchParams;
-  const view = params.view === 'programme' ? 'programme' : 'traders';
+  const view = params.view === 'programme' ? 'programme' : params.view === 'acquisition' ? 'acquisition' : 'traders';
   const { program, traders } = await deskTraders(ctx.db);
+  // Where traders come from (migration 0053): the trader page's visitors, and how far each got.
+  const days = Number(params.days);
+  const by: FunnelGrouping = params.by === 'ref' || params.by === 'segment' ? params.by : 'campaign';
+  const funnel = view === 'acquisition' ? await traderFunnel(ctx.db, { days: [7, 30, 90].includes(days) ? days : 30, by }) : null;
   // Where each trader first signed in from (migration 0052): for whoever may manage clients, as on a client's page.
   const places = can(ctx, 'client:manage') ? await clientFirstPlaces(ctx.db, traders.map((t) => t.clientId)) : {};
   const review = traders.filter((t) => t.status === 'UNDER_REVIEW').length;
@@ -49,6 +57,7 @@ export default async function TradersDeskPage({ searchParams }: { searchParams: 
             items={[
               { href: '/trader-desk', label: 'Traders', count: traders.length, current: view === 'traders', ...(decide > 0 ? { tone: 'brand' as const } : {}) },
               { href: '/trader-desk?view=programme', label: 'Programme', current: view === 'programme' },
+              { href: '/trader-desk?view=acquisition', label: 'Acquisition', current: view === 'acquisition' },
             ]}
           />
         }
@@ -56,6 +65,8 @@ export default async function TradersDeskPage({ searchParams }: { searchParams: 
       <PageBody>
         {view === 'programme' ? (
           <ProgramForm program={program} canConfigure={can(ctx, 'traders:configure')} />
+        ) : funnel ? (
+          <Acquisition funnel={funnel} publicOrigin={await publicOrigin()} />
         ) : (
           <>
             <div className={b.strip} aria-label="Trader programme">

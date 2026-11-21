@@ -46,7 +46,7 @@ const FIELD_STEP: Record<string, number> = {
  * wallet as pending review, and puts the application in front of the desk. No rate is asked for: rates are set by
  * an approved trader on its own screen. The Security Reserve shown is the one the desk configured, or nothing.
  */
-export function ApplyFlow({ options }: { options: TraderApplicationOptions }) {
+export function ApplyFlow({ options, initialProvides = null }: { options: TraderApplicationOptions; initialProvides?: Provides | null }) {
   const router = useRouter();
   const { run, busy, error, dialog } = useCommand();
   const [step, setStep] = useState(0);
@@ -57,7 +57,8 @@ export function ApplyFlow({ options }: { options: TraderApplicationOptions }) {
   const [phone, setPhone] = useState('');
   const [experience, setExperience] = useState<Experience | null>(null);
   const [profileLink, setProfileLink] = useState('');
-  const [provides, setProvides] = useState<Provides | null>(null);
+  // Where the applicant said they came from on `inrp2p.com/traders`, when they did; a choice like any other.
+  const [provides, setProvides] = useState<Provides | null>(initialProvides);
   const [typicalInr, setTypicalInr] = useState('');
   const [dailyInr, setDailyInr] = useState('');
   const [typicalUsdt, setTypicalUsdt] = useState('');

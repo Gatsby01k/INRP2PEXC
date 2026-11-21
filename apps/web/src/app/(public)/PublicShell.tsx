@@ -6,6 +6,7 @@ import { CLOSING, FOOTER, FOOTER_NOTE, NAV, OWN_DESK, SITE_NAME, SITE_PAGES, TAG
 import { NavSpy } from './_landing/NavSpy.tsx';
 import { Ticker } from './_landing/Ticker.tsx';
 import { appOrigin, mailto, onboardingHref, siteContacts } from '../../server/site.ts';
+import { TRADERS_PATH } from '../../server/surface.ts';
 import styles from './public.module.css';
 
 /**
@@ -82,7 +83,8 @@ export function PublicShell({ children, nonce }: { children: ReactNode; nonce?: 
     { label: links.signIn, href: `${app}/sign-in` },
     { label: links.trader, href: `${app}${TRADER_ENTRY.appPath}` },
     { label: links.flow, href: '/#how-it-works' },
-    { label: links.ownDesk, href: '/#own-desk' },
+    // The trader acquisition page: the one address every trader is sent to (migration 0053).
+    { label: links.ownDesk, href: TRADERS_PATH },
   ];
   const pages: FooterLink[] = SITE_PAGES.filter((p) => p.path !== '/').map((p) => ({ label: p.h1, href: p.path }));
   const security: FooterLink[] = [
@@ -114,10 +116,10 @@ export function PublicShell({ children, nonce }: { children: ReactNode; nonce?: 
           </Link>
           <nav className={styles.nav} aria-label="Pages" data-nav="">
             <span className={styles.navThumb} aria-hidden="true" />
-            {[...NAV.slice(0, 2), { label: OWN_DESK.nav, path: '/#own-desk' }, ...NAV.slice(2)].map((item) => (
+            {[...NAV.slice(0, 2), { label: OWN_DESK.nav, path: TRADERS_PATH }, ...NAV.slice(2)].map((item) => (
               <Link key={item.path} href={item.path} className={styles.navLink} prefetch={false} data-section={item.path.split('#')[1]}>
                 {item.label}
-                {item.path === '/#own-desk' ? (
+                {item.path === TRADERS_PATH ? (
                   <span className={styles.navTag} aria-hidden="true">
                     {withTerms(OWN_DESK.navTag)}
                   </span>

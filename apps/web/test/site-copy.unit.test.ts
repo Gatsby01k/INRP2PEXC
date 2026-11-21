@@ -6,6 +6,7 @@ import type { NotificationKind } from '@inrp2p/db';
 import {
   ACTIONS, CLOSING, FAQ, FLOW, FOOTER, FOOTER_NOTE, HERO, NAV, ONBOARDING, OWN_DESK, SHOWCASE, GUIDES, SITE_NAME, SITE_PAGES, SITE_PATHS, TAGLINE, TELEGRAM, TRADER_ENTRY, TRADER_TERMS, WHY, WORKSPACE_ENTRY, withTerms,
 } from '../src/content/site.ts';
+import { TRADERS_PAGE } from '../src/content/traders.ts';
 
 /**
  * The copy review, as a test (D-07, PRODUCT §7.4, launch checklist).
@@ -119,6 +120,8 @@ const SITE_COPY: readonly { readonly where: string; readonly text: string }[] = 
   ...copyIn(TRADER_ENTRY, 'TRADER_ENTRY'),
   ...copyIn(TELEGRAM, 'TELEGRAM'),
   ...copyIn(FOOTER, 'FOOTER'),
+  // The trader acquisition page, `inrp2p.com/traders`: the same rules, every word of it.
+  ...copyIn(TRADERS_PAGE, 'TRADERS_PAGE'),
   ...SITE_PAGES.flatMap((p) => [
     { where: `${p.path} title`, text: p.title },
     { where: `${p.path} description`, text: p.description },

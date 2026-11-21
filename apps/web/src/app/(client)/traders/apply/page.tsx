@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation';
 import { traderApplicationOptions, traderHome } from '@inrp2p/traders';
+import { rememberTraderAcquisition } from '../../../../server/acquisition-app.ts';
 import { workspacePage } from '../../../../server/client.ts';
 import { PageHead } from '../../_workspace/PageHead.tsx';
 import { ApplyFlow } from './ApplyFlow.tsx';
@@ -17,6 +18,9 @@ export default async function ApplyPage() {
   if (home.state !== 'NONE' && home.state !== 'REJECTED') redirect('/traders');
   const options = await traderApplicationOptions(ctx.db, ctx.actor.userId);
   if (!options.canApply) redirect('/traders');
+  // The side the visitor chose on `inrp2p.com/traders` is where the application starts; they can change it.
+  const segment = home.state === 'NONE' ? ((await rememberTraderAcquisition(ctx.actor.userId))?.segment ?? null) : null;
+  const provides = segment === 'usdt' ? 'USDT' : segment === 'inr' ? 'INR' : segment === 'otc' ? 'BOTH' : null;
   return (
     <>
       <PageHead
@@ -25,7 +29,7 @@ export default async function ApplyPage() {
         title="Apply to trade"
         lede="Three short steps. Then send your Security Reserve from your wallet, and you can start the moment you are approved."
       />
-      <ApplyFlow options={options} />
+      <ApplyFlow options={options} initialProvides={provides} />
     </>
   );
 }

@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
+import { decodeAttribution } from '../src/server/acquisition.ts';
 
 vi.mock('server-only', () => ({}));
 
@@ -73,13 +74,13 @@ describe('the proxy reads no database', () => {
   });
 
   it('sends a person who types a workspace section on the public domain to the same page on the app host', async () => {
-    for (const path of ['/traders', '/traders/orders/TO-260919-0006', '/become-a-trader', '/exchange', '/sign-in', '/desk/deals?tab=links']) {
+    for (const path of ['/traders/orders/TO-260919-0006', '/traders/apply', '/become-a-trader', '/exchange', '/sign-in', '/desk/deals?tab=links']) {
       const r = await proxy(req(ENV.PUBLIC_HOST, path, { html: true }));
       expect(r.status, path).toBe(307);
       expect(r.headers.get('location'), path).toBe(`https://${ENV.APP_HOST}${path}`);
     }
     // Only a browser's page request, and only the workspace's own sections: anything else is still refused.
-    expect((await proxy(req(ENV.PUBLIC_HOST, '/traders'))).status).toBe(401);
+    expect((await proxy(req(ENV.PUBLIC_HOST, '/traders/orders'))).status).toBe(401);
     expect((await proxy(req(ENV.PUBLIC_HOST, '/api/client/me', { html: true }))).status).toBe(401);
     expect((await proxy(req(ENV.PUBLIC_HOST, '/orders/TO-1', { html: true }))).status).toBe(401);
     expect((await proxy(req(ENV.PUBLIC_HOST, '/settings/team', { html: true }))).status).toBe(401);
@@ -112,5 +113,69 @@ describe('back to where a client was going (SECURITY §2.3a)', () => {
     expect(forwarded(forged, 'x-inrp2p-return')).toBeNull();
     // The headers the page will see are exactly the listed ones: the browser's value is dropped, not merely unset.
     expect(forged.headers.get('x-middleware-override-headers')!.split(',')).not.toContain('x-inrp2p-return');
+  });
+});
+
+describe('the trader acquisition page (migration 0053)', () => {
+  const rewrite = (r: Response) => r.headers.get('x-middleware-rewrite');
+  const touchCookie = (r: Response) => /inrp2p_touch=([^;]+)/.exec(r.headers.get('set-cookie') ?? '')?.[1] ?? null;
+
+  it('serves `inrp2p.com/traders` itself — not the workspace — and remembers where the visitor came from', async () => {
+    const r = await proxy(req(ENV.PUBLIC_HOST, '/traders?utm_source=Telegram&utm_medium=post&utm_campaign=Launch%20Day&ref=ABC&for=otc', { html: true }));
+    expect(new URL(rewrite(r)!).pathname).toBe('/lp/traders');
+    const cookie = touchCookie(r);
+    expect(cookie).not.toBeNull();
+    const a = decodeAttribution(cookie);
+    expect(a?.first).toMatchObject({ source: 'telegram', medium: 'post', campaign: 'launch-day', ref: 'abc', click: null });
+    expect(a?.segment).toBe('otc');
+    // The page gets the same attribution in a header: on a first visit the cookie exists only on this response.
+    expect(forwarded(r, 'x-inrp2p-touch')).toBe(cookie);
+    expect(r.headers.get('set-cookie')).toMatch(/HttpOnly/i);
+    expect(r.headers.get('set-cookie')).toMatch(/SameSite=lax/i);
+  });
+
+  it('keeps the first touch and the visitor, and takes a new last touch only from a visit that says where it came from', async () => {
+    const first = touchCookie(await proxy(req(ENV.PUBLIC_HOST, '/traders?utm_source=telegram', { html: true })))!;
+    const direct = await proxy(req(ENV.PUBLIC_HOST, '/traders', { html: true, cookie: `inrp2p_touch=${first}` }));
+    expect(touchCookie(direct)).toBeNull();
+    expect(forwarded(direct, 'x-inrp2p-touch')).toBe(first);
+    const again = await proxy(req(ENV.PUBLIC_HOST, '/traders?utm_source=linkedin&li_fat_id=abc-123', { html: true, cookie: `inrp2p_touch=${first}` }));
+    const a = decodeAttribution(touchCookie(again))!;
+    expect(a.visitor).toBe(decodeAttribution(first)!.visitor);
+    expect(a.first.source).toBe('telegram');
+    expect(a.last).toMatchObject({ source: 'linkedin', click: 'LINKEDIN', clickId: 'abc-123' });
+  });
+
+  it('reads a referring host, never its path, and not one of INRP2P’s own', async () => {
+    const out = await proxy(req(ENV.PUBLIC_HOST, '/traders', { html: true, headers: { referer: 'https://www.linkedin.com/feed/update/urn:li:activity:1?x=secret' } }));
+    expect(decodeAttribution(touchCookie(out))!.first.referrer).toBe('linkedin.com');
+    const own = await proxy(req(ENV.PUBLIC_HOST, '/traders', { html: true, headers: { referer: `https://${ENV.PUBLIC_HOST}/usdt-to-inr` } }));
+    expect(decodeAttribution(touchCookie(own))!.first.referrer).toBeNull();
+  });
+
+  it('has one address: the inside of the rewrite is sent back to it, and a forged attribution header never reaches a page', async () => {
+    const inside = await proxy(req(ENV.PUBLIC_HOST, '/lp/traders?for=inr', { html: true }));
+    expect(inside.status).toBe(308);
+    expect(new URL(inside.headers.get('location')!).pathname).toBe('/traders');
+    const forged = await proxy(req(ENV.PUBLIC_HOST, '/usdt-to-inr', { html: true, headers: { 'x-inrp2p-touch': 'forged' } }));
+    expect(passes(forged)).toBe(true);
+    expect(forwarded(forged, 'x-inrp2p-touch')).toBeNull();
+  });
+
+  it('carries the attribution into the app host’s own cookie at the trader sign-in, and cleans the address', async () => {
+    const token = touchCookie(await proxy(req(ENV.PUBLIC_HOST, '/traders?utm_source=telegram&ref=partner-1', { html: true })))!;
+    const r = await proxy(req(ENV.APP_HOST, `/become-a-trader?t=${token}&for=inr`, { html: true }));
+    expect(r.status).toBe(307);
+    const to = new URL(r.headers.get('location')!);
+    expect(to.pathname).toBe('/become-a-trader');
+    expect(to.searchParams.get('t')).toBeNull();
+    expect(to.searchParams.get('for')).toBe('inr');
+    const carried = decodeAttribution(touchCookie(r))!;
+    expect(carried).toMatchObject({ visitor: decodeAttribution(token)!.visitor, segment: 'inr' });
+    expect(carried.first).toMatchObject({ source: 'telegram', ref: 'partner-1' });
+    // A token that is not an attribution is dropped: the address is still cleaned, and nothing is remembered.
+    const bad = await proxy(req(ENV.APP_HOST, '/become-a-trader?t=not-a-token', { html: true }));
+    expect(bad.status).toBe(307);
+    expect(touchCookie(bad)).toBeNull();
   });
 });
