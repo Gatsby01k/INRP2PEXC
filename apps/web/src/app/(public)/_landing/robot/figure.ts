@@ -2,6 +2,7 @@ import { type BufferGeometry, CylinderGeometry, DataTexture, Group, type Materia
 import { COLOR } from '@inrp2p/ui/tokens';
 import type { Pose } from './behaviour.ts';
 import { type Outline, type Superquadric, frontBead, frontPanel, frontZ, superellipsoid, superquadric, sweptBand, tapered, turned } from './geometry.ts';
+import { visorDisplay } from './display.ts';
 import { beaconMaterial, emblemMaterial, graphiteMaterial, headMaterial, lightMaterial, orangeMaterial, shellMaterial, torsoMaterial, visorMaterial } from './materials.ts';
 
 /**
@@ -273,6 +274,13 @@ export function* figureSteps(): Generator<void, Figure, void> {
       face.uWink.value = pose.wink;
       face.uWide.value = pose.wide;
       face.uHeart.value = pose.heart;
+      // The visor's display (display.ts): its words, when it has any, cross-fade with the eyes.
+      const shown = visorDisplay.frame();
+      face.uLedOn.value = shown.level;
+      if (shown.dirty) {
+        (face.uLed.value.image.data as Uint8Array).set(visorDisplay.data);
+        face.uLed.value.needsUpdate = true;
+      }
       emblem.mark.uArcGlow.value.set(pose.arcGlow[0], pose.arcGlow[1], pose.arcGlow[2]);
       emblem.mark.uHubGlow.value = pose.hubGlow;
       light.emissiveIntensity = pose.accentGlow;

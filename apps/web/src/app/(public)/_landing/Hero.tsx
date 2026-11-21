@@ -14,7 +14,7 @@ import styles from './hero.module.css';
  * whether or not the robot ever does.
  */
 export function Hero() {
-  const { eyebrow, headline, lede, points, deal, quote } = HERO;
+  const { eyebrow, headline, lede, points, quote } = HERO;
   return (
     <section className={styles.hero} aria-labelledby="hero-title" data-robot-scope="">
       <div className={styles.frame}>
@@ -45,40 +45,9 @@ export function Hero() {
         </ul>
 
         <div className={styles.stage} aria-hidden="true">
-          {/* The robot stands in front of the mark's own orange: a sun, and the mark's arcs turning round it. */}
+          {/* The robot stands in front of the mark's own orange; its visor answers the visitor (robot/director.ts). */}
           <Halo />
           <RobotStage />
-          {/* A deal, moment by moment, floating beside the robot: each step closes its ring in turn, as the workspace's
-              status rings do, and the status on the visor turns to done. */}
-          <div className={styles.deal}>
-            <p className={styles.dealHead}>
-              <span className={styles.dealLive}>{deal.live}</span>
-              <span className={styles.dealStatus}>
-                <span className={styles.dealStatusRun}>{deal.running}</span>
-                <span className={styles.dealStatusDone}>{deal.status}</span>
-              </span>
-            </p>
-            <ol className={styles.dealSteps}>
-              {deal.steps.map((step, i) => (
-                <li key={step.text} className={styles.dealStep} style={{ ['--i' as string]: i }}>
-                  <span className={styles.dealIcon}>
-                    <PointIcon name={step.icon} />
-                  </span>
-                  <span className={styles.dealText}>{step.text}</span>
-                  <span className={styles.dealRing}>
-                    <svg className={styles.ringWait} viewBox="0 0 20 20">
-                      <circle cx="10" cy="10" r="7.2" />
-                      <circle cx="10" cy="2.8" r="2.2" />
-                    </svg>
-                    <svg className={styles.ringDone} viewBox="0 0 20 20">
-                      <circle cx="10" cy="10" r="9" />
-                      <path d="M6.2 10.4l2.6 2.6 5.1-5.6" />
-                    </svg>
-                  </span>
-                </li>
-              ))}
-            </ol>
-          </div>
         </div>
 
         <div className={styles.quote}>

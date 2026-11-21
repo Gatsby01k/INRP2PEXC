@@ -5,6 +5,8 @@ import small from './poster/robot-720.webp';
 import medium from './poster/robot-1080.webp';
 import large from './poster/robot-1600.webp';
 import styles from './robot.module.css';
+import { startVisorDirector } from './director.ts';
+import { VisorOverlay } from './VisorOverlay.tsx';
 
 const RobotCanvas = lazy(() => import('./RobotCanvas.tsx'));
 
@@ -67,6 +69,9 @@ export function RobotStage() {
   const [ready, setReady] = useState(false);
   const [active, setActive] = useState(true);
 
+  // The visor's words (director.ts): hello, the amount, the rupees it comes to, the rate when left alone.
+  useEffect(() => startVisorDirector(), []);
+
   useEffect(() => {
     setScope(box.current?.closest<HTMLElement>('[data-robot-scope]') ?? null);
     if (!liveRobotAllowed()) return;
@@ -95,6 +100,8 @@ export function RobotStage() {
         fetchPriority="high"
         decoding="async"
       />
+      {/* The visor's display on the still robot; the live one draws it in its own visor. */}
+      <VisorOverlay />
       {live ? (
         <Suspense fallback={null}>
           <RobotCanvas

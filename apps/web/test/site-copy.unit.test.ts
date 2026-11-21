@@ -101,7 +101,6 @@ const SITE_COPY: readonly { readonly where: string; readonly text: string }[] = 
   { where: 'HERO.headline', text: `${HERO.headline.lead} ${HERO.headline.accent} ${HERO.headline.tail}` },
   { where: 'HERO.lede', text: HERO.lede },
   ...HERO.points.map((p) => ({ where: `HERO.points ${p.label}`, text: p.label })),
-  ...copyIn(HERO.deal, 'HERO.deal'),
   ...HERO_MODULE_COPY,
   ...NAV.map((n) => ({ where: `NAV ${n.label}`, text: n.label })),
   { where: 'WORKSPACE_ENTRY', text: WORKSPACE_ENTRY.label },

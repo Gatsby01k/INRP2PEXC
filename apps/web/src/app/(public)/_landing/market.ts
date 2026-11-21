@@ -44,6 +44,12 @@ function start(): void {
   document.addEventListener('visibilitychange', () => void read());
 }
 
+/** The market as last read, outside React (the robot's display reads it); starts the reading if nothing has. */
+export function marketNow(): Market | null {
+  if (typeof window !== 'undefined') start();
+  return current;
+}
+
 /** The market, once read; null until then and while the reference is too old to show. */
 export function useMarket(): Market | null {
   const [market, setMarket] = useState<Market | null>(current);

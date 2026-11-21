@@ -228,63 +228,131 @@
   width: 100%;
 }
 
-/* The reading column every SEO page is set in, and the home page below its hero. */
-.column {
-  max-width: 720px;
-  margin: 0 auto;
-  padding: var(--space-6) var(--space-5) var(--space-6);
+/* A guide: its first screen in the home page's room — the sunrise and grain under the floating masthead, the display
+   face, the mark's orange on the action — then its sections as numbered ceramic sheets. */
+.guide {
+  position: relative;
 }
 
 .hero {
-  margin-bottom: var(--space-6);
+  position: relative;
+  isolation: isolate;
+  overflow: clip;
+  margin-top: -72px;
+  padding: calc(72px + clamp(56px, 9vh, 104px)) var(--space-10) clamp(48px, 7vh, 80px);
+  background:
+    radial-gradient(640px 420px at 92% -8%, rgb(255 116 58 / 0.42), transparent 70%),
+    radial-gradient(560px 360px at 64% -14%, rgb(255 184 116 / 0.4), transparent 70%),
+    radial-gradient(760px 420px at 12% -20%, rgb(255 222 192 / 0.7), transparent 72%),
+    linear-gradient(180deg, var(--bg-surface) 0, var(--room) 520px);
+}
+
+.hero::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  opacity: 0.05;
+  mix-blend-mode: multiply;
+  background-image: var(--grain);
+  pointer-events: none;
+}
+
+.heroInner {
+  max-width: 1360px;
+  margin: 0 auto;
+}
+
+.eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 var(--space-5);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--brand-action);
+}
+
+.eyebrow::before {
+  content: '';
+  width: 22px;
+  height: 1.5px;
+  border-radius: 2px;
+  background: currentColor;
 }
 
 .h1 {
-  margin: 0 0 var(--space-3);
-  font-size: var(--font-size-display);
-  line-height: 1.1;
-  letter-spacing: -0.02em;
+  max-width: 14ch;
+  margin: 0;
+  font-size: clamp(44px, 6.4vw, 96px);
   font-weight: var(--font-weight-semibold);
+  line-height: 0.98;
+  letter-spacing: -0.05em;
+  text-wrap: balance;
 }
 
 .lede {
-  margin: 0 0 var(--space-5);
-  font-size: var(--font-size-body-lg);
-  color: var(--text-secondary);
+  max-width: 34rem;
+  margin: var(--space-6) 0 0;
+  font-size: clamp(18px, 1.5vw, 21px);
+  line-height: 1.5;
+  color: var(--ink-2);
+  text-wrap: pretty;
 }
 
 .actions {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-3);
+  margin-top: var(--space-8);
 }
 
 .actionPrimary,
 .actionSecondary {
   display: inline-flex;
   align-items: center;
-  min-height: var(--touch-min);
-  padding: 0 var(--space-4);
-  border-radius: var(--radius-control);
+  min-height: 54px;
+  padding: 0 var(--space-6);
+  border-radius: 18px;
+  font-family: var(--font-display);
+  font-size: var(--font-size-body-lg);
+  font-weight: var(--font-weight-semibold);
   text-decoration: none;
-  font-weight: var(--font-weight-medium);
+  transition:
+    filter var(--dur-fast) var(--ease),
+    transform var(--dur-fast) var(--ease);
 }
 
 .actionPrimary {
-  background: var(--brand-action);
+  background: var(--field);
   color: var(--text-on-action);
-  border: 1px solid var(--brand-action);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.34),
+    inset 0 -2px 0 rgb(110 24 0 / 0.18),
+    0 16px 30px -14px color-mix(in srgb, var(--brand-action) 90%, transparent);
 }
 
 .actionSecondary {
-  background: transparent;
-  color: var(--text-primary);
-  border: 1px solid var(--border-control);
+  background: linear-gradient(180deg, #2a2c33, var(--ink));
+  color: #fff;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.16),
+    0 10px 22px -12px rgb(18 19 23 / 0.7);
+}
+
+.actionPrimary:hover,
+.actionSecondary:hover {
+  filter: brightness(1.06);
+  transform: translateY(-1px);
 }
 
 .actionNote {
-  margin: var(--space-3) 0 0;
-  font-size: var(--font-size-meta);
+  max-width: 34rem;
+  margin: var(--space-4) 0 0;
+  font-size: var(--font-size-body-sm);
+  line-height: 1.55;
   color: var(--text-muted);
 }
 
@@ -302,20 +370,72 @@
   text-decoration-color: var(--brand-action);
 }
 
+/* The sections: numbered ceramic sheets, three across on a desk. */
+.sections {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: var(--space-5);
+  max-width: 1360px;
+  margin: 0 auto;
+  padding: 0 var(--space-10) clamp(88px, 12vh, 128px);
+}
+
 .section {
-  margin-bottom: var(--space-6);
+  display: grid;
+  align-content: start;
+  gap: var(--space-3);
+  padding: 28px 28px 30px;
+  border: 1px solid transparent;
+  border-radius: 30px;
+  background:
+    linear-gradient(180deg, #fff, #fffdfa) padding-box,
+    var(--edge) border-box;
+  box-shadow: var(--lift);
+}
+
+.sectionIndex {
+  display: inline-grid;
+  justify-self: start;
+  place-items: center;
+  min-width: 34px;
+  height: 24px;
+  margin-bottom: var(--space-2);
+  padding: 0 8px;
+  border-radius: 8px;
+  background: var(--visor);
+  box-shadow: var(--visor-edge);
+  color: var(--led);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  letter-spacing: 0.06em;
+  text-shadow: 0 0 8px rgb(255 106 61 / 0.9);
 }
 
 .h2 {
-  margin: 0 0 var(--space-3);
-  font-size: var(--font-size-body-lg);
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 24px;
   font-weight: var(--font-weight-semibold);
+  line-height: 1.15;
+  letter-spacing: -0.03em;
 }
 
 .body {
-  margin: 0 0 var(--space-3);
+  margin: 0;
+  font-size: 16px;
   line-height: 1.6;
-  color: var(--text-secondary);
+  color: var(--ink-2);
+}
+
+@media (max-width: 1199px) {
+  .hero {
+    margin-top: -64px;
+    padding: calc(64px + 48px) var(--space-4) var(--space-10);
+  }
+
+  .sections {
+    padding: 0 var(--space-4) var(--space-16);
+  }
 }
 
 /* Skip to content: off screen until a keyboard reaches it, then over the masthead's first corner. */
