@@ -1,4 +1,5 @@
-import { Color, MeshPhysicalMaterial, MeshStandardMaterial, Vector2, Vector3, type IUniform } from 'three';
+import { Color, DataTexture, MeshPhysicalMaterial, MeshStandardMaterial, NearestFilter, RedFormat, UnsignedByteType, Vector2, Vector3, type IUniform } from 'three';
+import { LED_COLS, LED_ROWS } from './display.ts';
 import { COLOR } from '@inrp2p/ui/tokens';
 import type { Outline } from './geometry.ts';
 
@@ -164,6 +165,10 @@ export interface FaceUniforms {
   readonly uHeart: { value: number };
   /** Brightness of each dot, left to right, while waiting. */
   readonly uDotLevel: { value: Vector3 };
+  /** The display's LEDs (display.ts): one byte each, lit or dark. */
+  readonly uLed: { value: DataTexture };
+  /** 0 the eyes, 1 the display; between, one fades into the other. */
+  readonly uLedOn: { value: number };
 }
 
 /**
@@ -178,6 +183,16 @@ export interface FaceUniforms {
  * two dots and raises a third between them. Every expression is a setting of those few numbers, so any expression
  * can ease into any other without a cut.
  */
+/** The display's LEDs as a texture: one red byte per LED, sampled at each cell's centre, never blended between cells. */
+function ledTexture(): DataTexture {
+  const texture = new DataTexture(new Uint8Array(LED_COLS * LED_ROWS), LED_COLS, LED_ROWS, RedFormat, UnsignedByteType);
+  texture.magFilter = NearestFilter;
+  texture.minFilter = NearestFilter;
+  texture.generateMipmaps = false;
+  texture.needsUpdate = true;
+  return texture;
+}
+
 export function visorMaterial(): { material: MeshPhysicalMaterial; face: FaceUniforms } {
   const face: FaceUniforms = {
     uGaze: { value: new Vector2() },
@@ -194,6 +209,8 @@ export function visorMaterial(): { material: MeshPhysicalMaterial; face: FaceUni
     uWink: { value: 0 },
     uWide: { value: 0 },
     uHeart: { value: 0 },
+    uLed: { value: ledTexture() },
+    uLedOn: { value: 0 },
   };
   const material = patch(
     new MeshPhysicalMaterial({ color: GLASS, roughness: 0.16, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.025, specularIntensity: 0.6 }),
@@ -222,6 +239,13 @@ export function visorMaterial(): { material: MeshPhysicalMaterial; face: FaceUni
         uniform float uWink;
         uniform float uWide;
         uniform float uHeart;
+        uniform sampler2D uLed;
+        uniform float uLedOn;
+        // The display's matrix of LEDs: its grid, and the part of the visor it fills (centre, half size), with square
+        // cells — the same panel the eyes are drawn on.
+        const vec2 LED_GRID = vec2(${LED_COLS}.0, ${LED_ROWS}.0);
+        const vec2 LED_CENTRE = vec2(0.0, -0.02);
+        const float LED_CELL = 0.04;
         // The eye line, the display's depth behind the glass, and the eyes' size and spacing.
         const vec2 FACE = vec2(0.0, -0.01);
         const float DEPTH = 0.055;
@@ -293,6 +317,22 @@ export function visorMaterial(): { material: MeshPhysicalMaterial; face: FaceUni
         // Surprise opens a small round mouth under the eyes.
         float mouth = smoothstep(0.55, 1.0, uWide);
         light += glow(abs(length((pe - vec2(0.0, -0.19)) * vec2(1.0, 0.85)) - 0.034 * mouth) - 0.013, mouth) * mouth;
+        // The display: the same light, as a matrix of round LEDs. A lit one is the eye's colour with its hot core and a
+        // halo; a dark one is a faint ember, so the grid reads even where nothing is lit. Behind the glass, like the eyes.
+        if (uLedOn > 0.001) {
+          vec2 lp = (onDisplay - LED_CENTRE) / (LED_GRID * LED_CELL) + 0.5;
+          float inside = step(0.0, lp.x) * step(lp.x, 1.0) * step(0.0, lp.y) * step(lp.y, 1.0);
+          vec2 g = lp * LED_GRID;
+          float lit = texture2D(uLed, (floor(g) + 0.5) / LED_GRID).r * inside;
+          float dl = length(fract(g) - 0.5) * LED_CELL - 0.0135;
+          float aa = max(fwidth(dl), 0.0008);
+          float body = 1.0 - smoothstep(-aa, aa, dl);
+          float core = 1.0 - smoothstep(-0.008, 0.0, dl);
+          float halo = exp(-max(dl, 0.0) * 70.0) * 0.45;
+          vec3 led = (mix(uEyeColor, uEyeCore, core * 0.75) * body * 1.7 + uEyeColor * halo) * lit;
+          led += uEyeColor * 0.05 * body * inside * (1.0 - lit);
+          light = mix(light, led, uLedOn);
+        }
         totalEmissiveRadiance += light * uEyeGain;
       `,
     },

@@ -23,7 +23,7 @@ export function Board() {
         <i />
         {BOARD.tag}
       </span>
-      <Led text={text} mode="marquee" pitch={5} rows={11} speed={22} className={styles.led} />
+      <Led text={text} mode="marquee" pitch={4} rows={9} speed={17} className={styles.led} />
       <p className="ix-visually-hidden">{BOARD.lines.join('. ')}</p>
     </div>
   );

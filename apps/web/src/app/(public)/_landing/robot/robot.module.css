@@ -34,3 +34,31 @@
   visibility: hidden;
   transition: visibility 0s linear 700ms;
 }
+
+/* The visor's display on the still robot (VisorOverlay.tsx): on the still's black visor exactly, the glass darkening
+   over the eyes as the words come up; its LEDs fill the same part of the visor as the live robot's do. */
+.visor {
+  --on: 0;
+  position: absolute;
+  z-index: 1;
+  top: 20.6%;
+  left: 25.2%;
+  width: 49.6%;
+  height: 38.3%;
+  border-radius: 21% / 27%;
+  background: radial-gradient(130% 110% at 30% -10%, #26282f 0, #111215 45%, #050506 100%);
+  opacity: var(--on);
+  pointer-events: none;
+}
+
+.visorLeds {
+  position: absolute;
+  top: 15.6%;
+  left: 8%;
+  width: 84%;
+  height: 68.8%;
+}
+
+.stage[data-state='live'] .visor {
+  display: none;
+}
