@@ -1,8 +1,10 @@
-import type { ReactNode } from 'react';
+import { type ReactNode, Suspense } from 'react';
 import Link from 'next/link';
-import { ACTIONS, FAQ, GUIDES, HERO, ONBOARDING, SITE_NAME, SITE_PAGES, type SitePage, TELEGRAM, telegramUrl, withTerms } from '../../content/site.ts';
+import mark from '../../../../../brand/inrp2p-mark.png';
+import { ACTIONS, FAQ, GUIDES, HERO, ONBOARDING, SITE_NAME, SITE_PAGES, type SitePage, TAGLINE, TELEGRAM, TRADER_ENTRY, telegramUrl, withTerms } from '../../content/site.ts';
 import { GuideRobot } from './_landing/guide/GuideRobot.tsx';
 import { MarketCard } from './_landing/guide/MarketCard.tsx';
+import { RateLine, RateTable } from './_landing/guide/RateNow.tsx';
 import guide from './_landing/guide/guide.module.css';
 import { appOrigin, onboardingHref, publicOrigin, requestNonce } from '../../server/site.ts';
 import styles from './public.module.css';
@@ -18,14 +20,26 @@ import styles from './public.module.css';
 function structuredData(page: SitePage, origin: string): string {
   const url = `${origin}${page.path === '/' ? '' : page.path}`;
   const graph: unknown[] = [
-    { '@type': 'Organization', '@id': `${origin}#organization`, name: SITE_NAME, url: origin, sameAs: TELEGRAM.channels.map((c) => telegramUrl(c.handle)) },
+    {
+      '@type': 'Organization',
+      '@id': `${origin}#organization`,
+      name: SITE_NAME,
+      alternateName: 'INRP2P',
+      url: origin,
+      // The supplied mark, square, as a search engine's knowledge panel and an assistant's answer show the brand.
+      logo: { '@type': 'ImageObject', url: `${origin}${mark.src}`, width: mark.width, height: mark.height },
+      slogan: TAGLINE,
+      sameAs: [...TELEGRAM.channels, TELEGRAM.ceo].map((c) => telegramUrl(c.handle)),
+      contactPoint: { '@type': 'ContactPoint', contactType: 'customer support', url: telegramUrl(TELEGRAM.ceo.handle), areaServed: 'IN' },
+    },
     { '@type': 'WebSite', '@id': `${origin}#website`, name: SITE_NAME, url: origin, publisher: { '@id': `${origin}#organization` }, inLanguage: 'en-IN' },
     {
       '@type': 'WebPage',
       '@id': `${url}#webpage`,
       url,
-      name: page.title,
-      description: page.description,
+      name: withTerms(page.title),
+      description: withTerms(page.description),
+      inLanguage: 'en-IN',
       isPartOf: { '@id': `${origin}#website` },
       about: { '@id': `${origin}#organization` },
     },
@@ -35,7 +49,7 @@ function structuredData(page: SitePage, origin: string): string {
       '@type': 'BreadcrumbList',
       itemListElement: [
         { '@type': 'ListItem', position: 1, name: SITE_NAME, item: origin },
-        { '@type': 'ListItem', position: 2, name: page.h1, item: url },
+        { '@type': 'ListItem', position: 2, name: withTerms(page.h1), item: url },
       ],
     });
   }
@@ -85,21 +99,43 @@ export async function SitePageView({ page, hero, story }: { page: SitePage; hero
               <div className={`${styles.heroInner} ${page.led ? styles.heroGrid : ''}`}>
                 <div className={styles.heroCopy}>
                 <p className={styles.eyebrow}>{HERO.eyebrow}</p>
-                <h1 className={styles.h1}>{page.h1}</h1>
-                <p className={styles.lede}>{page.lede}</p>
-                <div className={styles.actions}>
-                  {ACTIONS.map((a) => (
-                    <a key={a.label} className={a.kind === 'primary' ? styles.actionPrimary : styles.actionSecondary} href={`${app}${a.appPath}`}>
-                      {a.label}
-                    </a>
-                  ))}
-                </div>
-                <p className={styles.actionNote}>
-                  {ONBOARDING.requirement}{' '}
-                  <a className={styles.actionLink} href={onboarding}>
-                    {ONBOARDING.label}
-                  </a>
-                </p>
+                <h1 className={styles.h1}>{withTerms(page.h1)}</h1>
+                <p className={styles.lede}>{withTerms(page.lede)}</p>
+                {/* The figure a rate search is for, in the HTML; streamed in, so the page never waits on it. */}
+                {page.rate ? (
+                  <Suspense fallback={null}>
+                    <RateLine direction={page.rate} />
+                  </Suspense>
+                ) : null}
+                {page.audience === 'trader' ? (
+                  <>
+                    <div className={styles.actions}>
+                      <a className={styles.actionPrimary} href={`${app}${TRADER_ENTRY.appPath}`}>
+                        {TRADER_ENTRY.label}
+                      </a>
+                      <Link className={styles.actionSecondary} href="/#own-desk" prefetch={false}>
+                        {GUIDES.trader.earn}
+                      </Link>
+                    </div>
+                    <p className={styles.actionNote}>{GUIDES.trader.note}</p>
+                  </>
+                ) : (
+                  <>
+                    <div className={styles.actions}>
+                      {ACTIONS.map((a) => (
+                        <a key={a.label} className={a.kind === 'primary' ? styles.actionPrimary : styles.actionSecondary} href={`${app}${a.appPath}`}>
+                          {a.label}
+                        </a>
+                      ))}
+                    </div>
+                    <p className={styles.actionNote}>
+                      {ONBOARDING.requirement}{' '}
+                      <a className={styles.actionLink} href={onboarding}>
+                        {ONBOARDING.label}
+                      </a>
+                    </p>
+                  </>
+                )}
                 </div>
                 {page.led ? (
                   <div className={guide.art}>
@@ -111,16 +147,23 @@ export async function SitePageView({ page, hero, story }: { page: SitePage; hero
             </section>
           )}
 
+          {/* The amounts people search for, at the market's rate now: a table in the HTML, after the first screen. */}
+          {!hero && page.rate ? (
+            <Suspense fallback={null}>
+              <RateTable direction={page.rate} />
+            </Suspense>
+          ) : null}
+
           <div className={styles.sections}>
             {page.sections.map((s, i) => (
               <section key={s.heading} className={styles.section}>
                 <span className={styles.sectionIndex} aria-hidden="true">
                   {String(i + 1).padStart(2, '0')}
                 </span>
-                <h2 className={styles.h2}>{s.heading}</h2>
+                <h2 className={styles.h2}>{withTerms(s.heading)}</h2>
                 {s.body.map((p) => (
                   <p key={p.slice(0, 40)} className={styles.body}>
-                    {p}
+                    {withTerms(p)}
                   </p>
                 ))}
               </section>
@@ -136,7 +179,7 @@ export async function SitePageView({ page, hero, story }: { page: SitePage; hero
                 {page.faq.map((q, i) => (
                   <details key={q.question} className={guide.item} name="guide-faq" open={i === 0}>
                     <summary className={guide.question}>{q.question}</summary>
-                    <p className={guide.answer}>{q.answer}</p>
+                    <p className={guide.answer}>{withTerms(q.answer)}</p>
                   </details>
                 ))}
               </div>
@@ -151,8 +194,8 @@ export async function SitePageView({ page, hero, story }: { page: SitePage; hero
               <div className={guide.guides}>
                 {SITE_PAGES.filter((p) => p.path !== '/' && p.path !== page.path).map((p) => (
                   <Link key={p.path} href={p.path} className={guide.guideLink} prefetch={false}>
-                    <b>{p.h1}</b>
-                    <span>{p.lede}</span>
+                    <b>{withTerms(p.h1)}</b>
+                    <span>{withTerms(p.lede)}</span>
                   </Link>
                 ))}
               </div>

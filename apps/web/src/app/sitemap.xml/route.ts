@@ -20,6 +20,18 @@ const escapeXml = (value: string): string =>
  *
  * Only the public host answers. On the desk or the client app a sitemap would be an index of private pages.
  */
+/** The live desks' handles, or none when the database does not answer in time. */
+async function deskHandles(): Promise<readonly string[]> {
+  try {
+    return await Promise.race([
+      liveDeskHandles(getRuntime().appDb),
+      new Promise<readonly string[]>((resolve) => setTimeout(() => resolve([]), 2_000)),
+    ]);
+  } catch {
+    return [];
+  }
+}
+
 export async function GET() {
   const surface = surfaceForHost((await headers()).get('host'), getRuntime().hosts);
   if (surface !== 'PUBLIC') return new Response('Not found', { status: 404, headers: { 'cache-control': 'no-store' } });
@@ -29,8 +41,9 @@ export async function GET() {
     const loc = escapeXml(`${origin}${page.path === '/' ? '/' : page.path}`);
     return `  <url>\n    <loc>${loc}</loc>\n    <priority>${page.priority.toFixed(1)}</priority>\n  </url>`;
   });
-  // The desks taking deals (ADR 0020 §2.10): each one's page is its shop window.
-  for (const handle of await liveDeskHandles(getRuntime().appDb)) {
+  // The desks taking deals (ADR 0020 §2.10): each one's page is its shop window. They come from the database, which may be
+  // slow or away; the site's own pages never wait on it — a sitemap that answers 500 tells a crawler nothing at all.
+  for (const handle of await deskHandles()) {
     urls.push(`  <url>\n    <loc>${escapeXml(`${origin}/${handle}`)}</loc>\n    <priority>0.6</priority>\n  </url>`);
   }
 

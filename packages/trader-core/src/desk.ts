@@ -1,5 +1,5 @@
 import { sql } from 'kysely';
-import { type ClientRate, type DeskEconomics, DomainError, type MarketReference, type MarketReferences, Money, computeDeskEconomics, requireUuid, DESK_HANDLE_SHAPE, RESERVED_DESK_HANDLES } from '@inrp2p/kernel';
+import { type ClientRate, type DeskEconomics, DomainError, type MarketReference, type MarketReferences, Money, computeDeskEconomics, requireUuid, DESK_HANDLE_SHAPE, RESERVED_DESK_HANDLES, isReservedHandle } from '@inrp2p/kernel';
 import type { DeskClientSource, DeskClientStatus, DeskStatus, DirectionValue, Executor, FixedSideValue, TraderSide, TxContext } from '@inrp2p/db';
 import { readBlocks } from './standing.ts';
 
@@ -57,7 +57,7 @@ export function normalizeDeskHandle(raw: unknown): string {
   if (!HANDLE_SHAPE.test(handle)) {
     throw new DomainError('DESK_HANDLE_INVALID', 'use 3 to 30 lower-case letters, digits or hyphens, starting and ending with a letter or digit', { field: 'handle' });
   }
-  if (RESERVED_DESK_HANDLES.has(handle)) throw new DomainError('DESK_HANDLE_INVALID', `“${handle}” is part of the site`, { field: 'handle' });
+  if (isReservedHandle(handle)) throw new DomainError('DESK_HANDLE_INVALID', `“${handle}” is part of the site`, { field: 'handle' });
   return handle;
 }
 

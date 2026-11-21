@@ -281,9 +281,27 @@ describe('the receipt a client keeps', () => {
 });
 
 describe('the pages themselves', () => {
-  it('are the six PRODUCT §7.4 routes, each published once', () => {
-    expect(SITE_PATHS).toEqual(['/', '/usdt-to-inr', '/inr-to-usdt', '/sell-usdt-in-india', '/buy-usdt-in-india', '/usdt-otc-india']);
+  it('are PRODUCT §7.4’s six routes and the guides written for what people search, each published once', () => {
+    expect(SITE_PATHS).toEqual([
+      '/',
+      '/usdt-to-inr',
+      '/inr-to-usdt',
+      '/sell-usdt-in-india',
+      '/buy-usdt-in-india',
+      '/p2p-bank-account-freeze',
+      '/usdt-p2p-scams',
+      '/is-inrp2p-safe',
+      '/usdt-otc-india',
+      '/p2p-merchant-india',
+    ]);
     expect(new Set(SITE_PATHS).size).toBe(SITE_PATHS.length);
+  });
+
+  it('print the market rate only where it is searched for, each in the direction its words describe', () => {
+    expect(SITE_PAGES.filter((p) => p.rate).map((p) => [p.path, p.rate])).toEqual([
+      ['/usdt-to-inr', 'SELL_USDT'],
+      ['/inr-to-usdt', 'BUY_USDT'],
+    ]);
   });
 
   it('each say something different from the others', () => {
@@ -296,9 +314,10 @@ describe('the pages themselves', () => {
 
   it('carry a title and description a search result can actually show', () => {
     for (const page of SITE_PAGES) {
-      expect(page.title.length, `${page.path} title`).toBeLessThanOrEqual(70);
-      expect(page.description.length, `${page.path} description`).toBeGreaterThanOrEqual(70);
-      expect(page.description.length, `${page.path} description`).toBeLessThanOrEqual(200);
+      // As a search result shows them: with the trader programme's terms filled in.
+      expect(withTerms(page.title).length, `${page.path} title`).toBeLessThanOrEqual(70);
+      expect(withTerms(page.description).length, `${page.path} description`).toBeGreaterThanOrEqual(70);
+      expect(withTerms(page.description).length, `${page.path} description`).toBeLessThanOrEqual(200);
       // The home page is told in its own sections (FLOW … CLOSING, read above); every other page in its column.
       if (page.path !== '/') expect(page.sections.length, `${page.path} sections`).toBeGreaterThanOrEqual(2);
       expect(page.h1.length).toBeGreaterThan(3);

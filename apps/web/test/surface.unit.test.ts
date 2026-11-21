@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { RESERVED_DESK_HANDLES } from '@inrp2p/kernel';
+import { RESERVED_DESK_HANDLES, isReservedHandle } from '@inrp2p/kernel';
 import { DESK_PAGE_PREFIX, MARKET_RATE_PATH, PUBLIC_HOME_PATH, deskHandleOfPath, gateFor, isDeskPagePath, isWorkspacePath, safeReturnPath, surfaceForHost } from '../src/server/surface.ts';
 import { SITE_PATHS } from '../src/content/site.ts';
 
@@ -68,11 +68,11 @@ describe('proxy gating', () => {
     expect(gateFor('PUBLIC', '/q')).toBe('PUBLIC');
   });
 
-  it('publishes the six site routes and nothing else (PRODUCT §7.4)', () => {
+  it('publishes the site’s routes and nothing else (PRODUCT §7.4 and the search guides)', () => {
     for (const path of SITE_PATHS) {
       expect(gateFor('PUBLIC', path), `${path} must be published`).toBe('PUBLIC');
     }
-    expect(SITE_PATHS).toHaveLength(6);
+    expect(SITE_PATHS).toHaveLength(10);
     // `/home` is the inside of the rewrite that serves `/`, and the proxy runs again on it, so it passes the
     // gate. It is not a second address: the proxy redirects a request that arrives there from outside.
     expect(gateFor('PUBLIC', PUBLIC_HOME_PATH)).toBe('PUBLIC');
@@ -122,7 +122,7 @@ describe('proxy gating', () => {
   });
 
   it('keeps every site page’s name out of the desks’ reach', () => {
-    for (const path of SITE_PATHS.filter((p) => p !== '/')) expect(RESERVED_DESK_HANDLES.has(path.slice(1)), path).toBe(true);
+    for (const path of SITE_PATHS.filter((p) => p !== '/')) expect(isReservedHandle(path.slice(1)), path).toBe(true);
   });
 
   it('answers liveness and readiness on every host, and guards the one that carries figures', () => {
@@ -146,6 +146,7 @@ describe('proxy gating', () => {
     for (const surface of ['OPERATOR', 'CLIENT', 'PUBLIC'] as const) {
       expect(gateFor(surface, '/robots.txt'), surface).toBe('PUBLIC');
       expect(gateFor(surface, '/sitemap.xml'), surface).toBe('PUBLIC');
+      expect(gateFor(surface, '/llms.txt'), surface).toBe('PUBLIC');
     }
   });
 

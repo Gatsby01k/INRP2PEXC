@@ -14,5 +14,17 @@ export const RESERVED_DESK_HANDLES: ReadonlySet<string> = new Set([
   'support', 'system', 'team', 'terms', 'trader', 'trader-desk', 'traders', 'trades', 'usdt', 'usdt-otc-india', 'usdt-to-inr', 'www',
 ]);
 
+/**
+ * The public guides published after migration 0040 set the database's list: refused here, by every command that names a
+ * desk, and folded into `inrp2p_desk_handle_reserved` by the next migration that touches desks — a release must not wait
+ * on a migration only to reserve a few words no desk has asked for.
+ */
+export const RESERVED_GUIDE_HANDLES: ReadonlySet<string> = new Set([
+  'is-inrp2p-safe', 'p2p-bank-account-freeze', 'p2p-merchant-india', 'usdt-p2p-scams',
+]);
+
+/** Whether a handle is one of the site's or the app's own paths, and so never a desk's. */
+export const isReservedHandle = (value: string): boolean => RESERVED_DESK_HANDLES.has(value) || RESERVED_GUIDE_HANDLES.has(value);
+
 /** A string that could be a desk's handle: the right shape, and not one of the reserved paths. */
-export const isDeskHandle = (value: string): boolean => DESK_HANDLE_SHAPE.test(value) && !RESERVED_DESK_HANDLES.has(value);
+export const isDeskHandle = (value: string): boolean => DESK_HANDLE_SHAPE.test(value) && !isReservedHandle(value);

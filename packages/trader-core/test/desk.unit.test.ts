@@ -17,7 +17,7 @@ describe('the address of a desk’s page (inrp2p.com/<handle>)', () => {
 
   it('never takes one of the site’s own paths', () => {
     expect(RESERVED_DESK_HANDLES.has('usdt-to-inr')).toBe(true);
-    for (const path of ['sign-in', 'usdt-to-inr', 'traders', 'api', 'www', 'public-desk', 'pnl', 'trader-desk']) {
+    for (const path of ['sign-in', 'usdt-to-inr', 'traders', 'api', 'www', 'public-desk', 'pnl', 'trader-desk', 'usdt-p2p-scams', 'is-inrp2p-safe']) {
       expect(() => normalizeDeskHandle(path)).toThrow(expect.objectContaining({ code: 'DESK_HANDLE_INVALID' }));
     }
   });
