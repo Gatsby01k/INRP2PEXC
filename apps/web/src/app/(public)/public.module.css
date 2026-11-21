@@ -263,6 +263,26 @@
   margin: 0 auto;
 }
 
+/* The words keep to their column. */
+.heroCopy {
+  min-width: 0;
+}
+
+/* A guide with a robot: the words on the left, the robot (and the market's rate) on the right. */
+.heroGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+  align-items: center;
+  gap: var(--space-10);
+}
+
+@media (max-width: 1099px) {
+  .heroGrid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-8);
+  }
+}
+
 .eyebrow {
   display: flex;
   align-items: center;
@@ -375,7 +395,7 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
   gap: var(--space-5);
-  max-width: 1360px;
+  max-width: 1440px;
   margin: 0 auto;
   padding: 0 var(--space-10) clamp(88px, 12vh, 128px);
 }

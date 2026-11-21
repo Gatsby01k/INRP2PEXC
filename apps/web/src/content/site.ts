@@ -34,6 +34,12 @@ export interface SitePage {
   readonly sections: readonly SiteSection[];
   /** Relative importance for the sitemap; the home page leads. */
   readonly priority: number;
+  /** What the guide's robot says on its visor, in its LEDs. */
+  readonly led?: string;
+  /** Whether the guide shows the market's rate now (the rate pages people search for). */
+  readonly rate?: boolean;
+  /** The questions people search with before this deal, answered in the product's terms; marked up as an FAQ. */
+  readonly faq?: readonly { readonly question: string; readonly answer: string }[];
 }
 
 /** The product's own name, used in copy and in the structured data. Never abbreviated into a claim. */
@@ -689,9 +695,9 @@ export const NAV: readonly { readonly label: string; readonly path: string }[] =
 
 const HOME: SitePage = {
   path: '/',
-  title: `Buy and sell USDT in India — ${SITE_NAME}`,
+  title: `Buy & Sell USDT in India — P2P with escrow | ${SITE_NAME}`,
   description:
-    'Buy and sell USDT for Indian rupees with escrow on every deal: one firm rate for the whole amount, rupees bank to bank, and USDT released only once they arrive.',
+    'Buy and sell USDT for rupees in India with escrow on every deal. One firm rate for the whole amount, nobody sends first, and rupees bank to bank by UPI, IMPS, NEFT or RTGS.',
   h1: `${HERO.headline.lead} ${HERO.headline.accent} ${HERO.headline.tail}`,
   lede: TAGLINE,
   // The home page tells its story in its own sections (FLOW, OWN_DESK, WHY, FAQ, CLOSING), which say everything
@@ -702,9 +708,9 @@ const HOME: SitePage = {
 
 const USDT_TO_INR: SitePage = {
   path: '/usdt-to-inr',
-  title: `USDT to INR — sell Tether for Indian rupees | ${SITE_NAME}`,
+  title: `USDT to INR rate today — sell USDT with escrow | ${SITE_NAME}`,
   description:
-    'Sell USDT for INR with escrow on every deal: one firm rate for the whole amount, your USDT held in escrow, and rupees paid straight to your own bank account.',
+    'Today’s USDT to INR market rate, and one firm rate for your whole amount. Sell USDT for rupees with your USDT in escrow until the rupees reach your bank.',
   h1: 'USDT to INR',
   lede: 'Sell USDT for rupees at one firm rate. Your USDT waits in escrow until the rupees are in your bank.',
   sections: [
@@ -731,13 +737,29 @@ const USDT_TO_INR: SitePage = {
     },
   ],
   priority: 0.9,
+  led: 'USDT → ₹',
+  rate: true,
+  faq: [
+    {
+      question: 'What is the USDT to INR rate today?',
+      answer: 'The market’s rate is at the top of this page and moves through the day. Your firm rate comes with your quote, for the whole amount, with the network fee on its own line.',
+    },
+    {
+      question: 'Where does my USDT go while I wait for the rupees?',
+      answer: 'To an escrow address made for your deal alone, on TRON. Only INRP2P can release it, and only after you confirm the rupees are in your bank.',
+    },
+    {
+      question: 'Can I get paid by UPI?',
+      answer: 'Yes. Add your UPI ID or bank account once, and the trader pays you from their own account by UPI, IMPS, NEFT or RTGS.',
+    },
+  ],
 };
 
 const INR_TO_USDT: SitePage = {
   path: '/inr-to-usdt',
-  title: `INR to USDT — buy Tether with Indian rupees | ${SITE_NAME}`,
+  title: `INR to USDT rate today — buy USDT, escrow first | ${SITE_NAME}`,
   description:
-    'Buy USDT with INR with escrow on every deal: one firm rate, the USDT locked in escrow before you pay, and USDT delivered to your own TRON wallet.',
+    'Today’s INR to USDT market rate, and one firm rate for your whole amount. Buy USDT with rupees, with the USDT locked in escrow before you pay.',
   h1: 'INR to USDT',
   lede: 'Buy USDT with rupees at one firm rate. The USDT is locked in escrow before you pay a single rupee.',
   sections: [
@@ -764,11 +786,27 @@ const INR_TO_USDT: SitePage = {
     },
   ],
   priority: 0.9,
+  led: '₹ → USDT',
+  rate: true,
+  faq: [
+    {
+      question: 'What is the INR to USDT rate today?',
+      answer: 'The market’s rate is at the top of this page and moves through the day. Your firm rate comes with your quote, for the whole amount, with the network fee on its own line.',
+    },
+    {
+      question: 'Do I pay before I get the USDT?',
+      answer: 'You pay only after the trader has locked the USDT in your deal’s escrow. Once they confirm your rupees, the escrow sends the USDT to your wallet.',
+    },
+    {
+      question: 'Which wallet can I use?',
+      answer: 'Any TRON (TRC20) wallet you control. You add it once, and the USDT goes there and nowhere else.',
+    },
+  ],
 };
 
 const SELL_IN_INDIA: SitePage = {
   path: '/sell-usdt-in-india',
-  title: `Sell USDT in India — escrow on every deal | ${SITE_NAME}`,
+  title: `Sell USDT in India safely — P2P with escrow | ${SITE_NAME}`,
   description:
     'Sell USDT in India without sending first to a stranger: one firm rate, your USDT in escrow, and rupees to your own bank from the buyer’s own account.',
   h1: 'Sell USDT in India',
@@ -797,11 +835,22 @@ const SELL_IN_INDIA: SitePage = {
     },
   ],
   priority: 0.8,
+  led: 'SELL',
+  faq: [
+    {
+      question: 'How do I sell USDT in India without sending first?',
+      answer: 'Sell through escrow. On INRP2P your USDT waits in an escrow address, the rupees must come from the buyer’s own account, and the USDT is released only when you confirm them.',
+    },
+    {
+      question: 'What if the buyer sends a fake payment screenshot?',
+      answer: 'A screenshot changes nothing here. The USDT is released only when you confirm the rupees in your own bank account; until then it stays in escrow.',
+    },
+  ],
 };
 
 const BUY_IN_INDIA: SitePage = {
   path: '/buy-usdt-in-india',
-  title: `Buy USDT in India — escrow on every deal | ${SITE_NAME}`,
+  title: `Buy USDT in India safely — escrow before you pay | ${SITE_NAME}`,
   description:
     'Buy USDT in India with the USDT locked in escrow before you pay: one firm rate for the whole amount, rupees bank to bank, USDT to your own wallet.',
   h1: 'Buy USDT in India',
@@ -829,11 +878,22 @@ const BUY_IN_INDIA: SitePage = {
     },
   ],
   priority: 0.8,
+  led: 'BUY',
+  faq: [
+    {
+      question: 'How do I buy USDT in India without paying a stranger first?',
+      answer: 'Buy through escrow. On INRP2P the trader’s USDT is locked in escrow before you pay, and every trader was reviewed before their first deal.',
+    },
+    {
+      question: 'What if the trader does not release the USDT?',
+      answer: 'The trader does not hold it: the escrow does. Once they confirm your rupees it goes to your wallet; if they say nothing arrived, open a dispute and INRP2P decides on the bank’s evidence.',
+    },
+  ],
 };
 
 const OTC_INDIA: SitePage = {
   path: '/usdt-otc-india',
-  title: `USDT OTC in India — large deals with escrow | ${SITE_NAME}`,
+  title: `USDT OTC in India — large P2P deals with escrow | ${SITE_NAME}`,
   description:
     'Large USDT deals in India: one firm rate for the whole amount, the USDT in escrow, rupees bank to bank, and a receipt for every deal.',
   h1: 'USDT OTC in India',
@@ -860,7 +920,25 @@ const OTC_INDIA: SitePage = {
     },
   ],
   priority: 0.7,
+  led: 'OTC',
+  faq: [
+    {
+      question: 'Can I get one price for a large amount?',
+      answer: 'Ask with the whole amount. One firm rate comes back for all of it when a trader can fill it; when none can, you are told plainly rather than given part of a price.',
+    },
+    {
+      question: 'Can my team trade on one account?',
+      answer: 'Yes. Invite the people you trade with, and choose who may accept a price.',
+    },
+  ],
 };
+
+/** The guides' own section words. */
+export const GUIDES = {
+  rate: { title: 'USDT/INR market rate now', sell: 'You sell', buy: 'You buy', note: 'The market’s rate. Your firm price comes with your quote.' },
+  faq: 'Questions people ask',
+  more: 'More guides',
+} as const;
 
 /** The six routes of PRODUCT §7.4, in sitemap order. Nothing else is published on the public host. */
 export const SITE_PAGES: readonly SitePage[] = [HOME, USDT_TO_INR, INR_TO_USDT, SELL_IN_INDIA, BUY_IN_INDIA, OTC_INDIA];

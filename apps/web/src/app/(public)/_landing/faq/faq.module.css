@@ -236,6 +236,53 @@
   text-decoration: none;
 }
 
+/* The guides: plain links in a column, each with the arrow, under the way to ask. */
+.guides {
+  margin-top: var(--space-10);
+}
+
+.guidesTitle {
+  margin: 0 0 var(--space-3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.guideList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.guide {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 38px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 0 0 1px var(--line), 0 6px 14px -10px rgb(96 56 24 / 0.4);
+  color: var(--text-primary);
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-medium);
+  text-decoration: none;
+  transition: box-shadow var(--dur-base) var(--ease);
+}
+
+.guide:hover {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--brand-primary) 45%, transparent), 0 8px 18px -10px rgb(200 64 26 / 0.45);
+}
+
+.guideArrow {
+  color: var(--brand-action);
+}
+
 @media (max-width: 1099px) {
   .item {
     padding: 0 var(--space-4);

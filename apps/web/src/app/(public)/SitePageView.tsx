@@ -1,5 +1,9 @@
 import type { ReactNode } from 'react';
-import { ACTIONS, HERO, ONBOARDING, SITE_NAME, type SitePage, TELEGRAM, telegramUrl } from '../../content/site.ts';
+import Link from 'next/link';
+import { ACTIONS, FAQ, GUIDES, HERO, ONBOARDING, SITE_NAME, SITE_PAGES, type SitePage, TELEGRAM, telegramUrl } from '../../content/site.ts';
+import { GuideRobot } from './_landing/guide/GuideRobot.tsx';
+import { MarketCard } from './_landing/guide/MarketCard.tsx';
+import guide from './_landing/guide/guide.module.css';
 import { appOrigin, onboardingHref, publicOrigin, requestNonce } from '../../server/site.ts';
 import styles from './public.module.css';
 
@@ -33,6 +37,15 @@ function structuredData(page: SitePage, origin: string): string {
         { '@type': 'ListItem', position: 1, name: SITE_NAME, item: origin },
         { '@type': 'ListItem', position: 2, name: page.h1, item: url },
       ],
+    });
+  }
+  // The questions the page answers, as the page shows them: the home page's FAQ, or a guide's own.
+  const questions = page.path === '/' ? FAQ.items : (page.faq ?? []);
+  if (questions.length > 0) {
+    graph.push({
+      '@type': 'FAQPage',
+      '@id': `${url}#faq`,
+      mainEntity: questions.map((q) => ({ '@type': 'Question', name: q.question, acceptedAnswer: { '@type': 'Answer', text: q.answer } })),
     });
   }
   // JSON.stringify escapes nothing that matters inside a JSON-LD script except `<`, which would end the element.
@@ -69,7 +82,8 @@ export async function SitePageView({ page, hero, story }: { page: SitePage; hero
         <div className={styles.guide}>
           {hero ? null : (
             <section className={styles.hero}>
-              <div className={styles.heroInner}>
+              <div className={`${styles.heroInner} ${page.led ? styles.heroGrid : ''}`}>
+                <div className={styles.heroCopy}>
                 <p className={styles.eyebrow}>{HERO.eyebrow}</p>
                 <h1 className={styles.h1}>{page.h1}</h1>
                 <p className={styles.lede}>{page.lede}</p>
@@ -86,6 +100,13 @@ export async function SitePageView({ page, hero, story }: { page: SitePage; hero
                     {ONBOARDING.label}
                   </a>
                 </p>
+                </div>
+                {page.led ? (
+                  <div className={guide.art}>
+                    <GuideRobot say={page.led} />
+                    {page.rate ? <MarketCard /> : null}
+                  </div>
+                ) : null}
               </div>
             </section>
           )}
@@ -105,6 +126,38 @@ export async function SitePageView({ page, hero, story }: { page: SitePage; hero
               </section>
             ))}
           </div>
+
+          {!hero && page.faq && page.faq.length > 0 ? (
+            <section className={guide.block} aria-labelledby="guide-faq">
+              <h2 id="guide-faq" className={guide.blockTitle}>
+                {GUIDES.faq}
+              </h2>
+              <div className={guide.faq}>
+                {page.faq.map((q, i) => (
+                  <details key={q.question} className={guide.item} name="guide-faq" open={i === 0}>
+                    <summary className={guide.question}>{q.question}</summary>
+                    <p className={guide.answer}>{q.answer}</p>
+                  </details>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          {hero ? null : (
+            <nav className={guide.block} aria-labelledby="guide-more">
+              <h2 id="guide-more" className={guide.blockTitle}>
+                {GUIDES.more}
+              </h2>
+              <div className={guide.guides}>
+                {SITE_PAGES.filter((p) => p.path !== '/' && p.path !== page.path).map((p) => (
+                  <Link key={p.path} href={p.path} className={guide.guideLink} prefetch={false}>
+                    <b>{p.h1}</b>
+                    <span>{p.lede}</span>
+                  </Link>
+                ))}
+              </div>
+            </nav>
+          )}
         </div>
       )}
     </>

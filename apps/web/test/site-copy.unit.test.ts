@@ -3,7 +3,7 @@ import { draftFor } from '@inrp2p/notifications';
 import { RECEIPT_SNAPSHOT_VERSION, type ReceiptSnapshot, receiptHtml } from '@inrp2p/reporting';
 import type { NotificationKind } from '@inrp2p/db';
 import {
-  ACTIONS, CLOSING, FAQ, FLOW, FOOTER, FOOTER_NOTE, HERO, NAV, ONBOARDING, OWN_DESK, BOARD, SHOWCASE, SITE_NAME, SITE_PAGES, SITE_PATHS, TAGLINE, TELEGRAM, TRADER_ENTRY, WHY, WORKSPACE_ENTRY,
+  ACTIONS, CLOSING, FAQ, FLOW, FOOTER, FOOTER_NOTE, HERO, NAV, ONBOARDING, OWN_DESK, BOARD, SHOWCASE, GUIDES, SITE_NAME, SITE_PAGES, SITE_PATHS, TAGLINE, TELEGRAM, TRADER_ENTRY, WHY, WORKSPACE_ENTRY,
 } from '../src/content/site.ts';
 
 /**
@@ -111,6 +111,7 @@ const SITE_COPY: readonly { readonly where: string; readonly text: string }[] = 
   ...copyIn(WHY, 'WHY'),
   ...copyIn(SHOWCASE, 'SHOWCASE'),
   ...copyIn(BOARD, 'BOARD'),
+  ...copyIn(GUIDES, 'GUIDES'),
   ...copyIn(OWN_DESK, 'OWN_DESK'),
   ...copyIn(FAQ, 'FAQ'),
   ...copyIn(CLOSING, 'CLOSING'),
@@ -123,6 +124,11 @@ const SITE_COPY: readonly { readonly where: string; readonly text: string }[] = 
     { where: `${p.path} description`, text: p.description },
     { where: `${p.path} h1`, text: p.h1 },
     { where: `${p.path} lede`, text: p.lede },
+    ...(p.led ? [{ where: `${p.path} led`, text: p.led }] : []),
+    ...(p.faq ?? []).flatMap((q, i) => [
+      { where: `${p.path} faq ${i + 1} question`, text: q.question },
+      { where: `${p.path} faq ${i + 1} answer`, text: q.answer },
+    ]),
     ...p.sections.flatMap((s) => [
       { where: `${p.path} § ${s.heading}`, text: s.heading },
       ...s.body.map((b, i) => ({ where: `${p.path} § ${s.heading} ¶${i + 1}`, text: b })),
