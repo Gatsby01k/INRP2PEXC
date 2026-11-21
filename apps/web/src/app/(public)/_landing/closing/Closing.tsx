@@ -1,8 +1,8 @@
 import { getImageProps } from 'next/image';
 import { CLOSING, ONBOARDING, TELEGRAM, TRADER_ENTRY, telegramUrl } from '../../../../content/site.ts';
-import { MarkArt } from '../../../../components/MarkArt.tsx';
 import { appOrigin, onboardingHref, siteContacts } from '../../../../server/site.ts';
 import { ArrowIcon, TelegramIcon } from '../icons.tsx';
+import { Led } from '../led/Led.tsx';
 import wave from '../robot/stills/robot-wave.webp';
 import styles from './closing.module.css';
 
@@ -18,8 +18,18 @@ export function Closing() {
   const onboarding = onboardingHref();
   const { props: robot } = getImageProps({ src: wave, alt: '', width: 460, height: 460, sizes: '(max-width: 1099px) 260px, 460px' });
   return (
-    <section className={styles.closing} aria-labelledby="closing-title">
-      <MarkArt className={styles.mark} hub={false} />
+    <section className={styles.closing} aria-labelledby="closing-title" data-field-light="">
+      {/* The room's dotted orbits, turning slowly behind the robot: light and texture, never the mark itself. */}
+      <svg className={styles.mark} viewBox="0 0 1400 1400" fill="none" aria-hidden="true" focusable="false">
+        <g stroke="currentColor" strokeLinecap="round" strokeWidth="2">
+          <circle cx="700" cy="700" r="380" strokeDasharray="2 13" />
+          <circle cx="700" cy="700" r="520" strokeDasharray="2 17" opacity="0.75" />
+          <circle cx="700" cy="700" r="660" strokeDasharray="2 22" opacity="0.5" />
+        </g>
+        <circle cx="431.3" cy="968.7" r="7" fill="currentColor" />
+        <circle cx="1067.7" cy="332.3" r="6" fill="currentColor" opacity="0.8" />
+        <circle cx="233.3" cy="233.3" r="6" fill="currentColor" opacity="0.7" />
+      </svg>
       <div className={styles.inner}>
         <div className={styles.main}>
           <h2 id="closing-title" className={styles.title}>
@@ -27,11 +37,18 @@ export function Closing() {
           </h2>
           <p className={styles.body}>{body}</p>
           <a className={styles.cta} href={`${appOrigin()}${cta.appPath}`}>
+            <span className={styles.ctaSheen} aria-hidden="true" />
             {cta.label}
             <ArrowIcon className={styles.ctaArrow} />
           </a>
         </div>
-        <img {...robot} className={styles.robot} loading="lazy" decoding="async" aria-hidden="true" />
+        {/* The robot waves goodbye, and its visor says whose move it is now — the workspace's own words for it. */}
+        <div className={styles.robot} aria-hidden="true">
+          <img {...robot} className={styles.robotImg} loading="lazy" decoding="async" />
+          <span className={styles.visor}>
+            <Led text={`${CLOSING.robot} →`} mode="marquee" pitch={7} rows={15} speed={14} className={styles.visorLed} />
+          </span>
+        </div>
         <div className={styles.ways}>
           <div className={styles.way}>
             <h3 className={styles.wayTitle}>{newClient.title}</h3>

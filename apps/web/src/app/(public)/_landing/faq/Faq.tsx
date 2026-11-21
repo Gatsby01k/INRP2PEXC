@@ -21,7 +21,10 @@ export function Faq() {
         <div className={styles.layout}>
           <div className={styles.side}>
             <header className={styles.head}>
-              <p className={section.eyebrow}>{eyebrow}</p>
+              <p className={section.eyebrow}>
+                <span className={section.index}>05</span>
+                {eyebrow}
+              </p>
               <h2 id="faq-title" className={section.title}>
                 {heading}
               </h2>

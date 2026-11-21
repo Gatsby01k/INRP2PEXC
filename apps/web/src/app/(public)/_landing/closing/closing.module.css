@@ -10,8 +10,31 @@
   overflow: clip;
   background:
     radial-gradient(ellipse 60% 80% at 82% 100%, color-mix(in srgb, var(--brand-primary) 70%, transparent), transparent 70%),
-    linear-gradient(160deg, var(--brand-action) 0%, #a9340f 100%);
+    linear-gradient(160deg, #e5481c 0%, var(--brand-action) 45%, #a9340f 100%);
   color: var(--text-on-action);
+}
+
+/* The field's light follows the pointer (FieldLight.tsx), as it would across the robot's shell; a grain over it. */
+.closing::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  background:
+    radial-gradient(900px 520px at 100% -10%, rgb(255 255 255 / 0.2), transparent 70%),
+    radial-gradient(620px circle at var(--mx, 30%) var(--my, 20%), rgb(255 255 255 / 0.16), transparent 62%);
+  pointer-events: none;
+}
+
+.closing::after {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  opacity: 0.09;
+  mix-blend-mode: overlay;
+  background-image: var(--grain);
+  pointer-events: none;
 }
 
 /* The mark's own ring and spokes, large and faint, turning very slowly behind the robot. */
@@ -22,9 +45,9 @@
   right: -8%;
   width: min(900px, 80vw);
   height: min(900px, 80vw);
-  color: color-mix(in srgb, var(--text-on-action) 12%, transparent);
+  color: color-mix(in srgb, var(--text-on-action) 34%, transparent);
   transform: translateY(-50%);
-  animation: turn 120s linear infinite;
+  animation: turn 220s linear infinite;
 }
 
 @keyframes turn {
@@ -75,19 +98,25 @@
 }
 
 .cta {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  min-height: 56px;
+  min-height: 60px;
   margin-top: var(--space-10);
   padding: 0 var(--space-8);
-  border-radius: var(--radius-input);
-  background: var(--bg-surface);
+  border-radius: 20px;
+  background: linear-gradient(180deg, #fff, #fff6f1);
   color: var(--brand-action);
-  font-size: var(--font-size-body-lg);
+  font-family: var(--font-display);
+  font-size: 18px;
   font-weight: var(--font-weight-semibold);
   text-decoration: none;
-  box-shadow: 0 24px 48px -20px rgb(60 14 2 / 0.55);
+  box-shadow:
+    inset 0 -2px 0 rgb(200 64 26 / 0.12),
+    0 24px 48px -20px rgb(60 14 2 / 0.55);
   transition:
     transform var(--dur-base) var(--ease),
     box-shadow var(--dur-base) var(--ease);
@@ -100,6 +129,34 @@
 
 .ctaArrow {
   transition: transform var(--dur-base) var(--ease);
+}
+
+.ctaSheen {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  background: linear-gradient(105deg, transparent 30%, rgb(255 140 90 / 0.22) 46%, transparent 62%);
+  transform: translateX(-120%);
+  animation: sheen 5.5s var(--ease) 1.2s infinite;
+  pointer-events: none;
+}
+
+@keyframes sheen {
+  0% {
+    transform: translateX(-120%);
+  }
+
+  22%,
+  100% {
+    transform: translateX(120%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ctaSheen {
+    animation: none;
+    opacity: 0;
+  }
 }
 
 .cta:hover .ctaArrow,
@@ -115,13 +172,50 @@
 
 /* The robot, waving goodbye, standing on the field's lower edge. */
 .robot {
+  position: relative;
   grid-area: robot;
   align-self: end;
   justify-self: center;
   width: min(460px, 100%);
-  height: auto;
   margin-bottom: -4px;
   pointer-events: none;
+}
+
+.robotImg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* The waving still's own black visor, its head tilted a little: the LEDs sit in it at the same angle. */
+.visor {
+  position: absolute;
+  top: 20.2%;
+  left: 21.6%;
+  width: 49.6%;
+  height: 38.6%;
+  overflow: hidden;
+  border-radius: 21% / 27%;
+  background: radial-gradient(130% 110% at 30% -10%, #26282f 0, #111215 45%, #050506 100%);
+  transform: rotate(-3.2deg);
+  display: grid;
+  align-items: center;
+}
+
+.visor::after {
+  content: '';
+  position: absolute;
+  top: 6%;
+  right: 9%;
+  width: 24%;
+  height: 14%;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgb(255 255 255 / 0.5), transparent);
+}
+
+.visorLed {
+  width: 88%;
+  margin: 0 auto;
 }
 
 @supports (animation-timeline: view()) {
@@ -235,7 +329,6 @@
   background: rgb(80 20 4 / 0.22);
   box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.18);
   backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
 }
 
 .wayTitle {

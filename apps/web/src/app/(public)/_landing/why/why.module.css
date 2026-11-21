@@ -3,13 +3,11 @@
    on it. On a phone every row is a card of its own. */
 
 .why {
-  --line: color-mix(in srgb, var(--border-default) 86%, transparent);
-  --sheet-radius: 28px;
+  --sheet-radius: 30px;
   position: relative;
-  border-top: 1px solid var(--border-default);
   background:
-    radial-gradient(ellipse 42% 36% at 82% 20%, color-mix(in srgb, var(--brand-soft) 70%, transparent) 0%, transparent 100%),
-    var(--bg-app);
+    radial-gradient(ellipse 42% 36% at 82% 18%, rgb(255 184 140 / 0.18) 0%, transparent 100%),
+    var(--room);
 }
 
 /* The scene: two panels side by side. The chat is grey paper — muted bubbles, a dark one for the visitor, and the
@@ -26,24 +24,72 @@
   position: relative;
   isolation: isolate;
   overflow: hidden;
-  min-height: 460px;
+  min-height: 480px;
   padding: var(--space-8);
-  border-radius: 32px;
+  border-radius: 36px;
+}
+
+@supports (corner-shape: superellipse(1.5)) {
+  .panel {
+    corner-shape: superellipse(1.5);
+  }
 }
 
 .panelTitle {
-  margin: 0 0 var(--space-6);
-  font-size: var(--font-size-micro);
+  margin: 0 0 var(--space-5);
+  font-family: var(--font-mono);
+  font-size: 11px;
   font-weight: var(--font-weight-medium);
-  letter-spacing: 0.16em;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
 }
 
+/* The chat: a grey messenger, nobody's name in its head. */
 .chat {
   background:
-    radial-gradient(ellipse 70% 60% at 20% 0%, color-mix(in srgb, var(--bg-surface) 60%, transparent), transparent 70%),
-    #ebe8e1;
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border-strong) 60%, transparent);
+    radial-gradient(ellipse 70% 60% at 20% 0%, rgb(255 255 255 / 0.55), transparent 70%),
+    #ece8e1;
+  box-shadow:
+    inset 0 1px 2px rgb(18 19 23 / 0.06),
+    inset 0 0 0 1px rgb(18 19 23 / 0.05);
+}
+
+.chatHead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-5);
+  padding-bottom: var(--space-4);
+  border-bottom: 1px solid rgb(18 19 23 / 0.07);
+}
+
+.chatAvatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: linear-gradient(160deg, #cfc9bf, #b9b2a6);
+}
+
+.chatWho {
+  display: grid;
+  gap: 6px;
+}
+
+.chatWho b,
+.chatWho i {
+  display: block;
+  height: 8px;
+  border-radius: 4px;
+  background: rgb(18 19 23 / 0.16);
+}
+
+.chatWho b {
+  width: 120px;
+}
+
+.chatWho i {
+  width: 72px;
+  background: rgb(18 19 23 / 0.08);
 }
 
 .chat .panelTitle {
@@ -69,6 +115,44 @@
   font-size: var(--font-size-body);
   line-height: 1.4;
   color: var(--text-primary);
+}
+
+/* The screenshot in the chat: a phone-sized receipt with a big green tick and nothing behind it. */
+.shot {
+  display: grid;
+  justify-items: center;
+  gap: 5px;
+  width: 92px;
+  margin: 2px 0 8px;
+  padding: 12px 10px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #f3fbf6, #e8f4ec);
+  box-shadow: inset 0 0 0 1px rgb(21 122 69 / 0.15);
+}
+
+.shotTick {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M6 10.4l2.6 2.6 5.4-5.8' fill='none' stroke='white' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 18px no-repeat,
+    #1aa35a;
+}
+
+.shot i {
+  display: block;
+  width: 64px;
+  height: 5px;
+  border-radius: 3px;
+  background: rgb(21 122 69 / 0.18);
+}
+
+.shot i:nth-of-type(2) {
+  width: 44px;
+}
+
+.shot i:nth-of-type(3) {
+  width: 56px;
 }
 
 .message[data-from='you'] {
@@ -100,12 +184,36 @@
   pointer-events: none;
 }
 
+/* The deal here: the mark's orange field, its light following the pointer (FieldLight.tsx), a grain over it. */
 .oursPanel {
-  background:
-    radial-gradient(circle at 30% 20%, color-mix(in srgb, #ffffff 28%, var(--brand-primary)) 0%, transparent 55%),
-    linear-gradient(150deg, var(--brand-primary) 0%, var(--brand-action) 100%);
-  box-shadow: 0 40px 80px -40px color-mix(in srgb, var(--brand-primary) 80%, transparent);
+  background: var(--field);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.34),
+    var(--glow);
   color: var(--text-on-action);
+}
+
+.oursPanel::before {
+  content: '';
+  position: absolute;
+  z-index: -2;
+  inset: 0;
+  background:
+    radial-gradient(520px 320px at 96% -6%, rgb(255 255 255 / 0.22), transparent 70%),
+    radial-gradient(520px 420px at -6% 112%, rgb(110 24 0 / 0.34), transparent 70%),
+    radial-gradient(440px circle at var(--mx, 72%) var(--my, -10%), rgb(255 255 255 / 0.2), transparent 62%);
+  pointer-events: none;
+}
+
+.oursPanel::after {
+  content: '';
+  position: absolute;
+  z-index: -2;
+  inset: 0;
+  opacity: 0.08;
+  mix-blend-mode: overlay;
+  background-image: var(--grain);
+  pointer-events: none;
 }
 
 .oursPanel .panelTitle {
@@ -125,9 +233,12 @@
 .dealCard {
   max-width: 78%;
   padding: var(--space-5);
-  border-radius: 22px;
-  background: var(--bg-surface);
-  box-shadow: 0 30px 60px -30px color-mix(in srgb, #5a1a06 60%, transparent);
+  border: 1px solid transparent;
+  border-radius: 24px;
+  background:
+    linear-gradient(180deg, #fff, #fffdfa) padding-box,
+    linear-gradient(180deg, #fff, rgb(110 24 0 / 0.2)) border-box;
+  box-shadow: 0 34px 60px -30px rgb(90 26 6 / 0.65);
   color: var(--text-primary);
 }
 
@@ -142,14 +253,19 @@
   font-weight: var(--font-weight-semibold);
 }
 
+/* Completed, on black glass, lit green. */
 .dealStatus {
-  padding: 3px 10px;
+  padding: 4px 10px;
   border-radius: var(--radius-pill);
-  background: var(--status-success-soft);
-  font-family: var(--font-sans);
-  font-size: var(--font-size-meta);
+  background: var(--visor);
+  box-shadow: var(--visor-edge);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
   font-weight: var(--font-weight-medium);
-  color: var(--status-success);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #7be3a8;
+  text-shadow: 0 0 8px rgb(60 220 140 / 0.7);
 }
 
 .dealSteps {
@@ -169,14 +285,21 @@
 }
 
 .dealTick {
-  display: grid;
   flex: none;
   width: 22px;
   height: 22px;
-  place-items: center;
-  border-radius: 50%;
-  background: var(--brand-primary);
-  color: var(--text-on-action);
+}
+
+.dealTick circle {
+  fill: var(--buy);
+}
+
+.dealTick path {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 /* As the scene scrolls in: the chat's messages arrive one by one, and the deal's steps tick off one by one. */
@@ -247,12 +370,12 @@
   position: absolute;
   inset: 0 0 0 56%;
   z-index: -1;
+  border: 1px solid transparent;
   border-radius: var(--sheet-radius);
-  background: var(--bg-surface);
-  box-shadow:
-    0 0 0 1px var(--line),
-    0 2px 4px color-mix(in srgb, var(--text-primary) 4%, transparent),
-    0 32px 64px -36px color-mix(in srgb, var(--text-primary) 34%, transparent);
+  background:
+    linear-gradient(180deg, #fff, #fffdfa) padding-box,
+    var(--edge) border-box;
+  box-shadow: var(--lift-strong);
 }
 
 .topicHead,
@@ -281,7 +404,8 @@
   overflow: hidden;
   padding: var(--space-6) var(--space-8);
   border-radius: var(--sheet-radius) var(--sheet-radius) 0 0;
-  background: linear-gradient(150deg, var(--brand-primary) 0%, var(--brand-action) 100%);
+  background: var(--field);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.34);
   color: var(--text-on-action);
   font-family: var(--font-display);
   font-size: var(--font-size-heading);
@@ -360,14 +484,17 @@
 }
 
 .cross {
+  background: var(--paper);
   color: var(--text-disabled);
-  box-shadow: inset 0 0 0 1px var(--border-strong);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
 }
 
 .check {
-  background: var(--brand-primary);
+  background: var(--field);
   color: var(--text-on-action);
-  box-shadow: 0 4px 10px -4px color-mix(in srgb, var(--brand-primary) 80%, transparent);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.3),
+    0 4px 10px -4px color-mix(in srgb, var(--brand-primary) 80%, transparent);
 }
 
 /* Each cell's column name, read only where the columns are not side by side. */
@@ -379,41 +506,6 @@
   display: flex;
   justify-content: flex-end;
   margin-top: var(--space-10);
-}
-
-.cta {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-height: 52px;
-  padding: 0 var(--space-6);
-  border-radius: var(--radius-input);
-  background: var(--brand-action);
-  color: var(--text-on-action);
-  font-size: var(--font-size-body-lg);
-  font-weight: var(--font-weight-medium);
-  text-decoration: none;
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--text-on-action) 16%, transparent);
-  transition:
-    background-color var(--dur-fast) var(--ease),
-    transform var(--dur-fast) var(--ease);
-}
-
-.cta:hover {
-  background: var(--brand-action-hover);
-}
-
-.cta:active {
-  transform: translateY(1px);
-}
-
-.ctaArrow {
-  transition: transform var(--dur-base) var(--ease);
-}
-
-.cta:hover .ctaArrow,
-.cta:focus-visible .ctaArrow {
-  transform: translateX(2px);
 }
 
 /* Narrower than the three columns need: each row is a card — the topic, the chat's answer set back, INRP2P's
@@ -508,7 +600,7 @@
     justify-content: stretch;
   }
 
-  .cta {
+  .foot > a {
     flex: 1;
     justify-content: center;
   }

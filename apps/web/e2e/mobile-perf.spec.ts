@@ -427,7 +427,8 @@ test('the robot starts without blocking a tap and keeps the frame rate while the
     const r = await page.evaluate(() => (window as unknown as { __robot: { start: number; live: number; long: [number, number][]; frames: number[]; scrolled: number[] } }).__robot);
     const during = r.long.filter(([at, d]) => at + d >= r.start && at <= r.live + 500);
     const p95 = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length * 0.95)] ?? 0;
-    const ratio = await page.locator('canvas').evaluate((c: HTMLCanvasElement) => c.width / c.clientWidth);
+    // The robot's own canvas (three.js marks it): the page's LEDs draw on canvases of their own.
+    const ratio = await page.locator('canvas[data-engine^="three.js"]').evaluate((c: HTMLCanvasElement) => c.width / c.clientWidth);
     console.log(`mobile-perf robot (CPU ×${CPU_SLOWDOWN}): live ${Math.round(r.live - r.start)} ms after its context, long tasks ${JSON.stringify(during.map(([, d]) => Math.round(d)))}, frame p95 ${p95(r.frames).toFixed(1)} ms, scrolling ${p95(r.scrolled).toFixed(1)} ms, pixel ratio ${ratio.toFixed(2)}`);
     // Assembled a step per task: no step holds a tap back for long (it was one task of a third of a second).
     expect(Math.max(0, ...during.map(([, d]) => d))).toBeLessThan(200);
@@ -463,7 +464,7 @@ test('a GPU that cannot keep up hands the robot back to the still image (hardwar
     await expect(page.locator('[data-state="live"]')).toHaveCount(1, { timeout: 15_000 });
     // Five windows of frames at 45 ms: four steps of pixel ratio, then the still robot.
     await expect(page.locator('[data-state="still"]')).toHaveCount(1, { timeout: 60_000 });
-    await expect(page.locator('canvas')).toHaveCount(0);
+    await expect(page.locator('canvas[data-engine^="three.js"]')).toHaveCount(0);
     await expect(page.locator('img[srcset*="robot-720"]')).toBeVisible();
   } finally {
     await gpu.close();

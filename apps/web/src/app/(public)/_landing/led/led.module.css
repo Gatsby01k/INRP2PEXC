@@ -1,0 +1,16 @@
+/* The robot's LEDs (Led.tsx): the dark dots are this background, a dot per cell; the lit ones are the canvas over it. */
+
+.led {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  background-image: radial-gradient(circle at center, rgb(255 255 255 / 0.075) calc(var(--pitch) * 0.2), transparent calc(var(--pitch) * 0.2 + 0.75px));
+  background-size: var(--pitch) var(--pitch);
+}
+
+.canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
+}

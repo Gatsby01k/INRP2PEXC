@@ -1,0 +1,1056 @@
+/* How it works: the four moments on the left, the deal's picture held beside them on a ceramic sheet. The picture
+   follows the moment being read (`data-step` on the section, DealSteps.tsx): the USDT travels into escrow and out of it,
+   the rupees travel back along the bottom, the escrow's arcs light in order and its visor changes line. */
+
+.deal {
+  position: relative;
+  padding: 120px 0 120px;
+}
+
+.inner {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 0 var(--space-10);
+}
+
+/* ——— The head: what this is, and the switch between the two directions ——— */
+
+.head {
+  display: grid;
+  grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+  align-items: end;
+  gap: var(--space-10);
+}
+
+.eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 var(--space-5);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--brand-action);
+}
+
+/* The section's number on black glass, lit — the technical layer the workspace uses for indexes. */
+.index {
+  display: inline-grid;
+  place-items: center;
+  min-width: 34px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 8px;
+  background: var(--visor);
+  box-shadow: var(--visor-edge);
+  color: var(--led);
+  letter-spacing: 0.06em;
+  text-shadow: 0 0 8px rgb(255 106 61 / 0.9);
+}
+
+.title {
+  max-width: 15ch;
+  margin: 0;
+  font-size: clamp(38px, 4.7vw, 68px);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1;
+  letter-spacing: -0.045em;
+  text-wrap: balance;
+}
+
+.aside {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-5);
+  padding-bottom: 6px;
+}
+
+.lede {
+  max-width: 30rem;
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.5;
+  color: var(--ink-2);
+  text-wrap: pretty;
+}
+
+/* Sell or buy: the converter's own control — two words on a well, the chosen one lifted on a white thumb. */
+.switch {
+  display: inline-grid;
+  grid-template-columns: repeat(2, auto);
+  padding: 4px;
+  border-radius: 999px;
+  background: var(--paper);
+  box-shadow:
+    inset 0 1px 2px rgb(18 19 23 / 0.06),
+    inset 0 0 0 1px rgb(18 19 23 / 0.04);
+}
+
+.switchOption {
+  min-height: 42px;
+  padding: 0 22px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--font-display);
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+  transition:
+    color var(--dur-base) var(--ease),
+    background-color var(--dur-base) var(--ease),
+    box-shadow var(--dur-base) var(--ease);
+}
+
+.switchOption[aria-pressed='true'] {
+  background: linear-gradient(180deg, #fff, #fbf9f6);
+  box-shadow:
+    inset 0 1px 0 #fff,
+    0 0 0 1px rgb(18 19 23 / 0.05),
+    0 8px 16px -8px rgb(96 56 24 / 0.35);
+  color: var(--text-primary);
+}
+
+.switchOption:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 2px;
+}
+
+/* ——— The body: the moments beside the picture ——— */
+
+.body {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  gap: var(--space-16);
+  margin-top: var(--space-16);
+}
+
+.steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.step {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  gap: var(--space-5);
+  min-height: 52vh;
+  padding-top: 14vh;
+}
+
+.step:first-child {
+  padding-top: 18vh;
+}
+
+.step:last-child {
+  min-height: 62vh;
+}
+
+.stepIndex {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1.5px var(--line-strong);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.04em;
+  transition:
+    background-color 360ms var(--ease),
+    color 360ms var(--ease),
+    box-shadow 360ms var(--ease);
+}
+
+.stepText {
+  padding-top: 6px;
+  opacity: 0.38;
+  transition: opacity 420ms var(--ease);
+}
+
+.stepTitle {
+  margin: 0 0 var(--space-3);
+  font-family: var(--font-display);
+  font-size: clamp(24px, 2.2vw, 32px);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.12;
+  letter-spacing: -0.03em;
+}
+
+.stepBody {
+  max-width: 28rem;
+  margin: 0;
+  font-size: 17px;
+  line-height: 1.55;
+  color: var(--ink-2);
+}
+
+/* Without script, or before it runs, every moment reads at full strength; once the island is live, the one being read
+   leads and its number lights on black glass. */
+.deal:not([data-live]) .stepText,
+.step[data-current] .stepText {
+  opacity: 1;
+}
+
+.step[data-current] .stepIndex {
+  background: var(--visor);
+  box-shadow:
+    var(--visor-edge),
+    0 8px 18px -8px rgb(18 19 23 / 0.7);
+  color: var(--led);
+  text-shadow: 0 0 8px rgb(255 106 61 / 0.9);
+}
+
+/* ——— The picture, on its sheet ——— */
+
+.sceneWrap {
+  position: relative;
+}
+
+/* What stays pinned beside the moments: the sheet, and the robot behind it. */
+.pin {
+  position: sticky;
+  top: max(150px, calc(50vh - 250px));
+}
+
+.scene {
+  position: relative;
+  z-index: 1;
+  margin: 0;
+  padding: 22px 26px 20px;
+  border: 1px solid transparent;
+  border-radius: 36px;
+  background:
+    linear-gradient(180deg, #fff, #fffdfa) padding-box,
+    var(--edge) border-box;
+  box-shadow: var(--lift-strong);
+  isolation: isolate;
+}
+
+@supports (corner-shape: superellipse(1.5)) {
+  .scene {
+    corner-shape: superellipse(1.5);
+  }
+}
+
+/* The sheet is lit from the escrow: a warm glow under its middle. */
+.scene::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(420px 240px at 50% 52%, rgb(255 130 80 / 0.12), transparent 70%);
+  pointer-events: none;
+}
+
+/* The deal's display: which moment, what it says, how far along. */
+.visor {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  height: 50px;
+  padding: 0 18px;
+  border-radius: 16px;
+  background: var(--paper);
+  box-shadow: inset 0 1px 2px rgb(18 19 23 / 0.05);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.visorNode {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--led);
+  box-shadow: 0 0 10px 2px rgb(255 106 61 / 0.8);
+  animation: blink 1.6s ease-in-out infinite;
+}
+
+.visorCount,
+.visorLine {
+  display: inline-grid;
+  white-space: nowrap;
+}
+
+.visorCount > [data-show],
+.visorLine > [data-show] {
+  grid-area: 1 / 1;
+  opacity: 0;
+  transform: translateY(6px);
+  transition:
+    opacity 260ms var(--ease),
+    transform 260ms var(--ease);
+}
+
+.visorCount {
+  grid-template-columns: auto auto;
+  column-gap: 6px;
+}
+
+.visorOf {
+  grid-column: 2;
+  opacity: 0.5;
+}
+
+.visorLine {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-primary);
+}
+
+.visorBars {
+  display: flex;
+  gap: 4px;
+}
+
+.visorBars i {
+  width: 18px;
+  height: 4px;
+  border-radius: 2px;
+  background: rgb(18 19 23 / 0.1);
+  transition:
+    background-color 300ms var(--ease),
+    box-shadow 300ms var(--ease);
+}
+
+.picture {
+  position: relative;
+  margin-top: 26px;
+}
+
+.rail {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+/* The lanes: quiet dots before their moment, a flowing orange line during it, solid ink after. */
+.lane,
+.laneBack {
+  fill: none;
+  stroke: var(--line-strong);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-dasharray: 1 9;
+  transition:
+    stroke 400ms var(--ease),
+    stroke-width 400ms var(--ease);
+}
+
+.laneHead {
+  fill: none;
+  stroke: var(--line-strong);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: stroke 400ms var(--ease);
+}
+
+.lane[data-flow],
+.laneBack[data-flow] {
+  stroke: var(--brand-primary);
+  stroke-dasharray: 8 8;
+  animation: flow 0.9s linear infinite;
+}
+
+.party {
+  transition: opacity 400ms var(--ease);
+}
+
+.partyHalo {
+  fill: none;
+  stroke: var(--brand-primary);
+  stroke-width: 2;
+  stroke-dasharray: 2 6;
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: opacity 400ms var(--ease);
+  animation: turn 14s linear infinite;
+}
+
+.partyDisc {
+  fill: #fff;
+  stroke: var(--line-strong);
+  stroke-width: 1;
+  filter: drop-shadow(0 10px 14px rgb(96 56 24 / 0.22));
+  transition: fill 400ms var(--ease);
+}
+
+.person {
+  fill: none;
+  stroke: var(--text-primary);
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  transition: stroke 400ms var(--ease);
+}
+
+.person circle {
+  fill: none;
+}
+
+/* "You" is ink, as the workspace draws the viewer's own disc: the seller when selling, the buyer when buying. */
+[data-direction='SELL_USDT'] .party[data-side='seller'] .partyDisc,
+[data-direction='BUY_USDT'] .party[data-side='buyer'] .partyDisc {
+  fill: var(--text-primary);
+  stroke: var(--text-primary);
+}
+
+[data-direction='SELL_USDT'] .party[data-side='seller'] .person,
+[data-direction='BUY_USDT'] .party[data-side='buyer'] .person {
+  stroke: #fff;
+}
+
+.vaultGlow {
+  fill: rgb(255 120 70 / 0.1);
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: fill 500ms var(--ease);
+}
+
+.arcTrack {
+  fill: none;
+  stroke: var(--line);
+  stroke-width: 6;
+}
+
+.arc {
+  fill: none;
+  stroke: var(--line-strong);
+  stroke-width: 6;
+  stroke-linecap: round;
+  transition: stroke 400ms var(--ease);
+}
+
+.vault {
+  filter: drop-shadow(0 18px 24px rgb(200 64 26 / 0.45));
+}
+
+.vaultRim {
+  fill: none;
+  stroke: rgb(255 255 255 / 0.32);
+  stroke-width: 1.5;
+}
+
+.vaultHub path {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.lock {
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+  transform: scale(0.6);
+  transition:
+    opacity 300ms var(--ease),
+    transform 420ms cubic-bezier(0.2, 1.6, 0.4, 1);
+}
+
+.lockPlate {
+  fill: #fff;
+  filter: drop-shadow(0 6px 10px rgb(18 19 23 / 0.25));
+}
+
+.lockDisc {
+  fill: var(--text-primary);
+}
+
+.lockBody {
+  fill: #fff;
+}
+
+.lockBow {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+}
+
+/* The two coins, on the paths they travel. */
+.usdt,
+.inr {
+  offset-rotate: 0deg;
+  transition:
+    offset-distance 1.3s cubic-bezier(0.65, 0, 0.25, 1),
+    opacity 400ms var(--ease);
+}
+
+.usdt {
+  offset-path: path('M146 294H380H614');
+}
+
+.inr {
+  offset-path: path('M670 348V364a22 22 0 0 1-22 22H112a22 22 0 0 1-22-22V348');
+  opacity: 0;
+}
+
+.riderPlate {
+  fill: #fff;
+  filter: drop-shadow(0 8px 12px rgb(18 19 23 / 0.22));
+}
+
+.tetherDisc {
+  fill: #26a17b;
+}
+
+.tetherSign {
+  fill: #fff;
+}
+
+.inrDisc {
+  fill: var(--brand-primary);
+}
+
+.inrSign {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* The words on the picture. */
+.who {
+  position: absolute;
+  z-index: 3;
+  top: 57%;
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  transform: translate(-50%, -100%);
+  text-align: center;
+  white-space: nowrap;
+}
+
+.who b {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.01em;
+}
+
+.who small {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.who[data-at='seller'] {
+  left: 11.84%;
+}
+
+/* The escrow's name beside the robot's head, set left rather than centred. */
+.who[data-at='escrow'] {
+  left: 73%;
+  top: 20%;
+  justify-items: start;
+  transform: none;
+  text-align: left;
+}
+
+.who[data-at='buyer'] {
+  left: 88.16%;
+}
+
+.laneName {
+  position: absolute;
+  top: 67%;
+  left: 29%;
+  transform: translate(-50%, -50%);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  color: var(--text-muted);
+}
+
+/* The rupees' lane carries its rails, on a tag over the line. */
+.tag {
+  position: absolute;
+  z-index: 3;
+  top: 94.15%;
+  left: 50%;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow:
+    0 0 0 1px var(--line),
+    0 8px 18px -10px rgb(96 56 24 / 0.4);
+  transform: translate(-50%, -50%);
+  white-space: nowrap;
+  transition: box-shadow 400ms var(--ease);
+}
+
+.tagWord {
+  margin-right: 4px;
+  font-size: 13px;
+  font-weight: var(--font-weight-semibold);
+}
+
+.tagMark {
+  height: 13px;
+  width: auto;
+}
+
+.tagRail {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.06em;
+  color: var(--ink-2);
+}
+
+.foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-top: 14px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.receipt {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-primary);
+  transition: opacity 400ms var(--ease);
+}
+
+.receipt svg {
+  width: 20px;
+  height: 20px;
+}
+
+.receipt circle {
+  fill: var(--buy);
+}
+
+.receipt path {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.footNote {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* ——— The moments, as the picture shows them ——— */
+
+/* The visor's line and number. */
+.deal[data-step='0'] [data-show='0'],
+.deal[data-step='1'] [data-show='1'],
+.deal[data-step='2'] [data-show='2'],
+.deal[data-step='3'] [data-show='3'] {
+  opacity: 1;
+  transform: none;
+}
+
+.deal[data-step='0'] [data-bar='0'],
+.deal[data-step='1'] :is([data-bar='0'], [data-bar='1']),
+.deal[data-step='2'] :is([data-bar='0'], [data-bar='1'], [data-bar='2']),
+.deal[data-step='3'] [data-bar] {
+  background: var(--brand-primary);
+}
+
+/* The escrow's arcs: lit up to the moment, the current one pulsing. */
+.deal[data-step='0'] [data-arc='0'],
+.deal[data-step='1'] :is([data-arc='0'], [data-arc='1']),
+.deal[data-step='2'] :is([data-arc='0'], [data-arc='1'], [data-arc='2']),
+.deal[data-step='3'] [data-arc] {
+  stroke: var(--brand-primary);
+}
+
+.deal[data-step='0'] [data-arc='0'],
+.deal[data-step='1'] [data-arc='1'],
+.deal[data-step='2'] [data-arc='2'] {
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+/* The USDT: with the seller, then held, then released to the buyer. */
+.deal[data-step='0'] .usdt {
+  offset-distance: 0%;
+}
+
+.deal:is([data-step='1'], [data-step='2']) .usdt {
+  offset-distance: 50%;
+  opacity: 0;
+  transition:
+    offset-distance 1.3s cubic-bezier(0.65, 0, 0.25, 1),
+    opacity 300ms var(--ease) 1s;
+}
+
+.deal[data-step='3'] .usdt {
+  offset-distance: 100%;
+}
+
+.deal:is([data-step='1'], [data-step='2']) .lock {
+  opacity: 1;
+  transform: none;
+}
+
+.deal:is([data-step='1'], [data-step='2']) .vaultGlow {
+  fill: rgb(255 120 70 / 0.2);
+  animation: glow 2.4s ease-in-out infinite;
+}
+
+/* The rupees: on their way along the bottom, then arrived. */
+.deal:is([data-step='2'], [data-step='3']) .inr {
+  offset-distance: 100%;
+  opacity: 1;
+}
+
+.deal[data-step='2'] .inr {
+  transition:
+    offset-distance 2s cubic-bezier(0.65, 0, 0.25, 1) 200ms,
+    opacity 300ms var(--ease);
+}
+
+.deal:is([data-step='2'], [data-step='3']) .tag {
+  box-shadow:
+    0 0 0 1.5px var(--brand-primary),
+    0 10px 22px -10px rgb(200 64 26 / 0.5);
+}
+
+/* The lanes. */
+.deal[data-step='1'] .lane[data-lane='in'],
+.deal[data-step='2'] .laneBack,
+.deal[data-step='3'] .lane[data-lane='out'] {
+  stroke: var(--brand-primary);
+  stroke-dasharray: 8 8;
+  animation: flow 0.9s linear infinite;
+}
+
+.deal:is([data-step='2'], [data-step='3']) .lane[data-lane='in'],
+.deal[data-step='3'] .laneBack {
+  stroke: var(--text-primary);
+  stroke-dasharray: none;
+}
+
+.deal[data-step='1'] .laneHead[data-lane='in'],
+.deal[data-step='2'] .laneHead[data-lane='back'],
+.deal[data-step='3'] .laneHead[data-lane='out'] {
+  stroke: var(--brand-primary);
+}
+
+.deal:is([data-step='2'], [data-step='3']) .laneHead[data-lane='in'],
+.deal[data-step='3'] .laneHead[data-lane='back'] {
+  stroke: var(--text-primary);
+}
+
+/* Whose move it is: a dotted orbit turning round that party. */
+[data-direction='SELL_USDT'] .deal[data-step='0'] .party[data-side='seller'] .partyHalo,
+[data-direction='BUY_USDT'] .deal[data-step='0'] .party[data-side='buyer'] .partyHalo,
+.deal:is([data-step='1'], [data-step='3']) .party[data-side='seller'] .partyHalo,
+.deal[data-step='2'] .party[data-side='buyer'] .partyHalo {
+  opacity: 1;
+}
+
+.deal:not([data-step='3']) .receipt {
+  opacity: 0.32;
+}
+
+/* ——— The robot: INRP2P's escrow, between the two parties. The USDT goes into its chest; its face is the deal's
+   display (LedFace.tsx), an LED matrix set exactly into the still's black visor. ——— */
+.robot {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  left: 27.63%;
+  width: 44.74%;
+  aspect-ratio: 1;
+  pointer-events: none;
+}
+
+.robotStill {
+  display: block;
+  width: 100%;
+  height: 100%;
+  filter: drop-shadow(0 24px 30px rgb(96 56 24 / 0.28));
+}
+
+.visorGlass {
+  position: absolute;
+  top: 20.4%;
+  left: 25.1%;
+  width: 49.8%;
+  height: 38.4%;
+  overflow: hidden;
+  border-radius: 21% / 27%;
+  background: radial-gradient(130% 110% at 30% -10%, #26282f 0, #111215 45%, #050506 100%);
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 0.05),
+    inset 0 -8px 16px rgb(0 0 0 / 0.6);
+}
+
+/* The visor's own gloss, top right, as the still has it. */
+.visorGlass::after {
+  content: '';
+  position: absolute;
+  top: 6%;
+  right: 9%;
+  width: 26%;
+  height: 16%;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgb(255 255 255 / 0.5), transparent);
+  pointer-events: none;
+}
+
+.led {
+  position: absolute;
+  top: 9%;
+  left: 7%;
+  width: 86%;
+  height: 82%;
+}
+
+.front {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  left: 0;
+}
+
+/* The chest holds the USDT: its mark glows while the deal is in escrow. */
+.chestGlow {
+  fill: rgb(255 120 70 / 0.55);
+  opacity: 0;
+  filter: blur(10px);
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: opacity 500ms var(--ease);
+}
+
+.deal:is([data-step='1'], [data-step='2']) .chestGlow {
+  opacity: 1;
+  animation: glow 2.4s ease-in-out infinite;
+}
+
+@keyframes flow {
+  to {
+    stroke-dashoffset: -16;
+  }
+}
+
+@keyframes pulse {
+  50% {
+    stroke: #ffb08f;
+  }
+}
+
+@keyframes glow {
+  50% {
+    transform: scale(1.06);
+  }
+}
+
+@keyframes turn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .deal *,
+  .deal *::before {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* ——— Below a desk's width: the picture held at the top of the screen, the moments passing under it ——— */
+@media (max-width: 1099px) {
+  .deal {
+    padding: 96px 0 64px;
+  }
+
+  .inner {
+    max-width: 640px;
+    padding: 0 var(--space-4);
+  }
+
+  .head {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-5);
+  }
+
+  .body {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    margin-top: var(--space-8);
+  }
+
+  .sceneWrap {
+    order: -1;
+    position: sticky;
+    top: 68px;
+    z-index: 2;
+  }
+
+  .pin {
+    position: relative;
+    top: auto;
+  }
+
+  .scene {
+    padding: 12px 12px 10px;
+    border-radius: 26px;
+  }
+
+  .who[data-at='escrow'] {
+    left: 70%;
+    top: 16%;
+  }
+
+  .who[data-at='escrow'] b {
+    max-width: 7em;
+    white-space: normal;
+    line-height: 1.15;
+  }
+
+
+  .visor {
+    height: 40px;
+    gap: 10px;
+    padding: 0 12px;
+    border-radius: 14px;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+  }
+
+  .visorBars i {
+    width: 10px;
+  }
+
+  .visorLine {
+    overflow: hidden;
+  }
+
+  .visorLine > [data-show] {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .picture {
+    margin-top: 30px;
+  }
+
+  .who b {
+    font-size: 12.5px;
+  }
+
+  .who small {
+    font-size: 8.5px;
+  }
+
+  .who[data-at='escrow'] b {
+    font-size: 11px;
+  }
+
+  .laneName {
+    font-size: 9px;
+  }
+
+  .tag {
+    height: 26px;
+    gap: 6px;
+    padding: 0 10px;
+  }
+
+  .tagWord {
+    font-size: 11px;
+  }
+
+  .tagMark,
+  .tagRail {
+    display: none;
+  }
+
+  .foot {
+    margin-top: 8px;
+    padding-top: 10px;
+  }
+
+  .receipt {
+    font-size: 12.5px;
+  }
+
+  .footNote {
+    display: none;
+  }
+
+  .step {
+    grid-template-columns: 40px minmax(0, 1fr);
+    gap: var(--space-4);
+    min-height: 0;
+    padding: var(--space-10) 0 var(--space-6);
+  }
+
+  .step:first-child {
+    padding-top: var(--space-10);
+  }
+
+  .step:last-child {
+    min-height: 0;
+    padding-bottom: 30vh;
+  }
+
+  .stepIndex {
+    width: 38px;
+    height: 38px;
+    font-size: 12px;
+  }
+
+  .stepText {
+    padding-top: 2px;
+  }
+
+  .stepTitle {
+    font-size: 22px;
+  }
+
+  .stepBody {
+    font-size: 16px;
+  }
+}

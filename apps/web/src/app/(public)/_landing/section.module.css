@@ -1,6 +1,6 @@
-/* What the sections after the operational controls share: the frame, and a heading set exactly as the execution
-   flow and the controls set theirs — eyebrow, a balanced title on the left, the lede on the right, bottoms
-   aligned. One file, so the four of them cannot drift apart. */
+/* What the home page's sections share: the frame, and a heading set as the deal section sets its own — the section's
+   number and eyebrow, a balanced title on the left, the lede on the right, bottoms aligned. One file, so they cannot
+   drift apart. */
 
 .inner {
   max-width: 1440px;
@@ -15,35 +15,97 @@
   align-items: end;
 }
 
+/* The eyebrow is the technical layer: mono, tracked, the section's number on black glass in front of it. */
 .eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   margin: 0 0 var(--space-5);
-  font-size: var(--font-size-micro);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
   font-weight: var(--font-weight-medium);
-  letter-spacing: 0.16em;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--brand-action);
 }
 
+.index {
+  display: inline-grid;
+  place-items: center;
+  min-width: 34px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 8px;
+  background: var(--visor);
+  box-shadow: var(--visor-edge);
+  color: var(--led);
+  letter-spacing: 0.06em;
+  text-shadow: 0 0 8px rgb(255 106 61 / 0.9);
+}
+
 .title {
   font-family: var(--font-display);
-  max-width: 22ch;
+  max-width: 17ch;
   margin: 0;
-  font-size: clamp(36px, 3.9vw, 56px);
+  font-size: clamp(38px, 4.7vw, 68px);
   font-weight: var(--font-weight-semibold);
-  line-height: 1.04;
-  letter-spacing: -0.035em;
+  line-height: 1;
+  letter-spacing: -0.045em;
   color: var(--text-primary);
   text-wrap: balance;
 }
 
 .lede {
-  max-width: 34rem;
+  max-width: 30rem;
   margin: 0;
-  padding-bottom: var(--space-1);
-  font-size: var(--font-size-body-lg);
-  line-height: 1.6;
-  color: var(--text-secondary);
+  padding-bottom: 6px;
+  font-size: 18px;
+  line-height: 1.5;
+  color: var(--ink-2);
   text-wrap: pretty;
+}
+
+/* The section's one way on: the converter's own button, on the mark's orange, with its sheen. */
+.cta {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 54px;
+  padding: 0 var(--space-6);
+  border-radius: 18px;
+  background: var(--field);
+  color: var(--text-on-action);
+  font-family: var(--font-display);
+  font-size: var(--font-size-body-lg);
+  font-weight: var(--font-weight-semibold);
+  text-decoration: none;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.34),
+    inset 0 -2px 0 rgb(110 24 0 / 0.18),
+    0 16px 30px -14px color-mix(in srgb, var(--brand-action) 90%, transparent);
+  transition:
+    filter var(--dur-fast) var(--ease),
+    transform var(--dur-fast) var(--ease);
+}
+
+.cta:hover {
+  filter: brightness(1.05);
+}
+
+.cta:active {
+  transform: translateY(1px);
+}
+
+.cta svg {
+  transition: transform var(--dur-base) var(--ease);
+}
+
+.cta:hover svg,
+.cta:focus-visible svg {
+  transform: translateX(2px);
 }
 
 @media (max-width: 1099px) {
@@ -62,6 +124,10 @@
   }
 
   .title {
-    font-size: clamp(32px, 8.4vw, 44px);
+    font-size: clamp(34px, 9vw, 46px);
+  }
+
+  .lede {
+    font-size: 17px;
   }
 }

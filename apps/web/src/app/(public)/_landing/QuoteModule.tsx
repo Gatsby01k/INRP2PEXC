@@ -7,10 +7,10 @@ import { sanitizeAmountInput } from '@inrp2p/ui';
 import { formatUsdtCompact, groupDigits } from '@inrp2p/ui/format';
 import { Coin } from '../../../components/Coin.tsx';
 import { ONBOARDING, type QuoteModuleCopy } from '../../../content/site.ts';
-import { ArrowIcon, PointIcon } from './icons.tsx';
+import { ArrowIcon } from './icons.tsx';
 import { requestHref } from './request.ts';
 import { marketEstimate } from './estimate.ts';
-import { MARKET_RATE_PATH } from '../../../server/surface.ts';
+import { rateFor, useMarket } from './market.ts';
 import { INITIAL_DIRECTION, robotCues } from './robot/cues.ts';
 import styles from './quote.module.css';
 
@@ -49,21 +49,10 @@ export function QuoteModule({ appOrigin, onboarding, copy }: { appOrigin: string
   const [direction, setDirection] = useState<Direction>(INITIAL_DIRECTION);
   const [amount, setAmount] = useState<string>(INITIAL_AMOUNT);
 
-  // The market's rate, once the page is shown: the HTML reads no database, and a missing or stale rate leaves the words.
-  const [market, setMarket] = useState<Record<Direction, string | null> | null>(null);
-  useEffect(() => {
-    let live = true;
-    fetch(MARKET_RATE_PATH, { headers: { accept: 'application/json' } })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((rates: Record<Direction, string | null> | null) => {
-        if (live && rates) setMarket(rates);
-      })
-      .catch(() => {});
-    return () => {
-      live = false;
-    };
-  }, []);
-  const estimate = marketEstimate(amount, market?.[direction] ?? null);
+  // The market's rate, once the page is shown (one reading shared with the masthead's ticker): the HTML reads no
+  // database, and a missing or stale rate leaves the words.
+  const market = useMarket();
+  const estimate = marketEstimate(amount, rateFor(market, direction));
 
   // The robot hears about real changes to the request and nothing else: a value, a direction, and whether the
   // visitor is on the call to action (hovered or focused — pointer and keyboard count the same). Browsing the
@@ -230,7 +219,11 @@ export function QuoteModule({ appOrigin, onboarding, copy }: { appOrigin: string
           </LayoutGroup>
 
           <p className={styles.promise}>
-            <PointIcon name="destination" className={styles.promiseIcon} />
+            <svg className={styles.promiseIcon} viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+              <circle cx="10" cy="10" r="9" />
+              <rect x="6.3" y="9.2" width="7.4" height="5.6" rx="1.7" />
+              <path d="M7.9 9.2V7.9a2.1 2.1 0 0 1 4.2 0v1.3" />
+            </svg>
             <span>{copy.promise[direction]}</span>
           </p>
 
@@ -245,6 +238,7 @@ export function QuoteModule({ appOrigin, onboarding, copy }: { appOrigin: string
               onBlur={() => markCta('focus', false)}
               onClick={request}
             >
+              <span className={styles.ctaSheen} aria-hidden="true" />
               <span>{copy.cta}</span>
               <ArrowIcon className={styles.ctaIcon} />
             </a>

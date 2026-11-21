@@ -1,0 +1,159 @@
+/* The market rate in the masthead (`Ticker`): the pair, the rate with its live node, the day as a line. */
+
+.ticker {
+  --buy: #157a45;
+  --sell: #b3224b;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 14px 0 6px;
+  border-radius: 999px;
+  background: radial-gradient(130% 110% at 26% -12%, #3d3f47 0, #1b1c21 40%, #0b0c0e 100%);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.22),
+    inset 0 0 0 1px rgb(255 255 255 / 0.06),
+    0 8px 18px -10px rgb(18 19 23 / 0.6);
+  font-size: 13.5px;
+  white-space: nowrap;
+  animation: ticker-in 520ms var(--ease) both;
+}
+
+.pair {
+  position: relative;
+  display: inline-block;
+  flex: none;
+  width: 28px;
+  height: 26px;
+}
+
+.badge {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  box-shadow: 0 0 0 2px #15161a;
+  border-radius: 50%;
+}
+
+.label {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  color: rgb(255 210 189 / 0.6);
+}
+
+.figure {
+  display: inline-block;
+}
+
+.figure[data-moved='up'] {
+  animation: ticker-up 550ms var(--ease);
+}
+
+.figure[data-moved='down'] {
+  animation: ticker-down 550ms var(--ease);
+}
+
+.spark {
+  width: 48px;
+  height: 18px;
+  fill: none;
+  stroke: #4fd18b;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.ticker[data-trend='down'] .spark {
+  stroke: #ff6b8a;
+}
+
+/* The rate is live: a node breathing beside it, in the mark's orange. */
+.live {
+  position: relative;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--brand-primary);
+}
+
+.live::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  border: 1.5px solid var(--brand-primary);
+  animation: breathe 2.2s ease-out infinite;
+}
+
+@keyframes breathe {
+  from {
+    opacity: 0.7;
+    transform: scale(0.5);
+  }
+
+  to {
+    opacity: 0;
+    transform: scale(1.4);
+  }
+}
+
+@keyframes ticker-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+@keyframes ticker-up {
+  from {
+    opacity: 0;
+    transform: translateY(45%);
+  }
+}
+
+@keyframes ticker-down {
+  from {
+    opacity: 0;
+    transform: translateY(-45%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ticker,
+  .figure,
+  .live::after {
+    animation: none !important;
+  }
+}
+
+/* A narrower masthead keeps the pair and the figure; the line and the label step out. */
+@media (max-width: 1279px) {
+  .label {
+    display: none;
+  }
+}
+
+@media (max-width: 559px) {
+  .ticker {
+    height: 36px;
+    gap: 6px;
+    padding: 0 10px 0 5px;
+    font-size: 13px;
+  }
+
+  .spark,
+  .live {
+    display: none;
+  }
+
+  .pair {
+    width: 24px;
+    height: 22px;
+  }
+
+  .pair > :first-child {
+    width: 20px !important;
+    height: 20px !important;
+  }
+}

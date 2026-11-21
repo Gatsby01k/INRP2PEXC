@@ -7,11 +7,10 @@
   position: relative;
   isolation: isolate;
   overflow: clip;
-  border-top: 1px solid var(--border-default);
   background:
-    radial-gradient(ellipse 40% 30% at 85% 12%, color-mix(in srgb, var(--brand-soft) 80%, transparent) 0%, transparent 100%),
-    radial-gradient(ellipse 36% 28% at 8% 92%, color-mix(in srgb, var(--ivory) 90%, transparent) 0%, transparent 100%),
-    var(--bg-app);
+    radial-gradient(ellipse 40% 30% at 85% 12%, rgb(255 184 140 / 0.22) 0%, transparent 100%),
+    radial-gradient(ellipse 36% 28% at 8% 92%, rgb(255 236 214 / 0.6) 0%, transparent 100%),
+    var(--floor);
 }
 
 /* The workspace's own ruling behind the bento: a fine grid of points, fading out toward the edges. */
@@ -53,9 +52,12 @@
   min-width: 0;
   padding: var(--space-8);
   overflow: hidden;
-  border-radius: 28px;
-  background: linear-gradient(180deg, var(--bg-surface) 0%, color-mix(in srgb, var(--bg-surface) 70%, var(--bg-subtle)) 100%);
-  box-shadow: 0 0 0 1px var(--line), inset 0 1px 0 var(--bg-surface), var(--lift);
+  border: 1px solid transparent;
+  border-radius: 32px;
+  background:
+    linear-gradient(180deg, #fff 0%, #fffdfa 100%) padding-box,
+    linear-gradient(180deg, rgb(18 19 23 / 0.03), rgb(18 19 23 / 0.125)) border-box;
+  box-shadow: 0 1px 2px rgb(18 19 23 / 0.04), 0 22px 48px -28px rgb(96 56 24 / 0.26);
   transition:
     transform var(--dur-complete) var(--ease),
     box-shadow var(--dur-complete) var(--ease);
@@ -280,8 +282,15 @@
 .rateValue {
   font-size: 26px;
   font-weight: var(--font-weight-semibold);
-  letter-spacing: 0.02em;
+  letter-spacing: -0.03em;
   line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+
+.rateValue[data-fallback] {
+  font-family: var(--font-display);
+  font-size: 19px;
+  letter-spacing: -0.02em;
 }
 
 .rateUnit {
@@ -539,7 +548,12 @@
 .priceValue {
   font-size: var(--font-size-heading);
   font-weight: var(--font-weight-semibold);
-  letter-spacing: 0.02em;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.priceValue[data-fallback] {
+  font-size: 15px;
 }
 
 .toggle {

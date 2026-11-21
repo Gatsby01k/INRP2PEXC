@@ -35,7 +35,10 @@ export function Why() {
       <div className={section.inner}>
         <header className={section.head}>
           <div>
-            <p className={section.eyebrow}>{eyebrow}</p>
+            <p className={section.eyebrow}>
+              <span className={section.index}>02</span>
+              {eyebrow}
+            </p>
             <h2 id="why-title" className={section.title}>
               {heading}
             </h2>
@@ -46,16 +49,32 @@ export function Why() {
         <div className={styles.scene} aria-hidden="true">
           <div className={`${styles.panel} ${styles.chat}`}>
             <p className={styles.panelTitle}>{scene.chat.title}</p>
+            <div className={styles.chatHead}>
+              <span className={styles.chatAvatar} />
+              <span className={styles.chatWho}>
+                <b />
+                <i />
+              </span>
+            </div>
             <ol className={styles.messages}>
               {scene.chat.messages.map((m, i) => (
                 <li key={m.text} className={styles.message} data-from={m.from} style={{ ['--i' as string]: i }}>
+                  {m.kind === 'screenshot' ? (
+                    // The screenshot: a payment app's success screen, green tick and all — which proves nothing.
+                    <span className={styles.shot}>
+                      <span className={styles.shotTick} />
+                      <i />
+                      <i />
+                      <i />
+                    </span>
+                  ) : null}
                   {m.text}
                 </li>
               ))}
             </ol>
             <img {...robot(worried)} className={styles.robot} loading="lazy" decoding="async" />
           </div>
-          <div className={`${styles.panel} ${styles.oursPanel}`}>
+          <div className={`${styles.panel} ${styles.oursPanel}`} data-field-light="">
             <MarkArt className={styles.panelMark} />
             <p className={styles.panelTitle}>{scene.ours.title}</p>
             <div className={styles.dealCard}>
@@ -66,9 +85,10 @@ export function Why() {
               <ol className={styles.dealSteps}>
                 {scene.ours.steps.map((step, i) => (
                   <li key={step} className={styles.dealStep} style={{ ['--i' as string]: i }}>
-                    <span className={styles.dealTick}>
-                      <CheckIcon />
-                    </span>
+                    <svg className={styles.dealTick} viewBox="0 0 20 20">
+                      <circle cx="10" cy="10" r="9" />
+                      <path d="M6.2 10.4l2.6 2.6 5.1-5.6" />
+                    </svg>
                     {step}
                   </li>
                 ))}
@@ -137,9 +157,9 @@ export function Why() {
         </div>
 
         <div className={styles.foot}>
-          <a className={styles.cta} href={`${appOrigin()}${CLOSING.cta.appPath}`}>
+          <a className={section.cta} href={`${appOrigin()}${CLOSING.cta.appPath}`}>
             {CLOSING.cta.label}
-            <ArrowIcon className={styles.ctaArrow} />
+            <ArrowIcon />
           </a>
         </div>
       </div>

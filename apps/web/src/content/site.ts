@@ -74,7 +74,7 @@ export interface HeroCopy {
   readonly lede: string;
   readonly points: readonly { readonly icon: HeroPointIcon; readonly label: string }[];
   /** The deal card floating beside the robot: the escrow's moments, ticked off in the order a deal reaches them. */
-  readonly deal: { readonly title: string; readonly status: string; readonly steps: readonly { readonly icon: HeroPointIcon; readonly text: string }[] };
+  readonly deal: { readonly title: string; readonly status: string; readonly steps: readonly { readonly icon: HeroPointIcon; readonly text: string }[]; readonly live: string; readonly running: string };
   readonly quote: QuoteModuleCopy;
 }
 
@@ -116,13 +116,13 @@ export interface QuoteModuleCopy {
 }
 
 export const HERO: HeroCopy = {
-  eyebrow: 'USDT and INR, with escrow',
+  eyebrow: 'P2P, without “send first”',
   headline: { lead: 'Buy & Sell', accent: 'USDT', tail: 'in India.' },
-  lede: 'One firm rate for the whole amount. Rupees go bank to bank, and the USDT waits in escrow until they arrive.',
+  lede: 'One firm rate for the whole amount. Nobody sends first: the USDT waits in escrow until the rupees land in the seller’s bank.',
   points: [
-    { icon: 'destination', label: 'Escrow on every deal' },
-    { icon: 'lock', label: 'Rate locked on accept' },
-    { icon: 'rupee', label: 'UPI, IMPS, NEFT, RTGS' },
+    { icon: 'destination', label: 'Nobody sends first' },
+    { icon: 'lock', label: 'Rate locked when you accept' },
+    { icon: 'rupee', label: 'No third-party rupees' },
     { icon: 'dealer', label: 'Reviewed traders only' },
   ],
   deal: {
@@ -133,6 +133,8 @@ export const HERO: HeroCopy = {
       { icon: 'rupee', text: 'Rupees received' },
       { icon: 'destination', text: 'USDT released' },
     ],
+    live: 'Live deal',
+    running: 'In escrow',
   },
   quote: {
     title: 'Request a quote',
@@ -156,114 +158,182 @@ export const HERO: HeroCopy = {
 const both = (text: string): Record<Direction, string> => ({ SELL_USDT: text, BUY_USDT: text });
 
 /**
- * The home page's "how it works": the stations every deal passes, in the order it passes them (ADR 0019).
+ * The home page's "how it works": one deal, told in the four moments every P2P deal on INRP2P passes (ADR 0019) — the
+ * price, the escrow, the rupees, the release — and drawn as the picture the workspace shows on every deal page: the
+ * seller on the left, INRP2P's escrow in the middle, the buyer on the right; the USDT along the top, the rupees back
+ * along the bottom, bank to bank.
  *
- * Both directions run through the same five stations; the ends swap, and so does who funds the escrow and who pays
- * the rupees. Every station says what happens there and what the deal holds once it is past — a mechanism, never a
- * duration.
- * The ticket that travels the rail fills in as it goes; a rate or an expiry is drawn masked, because a real one
- * exists only inside a quote issued to a client.
+ * Both directions run through the same four moments; who is "you" changes side, and so do the words. Every moment says
+ * what happens there — a mechanism, never a duration.
  */
-export const FLOW_STATIONS = ['source', 'quote', 'execution', 'settlement', 'destination'] as const;
-export type FlowStation = (typeof FLOW_STATIONS)[number];
+export const FLOW_STEPS = ['price', 'escrow', 'rupees', 'release'] as const;
+export type FlowStep = (typeof FLOW_STEPS)[number];
 
-/** A figure that belongs to a real trade, shown only as its shape. */
-export type MaskedValue = 'rate' | 'time' | 'amount';
-
-export interface FlowStationCopy {
-  readonly key: FlowStation;
-  /** The station's name on the rail. At the ends it is the currency, which depends on the direction. */
-  readonly name: Record<Direction, string>;
+export interface FlowStepCopy {
+  readonly key: FlowStep;
   readonly title: Record<Direction, string>;
   readonly body: Record<Direction, string>;
-  /** What the trade holds once it has passed this station. */
-  readonly record: Record<Direction, string>;
+  /** What the deal says about itself once this moment is reached: the visor's line. */
+  readonly status: Record<Direction, string>;
 }
 
 export interface FlowCopy {
   readonly eyebrow: string;
   readonly heading: string;
   readonly lede: string;
-  /** The switch that shows the other direction. Its options are named for the accessible name; arrows are drawn. */
+  /** The switch that shows the other direction. Its options are named for the accessible name. */
   readonly direction: { readonly label: string; readonly options: Record<Direction, string> };
-  readonly stations: readonly FlowStationCopy[];
-  readonly ticket: {
-    /** The trade's status as the ticket leaves each station, in station order. */
-    readonly status: Record<FlowStation, string>;
-    readonly rows: readonly {
-      readonly label: string;
-      /** Written words, or the shape of a figure that only a real trade has. */
-      readonly value: string | { readonly mask: MaskedValue };
-      /** The station after which the row is filled in. */
-      readonly at: FlowStation;
-    }[];
-  };
+  /** The three parties on the picture, by side; "you" is the seller when selling and the buyer when buying. */
+  readonly parties: { readonly seller: Record<Direction, string>; readonly escrow: string; readonly buyer: Record<Direction, string> };
+  /** The two lanes' names. */
+  readonly lanes: { readonly usdt: string; readonly rupees: string };
+  readonly steps: readonly FlowStepCopy[];
+  /** Under the steps: what every deal ends with. */
+  readonly done: string;
+  /** Where the USDT travels, beside it. */
+  readonly network: string;
 }
 
 export const FLOW: FlowCopy = {
   eyebrow: 'How it works',
-  heading: 'The USDT waits in escrow until the rupees land.',
-  lede: 'The same five steps whichever way you trade. Switch direction to follow your money.',
-  direction: { label: 'Direction shown', options: { BUY_USDT: 'INR to USDT', SELL_USDT: 'USDT to INR' } },
-  stations: [
+  heading: 'Nobody sends first. The robot holds the USDT.',
+  lede: 'The USDT goes into the robot’s chest and leaves only once the rupees have landed. Pick a side and follow the money.',
+  direction: { label: 'Direction shown', options: { SELL_USDT: 'Sell USDT', BUY_USDT: 'Buy USDT' } },
+  parties: {
+    seller: { SELL_USDT: 'You', BUY_USDT: 'Trader' },
+    escrow: 'INRP2P escrow',
+    buyer: { SELL_USDT: 'Trader', BUY_USDT: 'You' },
+  },
+  lanes: { usdt: 'USDT', rupees: 'Rupees, bank to bank' },
+  steps: [
     {
-      key: 'source',
-      name: { BUY_USDT: 'INR', SELL_USDT: 'USDT' },
-      title: both('Name your amount'),
+      key: 'price',
+      title: both('Ask for a firm price'),
+      body: both('Name the amount. One rate comes back for all of it, with its expiry on it. Accept, and it is locked: no “rate changed, send a bit more”.'),
+      status: both('Price locked'),
+    },
+    {
+      key: 'escrow',
+      title: { SELL_USDT: 'Your USDT goes into escrow', BUY_USDT: 'The trader locks the USDT' },
       body: {
-        BUY_USDT: 'The USDT you want, or the rupees you will spend. Nothing moves yet.',
-        SELL_USDT: 'The USDT you will sell, or the rupees you need. Nothing moves yet.',
+        SELL_USDT: 'You send it to an escrow address made for this deal alone. Only INRP2P can release it.',
+        BUY_USDT: 'The USDT goes into this deal’s own escrow address before you pay a single rupee.',
       },
-      record: both('Request'),
+      status: both('USDT in escrow'),
     },
     {
-      key: 'quote',
-      name: both('Price'),
-      title: both('One firm rate'),
-      body: both('For the whole amount, with its expiry on it. Accept it and it is locked.'),
-      record: both('Firm rate · expiry'),
-    },
-    {
-      key: 'execution',
-      name: both('Escrow'),
-      title: { BUY_USDT: 'USDT locked first', SELL_USDT: 'USDT into escrow' },
+      key: 'rupees',
+      title: { SELL_USDT: 'The trader pays you', BUY_USDT: 'You pay the trader' },
       body: {
-        BUY_USDT: 'The trader puts the USDT into this deal’s own escrow address before you pay a rupee.',
-        SELL_USDT: 'You send the USDT to this deal’s own escrow address. Only INRP2P can release it.',
+        SELL_USDT: 'Straight to your bank account, by UPI, IMPS, NEFT or RTGS, from the trader’s own account.',
+        BUY_USDT: 'From your own bank account to theirs, by UPI, IMPS, NEFT or RTGS. The rupees never pass through INRP2P.',
       },
-      record: both('USDT in escrow'),
+      status: { SELL_USDT: 'Rupees on their way to you', BUY_USDT: 'Rupees on their way' },
     },
     {
-      key: 'settlement',
-      name: both('Rupees'),
-      title: { BUY_USDT: 'You pay the trader', SELL_USDT: 'The trader pays you' },
+      key: 'release',
+      title: { SELL_USDT: 'You confirm, escrow releases', BUY_USDT: 'The USDT lands in your wallet' },
       body: {
-        BUY_USDT: 'Straight from your bank account to theirs, by UPI, IMPS, NEFT or RTGS.',
-        SELL_USDT: 'Straight to your bank account. You check the money arrived, and who sent it.',
-      },
-      record: both('Bank reference'),
-    },
-    {
-      key: 'destination',
-      name: { BUY_USDT: 'USDT', SELL_USDT: 'INR' },
-      title: { BUY_USDT: 'USDT in your wallet', SELL_USDT: 'Rupees in your bank' },
-      body: {
+        SELL_USDT: 'Check the rupees arrived. Only then does the USDT leave escrow for the trader.',
         BUY_USDT: 'The trader confirms your rupees, and the escrow pays the USDT to your wallet.',
-        SELL_USDT: 'You confirm they arrived. Only then is the USDT released to the trader.',
       },
-      record: both('Receipt'),
+      status: both('Released'),
     },
   ],
-  ticket: {
-    status: { source: 'Request', quote: 'Quoted', execution: 'In escrow', settlement: 'Paying', destination: 'Completed' },
-    rows: [
-      { label: 'Rate', value: { mask: 'rate' }, at: 'quote' },
-      { label: 'Expires', value: { mask: 'time' }, at: 'quote' },
-      { label: 'Escrow', value: 'Locked', at: 'execution' },
-      { label: 'Rupees', value: 'Received', at: 'settlement' },
-      { label: 'USDT', value: 'Released', at: 'destination' },
-      { label: 'Receipt', value: 'Issued', at: 'destination' },
+  done: 'Every deal ends with a receipt, not a screenshot.',
+  network: 'USDT on TRON · TRC20',
+};
+
+/**
+ * The board under the hero: the robot's LEDs running what every deal here does, after the market's rate. Each line is
+ * a mechanism the product has (ADR 0019, ADR 0028, ADR 0030), said the way the people it protects would say it.
+ */
+export const BOARD = {
+  tag: 'Live',
+  lines: [
+    'Nobody sends first',
+    'A screenshot is not money',
+    'Third-party rupees go back',
+    'Rate locked when you accept',
+    'UPI · IMPS · NEFT · RTGS',
+    'USDT on TRON',
+    'Escrow on every deal',
+    'Reviewed traders only',
+  ],
+} as const;
+
+/**
+ * The workspace, shown rather than described: the screen a client asks for a price on, and the deal on a phone. The
+ * features beside it are what the client app does today (ADR 0023 chat, ADR 0026 sign-in, ADR 0029 UPI IDs, the team,
+ * the history); the drawing's figures are the visitor's example amount at the market's own rate, or words without one.
+ */
+export type ShowcaseIcon = 'rate' | 'chat' | 'bank' | 'key' | 'team' | 'history';
+
+export interface ShowcaseCopy {
+  readonly eyebrow: string;
+  readonly heading: string;
+  readonly lede: string;
+  readonly features: readonly { readonly icon: ShowcaseIcon; readonly title: string; readonly body: string }[];
+  readonly mock: {
+    readonly nav: readonly string[];
+    readonly request: string;
+    readonly youSell: string;
+    readonly paidTo: string;
+    readonly bank: string;
+    readonly lock: string;
+    readonly held: string;
+    readonly youReceive: string;
+    readonly market: string;
+    readonly words: string;
+    readonly accept: string;
+    readonly decline: string;
+    readonly perUsdt: string;
+    readonly network: string;
+    readonly trade: string;
+    readonly yourMove: string;
+    readonly confirmTitle: string;
+    readonly chat: readonly { readonly from: 'them' | 'you'; readonly text: string }[];
+    readonly release: string;
+    readonly toast: { readonly title: string; readonly body: string };
+  };
+}
+
+export const SHOWCASE: ShowcaseCopy = {
+  eyebrow: 'The workspace',
+  heading: 'Looks like an app. Works like a vault.',
+  lede: 'Your price, your escrow, your chat with the trader and every deal you have made. On the web and on your phone.',
+  features: [
+    { icon: 'rate', title: 'One price for all of it', body: 'Ask with an amount and see a single rate for the whole of it. It holds while you decide.' },
+    { icon: 'chat', title: 'A chat in every deal', body: 'Talk to the trader inside the deal, attach the payment reference, and bring INRP2P in when you need to.' },
+    { icon: 'bank', title: 'Saved once, used every time', body: 'Your bank account, UPI ID and TRON wallet. Every deal pays to them and nowhere else.' },
+    { icon: 'key', title: 'No password to forget', body: 'Sign in with a code to your email, or with Telegram once you link it.' },
+    { icon: 'team', title: 'Your team on one account', body: 'Invite the people you trade with, and choose who may accept a price.' },
+    { icon: 'history', title: 'Every deal on record', body: 'Your history, with the rate, the payments and the receipt of every deal.' },
+  ],
+  mock: {
+    nav: ['Exchange', 'History', 'Bank & wallets'],
+    request: 'Your request',
+    youSell: 'You sell',
+    paidTo: 'Rupees paid to',
+    bank: 'Your bank account',
+    lock: 'Your USDT waits in escrow until the rupees are in your bank',
+    held: 'Firm quote · held for you',
+    youReceive: 'You receive',
+    market: 'At today’s market rate',
+    words: 'One firm price for the whole amount',
+    accept: 'Accept this quote',
+    decline: 'Decline, your request stays open',
+    perUsdt: 'per USDT',
+    network: 'Network fee on its own line',
+    trade: 'Your deal',
+    yourMove: 'Your move',
+    confirmTitle: 'Did the rupees arrive?',
+    chat: [
+      { from: 'them', text: 'Paid by IMPS, the reference is attached.' },
+      { from: 'you', text: 'Checking my bank now.' },
     ],
+    release: 'Release the USDT',
+    toast: { title: 'Rupees received', body: 'From the trader’s own account' },
   },
 };
 
@@ -283,7 +353,7 @@ export interface WhyCopy {
    * Drawn for the eye; the table under it says the same in full.
    */
   readonly scene: {
-    readonly chat: { readonly title: string; readonly messages: readonly { readonly from: 'them' | 'you' | 'system'; readonly text: string }[] };
+    readonly chat: { readonly title: string; readonly messages: readonly { readonly from: 'them' | 'you' | 'system'; readonly text: string; readonly kind?: 'screenshot' }[] };
     readonly ours: { readonly title: string; readonly card: string; readonly status: string; readonly steps: readonly string[] };
   };
   /** The table's caption, for whoever reads it without seeing it. */
@@ -294,16 +364,16 @@ export interface WhyCopy {
 
 export const WHY: WhyCopy = {
   eyebrow: 'Why INRP2P',
-  heading: 'Everything that goes wrong in a P2P deal, handled.',
-  lede: 'The same deal, done two ways: with someone you found in a chat, and on INRP2P.',
+  heading: '“Bhai, send first”? Not here.',
+  lede: 'The same deal, done two ways: with someone from a Telegram group, and on INRP2P.',
   scene: {
     chat: {
       title: 'Deal in a chat',
       messages: [
-        { from: 'them', text: 'Send the USDT first, I pay right after' },
+        { from: 'them', text: 'Bhai, send the USDT first, I pay right after' },
         { from: 'you', text: 'Sent. Waiting for the rupees' },
-        { from: 'them', text: 'Rate moved. Send a bit more' },
-        { from: 'you', text: 'Hello?' },
+        { from: 'them', text: 'Paid. Here is the screenshot', kind: 'screenshot' },
+        { from: 'you', text: 'Nothing in my bank. Hello?' },
         { from: 'system', text: 'This person left the chat' },
       ],
     },
@@ -319,23 +389,28 @@ export const WHY: WhyCopy = {
   rows: [
     {
       topic: 'Who sends first',
-      direct: 'One of you, on trust.',
+      direct: 'You, on trust.',
       ours: 'Nobody on trust. The USDT waits in escrow, and whoever’s money is at risk goes second.',
     },
     {
       topic: 'The price',
-      direct: 'Agreed in chat, then changed at the last minute.',
+      direct: '“Rate changed, send a bit more.”',
       ours: 'One firm rate for the whole amount, locked the moment you accept.',
+    },
+    {
+      topic: 'Proof of payment',
+      direct: 'A screenshot. Easy to fake.',
+      ours: 'The rupees in the seller’s own bank account. A screenshot is not money.',
+    },
+    {
+      topic: 'Whose rupees',
+      direct: 'Any account, in anyone’s name.',
+      ours: 'Only the other side’s own account. Third-party rupees are refused and sent back.',
     },
     {
       topic: 'The other side',
       direct: 'Whoever answered first.',
       ours: 'A trader INRP2P reviewed before their first deal.',
-    },
-    {
-      topic: 'Where the rupees come from',
-      direct: 'Any account, in anyone’s name.',
-      ours: 'Only the other side’s own bank account. Rupees from anyone else are refused and sent back.',
     },
     {
       topic: 'If they go quiet',
@@ -376,7 +451,7 @@ export interface FaqCopy {
 export const FAQ: FaqCopy = {
   eyebrow: 'Questions',
   heading: 'Before your first deal.',
-  lede: 'What people ask before they trade here, answered plainly.',
+  lede: 'What people ask before they trust a robot with their USDT.',
   items: [
     {
       question: 'Who is on the other side of my deal?',
@@ -396,7 +471,7 @@ export const FAQ: FaqCopy = {
     },
     {
       question: 'What does it cost?',
-      answer: 'It is in the rate. The amount on your quote is the amount you get, with the network fee already inside it. If a sale is cancelled after you send USDT, it comes back less its own network fee, shown on the deal before you send.',
+      answer: 'The market’s rate, and one line more: the network fee, what TRON charges for this deal’s escrow and its transfers. Both are on your quote before you accept. If a sale is cancelled after you send USDT, it comes back less its own network fee, shown on the deal before you send.',
     },
     {
       question: 'Which network is the USDT on?',
@@ -412,7 +487,7 @@ export const FAQ: FaqCopy = {
       more: { label: 'See the desk programme', anchor: 'own-desk' },
     },
   ],
-  ask: { title: 'Something else?', body: 'Message our CEO on Telegram. A person answers.' },
+  ask: { title: 'Something else?', body: 'Ask the robot’s boss. Our CEO answers on Telegram, in person.' },
 };
 
 /**
@@ -437,6 +512,8 @@ export interface OwnDeskCopy {
     readonly sell: string;
     readonly buy: string;
     readonly perUsdt: string;
+    readonly market: string;
+    readonly followMarket: string;
     readonly ask: string;
     readonly chat: string;
     readonly linkTitle: string;
@@ -462,8 +539,8 @@ export const OWN_DESK: OwnDeskCopy = {
   nav: 'For traders',
   announce: { tag: 'New', text: 'Traders: open your own exchange on INRP2P' },
   eyebrow: 'For traders and brokers',
-  heading: 'Your own exchange, on INRP2P.',
-  lede: 'Your page, your prices, your clients, your team. Rupees go straight between you and your client, and INRP2P holds the USDT in escrow until they land.',
+  heading: 'Run your own exchange. Skip building one.',
+  lede: 'Your page, your prices, your clients, your team. INRP2P brings the escrow, the rails and the robot: rupees go straight between you and your client.',
   features: [
     {
       key: 'page',
@@ -503,6 +580,8 @@ export const OWN_DESK: OwnDeskCopy = {
     sell: 'Sell USDT',
     buy: 'Buy USDT',
     perUsdt: 'INR per USDT',
+    market: 'At market',
+    followMarket: 'Follows the market',
     ask: 'Get a firm price',
     chat: 'Here is your deal — the price holds while you sign in.',
     linkTitle: 'A deal from Your desk',
@@ -549,7 +628,9 @@ export const OWN_DESK: OwnDeskCopy = {
  * desk sets up before a first trade, and offered the way in (ONBOARDING) when an address to write to is set.
  */
 export const CLOSING = {
-  heading: 'Get a firm price on your next deal.',
+  heading: 'Put a robot in the middle of your next deal.',
+  /** On the waving robot's visor, in its LEDs. */
+  robot: 'Your move',
   body: 'Add your bank account and wallet once. Every deal after that runs through escrow, at a rate you see before you agree.',
   cta: { label: 'Get a firm price', appPath: '/exchange' },
   newClient: {
