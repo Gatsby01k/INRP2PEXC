@@ -136,31 +136,6 @@ export function Deal() {
           <div className={styles.sceneWrap}>
             <div className={styles.pin}>
             <figure className={styles.scene} aria-label={heading}>
-              {/* The deal's own display, on the robot's black glass: which moment, and what the deal says. */}
-              <div className={styles.visor} aria-hidden="true">
-                <span className={styles.visorNode} />
-                <span className={styles.visorCount}>
-                  {steps.map((s, i) => (
-                    <span key={s.key} data-show={i}>
-                      {String(i + 1).padStart(2, '0')}
-                    </span>
-                  ))}
-                  <span className={styles.visorOf}>/ {String(steps.length).padStart(2, '0')}</span>
-                </span>
-                <span className={styles.visorLine}>
-                  {steps.map((s, i) => (
-                    <span key={s.key} data-show={i}>
-                      <ByDirection value={s.status} />
-                    </span>
-                  ))}
-                </span>
-                <span className={styles.visorBars}>
-                  {steps.map((s, i) => (
-                    <i key={s.key} data-bar={i} />
-                  ))}
-                </span>
-              </div>
-
               <div className={styles.picture}>
                 <Picture />
                 <span className={styles.who} data-at="seller">

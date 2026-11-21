@@ -77,23 +77,9 @@ export function Why() {
           <div className={`${styles.panel} ${styles.oursPanel}`} data-field-light="">
             <MarkArt className={styles.panelMark} />
             <p className={styles.panelTitle}>{scene.ours.title}</p>
-            <div className={styles.dealCard}>
-              <p className={styles.dealHead}>
-                <span>{scene.ours.card}</span>
-                <span className={styles.dealStatus}>{scene.ours.status}</span>
-              </p>
-              <ol className={styles.dealSteps}>
-                {scene.ours.steps.map((step, i) => (
-                  <li key={step} className={styles.dealStep} style={{ ['--i' as string]: i }}>
-                    <svg className={styles.dealTick} viewBox="0 0 20 20">
-                      <circle cx="10" cy="10" r="9" />
-                      <path d="M6.2 10.4l2.6 2.6 5.1-5.6" />
-                    </svg>
-                    {step}
-                  </li>
-                ))}
-              </ol>
-            </div>
+            {/* The verdict, as big as the chat is loud: the deal done here, in one line. */}
+            <p className={styles.verdict}>{scene.ours.line}</p>
+            <p className={styles.verdictNote}>{scene.ours.note}</p>
             <img {...robot(love)} className={styles.robot} loading="lazy" decoding="async" />
           </div>
         </div>

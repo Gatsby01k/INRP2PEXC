@@ -57,7 +57,7 @@ export interface SiteAction {
 export const ACTIONS: readonly SiteAction[] = [
   { label: 'Sell USDT', kind: 'primary', appPath: '/exchange?direction=sell' },
   { label: 'Buy USDT', kind: 'primary', appPath: '/exchange?direction=buy' },
-  { label: 'Request OTC quote', kind: 'secondary', appPath: '/exchange' },
+  { label: 'Get a firm price', kind: 'secondary', appPath: '/exchange' },
 ];
 
 /**
@@ -73,8 +73,6 @@ export interface HeroCopy {
   readonly headline: { readonly lead: string; readonly accent: string; readonly tail: string };
   readonly lede: string;
   readonly points: readonly { readonly icon: HeroPointIcon; readonly label: string }[];
-  /** The deal card floating beside the robot: the escrow's moments, ticked off in the order a deal reaches them. */
-  readonly deal: { readonly title: string; readonly status: string; readonly steps: readonly { readonly icon: HeroPointIcon; readonly text: string }[]; readonly live: string; readonly running: string };
   readonly quote: QuoteModuleCopy;
 }
 
@@ -116,26 +114,15 @@ export interface QuoteModuleCopy {
 }
 
 export const HERO: HeroCopy = {
-  eyebrow: 'P2P, without “send first”',
+  eyebrow: 'P2P without trusting strangers',
   headline: { lead: 'Buy & Sell', accent: 'USDT', tail: 'in India.' },
-  lede: 'One firm rate for the whole amount. Nobody sends first: the USDT waits in escrow until the rupees land in the seller’s bank.',
+  lede: 'One firm rate for the whole amount. Nobody sends first: the USDT sits in escrow until the rupees hit the seller’s bank, and it is released only then.',
   points: [
     { icon: 'destination', label: 'Nobody sends first' },
     { icon: 'lock', label: 'Rate locked when you accept' },
-    { icon: 'rupee', label: 'No third-party rupees' },
-    { icon: 'dealer', label: 'Reviewed traders only' },
+    { icon: 'rupee', label: 'Third-party rupees bounced' },
+    { icon: 'dealer', label: 'Every trader reviewed' },
   ],
-  deal: {
-    title: 'Your deal',
-    status: 'Completed',
-    steps: [
-      { icon: 'lock', text: 'USDT locked in escrow' },
-      { icon: 'rupee', text: 'Rupees received' },
-      { icon: 'destination', text: 'USDT released' },
-    ],
-    live: 'Live deal',
-    running: 'In escrow',
-  },
   quote: {
     title: 'Request a quote',
     amount: { SELL_USDT: 'You sell', BUY_USDT: 'You buy' },
@@ -173,8 +160,6 @@ export interface FlowStepCopy {
   readonly key: FlowStep;
   readonly title: Record<Direction, string>;
   readonly body: Record<Direction, string>;
-  /** What the deal says about itself once this moment is reached: the visor's line. */
-  readonly status: Record<Direction, string>;
 }
 
 export interface FlowCopy {
@@ -210,7 +195,6 @@ export const FLOW: FlowCopy = {
       key: 'price',
       title: both('Ask for a firm price'),
       body: both('Name the amount. One rate comes back for all of it, with its expiry on it. Accept, and it is locked: no “rate changed, send a bit more”.'),
-      status: both('Price locked'),
     },
     {
       key: 'escrow',
@@ -219,7 +203,6 @@ export const FLOW: FlowCopy = {
         SELL_USDT: 'You send it to an escrow address made for this deal alone. Only INRP2P can release it.',
         BUY_USDT: 'The USDT goes into this deal’s own escrow address before you pay a single rupee.',
       },
-      status: both('USDT in escrow'),
     },
     {
       key: 'rupees',
@@ -228,7 +211,6 @@ export const FLOW: FlowCopy = {
         SELL_USDT: 'Straight to your bank account, by UPI, IMPS, NEFT or RTGS, from the trader’s own account.',
         BUY_USDT: 'From your own bank account to theirs, by UPI, IMPS, NEFT or RTGS. The rupees never pass through INRP2P.',
       },
-      status: { SELL_USDT: 'Rupees on their way to you', BUY_USDT: 'Rupees on their way' },
     },
     {
       key: 'release',
@@ -237,7 +219,6 @@ export const FLOW: FlowCopy = {
         SELL_USDT: 'Check the rupees arrived. Only then does the USDT leave escrow for the trader.',
         BUY_USDT: 'The trader confirms your rupees, and the escrow pays the USDT to your wallet.',
       },
-      status: both('Released'),
     },
   ],
   done: 'Every deal ends with a receipt, not a screenshot.',
@@ -252,13 +233,13 @@ export const BOARD = {
   tag: 'Live',
   lines: [
     'Nobody sends first',
+    'Your USDT never sits with a stranger',
     'A screenshot is not money',
     'Third-party rupees go back',
+    'Rupees never touch INRP2P',
     'Rate locked when you accept',
     'UPI · IMPS · NEFT · RTGS',
-    'USDT on TRON',
-    'Escrow on every deal',
-    'Reviewed traders only',
+    'Every trader reviewed',
   ],
 } as const;
 
@@ -354,7 +335,7 @@ export interface WhyCopy {
    */
   readonly scene: {
     readonly chat: { readonly title: string; readonly messages: readonly { readonly from: 'them' | 'you' | 'system'; readonly text: string; readonly kind?: 'screenshot' }[] };
-    readonly ours: { readonly title: string; readonly card: string; readonly status: string; readonly steps: readonly string[] };
+    readonly ours: { readonly title: string; readonly line: string; readonly note: string };
   };
   /** The table's caption, for whoever reads it without seeing it. */
   readonly caption: string;
@@ -365,7 +346,7 @@ export interface WhyCopy {
 export const WHY: WhyCopy = {
   eyebrow: 'Why INRP2P',
   heading: '“Bhai, send first”? Not here.',
-  lede: 'The same deal, done two ways: with someone from a Telegram group, and on INRP2P.',
+  lede: 'Every P2P horror story starts in a chat. Here is the same deal, done both ways.',
   scene: {
     chat: {
       title: 'Deal in a chat',
@@ -379,9 +360,8 @@ export const WHY: WhyCopy = {
     },
     ours: {
       title: 'Deal on INRP2P',
-      card: 'Your deal',
-      status: 'Completed',
-      steps: ['Rate locked for the whole amount', 'USDT locked in escrow', 'Rupees received, sender checked', 'USDT released', 'Receipt issued'],
+      line: 'Nobody sent first. Everybody got paid.',
+      note: 'The USDT waited in escrow. The rupees went bank to bank, from the buyer’s own account. Then the escrow let go.',
     },
   },
   caption: 'A deal in a chat compared with a deal on INRP2P',
@@ -406,11 +386,6 @@ export const WHY: WhyCopy = {
       topic: 'Whose rupees',
       direct: 'Any account, in anyone’s name.',
       ours: 'Only the other side’s own account. Third-party rupees are refused and sent back.',
-    },
-    {
-      topic: 'The other side',
-      direct: 'Whoever answered first.',
-      ours: 'A trader INRP2P reviewed before their first deal.',
     },
     {
       topic: 'If they go quiet',
@@ -495,7 +470,7 @@ export const FAQ: FaqCopy = {
  * one. Every sentence describes something the workspace does today — the page, deal links, escrow, prices, the team,
  * Telegram alerts — and the mock-ups beside them draw their figures masked, like the rest of the site.
  */
-export const OWN_DESK_FEATURES = ['page', 'link', 'escrow', 'prices', 'team', 'alerts'] as const;
+export const OWN_DESK_FEATURES = ['page', 'link', 'prices', 'team', 'alerts'] as const;
 export type OwnDeskFeature = (typeof OWN_DESK_FEATURES)[number];
 
 export interface OwnDeskCopy {
@@ -520,7 +495,6 @@ export interface OwnDeskCopy {
     readonly linkMeta: string;
     readonly held: string;
     readonly take: string;
-    readonly escrow: readonly string[];
     readonly youBuy: string;
     readonly youSell: string;
     readonly live: string;
@@ -540,7 +514,7 @@ export const OWN_DESK: OwnDeskCopy = {
   announce: { tag: 'New', text: 'Traders: open your own exchange on INRP2P' },
   eyebrow: 'For traders and brokers',
   heading: 'Run your own exchange. Skip building one.',
-  lede: 'Your page, your prices, your clients, your team. INRP2P brings the escrow, the rails and the robot: rupees go straight between you and your client.',
+  lede: 'Stop posting rates in Telegram groups. Get your own page, prices that follow the market, a deal link for every client and a team, with INRP2P’s escrow on every deal.',
   features: [
     {
       key: 'page',
@@ -553,14 +527,9 @@ export const OWN_DESK: OwnDeskCopy = {
       body: 'Price a deal for one client and send it on WhatsApp or Telegram. They open it, sign in with their email and take it while the price holds.',
     },
     {
-      key: 'escrow',
-      title: 'Escrow on every deal.',
-      body: 'Whoever sells puts the USDT into the deal’s own escrow address. It is released only after the rupees are confirmed, never before.',
-    },
-    {
       key: 'prices',
       title: 'Prices you control.',
-      body: 'What you pay and what you ask, the smallest and largest deal, and how long they hold. They switch themselves off when their time runs out.',
+      body: 'Follow the market or set your own rate, your smallest and largest deal, and how long a price holds. It switches itself off when its time runs out.',
     },
     {
       key: 'team',
@@ -588,7 +557,6 @@ export const OWN_DESK: OwnDeskCopy = {
     linkMeta: 'USDT at',
     held: 'Price held',
     take: 'Take this deal',
-    escrow: ['USDT in escrow', 'Rupees confirmed', 'USDT released'],
     youBuy: 'You buy USDT',
     youSell: 'You sell USDT',
     live: 'Live',
@@ -631,7 +599,7 @@ export const CLOSING = {
   heading: 'Put a robot in the middle of your next deal.',
   /** On the waving robot's visor, in its LEDs. */
   robot: 'Your move',
-  body: 'Add your bank account and wallet once. Every deal after that runs through escrow, at a rate you see before you agree.',
+  body: 'Add your bank account and wallet once. Every deal after that: a firm rate before you agree, the USDT in escrow, the rupees bank to bank.',
   cta: { label: 'Get a firm price', appPath: '/exchange' },
   newClient: {
     title: ONBOARDING.prompt,
@@ -734,31 +702,31 @@ const HOME: SitePage = {
 
 const USDT_TO_INR: SitePage = {
   path: '/usdt-to-inr',
-  title: `USDT to INR — convert Tether to Indian rupees | ${SITE_NAME}`,
+  title: `USDT to INR — sell Tether for Indian rupees | ${SITE_NAME}`,
   description:
-    'Convert USDT to INR through an OTC desk: a firm quoted rate with an expiry, TRC20 USDT in, and INR out to a bank account registered in advance.',
+    'Sell USDT for INR with escrow on every deal: one firm rate for the whole amount, your USDT held in escrow, and rupees paid straight to your own bank account.',
   h1: 'USDT to INR',
-  lede: 'A quoted rate for your trade, and INR to a bank account you registered before it started.',
+  lede: 'Sell USDT for rupees at one firm rate. Your USDT waits in escrow until the rupees are in your bank.',
   sections: [
     {
-      heading: 'How the conversion is priced',
+      heading: 'How the rate works',
       body: [
-        'You name the USDT amount, or the INR you need to receive — one side is fixed and the other follows from the rate. The dealer answers with a single rate for the whole trade.',
-        'The quote carries its expiry in it. Until it expires the rate is firm; once accepted it is frozen into the trade and nothing later changes it.',
+        'Name the USDT you sell, or the rupees you need. One firm rate comes back for the whole amount, at the market’s rate, with its expiry on it.',
+        'The network fee is its own line on the quote, so you see what you get before you accept. Accept, and the rate is locked into the deal.',
       ],
     },
     {
-      heading: 'How the USDT moves',
+      heading: 'Where your USDT waits',
       body: [
-        'Each sell trade is issued its own TRC20 deposit address. Nothing is attributed by amount or by which wallet it came from — the address is what ties your transfer to your trade.',
-        'The transfer is recognised once the chain has made it final, not when it first appears.',
+        'You send the USDT on TRON (TRC20) to an escrow address made for this deal alone. Only INRP2P can move it, and only where the deal says.',
+        'A transfer counts once the chain has made it final, not when it first appears.',
       ],
     },
     {
-      heading: 'How the INR is paid',
+      heading: 'How the rupees reach you',
       body: [
-        'INR is paid to an Indian bank account registered against your client record. A payout may arrive as more than one transfer; each one carries its own bank reference and is recorded against the trade.',
-        'The trade completes when the payments add up to what was agreed, and the receipt lists every one of them.',
+        'A reviewed trader pays you from their own bank account, by UPI, IMPS, NEFT or RTGS. Rupees from anyone else are refused and sent back.',
+        'You check your bank and confirm. Only then is the USDT released to the trader, and the deal gets its receipt.',
       ],
     },
   ],
@@ -769,28 +737,29 @@ const INR_TO_USDT: SitePage = {
   path: '/inr-to-usdt',
   title: `INR to USDT — buy Tether with Indian rupees | ${SITE_NAME}`,
   description:
-    'Convert INR to USDT through an OTC desk: a firm quoted rate with an expiry, INR to a named settlement account, and USDT to a wallet registered in advance.',
+    'Buy USDT with INR with escrow on every deal: one firm rate, the USDT locked in escrow before you pay, and USDT delivered to your own TRON wallet.',
   h1: 'INR to USDT',
-  lede: 'A quoted rate for your trade, and USDT to a TRC20 wallet you registered before it started.',
+  lede: 'Buy USDT with rupees at one firm rate. The USDT is locked in escrow before you pay a single rupee.',
   sections: [
     {
-      heading: 'How the conversion is priced',
+      heading: 'How the rate works',
       body: [
-        'Fix the INR you want to spend or the USDT you want to end up with; the dealer prices the trade and the other side follows from that one rate.',
-        'The rate holds until the quote expires. Accepting it writes it into the trade, where it stays for good.',
+        'Name the USDT you want, or the rupees you will spend. One firm rate comes back for the whole amount, at the market’s rate, with its expiry on it.',
+        'The network fee is its own line on the quote. Accept, and the rate is locked into the deal.',
       ],
     },
     {
-      heading: 'How the INR moves',
+      heading: 'Escrow before you pay',
       body: [
-        'Your trade names the settlement account to transfer to and the reference to use. The transfer is matched to your trade by that reference, and confirmed against the bank’s own record of it.',
+        'A reviewed trader puts the USDT into this deal’s own escrow address first. You are asked to pay only once it is there.',
+        'You pay from your own bank account to theirs, by UPI, IMPS, NEFT or RTGS. The rupees never pass through INRP2P.',
       ],
     },
     {
-      heading: 'How the USDT is delivered',
+      heading: 'Where the USDT goes',
       body: [
-        'USDT is sent on TRON (TRC20) to a wallet address registered against your client record. The trade records the transaction hash of the transfer that settled it.',
-        'Registering the wallet in advance is deliberate: an address typed under time pressure is the most expensive mistake available in this market.',
+        'To the TRON (TRC20) wallet you added to your account, and nowhere else. The trader confirms your rupees and the escrow pays the USDT out.',
+        'Adding the wallet once, before your first deal, is deliberate: an address typed in a hurry is the most expensive mistake in this market.',
       ],
     },
   ],
@@ -799,31 +768,31 @@ const INR_TO_USDT: SitePage = {
 
 const SELL_IN_INDIA: SitePage = {
   path: '/sell-usdt-in-india',
-  title: `Sell USDT in India — OTC desk for large trades | ${SITE_NAME}`,
+  title: `Sell USDT in India — escrow on every deal | ${SITE_NAME}`,
   description:
-    'Sell USDT for INR through an OTC desk. A dealer quotes your trade, the rate is locked when you accept, and INR settles to a registered Indian bank account.',
+    'Sell USDT in India without sending first to a stranger: one firm rate, your USDT in escrow, and rupees to your own bank from the buyer’s own account.',
   h1: 'Sell USDT in India',
-  lede: 'For trades big enough that the price you are shown should be the price you get.',
+  lede: 'Without sending your USDT to a stranger first.',
   sections: [
     {
-      heading: 'Who this is for',
+      heading: 'The trouble with selling in a chat',
       body: [
-        'Businesses and individuals moving amounts where slippage matters more than convenience: the whole trade at one agreed rate, settled to a bank account that already belongs to you on our records.',
-        'If you are selling a small amount and want it now, an exchange app will serve you better than a desk will. This is built for the other case.',
+        'In a chat someone has to send first, and it is usually you. Then comes a screenshot instead of money, a rate that changed, or silence.',
+        'On INRP2P nobody sends on trust. Your USDT waits in an escrow address only INRP2P can release, and only after you confirm the rupees.',
       ],
     },
     {
-      heading: 'What we need before the first trade',
+      heading: 'What you need',
       body: [
-        'An account, the people allowed to accept quotes on it, and at least one Indian bank account to be paid to. You open the account yourself, with your email.',
-        'Every one of those is checked again when a trade settles, which is why they are set up once rather than asked for each time.',
+        'An account opened with your email, and the bank account or UPI ID you are paid to, added once before your first deal.',
+        'Every trader on the other side was reviewed by INRP2P before their first deal.',
       ],
     },
     {
-      heading: 'What happens if something goes wrong',
+      heading: 'If something goes wrong',
       body: [
-        'Anything that does not match — a different amount than expected, a transfer from somewhere unexpected, a payment that fails — opens a case against the trade and pauses it rather than guessing.',
-        'A paused trade is worked by a person and then either continued or corrected in a way that is recorded. Nothing is quietly adjusted.',
+        'Every step has a time limit. If the buyer misses theirs, the deal unwinds and your USDT goes back where it came from.',
+        'If they say they paid and you see nothing, say so on the deal: the USDT stays in escrow, and INRP2P decides on the bank’s evidence.',
       ],
     },
   ],
@@ -832,29 +801,30 @@ const SELL_IN_INDIA: SitePage = {
 
 const BUY_IN_INDIA: SitePage = {
   path: '/buy-usdt-in-india',
-  title: `Buy USDT in India — OTC desk for large trades | ${SITE_NAME}`,
+  title: `Buy USDT in India — escrow on every deal | ${SITE_NAME}`,
   description:
-    'Buy USDT with INR through an OTC desk. A dealer quotes your trade, the rate is locked when you accept, and USDT is delivered to a registered TRC20 wallet.',
+    'Buy USDT in India with the USDT locked in escrow before you pay: one firm rate for the whole amount, rupees bank to bank, USDT to your own wallet.',
   h1: 'Buy USDT in India',
-  lede: 'One rate for the whole trade, agreed before you send anything.',
+  lede: 'The USDT is locked before you pay a rupee.',
   sections: [
     {
-      heading: 'Who this is for',
+      heading: 'Why escrow comes first',
       body: [
-        'Buyers who would rather agree a rate with a person than watch one move while an order fills. You are quoted for the size you actually want.',
-        'The quote is firm until it expires, so the decision is yours to make rather than a race against the screen.',
+        'Buying in a chat means paying a stranger and hoping. Here the trader’s USDT is locked in this deal’s escrow address before you are asked to pay.',
+        'Then you pay from your own bank account, and the escrow releases the USDT to your wallet once the trader confirms your rupees.',
       ],
     },
     {
-      heading: 'Where the USDT goes',
+      heading: 'What you need',
       body: [
-        'To a TRC20 wallet registered against your client record before the trade, and to no other address. The trade records the transaction that delivered it.',
+        'An account opened with your email, the bank account you pay from, and the TRON wallet the USDT goes to, added once before your first deal.',
       ],
     },
     {
-      heading: 'What we need before the first trade',
+      heading: 'If something goes wrong',
       body: [
-        'An account, the people allowed to accept quotes on it, and a wallet added before the trade. You open the account yourself, with your email.',
+        'Every step has a time limit. If the trader never locks the USDT, you never pay.',
+        'If you paid and they say nothing arrived, open a dispute on the deal: INRP2P decides it on the bank’s evidence.',
       ],
     },
   ],
@@ -863,30 +833,29 @@ const BUY_IN_INDIA: SitePage = {
 
 const OTC_INDIA: SitePage = {
   path: '/usdt-otc-india',
-  title: `USDT OTC desk in India | ${SITE_NAME}`,
+  title: `USDT OTC in India — large deals with escrow | ${SITE_NAME}`,
   description:
-    'An over-the-counter desk for USDT and INR in India: quoted trades, locked rates, registered settlement destinations and a receipt for every completed trade.',
+    'Large USDT deals in India: one firm rate for the whole amount, the USDT in escrow, rupees bank to bank, and a receipt for every deal.',
   h1: 'USDT OTC in India',
-  lede: 'Quoted trades, locked rates, and a written record of how each one settled.',
+  lede: 'One firm rate for the whole amount, however large, and escrow on every deal.',
   sections: [
     {
-      heading: 'What "OTC" means here',
+      heading: 'One price for the whole deal',
       body: [
-        'Over-the-counter means the trade is agreed between you and a desk rather than matched on a public book. You ask, a dealer prices it, you accept or you do not.',
-        'It also means the terms are written down: the rate, the amounts, the destination and the expiry are fixed at acceptance and become the trade.',
+        'Ask with the whole amount and get one firm rate for all of it, not a book that fills piece by piece. It holds until its expiry; accept, and it is locked.',
       ],
     },
     {
-      heading: 'How a quote is delivered',
+      heading: 'Traders who run their own desk',
       body: [
-        'In the client app, or as a private link you can open on a phone. Opening a link shows the price and nothing else — accepting it needs a code sent to a verified address of someone authorised to decide.',
-        'Holding the link is not authority to trade. That is deliberate: links get forwarded.',
+        'Traders and brokers on INRP2P run their own exchange: a page, prices and deal links for their clients. Every deal through them carries the same escrow.',
+        'A deal link opens the price on your phone. Taking it needs you to sign in: holding a link is not authority to trade.',
       ],
     },
     {
       heading: 'What is recorded',
       body: [
-        'Every trade keeps the terms it was written with, every payment that settled it, and the receipt generated when it completed. Corrections are recorded as corrections rather than edits.',
+        'Every deal keeps its rate, its payments and its receipt, as a document, CSV and JSON. Your team can share one account, and you choose who may accept a price.',
       ],
     },
   ],
@@ -900,6 +869,6 @@ export const SITE_PATHS: readonly string[] = SITE_PAGES.map((p) => p.path);
 
 export const pageForPath = (path: string): SitePage | undefined => SITE_PAGES.find((p) => p.path === path);
 
-/** The footer's one honest sentence about what this page is and is not. */
+/** The footer's one honest sentence about what this site is and is not. */
 export const FOOTER_NOTE =
-  'INRP2P Exchange is an over-the-counter desk. Nothing on this site is an offer, a price, or advice; a price exists only in a quote issued to a client for a specific trade.';
+  'INRP2P Exchange holds the USDT in escrow on every deal between its clients and reviewed traders. Nothing on this site is an offer, a price or advice: the rates shown here are the market’s, and a price exists only in a quote issued for a specific deal.';

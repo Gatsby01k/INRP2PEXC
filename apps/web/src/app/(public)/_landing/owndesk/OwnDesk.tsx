@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { OWN_DESK, type OwnDeskFeature } from '../../../../content/site.ts';
-import { ArrowIcon, CheckIcon } from '../icons.tsx';
+import { ArrowIcon } from '../icons.tsx';
 import { groupDigits } from '@inrp2p/ui/format';
 import { LiveRate } from '../LiveRate.tsx';
 import { MarkArt } from '../../../../components/MarkArt.tsx';
@@ -8,7 +8,7 @@ import section from '../section.module.css';
 import styles from './owndesk.module.css';
 
 /** The programme's glyphs, in the kit's hand: one stroke weight, round joins, a 24-unit grid. */
-const GLYPHS: Record<OwnDeskFeature | 'arrow', string> = {
+const GLYPHS: Record<OwnDeskFeature | 'escrow' | 'arrow', string> = {
   page: 'M12 9.9a2.7 2.7 0 1 0 0 5.4 2.7 2.7 0 0 0 0-5.4Z M12 9.9V6.4 M9.7 14 6.7 15.7 M14.3 14l3 1.7 M12 3.4a1.3 1.3 0 1 0 0 2.6 1.3 1.3 0 0 0 0-2.6Z M5.4 15.6a1.3 1.3 0 1 0 0 2.6 1.3 1.3 0 0 0 0-2.6Z M18.6 15.6a1.3 1.3 0 1 0 0 2.6 1.3 1.3 0 0 0 0-2.6Z',
   link: 'M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1 M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1',
   escrow: 'M5.5 4.5h13a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2v-11a2 2 0 0 1 2-2Z M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z M12 8.5v1 M12 14.5v1 M8.5 12h1 M14.5 12h1',
@@ -140,18 +140,7 @@ export function OwnDesk({ appOrigin, host }: { appOrigin: string; host: string }
             </div>
           </Tile>
 
-          <Tile feature="escrow" className={styles.third}>
-            <ol className={styles.escrow}>
-              {mock.escrow.map((step, i) => (
-                <li key={step} className={styles.escrowStep} data-state={i < 2 ? 'done' : 'now'}>
-                  <span className={styles.escrowNode}>{i < 2 ? <CheckIcon /> : <Glyph name="escrow" />}</span>
-                  <span>{step}</span>
-                </li>
-              ))}
-            </ol>
-          </Tile>
-
-          <Tile feature="prices" className={styles.third}>
+          <Tile feature="prices" className={styles.half}>
             <div className={styles.prices}>
               {[mock.youBuy, mock.youSell].map((label) => (
                 <span key={label} className={styles.priceRow}>
@@ -175,7 +164,7 @@ export function OwnDesk({ appOrigin, host }: { appOrigin: string; host: string }
             </div>
           </Tile>
 
-          <Tile feature="alerts" className={styles.third}>
+          <Tile feature="alerts" className={styles.half}>
             <div className={styles.alerts}>
               {mock.alerts.map((a, i) => (
                 <span key={a.title} className={styles.alert} style={{ ['--i' as string]: i }}>

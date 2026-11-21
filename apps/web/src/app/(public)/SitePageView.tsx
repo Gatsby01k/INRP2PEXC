@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { ACTIONS, ONBOARDING, SITE_NAME, type SitePage, TELEGRAM, telegramUrl } from '../../content/site.ts';
+import { ACTIONS, HERO, ONBOARDING, SITE_NAME, type SitePage, TELEGRAM, telegramUrl } from '../../content/site.ts';
 import { appOrigin, onboardingHref, publicOrigin, requestNonce } from '../../server/site.ts';
 import styles from './public.module.css';
 
@@ -63,38 +63,48 @@ export async function SitePageView({ page, hero, story }: { page: SitePage; hero
 
       {/* The reading column: every SEO page's heading and sections. A page that brings its own first screen and
           story (the home page) has neither, and draws no empty column after its story. */}
+      {/* A guide (every page but home): its first screen in the home page's room — the sunrise, the display face, the
+          orange action — then its sections as numbered sheets. The home page brings its own first screen and story. */}
       {hero && page.sections.length === 0 ? null : (
-        <div className={styles.column}>
+        <div className={styles.guide}>
           {hero ? null : (
             <section className={styles.hero}>
-              <h1 className={styles.h1}>{page.h1}</h1>
-              <p className={styles.lede}>{page.lede}</p>
-              <div className={styles.actions}>
-                {ACTIONS.map((a) => (
-                  <a key={a.label} className={a.kind === 'primary' ? styles.actionPrimary : styles.actionSecondary} href={`${app}${a.appPath}`}>
-                    {a.label}
+              <div className={styles.heroInner}>
+                <p className={styles.eyebrow}>{HERO.eyebrow}</p>
+                <h1 className={styles.h1}>{page.h1}</h1>
+                <p className={styles.lede}>{page.lede}</p>
+                <div className={styles.actions}>
+                  {ACTIONS.map((a) => (
+                    <a key={a.label} className={a.kind === 'primary' ? styles.actionPrimary : styles.actionSecondary} href={`${app}${a.appPath}`}>
+                      {a.label}
+                    </a>
+                  ))}
+                </div>
+                <p className={styles.actionNote}>
+                  {ONBOARDING.requirement}{' '}
+                  <a className={styles.actionLink} href={onboarding}>
+                    {ONBOARDING.label}
                   </a>
-                ))}
+                </p>
               </div>
-              <p className={styles.actionNote}>
-                {ONBOARDING.requirement}{' '}
-                <a className={styles.actionLink} href={onboarding}>
-                  {ONBOARDING.label}
-                </a>
-              </p>
             </section>
           )}
 
-          {page.sections.map((s) => (
-            <section key={s.heading} className={styles.section}>
-              <h2 className={styles.h2}>{s.heading}</h2>
-              {s.body.map((p) => (
-                <p key={p.slice(0, 40)} className={styles.body}>
-                  {p}
-                </p>
-              ))}
-            </section>
-          ))}
+          <div className={styles.sections}>
+            {page.sections.map((s, i) => (
+              <section key={s.heading} className={styles.section}>
+                <span className={styles.sectionIndex} aria-hidden="true">
+                  {String(i + 1).padStart(2, '0')}
+                </span>
+                <h2 className={styles.h2}>{s.heading}</h2>
+                {s.body.map((p) => (
+                  <p key={p.slice(0, 40)} className={styles.body}>
+                    {p}
+                  </p>
+                ))}
+              </section>
+            ))}
+          </div>
         </div>
       )}
     </>
