@@ -232,24 +232,6 @@ export const FLOW: FlowCopy = {
 };
 
 /**
- * The board under the hero: the robot's LEDs running what every deal here does, after the market's rate. Each line is
- * a mechanism the product has (ADR 0019, ADR 0028, ADR 0030), said the way the people it protects would say it.
- */
-export const BOARD = {
-  tag: 'Live',
-  lines: [
-    'Nobody sends first',
-    'Your USDT never sits with a stranger',
-    'A screenshot is not money',
-    'Third-party rupees go back',
-    'Rupees never touch INRP2P',
-    'Rate locked when you accept',
-    'UPI · IMPS · NEFT · RTGS',
-    'Every trader reviewed',
-  ],
-} as const;
-
-/**
  * The workspace, shown rather than described: the screen a client asks for a price on, and the deal on a phone. The
  * features beside it are what the client app does today (ADR 0023 chat, ADR 0026 sign-in, ADR 0029 UPI IDs, the team,
  * the history); the drawing's figures are the visitor's example amount at the market's own rate, or words without one.

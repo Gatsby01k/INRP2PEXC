@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from '@playwright/test';
-import { BOARD, HERO, SITE_NAME, SITE_PAGES, type SitePage } from '../src/content/site.ts';
+import { HERO, SITE_NAME, SITE_PAGES, TAGLINE, type SitePage } from '../src/content/site.ts';
 import { onRows, strip } from '../src/app/(public)/_landing/led/font.ts';
 
 /**
@@ -13,7 +13,7 @@ import { onRows, strip } from '../src/app/(public)/_landing/led/font.ts';
  *
  * Each card is the page reduced to a picture in the site's own room: the mark and name, the page's headline and lede
  * in their own words (content/site.ts, under the copy guard), the robot on its sun saying the page's word on its visor
- * in its LEDs, and the board's first line along the foot. Nothing in it is a figure. Re-run it after a change to any
+ * in its LEDs, and the tagline along the foot. Nothing in it is a figure. Re-run it after a change to any
  * of those, and commit the images.
  *
  * Rendered by Chromium from the bundled faces at the size the Open Graph protocol asks for, and written as JPEG: a
@@ -77,7 +77,7 @@ function card(page: SitePage): string {
       radial-gradient(760px 420px at 12% -20%, rgb(255 222 192 / 0.7), transparent 72%),
       linear-gradient(180deg, #fff 0, #faf8f5 520px);
   }
-  .copy { position: absolute; left: 64px; top: 52px; width: 640px; bottom: 120px; display: flex; flex-direction: column; }
+  .copy { position: absolute; left: 64px; top: 52px; width: 640px; bottom: 110px; display: flex; flex-direction: column; }
   .brand { display: flex; align-items: center; gap: 14px; font-family: Sora; font-size: 24px; font-weight: 600; letter-spacing: -0.02em; }
   .brand img { width: 46px; height: 46px; border-radius: 50%; box-shadow: 0 6px 14px -6px rgb(240 78 35 / 0.7); }
   .eyebrow { margin: auto 0 18px; font-family: 'Geist Mono'; font-size: 15px; letter-spacing: 0.16em; text-transform: uppercase; color: #C8401A; }
@@ -85,7 +85,7 @@ function card(page: SitePage): string {
   h1 > span { display: block; }
   .accent { color: #F04E23; }
   .lede { margin: 22px 0 0; font-size: 24px; line-height: 1.35; color: #3c4048; letter-spacing: -0.01em; max-width: 30ch; }
-  .stage { position: absolute; right: 20px; bottom: 66px; width: 470px; height: 470px; }
+  .stage { position: absolute; right: 20px; bottom: 0; width: 520px; height: 520px; }
   .sun { position: absolute; left: 50%; top: -4%; width: 92%; aspect-ratio: 1; transform: translateX(-50%); border-radius: 50%;
     background: radial-gradient(circle at 34% 28%, #f7835d 0%, transparent 46%), radial-gradient(circle, #F04E23 0%, #F04E23 52%, #C8401A 100%);
     box-shadow: 0 40px 90px -30px rgb(240 78 35 / 0.7); }
@@ -94,11 +94,8 @@ function card(page: SitePage): string {
     background: radial-gradient(130% 110% at 30% -10%, #26282f 0, #111215 45%, #050506 100%); display: grid; place-items: center; }
   .visor svg { width: 88%; height: auto; }
   .visor::after { content: ''; position: absolute; top: 6%; right: 9%; width: 26%; height: 16%; border-radius: 50%; background: radial-gradient(closest-side, rgb(255 255 255 / 0.5), transparent); }
-  .board { position: absolute; left: 0; right: 0; bottom: 0; height: 66px; display: flex; align-items: center; gap: 18px; padding: 0 64px;
-    background: radial-gradient(120% 160% at 30% -40%, #2c2e35 0, #15161a 45%, #08090a 100%); box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.12); }
-  .board svg { height: 40px; width: auto; }
-  .tag { font-family: 'Geist Mono'; font-size: 13px; letter-spacing: 0.16em; color: #ffd2bd; display: flex; align-items: center; gap: 8px; }
-  .tag i { width: 8px; height: 8px; border-radius: 50%; background: #ff8250; box-shadow: 0 0 10px 2px rgb(255 106 61 / 0.8); }
+  .foot { position: absolute; left: 64px; bottom: 40px; margin: 0; padding-top: 18px; width: 560px; border-top: 1px solid rgb(18 19 23 / 0.1);
+    font-family: 'Geist Mono'; font-size: 15px; letter-spacing: 0.08em; text-transform: uppercase; color: #6b6f77; }
 </style></head><body>
   <div class="copy">
     <div class="brand"><img src="${dataUrl(path.join(REPO, 'brand/inrp2p-mark.png'), 'image/png')}" alt="">${escape(SITE_NAME)}</div>
@@ -111,7 +108,7 @@ function card(page: SitePage): string {
     <img class="robot" src="${dataUrl(path.join(APP, 'src/app/(client)/_assistant/stills/robot-none.webp'), 'image/webp')}" alt="">
     <span class="visor">${visor}</span>
   </div>
-  <div class="board"><span class="tag"><i></i>LIVE</span>${leds(BOARD.lines[0]!, 9, strip(BOARD.lines[0]!)[0]!.length + 2, 4.4)}</div>
+  <p class="foot">${escape(TAGLINE)}</p>
 </body></html>`;
 }
 

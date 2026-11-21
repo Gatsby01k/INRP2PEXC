@@ -158,7 +158,7 @@
 }
 
 .navLink[aria-current] .navNew {
-  box-shadow: 0 0 8px 1px var(--led);
+  box-shadow: 0 0 0 3px rgb(255 255 255 / 0.18);
 }
 
 .tools {
@@ -414,21 +414,23 @@
 }
 
 .sectionIndex {
-  display: inline-grid;
-  justify-self: start;
-  place-items: center;
-  min-width: 34px;
-  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
   margin-bottom: var(--space-2);
-  padding: 0 8px;
-  border-radius: 8px;
-  background: var(--visor);
-  box-shadow: var(--visor-edge);
-  color: var(--led);
+  color: var(--brand-action);
   font-family: var(--font-mono);
-  font-size: 11.5px;
-  letter-spacing: 0.06em;
-  text-shadow: 0 0 8px rgb(255 106 61 / 0.9);
+  font-size: 12px;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.08em;
+}
+
+.sectionIndex::after {
+  content: '';
+  width: 24px;
+  height: 1px;
+  background: currentColor;
+  opacity: 0.45;
 }
 
 .h2 {

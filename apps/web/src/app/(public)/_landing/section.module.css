@@ -5,7 +5,7 @@
 .inner {
   max-width: 1440px;
   margin: 0 auto;
-  padding: clamp(96px, 13vh, 144px) var(--space-10) clamp(88px, 12vh, 128px);
+  padding: clamp(80px, 11vh, 120px) var(--space-10) clamp(64px, 8vh, 96px);
 }
 
 .head {
@@ -30,17 +30,19 @@
 }
 
 .index {
-  display: inline-grid;
-  place-items: center;
-  min-width: 34px;
-  height: 24px;
-  padding: 0 8px;
-  border-radius: 8px;
-  background: var(--visor);
-  box-shadow: var(--visor-edge);
-  color: var(--led);
-  letter-spacing: 0.06em;
-  text-shadow: 0 0 8px rgb(255 106 61 / 0.9);
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--brand-action);
+  font-weight: var(--font-weight-semibold);
+}
+
+.index::after {
+  content: '';
+  width: 28px;
+  height: 1px;
+  background: currentColor;
+  opacity: 0.45;
 }
 
 .title {

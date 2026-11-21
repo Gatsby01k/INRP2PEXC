@@ -952,21 +952,21 @@
   line-height: 1.5;
 }
 
-/* Tiles rise into place as they scroll in, where the browser can tie an animation to scrolling. */
+/* Tiles rise into place as they scroll in, where the browser can tie an animation to scrolling — they only move,
+   never fade, so a tile half in view never reads washed out. */
 @supports (animation-timeline: view()) {
   @media (prefers-reduced-motion: no-preference) {
     .tile {
       animation: rise linear both;
       animation-timeline: view();
-      animation-range: entry 0% cover 28%;
+      animation-range: entry 0% cover 22%;
     }
   }
 }
 
 @keyframes rise {
   from {
-    opacity: 0;
-    transform: translateY(28px) scale(0.985);
+    transform: translateY(36px);
   }
 }
 

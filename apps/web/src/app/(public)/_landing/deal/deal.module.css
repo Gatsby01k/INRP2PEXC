@@ -4,7 +4,7 @@
 
 .deal {
   position: relative;
-  padding: 120px 0 120px;
+  padding: 112px 0 72px;
 }
 
 .inner {
@@ -37,17 +37,19 @@
 
 /* The section's number on black glass, lit — the technical layer the workspace uses for indexes. */
 .index {
-  display: inline-grid;
-  place-items: center;
-  min-width: 34px;
-  height: 24px;
-  padding: 0 8px;
-  border-radius: 8px;
-  background: var(--visor);
-  box-shadow: var(--visor-edge);
-  color: var(--led);
-  letter-spacing: 0.06em;
-  text-shadow: 0 0 8px rgb(255 106 61 / 0.9);
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--brand-action);
+  font-weight: var(--font-weight-semibold);
+}
+
+.index::after {
+  content: '';
+  width: 28px;
+  height: 1px;
+  background: currentColor;
+  opacity: 0.45;
 }
 
 .title {
@@ -192,19 +194,18 @@
 }
 
 /* Without script, or before it runs, every moment reads at full strength; once the island is live, the one being read
-   leads and its number lights on black glass. */
+   leads and its number takes the mark's orange. */
 .deal:not([data-live]) .stepText,
 .step[data-current] .stepText {
   opacity: 1;
 }
 
 .step[data-current] .stepIndex {
-  background: var(--visor);
+  background: var(--field);
   box-shadow:
-    var(--visor-edge),
-    0 8px 18px -8px rgb(18 19 23 / 0.7);
-  color: var(--led);
-  text-shadow: 0 0 8px rgb(255 106 61 / 0.9);
+    inset 0 1px 0 rgb(255 255 255 / 0.3),
+    0 8px 18px -8px color-mix(in srgb, var(--brand-action) 80%, transparent);
+  color: #fff;
 }
 
 /* ——— The picture, on its sheet ——— */
