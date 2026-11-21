@@ -2,6 +2,7 @@ import { getImageProps } from 'next/image';
 import { CLOSING, ONBOARDING, TELEGRAM, TRADER_ENTRY, telegramUrl } from '../../../../content/site.ts';
 import { appOrigin, onboardingHref, siteContacts } from '../../../../server/site.ts';
 import { ArrowIcon, TelegramIcon } from '../icons.tsx';
+import { Led } from '../led/Led.tsx';
 import wave from '../robot/stills/robot-wave.webp';
 import styles from './closing.module.css';
 
@@ -41,7 +42,13 @@ export function Closing() {
             <ArrowIcon className={styles.ctaArrow} />
           </a>
         </div>
-        <img {...robot} className={styles.robot} loading="lazy" decoding="async" aria-hidden="true" />
+        {/* The robot waves goodbye, and its visor says whose move it is now — the workspace's own words for it. */}
+        <div className={styles.robot} aria-hidden="true">
+          <img {...robot} className={styles.robotImg} loading="lazy" decoding="async" />
+          <span className={styles.visor}>
+            <Led text={`${CLOSING.robot} →`} mode="marquee" pitch={7} rows={15} speed={14} className={styles.visorLed} />
+          </span>
+        </div>
         <div className={styles.ways}>
           <div className={styles.way}>
             <h3 className={styles.wayTitle}>{newClient.title}</h3>

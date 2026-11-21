@@ -7,7 +7,7 @@ import { Deal } from '../_landing/deal/Deal.tsx';
 import { Hero } from '../_landing/Hero.tsx';
 import { FieldLight } from '../_landing/FieldLight.tsx';
 import { OwnDesk } from '../_landing/owndesk/OwnDesk.tsx';
-import { Rails } from '../_landing/rails/Rails.tsx';
+import { Board } from '../_landing/board/Board.tsx';
 import { Showcase } from '../_landing/showcase/Showcase.tsx';
 import { Story } from '../_landing/Story.tsx';
 import { Why } from '../_landing/why/Why.tsx';
@@ -43,7 +43,7 @@ export default async function Page() {
       hero={<Hero />}
       story={
         <Story>
-          <Rails />
+          <Board />
           <Deal />
           <Why />
           <Showcase />

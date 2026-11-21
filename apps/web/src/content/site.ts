@@ -116,14 +116,14 @@ export interface QuoteModuleCopy {
 }
 
 export const HERO: HeroCopy = {
-  eyebrow: 'USDT and INR, with escrow',
+  eyebrow: 'P2P, without “send first”',
   headline: { lead: 'Buy & Sell', accent: 'USDT', tail: 'in India.' },
-  lede: 'One firm rate for the whole amount. Rupees go bank to bank, and the USDT waits in escrow until they land.',
+  lede: 'One firm rate for the whole amount. Nobody sends first: the USDT waits in escrow until the rupees land in the seller’s bank.',
   points: [
-    { icon: 'destination', label: 'Escrow on every deal' },
+    { icon: 'destination', label: 'Nobody sends first' },
     { icon: 'lock', label: 'Rate locked when you accept' },
+    { icon: 'rupee', label: 'No third-party rupees' },
     { icon: 'dealer', label: 'Reviewed traders only' },
-    { icon: 'rupee', label: 'Rupees straight to your bank' },
   ],
   deal: {
     title: 'Your deal',
@@ -190,12 +190,14 @@ export interface FlowCopy {
   readonly steps: readonly FlowStepCopy[];
   /** Under the steps: what every deal ends with. */
   readonly done: string;
+  /** Where the USDT travels, beside it. */
+  readonly network: string;
 }
 
 export const FLOW: FlowCopy = {
   eyebrow: 'How it works',
-  heading: 'The USDT waits in escrow until the rupees land.',
-  lede: 'Four moments, whichever way you trade. Pick a side and follow your money.',
+  heading: 'Nobody sends first. The robot holds the USDT.',
+  lede: 'The USDT goes into the robot’s chest and leaves only once the rupees have landed. Pick a side and follow the money.',
   direction: { label: 'Direction shown', options: { SELL_USDT: 'Sell USDT', BUY_USDT: 'Buy USDT' } },
   parties: {
     seller: { SELL_USDT: 'You', BUY_USDT: 'Trader' },
@@ -207,7 +209,7 @@ export const FLOW: FlowCopy = {
     {
       key: 'price',
       title: both('Ask for a firm price'),
-      body: both('Name the amount. One rate comes back for all of it, with its expiry on it. Accept, and it is locked.'),
+      body: both('Name the amount. One rate comes back for all of it, with its expiry on it. Accept, and it is locked: no “rate changed, send a bit more”.'),
       status: both('Price locked'),
     },
     {
@@ -238,18 +240,26 @@ export const FLOW: FlowCopy = {
       status: both('Released'),
     },
   ],
-  done: 'Every deal ends with a receipt.',
+  done: 'Every deal ends with a receipt, not a screenshot.',
+  network: 'USDT on TRON · TRC20',
 };
 
 /**
- * The strip under the hero: the ways the money moves, as the marks a client knows from their bank's app, and the way in.
- * Names only — every one is a rail or a network the product really uses.
+ * The board under the hero: the robot's LEDs running what every deal here does, after the market's rate. Each line is
+ * a mechanism the product has (ADR 0019, ADR 0028, ADR 0030), said the way the people it protects would say it.
  */
-export const RAILS = {
-  label: 'Every deal runs on',
-  rupees: 'Rupees, bank to bank',
-  usdt: 'USDT on TRON',
-  signIn: 'Sign in with email or Telegram',
+export const BOARD = {
+  tag: 'Live',
+  lines: [
+    'Nobody sends first',
+    'A screenshot is not money',
+    'Third-party rupees go back',
+    'Rate locked when you accept',
+    'UPI · IMPS · NEFT · RTGS',
+    'USDT on TRON',
+    'Escrow on every deal',
+    'Reviewed traders only',
+  ],
 } as const;
 
 /**
@@ -290,7 +300,7 @@ export interface ShowcaseCopy {
 
 export const SHOWCASE: ShowcaseCopy = {
   eyebrow: 'The workspace',
-  heading: 'Everything for the deal, in one place.',
+  heading: 'Looks like an app. Works like a vault.',
   lede: 'Your price, your escrow, your chat with the trader and every deal you have made. On the web and on your phone.',
   features: [
     { icon: 'rate', title: 'One price for all of it', body: 'Ask with an amount and see a single rate for the whole of it. It holds while you decide.' },
@@ -343,7 +353,7 @@ export interface WhyCopy {
    * Drawn for the eye; the table under it says the same in full.
    */
   readonly scene: {
-    readonly chat: { readonly title: string; readonly messages: readonly { readonly from: 'them' | 'you' | 'system'; readonly text: string }[] };
+    readonly chat: { readonly title: string; readonly messages: readonly { readonly from: 'them' | 'you' | 'system'; readonly text: string; readonly kind?: 'screenshot' }[] };
     readonly ours: { readonly title: string; readonly card: string; readonly status: string; readonly steps: readonly string[] };
   };
   /** The table's caption, for whoever reads it without seeing it. */
@@ -354,16 +364,16 @@ export interface WhyCopy {
 
 export const WHY: WhyCopy = {
   eyebrow: 'Why INRP2P',
-  heading: 'Everything that goes wrong in a P2P deal, handled.',
-  lede: 'The same deal, done two ways: with someone you found in a chat, and on INRP2P.',
+  heading: '“Bhai, send first”? Not here.',
+  lede: 'The same deal, done two ways: with someone from a Telegram group, and on INRP2P.',
   scene: {
     chat: {
       title: 'Deal in a chat',
       messages: [
-        { from: 'them', text: 'Send the USDT first, I pay right after' },
+        { from: 'them', text: 'Bhai, send the USDT first, I pay right after' },
         { from: 'you', text: 'Sent. Waiting for the rupees' },
-        { from: 'them', text: 'Rate moved. Send a bit more' },
-        { from: 'you', text: 'Hello?' },
+        { from: 'them', text: 'Paid. Here is the screenshot', kind: 'screenshot' },
+        { from: 'you', text: 'Nothing in my bank. Hello?' },
         { from: 'system', text: 'This person left the chat' },
       ],
     },
@@ -379,23 +389,28 @@ export const WHY: WhyCopy = {
   rows: [
     {
       topic: 'Who sends first',
-      direct: 'One of you, on trust.',
+      direct: 'You, on trust.',
       ours: 'Nobody on trust. The USDT waits in escrow, and whoever’s money is at risk goes second.',
     },
     {
       topic: 'The price',
-      direct: 'Agreed in chat, then changed at the last minute.',
+      direct: '“Rate changed, send a bit more.”',
       ours: 'One firm rate for the whole amount, locked the moment you accept.',
+    },
+    {
+      topic: 'Proof of payment',
+      direct: 'A screenshot. Easy to fake.',
+      ours: 'The rupees in the seller’s own bank account. A screenshot is not money.',
+    },
+    {
+      topic: 'Whose rupees',
+      direct: 'Any account, in anyone’s name.',
+      ours: 'Only the other side’s own account. Third-party rupees are refused and sent back.',
     },
     {
       topic: 'The other side',
       direct: 'Whoever answered first.',
       ours: 'A trader INRP2P reviewed before their first deal.',
-    },
-    {
-      topic: 'Where the rupees come from',
-      direct: 'Any account, in anyone’s name.',
-      ours: 'Only the other side’s own bank account. Rupees from anyone else are refused and sent back.',
     },
     {
       topic: 'If they go quiet',
@@ -436,7 +451,7 @@ export interface FaqCopy {
 export const FAQ: FaqCopy = {
   eyebrow: 'Questions',
   heading: 'Before your first deal.',
-  lede: 'What people ask before they trade here, answered plainly.',
+  lede: 'What people ask before they trust a robot with their USDT.',
   items: [
     {
       question: 'Who is on the other side of my deal?',
@@ -472,7 +487,7 @@ export const FAQ: FaqCopy = {
       more: { label: 'See the desk programme', anchor: 'own-desk' },
     },
   ],
-  ask: { title: 'Something else?', body: 'Message our CEO on Telegram. A person answers.' },
+  ask: { title: 'Something else?', body: 'Ask the robot’s boss. Our CEO answers on Telegram, in person.' },
 };
 
 /**
@@ -524,8 +539,8 @@ export const OWN_DESK: OwnDeskCopy = {
   nav: 'For traders',
   announce: { tag: 'New', text: 'Traders: open your own exchange on INRP2P' },
   eyebrow: 'For traders and brokers',
-  heading: 'Your own exchange, on INRP2P.',
-  lede: 'Your page, your prices, your clients, your team. Rupees go straight between you and your client, and INRP2P holds the USDT in escrow until they land.',
+  heading: 'Run your own exchange. Skip building one.',
+  lede: 'Your page, your prices, your clients, your team. INRP2P brings the escrow, the rails and the robot: rupees go straight between you and your client.',
   features: [
     {
       key: 'page',
@@ -613,7 +628,9 @@ export const OWN_DESK: OwnDeskCopy = {
  * desk sets up before a first trade, and offered the way in (ONBOARDING) when an address to write to is set.
  */
 export const CLOSING = {
-  heading: 'Get a firm price on your next deal.',
+  heading: 'Put a robot in the middle of your next deal.',
+  /** On the waving robot's visor, in its LEDs. */
+  robot: 'Your move',
   body: 'Add your bank account and wallet once. Every deal after that runs through escrow, at a rate you see before you agree.',
   cta: { label: 'Get a firm price', appPath: '/exchange' },
   newClient: {

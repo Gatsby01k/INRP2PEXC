@@ -1,5 +1,5 @@
 import { getImageProps } from 'next/image';
-import { FLOW, RAILS } from '../../../../content/site.ts';
+import { FLOW } from '../../../../content/site.ts';
 import { ImpsMark, UpiMark } from '../../../../components/PayMarks.tsx';
 import { ByDirection } from '../Story.tsx';
 import { DealSteps } from './DealSteps.tsx';
@@ -198,7 +198,7 @@ export function Deal() {
                   </svg>
                   {done}
                 </span>
-                <span className={styles.footNote}>{RAILS.usdt} · TRC20</span>
+                <span className={styles.footNote}>{FLOW.network}</span>
               </figcaption>
             </figure>
             </div>

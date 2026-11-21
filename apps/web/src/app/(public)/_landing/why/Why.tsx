@@ -59,6 +59,15 @@ export function Why() {
             <ol className={styles.messages}>
               {scene.chat.messages.map((m, i) => (
                 <li key={m.text} className={styles.message} data-from={m.from} style={{ ['--i' as string]: i }}>
+                  {m.kind === 'screenshot' ? (
+                    // The screenshot: a payment app's success screen, green tick and all — which proves nothing.
+                    <span className={styles.shot}>
+                      <span className={styles.shotTick} />
+                      <i />
+                      <i />
+                      <i />
+                    </span>
+                  ) : null}
                   {m.text}
                 </li>
               ))}

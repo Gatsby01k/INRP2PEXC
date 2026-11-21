@@ -172,13 +172,50 @@
 
 /* The robot, waving goodbye, standing on the field's lower edge. */
 .robot {
+  position: relative;
   grid-area: robot;
   align-self: end;
   justify-self: center;
   width: min(460px, 100%);
-  height: auto;
   margin-bottom: -4px;
   pointer-events: none;
+}
+
+.robotImg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* The waving still's own black visor, its head tilted a little: the LEDs sit in it at the same angle. */
+.visor {
+  position: absolute;
+  top: 20.2%;
+  left: 21.6%;
+  width: 49.6%;
+  height: 38.6%;
+  overflow: hidden;
+  border-radius: 21% / 27%;
+  background: radial-gradient(130% 110% at 30% -10%, #26282f 0, #111215 45%, #050506 100%);
+  transform: rotate(-3.2deg);
+  display: grid;
+  align-items: center;
+}
+
+.visor::after {
+  content: '';
+  position: absolute;
+  top: 6%;
+  right: 9%;
+  width: 24%;
+  height: 14%;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgb(255 255 255 / 0.5), transparent);
+}
+
+.visorLed {
+  width: 88%;
+  margin: 0 auto;
 }
 
 @supports (animation-timeline: view()) {

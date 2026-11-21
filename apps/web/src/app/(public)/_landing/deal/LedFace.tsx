@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
+import { onRows, strip as glyphStrip, type Bitmap } from '../led/font.ts';
 import { rateFor, useMarket } from '../market.ts';
 import styles from './deal.module.css';
 
@@ -17,24 +18,6 @@ import styles from './deal.module.css';
 const COLS = 21;
 const ROWS = 14;
 
-type Bitmap = readonly string[];
-
-/** A 5 × 7 face for the figures the visor runs, and the rupee sign. */
-const FONT: Record<string, Bitmap> = {
-  '0': ['.###.', '#...#', '#..##', '#.#.#', '##..#', '#...#', '.###.'],
-  '1': ['..#..', '.##..', '..#..', '..#..', '..#..', '..#..', '.###.'],
-  '2': ['.###.', '#...#', '....#', '...#.', '..#..', '.#...', '#####'],
-  '3': ['#####', '...#.', '..#..', '...#.', '....#', '#...#', '.###.'],
-  '4': ['...#.', '..##.', '.#.#.', '#..#.', '#####', '...#.', '...#.'],
-  '5': ['#####', '#....', '####.', '....#', '....#', '#...#', '.###.'],
-  '6': ['..##.', '.#...', '#....', '####.', '#...#', '#...#', '.###.'],
-  '7': ['#####', '....#', '...#.', '..#..', '.#...', '.#...', '.#...'],
-  '8': ['.###.', '#...#', '#...#', '.###.', '#...#', '#...#', '.###.'],
-  '9': ['.###.', '#...#', '#...#', '.####', '....#', '...#.', '.##..'],
-  '.': ['.', '.', '.', '.', '.', '.', '#'],
-  ' ': ['..', '..', '..', '..', '..', '..', '..'],
-  '₹': ['#####', '...#.', '#####', '...#.', '###..', '..#..', '...##'],
-};
 
 const EYES: Bitmap = blank().map((_, r) => (r >= 4 && r <= 8 ? '......' + pill(r - 4) + '...' + pill(r - 4) + '......' : '.'.repeat(COLS)));
 function pill(r: number): string {
@@ -92,12 +75,9 @@ function center(bitmap: Bitmap): Bitmap {
   });
 }
 
-/** Words set in the 5 × 7 face as one long strip, on the visor's middle rows, to run across it. */
+/** Words in the LED face (led/font.ts) as one long strip on the visor's middle rows, to run across it. */
 function strip(text: string): string[] {
-  const glyphs = [...text].map((c) => FONT[c] ?? FONT[' ']!);
-  const rows = Array.from({ length: 7 }, (_, r) => glyphs.map((g) => g[r] + '.').join(''));
-  const top = Math.floor((ROWS - 7) / 2);
-  return Array.from({ length: ROWS }, (_, r) => (r >= top && r < top + 7 ? rows[r - top]! : '.'.repeat(rows[0]!.length)));
+  return [...onRows(glyphStrip(text), ROWS)];
 }
 
 /** A window of `COLS` columns onto a strip, starting at `offset` and wrapping round. */

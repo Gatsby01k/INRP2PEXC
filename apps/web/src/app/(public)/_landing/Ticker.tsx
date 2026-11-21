@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Rate } from '@inrp2p/kernel';
 import { formatRate } from '@inrp2p/ui/format';
 import { Coin } from '../../../components/Coin.tsx';
+import { Led } from './led/Led.tsx';
 import { marketMid, useMarket } from './market.ts';
 import styles from './ticker.module.css';
 
@@ -18,7 +19,7 @@ function line(trail: readonly string[]): string | null {
 }
 
 /**
- * The market's USDT/INR rate in the masthead, as the workspace's own bar shows it (mock-up v3): the pair, the rate now
+ * The market's USDT/INR rate in the masthead, on a piece of the robot's black glass in its LEDs: the pair, the rate now
  * with a live node, and the last day as a line — green when the day rose, red when it fell. It is the market's rate
  * (ADR 0025's reference), never a price of ours; a firm price comes from a quote. Read after the page is shown, so the
  * page waits for nothing; while there is no fresh reference nothing is drawn, and the masthead closes up around it.
@@ -49,10 +50,9 @@ export function Ticker() {
       <span className={styles.label} aria-hidden="true">
         USDT/INR
       </span>
-      <b key={shown} className={styles.figure} data-moved={moved ?? undefined}>
-        <span className="ix-visually-hidden">USDT/INR market rate </span>
-        {shown}
-      </b>
+      <span key={shown} className={styles.figure} data-moved={moved ?? undefined}>
+        <Led text={shown} fit pitch={3} rows={9} label={`USDT/INR market rate ${shown}`} />
+      </span>
       {d ? (
         <svg className={styles.spark} viewBox="0 0 48 18" aria-hidden="true" focusable="false">
           <path d={d} />
