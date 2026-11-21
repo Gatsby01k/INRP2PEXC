@@ -445,28 +445,81 @@ export const FAQ: FaqCopy = {
       answer: 'Open an account with your email, add your bank account and your wallet, and ask for your first price. You decide after you see it.',
     },
     {
-      question: 'Can I run my own exchange on INRP2P?',
-      answer: 'Yes. Traders and brokers get their own page, deal links, prices, team and Telegram alerts, with INRP2P’s escrow on every deal.',
-      more: { label: 'See the desk programme', anchor: 'own-desk' },
+      question: 'Can I earn on INRP2P as a trader?',
+      answer: 'Yes: open your own exchange. You set your margin over the market — traders in India commonly work at {margin} — and INRP2P takes {fee} of each deal, with its escrow on every one. You also get your own page, deal links, a team and Telegram alerts.',
+      more: { label: 'See what your USDT earns', anchor: 'own-desk' },
     },
   ],
   ask: { title: 'Something else?', body: 'Ask the robot’s boss. Our CEO answers on Telegram, in person.' },
 };
 
 /**
- * A trader's own exchange on INRP2P (ADR 0020): the desk programme, told to the traders and brokers who would run
- * one. Every sentence describes something the workspace does today — the page, deal links, escrow, prices, the team,
- * Telegram alerts — and the mock-ups beside them draw their figures masked, like the rest of the site.
+ * The trader programme's terms: the only figures the public site states, each taken from where it is decided. The fee is
+ * the fee policy's own-deal basis points (migration 0040, `fee_policy.own_deal_bps`; a change of it is two people's
+ * decision, and this constant moves with it — the copy guard holds the two together). The margin band is the owner's
+ * (2026-11-21): the margin over the market that traders in India commonly work at, and the band the earnings example on
+ * the home page lets a trader pick from.
+ *
+ * Copy never writes these figures out. It names them — `{margin}`, `{fee}` — and `withTerms` fills them in where the
+ * words are drawn, so the copy guard still reads every sentence for a figure somebody typed.
+ */
+export const TRADER_TERMS = {
+  /** INRP2P's fee on a deal a trader's own exchange fills itself, in basis points of the deal's USDT. */
+  feeBps: 25,
+  /** The margin band, in whole per cent of the deal: low, the one an example starts from, high. */
+  margin: { low: 5, typical: 6, high: 7 },
+} as const;
+
+/** The fee as a person reads it: `0.25%`. */
+export const feeText = (): string => `${TRADER_TERMS.feeBps / 100}%`;
+
+/** The margin band as a person reads it: `5–7%`. */
+export const marginText = (): string => `${TRADER_TERMS.margin.low}–${TRADER_TERMS.margin.high}%`;
+
+/** A sentence with the programme's terms filled in. */
+export const withTerms = (text: string): string => text.replaceAll('{margin}', marginText()).replaceAll('{fee}', feeText());
+
+/**
+ * A trader's own exchange on INRP2P (ADR 0020): the desk programme, told to the traders who would run one — and told
+ * with money first. The section opens on what a trader earns (the margin is theirs, INRP2P's fee is the policy's) and an
+ * example they set themselves at the market's own rate, then what stops costing them, then the exchange itself: the
+ * page, deal links, escrow, prices, the team, Telegram alerts — every one something the workspace does today.
  */
 export const OWN_DESK_FEATURES = ['page', 'link', 'prices', 'team', 'alerts'] as const;
 export type OwnDeskFeature = (typeof OWN_DESK_FEATURES)[number];
 
 export interface OwnDeskCopy {
   readonly nav: string;
+  /** Beside the masthead's link to this section, in a chip: the margin, as a hook. */
+  readonly navTag: string;
   readonly announce: { readonly tag: string; readonly text: string };
   readonly eyebrow: string;
+  /** Read as one sentence; drawn as a lead, the margin as a monument, and a tail. `{margin}` is the band. */
   readonly heading: string;
+  readonly headline: { readonly lead: string; readonly figure: string; readonly tail: string };
+  /** Under the monument: what INRP2P takes. */
+  readonly fee: string;
   readonly lede: string;
+  /** The example a trader sets: their USDT, how often it turns over, their margin — and what they keep. */
+  readonly earnings: {
+    readonly title: string;
+    readonly live: string;
+    readonly liquidity: string;
+    /** Example amounts of USDT, as a trader would hold them. Figures of the example, not of anybody's business. */
+    readonly amounts: readonly number[];
+    readonly turns: string;
+    readonly turnOptions: readonly { readonly label: string; readonly perMonth: number }[];
+    readonly margin: string;
+    readonly result: string;
+    readonly inUsdt: string;
+    readonly turnover: string;
+    readonly yours: string;
+    readonly ours: string;
+    readonly note: string;
+  };
+  /** What a trader stops losing to: the cost, struck out, and what does it here instead. */
+  readonly stops: { readonly title: string; readonly items: readonly { readonly cost: string; readonly fix: string }[] };
+  readonly tools: { readonly title: string; readonly lede: string };
   readonly features: readonly { readonly key: OwnDeskFeature; readonly title: string; readonly body: string }[];
   readonly mock: {
     readonly deskName: string;
@@ -499,10 +552,45 @@ export interface OwnDeskCopy {
 
 export const OWN_DESK: OwnDeskCopy = {
   nav: 'For traders',
-  announce: { tag: 'New', text: 'Traders: open your own exchange on INRP2P' },
-  eyebrow: 'For traders and brokers',
-  heading: 'Run your own exchange. Skip building one.',
-  lede: 'Stop posting rates in Telegram groups. Get your own page, prices that follow the market, a deal link for every client and a team, with INRP2P’s escrow on every deal.',
+  navTag: '{margin}',
+  announce: { tag: 'Traders', text: 'Earn {margin} on your USDT' },
+  eyebrow: 'For traders',
+  heading: 'Earn {margin} on every USDT you sell.',
+  headline: { lead: 'Earn', figure: '{margin}', tail: 'on every USDT you sell.' },
+  fee: 'INRP2P takes {fee} of a deal. The rest is yours.',
+  lede: 'Buyers in India pay a premium for USDT. Sell to them from your own exchange, at the margin you set, with INRP2P’s escrow on every deal.',
+  earnings: {
+    title: 'What your USDT earns',
+    live: 'At today’s market rate',
+    liquidity: 'Your USDT',
+    amounts: [5_000, 10_000, 25_000, 100_000],
+    turns: 'It turns over',
+    turnOptions: [
+      { label: 'Once a week', perMonth: 4 },
+      { label: 'Twice a week', perMonth: 8 },
+      { label: 'Every day', perMonth: 30 },
+    ],
+    margin: 'Your margin',
+    result: 'You keep, a month',
+    inUsdt: 'USDT a month',
+    turnover: 'on a month’s deals of',
+    yours: 'Yours',
+    ours: 'INRP2P',
+    note: 'An example at your figures. Your margin is the price you set over the market.',
+  },
+  stops: {
+    title: 'What you stop paying for',
+    items: [
+      { cost: 'Frozen bank accounts', fix: 'Rupees reach you only from your client’s own account. Anyone else’s are refused and sent back.' },
+      { cost: 'Fake payment screenshots', fix: 'You release the USDT once the rupees are in your bank, and not a moment before.' },
+      { cost: 'Posting rates all day', fix: 'Set your margin once. Your prices follow the market by themselves.' },
+      { cost: 'Clients who go quiet', fix: 'Every step has a time limit. A deal nobody finishes unwinds, and the USDT goes back.' },
+    ],
+  },
+  tools: {
+    title: 'Your exchange, already built.',
+    lede: 'Your page, your prices, deal links, a team and Telegram alerts. Ready once INRP2P approves you.',
+  },
   features: [
     {
       key: 'page',
@@ -603,8 +691,8 @@ export const CLOSING = {
 export const TRADER_ENTRY = {
   label: 'Open your exchange',
   appPath: '/become-a-trader',
-  title: 'Run an exchange or have liquidity?',
-  body: 'Open your own exchange on INRP2P: your page, your prices, your clients, with escrow on every deal.',
+  title: 'Have USDT? Earn {margin} on it.',
+  body: 'Open your own exchange on INRP2P: your page, your prices, your clients. INRP2P holds the escrow and takes {fee} of a deal.',
 } as const;
 
 /**

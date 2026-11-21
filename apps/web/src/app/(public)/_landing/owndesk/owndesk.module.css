@@ -25,6 +25,259 @@
   -webkit-mask-image: radial-gradient(ellipse 75% 60% at 50% 45%, var(--text-primary) 0%, transparent 78%);
 }
 
+/* ——— The stage: the margin as a monument, the fee beside it, and the trader's own example ——— */
+
+.stage {
+  position: relative;
+  isolation: isolate;
+  overflow: clip;
+  background:
+    radial-gradient(ellipse 44% 56% at 22% 46%, rgb(255 132 84 / 0.24) 0%, transparent 72%),
+    radial-gradient(ellipse 38% 48% at 84% 30%, rgb(255 206 170 / 0.42) 0%, transparent 74%),
+    linear-gradient(180deg, var(--room) 0%, #fbefe5 58%, var(--floor) 100%);
+}
+
+/* The field's grain, as on the robot's shell. */
+.stage::after {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  opacity: 0.06;
+  mix-blend-mode: multiply;
+  background-image: var(--grain);
+  pointer-events: none;
+}
+
+/* Dotted orbits behind the monument, turning very slowly: light and texture, never the mark itself. */
+.orbits {
+  position: absolute;
+  z-index: -1;
+  top: -14%;
+  left: -16%;
+  width: min(1120px, 92vw);
+  height: auto;
+  aspect-ratio: 1;
+  color: color-mix(in srgb, var(--brand-primary) 30%, transparent);
+  animation: orbit 260s linear infinite;
+}
+
+@keyframes orbit {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.stageInner {
+  display: grid;
+  grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+  column-gap: clamp(32px, 4vw, 72px);
+  align-items: end;
+  padding-bottom: clamp(48px, 7vh, 72px);
+}
+
+.pitch {
+  min-width: 0;
+}
+
+.monument {
+  margin: 0;
+  font-family: var(--font-display);
+  color: var(--text-primary);
+}
+
+.monumentLead,
+.monumentTail {
+  display: block;
+  font-size: clamp(40px, 4.5vw, 64px);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1;
+  letter-spacing: -0.045em;
+}
+
+/* The margin, as large as the column takes it: the mark's orange lit from above, the per cent raised and smaller. */
+.figure {
+  display: block;
+  width: max-content;
+  margin: 0.03em 0 0.05em -0.05em;
+  padding-right: 0.04em;
+  font-size: clamp(148px, 17.4vw, 268px);
+  font-weight: 700;
+  line-height: 0.84;
+  letter-spacing: -0.065em;
+  font-variant-numeric: lining-nums;
+  background: linear-gradient(172deg, #ff8150 0%, var(--brand-primary) 38%, #d8431b 72%, #b8370f 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 22px 34px rgb(240 78 35 / 0.2));
+}
+
+.figureDash {
+  margin: 0 0.1em 0 0.06em;
+  font-size: 0.7em;
+  font-weight: 500;
+  vertical-align: 0.13em;
+}
+
+.figurePct {
+  margin-left: 0.03em;
+  font-size: 0.46em;
+  letter-spacing: -0.02em;
+  vertical-align: 0.86em;
+}
+
+/* What INRP2P takes, the figure itself on black glass in the robot's LED light. */
+.fee {
+  margin: var(--space-6) 0 0;
+  font-family: var(--font-display);
+  font-size: clamp(19px, 1.6vw, 23px);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.5;
+  letter-spacing: -0.015em;
+  color: var(--text-primary);
+}
+
+.fee b {
+  display: inline-block;
+  margin: 0 0.12em;
+  padding: 0.12em 0.5em 0.14em;
+  border-radius: 0.55em;
+  background: var(--visor);
+  box-shadow: var(--visor-edge), 0 8px 18px -10px rgb(18 19 23 / 0.6);
+  color: var(--led);
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.02em;
+  text-shadow: 0 0 12px rgb(255 106 61 / 0.75);
+  vertical-align: 0.06em;
+}
+
+.pitchLede {
+  max-width: 34rem;
+  margin: var(--space-5) 0 0;
+  font-size: 18px;
+  line-height: 1.5;
+  color: var(--ink-2);
+  text-wrap: pretty;
+}
+
+.pitchActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4) var(--space-6);
+  margin-top: var(--space-8);
+}
+
+.pitchLink {
+  color: var(--text-primary);
+  font-weight: var(--font-weight-medium);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--brand-primary) 55%, transparent);
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 5px;
+}
+
+.pitchLink:hover {
+  text-decoration-color: var(--brand-primary);
+}
+
+/* What stops costing a trader: each cost struck through in the mark's orange as it scrolls in, what does it here under it. */
+.stopsInner {
+  padding-top: 0;
+}
+
+.stopsTitle {
+  margin: 0 0 var(--space-5);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.stops {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.stop {
+  display: grid;
+  align-content: start;
+  gap: var(--space-3);
+  padding: var(--space-6) var(--space-6) 26px;
+  border-radius: 24px;
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.8), rgb(255 255 255 / 0.55));
+  backdrop-filter: blur(12px) saturate(1.4);
+  box-shadow:
+    inset 0 1px 0 #fff,
+    0 0 0 1px var(--line),
+    0 20px 40px -32px rgb(96 56 24 / 0.4);
+}
+
+.cost {
+  justify-self: start;
+  font-family: var(--font-display);
+  font-size: 21px;
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.2;
+  letter-spacing: -0.025em;
+  color: color-mix(in srgb, var(--text-primary) 40%, transparent);
+  text-decoration: none;
+}
+
+.cost span {
+  background-image: linear-gradient(var(--brand-primary), var(--brand-primary));
+  background-repeat: no-repeat;
+  background-position: 0 58%;
+  background-size: 100% 2.5px;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+.fix {
+  font-size: var(--font-size-body);
+  line-height: 1.5;
+  color: var(--ink-2);
+  text-wrap: pretty;
+}
+
+@supports (animation-timeline: view()) {
+  .cost span {
+    animation: strike linear both;
+    animation-timeline: view();
+    animation-range: entry 60% cover 42%;
+  }
+}
+
+@keyframes strike {
+  from {
+    background-size: 0% 2.5px;
+  }
+}
+
+.toolsHead {
+  margin-bottom: 0;
+}
+
+.toolsTitle {
+  max-width: 14ch;
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: clamp(32px, 3.4vw, 50px);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.02;
+  letter-spacing: -0.042em;
+  text-wrap: balance;
+}
+
 .bento {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
@@ -971,6 +1224,10 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .orbits {
+    animation: none;
+  }
+
   .flowLine::after {
     display: none;
   }
@@ -983,6 +1240,30 @@
 }
 
 @media (max-width: 1099px) {
+  .stageInner {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: var(--space-12);
+  }
+
+  .figure {
+    font-size: clamp(120px, 33vw, 200px);
+  }
+
+  .monumentLead,
+  .monumentTail {
+    font-size: clamp(32px, 8.6vw, 46px);
+  }
+
+  .orbits {
+    top: -4%;
+    left: -60%;
+    width: 180vw;
+  }
+
+  .stops {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .bento {
     grid-template-columns: minmax(0, 1fr);
     gap: var(--space-4);
@@ -991,6 +1272,7 @@
 
   .wide,
   .narrow,
+  .half,
   .third {
     grid-column: auto;
   }
@@ -1018,6 +1300,18 @@
 }
 
 @media (max-width: 479px) {
+  .stops {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .stop {
+    padding: var(--space-5);
+  }
+
+  .cost {
+    font-size: 19px;
+  }
+
   .flowNode {
     width: 84px;
   }

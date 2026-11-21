@@ -1,5 +1,5 @@
 import { getImageProps } from 'next/image';
-import { CLOSING, ONBOARDING, TELEGRAM, TRADER_ENTRY, telegramUrl } from '../../../../content/site.ts';
+import { CLOSING, ONBOARDING, TELEGRAM, TRADER_ENTRY, telegramUrl, withTerms } from '../../../../content/site.ts';
 import { appOrigin, onboardingHref, siteContacts } from '../../../../server/site.ts';
 import { ArrowIcon, TelegramIcon } from '../icons.tsx';
 import { Led } from '../led/Led.tsx';
@@ -59,8 +59,8 @@ export function Closing() {
             </a>
           </div>
           <div className={styles.way}>
-            <h3 className={styles.wayTitle}>{TRADER_ENTRY.title}</h3>
-            <p className={styles.wayBody}>{TRADER_ENTRY.body}</p>
+            <h3 className={styles.wayTitle}>{withTerms(TRADER_ENTRY.title)}</h3>
+            <p className={styles.wayBody}>{withTerms(TRADER_ENTRY.body)}</p>
             <a className={styles.contact} href={`${appOrigin()}${TRADER_ENTRY.appPath}`}>
               <span className={styles.contactLabel}>{TRADER_ENTRY.label}</span>
             </a>

@@ -1,6 +1,6 @@
 import { getImageProps } from 'next/image';
 import Link from 'next/link';
-import { FAQ, GUIDES, SITE_PAGES, TELEGRAM, telegramUrl } from '../../../../content/site.ts';
+import { FAQ, GUIDES, SITE_PAGES, TELEGRAM, telegramUrl, withTerms } from '../../../../content/site.ts';
 import { ArrowIcon, TelegramIcon } from '../icons.tsx';
 import wink from '../robot/stills/robot-wink.webp';
 import section from '../section.module.css';
@@ -66,7 +66,7 @@ export function Faq() {
                   <span className={styles.toggle} aria-hidden="true" />
                 </summary>
                 <div className={styles.answer}>
-                  <p>{item.answer}</p>
+                  <p>{withTerms(item.answer)}</p>
                   {item.more ? (
                     <a className={styles.more} href={`#${item.more.anchor}`}>
                       {item.more.label}

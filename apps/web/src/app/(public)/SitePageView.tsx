@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import Link from 'next/link';
-import { ACTIONS, FAQ, GUIDES, HERO, ONBOARDING, SITE_NAME, SITE_PAGES, type SitePage, TELEGRAM, telegramUrl } from '../../content/site.ts';
+import { ACTIONS, FAQ, GUIDES, HERO, ONBOARDING, SITE_NAME, SITE_PAGES, type SitePage, TELEGRAM, telegramUrl, withTerms } from '../../content/site.ts';
 import { GuideRobot } from './_landing/guide/GuideRobot.tsx';
 import { MarketCard } from './_landing/guide/MarketCard.tsx';
 import guide from './_landing/guide/guide.module.css';
@@ -45,7 +45,7 @@ function structuredData(page: SitePage, origin: string): string {
     graph.push({
       '@type': 'FAQPage',
       '@id': `${url}#faq`,
-      mainEntity: questions.map((q) => ({ '@type': 'Question', name: q.question, acceptedAnswer: { '@type': 'Answer', text: q.answer } })),
+      mainEntity: questions.map((q) => ({ '@type': 'Question', name: q.question, acceptedAnswer: { '@type': 'Answer', text: withTerms(q.answer) } })),
     });
   }
   // JSON.stringify escapes nothing that matters inside a JSON-LD script except `<`, which would end the element.

@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import Link from 'next/link';
 import { getImageProps } from 'next/image';
 import mark from '../../../../../brand/inrp2p-mark.png';
-import { CLOSING, FOOTER, FOOTER_NOTE, NAV, OWN_DESK, SITE_NAME, SITE_PAGES, TAGLINE, TELEGRAM, TRADER_ENTRY, WORKSPACE_ENTRY, telegramUrl } from '../../content/site.ts';
+import { CLOSING, FOOTER, FOOTER_NOTE, NAV, OWN_DESK, SITE_NAME, SITE_PAGES, TAGLINE, TELEGRAM, TRADER_ENTRY, WORKSPACE_ENTRY, telegramUrl, withTerms } from '../../content/site.ts';
 import { NavSpy } from './_landing/NavSpy.tsx';
 import { Ticker } from './_landing/Ticker.tsx';
 import { appOrigin, mailto, onboardingHref, siteContacts } from '../../server/site.ts';
@@ -117,7 +117,11 @@ export function PublicShell({ children, nonce }: { children: ReactNode; nonce?: 
             {[...NAV.slice(0, 2), { label: OWN_DESK.nav, path: '/#own-desk' }, ...NAV.slice(2)].map((item) => (
               <Link key={item.path} href={item.path} className={styles.navLink} prefetch={false} data-section={item.path.split('#')[1]}>
                 {item.label}
-                {item.path === '/#own-desk' ? <span className={styles.navNew} aria-hidden="true" /> : null}
+                {item.path === '/#own-desk' ? (
+                  <span className={styles.navTag} aria-hidden="true">
+                    {withTerms(OWN_DESK.navTag)}
+                  </span>
+                ) : null}
               </Link>
             ))}
           </nav>

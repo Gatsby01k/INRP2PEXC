@@ -147,18 +147,28 @@
 }
 
 /* What is new: a small orange node beside the programme's link, the way an app marks a fresh section. */
-.navNew {
-  display: inline-block;
-  width: 6px;
-  height: 6px;
+/* Beside "For traders", the margin they come for, as a small orange tab. */
+.navTag {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
   margin-left: 7px;
-  border-radius: 50%;
-  background: var(--brand-primary);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-primary) 18%, transparent);
+  padding: 0 6px;
+  border-radius: 6px;
+  background: var(--field);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.3),
+    0 4px 10px -5px color-mix(in srgb, var(--brand-action) 90%, transparent);
+  color: var(--text-on-action);
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
 }
 
-.navLink[aria-current] .navNew {
-  box-shadow: 0 0 0 3px rgb(255 255 255 / 0.18);
+.navLink[aria-current] .navTag {
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.24);
 }
 
 .tools {

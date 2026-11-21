@@ -1,9 +1,12 @@
 import type { ReactNode } from 'react';
-import { OWN_DESK, type OwnDeskFeature } from '../../../../content/site.ts';
+import { getImageProps } from 'next/image';
+import { OWN_DESK, type OwnDeskFeature, TRADER_TERMS, withTerms } from '../../../../content/site.ts';
 import { ArrowIcon } from '../icons.tsx';
 import { groupDigits } from '@inrp2p/ui/format';
 import { LiveRate } from '../LiveRate.tsx';
 import { MarkArt } from '../../../../components/MarkArt.tsx';
+import still from '../../../(client)/_assistant/stills/robot-none.webp';
+import { Earnings } from './Earnings.tsx';
 import section from '../section.module.css';
 import styles from './owndesk.module.css';
 
@@ -50,28 +53,95 @@ function Tile({ feature, className, children }: { feature: OwnDeskFeature; class
 /** The example a deal link is drawn with: an amount, never a rate of ours. */
 const LINK_USDT = '5000';
 
+/** A sentence with a term in it, the term set apart: `{fee}` drawn bold, the rest as written. */
+function Termed({ text, term, className }: { text: string; term: '{fee}' | '{margin}'; className?: string | undefined }) {
+  const [before = '', after = ''] = text.split(term);
+  return (
+    <>
+      {before}
+      <b className={className}>{withTerms(term)}</b>
+      {after}
+    </>
+  );
+}
+
 /**
- * "Your own exchange, on INRP2P": the desk programme (ADR 0020) for the traders and brokers who would run one — a
- * page, deal links, escrow, prices, a team and alerts — set as a bento of the product's own surfaces, drawn in markup
- * with every figure masked. Server markup only; the tiles rise into place as they scroll in where the browser can
- * tie an animation to scrolling, and simply stand there where it cannot.
+ * "For traders": the desk programme (ADR 0020) told money first. It opens on a stage — the margin a trader works at as a
+ * monument, INRP2P's fee beside it, and an example they set themselves (Earnings.tsx) with the robot wearing their margin
+ * on its visor — then what stops costing them, then the exchange itself as a bento of the product's own surfaces, drawn
+ * in markup with the market's own figures. Server markup but for the example; the tiles rise into place as they scroll
+ * in where the browser can tie an animation to scrolling, and simply stand there where it cannot.
  */
 export function OwnDesk({ appOrigin, host }: { appOrigin: string; host: string }) {
-  const { eyebrow, heading, lede, mock, steps, cta } = OWN_DESK;
+  const { eyebrow, heading, headline, fee, lede, earnings, stops, tools, mock, steps, cta } = OWN_DESK;
+  const { low, high } = TRADER_TERMS.margin;
+  const { props: robot } = getImageProps({ src: still, alt: '', width: 300, height: 300, sizes: '(max-width: 1099px) 200px, 300px' });
   return (
     <section id="own-desk" className={styles.ownDesk} aria-labelledby="own-desk-title">
-      <div className={section.inner}>
-        <header className={section.head}>
-          <div>
+      <div className={styles.stage}>
+        {/* The room's light: a warm sun behind the monument and the field's dotted orbits — texture, never the mark. */}
+        <svg className={styles.orbits} viewBox="0 0 1200 1200" fill="none" aria-hidden="true" focusable="false">
+          <g stroke="currentColor" strokeLinecap="round" strokeWidth="2">
+            <circle cx="600" cy="600" r="330" strokeDasharray="2 13" />
+            <circle cx="600" cy="600" r="450" strokeDasharray="2 17" opacity="0.7" />
+            <circle cx="600" cy="600" r="570" strokeDasharray="2 22" opacity="0.45" />
+          </g>
+          <circle cx="366.7" cy="833.3" r="7" fill="currentColor" />
+          <circle cx="918" cy="282" r="6" fill="currentColor" opacity="0.8" />
+        </svg>
+        <div className={`${section.inner} ${styles.stageInner}`}>
+          <div className={styles.pitch}>
             <p className={section.eyebrow}>
               <span className={section.index}>04</span>
               {eyebrow}
             </p>
-            <h2 id="own-desk-title" className={section.title}>
-              {heading}
+            {/* One sentence for whoever reads it ("Earn 5–7% on every USDT you sell."), drawn as the margin's monument. */}
+            <h2 id="own-desk-title" className={styles.monument} aria-label={withTerms(heading)}>
+              <span className={styles.monumentLead}>{headline.lead}</span>{' '}
+              <span className={styles.figure}>
+                {low}
+                <span className={styles.figureDash}>–</span>
+                {high}
+                <span className={styles.figurePct}>%</span>
+              </span>{' '}
+              <span className={styles.monumentTail}>{headline.tail}</span>
             </h2>
+            <p className={styles.fee}>
+              <Termed text={fee} term="{fee}" />
+            </p>
+            <p className={styles.pitchLede}>{lede}</p>
+            <div className={styles.pitchActions}>
+              <a className={section.cta} href={`${appOrigin}${cta.appPath}`}>
+                {cta.label}
+                <ArrowIcon />
+              </a>
+              <a className={styles.pitchLink} href={`${appOrigin}${cta.signedInPath}`}>
+                {cta.signedIn}
+              </a>
+            </div>
           </div>
-          <p className={section.lede}>{lede}</p>
+          <Earnings copy={earnings} robot={robot} />
+        </div>
+
+        <div className={`${section.inner} ${styles.stopsInner}`}>
+          <h3 className={styles.stopsTitle}>{stops.title}</h3>
+          <ul className={styles.stops}>
+            {stops.items.map((item, i) => (
+              <li key={item.cost} className={styles.stop} style={{ ['--i' as string]: i }}>
+                <s className={styles.cost}>
+                  <span>{item.cost}</span>
+                </s>
+                <span className={styles.fix}>{item.fix}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+
+      <div className={section.inner}>
+        <header className={`${section.head} ${styles.toolsHead}`}>
+          <h3 className={styles.toolsTitle}>{tools.title}</h3>
+          <p className={section.lede}>{tools.lede}</p>
         </header>
 
         <div className={styles.bento}>
