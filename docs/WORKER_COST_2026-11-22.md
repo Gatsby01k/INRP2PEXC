@@ -92,7 +92,7 @@ leave it off at low volume. Both were left as they are.
 
 With autosuspend off and a 0.25 CU minimum, the compute bill has a floor of 0.25 CU × 730 h ≈ 183 CU-hours a month
 whatever the worker does. The idle worker used 53.8 ms of database time a minute before the change and
-49.9 after — under 0.5 % of a quarter of a vCPU either way, far below anything that would move the autoscaler off
+42.9–49.9 after — under 0.5 % of a quarter of a vCPU either way, far below anything that would move the autoscaler off
 its minimum. **These changes are not expected to change CU-hours at today's traffic, and no saving is claimed.** What
 they change is write volume (storage, WAL, PITR history), provider calls (quotas) and evidence quality. The compute lever is
 the owner's: the 8 CU maximum means a runaway query can bill up to 32× the floor per hour; a lower maximum bounds that.
@@ -114,15 +114,17 @@ No migration, no new dependency, no new service, no setting changed.
 
 ### A quiet exchange — ten minutes of the real worker (bench, production-sized history)
 
-Four ACTIVE treasury wallets, no open deal; per minute unless stated.
+Four ACTIVE treasury wallets, no open deal; per minute unless stated. "After" is the branch's final commit, run on its own
+(a first run of an earlier commit, with read-only diagnostics running against another database, gave the same counts).
 
 | | Before (main bc985e2) | After (this branch) | Change |
 |---|---:|---:|---:|
-| SQL statements | 361.9 | 333.0 | −8 % |
-| Database execution time | 53.8 ms | 49.9 ms | −7 % |
-| Row writes (all tables) | 85.6 | 67.4 | −21 % |
-| WAL written by statements | 83.9 KB | 55.7 KB | −34 % |
-| `idempotency_key` rows written in 10 min (insert + complete) | 64 + 64 | 3 + 3 | −95 % |
+| SQL statements | 361.9 | 333.6 | −8 % |
+| Database execution time | 53.8 ms | 42.9 ms (49.9 in the first run) | −8 to −20 % |
+| Row writes (all tables) | 85.6 | 67.1 | −22 % |
+| WAL, whole cluster | 76.3 KB | 49.6 KB | −35 % |
+| WAL written by the worker's statements | 83.9 KB | 55.0 KB | −34 % |
+| `idempotency_key` rows written in 10 min (insert + complete) | 64 + 64 | 1 + 1 | −98 % |
 | `audit_event` in 10 min | 48 | 24 | −50 % |
 | `custody_balance_observation` in 10 min | 40 | 16 | −60 % |
 | `treasury_wallet` updates in 10 min | 40 | 16 | −60 % |
@@ -132,17 +134,19 @@ Four ACTIVE treasury wallets, no open deal; per minute unless stated.
 | TRON requests, secondary | 16.6 | 6.7 | −60 % |
 | Readings `AGREED` | 40 of 40 | 16 of 16 | — |
 
-Per day at this shape that is ~9,200 → ~430 idempotency keys, ~5,800 → ~2,300 readings, ~6,900 → ~3,500 audit events,
+The final run's window held the hourly `audit_seal` (minute :07), which sealed the 165,000 history events the bench had
+loaded unsealed — 1.28 s once; the 42.9 ms leaves it out, as neither other run had it in its window. The statement counts
+include nested statements (`pg_stat_statements.track = all`) on both sides alike.
+
+Per day at this shape that is ~9,200 → ~140 idempotency keys (the remaining one is the financial cooldown release), ~5,800 → ~2,300 readings, ~6,900 → ~3,500 audit events,
 ~61,000 → ~31,000 provider requests. At the row sizes the bench's history measured (idempotency key ≈ 330 B, reading
-≈ 400 B, audit event ≥ 490 B, indexes included) the worker's own table growth drops from ≈ 8.7 MB to ≈ 2.8 MB a day.
+≈ 400 B, audit event ≥ 490 B, indexes included) the worker's own table growth drops from ≈ 8.7 MB to ≈ 2.7 MB a day.
 
 What is left of the quiet worker's writes is graphile-worker's own bookkeeping — each cron run is a job inserted, locked
 and deleted and a crontab row updated, 52 of the 67 row writes a minute — and its cron scheduler is the largest single
 consumer of database time (≈ 14 ms a minute). That is the price of one job per sweep per minute, which keeps the sweeps
 independent and concurrent; folding them into one job would make every deadline wait behind the slowest chain read, so it
-was not done. The cluster-wide WAL figure of the second run was inflated by read-only diagnostics run against another
-database at the same time (PostgreSQL 18 enables page checksums, so first reads of freshly loaded pages log hint bits);
-the per-statement WAL above is the database's own.
+was not done.
 
 ### A market day — 300 deals under load (market-day test, four runs each side, alternating)
 
