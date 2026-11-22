@@ -489,18 +489,16 @@
 /* The two coins, on the paths they travel. */
 .usdt,
 .inr {
-  offset-rotate: 0deg;
+  /* Placed with a CSS transform in the picture's own units — the same in every engine — rather than offset-path, which
+     WebKit scales a second time inside a scaled SVG (the coins landed off their lanes). */
+  transform: translate(146px, 294px);
   transition:
-    offset-distance 1.3s cubic-bezier(0.65, 0, 0.25, 1),
+    transform 1.3s cubic-bezier(0.65, 0, 0.25, 1),
     opacity 400ms var(--ease);
 }
 
-.usdt {
-  offset-path: path('M146 294H380H614');
-}
-
 .inr {
-  offset-path: path('M670 348V364a22 22 0 0 1-22 22H112a22 22 0 0 1-22-22V348');
+  transform: translate(670px, 348px);
   opacity: 0;
 }
 
@@ -533,7 +531,7 @@
 .who {
   position: absolute;
   z-index: 3;
-  top: 57%;
+  top: 53.1%;
   display: grid;
   justify-items: center;
   gap: 2px;
@@ -561,13 +559,11 @@
   left: 11.84%;
 }
 
-/* The escrow's name beside the robot's head, set left rather than centred. */
+/* The escrow's name under the robot, where its body fades into the sheet: the middle of the three, centred like them. */
 .who[data-at='escrow'] {
-  left: 73%;
-  top: 20%;
-  justify-items: start;
-  transform: none;
-  text-align: left;
+  left: 50%;
+  top: 83.6%;
+  transform: translate(-50%, -50%);
 }
 
 .who[data-at='buyer'] {
@@ -576,7 +572,7 @@
 
 .laneName {
   position: absolute;
-  top: 67%;
+  top: 62.4%;
   left: 29%;
   transform: translate(-50%, -50%);
   font-family: var(--font-mono);
@@ -589,7 +585,7 @@
 .tag {
   position: absolute;
   z-index: 3;
-  top: 94.15%;
+  top: 94.55%;
   left: 50%;
   display: inline-flex;
   align-items: center;
@@ -704,19 +700,19 @@
 
 /* The USDT: with the seller, then held, then released to the buyer. */
 .deal[data-step='0'] .usdt {
-  offset-distance: 0%;
+  transform: translate(146px, 294px);
 }
 
 .deal:is([data-step='1'], [data-step='2']) .usdt {
-  offset-distance: 50%;
+  transform: translate(380px, 294px);
   opacity: 0;
   transition:
-    offset-distance 1.3s cubic-bezier(0.65, 0, 0.25, 1),
+    transform 1.3s cubic-bezier(0.65, 0, 0.25, 1),
     opacity 300ms var(--ease) 1s;
 }
 
 .deal[data-step='3'] .usdt {
-  offset-distance: 100%;
+  transform: translate(614px, 294px);
 }
 
 .deal:is([data-step='1'], [data-step='2']) .lock {
@@ -731,14 +727,48 @@
 
 /* The rupees: on their way along the bottom, then arrived. */
 .deal:is([data-step='2'], [data-step='3']) .inr {
-  offset-distance: 100%;
+  transform: translate(90px, 348px);
   opacity: 1;
 }
 
+/* The rupees' way, corner by corner along the bottom lane (BACK in Deal.tsx): easing in, gliding, easing out. */
 .deal[data-step='2'] .inr {
-  transition:
-    offset-distance 2s cubic-bezier(0.65, 0, 0.25, 1) 200ms,
-    opacity 300ms var(--ease);
+  transition: opacity 300ms var(--ease);
+  animation: rupees 2s 200ms both;
+}
+
+@keyframes rupees {
+  0% {
+    transform: translate(670px, 348px);
+    animation-timing-function: cubic-bezier(0.5, 0, 1, 1);
+  }
+  6.6% {
+    transform: translate(670px, 394px);
+    animation-timing-function: linear;
+  }
+  9.1% {
+    transform: translate(663.6px, 409.6px);
+    animation-timing-function: linear;
+  }
+  11.6% {
+    transform: translate(648px, 416px);
+    animation-timing-function: linear;
+  }
+  88.4% {
+    transform: translate(112px, 416px);
+    animation-timing-function: linear;
+  }
+  90.9% {
+    transform: translate(96.4px, 409.6px);
+    animation-timing-function: linear;
+  }
+  93.4% {
+    transform: translate(90px, 394px);
+    animation-timing-function: cubic-bezier(0, 0, 0.5, 1);
+  }
+  100% {
+    transform: translate(90px, 348px);
+  }
 }
 
 .deal:is([data-step='2'], [data-step='3']) .tag {
@@ -795,13 +825,16 @@
   width: 44.74%;
   aspect-ratio: 1;
   pointer-events: none;
+  /* The shadow here, not on the still: a shadow and a mask on one image leave a pale box round it in Chrome. */
+  filter: drop-shadow(0 24px 30px rgb(96 56 24 / 0.28));
 }
 
 .robotStill {
   display: block;
   width: 100%;
   height: 100%;
-  filter: drop-shadow(0 24px 30px rgb(96 56 24 / 0.28));
+  /* The still ends at the frame's edge; the body fades into the sheet there instead of stopping on a line. */
+  mask-image: linear-gradient(180deg, #000 0%, #000 88%, transparent 100%);
 }
 
 .visorGlass {
@@ -939,17 +972,6 @@
     border-radius: 26px;
   }
 
-  .who[data-at='escrow'] {
-    left: 70%;
-    top: 16%;
-  }
-
-  .who[data-at='escrow'] b {
-    max-width: 7em;
-    white-space: normal;
-    line-height: 1.15;
-  }
-
 
   .visor {
     height: 40px;
@@ -985,8 +1007,13 @@
     font-size: 8.5px;
   }
 
-  .who[data-at='escrow'] b {
-    font-size: 11px;
+  /* On a phone the escrow's name alone, a little higher: its caption would run into the rupees' tag. */
+  .who[data-at='escrow'] {
+    top: 80.5%;
+  }
+
+  .who[data-at='escrow'] small {
+    display: none;
   }
 
   .laneName {
