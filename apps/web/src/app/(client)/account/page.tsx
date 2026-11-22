@@ -40,7 +40,8 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
     <>
       <PageHead icon={<ShieldIcon />} title="Account & security" lede="Who you are signed in as, how you sign in and confirm what matters, and who on your account may accept quotes." />
       <AccountScreen
-        name={member?.clientName ?? ctx.access.email}
+        name={member?.clientName ?? ctx.access.name}
+        label={ctx.access.label}
         email={ctx.access.email}
         role={member?.role ?? null}
         canAccept={member?.exchangeAccess ? member.canAcceptQuotes : null}

@@ -3,12 +3,15 @@ import { DomainError } from '@inrp2p/kernel';
 import type { Executor } from '@inrp2p/db';
 import { STEP_UP_MAX_AGE_SECONDS } from '../rbac/matrix.ts';
 import type { StepUpPurpose } from './step-up-codes.ts';
+import { TELEGRAM_PLACEHOLDER_DOMAIN } from './telegram.ts';
 
 /**
  * How a client proves it is them (ADR 0026). Three factors, each a different thing the person holds:
  *
- * - `EMAIL` — their inbox: a six-digit code sent to the address the account was opened with. Every client has it.
- * - `TELEGRAM` — their Telegram, once linked from Account & security: Telegram's own sign-in, and a code sent by the bot.
+ * - `EMAIL` — their inbox: a six-digit code sent to their address. Every account opened by email has it; an account
+ *   Telegram opened has it once the person adds their email (`add-email.ts`) — until then its address is a placeholder.
+ * - `TELEGRAM` — their Telegram, once it opened the account or was linked from Account & security: Telegram's own
+ *   sign-in, and a code sent by the bot.
  * - `TOTP` — an authenticator app, for whoever sets one up.
  *
  * A session is opened with EMAIL or TELEGRAM, and then lasts (SESSION_POLICY). What would move money somewhere new — a
@@ -31,7 +34,7 @@ export type Confirmation = Factor | 'EMAIL_SIGN_IN' | 'TELEGRAM_SIGN_IN';
 
 export interface SessionFactors {
   readonly signInMethod: 'EMAIL' | 'TELEGRAM';
-  /** The factors this person has: the email always, Telegram once linked, the authenticator once enrolled. */
+  /** The factors this person has: the email once it is a real address, Telegram once linked, the authenticator once enrolled. */
   readonly available: readonly Factor[];
   /** The ones a step-up may use to count as independent of this session's sign-in — in the order they are offered. */
   readonly independent: readonly Factor[];
@@ -43,6 +46,7 @@ export interface SessionFactors {
 
 interface FactorsRow {
   sign_in_method: 'EMAIL' | 'TELEGRAM';
+  email: boolean;
   totp: boolean;
   telegram: boolean;
   /** The factors of this session's step-ups inside the window, the latest first. */
@@ -57,6 +61,7 @@ const ORDER: readonly Factor[] = ['TELEGRAM', 'EMAIL', 'TOTP'];
 export async function sessionFactors(ex: Executor, sessionId: string): Promise<SessionFactors> {
   const r = await sql<FactorsRow>`
     select coalesce(s.sign_in_method, 'EMAIL') as sign_in_method,
+           u.email not like ${`%@${TELEGRAM_PLACEHOLDER_DOMAIN}`} as email,
            coalesce(u.two_factor_enabled, false) as totp,
            exists (select 1 from auth_account a where a.user_id = s.user_id and a.provider_id = 'telegram') as telegram,
            array(select v.method from step_up_verification v
@@ -68,7 +73,7 @@ export async function sessionFactors(ex: Executor, sessionId: string): Promise<S
     where s.id = ${sessionId} and s.surface = 'CLIENT' and s.expires_at > statement_timestamp()`.execute(ex);
   const row = r.rows[0];
   if (!row) throw new DomainError('UNAUTHENTICATED', 'this session has ended; sign in again');
-  const has: Record<Factor, boolean> = { EMAIL: true, TELEGRAM: row.telegram, TOTP: row.totp };
+  const has: Record<Factor, boolean> = { EMAIL: row.email, TELEGRAM: row.telegram, TOTP: row.totp };
   const available = ORDER.filter((f) => has[f]);
   // A step-up counts only by a factor the person still has: an authenticator the desk has since reset, or a Telegram
   // since disconnected, confirms nothing more.
@@ -86,14 +91,16 @@ export async function sessionFactors(ex: Executor, sessionId: string): Promise<S
 /**
  * The confirmation a sensitive change needs, or the refusal that says how to give one: `STEP_UP_REQUIRED` with the
  * factors that would do (`details.factors`, best first), or `MFA_ENROLLMENT_REQUIRED` when the person has none yet —
- * signed in with their email and nothing else, they connect Telegram or set up an authenticator first.
+ * signed in with their email and nothing else, they connect Telegram or set up an authenticator first; signed in with
+ * a Telegram that opened the account, they add their email or set up an authenticator.
  */
 export function confirmationOf(f: SessionFactors, requirement: ConfirmationRequirement, purpose: StepUpPurpose = 'CHANGE'): Confirmation {
   if (f.freshIndependent) return f.freshIndependent;
   if (requirement === 'RECENT' && f.recentBy) return f.recentBy;
   const factors = requirement === 'RECENT' ? f.available : f.independent;
   if (factors.length === 0) {
-    throw new DomainError('MFA_ENROLLMENT_REQUIRED', 'connect Telegram or set up an authenticator to confirm this', { factors: [], requirement, purpose });
+    const add = f.signInMethod === 'TELEGRAM' && !f.available.includes('EMAIL') ? 'add your email' : 'connect Telegram';
+    throw new DomainError('MFA_ENROLLMENT_REQUIRED', `${add} or set up an authenticator to confirm this`, { factors: [], requirement, purpose, add: add === 'add your email' ? 'EMAIL' : 'TELEGRAM' });
   }
   throw new DomainError('STEP_UP_REQUIRED', 'confirm it is you with a code', { factors: [...factors], requirement, purpose });
 }
@@ -107,8 +114,8 @@ export async function requireConfirmation(ex: Executor, sessionId: string, requi
  * Adding, replacing or removing a way to sign in or confirm (linking or disconnecting Telegram, setting up an
  * authenticator). An account that already has a second factor keeps it in charge: the change needs a step-up by a
  * factor other than the sign-in one, so whoever holds only the inbox cannot swap the person's Telegram or authenticator
- * for their own. An account with only its email needs a recent sign-in or code — the trust any first factor starts
- * with, as the authenticator always has (TD-11).
+ * for their own. An account with only its email — or only the Telegram that opened it — needs a recent sign-in or
+ * code: the trust any first factor starts with, as the authenticator always has (TD-11).
  */
 export function factorChangeRequirement(f: SessionFactors): ConfirmationRequirement {
   return f.available.length > 1 ? 'INDEPENDENT' : 'RECENT';

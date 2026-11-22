@@ -23,6 +23,7 @@ export function TelegramCard({
   returnTo,
   outcome,
   title = 'Telegram',
+  onlyWayIn = false,
 }: {
   view: TelegramView;
   /** The page Telegram sends the person back to. */
@@ -30,6 +31,8 @@ export function TelegramCard({
   /** What the way back said: `?telegram=linked`, or `?telegram=failed&error=…`. */
   outcome?: { readonly state: 'linked' | 'failed'; readonly error: string | null } | undefined;
   title?: string;
+  /** Telegram opened this account and no email was added: it is the only way in, so it is not offered to disconnect. */
+  onlyWayIn?: boolean;
 }) {
   const router = useRouter();
   const alerts = useCommand();
@@ -97,9 +100,11 @@ export function TelegramCard({
           {linked ? <span className={styles.on}>Connected</span> : null}
         </h2>
         <p className={styles.detail}>
-          {linked
-            ? `${justLinked ? 'Done — ' : ''}${who} signs you in with one tap and gets the codes that confirm your changes${view.alerts ? `${alertsOn ? ' and your deal alerts' : ''}` : ''}.`
-            : 'Sign in with one tap, confirm changes with a code from the INRP2P bot, and get your deal alerts there.'}
+          {linked && onlyWayIn
+            ? `You signed up with ${who}: it signs you in with one tap${view.alerts && alertsOn ? ' and gets your deal alerts' : ''}. Add your email above to have a second way in.`
+            : linked
+              ? `${justLinked ? 'Done — ' : ''}${who} signs you in with one tap and gets the codes that confirm your changes${view.alerts ? `${alertsOn ? ' and your deal alerts' : ''}` : ''}.`
+              : 'Sign in with one tap, confirm changes with a code from the INRP2P bot, and get your deal alerts there.'}
         </p>
         {problem ? (
           <p className={shell.error} role="alert">
@@ -113,7 +118,7 @@ export function TelegramCard({
         ) : null}
       </div>
       <div className={styles.actions}>
-        {linked ? (
+        {linked && onlyWayIn ? null : linked ? (
           <button type="button" className={shell.textAction} disabled={busy} onClick={() => void disconnect()}>
             Disconnect
           </button>

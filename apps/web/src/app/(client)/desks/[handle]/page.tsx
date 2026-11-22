@@ -63,7 +63,7 @@ export default async function ClientDeskPage({ params, searchParams }: { params:
         payFrom={payFrom}
         wallets={wallets}
         anyWallet={destinations.wallets.some((w) => live(w.status))}
-        who={{ canAccept: member.canAcceptQuotes, isAdmin: member.role === 'CLIENT_ADMIN', protection, email: ctx.access.email, clientName: member.clientName }}
+        who={{ canAccept: member.canAcceptQuotes, isAdmin: member.role === 'CLIENT_ADMIN', protection, email: ctx.access.label, clientName: member.clientName }}
         start={startFrom(query)}
         now={now.toISOString()}
       />

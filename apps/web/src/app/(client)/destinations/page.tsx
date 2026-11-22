@@ -27,7 +27,7 @@ export default async function DestinationsPage() {
       <DestinationsScreen
         destinations={destinations}
         clientName={ctx.access.clientName}
-        email={who.email}
+        email={who.label}
         isAdmin={ctx.access.role === 'CLIENT_ADMIN'}
         protection={protection}
       />

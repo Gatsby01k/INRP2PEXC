@@ -106,8 +106,8 @@ async function linkTelegram(jar: CookieJar, claims: Record<string, unknown>) {
   return throughTelegram(jar, start.json!, claims);
 }
 
-async function signInWithTelegram(claims: Record<string, unknown>, jar = new CookieJar()) {
-  const start = await raw(jar, '/sign-in/social', { body: { provider: 'telegram', callbackURL: '/exchange', errorCallbackURL: '/sign-in', disableRedirect: true } });
+async function signInWithTelegram(claims: Record<string, unknown>, jar = new CookieJar(), opts: { signUp?: boolean } = {}) {
+  const start = await raw(jar, '/sign-in/social', { body: { provider: 'telegram', callbackURL: '/exchange', errorCallbackURL: '/sign-in', disableRedirect: true, ...(opts.signUp ? { requestSignUp: true } : {}) } });
   expect(start.status).toBe(200);
   return { jar, done: await throughTelegram(jar, start.json!, claims) };
 }
@@ -178,7 +178,7 @@ describe('Telegram: linked from inside, then a way in to the same account', () =
     expect(actions.map((a) => a.action)).toContain('session.login_telegram');
   });
 
-  it('a Telegram nobody linked signs nobody in and creates nothing', async () => {
+  it('a Telegram nobody linked signs nobody in and creates nothing, unless the door asks to open an account', async () => {
     const users = (await sql<{ n: string }>`select count(*)::text as n from auth_user`.execute(t.app)).rows[0]!.n;
     const { jar, done } = await signInWithTelegram(telegramUser());
     expect(done.status).toBe(302);
@@ -322,5 +322,155 @@ describe('what confirms what (ADR 0026)', () => {
     expect((await stepUp(s.jar, 'EMAIL', c.email)).status).toBe(200);
     const back = await linkTelegram(s.jar, telegramUser());
     expect(back.location).toBe('/account?telegram=linked');
+  });
+});
+
+describe('Telegram opens an account by itself (ADR 0026, amended 2026-11-22)', () => {
+  const telegramUserOf = (userId: string) => t.app.selectFrom('auth_user').select(['id', 'email', 'email_verified', 'kind', 'status', 'name']).where('id', '=', userId).executeTakeFirstOrThrow();
+
+  async function signUpWithTelegram(who = telegramUser()) {
+    const { jar, done } = await signInWithTelegram(who, new CookieJar(), { signUp: true });
+    expect(done.status).toBe(302);
+    expect(done.location).toBe('/exchange');
+    const actor = await requireClientSession(client, t.app, jar.headers(APP));
+    return { who, jar, userId: actor.userId, sessionId: actor.sessionId };
+  }
+
+  it('a Telegram nobody holds opens a client identity — placeholder address, never verified — and signs it in again', async () => {
+    const { who, jar, userId, sessionId } = await signUpWithTelegram();
+    expect(await telegramUserOf(userId)).toMatchObject({ email: `telegram-${who.id}@telegram.invalid`, email_verified: false, kind: 'CLIENT', status: 'ACTIVE', name: who.name });
+    const account = await t.app.selectFrom('auth_account').select(['account_id', 'telegram_username']).where('user_id', '=', userId).where('provider_id', '=', 'telegram').executeTakeFirstOrThrow();
+    expect(account).toEqual({ account_id: String(who.id), telegram_username: who.preferred_username });
+    expect(linked).toContain(String(who.id));
+    expect((await t.app.selectFrom('auth_session').select('sign_in_method').where('id', '=', sessionId).executeTakeFirstOrThrow()).sign_in_method).toBe('TELEGRAM');
+    expect(jar.get(LAST_SIGN_IN_COOKIE)).toBe('telegram');
+    const created = await t.app.selectFrom('audit_event').select(['action', 'after']).where('entity_id', '=', userId).where('action', '=', 'client_user.identity_created').execute();
+    expect(created).toHaveLength(1);
+    // No client, no role: the account itself is opened on /open-account, as for an email.
+    expect((await sql`select 1 from client_user where user_id = ${userId}`.execute(t.app)).rows).toHaveLength(0);
+
+    const users = (await sql<{ n: string }>`select count(*)::text as n from auth_user`.execute(t.app)).rows[0]!.n;
+    const again = await signInWithTelegram(who, new CookieJar(), { signUp: true });
+    await expect(requireClientSession(client, t.app, again.jar.headers(APP))).resolves.toMatchObject({ userId });
+    expect((await sql<{ n: string }>`select count(*)::text as n from auth_user`.execute(t.app)).rows[0]!.n).toBe(users);
+  });
+
+  it('its only factor is its Telegram: a change asks for an email or an authenticator, and nothing is sent to the placeholder', async () => {
+    const { jar, sessionId } = await signUpWithTelegram();
+    await expect(sessionFactors(t.app, sessionId)).resolves.toMatchObject({ signInMethod: 'TELEGRAM', available: ['TELEGRAM'], independent: [] });
+    expect(await domainCode(requireConfirmation(t.app, sessionId))).toMatchObject({ code: 'MFA_ENROLLMENT_REQUIRED', details: { factors: [], add: 'EMAIL' } });
+    await expect(requireConfirmation(t.app, sessionId, 'RECENT')).resolves.toBe('TELEGRAM_SIGN_IN');
+    const sent = emails.length;
+    expect((await raw(jar, '/step-up/send', { body: { channel: 'EMAIL' } })).json).toMatchObject({ code: 'EMAIL_NOT_SET' });
+    expect(emails.length).toBe(sent);
+  });
+
+  it('its Telegram cannot be disconnected while it is the only way in', async () => {
+    const { jar, userId } = await signUpWithTelegram();
+    const accounts = await raw(jar, '/list-accounts', { method: 'GET' });
+    const telegramAccount = (accounts.json as unknown as { id: string; providerId: string }[]).find((a) => a.providerId === 'telegram')!;
+    const out = await raw(jar, '/unlink-account', { body: { accountId: telegramAccount.id } });
+    expect(out.status).toBe(403);
+    expect(out.json).toMatchObject({ code: 'ADD_EMAIL_FIRST' });
+    expect((await sql`select 1 from auth_account where user_id = ${userId} and provider_id = 'telegram'`.execute(t.app)).rows).toHaveLength(1);
+  });
+
+  it('its placeholder is nobody’s inbox: the email door sends no code there and signs nobody in with it', async () => {
+    const { who } = await signUpWithTelegram();
+    const placeholder = `telegram-${who.id}@telegram.invalid`;
+    const jar = new CookieJar();
+    const sent = emails.length;
+    expect((await call(client, APP, jar, '/email-otp/send-verification-otp', { email: placeholder, type: 'sign-in' })).status).toBe(200);
+    expect(emails.length).toBe(sent);
+    expect((await call(client, APP, jar, '/sign-in/email-otp', { email: placeholder, otp: '123456' })).status).toBe(400);
+  });
+
+  it('adding an email: a code to it, then it signs in the same account and confirms what Telegram alone cannot', async () => {
+    const { jar, userId, sessionId } = await signUpWithTelegram();
+    const email = `own-${randomUUID()}@acmepay.in`;
+    for (const bad of ['not-an-email', `telegram-1@telegram.invalid`]) {
+      expect((await raw(jar, '/account-email/send', { body: { email: bad } })).json).toMatchObject({ code: 'INVALID_EMAIL' });
+    }
+    const sent = await raw(jar, '/account-email/send', { body: { email: email.toUpperCase() } });
+    expect(sent.status).toBe(200);
+    expect(sent.json).toMatchObject({ sent: true, to: `o•••@acmepay.in` });
+    const code = emails.filter((m) => m.email === email && m.type === 'step-up').at(-1)!.otp;
+    const stored = await sql<{ value: string }>`select value from auth_verification where identifier = ${`inrp2p-add-email:${sessionId}`}`.execute(t.app);
+    expect(stored.rows[0]!.value).not.toContain(code);
+    const wrong = code === '000000' ? '111111' : '000000';
+    expect((await raw(jar, '/account-email/verify', { body: { code: wrong } })).json).toMatchObject({ code: 'INVALID_CODE' });
+    const done = await raw(jar, '/account-email/verify', { body: { code } });
+    expect(done.status).toBe(200);
+    expect(done.json).toEqual({ added: true });
+    expect(await telegramUserOf(userId)).toMatchObject({ email, email_verified: true });
+    // That code to the inbox, in this Telegram session, confirms a change now; and the email is a way in of its own.
+    await expect(sessionFactors(t.app, sessionId)).resolves.toMatchObject({ available: ['TELEGRAM', 'EMAIL'], independent: ['EMAIL'], freshIndependent: 'EMAIL' });
+    await expect(requireConfirmation(t.app, sessionId)).resolves.toBe('EMAIL');
+    expect((await raw(jar, '/account-email/send', { body: { email: `again-${randomUUID()}@acmepay.in` } })).json).toMatchObject({ code: 'EMAIL_ALREADY_SET' });
+    const byEmail = await signInWithEmail(email);
+    await expect(requireClientSession(client, t.app, byEmail.jar.headers(APP))).resolves.toMatchObject({ userId });
+  });
+
+  it('adding an email is a change of how one signs in: a stale session confirms with the bot first', async () => {
+    const { jar, sessionId } = await signUpWithTelegram();
+    await sql`update auth_session set created_at = statement_timestamp() - make_interval(secs => ${CLIENT_MFA_ENROLMENT_MAX_SESSION_AGE_SECONDS + 60}) where id = ${sessionId}`.execute(t.owner);
+    const email = `own-${randomUUID()}@acmepay.in`;
+    const stale = await raw(jar, '/account-email/send', { body: { email } });
+    expect(stale.status).toBe(403);
+    expect(stale.json).toMatchObject({ code: 'STEP_UP_REQUIRED', factors: ['TELEGRAM'], requirement: 'RECENT' });
+    expect(emails.some((m) => m.email === email)).toBe(false);
+    expect((await stepUp(jar, 'TELEGRAM')).status).toBe(200);
+    expect((await raw(jar, '/account-email/send', { body: { email } })).status).toBe(200);
+  });
+
+  it('the email of an account opened earlier: a still-empty Telegram account joins it, and Telegram then signs in there', async () => {
+    const earlier = await newClient();
+    const { who, jar, userId: shell } = await signUpWithTelegram();
+    expect((await raw(jar, '/account-email/send', { body: { email: earlier.email } })).status).toBe(200);
+    const code = emails.filter((m) => m.email === earlier.email && m.type === 'step-up').at(-1)!.otp;
+    const done = await raw(jar, '/account-email/verify', { body: { code } });
+    expect(done.status).toBe(200);
+    expect(done.json).toEqual({ merged: true });
+
+    const moved = await t.app.selectFrom('auth_account').select('user_id').where('provider_id', '=', 'telegram').where('account_id', '=', String(who.id)).executeTakeFirstOrThrow();
+    expect(moved.user_id).toBe(earlier.userId);
+    expect(await userOf(earlier.email)).toMatchObject({ email_verified: true });
+    expect(await telegramUserOf(shell)).toMatchObject({ email: `joined-${shell}@telegram.invalid`, status: 'DISABLED' });
+    await expect(requireClientSession(client, t.app, jar.headers(APP))).rejects.toThrow();
+    const back = await signInWithTelegram(who, new CookieJar(), { signUp: true });
+    await expect(requireClientSession(client, t.app, back.jar.headers(APP))).resolves.toMatchObject({ userId: earlier.userId });
+    const actions = await t.app.selectFrom('audit_event').select('action').where('entity_id', 'in', [shell, earlier.userId]).execute();
+    expect(actions.map((a) => a.action)).toEqual(expect.arrayContaining(['client_user.identity_joined', 'user.telegram_linked']));
+  });
+
+  it('never joins over a second factor already guarding that account, nor an account that holds something', async () => {
+    const withAuthenticator = await newClient();
+    await t.owner.updateTable('auth_user').set({ two_factor_enabled: true }).where('id', '=', withAuthenticator.userId).execute();
+    const a = await signUpWithTelegram();
+    expect((await raw(a.jar, '/account-email/send', { body: { email: withAuthenticator.email } })).status).toBe(200);
+    const codeA = emails.filter((m) => m.email === withAuthenticator.email && m.type === 'step-up').at(-1)!.otp;
+    const refusedA = await raw(a.jar, '/account-email/verify', { body: { code: codeA } });
+    expect(refusedA.status).toBe(409);
+    expect(refusedA.json).toMatchObject({ code: 'EMAIL_HAS_ACCOUNT' });
+    expect((await sql`select 1 from auth_account where user_id = ${withAuthenticator.userId}`.execute(t.app)).rows).toHaveLength(0);
+    expect(await telegramUserOf(a.userId)).toMatchObject({ status: 'ACTIVE', email: `telegram-${a.who.id}@telegram.invalid` });
+
+    const earlier = await newClient();
+    const b = await signUpWithTelegram();
+    // The Telegram account opened a client of its own: two accounts that both hold something are never joined here.
+    const clientRow = await t.owner.insertInto('client').values({ legal_name: 'Shell Co', display_name: 'Shell Co', type: 'INDIVIDUAL', created_by: 'test' }).returning('id').executeTakeFirstOrThrow();
+    await t.owner.insertInto('client_user').values({ client_id: clientRow.id, user_id: b.userId, role: 'CLIENT_ADMIN', can_accept_quotes: true, created_by: 'test' }).execute();
+    expect((await raw(b.jar, '/account-email/send', { body: { email: earlier.email } })).status).toBe(200);
+    const codeB = emails.filter((m) => m.email === earlier.email && m.type === 'step-up').at(-1)!.otp;
+    expect((await raw(b.jar, '/account-email/verify', { body: { code: codeB } })).json).toMatchObject({ code: 'EMAIL_HAS_ACCOUNT' });
+    expect((await sql`select 1 from auth_account where user_id = ${earlier.userId}`.execute(t.app)).rows).toHaveLength(0);
+  });
+
+  it('the database holds the placeholder to a client that never verified it, and to the Telegram it names (0054)', async () => {
+    const { who, userId } = await signUpWithTelegram();
+    await expect(t.owner.updateTable('auth_user').set({ email_verified: true }).where('id', '=', userId).execute()).rejects.toThrow(/auth_user_telegram_placeholder/);
+    const other = await newClient();
+    await t.owner.updateTable('auth_user').set({ email: `telegram-${who.id + 1}@telegram.invalid`, email_verified: false }).where('id', '=', other.userId).execute();
+    await expect(sql`insert into auth_account (account_id, provider_id, user_id) values (${String(who.id + 7)}, 'telegram', ${other.userId})`.execute(t.owner)).rejects.toThrow(/verified email/);
   });
 });

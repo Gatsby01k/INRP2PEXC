@@ -1,6 +1,7 @@
 import type { Db } from '@inrp2p/db';
 import type { ClientAuth, OperatorAuth } from './config.ts';
 import type { OperatorRole } from '../rbac/matrix.ts';
+import { isTelegramPlaceholderEmail } from './telegram.ts';
 
 /**
  * Provisioning primitives (no self sign-up exists). Phase 2 wraps these in audited commands;
@@ -26,8 +27,8 @@ export async function provisionClientUser(auth: ClientAuth, input: { email: stri
 /**
  * The sign-in identity behind "Become a trader" (docs/TRADERS.md §3).
  *
- * Client sign-up stays closed in Better Auth: the workspace sign-in never creates anyone. This is the one door that
- * may, and what it creates is only an identity — a CLIENT user with no client, no role and no permission. Signing
+ * Client sign-up by email stays closed in Better Auth: an email code never creates anyone. This is the email door that
+ * may (Telegram's own sign-in is the other — ADR 0026), and what it creates is only an identity — a CLIENT user with no client, no role and no permission. Signing
  * in with it reaches the trader application and nothing else; a client, and everything that comes with one, exists
  * only once an application is submitted, and the Exchange only once the desk opens it.
  *
@@ -37,6 +38,8 @@ export async function provisionClientUser(auth: ClientAuth, input: { email: stri
  */
 export async function ensureClientIdentity(auth: ClientAuth, appDb: Db, input: { email: string }): Promise<{ userId: string; created: boolean } | { unavailable: true }> {
   const email = input.email.trim().toLowerCase();
+  // A Telegram account's stand-in address is nobody's inbox (ADR 0026): it never becomes, or reaches, an identity here.
+  if (isTelegramPlaceholderEmail(email)) return { unavailable: true };
   const existing = await appDb.selectFrom('auth_user').select(['id', 'kind', 'status']).where('email', '=', email).executeTakeFirst();
   if (existing) {
     return existing.kind === 'CLIENT' && existing.status === 'ACTIVE' ? { userId: existing.id, created: false } : { unavailable: true };

@@ -2,6 +2,7 @@ import { sql } from 'kysely';
 import { DomainError, Money, Rate, referenceDirectionOf, requireText } from '@inrp2p/kernel';
 import type { DestinationStatus, Executor, InrRailValue, P2pExperience, TraderOrderStatus, TraderSide, TraderStatus } from '@inrp2p/db';
 import type { FieldProtector } from '@inrp2p/adapters';
+import { TELEGRAM_PROVIDER, signInLabel } from '@inrp2p/identity';
 import { type P2pDeal, obligationRemaining, p2pDeal } from '@inrp2p/settlement';
 import { traderApplicant, traderMembership, traderProgram } from '@inrp2p/trader-core';
 import { CLIENT_FUNDED_STATES } from './delivery.ts';
@@ -789,11 +790,19 @@ export interface TraderApplicationOptions {
 export async function traderApplicationOptions(ex: Executor, userId: string): Promise<TraderApplicationOptions> {
   const { member } = await traderApplicant(ex, userId);
   const program = await traderProgram(ex);
-  const user = await ex.selectFrom('auth_user').select('email').where('id', '=', userId).executeTakeFirstOrThrow();
+  const user = await ex
+    .selectFrom('auth_user as u')
+    .leftJoin('auth_account as tg', (j) => j.onRef('tg.user_id', '=', 'u.id').on('tg.provider_id', '=', TELEGRAM_PROVIDER))
+    .select(['u.email', 'tg.telegram_username'])
+    .where('u.id', '=', userId)
+    .executeTakeFirstOrThrow();
+  // Someone who signed in with Telegram is reached there: their handle is already known, and they are shown by it.
+  const email = signInLabel(user.email, user.telegram_username);
+  const handle = user.telegram_username ? `@${user.telegram_username}` : null;
   if (!member) {
     return traderSafe({
       banks: [], wallets: [], reserveRequired: program.defaultRequiredReserve?.toDecimalString() ?? null, canApply: true,
-      profile: { fullName: null, entityType: null, nameFixed: false, typeFixed: false, telegram: null, email: user.email },
+      profile: { fullName: null, entityType: null, nameFixed: false, typeFixed: false, telegram: handle, email },
     });
   }
   const client = await ex.selectFrom('client').select(['display_name', 'type', 'exchange_access']).where('id', '=', member.clientId).executeTakeFirstOrThrow();
@@ -805,6 +814,6 @@ export async function traderApplicationOptions(ex: Executor, userId: string): Pr
     wallets: wallets.map((w) => ({ id: w.id, label: w.label, address: w.address, usable: w.purpose === 'BOTH' })),
     reserveRequired: program.defaultRequiredReserve?.toDecimalString() ?? null,
     canApply: member.role === 'CLIENT_ADMIN',
-    profile: { fullName: client.display_name, entityType: client.type, nameFixed: client.exchange_access, typeFixed: true, telegram: previous?.telegram_handle ?? null, email: user.email },
+    profile: { fullName: client.display_name, entityType: client.type, nameFixed: client.exchange_access, typeFixed: true, telegram: previous?.telegram_handle ?? handle, email },
   });
 }

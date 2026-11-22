@@ -92,7 +92,7 @@ export default async function ClientLayout({ children }: { children: ReactNode }
   const base = member?.exchangeAccess ? ENTRIES : member ? TRADER_ENTRIES : NEW_ENTRIES;
   const withDesks = dealsWithDesks && member?.exchangeAccess ? [base[0]!, DESKS, ...base.slice(1)] : base;
   const entries = desks ? withDesk(withDesks) : withDesks;
-  const name = member?.clientName ?? ctx.access.email;
+  const name = member?.clientName ?? ctx.access.name;
   const deskState = ownDesk ? DESK_STATE[ownDesk.status] : undefined;
 
   const commands: CommandEntry[] = [
@@ -147,7 +147,7 @@ export default async function ClientLayout({ children }: { children: ReactNode }
             {member ? (
               <NotificationsLink unread={unread} className={styles.iconButton} iconClassName={styles.toolIcon} badgeClassName={styles.unread} />
             ) : null}
-            <AccountMenu name={name} email={ctx.access.email} role={member ? (ROLE[member.role] ?? 'Viewer') : null} hasAccount />
+            <AccountMenu name={name} email={ctx.access.label} role={member ? (ROLE[member.role] ?? 'Viewer') : null} hasAccount />
           </div>
         </div>
       </header>

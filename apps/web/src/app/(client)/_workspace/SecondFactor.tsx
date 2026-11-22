@@ -4,6 +4,7 @@ import { useState } from 'react';
 import type { Protection } from '../../../server/client.ts';
 import { ConfirmDialog, ConfirmPanel } from '../../../components/Confirm.tsx';
 import type { ConfirmFactor } from '../../../components/confirm-factors.ts';
+import { AddEmail } from './AddEmail.tsx';
 import { PhoneIcon, PlaneIcon } from './icons.tsx';
 import { SecureAccount } from './SecureAccount.tsx';
 import { startTelegramLink } from './telegram-link.ts';
@@ -11,12 +12,13 @@ import shell from '../shell.module.css';
 import styles from './secure.module.css';
 
 /**
- * A second way to confirm (ADR 0026), for someone who signed in with their email and has nothing else yet: their
- * Telegram — two taps, then its codes arrive as a notification — or an authenticator app. Either one, and a new bank
- * account, a withdrawal or a team change is confirmed by it from then on.
+ * A second way to confirm (ADR 0026), for someone who has one way in and nothing else yet. Signed in with their email:
+ * their Telegram — two taps, then its codes arrive as a notification — or an authenticator app. Signed up with Telegram:
+ * their email, or an authenticator app. Any one, and a new bank account, a withdrawal or a team change is confirmed by it
+ * from then on.
  */
 export function SecondFactor({ protection, email, returnTo, onDone, embedded = false }: { protection: Protection; email: string; returnTo: string; onDone: () => void; embedded?: boolean }) {
-  const [app, setApp] = useState(protection.telegram !== 'OFFER');
+  const [app, setApp] = useState(protection.email && protection.telegram !== 'OFFER');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<ConfirmFactor[] | null>(null);
@@ -41,6 +43,18 @@ export function SecondFactor({ protection, email, returnTo, onDone, embedded = f
   };
 
   if (app) return <SecureAccount email={email} onDone={onDone} embedded={embedded} />;
+
+  if (!protection.email) {
+    return (
+      <div className={styles.stack}>
+        <AddEmail onDone={onDone} />
+        <button type="button" className={shell.textAction} onClick={() => setApp(true)}>
+          <PhoneIcon className={shell.actionIcon} />
+          Use an authenticator app instead
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className={styles.intro}>

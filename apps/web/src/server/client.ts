@@ -112,6 +112,8 @@ export interface Protection {
   readonly canConfirm: boolean;
   readonly signInMethod: 'EMAIL' | 'TELEGRAM';
   readonly authenticator: boolean;
+  /** Whether they have an email to confirm with: false while an account Telegram opened has added none (ADR 0026). */
+  readonly email: boolean;
   /** LINKED, or OFFER when Log In with Telegram is set up and this person has not linked one yet. */
   readonly telegram: 'LINKED' | 'OFFER' | 'NONE';
 }
@@ -123,6 +125,7 @@ export const protectionOfRequest = cache(async (): Promise<Protection> => {
     canConfirm: f.independent.length > 0,
     signInMethod: f.signInMethod,
     authenticator: f.available.includes('TOTP'),
+    email: f.available.includes('EMAIL'),
     telegram: f.available.includes('TELEGRAM') ? 'LINKED' : telegramLoginConfigured() ? 'OFFER' : 'NONE',
   };
 });

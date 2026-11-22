@@ -33,6 +33,8 @@ function BackGlyph() {
  */
 const COPY = {
   SIGN_IN: { eyebrow: 'INRP2P workspace', title: 'One email. No password.', lede: 'We send a code to your email. New here? The same code opens your account.' },
+  /** The same door where Telegram is offered (ADR 0026): either way in also opens an account. */
+  SIGN_IN_TELEGRAM: { eyebrow: 'INRP2P workspace', title: 'No password. Ever.', lede: 'Continue with Telegram, or get a code by email. New here? Either one opens your account.' },
   TRADER: {
     eyebrow: 'For traders',
     title: 'Open your exchange.',
@@ -41,7 +43,7 @@ const COPY = {
 } as const;
 
 export function WorkspaceGateway({ home, mode = 'SIGN_IN', next, telegram = null }: { home: string; mode?: 'SIGN_IN' | 'TRADER'; next?: string; telegram?: TelegramOffer | null }) {
-  const copy = COPY[mode];
+  const copy = COPY[mode === 'SIGN_IN' && telegram ? 'SIGN_IN_TELEGRAM' : mode];
   const { props: markProps } = getImageProps({ src: mark, alt: '', width: 32, height: 32 });
   return (
     <div className={styles.page}>

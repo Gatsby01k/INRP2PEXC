@@ -11,3 +11,4 @@ export * from './auth/schema-mapping.ts';
 export * from './auth/factors.ts';
 export * from './auth/telegram.ts';
 export * from './auth/step-up-codes.ts';
+export * from './auth/add-email.ts';

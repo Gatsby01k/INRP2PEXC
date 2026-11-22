@@ -7,9 +7,10 @@ import { isDomainError, uuidv7 } from '@inrp2p/kernel';
 import type { Db } from '@inrp2p/db';
 import { appendAuditDirect } from '@inrp2p/audit';
 import { accountSchema, rateLimitSchema, sessionSchema, twoFactorSchema, userSchema, verificationSchema } from './schema-mapping.ts';
+import { addEmail } from './add-email.ts';
 import { requireFactorChange } from './factors.ts';
 import { type StepUpCodeSenders, stepUpCodes } from './step-up-codes.ts';
-import { TELEGRAM_PROVIDER, type TelegramLoginConfig, telegramOAuthProvider, telegramUsernameOf } from './telegram.ts';
+import { TELEGRAM_PROVIDER, type TelegramLoginConfig, isTelegramPlaceholderEmail, telegramOAuthProvider, telegramUsernameOf } from './telegram.ts';
 
 import { LAST_SIGN_IN_COOKIE, SESSION_POLICY, type Surface } from './policy.ts';
 import { originOf, recordSignIn } from './sign-ins.ts';
@@ -127,7 +128,7 @@ function common(deps: AuthDeps, surface: Surface) {
  */
 const AUDITED_FAILURES = new Set([
   '/sign-in/email', '/two-factor/verify-totp', '/two-factor/enable', '/sign-in/email-otp', '/email-otp/send-verification-otp',
-  '/sign-in/social', '/link-social', '/unlink-account',
+  '/sign-in/social', '/link-social', '/unlink-account', '/account-email/send',
 ]);
 
 async function auditFailure(appDb: Db, surface: Surface, path: string, returned: unknown): Promise<void> {
@@ -340,15 +341,22 @@ function clientBeforeHook(appDb: Db, invalidOtp: Parameters<typeof APIError.from
       return;
     }
     if (ctx.path === '/unlink-account') {
+      // An account Telegram opened has no other way in until its email is added: its Telegram stays (ADR 0026).
+      const session = await getSessionFromCtx(ctx);
+      if (session && isTelegramPlaceholderEmail(session.user.email)) {
+        throw new APIError('FORBIDDEN', { message: 'add your email first: Telegram is how you sign in', code: 'ADD_EMAIL_FIRST' });
+      }
       await guardFactorChange(appDb, ctx);
       return;
     }
     if (!CLIENT_EMAIL_PATHS.has(ctx.path)) return;
     const raw = (ctx.body as { email?: unknown } | undefined)?.email;
     if (typeof raw !== 'string') return;
-    const user = await appDb.selectFrom('auth_user').select(['kind', 'status']).where('email', '=', raw.trim().toLowerCase()).executeTakeFirst();
+    // A Telegram account's stand-in address is nobody's inbox: no code goes there, answered like any address that is not a client's.
+    const placeholder = isTelegramPlaceholderEmail(raw);
+    const user = placeholder ? null : await appDb.selectFrom('auth_user').select(['kind', 'status']).where('email', '=', raw.trim().toLowerCase()).executeTakeFirst();
     // Unknown addresses go through Better Auth's own handling, which already answers them without enumerating.
-    if (!user || (user.kind === 'CLIENT' && user.status === 'ACTIVE')) return;
+    if (!placeholder && (!user || (user.kind === 'CLIENT' && user.status === 'ACTIVE'))) return;
     await appendAuditDirect(appDb, {
       actorType: 'SYSTEM', actorId: null, surface: 'CLIENT', correlationId: randomUUID(),
       action: 'session.failed', entityType: 'auth_endpoint', entityId: ctx.path, after: { error: 'NOT_A_CLIENT_ADDRESS' },
@@ -467,9 +475,34 @@ function telegramAccountHooks(deps: ClientAuthDeps) {
 }
 
 /**
- * Client authentication (ADR 0026): an email code (hashed at rest), or — for an account that linked one — Telegram's
- * own sign-in. Both open the same account; neither creates one (the workspace's access step does, for an email). A
- * session lasts (SESSION_POLICY); what matters is confirmed again by another factor (`factors.ts`, `/step-up/*`).
+ * A person Telegram is opening an account for (ADR 0026, amended 2026-11-22): Better Auth creates them from Telegram's
+ * profile with a placeholder address, and they are a client — an identity with no client, no role and no permission,
+ * exactly what the email door creates (`ensureClientIdentity`); the account itself is opened on `/open-account`. A user
+ * the client surface creates is a client (`kind` defaults to CLIENT here); the email code never creates one.
+ */
+function clientUserHooks(appDb: Db) {
+  return {
+    create: {
+      before: async (user: { email: string } & Record<string, unknown>) => {
+        if (!isTelegramPlaceholderEmail(user.email)) return;
+        return { data: { ...user, kind: 'CLIENT', status: 'ACTIVE', emailVerified: false } };
+      },
+      after: async (user: { id: string; email: string }) => {
+        if (!isTelegramPlaceholderEmail(user.email)) return;
+        await appendAuditDirect(appDb, {
+          actorType: 'SYSTEM', actorId: null, surface: 'CLIENT', correlationId: randomUUID(),
+          action: 'client_user.identity_created', entityType: 'auth_user', entityId: user.id, after: { via: 'telegram' },
+        });
+      },
+    },
+  };
+}
+
+/**
+ * Client authentication (ADR 0026): an email code (hashed at rest), or Telegram's own sign-in. An email opens an
+ * account through the workspace's access step; Telegram opens one by itself, with a placeholder address until the person
+ * adds theirs (`add-email.ts`); a Telegram linked from inside signs in the account it was linked to. A session lasts
+ * (SESSION_POLICY); what matters is confirmed again by another factor (`factors.ts`, `/step-up/*`).
  */
 export function clientAuthOptions(deps: ClientAuthDeps) {
   const base = common(deps, 'CLIENT');
@@ -495,6 +528,8 @@ export function clientAuthOptions(deps: ClientAuthDeps) {
     ...base,
     appName: 'INRP2P Exchange',
     emailAndPassword: { enabled: false },
+    // Whoever the client surface creates is a client: Telegram's own sign-up passes no kind (ADR 0026).
+    user: { ...base.user, additionalFields: { ...userAdditional, kind: { ...userAdditional.kind, defaultValue: 'CLIENT' } } },
     session: {
       ...base.session,
       // Unlinking a Telegram is guarded by a step-up of its own (ADR 0026), not by how old the session is.
@@ -523,7 +558,7 @@ export function clientAuthOptions(deps: ClientAuthDeps) {
         [`/callback/${TELEGRAM_PROVIDER}`]: { window: 600, max: 20 },
       },
     },
-    databaseHooks: { ...base.databaseHooks, account: telegramAccountHooks(deps) },
+    databaseHooks: { ...base.databaseHooks, user: clientUserHooks(deps.appDb), account: telegramAccountHooks(deps) },
     hooks: { before: clientBeforeHook(deps.appDb, otp.$ERROR_CODES.INVALID_OTP), after: clientAfterHook(deps.appDb) },
     plugins: [
       otp,
@@ -537,6 +572,7 @@ export function clientAuthOptions(deps: ClientAuthDeps) {
         accountLockout: { enabled: true, maxFailedAttempts: 5, durationSeconds: 900 },
       }),
       stepUpCodes({ appDb: deps.appDb, secret: deps.secret, senders: { email: deps.otpSender, ...(telegram ? { telegram: { send: telegram.send } } : {}) } satisfies StepUpCodeSenders }),
+      addEmail({ appDb: deps.appDb, secret: deps.secret, sender: deps.otpSender, onTelegramMoved: telegram?.onLinked }),
       // The device remembers how the person signed in last, so the sign-in page offers that first. A name, never an address.
       lastLoginMethod({ cookieName: LAST_SIGN_IN_COOKIE, maxAge: 365 * 24 * 3600, customResolveMethod: lastSignInOf }),
       ...(telegram ? [genericOAuth({ config: [telegramOAuthProvider(telegram.login)] })] : []),

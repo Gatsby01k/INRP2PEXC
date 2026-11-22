@@ -47,7 +47,11 @@ export async function disconnectTelegram(accountId: string): Promise<TelegramSte
 
 /** What Telegram's answer on the way back means, in words. */
 export function telegramLinkProblem(error: string | null): string {
-  if (error === 'account_already_linked_to_different_user') return 'This Telegram is already connected to another INRP2P account. Disconnect it there first, or use another Telegram.';
+  if (error === 'account_already_linked_to_different_user') {
+    // Most often: the person signed up with Telegram before, then with their email. An empty Telegram account joins this
+    // one when that email is added to it (ADR 0026).
+    return 'This Telegram already has its own INRP2P account. Sign in with Telegram and add this email in Account & security — if that account is still empty, the two become one.';
+  }
   if (error === 'access_denied') return 'Connecting Telegram was cancelled.';
   return 'Telegram didn’t finish connecting. Try again.';
 }

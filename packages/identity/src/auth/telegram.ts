@@ -8,7 +8,8 @@ import { type JWTVerifyGetKey, createRemoteJWKSet, decodeJwt, jwtVerify } from '
  * It is the bot that sends the deal alerts: in BotFather, its Login Widget lists the client app's origin and its callback
  * (`<app>/api/auth/callback/telegram`) and shows the Client ID and Client Secret. The scopes ask for the person's id and
  * name, and for the bot to be allowed to write to them — that private chat is where their confirmation codes and alerts
- * arrive. Telegram gives no email: it can only sign in an INRP2P account that already linked it (Account & security).
+ * arrive. Telegram gives no email: an account it opens carries a placeholder address (`telegramPlaceholderEmail`) until the
+ * person adds their own in Account & security; an account opened by email links its Telegram from there.
  */
 export const TELEGRAM_PROVIDER = 'telegram';
 export const TELEGRAM_ISSUER = 'https://oauth.telegram.org';
@@ -19,10 +20,26 @@ export const TELEGRAM_SCOPES = ['openid', 'profile', 'telegram:bot_access'] as c
 
 /**
  * Better Auth's OAuth sign-in needs an address for a profile; Telegram has none. This one can never be a person's: the
- * `.invalid` top-level domain is reserved (RFC 2606) and the workspace refuses it, and implicit linking by address is
- * off besides — a Telegram signs in only the account it was linked to from inside.
+ * `.invalid` top-level domain is reserved (RFC 2606), nothing is ever sent to it, the workspace's email door refuses it,
+ * and implicit linking by address is off besides — a Telegram signs in only the account it opened or was linked to.
+ * The database holds it to that (migration 0054): only a client's, never "verified".
  */
-export const telegramPlaceholderEmail = (telegramId: string) => `telegram-${telegramId}@telegram.invalid`;
+export const TELEGRAM_PLACEHOLDER_DOMAIN = 'telegram.invalid';
+export const telegramPlaceholderEmail = (telegramId: string) => `telegram-${telegramId}@${TELEGRAM_PLACEHOLDER_DOMAIN}`;
+
+/** Whether an account's address is a stand-in rather than a person's email: it opened with Telegram and added none yet. */
+export function isTelegramPlaceholderEmail(email: string | null | undefined): boolean {
+  return typeof email === 'string' && email.trim().toLowerCase().endsWith(`@${TELEGRAM_PLACEHOLDER_DOMAIN}`);
+}
+
+/**
+ * How a person is shown wherever their address would be: the address itself, or — for an account Telegram opened that
+ * has not added an email — their Telegram (`@username`, or just "Telegram" when they have none). Never the placeholder.
+ */
+export function signInLabel(email: string, telegramUsername: string | null | undefined): string {
+  if (!isTelegramPlaceholderEmail(email)) return email;
+  return telegramUsername ? `@${telegramUsername}` : 'Telegram';
+}
 
 export interface TelegramLoginConfig {
   /** BotFather → the bot → Login Widget. */
@@ -100,8 +117,9 @@ export function telegramOAuthProvider(config: TelegramLoginConfig) {
     tokenUrl: TOKEN_URL,
     scopes: [...TELEGRAM_SCOPES],
     pkce: true,
-    // Only an account that linked this Telegram from inside is signed in by it; nobody is created, nothing is matched by address.
-    disableSignUp: true,
+    // A Telegram nobody holds opens a new client account — but only when the workspace's door asks for it
+    // (`requestSignUp`); nothing is ever matched by address (implicit linking is off).
+    disableSignUp: false,
     disableImplicitSignUp: true,
     accountSubject: ({ profile }: { profile: { id?: unknown } }) => String(profile.id ?? ''),
     // Telegram's token endpoint, as its documentation states it: HTTP Basic client authentication and a form body.

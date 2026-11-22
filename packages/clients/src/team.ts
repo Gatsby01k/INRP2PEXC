@@ -3,7 +3,7 @@ import { DomainError, requireOneOf, requireUuid } from '@inrp2p/kernel';
 import type { ClientUserRole, Executor, TeamRole, TxContext } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
 import { enqueueOutbox } from '@inrp2p/outbox';
-import { type ClientActor, type DomainCommand, actorLabel } from '@inrp2p/identity';
+import { type ClientActor, type DomainCommand, TELEGRAM_PROVIDER, actorLabel, signInLabel } from '@inrp2p/identity';
 import { type ClientAdminCheck, authorizeClientAdmin } from './authz.ts';
 
 /**
@@ -310,7 +310,8 @@ export async function clientTeam(ex: Executor, clientId: string, viewerUserId?: 
   const members = await ex
     .selectFrom('client_user as cu')
     .innerJoin('auth_user as u', 'u.id', 'cu.user_id')
-    .select(['cu.id', 'cu.user_id', 'cu.role', 'cu.can_accept_quotes', 'cu.status', 'cu.created_at', 'u.email', 'u.two_factor_enabled'])
+    .leftJoin('auth_account as tg', (j) => j.onRef('tg.user_id', '=', 'u.id').on('tg.provider_id', '=', TELEGRAM_PROVIDER))
+    .select(['cu.id', 'cu.user_id', 'cu.role', 'cu.can_accept_quotes', 'cu.status', 'cu.created_at', 'u.email', 'u.two_factor_enabled', 'tg.telegram_username'])
     .where('cu.client_id', '=', id)
     .orderBy(sql`cu.status = 'ACTIVE'`, 'desc')
     .orderBy('cu.created_at')
@@ -325,7 +326,7 @@ export async function clientTeam(ex: Executor, clientId: string, viewerUserId?: 
     .execute();
   return {
     members: members.map((m) => ({
-      clientUserId: m.id, email: m.email, role: teamRoleOf(m.role, m.can_accept_quotes), status: m.status,
+      clientUserId: m.id, email: signInLabel(m.email, m.telegram_username), role: teamRoleOf(m.role, m.can_accept_quotes), status: m.status,
       authenticator: m.two_factor_enabled === true, since: m.created_at.toISOString(), isYou: m.user_id === viewerUserId,
     })),
     invites: invites.map((i) => ({

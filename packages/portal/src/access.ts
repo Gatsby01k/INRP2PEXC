@@ -1,5 +1,6 @@
 import { DomainError } from '@inrp2p/kernel';
 import type { Executor } from '@inrp2p/db';
+import { TELEGRAM_PROVIDER, isTelegramPlaceholderEmail, signInLabel } from '@inrp2p/identity';
 import { assertClientSafe } from '@inrp2p/quotes';
 
 /**
@@ -29,8 +30,19 @@ export interface PortalAccess {
  * own application.
  */
 export type WorkspaceAccess =
-  | { readonly kind: 'MEMBER'; readonly userId: string; readonly email: string; readonly member: PortalAccess }
-  | { readonly kind: 'NEW'; readonly userId: string; readonly email: string };
+  | ({ readonly kind: 'MEMBER'; readonly member: PortalAccess } & SignedInAs)
+  | ({ readonly kind: 'NEW' } & SignedInAs);
+
+/** Who is signed in, as the workspace shows and uses it (ADR 0026). */
+interface SignedInAs {
+  readonly userId: string;
+  /** Their email, or null for an account Telegram opened that has not added one (its address is a placeholder). */
+  readonly email: string | null;
+  /** How they are shown: their email, or their Telegram (`@username`) when they have no email yet. */
+  readonly label: string;
+  /** Their name before they have an account to show: the email, or the name Telegram gave for an account it opened. */
+  readonly name: string;
+}
 
 export async function workspaceAccess(ex: Executor, userId: string): Promise<WorkspaceAccess> {
   // The user and their membership in one statement: a user has at most one membership and a membership one client
@@ -39,21 +51,24 @@ export async function workspaceAccess(ex: Executor, userId: string): Promise<Wor
     .selectFrom('auth_user as u')
     .leftJoin('client_user as cu', 'cu.user_id', 'u.id')
     .leftJoin('client as c', 'c.id', 'cu.client_id')
+    .leftJoin('auth_account as tg', (j) => j.onRef('tg.user_id', '=', 'u.id').on('tg.provider_id', '=', TELEGRAM_PROVIDER))
     .select([
-      'u.email', 'u.kind', 'u.status',
+      'u.email', 'u.name', 'u.kind', 'u.status', 'tg.telegram_username',
       'cu.client_id', 'cu.role', 'cu.can_accept_quotes', 'cu.status as member_status',
       'c.display_name', 'c.status as client_status', 'c.exchange_access',
     ])
     .where('u.id', '=', userId)
     .executeTakeFirst();
   if (!row || row.kind !== 'CLIENT' || row.status !== 'ACTIVE') throw new DomainError('FORBIDDEN', 'this account cannot use the workspace');
-  if (row.client_id === null) return { kind: 'NEW', userId, email: row.email };
+  const placeholder = isTelegramPlaceholderEmail(row.email);
+  const label = signInLabel(row.email, row.telegram_username);
+  const who: SignedInAs = { userId, email: placeholder ? null : row.email, label, name: placeholder ? row.name.trim() || label : row.email };
+  if (row.client_id === null) return { kind: 'NEW', ...who };
   if (row.member_status !== 'ACTIVE') throw new DomainError('FORBIDDEN', 'this account is not linked to a client');
   if (row.client_status !== 'ACTIVE') throw new DomainError('FORBIDDEN', 'this client is not active');
   return {
     kind: 'MEMBER',
-    userId,
-    email: row.email,
+    ...who,
     member: {
       userId,
       clientId: row.client_id,

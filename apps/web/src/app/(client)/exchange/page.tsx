@@ -87,7 +87,7 @@ export default async function ExchangePage({ searchParams }: { searchParams: Pro
         canAccept={ctx.access.canAcceptQuotes}
         serverTime={now.toISOString()}
         recent={recent}
-        who={{ isAdmin: ctx.access.role === 'CLIENT_ADMIN', protection, email: who.email, clientName: ctx.access.clientName }}
+        who={{ isAdmin: ctx.access.role === 'CLIENT_ADMIN', protection, email: who.label, clientName: ctx.access.clientName }}
         {...(draft ? { draft } : {})}
       />
     </>
