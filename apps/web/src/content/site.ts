@@ -197,7 +197,7 @@ export const FLOW: FlowCopy = {
   direction: { label: 'Direction shown', options: { SELL_USDT: 'Sell USDT', BUY_USDT: 'Buy USDT' } },
   parties: {
     seller: { SELL_USDT: 'You', BUY_USDT: 'Trader' },
-    escrow: 'INRP2P escrow',
+    escrow: 'INRP2P',
     buyer: { SELL_USDT: 'Trader', BUY_USDT: 'You' },
   },
   lanes: { usdt: 'USDT', rupees: 'Rupees, bank to bank' },

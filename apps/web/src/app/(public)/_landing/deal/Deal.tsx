@@ -37,8 +37,8 @@ function Party({ cx, side }: { cx: number; side: 'seller' | 'buyer' }) {
   );
 }
 
-/** The rupees' way: from the buyer's bank, down under the robot, up to the seller's — never through the escrow. */
-const BACK = 'M670 348V364a22 22 0 0 1-22 22H112a22 22 0 0 1-22-22V348';
+/** The rupees' way: from the buyer's bank, down under the robot and its name, up to the seller's — never through the escrow. */
+const BACK = 'M670 348V394a22 22 0 0 1-22 22H112a22 22 0 0 1-22-22V348';
 
 /**
  * The deal's picture: the seller and the buyer either side, and in the middle INRP2P's escrow — the robot itself. The
@@ -49,7 +49,7 @@ function Picture() {
   const { props: robot } = getImageProps({ src: still, alt: '', width: 360, height: 360, sizes: '(max-width: 1099px) 48vw, 360px' });
   return (
     <>
-      <svg className={styles.rail} viewBox="0 0 760 410" aria-hidden="true" focusable="false">
+      <svg className={styles.rail} viewBox="0 0 760 440" aria-hidden="true" focusable="false">
         <circle cx="380" cy="294" r="132" className={styles.vaultGlow} />
         <path className={styles.lane} data-lane="in" d="M144 294H300" />
         <path className={styles.lane} data-lane="out" d="M460 294H616" />
@@ -68,13 +68,13 @@ function Picture() {
         </span>
       </div>
 
-      <svg className={`${styles.rail} ${styles.front}`} viewBox="0 0 760 410" aria-hidden="true" focusable="false">
+      <svg className={`${styles.rail} ${styles.front}`} viewBox="0 0 760 440" aria-hidden="true" focusable="false">
         <circle cx="380" cy="294" r="38" className={styles.chestGlow} />
         <g className={styles.lock}>
-          <circle cx="422" cy="334" r="17" className={styles.lockPlate} />
-          <circle cx="422" cy="334" r="12.5" className={styles.lockDisc} />
-          <rect x="416.5" y="333" width="11" height="8.4" rx="2.2" className={styles.lockBody} />
-          <path className={styles.lockBow} d="M418.8 333v-2.2a3.2 3.2 0 0 1 6.4 0v2.2" />
+          <circle cx="424" cy="322" r="17" className={styles.lockPlate} />
+          <circle cx="424" cy="322" r="12.5" className={styles.lockDisc} />
+          <rect x="418.5" y="321" width="11" height="8.4" rx="2.2" className={styles.lockBody} />
+          <path className={styles.lockBow} d="M420.8 321v-2.2a3.2 3.2 0 0 1 6.4 0v2.2" />
         </g>
         <g className={styles.usdt}>
           <circle r="23" className={styles.riderPlate} />
@@ -146,6 +146,7 @@ export function Deal() {
                 </span>
                 <span className={styles.who} data-at="escrow">
                   <b>{parties.escrow}</b>
+                  <small>Escrow</small>
                 </span>
                 <span className={styles.who} data-at="buyer">
                   <b>
