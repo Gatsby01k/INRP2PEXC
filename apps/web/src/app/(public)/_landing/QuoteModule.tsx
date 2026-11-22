@@ -1,7 +1,18 @@
 'use client';
 
-import { type CSSProperties, type ChangeEvent, type FocusEvent, type MouseEvent, type PointerEvent, useEffect, useId, useRef, useState } from 'react';
-import { LayoutGroup, LazyMotion, MotionConfig, domMax, m } from 'framer-motion';
+import {
+  type CSSProperties,
+  type ChangeEvent,
+  type FocusEvent,
+  type MouseEvent,
+  type PointerEvent,
+  type RefObject,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
 import { Money, type Direction } from '@inrp2p/kernel';
 import { sanitizeAmountInput } from '@inrp2p/ui';
 import { formatUsdtCompact, groupDigits } from '@inrp2p/ui/format';
@@ -29,7 +40,15 @@ import styles from './quote.module.css';
 /** Whole-USDT amounts offered as shortcuts. A typed amount is never rounded towards them. */
 const PRESETS = ['25000', '100000', '500000'] as const;
 const INITIAL_AMOUNT = '100000';
-const SPRING = { type: 'spring', stiffness: 520, damping: 40 } as const;
+/**
+ * The module's one movement: a spring (stiffness 520, damping 40) sampled for `linear()`, so the sides changing places
+ * and the direction pill (quote.module.css, the same curve) move alike — quick, settled in a third of a second, with an
+ * overshoot too small to see. A browser without `linear()` gets the system's ease-out.
+ */
+const SPRING_MS = 340;
+const SPRING_EASING = 'linear(0, 0.089, 0.268, 0.458, 0.623, 0.752, 0.846, 0.91, 0.951, 0.976, 0.991, 0.998, 1.002, 1.003, 1.003, 1.003, 1)';
+const SPRING_FALLBACK = 'cubic-bezier(0.2, 0, 0, 1)';
+const SLIDE = 'quote-slide';
 const DIRECTIONS: readonly Direction[] = ['SELL_USDT', 'BUY_USDT'];
 const SIDE_LABEL: Record<Direction, string> = { SELL_USDT: 'Sell USDT', BUY_USDT: 'Buy USDT' };
 
@@ -39,6 +58,40 @@ function SwapIcon() {
       <path d="M8 4v16 M4.5 7.5 8 4l3.5 3.5 M16 20V4 M12.5 16.5 16 20l3.5-3.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
+}
+
+/**
+ * Moves an element from where it was drawn to where layout now puts it, whenever a render moves it: the two sides
+ * changing places when the deal turns round, or the other side making room for an error under the field. Layout
+ * changes at once; the element is drawn from its old place back to its new one, by transform alone (FLIP, with the Web
+ * Animations API). A move that starts while another is under way starts from wherever the element is drawn, so a
+ * quick second turn reverses smoothly. Nothing moves for a reader who asked for less motion.
+ */
+function useSlide(ref: RefObject<HTMLElement | null>) {
+  const laid = useRef<{ x: number; y: number } | null>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const now = { x: el.offsetLeft, y: el.offsetTop };
+    const before = laid.current;
+    laid.current = now;
+    if (!before || (before.x === now.x && before.y === now.y)) return;
+    // Where it is drawn this moment: its old place, plus whatever a move still under way has left to go.
+    const moving = el.getAnimations().filter((a) => a.id === SLIDE);
+    const drawn = moving.length ? new DOMMatrixReadOnly(getComputedStyle(el).transform) : null;
+    const dx = before.x - now.x + (drawn?.m41 ?? 0);
+    const dy = before.y - now.y + (drawn?.m42 ?? 0);
+    for (const a of moving) a.cancel();
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const frames = [{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }];
+    let slide: Animation;
+    try {
+      slide = el.animate(frames, { duration: SPRING_MS, easing: SPRING_EASING });
+    } catch {
+      slide = el.animate(frames, { duration: SPRING_MS, easing: SPRING_FALLBACK });
+    }
+    slide.id = SLIDE;
+  });
 }
 
 /** `onboarding` is where a visitor without a client account opens one (server/site.ts `onboardingHref`). */
@@ -81,6 +134,10 @@ export function QuoteModule({ appOrigin, onboarding, copy }: { appOrigin: string
   // the focus, and the robot signals it once. Typing an amount clears it.
   const [missingAmount, setMissingAmount] = useState(false);
   const input = useRef<HTMLInputElement>(null);
+  const usdtBox = useRef<HTMLDivElement>(null);
+  const inrBox = useRef<HTMLDivElement>(null);
+  useSlide(usdtBox);
+  useSlide(inrBox);
   const hasAmount = (value: string) => /[1-9]/.test(value);
   const request = (e: MouseEvent<HTMLAnchorElement>) => {
     if (hasAmount(amount)) return;
@@ -112,7 +169,7 @@ export function QuoteModule({ appOrigin, onboarding, copy }: { appOrigin: string
   const shown = whole ? `${groupDigits(whole)}${fraction !== undefined ? `.${fraction}` : ''}` : '';
 
   const usdtSide = (
-    <m.div key="usdt" layout transition={SPRING} className={`${styles.side} ${missingAmount ? styles.invalid : ''}`} data-robot-target="amount">
+    <div key="usdt" ref={usdtBox} className={`${styles.side} ${missingAmount ? styles.invalid : ''}`} data-robot-target="amount">
       <label htmlFor={amountId} className={styles.sideLabel}>
         {copy.amount[direction]}
       </label>
@@ -157,10 +214,10 @@ export function QuoteModule({ appOrigin, onboarding, copy }: { appOrigin: string
           </button>
         ))}
       </div>
-    </m.div>
+    </div>
   );
   const inrSide = (
-    <m.div key="inr" layout transition={SPRING} className={`${styles.side} ${styles.priced}`}>
+    <div key="inr" ref={inrBox} className={`${styles.side} ${styles.priced}`}>
       <span className={styles.sideLabel}>{copy.counter[direction]}</span>
       <div className={styles.sideRow}>
         <span className={styles.priceBox} aria-live="polite">
@@ -180,77 +237,71 @@ export function QuoteModule({ appOrigin, onboarding, copy }: { appOrigin: string
           INR
         </span>
       </div>
-    </m.div>
+    </div>
   );
   const selling = direction === 'SELL_USDT';
 
   return (
-    <LazyMotion features={domMax} strict>
-      <MotionConfig reducedMotion="user">
-        <section
-          className={styles.panel}
-          aria-labelledby={titleId}
-          data-robot-target="panel"
-          onPointerDownCapture={engage}
-          onFocusCapture={engage}
+    <section
+      className={styles.panel}
+      aria-labelledby={titleId}
+      data-robot-target="panel"
+      onPointerDownCapture={engage}
+      onFocusCapture={engage}
+    >
+      <h2 id={titleId} className="ix-visually-hidden">
+        {copy.title}
+      </h2>
+
+      {/* Sell or buy, said plainly at the top; the pill slides to the side chosen (quote.module.css). */}
+      <div className={styles.direction} role="group" aria-label={copy.title} data-robot-target="toggle">
+        <span className={styles.directionPill} data-side={direction} aria-hidden="true" />
+        {DIRECTIONS.map((d) => (
+          <button key={d} type="button" className={styles.directionOption} aria-pressed={direction === d} onClick={() => changeDirection(d)}>
+            <span className={styles.directionText}>{SIDE_LABEL[d]}</span>
+          </button>
+        ))}
+      </div>
+
+      <div className={styles.sides}>
+        {selling ? usdtSide : inrSide}
+        <button type="button" className={styles.swapButton} aria-label={copy.swap} onClick={() => changeDirection(selling ? 'BUY_USDT' : 'SELL_USDT')}>
+          <SwapIcon />
+        </button>
+        {selling ? inrSide : usdtSide}
+      </div>
+
+      <p className={styles.promise}>
+        <svg className={styles.promiseIcon} viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+          <circle cx="10" cy="10" r="9" />
+          <rect x="6.3" y="9.2" width="7.4" height="5.6" rx="1.7" />
+          <path d="M7.9 9.2V7.9a2.1 2.1 0 0 1 4.2 0v1.3" />
+        </svg>
+        <span>{copy.promise[direction]}</span>
+      </p>
+
+      <div className={styles.action}>
+        <a
+          className={styles.cta}
+          href={requestHref(appOrigin, direction, amount)}
+          data-robot-target="cta"
+          onPointerEnter={() => markCta('hover', true)}
+          onPointerLeave={() => markCta('hover', false)}
+          onFocus={() => markCta('focus', true)}
+          onBlur={() => markCta('focus', false)}
+          onClick={request}
         >
-          <h2 id={titleId} className="ix-visually-hidden">
-            {copy.title}
-          </h2>
-
-          {/* Sell or buy, said plainly at the top; the pill slides to the side chosen. */}
-          <div className={styles.direction} role="group" aria-label={copy.title} data-robot-target="toggle">
-            {DIRECTIONS.map((d) => (
-              <button key={d} type="button" className={styles.directionOption} aria-pressed={direction === d} onClick={() => changeDirection(d)}>
-                {direction === d ? <m.span layoutId="quote-direction" transition={SPRING} className={styles.directionPill} /> : null}
-                <span className={styles.directionText}>{SIDE_LABEL[d]}</span>
-              </button>
-            ))}
-          </div>
-
-          <LayoutGroup>
-            <div className={styles.sides}>
-              {selling ? usdtSide : inrSide}
-              <button type="button" className={styles.swapButton} aria-label={copy.swap} onClick={() => changeDirection(selling ? 'BUY_USDT' : 'SELL_USDT')}>
-                <SwapIcon />
-              </button>
-              {selling ? inrSide : usdtSide}
-            </div>
-          </LayoutGroup>
-
-          <p className={styles.promise}>
-            <svg className={styles.promiseIcon} viewBox="0 0 20 20" aria-hidden="true" focusable="false">
-              <circle cx="10" cy="10" r="9" />
-              <rect x="6.3" y="9.2" width="7.4" height="5.6" rx="1.7" />
-              <path d="M7.9 9.2V7.9a2.1 2.1 0 0 1 4.2 0v1.3" />
-            </svg>
-            <span>{copy.promise[direction]}</span>
-          </p>
-
-          <div className={styles.action}>
-            <a
-              className={styles.cta}
-              href={requestHref(appOrigin, direction, amount)}
-              data-robot-target="cta"
-              onPointerEnter={() => markCta('hover', true)}
-              onPointerLeave={() => markCta('hover', false)}
-              onFocus={() => markCta('focus', true)}
-              onBlur={() => markCta('focus', false)}
-              onClick={request}
-            >
-              <span className={styles.ctaSheen} aria-hidden="true" />
-              <span>{copy.cta}</span>
-              <ArrowIcon className={styles.ctaIcon} />
-            </a>
-            <p className={styles.note}>
-              {copy.note} {ONBOARDING.prompt}{' '}
-              <a className={styles.onboarding} href={onboarding} data-onboarding="">
-                {ONBOARDING.label}
-              </a>
-            </p>
-          </div>
-        </section>
-      </MotionConfig>
-    </LazyMotion>
+          <span className={styles.ctaSheen} aria-hidden="true" />
+          <span>{copy.cta}</span>
+          <ArrowIcon className={styles.ctaIcon} />
+        </a>
+        <p className={styles.note}>
+          {copy.note} {ONBOARDING.prompt}{' '}
+          <a className={styles.onboarding} href={onboarding} data-onboarding="">
+            {ONBOARDING.label}
+          </a>
+        </p>
+      </div>
+    </section>
   );
 }

@@ -22,7 +22,7 @@ const REPO = path.resolve(APP, '../..');
 const ROBOT = path.join(APP, 'src/app/(public)/_landing/robot');
 const OUT = path.join(ROBOT, 'poster');
 const RENDER_SIZE = 1600;
-const SIZES = [1600, 1080, 720] as const;
+const SIZES = [1600, 1080, 720, 480] as const;
 
 const root = mkdtempSync(path.join(tmpdir(), 'inrp2p-robot-poster-'));
 writeFileSync(
