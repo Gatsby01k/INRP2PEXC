@@ -27,6 +27,7 @@
 
 /* Sell or buy: two options on a warm track, the chosen one lifted on a white pill that slides between them. */
 .direction {
+  position: relative;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   padding: 4px;
@@ -60,9 +61,14 @@
   outline-offset: 2px;
 }
 
+/* One pill under the two options, on the side chosen. It moves on the module's spring (QuoteModule.tsx SPRING_EASING);
+   a browser without `linear()` keeps the first transition. */
 .directionPill {
   position: absolute;
-  inset: 0;
+  top: 4px;
+  bottom: 4px;
+  left: 4px;
+  width: calc(50% - 4px);
   border-radius: var(--radius-pill);
   background: linear-gradient(180deg, #fff, #fbf9f6);
   box-shadow:
@@ -70,6 +76,12 @@
     0 0 0 1px rgb(18 19 23 / 0.05),
     0 1px 2px rgb(18 19 23 / 0.08),
     0 8px 16px -8px rgb(96 56 24 / 0.35);
+  transition: transform var(--dur-complete) var(--ease);
+  transition: transform 340ms linear(0, 0.089, 0.268, 0.458, 0.623, 0.752, 0.846, 0.91, 0.951, 0.976, 0.991, 0.998, 1.002, 1.003, 1.003, 1.003, 1);
+}
+
+.directionPill[data-side='BUY_USDT'] {
+  transform: translateX(100%);
 }
 
 .directionText {
@@ -381,6 +393,10 @@
   .ctaSheen {
     animation: none;
     opacity: 0;
+  }
+
+  .directionPill {
+    transition: none;
   }
 }
 

@@ -1,6 +1,10 @@
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 import { headers } from 'next/headers';
+import geistMedium from '../../../../../packages/ui/fonts/Geist-Medium-Latin.woff2';
+import geistRegular from '../../../../../packages/ui/fonts/Geist-Regular-Latin.woff2';
+import geistSemiBold from '../../../../../packages/ui/fonts/Geist-SemiBold-Latin.woff2';
+import soraLatin from '../../../../../packages/ui/fonts/Sora-Variable-Latin.woff2';
 import { SITE_NAME, TAGLINE } from '../../content/site.ts';
 import { publicOrigin } from '../../server/site.ts';
 import { PublicShell } from './PublicShell.tsx';
@@ -30,7 +34,24 @@ export async function generateMetadata(): Promise<Metadata> {
   };
 }
 
+/**
+ * The faces every public page's first screen is set in: Sora for the headline, Geist at the three weights of the
+ * masthead, the words and the buttons. A stylesheet's fonts are only asked for once the stylesheet has arrived and the
+ * page has been laid out; named here, they are asked for with the page itself, beside its styles, so the first screen
+ * is drawn in its own type sooner on a slow connection. The same files the stylesheet names (`*-Latin`, fonts.css), so
+ * nothing is fetched twice.
+ */
+const FIRST_SCREEN_FONTS: readonly string[] = [soraLatin, geistRegular, geistMedium, geistSemiBold];
+
 export default async function PublicLayout({ children }: { children: ReactNode }) {
   const nonce = (await headers()).get('x-inrp2p-nonce') ?? undefined;
-  return <PublicShell nonce={nonce}>{children}</PublicShell>;
+  return (
+    <>
+      {/* Links, not `preload()`: React lifts these into the document's head, where the browser reads them first. */}
+      {FIRST_SCREEN_FONTS.map((href) => (
+        <link key={href} rel="preload" href={href} as="font" type="font/woff2" crossOrigin="anonymous" />
+      ))}
+      <PublicShell nonce={nonce}>{children}</PublicShell>
+    </>
+  );
 }

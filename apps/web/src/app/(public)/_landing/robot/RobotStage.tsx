@@ -1,6 +1,7 @@
 'use client';
 
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import xsmall from './poster/robot-480.webp';
 import small from './poster/robot-720.webp';
 import medium from './poster/robot-1080.webp';
 import large from './poster/robot-1600.webp';
@@ -13,9 +14,10 @@ const RobotCanvas = lazy(() => import('./RobotCanvas.tsx'));
 /**
  * The still robot, rendered from the live robot's own scene in its rest pose (`pnpm --filter @inrp2p/web
  * poster:robot`). `sizes` follows the stage's width in each layout of hero.module.css, so a phone fetches the
- * small image and a large desktop the large one.
+ * small image and a large desktop the large one. The smallest is for phones that draw the 256px stage at under 1.9
+ * device pixels per CSS pixel: there the next one up costs two thirds more bytes for detail the screen cannot show.
  */
-const POSTER_SRCSET = `${small.src} 720w, ${medium.src} 1080w, ${large.src} 1600w`;
+const POSTER_SRCSET = `${xsmall.src} 480w, ${small.src} 720w, ${medium.src} 1080w, ${large.src} 1600w`;
 const POSTER_SIZES = '(max-width: 1199px) min(calc(100vw - 32px), 256px), min(max(487px, calc(76vh - 55px)), 654px, 46vw)';
 
 /**
