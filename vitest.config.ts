@@ -21,6 +21,18 @@ export default defineConfig({
           fileParallelism: false,
         },
       },
+      {
+        // Cost benchmarks (*.bench.test.ts): real-time runs of minutes, never part of CI; run with `--project bench`.
+        test: {
+          name: 'bench',
+          include: ['apps/*/test/**/*.bench.test.ts', 'test/bench/**/*.bench.test.ts'],
+          environment: 'node',
+          globalSetup: ['test/global-setup.ts'],
+          testTimeout: 3_600_000,
+          hookTimeout: 900_000,
+          fileParallelism: false,
+        },
+      },
     ],
     typecheck: { enabled: false },
   },

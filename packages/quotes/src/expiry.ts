@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { sql } from 'kysely';
 import { requireUuid } from '@inrp2p/kernel';
 import type { Db, TxContext } from '@inrp2p/db';
@@ -38,12 +37,13 @@ export async function expireQuoteInTx(ctx: TxContext, quoteId: string): Promise<
 
 /** System command wrapper for the scheduled `quote_expire` job. */
 export async function expireQuote(db: Db, quoteId: string): Promise<boolean> {
-  const key = randomUUID();
+  // No idempotency key: the step is state-guarded (it acts once, only past `expires_at`), and a key could never be
+  // presented again by anyone — it would only be two writes to `idempotency_key` per expiry (see `scanner/system.ts`).
   const out = await executeCommand(db, { authorize: async () => {}, handle: (ctx) => expireQuoteInTx(ctx, quoteId) }, {
     name: 'quote.expire',
     actor: { type: 'SYSTEM', id: null, surface: 'SYSTEM' },
-    payload: { quoteId, run: key },
-    idempotencyKey: key,
+    payload: { quoteId },
+    idempotencyKey: null,
     financial: false,
   });
   return out.result;
@@ -73,11 +73,11 @@ export async function runExpirySweep(db: Db, deps: Pick<QuoteDeps, 'policy'>, li
   for (const id of await dueQuoteIds(db, limit)) {
     if (await expireQuote(db, id)) quotes++;
   }
-  const key = randomUUID();
+  // Every minute, usually with nothing to expire: no idempotency key, for the reason `expireQuote` gives.
   const requests = await executeCommand(db, {
     authorize: async () => {},
     handle: async (ctx) => (await expireInactiveRequests(ctx, { policy: policyOf(deps) }, limit)).length,
-  }, { name: 'request.expire_inactive', actor: { type: 'SYSTEM', id: null, surface: 'SYSTEM' }, payload: { run: key }, idempotencyKey: key, financial: false });
+  }, { name: 'request.expire_inactive', actor: { type: 'SYSTEM', id: null, surface: 'SYSTEM' }, payload: {}, idempotencyKey: null, financial: false });
   const prunedRateLimits = await pruneRateLimitCounters(db);
   return { quotes, requests: requests.result, prunedRateLimits };
 }

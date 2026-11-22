@@ -133,10 +133,21 @@ are what catch a payment the bank never made, and an edited reference quietly br
 **What to check first.**
 
 1. The USDT screen's **Chain providers** table: which provider, its state (answering / failing / down), when it
-   last answered, and the last failure it reported. The worker writes this after every run
-   (`chain_provider_status`); it never contains a credential.
+   last answered, and the last failure it reported. The worker writes this after every run that used the provider
+   (`chain_provider_status`); it never contains a credential. Every configured provider is used at least every
+   two and a half minutes — by the balance readings (`custody_observe`), which ask every provider — and by every
+   confirmation; the scanner touches the second provider only when it fails over. (Before 2026-11-22 balance readings
+   and confirmations recorded nothing here, so a second provider that only ever served them looked silent — "no
+   success since …" — while it was in fact failing, or answering, every minute.)
 2. Whether it is failing for everyone (the provider's own status page) or only for us (credentials, rate limits,
    IP allow-lists — a run of `429` answers is the rate limit).
+3. Recent balance readings that came out `SINGLE_SOURCE` carry the second provider's own words in their detail
+   (`unavailable: <provider>: …`); `scripts/worker-diagnostics.ts` groups them (read only, no addresses printed).
+4. The provider itself, with the worker's settings: `node scripts/tron-provider-probe.ts` (read only; prints names,
+   timings and HTTP statuses, never a URL or key) times every endpoint the worker calls and reads balances the way
+   the worker does, counting how often the solidified head moved under a read. A provider whose head moves under most
+   reads (a slow endpoint, or nodes behind a balancer) was dropped from every reading before 2026-11-22; a balance read
+   now accepts a bracket of up to two blocks and labels the reading with the lower one (`getSolidifiedBalance`).
 
 **What actually happens, so you know what not to fix.**
 
@@ -213,8 +224,11 @@ than five minutes. The desk sees the same thing as a refusal — `CUSTODY_OBSERV
 
 **What actually happens, so you know what not to fix.** A USDT outflow leaves an exchange address only when a
 reading of the chain under five minutes old shows the money there, net of everything already leaving it (B2,
-ADR 0016). The worker's `custody_observe` job reads every address that matters once a minute through every
-configured provider and records each reading (`custody_balance_observation`, append-only). Two independence groups
+ADR 0016). The worker's `custody_observe` job reads every address that matters through every configured provider
+and records each reading (`custody_balance_observation`, append-only): deal addresses every minute; a treasury wallet
+every minute while money is about to leave it or its latest reading is unusable, and otherwise once its reading is two
+and a half minutes old (`QUIET_WALLET_REFRESH_SECONDS`), so a quiet wallet's reading is never past the five-minute
+limit. The signer does not wait for that schedule: it reads the paying address itself right before it plans or signs. Two independence groups
 reporting the same balance is a usable reading; one group is usable only below the D-05 threshold; a disagreement
 or no answer is recorded and never relied on. Nothing is paid while the reading is missing — that is the point.
 
@@ -427,6 +441,11 @@ says why, naming settings only — when production configuration is missing, whe
 owner, when the schema is not the version it was built for, or when the receipts bucket is not versioned. A process
 that is up but not beating is stuck: its log shows the last job it began.
 
+A production worker also stops by itself when the database moves to another schema under it (a migration run while
+it was up): it logs `stopping: … schema …`, lets running jobs finish, starts nothing new and exits non-zero; started
+again with the same image it refuses to start. That is the release order working — deploy the worker image of the
+release the database is at.
+
 **What to do.** Fix what the start-up line names and start it again; every job is state-guarded and catches up on its
 own (the scanner from its cursor, the outbox from what is pending, the sweep from what is due). Restart a stuck worker:
 graceful shutdown lets running jobs finish, and anything interrupted is retried.
@@ -450,6 +469,35 @@ ledger. A payment the bank never made is a fake-UTR case: the trade stays on hol
 
 **What never to do.** Never close a mismatch by editing a record to agree with the other side. The disagreement is
 the evidence; the resolution is a new, audited fact.
+
+---
+
+## queue-failed-rows — permanently failed rows in the worker's queue
+
+**What you were told.** A count of "unavailable" or failed jobs in `graphile_worker` (production reported ~4,100 on
+2026-11-22), or a person looking at the queue.
+
+**What actually happens, so you know what not to fix.** Each cron job runs with a job key and few attempts. When a run
+fails its attempts and the next run is added, graphile-worker moves the key to the new job and leaves the failed one in
+the table, attempts spent, key cleared (`add_jobs`): one row per failed run, kept for inspection, never retried. A
+periodic job carries no work of its own — every run re-reads the database and does what is due then — so the next
+successful run already did what a failed one missed. The rows are not pending work, and they do not slow the queue:
+the job-fetch index only holds available jobs. A worker left running across a migration fails every per-minute job
+once a minute against tables or columns that are gone — up to twelve rows a minute (one per per-minute job) until its image is replaced; it now
+stops itself instead (`worker-stopped`). A provider outage, a quota or a database blip adds one row per failed run.
+
+**What to check first.** `node scripts/worker-diagnostics.ts` with a login that can read `graphile_worker` (read only):
+the queue grouped by task, state and first line of the error, each failed group classified —
+`SUPERSEDED_PERIODIC_RUN` (a cron run: the next run did its work), `SUPERSEDED_BY_SWEEP` (a quote's expiry:
+`quote_expiry_sweep` expires every overdue quote each minute) or `REVIEW`. A group that keeps growing now, with today's
+release, is a live failure: read its error and fix the cause (`provider-outage`, `database-pressure`, …).
+
+**What to do.** Nothing, for superseded runs: they are history. Removing them is a separate, owner-approved step —
+export first, then graphile-worker's own `DELETE_PERMAFAILED_JOBS` cleanup (or `graphile_worker.complete_jobs` on the
+classified ids), never on a `REVIEW` group without reading it.
+
+**What never to do.** Do not reset `attempts` to make old rows run again: a run from days ago re-executed today is a
+sweep against today's state at best, and a step replayed outside its own time at worst.
 
 ---
 

@@ -629,9 +629,10 @@ export async function runRfqSweep(db: Db, limit = 50): Promise<RfqSweepReport> {
  */
 export async function runMarketReferenceRefresh(db: Db, read: () => Promise<{ bidMicro: bigint; askMicro: bigint; source: string }>): Promise<{ recorded: DirectionValue[]; skipped: string[]; source: string }> {
   const reading = await read();
-  const key = randomUUID();
+  // A reading every five minutes, recorded and audited as itself; no idempotency key — one nobody could present again
+  // replays nothing (see `scanner/system.ts`).
   const out = await executeCommand(db, { authorize: async () => {}, handle: (ctx) => recordMarketReference(ctx, reading) }, {
-    name: 'rates.market_reference_read', actor: SYSTEM, payload: { source: reading.source, run: key }, idempotencyKey: key, financial: false,
+    name: 'rates.market_reference_read', actor: SYSTEM, payload: { source: reading.source }, idempotencyKey: null, financial: false,
   });
   return { ...out.result, source: reading.source };
 }

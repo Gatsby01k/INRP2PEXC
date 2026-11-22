@@ -11,6 +11,7 @@ import { CRONTAB, buildTaskList, onchainWakeup, quoteExpiryScheduler, recordHear
 import { TronSendNetwork } from '@inrp2p/adapters';
 import { signerFromEnv } from '@inrp2p/adapters/signer';
 import type { OnchainDeps } from '@inrp2p/onchain';
+import { watchSchema } from './schema-watch.ts';
 import { UNCONFIGURED_PROTECTOR, auditArchiveFromEnv, chainMonitoringFromEnv, chainMonitoringReady, describeChainMonitoring, fieldProtectorFromEnv, receiptStorageFromEnv } from './config.ts';
 
 // E3: in production the worker starts only on a complete production configuration — names of what is missing are
@@ -169,10 +170,24 @@ const runner = await run({
   }),
   crontab: CRONTAB,
 });
+// In production the worker keeps checking that the database is still the one it was built for (`schema-watch.ts`): a
+// migration under a running worker stops it — running jobs finish, nothing new starts — and it exits non-zero.
+const schemaWatch = isProduction(process.env)
+  ? watchSchema({
+      check: () => databaseDeploymentProblems(db),
+      stop: async (problems) => {
+        console.error(`stopping: ${problems.join('; ')} — no job runs against a schema this release was not built for; deploy the worker image of the release the database is at`);
+        process.exitCode = 1;
+        await runner.stop();
+      },
+      onCheckFailed: (e) => console.warn(`schema check skipped: ${e instanceof Error ? e.message : String(e)}`),
+    })
+  : null;
 // SIGTERM/SIGINT: graphile-worker stops taking jobs and lets the running ones finish; then the pool is closed, so a
 // deploy never cuts a job in half and never leaves connections behind.
 try {
   await runner.promise;
 } finally {
+  schemaWatch?.close();
   await pool.end();
 }

@@ -23,12 +23,13 @@ describe('every alert knows where to send the person it wakes', () => {
 
   it('has no runbook nobody can reach from an alert', () => {
     // Deliberate exceptions: the drill and the backfill are procedures someone starts rather than alarms, and the
-    // others answer a report from a person or a case on the desk rather than a threshold.
+    // others answer a report from a person or a case on the desk rather than a threshold (the queue's failed rows: a
+    // person reading the queue — live failures already surface as the signal of what failed).
     const unreachable = headings.filter((h) => !HEALTH_CHECKS.some((c) => c.runbook === h));
     expect(unreachable.sort()).toEqual([
       'account-takeover', 'chain-backfill', 'client-authenticator-lost', 'custody-seed', 'desk-moderation', 'duplicate-utr', 'failed-bank-transfer', 'field-encryption-keys',
       'incident-recovery', 'inr-sender-partial', 'inr-unexpected-sender', 'operator-access', 'p2p-escrow', 'pause-new-business',
-      'payout-ambiguous', 'receipt-integrity', 'secret-rotation',
+      'payout-ambiguous', 'queue-failed-rows', 'receipt-integrity', 'secret-rotation',
     ]);
   });
 

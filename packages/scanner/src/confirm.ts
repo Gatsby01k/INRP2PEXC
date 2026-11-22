@@ -7,6 +7,7 @@ import { enqueueOutbox } from '@inrp2p/outbox';
 import { confirmClientLegInTx, confirmRouteSettlementInTx, lockObligation, openExceptionInTx, postMovement, revertClientLegInTx, verifyCryptoTransfer } from '@inrp2p/settlement';
 import { type ScannerDeps, scannerPolicyOf } from './policy.ts';
 import { systemStep } from './system.ts';
+import { ProviderTracker, trackedVerifier } from './providers.ts';
 
 export type ConfirmOutcome =
   /** Final on chain and the client leg completed with it (T4). */
@@ -50,18 +51,28 @@ interface Candidate {
  * confirmed payout transfer is only *verified*, because releasing money to a client stays a step-up operator
  * decision; a confirmed transfer nobody claimed goes to suspense.
  */
-export async function runTronConfirm(db: Db, deps: ScannerDeps): Promise<ConfirmReport> {
-  const policy = scannerPolicyOf(deps);
+export async function runTronConfirm(db: Db, given: ScannerDeps): Promise<ConfirmReport> {
+  const policy = scannerPolicyOf(given);
   const candidates = await sql<Candidate>`
     select id, (detected_at <= inrp2p_now() - make_interval(mins => ${policy.notFinalAfterMinutes})) as aged
     from crypto_transfer
     where network = 'TRON' and state = 'DETECTED'
     order by detected_at
     limit ${policy.confirmBatch}`.execute(db);
+  // Each provider's part in the verifications is recorded once, after the run (`chain_provider_status`).
+  const tracker = candidates.rows.length > 0 && given.providers.length > 0 ? new ProviderTracker(given.providers) : null;
+  const deps: ScannerDeps = tracker ? { ...given, chain: trackedVerifier(given.chain, given.providers, tracker) } : given;
+  try {
+    return await confirmCandidates(db, deps, candidates.rows);
+  } finally {
+    await tracker?.flush(db);
+  }
+}
 
+async function confirmCandidates(db: Db, deps: ScannerDeps, rows: readonly Candidate[]): Promise<ConfirmReport> {
   const report = { examined: 0, clientLegsConfirmed: 0, routeSettled: 0, reserveCredited: 0, verified: 0, suspense: 0, failed: 0, pending: 0, notFinalCases: 0 };
   const failures: { transferId: string; code: string; message: string }[] = [];
-  for (const candidate of candidates.rows) {
+  for (const candidate of rows) {
     report.examined += 1;
     let outcome: Awaited<ReturnType<typeof verifyOne>>;
     try {

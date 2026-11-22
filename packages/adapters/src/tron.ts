@@ -134,6 +134,10 @@ export interface TronHttpProviderOptions {
 /** keccak256("Transfer(address,address,uint256)") — a public constant of the ERC20/TRC20 standard, not a secret. */
 const TRANSFER_TOPIC = 'ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'; // secret-scan:allow — published event topic
 const MAX_STORABLE = (1n << 63n) - 1n;
+/** Widest solidified-head movement (blocks, three seconds each) a balance read may span; see `getSolidifiedBalance`. */
+export const BALANCE_BRACKET_BLOCKS = 2n;
+/** Bracketed balance reads tried before the provider is reported unable to read the balance. */
+const BALANCE_READ_ATTEMPTS = 4;
 
 /** Provider names and independence groups are short, stable identifiers; an empty one is a configuration bug. */
 const requireProviderId = (value: unknown, field: string): string => {
@@ -467,32 +471,57 @@ export class TronHttpProvider implements TronProvider, TronSendGateway {
     return { status: 'FOUND', transfer: log.transfer };
   }
 
+  /**
+   * The USDT and TRX an address holds in the provider's solidified state, and the block that state is as of.
+   *
+   * A node answers `triggerconstantcontract` and `getaccount` from its solidified state without saying which block
+   * that was, so the read is bracketed: the solidified head before, both reads together, the head after. On a node whose
+   * head only moves forward the state read lies between the two, and the reading is labelled with the lower one — the
+   * label `readBalance` already gives readings from sources at different blocks: it is the conservative one for deciding
+   * which outflows a reading already reflects (an outflow final between the two is counted as still to leave, never as
+   * gone twice), and a balance never includes money that was not final when read.
+   *
+   * The head moves a block every three seconds, so a provider a few hundred milliseconds away saw it move under a read
+   * often enough that demanding the same block before and after failed every attempt for a slower provider, and the
+   * second source dropped out of every reading. A bracket up to `BALANCE_BRACKET_BLOCKS` wide is accepted with the lower
+   * label; a head that went backwards (two nodes behind a balancer) or moved further is read again.
+   */
   async getSolidifiedBalance(address: string, contract: string): Promise<BalanceReading> {
     const owner = normalizeTronAddress(address);
     const token = normalizeTronAddress(contract);
     const counter = new CallCounter();
     // balanceOf(address): the 32-byte ABI word of the 20-byte account id.
     const parameter = `${'0'.repeat(24)}${tronAddressToHex(owner).slice(2)}`;
-    for (let attempt = 0; attempt < 3; attempt++) {
+    let problem = 'the solidified head kept moving while the balance was read';
+    for (let attempt = 0; attempt < BALANCE_READ_ATTEMPTS; attempt++) {
       const before = await this.getSolidifiedBlockNumber();
-      const r = await this.#call<{ result?: { result?: unknown }; constant_result?: unknown }>(counter, '/walletsolidity/triggerconstantcontract', {
-        method: 'POST',
-        body: { owner_address: owner, contract_address: token, function_selector: 'balanceOf(address)', parameter, visible: true },
-      });
+      const [r, account] = await Promise.all([
+        this.#call<{ result?: { result?: unknown }; constant_result?: unknown }>(counter, '/walletsolidity/triggerconstantcontract', {
+          method: 'POST',
+          body: { owner_address: owner, contract_address: token, function_selector: 'balanceOf(address)', parameter, visible: true },
+        }),
+        this.#call<{ balance?: unknown }>(counter, '/walletsolidity/getaccount', { method: 'POST', body: { address: owner, visible: true } }),
+      ]);
       const after = await this.getSolidifiedBlockNumber();
-      if (before !== after) continue; // the head moved under the call: the balance belongs to neither — read again
+      if (after < before) {
+        problem = `the solidified head went back from ${before} to ${after} during the read (answers from different nodes)`;
+        continue;
+      }
+      if (after - before > BALANCE_BRACKET_BLOCKS) {
+        problem = `the solidified head moved ${after - before} blocks during the read`;
+        continue;
+      }
       if (r?.result?.result !== true || !Array.isArray(r.constant_result) || typeof r.constant_result[0] !== 'string' || !/^[0-9a-fA-F]{64}$/.test(r.constant_result[0])) {
         throw evidence('provider returned an unreadable balanceOf result');
       }
       const balance = BigInt(`0x${r.constant_result[0]}`);
       if (balance > MAX_STORABLE) throw evidence('balance exceeds what can be recorded');
-      const account = await this.#call<{ balance?: unknown }>(counter, '/walletsolidity/getaccount', { method: 'POST', body: { address: owner, visible: true } });
       const trx = account && typeof account === 'object' && typeof account.balance === 'number' && Number.isSafeInteger(account.balance) && account.balance >= 0
         ? BigInt(account.balance)
         : account && typeof account === 'object' && Object.keys(account).length === 0 ? 0n : null;
       return { balanceMinor: balance, solidifiedBlock: before, trxSun: trx };
     }
-    throw evidence('the solidified head kept moving while the balance was read');
+    throw evidence(problem);
   }
 
   // ---- sending (TronSendGateway, ADR 0017 §4) ------------------------------------------------------------------
