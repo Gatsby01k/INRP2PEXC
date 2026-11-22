@@ -1,3 +1,4 @@
+import { writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from 'kysely';
@@ -158,7 +159,7 @@ async function timed<T>(label: string, fn: () => Promise<T>): Promise<T> {
 function summary(label: string) {
   const xs = [...(timings.get(label) ?? [])].sort((a, b) => a - b);
   const at = (q: number) => xs[Math.min(xs.length - 1, Math.floor(q * xs.length))] ?? 0;
-  return { step: label, n: xs.length, p50: Math.round(at(0.5)), p95: Math.round(at(0.95)), max: Math.round(xs.at(-1) ?? 0) };
+  return { step: label, n: xs.length, p50: Math.round(at(0.5)), p95: Math.round(at(0.95)), p99: Math.round(at(0.99)), max: Math.round(xs.at(-1) ?? 0) };
 }
 
 const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -638,6 +639,7 @@ describe(`a market day: ${DEALS} deals, ${LANES} people at once, ${TRADERS} trad
     const ended = Object.fromEntries((['COMPLETE', 'DECLINE', 'DISPUTE_THEN_CONFIRM', 'DISPUTE_NOT_PAID', 'ABANDONED'] as const).map((e) => [e, outcomes.filter((o) => o.spec.ending === e).length]));
     console.log(`market day (${RAILS}, seed ${SEED}): ${outcomes.length} deals in ${(dayMs / 1000).toFixed(1)} s — ${done} trades, ${(done / (dayMs / 60_000)).toFixed(0)} trades a minute; by entry ${JSON.stringify(byEntry)}; endings ${JSON.stringify(ended)}; ${deskDeclined} requests declined by INRP2P's desk as unprofitable; ${refuelled} transfers topped up twice`);
     console.table([...timings.keys()].sort().map(summary));
+    if (process.env.MARKET_TIMINGS_OUT) writeFileSync(process.env.MARKET_TIMINGS_OUT, JSON.stringify({ dayMs, trades: done, steps: [...timings.keys()].sort().map(summary) }, null, 2));
     expect(outcomes.length).toBe(DEALS + ABANDONED * 4);
   });
 });

@@ -1,6 +1,9 @@
 import { sql } from 'kysely';
-import type { TronProvider } from '@inrp2p/adapters';
+import type { ChainVerification, ChainVerifier, TronProvider } from '@inrp2p/adapters';
 import type { Db, Executor } from '@inrp2p/db';
+
+/** What the tracker needs of a provider: its name and independence group (a `TronProvider` or a `BalanceSource`). */
+export type TrackedProvider = Pick<TronProvider, 'name' | 'independenceGroup'>;
 
 export type ProviderHealth = 'OK' | 'DEGRADED' | 'DOWN' | 'UNKNOWN';
 
@@ -18,22 +21,22 @@ interface Outcome {
  * The record is for people and alarms — the domain never reads it to decide anything about money.
  */
 export class ProviderTracker {
-  readonly #providers: readonly TronProvider[];
+  readonly #providers: readonly TrackedProvider[];
   readonly #outcomes = new Map<string, Outcome>();
 
-  constructor(providers: readonly TronProvider[]) {
+  constructor(providers: readonly TrackedProvider[]) {
     this.#providers = providers;
     for (const p of providers) this.#outcomes.set(p.name, { ok: 0, failed: 0, lastError: null, head: null, solidified: null });
   }
 
-  ok(p: TronProvider, heads?: { head?: bigint; solidified?: bigint }): void {
+  ok(p: TrackedProvider, heads?: { head?: bigint; solidified?: bigint }): void {
     const o = this.#outcomes.get(p.name)!;
     o.ok += 1;
     if (heads?.head !== undefined) o.head = heads.head;
     if (heads?.solidified !== undefined) o.solidified = heads.solidified;
   }
 
-  failed(p: TronProvider, error: unknown): void {
+  failed(p: TrackedProvider, error: unknown): void {
     const o = this.#outcomes.get(p.name)!;
     o.failed += 1;
     // Provider messages carry the endpoint path and status, never the API key (a header); trimmed for the column.
@@ -119,4 +122,35 @@ export async function firstAnswer<T>(
     }
   }
   return { value: null, provider: null, errors };
+}
+
+/**
+ * The verifier, with every provider's part in each verification recorded on `tracker`: one that answered (found, not
+ * found, failed, contradicted) did its job; one listed as unavailable failed this run. The answers and what the domain
+ * decides from them are the verifier's own, untouched — this only lets `chain_provider_status` see the second source
+ * work, or not, where it matters most (D-05 quorum), instead of only when the scanner fails over to it.
+ */
+export function trackedVerifier(chain: ChainVerifier, providers: readonly TrackedProvider[], tracker: ProviderTracker): ChainVerifier {
+  const byName = new Map(providers.map((p) => [p.name, p]));
+  const record = (v: ChainVerification) => {
+    const unavailable = new Set(v.status === 'FOUND' ? v.receipt.unavailable : v.unavailable);
+    for (const name of chain.providers) {
+      const p = byName.get(name);
+      if (!p) continue;
+      if (unavailable.has(name)) tracker.failed(p, new Error(v.status === 'UNAVAILABLE' ? v.reason : 'no answer to a transfer verification'));
+      else tracker.ok(p);
+    }
+  };
+  return {
+    providers: chain.providers,
+    independenceGroups: chain.independenceGroups,
+    tokenContract: chain.tokenContract,
+    verifyTransfer: async (network, txHash, logIndex) => {
+      const v = await chain.verifyTransfer(network, txHash, logIndex);
+      record(v);
+      return v;
+    },
+    transactionTransfers: (network, txHash) => chain.transactionTransfers(network, txHash),
+    balanceSources: () => chain.balanceSources(),
+  };
 }
