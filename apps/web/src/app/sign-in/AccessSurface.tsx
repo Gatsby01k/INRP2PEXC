@@ -42,8 +42,8 @@ function rememberEmail(email: string): void {
 
 /** What Telegram's answer means to the person, in words. Anything not named here is "didn't finish". */
 function telegramMessage(error: string): string {
-  if (error === 'signup_disabled' || error === 'account_not_linked') {
-    return 'This Telegram isn’t connected to an INRP2P account yet. Sign in with your email, then connect Telegram in Account & security.';
+  if (error === 'signup_disabled' || error === 'account_not_linked' || error === 'unable_to_create_user') {
+    return 'We couldn’t open an account with this Telegram just now. Try again, or use your email.';
   }
   if (error === 'access_denied') return 'Telegram sign-in was cancelled. Try again, or use your email.';
   return 'Telegram sign-in didn’t finish. Try again, or use your email.';
@@ -300,7 +300,8 @@ export function AccessSurface({ mode = 'SIGN_IN', next, telegram = null }: { mod
     setTelegramProblem(null);
     robotCues.emit({ kind: 'wait', on: true });
     const back = `/sign-in${next ? `?${new URLSearchParams({ next }).toString()}` : ''}`;
-    const res = await post('/sign-in/social', { provider: 'telegram', callbackURL: next ?? '/exchange', errorCallbackURL: back, disableRedirect: true });
+    // `requestSignUp`: a Telegram nobody holds yet opens a new account (ADR 0026); one already linked signs in to its own.
+    const res = await post('/sign-in/social', { provider: 'telegram', callbackURL: next ?? '/exchange', errorCallbackURL: back, disableRedirect: true, requestSignUp: true });
     const json = (await res?.json().catch(() => null)) as { url?: unknown } | null;
     if (res?.ok && typeof json?.url === 'string') {
       window.location.assign(json.url);

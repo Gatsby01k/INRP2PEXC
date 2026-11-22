@@ -70,6 +70,25 @@ function clientTelegram(appDb: Db): ClientTelegram | undefined {
 }
 
 /**
+ * A person who signed in with Telegram before they had an account — opened by Telegram itself, or linked while still
+ * new — opens one: their deal alerts go to that Telegram from the start (ADR 0026). Without a linked Telegram, or with
+ * alerts already on, nothing happens; a failure never fails the account that was just opened.
+ */
+export async function alertsFollowTelegram(userId: string): Promise<void> {
+  if (!telegramFromEnv()) return;
+  const appDb = getRuntime().appDb;
+  try {
+    const linked = await appDb.selectFrom('auth_account').select(['account_id', 'telegram_username']).where('user_id', '=', userId).where('provider_id', '=', 'telegram').executeTakeFirst();
+    if (!linked) return;
+    await executeCommand(appDb, connectTelegramAlerts(), {
+      name: 'telegram_link.connect', actor: SYSTEM, payload: { userId, chatId: linked.account_id, username: linked.telegram_username }, idempotencyKey: null, financial: false,
+    });
+  } catch (e) {
+    console.error(JSON.stringify({ level: 'error', event: 'telegram.alerts_on_open_failed', reason: (e instanceof Error ? e.message : String(e)).split(':')[0]!.slice(0, 80) }));
+  }
+}
+
+/**
  * Lazily constructed server runtime (pools and Better Auth instances). In production, neither pool sends a statement
  * before the start-up check has passed on the database (`databaseStartCheck`). Something that only needs the host
  * names asks `hostConfig()`, not this.

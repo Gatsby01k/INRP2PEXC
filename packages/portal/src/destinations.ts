@@ -1,4 +1,5 @@
 import type { DestinationStatus, Executor } from '@inrp2p/db';
+import { TELEGRAM_PROVIDER, isTelegramPlaceholderEmail, signInLabel } from '@inrp2p/identity';
 import { clientSafe } from './access.ts';
 
 /**
@@ -151,12 +152,13 @@ export async function clientPeople(ex: Executor, clientId: string): Promise<Clie
   const rows = await ex
     .selectFrom('client_user as cu')
     .innerJoin('auth_user as u', 'u.id', 'cu.user_id')
-    .select(['cu.id', 'u.name', 'u.email', 'cu.role', 'cu.status', 'cu.can_accept_quotes', 'u.two_factor_enabled'])
+    .leftJoin('auth_account as tg', (j) => j.onRef('tg.user_id', '=', 'u.id').on('tg.provider_id', '=', TELEGRAM_PROVIDER))
+    .select(['cu.id', 'u.name', 'u.email', 'cu.role', 'cu.status', 'cu.can_accept_quotes', 'u.two_factor_enabled', 'tg.telegram_username'])
     .where('cu.client_id', '=', clientId)
     .orderBy('u.name')
     .execute();
   return rows.map((r) => ({
-    clientUserId: r.id, name: r.name, email: maskEmail(r.email), role: r.role as ClientPerson['role'], status: r.status as ClientPerson['status'],
+    clientUserId: r.id, name: r.name, email: isTelegramPlaceholderEmail(r.email) ? signInLabel(r.email, r.telegram_username) : maskEmail(r.email), role: r.role as ClientPerson['role'], status: r.status as ClientPerson['status'],
     canAcceptQuotes: r.can_accept_quotes, authenticator: r.two_factor_enabled === true,
   }));
 }

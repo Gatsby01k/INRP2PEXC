@@ -4,6 +4,7 @@ import type { AutoReviewFlag, DestinationStatus, Executor, P2pExperience, Trader
 import { type SenderView, obligationRemaining, senderView } from '@inrp2p/settlement';
 import { type RiskPolicy, type TierName, standingIssues, type StandingIssue } from '@inrp2p/trader-core';
 import { traderProgram, type TraderProgram } from '@inrp2p/trader-core';
+import { isTelegramPlaceholderEmail } from '@inrp2p/identity';
 import { completedVolume } from './views.ts';
 import { sharedReserveAddress } from './reserve.ts';
 import { readBlocks, readStanding } from '@inrp2p/trader-core';
@@ -434,7 +435,8 @@ export async function deskTrader(ex: Executor, traderId: string): Promise<DeskTr
       fullName: client.display_name,
       clientRef: client.ref,
       entityType: client.type,
-      email: applicant?.email ?? null,
+      // An applicant who signed up with Telegram and added no email has none to show (never its placeholder).
+      email: applicant && !isTelegramPlaceholderEmail(applicant.email) ? applicant.email : null,
       telegram: p.telegram_handle,
       phoneLast4: p.phone_last4,
       experience: p.p2p_experience,

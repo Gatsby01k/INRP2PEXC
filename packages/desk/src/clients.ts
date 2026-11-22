@@ -2,6 +2,7 @@ import { sql } from 'kysely';
 import { DomainError, Money, requireUuid } from '@inrp2p/kernel';
 import type { DirectionValue, Executor } from '@inrp2p/db';
 import { listBankAccounts } from '@inrp2p/clients';
+import { isTelegramPlaceholderEmail, signInLabel } from '@inrp2p/identity';
 import type { DeskAccess } from './access.ts';
 import { microToDecimal } from './strip.ts';
 
@@ -310,11 +311,14 @@ export interface ClientAccess {
   readonly latest: readonly ClientSignIn[];
 }
 
-type SignInRow = { key: string; email: string; at: Date; method: string | null; ip: string | null; user_agent: string | null; country: string | null; region: string | null; city: string | null; live: boolean };
+type SignInRow = { key: string; email: string; telegram_username: string | null; at: Date; method: string | null; ip: string | null; user_agent: string | null; country: string | null; region: string | null; city: string | null; live: boolean };
+
+const TELEGRAM_USERNAME = sql`(select a.telegram_username from auth_account a where a.user_id = u.id and a.provider_id = 'telegram')`;
 
 const signInOf = (r: SignInRow): ClientSignIn => ({
   key: r.key,
-  who: maskAddress(r.email),
+  // An account Telegram opened, with no email yet, is shown by its Telegram — never by its placeholder address.
+  who: isTelegramPlaceholderEmail(r.email) ? signInLabel(r.email, r.telegram_username) : maskAddress(r.email),
   at: r.at.toISOString(),
   method: r.method === 'EMAIL' || r.method === 'TELEGRAM' ? r.method : null,
   ip: r.ip && r.ip.trim() !== '' ? r.ip.replace(/\/(32|128)$/, '') : null,
@@ -333,7 +337,7 @@ const signInOf = (r: SignInRow): ClientSignIn => ({
 export async function clientSignIns(ex: Executor, clientId: string, limit = 6): Promise<ClientAccess> {
   const id = requireUuid(clientId, 'clientId');
   const recorded = (order: 'asc' | 'desc', n: number) => sql<SignInRow>`
-    select si.id::text as key, u.email, si.at, si.method, host(si.ip) as ip, si.user_agent, si.country, si.region, si.city,
+    select si.id::text as key, u.email, ${TELEGRAM_USERNAME} as telegram_username, si.at, si.method, host(si.ip) as ip, si.user_agent, si.country, si.region, si.city,
            exists (select 1 from auth_session s where s.id = si.session_id and s.expires_at > statement_timestamp()) as live
       from sign_in si
       join client_user cu on cu.user_id = si.user_id and cu.client_id = ${id}
@@ -344,7 +348,7 @@ export async function clientSignIns(ex: Executor, clientId: string, limit = 6): 
   const [latest, first] = await Promise.all([recorded('desc', limit), recorded('asc', 1)]);
   if (latest.rows.length > 0) return { first: first.rows[0] ? signInOf(first.rows[0]) : null, latest: latest.rows.map(signInOf) };
   const sessions = await sql<SignInRow>`
-    select s.id::text as key, u.email, s.created_at as at, s.sign_in_method as method, s.ip_address as ip, s.user_agent,
+    select s.id::text as key, u.email, ${TELEGRAM_USERNAME} as telegram_username, s.created_at as at, s.sign_in_method as method, s.ip_address as ip, s.user_agent,
            null::text as country, null::text as region, null::text as city, s.expires_at > statement_timestamp() as live
       from auth_session s
       join client_user cu on cu.user_id = s.user_id and cu.client_id = ${id}

@@ -274,7 +274,7 @@ export function SecondFactorNeeded({ onCancel, summary }: { onCancel?: () => voi
         </div>
       </div>
       <p className={styles.where}>
-        You signed in with your email, so a change like this is confirmed somewhere else: connect Telegram — two taps — or set up an authenticator app. Then try again.
+        A change like this is confirmed somewhere other than where you signed in. Add a second way — your email, Telegram or an authenticator app — in Account & security, then try again.
       </p>
       <div className={styles.actions}>
         {onCancel ? (

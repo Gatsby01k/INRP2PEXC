@@ -113,7 +113,7 @@ async function ClientLinkPage({ token }: { token: string }) {
         payFrom={payFrom}
         wallets={wallets}
         anyWallet={destinations.wallets.some((w) => w.status === 'ACTIVE' || w.status === 'PENDING_REVIEW')}
-        who={{ canAccept: member.canAcceptQuotes, isAdmin: member.role === 'CLIENT_ADMIN', protection, email: ctx.access.email, clientName: member.clientName }}
+        who={{ canAccept: member.canAcceptQuotes, isAdmin: member.role === 'CLIENT_ADMIN', protection, email: ctx.access.label, clientName: member.clientName }}
         now={now.toISOString()}
       />
     </div>

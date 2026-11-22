@@ -4,6 +4,9 @@
  * under reduced motion they simply appear (the tokens go to zero).
  */
 .root {
+  /* The sheet is portalled to <body>, outside the workspace shell that defines these: its dark actions need them too. */
+  --visor: radial-gradient(130% 110% at 26% -12%, #3d3f47 0, #1b1c21 40%, #0b0c0e 100%);
+  --visor-edge: inset 0 1px 0 rgba(255, 255, 255, 0.28), inset 0 0 0 1px rgba(255, 255, 255, 0.07);
   position: fixed;
   inset: 0;
   z-index: 60;

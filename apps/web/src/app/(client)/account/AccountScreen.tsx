@@ -6,7 +6,8 @@ import type { ClientPerson } from '@inrp2p/portal';
 import { useCommand } from '../../../components/useCommand.tsx';
 import { setCanAcceptQuotesAction } from '../../../server/actions/client.ts';
 import { Switch } from '../_workspace/Field.tsx';
-import { CheckIcon, LockIcon, ShieldIcon, SignOutIcon, UsersIcon } from '../_workspace/icons.tsx';
+import { AddEmail } from '../_workspace/AddEmail.tsx';
+import { CheckIcon, LockIcon, MailIcon, ShieldIcon, SignOutIcon, UsersIcon } from '../_workspace/icons.tsx';
 import { SecureAccount } from '../_workspace/SecureAccount.tsx';
 import { TelegramCard } from '../_workspace/TelegramCard.tsx';
 import { TelegramConnect } from '../_workspace/TelegramConnect.tsx';
@@ -33,6 +34,7 @@ export type AccountTelegram =
  */
 export function AccountScreen({
   name,
+  label,
   email,
   role,
   canAccept,
@@ -43,7 +45,10 @@ export function AccountScreen({
   telegram,
 }: {
   name: string;
-  email: string;
+  /** How they are shown: their email, or their Telegram when they signed up with it and added no email. */
+  label: string;
+  /** Their email; null when Telegram opened the account and they have not added one (ADR 0026). */
+  email: string | null;
   /** Null for someone with no client yet. */
   role: string | null;
   /** Null without the Exchange: there are no quotes to accept. */
@@ -56,6 +61,7 @@ export function AccountScreen({
 }) {
   const router = useRouter();
   const [securing, setSecuring] = useState(false);
+  const [addingEmail, setAddingEmail] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const cmd = useCommand();
 
@@ -79,7 +85,7 @@ export function AccountScreen({
           <div className={styles.profileText}>
             <h2 className={styles.profileName}>{name}</h2>
             <p className={styles.profileMeta}>
-              {email}
+              {label}
               {role ? ` · ${ROLE[role] ?? 'Viewer'}` : ''}
             </p>
           </div>
@@ -98,17 +104,34 @@ export function AccountScreen({
             confirmed with a code from somewhere other than where you signed in.
           </p>
           <ul className={styles.items}>
-            <li className={styles.item}>
-              <span className={styles.itemIcon} data-tone="ok" aria-hidden="true">
-                <CheckIcon />
-              </span>
-              <span className={styles.itemText}>
-                <span className={styles.itemTitle}>
-                  Email code {signInMethod === 'EMAIL' ? <span className={styles.state} data-on="">This session</span> : null}
+            {email ? (
+              <li className={styles.item}>
+                <span className={styles.itemIcon} data-tone="ok" aria-hidden="true">
+                  <CheckIcon />
                 </span>
-                <span className={styles.itemDetail}>A one-time code sent to {email} signs you in and can confirm changes.</span>
-              </span>
-            </li>
+                <span className={styles.itemText}>
+                  <span className={styles.itemTitle}>
+                    Email code {signInMethod === 'EMAIL' ? <span className={styles.state} data-on="">This session</span> : null}
+                  </span>
+                  <span className={styles.itemDetail}>A one-time code sent to {email} signs you in and can confirm changes.</span>
+                </span>
+              </li>
+            ) : (
+              <li className={styles.item} id="email">
+                <span className={styles.itemIcon} data-tone="neutral" aria-hidden="true">
+                  <MailIcon />
+                </span>
+                <span className={styles.itemText}>
+                  <span className={styles.itemTitle}>
+                    Email <span className={styles.state}>Not added</span>
+                  </span>
+                  <span className={styles.itemDetail}>You signed up with Telegram. Add your email to sign in with a code too, and to confirm the changes you make from Telegram.</span>
+                </span>
+                <button type="button" className={shell.action} data-size="sm" data-tone="ink" onClick={() => setAddingEmail(true)}>
+                  Add email
+                </button>
+              </li>
+            )}
             <li className={styles.item}>
               <span className={styles.itemIcon} data-tone={hasAuthenticator ? 'ok' : 'neutral'} aria-hidden="true">
                 {hasAuthenticator ? <ShieldIcon /> : <LockIcon />}
@@ -146,7 +169,13 @@ export function AccountScreen({
         </section>
 
         {telegram?.mode === 'LOGIN' ? (
-          <TelegramCard view={telegram.view} returnTo="/account" outcome={telegram.outcome} title={signInMethod === 'TELEGRAM' && telegram.view.login ? 'Telegram · this session' : 'Telegram'} />
+          <TelegramCard
+            view={telegram.view}
+            returnTo="/account"
+            outcome={telegram.outcome}
+            title={signInMethod === 'TELEGRAM' && telegram.view.login ? 'Telegram · this session' : 'Telegram'}
+            onlyWayIn={email === null}
+          />
         ) : telegram?.mode === 'ALERTS' ? (
           <TelegramConnect view={telegram.view} botConfigured />
         ) : null}
@@ -199,9 +228,24 @@ export function AccountScreen({
       {cmd.dialog}
       <Sheet open={securing} onClose={() => setSecuring(false)} eyebrow="Account & security" title="Set up your authenticator" description="Six-digit codes from your phone confirm the changes that matter.">
         <SecureAccount
-          email={email}
+          email={label}
           onDone={() => {
             setSecuring(false);
+            router.refresh();
+          }}
+        />
+      </Sheet>
+      <Sheet
+        open={addingEmail}
+        onClose={() => setAddingEmail(false)}
+        eyebrow="Account & security"
+        title="Add your email"
+        description="It signs you in with a code too, and confirms a new bank account, a withdrawal or a team change you make from Telegram."
+      >
+        <AddEmail
+          intro={false}
+          onDone={() => {
+            setAddingEmail(false);
             router.refresh();
           }}
         />

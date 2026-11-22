@@ -3,7 +3,7 @@ import type { BetterAuthPlugin } from 'better-auth';
 import { APIError, createAuthEndpoint, sessionMiddleware } from 'better-auth/api';
 import type { Db } from '@inrp2p/db';
 import { appendAuditDirect } from '@inrp2p/audit';
-import { TELEGRAM_PROVIDER } from './telegram.ts';
+import { TELEGRAM_PROVIDER, isTelegramPlaceholderEmail } from './telegram.ts';
 
 /**
  * Confirming a sensitive change with a code (ADR 0026): six digits sent to the person's email or, once linked, by the
@@ -77,6 +77,8 @@ export function stepUpCodes(deps: { appDb: Db; secret: string; senders: StepUpCo
         let to: string;
         let deliver: (code: string) => Promise<void>;
         if (channel === 'EMAIL') {
+          // An account Telegram opened has no inbox until the person adds one: nothing goes to its placeholder.
+          if (isTelegramPlaceholderEmail(user.email)) throw new APIError('BAD_REQUEST', { message: 'this account has no email yet', code: 'EMAIL_NOT_SET' });
           to = maskEmail(user.email);
           deliver = (code) => deps.senders.email.send({ email: user.email, otp: code, type: 'step-up', purpose: STEP_UP_PURPOSES[purpose] });
         } else {

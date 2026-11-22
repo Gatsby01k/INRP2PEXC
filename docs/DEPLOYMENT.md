@@ -772,3 +772,21 @@ Rows are never exported. No secret, env variable, service or job changes; no new
    the sitemap lists it. Desk → Traders → **Acquisition** shows the funnel from the first visit on.
 3. **Campaign links:** `https://inrp2p.com/traders?utm_source=telegram&utm_medium=post&utm_campaign=<name>&ref=<code>&for=usdt`
    (`for` is `usdt`, `inr` or `otc`; every parameter is optional).
+
+
+## 27. Opening an account with Telegram (ADR 0026, amended 2026-11-22)
+
+Migration `0054` (schema 54): a check on `auth_user` (a `@telegram.invalid` placeholder address belongs only to a client
+and is never verified) and a new body for the IX136 trigger (an account without a verified email may hold only the
+Telegram its placeholder names). No table, secret, env variable, service or job changes; no new IX code.
+
+1. **Release order** (from production at 53): CI green, `gh pr view` to see the PR is **not merged yet**, a restore point,
+   `scripts/migrate.ts` with the production env, then merge — the app at 54 refuses a database at 53 — then the worker
+   image of the same commit. The worker at 53 keeps running on a database at 54 until it restarts; it never creates users.
+2. **What changes at once** (where Login with Telegram is configured): "Continue with Telegram" on the workspace sign-in
+   opens an account for someone new instead of sending them to email first; the sign-in page says either way opens an
+   account. Such a person is shown by their Telegram (`@username`) in the workspace and on the desk, adds their email from
+   Account & security (or when a change first needs a second factor), and cannot disconnect Telegram until they have.
+3. **The same person, twice:** a still-empty Telegram account that adds the email of an account opened earlier joins it —
+   the Telegram moves there, the empty one is closed. Audited as `client_user.identity_joined` and `user.telegram_linked`
+   (`via: joined`).

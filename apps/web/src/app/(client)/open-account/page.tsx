@@ -20,7 +20,7 @@ export default async function OpenAccountPage({ searchParams }: { searchParams: 
   return (
     <>
       <PageHead icon={<UserIcon />} title="Open your account" lede="Name the account you will trade under. The Exchange opens the moment it exists." />
-      <OpenAccount email={ctx.access.email} invites={await invitesForUser(ctx.db, ctx.actor.userId)} {...(next ? { next } : {})} />
+      <OpenAccount email={ctx.access.label} invites={await invitesForUser(ctx.db, ctx.actor.userId)} {...(next ? { next } : {})} />
     </>
   );
 }
