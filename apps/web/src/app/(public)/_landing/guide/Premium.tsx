@@ -1,7 +1,7 @@
 import { Rate } from '@inrp2p/kernel';
 import { formatIstTime, formatRate, groupDigits } from '@inrp2p/ui/format';
 import { ACTIONS, GUIDES } from '../../../../content/site.ts';
-import { type PremiumDay, premiumReading } from '../../../../server/premium.ts';
+import { PREMIUM_LICENSE_URL, type PremiumDay, premiumReading } from '../../../../server/premium.ts';
 import { extraRupees, formatDay, formatPremium, toPaisa } from '../../../../server/premium-math.ts';
 import { appOrigin } from '../../../../server/site.ts';
 import { PREMIUM_CSV_PATH } from '../../../../server/surface.ts';
@@ -168,6 +168,11 @@ export async function PremiumBoard() {
         <div className={styles.premiumFoot}>
           <p className={styles.tableNote}>
             {copy.note} {copy.cite}{' '}
+            {/* `rel="license"`: the licence as Creative Commons asks it to be marked, the same one the data names. */}
+            <a className={styles.premiumCsv} href={PREMIUM_LICENSE_URL} rel="license">
+              {copy.license}
+            </a>
+            .{' '}
             <a className={styles.premiumCsv} href={PREMIUM_CSV_PATH} download>
               {copy.csv}
             </a>

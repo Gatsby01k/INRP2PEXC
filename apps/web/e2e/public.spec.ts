@@ -284,6 +284,19 @@ test('the structured data describes the page and invents no figure', async ({ pa
   expect(tag![1]).toBe(cspNonce);
 });
 
+test('the USDT premium is published as a dataset with its licence, stated the same way everywhere', async ({ page }) => {
+  await page.goto(`${linkBaseUrl()}/usdt-premium-india`);
+  const data = JSON.parse(await page.locator('script[type="application/ld+json"]').innerText()) as { '@graph': Record<string, unknown>[] };
+  const dataset = data['@graph'].find((n) => n['@type'] === 'Dataset')!;
+  // Search Console asks a dataset for its licence; the page states it in words and links it as Creative Commons asks.
+  expect(dataset.license).toBe('https://creativecommons.org/licenses/by/4.0/');
+  expect(dataset.creator).toMatchObject({ '@type': 'Organization', name: 'INRP2P Exchange' });
+  expect(dataset.distribution).toEqual([expect.objectContaining({ encodingFormat: 'text/csv', contentUrl: expect.stringMatching(/\/usdt-premium-india\.csv$/) })]);
+  // The figures, and the licence line under them, are drawn only when there is a premium to show.
+  const licence = page.locator('a[rel="license"]');
+  if ((await licence.count()) > 0) await expect(licence).toHaveAttribute('href', dataset.license as string);
+});
+
 test('every surface sends the same policy, and a fresh nonce each time', async ({ page }) => {
   const targets = [
     { name: 'public', url: `${linkBaseUrl()}/usdt-otc-india` },
