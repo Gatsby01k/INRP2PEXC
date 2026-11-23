@@ -488,11 +488,20 @@ export const TRADER_TERMS = {
 /** The fee as a person reads it: `0.25%`. */
 export const feeText = (): string => `${TRADER_TERMS.feeBps / 100}%`;
 
-/** The margin band as a person reads it: `5–7%`. */
-export const marginText = (): string => `${TRADER_TERMS.margin.low}–${TRADER_TERMS.margin.high}%`;
+/**
+ * The margin band as a person reads it: `5–7%`. A word joiner (U+2060, drawn as nothing) holds each side of the dash, so a
+ * line never ends on `5–` with `7%` on the next — a browser breaks after an en dash wherever it likes.
+ */
+export const marginText = (): string => `${TRADER_TERMS.margin.low}\u2060–\u2060${TRADER_TERMS.margin.high}%`;
 
 /** A sentence with the programme's terms filled in. */
 export const withTerms = (text: string): string => text.replaceAll('{margin}', marginText()).replaceAll('{fee}', feeText());
+
+/**
+ * The same sentence for what is read as data rather than laid out — titles, descriptions, structured data, `llms.txt`:
+ * without the word joiners, which only matter where a line can wrap.
+ */
+export const plainTerms = (text: string): string => withTerms(text).replaceAll('\u2060', '');
 
 /**
  * A trader's own exchange on INRP2P (ADR 0020): the desk programme, told to the traders who would run one — and told
@@ -1546,3 +1555,7 @@ export const pageForPath = (path: string): SitePage | undefined => SITE_PAGES.fi
 /** The footer's one honest sentence about what this site is and is not. */
 export const FOOTER_NOTE =
   'INRP2P Exchange holds the USDT in escrow on every deal between its clients and reviewed traders. Nothing on this site is an offer, a price or advice: the rates shown here are the market’s, and a price exists only in a quote issued for a specific deal.';
+
+// The page-not-found's and the error page's words live in their own module, so the error page — drawn in the browser,
+// under every page — carries a few sentences, not the whole site's copy.
+export { NOT_FOUND, SERVER_ERROR } from './errors.ts';

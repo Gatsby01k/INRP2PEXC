@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { sql } from 'kysely';
 import type pg from 'pg';
 import { SCHEMA_VERSION, createDb } from '@inrp2p/db';
-import { databaseStartCheck } from '../src/server/production-start.ts';
+import { START_CHECK_RETRY_MS, databaseStartCheck } from '../src/server/production-start.ts';
 
 /**
  * The database half of the production start-up check runs before the first statement a process sends, not when the
@@ -77,16 +77,57 @@ describe('the database start-up check gates the first statement', () => {
     expect(sent.filter((s) => !isCheck(s))).toHaveLength(0);
   });
 
-  it('a database that cannot be reached stops it the same way', async () => {
+  it('a login the database refuses stops it the same way', async () => {
     process.env.INRP2P_ENV = 'production';
     vi.spyOn(console, 'error').mockImplementation(() => {});
-    const pool = { connect: async () => Promise.reject(Object.assign(new Error('quota'), { code: '53000' })), options: {} } as unknown as pg.Pool;
+    const pool = { connect: async () => Promise.reject(Object.assign(new Error('password authentication failed'), { code: '28P01' })), options: {} } as unknown as pg.Pool;
     const exit = vi.fn(() => {
       throw new Error('exited');
     }) as unknown as (code: number) => never;
-    const app = createDb(pool, { ready: databaseStartCheck(pool, exit)! });
+    const app = createDb(pool, { ready: databaseStartCheck(pool, exit, async () => {})! });
 
     await expect(sql`select 1 as ok`.execute(app)).rejects.toThrow('exited');
     expect(exit).toHaveBeenCalledWith(1);
+  });
+
+  it('a database that does not answer for a moment is asked again, and the process never stops for it', async () => {
+    process.env.INRP2P_ENV = 'production';
+    const { pool: healthy, sent } = fakePool({ version: SCHEMA_VERSION });
+    let refusals = 2;
+    const pool = {
+      connect: async () => (refusals-- > 0 ? Promise.reject(Object.assign(new Error('pooler hiccup'), { code: '08P01' })) : healthy.connect()),
+      options: {},
+    } as unknown as pg.Pool;
+    const exit = vi.fn() as unknown as (code: number) => never;
+    const pauses: number[] = [];
+    const app = createDb(pool, { ready: databaseStartCheck(pool, exit, async (ms) => void pauses.push(ms))! });
+
+    await sql`select 1 as ok`.execute(app);
+    expect(pauses).toEqual(START_CHECK_RETRY_MS.slice(0, 2));
+    expect(sent.filter(isCheck)).toHaveLength(1);
+    expect(exit).not.toHaveBeenCalled();
+  });
+
+  it('a database that stays out of reach fails the statement, keeps the process up, and the next statement checks again', async () => {
+    process.env.INRP2P_ENV = 'production';
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { pool: healthy, sent } = fakePool({ version: SCHEMA_VERSION });
+    let down = true;
+    const pool = {
+      connect: async () => (down ? Promise.reject(Object.assign(new Error('connect ETIMEDOUT'), { code: 'ETIMEDOUT' })) : healthy.connect()),
+      options: {},
+    } as unknown as pg.Pool;
+    const exit = vi.fn() as unknown as (code: number) => never;
+    const app = createDb(pool, { ready: databaseStartCheck(pool, exit, async () => {})! });
+
+    await expect(sql`select 1 as ok`.execute(app)).rejects.toThrow('could not be reached (ETIMEDOUT');
+    expect(exit).not.toHaveBeenCalled();
+    expect(sent).toHaveLength(0);
+
+    down = false;
+    await sql`select 2 as ok`.execute(app);
+    expect(sent.filter(isCheck)).toHaveLength(1);
+    expect(sent).toHaveLength(2);
+    expect(exit).not.toHaveBeenCalled();
   });
 });

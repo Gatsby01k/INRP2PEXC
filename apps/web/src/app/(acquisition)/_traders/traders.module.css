@@ -1944,3 +1944,15 @@
     padding-bottom: calc(var(--space-10) + 72px);
   }
 }
+
+/* On a phone the hero says who the page is for in its first line, so the masthead drops its tag: the rate, the premium
+   and the sign-in then fit a 360px screen, and the page never scrolls sideways under the thumb's sticky way in. */
+@media (max-width: 479px) {
+  .brandTag {
+    display: none;
+  }
+
+  .signIn {
+    padding: 0 10px;
+  }
+}

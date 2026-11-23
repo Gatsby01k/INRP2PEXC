@@ -248,3 +248,24 @@ fastest of the runs (a busy machine only adds to them; a regression is in every 
 and its target in the page; one request per click inside the workspace, and a click that draws the section's shape
 within 500 ms with the server's answer held back; and, where the browser has a hardware GPU, the robot's start
 (no task over 200 ms), its frames at rest and scrolling (95th percentile under 25 ms) and its hand-back to the poster.
+
+## 5. Addendum (2026-11-23): a database that does not answer is not a wrong configuration
+
+§4.1 kept the database half of the start-up check and its rule that a failed check exits the process. Since then the public
+pages read the database again (the rate guides' `marketReading`, the masthead's `/api/market-rate`, the trader page's
+islands), and on Vercel one process serves many requests at once. On 2026-11-23, between 11:06 and 11:10 UTC, four of about
+fifteen cold starts logged `the database could not be checked (08P01)` — Neon's pooler not answering for a moment — and
+exited: every request in flight on that process answered Vercel's static `500`, `inrp2p.com/traders` and the home page
+among them, and the reload a second later, on a new process, worked. The owner saw it as "the link falls, then works".
+
+Decision: the check tells the two kinds of failure apart (`databaseStartCheck`).
+- **An answer that is wrong** — another schema version, the migrator's or a superuser's login, a test permit, or the
+  database refusing the check itself (SQLSTATE classes 28, 3D, 42) — still stops the process before anything of the
+  application's is sent, as before.
+- **No answer** — a connection refused, reset or timed out, the pooler's `08P01`, a database starting or over its
+  connections — is asked again after 150, 450 and 1,000 ms. If it still does not answer, the statement waiting on the check
+  fails with the reason in the log, the process stays up, and the next statement checks again. A public page that reads
+  the database only for a rate draws itself without it, as it was built to.
+
+Tests: `apps/web/test/production-start.unit.test.ts` (a refused login stops; a moment's `08P01` is retried and nothing stops;
+a database out of reach fails the statement, keeps the process, and the next statement checks again).

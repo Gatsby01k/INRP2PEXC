@@ -296,7 +296,8 @@
     row-gap: var(--space-10);
   }
 
-  /* One column: the heading, the answers, then the way to ask. */
+  /* One column: the heading, the answers, the way to ask, then the other guides — after the questions they came for,
+     not between the heading and them. */
   .side {
     display: contents;
   }
@@ -310,9 +311,16 @@
     margin-top: 0;
   }
 
+  .guides {
+    order: 3;
+    margin-top: 0;
+  }
+
+  /* The robot leans into the gutter, but never past the screen's edge. */
   .robot {
     width: 128px;
     height: 128px;
+    margin: -12px -8px -24px -16px;
   }
 
   .answer {

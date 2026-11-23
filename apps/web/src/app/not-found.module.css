@@ -1,0 +1,213 @@
+/* The page nothing else answers, and the page a failure gets: the public site's room (public.module.css `.site`) on its
+   own, so it reads the same whichever host or page sent the visitor here. */
+
+.room {
+  --room: #faf8f5;
+  --ink: #121317;
+  --line-strong: rgb(18 19 23 / 0.13);
+  --field: linear-gradient(140deg, #f55a2d 0%, #ea4a20 46%, #c63d17 100%);
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-height: 100dvh;
+  background:
+    radial-gradient(70% 46% at 50% 0%, color-mix(in srgb, var(--brand-primary) 14%, transparent), transparent 72%),
+    var(--room);
+  color: var(--text-primary);
+  font-feature-settings: 'cv11', 'ss01';
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  height: 72px;
+  padding: 0 var(--space-6);
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.02em;
+  text-decoration: none;
+}
+
+.mark {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+}
+
+.main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  max-width: 640px;
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-6) var(--space-16);
+  text-align: center;
+}
+
+.robot {
+  width: 240px;
+  height: auto;
+  margin-bottom: var(--space-4);
+  -webkit-mask-image: linear-gradient(180deg, #000 72%, transparent);
+  mask-image: linear-gradient(180deg, #000 72%, transparent);
+}
+
+.eyebrow {
+  margin: 0 0 var(--space-3);
+  color: var(--brand-action);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.heading {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: clamp(34px, 6vw, 52px);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.04;
+  letter-spacing: -0.035em;
+  text-wrap: balance;
+}
+
+.body {
+  max-width: 30rem;
+  margin: var(--space-4) 0 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-lg);
+  line-height: 1.55;
+  text-wrap: pretty;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-3);
+  margin-top: var(--space-8);
+}
+
+.primary,
+.secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: 54px;
+  padding: 0 var(--space-6);
+  border: 0;
+  border-radius: 18px;
+  font: inherit;
+  font-family: var(--font-display);
+  font-size: var(--font-size-body-lg);
+  font-weight: var(--font-weight-semibold);
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    filter var(--dur-fast) var(--ease),
+    transform var(--dur-fast) var(--ease);
+}
+
+.primary {
+  background: var(--field);
+  color: var(--text-on-action);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.34),
+    inset 0 -2px 0 rgb(110 24 0 / 0.18),
+    0 16px 30px -14px color-mix(in srgb, var(--brand-action) 90%, transparent);
+}
+
+.secondary {
+  background: rgb(255 255 255 / 0.78);
+  color: var(--text-primary);
+  box-shadow:
+    inset 0 1px 0 #fff,
+    0 0 0 1px var(--line-strong),
+    0 12px 24px -18px rgb(60 40 20 / 0.4);
+}
+
+.primary:hover,
+.secondary:hover {
+  filter: brightness(1.04);
+}
+
+.primary:active,
+.secondary:active {
+  transform: translateY(1px);
+}
+
+.primary:focus-visible,
+.secondary:focus-visible,
+.guides a:focus-visible,
+.brand:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 3px;
+}
+
+.guides {
+  margin-top: var(--space-12);
+}
+
+.guidesLabel {
+  margin: 0 0 var(--space-3);
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+}
+
+.guides ul {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.guides a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 var(--space-4);
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.7);
+  box-shadow: 0 0 0 1px var(--line-strong);
+  color: var(--text-primary);
+  font-size: var(--font-size-body-sm);
+  text-decoration: none;
+}
+
+.guides a:hover {
+  background: #fff;
+}
+
+@media (max-width: 559px) {
+  .bar {
+    height: 64px;
+    padding: 0 var(--space-4);
+  }
+
+  .main {
+    padding: var(--space-4) var(--space-4) var(--space-12);
+  }
+
+  .robot {
+    width: 180px;
+  }
+
+  .actions {
+    flex-direction: column;
+    align-self: stretch;
+  }
+}

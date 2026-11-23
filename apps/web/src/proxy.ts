@@ -3,7 +3,7 @@ import { DomainError } from '@inrp2p/kernel';
 import { carriesSessionCookie } from '@inrp2p/identity/session-cookie';
 import { hostConfig } from './server/hosts.ts';
 import {
-  type Surface, DESK_PAGE_PREFIX, PUBLIC_HOME_PATH, RETURN_PATH_HEADER, TRADERS_PAGE_PATH, TRADERS_PATH, TRADER_ENTRY_PATH, deskHandleOfPath, gateFor, isDeskPagePath, isWorkspacePath,
+  type Surface, APPLE_ICON_PATH, DESK_PAGE_PREFIX, LEGACY_APPLE_ICON_PATHS, PUBLIC_HOME_PATH, PUBLIC_MISSING_PATH, RETURN_PATH_HEADER, TRADERS_PAGE_PATH, TRADERS_PATH, TRADER_ENTRY_PATH, deskHandleOfPath, gateFor, isDeskPagePath, isPublicSitePath, isWorkspacePath,
   safeReturnPath, surfaceForHost,
 } from './server/surface.ts';
 import {
@@ -49,6 +49,23 @@ export function proxy(request: NextRequest) {
     const to = request.nextUrl.clone();
     to.pathname = '/exchange';
     return withHeaders(NextResponse.redirect(to), headers);
+  }
+  // The home-screen icon by the names older phones ask for it: the one file, on every host.
+  if (LEGACY_APPLE_ICON_PATHS.has(request.nextUrl.pathname)) {
+    const to = request.nextUrl.clone();
+    to.pathname = APPLE_ICON_PATH;
+    to.search = '';
+    return withHeaders(NextResponse.rewrite(to), headers);
+  }
+  // An address of the public site typed or shared with capitals (`inrp2p.com/Traders`, `/USDT-to-INR`) is the page it
+  // names: one permanent hop to its one spelling, rather than a page-not-found.
+  if (surface === 'PUBLIC') {
+    const lower = request.nextUrl.pathname.toLowerCase();
+    if (lower !== request.nextUrl.pathname && (lower === TRADERS_PATH || (lower !== PUBLIC_HOME_PATH && isPublicSitePath(lower)) || deskHandleOfPath(lower))) {
+      const to = request.nextUrl.clone();
+      to.pathname = lower;
+      return withHeaders(NextResponse.redirect(to, 308), headers);
+    }
   }
   const gate = gateFor(surface, request.nextUrl.pathname);
   // The public home page is rendered from `/home` because `/` in this build is the operator desk, and two route
@@ -132,7 +149,14 @@ export function proxy(request: NextRequest) {
     return withHeaders(NextResponse.redirect(to, 307), headers);
   }
   // The public host never receives a session cookie (they are host-only), so a path there that would need one is
-  // refused whatever the request carries.
+  // refused whatever the request carries. A person who typed it gets the site's own page-not-found (a 404, drawn by
+  // `app/not-found.tsx`); only a call that is not a page request gets the JSON refusal.
+  if (surface === 'PUBLIC' && needs && wantsHtml(request)) {
+    const to = request.nextUrl.clone();
+    to.pathname = PUBLIC_MISSING_PATH;
+    to.search = '';
+    return withHeaders(NextResponse.rewrite(to, { request: { headers: forwarded(request, surface, nonce, https) } }), headers);
+  }
   if (needs && (surface === 'PUBLIC' || !carriesSessionCookie(request.headers, needs))) {
     if (surface !== 'PUBLIC' && wantsHtml(request)) {
       const to = request.nextUrl.clone();

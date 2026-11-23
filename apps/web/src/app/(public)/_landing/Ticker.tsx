@@ -1,11 +1,9 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Rate } from '@inrp2p/kernel';
-import { formatRate } from '@inrp2p/ui/format';
 import { Coin } from '../../../components/Coin.tsx';
 import { PREMIUM_PAGE_PATH } from '../../../server/surface.ts';
-import { marketMid, useMarket } from './market.ts';
+import { marketMid, midText, useMarket } from './market.ts';
 import styles from './ticker.module.css';
 
 /** The day's line, scaled into a 48 × 18 box with a point of air above and below. */
@@ -43,7 +41,7 @@ export function Ticker() {
   }, [mid]);
 
   if (mid === null) return null;
-  const shown = formatRate(Rate.parse(mid.toFixed(6), 'REFERENCE'));
+  const shown = `₹${midText(mid)}`;
   const trail = market?.trail ?? [];
   const d = line(trail);
   const rose = trail.length > 1 ? Number(trail.at(-1)) >= Number(trail[0]) : true;

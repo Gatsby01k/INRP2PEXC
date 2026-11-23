@@ -1,5 +1,5 @@
 import { headers } from 'next/headers';
-import { FAQ, FOOTER_NOTE, SITE_NAME, SITE_PAGES, TAGLINE, TELEGRAM, telegramUrl, withTerms } from '../../content/site.ts';
+import { FAQ, FOOTER_NOTE, SITE_NAME, SITE_PAGES, TAGLINE, TELEGRAM, plainTerms, telegramUrl } from '../../content/site.ts';
 import { getRuntime } from '../../server/runtime.ts';
 import { publicOrigin } from '../../server/site.ts';
 import { surfaceForHost } from '../../server/surface.ts';
@@ -20,8 +20,8 @@ export async function GET() {
 
   const origin = await publicOrigin();
   const home = SITE_PAGES.find((p) => p.path === '/');
-  const guides = SITE_PAGES.filter((p) => p.path !== '/').map((p) => `- [${withTerms(p.h1)}](${origin}${p.path}): ${withTerms(p.description)}`);
-  const questions = FAQ.items.map((q) => `- ${q.question} ${withTerms(q.answer)}`);
+  const guides = SITE_PAGES.filter((p) => p.path !== '/').map((p) => `- [${plainTerms(p.h1)}](${origin}${p.path}): ${plainTerms(p.description)}`);
+  const questions = FAQ.items.map((q) => `- ${q.question} ${plainTerms(q.answer)}`);
   const telegram = [...TELEGRAM.channels, TELEGRAM.ceo].map((t) => `- ${t.label}: ${telegramUrl(t.handle)} (${t.note})`);
 
   const body = [
@@ -29,7 +29,7 @@ export async function GET() {
     '',
     `> ${TAGLINE}`,
     '',
-    home ? withTerms(home.description) : '',
+    home ? plainTerms(home.description) : '',
     '',
     FOOTER_NOTE,
     '',
