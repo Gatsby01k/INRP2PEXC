@@ -16,6 +16,8 @@ const HANDLED = new Set([
   'quote.sent',
   'client.quote_expired',
   'client.request_declined',
+  // ADR 0032: a waiting client's wait ended without a price (its price found arrives as a held `quote.sent`).
+  'client.request_wait_ended',
   'trade.opened',
   'client.payout_confirmed',
   'client.trade_cancelled',
@@ -56,11 +58,12 @@ async function facts(db: Db, event: OutboxEvent): Promise<{ clientId: string; fa
     const q = await db
       .selectFrom('quote as q')
       .innerJoin('trade_request as r', 'r.id', 'q.trade_request_id')
-      .select(['q.ref', 'q.quote_inr_minor', 'q.base_minor', 'q.direction'])
+      .select(['q.ref', 'q.quote_inr_minor', 'q.base_minor', 'q.direction', 'q.expires_at'])
       .where('q.id', '=', quoteId)
       .executeTakeFirst();
     if (q) {
       out.quoteRef = q.ref;
+      if (q.expires_at) out.expiresAt = q.expires_at;
       out.inr = Money.ofMinor(q.quote_inr_minor, 'INR').toDecimalString();
       out.base = Money.ofMinor(q.base_minor, 'USDT').toDecimalString();
       out.direction = q.direction;
@@ -83,8 +86,14 @@ async function facts(db: Db, event: OutboxEvent): Promise<{ clientId: string; fa
   if (requestId) {
     // The reason an operator typed lives on the request, not in the event: the payload is a pointer, and the
     // row is the record.
-    const r = await db.selectFrom('trade_request').select('status_reason').where('id', '=', requestId).executeTakeFirst();
+    const r = await db.selectFrom('trade_request').select(['status_reason', 'direction', 'fixed_side', 'requested_base_minor', 'requested_quote_minor']).where('id', '=', requestId).executeTakeFirst();
     if (r?.status_reason) out.reason = r.status_reason;
+    if (r && event.type === 'client.request_wait_ended') {
+      out.direction = r.direction;
+      out.waiting = r.fixed_side === 'BASE'
+        ? { amount: Money.ofMinor(r.requested_base_minor!, 'USDT').toDecimalString(), currency: 'USDT' }
+        : { amount: Money.ofMinor(r.requested_quote_minor!, 'INR').toDecimalString(), currency: 'INR' };
+    }
   }
   const reason = str(p.reason);
   const label = str(p.label);
@@ -106,7 +115,10 @@ async function facts(db: Db, event: OutboxEvent): Promise<{ clientId: string; fa
 function kindFor(event: OutboxEvent, f: NotificationFacts): Parameters<typeof draftFor>[0] | null {
   switch (event.type) {
     case 'quote.sent':
-      return 'QUOTE_SENT';
+      // ADR 0032: a price found for a client who was waiting for a trader, and held for it.
+      return ((event.payload ?? {}) as Payload).held === true ? 'WAITING_PRICE_READY' : 'QUOTE_SENT';
+    case 'client.request_wait_ended':
+      return 'WAITING_ENDED';
     case 'client.quote_expired':
       return 'QUOTE_EXPIRED';
     case 'client.request_declined':

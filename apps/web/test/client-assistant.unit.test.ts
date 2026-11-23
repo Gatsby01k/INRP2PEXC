@@ -29,6 +29,8 @@ const none: ClientDestinations = { banks: [], wallets: [], upiIds: [] };
 
 const request = {
   gatheringUntil: null,
+  waitingUntil: null as string | null,
+  readyNow: null as string | null,
   canReprice: false,
   ref: 'RQ-260919-0007',
   direction: 'SELL_USDT' as const,
@@ -100,6 +102,15 @@ describe('exchange', () => {
     const declined = exchangeAssistant(view({ request: { ...request, status: 'DECLINED', statusReason: 'No liquidity today' } }), { canAccept: true, now: NOW });
     expect(declined).toMatchObject({ mood: 'alert', label: 'Declined' });
     expect(declined.body).toContain('No liquidity today');
+  });
+
+  it('says a trader is being found while a request waits, and what happens next (ADR 0032)', () => {
+    const waiting = exchangeAssistant(view({ request: { ...request, waitingUntil: '2026-09-20T09:10:00.000Z' } }), { canAccept: true, now: NOW });
+    expect(waiting).toMatchObject({ mood: 'waiting', label: 'Finding a trader', title: 'Finding a trader for 25,000 USDT' });
+    expect(waiting.body).toContain('held for you for 10 minutes');
+    expect(requestSteps(view({ request: { ...request, waitingUntil: LATER } }), NOW).map((s) => s.label)).toEqual(['Request sent', 'Finding a trader', 'We message you', 'You accept']);
+    const ended = exchangeAssistant(view({ request: { ...request, status: 'DECLINED', noPrice: true, statusReason: 'No trader could take this amount in the 24 hours we looked.' } }), { canAccept: true, now: NOW });
+    expect(ended).toMatchObject({ mood: 'alert', label: 'No trader found', title: 'No trader took 25,000 USDT' });
   });
 });
 

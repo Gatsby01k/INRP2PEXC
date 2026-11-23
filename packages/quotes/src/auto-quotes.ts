@@ -29,7 +29,7 @@ import { businessNow, hitRateLimit } from './security.ts';
 /**
  * Automatic prices of the INRP2P exchange (docs/adr/0025-automatic-pricing.md, 0028-fully-automatic-exchange.md): a client
  * asks, and in the same step gets a firm price — or, when no firm offer prices it, a price request goes to several traders —
- * or, when nothing can be priced honestly, the client is told so plainly and the request closes. Nobody at INRP2P prices or
+ * or, when nothing can be priced honestly, it waits for a trader (0032-no-client-turned-away.md). Nobody at INRP2P prices or
  * routes it; with automatic prices off, every request waits for a person exactly as before.
  *
  * A firm price is, in one transaction: the chosen trader's order opened and accepted on its own firm offer (or its winning
@@ -45,6 +45,16 @@ import { businessNow, hitRateLimit } from './security.ts';
 
 /** How long an automatic price can be accepted. */
 export const AUTO_QUOTE_SECONDS = 60;
+/**
+ * ADR 0032: how long a price found for a waiting client is held. The client is not on the screen when it is found — it is
+ * told by message and comes back to it — so a minute would be gone before it is read. The trader's capacity is held as
+ * long, and a minute more, like any price's.
+ */
+export const HELD_QUOTE_SECONDS = 600;
+/** ADR 0032: how long the exchange keeps looking for a trader for a request nothing priced. */
+export const WAIT_HOURS = 24;
+/** ADR 0032: a trader is told that clients are waiting at most this often. */
+export const DEMAND_NOTICE_MINUTES = 30;
 /** The trader's capacity outlives the quote by this much, then the trader sweep gives it back. */
 const HOLD_GRACE_SECONDS = 60;
 /** The acting system, as it is written into orders, quotes and audit events. */
@@ -63,8 +73,11 @@ export type AutoOutcome =
   | { readonly kind: 'RFQ'; readonly rfqRef: string; readonly closesAt: string }
   /** Automatic prices are off: the request waits for a person, as before ADR 0025. */
   | { readonly kind: 'MANUAL'; readonly reason: 'OFF' }
-  /** ADR 0028: nothing prices it honestly now — the request is closed with what the client is told. */
-  | { readonly kind: 'NO_PRICE'; readonly reason: NoPriceReason; readonly message: string };
+  /**
+   * ADR 0032: nothing prices it honestly now — the request stays open and the exchange keeps looking until `until`; the
+   * traders who could take it are told someone is waiting. Found, the price is held for the client and it is told.
+   */
+  | { readonly kind: 'WAITING'; readonly reason: NoPriceReason; readonly until: string };
 
 const sideFor = (direction: DirectionValue): TraderSide => (direction === 'SELL_USDT' ? 'BUY_USDT' : 'SELL_USDT');
 
@@ -200,6 +213,8 @@ interface Placement {
   readonly offeredBy: string;
   readonly source: 'INSTANT' | 'RFQ';
   readonly rfqId: string | null;
+  /** ADR 0032: a price found for a waiting client, who is not on the screen — held `HELD_QUOTE_SECONDS`, and not learnt from. */
+  readonly held: boolean;
   /** ADR 0028: for a firm offer at a market rate, the reference and terms its rate was derived from; null otherwise. */
   readonly market: { readonly reference: MarketReference; readonly offsetBps: number; readonly limitMicro: bigint | null } | null;
 }
@@ -214,7 +229,8 @@ async function placeQuote(ctx: TxContext, p: Placement): Promise<Extract<AutoOut
   const { request } = pc;
   const side = sideFor(request.direction);
   const now = await businessNow(ctx.tx);
-  const expiresAt = new Date(now.getTime() + AUTO_QUOTE_SECONDS * 1000);
+  const validFor = p.held ? HELD_QUOTE_SECONDS : AUTO_QUOTE_SECONDS;
+  const expiresAt = new Date(now.getTime() + validFor * 1000);
   const holdUntil = new Date(expiresAt.getTime() + HOLD_GRACE_SECONDS * 1000);
   const program = await traderProgram(ctx.tx);
   const rateMicro = choice.offer.rateMicro;
@@ -267,7 +283,7 @@ async function placeQuote(ctx: TxContext, p: Placement): Promise<Extract<AutoOut
       route_rate_snapshot_id: snapshot.snapshotId, route_id: p.routeId, route_value_inr_minor: econ.routeInr.minor, gross_margin_inr_minor: econ.grossMargin.minor,
       route_base_minor: econ.routeBase.minor, gross_margin_base_minor: econ.grossMarginBase.minor, network_fee_base_minor: allowance,
       client_network_base_minor: allowance, network: request.network, bank_account_id: request.bank_account_id, crypto_wallet_id: request.crypto_wallet_id,
-      valid_for_seconds: AUTO_QUOTE_SECONDS, is_counter: false, negative_margin_reason: null, created_by: SYSTEM_PRICER,
+      valid_for_seconds: validFor, is_counter: false, negative_margin_reason: null, created_by: SYSTEM_PRICER,
     })
     .returning(['id', 'ref'])
     .executeTakeFirstOrThrow();
@@ -284,18 +300,19 @@ async function placeQuote(ctx: TxContext, p: Placement): Promise<Extract<AutoOut
       direction: request.direction, size_band: sizeBand(econ.base.minor), reference_snapshot_id: pc.reference.id, reference_rate_micro: pc.reference.rate.micro,
       position_bps: choice.positionBps, cap_rate_micro: choice.capRateMicro, offers: choice.viableOffers,
       completion_ppm: Number.parseInt(choice.offer.completionPpm.toString(), 10), acceptance_ppm: Number.parseInt(choice.acceptancePpm.toString(), 10),
-      net_margin_usdt_minor: choice.netMarginMinor, min_net_margin_usdt_minor: choice.minNetMarginMinor,
+      net_margin_usdt_minor: choice.netMarginMinor, min_net_margin_usdt_minor: choice.minNetMarginMinor, held: p.held,
     })
     .execute();
 
   await ctx.tx.updateTable('quote').set({ status: 'SENT', sent_at: now, expires_at: expiresAt, sent_by: SYSTEM_PRICER }).where('id', '=', quote.id).execute();
   const current = await ctx.tx.selectFrom('trade_request').select('version').where('id', '=', request.id).executeTakeFirstOrThrow();
-  await ctx.tx.updateTable('trade_request').set({ status: 'QUOTED', last_activity_at: sql<Date>`inrp2p_now()`, version: current.version + 1 }).where('id', '=', request.id).execute();
+  // Priced, a request stops waiting (ADR 0032): if this price runs out, the client asks again for itself.
+  await ctx.tx.updateTable('trade_request').set({ status: 'QUOTED', waiting_until: null, last_activity_at: sql<Date>`inrp2p_now()`, version: current.version + 1 }).where('id', '=', request.id).execute();
 
   await appendAudit(ctx, {
     action: 'quote.auto_priced', entityType: 'quote', entityId: quote.id,
     after: {
-      ref: quote.ref, request_id: request.id, source: p.source, rfq_id: p.rfqId, order_id: order.id, trader_id: p.traderId, direction: request.direction,
+      ref: quote.ref, request_id: request.id, source: p.source, rfq_id: p.rfqId, held: p.held, order_id: order.id, trader_id: p.traderId, direction: request.direction,
       client_rate: Rate.ofMicro(choice.clientRateMicro, 'CLIENT'), trader_rate: Rate.ofMicro(rateMicro, 'ROUTE'), base: econ.base, client_inr: econ.clientInr,
       trader_base: econ.routeBase, gross_margin_usdt: econ.grossMarginBase, network_usdt: allowance === null ? null : Money.ofMinor(allowance, 'USDT'),
       network_paid_by: allowance === null ? null : 'CLIENT', trader_rate_market: p.market ? { reference_snapshot_id: p.market.reference.snapshotId, offset_bps: p.market.offsetBps } : null,
@@ -305,7 +322,11 @@ async function placeQuote(ctx: TxContext, p: Placement): Promise<Extract<AutoOut
       expected_net_usdt: Money.ofMinor(choice.expectedNetMinor, 'USDT'), offers: choice.viableOffers, policy_id: pc.policy.id, expires_at: expiresAt,
     },
   });
-  await enqueueOutbox(ctx, { type: 'quote.sent', aggregateType: 'quote', aggregateId: quote.id, payload: { quoteId: quote.id, expiresAt: expiresAt.toISOString(), clientId: request.client_id } });
+  // A held price (ADR 0032) is told as what it is: the trader the client waited for, found — by every channel it has.
+  await enqueueOutbox(ctx, {
+    type: 'quote.sent', aggregateType: 'quote', aggregateId: quote.id,
+    payload: { quoteId: quote.id, expiresAt: expiresAt.toISOString(), clientId: request.client_id, ...(p.held ? { held: true } : {}) },
+  });
   return {
     kind: 'QUOTED', quoteId: quote.id, ref: quote.ref, clientRate: Rate.ofMicro(choice.clientRateMicro, 'CLIENT').toDecimalString(),
     base: econ.base.toDecimalString(), clientInr: econ.clientInr.toDecimalString(), expiresAt: expiresAt.toISOString(),
@@ -352,9 +373,10 @@ export async function autoPriceLockedInTx(ctx: TxContext, input: { requestId: st
     await closeRequest(ctx.tx, id, 'WITHDRAWN', 'replaced by a new price', old.version);
     await appendAudit(ctx, { action: 'request.withdrawn', entityType: 'trade_request', entityId: id, before: { status: old.status }, after: { status: 'WITHDRAWN', reason: 'replaced by a new price', by: 'CLIENT' } });
   }
-  // With prices off a person prices it, as before; with them on, nothing waits for a person (ADR 0028).
+  // With prices off a person prices it, as before; with them on, nothing waits for a person (ADR 0028) — and nobody is
+  // turned away: what nothing prices now waits for a trader (ADR 0032).
   if (manual === 'OFF') return { kind: 'MANUAL', reason: 'OFF' };
-  if (manual) return closeUnpriced(ctx, request, manual, NO_PRICE_TEXT[manual], false);
+  if (manual) return keepWaiting(ctx, request, manual, null);
 
   // Under the locks, the candidates as they are now.
   const pc: PriceContext = { request, policy, reference: reference!, network: network!, market };
@@ -367,7 +389,7 @@ export async function autoPriceLockedInTx(ctx: TxContext, input: { requestId: st
     const b = chosen.block;
     return placeQuote(ctx, {
       pc, choice: outcome.choice, traderId: chosen.traderId, blockId: b.id, routeId: b.routeId,
-      committedBy: b.instantSetBy!, offeredBy: SYSTEM_PRICER, source: 'INSTANT', rfqId: null,
+      committedBy: b.instantSetBy!, offeredBy: SYSTEM_PRICER, source: 'INSTANT', rfqId: null, held: false,
       market: b.rateBasis === 'MARKET' && b.market ? { reference: b.market, offsetBps: b.marketOffsetBps!, limitMicro: b.rateLimitMicro } : null,
     });
   }
@@ -377,24 +399,19 @@ export async function autoPriceLockedInTx(ctx: TxContext, input: { requestId: st
     const opened = await openRfqInTx(ctx, pc, locked.map((c) => ({ ...c, completionPpm: completion(c.traderId) })));
     if (opened) return opened;
   }
-  return closeUnpriced(ctx, request, outcome.reason, outcome.reason === 'NO_OFFER' ? sizeText(pc, offers) : NO_PRICE_TEXT.NOT_COMPETITIVE, false);
+  return keepWaiting(ctx, request, outcome.reason, outcome.reason === 'NO_OFFER' ? readyNowText(pc, offers) : null);
 }
 
-/** What the client is told when there is no price, in plain words: what happened, and what it can do. */
-const NO_PRICE_TEXT: Readonly<Record<NoPriceReason, string>> = Object.freeze({
-  NO_MARKET: 'Prices are paused for a moment while the market rate updates. Ask again in a few minutes.',
-  NETWORK_UNKNOWN: 'Prices are paused for a moment while the network fees update. Ask again in a few minutes.',
-  NO_OFFER: 'No trader can take this amount right now. Ask again in a few minutes, or try another amount.',
-  NOT_COMPETITIVE: 'No trader can match the market rate for this amount right now. Ask again in a few minutes.',
-  NO_BID: 'No trader priced this amount in time. Ask again in a few minutes, or try another amount.',
-});
+/** ADR 0032: what the client is told when the exchange stopped looking and found no price. */
+export const WAIT_ENDED_TEXT = `No trader could take this amount in the ${WAIT_HOURS} hours we looked. Nothing was committed — ask again whenever you like.`;
 
 /**
  * For an amount no firm offer takes: the amounts the firm offers do take now, in whole USDT at the market reference — what
- * the client can ask for instead. Said as "about": the client's own USDT moves with its price and the deal's network.
+ * the client can ask for instead of waiting, and be priced at once. Said as "about": the client's own USDT moves with its
+ * price and the deal's network. Null when no firm offer takes any amount.
  */
-function sizeText(pc: PriceContext, offers: readonly PricedOffer[]): string {
-  if (offers.length === 0) return NO_PRICE_TEXT.NO_OFFER;
+function readyNowText(pc: PriceContext, offers: readonly PricedOffer[]): string | null {
+  if (offers.length === 0) return null;
   const inr = pc.request.direction === 'SELL_USDT';
   const usdt = (m: bigint): bigint => (inr ? (m * 10_000_000_000n) / pc.reference.rate.micro : m);
   let lo: bigint | null = null;
@@ -409,31 +426,66 @@ function sizeText(pc: PriceContext, offers: readonly PricedOffer[]): string {
     if (lo === null || bottom < lo) lo = bottom;
     if (topUsdt > hi) hi = topUsdt;
   }
-  const whole = (m: bigint, up: boolean) => ((m + (up ? 999_999n : 0n)) / 1_000_000n).toString();
-  if (lo === null || hi === 0n) return NO_PRICE_TEXT.NO_OFFER;
-  return `No trader can take this amount right now. A firm price is available for about ${whole(lo, true)} to ${whole(hi, false)} USDT — ask for an amount in that range.`;
+  // Whole USDT, grouped by thousands the international way (D-11): "20,000".
+  const whole = (m: bigint, up: boolean) => ((m + (up ? 999_999n : 0n)) / 1_000_000n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  if (lo === null || hi === 0n) return null;
+  const a = whole(lo, true);
+  const b = whole(hi, false);
+  return a === '0' || a === '1'
+    ? `Right now a trader can take up to about ${b} USDT — ask for that and your price comes at once.`
+    : `Right now a trader can take about ${a} to ${b} USDT — ask for that and your price comes at once.`;
 }
 
 /**
- * ADR 0028: nothing prices the request honestly now. It closes — declined, with what the client is told as its reason — so
- * nobody at INRP2P has it waiting on them; the record says why. The client is told on the screen it asked from, and, when it
- * was waiting on traders, in its inbox too.
+ * ADR 0032 (amending 0028): nothing prices the request honestly now, and the client is not turned away. The request stays
+ * open and the exchange keeps looking — every minute (`runWaitingSweep`) — for `WAIT_HOURS` from when it started waiting;
+ * the reason is on the record, and `hint`, when there is one, is what the client could ask for instead and be priced at
+ * once. The traders who could take it hear that a client is waiting — unless all that is missing is the exchange's own
+ * reading of the market or of the network, which no trader can help with.
  */
-async function closeUnpriced(ctx: TxContext, request: RequestRow, reason: NoPriceReason, message: string, notify: boolean): Promise<AutoOutcome> {
-  const current = await ctx.tx.selectFrom('trade_request').select(['status', 'version']).where('id', '=', request.id).executeTakeFirstOrThrow();
+async function keepWaiting(ctx: TxContext, request: RequestRow, reason: NoPriceReason, hint: string | null): Promise<Extract<AutoOutcome, { kind: 'WAITING' }>> {
+  const current = await ctx.tx.selectFrom('trade_request').select(['status', 'version', 'waiting_since', 'waiting_until']).where('id', '=', request.id).executeTakeFirstOrThrow();
+  const now = await businessNow(ctx.tx);
+  const fresh = current.waiting_until === null;
+  const until = fresh ? new Date(now.getTime() + WAIT_HOURS * 3_600_000) : current.waiting_until!;
   await ctx.tx.updateTable('trade_request')
-    .set({ status: 'DECLINED', status_reason: message, no_price_reason: reason, closed_at: sql<Date>`inrp2p_now()`, last_activity_at: sql<Date>`inrp2p_now()`, version: current.version + 1 })
+    .set({
+      status_reason: hint, no_price_reason: reason, waiting_since: fresh ? now : current.waiting_since, waiting_until: until,
+      last_activity_at: sql<Date>`inrp2p_now()`, version: current.version + 1,
+    })
     .where('id', '=', request.id)
     .execute();
   await appendAudit(ctx, { action: 'quote.auto_price_skipped', entityType: 'trade_request', entityId: request.id, after: { ref: request.ref, reason } });
-  await appendAudit(ctx, {
-    action: 'request.declined', entityType: 'trade_request', entityId: request.id,
-    before: { status: current.status }, after: { status: 'DECLINED', reason: message, by: SYSTEM_PRICER, no_price: reason },
-  });
-  if (notify) {
-    await enqueueOutbox(ctx, { type: 'client.request_declined', aggregateType: 'trade_request', aggregateId: request.id, payload: { requestId: request.id, clientId: request.client_id } });
+  if (fresh) {
+    await appendAudit(ctx, {
+      action: 'request.waiting', entityType: 'trade_request', entityId: request.id,
+      before: { status: current.status }, after: { status: 'OPEN', no_price: reason, waiting_until: until, by: SYSTEM_PRICER },
+    });
+    if (reason !== 'NO_MARKET' && reason !== 'NETWORK_UNKNOWN') await tellTradersClientWaiting(ctx, request);
   }
-  return { kind: 'NO_PRICE', reason, message };
+  return { kind: 'WAITING', reason, until: until.toISOString() };
+}
+
+/**
+ * ADR 0032: the traders who could take a waiting request — approved by INRP2P, with the side it needs on a P2P route,
+ * online or not, and never the client itself — hear that a client is waiting: the side and the amount, never who. How
+ * often one trader hears it is the inbox's to limit (`DEMAND_NOTICE_MINUTES`).
+ */
+async function tellTradersClientWaiting(ctx: TxContext, request: RequestRow): Promise<void> {
+  const traders = await ctx.tx.selectFrom('trader_profile as t')
+    .innerJoin('trader_block as b', 'b.trader_id', 't.id')
+    .innerJoin('liquidity_route as r', 'r.id', 'b.route_id')
+    .select('t.id')
+    .distinct()
+    .where('t.status', '=', 'APPROVED')
+    .where('t.client_id', '<>', request.client_id)
+    .where('b.side', '=', sideFor(request.direction))
+    .where('r.execution_mode', '=', 'P2P')
+    .orderBy('t.id')
+    .execute();
+  for (const t of traders) {
+    await enqueueOutbox(ctx, { type: 'trader.clients_waiting', aggregateType: 'trade_request', aggregateId: request.id, payload: { requestId: request.id, traderId: t.id } });
+  }
 }
 
 // ---- price requests to several traders --------------------------------------------------------------------------------
@@ -486,8 +538,7 @@ export type AwardResult = 'NOT_DUE' | 'AWARDED' | 'NO_PRICE' | 'CANCELLED' | 'CL
  * highest expected net margin, priced exactly as a firm offer would be (the bid's rate, INRP2P's ceilings and the trader's
  * free capacity; the market bound and the minimum net margin). The winner's order is opened and accepted on its bid and the
  * client gets a firm price for `AUTO_QUOTE_SECONDS`; the others are told they lost. With no bid that prices honestly the
- * request closes with a plain answer to the client (ADR 0028); with the request gone or taken by a person, the price
- * request is cancelled.
+ * request waits for a trader (ADR 0032); with the request gone or taken by a person, the price request is cancelled.
  */
 export async function awardRfqInTx(ctx: TxContext, rfqId: string): Promise<AwardResult> {
   const head = await ctx.tx.selectFrom('rfq').select(['trade_request_id']).where('id', '=', requireUuid(rfqId, 'rfqId')).executeTakeFirst();
@@ -537,20 +588,20 @@ export async function awardRfqInTx(ctx: TxContext, rfqId: string): Promise<Award
   const winner = bids.find((b) => b.trader_id === chosen.traderId)!;
   const quoted = await placeQuote(ctx, {
     pc, choice: outcome.choice, traderId: chosen.traderId, blockId: chosen.block.id, routeId: chosen.block.routeId,
-    committedBy: winner.placed_by, offeredBy: `RFQ:${rfq.ref}`, source: 'RFQ', rfqId: rfq.id, market: null,
+    committedBy: winner.placed_by, offeredBy: `RFQ:${rfq.ref}`, source: 'RFQ', rfqId: rfq.id, market: null, held: false,
   });
   await closeRfq(ctx, rfq.id, 'AWARDED', `priced as ${quoted.ref}`, winner.id);
   return 'AWARDED';
 }
 
 /**
- * A price request that ends without a price. With automatic prices on, the request closes and the client is told (ADR
- * 0028); switched off meanwhile, it goes to a person as every request then does.
+ * A price request that ends without a price. With automatic prices on, the request waits for a trader (ADR 0032); switched
+ * off meanwhile, it goes to a person as every request then does.
  */
 async function noPrice(ctx: TxContext, rfqId: string, request: RequestRow, note: string, reason: NoPriceReason): Promise<AwardResult> {
   await closeRfq(ctx, rfqId, 'NO_PRICE', note, null);
   if ((await currentPricingPolicy(ctx.tx)).autoQuote) {
-    await closeUnpriced(ctx, request, reason, NO_PRICE_TEXT[reason], true);
+    await keepWaiting(ctx, request, reason, null);
   } else {
     await enqueueOutbox(ctx, { type: 'desk.request_needs_action', aggregateType: 'trade_request', aggregateId: request.id, payload: { requestId: request.id } });
   }
@@ -623,6 +674,115 @@ export async function runRfqSweep(db: Db, limit = 50): Promise<RfqSweepReport> {
   return { ...report, failures };
 }
 
+// ---- the clients who wait (ADR 0032) ----------------------------------------------------------------------------------
+
+export type WaitingResult = 'STILL_WAITING' | 'PRICED' | 'ENDED' | 'TO_A_PERSON' | 'GONE';
+
+/**
+ * A waiting request, looked at again under its lock.
+ *
+ * - Its time up, it closes declined (ADR 0028) and the client is told.
+ * - Automatic prices switched off meanwhile, it goes to a person, as every request then does.
+ * - Otherwise, when a firm offer prices it now, it is priced as a client asking would be — every trader it could go to
+ *   locked first — but held for `HELD_QUOTE_SECONDS`: the client is not on the screen, it is told by message and comes back
+ *   to it. Whether anything prices it is seen first without locking a single trader, so a look every minute costs no trader
+ *   a wait.
+ * - Nothing pricing it, it keeps waiting, and what the client could ask for instead is kept current.
+ */
+export async function lookAgainInTx(ctx: TxContext, requestId: string): Promise<WaitingResult> {
+  await lockRow(ctx.tx, 'trade_request', 'trade_request', requireUuid(requestId, 'requestId'));
+  const row = await ctx.tx.selectFrom('trade_request').select(['status', 'version', 'waiting_until', 'status_reason', 'no_price_reason']).where('id', '=', requestId).executeTakeFirstOrThrow();
+  if (row.status !== 'OPEN' || row.waiting_until === null) return 'GONE';
+  const request = await readRequest(ctx, requestId);
+  if (row.waiting_until <= (await businessNow(ctx.tx))) {
+    await endWait(ctx, request, row.version);
+    return 'ENDED';
+  }
+  if ((await newBusinessState(ctx.tx)).paused) return 'STILL_WAITING';
+  if (await ctx.tx.selectFrom('rfq').select('id').where('trade_request_id', '=', requestId).where('status', '=', 'OPEN').executeTakeFirst()) return 'STILL_WAITING';
+  const policy = await currentPricingPolicy(ctx.tx);
+  if (!policy.autoQuote) {
+    await ctx.tx.updateTable('trade_request').set({ waiting_until: null, version: row.version + 1 }).where('id', '=', requestId).execute();
+    await appendAudit(ctx, { action: 'request.waiting_ended', entityType: 'trade_request', entityId: requestId, after: { to: 'DESK', reason: 'automatic prices are off' } });
+    await enqueueOutbox(ctx, { type: 'desk.request_needs_action', aggregateType: 'trade_request', aggregateId: requestId, payload: { requestId } });
+    return 'TO_A_PERSON';
+  }
+  const reference = await freshReference(ctx.tx, request.direction, policy);
+  const network = reference ? await networkMode(ctx) : null;
+  if (!reference || !network) return 'STILL_WAITING';
+  const market = await marketReferences(ctx.tx, policy);
+  const pc: PriceContext = { request, policy, reference, network, market };
+  const completion = await completionOf(ctx, policy);
+  const offersOf = (cs: readonly Candidate[]) => cs.map((c) => firmOffer(c, completion(c.traderId))).filter((o): o is PricedOffer => o !== null);
+
+  const peek = await candidates(ctx, request, network, reference, market);
+  const seen = await price(ctx, pc, offersOf(peek));
+  if (seen.kind !== 'PRICED') {
+    const hint = seen.reason === 'NO_OFFER' ? readyNowText(pc, offersOf(peek)) : null;
+    if (hint !== row.status_reason || seen.reason !== row.no_price_reason) {
+      await ctx.tx.updateTable('trade_request').set({ status_reason: hint, no_price_reason: seen.reason, version: row.version + 1 }).where('id', '=', requestId).execute();
+      // It waited only on the exchange's own reading of the market; now it waits on traders, and they hear of it.
+      if (row.no_price_reason === 'NO_MARKET' || row.no_price_reason === 'NETWORK_UNKNOWN') await tellTradersClientWaiting(ctx, request);
+    }
+    return 'STILL_WAITING';
+  }
+
+  // Something prices it: every trader it could go to is locked, then priced on the candidates as they are now.
+  await lockInOrder(ctx.tx, 'trader_profile', 'trader_profile', peek.map((c) => c.traderId));
+  const locked = await candidates(ctx, request, network, reference, market);
+  const outcome = await price(ctx, pc, offersOf(locked));
+  if (outcome.kind !== 'PRICED') return 'STILL_WAITING';
+  const chosen = locked.find((c) => c.traderId === outcome.choice.offer.id)!;
+  const b = chosen.block;
+  await placeQuote(ctx, {
+    pc, choice: outcome.choice, traderId: chosen.traderId, blockId: b.id, routeId: b.routeId,
+    committedBy: b.instantSetBy!, offeredBy: SYSTEM_PRICER, source: 'INSTANT', rfqId: null, held: true,
+    market: b.rateBasis === 'MARKET' && b.market ? { reference: b.market, offsetBps: b.marketOffsetBps!, limitMicro: b.rateLimitMicro } : null,
+  });
+  return 'PRICED';
+}
+
+/** The wait is over with no price: the request closes declined, as ADR 0028 closed it at once, and the client is told. */
+async function endWait(ctx: TxContext, request: RequestRow, version: number): Promise<void> {
+  await ctx.tx.updateTable('trade_request')
+    .set({ status: 'DECLINED', status_reason: WAIT_ENDED_TEXT, waiting_until: null, closed_at: sql<Date>`inrp2p_now()`, last_activity_at: sql<Date>`inrp2p_now()`, version: version + 1 })
+    .where('id', '=', request.id)
+    .execute();
+  await appendAudit(ctx, {
+    action: 'request.declined', entityType: 'trade_request', entityId: request.id,
+    before: { status: 'OPEN' }, after: { status: 'DECLINED', reason: WAIT_ENDED_TEXT, by: SYSTEM_PRICER, waited_hours: WAIT_HOURS },
+  });
+  await enqueueOutbox(ctx, { type: 'client.request_wait_ended', aggregateType: 'trade_request', aggregateId: request.id, payload: { requestId: request.id, clientId: request.client_id } });
+}
+
+export interface WaitingSweepReport extends Record<WaitingResult, number> {
+  readonly failures: readonly { readonly requestId: string; readonly code: string; readonly message: string }[];
+}
+
+/**
+ * `waiting_requests_sweep` (cron, every minute): every waiting request looked at again, the longest waiting first — the
+ * first to ask is the first a trader's price goes to — each in its own step; one that fails is looked at next minute and
+ * never holds up the rest.
+ */
+export async function runWaitingSweep(db: Db, limit = 100): Promise<WaitingSweepReport> {
+  const due = await db.selectFrom('trade_request').select('id').where('status', '=', 'OPEN').where('waiting_until', 'is not', null)
+    .orderBy('waiting_since').orderBy('id').limit(limit).execute();
+  const report: Record<WaitingResult, number> = { STILL_WAITING: 0, PRICED: 0, ENDED: 0, TO_A_PERSON: 0, GONE: 0 };
+  const failures: { requestId: string; code: string; message: string }[] = [];
+  for (const { id } of due) {
+    const key = randomUUID();
+    try {
+      const out = await executeCommand(db, { authorize: async () => {}, handle: (ctx) => lookAgainInTx(ctx, id) }, {
+        name: 'request.look_again', actor: SYSTEM, payload: { requestId: id, run: key }, idempotencyKey: key, financial: true,
+      });
+      report[out.result] += 1;
+    } catch (e) {
+      failures.push({ requestId: id, code: e instanceof DomainError ? e.code : 'UNEXPECTED', message: (e instanceof Error ? e.message : String(e)).slice(0, 300) });
+    }
+  }
+  return { ...report, failures };
+}
+
 /**
  * `reference_rate_refresh` (cron, every five minutes): the market's bid and ask read from public books and published as the
  * references automatic prices are bounded by, under the system actor (`recordMarketReference`).
@@ -677,8 +837,8 @@ export interface InstantQuoteResult {
  * `request.instant_quote` — a client of the INRP2P exchange asks for a price. With automatic prices off this is
  * `request.create` exactly. With them on, the client's earlier open requests are replaced (their quotes cancelled and their
  * traders' capacity given back) — one live price per client, so nobody holds liquidity by asking repeatedly — and the new
- * request is priced at once: a firm quote, a price request to traders, or — nothing pricing it honestly — a plain answer
- * and the request closed (ADR 0028).
+ * request is priced at once: a firm quote, a price request to traders, or — nothing pricing it honestly — the request waits
+ * for a trader, and the client is told the moment one prices it (ADR 0032).
  */
 export function requestInstantQuote(actor: ClientActor, deps: QuoteDeps) {
   return memberClientCommand(actor, async (ctx, p: InstantQuotePayload, clientId): Promise<InstantQuoteResult> => {
@@ -715,11 +875,16 @@ export function repriceRequest(actor: ClientActor) {
   });
 }
 
-/** For the client's screen: whether its open request is with traders, and whether it can ask for a new price itself. */
-export async function automaticPricingOf(ex: Executor, requestId: string): Promise<{ rfqClosesAt: string | null; canReprice: boolean }> {
-  const [policy, rfq] = await Promise.all([
+/**
+ * For the client's screen: whether its open request is with traders, whether it is waiting for one (ADR 0032) and until
+ * when, and whether it can ask for a new price itself — not while it waits: the exchange is already looking every minute.
+ */
+export async function automaticPricingOf(ex: Executor, requestId: string): Promise<{ rfqClosesAt: string | null; waitingUntil: string | null; canReprice: boolean }> {
+  const [policy, rfq, request] = await Promise.all([
     currentPricingPolicy(ex),
     ex.selectFrom('rfq').select('closes_at').where('trade_request_id', '=', requestId).where('status', '=', 'OPEN').executeTakeFirst(),
+    ex.selectFrom('trade_request').select('waiting_until').where('id', '=', requestId).executeTakeFirst(),
   ]);
-  return { rfqClosesAt: rfq ? rfq.closes_at.toISOString() : null, canReprice: policy.autoQuote && !rfq };
+  const waitingUntil = request?.waiting_until ?? null;
+  return { rfqClosesAt: rfq ? rfq.closes_at.toISOString() : null, waitingUntil: waitingUntil ? waitingUntil.toISOString() : null, canReprice: policy.autoQuote && !rfq && !waitingUntil };
 }

@@ -60,6 +60,7 @@ const home = (over: Partial<TraderHome> = {}): TraderHome => ({
   programmeReserve: '2000.000000',
   deskOpened: false,
   upiReady: false,
+  waiting: [],
   openOrders: 0,
   now: '2026-09-27T17:51:00.000Z',
   ...over,

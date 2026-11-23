@@ -30,10 +30,13 @@ OPEN ──quote.send──▶ QUOTED ──quote.accept──▶ ACCEPTED (term
 | OPEN → QUOTED | side effect of `quote.send` | — | — |
 | QUOTED → OPEN | side effect of quote EXPIRED/REJECTED/CANCELLED(not superseded) | no other SENT quote | outbox `desk.request_needs_action` |
 | OPEN/QUOTED → DECLINED | Dealer `request:decline` | not ACCEPTED | cancels SENT quote (reason `DECLINED_BY_DESK`); audit; notify client |
-| OPEN → DECLINED (system) | ADR 0028: automatic prices on and nothing prices it honestly — no market reference, unknown network fees, no firm offer for the amount, none at the market, or no bid | OPEN | `no_price_reason` set; the plain answer is the `status_reason`; audit `request.declined` by `SYSTEM:auto_price`; the client's inbox told when it was waiting on traders |
+| OPEN → OPEN, waiting (system) | ADR 0032 (amending 0028): automatic prices on and nothing prices it honestly — no market reference, unknown network fees, no firm offer for the amount, none at the market, or no bid | OPEN | `no_price_reason` set; `waiting_since`, `waiting_until` = +24 h on the first time; `status_reason` = what a trader takes right now, if anything; audit `request.waiting`; outbox `trader.clients_waiting` per approved trader with that side (not for NO_MARKET / NETWORK_UNKNOWN) |
+| OPEN (waiting) → QUOTED (system) | `waiting_requests_sweep`, every minute, oldest wait first: a firm offer now prices it | still waiting, not expired | a firm quote held 600 s (`auto_quote.held`, not learnt from); `waiting_until` cleared — a lapse of this price returns the request to OPEN, not to waiting; `quote.sent` with `held: true` → the client's inbox, email and Telegram |
+| OPEN (waiting) → DECLINED (system) | `waiting_requests_sweep`: `waiting_until` passed | — | `status_reason` = the plain answer; audit `request.declined` by `SYSTEM:auto_price`; outbox `client.request_wait_ended` |
+| OPEN (waiting) → OPEN (system) | `waiting_requests_sweep`: automatic prices switched off meanwhile | — | `waiting_until` cleared; outbox `desk.request_needs_action` |
 | OPEN/QUOTED → WITHDRAWN | Client user or operator `request:withdraw` | not ACCEPTED | cancels SENT quote; audit |
 | QUOTED → ACCEPTED | side effect of `quote.accept` or `quote.accept_via_link` | — | — |
-| OPEN → EXPIRED | Job | no activity for request TTL (default 24h) | audit |
+| OPEN → EXPIRED | Job | no activity for request TTL (default 24h); never a waiting request (`waiting_until` set) — the waiting sweep ends its wait | audit |
 
 Ledger: none.
 

@@ -739,6 +739,11 @@
     order: 1;
   }
 
+  /* A request waiting for a trader (ADR 0032): the news is what happens next, so the stage leads, the request under it. */
+  .deal[data-waiting] .stage[data-quiet] {
+    order: -1;
+  }
+
   .steps {
     padding-top: var(--space-6);
   }
@@ -1295,4 +1300,16 @@
     font-size: 20px;
     letter-spacing: -0.02em;
   }
+}
+
+/* ADR 0032: the ways a waiting client hears of its price, as a list of the stage's own pills. */
+ul.facts {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* A link dressed as the stage's white call to action keeps its look when it is an anchor. */
+a.accept {
+  text-decoration: none;
 }

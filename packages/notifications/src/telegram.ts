@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { sql } from 'kysely';
 import { Money, Rate } from '@inrp2p/kernel';
-import type { Db, DirectionValue, Executor, TraderSide } from '@inrp2p/db';
+import type { Db, DirectionValue, Executor, NotificationKind, TraderSide } from '@inrp2p/db';
 import { type TelegramAdapter, deliveryFailureOf } from '@inrp2p/adapters';
 import type { OutboxEvent, OutboxHandler } from '@inrp2p/outbox';
 
@@ -350,6 +350,39 @@ export function telegramOrderHandler(db: Db, adapter: TelegramAdapter, opts: { l
       const dedupeKey = moment === 'MESSAGE' || moment === 'SUPPORT_WROTE' ? `${event.type}:${orderId}:${typeof bucket === 'string' ? bucket : event.id}` : `${event.type}:${orderId}`;
       const ids = await queueTelegram(db, { clientId: facts.traderClientId, dedupeKey, body, buttonUrl: orderAlertUrl(facts, opts.linkBase) });
       if (ids.length > 0) await sendTelegramDeliveries(db, adapter, ids);
+    },
+  };
+}
+
+/** ADR 0032: the inbox notes someone is waiting on — told on Telegram as well, in the inbox's own words. */
+const TELEGRAMMED: readonly NotificationKind[] = ['WAITING_PRICE_READY', 'WAITING_ENDED', 'TRADER_CLIENTS_WAITING'];
+
+function inboxLink(base: string | undefined, href: string | null): string | null {
+  if (!base || !href) return null;
+  try {
+    return new URL(href, base).toString();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Outbox handler for the Telegram copy of a few inbox notes (ADR 0032): the price a waiting client waited for is held for
+ * it, its wait ended without one, a client waits for a trader's price. Like email it composes nothing of its own — it sends
+ * the note the inbox handlers wrote for the same event — so register it after them. Every person of the client with a
+ * linked chat is told; someone who opened their account with Telegram has no other channel.
+ */
+export function telegramInboxHandler(db: Db, adapter: TelegramAdapter, opts: { linkBase?: string | undefined } = {}): OutboxHandler {
+  return {
+    name: 'telegram_inbox_alerts',
+    handles: (type) => type === 'quote.sent' || type === 'client.request_wait_ended' || type === 'trader.clients_waiting',
+    run: async (event) => {
+      const notes = await db.selectFrom('client_notification').select(['id', 'client_id', 'title', 'body', 'href'])
+        .where('outbox_event_id', '=', event.id).where('kind', 'in', TELEGRAMMED).execute();
+      for (const n of notes) {
+        const ids = await queueTelegram(db, { clientId: n.client_id, dedupeKey: `inbox:${n.id}`, body: `${n.title}\n\n${n.body}`, buttonUrl: inboxLink(opts.linkBase, n.href) });
+        if (ids.length > 0) await sendTelegramDeliveries(db, adapter, ids);
+      }
     },
   };
 }

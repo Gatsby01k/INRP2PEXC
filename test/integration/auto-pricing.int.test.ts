@@ -4,9 +4,12 @@ import { Money, Rate, computeP2pEconomics } from '@inrp2p/kernel';
 import { pgErrorCode } from '@inrp2p/db';
 import { runAs } from '@inrp2p/identity/testing';
 import { currentPricingPolicy, marketDays, marketTrail, publicMarketRates, setPricingPolicy } from '@inrp2p/pricing';
-import { acceptQuote, expireQuote, repriceRequest, requestInstantQuote, runMarketReferenceRefresh, runRfqSweep } from '@inrp2p/quotes';
+import { HELD_QUOTE_SECONDS, WAIT_ENDED_TEXT, WAIT_HOURS, acceptQuote, expireQuote, repriceRequest, requestInstantQuote, runMarketReferenceRefresh, runRfqSweep, runWaitingSweep } from '@inrp2p/quotes';
 import { configureTraderProgram } from '@inrp2p/trader-core';
-import { bidOnRfq, priceAsksFor, updateBlock } from '@inrp2p/traders';
+import { bidOnRfq, priceAsksFor, traderHome, updateBlock } from '@inrp2p/traders';
+import { clientInbox, clientNotificationHandler, telegramInboxHandler, traderNotificationHandler } from '@inrp2p/notifications';
+import type { OutboxEvent } from '@inrp2p/outbox';
+import { FakeTelegram } from '@inrp2p/adapters/testing';
 import { exchangeView } from '../../packages/portal/src/index.ts';
 import { traderClient } from './traders-world.ts';
 import { type RailsWorld, createRailsWorld, railsTrader } from './rails-world.ts';
@@ -224,11 +227,13 @@ describe('a trader’s own reserve (ADR 0024)', () => {
       await setRisk({ cleanDays: 30, tiers: [wide, { ...wide, minDeals: 10 }, { ...wide, minDeals: 50 }] });
       const within = quoted(await ask('BUY_USDT', '900'));
       expect((await quoteOf(within.quoteId)).route_base_minor!).toBeLessThanOrEqual(usdt('1000'));
-      // Past it, the client is told what it can have instead, and nothing waits for a person.
+      // Past it, the request waits for a trader (ADR 0032), and the client is told what it could have at once instead.
       const past = await ask('BUY_USDT', '1500');
-      expect(past.outcome).toMatchObject({ kind: 'NO_PRICE', reason: 'NO_OFFER' });
-      expect((past.outcome as { message: string }).message).toMatch(/available for about \d+ to \d+ USDT/);
-      expect(await requestOf(past.requestId)).toMatchObject({ status: 'DECLINED', no_price_reason: 'NO_OFFER' });
+      expect(past.outcome).toMatchObject({ kind: 'WAITING', reason: 'NO_OFFER' });
+      const waiting = await requestOf(past.requestId);
+      expect(waiting).toMatchObject({ status: 'OPEN', no_price_reason: 'NO_OFFER' });
+      expect(waiting.waiting_until).not.toBeNull();
+      expect(waiting.status_reason).toMatch(/a trader can take (about [\d,]+ to|up to about) [\d,]+ USDT/);
     } finally {
       await setRisk(null);
     }
@@ -236,12 +241,12 @@ describe('a trader’s own reserve (ADR 0024)', () => {
 });
 
 describe('what is never priced automatically', () => {
-  it('nothing competitive: when no firm offer beats the market, the client is told so and nothing waits for a person', async () => {
+  it('nothing competitive: when no firm offer beats the market, the request waits for a trader and nothing waits for a person', async () => {
     await books('101.00', '100.50');
     const out = await ask('BUY_USDT', '1000');
-    expect(out.outcome).toMatchObject({ kind: 'NO_PRICE', reason: 'NOT_COMPETITIVE' });
-    expect(await requestOf(out.requestId)).toMatchObject({ status: 'DECLINED', no_price_reason: 'NOT_COMPETITIVE' });
-    expect((await exchangeView(w.app, w.clientId)).request).toMatchObject({ status: 'DECLINED', noPrice: true });
+    expect(out.outcome).toMatchObject({ kind: 'WAITING', reason: 'NOT_COMPETITIVE' });
+    expect(await requestOf(out.requestId)).toMatchObject({ status: 'OPEN', no_price_reason: 'NOT_COMPETITIVE', status_reason: null });
+    expect((await exchangeView(w.app, w.clientId)).request).toMatchObject({ status: 'OPEN', noPrice: false, waitingUntil: expect.any(String), readyNow: null, canReprice: false });
     const skipped = await w.app.selectFrom('audit_event').select('after').where('action', '=', 'quote.auto_price_skipped').where('entity_id', '=', out.requestId).executeTakeFirstOrThrow();
     expect(JSON.stringify(skipped.after)).toContain('NOT_COMPETITIVE');
     await books('101.00', '102.00');
@@ -286,16 +291,17 @@ describe('a larger amount than any firm offer takes', () => {
     expect((await orderOfQuote(quote.id)).trade_id).toBe(accepted.tradeId);
   });
 
-  it('a price request nobody answers closes, and the client is told in its inbox too', async () => {
+  it('a price request nobody answers ends, and the request waits for a trader: the traders hear a client is waiting', async () => {
     const out = await ask('BUY_USDT', '60000');
     expect(out.outcome.kind).toBe('RFQ');
     const clock = await w.t.pinnedClock();
     await clock.set(new Date(Date.now() + 121_000));
     expect(await runRfqSweep(clock.db)).toMatchObject({ NO_PRICE: 1 });
-    expect(await requestOf(out.requestId)).toMatchObject({ status: 'DECLINED', no_price_reason: 'NO_BID' });
+    expect(await requestOf(out.requestId)).toMatchObject({ status: 'OPEN', no_price_reason: 'NO_BID' });
     expect(await w.app.selectFrom('quote').select('id').where('trade_request_id', '=', out.requestId).execute()).toEqual([]);
     const told = await w.app.selectFrom('outbox_event').select('type').where('aggregate_id', '=', out.requestId).execute();
-    expect(told.map((e) => e.type)).toContain('client.request_declined');
+    expect(told.map((e) => e.type)).toContain('trader.clients_waiting');
+    expect(told.map((e) => e.type)).not.toContain('client.request_declined');
     expect(told.map((e) => e.type)).not.toContain('desk.request_needs_action');
   });
 });
@@ -315,12 +321,15 @@ describe('what the database refuses', () => {
 });
 
 describe('a market nobody confirmed lately', () => {
-  it('a stale market: no price at all, rather than a price nobody can bound', async () => {
+  it('a stale market: no price at all, rather than a price nobody can bound — the request waits, and no trader is bothered', async () => {
     const clock = await w.t.pinnedClock();
     await clock.set(new Date(Date.now() + 16 * 60_000));
     const out = await ask('BUY_USDT', '1000', undefined, clock.db);
-    expect(out.outcome).toMatchObject({ kind: 'NO_PRICE', reason: 'NO_MARKET' });
-    expect(await requestOf(out.requestId)).toMatchObject({ status: 'DECLINED', no_price_reason: 'NO_MARKET' });
+    expect(out.outcome).toMatchObject({ kind: 'WAITING', reason: 'NO_MARKET' });
+    expect(await requestOf(out.requestId)).toMatchObject({ status: 'OPEN', no_price_reason: 'NO_MARKET' });
+    const told = await w.app.selectFrom('outbox_event').select('type').where('aggregate_id', '=', out.requestId).execute();
+    expect(told.map((e) => e.type)).not.toContain('trader.clients_waiting');
+    await clock.set(null);
   });
 });
 
@@ -398,5 +407,122 @@ describe('a client asking for prices in a loop', () => {
     for (let i = 0; i < PRICE_REQUESTS_PER_WINDOW; i++) await limitPriceRequests(w.app, w.clientId);
     await expect(limitPriceRequests(w.app, w.clientId)).rejects.toMatchObject({ code: 'RATE_LIMITED' });
     await expect(limitPriceRequests(w.app, other.clientId)).resolves.toBeUndefined();
+  });
+});
+
+describe('a client nothing priced is not turned away (ADR 0032)', () => {
+  const eventsOf = async (aggregateId: string, types: readonly string[]): Promise<OutboxEvent[]> =>
+    (await w.app.selectFrom('outbox_event').select(['id', 'type', 'aggregate_type', 'aggregate_id', 'payload', 'correlation_id']).where('aggregate_id', '=', aggregateId).where('type', 'in', [...types]).orderBy('created_at').execute())
+      .map((e) => ({ id: e.id, type: e.type, aggregateType: e.aggregate_type, aggregateId: e.aggregate_id, payload: e.payload, correlationId: e.correlation_id }));
+  const inboxOf = (clientId: string) => clientInbox(w.app, clientId, { limit: 200 });
+  const bot = new FakeTelegram();
+  let buyer: Awaited<ReturnType<typeof traderClient>>;
+  let waitingId: string;
+
+  it('waits for a trader instead of closing; the traders who could take it hear of it, once, never who asks', async () => {
+    await books('101.00', '102.00');
+    await policy({ rfq: false });
+    buyer = await traderClient(w, 'Waiting Buyer');
+    // More than any firm offer takes (20,000 USDT at most): nothing prices it.
+    const out = await ask('BUY_USDT', '30000', { ...buyer.admin, walletId: buyer.walletId });
+    expect(out.outcome).toMatchObject({ kind: 'WAITING', reason: 'NO_OFFER' });
+    waitingId = out.requestId;
+    const row = await requestOf(waitingId);
+    expect(row).toMatchObject({ status: 'OPEN', no_price_reason: 'NO_OFFER', closed_at: null });
+    expect(row.waiting_until!.getTime() - row.waiting_since!.getTime()).toBe(WAIT_HOURS * 3_600_000);
+    expect(row.status_reason).toMatch(/^Right now a trader can take about [\d,]+ to 20,000 USDT/);
+    // The client sees it wait, what it could have at once, and is not offered to ask again — the exchange is already looking.
+    expect((await exchangeView(w.app, buyer.clientId)).request).toMatchObject({
+      status: 'OPEN', waitingUntil: row.waiting_until!.toISOString(), readyNow: row.status_reason, canReprice: false, noPrice: false,
+    });
+
+    // Every approved trader with a side selling USDT is told — Charlie too, whose offer is not firm: it may make it so.
+    const pings = await eventsOf(waitingId, ['trader.clients_waiting']);
+    const told = pings.map((e) => (e.payload as { traderId: string }).traderId);
+    expect(told).toEqual(expect.arrayContaining([a.traderId, b.traderId, c.traderId]));
+    const handler = traderNotificationHandler(w.app);
+    for (const e of pings) await handler.run(e);
+    const note = (await inboxOf(a.clientId)).find((n) => n.kind === 'TRADER_CLIENTS_WAITING')!;
+    expect(note.title).toBe('A client is waiting for your price');
+    expect(note.body).toContain('Someone wants to buy 30,000 USDT and no trader has a price for it.');
+    expect(note.body).toContain('Turn your Sell USDT price on');
+    expect(note.body).not.toContain('Waiting Buyer');
+    // A second client waiting within the half hour: the trader already knows — told once, not once per client.
+    const second = await traderClient(w, 'Second Waiting Buyer');
+    const out2 = await ask('BUY_USDT', '25000', { ...second.admin, walletId: second.walletId });
+    expect(out2.outcome.kind).toBe('WAITING');
+    for (const e of await eventsOf(out2.requestId, ['trader.clients_waiting'])) await handler.run(e);
+    expect((await inboxOf(a.clientId)).filter((n) => n.kind === 'TRADER_CLIENTS_WAITING')).toHaveLength(1);
+
+    // The trader's home says how many wait on its side and about how much — counts, not people.
+    const home = await traderHome(w.app, a.admin.userId);
+    const demand = home.waiting.find((d) => d.side === 'SELL_USDT')!;
+    expect(demand.count).toBeGreaterThanOrEqual(2);
+    expect(Number(demand.aboutUsdt)).toBeGreaterThanOrEqual(55000);
+  });
+
+  it('keeps waiting while nothing prices it, and is priced the minute a trader’s firm offer takes it: held 10 minutes, told everywhere', async () => {
+    const still = await runWaitingSweep(w.app);
+    expect(still.failures).toEqual([]);
+    expect((await requestOf(waitingId)).status).toBe('OPEN');
+
+    // Alpha raises its largest order: the next look prices the waiting client — first come, first priced.
+    await firm(a, 'SELL_USDT', { maxOrder: '40000' });
+    const swept = await runWaitingSweep(w.app);
+    expect(swept.failures).toEqual([]);
+    expect(swept.PRICED).toBeGreaterThanOrEqual(1);
+    const row = await requestOf(waitingId);
+    expect(row).toMatchObject({ status: 'QUOTED', waiting_until: null });
+    const quote = await w.app.selectFrom('quote').selectAll().where('trade_request_id', '=', waitingId).where('status', '=', 'SENT').executeTakeFirstOrThrow();
+    expect(quote).toMatchObject({ valid_for_seconds: HELD_QUOTE_SECONDS, base_minor: usdt('30000'), client_rate_micro: r('102') });
+    expect(quote.expires_at!.getTime() - quote.sent_at!.getTime()).toBe(HELD_QUOTE_SECONDS * 1000);
+    expect(await decisionOf(quote.id)).toMatchObject({ held: true, source: 'INSTANT' });
+    const order = await orderOfQuote(quote.id);
+    expect(order).toMatchObject({ trader_id: a.traderId, status: 'ACCEPTED' });
+    expect(order.hold_until!.getTime()).toBe(quote.expires_at!.getTime() + 60_000);
+
+    // The client hears it in its inbox and on Telegram: the trader it waited for, the price, and until when it is held.
+    const member = await w.app.selectFrom('client_user').select('id').where('user_id', '=', buyer.admin.userId).executeTakeFirstOrThrow();
+    await w.app.insertInto('telegram_link').values({ client_user_id: member.id, status: 'ACTIVE', chat_id: 990_001n, username: 'waiting_buyer', linked_at: new Date() }).execute();
+    const [sent] = await eventsOf(quote.id, ['quote.sent']);
+    expect(sent!.payload).toMatchObject({ held: true });
+    await clientNotificationHandler(w.app).run(sent!);
+    const ready = (await inboxOf(buyer.clientId)).find((n) => n.kind === 'WAITING_PRICE_READY')!;
+    expect(ready.title).toBe('We found you a trader');
+    expect(ready.body).toMatch(/^Your price for 30,000 USDT is ready: you pay ₹[\d,]+\. It is held for you until \d\d:\d\d IST\. Open the Exchange to accept it\.$/);
+    expect((await inboxOf(buyer.clientId)).some((n) => n.kind === 'QUOTE_SENT')).toBe(false);
+    await telegramInboxHandler(w.app, bot, { linkBase: 'https://app.inrp2p.test' }).run(sent!);
+    expect(bot.to('990001')).toEqual([{ chatId: '990001', text: `${ready.title}\n\n${ready.body}`, button: { text: 'Open in INRP2P', url: 'https://app.inrp2p.test/exchange' } }]);
+
+    // Accepted like any price: the deal opens with the trader who took it.
+    const accepted = await runAs(w.app, acceptQuote(buyer.admin.actor, w.railsDeps), buyer.admin.ref, 'quote.accept', { quoteId: quote.id });
+    expect((await orderOfQuote(quote.id)).trade_id).toBe(accepted.tradeId);
+    await firm(a, 'SELL_USDT', { maxOrder: '20000' });
+  });
+
+  it('a day with no trader: the request closes, and the client is told plainly — nothing committed, ask again', async () => {
+    const late = await traderClient(w, 'Late Buyer');
+    const out = await ask('BUY_USDT', '90000', { ...late.admin, walletId: late.walletId });
+    expect(out.outcome.kind).toBe('WAITING');
+    const row = await requestOf(out.requestId);
+    // Only an open request of the exchange waits: the database refuses a wait on one that was priced.
+    const quoted = await w.app.selectFrom('trade_request').select('id').where('status', '=', 'QUOTED').limit(1).executeTakeFirstOrThrow();
+    expect(await dbCode(sql`update trade_request set waiting_since = inrp2p_now(), waiting_until = inrp2p_now() + interval '1 hour' where id = ${quoted.id}`.execute(w.app))).toBe('23514');
+
+    const clock = await w.t.pinnedClock();
+    await clock.set(new Date(row.waiting_until!.getTime() + 60_000));
+    try {
+      const swept = await runWaitingSweep(clock.db);
+      expect(swept.failures).toEqual([]);
+      expect(swept.ENDED).toBeGreaterThanOrEqual(1);
+    } finally {
+      await clock.set(null);
+    }
+    expect(await requestOf(out.requestId)).toMatchObject({ status: 'DECLINED', status_reason: WAIT_ENDED_TEXT, no_price_reason: 'NO_OFFER', waiting_until: null });
+    for (const e of await eventsOf(out.requestId, ['client.request_wait_ended'])) await clientNotificationHandler(w.app).run(e);
+    const ended = (await inboxOf(late.clientId)).find((n) => n.kind === 'WAITING_ENDED')!;
+    expect(ended.title).toBe('No trader took your request');
+    expect(ended.body).toContain('90,000 USDT');
+    expect((await exchangeView(w.app, late.clientId)).request).toMatchObject({ status: 'DECLINED', noPrice: true, waitingUntil: null });
   });
 });

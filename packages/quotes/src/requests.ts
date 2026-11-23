@@ -151,7 +151,8 @@ export async function cancelSentQuoteOfRequest(ctx: TxContext, requestId: string
 export async function closeRequest(tx: Tx, requestId: string, status: 'DECLINED' | 'WITHDRAWN' | 'EXPIRED', reason: string | null, version: number): Promise<void> {
   await tx
     .updateTable('trade_request')
-    .set({ status, status_reason: reason, closed_at: sql<Date>`inrp2p_now()`, last_activity_at: sql<Date>`inrp2p_now()`, version: version + 1 })
+    // A closed request no longer waits for a trader (ADR 0032).
+    .set({ status, status_reason: reason, waiting_until: null, closed_at: sql<Date>`inrp2p_now()`, last_activity_at: sql<Date>`inrp2p_now()`, version: version + 1 })
     .where('id', '=', requestId)
     .execute();
 }
@@ -187,12 +188,15 @@ export function withdrawRequest(actor: QuoteActor) {
   });
 }
 
-/** Job step: OPEN requests with no activity for the TTL expire (STATE_MACHINES §1). Returns expired ids. */
+/**
+ * Job step: OPEN requests with no activity for the TTL expire (STATE_MACHINES §1). Returns expired ids. A request waiting
+ * for a trader (ADR 0032) is not idle: the waiting sweep looks at it every minute and ends its wait itself.
+ */
 export async function expireInactiveRequests(ctx: TxContext, deps: Pick<QuoteDeps, 'policy'>, limit = 200): Promise<string[]> {
   const ttl = policyOf(deps).requestTtlSeconds;
   const due = await sql<{ id: string }>`
     select id from trade_request
-    where status = 'OPEN' and last_activity_at <= inrp2p_now() - make_interval(secs => ${ttl})
+    where status = 'OPEN' and waiting_until is null and last_activity_at <= inrp2p_now() - make_interval(secs => ${ttl})
     order by last_activity_at, id limit ${limit}
     for update skip locked`.execute(ctx.tx);
   for (const { id } of due.rows) {

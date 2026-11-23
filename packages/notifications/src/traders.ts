@@ -1,3 +1,4 @@
+import { sql } from 'kysely';
 import { Money, Rate, requireP2pTiming } from '@inrp2p/kernel';
 import type { Db, NotificationKind } from '@inrp2p/db';
 import type { OutboxEvent, OutboxHandler } from '@inrp2p/outbox';
@@ -191,6 +192,7 @@ async function resolve(db: Db, event: OutboxEvent): Promise<{ clientId: string; 
     const reason = str(p.reason);
     return { clientId: t.client_id, kind: 'DESK_NOTICE', facts: { deskAction: action as NonNullable<NotificationFacts['deskAction']>, ...(reason ? { reason } : {}) } };
   }
+  if (event.type === 'trader.clients_waiting') return clientsWaiting(db, event);
   if (event.type === 'trader.rfq_opened') {
     // ADR 0025: a price request put to this trader — its side, the amount and its time; never who asks.
     const rfqId = str(p.rfqId);
@@ -261,6 +263,46 @@ async function resolve(db: Db, event: OutboxEvent): Promise<{ clientId: string; 
 }
 
 /** Outbox handler for the trader inbox. Handles every `trader.*` event (most need no message) and the payout signal. */
+/** ADR 0032: a trader hears that clients are waiting at most this often — the first such client in that time, and how many wait. */
+export const CLIENTS_WAITING_NOTICE_MINUTES = 30;
+
+/**
+ * ADR 0032: a client is waiting for a trader and this trader could take it. Told with the side in the trader's own words,
+ * the amount as it was asked, and how many clients wait on that side now — never who asks. Not told when the request no
+ * longer waits by the time this runs, nor when the trader already heard of waiting clients in the last
+ * `CLIENTS_WAITING_NOTICE_MINUTES`: one nudge brings it back; a stream of them would only be noise.
+ */
+async function clientsWaiting(db: Db, event: OutboxEvent): Promise<{ clientId: string; kind: NotificationKind; facts: NotificationFacts } | null> {
+  const p = (event.payload ?? {}) as Payload;
+  const requestId = str(p.requestId);
+  const traderId = str(p.traderId);
+  if (!requestId || !traderId) return null;
+  const [request, trader] = await Promise.all([
+    db.selectFrom('trade_request').select(['direction', 'fixed_side', 'requested_base_minor', 'requested_quote_minor', 'waiting_until']).where('id', '=', requestId).executeTakeFirst(),
+    db.selectFrom('trader_profile').select(['client_id', 'status']).where('id', '=', traderId).executeTakeFirst(),
+  ]);
+  if (!request || !trader || request.waiting_until === null || trader.status !== 'APPROVED') return null;
+  const told = await sql<{ told: boolean }>`
+    select exists (select 1 from client_notification where client_id = ${trader.client_id}::uuid and kind = 'TRADER_CLIENTS_WAITING'
+                     and created_at > inrp2p_now() - make_interval(mins => ${CLIENTS_WAITING_NOTICE_MINUTES})) as told`.execute(db);
+  if (told.rows[0]!.told) return null;
+  const waiting = await db.selectFrom('trade_request').select((eb) => eb.fn.countAll<string>().as('n'))
+    .where('status', '=', 'OPEN').where('waiting_until', 'is not', null).where('direction', '=', request.direction).executeTakeFirst();
+  const usdt = request.fixed_side === 'BASE';
+  return {
+    clientId: trader.client_id,
+    kind: 'TRADER_CLIENTS_WAITING',
+    facts: {
+      side: request.direction === 'SELL_USDT' ? 'BUY_USDT' : 'SELL_USDT',
+      waiting: {
+        amount: usdt ? Money.ofMinor(request.requested_base_minor!, 'USDT').toDecimalString() : Money.ofMinor(request.requested_quote_minor!, 'INR').toDecimalString(),
+        currency: usdt ? 'USDT' : 'INR',
+        clients: Number.parseInt(waiting?.n ?? '1', 10),
+      },
+    },
+  };
+}
+
 export function traderNotificationHandler(db: Db): OutboxHandler {
   return {
     name: 'trader_notification_inbox',

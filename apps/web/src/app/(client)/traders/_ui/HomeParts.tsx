@@ -79,6 +79,38 @@ export function MoveField({ home, now, calm }: { home: TraderHome; now: number; 
     .slice()
     .sort((a, b) => (a.dueBy ? Date.parse(a.dueBy) : Infinity) - (b.dueBy ? Date.parse(b.dueBy) : Infinity));
   const first = due[0];
+  // ADR 0032: nothing is this trader's to do, but people wait for a trader's price on one of its sides — that is the move.
+  const demand = home.waiting.slice().sort((a, b) => b.count - a.count)[0];
+  if (!first && demand) {
+    const theyBuy = demand.side === 'SELL_USDT';
+    return (
+      <section className={`${shell.brandField} ${styles.field}`} aria-labelledby="move-title" data-demand="">
+        <FieldHalo sun />
+        <div className={styles.fieldText}>
+          <p className={styles.fieldEyebrow}>
+            <span className={styles.liveDot} aria-hidden="true" />
+            {demand.count === 1 ? 'A client is waiting' : `${demand.count} clients are waiting`} · no trader has a price
+          </p>
+          <h2 id="move-title" className={styles.fieldTitle}>
+            {demand.aboutUsdt ? `People want to ${theyBuy ? 'buy' : 'sell'} ${usdt(demand.aboutUsdt)}` : `People want to ${theyBuy ? 'buy' : 'sell'} USDT`}
+          </h2>
+          <p className={styles.fieldSub}>
+            Nobody on INRP2P has a price for them right now. Put your {theyBuy ? 'Sell' : 'Buy'} USDT price on and the next deal comes to you —
+            {home.available ? ' you are online.' : ' go online first.'}
+          </p>
+          <div className={styles.fieldActions}>
+            <Link className={styles.onField} href="/traders/setup">
+              Set my price
+              <ArrowIcon />
+            </Link>
+            <Link className={styles.offField} href="/traders/orders">
+              All orders
+            </Link>
+          </div>
+        </div>
+      </section>
+    );
+  }
   if (!first) {
     return (
       <section className={`${shell.brandField} ${styles.field}`} aria-labelledby="move-title" data-calm="">

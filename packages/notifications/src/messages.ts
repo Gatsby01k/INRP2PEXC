@@ -62,6 +62,11 @@ export interface NotificationFacts {
   readonly escrow?: { readonly minutes: number };
   /** A side of the trader's that can no longer take its smallest order: what is left of it, in its own currency. */
   readonly sideEmpty?: { readonly currency: 'INR' | 'USDT'; readonly left: string };
+  /**
+   * ADR 0032: what a waiting client asked for, in its own currency — told to the client when its wait ends, and to a trader
+   * who could take it (never who asks); and how many clients wait on that side now, this one included.
+   */
+  readonly waiting?: { readonly amount: string; readonly currency: 'USDT' | 'INR'; readonly clients?: number };
 }
 
 /** Thousands grouped the international way (D-11) — `10,200,000` — whatever the reader's locale. */
@@ -95,6 +100,30 @@ export function draftFor(kind: NotificationKind, facts: NotificationFacts): Noti
         subjectRef: facts.quoteRef ?? null,
         href: '/exchange',
       };
+    case 'WAITING_PRICE_READY': {
+      // ADR 0032: the trader the client waited for. Said with the figure to check and how long the price is held for.
+      const amount = facts.base ? usdt(facts.base) : 'USDT';
+      const pays = facts.inr ? `${facts.direction === 'BUY_USDT' ? 'you pay' : 'you get'} ${inr(facts.inr)}` : null;
+      const until = facts.expiresAt ? ` It is held for you until ${ist(facts.expiresAt)}.` : ' It is held for you for 10 minutes.';
+      return {
+        kind,
+        title: 'We found you a trader',
+        body: `Your price for ${amount} is ready${pays ? `: ${pays}` : ''}.${until} Open the Exchange to accept it.`,
+        subjectRef: facts.quoteRef ?? null,
+        href: '/exchange',
+      };
+    }
+    case 'WAITING_ENDED': {
+      const w = facts.waiting;
+      const amount = w ? (w.currency === 'USDT' ? usdt(w.amount) : `USDT for ${inr(w.amount)}`) : 'your amount';
+      return {
+        kind,
+        title: 'No trader took your request',
+        body: `We looked for a trader for ${amount} for a whole day and none could take it. Nothing was committed. Ask again whenever you like — your bank account and wallet are saved.`,
+        subjectRef: null,
+        href: '/exchange',
+      };
+    }
     case 'QUOTE_EXPIRED':
       return {
         kind,
@@ -519,6 +548,20 @@ function traderDraft(kind: NotificationKind, facts: NotificationFacts): Notifica
         kind,
         title: `Your ${sideWords(facts.side)} USDT side is out of capacity`,
         body: `Completed orders used it up: ${left} is left, less than your smallest order. You get no new ${buy ? 'buy' : 'sell'} orders until you add ${buy ? 'INR' : 'USDT'} capacity on Traders.`,
+        subjectRef: null,
+        href: '/traders',
+      };
+    }
+    case 'TRADER_CLIENTS_WAITING': {
+      // ADR 0032: a client asked and no trader had a price for it. The trader's side in its own words; never who asks.
+      const w = facts.waiting;
+      const amount = w ? (w.currency === 'USDT' ? usdt(w.amount) : `USDT for ${inr(w.amount)}`) : 'USDT';
+      const others = w?.clients && w.clients > 1 ? ` ${w.clients - 1} more ${w.clients === 2 ? 'client is' : 'clients are'} waiting on your side too.` : '';
+      const theirs = facts.side === 'SELL_USDT' ? 'buy' : 'sell';
+      return {
+        kind,
+        title: 'A client is waiting for your price',
+        body: `Someone wants to ${theirs} ${amount} and no trader has a price for it.${others} Turn your ${sideWords(facts.side)} USDT price on in Traders and the deal comes to you.`,
         subjectRef: null,
         href: '/traders',
       };
