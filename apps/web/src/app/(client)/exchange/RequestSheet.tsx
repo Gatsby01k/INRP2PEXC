@@ -3,7 +3,7 @@ import type { ClientDestinations } from '@inrp2p/portal';
 import { Amount } from '../../../components/Amount.tsx';
 import { Coin } from '../../../components/Coin.tsx';
 import { BankMark, RailMark } from '../../../components/PayMarks.tsx';
-import { ClockIcon, RateIcon, ShieldIcon, WalletIcon, BoltIcon } from '../_workspace/icons.tsx';
+import { ClockIcon, RateIcon, ShieldIcon, TimerIcon, WalletIcon, BoltIcon } from '../_workspace/icons.tsx';
 import shell from '../shell.module.css';
 import stage from './stage.module.css';
 
@@ -23,6 +23,8 @@ export function RequestSheet({
   sentAt,
   reference,
   networkFee,
+  estimate = null,
+  until = null,
   children,
 }: {
   direction: 'SELL_USDT' | 'BUY_USDT';
@@ -37,6 +39,10 @@ export function RequestSheet({
   reference: string | null;
   /** The network's line (ADR 0028), already worded: "2 USDT, out of what you send". */
   networkFee: string | null;
+  /** The other side of the deal, about, at the market's rate — "≈ ₹30,48,150 at today's market" — before a price is firm. */
+  estimate?: string | null;
+  /** ADR 0032: until when the exchange keeps looking for a trader, worded. */
+  until?: string | null;
   children?: ReactNode;
 }) {
   const sell = direction === 'SELL_USDT';
@@ -52,7 +58,8 @@ export function RequestSheet({
       <span className="ix-visually-hidden">{sell ? 'Sell USDT' : 'Buy USDT'}</span>
 
       <div className={`${shell.well} ${stage.askWell}`}>
-        <span className={shell.label}>{sell ? 'You sell' : 'You pay'}</span>
+        {/* What the fixed side is to the client: USDT it sells or buys, rupees it gets or pays. */}
+        <span className={shell.label}>{currency === 'USDT' ? (sell ? 'You sell' : 'You buy') : sell ? 'You get' : 'You pay'}</span>
         <span className={stage.askRow}>
           <span className={stage.askFigure}>
             <Amount value={currency === 'INR' ? `₹${amount}` : amount} />
@@ -63,6 +70,7 @@ export function RequestSheet({
             <small>{currency === 'USDT' ? 'TRC20' : 'Bank transfer'}</small>
           </span>
         </span>
+        {estimate ? <span className={stage.askEstimate}>{estimate}</span> : null}
       </div>
 
       <div className={stage.rows}>
@@ -124,6 +132,17 @@ export function RequestSheet({
               <b>Sent at {sentAt}</b>
             </span>
             {reference ? <span className={`${stage.rowEnd} ${stage.mono}`}>{reference}</span> : null}
+          </div>
+        ) : null}
+        {until ? (
+          <div className={stage.rowl}>
+            <span className={stage.tile}>
+              <TimerIcon />
+            </span>
+            <span className={stage.rowText}>
+              <span className={shell.label}>We keep looking until</span>
+              <b>{until}</b>
+            </span>
           </div>
         ) : null}
       </div>

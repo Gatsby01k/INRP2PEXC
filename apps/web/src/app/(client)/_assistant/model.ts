@@ -81,6 +81,14 @@ export function exchangeAssistant(view: ExchangeView, opts: { canAccept: boolean
       body: `Its price ran out before it was accepted. Request ${request.ref} goes back to the desk, which may send a new quote.`,
     };
   }
+  if (withDesk && request.waitingUntil && request.waiting?.on === 'MARKET') {
+    return {
+      mood: 'waiting',
+      label: 'Prices paused',
+      title: 'Prices are paused for a moment',
+      body: 'The market rate is updating. Your request stays on and is priced the moment it is back — you can close this page.',
+    };
+  }
   if (withDesk && request.waitingUntil) {
     return {
       mood: 'waiting',

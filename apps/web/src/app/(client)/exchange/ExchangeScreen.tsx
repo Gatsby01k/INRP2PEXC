@@ -75,10 +75,11 @@ export function ExchangeScreen({
 }) {
   const router = useRouter();
   const { quote, request } = view;
-  const now = useServerClock(serverTime, quote?.status === 'SENT');
-  const live = quote !== null && quoteLive(quote, now);
   const withDesk = request !== null && (request.status === 'OPEN' || request.status === 'QUOTED');
   const waiting = withDesk && request.waitingUntil !== null;
+  // The clock runs for a countdown, and for a wait — its time is on the stage.
+  const now = useServerClock(serverTime, quote?.status === 'SENT' || waiting);
+  const live = quote !== null && quoteLive(quote, now);
   const firstRun = !withDesk && view.destinations.banks.length === 0 && view.destinations.wallets.filter((w) => w.purpose !== 'SOURCE').length === 0;
   useAssistantState(exchangeAssistant(view, { canAccept, now }));
 
@@ -134,7 +135,7 @@ export function ExchangeScreen({
           </>
         ) : withDesk && request.waitingUntil ? (
           <>
-            <WaitingCard view={view} alerts={alerts ?? { telegram: { on: false, username: null }, email: null }} steps={requestSteps(view, now)} />
+            <WaitingCard view={view} alerts={alerts ?? { telegram: { on: false, username: null }, email: null }} now={now} />
             {recent.length > 0 ? <Activity recent={recent} /> : null}
           </>
         ) : withDesk ? (

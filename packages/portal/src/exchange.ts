@@ -1,6 +1,6 @@
 import { DomainError } from '@inrp2p/kernel';
 import type { Executor } from '@inrp2p/db';
-import { type ClientQuoteView, automaticPricingOf, toClientQuoteView } from '@inrp2p/quotes';
+import { type ClientQuoteView, type WaitingFacts, automaticPricingOf, toClientQuoteView, waitingFactsOf } from '@inrp2p/quotes';
 import { clientSafe } from './access.ts';
 import { type ClientDestinations, clientDestinations } from './destinations.ts';
 
@@ -33,6 +33,8 @@ export interface OpenRequest {
   readonly waitingUntil: string | null;
   /** While it waits: the amounts a trader takes right now, in the client's words, when there are any — asked for, priced at once. */
   readonly readyNow: string | null;
+  /** ADR 0032: the wait itself — since when, on what, how many traders know, how many are ahead, what is ready now. */
+  readonly waiting: WaitingFacts | null;
   readonly createdAt: string;
   /** ADR 0025: when the best price for this amount is being gathered, until when; and whether the client can ask for a new price itself. */
   readonly gatheringUntil: string | null;
@@ -90,6 +92,7 @@ export async function exchangeView(ex: Executor, clientId: string): Promise<Exch
 
   const quote = quoteRow ? await toClientQuoteView(ex, quoteRow.id) : null;
   const automatic = request && request.status === 'OPEN' ? await automaticPricingOf(ex, request.id) : { rfqClosesAt: null, waitingUntil: null, canReprice: false };
+  const waiting = request && automatic.waitingUntil ? await waitingFactsOf(ex, request.id) : null;
 
   // An accepted request became a trade: the one its accepted quote opened.
   const openTrade =
@@ -119,6 +122,7 @@ export async function exchangeView(ex: Executor, clientId: string): Promise<Exch
           noPrice: request.status === 'DECLINED' && request.no_price_reason !== null,
           waitingUntil: automatic.waitingUntil,
           readyNow: automatic.waitingUntil ? request.status_reason : null,
+          waiting,
           createdAt: request.created_at.toISOString(),
           gatheringUntil: automatic.rfqClosesAt,
           canReprice: automatic.canReprice,

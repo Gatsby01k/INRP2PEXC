@@ -434,7 +434,10 @@ describe('a client nothing priced is not turned away (ADR 0032)', () => {
     // The client sees it wait, what it could have at once, and is not offered to ask again — the exchange is already looking.
     expect((await exchangeView(w.app, buyer.clientId)).request).toMatchObject({
       status: 'OPEN', waitingUntil: row.waiting_until!.toISOString(), readyNow: row.status_reason, canReprice: false, noPrice: false,
+      waiting: { since: row.waiting_since!.toISOString(), until: row.waiting_until!.toISOString(), on: 'TRADERS', readyNowUsdt: '20000' },
     });
+    const facts = (await exchangeView(w.app, buyer.clientId)).request!.waiting!;
+    expect(facts.tradersTold).toBeGreaterThanOrEqual(3);
 
     // Every approved trader with a side selling USDT is told — Charlie too, whose offer is not firm: it may make it so.
     const pings = await eventsOf(waitingId, ['trader.clients_waiting']);
@@ -452,6 +455,9 @@ describe('a client nothing priced is not turned away (ADR 0032)', () => {
     const out2 = await ask('BUY_USDT', '25000', { ...second.admin, walletId: second.walletId });
     expect(out2.outcome.kind).toBe('WAITING');
     for (const e of await eventsOf(out2.requestId, ['trader.clients_waiting'])) await handler.run(e);
+    // First come, first priced: the second waits behind the first on the same side.
+    const ahead = async (clientId: string) => (await exchangeView(w.app, clientId)).request!.waiting!.ahead;
+    expect(await ahead(second.clientId)).toBe((await ahead(buyer.clientId)) + 1);
     expect((await inboxOf(a.clientId)).filter((n) => n.kind === 'TRADER_CLIENTS_WAITING')).toHaveLength(1);
 
     // The trader's home says how many wait on its side and about how much — counts, not people.
