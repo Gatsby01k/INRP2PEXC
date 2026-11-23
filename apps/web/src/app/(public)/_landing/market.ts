@@ -9,6 +9,8 @@ export interface Market {
   readonly SELL_USDT: string | null;
   readonly BUY_USDT: string | null;
   readonly trail?: readonly string[];
+  /** India's USDT premium over the dollar, in hundredths of a percent (`1236` is +12.36%); absent without a dollar. */
+  readonly premium?: number | null;
 }
 
 /** How often the rate is asked for again while the page is looked at; the edge keeps it for a minute. */

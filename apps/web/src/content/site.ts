@@ -48,6 +48,11 @@ export interface SitePage {
    * it, with the days as a CSV anyone may cite (`/usdt-premium-india.csv`).
    */
   readonly premium?: true;
+  /**
+   * The language a guide is written in, when it is not English: `hi-Latn` is Hinglish — Hindi in the Latin letters
+   * people in India search with ("USDT kaise beche"). Marked on the guide's own content and in its structured data.
+   */
+  readonly lang?: 'hi-Latn';
   /** The questions people search with before this deal, answered in the product's terms; marked up as an FAQ. */
   readonly faq?: readonly { readonly question: string; readonly answer: string }[];
 }
@@ -1271,6 +1276,133 @@ const PREMIUM: SitePage = {
   ],
 };
 
+/**
+ * The two deals in Hinglish, the way people in India type them into a search box. The same mechanism and the same facts
+ * as the English guides, in their words; the product's own terms (escrow, firm rate, UPI) stay as people use them.
+ */
+const SELL_HINGLISH: SitePage = {
+  path: '/usdt-kaise-beche',
+  title: `USDT kaise beche — rupees me, escrow ke saath | ${SITE_NAME}`,
+  description:
+    'USDT ko INR me kaise beche, bina dhokhe ke: poore amount ke liye ek firm rate, aur aapka USDT escrow me rehta hai jab tak rupees aapke bank me nahi aa jaate.',
+  h1: 'USDT kaise beche',
+  lede: 'USDT ko rupees me becho, ek firm rate par. Aapka USDT escrow me rehta hai jab tak rupees aapke bank me nahi aa jaate.',
+  sections: [
+    {
+      heading: 'Rate kaise milta hai',
+      body: [
+        'Batao kitna USDT bechna hai, ya kitne rupees chahiye. Poore amount ke liye ek firm rate aata hai, market ke rate par, expiry ke saath.',
+        'Network fee quote me alag line par dikhti hai, to accept karne se pehle pata hota hai ki haath me kitna aayega.',
+      ],
+    },
+    {
+      heading: 'Aapka USDT kahan rukta hai',
+      body: [
+        'Aap USDT TRON (TRC20) par ek escrow address par bhejte ho, jo sirf aapki deal ke liye bana hai. Use sirf INRP2P chala sakta hai, aur sirf wahi jo deal me likha hai.',
+        'Transfer tab gina jaata hai jab chain use final kar deti hai, sirf dikhne par nahi.',
+      ],
+    },
+    {
+      heading: 'Rupees aap tak kaise aate hain',
+      body: [
+        'Ek reviewed trader apne khud ke bank account se pay karta hai: UPI, IMPS, NEFT ya RTGS. Kisi aur ke account se aaye rupees wapas bhej diye jaate hain.',
+        'Aap apna bank check karke confirm karte ho. Tabhi USDT trader ko release hota hai, aur deal ki receipt banti hai.',
+      ],
+    },
+    {
+      heading: 'Agar kuch gadbad ho',
+      body: [
+        'Har step ka time limit hai. Buyer ne apna time miss kiya to deal cancel ho jaati hai aur aapka USDT wapas wahin chala jaata hai jahan se aaya tha.',
+        'Buyer kahe ki paise bhej diye aur aapke bank me kuch nahi dikhe, to deal par bolo: USDT escrow me hi rehta hai, aur INRP2P bank ke saboot par faisla karta hai.',
+      ],
+    },
+  ],
+  priority: 0.7,
+  led: 'BECHO',
+  rate: 'SELL_USDT',
+  lang: 'hi-Latn',
+  faq: [
+    {
+      question: 'USDT ko INR me kaise convert kare?',
+      answer: 'Amount batao aur firm rate accept karo. USDT escrow address par bhejo. Trader apne account se aapke bank me rupees bhejta hai, aap confirm karte ho, tabhi USDT release hota hai.',
+    },
+    {
+      question: 'Kya UPI se paise milenge?',
+      answer: 'Haan. Apna UPI ID ya bank account ek baar add karo. Trader apne khud ke account se UPI, IMPS, NEFT ya RTGS se pay karta hai.',
+    },
+    {
+      question: 'Kya USDT pehle bhejna safe hai?',
+      answer: 'Aap USDT kisi insaan ko nahi, apni deal ke escrow address par bhejte ho. Wo wahin rehta hai jab tak aap rupees aane ka confirm nahi karte.',
+    },
+    {
+      question: 'Fake payment screenshot aaye to?',
+      answer: 'Screenshot se kuch nahi badalta. USDT tabhi release hota hai jab aap apne bank me rupees dekh kar confirm karte ho.',
+    },
+    {
+      question: 'Google par USDT ka rate kam kyu dikhta hai?',
+      answer: 'Google aksar dollar ka rate dikhata hai. India me USDT us se zyada me bikta hai, aur bechne wale ko India ka rate milta hai. Aaj ka fark INRP2P ke premium page par dikhta hai.',
+    },
+  ],
+};
+
+const BUY_HINGLISH: SitePage = {
+  path: '/usdt-kaise-kharide',
+  title: `USDT kaise kharide — UPI se, escrow pehle | ${SITE_NAME}`,
+  description:
+    'Rupees se USDT kaise kharide, bina dhokhe ke: poore amount ke liye ek firm rate, aur USDT escrow me lock hota hai aapke ek bhi rupee bhejne se pehle. UPI, IMPS, NEFT, RTGS.',
+  h1: 'USDT kaise kharide',
+  lede: 'Rupees se USDT kharido, ek firm rate par. USDT escrow me lock hota hai, aapke ek bhi rupee bhejne se pehle.',
+  sections: [
+    {
+      heading: 'Rate kaise milta hai',
+      body: [
+        'Batao kitna USDT chahiye, ya kitne rupees lagane hain. Poore amount ke liye ek firm rate aata hai, market ke rate par, expiry ke saath.',
+        'Network fee quote me alag line par hoti hai. Accept karo, aur rate deal me lock ho jaata hai.',
+      ],
+    },
+    {
+      heading: 'Pehle escrow, phir payment',
+      body: [
+        'Ek reviewed trader pehle USDT is deal ke apne escrow address me daalta hai. Aapse pay karne ko tabhi kaha jaata hai jab USDT wahan aa jaaye.',
+        'Aap apne khud ke bank account se trader ke account me pay karte ho, UPI, IMPS, NEFT ya RTGS se. Rupees INRP2P se hokar nahi jaate.',
+      ],
+    },
+    {
+      heading: 'USDT kahan aata hai',
+      body: [
+        'Aapke apne TRON (TRC20) wallet me, jo aapne account me add kiya hai, aur kahin nahi. Trader rupees confirm karta hai aur escrow USDT aapko bhej deta hai.',
+        'Wallet pehli deal se pehle ek baar add hota hai, jaan-boojh kar: jaldi me type kiya address is market ki sabse mehngi galti hai.',
+      ],
+    },
+    {
+      heading: 'Kharidne se pehle premium dekho',
+      body: ['India me USDT dollar se mehnga bikta hai. Kharidne se pehle aaj ka premium dekho, aur wahan kharido jahan poore amount ka ek firm rate ho.'],
+    },
+  ],
+  priority: 0.7,
+  led: 'KHARIDO',
+  rate: 'BUY_USDT',
+  lang: 'hi-Latn',
+  faq: [
+    {
+      question: 'INR se USDT kaise kharide?',
+      answer: 'Amount batao aur firm rate accept karo. Trader USDT escrow me lock karta hai, phir aap apne bank se pay karte ho. Trader rupees confirm karta hai aur USDT aapke wallet me aata hai.',
+    },
+    {
+      question: 'Kya pehle pay karna padta hai?',
+      answer: 'Nahi. Aap tabhi pay karte ho jab trader ka USDT aapki deal ke escrow me lock ho chuka ho.',
+    },
+    {
+      question: 'Kya UPI se USDT kharid sakte hain?',
+      answer: 'Haan, apne khud ke bank account se UPI, IMPS, NEFT ya RTGS se. Kisi aur ke account se payment wapas ho jaati hai.',
+    },
+    {
+      question: 'Kaunsa wallet chalega?',
+      answer: 'Koi bhi TRON (TRC20) wallet jo aapke control me ho. Ek baar add karo, USDT wahi jaata hai aur kahin nahi.',
+    },
+  ],
+};
+
 const MERCHANT: SitePage = {
   path: '/p2p-merchant-india',
   title: `Become a USDT P2P merchant in India — earn {margin} | ${SITE_NAME}`,
@@ -1398,6 +1530,8 @@ export const SITE_PAGES: readonly SitePage[] = [
   PREMIUM,
   SELL_IN_INDIA,
   BUY_IN_INDIA,
+  SELL_HINGLISH,
+  BUY_HINGLISH,
   BANK_FREEZE,
   SCAMS,
   IS_IT_SAFE,

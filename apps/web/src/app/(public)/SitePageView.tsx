@@ -41,7 +41,7 @@ function structuredData(page: SitePage, origin: string): string {
       url,
       name: withTerms(page.title),
       description: withTerms(page.description),
-      inLanguage: 'en-IN',
+      inLanguage: page.lang ?? 'en-IN',
       isPartOf: { '@id': `${origin}#website` },
       about: { '@id': `${origin}#organization` },
     },
@@ -116,7 +116,7 @@ export async function SitePageView({ page, hero, story }: { page: SitePage; hero
       {/* A guide (every page but home): its first screen in the home page's room — the sunrise, the display face, the
           orange action — then its sections as numbered sheets. The home page brings its own first screen and story. */}
       {hero && page.sections.length === 0 ? null : (
-        <div className={styles.guide}>
+        <div className={styles.guide} lang={page.lang}>
           {hero ? null : (
             <section className={styles.hero}>
               <div className={`${styles.heroInner} ${page.led ? styles.heroGrid : ''}`}>
