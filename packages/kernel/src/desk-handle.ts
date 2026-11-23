@@ -20,7 +20,7 @@ export const RESERVED_DESK_HANDLES: ReadonlySet<string> = new Set([
  * on a migration only to reserve a few words no desk has asked for.
  */
 export const RESERVED_GUIDE_HANDLES: ReadonlySet<string> = new Set([
-  'is-inrp2p-safe', 'p2p-bank-account-freeze', 'p2p-merchant-india', 'usdt-p2p-scams',
+  'is-inrp2p-safe', 'p2p-bank-account-freeze', 'p2p-merchant-india', 'usdt-p2p-scams', 'usdt-premium-india',
 ]);
 
 /** Whether a handle is one of the site's or the app's own paths, and so never a desk's. */

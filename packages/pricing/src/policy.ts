@@ -96,6 +96,33 @@ export async function marketTrail(ex: Executor, hours = 24): Promise<readonly st
   return rows.rows.map((x) => Rate.ofMicro(BigInt(x.r), 'REFERENCE').toDecimalString());
 }
 
+/** One day of the market as the public premium page shows it: the date in India and that day's mid. */
+export interface MarketDay {
+  /** `YYYY-MM-DD`, the day in India's time (IST). */
+  readonly day: string;
+  readonly mid: string;
+}
+
+/**
+ * The market's days for the public USDT premium page: the reference's mid — both directions averaged — over each whole
+ * day in India's time, oldest first, for the last `days` days (today so far included). Read from the same append-only
+ * history as `marketTrail`; a day the feed did not report is simply missing.
+ */
+export async function marketDays(ex: Executor, days = 30): Promise<readonly MarketDay[]> {
+  // Days as a whole number within a year; anything else reads the default month.
+  const span = Number.isInteger(days) && days >= 1 && days <= 366 ? days : 30;
+  const rows = await sql<{ day: string; r: string }>`
+    select to_char((effective_at at time zone 'Asia/Kolkata')::date, 'YYYY-MM-DD') as day,
+           (avg(rate_micro))::bigint::text as r
+      from rate_snapshot
+     where kind = 'REFERENCE'
+       and effective_at > inrp2p_now() - make_interval(days => ${span})
+       and effective_at <= inrp2p_now()
+     group by 1
+     order by 1`.execute(ex);
+  return rows.rows.map((x) => ({ day: x.day, mid: Rate.ofMicro(BigInt(x.r), 'REFERENCE').toDecimalString() }));
+}
+
 export interface SetPricingPolicyPayload {
   /** The policy the person was looking at: a change made meanwhile is not overwritten. */
   readonly expectedPolicyId: string;
