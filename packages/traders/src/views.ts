@@ -1,5 +1,5 @@
 import { sql } from 'kysely';
-import { DomainError, Money, Rate, referenceDirectionOf, requireText } from '@inrp2p/kernel';
+import { DomainError, type MarketReferences, Money, Rate, referenceDirectionOf, requireText } from '@inrp2p/kernel';
 import type { DestinationStatus, Executor, InrRailValue, P2pExperience, TraderOrderStatus, TraderSide, TraderStatus } from '@inrp2p/db';
 import type { FieldProtector } from '@inrp2p/adapters';
 import { TELEGRAM_PROVIDER, signInLabel } from '@inrp2p/identity';
@@ -46,6 +46,46 @@ const inr = (minor: bigint) => Money.ofMinor(minor, 'INR').toDecimalString();
 const rate = (micro: bigint) => Rate.ofMicro(micro, 'ROUTE').toDecimalString();
 const iso = (d: Date | null) => (d ? d.toISOString() : null);
 export const maskWallet = (address: string) => `${address.slice(0, 4)}…${address.slice(-4)}`;
+
+/** ADR 0032: demand nothing priced, on one of the trader's sides. */
+export interface WaitingDemand {
+  readonly side: TraderSide;
+  readonly count: number;
+  /** About how much USDT, the rupee amounts at the market; null when the market is not known. */
+  readonly aboutUsdt: string | null;
+}
+
+/**
+ * ADR 0032: the demand waiting for a trader on the sides this trader has — every open request the exchange is still
+ * looking for a trader for, but the trader's own client's.
+ */
+async function waitingDemand(ex: Executor, sides: readonly TraderSide[], ownClientId: string | null, market: MarketReferences): Promise<WaitingDemand[]> {
+  if (sides.length === 0) return [];
+  const rows = await ex.selectFrom('trade_request')
+    .select((eb) => [
+      'direction',
+      eb.fn.countAll<string>().as('n'),
+      sql<string | null>`sum(requested_base_minor) filter (where fixed_side = 'BASE')`.as('base'),
+      sql<string | null>`sum(requested_quote_minor) filter (where fixed_side = 'QUOTE')`.as('inr'),
+    ])
+    .where('status', '=', 'OPEN')
+    .where('waiting_until', 'is not', null)
+    .$if(ownClientId !== null, (q) => q.where('client_id', '<>', ownClientId!))
+    .groupBy('direction')
+    .execute();
+  const out: WaitingDemand[] = [];
+  for (const side of sides) {
+    const direction = referenceDirectionOf(side);
+    const row = rows.find((r) => r.direction === direction);
+    if (!row) continue;
+    const ref = market[direction];
+    const base = BigInt(row.base ?? '0');
+    const rupees = BigInt(row.inr ?? '0');
+    const total = rupees === 0n ? base : ref ? base + (rupees * 10_000_000_000n) / ref.micro : null;
+    out.push({ side, count: Number.parseInt(row.n, 10), aboutUsdt: total === null ? null : usdt(total) });
+  }
+  return out;
+}
 
 export interface OrderSummary {
   readonly ref: string;
@@ -378,6 +418,11 @@ export interface TraderHome {
   readonly limits: LimitsView | null;
   /** Orders accepted or in progress — the desk changes settlement details only once there are none. */
   readonly openOrders: number;
+  /**
+   * ADR 0032: on each side this trader has, how many people wait for a trader's price now — nothing priced what they
+   * asked — and about how much USDT that is, at the market. Counts and sums only: never who, never one of them.
+   */
+  readonly waiting: readonly WaitingDemand[];
   /** Database time, so a countdown on the page starts from the server's clock. */
   readonly now: string;
 }
@@ -511,7 +556,7 @@ export async function traderHome(ex: Executor, userId: string): Promise<TraderHo
   if (!profile) {
     return traderSafe({
       state: 'NONE' as const, ref: null, ...base, application: null, available: false, controlNote: null, assignmentsEnabled: true, issues: [], blocks: [], reserve: null,
-      offers: [], priceAsks: [], active: [], recentlyCompleted: null, earnings: null, registered: null, proposal: NO_PROPOSAL, openOrders: 0,
+      offers: [], priceAsks: [], active: [], recentlyCompleted: null, earnings: null, registered: null, proposal: NO_PROPOSAL, openOrders: 0, waiting: [],
       review: null, limits: null, programmeReserve: await programmeReserveOf(ex), deskOpened: false, upiReady: false,
     });
   }
@@ -552,7 +597,7 @@ export async function traderHome(ex: Executor, userId: string): Promise<TraderHo
       : null;
     return traderSafe({
       state: profile.status, ref: profile.ref, ...base, application, available: false, controlNote: null, assignmentsEnabled: profile.assignments_enabled, issues: [], blocks: [],
-      reserve: await reserveView(ex, profile.id, required), offers: [], priceAsks: [], active: [], recentlyCompleted: null, earnings: null, registered, proposal: NO_PROPOSAL, openOrders: 0,
+      reserve: await reserveView(ex, profile.id, required), offers: [], priceAsks: [], active: [], recentlyCompleted: null, earnings: null, registered, proposal: NO_PROPOSAL, openOrders: 0, waiting: [],
       review, limits: null, programmeReserve: required === null ? null : usdt(required), deskOpened: false, upiReady: false,
     });
   }
@@ -635,6 +680,7 @@ export async function traderHome(ex: Executor, userId: string): Promise<TraderHo
     programmeReserve: await programmeReserveOf(ex),
     deskOpened: (await ex.selectFrom('desk').select('id').where('trader_id', '=', profile.id).executeTakeFirst()) !== undefined,
     upiReady: member !== null && (await ex.selectFrom('upi_id').select('id').where('client_id', '=', member.clientId).where('status', '=', 'ACTIVE').executeTakeFirst()) !== undefined,
+    waiting: profile.status === 'APPROVED' ? await waitingDemand(ex, blocks.map((b) => b.side), member?.clientId ?? null, market) : [],
   });
 }
 

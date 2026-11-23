@@ -790,3 +790,22 @@ Telegram its placeholder names). No table, secret, env variable, service or job 
 3. **The same person, twice:** a still-empty Telegram account that adds the email of an account opened earlier joins it —
    the Telegram moves there, the empty one is closed. Audited as `client_user.identity_joined` and `user.telegram_linked`
    (`via: joined`).
+
+## 28. No client turned away (ADR 0032)
+
+Migration `0055` (schema 55): `trade_request.waiting_since/waiting_until` (a request nothing priced waits for a trader),
+`no_price_reason` allowed on a request that waited, `auto_quote.held` and a new body for the IX139 trigger (a price held for
+a waiting client is 600 seconds, IX147: only for a request that waited), and three inbox kinds — `WAITING_PRICE_READY`,
+`WAITING_ENDED`, `TRADER_CLIENTS_WAITING`. A new worker job, `waiting_requests_sweep` (every minute), and a Telegram handler
+for those three notes. No secret, env variable or service.
+
+1. **Release order** (from production at 54): CI green, `gh pr view` to see the PR is **not merged yet**, a restore point,
+   `scripts/migrate.ts` with the production env, then merge — the app at 55 refuses a database at 54 — then the worker image
+   of the same commit. Until that image runs nobody looks at a waiting request again — it is never priced, and the old
+   worker's expiry closes it after a day without a message — so roll the worker the same hour.
+2. **What changes at once** (with automatic prices on): a request nothing prices is no longer declined. It stays open for
+   24 hours; the traders with that side hear "A client is waiting for your price" (inbox, email, Telegram — once per half
+   hour each); the Traders home leads with the waiting demand. The minute a firm offer takes it, the price is held for the
+   client for 10 minutes and it is told by inbox, email and Telegram; a day with no price closes it with a plain message.
+3. **Nothing to switch:** it follows automatic prices. With them off, requests wait for a person as before, and a request
+   that was waiting when they were switched off goes to the desk's queue at the next minute.

@@ -39,6 +39,9 @@ const EMAILED = new Set([
   'DESTINATION_REJECTED',
   // ADR 0030: a UPI ID paused because a payer's app showed another name — its owner is not paid to it until it is checked.
   'DESTINATION_PAUSED',
+  // ADR 0032: the price a waiting client was waiting for is held for it; its wait ended without one; a client waits for a
+  // trader's price — none of them is looking at the product when it happens.
+  'WAITING_PRICE_READY', 'WAITING_ENDED', 'TRADER_CLIENTS_WAITING',
 ]);
 
 export interface EmailChannelOptions {

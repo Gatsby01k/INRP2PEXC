@@ -52,6 +52,10 @@ export function requestSteps(view: ExchangeView, now: number): readonly Step[] {
   if (quote && quoteLive(quote, now)) {
     return [sent, { label: 'Desk priced it', status: 'done' }, { label: 'You accept or decline', status: 'current' }, { label: 'Trade opens', status: 'pending' }];
   }
+  // ADR 0032: nothing priced it yet — a trader is being found, and the client is told when one prices it.
+  if (request?.waitingUntil) {
+    return [sent, { label: 'Finding a trader', status: 'current' }, { label: 'We message you', status: 'pending' }, { label: 'You accept', status: 'pending' }];
+  }
   return [sent, { label: 'Desk prices it', status: 'current' }, { label: 'You accept or decline', status: 'pending' }, { label: 'Trade opens', status: 'pending' }];
 }
 
@@ -77,6 +81,14 @@ export function exchangeAssistant(view: ExchangeView, opts: { canAccept: boolean
       body: `Its price ran out before it was accepted. Request ${request.ref} goes back to the desk, which may send a new quote.`,
     };
   }
+  if (withDesk && request.waitingUntil) {
+    return {
+      mood: 'waiting',
+      label: 'Finding a trader',
+      title: `Finding a trader for ${requestAmount(request)}`,
+      body: `We keep looking until ${formatIstDateTime(new Date(request.waitingUntil))}. When a trader prices it, the price is held for you for 10 minutes and we message you — you can close this page.`,
+    };
+  }
   if (withDesk) {
     return {
       mood: 'waiting',
@@ -97,9 +109,9 @@ export function exchangeAssistant(view: ExchangeView, opts: { canAccept: boolean
   if (request?.status === 'DECLINED' && request.noPrice) {
     return {
       mood: 'alert',
-      label: 'No price',
-      title: 'No price for that right now',
-      body: request.statusReason ?? 'Ask again in a few minutes, or try another amount.',
+      label: 'No trader found',
+      title: `No trader took ${requestAmount(request)}`,
+      body: request.statusReason ?? 'Nothing was committed. Ask again whenever you like.',
     };
   }
   if (request?.status === 'DECLINED') {

@@ -16,6 +16,7 @@ import { QuoteCard } from './QuoteCard.tsx';
 import { RequestForm, type Who } from './RequestForm.tsx';
 import { SetupGuide } from './SetupGuide.tsx';
 import { useServerClock } from './useServerClock.ts';
+import { WaitingCard, type WaitingAlerts } from './WaitingCard.tsx';
 import shell from '../shell.module.css';
 import stage from './stage.module.css';
 
@@ -36,6 +37,8 @@ const HOW = [
 
 /** How often the screen looks for the desk's quote while a request is being priced. */
 const PRICING_POLL_MS = 8_000;
+/** ADR 0032: while a request waits for a trader the exchange looks every minute, and the client is messaged: no need to ask more. */
+const WAITING_POLL_MS = 30_000;
 /** How long to wait before looking again at a quote whose time is up but which the expiry job has not yet closed. */
 const EXPIRY_LAG_POLL_MS = 5_000;
 
@@ -59,8 +62,11 @@ export function ExchangeScreen({
   draft,
   who,
   recent,
+  alerts,
 }: {
   view: ExchangeView;
+  /** ADR 0032: where a waiting client hears of its price; read only while it waits. */
+  alerts?: WaitingAlerts | undefined;
   canAccept: boolean;
   serverTime: string;
   draft?: RequestDraft;
@@ -72,6 +78,7 @@ export function ExchangeScreen({
   const now = useServerClock(serverTime, quote?.status === 'SENT');
   const live = quote !== null && quoteLive(quote, now);
   const withDesk = request !== null && (request.status === 'OPEN' || request.status === 'QUOTED');
+  const waiting = withDesk && request.waitingUntil !== null;
   const firstRun = !withDesk && view.destinations.banks.length === 0 && view.destinations.wallets.filter((w) => w.purpose !== 'SOURCE').length === 0;
   useAssistantState(exchangeAssistant(view, { canAccept, now }));
 
@@ -88,9 +95,9 @@ export function ExchangeScreen({
     if (!withDesk) return;
     const timer = window.setInterval(() => {
       if (document.visibilityState === 'visible') router.refresh();
-    }, PRICING_POLL_MS);
+    }, waiting ? WAITING_POLL_MS : PRICING_POLL_MS);
     return () => window.clearInterval(timer);
-  }, [quote, withDesk, serverTime, router]);
+  }, [quote, withDesk, waiting, serverTime, router]);
 
   return (
     <>
@@ -123,6 +130,11 @@ export function ExchangeScreen({
                 <li>Once they are confirmed the escrow releases, and a receipt is issued.</li>
               </ol>
             </section>
+            {recent.length > 0 ? <Activity recent={recent} /> : null}
+          </>
+        ) : withDesk && request.waitingUntil ? (
+          <>
+            <WaitingCard view={view} alerts={alerts ?? { telegram: { on: false, username: null }, email: null }} steps={requestSteps(view, now)} />
             {recent.length > 0 ? <Activity recent={recent} /> : null}
           </>
         ) : withDesk ? (

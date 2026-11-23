@@ -2,7 +2,7 @@ import { hostname } from 'node:os';
 import { run } from 'graphile-worker';
 import { createDb, createPool, databaseDeploymentProblems } from '@inrp2p/db';
 import { gasFreeFromEnv, isNotificationProviderConfigured, isProduction, notificationAdapterFromEnv, productionConfigReport, telegramFromEnv } from '@inrp2p/adapters';
-import { acknowledgedSignalHandler, clientNotificationEmailHandler, clientNotificationHandler, teamInviteEmailHandler, telegramOrderHandler, traderNotificationHandler } from '@inrp2p/notifications';
+import { acknowledgedSignalHandler, clientNotificationEmailHandler, clientNotificationHandler, teamInviteEmailHandler, telegramInboxHandler, telegramOrderHandler, traderNotificationHandler } from '@inrp2p/notifications';
 import { traderReviewHandler, traderRoutingHandler } from '@inrp2p/traders';
 import { acceptanceCodeHandler, rfqAwardHandler } from '@inrp2p/quotes';
 import { receiptHandler } from '@inrp2p/reporting';
@@ -60,7 +60,10 @@ if (emailChannel.length === 0) console.warn('client notifications: in-app only �
 
 // ADR 0020 §2.14: Telegram alerts for desks and traders, only with a bot configured (nobody can link a chat without one).
 const telegram = telegramFromEnv(process.env);
-const telegramChannel = telegram ? [telegramOrderHandler(db, telegram, { linkBase: process.env.CLIENT_BASE_URL })] : [];
+// ADR 0032: and the inbox notes someone waits on — a waiting client's price, its wait over, clients waiting for a trader.
+const telegramChannel = telegram
+  ? [telegramOrderHandler(db, telegram, { linkBase: process.env.CLIENT_BASE_URL }), telegramInboxHandler(db, telegram, { linkBase: process.env.CLIENT_BASE_URL })]
+  : [];
 console.log(`telegram: ${telegram ? `@${telegram.botUsername}` : 'not configured'}`);
 
 // Chain monitoring state is always stated (DISABLED / READY / DEGRADED / UNCONFIGURED). An enabled but

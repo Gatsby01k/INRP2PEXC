@@ -598,8 +598,15 @@ export interface TradeRequestTable {
   channel: 'CLIENT_APP' | 'OPERATOR' | 'LINK';
   status: Generated<RequestStatus>;
   status_reason: string | null;
-  /** Migration 0047 (ADR 0028): why the system closed it unpriced — never set on a request a person declined. */
+  /**
+   * Migration 0047 (ADR 0028): why nothing priced it — on a request the system declined unpriced, or (migration 0055, ADR
+   * 0032) on one that waited for a trader; never set on a request a person declined.
+   */
   no_price_reason: Generated<NoPriceReasonValue | null>;
+  /** Migration 0055 (ADR 0032): when nothing priced it and the exchange started looking for a trader. */
+  waiting_since: Generated<Date | null>;
+  /** Migration 0055: until when the exchange keeps looking; null when it does not — never waited, priced, or closed. */
+  waiting_until: Generated<Date | null>;
   assigned_dealer_id: string | null;
   created_by: string;
   created_at: Generated<Date>;
@@ -1224,7 +1231,11 @@ export type NotificationKind =
   // Migration 0050: a UPI ID the desk did not verify.
   | 'DESTINATION_REJECTED'
   // Migration 0051: a UPI ID paused because a payer's app showed another name.
-  | 'DESTINATION_PAUSED';
+  | 'DESTINATION_PAUSED'
+  // Migration 0055 (ADR 0032): a waiting client's price is found and held; its wait ended without one; clients wait for a trader.
+  | 'WAITING_PRICE_READY'
+  | 'WAITING_ENDED'
+  | 'TRADER_CLIENTS_WAITING';
 
 export interface ClientNotificationTable {
   id: Generated<string>;
@@ -2054,6 +2065,8 @@ export interface AutoQuoteTable {
   net_margin_usdt_minor: bigint;
   min_net_margin_usdt_minor: bigint;
   created_at: Generated<Date>;
+  /** Migration 0055 (ADR 0032): found for a waiting client — held 600 seconds, and not learnt from. */
+  held: Generated<boolean>;
 }
 
 export type RfqStatus = 'OPEN' | 'AWARDED' | 'NO_PRICE' | 'CANCELLED';

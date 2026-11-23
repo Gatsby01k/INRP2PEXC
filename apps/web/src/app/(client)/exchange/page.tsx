@@ -1,3 +1,4 @@
+import { telegramLinkOf } from '@inrp2p/clients';
 import { clientHistory, exchangeView } from '@inrp2p/portal';
 import { businessNow } from '@inrp2p/quotes';
 import { clientPage, workspaceContext, protectionOfRequest } from '../../../server/client.ts';
@@ -44,6 +45,12 @@ export default async function ExchangePage({ searchParams }: { searchParams: Pro
     workspaceContext().then((w) => w.access),
   ]);
   const draft = draftFrom(params);
+  // ADR 0032: a waiting client is told where it will hear of its price — its Telegram, and its email when it has a real one.
+  const waiting = view.request?.status === 'OPEN' && view.request.waitingUntil !== null;
+  const telegram = waiting ? await telegramLinkOf(ctx.db, ctx.actor.userId) : null;
+  const alerts = waiting
+    ? { telegram: { on: telegram?.status === 'ACTIVE', username: telegram?.username ?? null }, email: who.email }
+    : undefined;
 
   // While a request is with the desk, the heading says what it is — "Sell 10,000 USDT" — and where it stands; the page's
   // own name moves to the line above it. With nothing asked yet, the page is simply the Exchange.
@@ -70,7 +77,7 @@ export default async function ExchangePage({ searchParams }: { searchParams: Pro
   ) : request ? (
     <span className={workspace.pill} data-tone="waiting" data-size="lg">
       <StateRing state="wait" className={workspace.pillIcon} />
-      {request.gatheringUntil ? 'Gathering prices' : 'With the desk'}
+      {request.waitingUntil ? 'Finding a trader' : request.gatheringUntil ? 'Gathering prices' : 'With the desk'}
     </span>
   ) : null;
   const sentAt = request ? `request sent ${formatIstTime(new Date(request.createdAt))}` : undefined;
@@ -88,6 +95,7 @@ export default async function ExchangePage({ searchParams }: { searchParams: Pro
         serverTime={now.toISOString()}
         recent={recent}
         who={{ isAdmin: ctx.access.role === 'CLIENT_ADMIN', protection, email: who.label, clientName: ctx.access.clientName }}
+        alerts={alerts}
         {...(draft ? { draft } : {})}
       />
     </>

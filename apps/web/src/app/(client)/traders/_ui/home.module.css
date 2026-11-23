@@ -167,6 +167,35 @@
   margin-top: 10px;
 }
 
+/* ADR 0032: clients waiting for a trader's price — a live dot on the eyebrow, breathing while they wait. */
+.liveDot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 10px;
+  border-radius: 50%;
+  background: #fff;
+  vertical-align: 1px;
+  box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.7);
+  animation: waiting-pulse 1.8s ease-out infinite;
+}
+
+@keyframes waiting-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.7);
+  }
+  80%,
+  100% {
+    box-shadow: 0 0 0 10px rgba(255, 255, 255, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .liveDot {
+    animation: none;
+  }
+}
+
 .onField,
 .offField {
   display: inline-flex;

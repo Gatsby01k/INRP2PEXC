@@ -76,6 +76,8 @@ interface RawRow {
   case_detail: string | null;
   expires_at: Date | null;
   has_link: boolean;
+  /** ADR 0032: a request the exchange is still looking for a trader for — the machines' work, not the desk's. */
+  waiting?: boolean;
 }
 
 /**
@@ -95,7 +97,8 @@ export async function deskQueue(ex: Executor, access: DeskAccess, opts: { limitP
            r.target_rate_micro as client_rate_micro, null::bigint as route_rate_micro, null::bigint as margin_minor, null::bigint as margin_usdt_minor,
            null::text as lifecycle, false as hold, r.created_at as since,
            0::bigint as paid_minor, 0::bigint as committed_minor, null::bigint as payout_minor,
-           null::text as blocking_case, null::text as case_detail, null::timestamptz as expires_at, false as has_link
+           null::text as blocking_case, null::text as case_detail, r.waiting_until as expires_at, false as has_link,
+           r.waiting_until is not null as waiting
     from trade_request r join client c on c.id = r.client_id
     -- A request placed with a desk is that desk's to price and fill (ADR 0020), never the INRP2P dealers'.
     where r.status = 'OPEN' and r.desk_id is null
@@ -145,7 +148,10 @@ export async function deskQueue(ex: Executor, access: DeskAccess, opts: { limitP
   ]);
 
   const rows: { group: QueueGroupKey; row: QueueRow }[] = [];
-  for (const r of requests.rows) rows.push({ group: 'needs_action', row: view(r, access, 'New request', 'QUOTE') });
+  // ADR 0032: a request waiting for a trader is priced by the exchange the minute one can take it; the desk sees the demand.
+  for (const r of requests.rows) {
+    rows.push(r.waiting ? { group: 'processing', row: view(r, access, 'Waiting for a trader', 'NONE') } : { group: 'needs_action', row: view(r, access, 'New request', 'QUOTE') });
+  }
   for (const r of quotes.rows) rows.push({ group: 'waiting_client', row: view(r, access, 'Quote sent', r.has_link ? 'COPY_LINK' : 'NONE') });
   for (const r of trades.rows) {
     const placed = classifyTrade(r);

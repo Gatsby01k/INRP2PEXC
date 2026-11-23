@@ -200,7 +200,8 @@ export function sendQuote(actor: OperatorActor, deps: Pick<QuoteDeps, 'policy'>,
       .where('id', '=', quote.id)
       .execute();
     if (request.status === 'OPEN') {
-      await ctx.tx.updateTable('trade_request').set({ status: 'QUOTED', last_activity_at: sql<Date>`inrp2p_now()`, version: request.version + 1 }).where('id', '=', request.id).execute();
+      // A person's quote ends any wait for a trader (ADR 0032).
+      await ctx.tx.updateTable('trade_request').set({ status: 'QUOTED', waiting_until: null, last_activity_at: sql<Date>`inrp2p_now()`, version: request.version + 1 }).where('id', '=', request.id).execute();
     } else {
       await ctx.tx.updateTable('trade_request').set({ last_activity_at: sql<Date>`inrp2p_now()`, version: request.version + 1 }).where('id', '=', request.id).execute();
     }

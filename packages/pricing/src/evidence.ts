@@ -15,6 +15,8 @@ export async function acceptanceEvidence(ex: Executor, input: { direction: Direc
            count(*) filter (where q.status in ('EXPIRED', 'REJECTED') or (q.status = 'CANCELLED' and q.cancel_reason = 'WITHDRAWN'))::int as declined
       from auto_quote a join quote q on q.id = a.quote_id
      where a.direction = ${input.direction}
+       -- ADR 0032: a price held for a client who was not on the screen says nothing about how a price is answered.
+       and not a.held
        and a.created_at >= inrp2p_now() - make_interval(days => ${input.learningDays})
      group by 1, 2`.execute(ex);
   const band = new Map<number, Tally>();

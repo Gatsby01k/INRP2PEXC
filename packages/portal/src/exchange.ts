@@ -26,6 +26,13 @@ export interface OpenRequest {
    * what happened and what the client can do; asking again is a new request.
    */
   readonly noPrice: boolean;
+  /**
+   * ADR 0032: nothing priced it yet and the exchange is looking for a trader, until this time — the client is told by message
+   * the moment one prices it, and the price is held for it. Null when it is not waiting.
+   */
+  readonly waitingUntil: string | null;
+  /** While it waits: the amounts a trader takes right now, in the client's words, when there are any — asked for, priced at once. */
+  readonly readyNow: string | null;
   readonly createdAt: string;
   /** ADR 0025: when the best price for this amount is being gathered, until when; and whether the client can ask for a new price itself. */
   readonly gatheringUntil: string | null;
@@ -82,7 +89,7 @@ export async function exchangeView(ex: Executor, clientId: string): Promise<Exch
   const quoteRow = latestQuote && (latestQuote.status === 'SENT' || latestQuote.status === 'EXPIRED') ? latestQuote : undefined;
 
   const quote = quoteRow ? await toClientQuoteView(ex, quoteRow.id) : null;
-  const automatic = request && request.status === 'OPEN' ? await automaticPricingOf(ex, request.id) : { rfqClosesAt: null, canReprice: false };
+  const automatic = request && request.status === 'OPEN' ? await automaticPricingOf(ex, request.id) : { rfqClosesAt: null, waitingUntil: null, canReprice: false };
 
   // An accepted request became a trade: the one its accepted quote opened.
   const openTrade =
@@ -109,7 +116,9 @@ export async function exchangeView(ex: Executor, clientId: string): Promise<Exch
           destination: destinationLabel(destinations, request),
           status: request.status as OpenRequest['status'],
           statusReason: request.status_reason,
-          noPrice: request.no_price_reason !== null,
+          noPrice: request.status === 'DECLINED' && request.no_price_reason !== null,
+          waitingUntil: automatic.waitingUntil,
+          readyNow: automatic.waitingUntil ? request.status_reason : null,
           createdAt: request.created_at.toISOString(),
           gatheringUntil: automatic.rfqClosesAt,
           canReprice: automatic.canReprice,

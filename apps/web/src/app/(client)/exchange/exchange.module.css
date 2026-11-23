@@ -891,6 +891,14 @@ label.destination:has(input:checked) .radioMark {
   gap: var(--space-4);
 }
 
+/* ——— Waiting for a trader (ADR 0032): another amount first, stopping second and quiet ——— */
+
+.waitActions {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-3);
+}
+
 /* ——— With the desk ——— */
 
 .pricing {

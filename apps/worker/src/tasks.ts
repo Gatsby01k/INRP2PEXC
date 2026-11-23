@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { executeCommand } from '@inrp2p/commands';
 import type { TxContext } from '@inrp2p/db';
 import { releaseCooledDownAddresses } from '@inrp2p/treasury';
-import { type QuotePolicy, expireQuote, runExpirySweep, runMarketReferenceRefresh, runRfqSweep } from '@inrp2p/quotes';
+import { type QuotePolicy, expireQuote, runExpirySweep, runMarketReferenceRefresh, runRfqSweep, runWaitingSweep } from '@inrp2p/quotes';
 import { runP2pDeadlines, runReconciliation, runSettlementSla } from '@inrp2p/settlement';
 import { type ScannerDeps, observeBalances, runChainBackfill, runOrphanSweep, runTronConfirm, runTronScan } from '@inrp2p/scanner';
 import { ordersDueSoon, runTraderSweep } from '@inrp2p/traders';
@@ -215,6 +215,12 @@ export function buildTaskList(
     for (const f of failures) helpers.logger.error(`rfq_sweep: ${f.rfqId} not awarded: ${f.code}: ${f.message}`);
     if (out.AWARDED + out.NO_PRICE + out.CANCELLED > 0) helpers.logger.info(`rfq_sweep: ${JSON.stringify(out)}`);
   };
+  // ADR 0032: every client waiting for a trader is looked at again — priced and told the moment a firm offer takes it.
+  const waitingSweep: Task = async (_payload, helpers) => {
+    const { failures, ...out } = await runWaitingSweep(db);
+    for (const f of failures) helpers.logger.warn(`waiting_requests_sweep: ${f.requestId} not looked at: ${f.code}: ${f.message}`);
+    if (out.PRICED + out.ENDED + out.TO_A_PERSON > 0) helpers.logger.info(`waiting_requests_sweep: ${JSON.stringify(out)}`);
+  };
   // ADR 0020 §2.14: a trader's P2P step due within ten minutes is told once to its linked chats. Each order is its own
   // attempt: one that cannot be sent now is tried again on the next minute, under the same key, and sent once.
   const telegramDeadlines: Task = async (_payload, helpers) => {
@@ -243,6 +249,7 @@ export function buildTaskList(
     trx_rate_refresh: trxRateRefresh,
     reference_rate_refresh: referenceRateRefresh,
     rfq_sweep: rfqSweep,
+    waiting_requests_sweep: waitingSweep,
     outbox_dispatch: outboxDispatch,
     audit_seal: auditSeal,
     deposit_address_cooldown_release: depositCooldownRelease,
@@ -319,6 +326,7 @@ export const CRONTAB = [
   '23 * * * * trx_rate_refresh ?max=3&jobKey=trx_rate_refresh',
   '*/5 * * * * reference_rate_refresh ?max=2&jobKey=reference_rate_refresh',
   '* * * * * rfq_sweep ?max=1&jobKey=rfq_sweep',
+  '* * * * * waiting_requests_sweep ?max=1&jobKey=waiting_requests_sweep',
   '* * * * * telegram_deadlines ?max=1&jobKey=telegram_deadlines',
 ].join('\n');
 
