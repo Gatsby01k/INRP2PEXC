@@ -1280,7 +1280,7 @@ const PREMIUM: SitePage = {
     },
     {
       question: 'Can I use these figures?',
-      answer: 'Yes, with a link to this page. The days are also here as a CSV file, free to download.',
+      answer: 'Yes. They are published under Creative Commons Attribution: use them freely, with a link to this page. The days are also here as a CSV file.',
     },
   ],
 };
@@ -1498,7 +1498,9 @@ export const GUIDES = {
     chart: 'The premium, day by day',
     table: { caption: 'Each day’s average, in India’s time', day: 'Day', usdt: 'USDT in India', dollar: 'One dollar', premium: 'Premium' },
     note: 'USDT in India is the market’s rate, not a price of INRP2P’s. The dollar is the European Central Bank’s reference rate published for that day.',
-    cite: 'Free to cite with a link to this page.',
+    cite: 'Free to use with a link to this page, under',
+    /** The licence's name as the page links it (PREMIUM_LICENSE_URL); its version lives in the link, not in the copy. */
+    license: 'Creative Commons Attribution',
     csv: 'Download the days as CSV',
     sell: 'Sell USDT at India’s rate',
     /** The dataset's own name and description in the page's structured data: what it measures, without the pitch. */

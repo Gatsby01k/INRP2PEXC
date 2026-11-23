@@ -1,7 +1,8 @@
 import { headers } from 'next/headers';
-import { premiumReading } from '../../server/premium.ts';
+import { PREMIUM_LICENSE_URL, premiumReading } from '../../server/premium.ts';
 import { getRuntime } from '../../server/runtime.ts';
-import { surfaceForHost } from '../../server/surface.ts';
+import { PREMIUM_PAGE_PATH, surfaceForHost } from '../../server/surface.ts';
+import { publicOrigin } from '../../server/site.ts';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,12 +32,15 @@ export async function GET() {
   if (!reading || reading.days.length === 0) {
     return new Response('The premium cannot be read right now.\n', { status: 503, headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store', 'retry-after': '600' } });
   }
+  const origin = await publicOrigin();
   const rows = reading.days.map((d) => [d.day, four(d.usdtMicro), four(d.dollar.micro), d.dollar.date, percent(d.hundredths)].join(','));
   const body = ['date_ist,usdt_inr_market_day_average,usd_inr_ecb_reference,ecb_reference_date,premium_percent', ...rows, ''].join('\n');
   return new Response(body, {
     headers: {
       'content-type': 'text/csv; charset=utf-8',
       'content-disposition': 'inline; filename="india-usdt-premium.csv"',
+      // The file carries its terms with it, and where it comes from: a CSV has no room for either inside.
+      link: `<${PREMIUM_LICENSE_URL}>; rel="license", <${origin}${PREMIUM_PAGE_PATH}>; rel="describedby"`,
       'cache-control': 'public, max-age=600, s-maxage=600',
     },
   });

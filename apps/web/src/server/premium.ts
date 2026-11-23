@@ -20,6 +20,12 @@ import { type DollarFix, fixFor, parseEcbDollar, premiumHundredths } from './pre
  */
 
 const ECB_DOLLAR = 'https://data-api.ecb.europa.eu/service/data/EXR/D.USD+INR.EUR.SP00.A';
+/**
+ * The terms the figures are published under: Creative Commons Attribution — anyone may use them, with a link back. It is
+ * what the page says in words, and what its structured data, its CSV and its licence link all name.
+ */
+export const PREMIUM_LICENSE_URL = 'https://creativecommons.org/licenses/by/4.0/';
+
 /** How far back the page and its CSV look. The reference has been recorded since ADR 0025 went live. */
 export const PREMIUM_DAYS = 90;
 

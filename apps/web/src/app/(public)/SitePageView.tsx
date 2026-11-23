@@ -8,6 +8,7 @@ import { PremiumBoard, PremiumLine } from './_landing/guide/Premium.tsx';
 import { RateLine, RateTable } from './_landing/guide/RateNow.tsx';
 import guide from './_landing/guide/guide.module.css';
 import { appOrigin, onboardingHref, publicOrigin, requestNonce } from '../../server/site.ts';
+import { PREMIUM_LICENSE_URL } from '../../server/premium.ts';
 import { PREMIUM_CSV_PATH } from '../../server/surface.ts';
 import styles from './public.module.css';
 
@@ -64,8 +65,11 @@ function structuredData(page: SitePage, origin: string): string {
       name: GUIDES.premium.dataset.name,
       description: GUIDES.premium.dataset.description,
       url,
-      creator: { '@id': `${origin}#organization` },
+      // Named in full rather than by reference alone: a dataset's creator is read on its own by dataset search.
+      creator: { '@type': 'Organization', '@id': `${origin}#organization`, name: SITE_NAME, url: origin },
       isAccessibleForFree: true,
+      // The licence the page states and links (`rel="license"`): free to use, with a link back.
+      license: PREMIUM_LICENSE_URL,
       spatialCoverage: { '@type': 'Place', name: 'India' },
       variableMeasured: [
         { '@type': 'PropertyValue', name: 'USDT/INR market rate, day average (IST)', unitCode: 'INR' },
