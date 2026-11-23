@@ -43,6 +43,11 @@ export interface SitePage {
   readonly rate?: Direction;
   /** Who the guide is for: a client (the default — buy, sell, a firm price) or a trader (open an exchange). */
   readonly audience?: 'client' | 'trader';
+  /**
+   * The USDT premium page: India's market rate for USDT against the dollar, live in its first screen and day by day after
+   * it, with the days as a CSV anyone may cite (`/usdt-premium-india.csv`).
+   */
+  readonly premium?: true;
   /** The questions people search with before this deal, answered in the product's terms; marked up as an FAQ. */
   readonly faq?: readonly { readonly question: string; readonly answer: string }[];
 }
@@ -1198,6 +1203,74 @@ const IS_IT_SAFE: SitePage = {
  * The trader's door from search: people looking to earn on USDT as a P2P merchant. Money first (TRADER_TERMS, filled in
  * by `withTerms`), then what stops costing them and the exchange they get; its actions open an exchange, not a deal.
  */
+const PREMIUM: SitePage = {
+  path: '/usdt-premium-india',
+  title: `India USDT premium today — USDT vs the dollar, live | ${SITE_NAME}`,
+  description:
+    'How much more USDT costs in India than the dollar, live: India’s market rate against the European Central Bank’s dollar, day by day. Sell at the premium, with escrow.',
+  h1: 'India’s USDT premium today',
+  lede: 'Abroad, USDT is a dollar. In India it costs more. Here is by how much, live, and day by day.',
+  sections: [
+    {
+      heading: 'What the premium is',
+      body: [
+        'USDT is worth one dollar the world over. India pays more for it in rupees, because more people here want USDT than reaches the market.',
+        'The premium is that difference: how far USDT’s rupee price in India sits over the dollar’s, as a share of the dollar.',
+      ],
+    },
+    {
+      heading: 'Why a search shows you a lower rate',
+      body: [
+        'Most converters take the dollar’s exchange rate and call it USDT’s. That is the price abroad, not what a buyer in India pays you.',
+        'The rate at the top of this page is India’s own market for USDT: the rate you sell at.',
+      ],
+    },
+    {
+      heading: 'If you sell USDT',
+      body: [
+        'The premium is yours. You sell at India’s rate, not the dollar’s, and the difference reaches you in rupees.',
+        'On INRP2P your USDT waits in escrow until the rupees are in your bank, so you collect the premium without sending first.',
+      ],
+    },
+    {
+      heading: 'If you buy USDT',
+      body: ['You pay the premium. Check it before you buy, and buy where one firm rate covers your whole amount, with the USDT locked in escrow before you pay a rupee.'],
+    },
+    {
+      heading: 'How it is measured',
+      body: [
+        'USDT in India: the middle of the buy and sell rates on two of India’s largest rupee exchanges, read every five minutes and used only while the two agree. A day’s figure is that day’s average, in India’s time.',
+        'The dollar: the European Central Bank’s reference rates, rupees per euro over dollars per euro, published each working day. Each day is measured against the latest rate published for it; a weekend keeps Friday’s.',
+      ],
+    },
+  ],
+  priority: 0.8,
+  led: 'GAP',
+  premium: true,
+  faq: [
+    {
+      question: 'What is the USDT premium in India today?',
+      answer: 'It is at the top of this page, live, with each recent day under it. It moves through the day with India’s market.',
+    },
+    {
+      question: 'Why does USDT cost more than a dollar in India?',
+      answer: 'More people in India want USDT than reaches the market, and that demand sets the rupee price. Abroad USDT trades at its dollar; here it trades over it.',
+    },
+    {
+      question: 'Why does Google show a lower USDT rate?',
+      answer: 'Most converters show the dollar’s exchange rate as USDT’s. India’s own market pays more, and that is the rate you sell at.',
+    },
+    {
+      question: 'Is USDT still worth one dollar?',
+      answer: 'Yes. Abroad it trades at its dollar. The premium is India’s price for it in rupees, not a change in USDT.',
+    },
+    {
+      question: 'Can I use these figures?',
+      answer: 'Yes, with a link to this page. The days are also here as a CSV file, free to download.',
+    },
+  ],
+};
+
 const MERCHANT: SitePage = {
   path: '/p2p-merchant-india',
   title: `Become a USDT P2P merchant in India — earn {margin} | ${SITE_NAME}`,
@@ -1270,6 +1343,33 @@ export const GUIDES = {
     BUY_USDT: { title: 'INR to USDT at the market rate now', from: 'You pay', to: 'You receive about' },
     note: 'At the market’s rate when this page was opened. Your firm price, for your whole amount, comes with your quote, with the network fee on its own line.',
   },
+  /** The premium page's figures: their labels, the day-by-day table, and how to cite them. */
+  premium: {
+    now: 'Premium now',
+    over: 'over the dollar',
+    title: 'USDT in India against the dollar',
+    usdt: 'USDT in India',
+    usdtNote: 'Market rate now',
+    dollar: 'One dollar',
+    dollarNote: 'ECB reference',
+    extra: 'Over the dollar rate',
+    extraNote: 'On USDT worth a thousand dollars',
+    chart: 'The premium, day by day',
+    table: { caption: 'Each day’s average, in India’s time', day: 'Day', usdt: 'USDT in India', dollar: 'One dollar', premium: 'Premium' },
+    note: 'USDT in India is the market’s rate, not a price of INRP2P’s. The dollar is the European Central Bank’s reference rate published for that day.',
+    cite: 'Free to cite with a link to this page.',
+    csv: 'Download the days as CSV',
+    sell: 'Sell USDT at India’s rate',
+    /** The dataset's own name and description in the page's structured data: what it measures, without the pitch. */
+    dataset: {
+      name: 'India USDT premium over the US dollar',
+      description:
+        'USDT’s rupee price in India against the US dollar’s, live and day by day: India’s market rate for USDT over the European Central Bank’s reference rate for the dollar.',
+    },
+    /** How it is measured, in one sentence, for the dataset's structured data. */
+    method:
+      'Each day’s average, in India’s time, of the middle of the buy and sell rates for USDT on two of India’s largest rupee exchanges, over the European Central Bank’s reference rate for the dollar in rupees published for that day.',
+  },
   /** A trader's guide: the way to the earnings example on the home page, and what applying takes. */
   trader: { earn: 'See what your USDT earns', note: 'Apply with your email. INRP2P reviews every trader before a first deal.' },
   faq: 'Questions people ask',
@@ -1295,6 +1395,7 @@ export const SITE_PAGES: readonly SitePage[] = [
   HOME,
   USDT_TO_INR,
   INR_TO_USDT,
+  PREMIUM,
   SELL_IN_INDIA,
   BUY_IN_INDIA,
   BANK_FREEZE,

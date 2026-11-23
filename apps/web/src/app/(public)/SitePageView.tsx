@@ -4,9 +4,11 @@ import mark from '../../../../../brand/inrp2p-mark.png';
 import { ACTIONS, FAQ, GUIDES, HERO, ONBOARDING, SITE_NAME, SITE_PAGES, type SitePage, TAGLINE, TELEGRAM, TRADER_ENTRY, telegramUrl, withTerms } from '../../content/site.ts';
 import { GuideRobot } from './_landing/guide/GuideRobot.tsx';
 import { MarketCard } from './_landing/guide/MarketCard.tsx';
+import { PremiumBoard, PremiumLine } from './_landing/guide/Premium.tsx';
 import { RateLine, RateTable } from './_landing/guide/RateNow.tsx';
 import guide from './_landing/guide/guide.module.css';
 import { appOrigin, onboardingHref, publicOrigin, requestNonce } from '../../server/site.ts';
+import { PREMIUM_CSV_PATH } from '../../server/surface.ts';
 import styles from './public.module.css';
 
 /**
@@ -51,6 +53,27 @@ function structuredData(page: SitePage, origin: string): string {
         { '@type': 'ListItem', position: 1, name: SITE_NAME, item: origin },
         { '@type': 'ListItem', position: 2, name: withTerms(page.h1), item: url },
       ],
+    });
+  }
+  // The premium page publishes a dataset: what it measures, how, and where to download it. Described, not quoted — the
+  // figures themselves are on the page and in the CSV, and a description that held them would be stale in minutes.
+  if (page.premium) {
+    graph.push({
+      '@type': 'Dataset',
+      '@id': `${url}#dataset`,
+      name: GUIDES.premium.dataset.name,
+      description: GUIDES.premium.dataset.description,
+      url,
+      creator: { '@id': `${origin}#organization` },
+      isAccessibleForFree: true,
+      spatialCoverage: { '@type': 'Place', name: 'India' },
+      variableMeasured: [
+        { '@type': 'PropertyValue', name: 'USDT/INR market rate, day average (IST)', unitCode: 'INR' },
+        { '@type': 'PropertyValue', name: 'USD/INR, ECB reference rate', unitCode: 'INR' },
+        { '@type': 'PropertyValue', name: 'Premium of USDT over USD', unitText: 'percent' },
+      ],
+      measurementTechnique: GUIDES.premium.method,
+      distribution: [{ '@type': 'DataDownload', encodingFormat: 'text/csv', contentUrl: `${origin}${PREMIUM_CSV_PATH}` }],
     });
   }
   // The questions the page answers, as the page shows them: the home page's FAQ, or a guide's own.
@@ -107,6 +130,11 @@ export async function SitePageView({ page, hero, story }: { page: SitePage; hero
                     <RateLine direction={page.rate} />
                   </Suspense>
                 ) : null}
+                {page.premium ? (
+                  <Suspense fallback={null}>
+                    <PremiumLine />
+                  </Suspense>
+                ) : null}
                 {page.audience === 'trader' ? (
                   <>
                     <div className={styles.actions}>
@@ -140,7 +168,7 @@ export async function SitePageView({ page, hero, story }: { page: SitePage; hero
                 {page.led ? (
                   <div className={guide.art}>
                     <GuideRobot say={page.led} />
-                    {page.rate ? <MarketCard /> : null}
+                    {page.rate || page.premium ? <MarketCard /> : null}
                   </div>
                 ) : null}
               </div>
@@ -151,6 +179,12 @@ export async function SitePageView({ page, hero, story }: { page: SitePage; hero
           {!hero && page.rate ? (
             <Suspense fallback={null}>
               <RateTable direction={page.rate} />
+            </Suspense>
+          ) : null}
+          {/* India's USDT premium, now and day by day, with the CSV to cite it from. */}
+          {!hero && page.premium ? (
+            <Suspense fallback={null}>
+              <PremiumBoard />
             </Suspense>
           ) : null}
 

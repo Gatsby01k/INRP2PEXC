@@ -78,6 +78,12 @@ export const TELEGRAM_WEBHOOK_PATH = '/api/telegram/webhook';
 export const MARKET_RATE_PATH = '/api/market-rate';
 
 /**
+ * India's USDT premium day by day, as the premium page shows it, for anyone to cite: the market's reference against the
+ * ECB's dollar. Public host only; the route answers 404 anywhere else.
+ */
+export const PREMIUM_CSV_PATH = '/usdt-premium-india.csv';
+
+/**
  * The trader acquisition page (migration 0053): `inrp2p.com/traders` is its one address — the one every trader campaign
  * links to. It is rendered from `TRADERS_PAGE_PATH` by a rewrite in the proxy, as the home page is from `/home`, because
  * `/traders` in this build is the workspace's Traders screen; on the public host only that exact path is the page, and
@@ -173,7 +179,7 @@ export function gateFor(surface: Surface, pathname: string): Gate {
   // Auth endpoints are not served here at all, and any other path is refused rather than rendered — a page that
   // needs a session has no business on a host that never receives one.
   // The Telegram bot's webhook authenticates itself with the secret Telegram sends (ADR 0020 §2.14).
-  if (path === TELEGRAM_WEBHOOK_PATH || path === MARKET_RATE_PATH || path === ACQUISITION_EVENT_PATH) return 'PUBLIC';
+  if (path === TELEGRAM_WEBHOOK_PATH || path === MARKET_RATE_PATH || path === ACQUISITION_EVENT_PATH || path === PREMIUM_CSV_PATH) return 'PUBLIC';
   return isQuoteLinkPath(path) || isDealLinkPath(path) || isPublicSitePath(path) || deskHandleOfPath(path) !== null || isDeskPagePath(path) ? 'PUBLIC' : 'CLIENT_SESSION';
 }
 

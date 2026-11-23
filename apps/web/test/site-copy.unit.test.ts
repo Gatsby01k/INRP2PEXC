@@ -289,6 +289,7 @@ describe('the pages themselves', () => {
       '/',
       '/usdt-to-inr',
       '/inr-to-usdt',
+      '/usdt-premium-india',
       '/sell-usdt-in-india',
       '/buy-usdt-in-india',
       '/p2p-bank-account-freeze',

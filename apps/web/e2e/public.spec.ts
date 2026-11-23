@@ -239,12 +239,24 @@ test('crawlers are told the truth on every host', async ({ page }) => {
   const text = await llms.text();
   for (const site of SITE_PAGES.filter((p) => p.path !== '/')) expect(text, site.path).toContain(`${site.path}): `);
 
+  // India's USDT premium, day by day, for anyone to cite — or a plain 503 when there is no dollar or no day to measure
+  // (this world records no market history), never an empty file that would read as a quiet market.
+  const premium = await page.request.get(`${linkBaseUrl()}/usdt-premium-india.csv`);
+  expect([200, 503]).toContain(premium.status());
+  if (premium.status() === 200) {
+    expect(premium.headers()['content-type']).toContain('text/csv');
+    expect((await premium.text()).split('\n')[0]).toBe('date_ist,usdt_inr_market_day_average,usd_inr_ecb_reference,ecb_reference_date,premium_percent');
+  }
+
   // The private surfaces ask not to be crawled at all, and publish no sitemap or llms.txt of their own pages.
   for (const base of [operatorBaseUrl(), appBaseUrl()]) {
     const res = await page.request.get(`${base}/robots.txt`);
     expect(await res.text(), base).toContain('Disallow: /');
     expect((await page.request.get(`${base}/sitemap.xml`)).status(), base).toBe(404);
     expect((await page.request.get(`${base}/llms.txt`)).status(), base).toBe(404);
+    // The premium's days are the public site's: there, a private host sends the request to sign in instead.
+    const csv = await page.request.get(`${base}/usdt-premium-india.csv`);
+    expect(csv.headers()['content-type'] ?? '', base).not.toContain('text/csv');
   }
 });
 

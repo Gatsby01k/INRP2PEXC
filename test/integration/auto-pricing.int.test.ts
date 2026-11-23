@@ -3,7 +3,7 @@ import { sql } from 'kysely';
 import { Money, Rate, computeP2pEconomics } from '@inrp2p/kernel';
 import { pgErrorCode } from '@inrp2p/db';
 import { runAs } from '@inrp2p/identity/testing';
-import { currentPricingPolicy, marketTrail, publicMarketRates, setPricingPolicy } from '@inrp2p/pricing';
+import { currentPricingPolicy, marketDays, marketTrail, publicMarketRates, setPricingPolicy } from '@inrp2p/pricing';
 import { acceptQuote, expireQuote, repriceRequest, requestInstantQuote, runMarketReferenceRefresh, runRfqSweep } from '@inrp2p/quotes';
 import { configureTraderProgram } from '@inrp2p/trader-core';
 import { bidOnRfq, priceAsksFor, updateBlock } from '@inrp2p/traders';
@@ -90,6 +90,9 @@ describe('automatic prices are a person’s decision', () => {
     expect(await publicMarketRates(w.app)).toEqual({ SELL_USDT: '101.000000', BUY_USDT: '102.000000' });
     // The workspace's ticker draws the day from the same history: the mid of both directions, hour by hour.
     expect(await marketTrail(w.app)).toEqual(['101.500000']);
+    // The premium page reads it a day at a time, in India's time: today so far, the same mid.
+    const today = await sql<{ d: string }>`select to_char((inrp2p_now() at time zone 'Asia/Kolkata')::date, 'YYYY-MM-DD') as d`.execute(w.app);
+    expect(await marketDays(w.app)).toEqual([{ day: today.rows[0]!.d, mid: '101.500000' }]);
     const clock = await w.t.pinnedClock();
     await clock.set(new Date(Date.now() + ((await currentPricingPolicy(w.app)).referenceMaxAgeSeconds + 60) * 1000));
     expect(await publicMarketRates(clock.db)).toEqual({ SELL_USDT: null, BUY_USDT: null });
