@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { headers } from 'next/headers';
 import { notFound } from 'next/navigation';
-import { SITE_NAME, telegramUrl, withTerms } from '../../../../content/site.ts';
+import { SITE_NAME, plainTerms, telegramUrl } from '../../../../content/site.ts';
 import { TRADERS_PAGE, TRADERS_TELEGRAM } from '../../../../content/traders.ts';
 import { TOUCH_HEADER, decodeAttribution, traderEntryHref } from '../../../../server/acquisition.ts';
 import { getRuntime } from '../../../../server/runtime.ts';
@@ -18,8 +18,8 @@ export async function generateMetadata(): Promise<Metadata> {
   const origin = await publicOrigin();
   const url = `${origin}${TRADERS_PATH}`;
   const { meta } = TRADERS_PAGE;
-  const title = withTerms(meta.title);
-  const description = withTerms(meta.description);
+  const title = plainTerms(meta.title);
+  const description = plainTerms(meta.description);
   const image = { url: card.src, width: card.width, height: card.height, alt: `${SITE_NAME}. ${meta.ogTitle}` };
   return {
     title,
@@ -36,7 +36,7 @@ function structuredData(origin: string): string {
     '@context': 'https://schema.org',
     '@type': 'FAQPage',
     url: `${origin}${TRADERS_PATH}`,
-    mainEntity: TRADERS_PAGE.faq.items.map((q) => ({ '@type': 'Question', name: q.question, acceptedAnswer: { '@type': 'Answer', text: withTerms(q.answer) } })),
+    mainEntity: TRADERS_PAGE.faq.items.map((q) => ({ '@type': 'Question', name: q.question, acceptedAnswer: { '@type': 'Answer', text: plainTerms(q.answer) } })),
   };
   return JSON.stringify(data).replaceAll('<', '\\u003c');
 }

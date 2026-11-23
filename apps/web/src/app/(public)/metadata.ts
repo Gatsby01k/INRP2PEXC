@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { HERO, SITE_NAME, TAGLINE, type SitePage, withTerms } from '../../content/site.ts';
+import { HERO, SITE_NAME, TAGLINE, type SitePage, plainTerms } from '../../content/site.ts';
 import { publicOrigin } from '../../server/site.ts';
 import card from './_landing/og/card.jpg';
 import cardBuy from './_landing/og/card-buy-usdt-in-india.jpg';
@@ -48,11 +48,11 @@ export async function pageMetadata(page: SitePage): Promise<Metadata> {
   // The card's alt text is its own words, in the order it shows them.
   const { lead, accent, tail } = HERO.headline;
   const own = CARDS[page.path] ?? card;
-  const words = page.path === '/' ? `${lead} ${accent} ${tail}` : withTerms(page.h1);
-  const image = { url: own.src, width: own.width, height: own.height, alt: `${SITE_NAME}. ${words} ${page.path === '/' ? TAGLINE : withTerms(page.lede)}` };
+  const words = page.path === '/' ? `${lead} ${accent} ${tail}` : plainTerms(page.h1);
+  const image = { url: own.src, width: own.width, height: own.height, alt: `${SITE_NAME}. ${words} ${page.path === '/' ? TAGLINE : plainTerms(page.lede)}` };
   // A page's words may name the trader programme's terms (`{margin}`, `{fee}`); a search result shows them filled in.
-  const title = withTerms(page.title);
-  const description = withTerms(page.description);
+  const title = plainTerms(page.title);
+  const description = plainTerms(page.description);
   return {
     title,
     description,

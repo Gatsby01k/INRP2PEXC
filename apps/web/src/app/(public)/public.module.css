@@ -632,6 +632,19 @@
   }
 }
 
+/* The narrowest phones (360px is most of Android): the bar's parts sit closer, so its last button stays inside the
+   capsule rather than hanging over its edge. */
+@media (max-width: 400px) {
+  .capsule {
+    gap: var(--space-2);
+    padding: 0 6px 0 8px;
+  }
+
+  .entry {
+    padding: 0 10px 0 14px;
+  }
+}
+
 @media (max-width: 1099px) {
   .footerInner {
     grid-template-columns: minmax(0, 1fr);

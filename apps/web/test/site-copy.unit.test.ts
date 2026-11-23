@@ -4,7 +4,7 @@ import { draftFor } from '@inrp2p/notifications';
 import { RECEIPT_SNAPSHOT_VERSION, type ReceiptSnapshot, receiptHtml } from '@inrp2p/reporting';
 import type { NotificationKind } from '@inrp2p/db';
 import {
-  ACTIONS, CLOSING, FAQ, FLOW, FOOTER, FOOTER_NOTE, HERO, NAV, ONBOARDING, OWN_DESK, SHOWCASE, GUIDES, SITE_NAME, SITE_PAGES, SITE_PATHS, TAGLINE, TELEGRAM, TRADER_ENTRY, TRADER_TERMS, WHY, WORKSPACE_ENTRY, withTerms,
+  ACTIONS, CLOSING, FAQ, FLOW, FOOTER, FOOTER_NOTE, HERO, NAV, NOT_FOUND, ONBOARDING, OWN_DESK, SERVER_ERROR, SHOWCASE, GUIDES, SITE_NAME, SITE_PAGES, SITE_PATHS, TAGLINE, TELEGRAM, TRADER_ENTRY, TRADER_TERMS, WHY, WORKSPACE_ENTRY, withTerms,
 } from '../src/content/site.ts';
 import { TRADERS_PAGE } from '../src/content/traders.ts';
 
@@ -116,6 +116,8 @@ const SITE_COPY: readonly { readonly where: string; readonly text: string }[] = 
   ...copyIn(OWN_DESK, 'OWN_DESK'),
   ...copyIn(FAQ, 'FAQ'),
   ...copyIn(CLOSING, 'CLOSING'),
+  ...copyIn({ ...NOT_FOUND, guidePaths: [] }, 'NOT_FOUND'),
+  ...copyIn(SERVER_ERROR, 'SERVER_ERROR'),
   ...copyIn(ONBOARDING, 'ONBOARDING'),
   ...copyIn(TRADER_ENTRY, 'TRADER_ENTRY'),
   ...copyIn(TELEGRAM, 'TELEGRAM'),
@@ -197,6 +199,12 @@ const VIOLATIONS: readonly { readonly text: string; readonly rule: 'regulatory' 
   { text: 'Instant INR payouts with zero fees.', rule: 'figure' },
   { text: 'Rated 4.9 stars by 1,200 clients.', rule: 'figure' },
 ];
+
+describe('the error page, which imports nothing of the site but its own words', () => {
+  it('names the site as the site names itself', () => {
+    expect(SERVER_ERROR.brand).toBe(SITE_NAME);
+  });
+});
 
 describe('the guard itself catches what it is for', () => {
   it.each(VIOLATIONS)('refuses "$text"', ({ text, rule }) => {

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { CLOSING, FAQ, FLOW, HERO, ONBOARDING, OWN_DESK, SITE_PAGES, SITE_PATHS, TELEGRAM, TRADER_ENTRY, WHY, telegramUrl, withTerms } from '../src/content/site.ts';
+import { CLOSING, FAQ, FLOW, HERO, ONBOARDING, OWN_DESK, SITE_PAGES, SITE_PATHS, TELEGRAM, TRADER_ENTRY, WHY, plainTerms, telegramUrl, withTerms } from '../src/content/site.ts';
 import { TRADERS_PAGE } from '../src/content/traders.ts';
 import { appBaseUrl, appDb, deskSendsQuoteWithLink, linkBaseUrl, operatorBaseUrl, signIn, state } from './support.ts';
 import { E2E_PUBLIC_CONTACTS } from './world.ts';
@@ -21,7 +21,7 @@ test('every route is published, each with its own words', async ({ page }) => {
     const response = await page.goto(url);
     expect(response?.status(), site.path).toBe(200);
     await expect(page.getByRole('heading', { level: 1, name: withTerms(site.h1) })).toBeVisible();
-    await expect(page).toHaveTitle(withTerms(site.title));
+    await expect(page).toHaveTitle(plainTerms(site.title));
     // The canonical URL is built from configuration, never from the Host header that happened to arrive.
     const canonical = page.locator('link[rel="canonical"]');
     await expect(canonical).toHaveAttribute('href', new RegExp(`${site.path === '/' ? '/?$' : site.path.replace(/\//g, '\\/')}$`));
@@ -392,7 +392,7 @@ test('the trader page: one address, every way in carries the campaign, and the d
   const response = await page.goto(`${linkBaseUrl()}/traders?utm_source=telegram&utm_medium=post&utm_campaign=e2e-launch&ref=partner-7&for=inr`);
   expect(response?.status()).toBe(200);
   expect(new URL(page.url()).pathname).toBe('/traders');
-  await expect(page).toHaveTitle(withTerms(meta.title));
+  await expect(page).toHaveTitle(plainTerms(meta.title));
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(`${hero.title.lead} ${hero.title.accent}`);
   await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', /\/traders$/);
 

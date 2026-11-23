@@ -28,28 +28,70 @@ export async function checkProductionStart(): Promise<void> {
   if (report.problems.length > 0) refuse(report.problems);
 }
 
+/** Pauses before the check's second, third and fourth attempts, when the database did not answer. */
+export const START_CHECK_RETRY_MS: readonly number[] = [150, 450, 1_000];
+
+/**
+ * An answer from the database that will not change by asking again: the login was refused (class 28), the database does
+ * not exist (3D), or it is not this application's schema at all (42, e.g. no `inrp2p_schema_version()`). Anything else —
+ * a connection refused, reset or timed out, the pooler's `08P01`, a database starting or over its connections — says
+ * nothing about the deployment, only about this moment.
+ */
+function isDefinitive(e: unknown): boolean {
+  const code = (e as { code?: unknown }).code;
+  return typeof code === 'string' && /^(28|3D|42)[0-9A-Z]{3}$/.test(code);
+}
+
 /**
  * The database half, for the pool a process is about to use: a function to await before its first statement, which
  * checks once and then answers at once. Outside production there is nothing to check, and no gate.
+ *
+ * A database that answers wrongly — another schema version, the migrator's login, a superuser, a test permit, a refused
+ * login — stops the process, as before. A database that does not answer is not a wrong configuration: it is asked again
+ * (`START_CHECK_RETRY_MS`), and if it still does not answer, the statement waiting on the check fails, the process stays
+ * up, and the next statement checks again. On Vercel one process serves many requests at once, the public pages among
+ * them: exiting on a moment's network error (Neon's pooler answered `08P01` to a quarter of cold starts on 2026-11-23)
+ * turned every request in flight into a 500 — `inrp2p.com/traders` and the home page included, which read the database
+ * for nothing but a rate they can draw without.
  *
  * The check runs on its own handle over the same pool, so it is not held behind itself. `@inrp2p/db` is imported when
  * the check runs, not with this module, so the proxy — which loads this module for the configuration half — never loads
  * a database client at all.
  */
-export function databaseStartCheck(pool: pg.Pool, exit: (code: number) => never = (code) => process.exit(code)): (() => Promise<void>) | undefined {
+export function databaseStartCheck(
+  pool: pg.Pool,
+  exit: (code: number) => never = (code) => process.exit(code),
+  pause: (ms: number) => Promise<void> = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+): (() => Promise<void>) | undefined {
   if (!isProduction(process.env)) return undefined;
   let checked: Promise<void> | undefined;
   const check = async (): Promise<void> => {
-    let problems: string[];
-    try {
-      const { createDb, databaseDeploymentProblems } = await import('@inrp2p/db');
-      problems = await databaseDeploymentProblems(createDb(pool));
-    } catch (e) {
-      problems = [`the database could not be checked (${(e as { code?: string }).code ?? 'unreachable'})`];
+    const { createDb, databaseDeploymentProblems } = await import('@inrp2p/db');
+    const db = createDb(pool);
+    let failure: unknown;
+    for (const wait of [0, ...START_CHECK_RETRY_MS]) {
+      if (wait > 0) await pause(wait);
+      let problems: string[];
+      try {
+        problems = await databaseDeploymentProblems(db);
+      } catch (e) {
+        if (isDefinitive(e)) refuse([`the database refused the check (${(e as { code: string }).code})`], exit);
+        failure = e;
+        continue;
+      }
+      if (problems.length > 0) refuse(problems, exit);
+      return;
     }
-    if (problems.length > 0) refuse(problems, exit);
+    const code = (failure as { code?: unknown }).code;
+    const reason = `${typeof code === 'string' ? code : 'unreachable'}: ${(failure instanceof Error ? failure.message : String(failure)).slice(0, 160)}`;
+    console.error(`the database start-up check could not reach the database (${reason}); this statement fails, the next one checks again`);
+    throw new Error(`the database could not be reached (${reason})`, { cause: failure });
   };
-  return () => (checked ??= check());
+  return () =>
+    (checked ??= check().catch((e: unknown) => {
+      checked = undefined;
+      throw e;
+    }));
 }
 
 function refuse(problems: readonly string[], exit: (code: number) => never = (code) => process.exit(code)): never {

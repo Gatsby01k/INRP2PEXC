@@ -4,7 +4,7 @@ import { type CSSProperties, useId, useState } from 'react';
 import { groupDigits } from '@inrp2p/ui/format';
 import { type OwnDeskCopy, TRADER_TERMS } from '../../../../content/site.ts';
 import { Led } from '../led/Led.tsx';
-import { marketMid, useMarket } from '../market.ts';
+import { marketMid, midText, useMarket } from '../market.ts';
 import styles from './earnings.module.css';
 
 type Copy = OwnDeskCopy['earnings'];
@@ -59,7 +59,7 @@ export function Earnings({ copy, robot }: { copy: Copy; robot: { src: string; sr
           {mid ? (
             <span className={styles.live}>
               <span className={styles.liveDot} aria-hidden="true" />
-              <span className="ix-visually-hidden">{copy.live} </span>₹{mid.toFixed(2)}
+              <span className="ix-visually-hidden">{copy.live} </span>₹{midText(mid)}
             </span>
           ) : null}
         </div>

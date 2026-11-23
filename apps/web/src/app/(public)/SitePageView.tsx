@@ -1,7 +1,7 @@
 import { type ReactNode, Suspense } from 'react';
 import Link from 'next/link';
 import mark from '../../../../../brand/inrp2p-mark.png';
-import { ACTIONS, FAQ, GUIDES, HERO, ONBOARDING, SITE_NAME, SITE_PAGES, type SitePage, TAGLINE, TELEGRAM, TRADER_ENTRY, telegramUrl, withTerms } from '../../content/site.ts';
+import { ACTIONS, FAQ, GUIDES, HERO, ONBOARDING, SITE_NAME, SITE_PAGES, type SitePage, TAGLINE, TELEGRAM, TRADER_ENTRY, plainTerms, telegramUrl, withTerms } from '../../content/site.ts';
 import { GuideRobot } from './_landing/guide/GuideRobot.tsx';
 import { MarketCard } from './_landing/guide/MarketCard.tsx';
 import { PremiumBoard, PremiumLine } from './_landing/guide/Premium.tsx';
@@ -39,8 +39,8 @@ function structuredData(page: SitePage, origin: string): string {
       '@type': 'WebPage',
       '@id': `${url}#webpage`,
       url,
-      name: withTerms(page.title),
-      description: withTerms(page.description),
+      name: plainTerms(page.title),
+      description: plainTerms(page.description),
       inLanguage: page.lang ?? 'en-IN',
       isPartOf: { '@id': `${origin}#website` },
       about: { '@id': `${origin}#organization` },
@@ -51,7 +51,7 @@ function structuredData(page: SitePage, origin: string): string {
       '@type': 'BreadcrumbList',
       itemListElement: [
         { '@type': 'ListItem', position: 1, name: SITE_NAME, item: origin },
-        { '@type': 'ListItem', position: 2, name: withTerms(page.h1), item: url },
+        { '@type': 'ListItem', position: 2, name: plainTerms(page.h1), item: url },
       ],
     });
   }
@@ -82,7 +82,7 @@ function structuredData(page: SitePage, origin: string): string {
     graph.push({
       '@type': 'FAQPage',
       '@id': `${url}#faq`,
-      mainEntity: questions.map((q) => ({ '@type': 'Question', name: q.question, acceptedAnswer: { '@type': 'Answer', text: withTerms(q.answer) } })),
+      mainEntity: questions.map((q) => ({ '@type': 'Question', name: q.question, acceptedAnswer: { '@type': 'Answer', text: plainTerms(q.answer) } })),
     });
   }
   // JSON.stringify escapes nothing that matters inside a JSON-LD script except `<`, which would end the element.

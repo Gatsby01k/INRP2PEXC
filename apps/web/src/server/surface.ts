@@ -98,6 +98,21 @@ export const PREMIUM_PAGE_PATH = '/usdt-premium-india';
 export const TRADERS_PATH = '/traders';
 export const TRADERS_PAGE_PATH = '/lp/traders';
 
+/**
+ * Where the public host draws its page-not-found for an address it does not publish (`app/not-found.tsx`): a browser's
+ * page request for one is rewritten here, so a person who types `inrp2p.com/about` gets the site's own page with a 404,
+ * not a JSON refusal meant for an API call. Nothing is served at this path; arriving at it from outside draws the same.
+ */
+export const PUBLIC_MISSING_PATH = '/lp/missing';
+
+/**
+ * The home-screen icon (`app/apple-icon.png`), answered on every host: a phone asks for it when a page is saved, shared or
+ * added to the home screen. Older phones and some crawlers ask for it by its old names without reading the page's link,
+ * and those are served the same file.
+ */
+export const APPLE_ICON_PATH = '/apple-icon.png';
+export const LEGACY_APPLE_ICON_PATHS: ReadonlySet<string> = new Set(['/apple-touch-icon.png', '/apple-touch-icon-precomposed.png']);
+
 /** A desk's deal link (ADR 0020 §2.9): like the quote link, opening it authorizes nothing. */
 export const isDealLinkPath = (path: string): boolean => path === '/d' || path.startsWith('/d/');
 
@@ -165,7 +180,7 @@ const MONITORING_PATHS: ReadonlySet<string> = new Set(['/api/health/status', '/a
 
 export function gateFor(surface: Surface, pathname: string): Gate {
   const path = pathname.replace(/\/+$/, '') || '/';
-  if (CRAWLER_PATHS.has(path) || PROBE_PATHS.has(path)) return 'PUBLIC';
+  if (CRAWLER_PATHS.has(path) || PROBE_PATHS.has(path) || path === APPLE_ICON_PATH) return 'PUBLIC';
   if (surface === 'OPERATOR') {
     if (MONITORING_PATHS.has(path)) return 'MONITORING';
     if (path === '/api/auth' || path.startsWith('/api/auth/')) return 'AUTH_ENDPOINT';
@@ -185,7 +200,7 @@ export function gateFor(surface: Surface, pathname: string): Gate {
   // Auth endpoints are not served here at all, and any other path is refused rather than rendered — a page that
   // needs a session has no business on a host that never receives one.
   // The Telegram bot's webhook authenticates itself with the secret Telegram sends (ADR 0020 §2.14).
-  if (path === TELEGRAM_WEBHOOK_PATH || path === MARKET_RATE_PATH || path === ACQUISITION_EVENT_PATH || path === PREMIUM_CSV_PATH) return 'PUBLIC';
+  if (path === TELEGRAM_WEBHOOK_PATH || path === MARKET_RATE_PATH || path === ACQUISITION_EVENT_PATH || path === PREMIUM_CSV_PATH || path === PUBLIC_MISSING_PATH) return 'PUBLIC';
   return isQuoteLinkPath(path) || isDealLinkPath(path) || isPublicSitePath(path) || deskHandleOfPath(path) !== null || isDeskPagePath(path) ? 'PUBLIC' : 'CLIENT_SESSION';
 }
 

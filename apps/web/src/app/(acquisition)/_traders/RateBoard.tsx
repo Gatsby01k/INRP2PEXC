@@ -4,7 +4,7 @@ import { Coin } from '../../../components/Coin.tsx';
 import { TRADER_TERMS } from '../../../content/site.ts';
 import type { TradersPageCopy } from '../../../content/traders.ts';
 import { Led } from '../../(public)/_landing/led/Led.tsx';
-import { marketMid, useMarket } from '../../(public)/_landing/market.ts';
+import { marketMid, midText, useMarket } from '../../(public)/_landing/market.ts';
 import styles from './traders.module.css';
 
 /** A percentage the way a trader says it: `6%`, `5.75%`. */
@@ -31,7 +31,7 @@ export function RateBoard({ copy }: { copy: TradersPageCopy['hero']['board'] }) 
         </span>
         <span className={styles.live}>
           <span className={styles.liveDot} aria-hidden="true" />
-          {copy.market} <b>{mid ? `₹${mid.toFixed(2)}` : '—'}</b>
+          {copy.market} <b>{mid ? `₹${midText(mid)}` : '—'}</b>
         </span>
       </div>
       <div className={styles.boardMain}>

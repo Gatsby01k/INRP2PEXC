@@ -182,3 +182,22 @@
     height: 20px !important;
   }
 }
+
+@media (max-width: 400px) {
+  .ticker {
+    gap: 5px;
+    padding-right: 6px;
+  }
+
+  .gap {
+    margin-left: 0;
+    padding: 0 7px;
+  }
+}
+
+/* Below that the premium steps out too: the rate and the way in are what the bar is for. */
+@media (max-width: 349px) {
+  .gap {
+    display: none;
+  }
+}

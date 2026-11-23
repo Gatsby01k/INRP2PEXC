@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import type { Direction } from '@inrp2p/kernel';
+import { groupDigits } from '@inrp2p/ui/format';
 import { MARKET_RATE_PATH } from '../../../server/surface.ts';
 
 /** The market's USDT/INR reference as `/api/market-rate` gives it (ADR 0025): both directions, and the last day's line. */
@@ -75,4 +76,14 @@ export function marketMid(m: Market | null): number | null {
   const s = m.SELL_USDT ? Number(m.SELL_USDT) : null;
   const b = m.BUY_USDT ? Number(m.BUY_USDT) : null;
   return s !== null && b !== null ? (s + b) / 2 : (s ?? b);
+}
+
+/**
+ * The mid as every figure on the public site prints it — rupees to the paisa, `104.51` — so the masthead, the trader
+ * page's board and the earnings card show one number, of one width, beside each other. (The reference itself can carry
+ * four places; a masthead that grew from `104.51` to `104.5125` with the market pushed its last button off a phone.)
+ */
+export function midText(mid: number): string {
+  const paise = Math.round(mid * 100);
+  return `${groupDigits(String(Math.trunc(paise / 100)))}.${String(paise % 100).padStart(2, '0')}`;
 }

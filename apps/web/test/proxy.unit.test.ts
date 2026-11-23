@@ -82,8 +82,39 @@ describe('the proxy reads no database', () => {
     // Only a browser's page request, and only the workspace's own sections: anything else is still refused.
     expect((await proxy(req(ENV.PUBLIC_HOST, '/traders/orders'))).status).toBe(401);
     expect((await proxy(req(ENV.PUBLIC_HOST, '/api/client/me', { html: true }))).status).toBe(401);
-    expect((await proxy(req(ENV.PUBLIC_HOST, '/orders/TO-1', { html: true }))).status).toBe(401);
-    expect((await proxy(req(ENV.PUBLIC_HOST, '/settings/team', { html: true }))).status).toBe(401);
+  });
+
+  it('gives a person who types an address the public site does not publish its page-not-found, not a JSON refusal', async () => {
+    for (const path of ['/orders/TO-1', '/settings/team', '/about', '/wp-admin/setup.php', '/wp-login.php']) {
+      const r = await proxy(req(ENV.PUBLIC_HOST, path, { html: true }));
+      expect(r.status, path).toBe(200);
+      expect(new URL(r.headers.get('x-middleware-rewrite')!).pathname, path).toBe('/lp/missing');
+      expect(r.headers.get('location'), path).toBeNull();
+    }
+    // A call that is not a page request is still refused, as before; and the not-found's own path passes the gate.
+    expect((await proxy(req(ENV.PUBLIC_HOST, '/orders/TO-1'))).status).toBe(401);
+    expect(passes(await proxy(req(ENV.PUBLIC_HOST, '/lp/missing', { html: true })))).toBe(true);
+  });
+
+  it('sends an address of the public site written with capitals to its one spelling', async () => {
+    for (const [from, to] of [['/Traders', '/traders'], ['/USDT-to-INR', '/usdt-to-inr'], ['/Is-INRP2P-Safe?x=1', '/is-inrp2p-safe?x=1'], ['/Acme-OTC', '/acme-otc']]) {
+      const r = await proxy(req(ENV.PUBLIC_HOST, from!, { html: true }));
+      expect(r.status, from).toBe(308);
+      expect(r.headers.get('location'), from).toBe(`https://${ENV.PUBLIC_HOST}${to}`);
+    }
+    // Not a second address for an inside path, and nothing on the other hosts.
+    expect((await proxy(req(ENV.PUBLIC_HOST, '/HOME', { html: true }))).status).not.toBe(308);
+    expect((await proxy(req(ENV.APP_HOST, '/Exchange', { html: true }))).status).not.toBe(308);
+  });
+
+  it('serves the home-screen icon on every host, by its old names too', async () => {
+    for (const host of [ENV.PUBLIC_HOST, ENV.APP_HOST, ENV.DESK_HOST]) {
+      expect(passes(await proxy(req(host, '/apple-icon.png'))), host).toBe(true);
+      for (const old of ['/apple-touch-icon.png', '/apple-touch-icon-precomposed.png']) {
+        const r = await proxy(req(host, old));
+        expect(new URL(r.headers.get('x-middleware-rewrite')!).pathname, `${host}${old}`).toBe('/apple-icon.png');
+      }
+    }
   });
 
   it('keeps sign-in, the auth endpoints and the probes open', async () => {
