@@ -436,6 +436,59 @@ function readyNowText(pc: PriceContext, offers: readonly PricedOffer[]): string 
     : `Right now a trader can take about ${a} to ${b} USDT — ask for that and your price comes at once.`;
 }
 
+/** The most a firm offer takes right now, as `readyNowText` words it: whole USDT, without grouping. Null when it says none. */
+const READY_NOW = /a trader can take (?:up to about|about [\d,]+ to) ([\d,]+) USDT/;
+export function readyNowMaxOf(text: string | null): string | null {
+  const m = text ? READY_NOW.exec(text) : null;
+  return m ? m[1]!.replace(/,/g, '') : null;
+}
+
+/** ADR 0032: what a waiting client is shown about its wait — facts of record, nothing estimated. */
+export interface WaitingFacts {
+  readonly since: string;
+  readonly until: string;
+  /** What it waits on: the exchange's own reading of the market or the network, or a trader's price. */
+  readonly on: 'MARKET' | 'TRADERS';
+  /** The traders with this side, told that a client waits on it (none while it waits on the market). */
+  readonly tradersTold: number;
+  /** Requests on the same side that started waiting before this one: the sweep prices them first. */
+  readonly ahead: number;
+  /** The most a firm offer takes right now, in whole USDT, when the client could ask for that and be priced at once. */
+  readonly readyNowUsdt: string | null;
+}
+
+/** ADR 0032: the wait of a request, for its client's screen; null when it does not wait. */
+export async function waitingFactsOf(ex: Executor, requestId: string): Promise<WaitingFacts | null> {
+  const r = await ex.selectFrom('trade_request')
+    .select(['id', 'client_id', 'direction', 'status', 'status_reason', 'no_price_reason', 'waiting_since', 'waiting_until'])
+    .where('id', '=', requireUuid(requestId, 'requestId'))
+    .executeTakeFirst();
+  if (!r || r.status !== 'OPEN' || !r.waiting_until || !r.waiting_since) return null;
+  const on = r.no_price_reason === 'NO_MARKET' || r.no_price_reason === 'NETWORK_UNKNOWN' ? 'MARKET' : 'TRADERS';
+  const [told, ahead] = await Promise.all([
+    on === 'MARKET'
+      ? Promise.resolve({ n: '0' })
+      : ex.selectFrom('trader_profile as t')
+        .innerJoin('trader_block as b', 'b.trader_id', 't.id')
+        .innerJoin('liquidity_route as l', 'l.id', 'b.route_id')
+        .select(sql<string>`count(distinct t.id)`.as('n'))
+        .where('t.status', '=', 'APPROVED').where('t.client_id', '<>', r.client_id).where('b.side', '=', sideFor(r.direction)).where('l.execution_mode', '=', 'P2P')
+        .executeTakeFirstOrThrow(),
+    ex.selectFrom('trade_request').select(sql<string>`count(*)`.as('n'))
+      .where('status', '=', 'OPEN').where('waiting_until', 'is not', null).where('direction', '=', r.direction)
+      .where(sql<boolean>`(waiting_since, id) < (${r.waiting_since}, ${r.id}::uuid)`)
+      .executeTakeFirstOrThrow(),
+  ]);
+  return {
+    since: r.waiting_since.toISOString(),
+    until: r.waiting_until.toISOString(),
+    on,
+    tradersTold: Number.parseInt(told.n, 10),
+    ahead: Number.parseInt(ahead.n, 10),
+    readyNowUsdt: on === 'TRADERS' ? readyNowMaxOf(r.status_reason) : null,
+  };
+}
+
 /**
  * ADR 0032 (amending 0028): nothing prices the request honestly now, and the client is not turned away. The request stays
  * open and the exchange keeps looking — every minute (`runWaitingSweep`) — for `WAIT_HOURS` from when it started waiting;

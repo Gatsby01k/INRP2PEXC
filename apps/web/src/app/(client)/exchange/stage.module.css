@@ -739,11 +739,6 @@
     order: 1;
   }
 
-  /* A request waiting for a trader (ADR 0032): the news is what happens next, so the stage leads, the request under it. */
-  .deal[data-waiting] .stage[data-quiet] {
-    order: -1;
-  }
-
   .steps {
     padding-top: var(--space-6);
   }
@@ -1302,11 +1297,188 @@
   }
 }
 
-/* ADR 0032: the ways a waiting client hears of its price, as a list of the stage's own pills. */
+/* ——— The wait for a trader (ADR 0032): the quote's stage before there is a quote ——— */
+
 ul.facts {
-  margin: 0;
+  margin: var(--space-6) 0 0;
   padding: 0;
   list-style: none;
+}
+
+/* Rings leaving the robot, one after another: it is looking. Decorative, and still for whoever asks for less motion. */
+.radar {
+  position: absolute;
+  inset: 12%;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.6);
+  opacity: 0;
+  animation: radar 3.6s cubic-bezier(0.2, 0.6, 0.3, 1) infinite;
+}
+
+.radar:nth-of-type(2) {
+  animation-delay: 1.2s;
+}
+
+.radar:nth-of-type(3) {
+  animation-delay: 2.4s;
+}
+
+@keyframes radar {
+  0% {
+    opacity: 0.8;
+    transform: scale(0.62);
+  }
+
+  100% {
+    opacity: 0;
+    transform: scale(1.38);
+  }
+}
+
+.liveDot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin: 0 2px 0 4px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.7);
+  animation: live-dot 1.8s ease-out infinite;
+}
+
+@keyframes live-dot {
+  0% {
+    box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.7);
+  }
+
+  80%,
+  100% {
+    box-shadow: 0 0 0 9px rgba(255, 255, 255, 0);
+  }
+}
+
+.chipTime {
+  font-variant-numeric: tabular-nums;
+}
+
+/* What it will cost at today's market: large, but a step below the firm quote's monument — it is not a price yet. */
+.expect {
+  display: grid;
+  gap: 8px;
+  margin-top: var(--space-6);
+}
+
+.expectFigure {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-3);
+  font-size: clamp(36px, 4.4vw, 60px);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* With the wait's words to make room for, the robot stands a step back, as on the quiet stage — on a phone it keeps
+   the corner every stage gives it there. */
+@media (min-width: 700px) {
+  .stage[data-searching] .robot {
+    right: -8px;
+    bottom: -84px;
+    width: 300px;
+    height: 300px;
+  }
+
+  .stage[data-searching] .halo {
+    right: -46px;
+    bottom: -150px;
+    width: 370px;
+  }
+}
+
+.stage[data-searching] .getSub {
+  max-width: 34ch;
+}
+
+/* The moves keep clear of the robot's corner. */
+.waitMoves {
+  display: grid;
+  justify-items: start;
+  gap: 12px;
+  max-width: min(100%, 360px);
+  margin-top: var(--space-6);
+}
+
+.waitMoves .accept svg {
+  flex: none;
+  width: 20px;
+  height: 20px;
+}
+
+.waitNote {
+  max-width: 340px;
+  margin: 0;
+  color: rgba(255, 255, 255, 0.84);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.waitTold {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 14.5px;
+  font-weight: var(--font-weight-medium);
+}
+
+.waitTold svg {
+  width: 18px;
+  height: 18px;
+}
+
+.onFieldLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  height: 48px;
+  padding: 0 20px;
+  border-radius: 16px;
+  box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.55);
+  color: #fff;
+  font-size: 15px;
+  font-weight: var(--font-weight-semibold);
+  text-decoration: none;
+}
+
+.onFieldLink svg {
+  width: 18px;
+  height: 18px;
+}
+
+.onFieldLink:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 3px;
+}
+
+@media (hover: hover) {
+  .onFieldLink:hover {
+    background: rgba(255, 255, 255, 0.12);
+  }
+}
+
+.askEstimate {
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .radar,
+  .liveDot {
+    animation: none;
+  }
 }
 
 /* A link dressed as the stage's white call to action keeps its look when it is an anchor. */

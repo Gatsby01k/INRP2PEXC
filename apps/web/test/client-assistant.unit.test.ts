@@ -31,6 +31,7 @@ const request = {
   gatheringUntil: null,
   waitingUntil: null as string | null,
   readyNow: null as string | null,
+  waiting: null as NonNullable<ExchangeView['request']>['waiting'],
   canReprice: false,
   ref: 'RQ-260919-0007',
   direction: 'SELL_USDT' as const,
