@@ -70,6 +70,29 @@
   stroke: var(--sell);
 }
 
+/* India's premium over the dollar, in the mark's orange: a small pill that leads to the premium page. */
+.gap {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  margin-left: 2px;
+  padding: 0 9px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--brand-primary) 12%, transparent);
+  color: var(--brand-action);
+  font-size: 12.5px;
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  text-decoration: none;
+  transition: background-color var(--dur-fast) var(--ease);
+}
+
+.gap:hover,
+.gap:focus-visible {
+  background: color-mix(in srgb, var(--brand-primary) 20%, transparent);
+}
+
 /* The rate is live: a node breathing beside it, in the mark's orange. */
 .live {
   position: relative;

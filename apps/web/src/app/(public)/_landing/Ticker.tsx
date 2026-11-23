@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Rate } from '@inrp2p/kernel';
 import { formatRate } from '@inrp2p/ui/format';
 import { Coin } from '../../../components/Coin.tsx';
+import { PREMIUM_PAGE_PATH } from '../../../server/surface.ts';
 import { marketMid, useMarket } from './market.ts';
 import styles from './ticker.module.css';
 
@@ -15,6 +16,12 @@ function line(trail: readonly string[]): string | null {
   const hi = Math.max(...v);
   const span = hi - lo || 1;
   return v.map((n, i) => `${i === 0 ? 'M' : 'L'}${((i / (v.length - 1)) * 46 + 1).toFixed(1)} ${(16 - ((n - lo) / span) * 14).toFixed(1)}`).join('');
+}
+
+/** Hundredths of a percent as the masthead shows them, to one place: `+12.4%`. */
+function gap(hundredths: number): string {
+  const tenths = Math.round(Math.abs(hundredths) / 10);
+  return `${hundredths < 0 ? '−' : '+'}${Math.floor(tenths / 10)}.${tenths % 10}%`;
 }
 
 /**
@@ -59,6 +66,13 @@ export function Ticker() {
         </svg>
       ) : null}
       <span className={styles.live} aria-hidden="true" />
+      {/* India's premium over the dollar, from every public page to the page that shows it day by day. */}
+      {typeof market?.premium === 'number' ? (
+        <a className={styles.gap} href={PREMIUM_PAGE_PATH} title="India’s USDT premium over the dollar — live, and day by day">
+          <span className="ix-visually-hidden">India’s USDT premium over the dollar </span>
+          {gap(market.premium)}
+        </a>
+      ) : null}
     </span>
   );
 }

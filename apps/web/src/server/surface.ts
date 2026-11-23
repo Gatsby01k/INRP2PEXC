@@ -84,6 +84,12 @@ export const MARKET_RATE_PATH = '/api/market-rate';
 export const PREMIUM_CSV_PATH = '/usdt-premium-india.csv';
 
 /**
+ * The premium page itself, which the masthead's ticker links to from every public page. Its own constant because the
+ * ticker is shipped to the browser and the site's content is not; a test holds it to the page `content/site.ts` publishes.
+ */
+export const PREMIUM_PAGE_PATH = '/usdt-premium-india';
+
+/**
  * The trader acquisition page (migration 0053): `inrp2p.com/traders` is its one address — the one every trader campaign
  * links to. It is rendered from `TRADERS_PAGE_PATH` by a rewrite in the proxy, as the home page is from `/home`, because
  * `/traders` in this build is the workspace's Traders screen; on the public host only that exact path is the page, and

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { RESERVED_DESK_HANDLES, isReservedHandle } from '@inrp2p/kernel';
-import { DESK_PAGE_PREFIX, MARKET_RATE_PATH, PREMIUM_CSV_PATH, PUBLIC_HOME_PATH, deskHandleOfPath, gateFor, isDeskPagePath, isWorkspacePath, safeReturnPath, surfaceForHost } from '../src/server/surface.ts';
+import { DESK_PAGE_PREFIX, MARKET_RATE_PATH, PREMIUM_CSV_PATH, PREMIUM_PAGE_PATH, PUBLIC_HOME_PATH, deskHandleOfPath, gateFor, isDeskPagePath, isWorkspacePath, safeReturnPath, surfaceForHost } from '../src/server/surface.ts';
 import { SITE_PATHS } from '../src/content/site.ts';
 
 const hosts = { deskHost: 'desk.inrp2p.com', appHost: 'app.inrp2p.com', publicHost: 'inrp2p.com' };
@@ -65,6 +65,9 @@ describe('proxy gating', () => {
     expect(gateFor('PUBLIC', PREMIUM_CSV_PATH)).toBe('PUBLIC');
     expect(gateFor('CLIENT', PREMIUM_CSV_PATH)).toBe('CLIENT_SESSION');
     expect(gateFor('OPERATOR', PREMIUM_CSV_PATH)).toBe('OPERATOR_SESSION');
+    // The masthead links every public page to the premium page by this constant: it must name the page that exists.
+    expect(SITE_PATHS).toContain(PREMIUM_PAGE_PATH);
+    expect(gateFor('PUBLIC', PREMIUM_PAGE_PATH)).toBe('PUBLIC');
   });
 
   it('publishes the quote link on the public host (D-01)', () => {
@@ -76,7 +79,7 @@ describe('proxy gating', () => {
     for (const path of SITE_PATHS) {
       expect(gateFor('PUBLIC', path), `${path} must be published`).toBe('PUBLIC');
     }
-    expect(SITE_PATHS).toHaveLength(11);
+    expect(SITE_PATHS).toHaveLength(13);
     // `/home` is the inside of the rewrite that serves `/`, and the proxy runs again on it, so it passes the
     // gate. It is not a second address: the proxy redirects a request that arrives there from outside.
     expect(gateFor('PUBLIC', PUBLIC_HOME_PATH)).toBe('PUBLIC');

@@ -292,6 +292,8 @@ describe('the pages themselves', () => {
       '/usdt-premium-india',
       '/sell-usdt-in-india',
       '/buy-usdt-in-india',
+      '/usdt-kaise-beche',
+      '/usdt-kaise-kharide',
       '/p2p-bank-account-freeze',
       '/usdt-p2p-scams',
       '/is-inrp2p-safe',
@@ -305,6 +307,15 @@ describe('the pages themselves', () => {
     expect(SITE_PAGES.filter((p) => p.rate).map((p) => [p.path, p.rate])).toEqual([
       ['/usdt-to-inr', 'SELL_USDT'],
       ['/inr-to-usdt', 'BUY_USDT'],
+      ['/usdt-kaise-beche', 'SELL_USDT'],
+      ['/usdt-kaise-kharide', 'BUY_USDT'],
+    ]);
+  });
+
+  it('say which guides are written in Hinglish, and write nothing else in it', () => {
+    expect(SITE_PAGES.filter((p) => p.lang).map((p) => [p.path, p.lang])).toEqual([
+      ['/usdt-kaise-beche', 'hi-Latn'],
+      ['/usdt-kaise-kharide', 'hi-Latn'],
     ]);
   });
 

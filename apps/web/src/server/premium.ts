@@ -109,7 +109,7 @@ export interface PremiumReading {
 }
 
 /** The mid of the market's two directions, or the one there is. */
-function midMicro(sell: string | null, buy: string | null): bigint | null {
+export function midMicro(sell: string | null, buy: string | null): bigint | null {
   const rates = [sell, buy].flatMap((r) => {
     if (!r) return [];
     try {

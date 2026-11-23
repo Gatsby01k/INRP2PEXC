@@ -12,12 +12,16 @@ import cardSell from './_landing/og/card-sell-usdt-in-india.jpg';
 import cardOtc from './_landing/og/card-usdt-otc-india.jpg';
 import cardUsdtToInr from './_landing/og/card-usdt-to-inr.jpg';
 import cardPremium from './_landing/og/card-usdt-premium-india.jpg';
+import cardSellHinglish from './_landing/og/card-usdt-kaise-beche.jpg';
+import cardBuyHinglish from './_landing/og/card-usdt-kaise-kharide.jpg';
 
 /** Each page's own card (`pnpm --filter @inrp2p/web og:card`); a page without one shows the home page's. */
 const CARDS: Record<string, typeof card> = {
   '/': card,
   '/usdt-to-inr': cardUsdtToInr,
   '/usdt-premium-india': cardPremium,
+  '/usdt-kaise-beche': cardSellHinglish,
+  '/usdt-kaise-kharide': cardBuyHinglish,
   '/inr-to-usdt': cardInrToUsdt,
   '/sell-usdt-in-india': cardSell,
   '/buy-usdt-in-india': cardBuy,
