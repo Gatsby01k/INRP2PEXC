@@ -53,13 +53,13 @@ function reserveIssueText(p: Payload): string {
   }
 }
 
-async function orderFacts(db: Db, orderId: string): Promise<{ clientId: string; deskDeal: boolean; facts: NotificationFacts } | null> {
+async function orderFacts(db: Db, orderId: string): Promise<{ clientId: string; deskDeal: boolean; personal: boolean; started: boolean; facts: NotificationFacts } | null> {
   const o = await db
     .selectFrom('trader_order as o')
     .innerJoin('trader_profile as t', 't.id', 'o.trader_id')
     .innerJoin('trade_request as r', 'r.id', 'o.trade_request_id')
     .innerJoin('liquidity_route as lr', 'lr.id', 'o.route_id')
-    .select(['o.ref', 'o.side', 'o.base_minor', 'o.inr_minor', 'o.rate_micro', 'o.close_reason', 't.client_id', 'r.desk_id', 'lr.execution_mode'])
+    .select(['o.ref', 'o.side', 'o.base_minor', 'o.inr_minor', 'o.rate_micro', 'o.close_reason', 'o.trade_id', 't.client_id', 't.status as trader_status', 'r.desk_id', 'lr.execution_mode'])
     .where('o.id', '=', orderId)
     .executeTakeFirst();
   if (!o) return null;
@@ -68,7 +68,11 @@ async function orderFacts(db: Db, orderId: string): Promise<{ clientId: string; 
   return {
     clientId: o.client_id,
     deskDeal: o.desk_id !== null,
+    // ADR 0033: a client's personal side of a meeting — its deal opens on the client's own deal page.
+    personal: o.trader_status === 'PERSONAL',
+    started: o.trade_id !== null,
     facts: {
+      ...(o.trader_status === 'PERSONAL' ? { personal: true } : {}),
       orderRef: o.ref,
       side: o.side,
       base: Money.ofMinor(o.base_minor, 'USDT').toDecimalString(),
@@ -248,6 +252,9 @@ async function resolve(db: Db, event: OutboxEvent): Promise<{ clientId: string; 
     const orderId = str(p.orderId);
     if (!orderId) return null;
     const resolved = await orderFacts(db, orderId);
+    // ADR 0033: a meeting's maker hears of its meeting from the meeting itself (offered, started, ended): of its order
+    // only once the deal is under way.
+    if (resolved?.personal && (orderKind === 'TRADER_ORDER_NEW' || orderKind === 'TRADER_ORDER_ACCEPTED' || !resolved.started)) return null;
     return resolved ? { clientId: resolved.clientId, facts: resolved.facts, kind: orderKind } : null;
   }
   const profileKind = PROFILE_EVENTS[event.type];

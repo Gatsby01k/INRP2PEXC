@@ -1,4 +1,6 @@
+import { webPushPublicKey } from '@inrp2p/adapters';
 import { telegramLinkOf } from '@inrp2p/clients';
+import { Money, Rate } from '@inrp2p/kernel';
 import { clientHistory, exchangeView } from '@inrp2p/portal';
 import { businessNow } from '@inrp2p/quotes';
 import { clientPage, workspaceContext, protectionOfRequest } from '../../../server/client.ts';
@@ -34,7 +36,24 @@ function draftFrom(params: { direction?: string | string[]; amount?: string | st
  * own client projections, so there is no figure here the desk did not already commit to — and the clock the
  * countdown runs on is the database's, the one acceptance is judged by. Beside it, the client's latest trades.
  */
-export default async function ExchangePage({ searchParams }: { searchParams: Promise<{ direction?: string | string[]; amount?: string | string[] }> }) {
+/**
+ * ADR 0033 "Keep looking": a wait that ended offers the same terms again in one tap — the request it names, the client's
+ * own, read back into the form (direction, amount, which side was fixed, its price). Anything else is ignored.
+ */
+async function againDraft(db: Parameters<typeof exchangeView>[0], clientId: string, ref: unknown): Promise<RequestDraft | undefined> {
+  if (typeof ref !== 'string' || !/^[A-Z]{1,4}-[0-9A-Z-]{1,30}$/.test(ref)) return undefined;
+  const r = await db.selectFrom('trade_request').select(['direction', 'fixed_side', 'requested_base_minor', 'requested_quote_minor', 'target_rate_micro'])
+    .where('ref', '=', ref).where('client_id', '=', clientId).where('desk_id', 'is', null).executeTakeFirst();
+  if (!r) return undefined;
+  const amount = r.fixed_side === 'BASE' ? Money.ofMinor(r.requested_base_minor!, 'USDT').toDecimalString() : Money.ofMinor(r.requested_quote_minor!, 'INR').toDecimalString();
+  const trim = (d: string) => (d.includes('.') ? d.replace(/0+$/, '').replace(/\.$/, '') : d);
+  return {
+    direction: r.direction, fixedSide: r.fixed_side, amount: trim(amount),
+    ...(r.target_rate_micro !== null ? { targetRate: trim(Rate.ofMicro(r.target_rate_micro, 'CLIENT').toDecimalString()) } : {}),
+  };
+}
+
+export default async function ExchangePage({ searchParams }: { searchParams: Promise<{ direction?: string | string[]; amount?: string | string[]; again?: string | string[] }> }) {
   const ctx = await clientPage();
   const [view, now, params, recent, protection, who] = await Promise.all([
     exchangeView(ctx.db, ctx.access.clientId),
@@ -44,12 +63,12 @@ export default async function ExchangePage({ searchParams }: { searchParams: Pro
     protectionOfRequest(),
     workspaceContext().then((w) => w.access),
   ]);
-  const draft = draftFrom(params);
+  const draft = (await againDraft(ctx.db, ctx.access.clientId, params.again)) ?? draftFrom(params);
   // ADR 0032: a waiting client is told where it will hear of its price — its Telegram, and its email when it has a real one.
   const waiting = view.request?.status === 'OPEN' && view.request.waitingUntil !== null;
   const telegram = waiting ? await telegramLinkOf(ctx.db, ctx.actor.userId) : null;
   const alerts = waiting
-    ? { telegram: { on: telegram?.status === 'ACTIVE', username: telegram?.username ?? null }, email: who.email }
+    ? { telegram: { on: telegram?.status === 'ACTIVE', username: telegram?.username ?? null }, email: who.email, pushKey: webPushPublicKey(process.env) }
     : undefined;
 
   // While a request is with the desk, the heading says what it is — "Sell 10,000 USDT" — and where it stands; the page's
@@ -74,10 +93,15 @@ export default async function ExchangePage({ searchParams }: { searchParams: Pro
       <StateRing state="turn" className={workspace.pillIcon} />
       Firm quote ready
     </span>
+  ) : request?.peer?.meeting?.role === 'MAKER' ? (
+    <span className={workspace.pill} data-tone="turn" data-size="lg">
+      <StateRing state="turn" className={workspace.pillIcon} />
+      Your move
+    </span>
   ) : request ? (
     <span className={workspace.pill} data-tone="waiting" data-size="lg">
       <StateRing state="wait" className={workspace.pillIcon} />
-      {request.waitingUntil ? 'Finding a trader' : request.gatheringUntil ? 'Gathering prices' : 'With the desk'}
+      {request.peer?.meeting ? 'Waiting for the other client' : request.waitingUntil ? 'Finding a price' : request.gatheringUntil ? 'Gathering prices' : 'With the desk'}
     </span>
   ) : null;
   const sentAt = request ? `request sent ${formatIstTime(new Date(request.createdAt))}` : undefined;

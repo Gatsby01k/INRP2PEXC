@@ -36,7 +36,7 @@ Non-blocking items accepted at phase review. Each entry names the phase that mus
 | TD-42 | A reserve withdrawal still needs a person to send it from custody, record it and confirm it | ADR 0024 (2026-10-30) | Traders withdrawing often enough for the desk to notice | Open — the owner decides whether the reserve moves to signer-held GasFree accounts (TD-41) |
 | TD-44 | A client's receipt does not show the network it paid as its own line (ADR 0028) | ADR 0028 (2026-11-09) | A client asking why its rupees are more than its USDT at the rate | Open — add the line to the receipt snapshot (a new snapshot version) and its PDF |
 | TD-45 | A trader cannot register its own UPI ID: UPI is paid to the account's own UPI address, whose support in every UPI app is unverified | Launch audit (2026-11-10) | The first UPI payment a client's app refuses; a trader asking where to enter its UPI ID | Resolved — ADR 0029 (2026-11-10): registered UPI IDs, verified by a person; nothing pays to the account address |
-| TD-46 | A client has no Telegram alerts for its deal — only the inbox and email | Launch audit (2026-11-10) | Clients missing their time to pay with the page closed | Open — the trader's alert channel, for the client's `P2P_PAY_NOW` and `P2P_PAYMENT_SENT` |
+| TD-46 | A client has no Telegram alerts for its deal — only the inbox and email | Launch audit (2026-11-10) | Clients missing their time to pay with the page closed | Closed (ADR 0033): `P2P_PAY_NOW` and `P2P_PAYMENT_SENT` go to the client's Telegram and Web Push |
 | TD-47 | The deposit scanner reads every watched address one after another, each a provider round trip; the watched set grows with deals (a week of cooldown per deposit address) | Worker cost audit (2026-11-22) | `tron_scan` runs approaching a minute, or detection latency a person notices | Open — bounded parallel reads per address with the cursor still at the lowest proof; measure first (`apps/worker/test/worker-cost.bench.test.ts`) |
 | TD-48 | Production's queue keeps ~4,100 permanently failed rows of past cron runs | Worker cost audit (2026-11-22) | Someone reading the queue, or the rows' storage | Open — owner's decision: classify with `scripts/worker-diagnostics.ts`, export, then remove the superseded ones (RUNBOOKS `queue-failed-rows`); nothing to replay |
 
@@ -967,6 +967,9 @@ Telegram to sign in gets none. Fifteen minutes is short for email.
 
 **Resolution (to do).** Send the client's `P2P_PAY_NOW`, `P2P_PAYMENT_SENT` and the final call through the Telegram channel
 to the chats its people linked, deduplicated like the trader's.
+
+**Closed (ADR 0033, 2026-11-27).** The inbox notes `P2P_PAY_NOW` and `P2P_PAYMENT_SENT` are copied to the client's linked
+Telegram chats (`telegramInboxHandler`) and to the browsers its people turned notifications on in (`pushInboxHandler`).
 
 
 ## TD-47 — The deposit scanner reads its addresses one after another

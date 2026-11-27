@@ -67,6 +67,26 @@ export interface NotificationFacts {
    * who could take it (never who asks); and how many clients wait on that side now, this one included.
    */
   readonly waiting?: { readonly amount: string; readonly currency: 'USDT' | 'INR'; readonly clients?: number };
+  /** ADR 0033: a trader message to a client acting as a meeting's maker — its deal opens on its own deal page. */
+  readonly personal?: boolean;
+  /** ADR 0033: a meeting of two clients, as this client is in it. */
+  readonly peer?: {
+    readonly role: 'MAKER' | 'TAKER';
+    /** The direction of this client's own request. */
+    readonly direction: 'SELL_USDT' | 'BUY_USDT';
+    readonly rate: string;
+    readonly base: string;
+    readonly inr: string;
+    readonly network: string;
+    readonly until?: Date;
+    readonly reason?: string;
+    readonly orderRef?: string | null;
+    /** A price near this client's own: READY when they cross, NEAR when they are close. */
+    readonly near?: 'READY' | 'NEAR';
+    readonly ownRate?: string | null;
+  };
+  /** ADR 0033: the request a message is about, for "Keep looking". */
+  readonly requestRef?: string;
 }
 
 /** Thousands grouped the international way (D-11) — `10,200,000` — whatever the reader's locale. */
@@ -118,9 +138,10 @@ export function draftFor(kind: NotificationKind, facts: NotificationFacts): Noti
       const amount = w ? (w.currency === 'USDT' ? usdt(w.amount) : `USDT for ${inr(w.amount)}`) : 'your amount';
       return {
         kind,
-        title: 'No trader took your request',
-        body: `We looked for a trader for ${amount} for a whole day and none could take it. Nothing was committed. Ask again whenever you like — your bank account and wallet are saved.`,
-        subjectRef: null,
+        title: 'Nobody took your request',
+        body: `We looked for ${amount} the whole time you chose and nobody could take it. Nothing was committed. Keep looking with the same terms in one tap.`,
+        subjectRef: facts.requestRef ?? null,
+        // The Exchange shows this request's end with "Keep looking" beside it (links are paths, no query: 0017).
         href: '/exchange',
       };
     }
@@ -273,7 +294,7 @@ function p2pDraft(kind: 'P2P_DISPUTE_OPENED' | 'P2P_DISPUTE_DECIDED' | 'P2P_REFU
   const p = facts.p2p ?? { audience: 'CLIENT' as const, payee: false };
   const trader = p.audience === 'TRADER';
   const ref = (trader ? facts.orderRef : facts.tradeRef) ?? null;
-  const href = trader ? (ref ? (p.deskDeal ? `/desk/deals/${ref}` : `/traders/orders/${ref}`) : '/traders') : ref ? `/trades/${ref}` : '/trades';
+  const href = trader ? (ref ? (p.deskDeal ? `/desk/deals/${ref}` : facts.personal ? `/deals/${ref}` : `/traders/orders/${ref}`) : '/traders') : ref ? `/trades/${ref}` : '/trades';
   const inrAmount = facts.inr ? inr(facts.inr) : 'the rupees';
   const usdtAmount = facts.base ? usdt(facts.base) : 'the USDT';
   const on = ref ? `${ref}: ` : '';
@@ -321,7 +342,7 @@ function dealDraft(kind: 'DEAL_MESSAGE' | 'P2P_PAY_FINAL' | 'P2P_RECEIPT_LATE', 
   const p = facts.p2p ?? { audience: 'CLIENT' as const, payee: false };
   const trader = p.audience === 'TRADER';
   const ref = (trader ? facts.orderRef : facts.tradeRef) ?? null;
-  const href = trader ? (ref ? (p.deskDeal ? `/desk/deals/${ref}` : `/traders/orders/${ref}`) : '/traders') : ref ? `/trades/${ref}` : '/trades';
+  const href = trader ? (ref ? (p.deskDeal ? `/desk/deals/${ref}` : facts.personal ? `/deals/${ref}` : `/traders/orders/${ref}`) : '/traders') : ref ? `/trades/${ref}` : '/trades';
   const inrAmount = facts.inr ? inr(facts.inr) : 'the rupees';
   const usdtAmount = facts.base ? usdt(facts.base) : 'the USDT';
   const on = ref ? `${ref}: ` : '';
@@ -372,7 +393,7 @@ function handoffDraft(kind: 'P2P_PAY_NOW' | 'P2P_PAYMENT_SENT', facts: Notificat
   const p = facts.p2p ?? { audience: 'CLIENT' as const, payee: false };
   const trader = p.audience === 'TRADER';
   const ref = (trader ? facts.orderRef : facts.tradeRef) ?? null;
-  const href = trader ? (ref ? (p.deskDeal ? `/desk/deals/${ref}` : `/traders/orders/${ref}`) : '/traders') : ref ? `/trades/${ref}` : '/trades';
+  const href = trader ? (ref ? (p.deskDeal ? `/desk/deals/${ref}` : facts.personal ? `/deals/${ref}` : `/traders/orders/${ref}`) : '/traders') : ref ? `/trades/${ref}` : '/trades';
   const inrAmount = facts.inr ? inr(facts.inr) : 'the rupees';
   const usdtAmount = facts.base ? usdt(facts.base) : 'the USDT';
   const on = ref ? `${ref}: ` : '';
@@ -398,7 +419,7 @@ function handoffDraft(kind: 'P2P_PAY_NOW' | 'P2P_PAYMENT_SENT', facts: Notificat
 }
 
 const sideWords = (side: NotificationFacts['side']): string => (side === 'SELL_USDT' ? 'Sell' : 'Buy');
-const orderHref = (facts: NotificationFacts): string | null => (facts.orderRef ? `/traders/orders/${facts.orderRef}` : '/traders');
+const orderHref = (facts: NotificationFacts): string | null => (facts.orderRef ? (facts.personal ? `/deals/${facts.orderRef}` : `/traders/orders/${facts.orderRef}`) : '/traders');
 
 /**
  * What a trader is told. The same rules as every client message: the trader's own reference and figures, and
@@ -566,6 +587,82 @@ function traderDraft(kind: NotificationKind, facts: NotificationFacts): Notifica
         href: '/traders',
       };
     }
+    case 'PEER_MATCH_OFFERED': {
+      // ADR 0033: the maker — another client said yes to its price. What it gives and gets, and until when it can start.
+      const m = facts.peer!;
+      const sells = m.direction === 'SELL_USDT';
+      return {
+        kind,
+        title: sells ? 'A buyer took your price' : 'A seller took your price',
+        body: sells
+          ? `Another INRP2P client buys ${usdt(m.base)} from you for ${inr(m.inr)} at ₹${m.rate}, network ${usdt(m.network)} included. Start the deal${m.until ? ` by ${ist(m.until)}` : ''} — they pay only after your USDT is in escrow.`
+          : `Another INRP2P client sells you ${usdt(m.base)} for ${inr(m.inr)} at ₹${m.rate}, network ${usdt(m.network)} included. Start the deal${m.until ? ` by ${ist(m.until)}` : ''} — you pay only after their USDT is in escrow.`,
+        subjectRef: null,
+        href: '/exchange',
+      };
+    }
+    case 'PEER_MATCH_WAITING': {
+      // ADR 0033: the taker — its yes stands while the other client starts.
+      const m = facts.peer!;
+      const buys = m.direction === 'BUY_USDT';
+      return {
+        kind,
+        title: buys ? 'We asked the seller to start' : 'We asked the buyer to start',
+        body: `Your price ₹${m.rate} for ${usdt(m.base)} is held for you${m.until ? ` until ${ist(m.until)}` : ''}. The deal starts the moment they say yes, and we tell you here. You can close the page.`,
+        subjectRef: null,
+        href: '/exchange',
+      };
+    }
+    case 'PEER_MATCH_ENDED': {
+      const m = facts.peer!;
+      const other = m.direction === 'BUY_USDT' ? 'seller' : 'buyer';
+      const said: Record<string, [string, string]> = {
+        MAKER_SILENT: m.role === 'MAKER'
+          ? ['You did not start the deal in time', 'The client who took your price moved on. Your request is paused — tap “Still looking” on the Exchange and it is a price for others again.']
+          : [`The ${other} did not start in time`, 'Your request keeps looking, and your place in line is kept.'],
+        MAKER_DECLINED: [`The ${other} did not take this one`, 'Your request keeps looking, and your place in line is kept.'],
+        MAKER_WITHDREW: [`The ${other} stopped looking`, 'Your request keeps looking, and your place in line is kept.'],
+        TAKER_WITHDREW: [`The ${other} stopped looking`, 'Your request keeps looking. Nothing was committed.'],
+      };
+      const [title, body] = said[m.reason ?? ''] ?? ['This meeting is over', 'Your request keeps looking. Nothing was committed.'];
+      return { kind, title, body, subjectRef: null, href: '/exchange' };
+    }
+    case 'PEER_DEAL_STARTED': {
+      const m = facts.peer!;
+      const sells = m.direction === 'SELL_USDT';
+      return {
+        kind,
+        title: 'Your deal started',
+        body: sells
+          ? `Send ${usdt(m.base)} to the deal’s escrow now — the buyer pays ${inr(m.inr)} to your account only after it lands.`
+          : `The seller is locking ${usdt(m.base)} in escrow. We tell you the moment it is your turn to pay ${inr(m.inr)}.`,
+        subjectRef: m.orderRef ?? null,
+        href: m.orderRef ? `/deals/${m.orderRef}` : '/exchange',
+      };
+    }
+    case 'PEER_NEARBY': {
+      const m = facts.peer!;
+      const buys = m.direction === 'BUY_USDT';
+      const other = buys ? 'seller' : 'buyer';
+      const own = m.ownRate ? ` — you asked ₹${m.ownRate}` : '';
+      return {
+        kind,
+        title: m.near === 'READY' ? `A ${other} is ready at ₹${m.rate}` : `A ${other} is close to your price`,
+        body: m.near === 'READY'
+          ? `Another INRP2P client ${buys ? 'sells' : 'buys'} at ₹${m.rate}${own}. Meet it in one tap; the deal starts when they say yes.`
+          : `Another INRP2P client ${buys ? 'sells' : 'buys'} at ₹${m.rate}${own}. Meet it in one tap, or keep yours and we keep looking.`,
+        subjectRef: null,
+        href: '/exchange',
+      };
+    }
+    case 'WAITING_RESUMED':
+      return {
+        kind,
+        title: 'Still looking for you',
+        body: `The price we held for you ran out. We kept your place and keep looking${facts.expiresAt ? ` until ${ist(facts.expiresAt)}` : ''}.`,
+        subjectRef: null,
+        href: '/exchange',
+      };
     case 'TRADER_RESERVE_ISSUE':
       return {
         kind,

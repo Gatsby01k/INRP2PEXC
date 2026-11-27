@@ -1,13 +1,13 @@
 import { hostname } from 'node:os';
 import { run } from 'graphile-worker';
 import { createDb, createPool, databaseDeploymentProblems } from '@inrp2p/db';
-import { gasFreeFromEnv, isNotificationProviderConfigured, isProduction, notificationAdapterFromEnv, productionConfigReport, telegramFromEnv } from '@inrp2p/adapters';
-import { acknowledgedSignalHandler, clientNotificationEmailHandler, clientNotificationHandler, teamInviteEmailHandler, telegramInboxHandler, telegramOrderHandler, traderNotificationHandler } from '@inrp2p/notifications';
+import { gasFreeFromEnv, isNotificationProviderConfigured, isProduction, notificationAdapterFromEnv, productionConfigReport, telegramFromEnv, webPushFromEnv } from '@inrp2p/adapters';
+import { acknowledgedSignalHandler, clientNotificationEmailHandler, clientNotificationHandler, peerNotificationHandler, pushInboxHandler, teamInviteEmailHandler, telegramInboxHandler, telegramOrderHandler, traderNotificationHandler } from '@inrp2p/notifications';
 import { traderReviewHandler, traderRoutingHandler } from '@inrp2p/traders';
 import { acceptanceCodeHandler, rfqAwardHandler } from '@inrp2p/quotes';
 import { receiptHandler } from '@inrp2p/reporting';
 import { destinationArchivedHandler } from '@inrp2p/settlement';
-import { CRONTAB, buildTaskList, onchainWakeup, quoteExpiryScheduler, recordHeartbeat } from './tasks.ts';
+import { CRONTAB, buildTaskList, onchainWakeup, quoteExpiryScheduler, recordHeartbeat, waitingLookNow } from './tasks.ts';
 import { TronSendNetwork } from '@inrp2p/adapters';
 import { signerFromEnv } from '@inrp2p/adapters/signer';
 import type { OnchainDeps } from '@inrp2p/onchain';
@@ -65,6 +65,10 @@ const telegramChannel = telegram
   ? [telegramOrderHandler(db, telegram, { linkBase: process.env.CLIENT_BASE_URL }), telegramInboxHandler(db, telegram, { linkBase: process.env.CLIENT_BASE_URL })]
   : [];
 console.log(`telegram: ${telegram ? `@${telegram.botUsername}` : 'not configured'}`);
+// ADR 0033 §2.6: Web Push, the browser's instant channel — the same notes Telegram gets, with the VAPID keys configured.
+const webPush = webPushFromEnv(process.env);
+const pushChannel = webPush ? [pushInboxHandler(db, webPush)] : [];
+console.log(`web push: ${webPush ? 'configured' : 'not configured'}`);
 
 // Chain monitoring state is always stated (DISABLED / READY / DEGRADED / UNCONFIGURED). An enabled but
 // unconfigured worker refuses to start rather than run with three jobs that would fail every minute while the
@@ -148,6 +152,7 @@ const identity = {
     auditSeals: auditArchive ? 'exported' : 'not exported',
     custodySigner: rails?.signer ? 'signing' : 'not signing',
     gasfree: rails?.gasFree ? rails.gasFree.chain.name.toLowerCase() : 'none',
+    webPush: webPush ? 'configured' : 'not configured',
   },
 };
 // The first beat also checks that the database is the one the workers last wrote to: if it was recovered, failed over
@@ -162,7 +167,7 @@ const runner = await run({
   concurrency: 5,
   noHandleSignals: false,
   pollInterval: 2000,
-  taskList: buildTaskList(db, [quoteExpiryScheduler(db), acceptanceCodeHandler(db, { protector }, notifications), teamInviteEmailHandler(db, notifications, { linkBase: process.env.CLIENT_BASE_URL }), clientNotificationHandler(db), traderNotificationHandler(db), traderRoutingHandler(db), traderReviewHandler(db), rfqAwardHandler(db), receiptHandler(db, receipts), destinationArchivedHandler(db), acknowledgedSignalHandler(), onchainWakeup(db), ...emailChannel, ...telegramChannel], {
+  taskList: buildTaskList(db, [quoteExpiryScheduler(db), acceptanceCodeHandler(db, { protector }, notifications), teamInviteEmailHandler(db, notifications, { linkBase: process.env.CLIENT_BASE_URL }), clientNotificationHandler(db), traderNotificationHandler(db), peerNotificationHandler(db), waitingLookNow(db), traderRoutingHandler(db), traderReviewHandler(db), rfqAwardHandler(db), receiptHandler(db, receipts), destinationArchivedHandler(db), acknowledgedSignalHandler(), onchainWakeup(db), ...emailChannel, ...telegramChannel, ...pushChannel], {
     monitoring,
     ...(monitoring.config ? { scanner: monitoring.config } : {}),
     ...(receipts ? { receipts } : {}),

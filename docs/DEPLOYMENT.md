@@ -809,3 +809,30 @@ for those three notes. No secret, env variable or service.
    client for 10 minutes and it is told by inbox, email and Telegram; a day with no price closes it with a plain message.
 3. **Nothing to switch:** it follows automatic prices. With them off, requests wait for a person as before, and a request
    that was waiting when they were switched off goes to the desk's queue at the next minute.
+
+## 29. One book: clients meet clients, and nothing waiting is lost (ADR 0033)
+
+Migration `0056` (schema 56): `peer_policy` (off, 25 bps, 50 USDT minimum), `peer_match` (IX148), `peer_strike`,
+`push_subscription`/`push_delivery`; `trade_request.wait_hours/peer_paused_at/held_lapses/peer_told_at/peer_told_rate_micro`,
+status `MATCHED`, `no_price_reason = 'OUTSIDE_LIMIT'`, `target_rate_micro` movable by its client; `trader_profile.status =
+'PERSONAL'` (and `PERSONAL > UNDER_REVIEW`); `quote.accepted_via = 'STANDING'`; IX144 allows the taker's half of a meeting's
+network; `inrp2p_reserve_sender_trader` leaves personal sides out; six inbox kinds. A new worker job, `peer_sweep` (every
+minute), handlers for the meetings' notes, `waiting.look_now` (the waiting sweep runs at once when a trader comes online, a
+side changes or the market is read) and Web Push.
+
+1. **Release order** (from production at 55): CI green, `gh pr view` to see the PR is **not merged yet**, a restore point,
+   `scripts/migrate.ts` with the production env, then merge — the app at 56 refuses a database at 55 — then the worker
+   image of the same commit, the same hour (until it runs, no meeting ends, no lapsed held price is resumed, nobody is told).
+2. **Web Push (optional).** Generate one VAPID key pair (P-256, raw, base64url), for example in Node:
+   `const e = crypto.createECDH('prime256v1'); e.generateKeys(); e.getPublicKey('base64url'); e.getPrivateKey('base64url')`.
+   Set `WEB_PUSH_PUBLIC_KEY` on **both** Vercel and the worker, `WEB_PUSH_PRIVATE_KEY` and `WEB_PUSH_SUBJECT`
+   (`mailto:` an address of INRP2P's) on the **worker only**. Without them "Notify me here" and the Account card are not
+   shown and the worker logs `web push: not configured`; nothing else changes. Keep the pair: a new one drops every
+   browser's subscription.
+3. **What changes at once** (automatic prices on): a client's own price bounds every automatic price (a price past it is
+   not sent — the request waits, `OUTSIDE_LIMIT`); a lapsed held price returns its request to the wait instead of the desk's
+   queue; the client chooses how long it waits (1 h, a day, 3 days, a week) and gets "Keep looking" when a wait ends; "N
+   traders online" replaces "N traders know"; a client's deal moments reach its Telegram (TD-46).
+4. **Switch on (owner):** Rates → *Clients meet clients* → *Let clients meet clients* (reason + authenticator code). Fee
+   and smallest meeting are on the same card. From then on two waiting clients see each other's price, meet in one tap, and
+   the one asked starts the deal from its Exchange (`/deals/<ref>` follows it to the end).

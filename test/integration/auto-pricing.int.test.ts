@@ -527,7 +527,7 @@ describe('a client nothing priced is not turned away (ADR 0032)', () => {
     expect(await requestOf(out.requestId)).toMatchObject({ status: 'DECLINED', status_reason: WAIT_ENDED_TEXT, no_price_reason: 'NO_OFFER', waiting_until: null });
     for (const e of await eventsOf(out.requestId, ['client.request_wait_ended'])) await clientNotificationHandler(w.app).run(e);
     const ended = (await inboxOf(late.clientId)).find((n) => n.kind === 'WAITING_ENDED')!;
-    expect(ended.title).toBe('No trader took your request');
+    expect(ended.title).toBe('Nobody took your request');
     expect(ended.body).toContain('90,000 USDT');
     expect((await exchangeView(w.app, late.clientId)).request).toMatchObject({ status: 'DECLINED', noPrice: true, waitingUntil: null });
   });

@@ -84,6 +84,11 @@ export interface PricingInput {
   /** The policy's minimum net margin in rupees; each price must leave it in USDT at that price's own rate (rounded up). */
   readonly minNetMarginInrMinor: bigint;
   readonly evidence: AcceptanceEvidence;
+  /**
+   * ADR 0033: the client's own bound — a client buying never pays more, one selling never gets less. A price past it is
+   * never sent; the bound only rules prices out, it never sets one.
+   */
+  readonly clientBoundMicro?: bigint | null;
 }
 
 export type P2pEconomics = P2pTradeEconomics;
@@ -108,8 +113,11 @@ export interface PricingChoice {
 
 export type PricingOutcome =
   | { readonly kind: 'PRICED'; readonly choice: PricingChoice }
-  /** No offer can take this amount at all; or offers can, but none at a price within the market bound that leaves the minimum. */
-  | { readonly kind: 'NONE'; readonly reason: 'NO_OFFER' | 'NOT_COMPETITIVE'; readonly capRateMicro: bigint };
+  /**
+   * No offer can take this amount at all; or offers can, but none at a price within the market bound that leaves the
+   * minimum; or (ADR 0033) only at prices past the client's own bound.
+   */
+  | { readonly kind: 'NONE'; readonly reason: 'NO_OFFER' | 'NOT_COMPETITIVE' | 'OUTSIDE_LIMIT'; readonly capRateMicro: bigint };
 
 /** Floor division for a positive divisor (bigint `/` truncates towards zero). */
 export function floorDiv(a: bigint, b: bigint): bigint {
@@ -260,6 +268,9 @@ export function choosePrice(input: PricingInput): PricingOutcome {
   const acceptance = acceptanceByBand(input.evidence, bins);
   const viable = new Set<string>();
   let best: { c: bigint; offer: PricedOffer; s: Scored; net: bigint; minNet: bigint; value: bigint; pos: number; bin: number; acc: bigint } | null = null;
+  const bound = input.clientBoundMicro ?? null;
+  const pastBound = (c: bigint): boolean => bound !== null && (buy ? c > bound : c < bound);
+  let boundRuledOut = false;
 
   for (let i = 0; i < prices.length; i += 1) {
     const c = prices[i]!;
@@ -272,6 +283,10 @@ export function choosePrice(input: PricingInput): PricingOutcome {
       if (!s || !fits(offer, direction, s)) continue;
       const net = s.grossMinor - input.networkAllowanceMinor;
       if (net < minNet || net < 0n) continue;
+      if (pastBound(c)) {
+        boundRuledOut = true;
+        continue;
+      }
       viable.add(offer.id);
       const value = acc * offer.completionPpm * net;
       const better = !best
@@ -280,7 +295,7 @@ export function choosePrice(input: PricingInput): PricingOutcome {
       if (better) best = { c, offer, s, net, minNet, value, pos, bin, acc };
     }
   }
-  if (!best) return { kind: 'NONE', reason: offers.some((o) => sizeAtAll(input, o)) ? 'NOT_COMPETITIVE' : 'NO_OFFER', capRateMicro: cap };
+  if (!best) return { kind: 'NONE', reason: boundRuledOut ? 'OUTSIDE_LIMIT' : offers.some((o) => sizeAtAll(input, o)) ? 'NOT_COMPETITIVE' : 'NO_OFFER', capRateMicro: cap };
 
   const clientRate = Rate.ofMicro(best.c, 'CLIENT');
   const routeRate = Rate.ofMicro(best.offer.rateMicro, 'ROUTE');

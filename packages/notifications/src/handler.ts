@@ -86,9 +86,10 @@ async function facts(db: Db, event: OutboxEvent): Promise<{ clientId: string; fa
   if (requestId) {
     // The reason an operator typed lives on the request, not in the event: the payload is a pointer, and the
     // row is the record.
-    const r = await db.selectFrom('trade_request').select(['status_reason', 'direction', 'fixed_side', 'requested_base_minor', 'requested_quote_minor']).where('id', '=', requestId).executeTakeFirst();
+    const r = await db.selectFrom('trade_request').select(['ref', 'status_reason', 'direction', 'fixed_side', 'requested_base_minor', 'requested_quote_minor']).where('id', '=', requestId).executeTakeFirst();
     if (r?.status_reason) out.reason = r.status_reason;
     if (r && event.type === 'client.request_wait_ended') {
+      out.requestRef = r.ref;
       out.direction = r.direction;
       out.waiting = r.fixed_side === 'BASE'
         ? { amount: Money.ofMinor(r.requested_base_minor!, 'USDT').toDecimalString(), currency: 'USDT' }

@@ -33,6 +33,7 @@ const request = {
   readyNow: null as string | null,
   waiting: null as NonNullable<ExchangeView['request']>['waiting'],
   canReprice: false,
+  peer: null,
   ref: 'RQ-260919-0007',
   direction: 'SELL_USDT' as const,
   fixedSide: 'BASE' as const,
@@ -59,7 +60,7 @@ const quote = {
   networkFeeIncluded: null,
   networkFee: null,
 };
-const view = (over: Partial<ExchangeView>): ExchangeView => ({ destinations: both, request: null, quote: null, openTradeRef: null, ...over });
+const view = (over: Partial<ExchangeView>): ExchangeView => ({ destinations: both, request: null, quote: null, openTradeRef: null, makerDealRef: null, ...over });
 
 describe('exchange', () => {
   it('welcomes a client with nothing live, and says what happens to a request', () => {

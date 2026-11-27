@@ -26,6 +26,7 @@ const UNPRICED: Record<string, string> = {
   NO_OFFER: 'too large or small for any firm offer',
   NOT_COMPETITIVE: 'no firm offer at the market',
   NO_BID: 'no bid in time',
+  OUTSIDE_LIMIT: 'only past the client’s own price',
 };
 export function AutoPricing({ view, canSet }: { view: AutoPricingView; canSet: boolean }) {
   const cmd = useCommand();

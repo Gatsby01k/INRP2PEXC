@@ -42,6 +42,8 @@ const EMAILED = new Set([
   // ADR 0032: the price a waiting client was waiting for is held for it; its wait ended without one; a client waits for a
   // trader's price — none of them is looking at the product when it happens.
   'WAITING_PRICE_READY', 'WAITING_ENDED', 'TRADER_CLIENTS_WAITING',
+  // ADR 0033: the book — a meeting to start, ended, a deal started for its maker, a price near yours, a held price lapsed.
+  'PEER_MATCH_OFFERED', 'PEER_MATCH_ENDED', 'PEER_DEAL_STARTED', 'PEER_NEARBY', 'WAITING_RESUMED',
 ]);
 
 export interface EmailChannelOptions {
@@ -195,7 +197,7 @@ async function sendOne(db: Db, adapter: NotificationAdapter, deliveryId: string,
 export function clientNotificationEmailHandler(db: Db, adapter: NotificationAdapter, opts: EmailChannelOptions = {}): OutboxHandler {
   return {
     name: 'client_notification_email',
-    handles: (type) => type.startsWith('client.') || type.startsWith('trader.') || type.startsWith('p2p.') || type === 'quote.sent' || type === 'trade.opened' || type === 'desk.payout_actionable' || type === 'desk.client_payment_claimed',
+    handles: (type) => type.startsWith('client.') || type.startsWith('trader.') || type.startsWith('p2p.') || type.startsWith('peer.') || type === 'quote.sent' || type === 'trade.opened' || type === 'desk.payout_actionable' || type === 'desk.client_payment_claimed',
     run: async (event) => {
       await emailNotification(db, adapter, { outboxEventId: event.id, ...opts });
     },

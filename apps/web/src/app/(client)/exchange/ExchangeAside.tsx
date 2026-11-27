@@ -145,7 +145,7 @@ export function Activity({ recent }: { recent: readonly HistoryRow[] }) {
           const lands = t.landing;
           return (
             <li key={t.ref}>
-              <Link href={`/trades/${t.ref}`} className={stage.row}>
+              <Link href={t.peerDeal ? `/deals/${t.ref}` : `/trades/${t.ref}`} className={stage.row}>
                 <PairCoin side={t.direction} />
                 <span className={stage.rowText}>
                   <span className={stage.rowTitle}>

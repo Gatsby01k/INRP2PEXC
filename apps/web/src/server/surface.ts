@@ -111,6 +111,12 @@ export const PUBLIC_MISSING_PATH = '/lp/missing';
  * and those are served the same file.
  */
 export const APPLE_ICON_PATH = '/apple-icon.png';
+
+/**
+ * ADR 0033 §2.6: the service worker that shows a pushed notification. A browser fetches it again on its own schedule,
+ * with or without a session, so it is answered without one — on the client host only; it carries no business fact.
+ */
+export const SERVICE_WORKER_PATH = '/sw.js';
 export const LEGACY_APPLE_ICON_PATHS: ReadonlySet<string> = new Set(['/apple-touch-icon.png', '/apple-touch-icon-precomposed.png']);
 
 /** A desk's deal link (ADR 0020 §2.9): like the quote link, opening it authorizes nothing. */
@@ -191,6 +197,7 @@ export function gateFor(surface: Surface, pathname: string): Gate {
   }
   if (surface === 'CLIENT') {
     if (path === '/api/auth' || path.startsWith('/api/auth/')) return 'AUTH_ENDPOINT';
+    if (path === SERVICE_WORKER_PATH) return 'PUBLIC';
     // Same reasoning as the desk: without an unauthenticated sign-in page nobody can ever get a session. "Become a
     // trader" is the other way in: the same email code, for someone who has no workspace yet (docs/TRADERS.md §3).
     if (path === '/sign-in' || path === TRADER_ENTRY_PATH) return 'CLIENT_SIGN_IN';

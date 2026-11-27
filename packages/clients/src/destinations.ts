@@ -48,6 +48,13 @@ async function assertNotInUse(ctx: TxContext, actor: ClientDataActor, kind: 'BAN
     .where('status', 'in', ['UNDER_REVIEW', 'APPROVED', 'PAUSED'])
     .where((eb) => (kind === 'BANK' ? eb.or([eb('bank_account_id', '=', id), eb('proposed_bank_account_id', '=', id)]) : eb.or([eb('wallet_id', '=', id), eb('proposed_wallet_id', '=', id)])))
     .executeTakeFirst();
+  // ADR 0033: the account or wallet a meeting of the client's runs on, while that deal is live.
+  const meeting = await ctx.tx.selectFrom('trader_profile as t').innerJoin('trader_order as o', 'o.trader_id', 't.id').select('o.ref')
+    .where('t.client_id', '=', clientId).where('t.status', '=', 'PERSONAL').where('o.status', 'in', ['OFFERED', 'ACCEPTED', 'IN_PROGRESS'])
+    .where(kind === 'BANK' ? 't.bank_account_id' : 't.wallet_id', '=', id).executeTakeFirst();
+  if (meeting) {
+    throw new DomainError('DESTINATION_IN_USE', `A deal of yours with another client runs on this ${what}. It can be archived once that deal is done.`, { field: kind === 'BANK' ? 'bankAccountId' : 'walletId' });
+  }
   if (trader) {
     throw new DomainError('DESTINATION_IN_USE', `This is the ${what} your trader account settles with. Register another one on Traders → Settlement details first; this one can be archived once the change has taken effect.`, { field: kind === 'BANK' ? 'bankAccountId' : 'walletId' });
   }

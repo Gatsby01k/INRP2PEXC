@@ -550,6 +550,9 @@ export async function traderHome(ex: Executor, userId: string): Promise<TraderHo
           'c.display_name', 'c.type', 'b.bank_name', 'b.account_last4', 'w.address',
         ])
         .where('t.client_id', '=', member.clientId)
+        // ADR 0033: a client's personal side of a meeting is not a trader of the programme — its Traders screen is the
+        // way in, as for anyone who never applied.
+        .where('t.status', '<>', 'PERSONAL')
         .executeTakeFirst()
     : undefined;
   const base = { canApply: member === null || member.role === 'CLIENT_ADMIN', canAct: member?.canCommit ?? false, now: now.toISOString() };
@@ -687,7 +690,7 @@ export async function traderHome(ex: Executor, userId: string): Promise<TraderHo
 /** Both tabs of the Orders list. Active: offered, held and in progress. Completed: finished, newest first. */
 export async function traderOrders(ex: Executor, userId: string, tab: 'active' | 'completed', limit = 100): Promise<{ rows: readonly OrderSummary[]; counts: { active: number; completed: number } }> {
   const member = await traderMembership(ex, userId);
-  const trader = await ex.selectFrom('trader_profile').select('id').where('client_id', '=', member.clientId).executeTakeFirst();
+  const trader = await ex.selectFrom('trader_profile').select('id').where('client_id', '=', member.clientId).where('status', '<>', 'PERSONAL').executeTakeFirst();
   if (!trader) return { rows: [], counts: { active: 0, completed: 0 } };
   const activeStatuses: TraderOrderStatus[] = ['OFFERED', 'ACCEPTED', 'IN_PROGRESS'];
   const rows = await ex

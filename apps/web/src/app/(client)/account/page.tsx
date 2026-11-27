@@ -1,6 +1,6 @@
 import { clientPeople, hasAuthenticator } from '@inrp2p/portal';
 import { telegramLinkOf, telegramOf } from '@inrp2p/clients';
-import { telegramFromEnv } from '@inrp2p/adapters';
+import { telegramFromEnv, webPushPublicKey } from '@inrp2p/adapters';
 import { workspacePage } from '../../../server/client.ts';
 import { telegramLoginConfigured } from '../../../server/runtime.ts';
 import { PageHead } from '../_workspace/PageHead.tsx';
@@ -50,6 +50,7 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
         people={people}
         isAdmin={exchangeAdmin}
         telegram={telegram}
+        pushKey={webPushPublicKey(process.env)}
       />
     </>
   );

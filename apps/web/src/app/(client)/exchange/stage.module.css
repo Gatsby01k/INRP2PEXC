@@ -1439,6 +1439,10 @@ ul.facts {
 }
 
 .onFieldLink {
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+  cursor: pointer;
   display: inline-flex;
   align-items: center;
   gap: 10px;
@@ -1484,4 +1488,223 @@ ul.facts {
 /* A link dressed as the stage's white call to action keeps its look when it is an anchor. */
 a.accept {
   text-decoration: none;
+}
+
+/* ADR 0033: another client's price close to the client's own — one quiet line and one way to meet it. */
+.nearRow {
+  display: grid;
+  justify-items: start;
+  gap: 10px;
+  padding-top: var(--space-2);
+  border-top: 1px solid rgba(255, 255, 255, 0.22);
+}
+
+.nearRow b {
+  font-variant-numeric: tabular-nums;
+}
+
+/* The moves' small print keeps clear of the robot in the stage's corner. */
+.waitMoves .waitNote {
+  max-width: 280px;
+}
+
+/* ——— ADR 0033: two clients on one rail — how far apart they are ——— */
+
+.gap {
+  display: grid;
+  gap: 10px;
+  max-width: min(100%, 420px);
+  margin-top: var(--space-6);
+}
+
+.gapEnds {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.gapEnd {
+  display: grid;
+  gap: 2px;
+}
+
+.gapEnd[data-right] {
+  justify-items: end;
+  text-align: right;
+}
+
+.gapEnd b {
+  font-family: var(--font-figure, var(--font-sans));
+  font-size: clamp(24px, 2.6vw, 32px);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1;
+  letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
+}
+
+.gapEnd small {
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 12.5px;
+  font-weight: var(--font-weight-medium);
+}
+
+/* The other side's price is the one that matters now: full white; the client's own a step back. */
+.gapEnd[data-you] b {
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.gapRail {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+}
+
+.gapPin {
+  position: relative;
+  z-index: 1;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 5px rgba(255, 255, 255, 0.22), 0 0 18px rgba(255, 255, 255, 0.7);
+  transition: background-color 0.3s ease 0.2s, box-shadow 0.3s ease 0.2s;
+}
+
+.gapPin[data-you] {
+  background: transparent;
+  box-shadow: inset 0 0 0 3px #fff, 0 0 0 5px rgba(255, 255, 255, 0.14);
+}
+
+/* Two dashed runs, each flowing towards the middle: the sides closing on each other. */
+.gapRun {
+  height: 2px;
+  background: repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.92) 0 6px, transparent 6px 12px);
+  background-size: 24px 2px;
+  animation: gapflow 1.4s linear infinite;
+  transition: opacity 0.2s ease;
+}
+
+.gapRun[data-flip] {
+  animation-direction: reverse;
+}
+
+.gapSize {
+  transition: opacity 0.2s ease, transform 0.3s ease;
+  padding: 5px 11px;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.18);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.4);
+  font-size: 13px;
+  font-style: normal;
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* The yes, drawn before it is said: reaching for Meet runs a solid line from the client's pin to the other's, the gap's
+   figure steps aside and the client's own pin fills. */
+.gapFill {
+  position: absolute;
+  top: 50%;
+  left: 8px;
+  right: 8px;
+  height: 3px;
+  margin-top: -1.5px;
+  border-radius: 2px;
+  background: #fff;
+  box-shadow: 0 0 14px rgba(255, 255, 255, 0.75);
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform 0.45s cubic-bezier(0.2, 0.8, 0.2, 1);
+  pointer-events: none;
+}
+
+.gapFill[data-from='right'] {
+  transform-origin: right center;
+}
+
+.stage:has([data-meet]:is(:focus-visible, [aria-busy='true'])) .gapFill {
+  transform: scaleX(1);
+}
+
+.stage:has([data-meet]:is(:focus-visible, [aria-busy='true'])) .gapRun {
+  opacity: 0;
+}
+
+.stage:has([data-meet]:is(:focus-visible, [aria-busy='true'])) .gapSize {
+  opacity: 0;
+  transform: scale(0.85);
+}
+
+.stage:has([data-meet]:is(:focus-visible, [aria-busy='true'])) .gapPin[data-you] {
+  background: #fff;
+  box-shadow: 0 0 0 5px rgba(255, 255, 255, 0.22), 0 0 18px rgba(255, 255, 255, 0.7);
+}
+
+@media (hover: hover) {
+  .stage:has([data-meet]:hover) .gapFill {
+    transform: scaleX(1);
+  }
+
+  .stage:has([data-meet]:hover) .gapRun {
+    opacity: 0;
+  }
+
+  .stage:has([data-meet]:hover) .gapSize {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+
+  .stage:has([data-meet]:hover) .gapPin[data-you] {
+    background: #fff;
+    box-shadow: 0 0 0 5px rgba(255, 255, 255, 0.22), 0 0 18px rgba(255, 255, 255, 0.7);
+  }
+}
+
+@keyframes gapflow {
+  to {
+    background-position: 24px 0;
+  }
+}
+
+/* The meeting's pulse: the other client's node breathing while it is theirs to answer. */
+.peerChip svg {
+  width: 16px;
+  height: 16px;
+  --node: #fff;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gapRun {
+    animation: none;
+  }
+
+  .gapFill,
+  .gapPin,
+  .gapSize {
+    transition: none;
+  }
+}
+
+/* The taker's line beside its ring keeps clear of the robot's corner. */
+@media (min-width: 700px) {
+  .decideRow .waitNote {
+    max-width: 168px;
+  }
+}
+
+/* Where the client hears of it: two quiet ways side by side. */
+.tellRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.tellRow .onFieldLink {
+  height: 42px;
+  padding: 0 16px;
+  font-size: 14px;
 }

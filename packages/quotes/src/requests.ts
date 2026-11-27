@@ -10,6 +10,7 @@ import { type QuoteActor, lockRow, operatorOrMemberCommand } from './actors.ts';
 import { type QuoteDeps, policyOf } from './policy.ts';
 import { closePendingChallenges } from './challenges.ts';
 import { closeOrdersForRequest, deskById, deskClient } from '@inrp2p/trader-core';
+import { endMeetingsOfRequestInTx } from './peer.ts';
 
 export interface CreateRequestPayload {
   readonly clientId: string;
@@ -164,6 +165,7 @@ export function declineRequest(actor: OperatorActor) {
     await lockRow(ctx.tx, 'trade_request', 'trade_request', requireUuid(p.requestId, 'requestId'));
     const r = await ctx.tx.selectFrom('trade_request').select(['id', 'status', 'version', 'client_id']).where('id', '=', p.requestId).executeTakeFirstOrThrow();
     if (r.status !== 'OPEN' && r.status !== 'QUOTED') throw new DomainError('REQUEST_NOT_OPEN', `request is ${r.status}`);
+    await endMeetingsOfRequestInTx(ctx, r.id, 'CLOSED');
     await cancelSentQuoteOfRequest(ctx, r.id, 'DECLINED_BY_DESK');
     await closeOrdersForRequest(ctx, r.id);
     await closeRequest(ctx.tx, r.id, 'DECLINED', reason, r.version);
@@ -179,6 +181,8 @@ export function withdrawRequest(actor: QuoteActor) {
     await lockRow(ctx.tx, 'trade_request', 'trade_request', p.requestId);
     const r = await ctx.tx.selectFrom('trade_request').select(['id', 'status', 'version']).where('id', '=', p.requestId).executeTakeFirstOrThrow();
     if (r.status !== 'OPEN' && r.status !== 'QUOTED') throw new DomainError('REQUEST_NOT_OPEN', `request is ${r.status}`);
+    // ADR 0033: its meeting, as either side, ends first — before any quote is touched (lock order).
+    await endMeetingsOfRequestInTx(ctx, r.id, 'TAKER_WITHDREW');
     const reason = typeof p.reason === 'string' && p.reason.trim() ? p.reason.trim().slice(0, 500) : null;
     await cancelSentQuoteOfRequest(ctx, r.id, 'WITHDRAWN');
     await closeOrdersForRequest(ctx, r.id);

@@ -262,7 +262,11 @@ export function applyAsTrader(actor: ClientActor, deps: { protector: FieldProtec
         .where('client_id', '=', clientId)
         .forUpdate()
         .executeTakeFirst();
-      if (existing && existing.status !== 'REJECTED') {
+      // ADR 0033: a client that met other clients as a personal side applies like anyone — once no deal of it is live.
+      if (existing && existing.status === 'PERSONAL') {
+        const live = await ctx.tx.selectFrom('trader_order').select('ref').where('trader_id', '=', existing.id).where('status', 'in', ['OFFERED', 'ACCEPTED', 'IN_PROGRESS']).executeTakeFirst();
+        if (live) throw new DomainError('TRADER_EXISTS', 'finish your deal with another client first, then apply');
+      } else if (existing && existing.status !== 'REJECTED') {
         throw new DomainError('TRADER_EXISTS', existing.status === 'UNDER_REVIEW' ? 'your application is already under review' : 'this account is already a trader');
       }
 

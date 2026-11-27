@@ -8,6 +8,7 @@ import { lockRow } from './actors.ts';
 import { closePendingChallenges } from './challenges.ts';
 import { type QuoteDeps, policyOf } from './policy.ts';
 import { reopenRequest } from './quotes.ts';
+import { resumeWaitInTx } from './auto-quotes.ts';
 import { expireInactiveRequests } from './requests.ts';
 import { businessNow, pruneRateLimitCounters } from './security.ts';
 
@@ -29,7 +30,8 @@ export async function expireQuoteInTx(ctx: TxContext, quoteId: string): Promise<
 
   await ctx.tx.updateTable('quote').set({ status: 'EXPIRED', closed_at: sql<Date>`inrp2p_now()` }).where('id', '=', quote.id).execute();
   await closePendingChallenges(ctx, quote.id, 'EXPIRED');
-  await reopenRequest(ctx, quote.trade_request_id);
+  // ADR 0033: a price held for a waiting client goes back to the wait, not to a person; any other reopens as before.
+  if (!(await resumeWaitInTx(ctx, quote.id))) await reopenRequest(ctx, quote.trade_request_id);
   await appendAudit(ctx, { action: 'quote.expired', entityType: 'quote', entityId: quote.id, before: { status: 'SENT' }, after: { status: 'EXPIRED', expires_at: quote.expires_at } });
   await enqueueOutbox(ctx, { type: 'client.quote_expired', aggregateType: 'quote', aggregateId: quote.id, payload: { quoteId: quote.id, clientId: quote.client_id } });
   return true;

@@ -568,3 +568,25 @@ export const EditIcon = ({ className }: IconProps) => (
     <circle className="ix-node" cx="5.6" cy="18.4" r="1.4" />
   </svg>
 );
+
+/**
+ * ADR 0033 — a meeting of two clients: two arcs, one from each side, closing on the hub between them, the node in the
+ * mark's orange where they meet.
+ */
+export const MeetIcon = ({ className }: IconProps) => (
+  <svg {...base} className={className}>
+    <path d="M9.4 5.2A7.2 7.2 0 0 0 9.4 18.8" />
+    <path d="M14.6 5.2a7.2 7.2 0 0 1 0 13.6" />
+    <path d="M5.6 12h3.2M15.2 12h3.2" />
+    <circle className="ix-node" cx="12" cy="12" r="2.2" />
+  </svg>
+);
+
+/** Another client: a person drawn as the mark draws one — a node over a broken arc. */
+export const PeerIcon = ({ className }: IconProps) => (
+  <svg {...base} className={className}>
+    <circle cx="12" cy="8.2" r="3.4" />
+    <path d="M5.4 19.6a6.8 6.8 0 0 1 11.4-4.9" />
+    <circle className="ix-node" cx="18.4" cy="17.6" r="2.1" />
+  </svg>
+);

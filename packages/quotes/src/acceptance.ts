@@ -15,6 +15,7 @@ import { closePendingChallenges } from './challenges.ts';
 import { type QuoteDeps, policyOf } from './policy.ts';
 import { reopenRequest } from './quotes.ts';
 import { businessNow } from './security.ts';
+import { peerTradeOpenedInTx } from './peer.ts';
 
 export interface AcceptResult {
   readonly tradeId: string;
@@ -78,7 +79,7 @@ async function assertAcceptable(ctx: TxContext, deps: QuoteDeps, quote: Decision
  * own treasury is reserved for a BUY — the client's USDT will come from what the counterparty delivers, and until it
  * has, no payout can be created (FI-71, FI-72). Acceptance therefore works with zero platform USDT and INR.
  */
-async function acceptCore(ctx: TxContext, deps: QuoteDeps, input: { quote: DecisionContext['quote']; decider: { clientUserId: string; userId: string }; via: 'APP' | 'LINK'; challengeId: string | null }): Promise<AcceptResult> {
+async function acceptCore(ctx: TxContext, deps: QuoteDeps, input: { quote: DecisionContext['quote']; decider: { clientUserId: string; userId: string }; via: 'APP' | 'LINK' | 'STANDING'; challengeId: string | null }): Promise<AcceptResult> {
   const { quote, decider } = input;
   const now = await businessNow(ctx.tx);
   await ctx.tx
@@ -123,6 +124,8 @@ async function acceptCore(ctx: TxContext, deps: QuoteDeps, input: { quote: Decis
   });
   // The quote starts its trader's accepted order, bound to this trade and its obligation.
   await startOrderForTrade(ctx, { requestId: quote.trade_request_id, routeId: quote.route_id, quoteId: quote.id, tradeId: trade.tradeId, routeObligationId: trade.routeObligationId });
+  // ADR 0033: on a client's personal side, the meeting starts and its maker's request is done.
+  await peerTradeOpenedInTx(ctx, { quoteId: quote.id, tradeId: trade.tradeId, tradeRef: trade.ref, routeId: quote.route_id });
 
   // The database made this trade counterparty-funded when it was inserted (migration 0025); acceptance relies on it.
   const funding = await tradeFundingModel(ctx.tx, trade.tradeId);
@@ -180,6 +183,18 @@ export function acceptQuote(actor: ClientActor, deps: QuoteDeps) {
       return acceptCore(ctx, deps, { quote, decider, via: 'APP', challengeId: null });
     },
   };
+}
+
+/**
+ * ADR 0033: a meeting's quote accepted on its taker's standing yes — by the user who said it, while it stands (the
+ * database checks both, IX148). Run by the step after the maker started (`peer.accept_standing`); the caller holds the
+ * meeting's requests' locks.
+ */
+export async function acceptQuoteStandingInTx(ctx: TxContext, deps: QuoteDeps, quoteId: string, userId: string): Promise<AcceptResult> {
+  const quote = await loadDecidableQuote(ctx, quoteId);
+  const decider = await requireQuoteDecider(ctx.tx, userId, quote.client_id, { requireVerifiedEmail: false });
+  await assertAcceptable(ctx, deps, quote);
+  return acceptCore(ctx, deps, { quote, decider, via: 'STANDING', challengeId: null });
 }
 
 /** `quote.reject` (in-app) — same authority as acceptance (D-15). The request returns to OPEN. */

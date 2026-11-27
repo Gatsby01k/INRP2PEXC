@@ -1,6 +1,6 @@
 import { DomainError } from '@inrp2p/kernel';
 import type { Executor } from '@inrp2p/db';
-import { type ClientQuoteView, type WaitingFacts, automaticPricingOf, toClientQuoteView, waitingFactsOf } from '@inrp2p/quotes';
+import { type ClientQuoteView, type PeerFacts, type WaitingFacts, automaticPricingOf, peerFactsOf, toClientQuoteView, waitingFactsOf } from '@inrp2p/quotes';
 import { clientSafe } from './access.ts';
 import { type ClientDestinations, clientDestinations } from './destinations.ts';
 
@@ -39,6 +39,11 @@ export interface OpenRequest {
   /** ADR 0025: when the best price for this amount is being gathered, until when; and whether the client can ask for a new price itself. */
   readonly gatheringUntil: string | null;
   readonly canReprice: boolean;
+  /**
+   * ADR 0033: the book while it waits — another client's best price for it (ready to meet, or close), a meeting it is in
+   * (as the one who said yes, or the one asked to start), or a pause after it stayed silent. Null when it does not wait.
+   */
+  readonly peer: PeerFacts | null;
 }
 
 export interface ExchangeView {
@@ -49,6 +54,8 @@ export interface ExchangeView {
   readonly quote: ClientQuoteView | null;
   /** The trade the latest request became, when it was accepted, so the screen can point the client at it. */
   readonly openTradeRef: string | null;
+  /** ADR 0033: the deal the latest request became as the other side of a meeting — its own deal page. */
+  readonly makerDealRef: string | null;
 }
 
 /** The request states the screen has something to say about. Anything else is history, and the screen offers a new request. */
@@ -93,6 +100,12 @@ export async function exchangeView(ex: Executor, clientId: string): Promise<Exch
   const quote = quoteRow ? await toClientQuoteView(ex, quoteRow.id) : null;
   const automatic = request && request.status === 'OPEN' ? await automaticPricingOf(ex, request.id) : { rfqClosesAt: null, waitingUntil: null, canReprice: false };
   const waiting = request && automatic.waitingUntil ? await waitingFactsOf(ex, request.id) : null;
+  const peer = request && automatic.waitingUntil ? await peerFactsOf(ex, request.id) : null;
+  // A request that met another client and was its other side: its deal is on the client's own deal page.
+  const makerDeal = latest?.status === 'MATCHED'
+    ? await ex.selectFrom('peer_match as pm').innerJoin('trader_order as o', 'o.id', 'pm.order_id').select('o.ref')
+      .where('pm.maker_request_id', '=', latest.id).where('pm.status', '=', 'STARTED').executeTakeFirst()
+    : undefined;
 
   // An accepted request became a trade: the one its accepted quote opened.
   const openTrade =
@@ -126,10 +139,12 @@ export async function exchangeView(ex: Executor, clientId: string): Promise<Exch
           createdAt: request.created_at.toISOString(),
           gatheringUntil: automatic.rfqClosesAt,
           canReprice: automatic.canReprice,
+          peer,
         }
       : null,
     quote,
     openTradeRef: openTrade?.ref ?? null,
+    makerDealRef: makerDeal?.ref ?? null,
   });
 }
 

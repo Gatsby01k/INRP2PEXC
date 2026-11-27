@@ -572,11 +572,12 @@ export interface RateLimitCounterTable {
   hits: number;
 }
 
-export type RequestStatus = 'OPEN' | 'QUOTED' | 'ACCEPTED' | 'DECLINED' | 'WITHDRAWN' | 'EXPIRED';
+/** Migration 0056 (ADR 0033): MATCHED — its client was the other side (the maker) of a meeting that started. */
+export type RequestStatus = 'OPEN' | 'QUOTED' | 'ACCEPTED' | 'DECLINED' | 'WITHDRAWN' | 'EXPIRED' | 'MATCHED';
 export type FixedSideValue = 'BASE' | 'QUOTE';
 
 /** Migration 0047: why automatic pricing could not price a request honestly, and closed it. */
-export type NoPriceReasonValue = 'NO_MARKET' | 'NETWORK_UNKNOWN' | 'NO_OFFER' | 'NOT_COMPETITIVE' | 'NO_BID';
+export type NoPriceReasonValue = 'NO_MARKET' | 'NETWORK_UNKNOWN' | 'NO_OFFER' | 'NOT_COMPETITIVE' | 'NO_BID' | 'OUTSIDE_LIMIT';
 
 export interface TradeRequestTable {
   id: Generated<string>;
@@ -607,6 +608,15 @@ export interface TradeRequestTable {
   waiting_since: Generated<Date | null>;
   /** Migration 0055: until when the exchange keeps looking; null when it does not — never waited, priced, or closed. */
   waiting_until: Generated<Date | null>;
+  /** Migration 0056 (ADR 0033): the wait's length the client chose (1, 24, 72, 168 hours); null — the default day. */
+  wait_hours: Generated<number | null>;
+  /** Migration 0056: a maker that stayed silent — not a peer offer until its client says it is still looking. */
+  peer_paused_at: Generated<Date | null>;
+  /** Migration 0056: how many prices held for this wait lapsed unanswered. */
+  held_lapses: Generated<number>;
+  /** Migration 0056: when the client was last told of another client's price near its own, and which. */
+  peer_told_at: Generated<Date | null>;
+  peer_told_rate_micro: Generated<bigint | null>;
   assigned_dealer_id: string | null;
   created_by: string;
   created_at: Generated<Date>;
@@ -657,7 +667,8 @@ export interface QuoteTable {
   created_at: Generated<Date>;
   sent_by: string | null;
   accepted_by_user_id: string | null;
-  accepted_via: 'APP' | 'LINK' | null;
+  /** Migration 0056 (ADR 0033): STANDING — a meeting's taker said yes before its maker started. */
+  accepted_via: 'APP' | 'LINK' | 'STANDING' | null;
   acceptance_challenge_id: string | null;
   accepted_at: Date | null;
   rejected_by_user_id: string | null;
@@ -1235,7 +1246,15 @@ export type NotificationKind =
   // Migration 0055 (ADR 0032): a waiting client's price is found and held; its wait ended without one; clients wait for a trader.
   | 'WAITING_PRICE_READY'
   | 'WAITING_ENDED'
-  | 'TRADER_CLIENTS_WAITING';
+  | 'TRADER_CLIENTS_WAITING'
+  // Migration 0056 (ADR 0033): a meeting to start, one waiting for the other side, one ended; a price near yours; a held
+  // price lapsed while the search goes on; a meeting's deal started for its maker.
+  | 'PEER_MATCH_OFFERED'
+  | 'PEER_MATCH_WAITING'
+  | 'PEER_MATCH_ENDED'
+  | 'PEER_NEARBY'
+  | 'WAITING_RESUMED'
+  | 'PEER_DEAL_STARTED';
 
 export interface ClientNotificationTable {
   id: Generated<string>;
@@ -1331,7 +1350,8 @@ export type StatementLineOutcome = 'MATCHED' | 'MISMATCHED' | 'UNRECORDED' | 'AM
 
 // ---- Traders (migration 0022) ----
 
-export type TraderStatus = 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED' | 'PAUSED';
+/** Migration 0056 (ADR 0033): PERSONAL — a client acting as the route of a meeting; never part of the trader programme. */
+export type TraderStatus = 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED' | 'PAUSED' | 'PERSONAL';
 /** What an applicant says about their P2P experience (migration 0023). */
 export type P2pExperience = 'BINANCE' | 'BYBIT' | 'OTHER' | 'NONE';
 /** A trader's side, in the trader's own words: Buy USDT (it has INR) or Sell USDT (it has USDT). */
@@ -2103,6 +2123,95 @@ export interface RfqBidTable {
   status: Generated<'LIVE' | 'REPLACED' | 'WON' | 'LOST'>;
 }
 
+/** Migration 0056 (ADR 0033): whether waiting clients meet each other, INRP2P's fee on a meeting and its smallest deal. */
+export interface PeerPolicyTable {
+  id: Generated<string>;
+  enabled: boolean;
+  fee_bps: number;
+  min_deal_usdt_minor: bigint;
+  set_by: string;
+  set_at: Generated<Date>;
+}
+
+export type PeerMatchStatus = 'WAITING_MAKER' | 'STARTED' | 'ENDED';
+export type PeerMatchEndReason = 'MAKER_DECLINED' | 'MAKER_SILENT' | 'TAKER_WITHDREW' | 'MAKER_WITHDREW' | 'BETTER_PRICE' | 'TERMS_CHANGED' | 'TAKER_SILENT' | 'CLOSED';
+
+/** Migration 0056 (ADR 0033): one meeting of two waiting requests (IX148). */
+export interface PeerMatchTable {
+  id: Generated<string>;
+  ref: Generated<string>;
+  policy_id: string;
+  taker_request_id: string;
+  maker_request_id: string;
+  taker_client_id: string;
+  maker_client_id: string;
+  maker_trader_id: string;
+  direction: DirectionValue;
+  fixed_side: FixedSideValue;
+  amount_minor: bigint;
+  taker_rate_micro: bigint;
+  maker_rate_micro: bigint;
+  reference_mid_micro: bigint | null;
+  fee_bps: number;
+  base_minor: bigint;
+  inr_minor: bigint;
+  route_base_minor: bigint;
+  network_allowance_minor: bigint;
+  status: Generated<PeerMatchStatus>;
+  taker_yes_by: string;
+  taker_yes_at: Generated<Date>;
+  taker_yes_until: Date;
+  maker_yes_by: string | null;
+  maker_yes_at: Date | null;
+  order_id: string | null;
+  quote_id: string | null;
+  trade_id: string | null;
+  end_reason: PeerMatchEndReason | null;
+  ended_at: Date | null;
+  created_at: Generated<Date>;
+}
+
+/** Migration 0056: a maker that stayed silent, or a peer deal undone for its client's missed step. */
+export interface PeerStrikeTable {
+  id: Generated<string>;
+  client_id: string;
+  kind: 'MAKER_SILENT' | 'DEAL_FAILED';
+  peer_match_id: string;
+  trade_id: string | null;
+  created_at: Generated<Date>;
+}
+
+/** Migration 0056: a browser's Web Push subscription of one client user. */
+export interface PushSubscriptionTable {
+  id: Generated<string>;
+  client_user_id: string;
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+  user_agent: string | null;
+  status: Generated<'ACTIVE' | 'REVOKED'>;
+  failures: Generated<number>;
+  last_sent_at: Date | null;
+  created_at: Generated<Date>;
+  revoked_at: Date | null;
+  revoke_reason: string | null;
+}
+
+/** Migration 0056: one push to one subscription, its id derived from what it is about. */
+export interface PushDeliveryTable {
+  id: string;
+  push_subscription_id: string;
+  dedupe_key: string;
+  title: string;
+  body: string;
+  url: string | null;
+  status: Generated<'PENDING' | 'SENT' | 'FAILED'>;
+  attempts: Generated<number>;
+  last_error: string | null;
+  created_at: Generated<Date>;
+  sent_at: Date | null;
+}
+
 export interface Database {
   currency: CurrencyTable;
   custody_hd_account: CustodyHdAccountTable;
@@ -2215,4 +2324,9 @@ export interface Database {
   rfq: RfqTable;
   rfq_invite: RfqInviteTable;
   rfq_bid: RfqBidTable;
+  peer_policy: PeerPolicyTable;
+  peer_match: PeerMatchTable;
+  peer_strike: PeerStrikeTable;
+  push_subscription: PushSubscriptionTable;
+  push_delivery: PushDeliveryTable;
 }

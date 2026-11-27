@@ -134,6 +134,8 @@ export interface OrderFacts {
   /** ADR 0019: the rupees move straight between the two sides, the USDT through the deal's escrow. */
   readonly p2p: boolean;
   readonly desk: { readonly clientName: string; readonly direction: DirectionValue; readonly clientBaseMinor: bigint; readonly clientRateMicro: bigint } | null;
+  /** ADR 0033: a client's personal side of a meeting — its deal opens on its own deal page. */
+  readonly personal?: boolean;
 }
 
 export async function orderFacts(ex: Executor, orderId: string): Promise<OrderFacts | null> {
@@ -148,13 +150,14 @@ export async function orderFacts(ex: Executor, orderId: string): Promise<OrderFa
       (join) => join.onRef('nf.trader_order_id', '=', 'o.id'),
     )
     .leftJoin('quote as q', (join) => join.on(sql<boolean>`q.id = coalesce(o.quote_id, nf.quote_id::uuid)`))
-    .select(['o.id', 'o.ref', 'o.side', 'o.base_minor', 'o.inr_minor', 'o.rate_micro', 't.client_id as trader_client_id', 'r.desk_id', 'r.direction', 'c.display_name', 'q.base_minor as client_base', 'q.client_rate_micro', 'lr.execution_mode'])
+    .select(['o.id', 'o.ref', 'o.side', 'o.base_minor', 'o.inr_minor', 'o.rate_micro', 't.client_id as trader_client_id', 't.status as trader_status', 'r.desk_id', 'r.direction', 'c.display_name', 'q.base_minor as client_base', 'q.client_rate_micro', 'lr.execution_mode'])
     .where('o.id', '=', orderId)
     .executeTakeFirst();
   if (!o) return null;
   return {
     orderId: o.id, ref: o.ref, traderClientId: o.trader_client_id, side: o.side, traderBaseMinor: o.base_minor, inrMinor: o.inr_minor, rateMicro: o.rate_micro, p2p: o.execution_mode === 'P2P',
     desk: o.desk_id ? { clientName: o.display_name, direction: o.direction, clientBaseMinor: o.client_base ?? o.base_minor, clientRateMicro: o.client_rate_micro ?? o.rate_micro } : null,
+    personal: o.trader_status === 'PERSONAL',
   };
 }
 
@@ -266,7 +269,7 @@ export function orderAlertText(f: OrderFacts, moment: OrderMoment, minutesLeft?:
 export function orderAlertUrl(f: OrderFacts, linkBase: string | undefined): string | null {
   if (!linkBase || !linkBase.startsWith('https://')) return null;
   try {
-    return new URL(f.desk ? `/desk/deals/${encodeURIComponent(f.ref)}` : `/traders/orders/${encodeURIComponent(f.ref)}`, linkBase).toString();
+    return new URL(f.desk ? `/desk/deals/${encodeURIComponent(f.ref)}` : f.personal ? `/deals/${encodeURIComponent(f.ref)}` : `/traders/orders/${encodeURIComponent(f.ref)}`, linkBase).toString();
   } catch {
     return null;
   }
@@ -338,6 +341,8 @@ export function telegramOrderHandler(db: Db, adapter: TelegramAdapter, opts: { l
       if (!facts) return;
       // A desk's own deal is accepted the moment it is priced: it has no offer to announce.
       if (moment === 'NEW_OFFER' && facts.desk) return;
+      // ADR 0033: a meeting's maker hears of its offer and its start from the meeting's own notes.
+      if (facts.personal && (moment === 'NEW_OFFER' || moment === 'STARTED')) return;
       // On a P2P deal the client's funds arriving is the trader's move only when the client sold (the trader pays the
       // rupees); a client's "I paid" is the trader's to confirm only when the trader sold, and only on a P2P deal — through
       // INRP2P's account the rupees are INRP2P's to check.
@@ -355,7 +360,17 @@ export function telegramOrderHandler(db: Db, adapter: TelegramAdapter, opts: { l
 }
 
 /** ADR 0032: the inbox notes someone is waiting on — told on Telegram as well, in the inbox's own words. */
-const TELEGRAMMED: readonly NotificationKind[] = ['WAITING_PRICE_READY', 'WAITING_ENDED', 'TRADER_CLIENTS_WAITING'];
+export const TELEGRAMMED: readonly NotificationKind[] = [
+  'WAITING_PRICE_READY', 'WAITING_ENDED', 'TRADER_CLIENTS_WAITING',
+  // ADR 0033: a client's own deal moments (TD-46) and the book's — a meeting to start, ended, started; a price near yours;
+  // the search going on after a held price lapsed.
+  'P2P_PAY_NOW', 'P2P_PAYMENT_SENT', 'PEER_MATCH_OFFERED', 'PEER_MATCH_ENDED', 'PEER_DEAL_STARTED', 'PEER_NEARBY', 'WAITING_RESUMED',
+];
+/** The events whose inbox notes Telegram copies; a trader's own deal moments come from its order alerts instead. */
+export const TELEGRAM_INBOX_EVENTS: ReadonlySet<string> = new Set([
+  'quote.sent', 'client.request_wait_ended', 'trader.clients_waiting', 'p2p.pay_window_opened', 'client.p2p_payment_sent',
+  'peer.offered', 'peer.ended', 'peer.deal_started', 'client.peer_nearby', 'client.waiting_resumed',
+]);
 
 function inboxLink(base: string | undefined, href: string | null): string | null {
   if (!base || !href) return null;
@@ -375,7 +390,7 @@ function inboxLink(base: string | undefined, href: string | null): string | null
 export function telegramInboxHandler(db: Db, adapter: TelegramAdapter, opts: { linkBase?: string | undefined } = {}): OutboxHandler {
   return {
     name: 'telegram_inbox_alerts',
-    handles: (type) => type === 'quote.sent' || type === 'client.request_wait_ended' || type === 'trader.clients_waiting',
+    handles: (type) => TELEGRAM_INBOX_EVENTS.has(type),
     run: async (event) => {
       const notes = await db.selectFrom('client_notification').select(['id', 'client_id', 'title', 'body', 'href'])
         .where('outbox_event_id', '=', event.id).where('kind', 'in', TELEGRAMMED).execute();

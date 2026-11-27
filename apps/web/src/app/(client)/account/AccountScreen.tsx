@@ -11,6 +11,7 @@ import { CheckIcon, LockIcon, MailIcon, ShieldIcon, SignOutIcon, UsersIcon } fro
 import { SecureAccount } from '../_workspace/SecureAccount.tsx';
 import { TelegramCard } from '../_workspace/TelegramCard.tsx';
 import { TelegramConnect } from '../_workspace/TelegramConnect.tsx';
+import { PushConnect } from '../_workspace/PushConnect.tsx';
 import type { TelegramLinkView, TelegramView } from '@inrp2p/clients';
 import { Sheet } from '../_workspace/Sheet.tsx';
 import shell from '../shell.module.css';
@@ -43,7 +44,10 @@ export function AccountScreen({
   people,
   isAdmin,
   telegram,
+  pushKey = null,
 }: {
+  /** ADR 0033: the deployment's Web Push key — this browser can be told too. */
+  pushKey?: string | null;
   name: string;
   /** How they are shown: their email, or their Telegram when they signed up with it and added no email. */
   label: string;
@@ -179,6 +183,7 @@ export function AccountScreen({
         ) : telegram?.mode === 'ALERTS' ? (
           <TelegramConnect view={telegram.view} botConfigured />
         ) : null}
+        <PushConnect publicKey={pushKey} />
 
         {isAdmin ? (
           <section className={shell.card} aria-labelledby="team-title">

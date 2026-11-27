@@ -259,3 +259,12 @@ prices on, nobody at INRP2P prices or routes a deal; desks unchanged.
 ## D-25 — P2P only: the old settlement models are removed — Resolved (owner, 2026-11-05; ADR 0027)
 
 INR accounts, payments through the exchange, operator-recorded payouts, direct payouts and trader rewards are deleted. TRX mode stays as the fallback for GasFree. Their tables go with migration 46.
+
+## D-27 — One book: clients meet clients — Resolved (owner, 2026-11-27; ADR 0033)
+
+A waiting client of the INRP2P exchange is also a price for the other side. Two waiting clients meet without a trader: the
+one who says yes first is the taker (its request is the trade's), the other the route of that one deal through a PERSONAL
+trader profile — never part of the trader programme. INRP2P's fee 0.25% inside the rate (at most the market's spread for
+two clients at the market), the network split, ₹25,000 a meeting under 3 completed deals. The taker's yes stands an hour;
+the maker starts; a silent maker is paused with a strike. Off until the owner switches it on. Stage 1 alongside: the
+client's price is a bound, a lapsed held price returns to the wait, the wait's length is the client's, Web Push.

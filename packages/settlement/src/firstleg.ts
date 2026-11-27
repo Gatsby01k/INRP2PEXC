@@ -289,7 +289,7 @@ export async function reserveSenderOf(
   const r = await sql<{ trader: string | null; candidates: string }>`
     select inrp2p_reserve_sender_trader(${from}, coalesce(${at}::timestamptz, statement_timestamp())) as trader,
            (select count(*) from trader_profile t join crypto_wallet w on w.id = t.wallet_id
-             where w.network = 'TRON' and w.address = ${from} and w.status in ('ACTIVE', 'PENDING_REVIEW')
+             where t.status <> 'PERSONAL' and w.network = 'TRON' and w.address = ${from} and w.status in ('ACTIVE', 'PENDING_REVIEW')
                and w.created_at <= coalesce(${at}::timestamptz, statement_timestamp()))::text as candidates`.execute(ex);
   const row = r.rows[0]!;
   if (row.trader) return { traderId: row.trader, reason: null };
