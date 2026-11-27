@@ -15,7 +15,7 @@ Two channels, and they take turns, never at once:
 | When | What the robot does | Why |
 | --- | --- | --- |
 | The live robot arrives | The emblem sweeps, then it waves with `^ ^` eyes. Its visor says `HI!` | It shows the robot is alive and says hello |
-| First press in the converter | A wave and a smile (from rest only) | It acknowledges that the visitor has started |
+| First press in the converter | A smile and a soft pulse of the antenna (from rest only) | It acknowledges that the visitor has started |
 | Typing an amount | Eyes on the field, narrowed, a band of light reads each change. The amount echoes on the visor | It is reading their number |
 | Amount settles, under 250K | It nods with pleased arches. Then the ₹ estimate runs across the visor | It confirms the amount, then gives the fact |
 | 250K up to 1M | Round eyes with an `o` mouth, chin up, one hop, the antenna lit | It noticed a big deal |
@@ -27,15 +27,15 @@ Two channels, and they take turns, never at once:
 | Presses the call to action | **Hearts beat, both arms up, a bounce** | It rewards the decision. The last thing seen is delight |
 | Scrolls down past the robot | It **looks down after the visitor**, curious, leaning a little | "Read on, I'm following" |
 | Comes back to the top after reading | **Welcome back**: `^ ^`, a hop, then a look at the amount field and `→` (`↓` on a phone) | It leads the returning reader to the converter |
-| Returns to the tab after 6 s away | Two quick blinks to refocus, then a wave and a smile | It welcomes them back |
+| Returns to the tab after 6 s away | Two quick blinks to refocus, then a smile | It welcomes them back |
 | Mouse leaves through the top of the window | **Puppy eyes**: wide, inner lids raised, a look up at where the mouse left | A soft "don't go" |
 | …the mouse comes back | It smiles with relief | It is glad they stayed |
 | Left alone for 16 s | Today's rate runs across the visor | Useful while they think |
 | Left alone for 40 s | **It dozes off**: the lids droop, it nods once and catches itself, then the eyes close, Z's float up, and the antenna and ears dim | It is quietly waiting for them, with some charm |
-| Any move while it sleeps | **Startled awake**: the eyes snap wide, a hop, a double blink, then `^ ^` and `HI!` | Coming back is rewarded |
+| Any move while it sleeps | **Startled awake**: the eyes snap wide, a hop, a double blink, then `^ ^` | Coming back is rewarded |
 | Taps or clicks the robot | **Giggles**: `^ ^` eyes with a blush, a jiggle, a little hop. Three taps in a row get hearts | Curiosity is rewarded. Never blocks a tap (the stage takes no pointer events) |
 | Mouse rests on the robot's head | **Content**: closed happy eyes with a blush, the head leans into the pointer | It enjoys a pat |
-| At rest (every 4.5 to 8.5 s, irregular) | A wink, reading the headline, a glance at the converter with a nod, a hop, or a wave | It stays alive without repeating on a beat |
+| At rest (every 9 to 15 s, irregular) | Reading the headline, a glance at the converter with a nod, or now and then a small hop. Never a wink, never a wave | It stays alive without fidgeting |
 
 Lower on the page the same robot appears as stills with LED visors. They keep their own stories (the deal's display,
 the trader's margin). The closing robot answers the closing call to action the way the hero robot answers its own:
@@ -50,6 +50,9 @@ the trader's margin). The closing robot answers the closing call to action the w
   `Z Z` while asleep, `HI!` on waking.
 - **Never blocks a tap**: the stage keeps `pointer-events: none`. Taps on the robot are read from the window,
   passively, and only when they land on the robot's own box.
+- **One wave, on arrival.** The robot waves only when it first comes online. Every other hello is a smile.
+- **No visible start-up**: the live robot draws behind the still one until its frames are smooth, and only then takes
+  over and says hello, so nobody sees it stutter into life.
 - **No cost when nobody looks**: the robot does not draw off screen. Presence is a handful of passive listeners
   that store a timestamp. Nothing on the first screen fades in from opacity 0.
 - **The workspace is unchanged**: its moods (`waiting`, `focused`, `ready`, `alert`, `success`, …) outrank everything

@@ -64,6 +64,13 @@ const POINTER_HOLD_MS = 2200;
 const BELOW_AT = 0.3;
 const READING = { x: 0.5, y: 0.64 } as const;
 
+/**
+ * The live robot's start, behind the still one: it draws its rest pose until this many frames in a row come in time
+ * (the first frames pay for the GPU's uploads, and a robot shown then would stutter into life), or until `maxMs` has
+ * passed, when the frame governor decides instead. Then it takes over, and comes online `wakeAfter` seconds later.
+ */
+const WARM = { frames: 8, maxMs: 3000, wakeAfter: 0.6 } as const;
+
 /** What a tap or click on the robot never counts as: a press on anything that does something. */
 const INTERACTIVE = 'a[href], button, input, select, textarea, label, summary, [role="button"], [role="link"], [contenteditable="true"], [tabindex]:not([tabindex^="-"])';
 
@@ -116,6 +123,11 @@ export class RobotScene {
   private resize: ResizeObserver | null = null;
   private governor: FrameGovernor | null = null;
   private lastFrame = 0;
+  /** Whether the live robot has taken over from the still one; until then it warms up unseen (`WARM`). */
+  private revealed = false;
+  private readonly warm = { since: 0, last: 0, smooth: 0 };
+  /** A frame later than this is not in time (ms): half as long again as the display's own. */
+  private smoothLimit = 1000 / 40;
   private readonly targets = new Map<LookTarget, Element>();
   /** When each target missing from the page may next be looked for. */
   private readonly missingUntil = new Map<LookTarget, number>();
@@ -149,7 +161,6 @@ export class RobotScene {
       direction: options.direction,
       ...(options.mood ? { mood: options.mood } : {}),
       ...(options.mirror ? { mirror: true } : {}),
-      wakeAt: 0.9,
     });
     this.unsubscribe = options.still ? () => {} : robotCues.subscribe((cue) => this.hear(cue));
 
@@ -211,7 +222,10 @@ export class RobotScene {
     this.scene.environment = this.lighting.environment;
     this.scene.environmentIntensity = 0.85;
     this.scene.add(...this.lighting.lights, figure.root);
-    if (!still) this.governor = new FrameGovernor({ period, ratio });
+    if (!still) {
+      this.governor = new FrameGovernor({ period, ratio });
+      this.smoothLimit = Math.max(period, 1000 / 120) * 1.5;
+    }
 
     this.resize = new ResizeObserver(() => this.fit());
     this.resize.observe(canvas);
@@ -255,6 +269,7 @@ export class RobotScene {
       cancelAnimationFrame(this.raf);
       this.raf = 0;
       this.lastFrame = 0;
+      this.warm.last = 0;
       this.governor?.pause();
     }
   }
@@ -367,11 +382,35 @@ export class RobotScene {
     this.raf = requestAnimationFrame((now) => {
       this.raf = 0;
       if (!this.active || this.disposed) return;
+      if (!this.revealed) {
+        this.draw(now);
+        this.warmUp(now);
+        this.loop();
+        return;
+      }
       if (!this.govern(now)) return;
       this.draw(now);
       this.loop();
     });
   };
+
+  /**
+   * Warming up (`WARM`): counts the frames that come in time, and once enough have in a row — or once it has waited
+   * long enough — takes over from the still robot and comes online, so the whole arrival is seen, and seen smooth.
+   */
+  private warmUp(now: number): void {
+    const w = this.warm;
+    const interval = w.last ? now - w.last : 0;
+    w.last = now;
+    if (w.since === 0) w.since = now;
+    w.smooth = interval > 0 && interval <= this.smoothLimit ? w.smooth + 1 : 0;
+    if (w.smooth < WARM.frames && now - w.since < WARM.maxMs) return;
+    this.revealed = true;
+    this.lastFrame = 0;
+    this.timer.update(now);
+    this.behaviour.wakeUp(this.timer.getElapsed() + WARM.wakeAfter);
+    this.options.onFirstFrame?.();
+  }
 
   /** The frame budget (`governor.ts`): false when the robot hands back to the still one. */
   private govern(now: number): boolean {
@@ -391,13 +430,23 @@ export class RobotScene {
   private draw(now: number): void {
     const { renderer, figure } = this;
     if (!renderer || !figure) return;
-    this.timer.update(now);
     this.canvasRect = null;
-    figure.apply(this.options.still ? (this.options.pose ?? REST_POSE) : this.pose());
+    if (this.options.still) {
+      // A still robot is shown as soon as it exists.
+      figure.apply(this.options.pose ?? REST_POSE);
+      renderer.render(this.scene, this.camera);
+      if (this.frame === 0 && ++this.frame === 1) this.options.onFirstFrame?.();
+      return;
+    }
+    // A live robot still warming up draws the still one's own pose, its clock not yet started: nothing moves unseen.
+    if (!this.revealed) {
+      figure.apply(REST_POSE);
+      renderer.render(this.scene, this.camera);
+      return;
+    }
+    this.timer.update(now);
+    figure.apply(this.pose());
     renderer.render(this.scene, this.camera);
-    // A live robot is revealed once its motion has started (two frames); a still one as soon as it exists.
-    const reveal = this.options.still ? 1 : 2;
-    if (this.frame < reveal && ++this.frame === reveal) this.options.onFirstFrame?.();
   }
 
   private pose(): Pose {

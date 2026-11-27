@@ -179,17 +179,20 @@ describe('the home page’s robot as a character', () => {
     expect(run.step(3).state).toBe('idle');
   });
 
-  it('refocuses on a tab the visitor comes back to — two quick blinks — and then waves', () => {
+  it('refocuses on a tab the visitor comes back to — two quick blinks — and then smiles, without a wave', () => {
     const run = home();
     run.cue({ kind: 'back', via: 'tab' });
     const opens: number[] = [];
     const lifts: number[] = [];
+    let smile = 0;
     run.step(2, {}, (f) => {
       opens.push(f.pose.eyeOpen);
       lifts.push(f.pose.waveLift);
+      smile = Math.max(smile, f.pose.smile);
     });
     expect(peaks(opens.map((o) => 1 - o), 0.8), 'two blinks').toBe(2);
-    expect(Math.max(...lifts)).toBeGreaterThan(0.9);
+    expect(smile).toBeGreaterThan(0.9);
+    expect(Math.max(...lifts)).toBe(0);
   });
 
   it('dozes off when left alone, catches itself once, falls asleep with Z’s rising — and wakes with a start', () => {
@@ -216,7 +219,8 @@ describe('the home page’s robot as a character', () => {
     expect(Math.max(...woken.slice(0, 20).map((f) => f.pose.wide))).toBeGreaterThan(0.9);
     expect(Math.max(...woken.map((f) => f.pose.hop))).toBeGreaterThan(0.03);
     expect(woken.some((f) => f.state === 'welcome'), 'then greets').toBe(true);
-    expect(Math.max(...woken.map((f) => f.pose.waveLift))).toBeGreaterThan(0.5);
+    expect(Math.max(...woken.map((f) => f.pose.smile)), 'with a smile').toBeGreaterThan(0.9);
+    expect(Math.max(...woken.map((f) => f.pose.waveLift)), 'not a wave').toBe(0);
     expect(woken.at(-1)!.pose.sleep).toBeLessThan(0.01);
   });
 

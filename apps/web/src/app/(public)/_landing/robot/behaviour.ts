@@ -32,10 +32,10 @@ export type { LookTarget, RobotState } from './states.ts';
  * hearts when something is accepted, and concern when something needs changing. Each is a state's target like any
  * other, eased into from wherever the face is.
  *
- * Gestures play over whatever state the robot is in, each once, from an event: a wave with its greeting, a hop for
- * a new direction, a large amount or an accepted request, a shake of the head for a problem. At rest it follows the
- * visitor's pointer, and every few seconds, at irregular intervals, does something of its own — winks, reads the
- * headline beside it, glances at the quote module and nods, hops, or waves.
+ * Gestures play over whatever state the robot is in, each once, from an event: a wave when it first comes online
+ * (and only then), a hop for a new direction, a large amount or an accepted request, a shake of the head for a
+ * problem. At rest it follows the visitor's pointer, and now and then, at irregular intervals of ten seconds or so,
+ * does something quiet of its own — reads the headline beside it, glances at the quote module and nods, or hops.
  *
  * Lights run on their own clock: one short, faint sweep of the emblem when a value is confirmed or the direction
  * changes, a pulse at its hub for a new rate, the whole mark resolving when a rate locks or a request is accepted, a
@@ -215,7 +215,7 @@ const HOP = { duration: 0.46, height: 0.075 } as const;
 const SHAKE = { duration: 0.9, period: 0.3, yaw: 0.12 } as const;
 
 /** At rest, the robot does something of its own every so often — never sooner after the visitor's last move. */
-const PLAY = { min: 4.5, max: 8.5, quiet: 2.5 } as const;
+const PLAY = { min: 9, max: 15, quiet: 3 } as const;
 
 /** States the robot plays in: rest, with nothing of the visitor's in hand. */
 const PLAYS_IN: ReadonlySet<RobotState> = new Set<RobotState>(['idle', 'ready']);
@@ -380,11 +380,7 @@ export class RobotBehaviour {
     this.nextPlayAt = between(PLAY.min, PLAY.max, this.random) + 3;
     // Coming online is reported the way the robot reports everything: one short sweep of the emblem — and then,
     // as the sweep ends, a greeting.
-    if (options.wakeAt !== undefined) {
-      this.respondAt = options.wakeAt;
-      this.blinkAt = options.wakeAt - 0.12;
-      this.welcomeAt = options.wakeAt + 0.3;
-    }
+    if (options.wakeAt !== undefined) this.wakeUp(options.wakeAt);
   }
 
   /** The state the robot is in — for diagnostics and for tests. */
@@ -509,7 +505,7 @@ export class RobotBehaviour {
     // ---- state -----------------------------------------------------------------------------------------
     if (time >= this.welcomeAt) {
       this.welcomeAt = Number.POSITIVE_INFINITY;
-      this.greet(time);
+      this.greet(time, false, true);
     }
     if (time >= this.greetAfterAt) {
       this.greetAfterAt = Number.POSITIVE_INFINITY;
@@ -856,13 +852,14 @@ export class RobotBehaviour {
   }
 
   /**
-   * A greeting, from rest only: a smile, a wave, and one soft pulse of the antenna's tip. `owed` is a greeting the
-   * robot promised itself — after waking, after refocusing on a tab — which it may also give from its character's rest.
+   * A greeting, from rest only: a smile and one soft pulse of the antenna's tip — and a wave only when it first comes
+   * online (`wave`): a robot that waved at every move would be waving all the time. `owed` is a greeting the robot
+   * promised itself — after waking, after refocusing on a tab — which it may also give from its character's rest.
    */
-  private greet(time: number, owed = false): void {
+  private greet(time: number, owed = false, wave = false): void {
     if (!GREETS_FROM.has(this.state) && !(owed && (CHARACTER_IN.has(this.state) || this.state === 'startled'))) return;
     this.greetAt = time;
-    this.waveAt = time + 0.1;
+    if (wave) this.waveAt = time + 0.1;
     this.enter('welcome', time, time + DURATION.welcome);
   }
 
@@ -954,22 +951,28 @@ export class RobotBehaviour {
 
   /** Something of the robot's own, at rest: a wink, a read of the headline, a glance and a nod, a hop, or a wave. */
   private play(time: number): void {
+    // Quiet things only, and rarely: no winks and no waving at nobody — a wave is for a hello.
     const r = this.random();
-    if (r < 0.28) {
-      this.winkAt = time;
-    } else if (r < 0.52) {
+    if (r < 0.45) {
       this.enter('curious', time, time + DURATION.curious);
-    } else if (r < 0.72) {
+    } else if (r < 0.85) {
       this.nodAt = time + 0.35;
       this.grinAt = time;
       this.enter('pleased', time, time + DURATION.pleased);
-    } else if (r < 0.9) {
-      this.hop(time);
-      this.grinAt = time;
     } else {
-      this.waveAt = time;
+      this.hop(time, HOP.height * 0.7);
       this.grinAt = time;
     }
+  }
+
+  /**
+   * Comes online now: one short sweep of the emblem, a blink, and a greeting with a wave — the one wave it gives
+   * unasked. The live robot calls this as it takes over from the still one, so the visitor sees all of it.
+   */
+  wakeUp(at: number): void {
+    this.respondAt = at;
+    this.blinkAt = at - 0.12;
+    this.welcomeAt = at + 0.3;
   }
 
   /** The emblem's one response, unless another was shown less than `gap` seconds ago. */

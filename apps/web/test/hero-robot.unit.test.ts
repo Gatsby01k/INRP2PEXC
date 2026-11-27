@@ -691,12 +691,11 @@ describe('the way into the workspace', () => {
 });
 
 describe('gestures', () => {
-  it('greets with a wave: the arm lifts beside the head, swings, and comes back down', () => {
-    const run = settled();
-    run.behaviour.cue({ kind: 'engage' }, run.time);
+  it('waves once, coming online: the arm lifts beside the head, swings, and comes back down — and never for a first move', () => {
+    const run = start({ wakeAt: 0.5 });
     const lifts: number[] = [];
     const swings: number[] = [];
-    run.step(3, {}, ({ pose }) => {
+    run.step(3.5, {}, ({ pose }) => {
       lifts.push(pose.waveLift);
       swings.push(pose.waveSwing);
     });
@@ -706,7 +705,15 @@ describe('gestures', () => {
     for (let i = 2; i < swings.length; i++) if (Math.sign(swings[i]! - swings[i - 1]!) !== Math.sign(swings[i - 1]! - swings[i - 2]!)) reversals += 1;
     expect(reversals).toBeGreaterThanOrEqual(3);
     expect(lifts.at(-1)).toBe(0);
-    expect(swings.at(-1)).toBe(0);
+    expect(Math.abs(swings.at(-1)!)).toBe(0);
+
+    // A first move in the module is greeted with a smile, not another wave.
+    const engaged = settled();
+    engaged.behaviour.cue({ kind: 'engage' }, engaged.time);
+    let lifted = 0;
+    const greeted = engaged.step(1, {}, ({ pose }) => (lifted = Math.max(lifted, pose.waveLift)));
+    expect(greeted.state).toBe('welcome');
+    expect(lifted).toBe(0);
   });
 
   it('is impressed by a large amount — eyes wide, chin up, a hop — and pleased by any other', () => {
@@ -755,24 +762,28 @@ describe('gestures', () => {
     expect(pose.gazeX, 'the amount outranks the pointer: the eyes are already there').toBeGreaterThan(0);
   });
 
-  it('plays on its own at rest — every few seconds, never on a beat, never while the visitor is busy — and always comes back', () => {
+  it('plays on its own at rest — quietly, every ten seconds or so, never on a beat, never a wink or a wave — and always comes back', () => {
     const run = start({ playful: true });
     run.step(3);
     const moments: number[] = [];
     let previous: RobotState = 'idle';
-    let winks = 0;
-    let winking = false;
-    run.step(120, {}, ({ pose, state, time }) => {
+    let hops = 0;
+    let hopping = false;
+    run.step(180, {}, ({ pose, state, time }) => {
       if (state !== previous && state !== 'idle') moments.push(time);
       previous = state;
-      if (pose.wink > 0.5 && !winking) winks += 1;
-      winking = pose.wink > 0.5;
+      if (pose.hop > 0.01 && !hopping) hops += 1;
+      hopping = pose.hop > 0.01;
       expect(['idle', 'curious', 'pleased']).toContain(state);
+      expect(pose.wink, 'no winks').toBe(0);
+      expect(pose.waveLift, 'no waving at nobody').toBe(0);
       expect(brightestArc(pose)).toBe(0);
     });
-    const things = moments.length + winks;
-    expect(things).toBeGreaterThan(8);
-    expect(things).toBeLessThan(30);
+    const things = moments.length + hops;
+    expect(things).toBeGreaterThan(9);
+    expect(things).toBeLessThan(21);
+    const gaps = moments.slice(1).map((t, i) => t - moments[i]!);
+    expect(Math.min(...gaps), 'never sooner than this').toBeGreaterThanOrEqual(8);
     // Typing keeps it busy: no play while the visitor works, however long.
     const busy = start({ playful: true });
     busy.step(3);

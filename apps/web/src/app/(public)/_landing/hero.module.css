@@ -251,47 +251,8 @@
   gap: var(--space-3);
 }
 
-/* Entrance: the words settle, then the module; the robot's own arrival is its business. CSS rather than script,
-   so it runs on first paint whether or not anything has hydrated, and not at all under reduced motion. The words only
-   move — never start invisible — so the headline is the page's largest paint on the first frame (LCP ignores a paint
-   at opacity 0). */
-@keyframes rise {
-  from {
-    transform: translateY(12px);
-  }
-}
-
-@keyframes enter {
-  from {
-    opacity: 0;
-    transform: translateY(12px);
-  }
-}
-
-.copy {
-  animation: rise 760ms var(--ease) both;
-}
-
-.points,
-.quote {
-  animation: enter 720ms var(--ease) both;
-}
-
-.points {
-  animation-delay: 140ms;
-}
-
-.quote {
-  animation-delay: 200ms;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .copy,
-  .points,
-  .quote {
-    animation: none;
-  }
-}
+/* No entrance: the first screen is whole on its first paint — the words, the points, the module and the robot's sun
+   all at once, still. A first screen that assembles itself piece by piece reads as a site still loading. */
 
 @media (max-width: 1199px) {
   .frame {
