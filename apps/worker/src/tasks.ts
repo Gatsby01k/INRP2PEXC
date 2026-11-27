@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { executeCommand } from '@inrp2p/commands';
 import type { TxContext } from '@inrp2p/db';
 import { releaseCooledDownAddresses } from '@inrp2p/treasury';
-import { type QuotePolicy, expireQuote, runExpirySweep, runMarketReferenceRefresh, runRfqSweep, runWaitingSweep } from '@inrp2p/quotes';
+import { type QuotePolicy, expireQuote, runExpirySweep, runMarketReferenceRefresh, runPeerSweep, runRfqSweep, runWaitingSweep } from '@inrp2p/quotes';
 import { runP2pDeadlines, runReconciliation, runSettlementSla } from '@inrp2p/settlement';
 import { type ScannerDeps, observeBalances, runChainBackfill, runOrphanSweep, runTronConfirm, runTronScan } from '@inrp2p/scanner';
 import { ordersDueSoon, runTraderSweep } from '@inrp2p/traders';
@@ -221,6 +221,13 @@ export function buildTaskList(
     for (const f of failures) helpers.logger.warn(`waiting_requests_sweep: ${f.requestId} not looked at: ${f.code}: ${f.message}`);
     if (out.PRICED + out.ENDED + out.TO_A_PERSON > 0) helpers.logger.info(`waiting_requests_sweep: ${JSON.stringify(out)}`);
   };
+  // ADR 0033: meetings whose hour passed with no start end (a strike and a pause for the silent maker), a start whose
+  // second step never ran is handed to its taker, and waiting clients near another client's price are told once.
+  const peerSweep: Task = async (_payload, helpers) => {
+    const { failures, ...out } = await runPeerSweep(db);
+    for (const f of failures) helpers.logger.warn(`peer_sweep: ${f.id}: ${f.code}: ${f.message}`);
+    if (out.ended + out.told > 0) helpers.logger.info(`peer_sweep: ${JSON.stringify(out)}`);
+  };
   // ADR 0020 §2.14: a trader's P2P step due within ten minutes is told once to its linked chats. Each order is its own
   // attempt: one that cannot be sent now is tried again on the next minute, under the same key, and sent once.
   const telegramDeadlines: Task = async (_payload, helpers) => {
@@ -250,6 +257,7 @@ export function buildTaskList(
     reference_rate_refresh: referenceRateRefresh,
     rfq_sweep: rfqSweep,
     waiting_requests_sweep: waitingSweep,
+    peer_sweep: peerSweep,
     outbox_dispatch: outboxDispatch,
     audit_seal: auditSeal,
     deposit_address_cooldown_release: depositCooldownRelease,
@@ -327,8 +335,23 @@ export const CRONTAB = [
   '*/5 * * * * reference_rate_refresh ?max=2&jobKey=reference_rate_refresh',
   '* * * * * rfq_sweep ?max=1&jobKey=rfq_sweep',
   '* * * * * waiting_requests_sweep ?max=1&jobKey=waiting_requests_sweep',
+  '* * * * * peer_sweep ?max=1&jobKey=peer_sweep',
   '* * * * * telegram_deadlines ?max=1&jobKey=telegram_deadlines',
 ].join('\n');
+
+/**
+ * ADR 0033 §2.7: something that could price a waiting request changed (a trader's side, a trader online, a market reading, a
+ * meeting ended) — the waiting sweep runs now rather than on its minute; the job key coalesces a burst into one run.
+ */
+export function waitingLookNow(db: Db): OutboxHandler {
+  return {
+    name: 'waiting_look_now',
+    handles: (type) => type === 'waiting.look_now',
+    run: async () => {
+      await sql`select graphile_worker.add_job('waiting_requests_sweep', '{}'::json, job_key => 'waiting_requests_sweep', job_key_mode => 'preserve_run_at')`.execute(db);
+    },
+  };
+}
 
 /** A send planned or confirmed starts the rails cycle now rather than at the next minute (the job key coalesces). */
 export function onchainWakeup(db: Db): OutboxHandler {

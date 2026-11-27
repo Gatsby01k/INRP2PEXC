@@ -81,6 +81,21 @@ export function exchangeAssistant(view: ExchangeView, opts: { canAccept: boolean
       body: `Its price ran out before it was accepted. Request ${request.ref} goes back to the desk, which may send a new quote.`,
     };
   }
+  // ADR 0033: the book leads the wait when it has something — the other client's yes, this client's own, a pause, a price.
+  const peer = withDesk && request.waitingUntil ? request.peer : null;
+  const meeting = peer?.meeting?.status === 'WAITING_MAKER' ? peer.meeting : null;
+  if (meeting?.role === 'MAKER') {
+    return { mood: 'focused', label: 'Your move', title: 'Another client took your price', body: `Start the deal by ${formatIstTime(new Date(meeting.yesUntil))}.` };
+  }
+  if (meeting) {
+    return { mood: 'waiting', label: 'Asked to start', title: 'The other client starts next', body: `Your price is held until ${formatIstTime(new Date(meeting.yesUntil))}.` };
+  }
+  if (peer?.paused) {
+    return { mood: 'alert', label: 'Paused', title: 'You missed another client', body: 'Say you are still looking to be a price for others again.' };
+  }
+  if (peer?.offer?.kind === 'READY') {
+    return { mood: 'focused', label: 'Ready now', title: `Another client at ${rate(peer.offer.rate)}`, body: 'Say yes, and they start the deal.' };
+  }
   if (withDesk && request.waitingUntil && request.waiting?.on === 'MARKET') {
     return {
       mood: 'waiting',

@@ -101,7 +101,11 @@ function NextAction({ detail }: { detail: TraderOrderDetail }) {
  * One order: what is happening and what the trader does now, then what was agreed and every payment on it. Built
  * only from the trader projection — the other side is "the other side", never a name, a rate or a reference.
  */
-export function OrderScreen({ detail, canAct, initial }: { detail: TraderOrderDetail; canAct: boolean; initial?: string }) {
+/**
+ * `personal` (ADR 0033): the client's own deal as the other side of a meeting — the same deal and the same steps, named
+ * as a deal, started from the Exchange (never accepted here as a trader's offer), and leading back to the Exchange.
+ */
+export function OrderScreen({ detail, canAct, initial, personal = false }: { detail: TraderOrderDetail; canAct: boolean; initial?: string; personal?: boolean }) {
   const router = useRouter();
   const o = detail.order;
   const live = o.status === 'OFFERED' || o.status === 'ACCEPTED' || o.status === 'IN_PROGRESS';
@@ -145,7 +149,16 @@ export function OrderScreen({ detail, canAct, initial }: { detail: TraderOrderDe
   return (
     <>
       <main className={shell.main} {...(detail.p2p ? { 'data-deal-rail': '' } : {})}>
-        {o.status === 'OFFERED' ? (
+        {o.status === 'OFFERED' && personal ? (
+          <section className={shell.card} aria-label="Not started yet">
+            <p className={styles.note}>
+              Another client said yes to your price. Start the deal on the Exchange.{' '}
+              <Link className={shell.textAction} href="/exchange">
+                Open the Exchange
+              </Link>
+            </p>
+          </section>
+        ) : o.status === 'OFFERED' ? (
           <OfferCard order={o} now={now} canAct={canAct} receiveAt={detail.youReceiveAt} />
         ) : (
           <section className={`${shell.card} ${trade.hero}`} aria-label="Order summary">
@@ -194,14 +207,14 @@ export function OrderScreen({ detail, canAct, initial }: { detail: TraderOrderDe
         {/* The order's terms are words on the paper, as a trade's details are: the page's cards are its work. */}
         <section className={trade.paper} aria-labelledby="terms-title">
           <h2 id="terms-title" className={trade.paperTitle}>
-            The order
+            {personal ? 'The deal' : 'The order'}
           </h2>
           <dl className={shell.facts}>
             <div>
               <dt>Reference</dt>
               <dd className={trade.refValue}>
                 <span className="ix-num">{o.ref}</span>
-                <CopyButton value={o.ref} label="order reference" />
+                <CopyButton value={o.ref} label={personal ? 'deal reference' : 'order reference'} />
               </dd>
             </div>
             <div>
@@ -225,7 +238,7 @@ export function OrderScreen({ detail, canAct, initial }: { detail: TraderOrderDe
               <dd>{detail.youReceiveAt}</dd>
             </div>
             <div>
-              <dt>Offered</dt>
+              <dt>{personal ? 'Matched' : 'Offered'}</dt>
               <dd>{formatIstDateTime(new Date(o.offeredAt))}</dd>
             </div>
             {o.startedAt ? (
@@ -238,9 +251,9 @@ export function OrderScreen({ detail, canAct, initial }: { detail: TraderOrderDe
           <p className={styles.note}>{detail.method}</p>
         </section>
         <div className={styles.navRow}>
-          <Link className={shell.textAction} href="/traders/orders">
+          <Link className={shell.textAction} href={personal ? '/exchange' : '/traders/orders'}>
             <BackIcon />
-            All orders
+            {personal ? 'Exchange' : 'All orders'}
           </Link>
         </div>
       </aside>

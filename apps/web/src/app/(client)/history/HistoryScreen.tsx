@@ -165,7 +165,7 @@ export function HistoryScreen({ rows, open, counts, filter }: { rows: readonly H
                               <span className={styles.dirWord} data-dir={sell ? 'sell' : 'buy'}>
                                 {sell ? 'Sell USDT' : 'Buy USDT'}
                               </span>
-                              <Link href={`/trades/${r.ref}`} onClick={(e) => e.stopPropagation()}>
+                              <Link href={r.peerDeal ? `/deals/${r.ref}` : `/trades/${r.ref}`} onClick={(e) => e.stopPropagation()}>
                                 {r.ref}
                               </Link>
                             </span>
@@ -250,7 +250,7 @@ export function HistoryScreen({ rows, open, counts, filter }: { rows: readonly H
                                 </div>
                               </div>
                               <div className={styles.detailActions}>
-                                <Link className={shell.secondaryAction} href={`/trades/${r.ref}`}>
+                                <Link className={shell.secondaryAction} href={r.peerDeal ? `/deals/${r.ref}` : `/trades/${r.ref}`}>
                                   Open the trade
                                   <ArrowIcon className={shell.actionIcon} />
                                 </Link>

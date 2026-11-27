@@ -28,7 +28,7 @@ const QUICK = [
   { label: '50k', amount: '50000' },
 ] as const;
 
-/** A target rate as the client types it: digits and one point, four places at most. */
+/** The client's own price as it types it (ADR 0033: a bound — never a worse price): digits and one point, four places at most. */
 const sanitizeRate = (raw: string): string | null => {
   const v = raw.replace(/[^\d.]/g, '');
   return /^\d{0,4}(\.\d{0,4})?$/.test(v) ? v : null;
@@ -56,11 +56,11 @@ export interface Who {
 export function RequestForm({ view, draft, who }: { view: ExchangeView; draft?: RequestDraft; who: Who }) {
   const { run, busy, error, dialog } = useCommand();
   const [direction, setDirection] = useState<Direction>(draft?.direction ?? 'SELL_USDT');
-  const [fixedSide, setFixedSide] = useState<'BASE' | 'QUOTE'>('BASE');
+  const [fixedSide, setFixedSide] = useState<'BASE' | 'QUOTE'>(draft?.fixedSide ?? 'BASE');
   const [amount, setAmount] = useState(draft?.amount ?? '');
   const [missing, setMissing] = useState(false);
-  const [targetOpen, setTargetOpen] = useState(false);
-  const [targetRate, setTargetRate] = useState('');
+  const [targetOpen, setTargetOpen] = useState(Boolean(draft?.targetRate));
+  const [targetRate, setTargetRate] = useState(draft?.targetRate ?? '');
   const [picking, setPicking] = useState(false);
   const [adding, setAdding] = useState<'bank' | 'wallet' | null>(null);
   const banks = view.destinations.banks;
@@ -163,7 +163,14 @@ export function RequestForm({ view, draft, who }: { view: ExchangeView; draft?: 
         {request?.status === 'DECLINED' && request.noPrice ? (
           <p className={shell.info} data-tone="warning" role="status">
             <InfoIcon className={shell.infoIcon} />
-            <span>{request.statusReason ?? 'No trader took it. Nothing was committed — ask again whenever you like.'}</span>
+            <span>
+              {request.statusReason ?? 'Nobody took it. Nothing was committed — ask again whenever you like.'}{' '}
+              {request.waitingUntil === null ? (
+                <Link className={shell.textAction} href={`/exchange?again=${encodeURIComponent(request.ref)}`}>
+                  Keep looking
+                </Link>
+              ) : null}
+            </span>
           </p>
         ) : request?.status === 'DECLINED' ? (
           <p className={shell.info} data-tone="warning" role="status">
@@ -171,6 +178,16 @@ export function RequestForm({ view, draft, who }: { view: ExchangeView; draft?: 
             <span>
               The desk declined {request.ref}
               {request.statusReason ? `: “${request.statusReason}”` : '.'} You can send a new request.
+            </span>
+          </p>
+        ) : view.makerDealRef ? (
+          <p className={shell.info} data-tone="success" role="status">
+            <InfoIcon className={shell.infoIcon} />
+            <span>
+              Another client met your price — your deal {view.makerDealRef} is under way.{' '}
+              <Link className={shell.textAction} href={`/deals/${view.makerDealRef}`}>
+                Open the deal
+              </Link>
             </span>
           </p>
         ) : view.openTradeRef ? (
@@ -334,7 +351,7 @@ export function RequestForm({ view, draft, who }: { view: ExchangeView; draft?: 
             <div className={styles.targetRow}>
               <div className={`${styles.leg} ${styles.targetField}`} data-fixed="true">
                 <label className={styles.legLabel} htmlFor={`${hintId}-target`}>
-                  Target rate · optional
+                  {sell ? 'Your price · not below' : 'Your price · not above'}
                 </label>
                 <div className={styles.legBox}>
                   <span className={styles.targetUnit}>₹</span>
@@ -368,7 +385,7 @@ export function RequestForm({ view, draft, who }: { view: ExchangeView; draft?: 
           ) : (
             <button type="button" className={styles.targetToggle} onClick={() => setTargetOpen(true)}>
               <PlusIcon />
-              Add a target rate
+              Set your price
             </button>
           )}
         </div>

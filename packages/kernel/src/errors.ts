@@ -115,6 +115,13 @@ export type DomainErrorCode =
   | 'DEPOSIT_ASSIGNMENT_CLOSED'
   | 'TRADER_EXISTS'
   | 'TRADER_NOT_APPROVED'
+  // ADR 0033: one book — meeting another client.
+  | 'PEER_OFF'
+  | 'PEER_NOT_AVAILABLE'
+  | 'PEER_MATCH_LIVE'
+  | 'PEER_PRICE_MOVED'
+  | 'PEER_MATCH_OVER'
+  | 'WAIT_TOO_SHORT'
   | 'TRADER_PAUSED'
   | 'TRADER_OFFLINE'
   | 'TRADER_ACTION_NOT_PERMITTED'

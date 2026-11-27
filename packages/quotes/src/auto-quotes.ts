@@ -25,6 +25,7 @@ import { memberClientCommand } from './desk-deals.ts';
 import type { QuoteDeps } from './policy.ts';
 import { type CreateRequestPayload, cancelSentQuoteOfRequest, closeRequest, openRequestInTx } from './requests.ts';
 import { businessNow, hitRateLimit } from './security.ts';
+import { endMeetingsOfRequestInTx, lookNow } from './peer.ts';
 
 /**
  * Automatic prices of the INRP2P exchange (docs/adr/0025-automatic-pricing.md, 0028-fully-automatic-exchange.md): a client
@@ -65,8 +66,8 @@ const SYSTEM_PRICER = 'SYSTEM:auto_price';
  * network's fees are not known, no firm offer takes the amount, none takes it at the market — or, put to traders, none bid
  * a price that does.
  */
-export type ManualReason = 'OFF' | 'NO_MARKET' | 'NETWORK_UNKNOWN' | 'NO_OFFER' | 'NOT_COMPETITIVE';
-export type NoPriceReason = Exclude<ManualReason, 'OFF'> | 'NO_BID';
+export type ManualReason = 'OFF' | 'NO_MARKET' | 'NETWORK_UNKNOWN' | 'NO_OFFER' | 'NOT_COMPETITIVE' | 'OUTSIDE_LIMIT';
+export type NoPriceReason = Exclude<ManualReason, 'OFF'> | 'NO_BID' | 'OUTSIDE_LIMIT';
 
 export type AutoOutcome =
   | { readonly kind: 'QUOTED'; readonly quoteId: string; readonly ref: string; readonly clientRate: string; readonly base: string; readonly clientInr: string; readonly expiresAt: string }
@@ -95,11 +96,17 @@ interface RequestRow {
   readonly status: string;
   readonly desk_id: string | null;
   readonly version: number;
+  /** ADR 0033: the client's own bound — never a price past it. */
+  readonly target_rate_micro: bigint | null;
+  readonly wait_hours: number | null;
+  readonly waiting_since: Date | null;
+  readonly held_lapses: number;
 }
 
 async function readRequest(ctx: TxContext, requestId: string): Promise<RequestRow> {
   const r = await ctx.tx.selectFrom('trade_request')
-    .select(['id', 'ref', 'client_id', 'direction', 'fixed_side', 'requested_base_minor', 'requested_quote_minor', 'bank_account_id', 'crypto_wallet_id', 'network', 'status', 'desk_id', 'version'])
+    .select(['id', 'ref', 'client_id', 'direction', 'fixed_side', 'requested_base_minor', 'requested_quote_minor', 'bank_account_id', 'crypto_wallet_id', 'network', 'status', 'desk_id', 'version',
+      'target_rate_micro', 'wait_hours', 'waiting_since', 'held_lapses'])
     .where('id', '=', requireUuid(requestId, 'requestId'))
     .executeTakeFirst();
   if (!r) throw new DomainError('NOT_FOUND', 'request not found');
@@ -199,6 +206,7 @@ async function price(ctx: TxContext, pc: PriceContext, offers: readonly PricedOf
     clientNetworkMinor: clientNetworkOf(pc.network),
     minNetMarginInrMinor: pc.network.mode === 'GASFREE' ? pc.network.terms.minNetMarginInrMinor : pc.network.minNetMarginInrMinor,
     evidence,
+    clientBoundMicro: pc.request.target_rate_micro,
   });
 }
 
@@ -403,7 +411,11 @@ export async function autoPriceLockedInTx(ctx: TxContext, input: { requestId: st
 }
 
 /** ADR 0032: what the client is told when the exchange stopped looking and found no price. */
-export const WAIT_ENDED_TEXT = `No trader could take this amount in the ${WAIT_HOURS} hours we looked. Nothing was committed — ask again whenever you like.`;
+export const WAIT_ENDED_TEXT = 'Nobody could take this amount in the time we looked. Nothing was committed — keep looking with the same terms whenever you like.';
+/** ADR 0033: the wait lengths a client chooses from, in hours. */
+export const WAIT_CHOICES = [1, 24, 72, 168] as const;
+/** ADR 0033: after this many held prices lapsed unanswered, a wait holds no more trader capacity for its client. */
+export const MAX_HELD_LAPSES = 2;
 
 /**
  * For an amount no firm offer takes: the amounts the firm offers do take now, in whole USDT at the market reference — what
@@ -451,6 +463,12 @@ export interface WaitingFacts {
   readonly on: 'MARKET' | 'TRADERS';
   /** The traders with this side, told that a client waits on it (none while it waits on the market). */
   readonly tradersTold: number;
+  /** ADR 0033: of them, online now with that side taking orders — what "traders know" honestly means at this moment. */
+  readonly tradersOnline: number;
+  /** ADR 0033: the wait's length the client chose, in hours (24 unless it chose another). */
+  readonly waitHours: number;
+  /** ADR 0033: held prices that lapsed; at `MAX_HELD_LAPSES` the client asks for a price itself when it is back. */
+  readonly heldLapses: number;
   /** Requests on the same side that started waiting before this one: the sweep prices them first. */
   readonly ahead: number;
   /** The most a firm offer takes right now, in whole USDT, when the client could ask for that and be priced at once. */
@@ -460,12 +478,12 @@ export interface WaitingFacts {
 /** ADR 0032: the wait of a request, for its client's screen; null when it does not wait. */
 export async function waitingFactsOf(ex: Executor, requestId: string): Promise<WaitingFacts | null> {
   const r = await ex.selectFrom('trade_request')
-    .select(['id', 'client_id', 'direction', 'status', 'status_reason', 'no_price_reason', 'waiting_since', 'waiting_until'])
+    .select(['id', 'client_id', 'direction', 'status', 'status_reason', 'no_price_reason', 'waiting_since', 'waiting_until', 'wait_hours', 'held_lapses'])
     .where('id', '=', requireUuid(requestId, 'requestId'))
     .executeTakeFirst();
   if (!r || r.status !== 'OPEN' || !r.waiting_until || !r.waiting_since) return null;
   const on = r.no_price_reason === 'NO_MARKET' || r.no_price_reason === 'NETWORK_UNKNOWN' ? 'MARKET' : 'TRADERS';
-  const [told, ahead] = await Promise.all([
+  const [told, ahead, online] = await Promise.all([
     on === 'MARKET'
       ? Promise.resolve({ n: '0' })
       : ex.selectFrom('trader_profile as t')
@@ -478,12 +496,22 @@ export async function waitingFactsOf(ex: Executor, requestId: string): Promise<W
       .where('status', '=', 'OPEN').where('waiting_until', 'is not', null).where('direction', '=', r.direction)
       .where(sql<boolean>`(waiting_since, id) < (${r.waiting_since}, ${r.id}::uuid)`)
       .executeTakeFirstOrThrow(),
+    ex.selectFrom('trader_profile as t')
+      .innerJoin('trader_block as b', 'b.trader_id', 't.id')
+      .innerJoin('liquidity_route as l', 'l.id', 'b.route_id')
+      .select(sql<string>`count(distinct t.id)`.as('n'))
+      .where('t.status', '=', 'APPROVED').where('t.available', '=', true).where('t.assignments_enabled', '=', true).where('t.client_id', '<>', r.client_id)
+      .where('b.side', '=', sideFor(r.direction)).where('b.status', '=', 'ACTIVE').where('l.execution_mode', '=', 'P2P')
+      .executeTakeFirstOrThrow(),
   ]);
   return {
     since: r.waiting_since.toISOString(),
     until: r.waiting_until.toISOString(),
     on,
     tradersTold: Number.parseInt(told.n, 10),
+    tradersOnline: Number.parseInt(online.n, 10),
+    waitHours: r.wait_hours ?? WAIT_HOURS,
+    heldLapses: r.held_lapses,
     ahead: Number.parseInt(ahead.n, 10),
     readyNowUsdt: on === 'TRADERS' ? readyNowMaxOf(r.status_reason) : null,
   };
@@ -500,7 +528,7 @@ async function keepWaiting(ctx: TxContext, request: RequestRow, reason: NoPriceR
   const current = await ctx.tx.selectFrom('trade_request').select(['status', 'version', 'waiting_since', 'waiting_until']).where('id', '=', request.id).executeTakeFirstOrThrow();
   const now = await businessNow(ctx.tx);
   const fresh = current.waiting_until === null;
-  const until = fresh ? new Date(now.getTime() + WAIT_HOURS * 3_600_000) : current.waiting_until!;
+  const until = fresh ? new Date(now.getTime() + (request.wait_hours ?? WAIT_HOURS) * 3_600_000) : current.waiting_until!;
   await ctx.tx.updateTable('trade_request')
     .set({
       status_reason: hint, no_price_reason: reason, waiting_since: fresh ? now : current.waiting_since, waiting_until: until,
@@ -753,6 +781,9 @@ export async function lookAgainInTx(ctx: TxContext, requestId: string): Promise<
   }
   if ((await newBusinessState(ctx.tx)).paused) return 'STILL_WAITING';
   if (await ctx.tx.selectFrom('rfq').select('id').where('trade_request_id', '=', requestId).where('status', '=', 'OPEN').executeTakeFirst()) return 'STILL_WAITING';
+  // ADR 0033: a request in a meeting is the meeting's until it ends — its other client has its word for the hour.
+  if (await ctx.tx.selectFrom('peer_match').select('id').where('status', '=', 'WAITING_MAKER')
+    .where((w) => w.or([w('taker_request_id', '=', requestId), w('maker_request_id', '=', requestId)])).executeTakeFirst()) return 'STILL_WAITING';
   const policy = await currentPricingPolicy(ctx.tx);
   if (!policy.autoQuote) {
     await ctx.tx.updateTable('trade_request').set({ waiting_until: null, version: row.version + 1 }).where('id', '=', requestId).execute();
@@ -780,6 +811,8 @@ export async function lookAgainInTx(ctx: TxContext, requestId: string): Promise<
     return 'STILL_WAITING';
   }
 
+  // ADR 0033: a client away for two held prices is not held a third; it sees what is ready when it comes back.
+  if (request.held_lapses >= MAX_HELD_LAPSES) return 'STILL_WAITING';
   // Something prices it: every trader it could go to is locked, then priced on the candidates as they are now.
   await lockInOrder(ctx.tx, 'trader_profile', 'trader_profile', peek.map((c) => c.traderId));
   const locked = await candidates(ctx, request, network, reference, market);
@@ -797,13 +830,14 @@ export async function lookAgainInTx(ctx: TxContext, requestId: string): Promise<
 
 /** The wait is over with no price: the request closes declined, as ADR 0028 closed it at once, and the client is told. */
 async function endWait(ctx: TxContext, request: RequestRow, version: number): Promise<void> {
+  await endMeetingsOfRequestInTx(ctx, request.id, 'CLOSED');
   await ctx.tx.updateTable('trade_request')
     .set({ status: 'DECLINED', status_reason: WAIT_ENDED_TEXT, waiting_until: null, closed_at: sql<Date>`inrp2p_now()`, last_activity_at: sql<Date>`inrp2p_now()`, version: version + 1 })
     .where('id', '=', request.id)
     .execute();
   await appendAudit(ctx, {
     action: 'request.declined', entityType: 'trade_request', entityId: request.id,
-    before: { status: 'OPEN' }, after: { status: 'DECLINED', reason: WAIT_ENDED_TEXT, by: SYSTEM_PRICER, waited_hours: WAIT_HOURS },
+    before: { status: 'OPEN' }, after: { status: 'DECLINED', reason: WAIT_ENDED_TEXT, by: SYSTEM_PRICER, waited_hours: request.wait_hours ?? WAIT_HOURS },
   });
   await enqueueOutbox(ctx, { type: 'client.request_wait_ended', aggregateType: 'trade_request', aggregateId: request.id, payload: { requestId: request.id, clientId: request.client_id } });
 }
@@ -817,8 +851,9 @@ export interface WaitingSweepReport extends Record<WaitingResult, number> {
  * first to ask is the first a trader's price goes to — each in its own step; one that fails is looked at next minute and
  * never holds up the rest.
  */
-export async function runWaitingSweep(db: Db, limit = 100): Promise<WaitingSweepReport> {
+export async function runWaitingSweep(db: Db, limit = 100, direction: DirectionValue | null = null): Promise<WaitingSweepReport> {
   const due = await db.selectFrom('trade_request').select('id').where('status', '=', 'OPEN').where('waiting_until', 'is not', null)
+    .$if(direction !== null, (q) => q.where('direction', '=', direction!))
     .orderBy('waiting_since').orderBy('id').limit(limit).execute();
   const report: Record<WaitingResult, number> = { STILL_WAITING: 0, PRICED: 0, ENDED: 0, TO_A_PERSON: 0, GONE: 0 };
   const failures: { requestId: string; code: string; message: string }[] = [];
@@ -837,6 +872,60 @@ export async function runWaitingSweep(db: Db, limit = 100): Promise<WaitingSweep
 }
 
 /**
+ * ADR 0033 §2.2: a price held for a waiting client (or a meeting's quote) that lapsed returns its request to the wait — the
+ * same place in line, the same end — instead of to a person's queue; the client is told. Past its end the wait closes as
+ * any wait does. Returns whether it took the request back; the caller holds the request's and the quote's locks.
+ */
+export async function resumeWaitInTx(ctx: TxContext, quoteId: string): Promise<boolean> {
+  const q = await ctx.tx.selectFrom('quote as q').leftJoin('auto_quote as a', 'a.quote_id', 'q.id')
+    .select(['q.trade_request_id', 'q.created_by', 'a.held']).where('q.id', '=', quoteId).executeTakeFirstOrThrow();
+  const r = await ctx.tx.selectFrom('trade_request').select(['status', 'version', 'waiting_since', 'wait_hours', 'held_lapses', 'client_id']).where('id', '=', q.trade_request_id).executeTakeFirstOrThrow();
+  // Any price of a request that waited goes back to the wait when it lapses; only a held one counts as the client away.
+  if (r.status !== 'QUOTED' || r.waiting_since === null) return false;
+  const held = q.held === true || q.created_by === 'SYSTEM:peer_match';
+  const other = await ctx.tx.selectFrom('quote').select('id').where('trade_request_id', '=', q.trade_request_id).where('status', '=', 'SENT').where('id', '<>', quoteId).executeTakeFirst();
+  if (other) return false;
+  const now = await businessNow(ctx.tx);
+  const until = new Date(r.waiting_since.getTime() + (r.wait_hours ?? WAIT_HOURS) * 3_600_000);
+  if (until <= now) {
+    await ctx.tx.updateTable('trade_request')
+      .set({ status: 'DECLINED', status_reason: WAIT_ENDED_TEXT, closed_at: sql<Date>`inrp2p_now()`, last_activity_at: sql<Date>`inrp2p_now()`, version: r.version + 1 })
+      .where('id', '=', q.trade_request_id).execute();
+    await appendAudit(ctx, { action: 'request.declined', entityType: 'trade_request', entityId: q.trade_request_id, before: { status: 'QUOTED' }, after: { status: 'DECLINED', reason: WAIT_ENDED_TEXT, by: SYSTEM_PRICER } });
+    await enqueueOutbox(ctx, { type: 'client.request_wait_ended', aggregateType: 'trade_request', aggregateId: q.trade_request_id, payload: { requestId: q.trade_request_id, clientId: r.client_id } });
+    return true;
+  }
+  await ctx.tx.updateTable('trade_request')
+    .set({ status: 'OPEN', waiting_until: until, held_lapses: held ? r.held_lapses + 1 : r.held_lapses, last_activity_at: sql<Date>`inrp2p_now()`, version: r.version + 1 })
+    .where('id', '=', q.trade_request_id).execute();
+  await appendAudit(ctx, { action: 'request.waiting_resumed', entityType: 'trade_request', entityId: q.trade_request_id, before: { status: 'QUOTED' }, after: { status: 'OPEN', waiting_until: until, held_lapses: held ? r.held_lapses + 1 : r.held_lapses } });
+  if (held) await enqueueOutbox(ctx, { type: 'client.waiting_resumed', aggregateType: 'trade_request', aggregateId: q.trade_request_id, payload: { requestId: q.trade_request_id, clientId: r.client_id, until: until.toISOString() } });
+  return true;
+}
+
+/**
+ * `request.set_wait` — ADR 0033 §2.2: how long the exchange keeps looking is the client's — an hour, a day, three days or
+ * a week from when its request started waiting. A length already behind it is refused.
+ */
+export function setWait(actor: ClientActor) {
+  return memberClientCommand(actor, async (ctx, p: { requestId: string; hours: number }, clientId) => {
+    const hours = WAIT_CHOICES.find((h) => h === p.hours);
+    if (!hours) throw new DomainError('INVALID_ARGUMENT', 'look for an hour, a day, three days or a week', { field: 'hours' });
+    const id = requireUuid(p.requestId, 'requestId');
+    await lockRow(ctx.tx, 'trade_request', 'trade_request', id);
+    const r = await ctx.tx.selectFrom('trade_request').select(['client_id', 'status', 'waiting_since', 'waiting_until', 'wait_hours', 'version']).where('id', '=', id).executeTakeFirst();
+    if (!r || r.client_id !== clientId) throw new DomainError('NOT_FOUND', 'request not found');
+    if (r.status !== 'OPEN' || r.waiting_until === null || r.waiting_since === null) throw new DomainError('REQUEST_NOT_OPEN', 'this request is not waiting');
+    const now = await businessNow(ctx.tx);
+    const until = new Date(r.waiting_since.getTime() + hours * 3_600_000);
+    if (until <= new Date(now.getTime() + 60_000)) throw new DomainError('WAIT_TOO_SHORT', 'it has waited that long already — choose a longer time');
+    await ctx.tx.updateTable('trade_request').set({ wait_hours: hours, waiting_until: until, last_activity_at: sql<Date>`inrp2p_now()`, version: r.version + 1 }).where('id', '=', id).execute();
+    await appendAudit(ctx, { action: 'request.wait_set', entityType: 'trade_request', entityId: id, before: { wait_hours: r.wait_hours, waiting_until: r.waiting_until }, after: { wait_hours: hours, waiting_until: until } });
+    return { waitingUntil: until.toISOString(), hours };
+  });
+}
+
+/**
  * `reference_rate_refresh` (cron, every five minutes): the market's bid and ask read from public books and published as the
  * references automatic prices are bounded by, under the system actor (`recordMarketReference`).
  */
@@ -844,7 +933,15 @@ export async function runMarketReferenceRefresh(db: Db, read: () => Promise<{ bi
   const reading = await read();
   // A reading every five minutes, recorded and audited as itself; no idempotency key — one nobody could present again
   // replays nothing (see `scanner/system.ts`).
-  const out = await executeCommand(db, { authorize: async () => {}, handle: (ctx) => recordMarketReference(ctx, reading) }, {
+  const out = await executeCommand(db, {
+    authorize: async () => {},
+    handle: async (ctx) => {
+      const recorded = await recordMarketReference(ctx, reading);
+      // ADR 0033 §2.7: a new market reading may price a waiting request now.
+      if (recorded.recorded.length > 0) await lookNow(ctx, null);
+      return recorded;
+    },
+  }, {
     name: 'rates.market_reference_read', actor: SYSTEM, payload: { source: reading.source }, idempotencyKey: null, financial: false,
   });
   return { ...out.result, source: reading.source };
@@ -904,6 +1001,8 @@ export function requestInstantQuote(actor: ClientActor, deps: QuoteDeps) {
       .where('status', 'in', ['OPEN', 'QUOTED']).execute()).map((r) => r.id);
     const opened = await openRequestInTx(ctx, deps, { clientId, payload, channel: 'CLIENT_APP' });
     for (const id of [...previous, opened.requestId].sort()) await lockRow(ctx.tx, 'trade_request', 'trade_request', id);
+    // ADR 0033: a request replaced ends its meeting first, before any quote is touched (lock order).
+    for (const id of previous) await endMeetingsOfRequestInTx(ctx, id, 'TAKER_WITHDREW');
     for (const id of previous) await cancelSentQuoteOfRequest(ctx, id, 'SUPERSEDED');
     const outcome = await autoPriceLockedInTx(ctx, { requestId: opened.requestId, supersede: previous });
     return { ...opened, outcome };
@@ -936,8 +1035,8 @@ export async function automaticPricingOf(ex: Executor, requestId: string): Promi
   const [policy, rfq, request] = await Promise.all([
     currentPricingPolicy(ex),
     ex.selectFrom('rfq').select('closes_at').where('trade_request_id', '=', requestId).where('status', '=', 'OPEN').executeTakeFirst(),
-    ex.selectFrom('trade_request').select('waiting_until').where('id', '=', requestId).executeTakeFirst(),
+    ex.selectFrom('trade_request').select(['waiting_until', 'held_lapses']).where('id', '=', requestId).executeTakeFirst(),
   ]);
   const waitingUntil = request?.waiting_until ?? null;
-  return { rfqClosesAt: rfq ? rfq.closes_at.toISOString() : null, waitingUntil: waitingUntil ? waitingUntil.toISOString() : null, canReprice: policy.autoQuote && !rfq && !waitingUntil };
+  return { rfqClosesAt: rfq ? rfq.closes_at.toISOString() : null, waitingUntil: waitingUntil ? waitingUntil.toISOString() : null, canReprice: policy.autoQuote && !rfq && (!waitingUntil || (request?.held_lapses ?? 0) >= MAX_HELD_LAPSES) };
 }

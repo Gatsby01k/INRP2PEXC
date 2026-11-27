@@ -27,6 +27,11 @@ export interface HistoryRow {
    * four) or its wallet (label, address) — the same masked facts the client already sees on Bank & wallets.
    */
   readonly landing?: HistoryLanding | null;
+  /**
+   * ADR 0033: a deal where this client was the other side of a meeting — another client took its price. `ref` is then the
+   * deal's own reference and it opens at `/deals/<ref>`; its figures are this client's.
+   */
+  readonly peerDeal?: boolean;
 }
 
 export type HistoryLanding =
@@ -59,8 +64,34 @@ export async function clientHistory(ex: Executor, clientId: string, query: Histo
 
   const rows = await q.execute();
   const landing = query.withLanding && rows.length > 0 ? await landingsOf(ex, clientId, rows.map((r) => r.ref)) : null;
+  // ADR 0033: the deals this client was the other side of — its own amounts and rate, at its personal side's order.
+  let peer = ex
+    .selectFrom('trader_order as o')
+    .innerJoin('trader_profile as p', 'p.id', 'o.trader_id')
+    .innerJoin('trade as t', 't.id', 'o.trade_id')
+    .select(['o.ref', 'o.side', 'o.base_minor', 'o.inr_minor', 'o.rate_micro', 't.lifecycle_state', 't.hold', 't.opened_at', 't.completed_at', 't.cancelled_at'])
+    .where('p.client_id', '=', clientId)
+    .where('p.status', '=', 'PERSONAL')
+    .orderBy('t.opened_at', 'desc')
+    .limit(Math.min(query.limit ?? 50, 200));
+  if (query.filter === 'open') peer = peer.where('t.lifecycle_state', 'not in', ['COMPLETED', 'CANCELLED']);
+  if (query.filter === 'completed') peer = peer.where('t.lifecycle_state', '=', 'COMPLETED');
+  const peerRows = (await peer.execute()).map((r) => ({
+    ref: r.ref,
+    direction: r.side === 'SELL_USDT' ? ('SELL_USDT' as const) : ('BUY_USDT' as const),
+    status: r.lifecycle_state,
+    base: Money.ofMinor(r.base_minor, 'USDT').toDecimalString(),
+    inr: Money.ofMinor(r.inr_minor, 'INR').toDecimalString(),
+    clientRate: Rate.ofMicro(r.rate_micro, 'CLIENT').toDecimalString(),
+    openedAt: r.opened_at.toISOString(),
+    closedAt: (r.completed_at ?? r.cancelled_at)?.toISOString() ?? null,
+    onHold: r.hold,
+    receipt: false,
+    peerDeal: true,
+    ...(landing ? { landing: null } : {}),
+  }));
   return clientSafe(
-    rows.map((r) => ({
+    [...rows.map((r) => ({
       ref: r.ref,
       direction: r.direction,
       status: r.lifecycle_state,
@@ -72,7 +103,9 @@ export async function clientHistory(ex: Executor, clientId: string, query: Histo
       onHold: r.hold,
       receipt: r.has_receipt === true,
       ...(landing ? { landing: landing.get(r.ref) ?? null } : {}),
-    })),
+    })), ...peerRows]
+      .sort((a, b) => (a.openedAt < b.openedAt ? 1 : a.openedAt > b.openedAt ? -1 : 0))
+      .slice(0, Math.min(query.limit ?? 50, 200)),
   );
 }
 
@@ -107,8 +140,11 @@ export async function historyCounts(ex: Executor, clientId: string): Promise<His
     select count(*)::int as "all",
            count(*) filter (where lifecycle_state not in ('COMPLETED', 'CANCELLED'))::int as "open",
            count(*) filter (where lifecycle_state = 'COMPLETED')::int as "completed"
-    from trade
-    where client_id = ${clientId}
+    from (select lifecycle_state from trade where client_id = ${clientId}
+          union all
+          -- ADR 0033: the deals this client was the other side of.
+          select t.lifecycle_state from trader_order o join trader_profile p on p.id = o.trader_id join trade t on t.id = o.trade_id
+           where p.client_id = ${clientId} and p.status = 'PERSONAL') deals
   `.execute(ex);
   const row = r.rows[0]!;
   return clientSafe({ all: row.all, open: row.open, completed: row.completed });

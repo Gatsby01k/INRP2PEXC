@@ -26,6 +26,9 @@ export type Direction = 'SELL_USDT' | 'BUY_USDT';
 export interface RequestDraft {
   readonly direction: Direction;
   readonly amount?: string;
+  /** ADR 0033 "Keep looking": the same terms again — which currency was fixed, and the client's own price. */
+  readonly fixedSide?: 'BASE' | 'QUOTE';
+  readonly targetRate?: string;
 }
 
 /** What the page does, as the stage shows it before there is a request. */

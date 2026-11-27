@@ -84,6 +84,7 @@ export async function deskTraders(ex: Executor): Promise<{ program: DeskProgram;
            (select count(*) from trader_order o join route_obligation r on r.id = o.route_obligation_id
              where o.trader_id = t.id and o.status = 'IN_PROGRESS' and r.status in ('OPEN', 'PARTIALLY_SETTLED'))::text as unresolved
     from trader_profile t join client c on c.id = t.client_id
+   where t.status <> 'PERSONAL'
     order by (t.status = 'UNDER_REVIEW') desc,
              ((t.proposed_bank_account_id is not null and exists (select 1 from bank_account b where b.id = t.proposed_bank_account_id and b.status = 'PENDING_REVIEW'))
               or (t.proposed_wallet_id is not null and exists (select 1 from crypto_wallet w where w.id = t.proposed_wallet_id and w.status = 'PENDING_REVIEW'))) desc,

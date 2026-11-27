@@ -2,6 +2,7 @@ import { sql } from 'kysely';
 import { DomainError, Money, Rate, assertMarketOffset, requireOneOf } from '@inrp2p/kernel';
 import type { InrRailValue, TraderSide } from '@inrp2p/db';
 import { appendAudit } from '@inrp2p/audit';
+import { enqueueOutbox } from '@inrp2p/outbox';
 import type { ClientActor } from '@inrp2p/identity';
 import { publishTraderRate } from '@inrp2p/pricing';
 import { lockTraderOfClient, traderClientCommand, lockBlock, withdrawOffers } from '@inrp2p/trader-core';
@@ -40,6 +41,8 @@ export function setAvailability(actor: ClientActor) {
     }
     await ctx.tx.updateTable('trader_profile').set({ available: on, updated_at: sql<Date>`inrp2p_now()`, version: trader.version + 1 }).where('id', '=', trader.id).execute();
     await appendAudit(ctx, { action: 'trader.availability_changed', entityType: 'trader_profile', entityId: trader.id, before: { available: trader.available }, after: { available: on, offers_withdrawn: withdrawn } });
+    // ADR 0033 §2.7: a trader coming online may price a waiting client now, not on the next minute.
+    if (on) await enqueueOutbox(ctx, { type: 'waiting.look_now', aggregateType: 'trader_profile', aggregateId: trader.id, payload: { direction: null } });
     return { available: on, changed: true, offersWithdrawn: withdrawn };
   });
 }
@@ -199,6 +202,8 @@ export function updateBlock(actor: ClientActor) {
       },
       after: { ...after, offers_withdrawn: withdrawn },
     });
+    // ADR 0033 §2.7: a side that changed may price a waiting client of that direction now.
+    await enqueueOutbox(ctx, { type: 'waiting.look_now', aggregateType: 'trader_block', aggregateId: block.id, payload: { direction: block.side === 'BUY_USDT' ? 'SELL_USDT' : 'BUY_USDT' } });
     return { version: after.version, offersWithdrawn: withdrawn, firmUntil: after.instant_until ? after.instant_until.toISOString() : null, firmOpenEnded: after.instant_open_ended };
   });
 }

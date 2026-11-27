@@ -899,6 +899,60 @@ label.destination:has(input:checked) .radioMark {
   gap: var(--space-3);
 }
 
+/* ADR 0033: how long to keep looking — four lengths in one quiet row, the chosen one filled. */
+.lookFor {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  width: 100%;
+  margin-bottom: var(--space-1);
+}
+
+.lookForLabel {
+  color: var(--text-secondary);
+  font-size: var(--font-size-meta);
+}
+
+.lookForOptions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px;
+  padding: 4px;
+  border-radius: var(--radius-pill);
+  background: var(--paper);
+}
+
+.lookForOptions button {
+  min-height: 34px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+}
+
+.lookForOptions button[data-on] {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  box-shadow: var(--lift-ctl);
+  cursor: default;
+}
+
+.lookForOptions button:disabled:not([data-on]) {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.lookForOptions button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 /* ——— With the desk ——— */
 
 .pricing {

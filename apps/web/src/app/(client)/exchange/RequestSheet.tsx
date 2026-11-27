@@ -106,7 +106,7 @@ export function RequestSheet({
               <RateIcon />
             </span>
             <span className={stage.rowText}>
-              <span className={shell.label}>Your target rate</span>
+              <span className={shell.label}>{sell ? 'Your price, not below' : 'Your price, not above'}</span>
               <b>{targetRate} per USDT</b>
             </span>
           </div>
