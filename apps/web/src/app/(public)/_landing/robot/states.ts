@@ -163,6 +163,10 @@ export type ExpressionName =
  * - Success: the eyes bend into two full arches — pleased, not elated.
  * - Help / alert: the eyes open a touch with their inner ends lifted — concern, not alarm — and the antenna's tip
  *   lights orange, twice, then holds.
+ *
+ * The home page's character (docs/ROBOT_BEHAVIOUR.md) adds a few more from the same numbers and three new shapes —
+ * stars, a blush, the Z's of sleep: star-struck, smitten, drowsy, asleep, startled, giggling, content, pleading and
+ * watching. None of them is ever a state of record.
  */
 const FACE = { smile: 0, lid: 0, tilt: 0, squint: 0, dots: 0, beacon: 0, wide: 0, heart: 0, star: 0, blush: 0, sleep: 0 } as const;
 
