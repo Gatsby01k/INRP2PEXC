@@ -54,13 +54,39 @@ export type RobotState =
   /** An ordinary amount has just settled: a pleased look at it, then at the visitor. */
   | 'pleased'
   /** At rest, the robot reads the page's headline for a moment, head tilted — curious. */
-  | 'curious';
+  | 'curious'
+  /*
+   * The home page's character (docs/ROBOT_BEHAVIOUR.md): what it does about the visitor rather than the quote. None of
+   * these happens while a state of record holds, so the workspace never sees them.
+   */
+  /** A very large amount has just settled: star eyes, two hops — star-struck. */
+  | 'starstruck'
+  /** The visitor has stayed on the call to action a while: hearts for it, and a little bounce. */
+  | 'smitten'
+  /** The visitor pressed the call to action: hearts beating, both arms up, a bounce. */
+  | 'delight'
+  /** The page is scrolling down past the robot: it looks down after the visitor, curious. */
+  | 'watching'
+  /** Back at the top after reading: a lean towards the converter — the next step — with the visor pointing at it. */
+  | 'invite'
+  /** Left alone a long while: the lids grow heavy and the head sinks; once, it catches itself. */
+  | 'drowsy'
+  /** Asleep: the eyes closed, Z's rising, the lights down, breathing deeply. */
+  | 'asleep'
+  /** Woken: the eyes snap wide, a hop, two blinks — and then a greeting. */
+  | 'startled'
+  /** Poked: the eyes squeezed into happy arcs, a blush, a jiggle. */
+  | 'giggle'
+  /** The pointer resting on its head: happy closed eyes, a blush, the head leaning into it. */
+  | 'content'
+  /** The pointer has left the window through its top edge: puppy eyes, looking up after it. */
+  | 'pleading';
 
 /**
  * The places attention can go. The page supplies where they are; `viewer` is the camera. `entry` is the one
  * target outside the hero: the masthead's way into the workspace.
  */
-export type LookTarget = 'viewer' | 'panel' | 'amount' | 'toggle' | 'rate' | 'cta' | 'entry' | 'pointer' | 'title';
+export type LookTarget = 'viewer' | 'panel' | 'amount' | 'toggle' | 'rate' | 'cta' | 'entry' | 'pointer' | 'title' | 'reading' | 'exit';
 
 /**
  * When a target is not on the page, attention falls back towards the module, then the visitor. The masthead is
@@ -76,6 +102,10 @@ export const LOOK_FALLBACK: Record<LookTarget, LookTarget | null> = {
   entry: 'viewer',
   pointer: 'viewer',
   title: 'viewer',
+  /** Where the visitor is reading once the page has scrolled on past the robot: the middle of the window below it. */
+  reading: 'viewer',
+  /** Where the pointer left the window: at its top edge, above the last place it was. */
+  exit: 'viewer',
 };
 
 /**
@@ -94,9 +124,34 @@ export interface Expression {
   readonly wide: number;
   /** Eyes become hearts. */
   readonly heart: number;
+  /** Eyes become five-pointed stars. */
+  readonly star: number;
+  /** A blush under each eye: a soft glow and three short strokes. */
+  readonly blush: number;
+  /** Asleep: Z's rising from the corner of the visor. */
+  readonly sleep: number;
 }
 
-export type ExpressionName = 'neutral' | 'welcome' | 'verifying' | 'waiting' | 'success' | 'alert' | 'excited' | 'wow' | 'love' | 'curious';
+export type ExpressionName =
+  | 'neutral'
+  | 'welcome'
+  | 'verifying'
+  | 'waiting'
+  | 'success'
+  | 'alert'
+  | 'excited'
+  | 'wow'
+  | 'love'
+  | 'curious'
+  | 'starstruck'
+  | 'smitten'
+  | 'drowsy'
+  | 'asleep'
+  | 'startled'
+  | 'giggle'
+  | 'content'
+  | 'pleading'
+  | 'watching';
 
 /**
  * The robot's five expressions, and the neutral face it rests in. Each is minimal on purpose — two shapes of light,
@@ -108,8 +163,12 @@ export type ExpressionName = 'neutral' | 'welcome' | 'verifying' | 'waiting' | '
  * - Success: the eyes bend into two full arches — pleased, not elated.
  * - Help / alert: the eyes open a touch with their inner ends lifted — concern, not alarm — and the antenna's tip
  *   lights orange, twice, then holds.
+ *
+ * The home page's character (docs/ROBOT_BEHAVIOUR.md) adds a few more from the same numbers and three new shapes —
+ * stars, a blush, the Z's of sleep: star-struck, smitten, drowsy, asleep, startled, giggling, content, pleading and
+ * watching. None of them is ever a state of record.
  */
-const FACE = { smile: 0, lid: 0, tilt: 0, squint: 0, dots: 0, beacon: 0, wide: 0, heart: 0 } as const;
+const FACE = { smile: 0, lid: 0, tilt: 0, squint: 0, dots: 0, beacon: 0, wide: 0, heart: 0, star: 0, blush: 0, sleep: 0 } as const;
 
 export const EXPRESSIONS: Record<ExpressionName, Expression> = {
   neutral: FACE,
@@ -126,6 +185,24 @@ export const EXPRESSIONS: Record<ExpressionName, Expression> = {
   love: { ...FACE, heart: 1, beacon: 0.4 },
   /** Reading something interesting: the inner ends of the lids lifted a touch. */
   curious: { ...FACE, lid: 0.06, tilt: -0.22, wide: 0.15 },
+  /** A whale: two stars, the antenna blazing. */
+  starstruck: { ...FACE, star: 1, beacon: 1 },
+  /** Fond of the button the visitor is on: hearts and a light blush. */
+  smitten: { ...FACE, heart: 1, blush: 0.45, beacon: 0.35 },
+  /** Heavy lids, sloping down at their inner ends: the look of someone fighting sleep. */
+  drowsy: { ...FACE, lid: 0.48, tilt: 0.12 },
+  /** Closed: the lids flat (`eyes.aperture` closes them), Z's rising. */
+  asleep: { ...FACE, sleep: 1 },
+  /** Woken with a start: round eyes, the small round mouth, the antenna lit. */
+  startled: { ...FACE, wide: 1, beacon: 0.6 },
+  /** Giggling: squeezed happy arcs and a full blush. */
+  giggle: { ...FACE, smile: 1, blush: 1 },
+  /** Being patted: happy arcs, a softer blush. */
+  content: { ...FACE, smile: 1, blush: 0.7 },
+  /** Puppy eyes: wide, the inner ends of the lids raised high. */
+  pleading: { ...FACE, wide: 0.5, lid: 0.12, tilt: -0.6 },
+  /** Watching the visitor go down the page: the inner lids lifted, a little wide — interested. */
+  watching: { ...FACE, lid: 0.04, tilt: -0.3, wide: 0.22 },
 };
 
 /**
@@ -526,6 +603,193 @@ export const STATES: Record<RobotState, StateSpec> = {
     settle: 0.6,
     drift: false,
   },
+  starstruck: {
+    // A whale: a look at the amount, then at the visitor, eyes turned to stars — rocked back further than `wow`.
+    attention: (elapsed) => (elapsed < 0.4 ? 'amount' : 'viewer'),
+    head: { yaw: 0.34, pitch: 0.4, share: 0.55, ease: 0.2 },
+    eyes: { aperture: 1.08, time: 0.12, gain: 1.28, notice: true, focus: 0 },
+    face: EXPRESSIONS.starstruck,
+    faceTime: 0.1,
+    lean: -0.05,
+    turn: 0,
+    chin: 0.11,
+    roll: 0.05,
+    breath: 0.6,
+    blinks: false,
+    accent: 0.95,
+    settle: 0.35,
+    drift: false,
+  },
+  smitten: {
+    // Still on the button, eyes and all — but now fond of it: hearts, a blush, the head tilted towards it.
+    attention: () => 'cta',
+    head: { yaw: 0.45, pitch: 0.5, share: 0.45, ease: 0.3 },
+    eyes: { aperture: 1.04, time: 0.2, gain: 1.15, notice: false, focus: 0 },
+    face: EXPRESSIONS.smitten,
+    faceTime: 0.2,
+    lean: 0.04,
+    turn: 0.05,
+    chin: 0.02,
+    roll: 0.1,
+    breath: 0.9,
+    blinks: false,
+    accent: 0.8,
+    settle: 0.5,
+    drift: false,
+  },
+  delight: {
+    // The visitor asked for a price: face them, chin up, hearts beating, both arms up (`behaviour.ts`).
+    attention: () => 'viewer',
+    head: { yaw: 0.36, pitch: 0.42, share: 0.5, ease: 0.2 },
+    eyes: { aperture: 1.06, time: 0.12, gain: 1.25, notice: true, focus: 0 },
+    face: EXPRESSIONS.smitten,
+    faceTime: 0.1,
+    lean: -0.035,
+    turn: 0,
+    chin: 0.09,
+    roll: 0.06,
+    breath: 0.6,
+    blinks: false,
+    accent: 0.95,
+    settle: 0.35,
+    drift: false,
+  },
+  watching: {
+    // The page going down past it: eyes after the visitor, leaning a touch to see, interested rather than sad.
+    attention: () => 'reading',
+    head: { yaw: 0.5, pitch: 0.5, share: 0.55, ease: 0.3 },
+    eyes: { aperture: 1.02, time: 0.2, gain: 1.04, notice: false, focus: 0 },
+    face: EXPRESSIONS.watching,
+    faceTime: 0.25,
+    lean: 0.035,
+    turn: 0,
+    chin: -0.07,
+    roll: 0.06,
+    breath: 0.9,
+    blinks: true,
+    accent: REST_ACCENT,
+    settle: 0.6,
+    drift: false,
+  },
+  invite: {
+    // Back at the top: lean towards the converter and look at its amount — the next step — eager.
+    attention: () => 'amount',
+    head: { yaw: 0.4, pitch: 0.46, share: 0.5, ease: 0.25 },
+    eyes: { aperture: 1.04, time: 0.2, gain: 1.12, notice: true, focus: 0 },
+    face: EXPRESSIONS.excited,
+    faceTime: 0.18,
+    lean: 0.035,
+    turn: 0.05,
+    chin: 0,
+    roll: 0.05,
+    breath: 0.9,
+    blinks: true,
+    accent: 0.6,
+    settle: 0.45,
+    drift: false,
+  },
+  drowsy: {
+    // Fighting sleep: the lids heavy, the head sinking slowly, the lights fading. The catch is `behaviour.ts`'s.
+    attention: () => 'viewer',
+    head: { yaw: 1.2, pitch: 1.6, share: 0.5, ease: 0.5 },
+    eyes: { aperture: 0.8, time: 1.6, gain: 0.9, notice: false, focus: 0 },
+    face: EXPRESSIONS.drowsy,
+    faceTime: 1.8,
+    lean: 0.012,
+    turn: 0,
+    chin: -0.07,
+    roll: 0.04,
+    breath: 1.3,
+    blinks: true,
+    accent: 0.16,
+    settle: 2.2,
+    drift: false,
+  },
+  asleep: {
+    // Asleep: the eyes shut, the head down and to one side, the lights all but out, breathing deeply and slowly.
+    attention: () => 'viewer',
+    head: { yaw: 1.4, pitch: 1.8, share: 0.5, ease: 0.5 },
+    eyes: { aperture: 0.12, time: 0.9, gain: 0.8, notice: false, focus: 0 },
+    face: EXPRESSIONS.asleep,
+    faceTime: 1.2,
+    lean: 0.02,
+    turn: 0,
+    chin: -0.13,
+    roll: 0.1,
+    breath: 1.8,
+    blinks: false,
+    accent: 0.06,
+    settle: 2.4,
+    drift: false,
+  },
+  startled: {
+    // Woken: everything snaps — eyes round, head up, the lights back on at once.
+    attention: () => 'viewer',
+    head: { yaw: 0.22, pitch: 0.26, share: 0.55, ease: 0.12 },
+    eyes: { aperture: 1.1, time: 0.06, gain: 1.25, notice: true, focus: 0 },
+    face: EXPRESSIONS.startled,
+    faceTime: 0.06,
+    lean: -0.04,
+    turn: 0,
+    chin: 0.08,
+    roll: 0,
+    breath: 0.5,
+    blinks: false,
+    accent: 0.7,
+    settle: 0.22,
+    drift: false,
+  },
+  giggle: {
+    // Poked: it squeezes its eyes shut laughing, blushes and jiggles (`behaviour.ts`), facing whoever poked it.
+    attention: () => 'pointer',
+    head: { yaw: 0.36, pitch: 0.42, share: 0.55, ease: 0.2 },
+    eyes: { aperture: 1, time: 0.1, gain: 1.15, notice: false, focus: 0 },
+    face: EXPRESSIONS.giggle,
+    faceTime: 0.08,
+    lean: -0.02,
+    turn: 0,
+    chin: 0.05,
+    roll: 0.08,
+    breath: 0.6,
+    blinks: false,
+    accent: 0.6,
+    settle: 0.35,
+    drift: false,
+  },
+  content: {
+    // Patted: eyes closed happily, a blush, the head leaning up into the hand.
+    attention: () => 'pointer',
+    head: { yaw: 0.7, pitch: 0.8, share: 0.6, ease: 0.45 },
+    eyes: { aperture: 1, time: 0.3, gain: 1.08, notice: false, focus: 0 },
+    face: EXPRESSIONS.content,
+    faceTime: 0.35,
+    lean: -0.01,
+    turn: 0,
+    chin: 0.05,
+    roll: 0.12,
+    breath: 1.2,
+    blinks: false,
+    accent: 0.5,
+    settle: 0.8,
+    drift: false,
+  },
+  pleading: {
+    // The pointer has gone up out of the window: puppy eyes after it, the head tilted — "don't go".
+    attention: () => 'exit',
+    head: { yaw: 0.55, pitch: 0.6, share: 0.6, ease: 0.35 },
+    eyes: { aperture: 1.06, time: 0.25, gain: 1.1, notice: true, focus: 0 },
+    face: EXPRESSIONS.pleading,
+    faceTime: 0.3,
+    lean: -0.01,
+    turn: 0,
+    chin: 0.03,
+    roll: -0.12,
+    breath: 0.8,
+    blinks: true,
+    accent: 0.45,
+    settle: 0.6,
+    drift: false,
+  },
 };
 
 /** How long event-driven states last before the robot returns to rest (value lasts until it has confirmed). */
@@ -536,6 +800,22 @@ export const DURATION = {
   curious: 1.8,
   /** Amounts from this many USDT up impress the robot. */
   impressive: 250_000,
+  /** And from this many, it is star-struck. */
+  stellar: 1_000_000,
+  starstruck: 2.3,
+  /** How long the visitor stays on the call to action before the robot's eyes turn to hearts for it. */
+  smitten: 1.8,
+  delight: 2.6,
+  /** How long the robot keeps watching after the page stops scrolling down. */
+  watching: 1.1,
+  invite: 1.9,
+  /** Quiet seconds before the robot grows drowsy, and before it is asleep. */
+  drowsy: 40,
+  asleep: 47,
+  startled: 1.15,
+  giggle: 1.35,
+  /** How long the pointer rests on the head before the robot leans into it. */
+  pat: 0.8,
   direction: 0.7,
   rate: 1.0,
   locked: 2.8,

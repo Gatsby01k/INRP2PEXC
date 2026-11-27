@@ -139,7 +139,13 @@ export function QuoteModule({ appOrigin, onboarding, copy }: { appOrigin: string
   useSlide(usdtBox);
   useSlide(inrBox);
   const hasAmount = (value: string) => /[1-9]/.test(value);
+  // Asking for a price with an amount that can go: the robot celebrates the decision — from the press itself, so it is
+  // seen before the request page takes over (a keyboard's Enter arrives as the click).
+  const commit = () => {
+    if (hasAmount(amount)) robotCues.emit({ kind: 'commit' });
+  };
   const request = (e: MouseEvent<HTMLAnchorElement>) => {
+    if (e.detail === 0) commit();
     if (hasAmount(amount)) return;
     e.preventDefault();
     setMissingAmount(true);
@@ -289,6 +295,9 @@ export function QuoteModule({ appOrigin, onboarding, copy }: { appOrigin: string
           onPointerLeave={() => markCta('hover', false)}
           onFocus={() => markCta('focus', true)}
           onBlur={() => markCta('focus', false)}
+          onPointerDown={(e) => {
+            if (e.isPrimary && e.button === 0) commit();
+          }}
           onClick={request}
         >
           <span className={styles.ctaSheen} aria-hidden="true" />

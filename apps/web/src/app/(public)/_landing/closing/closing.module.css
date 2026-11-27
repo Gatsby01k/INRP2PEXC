@@ -213,9 +213,34 @@
   background: radial-gradient(closest-side, rgb(255 255 255 / 0.5), transparent);
 }
 
+.visorLeds {
+  display: contents;
+}
+
 .visorLed {
   width: 88%;
   margin: 0 auto;
+}
+
+/* Hearts while the visitor is on the call to action: they beat — lub, dub — as the hero robot's do. */
+@media (prefers-reduced-motion: no-preference) {
+  .visorLeds[data-fond] .visorLed {
+    animation: beat 920ms ease-out infinite;
+  }
+}
+
+@keyframes beat {
+  0%,
+  44%,
+  100% {
+    transform: scale(1);
+  }
+  8% {
+    transform: scale(1.12);
+  }
+  26% {
+    transform: scale(1.07);
+  }
 }
 
 @supports (animation-timeline: view()) {

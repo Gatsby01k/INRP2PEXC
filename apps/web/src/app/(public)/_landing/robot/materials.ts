@@ -163,6 +163,15 @@ export interface FaceUniforms {
   readonly uWide: { value: number };
   /** 0 eyes; 1 two hearts. */
   readonly uHeart: { value: number };
+  /** 0 eyes; 1 two five-pointed stars. */
+  readonly uStar: { value: number };
+  /** A blush under each eye: a soft glow and three short strokes. */
+  readonly uBlush: { value: number };
+  /** Asleep: Z's rising from the corner of the visor; `uZ` is how far they have risen (it only grows). */
+  readonly uSleep: { value: number };
+  readonly uZ: { value: number };
+  /** The beat of hearts and stars, 0 → 1: they swell a little on it. */
+  readonly uBeat: { value: number };
   /** Brightness of each dot, left to right, while waiting. */
   readonly uDotLevel: { value: Vector3 };
   /** The display's LEDs (display.ts): one byte each, lit or dark. */
@@ -209,6 +218,11 @@ export function visorMaterial(): { material: MeshPhysicalMaterial; face: FaceUni
     uWink: { value: 0 },
     uWide: { value: 0 },
     uHeart: { value: 0 },
+    uStar: { value: 0 },
+    uBlush: { value: 0 },
+    uSleep: { value: 0 },
+    uZ: { value: 0 },
+    uBeat: { value: 0 },
     uLed: { value: ledTexture() },
     uLedOn: { value: 0 },
   };
@@ -239,6 +253,11 @@ export function visorMaterial(): { material: MeshPhysicalMaterial; face: FaceUni
         uniform float uWink;
         uniform float uWide;
         uniform float uHeart;
+        uniform float uStar;
+        uniform float uBlush;
+        uniform float uSleep;
+        uniform float uZ;
+        uniform float uBeat;
         uniform sampler2D uLed;
         uniform float uLedOn;
         // The display's matrix of LEDs: its grid, and the part of the visor it fills (centre, half size), with square
@@ -263,6 +282,33 @@ export function visorMaterial(): { material: MeshPhysicalMaterial; face: FaceUni
           return sqrt(min(dot(a, a), dot(b, b))) * sign(p.x - p.y);
         }
 
+        // A five-pointed star of outer radius r, its points pulled in by rf (after Inigo Quilez's sdStar5).
+        float sdStar5(vec2 p, float r, float rf) {
+          const vec2 k1 = vec2(0.809016994375, -0.587785252292);
+          const vec2 k2 = vec2(-0.809016994375, -0.587785252292);
+          p.x = abs(p.x);
+          p -= 2.0 * max(dot(k1, p), 0.0) * k1;
+          p -= 2.0 * max(dot(k2, p), 0.0) * k2;
+          p.x = abs(p.x);
+          p.y -= r;
+          vec2 ba = rf * vec2(-k1.y, k1.x) - vec2(0.0, 1.0);
+          float h = clamp(dot(p, ba) / dot(ba, ba), 0.0, r);
+          return length(p - ba * h) * sign(p.y * ba.x - p.x * ba.y);
+        }
+
+        float sdSegment(vec2 p, vec2 a, vec2 b) {
+          vec2 pa = p - a;
+          vec2 ba = b - a;
+          return length(pa - ba * clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0));
+        }
+
+        // A Z drawn in one stroke, its half size s: the top bar, the diagonal, the bottom bar.
+        float sdZ(vec2 p, float s) {
+          float d = sdSegment(p, vec2(-s, s), vec2(s, s));
+          d = min(d, sdSegment(p, vec2(s, s), vec2(-s, -s)));
+          return min(d, sdSegment(p, vec2(-s, -s), vec2(s, -s)));
+        }
+
         // One eye in its own frame: x outward from the face's centre line, y up. \`smile\` is this eye's own: a wink
         // smiles one eye shut while the other stays as it was.
         float eyeShape(vec2 q, float smile) {
@@ -282,10 +328,16 @@ export function visorMaterial(): { material: MeshPhysicalMaterial; face: FaceUni
           float a = radians(mix(74.0, 60.0, thin));
           float arc = sdArc(q - vec2(0.0, mix(-0.052, -0.035, thin)), vec2(sin(a), cos(a)), mix(0.068, 0.1, thin), mix(0.043, 0.027, thin));
           d = mix(d, arc, bend);
-          // Love: the eye becomes a heart, a little larger than the eye it replaces, beating with the eye's light.
-          float size = 0.15;
+          // Love: the eye becomes a heart, a little larger than the eye it replaces, swelling on each beat.
+          float size = 0.15 * (1.0 + 0.14 * uBeat);
           float heart = sdHeart((q - vec2(0.0, -0.09)) / size) * size;
-          return mix(d, heart, uHeart);
+          d = mix(d, heart, uHeart);
+          // Star-struck: the eye becomes a star, rounded at its points, swelling on the beat like a heart.
+          if (uStar > 0.001) {
+            float star = sdStar5(q - vec2(0.0, -0.006), 0.112 * (1.0 + 0.12 * uBeat), 0.46) - 0.012;
+            d = mix(d, star, uStar);
+          }
+          return d;
         }
 
         vec3 glow(float d, float level) {
@@ -317,6 +369,26 @@ export function visorMaterial(): { material: MeshPhysicalMaterial; face: FaceUni
         // Surprise opens a small round mouth under the eyes.
         float mouth = smoothstep(0.55, 1.0, uWide);
         light += glow(abs(length((pe - vec2(0.0, -0.19)) * vec2(1.0, 0.85)) - 0.034 * mouth) - 0.013, mouth) * mouth;
+        // A blush: a soft warm glow under each eye, outside it, and three short strokes across it.
+        if (uBlush > 0.001) {
+          vec2 cheek = vec2(abs(pe.x) - (eyeX + 0.035), pe.y + 0.135);
+          light += uEyeColor * exp(-dot(cheek * vec2(1.0, 2.1), cheek * vec2(1.0, 2.1)) / 0.0022) * 0.42 * uBlush;
+          float strokes = 1e3;
+          for (int i = -1; i <= 1; i++) {
+            vec2 c = cheek - vec2(float(i) * 0.034, 0.0);
+            strokes = min(strokes, sdSegment(c, vec2(-0.008, -0.013), vec2(0.008, 0.013)));
+          }
+          light += glow(strokes - 0.0055, 0.75 * uBlush) * uBlush;
+        }
+        // Asleep: three Z's rise from above the eye on the visitor's right, growing and fading as they go.
+        if (uSleep > 0.001) {
+          for (int i = 0; i < 3; i++) {
+            float t = fract(uZ + float(i) / 3.0);
+            vec2 at = vec2(0.2 + 0.2 * t + 0.03 * sin(6.2832 * t + float(i) * 2.1), 0.03 + 0.27 * t);
+            float s = 0.022 + 0.03 * t;
+            light += glow(sdZ(pe - at, s) - 0.0075, smoothstep(0.0, 0.18, t) * (1.0 - smoothstep(0.62, 1.0, t)) * 0.9 * uSleep);
+          }
+        }
         // The display: the same light, as a matrix of round LEDs. A lit one is the eye's colour with its hot core and a
         // halo; a dark one is a faint ember, so the grid reads even where nothing is lit. Behind the glass, like the eyes.
         if (uLedOn > 0.001) {

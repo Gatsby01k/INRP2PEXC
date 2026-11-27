@@ -38,6 +38,8 @@ const ANGLES: Record<LookTarget, LookAngles> = {
   entry: { yaw: 0.5, pitch: 0.32 },
   pointer: { yaw: 0.2, pitch: -0.05 },
   title: { yaw: -0.5, pitch: 0.12 },
+  reading: { yaw: 0.05, pitch: -0.3 },
+  exit: { yaw: 0.1, pitch: 0.34 },
 };
 
 const FRAME = 1 / 60;
@@ -832,7 +834,26 @@ describe('the expressions', () => {
 
   it('are distinct settings of one face, and a neutral one to rest in', () => {
     const { neutral, ...rest } = EXPRESSIONS;
-    expect(Object.keys(rest).sort()).toEqual(['alert', 'curious', 'excited', 'love', 'success', 'verifying', 'waiting', 'welcome', 'wow']);
+    expect(Object.keys(rest).sort()).toEqual([
+      'alert',
+      'asleep',
+      'content',
+      'curious',
+      'drowsy',
+      'excited',
+      'giggle',
+      'love',
+      'pleading',
+      'smitten',
+      'starstruck',
+      'startled',
+      'success',
+      'verifying',
+      'waiting',
+      'watching',
+      'welcome',
+      'wow',
+    ]);
     expect(Object.values(neutral).every((v) => v === 0)).toBe(true);
     const settings = Object.values(rest).map((e) => JSON.stringify(e));
     expect(new Set(settings).size).toBe(Object.keys(rest).length);

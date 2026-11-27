@@ -42,6 +42,13 @@ export type { LookTarget, RobotState } from './states.ts';
  * band of light through the eyes for each change read, and the antenna's tip — one soft pulse for a greeting, two
  * blinks and a steady glow for a problem. Each starts at an event and ends.
  *
+ * On the home page it also attends to the visitor as a whole (docs/ROBOT_BEHAVIOUR.md, `presence.ts`): it watches them
+ * scroll on and looks at what they read, welcomes them back to the tab or to the top and shows them the next step, is
+ * star-struck by a very large amount, grows fond of a call to action they linger on and celebrates when they press it,
+ * dozes off when left alone and wakes with a start, giggles when poked, leans into a pat, and makes puppy eyes when the
+ * pointer heads for the tabs. None of it happens while a state of record holds, so the workspace never sees it. The
+ * antenna, a thin stem with a weight on its tip, is the one part allowed to sway: it trails the head and settles.
+ *
  * Pure: time, focus and where things are come in; the frame loop owns the scene.
  */
 
@@ -60,6 +67,22 @@ export interface BehaviourInput {
   readonly angles: (target: LookTarget) => LookAngles | null;
   /** The visitor's pointer moved a moment ago: at rest, the robot's eyes follow it. */
   readonly pointer?: boolean;
+  /** What the visitor is doing on the page as a whole (`presence.ts`); absent where nothing watches (the workspace). */
+  readonly presence?: Presence;
+}
+
+/** The visitor on the page as a whole, as the frame loop sees it (`presence.ts`, `scene.ts`). */
+export interface Presence {
+  /** Seconds since the visitor last moved, typed, touched or scrolled. */
+  readonly quiet: number;
+  /** 1 while the page scrolls down, -1 while it scrolls up, 0 when it is still. */
+  readonly scrolling: -1 | 0 | 1;
+  /** The page has scrolled on past the robot's head: what the visitor reads is below it. */
+  readonly below: boolean;
+  /** Seconds the pointer has rested on the robot's head; 0 while it is not on it. */
+  readonly over: number;
+  /** The pointer left the window through its top edge and is not back. */
+  readonly leaving: boolean;
 }
 
 export interface Pose {
@@ -104,11 +127,24 @@ export interface Pose {
   readonly wink: number;
   readonly wide: number;
   readonly heart: number;
+  /** The eyes as five-pointed stars; a blush under them; asleep, with Z's rising (`zPhase` moves them). */
+  readonly star: number;
+  readonly blush: number;
+  readonly sleep: number;
+  readonly zPhase: number;
+  /** The beat of hearts and stars: a double pulse, 0 → 1, while they are shown. */
+  readonly beat: number;
   /** The whole figure lifted off its rest, in the figure's units: a hop. */
   readonly hop: number;
   /** The waving arm lifted (0 → 1), and its swing from the shoulder, in radians. */
   readonly waveLift: number;
   readonly waveSwing: number;
+  /** Both arms up (0 → 1) — a cheer — and the small pump they make while up, in radians. */
+  readonly cheer: number;
+  readonly cheerPump: number;
+  /** The antenna's sway on its stem, trailing the head: forward-back (pitch) and side to side (roll), in radians. */
+  readonly antennaPitch: number;
+  readonly antennaRoll: number;
   /**
    * How far the arms trail the body: sideways when it rolls (both arms alike), fore-and-aft when it leans, and
    * in opposition when the chest turns — the arm on the side turning away stays forward a moment.
@@ -147,9 +183,6 @@ const SWEEP_ORDER: Record<Direction, readonly [number, number, number]> = {
 /** The shortest gap between two emblem responses: a settled value may not repeat a light just seen. */
 const RESPONSE_GAP = 1.2;
 
-/** Where the robot rests while nothing is happening: on whatever the visitor is on, or with the visitor. */
-const REST: Record<RobotFocus, RobotState> = { none: 'idle', cta: 'intent', entry: 'entry' };
-
 /**
  * Where the robot rests while a mood holds (`cues.ts` `RobotMood`) and the visitor is on nothing in particular.
  * Without a mood it rests as it always has; the home page never sets one.
@@ -186,6 +219,26 @@ const PLAY = { min: 4.5, max: 8.5, quiet: 2.5 } as const;
 
 /** States the robot plays in: rest, with nothing of the visitor's in hand. */
 const PLAYS_IN: ReadonlySet<RobotState> = new Set<RobotState>(['idle', 'ready']);
+
+/**
+ * The home page's character (docs/ROBOT_BEHAVIOUR.md). Where it may act: rest and its moods of attention, never over
+ * anything the visitor started. A bounce is two hops a beat apart; a cheer lifts both arms, pumps them and lowers them;
+ * a giggle jiggles the head quickly side to side, dying away; the third poke in a short run gets hearts.
+ */
+const CHARACTER_IN: ReadonlySet<RobotState> = new Set<RobotState>(['idle', 'watching', 'drowsy', 'asleep', 'content', 'pleading']);
+const BOUNCE_GAP = 0.52;
+const CHEER = { lift: 0.26, hold: 1.3, drop: 0.55, period: 0.42, pump: 0.16 } as const;
+const JIGGLE = { duration: 0.9, period: 0.17, roll: 0.07 } as const;
+const POKES = { run: 3, within: 3 } as const;
+/** Hearts and stars beat: a double pulse — lub, dub — once a period. */
+const BEAT_PERIOD = 0.92;
+/** How fast the Z's rise while asleep: three are in the air at once, each taking 1 / Z_RATE seconds. */
+const Z_RATE = 0.34;
+/**
+ * The antenna: a weighted tip on a thin stem. Its natural frequency (rad/s) and damping ratio give one small,
+ * quickly dying sway after the head moves; `drive` is how much the head's motion moves it, `hop` how much a hop does.
+ */
+const ANTENNA = { omega: 17, zeta: 0.24, drive: 0.07, hop: 0.32, limit: 0.3 } as const;
 
 export class RobotBehaviour {
   private readonly random: () => number;
@@ -245,12 +298,28 @@ export class RobotBehaviour {
   /** The amount the last value cue said, if it said one. */
   private amount: number | null = null;
   private waveAt = -10;
-  private hopAt = -10;
   private shakeAt = -10;
   private winkAt = -10;
   private grinAt = -10;
   private lastInputAt = Number.NEGATIVE_INFINITY;
   private nextPlayAt: number;
+  /** The home page's character (docs/ROBOT_BEHAVIOUR.md). */
+  private lastFocus: RobotFocus = 'none';
+  /** When the visitor's focus came onto the call to action, while it is there. */
+  private ctaSince = Number.POSITIVE_INFINITY;
+  private hops: { at: number; height: number }[] = [];
+  private blink2At = -10;
+  private cheerAt = -10;
+  private jiggleAt = -10;
+  private catchAt = -10;
+  private commitAt = -10;
+  private pokes: number[] = [];
+  /** A greeting owed once something else ends (waking up, refocusing on a tab), and a turn to the next step. */
+  private greetAfterAt = Number.POSITIVE_INFINITY;
+  private inviteAt = Number.POSITIVE_INFINITY;
+  private zPhase = 0;
+  private readonly antenna = { pitch: 0, roll: 0, vPitch: 0, vRoll: 0 };
+  private readonly was = { pitch: 0, roll: 0, hop: 0 };
   /** Whether the robot does things of its own at rest: the live robot does; a still drawn for a sheet does not. */
   private readonly playful: boolean;
 
@@ -289,6 +358,9 @@ export class RobotBehaviour {
   private readonly beacon = follower();
   private readonly wide = follower();
   private readonly heart = follower();
+  private readonly star = follower();
+  private readonly blush = follower();
+  private readonly sleep = follower();
 
   /**
    * `mirror` for a robot standing to the right of what it attends to. Its look is aimed at wherever things are on
@@ -343,7 +415,7 @@ export class RobotBehaviour {
         // Remembered either way, so the flow is right when input is heard again; answered only while it is.
         if (!this.inputHeard()) return;
         this.enter('direction', time, time + DURATION.direction);
-        this.hopAt = time;
+        this.hop(time);
         // Always answered, even straight after another response: the sweep is what shows the new flow.
         this.respond(time, 0);
         return;
@@ -356,7 +428,7 @@ export class RobotBehaviour {
         this.valuePending = false;
         this.resolveAt = time;
         this.nodAt = time + 0.4;
-        this.hopAt = time + 0.15;
+        this.hop(time + 0.15);
         this.enter('locked', time, time + DURATION.locked);
         return;
       case 'submitted':
@@ -364,7 +436,7 @@ export class RobotBehaviour {
         this.valuePending = false;
         this.resolveAt = time;
         this.nodAt = time + 0.36;
-        this.hopAt = time + 0.15;
+        this.hop(time + 0.15);
         this.enter('accepted', time, time + DURATION.accepted);
         return;
       case 'problem':
@@ -388,6 +460,44 @@ export class RobotBehaviour {
       case 'mood':
         this.arrive(cue.mood, time);
         return;
+      case 'commit':
+        // Asking for a price: the decision is celebrated — hearts beating, both arms up, a bounce. Once per press.
+        if (!this.inputHeard() || time - this.commitAt < 1) return;
+        this.commitAt = time;
+        this.valuePending = false;
+        this.cheerAt = time;
+        this.bounce(time);
+        this.respond(time, 0);
+        this.enter('delight', time, time + DURATION.delight);
+        return;
+      case 'poke':
+        // Poked: a giggle; the third poke in a short run gets hearts. Only on the home page, and only at rest.
+        if (this.mood !== 'none' || !(this.resting || CHARACTER_IN.has(this.state) || this.state === 'giggle')) return;
+        this.pokes = [...this.pokes.filter((t) => time - t < POKES.within), time];
+        this.jiggleAt = time;
+        this.hop(time, HOP.height * 0.55);
+        if (this.pokes.length >= POKES.run) {
+          this.pokes = [];
+          this.enter('delight', time, time + DURATION.giggle + 0.5);
+        } else {
+          this.enter('giggle', time, time + DURATION.giggle);
+        }
+        return;
+      case 'back':
+        // Back with the robot. To the tab: two quick blinks to refocus, then a wave. To the top, after reading on: a
+        // happy hop, and then a turn to the converter — the next step — while the visor points at it (`director.ts`).
+        if (this.mood !== 'none' || !(this.resting || CHARACTER_IN.has(this.state))) return;
+        if (cue.via === 'tab') {
+          this.blinkAt = time + 0.05;
+          this.blink2At = time + 0.32;
+          this.greetAfterAt = time + 0.6;
+        } else {
+          this.greetAt = time;
+          this.hop(time + 0.12);
+          this.enter('welcome', time, time + DURATION.welcome);
+          this.inviteAt = time + 0.9;
+        }
+        return;
     }
   }
 
@@ -401,14 +511,32 @@ export class RobotBehaviour {
       this.welcomeAt = Number.POSITIVE_INFINITY;
       this.greet(time);
     }
+    if (time >= this.greetAfterAt) {
+      this.greetAfterAt = Number.POSITIVE_INFINITY;
+      this.greet(time, true);
+    }
+    if (time >= this.inviteAt) {
+      this.inviteAt = Number.POSITIVE_INFINITY;
+      // Welcomed back from reading on: now the next step — unless something else has taken over since.
+      if (this.state === 'welcome') this.enter('invite', time, time + DURATION.invite);
+    }
+    if (input.focus !== this.lastFocus) {
+      this.lastFocus = input.focus;
+      this.ctaSince = input.focus === 'cta' ? time : Number.POSITIVE_INFINITY;
+    }
     if (this.valuePending && time >= this.confirmAt) {
-      // The value has settled: confirm it once — impressed by a large amount, pleased by any other.
+      // The value has settled: confirm it once — star-struck by a very large amount, impressed by a large one,
+      // pleased by any other.
       this.valuePending = false;
       this.respond(time, RESPONSE_GAP);
       if (this.state === 'value') {
         this.valueLeftAt = time;
-        if (this.amount !== null && this.amount >= DURATION.impressive) {
-          this.hopAt = time;
+        if (this.amount !== null && this.amount >= DURATION.stellar) {
+          this.bounce(time);
+          this.pulseAt = time;
+          this.enter('starstruck', time, time + DURATION.starstruck);
+        } else if (this.amount !== null && this.amount >= DURATION.impressive) {
+          this.hop(time);
           this.pulseAt = time;
           this.enter('wow', time, time + DURATION.wow);
         } else {
@@ -422,12 +550,28 @@ export class RobotBehaviour {
       if (time - this.lastInputAt >= PLAY.quiet) this.play(time);
       this.nextPlayAt = time + between(PLAY.min, PLAY.max, this.random);
     }
+    // The visitor on the page as a whole moves only the home page's robot: in the workspace a mood always holds.
+    const presence = this.mood === 'none' ? input.presence : undefined;
+    // Anything the visitor does wakes it: with a start from sleep, with a shake of the lids from a doze.
+    if ((this.state === 'drowsy' || this.state === 'asleep') && !(presence && presence.quiet >= DURATION.drowsy)) this.wake(time);
+    // The pointer is back from the tabs: relief.
+    if (this.state === 'pleading' && !presence?.leaving) {
+      this.grinAt = time;
+      this.nodAt = time + 0.2;
+      this.enter('pleased', time, time + DURATION.pleased);
+    }
+    // The page scrolling down past the robot: it watches the visitor go, for as long as it scrolls and a moment more.
+    if (presence?.scrolling === 1 && input.focus === 'none' && (this.state === 'watching' || (this.resting && CHARACTER_IN.has(this.state)))) {
+      this.enter('watching', time, time + DURATION.watching);
+    }
     // What the client is on is input too: it draws the eyes only while nothing of record outranks it.
-    const rest = input.focus === 'none' || !this.inputHeard() ? MOOD_REST[this.mood] : REST[input.focus];
+    const rest = this.restOf(input.focus, presence, time);
     const done = this.resting ? this.state !== rest : time >= this.until;
     if (done) {
       if (this.state === 'value') this.valueLeftAt = time;
+      const arriving = rest !== this.state;
       this.enter(rest, time, Number.POSITIVE_INFINITY, true);
+      if (arriving) this.settleInto(rest, time);
     }
     const spec = this.specOf(this.state);
     // A held check reads again every few seconds, at irregular intervals: the band of light is what shows it working.
@@ -438,8 +582,10 @@ export class RobotBehaviour {
 
     // ---- attention: eyes, head, neck -------------------------------------------------------------------
     // At rest, a pointer that moved a moment ago has the robot's eyes instead of the visitor's face.
+    // Once the page has scrolled on past its head, it looks at what the visitor is reading instead.
     const asked = spec.attention(time - this.since, this.from);
-    const wanted = asked === 'viewer' && input.pointer && PLAYS_IN.has(this.state) ? 'pointer' : asked;
+    const free = asked === 'viewer' && PLAYS_IN.has(this.state);
+    const wanted = free && input.pointer ? 'pointer' : free && presence?.below ? 'reading' : asked;
     const look = this.locate(wanted, input) ?? { yaw: 0, pitch: 0 };
     const yaw = clamp(look.yaw, -MAX_YAW, MAX_YAW);
     const pitch = clamp(look.pitch, -MAX_PITCH, MAX_PITCH);
@@ -537,6 +683,15 @@ export class RobotBehaviour {
     follow(this.dots, face.dots, faceTime, dt);
     follow(this.wide, face.wide, faceTime, dt);
     follow(this.heart, face.heart, faceTime * 1.4, dt);
+    follow(this.star, face.star, faceTime * 1.4, dt);
+    follow(this.blush, face.blush, faceTime * 1.6, dt);
+    follow(this.sleep, face.sleep, faceTime, dt);
+    // The Z's rise from the bottom each time it falls asleep.
+    this.zPhase = this.sleep.value > 0.01 ? this.zPhase + dt * Z_RATE : 0;
+    // Hearts and stars beat while they show: lub, dub.
+    const fond = Math.max(this.heart.value, this.star.value);
+    const inBeat = time % BEAT_PERIOD;
+    const beat = fond > 1e-3 ? Math.max(envelope(inBeat, 0.06, 0, 0.2), 0.6 * envelope(inBeat - 0.22, 0.06, 0, 0.22)) * fond : 0;
     const alerting = since(this.alertAt) < 0.95;
     follow(this.beacon, alerting ? 0 : face.beacon, 0.3, dt);
     const blinks = Math.max(envelope(since(this.alertAt), 0.05, 0.1, 0.22), envelope(since(this.alertAt) - 0.5, 0.05, 0.1, 0.22));
@@ -557,8 +712,19 @@ export class RobotBehaviour {
     const waving = since(this.waveAt);
     const waveLift = envelope(waving, WAVE.lift, WAVE.hold, WAVE.drop);
     const waveSwing = waveLift * WAVE.swing * Math.sin((2 * Math.PI * Math.max(waving - WAVE.lift * 0.6, 0)) / WAVE.period);
-    const hopping = since(this.hopAt);
-    const hop = hopping >= 0 && hopping < HOP.duration ? HOP.height * Math.sin((Math.PI * hopping) / HOP.duration) : 0;
+    let hop = 0;
+    for (const h of this.hops) {
+      const t = time - h.at;
+      if (t >= 0 && t < HOP.duration) hop += h.height * Math.sin((Math.PI * t) / HOP.duration);
+    }
+    if (this.hops.some((h) => time - h.at >= HOP.duration)) this.hops = this.hops.filter((h) => time - h.at < HOP.duration);
+    const cheering = since(this.cheerAt);
+    const cheer = envelope(cheering, CHEER.lift, CHEER.hold, CHEER.drop);
+    const cheerPump = cheer * CHEER.pump * Math.sin((2 * Math.PI * Math.max(cheering - CHEER.lift * 0.5, 0)) / CHEER.period);
+    const jiggling = since(this.jiggleAt);
+    const jiggle = jiggling >= 0 && jiggling < JIGGLE.duration ? JIGGLE.roll * Math.sin((2 * Math.PI * jiggling) / JIGGLE.period) * (1 - jiggling / JIGGLE.duration) : 0;
+    // Nodding off, it catches itself once: the head jerks up and the eyes fly open, and then it sinks again.
+    const caught = envelope(since(this.catchAt), 0.1, 0.3, 0.9);
     const shaking = since(this.shakeAt);
     const shake = shaking >= 0 && shaking < SHAKE.duration ? SHAKE.yaw * Math.sin((2 * Math.PI * shaking) / SHAKE.period) * (1 - shaking / SHAKE.duration) : 0;
     const wink = envelope(since(this.winkAt), 0.08, 0.34, 0.16);
@@ -575,23 +741,27 @@ export class RobotBehaviour {
     const response = since(this.respondAt);
     const arc = (slot: number) => envelope(response - this.sweepOrder.indexOf(slot) * 0.06, 0.05, 0.02, 0.28) * 0.75 + resolved * 1.2;
 
+    const headPitch = this.headPitch.value + this.chin.value - nod + 0.1 * caught;
+    const headRoll = -0.1 * this.headYaw.value + this.headRollBias.value + this.headTilt.value + (0.08 * wink + 0.05 * grin) * this.side + jiggle;
+    const antenna = this.sway(headPitch, headRoll, hop, dt);
+
     return {
       load: loadCycle(this.loadPhase) * this.loadDepth * this.loadDepthOfState.value,
       torsoPitch: this.lean.value,
       torsoYaw: this.turn.value,
-      torsoRoll: this.roll.value,
+      torsoRoll: this.roll.value + 0.35 * jiggle,
       chestPitch,
       chestYaw: this.chestYaw.value,
       chestRoll,
       headYaw: this.headYaw.value + shake,
-      headPitch: this.headPitch.value + this.chin.value - nod,
-      headRoll: -0.1 * this.headYaw.value + this.headRollBias.value + this.headTilt.value + (0.08 * wink + 0.05 * grin) * this.side,
+      headPitch,
+      headRoll,
       neckYaw: this.neckYaw.value + shake * 0.3,
       neckPitch: this.neckPitch.value - nod * 0.3,
       neckRoll: clamp(-0.02 * this.headYaw.velocity, -0.012, 0.012),
       gazeX: this.eyeYaw.value * EYE_UNITS_X,
       gazeY: this.eyePitch.value * EYE_UNITS_Y,
-      eyeOpen: blinkOpenness(since(this.blinkAt)) * this.aperture.value * (1 + 0.05 * notice) * (1 - focus),
+      eyeOpen: Math.min(blinkOpenness(since(this.blinkAt)), blinkOpenness(since(this.blink2At))) * (this.aperture.value + 0.6 * caught) * (1 + 0.05 * notice) * (1 - focus),
       eyeGain: this.gain.value + 0.07 * notice + 0.08 * pulse,
       smile: Math.max(this.smile.value, 0.5 * grin),
       lid: this.lid.value,
@@ -603,11 +773,20 @@ export class RobotBehaviour {
       dotLevel: [dot(0), dot(1), dot(2)],
       beacon: Math.max(this.beacon.value, blinks, greeting),
       wink,
-      wide: this.wide.value,
+      wide: Math.max(this.wide.value, 0.4 * caught),
       heart: this.heart.value,
+      star: this.star.value,
+      blush: this.blush.value,
+      sleep: this.sleep.value,
+      zPhase: this.zPhase,
+      beat,
       hop,
       waveLift,
       waveSwing,
+      cheer,
+      cheerPump,
+      antennaPitch: antenna.pitch,
+      antennaRoll: antenna.roll,
       armSwing: (this.armLagRoll.value - bodyRoll) * 0.9,
       armPitch: (this.armLagLean.value - bodyLean) * 1.2,
       armTwist: (this.armLagYaw.value - bodyYaw) * 1.2,
@@ -676,12 +855,101 @@ export class RobotBehaviour {
     }
   }
 
-  /** A greeting, from rest only: a smile, a wave, and one soft pulse of the antenna's tip. */
-  private greet(time: number): void {
-    if (!GREETS_FROM.has(this.state)) return;
+  /**
+   * A greeting, from rest only: a smile, a wave, and one soft pulse of the antenna's tip. `owed` is a greeting the
+   * robot promised itself — after waking, after refocusing on a tab — which it may also give from its character's rest.
+   */
+  private greet(time: number, owed = false): void {
+    if (!GREETS_FROM.has(this.state) && !(owed && (CHARACTER_IN.has(this.state) || this.state === 'startled'))) return;
     this.greetAt = time;
     this.waveAt = time + 0.1;
     this.enter('welcome', time, time + DURATION.welcome);
+  }
+
+  /**
+   * Where the robot rests: on whatever the visitor is on, or with the visitor — and, on the home page, according to
+   * what they are doing there: puppy eyes when the pointer heads for the tabs, leaning into a pat, drowsy and then
+   * asleep when left alone. A call to action held a while makes it fond of it.
+   */
+  private restOf(focus: RobotFocus, presence: Presence | undefined, time: number): RobotState {
+    if (!this.inputHeard()) return MOOD_REST[this.mood];
+    if (focus === 'cta') return this.mood === 'none' && time - this.ctaSince >= DURATION.smitten ? 'smitten' : 'intent';
+    if (focus === 'entry') return 'entry';
+    if (!presence) return MOOD_REST[this.mood];
+    if (presence.leaving) return 'pleading';
+    if (presence.over >= DURATION.pat) return 'content';
+    if (presence.quiet >= DURATION.asleep) return 'asleep';
+    if (presence.quiet >= DURATION.drowsy) return 'drowsy';
+    return MOOD_REST[this.mood];
+  }
+
+  /** Coming to rest somewhere new: the few rests that start with a gesture of their own. */
+  private settleInto(rest: RobotState, time: number): void {
+    if (rest === 'smitten') this.hop(time, HOP.height * 0.7);
+    else if (rest === 'pleading') this.noticeAt = time;
+    else if (rest === 'drowsy') {
+      this.catchAt = time + 3.4;
+      this.blinkAt = time + 4.1;
+    }
+  }
+
+  /** Woken. From sleep: with a start — round eyes, a hop, two blinks — and then the greeting it owes. From a doze: back. */
+  private wake(time: number): void {
+    if (this.state === 'asleep') {
+      this.hop(time + 0.04);
+      this.blinkAt = time + 0.62;
+      this.blink2At = time + 0.86;
+      this.enter('startled', time, time + DURATION.startled);
+      this.greetAfterAt = time + DURATION.startled - 0.05;
+      return;
+    }
+    this.catchAt = -10;
+    this.blinkAt = time;
+    this.blink2At = time + 0.24;
+    this.noticeAt = time;
+    this.enter('idle', time, Number.POSITIVE_INFINITY, true);
+  }
+
+  /** One hop, starting at `at`. */
+  private hop(at: number, height: number = HOP.height): void {
+    this.hops.push({ at, height });
+  }
+
+  /** Two hops a beat apart, the second lower. */
+  private bounce(at: number): void {
+    this.hop(at);
+    this.hop(at + BOUNCE_GAP, HOP.height * 0.7);
+  }
+
+  /**
+   * The antenna's sway: a weighted tip on a thin stem, trailing the head's nod and tilt and a hop's lift, then
+   * settling in one small, quickly dying swing. Integrated in steps short enough to stay stable at any frame rate.
+   */
+  private sway(headPitch: number, headRoll: number, hop: number, dt: number): { pitch: number; roll: number } {
+    const a = this.antenna;
+    if (dt > 0) {
+      const vPitch = (headPitch - this.was.pitch) / dt;
+      const vRoll = (headRoll - this.was.roll) / dt;
+      const vHop = (hop - this.was.hop) / dt;
+      const targetPitch = clamp(vPitch * ANTENNA.drive - vHop * ANTENNA.hop, -ANTENNA.limit, ANTENNA.limit);
+      const targetRoll = clamp(-vRoll * ANTENNA.drive, -ANTENNA.limit, ANTENNA.limit);
+      const steps = Math.ceil(dt / (1 / 120));
+      const h = dt / steps;
+      const w2 = ANTENNA.omega * ANTENNA.omega;
+      const c = 2 * ANTENNA.zeta * ANTENNA.omega;
+      for (let i = 0; i < steps; i++) {
+        a.vPitch += (-w2 * (a.pitch - targetPitch) - c * a.vPitch) * h;
+        a.pitch += a.vPitch * h;
+        a.vRoll += (-w2 * (a.roll - targetRoll) - c * a.vRoll) * h;
+        a.roll += a.vRoll * h;
+      }
+      a.pitch = clamp(a.pitch, -ANTENNA.limit, ANTENNA.limit);
+      a.roll = clamp(a.roll, -ANTENNA.limit, ANTENNA.limit);
+    }
+    this.was.pitch = headPitch;
+    this.was.roll = headRoll;
+    this.was.hop = hop;
+    return { pitch: a.pitch, roll: a.roll };
   }
 
   /** Something of the robot's own, at rest: a wink, a read of the headline, a glance and a nod, a hop, or a wave. */
@@ -696,7 +964,7 @@ export class RobotBehaviour {
       this.grinAt = time;
       this.enter('pleased', time, time + DURATION.pleased);
     } else if (r < 0.9) {
-      this.hopAt = time;
+      this.hop(time);
       this.grinAt = time;
     } else {
       this.waveAt = time;
@@ -756,9 +1024,18 @@ export const REST_POSE: Pose = {
   wink: 0,
   wide: 0,
   heart: 0,
+  star: 0,
+  blush: 0,
+  sleep: 0,
+  zPhase: 0,
+  beat: 0,
   hop: 0,
   waveLift: 0,
   waveSwing: 0,
+  cheer: 0,
+  cheerPump: 0,
+  antennaPitch: 0,
+  antennaRoll: 0,
   armSwing: 0,
   armPitch: 0,
   armTwist: 0,

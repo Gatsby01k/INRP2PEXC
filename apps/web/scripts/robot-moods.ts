@@ -38,6 +38,8 @@ const ANGLES: Record<LookTarget, LookAngles> = {
   entry: { yaw: 0, pitch: 0.32 },
   pointer: { yaw: 0.1, pitch: 0 },
   title: { yaw: 0, pitch: 0 },
+  reading: { yaw: 0.05, pitch: -0.3 },
+  exit: { yaw: 0.1, pitch: 0.34 },
 };
 
 /** A small seeded generator, so the stills are the same stills every time. */
