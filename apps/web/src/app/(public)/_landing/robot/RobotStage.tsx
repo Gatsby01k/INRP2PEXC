@@ -6,7 +6,8 @@ import small from './poster/robot-720.webp';
 import medium from './poster/robot-1080.webp';
 import large from './poster/robot-1600.webp';
 import styles from './robot.module.css';
-import { startVisorDirector } from './director.ts';
+import { setLiveFace, startVisorDirector } from './director.ts';
+import { startPresence } from './presence.ts';
 import { VisorOverlay } from './VisorOverlay.tsx';
 
 const RobotCanvas = lazy(() => import('./RobotCanvas.tsx'));
@@ -72,7 +73,16 @@ export function RobotStage() {
   const [active, setActive] = useState(true);
 
   // The visor's words (director.ts): hello, the amount, the rupees it comes to, the rate when left alone.
-  useEffect(() => startVisorDirector(), []);
+  useEffect(() => startVisorDirector(() => box.current), []);
+
+  // The visitor on the page as a whole (presence.ts): scrolling on and coming back, left alone, heading for the tabs.
+  useEffect(() => (box.current ? startPresence(box.current) : undefined), []);
+
+  // The live robot shows emotion with its face; until it does, and once it hands back, the visor says it in words.
+  useEffect(() => {
+    setLiveFace(ready);
+    return () => setLiveFace(false);
+  }, [ready]);
 
   useEffect(() => {
     setScope(box.current?.closest<HTMLElement>('[data-robot-scope]') ?? null);

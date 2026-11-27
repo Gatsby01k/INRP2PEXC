@@ -40,6 +40,9 @@ const ARM_SPREAD = 0.05;
 const WAVE_SIDE = -1;
 const WAVE_LIFT = 2.5;
 
+/** A cheer lifts both arms out and up into a V, a little short of a wave, and brings the hands a touch forward. */
+const CHEER_LIFT = 2.05;
+
 /** The hips, well below the frame; the chest's pivot above them; the shoulder line, where the collar sits. */
 const HIPS_Y = -2.1;
 const CHEST_PIVOT = 1.0;
@@ -254,11 +257,15 @@ export function* figureSteps(): Generator<void, Figure, void> {
       // The arms hang from the shoulders and trail the body: sideways as one when it rolls, fore-and-aft as one
       // when it leans, and in opposition when the chest turns. They open a hair with the load (mirrored).
       // The waving arm lifts out to the side and swings from the shoulder, its hand brought a little forward.
+      // A cheer lifts both arms, pumping them a little; the waving arm takes whichever lifts it higher.
       for (const { group, side } of armPivots) {
-        const lift = side === WAVE_SIDE ? pose.waveLift : 0;
+        const wave = side === WAVE_SIDE ? pose.waveLift : 0;
         const swing = side === WAVE_SIDE ? pose.waveSwing : 0;
-        group.rotation.set(pose.armPitch + pose.armTwist * side - 0.35 * lift, 0, ARM_SPREAD * side + pose.armSwing + 0.003 * load * side + side * WAVE_LIFT * lift + swing);
+        const raise = Math.max(WAVE_LIFT * wave, CHEER_LIFT * pose.cheer);
+        const forward = Math.max(0.35 * wave, 0.3 * pose.cheer);
+        group.rotation.set(pose.armPitch + pose.armTwist * side - forward, 0, ARM_SPREAD * side + pose.armSwing + 0.003 * load * side + side * (raise + pose.cheerPump) + swing);
       }
+      antenna.rotation.set(pose.antennaPitch, 0, pose.antennaRoll);
       const face = visor.face;
       face.uGaze.value.set(pose.gazeX, pose.gazeY);
       face.uEyeOpen.value = pose.eyeOpen;
@@ -274,6 +281,11 @@ export function* figureSteps(): Generator<void, Figure, void> {
       face.uWink.value = pose.wink;
       face.uWide.value = pose.wide;
       face.uHeart.value = pose.heart;
+      face.uStar.value = pose.star;
+      face.uBlush.value = pose.blush;
+      face.uSleep.value = pose.sleep;
+      face.uZ.value = pose.zPhase;
+      face.uBeat.value = pose.beat;
       // The visor's display (display.ts): its words, when it has any, cross-fade with the eyes.
       const shown = visorDisplay.frame();
       face.uLedOn.value = shown.level;

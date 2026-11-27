@@ -1,7 +1,8 @@
 import { NeutralToneMapping, PCFShadowMap, PerspectiveCamera, Raycaster, SRGBColorSpace, Scene, Timer, Vector2, Vector3, WebGLRenderer } from 'three';
 import type { Direction } from '@inrp2p/kernel';
-import { type LookAngles, type LookTarget, type Pose, REST_POSE, RobotBehaviour } from './behaviour.ts';
-import { type RobotMood, robotCues } from './cues.ts';
+import { type LookAngles, type LookTarget, type Pose, type Presence, REST_POSE, RobotBehaviour } from './behaviour.ts';
+import { type RobotCue, type RobotMood, robotCues } from './cues.ts';
+import { robotPresence } from './presence.ts';
 import { type Figure, HEAD_CENTRE, figureSteps } from './figure.ts';
 import { FrameGovernor, displayPeriod } from './governor.ts';
 import { studio } from './studio.ts';
@@ -30,7 +31,7 @@ const HEAD = new Vector3(HEAD_CENTRE.x, HEAD_CENTRE.y, HEAD_CENTRE.z);
  * Where each look target lives on the page. `rate` is marked only by UI that shows a firm rate; without it,
  * attention falls back to the module (`states.ts`).
  */
-const TARGET_SELECTORS: Record<Exclude<LookTarget, 'viewer' | 'entry' | 'pointer'>, string> = {
+const TARGET_SELECTORS: Record<Exclude<LookTarget, 'viewer' | 'entry' | 'pointer' | 'reading' | 'exit'>, string> = {
   title: '#hero-title',
   panel: '[data-robot-target="panel"]',
   amount: '[data-robot-target="amount"]',
@@ -55,6 +56,16 @@ const TARGET_RECHECK_MS = 400;
 
 /** How long after the pointer last moved the robot still follows it, before it looks back at the visitor. */
 const POINTER_HOLD_MS = 2200;
+
+/**
+ * The page has scrolled on past the robot once its head is this high in the window: from here, what the visitor reads
+ * is below it, and the robot looks there — at this point of the window — rather than out at them.
+ */
+const BELOW_AT = 0.3;
+const READING = { x: 0.5, y: 0.64 } as const;
+
+/** What a tap or click on the robot never counts as: a press on anything that does something. */
+const INTERACTIVE = 'a[href], button, input, select, textarea, label, summary, [role="button"], [role="link"], [contenteditable="true"], [tabindex]:not([tabindex^="-"])';
 
 export interface RobotSceneOptions {
   readonly canvas: HTMLCanvasElement;
@@ -110,8 +121,11 @@ export class RobotScene {
   private readonly missingUntil = new Map<LookTarget, number>();
   private readonly entry: Element | null;
   private readonly entryHeld = { pointer: false, focus: false };
-  /** Where a mouse last was on screen, and when it got there. */
-  private readonly pointer = { x: 0, y: 0, at: Number.NEGATIVE_INFINITY };
+  /** Where a mouse last was on screen, and when it got there; `out` once it has left the window. */
+  private readonly pointer = { x: 0, y: 0, at: Number.NEGATIVE_INFINITY, out: false };
+  /** Since when the mouse has rested on the robot's head, while it does. */
+  private overSince = Number.POSITIVE_INFINITY;
+  private readonly head = new Vector3();
   private readonly unsubscribe: () => void;
   private readonly ray = new Raycaster();
   private readonly ndc = new Vector2();
@@ -137,7 +151,7 @@ export class RobotScene {
       ...(options.mirror ? { mirror: true } : {}),
       wakeAt: 0.9,
     });
-    this.unsubscribe = options.still ? () => {} : robotCues.subscribe((cue) => this.behaviour.cue(cue, this.timer.getElapsed()));
+    this.unsubscribe = options.still ? () => {} : robotCues.subscribe((cue) => this.hear(cue));
 
     if (options.scope) {
       for (const name of Object.keys(TARGET_SELECTORS) as (keyof typeof TARGET_SELECTORS)[]) this.find(name);
@@ -148,7 +162,11 @@ export class RobotScene {
       for (const type of ENTRY_EVENTS) this.entry.addEventListener(type, this.onEntry);
     }
     canvas.addEventListener('webglcontextlost', this.onContextLost);
-    if (!options.still) window.addEventListener('pointermove', this.onPointer, { passive: true });
+    if (!options.still) {
+      window.addEventListener('pointermove', this.onPointer, { passive: true });
+      window.addEventListener('pointerdown', this.onPress, { passive: true });
+      document.addEventListener('mouseout', this.onLeave, { passive: true });
+    }
 
     this.timer.connect(document);
     void this.start();
@@ -254,6 +272,8 @@ export class RobotScene {
     }
     this.options.canvas.removeEventListener('webglcontextlost', this.onContextLost);
     window.removeEventListener('pointermove', this.onPointer);
+    window.removeEventListener('pointerdown', this.onPress);
+    document.removeEventListener('mouseout', this.onLeave);
     this.timer.dispose();
     // Programs still compiling belong to the driver until it answers: the compile's own callback releases them. A
     // step of `start` still waiting for its task does the same when it wakes.
@@ -268,13 +288,80 @@ export class RobotScene {
     robotCues.setEntry(this.entryHeld.pointer || this.entryHeld.focus);
   };
 
+  /**
+   * A cue, heard at the moment it happens. The clock is brought up to now first: a robot that has been off screen has
+   * not been ticking, and a cue stamped with the last frame's time would already be over when the next frame comes.
+   */
+  private hear(cue: RobotCue): void {
+    this.timer.update(performance.now());
+    this.behaviour.cue(cue, this.timer.getElapsed());
+  }
+
   /** A mouse moving anywhere on the page draws the resting robot's eyes; a finger on a phone does not. */
   private onPointer = (e: PointerEvent) => {
     if (e.pointerType !== 'mouse') return;
     this.pointer.x = e.clientX;
     this.pointer.y = e.clientY;
     this.pointer.at = performance.now();
+    this.pointer.out = false;
   };
+
+  private onLeave = (e: MouseEvent) => {
+    if (e.relatedTarget === null) this.pointer.out = true;
+  };
+
+  /**
+   * A tap or click on the robot itself — its head or its chest — is a poke. Read from the window, passively: the
+   * robot's stage takes no pointer events, so the tap still goes wherever it was going, and a press on anything that
+   * does something is never a poke.
+   */
+  private onPress = (e: PointerEvent) => {
+    if (!e.isPrimary || e.button !== 0 || !this.active || !this.compiled || !robotPresence.on()) return;
+    if (e.target instanceof Element && e.target.closest(INTERACTIVE)) return;
+    const head = this.headOnScreen();
+    if (!head) return;
+    const dx = (e.clientX - head.x) / head.r;
+    const dy = (e.clientY - head.y) / head.r;
+    const onHead = dx * dx + (dy / 0.85) ** 2 <= 1.1;
+    const onChest = Math.abs(dx) <= 0.8 && dy > 0 && dy <= 2.2;
+    if (onHead || onChest) this.hear({ kind: 'poke' });
+  };
+
+  /** The robot's head on screen at rest: its centre and its half width, in CSS pixels. */
+  private headOnScreen(): { x: number; y: number; r: number } | null {
+    const c = (this.canvasRect ??= this.options.canvas.getBoundingClientRect());
+    if (c.width === 0 || c.height === 0) return null;
+    this.head.copy(HEAD).project(this.camera);
+    const x = c.left + ((this.head.x + 1) / 2) * c.width;
+    const y = c.top + ((1 - this.head.y) / 2) * c.height;
+    this.head.set(HEAD.x + 0.8, HEAD.y, HEAD.z).project(this.camera);
+    const r = Math.abs(c.left + ((this.head.x + 1) / 2) * c.width - x);
+    return { x, y, r };
+  }
+
+  /** The visitor on the page as a whole (`presence.ts`), with what only the robot can tell: where it is on screen. */
+  private presence(): Presence | undefined {
+    // Only where the page is watched for the robot (the home page's stage); the workspace's robot keeps to its moods.
+    if (!robotPresence.on()) return undefined;
+    const now = performance.now();
+    const head = this.headOnScreen();
+    const below = head !== null && head.y < window.innerHeight * BELOW_AT;
+    let over = false;
+    if (head && !this.pointer.out && Number.isFinite(this.pointer.at)) {
+      const dx = (this.pointer.x - head.x) / head.r;
+      const dy = (this.pointer.y - head.y) / (head.r * 0.85);
+      over = dx * dx + dy * dy <= 1;
+    }
+    if (!over) this.overSince = Number.POSITIVE_INFINITY;
+    else if (!Number.isFinite(this.overSince)) this.overSince = now;
+    return {
+      quiet: robotPresence.quiet(now),
+      scrolling: robotPresence.scrolling(now),
+      below,
+      over: over ? (now - this.overSince) / 1000 : 0,
+      leaving: robotPresence.leaving(),
+    };
+  }
 
   private loop = () => {
     this.raf = requestAnimationFrame((now) => {
@@ -314,18 +401,22 @@ export class RobotScene {
   }
 
   private pose(): Pose {
+    const presence = this.presence();
     return this.behaviour.update({
       time: this.timer.getElapsed(),
       dt: this.timer.getDelta(),
       focus: robotCues.focus(),
       angles: (target) => this.anglesTo(target),
       pointer: performance.now() - this.pointer.at < POINTER_HOLD_MS,
+      ...(presence ? { presence } : {}),
     });
   }
 
   private anglesTo(target: LookTarget): LookAngles | null {
     if (target === 'viewer') return this.anglesFrom(this.hit.copy(this.camera.position));
     if (target === 'pointer') return Number.isFinite(this.pointer.at) ? this.anglesAt(this.pointer.x, this.pointer.y) : null;
+    if (target === 'reading') return this.anglesAt(window.innerWidth * READING.x, window.innerHeight * READING.y);
+    if (target === 'exit') return Number.isFinite(this.pointer.at) ? this.anglesAt(this.pointer.x, -window.innerHeight * 0.15) : null;
     let el = this.targets.get(target);
     // An element the page has since replaced is looked for again; one that is gone stays gone for a moment.
     if ((!el || !el.isConnected) && target !== 'entry') el = this.find(target);

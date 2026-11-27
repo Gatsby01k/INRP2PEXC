@@ -2,8 +2,8 @@ import { getImageProps } from 'next/image';
 import { CLOSING, ONBOARDING, TELEGRAM, TRADER_ENTRY, telegramUrl, withTerms } from '../../../../content/site.ts';
 import { appOrigin, onboardingHref, siteContacts } from '../../../../server/site.ts';
 import { ArrowIcon, TelegramIcon } from '../icons.tsx';
-import { Led } from '../led/Led.tsx';
 import wave from '../robot/stills/robot-wave.webp';
+import { ClosingVisor } from './ClosingVisor.tsx';
 import styles from './closing.module.css';
 
 /**
@@ -36,17 +36,18 @@ export function Closing() {
             {heading}
           </h2>
           <p className={styles.body}>{body}</p>
-          <a className={styles.cta} href={`${appOrigin()}${cta.appPath}`}>
+          <a className={styles.cta} href={`${appOrigin()}${cta.appPath}`} data-closing-cta="">
             <span className={styles.ctaSheen} aria-hidden="true" />
             {cta.label}
             <ArrowIcon className={styles.ctaArrow} />
           </a>
         </div>
-        {/* The robot waves goodbye, and its visor says whose move it is now — the workspace's own words for it. */}
+        {/* The robot waves goodbye, and its visor says whose move it is now — the workspace's own words for it — or
+            shows hearts while the visitor is on the call to action (ClosingVisor.tsx). */}
         <div className={styles.robot} aria-hidden="true">
           <img {...robot} className={styles.robotImg} loading="lazy" decoding="async" />
           <span className={styles.visor}>
-            <Led text={`${CLOSING.robot} →`} mode="marquee" pitch={7} rows={15} speed={14} className={styles.visorLed} />
+            <ClosingVisor text={`${CLOSING.robot} →`} />
           </span>
         </div>
         <div className={styles.ways}>

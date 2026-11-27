@@ -46,7 +46,19 @@ export type RobotCue =
    */
   | { readonly kind: 'wait'; readonly on: boolean }
   /** The state of record changed (`RobotMood`): what the robot rests in until the next change. */
-  | { readonly kind: 'mood'; readonly mood: RobotMood };
+  | { readonly kind: 'mood'; readonly mood: RobotMood }
+  /**
+   * The visitor pressed the call to action with an amount that can go: they are asking for a price. The robot
+   * celebrates the decision. Only from the home page's module (the workspace's own submit is `submitted`).
+   */
+  | { readonly kind: 'commit' }
+  /** The visitor tapped or clicked the robot itself (`scene.ts` reads it, without ever taking the tap). */
+  | { readonly kind: 'poke' }
+  /**
+   * The visitor came back to the robot: to the tab after a while away, or to the top of the page after reading on
+   * (`presence.ts`). The robot welcomes them, and after a scroll back up shows them the next step.
+   */
+  | { readonly kind: 'back'; readonly via: 'tab' | 'scroll' };
 
 /**
  * What the robot rests in while a state of record lasts — the workspace's, never the home page's, which has none.
