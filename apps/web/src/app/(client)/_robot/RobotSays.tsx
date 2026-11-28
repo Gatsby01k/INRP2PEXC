@@ -1,25 +1,27 @@
 'use client';
 
+import { Fragment } from 'react';
 import Link from 'next/link';
 import type { RobotFace as Face } from '@inrp2p/robot';
-import { ArrowIcon, ChatIcon, ShieldIcon } from '../_workspace/icons.tsx';
+import { ArrowIcon, ChevronIcon } from '../_workspace/icons.tsx';
 import { openRobot } from './open.ts';
 import { RobotFace } from './RobotFace.tsx';
 import type { Speech, SpeechTone } from './speech.ts';
 import styles from './says.module.css';
 
-const FACE: Record<SpeechTone, Face> = { calm: 'calm', guard: 'look', alert: 'alert', happy: 'happy' };
 /** The robot's name (owner's choice, 2026-11-28): Hinglish for "bro" — the one who has your back in a deal. */
 export const ROBOT_NAME = 'Bhai';
-const WHO: Record<SpeechTone, string> = { calm: ROBOT_NAME, guard: `${ROBOT_NAME} · heads-up`, alert: `${ROBOT_NAME} · stop`, happy: ROBOT_NAME };
+
+const FACE: Record<SpeechTone, Face> = { calm: 'calm', guard: 'look', alert: 'alert', happy: 'happy' };
 
 /**
- * The robot speaking (ADR 0034 addendum): a remark in its own voice, beside it on the stage or on the sheet under it —
- * never a popup, never in the way of the move. One remark at a time: the bubble arrives again only when what it says
- * changes (`speech.key`). Its log is the visor's: black glass, the times in the mark's orange, the live row blinking.
+ * Bhai speaking, as a character in a game speaks: a white line of dialogue with his name on a black glass tab over its
+ * corner, its tail towards him, the words arriving one after another as if said. The first sentence is what matters;
+ * a second, quieter one says why. Never a popup, never in the way of the move, one line at a time — the bubble arrives
+ * again only when what it says changes (`speech.key`).
  *
- * `variant` is where it stands: `field` on the mark's orange stage, its corner towards the robot; `sheet` on a white card,
- * with the robot's face as the speaker. `ask` adds "Ask Bhai", which opens the masthead robot's conversation.
+ * `variant` is where it stands: `field` on the mark's orange stage, beside the big robot; `sheet` on a white card, where
+ * his small face speaks instead. `ask` puts "Ask" on the name tab, which opens the masthead robot's conversation.
  */
 export function RobotSays({
   speech,
@@ -35,52 +37,52 @@ export function RobotSays({
   live?: boolean;
   className?: string | undefined;
 }) {
-  const intro = speech.lines.length > 2;
+  const [lead, ...rest] = speech.lines;
+  let n = 0;
+  // Each word its own span, a plain space between them, so lines still break where words do.
+  const words = (text: string) =>
+    text.split(/\s+/).filter(Boolean).map((w) => (
+      <Fragment key={n}>
+        <span className={styles.w} style={{ ['--w' as string]: n++ }}>
+          {w}
+        </span>{' '}
+      </Fragment>
+    ));
   return (
     <div
       key={speech.key}
       className={`${styles.says}${className ? ` ${className}` : ''}`}
       data-variant={variant}
       data-tone={speech.tone}
-      {...(intro ? { 'data-intro': '' } : {})}
       {...(live ? { role: 'status', 'aria-live': 'polite' } : {})}
     >
-      <div className={styles.head}>
-        <RobotFace face={FACE[speech.tone]} size={variant === 'sheet' ? 26 : 22} className={styles.face} />
-        <span className={styles.who}>
-          {speech.tone === 'guard' || speech.tone === 'alert' ? <ShieldIcon className={styles.whoIcon} /> : null}
-          {WHO[speech.tone]}
+      {variant === 'sheet' ? <RobotFace face={FACE[speech.tone]} size={38} className={styles.avatar} /> : null}
+      <div className={styles.bubble}>
+        <span className={styles.tab}>
+          <i className={styles.led} aria-hidden="true" />
+          <span className={styles.name}>{ROBOT_NAME}</span>
+          {ask ? (
+            <button type="button" className={styles.ask} onClick={openRobot} aria-label={`Ask ${ROBOT_NAME}`}>
+              Ask
+              <ChevronIcon className={styles.askIcon} />
+            </button>
+          ) : null}
         </span>
-        {ask ? (
-          <button type="button" className={styles.ask} onClick={openRobot}>
-            <ChatIcon />
-            Ask {ROBOT_NAME}
-          </button>
+        <p className={styles.text}>
+          {lead ? <span className={styles.lead}>{words(lead)}</span> : null}
+          {rest.map((line, i) => (
+            <span key={i} className={styles.more}>
+              {words(line)}
+            </span>
+          ))}
+        </p>
+        {speech.action ? (
+          <Link className={styles.action} href={speech.action.href}>
+            {speech.action.label}
+            <ArrowIcon />
+          </Link>
         ) : null}
       </div>
-      <p className={styles.text}>
-        {speech.lines.map((line, i) => (
-          <span key={i} className={styles.line} style={{ ['--i' as string]: i }}>
-            {line}{' '}
-          </span>
-        ))}
-      </p>
-      {speech.log && speech.log.length > 0 ? (
-        <ol className={styles.log} aria-label={`What ${ROBOT_NAME} is doing`}>
-          {speech.log.map((r, i) => (
-            <li key={`${i}:${r.text}`} data-state={r.state}>
-              <span className={styles.logAt}>{r.state === 'live' ? <i className={styles.logDot} aria-hidden="true" /> : r.at ?? '✓'}</span>
-              <span className={styles.logText}>{r.text}</span>
-            </li>
-          ))}
-        </ol>
-      ) : null}
-      {speech.action ? (
-        <Link className={styles.action} href={speech.action.href}>
-          {speech.action.label}
-          <ArrowIcon />
-        </Link>
-      ) : null}
     </div>
   );
 }

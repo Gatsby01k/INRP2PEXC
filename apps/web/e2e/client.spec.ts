@@ -149,7 +149,7 @@ test('the client follows that trade to completion on their phone', async ({ page
   await expect(page.getByText(tradeRef).first()).toBeVisible();
   // Before the USDT arrives the screen's job is to say exactly where to send it — and the robot says it is watching for it.
   await expect(page.getByText(/Send exactly|USDT/).first()).toBeVisible();
-  await expect(page.getByText(/^I’m watching TRON for exactly [\d,.]+ USDT\./)).toBeVisible();
+  await expect(page.getByText(/^Watching TRON for your [\d,.]+ USDT\./)).toBeVisible();
 
   const tradeId = await tradeIdForRef(tradeRef);
   await clientSendsUsdt(tradeId, '1000');
@@ -162,12 +162,12 @@ test('the client follows that trade to completion on their phone', async ({ page
   await expect(page.getByRole('heading', { name: /^Did .* arrive\?/ }).first()).toBeVisible();
   await expect(page.getByText('₹100,000', { exact: false }).first()).toBeVisible();
   // The moment P2P money is lost: the robot sends the seller to its bank app, not to a screenshot (ADR 0034 addendum).
-  await expect(page.getByText(/Screenshots and SMS can be faked — only the credit in your bank counts\./)).toBeVisible();
-  await expect(page.getByRole('list', { name: 'What Bhai is doing' }).getByText(/Waiting for your check/)).toBeVisible();
+  await expect(page.getByText('Check your bank app, not a screenshot.')).toBeVisible();
+  await expect(page.getByText('Screenshots and SMS can be faked.')).toBeVisible();
   // "Ask Bhai" opens the robot's conversation with the question box ready.
   await page.getByRole('button', { name: 'Ask Bhai' }).click();
   await expect(page.getByRole('dialog', { name: 'Bhai' })).toBeVisible();
-  await expect(page.getByLabel('Ask Bhai')).toBeFocused();
+  await expect(page.getByRole('textbox', { name: 'Ask Bhai' })).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(page.getByRole('dialog', { name: 'Bhai' })).toBeHidden();
   const release = page.getByRole('button', { name: /^Release [\d,.]+ USDT$/ });
@@ -178,7 +178,7 @@ test('the client follows that trade to completion on their phone', async ({ page
   await expect.poll(() => tradeState(tradeId)).toBe('COMPLETED');
   await page.reload();
   await expect(page.getByText('Completed', { exact: false }).first()).toBeVisible();
-  await expect(page.getByText('All settled — thank you for trading with me.')).toBeVisible();
+  await expect(page.getByText('All settled. Pleasure doing business.')).toBeVisible();
 });
 
 test('the client sees it in their history and their inbox, and nothing of the desk’s', async ({ page }) => {
@@ -277,13 +277,13 @@ test('a stranger opens their own account with an email and a code, and is in the
   // Someone new lands on opening their account, not in an Exchange they do not have yet.
   await expect(page).toHaveURL(`${appBaseUrl()}/open-account`);
   await expect(page.getByRole('heading', { level: 1, name: 'Open your account' })).toBeVisible();
-  await expect(page.getByText('Name the account and the Exchange opens right away.')).toBeVisible();
+  await expect(page.getByText('Name it, and you’re in.')).toBeVisible();
   await page.getByLabel('Company name').fill('Self Made Client');
   await page.getByRole('button', { name: 'Open account' }).click();
 
   await expect(page.getByRole('heading', { name: 'Exchange', exact: true })).toBeVisible();
   // A first visit: the robot says hello on the stage, once for this browser.
-  await expect(page.getByText('Hi, I’m Bhai — the INRP2P robot.').first()).toBeVisible();
+  await expect(page.getByText('Hi, I’m Bhai — your INRP2P robot.').first()).toBeVisible();
   await expect(page.getByRole('navigation', { name: 'Sections' }).getByRole('link')).toHaveText(['Exchange', 'History', 'Bank & wallets', 'Traders']);
   const { appDb } = await import('./support.ts');
   const opened = await appDb()

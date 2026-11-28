@@ -121,9 +121,9 @@
 
 /* ——— The move's instrument: the escrow's address, on a white ticket ——— */
 
-/* The robot's remark under the move (and under the ticket, when there is one): never between the move and its instrument. */
+/* Bhai's line under the move (and under the ticket, when there is one): never between the move and its instrument. */
 .says {
-  margin-top: 18px;
+  margin-top: 30px;
 }
 
 .ticket {

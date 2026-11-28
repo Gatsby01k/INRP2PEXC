@@ -438,9 +438,9 @@
   opacity: 0.8;
 }
 
-/* The robot's remark on a stage (`RobotSays`): in the column of words, its corner towards the robot. */
+/* Bhai's line on a stage (`RobotSays`): in the column of words, a little more air above it than a fact gets. */
 .says {
-  margin-top: var(--space-6);
+  margin-top: 30px;
 }
 
 /* On a phone a firm quote is a decision against the clock: the figure, the time and the button only. */

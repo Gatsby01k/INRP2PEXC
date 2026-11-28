@@ -183,10 +183,10 @@ test('the client’s USDT reaches the escrow, the desk pays the rupees, and the 
   // (Typed again until the page has hydrated: a draft typed into the server's HTML never reaches the page's state.)
   await expect(async () => {
     await phone.getByLabel('Message the buyer').fill('call me on 98765 43210');
-    await expect(phone.getByText('Keep the deal in this chat.')).toBeVisible({ timeout: 1_000 });
+    await expect(phone.getByText('Keep it in this chat.')).toBeVisible({ timeout: 1_000 });
   }).toPass();
   await phone.getByLabel('Message the buyer').fill('Checking my bank app now');
-  await expect(phone.getByText('Keep the deal in this chat.')).toBeHidden();
+  await expect(phone.getByText('Keep it in this chat.')).toBeHidden();
   await phone.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(phone.getByText('Checking my bank app now')).toBeVisible();
   await phone.getByLabel('Sender’s name, as your bank shows it').fill(DESK.legalName);

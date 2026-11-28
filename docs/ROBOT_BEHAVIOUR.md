@@ -85,17 +85,18 @@ shapes, drawn on the server, so the first paint never waits for it; its words ar
 and address it by that name everywhere (the remark's tag, "Ask Bhai", the sheet and `/robot`, Telegram and email, the stop
 link, the desk's nav); the code keeps `robot`.
 
-The masthead head alone was not enough: a client had to find it. So the big robot on every stage now **speaks** — a white
-remark beside it, in the first person, at most two sentences (three for the first hello), every figure one of record
-(`_robot/speech.ts`, pure, unit-tested). Under the remark, where it is working, its visor's log: black glass, the times
-in the mark's orange, the step in progress blinking — the deal's own record (stops reached, the transfer seen on TRON, the
-payment filed), or the wait's (when it started, how many traders were told, how many are online, the place in line).
+The masthead head alone was not enough: a client had to find it. So the big robot on every stage now **speaks**, as a
+character in a game does: a white line of dialogue beside him, his name on a black glass tab over its corner (the LED
+on it flickers while he talks, amber when he warns, red when he says stop), the tail towards him, the words arriving one
+after another. The first sentence is read at a glance (48 characters at most); a second, quieter one says why
+(`_robot/speech.ts`, pure, unit-tested). Every figure is one of record. On a white card his small face speaks instead.
+The stage's own facts and stops carry the record; there is no log.
 
 | Where | What it says |
 | --- | --- |
-| Exchange, first visit | "Hi, I'm Bhai — the INRP2P robot." · one firm price for all of it · every deal runs through escrow — once per browser |
-| Exchange, traded before | "Last time you sold 1,000 USDT at ₹96.40. Today the market is ₹97.10." — **Same again** prefills the form |
-| Being priced / waiting | what it is doing about it, when the price lands, where it will tell them; the wait's log |
+| Exchange, first visit | "Hi, I'm Bhai — your INRP2P robot." · one firm price · the USDT stays locked till the rupees land — once per browser |
+| Exchange, traded before | "Last time: sold 1,000 USDT at ₹96.40." · "Market today: ₹97.10." — **Same again** prefills the form |
+| Being priced / waiting | what he is doing about it, when the price lands, where he will ping them |
 | A firm quote (desk only) | one firm price for the whole amount, held until HH:MM, nothing moves until they accept |
 | Seller, escrow | it watches TRON for the exact amount; locked the moment it lands, released only on their word |
 | Buyer, escrow | the seller is locking it — **don't pay anything yet** |
@@ -110,5 +111,4 @@ payment filed), or the wait's (when it started, how many traders were told, how 
 
 Rules kept: no popups and nothing opens by itself; one remark at a time (it arrives again only when what it says
 changes); no sound; never guilt, sirens or invented figures; never a word on a dispute's outcome or a release. On a
-phone the firm quote is a decision against the clock, so the robot is quiet there; the log keeps to the last thing done
-and the thing in progress. **Ask Bhai** on a stage opens the masthead robot's conversation with the question box focused.
+phone the firm quote is a decision against the clock, so the robot is quiet there. **Ask** on the name tab opens the masthead robot's conversation with the question box focused.

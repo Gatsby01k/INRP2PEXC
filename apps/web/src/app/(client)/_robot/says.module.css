@@ -1,196 +1,168 @@
-/* The robot speaking: a white remark on the mark's orange (its corner towards the robot), or a warm note on a white
-   card; under it, the visor's log — black glass, orange times, the live row blinking. */
+/* Bhai speaking, as a character in a game: a white line of dialogue, his name on a black glass tab over its corner, its
+   tail towards him, the words arriving one after another. On a white card his small face speaks instead. */
 
 .says {
-  --says-ink: #16171b;
-  --says-muted: rgba(22, 23, 27, 0.62);
-  --says-orange: #ff5a1f;
+  --ink: #16171b;
+  --led: #ff7a45;
   position: relative;
-  display: grid;
-  gap: 8px;
-  max-width: 440px;
-  padding: 12px 16px 14px;
-  border-radius: 22px 22px 6px 22px;
-  background: #fffdfb;
-  box-shadow:
-    0 18px 40px -18px rgba(90, 20, 0, 0.55),
-    0 2px 6px rgba(90, 20, 0, 0.12);
-  color: var(--says-ink);
-  text-align: left;
-  animation: arrive 420ms var(--ease) both;
-  transform-origin: 100% 100%;
-}
-
-.says[data-variant='sheet'] {
-  justify-self: start;
-  width: fit-content;
-  max-width: min(100%, 640px);
-  padding: 12px 16px 14px 14px;
-  border-radius: 6px 20px 20px 20px;
-  background: #fff6f0;
-  box-shadow: inset 0 0 0 1px rgba(255, 90, 31, 0.18);
-  transform-origin: 0 0;
-}
-
-.says[data-variant='sheet'][data-tone='alert'] {
-  background: #fff1f0;
-  box-shadow: inset 0 0 0 1px rgba(214, 45, 32, 0.3);
-}
-
-.head {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 24px;
+  align-items: flex-start;
+  gap: 10px;
+  /* Room for the name tab, which sits half over the bubble's top edge. */
+  margin-top: 26px;
+  color: var(--ink);
+  text-align: left;
 }
 
-.face {
-  flex: none;
+.bubble {
+  position: relative;
+  width: fit-content;
+  max-width: 380px;
+  padding: 19px 18px 14px;
+  border-radius: 20px;
+  background: #fff;
+  box-shadow:
+    0 22px 44px -22px rgba(90, 20, 0, 0.6),
+    0 2px 5px rgba(90, 20, 0, 0.1);
+  animation: arrive 360ms var(--ease) both;
+  transform-origin: 90% 100%;
 }
 
-.who {
+/* The tail, towards the robot standing at the stage's lower right. */
+.bubble::after {
+  content: '';
+  position: absolute;
+  right: 30px;
+  bottom: -11px;
+  width: 22px;
+  height: 12px;
+  background: #fff;
+  clip-path: polygon(0 0, 100% 0, 100% 100%);
+}
+
+/* ——— The name tab: the robot's own black glass, a lit LED ——— */
+
+.tab {
+  position: absolute;
+  top: 0;
+  left: 14px;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  color: var(--says-muted);
-  font-size: 12px;
-  font-weight: var(--font-weight-semibold);
-  letter-spacing: 0.01em;
+  gap: 7px;
+  height: 26px;
+  padding: 0 11px 0 9px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #2c2e35, #101114);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    0 8px 16px -8px rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  transform: translateY(-50%);
 }
 
-.says[data-tone='guard'] .who {
-  color: #c2410c;
+.led {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--led);
+  box-shadow: 0 0 0 2px rgba(255, 122, 69, 0.18), 0 0 10px var(--led);
+  animation: talk 180ms steps(2, end) 8 both;
 }
 
-.says[data-tone='alert'] .who {
-  color: #c4261b;
+.says[data-tone='guard'] {
+  --led: #ffb020;
 }
 
-.whoIcon {
-  width: 14px;
-  height: 14px;
+.says[data-tone='alert'] {
+  --led: #ff4d3d;
+}
+
+.name {
+  line-height: 1;
 }
 
 .ask {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  height: 28px;
-  margin-left: auto;
-  padding: 0 11px 0 9px;
+  gap: 2px;
+  height: 100%;
+  margin: 0 -11px 0 2px;
+  padding: 0 9px 0 10px;
   border: 0;
-  border-radius: var(--radius-pill);
-  background: rgba(255, 90, 31, 0.1);
-  color: #c2410c;
+  border-left: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 0 999px 999px 0;
+  background: none;
+  color: #ff9a6e;
   font: inherit;
-  font-size: 12.5px;
-  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.12em;
   cursor: pointer;
-  transition: background 160ms var(--ease);
+  transition: color 160ms var(--ease), background 160ms var(--ease);
 }
 
-.ask svg {
-  width: 15px;
-  height: 15px;
+.askIcon {
+  width: 13px;
+  height: 13px;
 }
 
 .ask:hover {
-  background: rgba(255, 90, 31, 0.18);
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffc2a6;
 }
 
 .ask:focus-visible {
-  outline: 2px solid var(--says-orange);
+  outline: 2px solid var(--led);
   outline-offset: 2px;
 }
 
+/* ——— The words ——— */
+
 .text {
   margin: 0;
-  font-size: 15px;
-  font-weight: var(--font-weight-medium);
-  line-height: 1.45;
+  font-size: 15.5px;
+  line-height: 1.4;
   text-wrap: pretty;
 }
 
-/* The first hello says its three lines one after another, as a person would. */
-.says[data-intro] .line {
-  display: block;
-  animation: line 520ms var(--ease) both;
-  animation-delay: calc(var(--i) * 1100ms + 300ms);
-}
-
-.says[data-intro] .line + .line {
-  margin-top: 4px;
-}
-
-.says[data-intro] .line:first-child {
+.lead {
   font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.01em;
 }
 
-.log {
-  display: grid;
-  gap: 5px;
-  margin: 4px 0 0;
-  padding: 10px 12px;
-  border-radius: 14px;
-  background: radial-gradient(120% 140% at 20% 0%, #2a2c33, #111215 60%);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
-  list-style: none;
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-  line-height: 1.4;
+.more {
+  display: block;
+  margin-top: 3px;
+  color: rgba(22, 23, 27, 0.6);
+  font-size: 14px;
+  font-weight: var(--font-weight-medium);
 }
 
-.log li {
-  display: grid;
-  grid-template-columns: 40px minmax(0, 1fr);
-  align-items: baseline;
-  gap: 8px;
-  color: rgba(255, 255, 255, 0.64);
-}
-
-.log li[data-state='live'] {
-  color: #fff;
-}
-
-.logAt {
-  color: #ff7a45;
-  font-variant-numeric: tabular-nums;
-}
-
-.logText {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.log li[data-state='live'] .logText::after {
-  content: '';
+/* Said, not printed: each word arrives a beat after the one before. */
+.w {
   display: inline-block;
-  width: 1.2em;
-  text-align: left;
-  animation: ellipsis 1.6s steps(4, end) infinite;
+  animation: word 300ms var(--ease) both;
+  animation-delay: calc(var(--w) * 42ms + 160ms);
 }
 
-.logDot {
-  display: inline-block;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #ff7a45;
-  box-shadow: 0 0 8px #ff7a45;
-  animation: blink 1.4s var(--ease) infinite;
+.says[data-tone='alert'] .bubble {
+  box-shadow:
+    inset 0 0 0 1.5px rgba(214, 45, 32, 0.45),
+    0 22px 44px -22px rgba(90, 20, 0, 0.6);
 }
 
 .action {
   display: inline-flex;
   align-items: center;
-  justify-self: start;
   gap: 8px;
   height: 36px;
-  margin-top: 2px;
+  margin-top: 12px;
   padding: 0 14px 0 16px;
   border-radius: var(--radius-pill);
-  background: var(--says-ink);
+  background: var(--ink);
   color: #fff;
   font-size: 13.5px;
   font-weight: var(--font-weight-semibold);
@@ -208,75 +180,99 @@
 }
 
 .action:focus-visible {
-  outline: 2px solid var(--says-orange);
+  outline: 2px solid var(--led);
   outline-offset: 2px;
 }
 
-/* On a phone the robot stands at the stage's top right: the remark's corner points up to it. */
+/* ——— On a white card: his small face speaks, the tail towards it ——— */
+
+.avatar {
+  flex: none;
+  margin-top: 6px;
+}
+
+.says[data-variant='sheet'] {
+  margin-top: 22px;
+}
+
+.says[data-variant='sheet'] .bubble {
+  max-width: min(100%, 560px);
+  padding: 18px 16px 12px;
+  border-radius: 6px 20px 20px 20px;
+  background: #fff4ec;
+  box-shadow: inset 0 0 0 1px rgba(255, 90, 31, 0.14);
+  transform-origin: 0 0;
+}
+
+.says[data-variant='sheet'][data-tone='alert'] .bubble {
+  background: #fff1f0;
+  box-shadow: inset 0 0 0 1.5px rgba(214, 45, 32, 0.32);
+}
+
+.says[data-variant='sheet'] .bubble::after {
+  top: 12px;
+  right: auto;
+  bottom: auto;
+  left: -9px;
+  width: 10px;
+  height: 16px;
+  background: inherit;
+  clip-path: polygon(100% 0, 0 50%, 100% 100%);
+}
+
+.says[data-variant='sheet'] .text {
+  font-size: 14.5px;
+}
+
+.says[data-variant='sheet'] .more {
+  font-size: 13.5px;
+}
+
+/* On a phone the bubble takes the column's width. */
 @media (max-width: 699px) {
-  .says {
+  .says[data-variant='field'] .bubble {
     max-width: none;
-    border-radius: 22px 6px 22px 22px;
-    transform-origin: 100% 0;
+    transform-origin: 90% 0;
+  }
+
+  /* On a phone the robot is above, beside the stage's clock: the name tab says who speaks, no tail. */
+  .says[data-variant='field'] .bubble::after {
+    display: none;
+  }
+
+  .says[data-variant='field'] .tab {
+    left: 12px;
   }
 
   .text {
-    font-size: 14.5px;
-  }
-
-  /* A phone keeps the log to what just happened and what is happening. */
-  .log li[data-state='done']:not(:nth-last-child(-n + 2)) {
-    display: none;
+    font-size: 15px;
   }
 }
 
 @keyframes arrive {
   from {
     opacity: 0;
-    transform: translateY(6px) scale(0.97);
+    transform: translateY(6px) scale(0.96);
   }
 }
 
-@keyframes line {
+@keyframes word {
   from {
     opacity: 0;
     transform: translateY(4px);
   }
 }
 
-@keyframes blink {
+@keyframes talk {
   50% {
-    opacity: 0.35;
-  }
-}
-
-@keyframes ellipsis {
-  0% {
-    content: '';
-  }
-
-  25% {
-    content: '.';
-  }
-
-  50% {
-    content: '..';
-  }
-
-  75% {
-    content: '...';
+    opacity: 0.25;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .says,
-  .says[data-intro] .line,
-  .logDot,
-  .log li[data-state='live'] .logText::after {
+  .bubble,
+  .w,
+  .led {
     animation: none;
-  }
-
-  .log li[data-state='live'] .logText::after {
-    content: '…';
   }
 }
