@@ -17,9 +17,9 @@ export default async function RobotQuietPage({ params }: { params: Promise<{ lin
     <main className={styles.page}>
       <section className={styles.card}>
         <RobotFace face="sleep" size={72} />
-        <h1 className={styles.title}>Stop the robot’s messages?</h1>
+        <h1 className={styles.title}>Stop Bhai’s messages?</h1>
         <p className={styles.body}>
-          The robot will not email or message you with suggestions any more. Your deal alerts, sign-in codes and everything in the app stay as they are — and you can turn its
+          Bhai, the INRP2P robot, will not email or message you with suggestions any more. Your deal alerts, sign-in codes and everything in the app stay as they are — and you can turn its
           messages back on in the app at any time.
         </p>
         <QuietForm link={decodeURIComponent(link)} />

@@ -9,7 +9,9 @@ import type { Speech, SpeechTone } from './speech.ts';
 import styles from './says.module.css';
 
 const FACE: Record<SpeechTone, Face> = { calm: 'calm', guard: 'look', alert: 'alert', happy: 'happy' };
-const WHO: Record<SpeechTone, string> = { calm: 'Robot', guard: 'Robot · heads-up', alert: 'Robot · stop', happy: 'Robot' };
+/** The robot's name (owner's choice, 2026-11-28): Hinglish for "bro" — the one who has your back in a deal. */
+export const ROBOT_NAME = 'Bhai';
+const WHO: Record<SpeechTone, string> = { calm: ROBOT_NAME, guard: `${ROBOT_NAME} · heads-up`, alert: `${ROBOT_NAME} · stop`, happy: ROBOT_NAME };
 
 /**
  * The robot speaking (ADR 0034 addendum): a remark in its own voice, beside it on the stage or on the sheet under it —
@@ -17,7 +19,7 @@ const WHO: Record<SpeechTone, string> = { calm: 'Robot', guard: 'Robot · heads-
  * changes (`speech.key`). Its log is the visor's: black glass, the times in the mark's orange, the live row blinking.
  *
  * `variant` is where it stands: `field` on the mark's orange stage, its corner towards the robot; `sheet` on a white card,
- * with the robot's face as the speaker. `ask` adds "Ask me", which opens the masthead robot's conversation.
+ * with the robot's face as the speaker. `ask` adds "Ask Bhai", which opens the masthead robot's conversation.
  */
 export function RobotSays({
   speech,
@@ -52,7 +54,7 @@ export function RobotSays({
         {ask ? (
           <button type="button" className={styles.ask} onClick={openRobot}>
             <ChatIcon />
-            Ask me
+            Ask {ROBOT_NAME}
           </button>
         ) : null}
       </div>
@@ -64,7 +66,7 @@ export function RobotSays({
         ))}
       </p>
       {speech.log && speech.log.length > 0 ? (
-        <ol className={styles.log} aria-label="What the robot is doing">
+        <ol className={styles.log} aria-label={`What ${ROBOT_NAME} is doing`}>
           {speech.log.map((r, i) => (
             <li key={`${i}:${r.text}`} data-state={r.state}>
               <span className={styles.logAt}>{r.state === 'live' ? <i className={styles.logDot} aria-hidden="true" /> : r.at ?? '✓'}</span>

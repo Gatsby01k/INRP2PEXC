@@ -14,9 +14,9 @@ import d from '../_desk/desk.module.css';
 type Policy = RobotIntel['policy'];
 
 const OUTREACH: Record<RobotOutreach, { label: string; consequence: string }> = {
-  OFF: { label: 'Off', consequence: 'The robot decides nothing and sends nothing outside the app. It still answers questions and shows people their next step in the app.' },
-  DRY_RUN: { label: 'Dry run', consequence: 'The robot decides exactly as it would and records every message under Activity — and sends none of them.' },
-  ON: { label: 'On', consequence: 'The robot writes to people stuck on their way in: at most one message a person a day, never at night, only with their consent, inbox plus one channel.' },
+  OFF: { label: 'Off', consequence: 'Bhai decides nothing and sends nothing outside the app. It still answers questions and shows people their next step in the app.' },
+  DRY_RUN: { label: 'Dry run', consequence: 'Bhai decides exactly as it would and records every message under Activity — and sends none of them.' },
+  ON: { label: 'On', consequence: 'Bhai writes to people stuck on their way in: at most one message a person a day, never at night, only with their consent, inbox plus one channel.' },
 };
 
 /**
@@ -58,7 +58,7 @@ export function RobotControls({ policy, canSet, aiConfigured, playbooks }: { pol
                 minReason={10}
                 consequence={OUTREACH[o].consequence}
                 busy={cmd.busy}
-                onConfirm={save(`Robot outreach ${OUTREACH[o].label}`, { outreach: o })}
+                onConfirm={save(`Bhai's outreach ${OUTREACH[o].label}`, { outreach: o })}
               />
             ))}
             <GuardedAction
@@ -70,7 +70,7 @@ export function RobotControls({ policy, canSet, aiConfigured, playbooks }: { pol
                 ? 'Questions no rule knows go straight to a person.'
                 : `Questions no rule knows go to the model, with only that person’s facts in words; an answer with a figure it was not given goes to a person instead.${aiConfigured ? '' : ' No model is configured yet: set ANTHROPIC_API_KEY on the web app.'}`}
               busy={cmd.busy}
-              onConfirm={save('Robot answers', { answers: (policy.answers === 'AI' ? 'RULES' : 'AI') satisfies RobotAnswers })}
+              onConfirm={save('Bhai\'s answers', { answers: (policy.answers === 'AI' ? 'RULES' : 'AI') satisfies RobotAnswers })}
             />
           </div>
           <div className={d.row}>
@@ -92,9 +92,9 @@ export function RobotControls({ policy, canSet, aiConfigured, playbooks }: { pol
               minReason={10}
               disabled={!changed || !valid}
               disabledReason={!valid ? 'Hours are 0 to 23; the limit a whole number.' : !changed ? 'Nothing changed.' : null}
-              consequence="The robot uses these from its next round."
+              consequence="Bhai uses these from its next round."
               busy={cmd.busy}
-              onConfirm={save('Robot settings', { quietFrom: hour(from), quietTo: hour(to), aiDailyLimit: Number.parseInt(limit, 10), playbooksOff: [...off] })}
+              onConfirm={save('Bhai\'s settings', { quietFrom: hour(from), quietTo: hour(to), aiDailyLimit: Number.parseInt(limit, 10), playbooksOff: [...off] })}
             />
           </div>
         </>
@@ -214,7 +214,7 @@ export function RobotActivity({ rows }: { rows: RobotIntel['recent'] }) {
       caption="Activity"
       rowKey={(r) => `${r.at}-${r.playbook}-${r.who}`}
       rows={rows}
-      empty="The robot has not decided anything yet."
+      empty="Bhai has not decided anything yet."
       dim={(r) => r.mode === 'DRY_RUN'}
       columns={[
         { key: 'at', header: 'When (IST)', render: (r) => when(r.at) },

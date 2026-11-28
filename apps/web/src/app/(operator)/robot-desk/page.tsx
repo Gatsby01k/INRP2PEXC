@@ -23,7 +23,7 @@ export default async function RobotDeskPage() {
 
   return (
     <Page>
-      <PageHeader title="Robot" meta="INRP2P’s front line: who is stuck, what nobody served, what it said and what came of it" />
+      <PageHeader title="Bhai" meta="The robot at INRP2P’s front line: who is stuck, what nobody served, what it said and what came of it" />
       <PageBody>
         {intel.recommendations.length > 0 ? (
           <Section title="What to do" count={intel.recommendations.length} hint="From the facts below — each says where it is done.">
@@ -48,7 +48,7 @@ export default async function RobotDeskPage() {
           ]}
         />
 
-        <Section title="Questions for a person" count={intel.openCases.length} hint="People asked the robot something it could not answer, or asked for a person.">
+        <Section title="Questions for a person" count={intel.openCases.length} hint="People asked Bhai something it could not answer, or asked for a person.">
           {intel.openCases.length === 0 ? <Empty title="No open questions" body="Answered questions reach the person where they asked." /> : <RobotCases cases={intel.openCases} canAnswer={can(ctx, 'robot:answer')} />}
         </Section>
 
@@ -59,7 +59,7 @@ export default async function RobotDeskPage() {
           <RobotPlaybooks rows={intel.playbooks} />
         </Section>
 
-        <Section title="On its own" hint="What the robot may do without a person: reach people outside the app, and how it answers.">
+        <Section title="On its own" hint="What Bhai may do without a person: reach people outside the app, and how it answers.">
           {intel.policy.outreach === 'DRY_RUN' ? <Notice tone="brand" icon="clock">Dry run: every message below is what it would have sent. Nothing left the app.</Notice> : null}
           <RobotControls policy={intel.policy} canSet={can(ctx, 'robot:configure')} aiConfigured={intel.aiConfigured} playbooks={playbooks} />
         </Section>

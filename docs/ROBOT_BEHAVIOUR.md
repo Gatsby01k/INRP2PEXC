@@ -81,6 +81,10 @@ shapes, drawn on the server, so the first paint never waits for it; its words ar
 
 ### The robot at the client's side (addendum, 2026-11-28)
 
+**Its name is Bhai** (owner's choice, 2026-11-28): Hinglish for "bro" — the one who has your back in a deal. Clients see
+and address it by that name everywhere (the remark's tag, "Ask Bhai", the sheet and `/robot`, Telegram and email, the stop
+link, the desk's nav); the code keeps `robot`.
+
 The masthead head alone was not enough: a client had to find it. So the big robot on every stage now **speaks** — a white
 remark beside it, in the first person, at most two sentences (three for the first hello), every figure one of record
 (`_robot/speech.ts`, pure, unit-tested). Under the remark, where it is working, its visor's log: black glass, the times
@@ -89,7 +93,7 @@ payment filed), or the wait's (when it started, how many traders were told, how 
 
 | Where | What it says |
 | --- | --- |
-| Exchange, first visit | "Hi, I'm the INRP2P robot." · one firm price for all of it · every deal runs through escrow — once per browser |
+| Exchange, first visit | "Hi, I'm Bhai — the INRP2P robot." · one firm price for all of it · every deal runs through escrow — once per browser |
 | Exchange, traded before | "Last time you sold 1,000 USDT at ₹96.40. Today the market is ₹97.10." — **Same again** prefills the form |
 | Being priced / waiting | what it is doing about it, when the price lands, where it will tell them; the wait's log |
 | A firm quote (desk only) | one firm price for the whole amount, held until HH:MM, nothing moves until they accept |
@@ -107,4 +111,4 @@ payment filed), or the wait's (when it started, how many traders were told, how 
 Rules kept: no popups and nothing opens by itself; one remark at a time (it arrives again only when what it says
 changes); no sound; never guilt, sirens or invented figures; never a word on a dispute's outcome or a release. On a
 phone the firm quote is a decision against the clock, so the robot is quiet there; the log keeps to the last thing done
-and the thing in progress. **Ask me** on a stage opens the masthead robot's conversation with the question box focused.
+and the thing in progress. **Ask Bhai** on a stage opens the masthead robot's conversation with the question box focused.

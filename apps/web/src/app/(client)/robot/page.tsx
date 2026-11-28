@@ -15,7 +15,7 @@ export default async function RobotPage() {
   const brief = await robotBriefFor(ctx.db, ctx.access);
   return (
     <>
-      <PageHead title="The robot" lede="What matters now, what it is doing for you, and what it may send you outside the app." />
+      <PageHead title="Bhai" lede="Your INRP2P robot: what matters now, what it is doing for you, and what it may send you outside the app." />
       <div className={styles.page}>{brief ? <RobotPanel brief={brief} /> : null}</div>
     </>
   );

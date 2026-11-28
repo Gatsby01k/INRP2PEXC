@@ -52,7 +52,7 @@ export const INTRO: Speech = {
   key: 'intro',
   tone: 'happy',
   lines: [
-    'Hi, I’m the INRP2P robot.',
+    'Hi, I’m Bhai — the INRP2P robot.',
     'Tell me an amount and I’ll get you one firm price for all of it.',
     'Every deal runs through escrow: the USDT stays locked until the rupees are confirmed.',
   ],

@@ -111,7 +111,7 @@ log), a desk's firm quote, and every step of a P2P deal with the deal's own reco
 five moments P2P money is lost — a screenshot instead of a bank credit, a payer who is not the buyer, a deal moved to
 WhatsApp, a request to cancel after paying, the last minutes of a step. Pure over each page's projection
 (`apps/web/src/app/(client)/_robot/speech.ts`); no new data, no new endpoint, no migration. Details and the full table in
-`docs/ROBOT_BEHAVIOUR.md`.
+`docs/ROBOT_BEHAVIOUR.md`. Its name, shown to people, is **Bhai** ("bro" in Hinglish); in code it stays `robot`.
 
 ### 2.8 Answers
 Rules first: a dozen intents in English and Hinglish (status, a payment that did not arrive, rate, how to sell or buy,

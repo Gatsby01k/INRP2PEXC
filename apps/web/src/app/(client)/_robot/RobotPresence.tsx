@@ -103,7 +103,7 @@ export function RobotPresence() {
     }
   }
 
-  const label = brief && brief.kind !== 'REST' ? `The robot: ${brief.title}` : 'The robot';
+  const label = brief && brief.kind !== 'REST' ? `Bhai: ${brief.title}` : 'Bhai, your INRP2P robot';
   return (
     <>
       <button
@@ -125,9 +125,9 @@ export function RobotPresence() {
             setOpen(false);
             setAskFirst(false);
           }}
-          title="The robot"
+          title="Bhai"
           eyebrow="INRP2P"
-          description="What matters now, and what it is doing for you."
+          description="Your INRP2P robot: what matters now, and what it is doing for you."
         >
           <RobotPanel brief={brief} onNavigate={() => setOpen(false)} onChange={() => void read()} focusAsk={askFirst} />
         </Sheet>

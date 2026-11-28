@@ -99,7 +99,7 @@ Prices: a firm price is given for the amount asked and must be accepted within i
 Fees: the rate is the market's; each deal shows a network fee — what TRON charges for the escrow and its transfers — as its own line before you accept. When two clients meet each other directly, INRP2P's fee is inside the price shown.
 Disputes: if the seller says the rupees did not arrive, INRP2P checks both sides' evidence and decides; the USDT stays locked meanwhile. Rupees from someone else's account are refused.
 Traders: people with rupees or USDT can apply to price deals: bank account in their own name, their wallet, the sides they trade, and a Security Reserve sent from their registered wallet; then they set a price (fixed or following the market) and go online. Orders come privately, one at a time.
-Notifications: deal alerts and the robot's messages come in the app, on Telegram (connect it in Account), in the browser if turned on, and by email. The robot's suggestions can be turned off at any time.
+Notifications: deal alerts and Bhai's (the robot's) messages come in the app, on Telegram (connect it in Account), in the browser if turned on, and by email. Bhai's suggestions can be turned off at any time.
 INRP2P never asks for passwords, sign-in codes, private keys or seed phrases.`;
 
 function ruleAnswer(intent: Intent, f: PersonFacts | null, w: RobotWorld, brief: RobotBrief | null, readyNowUsdt: string | null): Answer | null {
@@ -107,7 +107,7 @@ function ruleAnswer(intent: Intent, f: PersonFacts | null, w: RobotWorld, brief:
   const m = f?.member ?? null;
   switch (intent) {
     case 'GREETING':
-      return brief ? { text: `Hi! ${brief.title}. ${brief.body}`, action: brief.action } : { text: 'Hi! I am the INRP2P robot. Connect your Telegram in your INRP2P workspace and I can tell you about your own deals here.', action: null };
+      return brief ? { text: `Hi! ${brief.title}. ${brief.body}`, action: brief.action } : { text: 'Hi! I’m Bhai, the INRP2P robot. Connect your Telegram in your INRP2P workspace and I can tell you about your own deals here.', action: null };
     case 'THANKS':
       return { text: 'Any time.', action: null };
     case 'HELP':
