@@ -32,7 +32,14 @@ const C = 2 * Math.PI * R;
  * inside it, turning amber in the last seconds — never flashing. Drawn against the whole time the desk held it for
  * (sent → expiry), on the database's clock.
  */
-export function Countdown({ sentAt, expiresAt, now, variant = 'pill' }: { sentAt: Date | null; expiresAt: Date; now: number; variant?: 'pill' | 'ring' }) {
+export function Countdown({ sentAt, expiresAt, now, variant = 'pill', label }: {
+  sentAt: Date | null;
+  expiresAt: Date;
+  now: number;
+  variant?: 'pill' | 'ring';
+  /** What the time is for, as a screen reader says it ("Send within"): a deal's step is not a price held. */
+  label?: string | undefined;
+}) {
   const first = useRef(Math.max(1, expiresAt.getTime() - now));
   const total = sentAt ? Math.max(1, expiresAt.getTime() - sentAt.getTime()) : first.current;
   const remaining = Math.max(0, expiresAt.getTime() - now);
@@ -48,7 +55,7 @@ export function Countdown({ sentAt, expiresAt, now, variant = 'pill' }: { sentAt
           <circle className={stage.ringArc} cx="42" cy="42" r={r} strokeDasharray={c} strokeDashoffset={c * (1 - fraction)} />
         </svg>
         <Digits text={formatCountdown(remaining)} down className={stage.ringTime} />
-        <span className="ix-visually-hidden">, held until {formatIstTime(expiresAt)}</span>
+        <span className="ix-visually-hidden">{label ? `${label} ${formatCountdown(remaining)}, until ${formatIstTime(expiresAt)}` : `, held until ${formatIstTime(expiresAt)}`}</span>
       </span>
     );
   }
