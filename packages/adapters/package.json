@@ -9,6 +9,7 @@
     "./testing": "./src/testing/index.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "1.14.0",
     "@inrp2p/kernel": "workspace:*",
     "@noble/curves": "2.4.0",
     "@noble/hashes": "2.4.0",

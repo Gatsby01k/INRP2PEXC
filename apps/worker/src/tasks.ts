@@ -18,6 +18,7 @@ import { DomainError } from '@inrp2p/kernel';
 import type { ChainMonitoring } from './config.ts';
 import { type OnchainDeps, runAutopay, runFeeRefresh, runGasFreeFeeRefresh, runHoldClosing, runMonitor, runSender, runTrxRateRefresh, runUnwindClosing } from '@inrp2p/onchain';
 import { sql } from 'kysely';
+import { runRobotSweep } from '@inrp2p/robot';
 
 /** Runs a system job step through the command pipeline (one transaction, audit, retry-safe state guards). */
 function systemCommand<R>(db: Db, name: string, fn: (ctx: TxContext) => Promise<R>): Promise<R> {
@@ -248,7 +249,16 @@ export function buildTaskList(
       }
     }
   };
+  // ADR 0034: the robot's rounds — who is stuck where, at most one message a person, who then acted. Deterministic; in a
+  // dry run (the default) it records what it would send and sends nothing.
+  const robotSweep: Task = async (_payload, helpers) => {
+    // Who acted on a message, and the 90-day clean-up, once an hour (the first round of each hour); the rest every round.
+    const out = await runRobotSweep(db, { checkActed: new Date().getUTCMinutes() < 10 });
+    for (const f of out.failures) helpers.logger.warn(`robot_sweep: ${f.userId}: ${f.message}`);
+    if (out.touched + out.acted > 0) helpers.logger.info(`robot_sweep: ${JSON.stringify({ mode: out.mode, looked: out.looked, touched: out.touched, demand: out.demand, acted: out.acted, refused: out.refused })}`);
+  };
   return {
+    robot_sweep: robotSweep,
     telegram_deadlines: telegramDeadlines,
     onchain_cycle: onchainCycle,
     network_fee_refresh: networkFeeRefresh,
@@ -337,6 +347,7 @@ export const CRONTAB = [
   '* * * * * waiting_requests_sweep ?max=1&jobKey=waiting_requests_sweep',
   '* * * * * peer_sweep ?max=1&jobKey=peer_sweep',
   '* * * * * telegram_deadlines ?max=1&jobKey=telegram_deadlines',
+  '*/10 * * * * robot_sweep ?max=2&jobKey=robot_sweep',
 ].join('\n');
 
 /**

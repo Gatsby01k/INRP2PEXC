@@ -7,6 +7,7 @@ import { traderReviewHandler, traderRoutingHandler } from '@inrp2p/traders';
 import { acceptanceCodeHandler, rfqAwardHandler } from '@inrp2p/quotes';
 import { receiptHandler } from '@inrp2p/reporting';
 import { destinationArchivedHandler } from '@inrp2p/settlement';
+import { robotDeliveryHandler } from '@inrp2p/robot';
 import { CRONTAB, buildTaskList, onchainWakeup, quoteExpiryScheduler, recordHeartbeat, waitingLookNow } from './tasks.ts';
 import { TronSendNetwork } from '@inrp2p/adapters';
 import { signerFromEnv } from '@inrp2p/adapters/signer';
@@ -69,6 +70,10 @@ console.log(`telegram: ${telegram ? `@${telegram.botUsername}` : 'not configured
 const webPush = webPushFromEnv(process.env);
 const pushChannel = webPush ? [pushInboxHandler(db, webPush)] : [];
 console.log(`web push: ${webPush ? 'configured' : 'not configured'}`);
+// ADR 0034: what the robot decided to say — the inbox always, and its one channel outside the app when that is configured.
+const robotChannel = robotDeliveryHandler(db, {
+  telegram, push: webPush, email: isNotificationProviderConfigured(notifications) ? notifications : null, linkBase: process.env.CLIENT_BASE_URL,
+});
 
 // Chain monitoring state is always stated (DISABLED / READY / DEGRADED / UNCONFIGURED). An enabled but
 // unconfigured worker refuses to start rather than run with three jobs that would fail every minute while the
@@ -167,7 +172,7 @@ const runner = await run({
   concurrency: 5,
   noHandleSignals: false,
   pollInterval: 2000,
-  taskList: buildTaskList(db, [quoteExpiryScheduler(db), acceptanceCodeHandler(db, { protector }, notifications), teamInviteEmailHandler(db, notifications, { linkBase: process.env.CLIENT_BASE_URL }), clientNotificationHandler(db), traderNotificationHandler(db), peerNotificationHandler(db), waitingLookNow(db), traderRoutingHandler(db), traderReviewHandler(db), rfqAwardHandler(db), receiptHandler(db, receipts), destinationArchivedHandler(db), acknowledgedSignalHandler(), onchainWakeup(db), ...emailChannel, ...telegramChannel, ...pushChannel], {
+  taskList: buildTaskList(db, [quoteExpiryScheduler(db), acceptanceCodeHandler(db, { protector }, notifications), teamInviteEmailHandler(db, notifications, { linkBase: process.env.CLIENT_BASE_URL }), clientNotificationHandler(db), traderNotificationHandler(db), peerNotificationHandler(db), waitingLookNow(db), traderRoutingHandler(db), traderReviewHandler(db), rfqAwardHandler(db), receiptHandler(db, receipts), destinationArchivedHandler(db), acknowledgedSignalHandler(), onchainWakeup(db), ...emailChannel, ...telegramChannel, ...pushChannel, robotChannel], {
     monitoring,
     ...(monitoring.config ? { scanner: monitoring.config } : {}),
     ...(receipts ? { receipts } : {}),

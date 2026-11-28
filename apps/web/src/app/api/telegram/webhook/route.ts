@@ -2,8 +2,10 @@ import { timingSafeEqual } from 'node:crypto';
 import { executeCommand, hitRateLimit } from '@inrp2p/commands';
 import { telegramFromEnv, telegramWebhookSecret } from '@inrp2p/adapters';
 import { completeTelegramLink, stopTelegramChat } from '@inrp2p/clients';
+import { askRobot, quietViaTelegram } from '@inrp2p/robot';
 import { getRuntime } from '../../../../server/runtime.ts';
 import { surfaceForHost } from '../../../../server/surface.ts';
+import { personOfTelegramChat, robotDeskEmail, robotMind } from '../../../../server/robot.ts';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,9 +26,11 @@ interface Update {
 
 /**
  * The bot's webhook (docs/adr/0020-desks.md §2.14), on the public host only. Telegram sends the secret the webhook was
- * set with; anything without it is refused. The bot understands two things, in a private chat: `/start <code>` links the
- * chat to the person who asked for the code in the workspace, and `/stop` ends every alert there. It answers in words and
- * always acknowledges an update, so Telegram never retries one it should not.
+ * set with; anything without it is refused. In a private chat: `/start <code>` links the chat to the person who asked for
+ * the code in the workspace, and `/stop` ends every alert there — and the robot's messages too. Everything else is the
+ * robot's (ADR 0034): a question in the person's own words, or `/status`, `/rate`, `/help`, `/human`, answered from what
+ * is true for the person whose chat it is; `/quiet` stops only the robot's suggestions. It always acknowledges an update,
+ * so Telegram never retries one it should not.
  */
 export async function POST(request: Request): Promise<Response> {
   const rt = getRuntime();
@@ -46,7 +50,7 @@ export async function POST(request: Request): Promise<Response> {
   const message = update.message;
   const chatId = message?.chat?.id;
   const text = typeof message?.text === 'string' ? message.text.trim() : '';
-  if (typeof chatId !== 'number' || message?.chat?.type !== 'private' || !text.startsWith('/')) return ok();
+  if (typeof chatId !== 'number' || message?.chat?.type !== 'private' || text.length === 0) return ok();
   try {
     await hitRateLimit(rt.appDb, { bucket: 'telegram_chat', subject: String(chatId), limit: 20, windowSeconds: 60 });
   } catch {
@@ -57,8 +61,16 @@ export async function POST(request: Request): Promise<Response> {
   };
 
   if (text === '/stop') {
+    const person = await personOfTelegramChat(rt.appDb, chatId);
     const out = await executeCommand(rt.appDb, stopTelegramChat(), { name: 'telegram_link.stop', actor: SYSTEM, payload: { chatId: String(chatId) }, idempotencyKey: `telegram-update:${update.update_id ?? chatId}`, financial: false });
-    await reply(out.result.stopped > 0 ? 'Stopped. You will get no more alerts here. Connect again from your INRP2P workspace at any time.' : 'There are no alerts linked to this chat.');
+    if (person) await executeCommand(rt.appDb, quietViaTelegram(), { name: 'robot.quiet_telegram', actor: SYSTEM, payload: { userId: person }, idempotencyKey: null, financial: false });
+    await reply(out.result.stopped > 0 || person ? 'Stopped. You will get no more alerts or messages here. Connect again from your INRP2P workspace at any time.' : 'There are no alerts linked to this chat.');
+    return ok();
+  }
+  if (text === '/quiet') {
+    const person = await personOfTelegramChat(rt.appDb, chatId);
+    if (person) await executeCommand(rt.appDb, quietViaTelegram(), { name: 'robot.quiet_telegram', actor: SYSTEM, payload: { userId: person }, idempotencyKey: null, financial: false });
+    await reply(person ? 'Done — the robot sends you no more suggestions. Your deal alerts still come here; /stop ends those too.' : 'There is nothing from the robot linked to this chat.');
     return ok();
   }
   if (text === '/start' || text.startsWith('/start ')) {
@@ -81,6 +93,21 @@ export async function POST(request: Request): Promise<Response> {
     );
     return ok();
   }
-  await reply('This bot only sends alerts. Manage them from your INRP2P workspace.');
+  // The robot answers: a command it knows as the question it stands for, anything else in the person's own words.
+  const COMMANDS: Record<string, string> = { '/status': 'status of my deal', '/rate': 'rate', '/help': 'help', '/human': 'talk to a person' };
+  const question = text.startsWith('/') ? COMMANDS[text.split(/\s/)[0]!.toLowerCase()] : text;
+  if (!question) {
+    await reply('Ask me anything about your INRP2P account in your own words — or /status, /rate, /help, /human.');
+    return ok();
+  }
+  try {
+    const person = await personOfTelegramChat(rt.appDb, chatId);
+    const answer = await askRobot(rt.appDb, { mind: robotMind(), deskEmail: robotDeskEmail() }, { userId: person, channel: 'TELEGRAM', telegramChatId: String(chatId), text: question.slice(0, 1000) });
+    const base = rt.hosts.appHost ? `https://${rt.hosts.appHost}` : null;
+    const url = answer.action && base ? new URL(answer.action.href, base).toString() : null;
+    await bot.send({ chatId: String(chatId), text: answer.answer, ...(url ? { button: { text: answer.action!.label, url } } : {}) }).catch(() => {});
+  } catch {
+    await reply('I could not answer just now. Try again in a minute.');
+  }
   return ok();
 }

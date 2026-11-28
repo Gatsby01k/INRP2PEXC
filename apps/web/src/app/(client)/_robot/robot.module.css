@@ -1,0 +1,772 @@
+/*
+ * The robot at the front line (ADR 0034): its small head in the masthead, and what it says when opened.
+ *
+ * The head is the landing robot's own materials in miniature — white ceramic, black glass, orange ears and LEDs — and its
+ * face lives on the visor. Every motion is on the eyes and the antenna only, and all of it stops under reduced motion.
+ */
+
+/* ——— The head ——— */
+
+.face {
+  display: block;
+  overflow: visible;
+}
+
+.ear {
+  fill: #f04e23;
+  /* An edge, so the ears still read against the mark's own orange field. */
+  stroke: rgba(88, 22, 4, 0.42);
+  stroke-width: 0.7;
+}
+
+.antennaBall {
+  fill: #f6f3ee;
+  stroke: #16171b;
+  stroke-width: 0.9;
+  transition: fill 300ms var(--ease);
+}
+
+/* Something new to say: the antenna's ball lights and breathes, never a red badge. */
+.face[data-news] .antennaBall {
+  fill: #ff7a45;
+  filter: drop-shadow(0 0 2.4px rgba(255, 106, 61, 0.95));
+  animation: antenna 2.4s var(--ease) infinite;
+}
+
+@keyframes antenna {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+.eyes {
+  fill: #ff7a45;
+  stroke: #ff7a45;
+  filter: drop-shadow(0 0 1.6px rgba(255, 106, 61, 0.95));
+}
+
+.eyes > g {
+  display: none;
+}
+
+.eye {
+  stroke: none;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.arcs path,
+.sleep path {
+  fill: none;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+}
+
+.dots circle,
+.stars path,
+.hearts path {
+  stroke: none;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.sleep text {
+  fill: #ff7a45;
+  stroke: none;
+  font: 600 5.2px/1 var(--font-sans);
+}
+
+/* calm: the pill eyes, a blink at an irregular beat. */
+.face[data-face='calm'] .pills,
+.face[data-face='look'] .pills,
+.face[data-face='alert'] .pills {
+  display: inline;
+}
+
+.face[data-face='calm'] .eye {
+  animation: blink 7.3s infinite;
+}
+
+.face[data-face='calm'] .eye:last-child {
+  animation-delay: 30ms;
+}
+
+@keyframes blink {
+  0%,
+  46%,
+  49.5%,
+  91%,
+  94%,
+  100% {
+    transform: scaleY(1);
+  }
+  47.6%,
+  92.4% {
+    transform: scaleY(0.12);
+  }
+}
+
+/* look: towards the page, where the step is — a glance, then back, then again. */
+.face[data-face='look'] .pills {
+  animation: look 5.6s var(--ease) infinite;
+}
+
+@keyframes look {
+  0%,
+  12% {
+    transform: translate(0, 0);
+  }
+  20%,
+  70% {
+    transform: translate(-1.7px, 0.6px);
+  }
+  78%,
+  100% {
+    transform: translate(0, 0);
+  }
+}
+
+/* alert: wide, and a quick double blink when it changes. */
+.face[data-face='alert'] .eye {
+  transform: scale(1.12, 1.18);
+  animation: wide 3.8s infinite;
+}
+
+@keyframes wide {
+  0%,
+  86%,
+  100% {
+    transform: scale(1.12, 1.18);
+  }
+  89%,
+  95% {
+    transform: scale(1.12, 0.14);
+  }
+  92% {
+    transform: scale(1.12, 1.18);
+  }
+}
+
+.face[data-face='happy'] .arcs {
+  display: inline;
+}
+
+.face[data-face='happy'] .arcs {
+  animation: bob 2.6s var(--ease) infinite;
+}
+
+@keyframes bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-0.6px);
+  }
+}
+
+/* dots: searching — the waiting still's three LEDs, one after another. */
+.face[data-face='dots'] .dots {
+  display: inline;
+}
+
+.face[data-face='dots'] .dots circle {
+  animation: dot 1.35s var(--ease) infinite;
+}
+
+.face[data-face='dots'] .dots circle:nth-child(2) {
+  animation-delay: 180ms;
+}
+
+.face[data-face='dots'] .dots circle:nth-child(3) {
+  animation-delay: 360ms;
+}
+
+@keyframes dot {
+  0%,
+  60%,
+  100% {
+    opacity: 0.32;
+    transform: translateY(0);
+  }
+  25% {
+    opacity: 1;
+    transform: translateY(-0.9px);
+  }
+}
+
+.face[data-face='star'] .stars {
+  display: inline;
+}
+
+.face[data-face='star'] .stars path {
+  animation: twinkle 1.9s var(--ease) infinite;
+}
+
+.face[data-face='star'] .stars path:last-child {
+  animation-delay: 240ms;
+}
+
+@keyframes twinkle {
+  0%,
+  100% {
+    transform: scale(1) rotate(0deg);
+  }
+  45% {
+    transform: scale(1.22) rotate(12deg);
+  }
+}
+
+.face[data-face='heart'] .hearts {
+  display: inline;
+}
+
+.face[data-face='heart'] .hearts path {
+  animation: beat 1.4s var(--ease) infinite;
+}
+
+@keyframes beat {
+  0%,
+  40%,
+  100% {
+    transform: scale(1);
+  }
+  14% {
+    transform: scale(1.2);
+  }
+  28% {
+    transform: scale(1.06);
+  }
+}
+
+.face[data-face='sleep'] .sleep {
+  display: inline;
+}
+
+.face[data-face='sleep'] .sleep text {
+  animation: drift 3.2s var(--ease) infinite;
+}
+
+@keyframes drift {
+  0% {
+    opacity: 0;
+    transform: translate(0, 0);
+  }
+  30% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(1.6px, -3px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .face *,
+  .face[data-news] .antennaBall {
+    animation: none !important;
+  }
+}
+
+/* ——— In the masthead ——— */
+
+.presence {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) var(--ease),
+    transform var(--dur-fast) var(--ease);
+}
+
+.presence .face {
+  transition: transform 320ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@media (hover: hover) {
+  .presence:hover {
+    background: color-mix(in srgb, var(--text-primary) 5%, transparent);
+  }
+
+  .presence:hover .face {
+    transform: rotate(-7deg) translateY(-1px);
+  }
+}
+
+.presence:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 1px;
+}
+
+.presence[aria-expanded='true'] {
+  background: var(--accent-soft);
+}
+
+/* A reaction to something the person just did: one hop, then rest. */
+.presence[data-react] .face {
+  animation: hop 520ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes hop {
+  0% {
+    transform: translateY(0);
+  }
+  40% {
+    transform: translateY(-3px) rotate(-4deg);
+  }
+  100% {
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .presence[data-react] .face,
+  .presence .face {
+    animation: none;
+    transition: none;
+  }
+}
+
+/* ——— What it says ——— */
+
+/*
+ * The panel opens in the workspace's sheet, which is portalled to <body> — outside the shell that defines the workspace's
+ * materials — so it carries the ones it uses itself (`shell.module.css` is where they come from).
+ */
+.panel {
+  --line: rgba(18, 19, 23, 0.08);
+  --line-strong: rgba(18, 19, 23, 0.13);
+  --paper: #f6f3ee;
+  --ink-2: #3c4048;
+  --accent: var(--brand-action);
+  --accent-soft: #fdede7;
+  --node: var(--brand-primary);
+  --led: #ff8250;
+  --radius-card: 26px;
+  --radius-well: 18px;
+  --radius-ctl: 14px;
+  --lift: 0 1px 2px rgba(18, 19, 23, 0.04), 0 22px 48px -28px rgba(96, 56, 24, 0.26);
+  --glow: 0 30px 60px -30px color-mix(in srgb, var(--brand-action) 95%, transparent);
+  display: grid;
+  gap: var(--space-5);
+}
+
+.hero {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-4) var(--space-5);
+  align-items: start;
+  padding: var(--space-6);
+}
+
+.hero[data-kind='REST'],
+.hero[data-kind='SEARCH'],
+.hero[data-kind='DEAL'] {
+  background: var(--bg-surface);
+  border-radius: var(--radius-card);
+  box-shadow:
+    inset 0 0 0 1px var(--line),
+    var(--lift);
+  color: var(--text-primary);
+}
+
+.heroHead {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+}
+
+.visor {
+  max-width: 124px;
+  padding: 5px 10px;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.08em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.heroText {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.heroTitle {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+
+.heroBody {
+  margin: 0;
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-normal);
+  opacity: 0.9;
+}
+
+.heroActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  grid-column: 1 / -1;
+}
+
+.later {
+  display: inline-flex;
+  align-items: center;
+  height: 40px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.16);
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+}
+
+.hero[data-kind='REST'] .later,
+.hero[data-kind='SEARCH'] .later,
+.hero[data-kind='DEAL'] .later {
+  background: color-mix(in srgb, var(--text-primary) 6%, transparent);
+}
+
+.later:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.working {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: var(--radius-well);
+  background: var(--paper);
+  font-size: var(--font-size-meta);
+  line-height: 1.45;
+}
+
+.workingRing {
+  --ring: var(--brand-action);
+  flex: none;
+  width: 18px;
+  height: 18px;
+}
+
+.section {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.sectionTitle {
+  margin: 0;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.memory {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.memory li {
+  position: relative;
+  padding-left: 16px;
+  color: var(--ink-2);
+  font-size: var(--font-size-meta);
+  line-height: 1.45;
+}
+
+.memory li::before {
+  content: '';
+  position: absolute;
+  top: 0.55em;
+  left: 2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--brand-action);
+  opacity: 0.7;
+}
+
+/* ——— Asking ——— */
+
+.ask {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.askRow {
+  display: flex;
+  gap: 8px;
+  padding: 6px 6px 6px 14px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+  transition: box-shadow var(--dur-fast) var(--ease);
+}
+
+.askRow:focus-within {
+  box-shadow:
+    inset 0 0 0 1.5px var(--brand-action),
+    0 0 0 4px var(--accent-soft);
+}
+
+.askInput {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 15px;
+  outline: none;
+}
+
+.askSend {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--brand-action);
+  color: var(--text-on-action);
+  cursor: pointer;
+}
+
+.askSend:disabled {
+  background: color-mix(in srgb, var(--text-primary) 10%, var(--bg-surface));
+  color: var(--text-disabled);
+  cursor: default;
+}
+
+.askSend:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 2px;
+}
+
+.suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.suggestion {
+  height: 30px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--text-primary) 5%, transparent);
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .suggestion:hover {
+    background: var(--accent-soft);
+    color: var(--brand-action);
+  }
+}
+
+.exchange {
+  display: grid;
+  gap: 8px;
+}
+
+.said {
+  justify-self: end;
+  max-width: 86%;
+  margin: 0;
+  padding: 9px 13px;
+  border-radius: 16px 16px 4px 16px;
+  background: color-mix(in srgb, var(--text-primary) 6%, transparent);
+  font-size: var(--font-size-meta);
+  line-height: 1.45;
+}
+
+.answer {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  align-items: start;
+}
+
+.answerText {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 4px 16px 16px 16px;
+  background: var(--bg-surface);
+  box-shadow:
+    inset 0 0 0 1px var(--line),
+    var(--lift);
+  font-size: var(--font-size-meta);
+  line-height: 1.5;
+  white-space: pre-line;
+}
+
+.answerLink {
+  justify-self: start;
+  color: var(--brand-action);
+  font-weight: var(--font-weight-semibold);
+  text-decoration: none;
+}
+
+.answerLink:hover {
+  text-decoration: underline;
+}
+
+.caseNote {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.question {
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  border-radius: var(--radius-well);
+  background: var(--paper);
+  font-size: var(--font-size-meta);
+  line-height: 1.5;
+}
+
+.question q {
+  color: var(--text-muted);
+}
+
+.question p {
+  margin: 0;
+  white-space: pre-line;
+}
+
+/* ——— Consent ——— */
+
+.consent {
+  display: grid;
+  gap: var(--space-2);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--line);
+}
+
+.choices {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  padding: 4px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--text-primary) 5%, transparent);
+}
+
+.choice {
+  display: grid;
+  gap: 2px;
+  padding: 8px 6px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  text-align: center;
+  cursor: pointer;
+}
+
+.choice b {
+  font-size: 13px;
+  font-weight: var(--font-weight-semibold);
+}
+
+.choice span {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.choice[aria-checked='true'] {
+  background: var(--bg-surface);
+  box-shadow:
+    0 1px 2px rgba(18, 19, 23, 0.08),
+    inset 0 0 0 1px var(--line);
+  color: var(--text-primary);
+}
+
+.choice[aria-checked='true'] b {
+  color: var(--brand-action);
+}
+
+.choice:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 1px;
+}
+
+.reach {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.reach a {
+  color: var(--brand-action);
+  font-weight: var(--font-weight-medium);
+  text-decoration: none;
+}
+
+/* ——— The robot's own page ——— */
+
+.page {
+  display: grid;
+  gap: var(--space-8);
+  max-width: 720px;
+}
+
+@media (max-width: 560px) {
+  .hero {
+    grid-template-columns: 1fr;
+    justify-items: start;
+    padding: var(--space-5);
+  }
+
+  .heroHead {
+    grid-auto-flow: column;
+    align-items: center;
+  }
+
+  .choices {
+    grid-template-columns: 1fr;
+  }
+}

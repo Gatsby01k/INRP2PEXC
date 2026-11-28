@@ -54,3 +54,27 @@ the trader's margin). The closing robot answers the closing call to action the w
   that store a timestamp. Nothing on the first screen fades in from opacity 0.
 - **The workspace is unchanged**: its moods (`waiting`, `focused`, `ready`, `alert`, `success`, …) outrank everything
   here. The robot sleeps, gets poked and welcomes people back only on the home page (mood `none`).
+
+## The robot in the workspace (ADR 0034)
+
+Inside the workspace the same character is INRP2P's front line: a small head in the masthead on every page, its face on the
+visor in LEDs. It never pops up and never speaks unasked; it makes a face and, when it has something new, lights its antenna.
+
+| When | Its face | What it says when opened |
+| --- | --- | --- |
+| A deal waits on the person | wide eyes | "Your move: pay INR" — the deal, its time, one tap to it |
+| A price waits for their yes | stars | "I found you a price — held until 14:32 IST" |
+| It is searching for a trader | three dots, one after another | "Finding a trader for 2,000 USDT" — who is online, where it will tell them |
+| A deal is moving without them | calm | "IX-… is moving — nothing needed from you" |
+| A step on their way in | a glance towards the page | the step, why it matters now, one action; "Not now" rests it for a week |
+| A trader is offline | a sleeping "z" | "You are offline" |
+| Traded before, away a while (and asked to hear) | hearts | today's market against their last deal |
+| Nothing pressing | calm, an irregular blink | today's market; what it remembers |
+| The person did something on the page (a request sent, a price locked) | `^ ^` and one hop | — |
+| Something on the page needs fixing | wide, a double blink | — |
+
+Opened, it also says what it is doing for them meanwhile, what it remembers (its last message, their last deal, the desk's
+answer to their question), takes a question, and lets them choose what it may send outside the app.
+
+Rules: every motion is CSS on the eyes and antenna only; reduced motion stills them. No WebGL and no image: a few vector
+shapes, drawn on the server, so the first paint never waits for it; its words arrive after the page (`/api/client/robot`).

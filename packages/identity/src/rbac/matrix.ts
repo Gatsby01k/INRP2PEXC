@@ -102,6 +102,11 @@ export const PERMISSION_MATRIX = Object.freeze({
   // After a restore, outgoing payments are held until one person records the reconciliation and another approves it.
   'operations:restore_fence': r(S, D, D, S, D, D),
   'operations:approve_restore_fence_lift': r(S2, D, D, S2, D, D),
+  // ADR 0034: the robot at the front line — its view of the exchange is everyone's; answering a question it passed on is the
+  // roles that talk to clients; what it may do on its own is the owner's, with step-up.
+  'robot:view': r(A, A, A, A, A, A),
+  'robot:answer': r(A, A, D, D, A, D),
+  'robot:configure': r(S, D, D, D, D, D),
 } as const satisfies Record<string, Row>);
 
 export type Permission = keyof typeof PERMISSION_MATRIX;

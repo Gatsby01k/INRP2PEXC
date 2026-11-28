@@ -12,6 +12,8 @@ const PATHS = {
   rates: 'M2 12.5 6 8.5l2.6 2.6L14 5.6M10.5 5.5H14V9',
   inr: 'M4.5 3h7M4.5 6h7M4.5 3c3.3 0 4.3 1.3 4.3 3S7.8 9 4.5 9l5.5 4.5',
   usdt: 'M2.5 3.5h11L8 13.5zM5.2 3.5 8 8.7l2.8-5.2M4.2 6.6h7.6',
+  // ADR 0034: the robot's head — antenna, ears, the visor and its two eyes.
+  robot: 'M8 1.6v2M3.5 3.6h9a1.5 1.5 0 0 1 1.5 1.5v6.4a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5V5.1a1.5 1.5 0 0 1 1.5-1.5zM1 7v3M15 7v3M6 7.4v1.4M10 7.4v1.4',
   traders: 'M6 7.2a2.2 2.2 0 1 0 0-4.4 2.2 2.2 0 0 0 0 4.4zM1.8 13.2c.4-2.3 2.1-3.7 4.2-3.7s3.8 1.4 4.2 3.7M10.6 3a2.2 2.2 0 0 1 0 4.2M11.8 9.7c1.3.5 2.2 1.7 2.4 3.5',
   clients: 'M2.5 13.5V5.5l5.5-3 5.5 3v8M5.5 13.5v-4h5v4M1.5 13.5h13',
   // The mark's own figure, small: a hub, three spokes, three nodes — the network budget pays every hop.

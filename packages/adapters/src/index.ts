@@ -20,3 +20,4 @@ export * from './web-push.ts';
 export * from './trx-price.ts';
 export * from './usdt-inr-price.ts';
 export * from './gasfree.ts';
+export * from './robot-mind.ts';

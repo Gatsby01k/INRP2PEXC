@@ -196,6 +196,27 @@ async function assertNothingOfTheDesk(page: Page): Promise<void> {
   expect(shown, "the trader's rate on a client screen").not.toMatch(/104[.,]2/);
 }
 
+test('the robot in the masthead says what matters, answers by rule, passes the rest to a person, and asks before it writes (ADR 0034)', async ({ page }) => {
+  await resetAuthThrottle();
+  await signInAsClient(page, state().acceptorEmail);
+  const robot = page.getByRole('button', { name: /^The robot/ });
+  await expect(robot).toBeVisible();
+  await robot.click();
+  const sheet = page.getByRole('dialog', { name: 'The robot' });
+  await expect(sheet).toBeVisible();
+  await sheet.getByRole('button', { name: 'Is it safe?' }).click();
+  await expect(sheet.getByText(/locked in INRP2P.s escrow before any rupees move/)).toBeVisible();
+  await sheet.getByLabel('Ask the robot').fill('Do you work on Sundays?');
+  await sheet.getByRole('button', { name: 'Ask', exact: true }).click();
+  await expect(sheet.getByText(/I have passed it to a person at INRP2P \(RC-\d+\)/)).toBeVisible();
+  // What it may send outside the app is the person's own choice, saved as it is made.
+  const nothing = sheet.getByRole('radio', { name: /^Nothing/ });
+  await nothing.click();
+  await expect(nothing).toHaveAttribute('aria-checked', 'true');
+  await sheet.getByRole('radio', { name: /^What I started/ }).click();
+  await expect(sheet.getByRole('radio', { name: /^What I started/ })).toHaveAttribute('aria-checked', 'true');
+});
+
 test('the client host refuses what belongs to the desk, and the public host refuses the client product', async ({ page }) => {
   // The desk's own pages are not served to a client session; the app host has no desk on it.
   const desk = await page.request.get(`${appBaseUrl()}/orders`, { maxRedirects: 0 });
