@@ -34,7 +34,7 @@ type Payment = Deal['payments'][number];
  * Nothing here counts anything. The payee's confirmation, checked against who its bank says sent the money, is what
  * releases the escrow — on the server, never in this card.
  */
-export function P2pDealCard({ view }: { view: PortalTrade }) {
+export function P2pDealCard({ view, staged = false }: { view: PortalTrade; staged?: boolean }) {
   const deal = view.p2p!;
   const buy = view.trade.direction === 'BUY_USDT';
   const usdt = formatUsdtHeadline(Money.parse(view.trade.base.amount, 'USDT'));
@@ -60,6 +60,47 @@ export function P2pDealCard({ view }: { view: PortalTrade }) {
   const stop = Math.max(1, view.stages.findIndex((s) => s.status === 'current') + 1);
   const method = deal.payWindow?.method ?? deal.payments.at(-1)?.rail ?? null;
   const yours = !disputed && ((buy && deal.step === 'PAY') || (!buy && deal.step === 'CONFIRM'));
+
+  // Under the deal's stage (`DealStage`) the card is only the move's sheet: the stage already says whose move, the figure,
+  // the time and where the USDT is — so the card carries the form, the dispute and the payments, or nothing at all.
+  if (staged) {
+    const form = (buy && deal.step === 'PAY') || deal.step === 'CONFIRM';
+    const list = deal.payments.length > 0 && !(!buy && deal.step === 'CONFIRM');
+    if (!form && !list) return null;
+    return (
+      <section className={`${shell.card} ${pay.card} ${styles.card} ${styles.sheet}`} aria-label={yours ? 'Your move' : 'Payments'} {...(yours ? { 'data-attention': '' } : {})}>
+        {buy && deal.step === 'PAY' ? (
+          <PayInr
+            deal={deal}
+            fromAccounts={view.fromAccounts}
+            attachFields={{ tradeRef: view.trade.ref }}
+            choose={(m, key) => choosePayMethodAction({ tradeRef: view.trade.ref, method: m }, key)}
+            claim={(input, key) =>
+              claimPaymentAction({
+                tradeRef: view.trade.ref, rail: input.rail, utr: input.utr, amount: deal.inr, payeeNameConfirmed: input.payeeNameConfirmed,
+                ...(input.from?.kind === 'UPI' ? { fromUpiId: input.from.id } : { fromBankAccountId: input.from?.id ?? '' }),
+              }, key)
+            }
+            report={(shownName, key) => reportPayeeNameAction({ tradeRef: view.trade.ref, shownName }, key)}
+            attach={postDealMessageAction}
+          />
+        ) : null}
+        {buy && deal.step === 'CONFIRM' && disputed ? <BuyerSide view={view} deal={deal} inr={inr} /> : null}
+        {!buy && deal.step === 'CONFIRM' && !disputed ? (
+          <>
+            <ConfirmReceipt view={view} deal={deal} inr={inr} usdt={usdt} now={now} late={deal.receiptLate ? (method ?? 'this rail') : null} onNotArrived={() => setReporting(true)} compact />
+            <SellerNotArrived view={view} inr={inr} open={reporting} onOpenChange={setReporting} />
+          </>
+        ) : null}
+        {!buy && deal.step === 'CONFIRM' && disputed ? (
+          <DisputeUnderReview dispute={deal.dispute!}>
+            <ConfirmReceipt view={view} deal={deal} inr={inr} usdt={usdt} now={now} late={null} onNotArrived={() => setReporting(true)} compact />
+          </DisputeUnderReview>
+        ) : null}
+        {list ? <PaymentList payments={deal.payments} buy={buy} /> : null}
+      </section>
+    );
+  }
 
   return (
     <section className={`${shell.card} ${pay.card} ${styles.card}`} aria-labelledby="deal-title" {...(yours ? { 'data-attention': '' } : {})}>
@@ -246,6 +287,7 @@ function ConfirmReceipt({
   now,
   late,
   onNotArrived,
+  compact = false,
 }: {
   view: PortalTrade;
   deal: Deal;
@@ -255,6 +297,8 @@ function ConfirmReceipt({
   /** The rail whose usual time is over, when it is: said beside the buttons, quietly. */
   late: string | null;
   onNotArrived: () => void;
+  /** Under the deal's stage, which already shows the amount and the rail: the claim's facts only. */
+  compact?: boolean;
 }) {
   const cmd = useCommand();
   const filed = deal.payments.filter((p) => p.status === 'PROCESSING').at(-1);
@@ -277,7 +321,7 @@ function ConfirmReceipt({
   return (
     <>
       {/* What the buyer says it sent: the figure, the rail and when, and beside it what the bank must show. */}
-      <div className={styles.claim}>
+      <div className={styles.claim} data-compact={compact || undefined}>
         <div className={styles.claimMain}>
           <span className={styles.claimLabel}>The buyer says they paid</span>
           <span className={styles.claimAmount}>
@@ -490,16 +534,6 @@ function Waiting({ children }: { children: React.ReactNode }) {
       <p>{children}</p>
     </div>
   );
-}
-
-/**
- * A seller's own deposit into the escrow (a client selling USDT): its time, on the deposit card. The price holds for this
- * window, not for ever — after it the deal is cancelled, and USDT that still arrives goes back.
- */
-export function DepositTimer({ deal }: { deal: Deal }) {
-  const now = useServerClock(deal.now, deal.dueBy !== null);
-  if (deal.step !== 'ESCROW' || !deal.dueBy) return null;
-  return <StepTimer remaining={Date.parse(deal.dueBy) - now} verb="Send within" />;
 }
 
 /** Time left for the step: calm until the last five minutes, amber then (and through a final period); never a flashing alarm. */

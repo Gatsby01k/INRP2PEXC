@@ -478,3 +478,15 @@
     max-width: 88%;
   }
 }
+
+/* On a phone the chat's name wraps before it runs under the Support button. */
+@media (max-width: 699px) {
+  .title {
+    min-width: 0;
+  }
+
+  .titleWords {
+    white-space: normal;
+    text-wrap: balance;
+  }
+}

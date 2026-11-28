@@ -363,3 +363,43 @@
     display: none;
   }
 }
+
+/* ——— Under the deal's stage: the move's sheet, tucked under the stage's foot ——— */
+
+.sheet {
+  z-index: 0;
+  margin-top: calc(-1 * var(--space-6) - 32px);
+  padding-top: calc(var(--pad-y) + 32px);
+}
+
+/* The stage already shows the amount, the rail and when: the claim keeps only what the bank must show. */
+.claim[data-compact] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.claim[data-compact] .claimMain {
+  display: none;
+}
+
+.claim[data-compact] .claimFacts {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0 var(--space-5);
+  padding: 6px 20px;
+  box-shadow: none;
+}
+
+.claim[data-compact] .claimFacts > div + div {
+  box-shadow: none;
+}
+
+@media (max-width: 699px) {
+  .sheet {
+    margin-top: calc(-1 * var(--space-6) - 26px);
+    padding-top: calc(var(--pad-y) + 26px);
+  }
+}
+
+/* Under the stage the rule is said by the button; the claim keeps the reference and the account. */
+.claim[data-compact] .claimFacts > .wide {
+  display: none;
+}

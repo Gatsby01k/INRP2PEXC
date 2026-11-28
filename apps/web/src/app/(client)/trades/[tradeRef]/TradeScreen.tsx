@@ -13,7 +13,8 @@ import { SuccessMark } from '../../_workspace/SuccessMark.tsx';
 import { DealRail } from '../../_workspace/DealRail.tsx';
 import { Amount } from '../../../../components/Amount.tsx';
 import { type Figure, Figures, Track } from '../../_workspace/OrderSummary.tsx';
-import { DepositTimer, P2pDealCard, P2pDealChat } from './P2pDeal.tsx';
+import { P2pDealCard, P2pDealChat } from './P2pDeal.tsx';
+import { DealStage } from './DealStage.tsx';
 import shell from '../../shell.module.css';
 import styles from './trade.module.css';
 
@@ -211,7 +212,8 @@ export function TradeScreen({ view, justOpened = false, initial }: { view: Porta
     { label: 'You receive', value: <Amount value={sell ? inrExact : usdt} /> },
     { label: 'Rate', value: <Amount value={rate} /> },
     ...(trade.networkFee ? [{ label: 'Network fee', value: <Amount value={formatUsdtHeadline(Money.parse(trade.networkFee.amount, 'USDT'))} /> }] : []),
-    ...(stopAt >= 0
+    // A P2P deal's stops run along its stage; the figures are the terms alone.
+    ...(stopAt >= 0 && !p2p
       ? [
           {
             label: 'Step',
@@ -245,25 +247,12 @@ export function TradeScreen({ view, justOpened = false, initial }: { view: Porta
             </button>
           </section>
         ) : null}
-        <section className={`${shell.card} ${styles.hero}`} data-mood={status.mood} aria-labelledby="state-title">
-          {view.onHold && p2p?.dispute?.status !== 'OPEN' ? (
-            <p className={styles.hold} role="status">
-              <PauseIcon />
-              Paused while the desk checks something. Nothing is lost.
-            </p>
-          ) : null}
-          <div className={styles.state} aria-live="polite" {...(p2p ? { 'data-quiet': '' } : {})}>
-            <StateMark mood={status.mood} />
-            <div className={styles.stateText}>
-              <h2 id="state-title" className={styles.stateTitle}>
-                {headline.title}
-              </h2>
-              <p className={styles.stateBody}>{headline.body}</p>
-            </div>
-          </div>
-
-          {p2p ? (
-            <div className={styles.progress} role="group" aria-label="Trade progress">
+        {p2p ? (
+          <>
+            <DealStage view={view} />
+            <P2pDealCard view={view} staged />
+            {/* Where the money is, and the terms: the deal's map under its move. */}
+            <section className={`${shell.card} ${styles.hero} ${styles.map}`} aria-label="Where the money is">
               <div className={styles.rail}>
                 <DealRail
                   viewer={sell ? 'seller' : 'buyer'}
@@ -277,15 +266,33 @@ export function TradeScreen({ view, justOpened = false, initial }: { view: Porta
                   inrTo={sell ? `to ${view.destination.replace(/ Bank\b/, '')}` : null}
                 />
               </div>
-              <Track steps={steps} label="Stops" note={trackNote} />
+              <Figures figures={figures} />
+            </section>
+          </>
+        ) : (
+        <section className={`${shell.card} ${styles.hero}`} data-mood={status.mood} aria-labelledby="state-title">
+          {view.onHold ? (
+            <p className={styles.hold} role="status">
+              <PauseIcon />
+              Paused while the desk checks something. Nothing is lost.
+            </p>
+          ) : null}
+          <div className={styles.state} aria-live="polite">
+            <StateMark mood={status.mood} />
+            <div className={styles.stateText}>
+              <h2 id="state-title" className={styles.stateTitle}>
+                {headline.title}
+              </h2>
+              <p className={styles.stateBody}>{headline.body}</p>
             </div>
-          ) : (
-            <Track steps={steps} label="Trade progress" note={trackNote} />
-          )}
+          </div>
+
+          <Track steps={steps} label="Trade progress" note={trackNote} />
           <Figures figures={figures} />
         </section>
+        )}
 
-        {sell && trade.depositInstructions && view.incoming === null && trade.status !== 'CANCELLED' ? (
+        {sell && !p2p && trade.depositInstructions && view.incoming === null && trade.status !== 'CANCELLED' ? (
           <section className={`${shell.card} ${styles.action}`} aria-labelledby="deposit-title" data-attention={yourMove || undefined}>
             <div className={`${styles.actionHead} ${shell.cap}`}>
               <div className={styles.actionHeadText}>
@@ -294,12 +301,9 @@ export function TradeScreen({ view, justOpened = false, initial }: { view: Porta
                   Send your USDT
                 </h2>
               </div>
-              {p2p ? <DepositTimer deal={p2p} /> : null}
             </div>
             <p className={styles.actionText}>
-              {p2p
-                ? 'This address is the deal’s escrow: INRP2P holds your USDT there and releases it to the buyer only after you confirm their INR reached your account. If nothing arrives in time, the deal is cancelled.'
-                : 'Scan the code or copy the address into your wallet. The transfer is picked up on-chain the moment it lands — there is nothing to tell the desk.'}
+              Scan the code or copy the address into your wallet. The transfer is picked up on-chain the moment it lands — there is nothing to tell the desk.
             </p>
             <DepositAddress
               address={trade.depositInstructions.address}
@@ -319,8 +323,6 @@ export function TradeScreen({ view, justOpened = false, initial }: { view: Porta
             ) : null}
           </section>
         ) : null}
-
-        {p2p ? <P2pDealCard view={view} /> : null}
 
         {/* A P2P deal's payments are on its own card; this list is for the desk's own settlements. */}
         {settlement.payments.length > 0 && !p2p ? (

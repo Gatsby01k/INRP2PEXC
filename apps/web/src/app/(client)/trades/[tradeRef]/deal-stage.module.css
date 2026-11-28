@@ -1,0 +1,545 @@
+/*
+ * A P2P deal as one stage (`DealStage`), on the exchange stage's field (`exchange/stage.module.css`): whose move, the
+ * figure that moves, the step's ring, the move's instrument, the four stops along the foot, the robot in its halo.
+ */
+
+.stage {
+  z-index: 1;
+  gap: 0;
+  min-height: 0;
+  padding: 28px 36px 30px;
+}
+
+/* With a move to read, the robot stands a step back into its corner. */
+.stage .robot {
+  right: -16px;
+  bottom: -70px;
+  width: 280px;
+  height: 280px;
+}
+
+.stage .halo {
+  right: -60px;
+  bottom: -140px;
+  width: 360px;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  min-height: 36px;
+  padding-right: 120px;
+}
+
+.chip {
+  height: 32px;
+  font-size: 13px;
+}
+
+.chip[data-beat='mine'] {
+  background: #fff;
+  box-shadow: 0 8px 18px -10px rgba(90, 20, 0, 0.6);
+  color: var(--brand-action);
+  font-weight: var(--font-weight-semibold);
+}
+
+.chip[data-beat='mine'] .chipRing {
+  --node: var(--brand-action);
+  color: var(--brand-action);
+}
+
+.chipRing {
+  width: 18px;
+  height: 18px;
+}
+
+/* The step's time: the visor ring, in the stage's corner. */
+.timer {
+  position: absolute;
+  top: 22px;
+  right: 26px;
+}
+
+.move {
+  display: grid;
+  gap: 10px;
+  max-width: min(100%, 560px);
+  margin-top: 30px;
+}
+
+.label {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.86);
+  font-size: 15.5px;
+  font-weight: var(--font-weight-medium);
+  line-height: 1.3;
+}
+
+/* The monument: the figure that moves, as large as the stage gives it, never wrapped inside the number. */
+.figure {
+  margin: 0;
+  font-size: clamp(44px, 5.4vw, 78px);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1;
+  letter-spacing: -0.035em;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.question {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: clamp(32px, 3.6vw, 52px);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.04;
+  letter-spacing: -0.04em;
+  text-wrap: balance;
+}
+
+.questionFigure {
+  white-space: nowrap;
+}
+
+.line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 0 0;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 14.5px;
+  line-height: 1.45;
+}
+
+/* A rail's own mark keeps its colours on a white tile. */
+.line :global([data-rail]) {
+  padding: 3px 7px;
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text-primary);
+}
+
+/* ——— The move's instrument: the escrow's address, on a white ticket ——— */
+
+.ticket {
+  display: grid;
+  grid-template-columns: 128px minmax(0, 1fr);
+  align-items: center;
+  gap: 14px 20px;
+  max-width: min(100%, 560px);
+  margin-top: 22px;
+  padding: 16px 18px 14px 16px;
+  border-radius: 22px;
+  background: #fff;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.6) inset,
+    0 22px 40px -22px rgba(80, 18, 0, 0.75);
+  color: var(--text-primary);
+  animation: rise 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.qr {
+  width: 128px;
+  height: 128px;
+}
+
+.ticketText {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.ticketCap {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.address {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: -6px;
+}
+
+.address code {
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: var(--font-weight-medium);
+  line-height: 1.45;
+  letter-spacing: -0.01em;
+  word-break: break-all;
+}
+
+.exact {
+  display: grid;
+  gap: 2px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--line);
+}
+
+.exactValue {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-figure, var(--font-sans));
+  font-size: 19px;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.02em;
+}
+
+/* Under the ticket, what happens next without anyone pressing anything: the chain is being watched. */
+.watch {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--accent-soft, #fff1ea);
+  color: var(--text-primary);
+  font-size: 13.5px;
+  font-weight: var(--font-weight-medium);
+}
+
+/* A scanning arc: one quarter of a ring sweeping round, a node at its heart. */
+.scan {
+  position: relative;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--brand-action) 22%, transparent);
+}
+
+.scan::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 2px solid transparent;
+  border-top-color: var(--brand-action);
+  border-radius: 50%;
+  animation: sweep 1.1s linear infinite;
+}
+
+.scan::after {
+  content: '';
+  position: absolute;
+  inset: 6px;
+  border-radius: 50%;
+  background: var(--brand-action);
+}
+
+/* USDT seen on the chain, before it is final: the transfer itself, to check on Tronscan. */
+.seen {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 12px;
+  max-width: min(100%, 560px);
+  margin-top: 22px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: #fff;
+  color: var(--text-primary);
+  font-size: 14px;
+  text-decoration: none;
+  animation: rise 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.seen b {
+  font-weight: var(--font-weight-semibold);
+}
+
+.seenState {
+  margin-left: auto;
+  color: var(--brand-action);
+  font-weight: var(--font-weight-semibold);
+}
+
+/* ——— The four stops, along the stage's foot ——— */
+
+.stops {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  max-width: min(100%, 520px);
+  margin: auto 0 0;
+  padding: 34px 0 0;
+  list-style: none;
+}
+
+.stop {
+  position: relative;
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  color: rgba(255, 255, 255, 0.66);
+  font-size: 12.5px;
+  font-weight: var(--font-weight-medium);
+  line-height: 1.25;
+}
+
+/* The line from the stop before: solid where the deal has been, dashed where it has not. */
+.stop + .stop::before {
+  content: '';
+  position: absolute;
+  top: 13px;
+  right: calc(100% + 6px);
+  left: calc(-100% + 34px);
+  height: 2px;
+  background: repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.45) 0 4px, transparent 4px 9px);
+}
+
+.stop[data-status='done'] + .stop::before,
+.stop[data-status='done'] + .stop[data-status='current']::before {
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.stopNode {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.45);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: var(--font-weight-semibold);
+}
+
+.stopNode svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: var(--brand-action);
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.stop[data-status='done'] {
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.stop[data-status='done'] .stopNode {
+  background: #fff;
+  box-shadow: none;
+}
+
+.stop[data-status='current'] {
+  color: #fff;
+  font-weight: var(--font-weight-semibold);
+}
+
+.stop[data-status='current'] .stopNode {
+  background: rgba(255, 255, 255, 0.2);
+  box-shadow: inset 0 0 0 2px #fff;
+}
+
+/* The stop the deal is at breathes: a ring leaving it, once every two seconds. */
+.stop[data-status='current'] .stopNode::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.65);
+  animation: breathe 2s ease-out infinite;
+}
+
+.stop[data-status='exception'] {
+  color: #fff;
+  font-weight: var(--font-weight-semibold);
+}
+
+.stop[data-status='exception'] .stopNode {
+  background: #fff;
+  box-shadow: none;
+  color: var(--text-primary);
+}
+
+@keyframes breathe {
+  0% {
+    box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.65);
+  }
+
+  80%,
+  100% {
+    box-shadow: 0 0 0 10px rgba(255, 255, 255, 0);
+  }
+}
+
+@keyframes sweep {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+/* ——— A finished deal: the field settles ——— */
+
+.stage[data-beat='done'] .figure,
+.stage[data-beat='over'] .figure {
+  letter-spacing: -0.03em;
+}
+
+.stage[data-beat='over'] {
+  background: linear-gradient(140deg, #e2623f 0%, #cf5431 50%, #a9462a 100%);
+}
+
+/* ——— Phones: the robot keeps the stage's top corner, the move starts under it ——— */
+
+@media (max-width: 699px) {
+  .stage {
+    padding: 20px 20px 22px;
+  }
+
+  .stage .halo {
+    top: -130px;
+    right: -120px;
+    bottom: auto;
+    width: 300px;
+  }
+
+  .stage .robot {
+    top: -18px;
+    right: -34px;
+    bottom: auto;
+    width: 150px;
+    height: 150px;
+  }
+
+  .head {
+    padding-right: 96px;
+  }
+
+  .move {
+    margin-top: 64px;
+  }
+
+  /* On a phone the ring stands beside the move, not in a corner the robot holds. */
+  .move {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    column-gap: 14px;
+  }
+
+  .move > :not(.timer) {
+    grid-column: 1;
+  }
+
+  .timer {
+    position: static;
+    grid-column: 2;
+    grid-row: 1 / span 3;
+    align-self: center;
+  }
+
+  .timer :global([role='timer']) {
+    width: 74px;
+    height: 74px;
+  }
+
+  /* A question takes the full width; the ring then stands beside what follows it. */
+  .move > .question {
+    grid-column: 1 / -1;
+    font-size: clamp(28px, 8.6vw, 36px);
+  }
+
+  .question ~ .timer {
+    grid-row: 2 / span 2;
+  }
+
+  .figure {
+    font-size: clamp(36px, 11vw, 48px);
+  }
+
+  .ticket {
+    grid-template-columns: 92px minmax(0, 1fr);
+    gap: 12px 14px;
+    padding: 14px;
+    border-radius: 20px;
+  }
+
+  .qr {
+    width: 92px;
+    height: 92px;
+  }
+
+  .address code {
+    font-size: 12.5px;
+  }
+
+  .stops {
+    max-width: none;
+    padding-top: 26px;
+  }
+
+  .stop {
+    font-size: 11.5px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scan::before,
+  .stop[data-status='current'] .stopNode::after,
+  .ticket,
+  .seen {
+    animation: none;
+  }
+}
+
+/* ——— A settled deal: its receipt, the one thing left to take ——— */
+
+.doneMoves {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 18px;
+  margin-top: 24px;
+}
+
+.doneMoves svg {
+  width: 20px;
+  height: 20px;
+}
+
+.pdf {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 48px;
+  padding: 0 18px;
+  border-radius: 16px;
+  box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.55);
+  color: #fff;
+  font-size: 15px;
+  font-weight: var(--font-weight-semibold);
+  text-decoration: none;
+}
+
+.pdf svg {
+  width: 18px;
+  height: 18px;
+}
+
+@media (hover: hover) {
+  .pdf:hover {
+    background: rgba(255, 255, 255, 0.12);
+  }
+}
+
+.pdf:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 3px;
+}
