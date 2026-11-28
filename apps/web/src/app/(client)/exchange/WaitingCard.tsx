@@ -14,7 +14,7 @@ import { declinePeerAction, meetPeerAction, setWaitAction, startPeerAction, stil
 import { RobotFigure } from '../_assistant/RobotFigure.tsx';
 import { RobotSays } from '../_robot/RobotSays.tsx';
 import { waitingSpeech } from '../_robot/speech.ts';
-import { ArrowIcon, BellIcon, BoltIcon, CheckIcon, MeetIcon, PeerIcon, PlaneIcon, RateIcon } from '../_workspace/icons.tsx';
+import { ArrowIcon, BellIcon, BoltIcon, CheckIcon, MeetIcon, PeerIcon, PlaneIcon, RateIcon, UserIcon, UsersIcon } from '../_workspace/icons.tsx';
 import { Amount } from '../../../components/Amount.tsx';
 import { StateRing } from '../_workspace/StateRing.tsx';
 import { Countdown } from './QuoteCard.tsx';
@@ -42,6 +42,7 @@ function elapsed(ms: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
+const ordinal = (n: number): string => (n === 1 ? '1st' : n === 2 ? '2nd' : n === 3 ? '3rd' : `${n}th`);
 const rateOf = (decimal: string): string => formatRate(Rate.parse(decimal, 'CLIENT'));
 
 /** ADR 0033: how long to keep looking, as the client chooses it. */
@@ -138,6 +139,7 @@ export function WaitingCard({ view, alerts, now }: { view: ExchangeView; alerts:
   const resume = async () => after((await run('Still looking', (key) => stillLookingAction({ requestRef: request.ref }, key))).ok);
   const lookFor = async (hours: number) => after((await run('Look for longer', (key) => setWaitAction({ requestRef: request.ref, hours }, key))).ok);
 
+  const online = wait?.tradersOnline ?? 0;
   const Other = sell ? 'Buyer' : 'Seller';
   const pushable = push.state === 'off' || push.state === 'asking';
 
@@ -320,8 +322,25 @@ export function WaitingCard({ view, alerts, now }: { view: ExchangeView; alerts:
             </div>
           ) : null}
 
-          {/* The robot says what it is doing about the wait — and its visor's log is the wait's own record (ADR 0034
-              addendum). Where the book leads with a figure to act on, the figure and its move speak for it. */}
+          {!onMarket && wait && !meeting && !ready && !paused && !near ? (
+            <ul className={stage.facts} aria-label="Your wait">
+              <li className={stage.fact}>
+                <UsersIcon />
+                <span>
+                  <span className={stage.factFigure}>{online}</span> {online === 1 ? 'trader online' : 'traders online'}
+                </span>
+              </li>
+              <li className={stage.fact}>
+                <UserIcon />
+                <span>
+                  <span className={stage.factFigure}>{ordinal(wait.ahead + 1)}</span> in line
+                </span>
+              </li>
+            </ul>
+          ) : null}
+
+          {/* Bhai says what he is doing about the wait, in a line (ADR 0034 addendum). Where the book leads with a figure
+              to act on, the figure and its move speak for themselves. */}
           {deal || (near && gap) ? null : (
             <RobotSays speech={waitingSpeech(request, { telegram: alerts.telegram.on, now })} live={false} ask={!paused} className={stage.says} />
           )}
