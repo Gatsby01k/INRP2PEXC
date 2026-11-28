@@ -72,7 +72,11 @@ export function DealStage({ view }: { view: PortalTrade }) {
 
   // The step's window, for the ring: from when the step began (the last stop reached, or the buyer's filing) to its end.
   const began = deal.step === 'CONFIRM' && filed ? filed.filedAt : ([...view.stages].reverse().find((s) => s.status === 'done' && s.at)?.at ?? view.trade.openedAt);
-  const ring = deal.dueBy && (beat === 'mine' || beat === 'theirs') ? <Countdown sentAt={new Date(began)} expiresAt={new Date(deal.dueBy)} now={now} variant="ring" /> : null;
+  // The ring says what its time is for — the move, in the viewer's words — never "held", which is a price's word.
+  const ringLabel = beat === 'mine'
+    ? (deal.step === 'ESCROW' ? 'Send within' : deal.step === 'PAY' ? 'Pay within' : 'Confirm within')
+    : `${Other} expected within`;
+  const ring = deal.dueBy && (beat === 'mine' || beat === 'theirs') ? <Countdown sentAt={new Date(began)} expiresAt={new Date(deal.dueBy)} now={now} variant="ring" label={ringLabel} /> : null;
 
   // What the stage says: a chip, a label over the figure, the figure, one line under it.
   const chip =
