@@ -1,7 +1,7 @@
 import { headers } from 'next/headers';
 import { hostConfig } from '../../server/hosts.ts';
 import { publicOrigin } from '../../server/site.ts';
-import { surfaceForHost } from '../../server/surface.ts';
+import { MARKET_RATE_PATH, surfaceForHost } from '../../server/surface.ts';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,6 +30,14 @@ export async function GET() {
     // A quote link is private to whoever was sent it. It is already `noindex`, and it is also asked for here,
     // because the two mechanisms fail in different ways and a private price is worth both.
     'Disallow: /q/',
+    // A deal link the same: private to the client it was sent to, `noindex` on the page, and asked for here too.
+    'Disallow: /d/',
+    // The site's endpoints are not pages. A crawler finds their addresses in the pages' scripts and asks for them;
+    // the ones that need a session or a method other than GET answer 401 or 405, which Search Console then lists as
+    // pages it could not index. Asked not to. The market rate stays open: the pages fetch it to draw the figures a
+    // crawler renders, and the longer rule wins over the shorter.
+    'Disallow: /api/',
+    `Allow: ${MARKET_RATE_PATH}`,
     '',
     `Sitemap: ${origin}/sitemap.xml`,
     '',
