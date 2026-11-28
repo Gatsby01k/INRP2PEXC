@@ -100,7 +100,6 @@ export function DealChat({
             </span>
             <span className={styles.titleWords}>
               Chat with the {other}
-              <span className={styles.caption}>History is kept</span>
             </span>
           </h2>
         </div>
@@ -146,7 +145,7 @@ export function DealChat({
         {/* The one rule of the chat stays at its top, above whatever is said. Only the people in the deal and INRP2P see it. */}
         <li className={styles.empty}>
           <ShieldIcon />
-          <span>Never share an OTP, a PIN or a password — INRP2P never asks for them.</span>
+          <span>Never share an OTP, PIN or password.</span>
         </li>
         {chat.messages.map((m) => (
           <Message key={m.id} m={m} other={other} />

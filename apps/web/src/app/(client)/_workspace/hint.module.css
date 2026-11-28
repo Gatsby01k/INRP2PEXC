@@ -1,0 +1,132 @@
+/* An explanation one tap away: a broken ring with the mark's node, and the words on the robot's black glass. */
+.hint {
+  position: relative;
+  display: inline-flex;
+  vertical-align: middle;
+}
+
+.dot {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin: -4px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition:
+    color var(--dur-fast) var(--ease),
+    background-color var(--dur-fast) var(--ease),
+    scale 340ms var(--spring, var(--ease));
+}
+
+.dot svg {
+  width: 18px;
+  height: 18px;
+  overflow: visible;
+}
+
+.ring,
+.stem {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-width: 1.6;
+}
+
+.tittle {
+  fill: currentColor;
+}
+
+@media (hover: hover) {
+  .dot:hover {
+    background: color-mix(in srgb, var(--text-primary) 6%, transparent);
+    color: var(--text-primary);
+  }
+}
+
+.dot:active {
+  scale: 0.88;
+}
+
+.dot[aria-expanded='true'] {
+  color: var(--text-primary);
+}
+
+.dot:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 1px;
+}
+
+.hint[data-tone='field'] .dot {
+  --node: #fff;
+  color: rgba(255, 255, 255, 0.78);
+}
+
+@media (hover: hover) {
+  .hint[data-tone='field'] .dot:hover {
+    background: rgba(255, 255, 255, 0.16);
+    color: #fff;
+  }
+}
+
+.bubble {
+  --shift: 0px;
+  position: fixed;
+  z-index: 1000;
+  width: max-content;
+  max-width: min(300px, calc(100vw - 24px));
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: radial-gradient(130% 110% at 26% -12%, #3d3f47 0, #1b1c21 40%, #0b0c0e 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.07),
+    0 18px 40px -16px rgba(0, 0, 0, 0.55);
+  color: rgba(255, 255, 255, 0.88);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: var(--font-weight-regular, 400);
+  line-height: 1.45;
+  letter-spacing: -0.005em;
+  text-align: left;
+  text-transform: none;
+  white-space: normal;
+  translate: calc(-50% + var(--shift)) 0;
+  transform-origin: 50% 0;
+  animation: bubble 380ms linear(0, 0.052, 0.173, 0.325, 0.482, 0.625, 0.748, 0.846, 0.92, 0.972, 1.006, 1.026, 1.036, 1.038, 1.036, 1.031, 1.026, 1.02, 1.014, 1.009, 1.006, 1.003, 1.001, 1, 1) both;
+}
+
+.bubble::before {
+  content: '';
+  position: absolute;
+  top: -5px;
+  left: calc(50% - var(--shift) - 5px);
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: #2a2c32;
+  rotate: 45deg;
+}
+
+.bubble :where(b, strong) {
+  color: #fff;
+  font-weight: var(--font-weight-semibold);
+}
+
+@keyframes bubble {
+  from {
+    opacity: 0;
+    scale: 0.92;
+    filter: blur(4px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bubble {
+    animation: none;
+  }
+}

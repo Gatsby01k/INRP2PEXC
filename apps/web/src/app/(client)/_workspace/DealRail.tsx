@@ -210,9 +210,10 @@ const tagWidth = (lead: string, word: string) => Math.round(lead.length * 7.6 + 
 
 /** The quote's picture of what accepting starts: the three moves after it, numbered, on the lanes they happen on. */
 function AheadMarks({ seller, destination }: { seller: boolean; destination?: string | undefined }) {
-  const into = seller ? ['Your USDT goes to escrow', 'to an address of this trade alone'] : ['The seller’s USDT goes to escrow', 'before you pay anything'];
-  const out = seller ? ['You confirm, escrow releases', 'a receipt is issued for your records'] : ['The seller confirms, escrow releases', 'the USDT goes to your wallet'];
-  const pay = seller ? ['The buyer pays your INR', ` · to ${destination ?? 'your bank'}, with its UTR`] : ['You pay the INR', ' · to the seller’s own account, with its UTR'];
+  // Three moves, a few words each: the picture says the rest.
+  const into = seller ? 'Your USDT → escrow' : 'Seller’s USDT → escrow';
+  const out = seller ? 'Released when you confirm' : 'Released to your wallet';
+  const pay = seller ? ['Buyer pays the INR', ` · to ${destination ?? 'your bank'}`] : ['You pay the INR', ' · to the seller'];
   const chip = (x: number, y: number, n: string) => (
     <g>
       <rect className={styles.stepChip} x={x - 18} y={y - 13} width="36" height="26" rx="9" />
@@ -223,26 +224,20 @@ function AheadMarks({ seller, destination }: { seller: boolean; destination?: st
   );
   return (
     <g>
-      <text className={styles.cap} x="210" y="44" textAnchor="middle">
-        {into[0]}
+      <text className={styles.cap} x="210" y="50" textAnchor="middle">
+        {into}
       </text>
-      <text className={styles.capNote} x="210" y="116" textAnchor="middle">
-        {into[1]}
+      {chip(210, 84, '01')}
+      <text className={styles.cap} x="570" y="50" textAnchor="middle">
+        {out}
       </text>
-      {chip(210, 84, '02')}
-      <text className={styles.cap} x="570" y="44" textAnchor="middle">
-        {out[0]}
+      {chip(570, 84, '03')}
+      <rect className={styles.tag} x="220" y="160" width="340" height="32" rx="16" />
+      <rect className={styles.stepChipQuiet} x="230" y="165" width="34" height="22" rx="8" />
+      <text className={styles.stepNo} x="247" y="180.5" textAnchor="middle">
+        02
       </text>
-      <text className={styles.capNote} x="570" y="116" textAnchor="middle">
-        {out[1]}
-      </text>
-      {chip(570, 84, '04')}
-      <rect className={styles.tag} x="150" y="160" width="480" height="32" rx="16" />
-      <rect className={styles.stepChipQuiet} x="160" y="165" width="34" height="22" rx="8" />
-      <text className={styles.stepNo} x="177" y="180.5" textAnchor="middle">
-        03
-      </text>
-      <text className={styles.tagText} x="204" y="181">
+      <text className={styles.tagText} x="274" y="181">
         {pay[0]}
         <tspan className={styles.tagNote}>{pay[1]}</tspan>
       </text>

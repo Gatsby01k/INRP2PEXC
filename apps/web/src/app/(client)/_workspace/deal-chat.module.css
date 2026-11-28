@@ -155,6 +155,8 @@
   gap: var(--space-3);
   height: min(376px, 52vh);
   min-height: 220px;
+  /* A thread with nothing said yet is only as tall as its one rule: the chat grows when people talk. */
+  transition: height 420ms var(--spring, ease);
   margin: 0 calc(var(--pad-x) * -1);
   padding: var(--space-4) var(--pad-x);
   border-top: 1px solid var(--line-soft, var(--border-default));
@@ -489,4 +491,9 @@
     white-space: normal;
     text-wrap: balance;
   }
+}
+
+.thread:not(:has(> li + li)) {
+  height: auto;
+  min-height: 0;
 }

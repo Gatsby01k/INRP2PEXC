@@ -151,8 +151,7 @@ export function PayInr({
       <div className={pay.rule}>
         <ShieldIcon className={pay.ruleIcon} />
         <p>
-          <strong>Pay from your own account, to exactly this account.</strong> The seller checks who sent the money in their own bank — rupees from anyone else go back and
-          do not count.
+          <strong>Pay from your own account, to exactly this account.</strong> Rupees from anyone else go back.
         </p>
       </div>
 
@@ -209,7 +208,7 @@ export function PayInr({
               <div className={pay.upi}>
                 <QrCode value={payee.upiLink} label={`UPI code to pay ${inr} to ${payee.upiName ?? payee.holderName}`} className={pay.qr} />
                 <div className={pay.upiText}>
-                  <p className={pay.upiLead}>Scan with any UPI app — the amount and the remarks are filled in. Before you enter your UPI PIN, check the name your app shows.</p>
+                  <p className={pay.upiLead}>Scan with any UPI app. Check the name before your PIN.</p>
                   <a className={`${shell.action} ${pay.openApp}`} href={payee.upiLink}>
                     <PhoneIcon className={pay.inlineIcon} />
                     Pay in UPI app

@@ -14,6 +14,7 @@ import { playSound } from '../_assistant/sound.ts';
 import { RobotFigure } from '../_assistant/RobotFigure.tsx';
 import { ArrowIcon, InfoIcon, RateIcon } from '../_workspace/icons.tsx';
 import { StateRing } from '../_workspace/StateRing.tsx';
+import { Digits } from '../_workspace/Odometer.tsx';
 import { legAmount } from './amounts.ts';
 import shell from '../shell.module.css';
 import { Amount } from '../../../components/Amount.tsx';
@@ -46,7 +47,7 @@ export function Countdown({ sentAt, expiresAt, now, variant = 'pill' }: { sentAt
           <circle className={stage.ringTrack} cx="42" cy="42" r={r} />
           <circle className={stage.ringArc} cx="42" cy="42" r={r} strokeDasharray={c} strokeDashoffset={c * (1 - fraction)} />
         </svg>
-        <b className={stage.ringTime}>{formatCountdown(remaining)}</b>
+        <Digits text={formatCountdown(remaining)} down className={stage.ringTime} />
         <span className="ix-visually-hidden">, held until {formatIstTime(expiresAt)}</span>
       </span>
     );
@@ -58,7 +59,7 @@ export function Countdown({ sentAt, expiresAt, now, variant = 'pill' }: { sentAt
         <circle className={styles.timerArc} cx="12" cy="12" r={R} strokeDasharray={C} strokeDashoffset={C * (1 - fraction)} />
       </svg>
       <span className={styles.timerText}>
-        <span className={styles.timerTime}>{formatCountdown(remaining)}</span>
+        <Digits text={formatCountdown(remaining)} down className={styles.timerTime} />
         <span className={styles.timerLabel}>held</span>
       </span>
       <span className="ix-visually-hidden">, held until {formatIstTime(expiresAt)}</span>
@@ -152,7 +153,7 @@ export function QuoteCard({ quote, canAccept, now, request, destinations }: { qu
           <header className={stage.stageHead}>
             <span className={stage.chip}>
               <StateRing state="lock" />
-              <span>Firm quote · held for you</span>
+              <span>Firm quote</span>
             </span>
             <span className={stage.ref}>{quote.ref}</span>
           </header>
@@ -169,7 +170,7 @@ export function QuoteCard({ quote, canAccept, now, request, destinations }: { qu
             <span className={stage.fact} data-robot-target="rate">
               <RateIcon />
               <span>
-                <span className={stage.factFigure}>{rate}</span> per USDT
+                <span className={stage.factFigure}>{rate}</span>/USDT
               </span>
             </span>
             <span className={stage.fact}>
@@ -185,7 +186,7 @@ export function QuoteCard({ quote, canAccept, now, request, destinations }: { qu
             {canAccept ? (
               declining ? (
                 <div className={stage.confirm} role="group" aria-label="Decline this quote">
-                  <p>Declining tells the desk you will not take this price, and it can no longer be accepted. Your request stays open for a new quote.</p>
+                  <p>Decline this price? Your request stays open for a new one.</p>
                   <div className={stage.confirmActions}>
                     <button type="button" className={shell.secondaryAction} onClick={() => void decline()} disabled={busy}>
                       {busy ? <ArcLoader size="sm" label="Declining" tone="inherit" /> : null}
@@ -207,14 +208,14 @@ export function QuoteCard({ quote, canAccept, now, request, destinations }: { qu
                     </button>
                   </div>
                   <button type="button" className={`${shell.textAction} ${stage.onField}`} onClick={() => setDeclining(true)} disabled={busy}>
-                    Decline — your request stays open
+                    Decline
                   </button>
                 </>
               )
             ) : (
               <p className={stage.cannot}>
                 <InfoIcon className={shell.infoIcon} />
-                <span>Your account can see quotes but not accept them. Someone with acceptance rights has to decide on this one.</span>
+                <span>Only someone with acceptance rights can take this price.</span>
               </p>
             )}
             {error ? (

@@ -46,7 +46,7 @@ export function UpiIdsCard({ upiIds, isAdmin, holderName, clientName }: { upiIds
 
   return (
     <>
-      <Group id="upi-title" title="UPI IDs" count={live} note="Buyers pay you to these by UPI, and you can pay from them. No bank details needed — ready as soon as you add one.">
+      <Group id="upi-title" title="UPI IDs" count={live} note="Buyers pay you to these by UPI, and you can pay from them — ready as soon as you add one. In seconds, up to ₹100,000 a payment.">
         {shown.map((u) => (
           <UpiCard
             key={u.id}
@@ -60,11 +60,9 @@ export function UpiIdsCard({ upiIds, isAdmin, holderName, clientName }: { upiIds
             note={
               shown.length === 0 ? (
                 <>
-                  No UPI ID yet. Add the one you use — like <span className="ix-num">name@okhdfcbank</span> — to be paid by UPI in seconds, up to ₹100,000 a payment.
+                  No UPI ID yet · <span className="ix-num">name@okhdfcbank</span>
                 </>
-              ) : (
-                'Paid in seconds, up to ₹100,000 a payment.'
-              )
+              ) : null
             }
             marks={
               <span className={styles.upiTile} data-size="sm">

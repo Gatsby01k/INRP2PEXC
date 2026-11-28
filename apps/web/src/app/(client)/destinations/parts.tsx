@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useId, useRef, useState } from 'react';
+import { Hint } from '../_workspace/Hint.tsx';
 import { MoreIcon, PlusIcon } from '../_workspace/icons.tsx';
 import { StateRing, type RingState } from '../_workspace/StateRing.tsx';
 import styles from './destinations.module.css';
@@ -23,8 +24,9 @@ export function Group({ id, title, count, note, action, children }: { id: string
             {count > 0 ? (
               <span className={styles.count}>{count}</span>
             ) : null}
+            {/* What the group is for, one tap away: the tiles say what is in it. */}
+            <Hint label={`About ${title}`}>{note}</Hint>
           </div>
-          <p className={styles.groupNote}>{note}</p>
         </div>
         {action}
       </div>
@@ -77,7 +79,7 @@ export function Tag({ tone, children, icon }: { tone: Tone; children: React.Reac
 }
 
 /** The tile that adds one more: at the end of the list, or the whole list when there is none yet. */
-export function AddTile({ title, note, marks, onClick }: { title: string; note: React.ReactNode; marks?: React.ReactNode; onClick: () => void }) {
+export function AddTile({ title, note, marks, onClick }: { title: string; note?: React.ReactNode; marks?: React.ReactNode; onClick: () => void }) {
   return (
     <li className={styles.addCell}>
       <button type="button" className={styles.addTile} onClick={onClick}>
@@ -86,7 +88,7 @@ export function AddTile({ title, note, marks, onClick }: { title: string; note: 
         </span>
         <span className={styles.addText}>
           <span className={styles.addTitle}>{title}</span>
-          <span className={styles.addNote}>{note}</span>
+          {note ? <span className={styles.addNote}>{note}</span> : null}
         </span>
         {marks ? (
           <span className={styles.addMarks} aria-hidden="true">

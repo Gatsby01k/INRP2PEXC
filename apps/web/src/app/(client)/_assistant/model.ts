@@ -308,7 +308,7 @@ export function historyAssistant(rows: readonly HistoryRow[], counts: { readonly
       mood: 'alert',
       label: 'On hold',
       title: held.length === 1 ? `${held[0]!.ref} is paused` : `${held.length} trades are paused`,
-      body: 'The desk is checking something. Nothing is lost, and each trade moves on as soon as the check is done.',
+      body: 'The desk is checking. Nothing is lost.',
     });
   }
   if (seen.length > 0) {

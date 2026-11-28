@@ -108,3 +108,118 @@ html {
   font-size: var(--font-size-body-lg);
   font-weight: var(--font-weight-semibold);
 }
+
+/* ——— The workspace's moving parts (client app only; nothing here draws on a first paint) ——— */
+
+/* A figure's character rolling to its next value, as a counter does (`Odometer`): the character itself is held
+   transparent while the old one slides out through `::before` and the new one in through `::after`, clipped to its
+   own line. Its text never changes, so a copy or a screen reader always reads the figure. */
+[data-rolling] {
+  position: relative;
+  display: inline-block;
+  -webkit-text-fill-color: transparent;
+  text-shadow: none;
+  clip-path: inset(0 -0.3em);
+}
+
+/* A lit display's glow travels with its rolling characters (`--ix-glow`, set where a display glows). */
+[data-rolling]::before,
+[data-rolling]::after {
+  position: absolute;
+  inset: 0;
+  -webkit-text-fill-color: currentColor;
+  text-shadow: var(--ix-glow, none);
+  text-align: center;
+  animation: 480ms linear(0, 0.052, 0.173, 0.325, 0.482, 0.625, 0.748, 0.846, 0.92, 0.972, 1.006, 1.026, 1.036, 1.038, 1.036, 1.031, 1.026, 1.02, 1.014, 1.009, 1.006, 1.003, 1.001, 1, 1) both;
+}
+
+[data-rolling]::before {
+  content: attr(data-was);
+  animation-name: ix-roll-out-up;
+}
+
+[data-rolling]::after {
+  content: attr(data-now);
+  animation-name: ix-roll-in-up;
+}
+
+[data-rolling='down']::before {
+  animation-name: ix-roll-out-down;
+}
+
+[data-rolling='down']::after {
+  animation-name: ix-roll-in-down;
+}
+
+@keyframes ix-roll-out-up {
+  to {
+    translate: 0 -0.9em;
+    filter: blur(1.5px);
+    opacity: 0;
+  }
+}
+
+@keyframes ix-roll-in-up {
+  from {
+    translate: 0 0.9em;
+    filter: blur(1.5px);
+    opacity: 0;
+  }
+}
+
+@keyframes ix-roll-out-down {
+  to {
+    translate: 0 0.9em;
+    filter: blur(1.5px);
+    opacity: 0;
+  }
+}
+
+@keyframes ix-roll-in-down {
+  from {
+    translate: 0 -0.9em;
+    filter: blur(1.5px);
+    opacity: 0;
+  }
+}
+
+/* Moving between the workspace's pages: the page you leave settles back and fades, the next rises into place
+   (`<ViewTransition default="ix-page">` in the client layout). The bar above stays where it is. */
+::view-transition-old(.ix-page) {
+  animation: 140ms cubic-bezier(0.4, 0, 1, 1) both ix-page-out;
+}
+
+::view-transition-new(.ix-page) {
+  animation: 360ms linear(0, 0.052, 0.173, 0.325, 0.482, 0.625, 0.748, 0.846, 0.92, 0.972, 1.006, 1.026, 1.036, 1.038, 1.036, 1.031, 1.026, 1.02, 1.014, 1.009, 1.006, 1.003, 1.001, 1, 1) 60ms both ix-page-in;
+}
+
+@keyframes ix-page-out {
+  to {
+    opacity: 0;
+    scale: 0.985;
+  }
+}
+
+@keyframes ix-page-in {
+  from {
+    opacity: 0;
+    translate: 0 10px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-rolling] {
+    -webkit-text-fill-color: currentColor;
+  }
+
+  [data-rolling]::before,
+  [data-rolling]::after {
+    content: none;
+  }
+
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+}

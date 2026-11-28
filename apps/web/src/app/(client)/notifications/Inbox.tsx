@@ -64,6 +64,15 @@ const TITLES: Record<string, string> = {
 
 const readableTitle = (title: string): string => TITLES[title] ?? title;
 
+/**
+ * What a message says in one line: its first sentence — the reference and the figure — without the reassurance after
+ * it, which the page it opens says in full. The whole message stays on the row's tooltip.
+ */
+export function gist(body: string): string {
+  const first = body.split(/(?<=[.!?])\s+(?=[A-Z])/)[0] ?? body;
+  return first.replace(/\.$/, '');
+}
+
 /** The day a message belongs to, as a person says it. */
 function dayOf(iso: string, today: string, yesterday: string): string {
   const day = formatIstDate(new Date(iso));
@@ -91,7 +100,7 @@ export function Inbox({ rows, now }: { rows: readonly ClientNotification[]; now:
         <section className={`${shell.card} ${styles.empty}`}>
           <RobotFigure mood="ready" className={styles.emptyFigure} live={false} />
           <h2 className={styles.emptyTitle}>Nothing to report yet</h2>
-          <p className={styles.emptyBody}>You will hear from the desk here when a quote is ready, a payment goes out or a bank account or wallet changes.</p>
+          <p className={styles.emptyBody}>Quotes, payments and changes to your accounts land here.</p>
         </section>
       ) : (
         <section className={`${shell.card} ${styles.feed}`} aria-label="Notifications">
@@ -132,6 +141,7 @@ export function Inbox({ rows, now }: { rows: readonly ClientNotification[]; now:
               <ul className={styles.list}>
                 {items.map((n) => {
                   const { Icon, tone } = look(n.kind);
+                  const line = gist(readable(n.body).replace('A new destination was added to your account.', 'A new bank account or wallet was added.'));
                   const content = (
                     <>
                       <span className={styles.icon} data-tone={tone} aria-hidden="true">
@@ -147,14 +157,14 @@ export function Inbox({ rows, now }: { rows: readonly ClientNotification[]; now:
                             {formatIstTime(new Date(n.createdAt))}
                           </time>
                         </span>
-                        <span className={styles.text}>{readable(n.body).replace('A new destination was added to your account.', 'A new bank account or wallet was added.')}</span>
-                        {n.subjectRef && !n.body.includes(n.subjectRef) ? <span className={styles.ref}>{n.subjectRef}</span> : null}
+                        <span className={styles.text}>{line}</span>
+                        {n.subjectRef && !line.includes(n.subjectRef) ? <span className={styles.ref}>{n.subjectRef}</span> : null}
                       </span>
                       {!n.read ? <span className={styles.dot} aria-hidden="true" /> : <span aria-hidden="true" />}
                     </>
                   );
                   return (
-                    <li key={n.id} className={styles.item} data-unread={!n.read || undefined}>
+                    <li key={n.id} className={styles.item} data-unread={!n.read || undefined} title={readable(n.body)}>
                       {n.href ? (
                         <Link className={styles.row} href={n.href}>
                           {content}

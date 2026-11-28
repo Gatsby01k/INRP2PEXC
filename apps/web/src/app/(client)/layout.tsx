@@ -10,6 +10,8 @@ import { Ticker } from './_workspace/Ticker.tsx';
 import { CommandMenu, type CommandEntry } from './_workspace/CommandMenu.tsx';
 import { FieldLight } from './_workspace/FieldLight.tsx';
 import { LiveDeal } from './_workspace/LiveDeal.tsx';
+import { Odometer } from './_workspace/Odometer.tsx';
+import { PageTransition } from './_workspace/PageTransition.tsx';
 import { RobotPresence } from './_robot/RobotPresence.tsx';
 import { MailIcon } from './_workspace/icons.tsx';
 import { NotificationsLink } from './_workspace/NotificationsLink.tsx';
@@ -143,9 +145,12 @@ export default async function ClientLayout({ children }: { children: ReactNode }
           </Link>
           <ClientNav entries={entries} />
           <div className={styles.headerActions}>
-            {member ? <LiveDeal /> : null}
-            {/* ADR 0034: the robot — what matters now, what it is doing for you, a question to ask it. */}
-            <RobotPresence />
+            {/* One island in the bar: the robot (ADR 0034) — what matters now, a question to ask it — and, when a deal
+                waits on this person, that deal growing out of it with its time lit, on every page. */}
+            <div className={styles.island}>
+              <RobotPresence />
+              {member ? <LiveDeal /> : null}
+            </div>
             {member ? <Ticker /> : null}
             <CommandMenu entries={commands} />
             {member ? (
@@ -162,15 +167,19 @@ export default async function ClientLayout({ children }: { children: ReactNode }
         </p>
       ) : null}
 
-      <div className={styles.workspace} data-robot-scope="">
-        {children}
-      </div>
+      {/* Moving between pages, the work settles out and the next page rises in; the bar stays (app.css `.ix-page`). */}
+      <PageTransition>
+        <div className={styles.workspace} data-robot-scope="">
+          {children}
+        </div>
+      </PageTransition>
+      <Odometer />
 
       <footer className={styles.footer}>
         <div className={styles.footerInner}>
           <span className={styles.footerBrand}>
             <img {...markProps} className={styles.footerMark} />
-            INRP2P Exchange · USDT ↔ INR
+            USDT ↔ INR
             {deskState && ownDesk ? (
               <span className={styles.deskState} data-tone={deskState.tone}>
                 <span className={styles.deskStateDot} />
@@ -181,11 +190,9 @@ export default async function ClientLayout({ children }: { children: ReactNode }
           {desk ? (
             <a className={styles.footerLink} href={mailto(desk, 'Question from the workspace')}>
               <MailIcon className={styles.footerIcon} />
-              Contact the desk — quote your trade reference
+              Contact the desk
             </a>
-          ) : (
-            <span>Questions about a trade? Quote its reference when you contact the desk.</span>
-          )}
+          ) : null}
         </div>
       </footer>
     </div>

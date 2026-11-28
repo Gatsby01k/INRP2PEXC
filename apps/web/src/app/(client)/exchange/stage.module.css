@@ -563,48 +563,6 @@
   padding-bottom: var(--space-3);
 }
 
-.rows {
-  margin: 0 calc(-1 * var(--pad-x)) calc(-1 * var(--pad-y) + 6px);
-  padding: 0;
-  list-style: none;
-}
-
-.row {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1.2fr) minmax(0, 1fr) auto 18px;
-  align-items: center;
-  gap: var(--space-4);
-  min-height: 72px;
-  padding: 0 var(--pad-x);
-  box-shadow: inset 0 1px 0 var(--line);
-  color: inherit;
-  text-decoration: none;
-  transition: background-color var(--dur-fast) var(--ease);
-}
-
-@media (hover: hover) {
-  .row:hover {
-    background: color-mix(in srgb, var(--text-primary) 2.5%, transparent);
-  }
-}
-
-.row:focus-visible {
-  outline: 2px solid var(--brand-primary);
-  outline-offset: -2px;
-}
-
-.rowText {
-  display: grid;
-  gap: 3px;
-  min-width: 0;
-}
-
-.rowTitle {
-  font-weight: var(--font-weight-semibold);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
 .rowSide {
   color: var(--buy);
   font-size: var(--font-size-meta);
@@ -616,79 +574,16 @@
   color: var(--sell);
 }
 
-.rowRef {
-  color: var(--text-muted);
-  font-family: var(--font-mono);
-  font-size: var(--font-size-meta);
-  letter-spacing: -0.01em;
-}
-
-.rowFigure {
-  justify-self: end;
-  font-family: var(--font-figure, var(--font-sans));
-  font-size: 20px;
-  font-weight: var(--font-weight-semibold);
-  letter-spacing: -0.035em;
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-}
-
-.rowArrow {
-  color: var(--text-disabled);
-  font-weight: var(--font-weight-regular);
-}
-
-.rowGo {
-  width: 16px;
-  height: 16px;
-  color: var(--text-muted);
-}
-
-@media (max-width: 699px) {
-  .row {
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    row-gap: 6px;
-    padding-top: 12px;
-    padding-bottom: 12px;
-  }
-
-  .rowFigure {
-    grid-column: 2;
-    justify-self: start;
-    font-size: var(--font-size-body);
-  }
-
-  .row > :nth-child(4),
-  .recent .row > :nth-child(5) {
-    grid-column: 3;
-    grid-row: 1 / span 2;
-  }
-
-  .rowGo {
-    display: none;
-  }
-}
-
 /* ——— What accepting starts ——— */
 
 .ahead {
-  gap: var(--space-5);
+  gap: var(--space-4);
 }
 
-/* The picture is the desk's; a phone reads the same in four lines. */
-.aheadSteps {
-  display: none;
-  gap: var(--space-2);
-  margin: 0;
-  padding-left: 1.2em;
-  color: var(--ink-2);
-  font-size: var(--font-size-body-sm);
-  line-height: 1.5;
-}
-
+/* The picture is the desk's; on a phone the stage above already says it, and the escrow line under the request. */
 @media (max-width: 699px) {
-  .aheadSteps {
-    display: grid;
+  .ahead {
+    display: none;
   }
 }
 
@@ -1003,21 +898,50 @@
   letter-spacing: 0.02em;
 }
 
+/* The request's terms as an instrument panel: where the money lands across the top, the rest as tiles beside each
+   other, each with its mark and a small technical label over its value. */
 .rows {
   display: grid;
-  padding: 8px 4px 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding: 8px 0 0;
 }
 
 .rowl {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 14px;
-  padding: 14px 12px;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px;
+  border-radius: 16px;
+  box-shadow: inset 0 0 0 1px var(--line-soft);
 }
 
-.rowl + .rowl {
-  box-shadow: inset 0 1px 0 var(--line);
+.rowl:first-child,
+.rowl:last-child:nth-child(2n) {
+  grid-column: 1 / -1;
+}
+
+.rowl:not(:first-child) {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+}
+
+.rowl .rowText > :first-child {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.rowl:not(:first-child) .tile {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
 }
 
 .rowText {
@@ -1128,7 +1052,8 @@
   font-weight: var(--font-weight-semibold);
   letter-spacing: -0.03em;
   font-variant-numeric: tabular-nums;
-  text-shadow: 0 0 10px color-mix(in srgb, var(--tone) 90%, transparent);
+  --ix-glow: 0 0 10px color-mix(in srgb, var(--tone) 90%, transparent);
+  text-shadow: var(--ix-glow);
 }
 
 /* ——— The ghost rail's heading and the recent trades' table ——— */
@@ -1139,44 +1064,6 @@
   gap: 10px;
 }
 
-.thead {
-  display: grid;
-  grid-template-columns: 44px minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1fr) 170px 18px;
-  align-items: center;
-  gap: 18px;
-  margin: 0 calc(-1 * var(--pad-x));
-  padding: 6px var(--pad-x) 12px;
-  color: var(--text-muted);
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  font-weight: var(--font-weight-medium);
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-}
-
-.thR {
-  justify-self: end;
-}
-
-.recent .row {
-  grid-template-columns: 44px minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1fr) 170px 18px;
-  gap: 18px;
-}
-
-.recent .row > :nth-child(5) {
-  justify-self: start;
-}
-
-.rowLands {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  color: var(--ink-2);
-  font-size: 13.5px;
-  white-space: nowrap;
-}
-
 .rowUnit {
   margin-left: 0.35em;
   color: var(--text-muted);
@@ -1184,20 +1071,6 @@
   font-size: 10.5px;
   font-weight: var(--font-weight-medium);
   letter-spacing: 0.04em;
-}
-
-@media (max-width: 899px) {
-  .thead,
-  .recent .row > .rowLands {
-    display: none;
-  }
-}
-
-@media (max-width: 699px) {
-  .recent .row {
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    gap: 6px 14px;
-  }
 }
 
 /* ——— The phone's stage before a request (`LiveMarket`, mock-up v3): the market's rate beside the robot ——— */
@@ -1707,4 +1580,192 @@ a.accept {
   height: 42px;
   padding: 0 16px;
   font-size: 14px;
+}
+
+/* ——— Your trades as a deck: one card a trade, the figure it gets you large, the ones waiting on you lit ——— */
+
+.deck {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.deck > li {
+  display: grid;
+  min-width: 0;
+}
+
+.tcard {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 18px;
+  min-height: 176px;
+  padding: 16px 16px 14px;
+  border-radius: 20px;
+  background: var(--paper);
+  color: inherit;
+  text-decoration: none;
+  transition:
+    translate 420ms var(--spring),
+    box-shadow var(--dur-base) var(--ease),
+    background-color var(--dur-base) var(--ease),
+    scale 420ms var(--spring-snap);
+}
+
+/* A trade waiting on you carries the mark's light: a warm wash and a lit edge. */
+.tcard[data-turn] {
+  background:
+    radial-gradient(120% 90% at 100% 0%, color-mix(in srgb, var(--brand-primary) 16%, transparent), transparent 60%),
+    var(--sheet);
+  box-shadow:
+    inset 0 0 0 1.5px color-mix(in srgb, var(--brand-primary) 34%, transparent),
+    0 18px 34px -24px color-mix(in srgb, var(--brand-action) 80%, transparent);
+}
+
+@media (hover: hover) {
+  .tcard:hover {
+    translate: 0 -3px;
+    background-color: var(--sheet);
+    box-shadow:
+      inset 0 0 0 1px var(--line),
+      0 22px 40px -26px rgba(96, 56, 24, 0.5);
+  }
+
+  .tcard[data-turn]:hover {
+    box-shadow:
+      inset 0 0 0 1.5px color-mix(in srgb, var(--brand-primary) 55%, transparent),
+      0 26px 44px -24px color-mix(in srgb, var(--brand-action) 90%, transparent);
+  }
+}
+
+.tcard:active {
+  scale: 0.975;
+  transition-duration: 90ms;
+}
+
+.tcard:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 2px;
+}
+
+.tcardTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.tcardFigure {
+  align-self: end;
+  font-family: var(--font-figure, var(--font-sans));
+  font-size: 30px;
+  font-weight: var(--font-weight-semibold);
+  line-height: 1;
+  letter-spacing: -0.045em;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.tcardFoot {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.tcardWhat {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.tcardRef {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: var(--font-weight-regular);
+  letter-spacing: -0.01em;
+  text-overflow: ellipsis;
+}
+
+.tcardLands {
+  display: inline-flex;
+  flex: none;
+  opacity: 0.92;
+}
+
+@media (max-width: 1099px) {
+  .deck {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* A phone: the deck slides sideways, a card and a bit of the next in view. */
+@media (max-width: 699px) {
+  .deck {
+    grid-template-columns: none;
+    grid-auto-columns: 78%;
+    grid-auto-flow: column;
+    margin: 0 calc(-1 * var(--pad-x));
+    padding: 2px var(--pad-x) 6px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-padding-inline: var(--pad-x);
+    scroll-snap-type: x mandatory;
+    scrollbar-width: none;
+  }
+
+  .deck::-webkit-scrollbar {
+    display: none;
+  }
+
+  .deck > li {
+    scroll-snap-align: start;
+  }
+
+  .tcard {
+    min-height: 156px;
+  }
+
+  .tcardFigure {
+    font-size: 28px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tcard {
+    transition: none;
+  }
+}
+
+/* A tile's value wraps rather than hiding behind an ellipsis: a fee's words are the fee. */
+.rowl:not(:first-child) .rowText b {
+  white-space: normal;
+  line-height: 1.3;
+}
+
+/* A request already sent: its figure's well takes the sheet's spare height, the figure sitting at its foot like a
+   display's reading — the sheet is as tall as the stage beside it, and nothing floats in an empty band. */
+@media (min-width: 900px) {
+  .ask[data-sheet] > .askWell {
+    flex: 1 1 auto;
+    align-content: space-between;
+    min-height: 150px;
+  }
+
+  .ask[data-sheet] .askFigure {
+    font-size: clamp(48px, 5vw, 72px);
+    letter-spacing: -0.05em;
+  }
 }
