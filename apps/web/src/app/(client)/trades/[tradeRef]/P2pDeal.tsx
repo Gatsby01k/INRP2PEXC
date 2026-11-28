@@ -18,6 +18,8 @@ import { ClaimProof } from '../../_workspace/ClaimProof.tsx';
 import { playSound } from '../../_assistant/sound.ts';
 import { useServerClock } from '../../exchange/useServerClock.ts';
 import { CheckIcon, ClockIcon, LockIcon, ShieldIcon, UserIcon, WalletIcon } from '../../_workspace/icons.tsx';
+import { RobotSays } from '../../_robot/RobotSays.tsx';
+import { payerNameSpeech } from '../../_robot/speech.ts';
 import { FieldHalo } from '../../_workspace/FieldHalo.tsx';
 import { Hint } from '../../_workspace/Hint.tsx';
 import shell from '../../shell.module.css';
@@ -359,22 +361,11 @@ function ConfirmReceipt({
         </dl>
       </div>
       <ClaimProof chat={deal.chat} paymentRef={filed.ref} />
-      {verdict && verdict !== 'MATCH' ? (
-        <p className={pay.alert} role="alert">
-          <ShieldIcon className={pay.alertIcon} />
-          <span>
-            {verdict === 'PARTIAL' ? (
-              <>
-                <strong>That name is close to the buyer’s, but not the same.</strong> The desk checks it and tells you; the escrow stays locked meanwhile.
-              </>
-            ) : (
-              <>
-                <strong>That is not the buyer’s registered account.</strong> Don’t spend this money — it is returned to whoever sent it. The desk has been told; the escrow
-                stays locked.
-              </>
-            )}
-          </span>
-        </p>
+      {/* ADR 0030's payer check, said by the robot: what the name means, and what to do — never what INRP2P decides. */}
+      {verdict && payerNameSpeech(verdict) ? (
+        <div role="alert">
+          <RobotSays speech={payerNameSpeech(verdict)!} variant="sheet" live={false} />
+        </div>
       ) : null}
       <div className={styles.nameRow}>
         <label className={pay.field}>

@@ -179,7 +179,14 @@ test('the client’s USDT reaches the escrow, the desk pays the rupees, and the 
   // The client's move: the rupees are in, from the desk's own account. It can ask the desk in the deal's chat first.
   await phone.bringToFront();
   await phone.reload();
+  // A number or WhatsApp in a draft: the robot says keep it here before anything is sent — a warning, never a block.
+  // (Typed again until the page has hydrated: a draft typed into the server's HTML never reaches the page's state.)
+  await expect(async () => {
+    await phone.getByLabel('Message the buyer').fill('call me on 98765 43210');
+    await expect(phone.getByText('Keep the deal in this chat.')).toBeVisible({ timeout: 1_000 });
+  }).toPass();
   await phone.getByLabel('Message the buyer').fill('Checking my bank app now');
+  await expect(phone.getByText('Keep the deal in this chat.')).toBeHidden();
   await phone.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(phone.getByText('Checking my bank app now')).toBeVisible();
   await phone.getByLabel('Sender’s name, as your bank shows it').fill(DESK.legalName);

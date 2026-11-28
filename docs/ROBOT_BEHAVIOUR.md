@@ -78,3 +78,33 @@ answer to their question), takes a question, and lets them choose what it may se
 
 Rules: every motion is CSS on the eyes and antenna only; reduced motion stills them. No WebGL and no image: a few vector
 shapes, drawn on the server, so the first paint never waits for it; its words arrive after the page (`/api/client/robot`).
+
+### The robot at the client's side (addendum, 2026-11-28)
+
+The masthead head alone was not enough: a client had to find it. So the big robot on every stage now **speaks** — a white
+remark beside it, in the first person, at most two sentences (three for the first hello), every figure one of record
+(`_robot/speech.ts`, pure, unit-tested). Under the remark, where it is working, its visor's log: black glass, the times
+in the mark's orange, the step in progress blinking — the deal's own record (stops reached, the transfer seen on TRON, the
+payment filed), or the wait's (when it started, how many traders were told, how many are online, the place in line).
+
+| Where | What it says |
+| --- | --- |
+| Exchange, first visit | "Hi, I'm the INRP2P robot." · one firm price for all of it · every deal runs through escrow — once per browser |
+| Exchange, traded before | "Last time you sold 1,000 USDT at ₹96.40. Today the market is ₹97.10." — **Same again** prefills the form |
+| Being priced / waiting | what it is doing about it, when the price lands, where it will tell them; the wait's log |
+| A firm quote (desk only) | one firm price for the whole amount, held until HH:MM, nothing moves until they accept |
+| Seller, escrow | it watches TRON for the exact amount; locked the moment it lands, released only on their word |
+| Buyer, escrow | the seller is locking it — **don't pay anything yet** |
+| Buyer, paying | the seller's USDT is locked, so it is safe to pay now |
+| Seller, "Did ₹… arrive?" | **open your bank app** and find it from the buyer's own account — screenshots and SMS can be faked |
+| Last five minutes of the client's own step | calmly: what to do if it is done, and what happens if it is not |
+| Payer name not the buyer's (ADR 0030) | what that means and that the escrow stays locked — never what INRP2P decides |
+| A phone, WhatsApp, Telegram, an email or a handle in the deal chat | keep it here: off INRP2P the escrow cannot protect you — under the other side's message, or over the person's own draft |
+| "Cancel" in the deal chat | if money moved, don't — tap Support while the escrow stays locked |
+| Done / closed | thanks, the receipt, **Same again** |
+| Bank & wallets · Account · Open account | what they can do with what they added and the one thing to add next; where it messages them; what happens when the account opens |
+
+Rules kept: no popups and nothing opens by itself; one remark at a time (it arrives again only when what it says
+changes); no sound; never guilt, sirens or invented figures; never a word on a dispute's outcome or a release. On a
+phone the firm quote is a decision against the clock, so the robot is quiet there; the log keeps to the last thing done
+and the thing in progress. **Ask me** on a stage opens the masthead robot's conversation with the question box focused.

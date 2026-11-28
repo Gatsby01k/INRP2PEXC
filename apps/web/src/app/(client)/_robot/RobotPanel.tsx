@@ -1,6 +1,6 @@
 'use client';
 
-import { type FormEvent, useState } from 'react';
+import { type FormEvent, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import type { RobotConsent } from '@inrp2p/db';
 import type { AskResult, RobotBrief } from '@inrp2p/robot';
@@ -36,7 +36,18 @@ function suggestionsFor(brief: RobotBrief): string[] {
  * What the robot says when opened — in the masthead's sheet and on its own page: the one thing that matters now with its
  * one action, what it is doing meanwhile, what it remembers, a question to ask it, and what it may send outside the app.
  */
-export function RobotPanel({ brief, onNavigate, onChange }: { brief: RobotBrief; onNavigate?: (() => void) | undefined; onChange?: (() => void) | undefined }) {
+export function RobotPanel({
+  brief,
+  onNavigate,
+  onChange,
+  focusAsk = false,
+}: {
+  brief: RobotBrief;
+  onNavigate?: (() => void) | undefined;
+  onChange?: (() => void) | undefined;
+  /** Opened by a stage's "Ask me": the question box takes the focus once the sheet has settled. */
+  focusAsk?: boolean;
+}) {
   const navigate = () => onNavigate?.();
   const field = FIELD.has(brief.kind);
   const [snoozing, setSnoozing] = useState(false);
@@ -46,6 +57,13 @@ export function RobotPanel({ brief, onNavigate, onChange }: { brief: RobotBrief;
   const [asking, setAsking] = useState(false);
   const [askError, setAskError] = useState<string | null>(null);
   const [said, setSaid] = useState<{ q: string; a: AskResult }[]>([]);
+  const askInput = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (!focusAsk) return;
+    // After the sheet's own focus move to its first control, so the box keeps it.
+    const timer = window.setTimeout(() => askInput.current?.focus(), 120);
+    return () => window.clearTimeout(timer);
+  }, [focusAsk]);
 
   async function snooze() {
     if (!brief.playbook) return;
@@ -176,6 +194,7 @@ export function RobotPanel({ brief, onNavigate, onChange }: { brief: RobotBrief;
             Ask the robot
           </label>
           <input
+            ref={askInput}
             id="robot-ask"
             className={styles.askInput}
             value={text}

@@ -64,6 +64,12 @@ export default async function ExchangePage({ searchParams }: { searchParams: Pro
     workspaceContext().then((w) => w.access),
   ]);
   const draft = (await againDraft(ctx.db, ctx.access.clientId, params.again)) ?? draftFrom(params);
+  // The robot remembers the client's last completed deal on an idle Exchange (ADR 0034 addendum): from the recent trades
+  // when it is among them, else read once — only then, and only for a client that has traded at all.
+  const idle = !(view.request && (view.request.status === 'OPEN' || view.request.status === 'QUOTED'));
+  const remembered = recent.find((r) => r.status === 'COMPLETED' && !r.peerDeal)
+    ?? (idle && recent.length > 0 ? (await clientHistory(ctx.db, ctx.access.clientId, { limit: 1, filter: 'completed' }))[0] : undefined)
+    ?? null;
   // ADR 0032: a waiting client is told where it will hear of its price — its Telegram, and its email when it has a real one.
   const waiting = view.request?.status === 'OPEN' && view.request.waitingUntil !== null;
   const telegram = waiting ? await telegramLinkOf(ctx.db, ctx.actor.userId) : null;
@@ -118,6 +124,7 @@ export default async function ExchangePage({ searchParams }: { searchParams: Pro
         canAccept={ctx.access.canAcceptQuotes}
         serverTime={now.toISOString()}
         recent={recent}
+        remembered={remembered}
         who={{ isAdmin: ctx.access.role === 'CLIENT_ADMIN', protection, email: who.label, clientName: ctx.access.clientName }}
         alerts={alerts}
         {...(draft ? { draft } : {})}

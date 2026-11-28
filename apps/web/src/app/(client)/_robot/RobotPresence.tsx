@@ -8,6 +8,7 @@ import { markRobotSeenAction } from '../../../server/actions/robot.ts';
 import { Sheet } from '../_workspace/Sheet.tsx';
 import { RobotFace } from './RobotFace.tsx';
 import { RobotPanel } from './RobotPanel.tsx';
+import { ROBOT_OPEN_EVENT } from './open.ts';
 import styles from './robot.module.css';
 
 /** The page's own state, as the small robot's face, while the robot itself has nothing more pressing to show. */
@@ -33,6 +34,9 @@ export function RobotPresence() {
   const [open, setOpen] = useState(false);
   const [pageMood, setPageMood] = useState<RobotMood>(() => robotCues.mood());
   const [reaction, setReaction] = useState<Face | null>(null);
+  // A stage's "Ask me" (`openRobot`): open the conversation with the question box ready, reading the brief first if
+  // there is none yet.
+  const [askFirst, setAskFirst] = useState(false);
   const timer = useRef<number | null>(null);
   const lastRead = useRef(0);
 
@@ -77,6 +81,16 @@ export function RobotPresence() {
     };
   }, []);
 
+  useEffect(() => {
+    const onAsk = () => {
+      setAskFirst(true);
+      if (brief) show();
+      else void read().then(() => setOpen(true));
+    };
+    window.addEventListener(ROBOT_OPEN_EVENT, onAsk);
+    return () => window.removeEventListener(ROBOT_OPEN_EVENT, onAsk);
+  });
+
   const resting = !brief || brief.kind === 'REST';
   const face: Face = reaction ?? (resting ? (MOOD_FACE[pageMood] ?? brief?.face ?? 'calm') : brief.face);
   const news = Boolean(brief?.isNew) && !open && brief!.kind !== 'REST';
@@ -105,8 +119,17 @@ export function RobotPresence() {
         <RobotFace face={face} news={news} size={36} />
       </button>
       {brief ? (
-        <Sheet open={open} onClose={() => setOpen(false)} title="The robot" eyebrow="INRP2P" description="What matters now, and what it is doing for you.">
-          <RobotPanel brief={brief} onNavigate={() => setOpen(false)} onChange={() => void read()} />
+        <Sheet
+          open={open}
+          onClose={() => {
+            setOpen(false);
+            setAskFirst(false);
+          }}
+          title="The robot"
+          eyebrow="INRP2P"
+          description="What matters now, and what it is doing for you."
+        >
+          <RobotPanel brief={brief} onNavigate={() => setOpen(false)} onChange={() => void read()} focusAsk={askFirst} />
         </Sheet>
       ) : null}
     </>

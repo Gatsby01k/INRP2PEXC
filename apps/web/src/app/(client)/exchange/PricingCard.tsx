@@ -15,6 +15,8 @@ import shell from '../shell.module.css';
 import styles from './exchange.module.css';
 import stage from './stage.module.css';
 import { StagePanel } from './StagePanel.tsx';
+import { RobotSays } from '../_robot/RobotSays.tsx';
+import { pricingSpeech } from '../_robot/speech.ts';
 import { RequestSheet } from './RequestSheet.tsx';
 
 /**
@@ -96,6 +98,7 @@ export function PricingCard({ view, steps }: { view: ExchangeView; steps?: reado
               : 'It appears here the moment it is sent.'
           }
           steps={steps}
+          robot={expired ? undefined : <RobotSays speech={pricingSpeech(request)} live={false} />}
         >
           {expired ? (
             <p className={stage.stageNote} role="status">

@@ -8,6 +8,8 @@ import { shortenAddress } from '@inrp2p/ui/format';
 import { BankMark, ImpsMark, RailMark, TronMark, UpiMark, UsdtOnTron, bankTint } from '../../../components/PayMarks.tsx';
 import { MarkArt } from '../../../components/MarkArt.tsx';
 import { readiness } from '../_assistant/model.ts';
+import { RobotSays } from '../_robot/RobotSays.tsx';
+import { destinationsSpeech } from '../_robot/speech.ts';
 import { ArchiveIcon, ArrowDownLeftIcon, ArrowUpRightIcon, CheckIcon, ChevronDownIcon, LockIcon, PlusIcon, ShieldIcon } from '../_workspace/icons.tsx';
 import { SecondFactor } from '../_workspace/SecondFactor.tsx';
 import type { Protection } from '../../../server/client.ts';
@@ -71,6 +73,7 @@ export function DestinationsScreen({
     <>
       <main className={shell.main}>
         <Routes destinations={destinations} ready={ready} isAdmin={isAdmin} onAdd={add} />
+        <RobotSays speech={destinationsSpeech({ canSell: ready.sell, canBuy: ready.buy, isAdmin })} variant="sheet" live={false} />
 
         <Group id="banks-title" title="Bank accounts" count={banks.length} note="INR from the USDT you sell is paid to these, by IMPS, NEFT or RTGS.">
           {banks.map((b) => (
