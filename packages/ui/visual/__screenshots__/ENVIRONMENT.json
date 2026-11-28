@@ -4,8 +4,8 @@
   "arch": "x64",
   "playwright": "1.56.1",
   "chromium": "141.0.7390.37",
-  "recordedAt": "2026-11-07T03:42:20.148Z",
-  "gitSha": "2750f201247706e13de34164205dd9c3d95f3d25",
-  "runUrl": "https://github.com/Gatsby01k/INRP2PEXC/actions/runs/42335029788",
+  "recordedAt": "2026-11-28T12:24:56.443Z",
+  "gitSha": "efe14b751e9317e95bb754e10ee409a889ca8a18",
+  "runUrl": "https://github.com/Gatsby01k/INRP2PEXC/actions/runs/46144419269",
   "baselines": 74
 }
