@@ -22,6 +22,7 @@ export function StagePanel({
   children,
   live,
   mini,
+  robot,
 }: {
   /** What the stage says on a phone instead (mock-up v3): one short block beside the robot, the stage first on the page. */
   mini?: ReactNode;
@@ -34,6 +35,8 @@ export function StagePanel({
   children?: ReactNode;
   /** The sentence changes as the desk works: announced politely when it does. */
   live?: boolean;
+  /** The robot saying it in its own words (`RobotSays`), in place of `body` once it speaks. */
+  robot?: ReactNode;
 }) {
   return (
     <div className={`${shell.brandField} ${stage.stage}`} data-quiet="" {...(mini ? { 'data-mini': '' } : {})}>
@@ -61,7 +64,7 @@ export function StagePanel({
 
       <div className={stage.say} {...(live ? { role: 'status' } : {})}>
         <h2 className={stage.sayTitle}>{title}</h2>
-        <p className={stage.sayBody}>{body}</p>
+        {robot ?? <p className={stage.sayBody}>{body}</p>}
       </div>
 
       {children ? <div className={stage.sayActions}>{children}</div> : null}

@@ -12,6 +12,8 @@ import { useCommand } from '../../../components/useCommand.tsx';
 import { acceptQuoteAction, rejectQuoteAction } from '../../../server/actions/client.ts';
 import { playSound } from '../_assistant/sound.ts';
 import { RobotFigure } from '../_assistant/RobotFigure.tsx';
+import { RobotSays } from '../_robot/RobotSays.tsx';
+import { quoteSpeech } from '../_robot/speech.ts';
 import { ArrowIcon, InfoIcon, RateIcon } from '../_workspace/icons.tsx';
 import { StateRing } from '../_workspace/StateRing.tsx';
 import { Digits } from '../_workspace/Odometer.tsx';
@@ -188,6 +190,8 @@ export function QuoteCard({ quote, canAccept, now, request, destinations }: { qu
               {fee ? (sell ? `${fee} USDT of what you send pays the network` : `Includes your USDT and ${fee} USDT of network`) : sell ? 'Nothing is deducted' : 'Nothing is added'}
             </span>
           </div>
+
+          {declining ? null : <RobotSays speech={quoteSpeech(quote, { canAccept, canReprice: request?.canReprice ?? false, now })} className={`${stage.says} ${stage.quoteSays}`} />}
 
           <div className={stage.decide}>
             {canAccept ? (

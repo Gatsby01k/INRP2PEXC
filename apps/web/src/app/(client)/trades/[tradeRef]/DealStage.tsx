@@ -7,6 +7,8 @@ import { CopyButton, QrCode } from '@inrp2p/ui';
 import { formatInr, formatUsdtHeadline, shortenHash } from '@inrp2p/ui/format';
 import { robotCues } from '../../../(public)/_landing/robot/cues.ts';
 import { RobotFigure } from '../../_assistant/RobotFigure.tsx';
+import { RobotSays } from '../../_robot/RobotSays.tsx';
+import { dealSpeech } from '../../_robot/speech.ts';
 import { RailMark } from '../../../../components/PayMarks.tsx';
 import { ArrowIcon, DownloadIcon, ReceiptIcon } from '../../_workspace/icons.tsx';
 import { Amount } from '../../../../components/Amount.tsx';
@@ -165,6 +167,8 @@ export function DealStage({ view }: { view: PortalTrade }) {
   }, [moment, beat]);
 
   const stops = STOPS[view.trade.direction];
+  // The robot in its own words: what it is doing, the one thing that protects the client now, and its visor's log.
+  const speech = dealSpeech(view, now);
 
   return (
     <section className={`${shell.brandField} ${stage.stage} ${ds.stage}`} data-beat={beat} aria-labelledby="deal-move" data-robot-target="panel">
@@ -233,10 +237,6 @@ export function DealStage({ view }: { view: PortalTrade }) {
               </span>
             </span>
           </div>
-          <p className={ds.watch} role="status">
-            <span className={ds.scan} aria-hidden="true" />
-            Watching TRON · no button to press
-          </p>
         </div>
       ) : null}
 
@@ -249,6 +249,8 @@ export function DealStage({ view }: { view: PortalTrade }) {
           <span className={ds.seenState}>{view.incoming.state === 'CONFIRMED' ? 'Final' : 'Confirming'} ↗</span>
         </a>
       ) : null}
+
+      {speech ? <RobotSays speech={speech} ask={beat !== 'done' && beat !== 'over'} className={ds.says} /> : null}
 
       {beat === 'done' && view.receipt ? (
         <div className={ds.doneMoves}>

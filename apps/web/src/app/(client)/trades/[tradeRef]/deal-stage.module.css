@@ -121,6 +121,11 @@
 
 /* ——— The move's instrument: the escrow's address, on a white ticket ——— */
 
+/* The robot's remark under the move (and under the ticket, when there is one): never between the move and its instrument. */
+.says {
+  margin-top: 18px;
+}
+
 .ticket {
   display: grid;
   grid-template-columns: 128px minmax(0, 1fr);
@@ -192,20 +197,6 @@
 }
 
 /* Under the ticket, what happens next without anyone pressing anything: the chain is being watched. */
-.watch {
-  grid-column: 1 / -1;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 0;
-  padding: 10px 12px;
-  border-radius: 14px;
-  background: var(--accent-soft, #fff1ea);
-  color: var(--text-primary);
-  font-size: 13.5px;
-  font-weight: var(--font-weight-medium);
-}
-
 /* A scanning arc: one quarter of a ring sweeping round, a node at its heart. */
 .scan {
   position: relative;

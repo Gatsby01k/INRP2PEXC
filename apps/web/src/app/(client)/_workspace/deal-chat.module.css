@@ -497,3 +497,13 @@
   height: auto;
   min-height: 0;
 }
+
+/* The robot's remark under a message that moves the deal off INRP2P or asks to cancel it, and over a draft that would. */
+.robotNote {
+  list-style: none;
+  margin: 2px 0 6px;
+}
+
+.robotDraft {
+  margin-bottom: 10px;
+}

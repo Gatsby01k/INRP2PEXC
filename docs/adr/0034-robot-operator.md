@@ -105,6 +105,14 @@ their yes, its own search, a step on their way in, or the market and their last 
 for them meanwhile, what it remembers (its last message, their last deal, the desk's answer), a question box, and their
 consent. `/robot` is the same with room. No WebGL, no image; reduced motion stills it.
 
+**Addendum (2026-11-28) — the robot at the client's side.** The stage's own robot speaks, in the first person, beside
+itself: the Exchange (a hello on the first visit, the last completed deal with **Same again**, pricing, the wait with its
+log), a desk's firm quote, and every step of a P2P deal with the deal's own record as its visor's log; and it guards the
+five moments P2P money is lost — a screenshot instead of a bank credit, a payer who is not the buyer, a deal moved to
+WhatsApp, a request to cancel after paying, the last minutes of a step. Pure over each page's projection
+(`apps/web/src/app/(client)/_robot/speech.ts`); no new data, no new endpoint, no migration. Details and the full table in
+`docs/ROBOT_BEHAVIOUR.md`.
+
 ### 2.8 Answers
 Rules first: a dozen intents in English and Hinglish (status, a payment that did not arrive, rate, how to sell or buy,
 fees, safety, time, limits, trader, account, greeting, thanks, help, a person) answered from the person's own state.

@@ -14,6 +14,8 @@ import { TelegramConnect } from '../_workspace/TelegramConnect.tsx';
 import { PushConnect } from '../_workspace/PushConnect.tsx';
 import type { TelegramLinkView, TelegramView } from '@inrp2p/clients';
 import { Sheet } from '../_workspace/Sheet.tsx';
+import { RobotSays } from '../_robot/RobotSays.tsx';
+import { accountSpeech } from '../_robot/speech.ts';
 import shell from '../shell.module.css';
 import styles from './account.module.css';
 
@@ -68,6 +70,10 @@ export function AccountScreen({
   const [addingEmail, setAddingEmail] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const cmd = useCommand();
+  // Where the robot reaches this person outside the app: its Telegram chat, when one is linked for messages.
+  const robot = accountSpeech({
+    telegram: telegram === null ? null : (telegram.mode === 'LOGIN' ? telegram.view.alerts?.status : telegram.view.status) === 'ACTIVE',
+  });
 
   const signOut = async () => {
     setLeaving(true);
@@ -98,6 +104,8 @@ export function AccountScreen({
             {leaving ? 'Signing out…' : 'Sign out'}
           </button>
         </section>
+
+        {robot ? <RobotSays speech={robot} variant="sheet" ask={robot.key === 'account:telegram'} live={false} /> : null}
 
         <section className={shell.card} aria-labelledby="security-title" id="sign-in">
           <h2 id="security-title" className={shell.cardTitle}>

@@ -1,11 +1,14 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { ExchangeView, HistoryRow } from '@inrp2p/portal';
 import { useAssistantState } from '../_assistant/AssistantPanel.tsx';
 import { exchangeAssistant, quoteLive, requestSteps } from '../_assistant/model.ts';
 import { DealRail } from '../_workspace/DealRail.tsx';
+import { useMarket } from '../_workspace/useMarket.ts';
+import { RobotSays } from '../_robot/RobotSays.tsx';
+import { type Speech, idleSpeech } from '../_robot/speech.ts';
 import { legAmount } from './amounts.ts';
 import { StateRing } from '../_workspace/StateRing.tsx';
 import { Activity } from './ExchangeAside.tsx';
@@ -38,6 +41,44 @@ const HOW = [
   { label: 'Settle and get paid', status: 'pending' },
 ] as const;
 
+/** This browser has heard the robot's hello: the next visit opens on what it remembers instead. */
+const GREETED_KEY = 'inrp2p.robot.greeted';
+/** How long a memory waits for today's market, so that it says its two lines once rather than one and then two. */
+const MEMORY_WAIT_MS = 1500;
+
+/**
+ * What the robot says on the Exchange before a request (`idleSpeech`): read once the page is in the browser — the hello
+ * belongs to this browser's first visit, and a memory to the market as it is now — so the server's first paint is the
+ * stage itself and the robot starts talking a moment after it, as it would.
+ */
+function useIdleSpeech(recent: readonly HistoryRow[], remembered: HistoryRow | null): Speech | null {
+  const market = useMarket();
+  const [greeted, setGreeted] = useState<boolean | null>(null);
+  const [waited, setWaited] = useState(false);
+  useEffect(() => {
+    let seen = true;
+    try {
+      seen = window.localStorage.getItem(GREETED_KEY) === '1';
+    } catch {
+      // Storage refused (private mode): the robot simply does not say hello.
+    }
+    setGreeted(seen);
+    const timer = window.setTimeout(() => setWaited(true), MEMORY_WAIT_MS);
+    return () => window.clearTimeout(timer);
+  }, []);
+  const speech = greeted === null ? null : idleSpeech({ recent: remembered ? [remembered, ...recent] : recent, market, greeted });
+  useEffect(() => {
+    if (speech?.key !== 'intro') return;
+    try {
+      window.localStorage.setItem(GREETED_KEY, '1');
+    } catch {
+      // Not remembered: the hello comes again next time, which is harmless.
+    }
+  }, [speech?.key]);
+  if (speech?.key.startsWith('memory:') && market === null && !waited) return null;
+  return speech;
+}
+
 /** How often the screen looks for the desk's quote while a request is being priced. */
 const PRICING_POLL_MS = 8_000;
 /** ADR 0032: while a request waits for a trader the exchange looks every minute, and the client is messaged: no need to ask more. */
@@ -65,6 +106,7 @@ export function ExchangeScreen({
   draft,
   who,
   recent,
+  remembered = null,
   alerts,
 }: {
   view: ExchangeView;
@@ -75,6 +117,8 @@ export function ExchangeScreen({
   draft?: RequestDraft;
   who: Who;
   recent: readonly HistoryRow[];
+  /** The client's last completed deal, for the robot to remember (it may be older than `recent`). */
+  remembered?: HistoryRow | null;
 }) {
   const router = useRouter();
   const { quote, request } = view;
@@ -85,6 +129,7 @@ export function ExchangeScreen({
   const live = quote !== null && quoteLive(quote, now);
   const firstRun = !withDesk && view.destinations.banks.length === 0 && view.destinations.wallets.filter((w) => w.purpose !== 'SOURCE').length === 0;
   useAssistantState(exchangeAssistant(view, { canAccept, now }));
+  const idle = useIdleSpeech(recent, remembered);
 
   // The page has to notice what changes on the desk's side. A live quote runs out on its own: look again the
   // moment it does, so the accept button stops at the instant the server stops honouring it. A quote whose time is
@@ -141,8 +186,19 @@ export function ExchangeScreen({
             <div className={stage.deal} data-even="">
               <RequestForm view={view} who={who} {...(draft ? { draft } : {})} />
               <StagePanel
-                mini={<LiveMarket />}
-                mood="ready"
+                mini={
+                  <>
+                    <LiveMarket />
+                    {/* On a phone the stage is short: the robot speaks there only to say hello or to remember. */}
+                    {idle && idle.key !== 'idle' ? (
+                      <div className={`${stage.mini} ${stage.miniSays}`}>
+                        <RobotSays speech={idle} />
+                      </div>
+                    ) : null}
+                  </>
+                }
+                robot={idle ? <RobotSays speech={idle} ask /> : undefined}
+                mood={idle?.tone === 'happy' ? 'success' : 'ready'}
                 chip={
                   <>
                     <StateRing state="live" />

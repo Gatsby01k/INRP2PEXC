@@ -1,0 +1,282 @@
+/* The robot speaking: a white remark on the mark's orange (its corner towards the robot), or a warm note on a white
+   card; under it, the visor's log — black glass, orange times, the live row blinking. */
+
+.says {
+  --says-ink: #16171b;
+  --says-muted: rgba(22, 23, 27, 0.62);
+  --says-orange: #ff5a1f;
+  position: relative;
+  display: grid;
+  gap: 8px;
+  max-width: 440px;
+  padding: 12px 16px 14px;
+  border-radius: 22px 22px 6px 22px;
+  background: #fffdfb;
+  box-shadow:
+    0 18px 40px -18px rgba(90, 20, 0, 0.55),
+    0 2px 6px rgba(90, 20, 0, 0.12);
+  color: var(--says-ink);
+  text-align: left;
+  animation: arrive 420ms var(--ease) both;
+  transform-origin: 100% 100%;
+}
+
+.says[data-variant='sheet'] {
+  justify-self: start;
+  width: fit-content;
+  max-width: min(100%, 640px);
+  padding: 12px 16px 14px 14px;
+  border-radius: 6px 20px 20px 20px;
+  background: #fff6f0;
+  box-shadow: inset 0 0 0 1px rgba(255, 90, 31, 0.18);
+  transform-origin: 0 0;
+}
+
+.says[data-variant='sheet'][data-tone='alert'] {
+  background: #fff1f0;
+  box-shadow: inset 0 0 0 1px rgba(214, 45, 32, 0.3);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+}
+
+.face {
+  flex: none;
+}
+
+.who {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--says-muted);
+  font-size: 12px;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.01em;
+}
+
+.says[data-tone='guard'] .who {
+  color: #c2410c;
+}
+
+.says[data-tone='alert'] .who {
+  color: #c4261b;
+}
+
+.whoIcon {
+  width: 14px;
+  height: 14px;
+}
+
+.ask {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  margin-left: auto;
+  padding: 0 11px 0 9px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 90, 31, 0.1);
+  color: #c2410c;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+  transition: background 160ms var(--ease);
+}
+
+.ask svg {
+  width: 15px;
+  height: 15px;
+}
+
+.ask:hover {
+  background: rgba(255, 90, 31, 0.18);
+}
+
+.ask:focus-visible {
+  outline: 2px solid var(--says-orange);
+  outline-offset: 2px;
+}
+
+.text {
+  margin: 0;
+  font-size: 15px;
+  font-weight: var(--font-weight-medium);
+  line-height: 1.45;
+  text-wrap: pretty;
+}
+
+/* The first hello says its three lines one after another, as a person would. */
+.says[data-intro] .line {
+  display: block;
+  animation: line 520ms var(--ease) both;
+  animation-delay: calc(var(--i) * 1100ms + 300ms);
+}
+
+.says[data-intro] .line + .line {
+  margin-top: 4px;
+}
+
+.says[data-intro] .line:first-child {
+  font-weight: var(--font-weight-semibold);
+}
+
+.log {
+  display: grid;
+  gap: 5px;
+  margin: 4px 0 0;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: radial-gradient(120% 140% at 20% 0%, #2a2c33, #111215 60%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  list-style: none;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+
+.log li {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  align-items: baseline;
+  gap: 8px;
+  color: rgba(255, 255, 255, 0.64);
+}
+
+.log li[data-state='live'] {
+  color: #fff;
+}
+
+.logAt {
+  color: #ff7a45;
+  font-variant-numeric: tabular-nums;
+}
+
+.logText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.log li[data-state='live'] .logText::after {
+  content: '';
+  display: inline-block;
+  width: 1.2em;
+  text-align: left;
+  animation: ellipsis 1.6s steps(4, end) infinite;
+}
+
+.logDot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #ff7a45;
+  box-shadow: 0 0 8px #ff7a45;
+  animation: blink 1.4s var(--ease) infinite;
+}
+
+.action {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  gap: 8px;
+  height: 36px;
+  margin-top: 2px;
+  padding: 0 14px 0 16px;
+  border-radius: var(--radius-pill);
+  background: var(--says-ink);
+  color: #fff;
+  font-size: 13.5px;
+  font-weight: var(--font-weight-semibold);
+  text-decoration: none;
+  transition: transform 160ms var(--ease);
+}
+
+.action svg {
+  width: 16px;
+  height: 16px;
+}
+
+.action:hover {
+  transform: translateX(2px);
+}
+
+.action:focus-visible {
+  outline: 2px solid var(--says-orange);
+  outline-offset: 2px;
+}
+
+/* On a phone the robot stands at the stage's top right: the remark's corner points up to it. */
+@media (max-width: 699px) {
+  .says {
+    max-width: none;
+    border-radius: 22px 6px 22px 22px;
+    transform-origin: 100% 0;
+  }
+
+  .text {
+    font-size: 14.5px;
+  }
+
+  /* A phone keeps the log to what just happened and what is happening. */
+  .log li[data-state='done']:not(:nth-last-child(-n + 2)) {
+    display: none;
+  }
+}
+
+@keyframes arrive {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.97);
+  }
+}
+
+@keyframes line {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@keyframes ellipsis {
+  0% {
+    content: '';
+  }
+
+  25% {
+    content: '.';
+  }
+
+  50% {
+    content: '..';
+  }
+
+  75% {
+    content: '...';
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .says,
+  .says[data-intro] .line,
+  .logDot,
+  .log li[data-state='live'] .logText::after {
+    animation: none;
+  }
+
+  .log li[data-state='live'] .logText::after {
+    content: '…';
+  }
+}

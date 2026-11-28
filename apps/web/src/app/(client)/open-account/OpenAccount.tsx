@@ -8,6 +8,8 @@ import type { MyInviteRow } from '@inrp2p/clients';
 import { useCommand } from '../../../components/useCommand.tsx';
 import { openAccountAction } from '../../../server/actions/open-account.ts';
 import { RobotFigure } from '../_assistant/RobotFigure.tsx';
+import { RobotSays } from '../_robot/RobotSays.tsx';
+import { OPEN_ACCOUNT } from '../_robot/speech.ts';
 import { Field } from '../_workspace/Field.tsx';
 import { ArrowIcon, BankIcon, LockIcon, UserIcon, UsersIcon } from '../_workspace/icons.tsx';
 import { sentence } from '../traders/_ui/format.ts';
@@ -59,6 +61,7 @@ export function OpenAccount({ email, invites = [], next }: { email: string; invi
                 Who will trade on this account?
               </h2>
             </div>
+            <RobotSays speech={OPEN_ACCOUNT} variant="sheet" live={false} />
 
             <fieldset className={styles.kinds}>
               <legend className="ix-visually-hidden">You trade as</legend>

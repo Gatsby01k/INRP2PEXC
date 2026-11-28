@@ -1,10 +1,12 @@
 'use client';
 
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { DealChatMessage, DealChatView } from '@inrp2p/settlement';
 import { formatIstDateTime } from '@inrp2p/ui/format';
 import { type ActionResult, useCommand } from '../../../components/useCommand.tsx';
 import { ATTACH_ACCEPT, fileSize, prepareAttachment } from './attach.ts';
+import { RobotSays } from '../_robot/RobotSays.tsx';
+import { chatRisk, chatRiskSpeech } from '../_robot/speech.ts';
 import { ChatIcon, CloseIcon, PaperclipIcon, ReceiptIcon, SendIcon, ShieldIcon, SupportIcon } from './icons.tsx';
 import shell from '../shell.module.css';
 import styles from './deal-chat.module.css';
@@ -40,6 +42,10 @@ export function DealChat({
   const nearBottom = useRef(true);
   const other = chat.you === 'BUYER' ? 'seller' : 'buyer';
   const count = chat.messages.length;
+  // The robot guards the chat (ADR 0034 addendum): the other side's latest message that moves the deal off INRP2P or asks
+  // to cancel it gets one remark under it, and so does the person's own draft before it is sent. A warning, never a block.
+  const flagged = chat.messages.findLast((m) => (m.from === 'BUYER' || m.from === 'SELLER') && m.body !== null && chatRisk(m.body) !== null);
+  const draftRisk = body.trim().length > 0 ? chatRisk(body) : null;
 
   // Follow the conversation as it grows — unless the reader scrolled up to read something earlier.
   useLayoutEffect(() => {
@@ -148,7 +154,14 @@ export function DealChat({
           <span>Never share an OTP, PIN or password.</span>
         </li>
         {chat.messages.map((m) => (
-          <Message key={m.id} m={m} other={other} />
+          <Fragment key={m.id}>
+            <Message m={m} other={other} />
+            {m === flagged ? (
+              <li className={styles.robotNote}>
+                <RobotSays speech={chatRiskSpeech(chatRisk(m.body!)!, 'them', other)} variant="sheet" live={false} />
+              </li>
+            ) : null}
+          </Fragment>
         ))}
       </ol>
 
@@ -176,6 +189,7 @@ export function DealChat({
               )}
             </div>
           ) : null}
+          {draftRisk ? <RobotSays speech={chatRiskSpeech(draftRisk, 'you', other)} variant="sheet" className={styles.robotDraft} /> : null}
           <div className={styles.compose}>
             <button type="button" className={styles.iconButton} onClick={() => picker.current?.click()} aria-label="Attach a receipt or screenshot" title="Attach a receipt or screenshot">
               <PaperclipIcon />

@@ -438,6 +438,18 @@
   opacity: 0.8;
 }
 
+/* The robot's remark on a stage (`RobotSays`): in the column of words, its corner towards the robot. */
+.says {
+  margin-top: var(--space-6);
+}
+
+/* On a phone a firm quote is a decision against the clock: the figure, the time and the button only. */
+@media (max-width: 699px) {
+  .quoteSays {
+    display: none;
+  }
+}
+
 .decide {
   display: grid;
   justify-items: start;
@@ -1098,6 +1110,16 @@
     display: grid;
     justify-items: start;
     align-content: start;
+  }
+
+  /* The robot's hello or memory under the rate: the stage grows to hold it, its corner pointing up to the robot. */
+  .stage[data-mini]:has(.miniSays) {
+    height: auto;
+  }
+
+  .stage[data-mini] .miniSays {
+    justify-items: stretch;
+    margin-top: 16px;
   }
 
   .stage[data-mini] .halo {
