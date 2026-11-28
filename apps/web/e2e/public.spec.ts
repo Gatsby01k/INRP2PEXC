@@ -218,6 +218,10 @@ test('crawlers are told the truth on every host', async ({ page }) => {
   expect(robots).toContain('Allow: /');
   // A quote link is private to whoever was sent it.
   expect(robots).toContain('Disallow: /q/');
+  // Deal links are private too, and the endpoints are not pages — except the market rate the pages draw with.
+  expect(robots).toContain('Disallow: /d/');
+  expect(robots).toContain('Disallow: /api/');
+  expect(robots).toContain('Allow: /api/market-rate');
   expect(robots).toMatch(/Sitemap: https?:\/\/[^\s]+\/sitemap\.xml/);
 
   const sitemap = await page.request.get(`${linkBaseUrl()}/sitemap.xml`);
