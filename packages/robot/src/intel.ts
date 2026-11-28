@@ -251,11 +251,11 @@ export function recommend(x: {
     out.push({ key: 'destinations_waiting', severity: 'ACT', title: `${review.people} client${review.people === 1 ? '' : 's'} can't trade until payout details are verified`, detail: `The oldest has waited ${review.oldestHours} h.`, href: '/clients' });
   }
   if (x.openCases > 0) {
-    out.push({ key: 'cases', severity: 'ACT', title: `${x.openCases} question${x.openCases === 1 ? '' : 's'} for a person`, detail: 'People asked the robot something it passed on. Answer below — it reaches them where they asked.', href: null });
+    out.push({ key: 'cases', severity: 'ACT', title: `${x.openCases} question${x.openCases === 1 ? '' : 's'} for a person`, detail: 'People asked Bhai something it passed on. Answer below — it reaches them where they asked.', href: null });
   }
   if (x.policy.outreach !== 'ON') {
     const stuck = ['NEW_ACCOUNT', 'NEEDS_DESTINATION', 'READY', 'TRADER_RESERVE_DUE', 'TRADER_NO_PRICE'].reduce((n, k) => n + (step(k)?.people ?? 0), 0);
-    if (stuck > 0) out.push({ key: 'outreach_off', severity: 'WATCH', title: `The robot is ${x.policy.outreach === 'OFF' ? 'off' : 'in a dry run'}: ${stuck} people stuck on their way in hear nothing`, detail: 'Read what it would send under Activity, then switch outreach on.', href: null });
+    if (stuck > 0) out.push({ key: 'outreach_off', severity: 'WATCH', title: `Bhai is ${x.policy.outreach === 'OFF' ? 'off' : 'in a dry run'}: ${stuck} people stuck on their way in hear nothing`, detail: 'Read what it would send under Activity, then switch outreach on.', href: null });
   }
   if (x.policy.answers === 'AI' && !x.aiConfigured) {
     out.push({ key: 'ai_unconfigured', severity: 'WATCH', title: 'Model answers are on but no model is configured', detail: 'Questions no rule knows go to a person. Set ANTHROPIC_API_KEY on the web app, or switch answers to rules.', href: null });

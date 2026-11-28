@@ -100,7 +100,7 @@ export async function deliverTouch(db: Db, ch: RobotChannels, event: OutboxEvent
   switch (t.channel) {
     case 'TELEGRAM': {
       if (!ch.telegram) return fail(db, t.id, 'CHANNEL_UNCONFIGURED');
-      const text = `${t.title}\n\n${t.body}\n\nReply /quiet and the robot stops these.`;
+      const text = `${t.title}\n\n${t.body}\n\nReply /quiet and Bhai stops these.`;
       if (t.client_id) {
         const ids = await queueTelegram(db, { clientId: t.client_id, userId: t.user_id, dedupeKey: `robot:${t.id}`, body: text, buttonUrl: link });
         if (ids.length === 0) {
@@ -136,7 +136,7 @@ export async function deliverTouch(db: Db, ch: RobotChannels, event: OutboxEvent
         const token = randomBytes(24).toString('base64url');
         await tx.updateTable('robot_touch').set({ quiet_token_hash: quietTokenHash(token) }).where('id', '=', row.id).execute();
         const stop = absolute(ch.linkBase, `/robot-quiet/${row.id}.${token}`);
-        const footer = stop ? `\n\n—\nYou get this because you signed in at INRP2P. Stop the robot's messages: ${stop}` : '';
+        const footer = stop ? `\n\n—\nYou get this because you signed in at INRP2P. Stop Bhai's messages: ${stop}` : '';
         const { providerMessageId } = await adapter.sendClientNotification({ deliveryId: row.id, to: address, subject: t.title, body: `${t.body}${footer}`, link });
         return providerMessageId;
       }));

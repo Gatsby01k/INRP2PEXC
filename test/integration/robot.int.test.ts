@@ -102,7 +102,7 @@ describe('on its way in, a person is never left alone', () => {
     const mail = email.notifications.find((n) => n.to === bare.email)!;
     expect(mail.subject).toBe('Add where you get paid');
     expect(mail.link).toBe(`${LINK}/destinations`);
-    expect(mail.body).toMatch(/Stop the robot's messages: https:\/\/app\.inrp2p\.test\/robot-quiet\/[0-9a-f-]{36}\.[A-Za-z0-9_-]{32}$/);
+    expect(mail.body).toMatch(/Stop Bhai's messages: https:\/\/app\.inrp2p\.test\/robot-quiet\/[0-9a-f-]{36}\.[A-Za-z0-9_-]{32}$/);
     expect((await touchesOf(bare.userId))[0]).toMatchObject({ delivery: 'SENT' });
 
     // Delivered again (an outbox retry), nothing is sent twice; swept again, nothing new is decided.

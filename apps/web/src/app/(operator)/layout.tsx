@@ -46,7 +46,7 @@ export default async function OperatorLayout({ children }: { children: ReactNode
         { href: '/exceptions', label: 'Exceptions', icon: 'exceptions', key: 'e', count: caseCount, tone: badges.blockingCases > 0 ? 'alert' : 'action' },
         { href: '/orders', label: 'Orders', icon: 'orders', key: 'o' },
         // ADR 0034: what the robot sees of the exchange, what it did, and the questions it passed to a person.
-        { href: '/robot-desk', label: 'Robot', icon: 'robot', key: 'b', ...(badges.robotCases > 0 ? { count: badges.robotCases, tone: 'action' as const } : {}) },
+        { href: '/robot-desk', label: 'Bhai', icon: 'robot', key: 'b', ...(badges.robotCases > 0 ? { count: badges.robotCases, tone: 'action' as const } : {}) },
       ],
     },
     {

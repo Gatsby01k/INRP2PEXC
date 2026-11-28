@@ -102,7 +102,7 @@ export default async function ClientLayout({ children }: { children: ReactNode }
     ...entries.filter((e) => !e.phone).map((e) => ({ href: e.href, label: e.label, group: 'Go to' })),
     ...(ownDesk ? DESK_SECTIONS.map((e) => ({ href: e.href, label: e.label, group: 'Your desk', hint: ownDesk.displayName })) : []),
     ...(member ? [{ href: '/notifications', label: 'Notifications', group: 'Account', ...(unread > 0 ? { hint: `${unread} unread` } : {}) }] : []),
-    { href: '/robot', label: 'The robot — ask a question', group: 'Account' },
+    { href: '/robot', label: 'Bhai — ask a question', group: 'Account' },
     // ADR 0026: everyone who can sign in has Account & security — how they sign in and confirm is theirs, client or not.
     { href: '/account', label: 'Account & security', group: 'Account' },
     ...(member && desks ? [{ href: '/account/team', label: 'Team', group: 'Account' }] : []),

@@ -163,13 +163,13 @@ test('the client follows that trade to completion on their phone', async ({ page
   await expect(page.getByText('₹100,000', { exact: false }).first()).toBeVisible();
   // The moment P2P money is lost: the robot sends the seller to its bank app, not to a screenshot (ADR 0034 addendum).
   await expect(page.getByText(/Screenshots and SMS can be faked — only the credit in your bank counts\./)).toBeVisible();
-  await expect(page.getByRole('list', { name: 'What the robot is doing' }).getByText(/Waiting for your check/)).toBeVisible();
-  // "Ask me" opens the robot's conversation with the question box ready.
-  await page.getByRole('button', { name: 'Ask me' }).click();
-  await expect(page.getByRole('dialog', { name: 'The robot' })).toBeVisible();
-  await expect(page.getByLabel('Ask the robot')).toBeFocused();
+  await expect(page.getByRole('list', { name: 'What Bhai is doing' }).getByText(/Waiting for your check/)).toBeVisible();
+  // "Ask Bhai" opens the robot's conversation with the question box ready.
+  await page.getByRole('button', { name: 'Ask Bhai' }).click();
+  await expect(page.getByRole('dialog', { name: 'Bhai' })).toBeVisible();
+  await expect(page.getByLabel('Ask Bhai')).toBeFocused();
   await page.keyboard.press('Escape');
-  await expect(page.getByRole('dialog', { name: 'The robot' })).toBeHidden();
+  await expect(page.getByRole('dialog', { name: 'Bhai' })).toBeHidden();
   const release = page.getByRole('button', { name: /^Release [\d,.]+ USDT$/ });
   await expect(release, 'nothing releases before the client has looked at the bank').toBeDisabled();
   await page.getByLabel('Sender’s name, as your bank shows it').fill(s.trader.holderName);
@@ -210,14 +210,14 @@ async function assertNothingOfTheDesk(page: Page): Promise<void> {
 test('the robot in the masthead says what matters, answers by rule, passes the rest to a person, and asks before it writes (ADR 0034)', async ({ page }) => {
   await resetAuthThrottle();
   await signInAsClient(page, state().acceptorEmail);
-  const robot = page.getByRole('button', { name: /^The robot/ });
+  const robot = page.getByRole('button', { name: /^Bhai/ });
   await expect(robot).toBeVisible();
   await robot.click();
-  const sheet = page.getByRole('dialog', { name: 'The robot' });
+  const sheet = page.getByRole('dialog', { name: 'Bhai' });
   await expect(sheet).toBeVisible();
   await sheet.getByRole('button', { name: 'Is it safe?' }).click();
   await expect(sheet.getByText(/locked in INRP2P.s escrow before any rupees move/)).toBeVisible();
-  await sheet.getByLabel('Ask the robot').fill('Do you work on Sundays?');
+  await sheet.getByLabel('Ask Bhai').fill('Do you work on Sundays?');
   await sheet.getByRole('button', { name: 'Ask', exact: true }).click();
   await expect(sheet.getByText(/I have passed it to a person at INRP2P \(RC-\d+\)/)).toBeVisible();
   // What it may send outside the app is the person's own choice, saved as it is made.
@@ -283,7 +283,7 @@ test('a stranger opens their own account with an email and a code, and is in the
 
   await expect(page.getByRole('heading', { name: 'Exchange', exact: true })).toBeVisible();
   // A first visit: the robot says hello on the stage, once for this browser.
-  await expect(page.getByText('Hi, I’m the INRP2P robot.').first()).toBeVisible();
+  await expect(page.getByText('Hi, I’m Bhai — the INRP2P robot.').first()).toBeVisible();
   await expect(page.getByRole('navigation', { name: 'Sections' }).getByRole('link')).toHaveText(['Exchange', 'History', 'Bank & wallets', 'Traders']);
   const { appDb } = await import('./support.ts');
   const opened = await appDb()

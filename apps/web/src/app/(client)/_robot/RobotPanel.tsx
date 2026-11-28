@@ -150,7 +150,7 @@ export function RobotPanel({
       ) : null}
 
       {brief.remembers.length > 0 ? (
-        <section className={styles.section} aria-label="What the robot remembers">
+        <section className={styles.section} aria-label="What Bhai remembers">
           <h3 className={styles.sectionTitle}>I remember</h3>
           <ul className={styles.memory}>
             {brief.remembers.map((line) => (
@@ -191,7 +191,7 @@ export function RobotPanel({
         )}
         <form className={styles.askRow} onSubmit={submit}>
           <label className="ix-visually-hidden" htmlFor="robot-ask">
-            Ask the robot
+            Ask Bhai
           </label>
           <input
             ref={askInput}
@@ -212,7 +212,7 @@ export function RobotPanel({
 
       <section className={styles.consent} aria-label="Messages outside the app">
         <h3 className={styles.sectionTitle}>Messages outside the app</h3>
-        <div className={styles.choices} role="radiogroup" aria-label="What the robot may send you">
+        <div className={styles.choices} role="radiogroup" aria-label="What Bhai may send you">
           {CONSENT.map((c) => (
             <button key={c.value} type="button" role="radio" aria-checked={consent === c.value} className={styles.choice} onClick={() => void choose(c.value)}>
               <b>{c.title}</b>

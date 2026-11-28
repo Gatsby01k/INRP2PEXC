@@ -70,7 +70,7 @@ export async function POST(request: Request): Promise<Response> {
   if (text === '/quiet') {
     const person = await personOfTelegramChat(rt.appDb, chatId);
     if (person) await executeCommand(rt.appDb, quietViaTelegram(), { name: 'robot.quiet_telegram', actor: SYSTEM, payload: { userId: person }, idempotencyKey: null, financial: false });
-    await reply(person ? 'Done — the robot sends you no more suggestions. Your deal alerts still come here; /stop ends those too.' : 'There is nothing from the robot linked to this chat.');
+    await reply(person ? 'Done — Bhai sends you no more suggestions. Your deal alerts still come here; /stop ends those too.' : 'There is nothing from Bhai linked to this chat.');
     return ok();
   }
   if (text === '/start' || text.startsWith('/start ')) {
