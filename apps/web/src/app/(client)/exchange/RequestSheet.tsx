@@ -3,7 +3,7 @@ import type { ClientDestinations } from '@inrp2p/portal';
 import { Amount } from '../../../components/Amount.tsx';
 import { Coin } from '../../../components/Coin.tsx';
 import { BankMark, RailMark } from '../../../components/PayMarks.tsx';
-import { ClockIcon, RateIcon, ShieldIcon, TimerIcon, WalletIcon, BoltIcon } from '../_workspace/icons.tsx';
+import { RateIcon, ShieldIcon, TimerIcon, WalletIcon, BoltIcon } from '../_workspace/icons.tsx';
 import shell from '../shell.module.css';
 import stage from './stage.module.css';
 
@@ -11,7 +11,7 @@ import stage from './stage.module.css';
  * A request as the client made it, on its sheet beside the stage: the side (Sell or Buy, as the switch it was chosen
  * with), what the client gives in a well, then a row each for where the money lands (the bank's own tile and the ways
  * it is paid, or the wallet), the target rate, the network's cost and when the request was sent — and at its foot the
- * one sentence that makes the deal safe. Read-only: what can still be done with it is passed in (`children`).
+ * one sentence that makes the deal safe. When it was sent is the heading's, not repeated here. Read-only: what can still be done with it is passed in (`children`).
  */
 export function RequestSheet({
   direction,
@@ -20,8 +20,6 @@ export function RequestSheet({
   destination,
   destinations,
   targetRate,
-  sentAt,
-  reference,
   networkFee,
   estimate = null,
   until = null,
@@ -49,7 +47,7 @@ export function RequestSheet({
   const bank = sell ? destinations.banks.find((b) => destination.includes(b.last4) && destination.includes(b.bankName)) : undefined;
   const wallet = sell ? undefined : destinations.wallets.find((w) => destination.includes(w.label) || destination.includes(w.address.slice(-4)));
   return (
-    <div className={`${shell.surface} ${stage.ask}`}>
+    <div className={`${shell.surface} ${stage.ask}`} data-sheet="">
       {/* The side, as the switch it was chosen with: here it says, it does not switch. */}
       <div className={stage.seg} aria-hidden="true">
         <span data-on={sell || undefined}>Sell USDT</span>
@@ -120,18 +118,6 @@ export function RequestSheet({
               <span className={shell.label}>Network fee</span>
               <b>{networkFee}</b>
             </span>
-          </div>
-        ) : null}
-        {sentAt ? (
-          <div className={stage.rowl}>
-            <span className={stage.tile}>
-              <ClockIcon />
-            </span>
-            <span className={stage.rowText}>
-              <span className={shell.label}>Request</span>
-              <b>Sent at {sentAt}</b>
-            </span>
-            {reference ? <span className={`${stage.rowEnd} ${stage.mono}`}>{reference}</span> : null}
           </div>
         ) : null}
         {until ? (

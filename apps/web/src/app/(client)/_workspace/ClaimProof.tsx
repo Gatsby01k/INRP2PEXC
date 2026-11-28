@@ -16,8 +16,7 @@ export function ClaimProof({ chat, paymentRef }: { chat: DealChatView; paymentRe
         {receipt.file.type.startsWith('image/') ? <img src={href} alt="The buyer’s receipt" loading="lazy" /> : <ReceiptIcon />}
       </a>
       <span>
-        <strong>The buyer attached a receipt.</strong> It is their screenshot, not proof — a receipt can be edited, and a transfer can still be returned. Confirm only what your
-        bank app shows.
+        <strong>A screenshot is not proof.</strong> Confirm only what your bank app shows.
       </span>
     </div>
   );

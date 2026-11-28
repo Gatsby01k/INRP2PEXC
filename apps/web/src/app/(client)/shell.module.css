@@ -42,6 +42,9 @@
   --visor: radial-gradient(130% 110% at 26% -12%, #3d3f47 0, #1b1c21 40%, #0b0c0e 100%);
   --visor-edge: inset 0 1px 0 rgba(255, 255, 255, 0.28), inset 0 0 0 1px rgba(255, 255, 255, 0.07);
   --font-figure: var(--font-sans);
+  /* Motion that settles like a part, not a slide: a soft spring for things that arrive, a snappier one for presses. */
+  --spring: linear(0, 0.052, 0.173, 0.325, 0.482, 0.625, 0.748, 0.846, 0.92, 0.972, 1.006, 1.026, 1.036, 1.038, 1.036, 1.031, 1.026, 1.02, 1.014, 1.009, 1.006, 1.003, 1.001, 1, 1);
+  --spring-snap: linear(0, 0.063, 0.213, 0.405, 0.6, 0.776, 0.917, 1.02, 1.085, 1.118, 1.126, 1.117, 1.097, 1.072, 1.048, 1.026, 1.009, 0.996, 0.989, 0.985, 0.984, 0.986, 0.988, 0.991, 0.994, 0.997, 1);
   --gutter: var(--space-12);
   --masthead: 74px;
   --measure: 1360px;
@@ -205,10 +208,9 @@
 
 /* What a visor shows glows, as the robot's eyes do. */
 .led {
+  --ix-glow: 0 0 10px rgba(255, 106, 61, 0.95), 0 0 2px rgba(255, 180, 140, 0.9);
   color: var(--led);
-  text-shadow:
-    0 0 10px rgba(255, 106, 61, 0.95),
-    0 0 2px rgba(255, 180, 140, 0.9);
+  text-shadow: var(--ix-glow);
 }
 
 svg.led {
@@ -481,17 +483,68 @@ svg.led {
   line-height: 1;
 }
 
-/* A live deal rides in the bar wherever you are: a visor, its timer lit. */
+/* The island: the robot's own black glass in the bar, the robot sitting in it — and a deal waiting on you grows out of
+   it to the right, its reference, its move and its time lit, like a display waking. One element, one place to look. */
+.island {
+  position: relative;
+  isolation: isolate;
+  display: inline-flex;
+  align-items: center;
+  height: 46px;
+  padding: 1px;
+  border-radius: var(--radius-pill);
+  background: var(--visor);
+  box-shadow:
+    var(--visor-edge),
+    0 10px 22px -10px rgba(0, 0, 0, 0.6);
+  color: var(--text-on-action);
+}
+
+.island::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  top: 7%;
+  left: 52px;
+  width: min(60%, 72px);
+  height: 34%;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0));
+  pointer-events: none;
+}
+
+.island > button {
+  border-radius: 50%;
+}
+
+.island:not(:has(> a))::before {
+  display: none;
+}
+
+@media (hover: hover) {
+  .island > button:hover {
+    background: rgba(255, 255, 255, 0.1);
+  }
+}
+
+.island > button[aria-expanded='true'] {
+  background: rgba(255, 255, 255, 0.16);
+}
+
 .liveDeal {
   display: inline-flex;
   align-items: center;
   gap: 9px;
-  height: 40px;
-  padding: 0 14px 0 10px;
+  max-width: 360px;
+  height: 44px;
+  overflow: hidden;
+  padding: 0 16px 0 2px;
   border-radius: var(--radius-pill);
+  color: inherit;
   font-size: 12.5px;
   text-decoration: none;
   white-space: nowrap;
+  animation: island-grow 720ms var(--spring) both;
 }
 
 .liveDeal:focus-visible {
@@ -499,25 +552,28 @@ svg.led {
   outline-offset: 2px;
 }
 
+@keyframes island-grow {
+  from {
+    max-width: 0;
+    padding-right: 0;
+    opacity: 0;
+  }
+}
+
 .liveDealRef {
   font-family: var(--font-mono);
   font-size: var(--font-size-meta);
   letter-spacing: -0.01em;
+  opacity: 0.66;
 }
 
 .liveDealWord {
-  opacity: 0.72;
-}
-
-.liveDealGlyph {
-  --ring: var(--led);
-  width: 16px;
-  height: 16px;
+  opacity: 0.9;
 }
 
 .liveDealTime {
   font-family: var(--font-figure);
-  font-size: 14px;
+  font-size: 15px;
   font-weight: var(--font-weight-semibold);
   line-height: 1;
   letter-spacing: -0.02em;
@@ -537,14 +593,15 @@ svg.led {
   font-variant-numeric: tabular-nums;
 }
 
-/* The pill arrives after the page: it fades in where it stands, and nothing beside it moves. */
-.liveDeal {
-  animation: enter 420ms var(--ease) both;
-}
-
 @media (hover: hover) {
   .liveDeal:hover {
-    filter: brightness(1.15);
+    filter: brightness(1.2);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .liveDeal {
+    animation: none;
   }
 }
 
@@ -1242,6 +1299,23 @@ svg.led {
   transform: scale(0.985);
 }
 
+/* Everything you press gives under the finger and springs back, like a key: the press is quick, the return settles. */
+.shell :where(.action, .secondaryAction, .textAction, .iconButton, .navItem, .island > button, .island > a) {
+  transition-property: filter, box-shadow, transform, color, background-color, scale;
+  transition-duration: var(--dur-fast), var(--dur-fast), var(--dur-fast), var(--dur-fast), var(--dur-fast), 420ms;
+  transition-timing-function: var(--ease), var(--ease), var(--ease), var(--ease), var(--ease), var(--spring-snap);
+}
+
+.shell :where(.action, .secondaryAction, .iconButton, .navItem, .island > button, .island > a):not(:disabled):active {
+  scale: 0.955;
+  transition-duration: var(--dur-fast), var(--dur-fast), var(--dur-fast), var(--dur-fast), var(--dur-fast), 90ms;
+}
+
+.shell :where(.textAction):not(:disabled):active {
+  scale: 0.97;
+  transition-duration: var(--dur-fast), var(--dur-fast), var(--dur-fast), var(--dur-fast), var(--dur-fast), 90ms;
+}
+
 .action:focus-visible {
   outline: 2px solid var(--brand-primary);
   outline-offset: 2px;
@@ -1619,9 +1693,18 @@ svg.led {
     display: none;
   }
 
+  .island {
+    height: 40px;
+  }
+
+  .island > button {
+    width: 38px;
+    height: 38px;
+  }
+
   .liveDeal {
-    height: 34px;
-    padding: 0 11px 0 8px;
+    height: 38px;
+    padding: 0 12px 0 0;
     gap: 7px;
   }
 

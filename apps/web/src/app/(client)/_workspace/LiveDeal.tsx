@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { formatCountdown } from '@inrp2p/ui/format';
 import type { LiveDeal as Deal } from '../../../server/live-deal.ts';
-import { StateRing } from './StateRing.tsx';
+import { Digits } from './Odometer.tsx';
 import shell from '../shell.module.css';
 
 /** How often the bar looks again while it is being looked at; it also looks on every move between pages. */
@@ -15,8 +15,8 @@ const POLL_MS = 30_000;
 const shortRef = (ref: string) => ref.replace(/-\d{6}-/, '-');
 
 /**
- * The deal waiting on you, riding in the bar on every page: a visor with its reference, the move, and the time left
- * lit — one tap to the deal. It reads after the page has drawn (`/api/client/live`), so no page waits for it, and it
+ * The deal waiting on you, growing out of the robot's island in the bar on every page: its reference, the move, and
+ * the time left lit and counting down digit by digit — one tap to the deal. It reads after the page has drawn (`/api/client/live`), so no page waits for it, and it
  * draws nothing when nothing waits on you or when you are already on that deal's page.
  */
 export function LiveDeal() {
@@ -60,11 +60,10 @@ export function LiveDeal() {
   const time = left !== null && left > 0 ? formatCountdown(left) : null;
   const label = `Your move: ${deal.move} on ${deal.ref}${time ? `, ${time} left` : ''}${deal.more > 0 ? `, and ${deal.more} more waiting on you` : ''}`;
   return (
-    <Link href={deal.href} className={`${shell.liveDeal} ${shell.visor}`} aria-label={label} title={label}>
-      <StateRing state="turn" className={`${shell.liveDealGlyph} ${shell.led}`} />
+    <Link href={deal.href} className={shell.liveDeal} aria-label={label} title={label}>
       <span className={shell.liveDealRef}>{shortRef(deal.ref)}</span>
       <span className={shell.liveDealWord}>{deal.move}</span>
-      {time ? <b className={`${shell.liveDealTime} ${shell.led}`}>{time}</b> : null}
+      {time ? <Digits text={time} down className={`${shell.liveDealTime} ${shell.led}`} /> : null}
       {deal.more > 0 ? <span className={shell.liveDealMore}>+{deal.more}</span> : null}
     </Link>
   );

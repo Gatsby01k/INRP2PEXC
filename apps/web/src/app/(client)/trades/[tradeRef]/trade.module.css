@@ -580,3 +580,60 @@ a.eventDetail:hover {
   font-family: var(--font-sans);
   font-size: 12px;
 }
+
+/* A part of the page kept folded until asked for: its name and a count, a chevron that turns as it opens. */
+.fold > summary {
+  list-style: none;
+}
+
+.fold > summary::-webkit-details-marker {
+  display: none;
+}
+
+.foldHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  cursor: pointer;
+}
+
+.foldHead::after {
+  content: '';
+  width: 7px;
+  height: 7px;
+  margin: -3px 4px 0 auto;
+  border-right: 1.6px solid var(--text-muted);
+  border-bottom: 1.6px solid var(--text-muted);
+  rotate: 45deg;
+  transition: rotate 380ms var(--spring, var(--ease));
+}
+
+.fold[open] > .foldHead::after {
+  margin-top: 3px;
+  rotate: 225deg;
+}
+
+.foldMeta {
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (hover: hover) {
+  .foldHead:hover .paperTitle,
+  .foldHead:hover .foldMeta {
+    color: var(--text-primary);
+  }
+}
+
+.fold[open] .timeline {
+  animation: fold-open 420ms var(--spring, var(--ease)) both;
+}
+
+@keyframes fold-open {
+  from {
+    opacity: 0;
+    translate: 0 -6px;
+  }
+}

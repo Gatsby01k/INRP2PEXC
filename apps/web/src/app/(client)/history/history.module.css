@@ -294,7 +294,24 @@
 
 .detailActions {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
+  gap: var(--space-4);
+}
+
+.nextLine {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  color: var(--ink-2, var(--text-secondary));
+  font-size: var(--font-size-body-sm);
+}
+
+@media (max-width: 699px) {
+  .detailActions {
+    flex-direction: column;
+    align-items: stretch;
+  }
 }
 
 /* ——— Before the first trade ——— */

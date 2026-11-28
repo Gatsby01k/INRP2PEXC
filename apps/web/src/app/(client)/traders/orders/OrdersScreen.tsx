@@ -54,7 +54,7 @@ export function OrdersScreen({ rows, open, counts, tab }: { rows: readonly Order
             <EmptyState
               icon={tab === 'active' ? <ClockIcon /> : <ReceiptIcon />}
               title={tab === 'active' ? 'No active orders' : 'Nothing finished yet'}
-              body={tab === 'active' ? 'While you are online, orders that match your capacity and rate appear here and on your Traders screen.' : 'Completed and closed orders appear here.'}
+              body={tab === 'active' ? 'Online, matching orders land here.' : 'Completed and closed orders appear here.'}
               action={
                 <Link className={shell.textAction} href="/traders">
                   Back to Traders

@@ -19,6 +19,7 @@ import { playSound } from '../../_assistant/sound.ts';
 import { useServerClock } from '../../exchange/useServerClock.ts';
 import { CheckIcon, ClockIcon, LockIcon, ShieldIcon, UserIcon, WalletIcon } from '../../_workspace/icons.tsx';
 import { FieldHalo } from '../../_workspace/FieldHalo.tsx';
+import { Hint } from '../../_workspace/Hint.tsx';
 import shell from '../../shell.module.css';
 import pay from './payment.module.css';
 import styles from './p2p.module.css';
@@ -151,13 +152,13 @@ export function P2pDealCard({ view, staged = false }: { view: PortalTrade; stage
         <Waiting>
           {deal.receiptLate ? (
             <>
-              <strong>The seller has not confirmed your payment yet.</strong> {method === 'NEFT' || method === 'RTGS' ? `${method} can take longer. ` : ''}INRP2P is checking it with
-              the seller. Nothing is cancelled for a bank’s delay — your {usdt} stays locked for you.
+              <strong>Not confirmed yet.</strong> {method === 'NEFT' || method === 'RTGS' ? `${method} can take longer. ` : ''}INRP2P is on it — your {usdt} stays locked for
+              you.
             </>
           ) : (
             <>
-              <strong>The seller is checking your payment.</strong> Once they confirm it arrived from your account, INRP2P releases your {usdt}.{' '}
-              {method === 'NEFT' ? 'A NEFT payment can take an hour or two to land.' : method === 'RTGS' ? 'An RTGS payment usually lands within half an hour.' : ''}
+              <strong>The seller is checking their bank.</strong> Your {usdt} is released the moment they confirm.{' '}
+              {method === 'NEFT' ? 'NEFT can take an hour or two.' : method === 'RTGS' ? 'RTGS usually lands within half an hour.' : ''}
             </>
           )}
         </Waiting>
@@ -167,13 +168,12 @@ export function P2pDealCard({ view, staged = false }: { view: PortalTrade; stage
         <Waiting>
           {final ? (
             <>
-              <strong>The buyer’s time to pay is up.</strong> If they do not file their payment in the final minutes, this trade is cancelled and your {usdt} comes back to
-              the wallet you sent it from.
+              <strong>The buyer’s time is up.</strong> No payment filed soon, and your {usdt} comes back to your wallet.
             </>
           ) : (
             <>
               <strong>The buyer is paying you {inr}</strong>
-              {method ? ` by ${method}` : ''} to {view.destination}. You will be asked to confirm when they say they have paid. Your USDT stays in escrow until you do.
+              {method ? ` by ${method}` : ''} to {view.destination}. Your USDT stays in escrow until you confirm.
             </>
           )}
         </Waiting>
@@ -381,7 +381,12 @@ function ConfirmReceipt({
           <span className={pay.fieldLabel}>Sender’s name, as your bank shows it</span>
           <input className={pay.input} value={name} onChange={(e) => setName(e.target.value)} autoComplete="off" spellCheck={false} maxLength={140} placeholder="e.g. RAHUL KUMAR SHARMA" />
         </label>
-        <p className={pay.fieldHelp}>In the transaction’s details: “From”, “Remitter” or “Sender”. Type it as it is, not as you expect it. Not there yet? Don’t confirm.</p>
+        {/* Where to find it, one tap away — outside the label, so the label names only its field. */}
+        <span className={styles.nameHint}>
+          <Hint label="Where to find the sender’s name">
+            In the transfer’s details: <b>From</b>, <b>Remitter</b> or <b>Sender</b>. Type it as it is, not as you expect it. Not there yet? Don’t confirm.
+          </Hint>
+        </span>
       </div>
       <label className={pay.confirm}>
         <input type="checkbox" checked={arrived} onChange={(e) => setArrived(e.target.checked)} />

@@ -125,15 +125,9 @@ export function Activity({ recent }: { recent: readonly HistoryRow[] }) {
           <ChevronIcon />
         </Link>
       </div>
-      <div className={stage.thead} aria-hidden="true">
-        <span />
-        <span>Trade</span>
-        <span className={stage.thR}>You get</span>
-        <span>Lands at</span>
-        <span>Status</span>
-        <span />
-      </div>
-      <ul className={stage.rows}>
+      {/* The latest trades as a deck of cards, not a table: what each one gets you, as its figure, its pair, where it
+          stands — and the ones waiting on you lit. On a phone the deck slides sideways under the thumb. */}
+      <ul className={stage.deck}>
         {sorted.slice(0, 4).map((t) => {
           const sell = t.direction === 'SELL_USDT';
           const yours = AWAITING.has(t.status) && !t.onHold;
@@ -145,18 +139,15 @@ export function Activity({ recent }: { recent: readonly HistoryRow[] }) {
           const lands = t.landing;
           return (
             <li key={t.ref}>
-              <Link href={t.peerDeal ? `/deals/${t.ref}` : `/trades/${t.ref}`} className={stage.row}>
-                <PairCoin side={t.direction} />
-                <span className={stage.rowText}>
-                  <span className={stage.rowTitle}>
-                    <span className={stage.rowSide} data-side={sell ? 'sell' : 'buy'}>
-                      {sell ? 'Sell' : 'Buy'}
-                    </span>{' '}
-                    {usdt}
+              <Link href={t.peerDeal ? `/deals/${t.ref}` : `/trades/${t.ref}`} className={stage.tcard} data-turn={yours || undefined}>
+                <span className={stage.tcardTop}>
+                  <PairCoin side={t.direction} />
+                  <span className={workspace.pill} data-tone={held ? 'hold' : yours ? 'turn' : done ? 'done' : (known?.tone ?? 'neutral')}>
+                    <StateRing state={held ? 'hold' : yours ? 'turn' : (known?.ring ?? 'off')} className={workspace.pillIcon} />
+                    {state}
                   </span>
-                  <span className={stage.rowRef}>{t.ref}</span>
                 </span>
-                <span className={stage.rowFigure}>
+                <span className={stage.tcardFigure}>
                   {sell ? (
                     <Amount value={formatInr(Money.parse(t.inr, 'INR'))} />
                   ) : (
@@ -166,24 +157,27 @@ export function Activity({ recent }: { recent: readonly HistoryRow[] }) {
                     </>
                   )}
                 </span>
-                <span className={stage.rowLands}>
+                <span className={stage.tcardFoot}>
+                  <span className={stage.tcardWhat}>
+                    {/* What was given for the figure above: the USDT sold, or the rupees a purchase costs. */}
+                    <span>
+                      <span className={stage.rowSide} data-side={sell ? 'sell' : 'buy'}>
+                        {sell ? 'Sell' : 'Buy'}
+                      </span>{' '}
+                      {sell ? usdt : `for ${formatInr(Money.parse(t.inr, 'INR'))}`}
+                    </span>
+                    <span className={stage.tcardRef}>{t.ref}</span>
+                  </span>
                   {lands?.kind === 'BANK' ? (
-                    <>
-                      <BankMark ifsc={lands.ifsc} name={lands.bankName} size={24} />
-                      {lands.bankName.replace(/ Bank$/, '')} ···· {lands.last4}
-                    </>
+                    <span className={stage.tcardLands} title={`${lands.bankName} ···· ${lands.last4}`}>
+                      <BankMark ifsc={lands.ifsc} name={lands.bankName} size={26} />
+                    </span>
                   ) : lands?.kind === 'WALLET' ? (
-                    <>
-                      <Coin currency="USDT" size={24} />
-                      <span className={stage.mono}>{shortenAddress(lands.address)}</span>
-                    </>
+                    <span className={stage.tcardLands} title={shortenAddress(lands.address)}>
+                      <Coin currency="USDT" size={26} />
+                    </span>
                   ) : null}
                 </span>
-                <span className={workspace.pill} data-tone={held ? 'hold' : yours ? 'turn' : done ? 'done' : (known?.tone ?? 'neutral')}>
-                  <StateRing state={held ? 'hold' : yours ? 'turn' : (known?.ring ?? 'off')} className={workspace.pillIcon} />
-                  {state}
-                </span>
-                <ChevronIcon className={stage.rowGo} />
               </Link>
             </li>
           );

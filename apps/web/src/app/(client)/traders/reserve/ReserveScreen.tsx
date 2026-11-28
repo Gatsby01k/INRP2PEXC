@@ -89,7 +89,7 @@ export function ReserveScreen({ home }: { home: TraderHome }) {
                     <span className={styles.inputBox}>
                       <input className={styles.input} autoComplete="off" spellCheck={false} maxLength={66} placeholder="64 characters" value={txHash} onChange={(e) => setTxHash(e.target.value.trim())} />
                     </span>
-                    <span className={styles.fieldHint}>Optional. Your transfer is found on its own; the hash only shows it here sooner.</span>
+                    <span className={styles.fieldHint}>Optional — only shows it here sooner.</span>
                   </label>
                   <div className={styles.formActions}>
                     <button type="submit" className={shell.secondaryAction} disabled={claim.busy || txHash.length < 64}>
@@ -105,7 +105,7 @@ export function ReserveScreen({ home }: { home: TraderHome }) {
                 ) : null}
               </>
             ) : (
-              <p className={styles.note}>The reserve address is not available right now. The desk has been told; please try again later.</p>
+              <p className={styles.note}>The address is not available right now. Try again shortly.</p>
             )}
             {claim.error ? (
               <p className={shell.error} role="alert">
@@ -152,7 +152,7 @@ export function ReserveScreen({ home }: { home: TraderHome }) {
               </div>
             ) : null}
           </dl>
-          <p className={styles.note}>A USDT reserve is locked while you provide liquidity. It protects open orders and unresolved obligations. Switching off keeps it locked until your last open order finishes.</p>
+          <p className={styles.note}>Locked while you trade; stays locked until your last open order finishes.</p>
         </section>
 
         <div className={styles.stack}>

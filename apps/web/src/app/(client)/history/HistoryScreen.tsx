@@ -38,17 +38,17 @@ function When({ iso }: { iso: string }) {
 /** What, if anything, is the client's to do on this trade — from its status, in the product's own terms. */
 function nextStep(r: HistoryRow): string {
   const sell = r.direction === 'SELL_USDT';
-  if (r.status === 'CANCELLED') return 'Nothing further moves on this trade. The reason is in your notifications.';
-  if (r.onHold && isOpenTrade(r.status)) return 'Nothing for now. The desk is checking something and moves the trade on when it is done.';
+  if (r.status === 'CANCELLED') return 'Closed. The reason is in your notifications.';
+  if (r.onHold && isOpenTrade(r.status)) return 'Paused while the desk checks. Nothing is lost.';
   switch (r.status) {
     case 'AWAITING_FIRST_LEG':
-      return sell ? `Send exactly ${usdt(r)} to this trade’s deposit address on TRC20 — the trade page shows it.` : `The trade page shows where and by when to pay ${inr(r)} — always from your own account.`;
+      return sell ? `Send ${usdt(r)} to the trade’s escrow address.` : `Pay ${inr(r)} from your own account.`;
     case 'FIRST_LEG_DETECTED':
-      return 'Nothing — your transfer is on-chain and becoming final.';
+      return 'On-chain, becoming final.';
     case 'COMPLETED':
       return r.receipt ? 'Settled in full. The receipt is ready.' : 'Settled in full. The receipt follows shortly.';
     default:
-      return sell ? 'Nothing — the desk is paying out your INR.' : 'Nothing — the desk is sending your USDT.';
+      return sell ? 'Your INR is on its way.' : 'Your USDT is on its way.';
   }
 }
 
@@ -213,43 +213,11 @@ export function HistoryScreen({ rows, open, counts, filter }: { rows: readonly H
                           <td colSpan={8}>
                             <div className={styles.detail}>
                               {steps ? <Stepper steps={steps} label="Trade progress" /> : null}
-                              <div className={styles.detailGrid}>
-                                <dl className={shell.facts}>
-                                  <div>
-                                    <dt>Type</dt>
-                                    <dd>{sell ? 'Sell USDT for INR' : 'Buy USDT with INR'}</dd>
-                                  </div>
-                                  <div>
-                                    <dt>Started</dt>
-                                    <dd>{formatIstDateTime(new Date(r.openedAt))}</dd>
-                                  </div>
-                                  {r.closedAt ? (
-                                    <div>
-                                      <dt>{r.status === 'CANCELLED' ? 'Cancelled' : 'Settled'}</dt>
-                                      <dd>{formatIstDateTime(new Date(r.closedAt))}</dd>
-                                    </div>
-                                  ) : null}
-                                </dl>
-                                <dl className={shell.facts}>
-                                  <div>
-                                    <dt>{sell ? 'You sell' : 'You pay'}</dt>
-                                    <dd className="ix-num">{sell ? usdt(r) : inr(r)}</dd>
-                                  </div>
-                                  <div>
-                                    <dt>You receive</dt>
-                                    <dd className="ix-num">{sell ? inr(r) : usdt(r)}</dd>
-                                  </div>
-                                  <div>
-                                    <dt>Rate</dt>
-                                    <dd className="ix-num">{formatRate(Rate.parse(r.clientRate, 'CLIENT'))} / USDT</dd>
-                                  </div>
-                                </dl>
-                                <div className={styles.next}>
-                                  <span className={shell.label}>What’s next</span>
-                                  <p>{nextStep(r)}</p>
-                                </div>
-                              </div>
                               <div className={styles.detailActions}>
+                                {/* The row already says the figures; opened, it says only what comes next. */}
+                                <p className={styles.nextLine}>
+                                  {r.closedAt ? `${r.status === 'CANCELLED' ? 'Cancelled' : 'Settled'} ${formatIstDateTime(new Date(r.closedAt))}` : nextStep(r)}
+                                </p>
                                 <Link className={shell.secondaryAction} href={r.peerDeal ? `/deals/${r.ref}` : `/trades/${r.ref}`}>
                                   Open the trade
                                   <ArrowIcon className={shell.actionIcon} />

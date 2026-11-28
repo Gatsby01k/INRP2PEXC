@@ -110,15 +110,11 @@ export function ExchangeScreen({
         {quote && live ? (
           <>
             <QuoteCard quote={quote} canAccept={canAccept} now={now} request={view.request} destinations={view.destinations} />
-            {/* What accepting starts, as the same picture the trade then carries to its receipt. */}
-            <section className={`${shell.card} ${stage.ahead}`} aria-labelledby="ahead-title">
-              <div className={shell.cardHead}>
-                <h2 id="ahead-title" className={`${shell.cardTitle} ${stage.aheadTitle}`}>
-                  <span className={shell.kbd}>01</span>
-                  Accept, and the trade opens at this rate
-                </h2>
-                <span className={shell.idx}>The same picture follows the deal to its receipt</span>
-              </div>
+            {/* What accepting starts, as the same picture the trade then carries to its receipt — a picture, not a list. */}
+            <section className={`${shell.card} ${stage.ahead}`} aria-label="After you accept">
+              <span className={shell.idx} aria-hidden="true">
+                After you accept
+              </span>
               <DealRail
                 viewer={quote.direction === 'SELL_USDT' ? 'seller' : 'buyer'}
                 step="AHEAD"
@@ -127,12 +123,6 @@ export function ExchangeScreen({
                 destination={quote.destination.replace(' Bank', '')}
                 label="After you accept: the USDT goes into INRP2P’s escrow, the rupees are paid bank to bank, and the escrow releases once they are confirmed."
               />
-              <ol className={stage.aheadSteps}>
-                <li>The rate and amounts are fixed from that moment.</li>
-                <li>The USDT goes into INRP2P’s escrow — to an address that belongs to this trade alone.</li>
-                <li>The rupees are paid bank to bank, with their reference.</li>
-                <li>Once they are confirmed the escrow releases, and a receipt is issued.</li>
-              </ol>
             </section>
             {recent.length > 0 ? <Activity recent={recent} /> : null}
           </>
@@ -160,7 +150,7 @@ export function ExchangeScreen({
                   </>
                 }
                 title="One firm price for the whole amount"
-                body="Ask for a price in either currency. It is held for a short time, and nothing is committed until you accept."
+                body="In USDT or in rupees. Held for you — nothing moves until you accept."
                 steps={HOW}
               />
             </div>

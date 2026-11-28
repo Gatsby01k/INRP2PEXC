@@ -93,7 +93,7 @@ export function PricingCard({ view, steps }: { view: ExchangeView; steps?: reado
           body={
             gathering
               ? `A larger amount takes a moment longer: your firm price appears right here by ${formatIstTime(new Date(request.gatheringUntil!))} — no need to reload.`
-              : 'Your firm quote appears right here the moment it is sent — no need to reload.'
+              : 'It appears here the moment it is sent.'
           }
           steps={steps}
         >

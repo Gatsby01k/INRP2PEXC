@@ -8,7 +8,7 @@ import { CopyButton, DepositAddress, SettlementProgress, TransactionHash } from 
 import { formatInr, formatIstDateTime, formatIstTime, formatRate, formatUsdtHeadline, maskUtr, shortenHash } from '@inrp2p/ui/format';
 import { StateMark, useAssistantState } from '../../_assistant/AssistantPanel.tsx';
 import { type Step, at, tradeAssistant } from '../../_assistant/model.ts';
-import { CheckIcon, ClockIcon, DownloadIcon, ExternalIcon, InfoIcon, PauseIcon, ReceiptIcon } from '../../_workspace/icons.tsx';
+import { CheckIcon, ClockIcon, DownloadIcon, ExternalIcon, PauseIcon, ReceiptIcon } from '../../_workspace/icons.tsx';
 import { SuccessMark } from '../../_workspace/SuccessMark.tsx';
 import { DealRail } from '../../_workspace/DealRail.tsx';
 import { Amount } from '../../../../components/Amount.tsx';
@@ -237,9 +237,9 @@ export function TradeScreen({ view, justOpened = false, initial }: { view: Porta
           <section className={styles.opened} role="status">
             <SuccessMark size={40} />
             <span className={styles.openedText}>
-              <strong>Quote accepted — {trade.ref} is open.</strong>
+              <strong>{trade.ref} is open</strong>
               <span>
-                {rate} per USDT is fixed for the whole {sell ? usdt : inr}. {sell ? 'Send your USDT below to get paid.' : 'Pay the INR to receive your USDT.'}
+                {rate}/USDT, fixed for the whole {sell ? usdt : inr}.
               </span>
             </span>
             <button type="button" className={styles.openedClose} onClick={() => setWelcome(false)} aria-label="Dismiss">
@@ -367,6 +367,7 @@ export function TradeScreen({ view, justOpened = false, initial }: { view: Porta
         {p2p ? <P2pDealChat view={view} /> : null}
 
         {/* The details are words on the paper, not another card: the page's cards are its work. */}
+        {(p2p && sell) && !view.incoming && !view.receipt && trade.status !== 'COMPLETED' ? null : (
         <section className={styles.paper} aria-labelledby="summary-title">
           <h2 id="summary-title" className={styles.paperTitle}>
             Details
@@ -378,10 +379,6 @@ export function TradeScreen({ view, justOpened = false, initial }: { view: Porta
                 <dd>{view.destination}</dd>
               </div>
             )}
-            <div>
-              <dt>Network</dt>
-              <dd>USDT on TRON (TRC20)</dd>
-            </div>
             {view.incoming ? (
               <div>
                 <dt>Your transfer</dt>
@@ -399,14 +396,10 @@ export function TradeScreen({ view, justOpened = false, initial }: { view: Porta
                 </dd>
               </div>
             ) : null}
-            <div>
-              <dt>Started</dt>
-              <dd>{at(trade.openedAt)}</dd>
-            </div>
-            {!view.receipt ? (
+            {!view.receipt && trade.status === 'COMPLETED' ? (
               <div>
                 <dt>Receipt</dt>
-                <dd className={styles.quietValue}>{trade.status === 'COMPLETED' ? 'Being issued' : 'When the trade settles'}</dd>
+                <dd className={styles.quietValue}>Being issued</dd>
               </div>
             ) : null}
           </dl>
@@ -424,11 +417,18 @@ export function TradeScreen({ view, justOpened = false, initial }: { view: Porta
             </div>
           ) : null}
         </section>
+        )}
 
-        <section className={styles.paper} aria-labelledby="activity-title">
-          <h2 id="activity-title" className={styles.paperTitle}>
-            Activity
-          </h2>
+        {/* What happened, and when: there when asked for, folded away while the deal is the page's work. */}
+        <details className={`${styles.paper} ${styles.fold}`}>
+          <summary className={styles.foldHead}>
+            <h2 id="activity-title" className={styles.paperTitle}>
+              Activity
+            </h2>
+            <span className={styles.foldMeta}>
+              {events.length} · {at(trade.openedAt)}
+            </span>
+          </summary>
           <ol className={styles.timeline}>
             {events.map((e, i) => (
               <li key={`${e.at}-${i}`} className={styles.event} data-tone={e.tone}>
@@ -451,14 +451,7 @@ export function TradeScreen({ view, justOpened = false, initial }: { view: Porta
               </li>
             ))}
           </ol>
-        </section>
-
-        <p className={styles.help}>
-          <InfoIcon className={styles.helpIcon} />
-          <span>
-            A question about this trade? Quote <strong className="ix-num">{trade.ref}</strong> when you contact the desk.
-          </span>
-        </p>
+        </details>
       </aside>
     </>
   );

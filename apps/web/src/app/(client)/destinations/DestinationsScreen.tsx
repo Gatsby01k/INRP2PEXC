@@ -72,14 +72,14 @@ export function DestinationsScreen({
       <main className={shell.main}>
         <Routes destinations={destinations} ready={ready} isAdmin={isAdmin} onAdd={add} />
 
-        <Group id="banks-title" title="Bank accounts" count={banks.length} note="INR from the USDT you sell is paid to these.">
+        <Group id="banks-title" title="Bank accounts" count={banks.length} note="INR from the USDT you sell is paid to these, by IMPS, NEFT or RTGS.">
           {banks.map((b) => (
             <BankCard key={b.id} bank={b} {...(isAdmin && b.status === 'ACTIVE' ? { onArchive: () => setArchiving({ kind: 'bank', id: b.id, name: `${b.bankName} •••• ${b.last4}` }) } : {})} />
           ))}
           {isAdmin ? (
             <AddTile
               title="Add bank account"
-              note={banks.length === 0 ? 'No bank account yet. Add one to sell USDT for INR.' : 'Paid by IMPS, NEFT or RTGS.'}
+              note={banks.length === 0 ? 'No bank account yet' : null}
               marks={banks.length === 0 ? <RailMarks rails={['IMPS', 'NEFT', 'RTGS']} /> : undefined}
               onClick={() => add('bank')}
             />
@@ -90,14 +90,14 @@ export function DestinationsScreen({
 
         <UpiIdsCard upiIds={destinations.upiIds} isAdmin={isAdmin} holderName={banks.find((b) => b.status === 'ACTIVE')?.holderName ?? clientName} clientName={clientName} />
 
-        <Group id="wallets-title" title="USDT wallets" count={wallets.length} note="TRC20 wallets the USDT you buy is delivered to.">
+        <Group id="wallets-title" title="USDT wallets" count={wallets.length} note="TRC20 wallets on TRON the USDT you buy is delivered to.">
           {wallets.map((w) => (
             <WalletCard key={w.id} wallet={w} {...(isAdmin && w.status === 'ACTIVE' ? { onArchive: () => setArchiving({ kind: 'wallet', id: w.id, name: w.label }) } : {})} />
           ))}
           {isAdmin ? (
             <AddTile
               title="Add wallet"
-              note={wallets.length === 0 ? 'No wallet yet. Add one to buy USDT.' : 'A TRC20 address on TRON.'}
+              note={wallets.length === 0 ? 'No wallet yet' : null}
               marks={wallets.length === 0 ? <UsdtOnTron size={36} /> : undefined}
               onClick={() => add('wallet')}
             />
@@ -156,8 +156,8 @@ export function DestinationsScreen({
                 {protection.canConfirm
                   ? `Every change on this page is confirmed with a code from ${confirmWords(protection)}.`
                   : isAdmin
-                    ? 'Connect Telegram or an authenticator app to add or archive accounts. It takes a minute.'
-                    : 'A second way to confirm protects the changes you can make.'}
+                    ? 'Telegram or an authenticator app. A minute.'
+                    : 'It protects the changes you can make.'}
               </p>
             </div>
           </div>
@@ -169,15 +169,15 @@ export function DestinationsScreen({
           <ul className={styles.trustList} aria-label="How your accounts are protected">
             <li>
               <CheckIcon />
-              <span>Money from your trades goes only to the accounts and wallets listed here.</span>
+              <span>Pays only to what is listed here</span>
             </li>
             <li>
               <CheckIcon />
-              <span>Account numbers are encrypted when saved; only the last four digits are ever shown.</span>
+              <span>Encrypted · only the last four shown</span>
             </li>
             <li>
               <CheckIcon />
-              <span>Every addition or archive is confirmed by an administrator a second time — never with only what they signed in with — and every administrator is told.</span>
+              <span>Every change confirmed twice, every admin told</span>
             </li>
           </ul>
         </section>
@@ -194,7 +194,7 @@ export function DestinationsScreen({
                 </span>
                 <span className="ix-visually-hidden">UPI</span>
               </dt>
-              <dd>In seconds, up to ₹100,000 a payment.</dd>
+              <dd>Seconds · up to ₹100,000</dd>
             </div>
             <div>
               <dt>
@@ -203,7 +203,7 @@ export function DestinationsScreen({
                 </span>
                 <span className="ix-visually-hidden">IMPS</span>
               </dt>
-              <dd>Instant, any hour, to your bank account.</dd>
+              <dd>Instant · any hour</dd>
             </div>
             <div>
               <dt>
@@ -211,7 +211,7 @@ export function DestinationsScreen({
                   <span className={styles.wayWord}>NEFT</span>
                 </span>
               </dt>
-              <dd>A bank transfer, usually within the hour.</dd>
+              <dd>Usually within the hour</dd>
             </div>
             <div>
               <dt>
@@ -219,7 +219,7 @@ export function DestinationsScreen({
                   <span className={styles.wayWord}>RTGS</span>
                 </span>
               </dt>
-              <dd>For large amounts, from ₹200,000.</dd>
+              <dd>From ₹200,000</dd>
             </div>
             <div>
               <dt>
@@ -228,7 +228,7 @@ export function DestinationsScreen({
                   <span className={styles.wayWord}>TRC20</span>
                 </span>
               </dt>
-              <dd>USDT on TRON, to your own wallet.</dd>
+              <dd>To your own wallet</dd>
             </div>
           </dl>
         </section>
