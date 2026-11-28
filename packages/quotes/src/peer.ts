@@ -199,13 +199,14 @@ async function sameOwner(ex: Executor, a: string, b: string): Promise<boolean> {
 }
 
 /** What a meeting is priced on now: the policy, the market, and the network's allowance (GasFree), or why nothing. */
-interface BookContext {
+export interface BookContext {
   readonly policy: PeerPolicy;
   readonly market: MarketReferences;
   readonly allowanceMinor: bigint;
 }
 
-async function bookContext(ex: Executor): Promise<BookContext | null> {
+/** ADR 0034: read by the robot too — the book it points clients at is the book they will meet in. */
+export async function bookContext(ex: Executor): Promise<BookContext | null> {
   const policy = await currentPeerPolicy(ex);
   if (!policy.enabled) return null;
   try {

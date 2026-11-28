@@ -35,6 +35,7 @@ Status: Phase 2 (no new external dependencies; six new workspace packages: adapt
 | @eslint/js | 10.0.1 | lint |
 | @types/node | 24.13.5 | all |
 | @types/pg | 8.23.1 | db |
+| @anthropic-ai/sdk | 1.14.0 | packages/adapters: the robot's optional model answers (ADR 0034 §2.8); no install scripts; off without `ANTHROPIC_API_KEY` |
 
 ### Added in Phase 1.5 (packages/ui)
 

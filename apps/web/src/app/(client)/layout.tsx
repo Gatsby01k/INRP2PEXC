@@ -10,6 +10,7 @@ import { Ticker } from './_workspace/Ticker.tsx';
 import { CommandMenu, type CommandEntry } from './_workspace/CommandMenu.tsx';
 import { FieldLight } from './_workspace/FieldLight.tsx';
 import { LiveDeal } from './_workspace/LiveDeal.tsx';
+import { RobotPresence } from './_robot/RobotPresence.tsx';
 import { MailIcon } from './_workspace/icons.tsx';
 import { NotificationsLink } from './_workspace/NotificationsLink.tsx';
 import { PAGE_HEAD_ID } from './_workspace/PageHead.tsx';
@@ -99,6 +100,7 @@ export default async function ClientLayout({ children }: { children: ReactNode }
     ...entries.filter((e) => !e.phone).map((e) => ({ href: e.href, label: e.label, group: 'Go to' })),
     ...(ownDesk ? DESK_SECTIONS.map((e) => ({ href: e.href, label: e.label, group: 'Your desk', hint: ownDesk.displayName })) : []),
     ...(member ? [{ href: '/notifications', label: 'Notifications', group: 'Account', ...(unread > 0 ? { hint: `${unread} unread` } : {}) }] : []),
+    { href: '/robot', label: 'The robot — ask a question', group: 'Account' },
     // ADR 0026: everyone who can sign in has Account & security — how they sign in and confirm is theirs, client or not.
     { href: '/account', label: 'Account & security', group: 'Account' },
     ...(member && desks ? [{ href: '/account/team', label: 'Team', group: 'Account' }] : []),
@@ -142,6 +144,8 @@ export default async function ClientLayout({ children }: { children: ReactNode }
           <ClientNav entries={entries} />
           <div className={styles.headerActions}>
             {member ? <LiveDeal /> : null}
+            {/* ADR 0034: the robot — what matters now, what it is doing for you, a question to ask it. */}
+            <RobotPresence />
             {member ? <Ticker /> : null}
             <CommandMenu entries={commands} />
             {member ? (

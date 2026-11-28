@@ -128,6 +128,14 @@ describe('proxy gating', () => {
     expect(gateFor('OPERATOR', '/api/telegram/webhook')).toBe('OPERATOR_SESSION');
   });
 
+  it('serves the robot email’s stop link without a session on the client host only (ADR 0034), and the robot’s page with one', () => {
+    expect(gateFor('CLIENT', '/robot-quiet/0190a2b3-0000-7000-8000-000000000000.abcdefghijklmnopqrstuvwxyz012345')).toBe('PUBLIC');
+    expect(gateFor('CLIENT', '/robot-quiet/')).toBe('CLIENT_SESSION');
+    expect(gateFor('CLIENT', '/robot')).toBe('CLIENT_SESSION');
+    expect(gateFor('PUBLIC', '/robot-quiet/x.y')).toBe('CLIENT_SESSION');
+    expect(gateFor('OPERATOR', '/robot-quiet/x.y')).toBe('OPERATOR_SESSION');
+  });
+
   it('keeps every site page’s name out of the desks’ reach', () => {
     for (const path of SITE_PATHS.filter((p) => p !== '/')) expect(isReservedHandle(path.slice(1)), path).toBe(true);
   });

@@ -1254,7 +1254,10 @@ export type NotificationKind =
   | 'PEER_MATCH_ENDED'
   | 'PEER_NEARBY'
   | 'WAITING_RESUMED'
-  | 'PEER_DEAL_STARTED';
+  | 'PEER_DEAL_STARTED'
+  // Migration 0057 (ADR 0034): a note from the robot; the desk's answer to a question the robot passed on.
+  | 'ROBOT_NOTE'
+  | 'ROBOT_REPLY';
 
 export interface ClientNotificationTable {
   id: Generated<string>;
@@ -2212,6 +2215,95 @@ export interface PushDeliveryTable {
   sent_at: Date | null;
 }
 
+// ---- Migration 0057 (ADR 0034): the robot runs the front line ----
+
+export type RobotOutreach = 'OFF' | 'DRY_RUN' | 'ON';
+export type RobotAnswers = 'RULES' | 'AI';
+/** A person's consent to the robot's messages outside the app. */
+export type RobotConsent = 'ALL' | 'SERVICE' | 'NONE';
+export type RobotChannel = 'TELEGRAM' | 'PUSH' | 'EMAIL';
+
+/** What the robot may do on its own; append-only, the latest row in force. */
+export interface RobotPolicyTable {
+  id: Generated<string>;
+  outreach: RobotOutreach;
+  answers: RobotAnswers;
+  quiet_from: number;
+  quiet_to: number;
+  ai_daily_limit: number;
+  playbooks_off: Generated<string[]>;
+  reason: string | null;
+  set_by: string;
+  set_at: Generated<Date>;
+}
+
+/** One person's consent and what they snoozed or saw. */
+export interface RobotPreferenceTable {
+  user_id: string;
+  outreach: Generated<RobotConsent>;
+  snoozed: Generated<Json>;
+  seen_key: string | null;
+  seen_at: Date | null;
+  set_via: 'APP' | 'TELEGRAM' | 'EMAIL' | null;
+  updated_at: Generated<Date>;
+}
+
+/** A message the robot decided to send (or would have, in a dry run), and what came of it. */
+export interface RobotTouchTable {
+  id: Generated<string>;
+  user_id: string;
+  client_id: string | null;
+  playbook: string;
+  subject: string;
+  attempt: number;
+  mode: 'LIVE' | 'DRY_RUN';
+  channel: RobotChannel | null;
+  title: string;
+  body: string;
+  href: string | null;
+  quiet_token_hash: string | null;
+  delivery: Generated<'NONE' | 'PENDING' | 'SENT' | 'FAILED'>;
+  delivery_attempts: Generated<number>;
+  delivery_ref: string | null;
+  delivery_error: string | null;
+  created_at: Generated<Date>;
+  delivered_at: Date | null;
+  acted_at: Date | null;
+}
+
+/** A question the robot passed to a person at INRP2P. */
+export interface RobotCaseTable {
+  id: Generated<string>;
+  ref: Generated<string>;
+  user_id: string | null;
+  client_id: string | null;
+  channel: 'APP' | 'TELEGRAM';
+  telegram_chat_id: bigint | null;
+  question: string;
+  context: Generated<Json>;
+  status: Generated<'OPEN' | 'ANSWERED' | 'CLOSED'>;
+  answer: string | null;
+  answered_by: string | null;
+  answered_at: Date | null;
+  closed_at: Date | null;
+  reply_sent_at: Date | null;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+}
+
+/** One question and the robot's answer (kept 90 days). */
+export interface RobotExchangeTable {
+  id: Generated<string>;
+  user_id: string | null;
+  channel: 'APP' | 'TELEGRAM';
+  intent: string;
+  source: 'RULE' | 'AI' | 'CASE';
+  question: string;
+  answer: string;
+  case_id: string | null;
+  created_at: Generated<Date>;
+}
+
 export interface Database {
   currency: CurrencyTable;
   custody_hd_account: CustodyHdAccountTable;
@@ -2328,5 +2420,10 @@ export interface Database {
   peer_match: PeerMatchTable;
   peer_strike: PeerStrikeTable;
   push_subscription: PushSubscriptionTable;
+  robot_policy: RobotPolicyTable;
+  robot_preference: RobotPreferenceTable;
+  robot_touch: RobotTouchTable;
+  robot_case: RobotCaseTable;
+  robot_exchange: RobotExchangeTable;
   push_delivery: PushDeliveryTable;
 }

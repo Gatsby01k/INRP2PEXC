@@ -32,6 +32,8 @@ export function telegramDeliveryId(dedupeKey: string, linkId: string): string {
 export interface TelegramAlert {
   /** The client whose people are told: the trader's client. */
   readonly clientId: string;
+  /** Narrowed to one person of the client (ADR 0034: the robot writes to the person it is about). */
+  readonly userId?: string | null;
   /** What the alert is about, once: a redelivered event or a second sweep finds the same key. */
   readonly dedupeKey: string;
   readonly body: string;
@@ -49,6 +51,7 @@ export async function queueTelegram(db: Db, alert: TelegramAlert): Promise<strin
     .where('l.status', '=', 'ACTIVE')
     .where('cu.status', '=', 'ACTIVE')
     .where('u.status', '=', 'ACTIVE')
+    .$if(Boolean(alert.userId), (q) => q.where('cu.user_id', '=', alert.userId!))
     .execute();
   if (links.length === 0) return [];
   const rows = links.map((l) => ({ id: telegramDeliveryId(alert.dedupeKey, l.id), telegram_link_id: l.id, dedupe_key: alert.dedupeKey, body: alert.body.slice(0, 1000), button_url: alert.buttonUrl }));

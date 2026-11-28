@@ -117,6 +117,13 @@ export const APPLE_ICON_PATH = '/apple-icon.png';
  * with or without a session, so it is answered without one — on the client host only; it carries no business fact.
  */
 export const SERVICE_WORKER_PATH = '/sw.js';
+
+/**
+ * ADR 0034: the link at the foot of the robot's email, on the client host. Whoever holds it may stop the robot's messages
+ * to the one person it was sent to — and nothing else — so it is served without a session, and asks before it acts.
+ */
+export const ROBOT_QUIET_PREFIX = '/robot-quiet/';
+export const isRobotQuietPath = (path: string): boolean => path.startsWith(ROBOT_QUIET_PREFIX) && path.length > ROBOT_QUIET_PREFIX.length;
 export const LEGACY_APPLE_ICON_PATHS: ReadonlySet<string> = new Set(['/apple-touch-icon.png', '/apple-touch-icon-precomposed.png']);
 
 /** A desk's deal link (ADR 0020 §2.9): like the quote link, opening it authorizes nothing. */
@@ -197,7 +204,7 @@ export function gateFor(surface: Surface, pathname: string): Gate {
   }
   if (surface === 'CLIENT') {
     if (path === '/api/auth' || path.startsWith('/api/auth/')) return 'AUTH_ENDPOINT';
-    if (path === SERVICE_WORKER_PATH) return 'PUBLIC';
+    if (path === SERVICE_WORKER_PATH || isRobotQuietPath(path)) return 'PUBLIC';
     // Same reasoning as the desk: without an unauthenticated sign-in page nobody can ever get a session. "Become a
     // trader" is the other way in: the same email code, for someone who has no workspace yet (docs/TRADERS.md §3).
     if (path === '/sign-in' || path === TRADER_ENTRY_PATH) return 'CLIENT_SIGN_IN';

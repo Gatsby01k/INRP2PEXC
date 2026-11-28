@@ -38,6 +38,7 @@
     "@inrp2p/outbox": "workspace:*",
     "@inrp2p/pricing": "workspace:*",
     "@inrp2p/quotes": "workspace:*",
+    "@inrp2p/robot": "workspace:*",
     "@inrp2p/routes": "workspace:*",
     "@inrp2p/scanner": "workspace:*",
     "@inrp2p/settlement": "workspace:*",

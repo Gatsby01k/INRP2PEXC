@@ -42,6 +42,10 @@ const BOUNDARIES = {
   portal: ['kernel', 'db', 'quotes', 'trades', 'settlement', 'notifications', 'clients', 'identity', 'adapters', 'commands', 'routes', 'pricing', 'treasury', 'ledger', 'audit', 'outbox'],
   // Phase 7 client notifications: turns events the domain emitted into the client's inbox; no domain knowledge.
   notifications: ['kernel', 'db', 'outbox', 'adapters'],
+  // ADR 0034: the robot at the front line — it reads people's journeys and the book, speaks through the notification
+  // channels and records what it said. It never touches custody, a payment, a settlement or a dispute: settlement, onchain,
+  // treasury, trades, ledger and traders' commands are out of its reach by construction.
+  robot: ['kernel', 'db', 'audit', 'commands', 'outbox', 'identity', 'adapters', 'notifications', 'pricing', 'quotes', 'trader-core'],
   // Phase 8 reporting (ARCHITECTURE §3 `reporting/`): receipts, exports and the one CSV writer they share. A
   // receipt reads rows once and then only ever reads its own snapshot. `ui` is here for display formatting only
   // (D-11) — a printed figure must be grouped the way every other surface groups it, and one formatter is how
@@ -91,7 +95,7 @@ export default tseslint.config(
     },
   })),
   {
-    files: ['packages/kernel/src/**/*.ts', 'packages/ledger/src/**/*.ts', 'packages/commands/src/**/*.ts', 'packages/ui/src/format/money.ts', 'packages/ui/src/format/number.ts', 'packages/inr-accounts/src/**/*.ts', 'packages/pricing/src/**/*.ts', 'packages/routes/src/**/*.ts', 'packages/treasury/src/**/*.ts', 'packages/clients/src/**/*.ts', 'packages/trades/src/**/*.ts', 'packages/quotes/src/**/*.ts', 'packages/settlement/src/**/*.ts', 'packages/scanner/src/**/*.ts', 'packages/desk/src/**/*.ts', 'packages/portal/src/**/*.ts', 'packages/notifications/src/**/*.ts', 'packages/reporting/src/**/*.ts', 'packages/traders/src/**/*.ts', 'packages/trader-core/src/**/*.ts', 'packages/network/src/**/*.ts', 'packages/onchain/src/**/*.ts'],
+    files: ['packages/kernel/src/**/*.ts', 'packages/ledger/src/**/*.ts', 'packages/commands/src/**/*.ts', 'packages/ui/src/format/money.ts', 'packages/ui/src/format/number.ts', 'packages/inr-accounts/src/**/*.ts', 'packages/pricing/src/**/*.ts', 'packages/routes/src/**/*.ts', 'packages/treasury/src/**/*.ts', 'packages/clients/src/**/*.ts', 'packages/trades/src/**/*.ts', 'packages/quotes/src/**/*.ts', 'packages/settlement/src/**/*.ts', 'packages/scanner/src/**/*.ts', 'packages/desk/src/**/*.ts', 'packages/portal/src/**/*.ts', 'packages/notifications/src/**/*.ts', 'packages/reporting/src/**/*.ts', 'packages/traders/src/**/*.ts', 'packages/trader-core/src/**/*.ts', 'packages/network/src/**/*.ts', 'packages/onchain/src/**/*.ts', 'packages/robot/src/**/*.ts'],
     rules: { 'no-restricted-syntax': ['error', ...NO_FLOAT_MONEY] },
   },
   {

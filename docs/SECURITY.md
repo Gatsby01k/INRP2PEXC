@@ -63,6 +63,19 @@ Status: Phase 0, revision 3 (`DECISIONS.md` Revision 3).
 - The webhook is served on the public host only and refuses any request without `X-Telegram-Bot-Api-Secret-Token` equal to `TELEGRAM_WEBHOOK_SECRET` (constant-time compare, ≥ 24 characters); it acts on private chats only, at most 20 updates a minute per chat, and always acknowledges so Telegram does not retry.
 - Messages are plain text (no markup parsed), name a desk's own client only to that desk's people, and carry no account numbers or addresses. The only codes the bot sends are a person's own confirmation codes (ADR 0026), to the private chat of the Telegram that person linked through Log In with Telegram — never to an alerts chat linked by a `/start` code, and never as a button to press: a code is typed into the workspace that asked for it. An alerts chat itself never signs anyone in. Linking Telegram to sign in turns the person's alerts on in that chat; disconnecting it stops them.
 
+### 2.3b2 The robot (ADR 0034)
+- `@inrp2p/robot` cannot import settlement, onchain, treasury, trades, ledger or the traders' commands (lint boundary): it
+  reads rows and writes only its own tables, the inbox and its own audit events. It never decides a dispute, a payment, a
+  review or a refund, and refuses a secret offered in chat ("never share a code, a password, a key").
+- Outside the app it writes only with the person's consent (`robot_preference`; service by default, opportunities only
+  when asked for, nothing at all on request), at most once a day, never at night, and never while they are in the app.
+  Every email carries a stop link: a 192-bit token per email, only its SHA-256 stored, good for that one person's robot
+  messages and nothing else; the page asks before it acts and is rate-limited per caller.
+- A model sees only a handbook of the product and the asking person's facts in words — never an account number, an
+  address, a key, another client or a trader. Its answer is discarded if it carries any figure it was not given, and it
+  is capped per day; questions and answers are deleted after 90 days.
+- A Telegram chat nobody linked gets the product's rules only: nothing about any account, and no case is opened for it.
+
 ### 2.3c P2P disputes (ADR 0020 §2.15)
 - Only the payee of a P2P payment opens its dispute, only the payer answers it, each as a member of its own client (a
   trader's with the right to commit). One dispute per payment, enforced by the database (IX128); a decided one never changes.
@@ -160,6 +173,9 @@ Legend: ✔ allowed · ⧗ allowed with step-up MFA · ✱ requires second appro
 | `settings:new_business` (pause or resume new requests, quotes, acceptances and trader offers; started trades continue) | ⧗ | — | — | ⧗ | — | — |
 | `operations:restore_fence` (hold outgoing payments by hand after records were lost, or record the reconciliation that asks to release them) | ⧗ | — | — | ⧗ | — | — |
 | `operations:approve_restore_fence_lift` (approve or decline releasing outgoing payments after a restore — never the person who reconciled) | ⧗✱ | — | — | ⧗✱ | — | — |
+| `robot:view` (the robot's view of the exchange: who is stuck where, demand nobody served, what it sent and what came of it, ADR 0034) | ✔ | ✔ | ✔ | ✔ | ✔ | ✔ |
+| `robot:answer` (answer or close a question the robot passed to a person; the answer reaches its asker) | ✔ | ✔ | — | — | ✔ | — |
+| `robot:configure` (whether the robot reaches people outside the app, answers with a model, its quiet hours and playbooks; with a reason) | ⧗ | — | — | — | — | — |
 
 Rules:
 - Authorization is checked inside the command (server), never inferred from the UI.

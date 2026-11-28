@@ -103,6 +103,7 @@ never activates a development default, a sink or a fake. Secrets come from the s
 | `AWS_ROLE_ARN`, `AWS_REGION` | ✔ (Vercel) | | | the role assumed through Vercel's OIDC federation (§10); a worker on ECS uses its task role and sets neither. A long-term `AWS_ACCESS_KEY_ID` (`AKIA…`) is refused |
 | `RESEND_API_KEY`, `RESEND_FROM` | ✔ | ✔ | key ✔ | TD-04 |
 | `TELEGRAM_LOGIN_CLIENT_ID`, `TELEGRAM_LOGIN_CLIENT_SECRET` | ✔ | | secret ✔ | optional (ADR 0026): Log In with Telegram, from @BotFather → the alerts bot → Login Widget; needs `TELEGRAM_BOT_TOKEN`/`_USERNAME` too |
+| `ANTHROPIC_API_KEY`, `ROBOT_AI_MODEL` | ✔ | | key ✔ | optional (ADR 0034): the robot's model answers, used only after the owner switches answers to *rules, then a model*; model defaults to `claude-opus-5-5` (`claude-haiku-5-5` costs far less) |
 | `INRP2P_TRON_PRIMARY_URL`/`_GROUP`/`_NAME`/`_KEY`, `INRP2P_TRON_SECONDARY_*`, `INRP2P_USDT_CONTRACT` | ✔ | ✔ | keys ✔ | two groups for large amounts (D-05) |
 | `INRP2P_TRON_MONITORING` | | ✔ | | never `disabled` in production |
 | `INRP2P_CUSTODY_PROVIDER`, `INRP2P_CUSTODY_CAPABILITY` | ✔ | | | `POOL` (D-02, the default) or `DERIVED` (ADR 0017: the exchange's own HD wallet; provider `hd-wallet`) |
@@ -836,3 +837,25 @@ side changes or the market is read) and Web Push.
 4. **Switch on (owner):** Rates → *Clients meet clients* → *Let clients meet clients* (reason + authenticator code). Fee
    and smallest meeting are on the same card. From then on two waiting clients see each other's price, meet in one tap, and
    the one asked starts the deal from its Exchange (`/deals/<ref>` follows it to the end).
+
+## 30. The robot at the front line (ADR 0034)
+
+Migration `0057` (schema 57): `robot_policy` (append-only; starts in a **dry run**, rules-only answers, quiet 22:00–09:00 IST,
+300 model answers a day), `robot_preference` (each person's consent, snoozes, what they saw), `robot_touch` (every message it
+decided, sent or rehearsed, and whether the person then acted), `robot_case` (a question passed to a person), `robot_exchange`
+(questions and answers, deleted after 90 days); inbox kinds `ROBOT_NOTE`, `ROBOT_REPLY`; a note's link may carry a short
+query (`/exchange?again=RQ-…`). A new worker job, `robot_sweep` (every ten minutes), and its delivery handler. The web app
+serves `/robot`, `/api/client/robot`, the stop link `/robot-quiet/{touch}.{token}` (no session) and the desk's `/robot-desk`;
+the bot now answers every message.
+
+1. **Release order** (from production at 56): CI green, `gh pr view` to see the PR is **not merged yet**, a restore point,
+   `scripts/migrate.ts` with the production env, then merge — the app at 57 refuses a database at 56 — then the worker image
+   of the same commit, the same hour (until it runs, nothing is rehearsed and no answered question reaches its asker
+   outside the inbox).
+2. **What changes at once:** the robot appears in every workspace page's masthead and answers questions in the app and in
+   the bot (rules first; anything else goes to a person on the desk's Robot page). Outside the app it **sends nothing**: it
+   rehearses (dry run) and the desk reads every message it would have sent under Robot → Activity.
+3. **Switch on (owner):** Robot → *Switch outreach on* (reason + authenticator code). Optional: set `ANTHROPIC_API_KEY` (and
+   `ROBOT_AI_MODEL`) on Vercel, redeploy, then *Let a model answer too*. Each playbook can be switched off on the same card.
+4. **Cost:** one indexed statement every ten minutes plus a few people's reads; at night or switched off, none. A model call
+   only for a question no rule knows, capped per day.
