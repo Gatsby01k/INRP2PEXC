@@ -16,6 +16,8 @@ export const MATRIX: Record<string, string> = {
   '@better-auth/utils': '0.4.2',
   // ADR 0026: verifies Telegram's sign-in ID tokens. The same copy Better Auth itself depends on.
   jose: '6.2.12',
+  // ADR 0034: the robot's optional model answers (packages/adapters), off without ANTHROPIC_API_KEY.
+  '@anthropic-ai/sdk': '1.14.0',
   kysely: '0.29.6',
   pg: '8.23.0',
   'graphile-worker': '0.18.0',
